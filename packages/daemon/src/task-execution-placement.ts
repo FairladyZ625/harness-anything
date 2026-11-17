@@ -1,4 +1,4 @@
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 
 export type TaskExecutionPlacement =
   | { readonly kind: "node"; readonly nodeId: string }

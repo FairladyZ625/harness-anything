@@ -6,7 +6,7 @@ import {
   type WriteReceiptDraft,
   type AuthorizationDecision,
 } from "@harness-anything/kernel";
-import type { RepoCellApiContext } from "./repo-cell-api.ts";
+import type { RepoCellApiContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { readSubmissionAdmission, submissionSnapshotIssues, startTaskSettlement } from "./submission-admission.ts";
 import { prepareSubmissionDelivery, type PreparedSubmissionDelivery } from "./submission-delivery.ts";

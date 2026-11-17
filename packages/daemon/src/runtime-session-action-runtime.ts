@@ -9,7 +9,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { deriveActionResult, type EntityActionCatalogPreparer } from "./entity-action-catalog-executor.ts";
-import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
+import type { RepoCellActionContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoTaskAction, RuntimeIngressAction } from "./repo-cell-types.ts";
 
 export function runtimeSessionActionPreparer(projection: () => TaskProjection): EntityActionCatalogPreparer {

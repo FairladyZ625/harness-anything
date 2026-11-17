@@ -12,7 +12,7 @@ import {
   type FrozenGateRequirement,
 } from "@harness-anything/kernel";
 import type { PresetProcessService, PresetSnapshotV1 } from "@harness-anything/preset";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import type { Snapshot } from "./repo-cell-types.ts";
 import { createSubmissionArtifactReader, submissionArtifactPath } from "./submission-artifacts.ts";
 import { runProcessTextAsync } from "./process-port.ts";

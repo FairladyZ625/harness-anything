@@ -1,22 +1,37 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import ts from "typescript";
+import { buildFlowGraph } from "../authorization-flow-graph.mjs";
+import { sourceFileOf, guiCallbackCallerFiles } from "../authorization-source-proof.mjs";
 import { testOrdinalInPartition } from "../../node-test-runner-lib.mjs";
+import { replaceSourceOnce, runGit } from "./helpers.mjs";
 import {
   auditDurableActionAuthorization,
   changedAuthorizationScope,
   loadAuthorizationInputs,
+  shardedAudit,
 } from "../ontology-durable-action-authorization.mjs";
+import { exitCodeFor } from "../ontology-gate-lib.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 let ordinal = 0;
 function partitionedTest(name, run) {
-  if (testOrdinalInPartition(ordinal++, process.env.HARNESS_TEST_PARTITION, [1, 1, 2, 3, 4])) test(name, run);
+  if (testOrdinalInPartition(ordinal++, process.env.HARNESS_TEST_PARTITION, [1, 1, 2, 3, 4, 1, 2, 4])) test(name, run);
 }
 
 function fixtureGraph(modules) {
@@ -128,32 +143,39 @@ partitionedTest(
 
 // The entire public source tree is a fresh copy for the changed host module; workspace links
 // remain read-only, as in the existing mutation suite. No shared dependency entry is rewritten.
-function sourceCopy(t) {
+function sourceCopy(t, { copyPackages = ["daemon"] } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), "incremental-authorization-"));
   const linkType = process.platform === "win32" ? "junction" : "dir";
   t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(
+    path.join(dir, "package.json"),
+    `${JSON.stringify({ name: "incremental-authorization-worktree", private: true, workspaces: ["packages/*"] }, null, 2)}\n`,
+  );
   mkdirSync(path.join(dir, "packages"));
   for (const entry of readdirSync(path.join(repoRoot, "packages"))) {
     const target = path.join(dir, "packages", entry);
-    if (entry === "daemon") {
-      cpSync(path.join(repoRoot, "packages/daemon/src"), path.join(target, "src"), { recursive: true });
-      cpSync(path.join(repoRoot, "packages/daemon/package.json"), path.join(target, "package.json"));
-      cpSync(path.join(repoRoot, "packages/daemon/scripts"), path.join(target, "scripts"), { recursive: true });
+    if (copyPackages.includes(entry)) {
+      mkdirSync(target, { recursive: true });
+      for (const item of readdirSync(path.join(repoRoot, "packages", entry))) {
+        const srcItem = path.join(repoRoot, "packages", entry, item);
+        const destItem = path.join(target, item);
+        if (item === "src" || item === "scripts") cpSync(srcItem, destItem, { recursive: true });
+        else if (statSync(srcItem).isDirectory()) symlinkSync(srcItem, destItem, linkType);
+        else cpSync(srcItem, destItem);
+      }
     } else symlinkSync(path.join(repoRoot, "packages", entry), target, linkType);
   }
   symlinkSync(path.join(repoRoot, "node_modules"), path.join(dir, "node_modules"), linkType);
   symlinkSync(path.join(repoRoot, "tools"), path.join(dir, "tools"), linkType);
+  runGit(dir, ["init", "--quiet"]);
+  runGit(dir, ["config", "core.excludesFile", "/dev/null"]);
   return dir;
 }
 
 // Reuse the existing real AuthorizationPort negative control, now on both selection paths.
 partitionedTest("incremental permission route keeps the full proof's positive and negative verdicts", async (t) => {
-  const { readFileSync, writeFileSync } = await import("node:fs");
-  const { runGit, replaceSourceOnce } = await import("./helpers.mjs");
   const inputs = await loadAuthorizationInputs(repoRoot);
   const dir = sourceCopy(t);
-  runGit(dir, ["init", "--quiet"]);
-  runGit(dir, ["config", "core.excludesFile", "/dev/null"]);
   const file = "packages/daemon/src/access-admin-service.ts";
   const only = ["permission-request-decide"];
   const audit = (changedFiles) =>
@@ -172,7 +194,6 @@ partitionedTest("incremental permission route keeps the full proof's positive an
   assert.equal(red.rows[0].ok, false);
   assert.ok(red.findings.length > 0);
   assert.deepEqual(red, audit());
-  const { exitCodeFor } = await import("../ontology-gate-lib.mjs");
   assert.equal(exitCodeFor("ratchet", red.findings.length), 1);
   writeFileSync(target, original);
   assert.ok(audit([file]).rows[0].ok);
@@ -202,4 +223,131 @@ partitionedTest("narrow test helper cut measures the CLI path without tracing un
   console.log(`INCREMENTAL_AUTHORIZATION_BENCHMARK ${JSON.stringify(measurement)}`);
   assert.equal(measurement.descriptors, 0);
   assert.match(stdout, /source authority: 0\/0/u);
+});
+
+partitionedTest(
+  "sharded incremental cut for daemon/client.ts avoids false positive on unmodified multiplexed GUI routes",
+  async () => {
+    const only = [
+      "task.start",
+      "task.complete",
+      "task.consent",
+      "task.pin",
+      "task.progress.append",
+      "task.submit",
+      "task.unpin",
+    ];
+    const result = await shardedAudit(repoRoot, ["packages/cli/src/daemon/client.ts"], { only });
+    assert.deepEqual(result.findings, []);
+    assert.equal(result.rows.find((row) => row.id === "task.start")?.ok, true);
+    assert.equal(
+      result.rows.find((row) => row.id === "task.attest"),
+      undefined,
+    );
+    const clientSource = result.sourceRows.find((row) =>
+      row.id.includes("task-actions.ts#useTaskActions.once.promise:973c6c96"),
+    );
+    assert.equal(clientSource?.ok, true);
+    assert.match(clientSource?.evidence?.[0] ?? "", /typed GUI callback client port/u);
+  },
+);
+
+partitionedTest(
+  "modified multiplexed GUI client traces all forwarded routes and fails closed when mutated to call an unauthorized route",
+  async (t) => {
+    const dir = sourceCopy(t, {
+      copyPackages: ["gui", "daemon", "authorization-keycloak", "application", "kernel"],
+    });
+    const file = "packages/gui/src/renderer/task-actions.ts";
+    const only = [
+      "task.start",
+      "task.attest",
+      "task.complete",
+      "task.consent",
+      "task.pin",
+      "task.progress.append",
+      "task.rework",
+      "task.submit",
+      "task.unpin",
+    ];
+    const green = await shardedAudit(repoRoot, [file], { sourceRoot: dir, only });
+    assert.deepEqual(green.findings, []);
+    assert.equal(green.rows.find((row) => row.id === "task.start")?.ok, true);
+    assert.equal(green.rows.find((row) => row.id === "task.attest")?.ok, true);
+    const target = path.join(dir, file),
+      original = readFileSync(target, "utf8");
+    const mutated = replaceSourceOnce(
+      replaceSourceOnce(
+        original,
+        'import { harnessClient } from "./api-client.ts";',
+        'import { harnessClient } from "./api-client.ts";\nimport { invoke } from "./api-client-invoke.ts";',
+        file,
+      ),
+      "await harnessClient.taskAttest({",
+      'await invoke("unauthorized.route" as never, {',
+      file,
+    );
+    writeFileSync(target, mutated);
+    const red = await shardedAudit(repoRoot, [file], { sourceRoot: dir, only });
+    assert.ok(red.findings.length > 0);
+    assert.equal(exitCodeFor("ratchet", red.findings.length), 1);
+    const clientSource = red.sourceRows.find((row) =>
+      row.id.includes("task-actions.ts#useTaskActions.once.promise:973c6c96"),
+    );
+    assert.equal(clientSource?.ok, false);
+  },
+);
+
+// dec_B9B5BF3C86195DF4186D01668D/CH3: fix the source cycle, preserving every type edge.
+partitionedTest("daemon leaf action changes stay below 60 descriptors and detect a restored type cycle", async () => {
+  const inputs = await loadAuthorizationInputs(repoRoot);
+  const started = performance.now();
+  const sourceFiles = inputs.constants.actionDeclarations.flatMap((action) => [
+    ...(action.ontology?.sources ?? []).map(sourceFileOf),
+    ...Object.values(action.ontology?.entries ?? {}).flatMap((entry) => [
+      entry.file,
+      ...(entry.builder ? [entry.builder] : []),
+    ]),
+  ]);
+  const graph = buildFlowGraph(repoRoot, {
+    sourceFiles: [...new Set(sourceFiles)],
+    lexicalFiles: guiCallbackCallerFiles(
+      repoRoot,
+      sourceFiles.filter((file) => /^packages\/gui\/src\/(?:renderer|preload|browser)\//u.test(file)),
+    ),
+  });
+  const durableInputs = {
+    ...inputs,
+    descriptors: inputs.descriptors.filter((descriptor) => descriptor.commandClass !== "repo-read"),
+  };
+  const file = "packages/daemon/src/todo-action.ts";
+  const count = () => changedAuthorizationScope(graph, durableInputs, [file]).descriptorIds?.size;
+  const selected = changedAuthorizationScope(graph, durableInputs, [file]).descriptorIds;
+  assert.ok(selected?.has("todo-add") && selected.has("todo.add"), "both todo write ingresses remain selected");
+  const descriptors = count();
+  console.log(
+    `DAEMON_LEAF_SCOPE ${JSON.stringify({ descriptors, total: durableInputs.descriptors.length, seconds: (performance.now() - started) / 1000 })}`,
+  );
+  assert.ok(descriptors > 0 && descriptors < 60, `todo-action selected ${descriptors} descriptors; expected 1..59`);
+  // Moving declarations alone is insufficient if their signatures still type-import the
+  // composition root: every leaf importing the shared contracts joins the dispatcher again.
+  const contracts = "packages/daemon/src/repo-cell-types.ts";
+  const original = graph.modules.get(contracts);
+  try {
+    graph.modules.set(contracts, {
+      ...original,
+      sourceFile: ts.createSourceFile(
+        contracts,
+        `${original.sourceFile.text}\nimport type { RepoCellActionContext as RestoredContext } from "./repo-cell-action-context.ts";`,
+        ts.ScriptTarget.Latest,
+        true,
+      ),
+    });
+    const restored = count();
+    console.log(`DAEMON_LEAF_RESTORED_CYCLE ${JSON.stringify({ descriptors: restored })}`);
+    assert.ok(restored >= 200, `restored type cycle selected only ${restored} descriptors`);
+  } finally {
+    graph.modules.set(contracts, original);
+  }
+  assert.equal(count(), descriptors);
 });

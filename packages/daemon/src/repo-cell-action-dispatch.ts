@@ -11,17 +11,14 @@ import { isAgentVersionRead, runAgentVersionRead } from "./agent-version-action.
 import { createHash } from "node:crypto";
 import path from "node:path";
 import {
-  compileExecutionAnnotation,
   compileExecutionExecutorDeclaration,
   compileTaskLifecycleWrite,
   declaredRelationTriples,
-  executionAnnotationKinds,
   executionExecutorDeclarationCandidates,
   getExecutableEntityAction,
   lifecycleDocumentPaths,
   type AgentRuntimeEventV1,
   requireEntityTypeContract,
-  type ExecutionAnnotationKind,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { runPresetAction } from "@harness-anything/preset";
@@ -37,19 +34,14 @@ import { selectExecutorDeclaration, taskLineageExecutorCandidates } from "./disp
 import { readCompletionContext } from "./task-completion-read.ts";
 import { taskShowFromProjection } from "./repo-cell-completion.ts";
 import { dispatchDecisionReview, dispatchTaskReview } from "./task-review-dispatch.ts";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import { runFactAction } from "./repo-cell-fact-action.ts";
 import { deriveActionResult } from "./entity-action-catalog-executor.ts";
 import type { TaskCommandWithDocsAction } from "./repo-cell-task-command-docs.ts";
 import { runVerticalDeclarationAction } from "./vertical-declaration-action.ts";
 import { attestGateWitness } from "./repo-cell-witness-adapters.ts";
 import { projectedTaskWriteRefusal } from "./projection-readiness.ts";
-import {
-  applyTaskWorktreeLifecycle,
-  presetSnapshotReader,
-  taskLeaseAcquiredRevision,
-  type TaskWorktreeLifecycleInput,
-} from "./task-worktree.ts";
+import { applyTaskWorktreeLifecycle, taskWorktreeInput } from "./task-worktree.ts";
 import { runEntityPinAction } from "./entity-pin-action.ts";
 import { runIncidentDismissAction } from "./runtime-incident-dismiss-action.ts";
 import { readWork } from "./work-read.ts";
@@ -69,19 +61,6 @@ export async function executeAction(
   return applyTaskWorktreeLifecycle(taskWorktreeInput(cell), action, binding.source, () =>
     Promise.resolve(executeRepoAction(cell, action, binding)),
   );
-}
-
-export function taskWorktreeInput(
-  cell: Pick<RepoCellOperationalContext, "rootDir" | "projection" | "settings">,
-): TaskWorktreeLifecycleInput {
-  return {
-    rootDir: cell.rootDir,
-    readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
-    readPresetSnapshot: presetSnapshotReader(cell.projection),
-    readWorktree: () => cell.settings.read().worktree,
-    readDispatchLifecycle: (query) => cell.projection.readDispatchLifecycle(query),
-    readLeaseAcquiredRevision: (taskId, executionId) => taskLeaseAcquiredRevision(cell.projection, taskId, executionId),
-  };
 }
 
 export function executeRepoAction(
@@ -849,80 +828,6 @@ export function declareExecutionExecutor(
         cell.projection,
         taskId,
         declaration.snapshot,
-        current.status,
-        cell.rootDir,
-      ),
-    }),
-    appended = cell.store.append(compiled),
-    publication = cell.publicPublication(appended);
-  cell.projection.apply(compiled.event, compiled.plan);
-  return cell.lifecycleReceipt(
-    compiled.event,
-    cell.projection.read(taskId).snapshot,
-    publication,
-    cell.receiptProof(compiled.event, publication),
-  );
-}
-
-export function annotateExecution(
-  cell: RepoCellOperationalContext,
-  action: RepoTaskAction,
-  binding: RepoCellBinding,
-): WriteReceipt {
-  const taskId = cell.requiredCellText(action.taskId, "taskId"),
-    executionId = cell.requiredCellText(action.executionId, "executionId"),
-    note = cell.requiredCellText(action.note, "note"),
-    annotationKind = action.annotationKind ?? "correction",
-    current = cell.projection.read(taskId),
-    snapshot = current.snapshot;
-  if (!cell.projectionReady(current) || !snapshot.task)
-    throw projectedTaskWriteRefusal(
-      cell.projection,
-      current,
-      taskId,
-      { repoId: cell.input.repoId, rootDir: cell.rootDir },
-      cell.cellCodedError(
-        "content_not_ready",
-        `Task ${taskId} is not ready for execution annotation; run ha daemon projection rebuild, then retry ` +
-          `ha task annotate ${taskId} --execution-id ${executionId} --note <note>.`,
-      ),
-    );
-  if (!(executionAnnotationKinds as readonly string[]).includes(String(annotationKind)))
-    throw cell.cellCodedError(
-      "invalid_field",
-      `annotation --kind must be one of ${executionAnnotationKinds.join(", ")}.`,
-    );
-  const canonicalAction = { ...action, annotationKind },
-    opId = cell.operationId(canonicalAction, binding, cell.input.repoId, snapshot.revision),
-    existing = cell.store.readEvent(opId);
-  if (existing) return cell.receiptForOperation(opId, binding);
-  const annotation = compileExecutionAnnotation({
-      snapshot,
-      taskId,
-      executionId,
-      actor: binding.actor,
-      source: binding.source,
-      kind: annotationKind as ExecutionAnnotationKind,
-      note,
-      opId,
-      eventId: `event-${createHash("sha256").update(opId).digest("hex")}`,
-      workspaceRevision: (cell.store.readHead()?.revision ?? 0) + 1,
-      occurredAt: cell.now(),
-    }),
-    paths = current.packagePath ? lifecycleDocumentPaths(annotation.event, current.packagePath) : [],
-    compiled = compileTaskLifecycleWrite({
-      event: annotation.event,
-      snapshot: annotation.snapshot,
-      packagePath: current.packagePath,
-      currentDocuments: paths.flatMap((target) => {
-        const document =
-          cell.projection.readDocument(target).document ?? cell.projection.readDocumentHistory?.(target).document;
-        return document ? [document] : [];
-      }),
-      completionContext: readCompletionContext(
-        cell.projection,
-        taskId,
-        annotation.snapshot,
         current.status,
         cell.rootDir,
       ),

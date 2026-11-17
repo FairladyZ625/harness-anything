@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { observeDaemonOperation, markDaemonOperationPhase } from "./daemon-operation.ts";
-import type { DaemonHost } from "./daemon-host.ts";
+import type { DaemonHost } from "./daemon-host-types.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
 import { readDaemonRegistry } from "@harness-anything/kernel";
 

@@ -24,7 +24,7 @@ import {
   peopleRevokeDelegationJsonAllowedFields,
   peopleRevokeDelegationJsonFields,
 } from "./protocol/daemon-protocol-commands-people.ts";
-import type { RepoCellRuntimeContext } from "./repo-cell-action-context.ts";
+import type { RepoCellRuntimeContext } from "./repo-cell-types.ts";
 import { resolvePacketAction, type PacketActionContract } from "./repo-cell-action-parse.ts";
 import type { EntityActionCatalogRunner } from "./entity-action-catalog-executor.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";

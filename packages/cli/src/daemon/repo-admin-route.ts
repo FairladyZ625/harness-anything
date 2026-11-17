@@ -12,12 +12,18 @@ export function isRepoAdminMethod(method: string): boolean {
   return ["daemon.repo.unbind", "daemon.repo.purge", "daemon.repo.backup", "daemon.repo.restoreDrill"].includes(method);
 }
 
-export function runRepoAdminCommand(input: {
+export async function runRepoAdminCommand(input: {
   readonly command: ThinCommand;
   readonly env: NodeJS.ProcessEnv;
   readonly request: (target: RepoAdminTarget, method: string, params: JsonObject) => Promise<JsonObject>;
   readonly launch: (target: RepoAdminTarget) => DaemonLaunchSpec;
   readonly autostartOptions: (target: RepoAdminTarget) => Parameters<typeof withAutostart>[3];
+  readonly settleWarming: (
+    initial: JsonObject,
+    target: RepoAdminTarget,
+    method: string,
+    params: JsonObject,
+  ) => Promise<JsonObject>;
 }): Promise<JsonObject> {
   const userRoot = daemonUserRoot(input.env),
     daemonId = daemonIdFromEnv(input.env),
@@ -30,16 +36,18 @@ export function runRepoAdminCommand(input: {
     }),
     target = { userRoot, daemonId, socketPath, invokingCommand: input.command.id },
     { kind: _kind, ...actionParams } = input.command.action,
-    params =
+    params = (
       input.command.method === "daemon.repo.backup" || input.command.method === "daemon.repo.restoreDrill"
         ? { rootDir: input.command.rootDir, ...actionParams }
-        : actionParams;
-  return withAutostart(
-    () => input.request(target, input.command.method, params as JsonObject),
-    () => input.launch(target),
-    socketPath,
-    input.autostartOptions(target),
-  );
+        : actionParams
+    ) as JsonObject,
+    result = await withAutostart(
+      () => input.request(target, input.command.method, params),
+      () => input.launch(target),
+      socketPath,
+      input.autostartOptions(target),
+    );
+  return input.settleWarming(result, target, input.command.method, params);
 }
 
 type RepoAdminTarget = {

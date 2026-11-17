@@ -5,7 +5,7 @@ import {
 } from "@harness-anything/kernel";
 export { diagnosticForError } from "./receipt-guidance.ts";
 import { type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
-import { type RepoTaskAction } from "./repo-cell.ts";
+import { type RepoTaskAction } from "./repo-cell-types.ts";
 import { scrubSecretText } from "./secret-scrub.ts";
 
 export function rejectHostAction(

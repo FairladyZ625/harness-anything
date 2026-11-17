@@ -1,7 +1,7 @@
 import path from "node:path";
 import { compileVerticalDeclarationEvent, resolveHarnessLayout } from "@harness-anything/kernel";
 import { runDocAction } from "./doc-sync-command-actions.ts";
-import type { RepoCellActionContext, RepoCellSettingsState } from "./repo-cell-action-context.ts";
+import type { RepoCellActionContext, RepoCellSettingsState } from "./repo-cell-types.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoBootstrapInput } from "./repo-bootstrap.ts";

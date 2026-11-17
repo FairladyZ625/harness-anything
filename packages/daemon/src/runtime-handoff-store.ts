@@ -19,7 +19,7 @@ import { writeFileDurably, readFileWindow, removeFileDurably } from "../../stora
 import { readyDispatchLifecycle } from "./runtime-dispatch-admission.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { validateHandoffRollout } from "./runtime-handoff-native.ts";
-import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
+import type { RepoCellActionContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { FLEET_CHUNK_BYTES, type FleetDescriptor } from "./fleet/command-protocol.ts";
 import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";

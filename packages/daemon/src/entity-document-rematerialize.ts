@@ -22,7 +22,7 @@ import { reject } from "./entity-action-write-helpers.ts";
 import { decisionRelationLinkResolver } from "./entity-document-links.ts";
 import { factDocumentRecord, publicationKillpoints, relationRows } from "./entity-action-relation.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
 import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 

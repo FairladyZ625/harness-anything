@@ -1,3 +1,4 @@
+import type { RepoCellApiContext } from "./repo-cell-types.ts";
 import { scheduleOccurrenceSettlementOwner } from "./schedule-runtime-outcome.ts";
 import { appendSquadRunObservation } from "./repo-cell-squad-child.ts";
 import { makeSquadCanonicalReader } from "./squad-canonical-read.ts";
@@ -24,7 +25,7 @@ import { readReckoningSignals } from "./reckoning-signals.ts";
 import { readTaskRuntimeContext } from "./task-runtime-context-read.ts";
 import { enqueueRuntimePublication } from "./runtime-publication-queue.ts";
 import { isSquadControlCommand, isSquadControlResult, squadControlRejected } from "./squad-control-result.ts";
-import type { RepoCellCore } from "./repo-cell.ts";
+
 import { readDecisionPointSettings } from "./decision-point-settings-read.ts";
 import { daemonSettingsRead } from "./protocol/daemon-settings-read-types.ts";
 import { decisionStateWords } from "./protocol/daemon-protocol-vocabulary.ts";
@@ -43,17 +44,12 @@ import {
   relationStates,
   relationTypes,
   runtimeSessionActionIds,
-  type CanonicalEventStore,
-  type DaemonRepoMode,
-  type EventPublicationKillpoint,
-  type TaskProjection,
   type DecisionProjectionRow,
   type TaskProjectionListQuery,
   type ScheduleV1,
   type WriteReceipt,
-  type WriteReceiptDraft,
 } from "@harness-anything/kernel";
-import { type PresetRunReceiptV1, type createPresetProcessService } from "@harness-anything/preset";
+import { type PresetRunReceiptV1 } from "@harness-anything/preset";
 import { readAgentEntityGuiProjection } from "./agent-entities.ts";
 import { readAgentHistory, readAgentVersion, type AgentVersionPorts } from "./agent-version-read.ts";
 import { makeRepoCellCommandRunner } from "./repo-cell-command-run.ts";
@@ -91,7 +87,6 @@ import {
   type DaemonDecisionListResult,
   type DaemonGuiReadResultMap,
   type DaemonRelationGraphFacetPayload,
-  type CanonicalRoot,
 } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type {
@@ -100,7 +95,6 @@ import type {
   RepoCellBinding,
   RepoCellQueueObservation,
   RepoCellReadMethod,
-  RepoCellWriteQueueState,
   RepoTaskAction,
 } from "./repo-cell-types.ts";
 import { evaluateRepoCellAction, bindVerifiedExecutorClaim } from "./repo-cell-authorization.ts";
@@ -112,88 +106,11 @@ import { workspaceScopeFromProjection } from "./workspace-scope-read.ts";
 import { workIndexFromProjection } from "./work-read.ts";
 import { workTopologyFromProjection } from "./work-topology-read.ts";
 import { workBriefsFromProjection } from "./work-briefs-read.ts";
-import type { RepoCellOperationalContext, RepoCellSettingsState } from "./repo-cell-action-context.ts";
-import type { makeRecoveryProbe } from "./recovery-state.ts";
-import type { makeRuntimeSpawner } from "./runtime-spawn.ts";
-import type { makeSquadCoordinator } from "./squad-coordinator.ts";
-import type { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
-import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
-import type { RepoBootstrapReceipt } from "./repo-bootstrap.ts";
+
 import { explainAuthenticationRequired, readTaskActionExplanation } from "./task-action-explanation-read.ts";
 import { commitRuntimeSessionAction, settleUnlaunchedRuntimeSession } from "./runtime-session-action-runtime.ts";
 import { readTaskWipSnapshot, type TaskQueryCell } from "./repo-cell-task-query.ts";
 import { agendaQueryFromPayload, taskDispatchesPayloadFromCell } from "./repo-cell-read-payloads.ts";
-
-export interface RepoCellApiContext {
-  readonly extracted: RepoCellOperationalContext;
-  readonly mode: DaemonRepoMode;
-  readonly input: {
-    readonly repoId: string;
-    readonly runtimeDaemonRoute?: import("./runtime-spawn.ts").RuntimeDaemonRoute;
-    readonly killpoint?: (point: EventPublicationKillpoint) => void;
-    readonly runtimeInstances?: RepoCellOperationalContext["input"]["runtimeInstances"];
-    readonly prepareDaemonGitEnvironment?: (
-      instanceId: string,
-      provider: "github" | "gitlab",
-      repoId: string,
-    ) => Promise<NodeJS.ProcessEnv | null>;
-  };
-  readonly rejected: RepoCellOperationalContext["rejected"];
-  readonly operationId: RepoCellOperationalContext["operationId"];
-  readonly failed: RepoCellOperationalContext["failed"];
-  readonly fatalCellError: (error: unknown) => boolean;
-  readonly errorOperationId: RepoCellOperationalContext["errorOperationId"];
-  readonly cellCodedError: RepoCellOperationalContext["cellCodedError"];
-  readonly requiredCellText: RepoCellOperationalContext["requiredCellText"];
-  readonly dispatchRead: typeof import("./repo-cell-command.ts").dispatchRead;
-  state: RepoCell["status"] extends () => infer Status
-    ? Status extends { readonly state: infer State }
-      ? State
-      : never
-    : never;
-  readonly attemptRecovery: (force?: boolean) => Promise<void>;
-  causeClass: ReturnType<RepoCell["status"]>["causeClass"];
-  readonly latched: () => string;
-  readonly latchWith: (error: unknown) => void;
-  queueDepth: number;
-  tail: Promise<void>;
-  /** Head tracker shared by every append to `tail`; names who a waiting write is behind. */
-  readonly writeQueue: RepoCellWriteQueueState;
-  readonly activeWriter: Parameters<typeof assertCurrentWriter>[0];
-  readonly writerToken: Parameters<typeof assertCurrentWriter>[1];
-  activeWriterEpochFence: (<T>(operation: () => T) => T) | null;
-  activeWriterEpochFenceDescriptor: NonNullable<RepoCellBinding["writerEpochFence"]> | null;
-  readonly withHumanSummary: (receipt: WriteReceiptDraft) => WriteReceiptDraft;
-  lastError: string | null;
-  recoveryUncertain: boolean;
-  readonly recoveryProbe: ReturnType<typeof makeRecoveryProbe>;
-  readonly replica: RepoCell["replica"];
-  readonly rootDir: CanonicalRoot;
-  readonly store: CanonicalEventStore;
-  readonly projection: TaskProjection;
-  readonly withReadSession?: import("./doc-sync-reads.ts").ProjectedDocumentReadContext["withReadSession"];
-  readonly now: () => string;
-  readonly onlineBinding: (binding: RepoCellBinding) => Promise<RepoCellBinding>;
-  readonly executeAction: RepoCellOperationalContext["executeAction"];
-  readonly squadCoordinator: ReturnType<typeof makeSquadCoordinator>;
-  readonly presetProcess: ReturnType<typeof createPresetProcessService>;
-  readonly runtimeReads: ReturnType<typeof makeAgentRuntimeReadModel>;
-  readonly runtimeSpawner: ReturnType<typeof makeRuntimeSpawner>;
-  /** Resolves when the session's projected outcome is settled per the domain settle predicate. */
-  readonly awaitRuntimeOutcome: (runtimeSessionId: string) => Promise<void>;
-  /** Resolves on the next runtime signal/outcome notification or the settlement grace backstop. */
-  readonly runtimeSignalVersion: () => number;
-  readonly awaitRuntimeSignal: (observedVersion?: number) => Promise<void>;
-  readonly settings: RepoCellSettingsState;
-  readonly appendAuxiliaryRuntimeIngress: RepoCellOperationalContext["appendAuxiliaryRuntimeIngress"];
-  bootstrapReceipt: RepoBootstrapReceipt | undefined;
-  readonly catalog: RepoCell["catalog"];
-  readonly runtimeStream: AgentRuntimeStreamHub;
-  readonly canHibernate?: () => boolean;
-  readonly generation: number;
-  readonly recovery: RepoCellCore["recovery"];
-  readonly lock: { readonly close: () => Promise<void> };
-}
 
 export const repoCellSynchronousRead = Symbol("repoCellSynchronousRead");
 

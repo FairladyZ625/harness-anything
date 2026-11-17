@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,10 +10,12 @@ import {
   evaluateCollectionCosts,
   evaluateG1WriteCostScaling,
   G1_OPERATION_NAMES,
+  main as runCostBudgetMain,
   measureCosts,
   measureG1WriteCostScaling,
   readCostFixture,
 } from "../cost-budget.mjs";
+import { measureCostSuitesParallel } from "../../../packages/daemon/test/fixtures/g38-cost-runner.mjs";
 import {
   measureTaskSubmitArtifacts,
   measureDocuments,
@@ -745,4 +747,129 @@ test("terminal settlement scales with degree and cold materialization excludes d
     false,
     "incremental full-set reads must fail the constant-work gate",
   );
+});
+
+const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
+
+function writeSyntheticCostRoot(
+  rootDir,
+  { collectionRegression = false, g1Regression = false, workerCrash = false } = {},
+) {
+  const fixtureDir = path.join(rootDir, "packages/daemon/test/fixtures");
+  mkdirSync(fixtureDir, { recursive: true });
+  mkdirSync(path.join(rootDir, "packages"), { recursive: true });
+  symlinkSync(path.join(REPO_ROOT, "packages/kernel"), path.join(rootDir, "packages/kernel"), "dir");
+  const budgetConfig = JSON.parse(readFileSync(path.join(REPO_ROOT, "tools/gates/cost-budget.json"), "utf8"));
+  mkdirSync(path.join(rootDir, "tools/gates"), { recursive: true });
+  writeFileSync(path.join(rootDir, "tools/gates/cost-budget.json"), JSON.stringify(budgetConfig, null, 2));
+  writeFileSync(
+    path.join(fixtureDir, "g1-write-cost-scaling.ts"),
+    [
+      `const operations = ${JSON.stringify(G1_OPERATION_NAMES)};`,
+      `export const G1_METRICS = Object.freeze(["sqlRowsRead", "sha256Calls", "sha256Bytes", "gitProcesses", "fileReadBytes"]);`,
+      `export async function measureWriteCostScaling(eventCount) {`,
+      `  const counts = {};`,
+      `  for (const op of operations) {`,
+      `    counts[op] = { sqlRowsRead: 0, sha256Calls: 0, sha256Bytes: 0, gitProcesses: 0, fileReadBytes: 0 };`,
+      `  }`,
+      `  if (${g1Regression} && eventCount > 200) counts["task-create"].sqlRowsRead = 500;`,
+      `  return { eventCount, counts, firstCall: counts };`,
+      `}`,
+    ].join("\n"),
+  );
+  const probeEntries = Object.entries(COLLECTION_PROBES).map(([id, probe]) => [id, { growth: probe.growth ?? null }]);
+  writeFileSync(
+    path.join(fixtureDir, "g38-collection-cost.mjs"),
+    [
+      `export const COLLECTION_SCALES = Object.freeze({ small: 100, large: 2000 });`,
+      `const meta = ${JSON.stringify(probeEntries)};`,
+      `export const COLLECTION_PROBES = Object.fromEntries(meta.map(([id, info]) => [id, {`,
+      `  ...(info.growth ? { growth: info.growth } : {}),`,
+      `  async run(_root, size) {`,
+      `    if (${workerCrash} && id === "task-create:work-tasks") throw new Error("injected worker failure");`,
+      `    const constant = info.growth === "constant";`,
+      `    const work = ${collectionRegression} && id === "doc-materialize:cold-history" ? size : constant ? 12 : size;`,
+      `    return { size, counts: { work } };`,
+      `  },`,
+      `}]));`,
+    ].join("\n"),
+  );
+  return { budgetPath: path.join(rootDir, "tools/gates/cost-budget.json") };
+}
+
+test("parallel cost-budget worker orchestration preserves complete probe coverage and rejects O(N) regressions", async () => {
+  const cleanRoot = mkdtempSync(path.join(os.tmpdir(), "cost-budget-parallel-ok-"));
+  const regRoot = mkdtempSync(path.join(os.tmpdir(), "cost-budget-parallel-reg-"));
+  const g1RegRoot = mkdtempSync(path.join(os.tmpdir(), "cost-budget-parallel-g1reg-"));
+  const crashRoot = mkdtempSync(path.join(os.tmpdir(), "cost-budget-parallel-crash-"));
+  try {
+    const clean = writeSyntheticCostRoot(cleanRoot);
+    const suites = await measureCostSuitesParallel({ rootDir: cleanRoot, workerSlots: 3 });
+    assert.deepEqual(
+      Object.keys(suites.collectionMeasured).sort(),
+      Object.keys(COLLECTION_PROBES).sort(),
+      "every registered collection probe must be executed",
+    );
+    assert.deepEqual(suites.g1Measured.operations.slice().sort(), G1_OPERATION_NAMES.slice().sort());
+    assert.deepEqual(evaluateCollectionCosts(suites.collectionMeasured).errors, []);
+    const g1Eval = await evaluateG1WriteCostScaling({
+      rootDir: cleanRoot,
+      budgetPath: clean.budgetPath,
+      measured: suites.g1Measured,
+    });
+    assert.deepEqual(g1Eval.errors, []);
+
+    const fixturePath = path.join(REPO_ROOT, "packages/daemon/fixtures/perf/cost-budget-ledger.json");
+    const okExit = await runCostBudgetMain([
+      "--phase",
+      "legacy",
+      "--root",
+      cleanRoot,
+      "--budget",
+      clean.budgetPath,
+      "--fixture",
+      fixturePath,
+    ]);
+    assert.equal(okExit, 0);
+
+    // Negative control 1: injected O(N) scan in constant-cost collection probe fails CLI gate immediately.
+    const reg = writeSyntheticCostRoot(regRoot, { collectionRegression: true });
+    const regExit = await runCostBudgetMain([
+      "--phase",
+      "legacy",
+      "--root",
+      regRoot,
+      "--budget",
+      reg.budgetPath,
+      "--fixture",
+      fixturePath,
+    ]);
+    assert.equal(regExit, 1, "injected O(N) collection scan must fail parallel cost-budget gate");
+
+    // Negative control 2: injected O(N) write scaling in G1 fails CLI gate immediately.
+    const g1Reg = writeSyntheticCostRoot(g1RegRoot, { g1Regression: true });
+    const g1RegExit = await runCostBudgetMain([
+      "--phase",
+      "legacy",
+      "--root",
+      g1RegRoot,
+      "--budget",
+      g1Reg.budgetPath,
+      "--fixture",
+      fixturePath,
+    ]);
+    assert.equal(g1RegExit, 1, "injected O(N) G1 write scaling must fail parallel cost-budget gate");
+
+    // Negative control 3: crashing worker fails closed instead of omitting probes.
+    writeSyntheticCostRoot(crashRoot, { workerCrash: true });
+    await assert.rejects(
+      () => measureCostSuitesParallel({ rootDir: crashRoot, workerSlots: 2 }),
+      /cost-budget worker collection-scale exited with/,
+    );
+  } finally {
+    rmSync(cleanRoot, { recursive: true, force: true });
+    rmSync(regRoot, { recursive: true, force: true });
+    rmSync(g1RegRoot, { recursive: true, force: true });
+    rmSync(crashRoot, { recursive: true, force: true });
+  }
 });

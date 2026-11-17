@@ -7,7 +7,7 @@
 // own signed-in session), and that declaration is checked against the route, not trusted. A route
 // that authorizes another kind than it declares (`kindRewrite`) is traced against that kind and holds
 // only while its source decision and owner task are in the public evidence index and it has not expired.
-import { availableParallelism } from "node:os";
+import { availableParallelism, totalmem } from "node:os";
 import path from "node:path";
 import fs from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -53,9 +53,8 @@ const receiptPath = "packages/kernel/src/domain/receipt-domain-registry.ts";
  * Unmapped/deleted production inputs and shared routing/proof infrastructure require a full cut.
  * No proof is cached: selected rows still run the unchanged authorization tracer.
  */
-export function changedAuthorizationScope(graph, inputs, changedFiles) {
-  const full = { descriptorIds: null, sourceIds: null };
-  if (!changedFiles) return full;
+function productionFilesInScope(changedFiles) {
+  if (!changedFiles) return null;
   const files = changedFiles.map((file) => path.posix.normalize(file.replaceAll("\\", "/")));
   if (
     files.some(
@@ -66,16 +65,88 @@ export function changedAuthorizationScope(graph, inputs, changedFiles) {
           file,
         ) ||
         file.split("/").includes("..") ||
-        path.posix.isAbsolute(file),
+        path.posix.isAbsolute(file) ||
+        // Non-source inputs can change module resolution, action declarations or script manifests.
+        !/\.[cm]?[jt]sx?$|\.(?:md|html|css|svg|png)$/u.test(file),
     )
   )
-    return full;
-  const production = files.filter(
-    (file) => /\.[cm]?[jt]sx?$/u.test(file) && !/(?:\/test(?:s)?\/|\.(?:test|spec)\.)/u.test(file),
-  );
+    return null;
+  return files.filter((file) => /\.[cm]?[jt]sx?$/u.test(file) && !/(?:\/test(?:s)?\/|\.(?:test|spec)\.)/u.test(file));
+}
+
+function pureNamedReexportMap(graph, file, sourceFile) {
+  if (!sourceFile?.statements?.length) return null;
+  const byName = new Map();
+  for (const stmt of sourceFile.statements) {
+    if (
+      !ts.isExportDeclaration(stmt) ||
+      !stmt.moduleSpecifier ||
+      !ts.isStringLiteralLike(stmt.moduleSpecifier) ||
+      !stmt.exportClause ||
+      !ts.isNamedExports(stmt.exportClause)
+    )
+      return null;
+    const target = graph.importTarget({ file, from: stmt.moduleSpecifier.text }).file;
+    for (const el of stmt.exportClause.elements)
+      byName.set(el.name.text, { target: target ?? file, exported: (el.propertyName ?? el.name).text });
+  }
+  return byName;
+}
+
+function dynamicImportNamedMembers(sourceFile, node) {
+  if (!ts.isCallExpression(node) || node.expression.kind !== ts.SyntaxKind.ImportKeyword) return null;
+  const cast = node.parent && ts.isAsExpression(node.parent) ? node.parent.type : null;
+  const promised =
+    cast && ts.isTypeReferenceNode(cast) && cast.typeName.getText(sourceFile) === "Promise"
+      ? cast.typeArguments?.[0]
+      : null;
+  if (!promised) return null;
+  const members = ts.isTypeLiteralNode(promised)
+    ? promised.members
+    : ts.isTypeReferenceNode(promised) && ts.isIdentifier(promised.typeName)
+      ? sourceFile.statements.find(
+          (stmt) =>
+            ts.isInterfaceDeclaration(stmt) && stmt.name.text === promised.typeName.text && !stmt.heritageClauses,
+        )?.members
+      : null;
+  if (!members?.length) return null;
+  const names = [];
+  for (const member of members) {
+    if (
+      (!ts.isPropertySignature(member) && !ts.isMethodSignature(member)) ||
+      !member.name ||
+      (!ts.isIdentifier(member.name) && !ts.isStringLiteralLike(member.name))
+    )
+      return null;
+    names.push(member.name.text);
+  }
+  return names;
+}
+
+export function changedAuthorizationScope(graph, inputs, changedFiles) {
+  const full = { descriptorIds: null, sourceIds: null };
+  const production = productionFilesInScope(changedFiles);
+  if (!production) return full;
   if (production.some((file) => !graph.modules.has(file))) return full;
-  // Non-source inputs can change module resolution, action declarations or script manifests.
-  if (files.some((file) => !/\.[cm]?[jt]sx?$|\.(?:md|html|css|svg|png)$/u.test(file))) return full;
+  const productionSet = new Set(production),
+    barrels = new Map();
+  for (const [file, { sourceFile }] of graph.modules) {
+    const map = pureNamedReexportMap(graph, file, sourceFile);
+    if (map) barrels.set(file, map);
+  }
+  const resolveBarrelTarget = (barrelFile, symbolName, seen = new Set()) => {
+    if (productionSet.has(barrelFile) || seen.has(barrelFile)) return barrelFile;
+    const entry = barrels.get(barrelFile)?.get(symbolName);
+    if (!entry) return barrelFile;
+    if (!barrels.has(entry.target)) return entry.target;
+    seen.add(barrelFile);
+    return resolveBarrelTarget(entry.target, entry.exported, seen);
+  };
+  const addReverse = (reverse, target, importer) => {
+    if (!target) return;
+    if (!reverse.has(target)) reverse.set(target, new Set());
+    reverse.get(target).add(importer);
+  };
   const reverse = new Map();
   for (const [file, { sourceFile }] of graph.modules) {
     (function visit(node) {
@@ -89,9 +160,26 @@ export function changedAuthorizationScope(graph, inputs, changedFiles) {
               : null;
       if (specifier && ts.isStringLiteralLike(specifier)) {
         const target = graph.importTarget({ file, from: specifier.text }).file;
-        if (target) {
-          if (!reverse.has(target)) reverse.set(target, new Set());
-          reverse.get(target).add(file);
+        const dynamicNames =
+          target && barrels.has(target) && !productionSet.has(target)
+            ? dynamicImportNamedMembers(sourceFile, node)
+            : null;
+        if (
+          target &&
+          barrels.has(target) &&
+          !productionSet.has(target) &&
+          ts.isImportDeclaration(node) &&
+          node.importClause &&
+          !node.importClause.name &&
+          node.importClause.namedBindings &&
+          ts.isNamedImports(node.importClause.namedBindings)
+        ) {
+          for (const el of node.importClause.namedBindings.elements)
+            addReverse(reverse, resolveBarrelTarget(target, (el.propertyName ?? el.name).text), file);
+        } else if (dynamicNames) {
+          for (const name of dynamicNames) addReverse(reverse, resolveBarrelTarget(target, name), file);
+        } else {
+          addReverse(reverse, target, file);
         }
       }
       ts.forEachChild(node, visit);
@@ -109,15 +197,28 @@ export function changedAuthorizationScope(graph, inputs, changedFiles) {
     sourcesByKind = new Map(actions.map((action) => [action.kind, action.ontology?.sources ?? []])),
     routes = new Set(),
     kinds = new Set(),
-    sourceIds = new Set();
+    sourceIds = new Set(),
+    affectedClientSources = [];
   for (const action of actions)
     for (const source of action.ontology?.sources ?? [])
       if (affected.has(sourceFileOf(source))) {
         sourceIds.add(source.candidateId);
         routes.add(source.route);
         kinds.add(action.kind);
+        if (source.role === "client") affectedClientSources.push({ action, source });
       }
   if (production.length && sourceIds.size === 0) return full;
+  if (affectedClientSources.length > 0 && typeof graph.fileOf === "function") {
+    const clientWitnesses = sourceWitnesses(
+      graph,
+      affectedClientSources.map(({ source }) => source),
+    );
+    for (const { action, source } of affectedClientSources) {
+      const node = clientWitnesses.get(source.candidateId);
+      if (!node) continue;
+      for (const route of clientEntryRequiredRoutes(graph, node, source, action, inputs.descriptors)) routes.add(route);
+    }
+  }
   const descriptorIds = new Set(
     inputs.descriptors
       .filter((descriptor) => {
@@ -303,20 +404,30 @@ function auditAuthorization(rootDir, inputs, options) {
             ...action,
             ontology: {
               ...action.ontology,
-              sources: action.ontology.sources.filter((source) => {
+              sources: action.ontology.sources.filter((source, sourceIndex) => {
                 const owner = durable.findIndex((descriptor) => descriptor.id === source.route);
-                return (owner < 0 ? durable.length + index : owner) % options.shard.count === options.shard.index;
+                const bucket =
+                  owner < 0
+                    ? source.role === "effect"
+                      ? durable.length + index
+                      : durable.length + index + sourceIndex
+                    : owner;
+                return bucket % options.shard.count === options.shard.index;
               }),
             },
           }))
           .filter((action) => action.ontology.sources.length)
       : onlyActions,
+    includeClientSourcesForScope = (productionFilesInScope(options.changedFiles)?.length ?? 0) > 0,
     declaredSources = [
       ...new Set([
         ...sourceActions.flatMap((action) => action.ontology.sources),
         ...actions.flatMap((action) =>
           action.ontology.sources.filter(
-            (s) => s.role !== "support" && s.role !== "technical-port" && s.role !== "client",
+            (s) =>
+              s.role !== "support" &&
+              s.role !== "technical-port" &&
+              (includeClientSourcesForScope || s.role !== "client"),
           ),
         ),
       ]),
@@ -328,7 +439,7 @@ function auditAuthorization(rootDir, inputs, options) {
         anchorRoot: rootDir,
         lexicalFiles: guiCallbackCallerFiles(
           sourceRoot,
-          declaredSourceFiles.filter((f) => /^packages\/gui\/src\/(?:renderer|preload|browser)\//u.test(f)),
+          declaredSourceFiles.filter((f) => /^packages\/gui\/src\/(?:renderer|preload|browser|main)\//u.test(f)),
         ),
         sourceFiles: [
           ...new Set([
@@ -350,8 +461,20 @@ function auditAuthorization(rootDir, inputs, options) {
           ]),
         ],
       }),
-    scope = changedAuthorizationScope(graph, inputs, options.changedFiles),
-    scopedSourceActions = sourceActions
+    scope = changedAuthorizationScope(graph, inputs, options.changedFiles);
+  options.onScope?.({
+    descriptorIds:
+      scope.descriptorIds || onlySet
+        ? durable
+            .filter(
+              (descriptor) =>
+                matchesOnly(descriptor) && (!scope.descriptorIds || scope.descriptorIds.has(descriptor.id)),
+            )
+            .map((descriptor) => descriptor.id)
+        : null,
+    durableDescriptorIds: durable.map((descriptor) => descriptor.id),
+  });
+  const scopedSourceActions = sourceActions
       .map((action) => ({
         ...action,
         ontology: {
@@ -687,34 +810,61 @@ function findingsFor(rows, receipt, sourceRows) {
   ];
 }
 
-/** Each worker builds its own graph and traces every count-th descriptor; rows merge in order. */
-async function shardedAudit(rootDir, changedFiles) {
-  const count = Math.max(1, Math.min(4, availableParallelism())),
-    shards = await Promise.all(
-      Array.from(
-        { length: count },
-        (_, index) =>
-          new Promise((resolve, reject) => {
-            const worker = new Worker(new URL(import.meta.url), {
-              workerData: { durableAuthorizationShard: { rootDir, changedFiles, shard: { index, count } } },
-            });
-            worker.once("message", resolve);
-            worker.once("error", reject);
-            worker.once("exit", (code) => {
-              if (code !== 0) reject(new Error(`authorization shard ${index} exited with ${code}`));
-            });
-          }),
-      ),
-    ),
-    rows = shards.flatMap((shard) => shard.rows).sort((left, right) => left.index - right.index),
+const SHARD_WORKER_MEMORY_BUDGET_BYTES = 6 * 1024 ** 3;
+const DEFAULT_SHARD_COUNT = 4;
+
+export function shardWorkerCount(parallelism = availableParallelism(), memoryBytes = totalmem()) {
+  return Math.max(1, Math.min(4, parallelism, Math.floor(memoryBytes / SHARD_WORKER_MEMORY_BUDGET_BYTES)));
+}
+
+/** Each worker builds its own graph, traces every count-th descriptor, and exits to free its heap. */
+export async function shardedAudit(rootDir, changedFiles, options = {}) {
+  const { sourceRoot, only, shardCount, concurrency: requestedConcurrency } = options,
+    count = shardCount ?? (only ? Math.min(4, shardWorkerCount()) : DEFAULT_SHARD_COUNT),
+    concurrency = Math.max(1, Math.min(count, requestedConcurrency ?? shardWorkerCount())),
+    shards = new Array(count);
+  let nextIndex = 0;
+  async function runWorkerSlot() {
+    while (nextIndex < count) {
+      const index = nextIndex++;
+      shards[index] = await new Promise((resolve, reject) => {
+        let message;
+        let hasMessage = false;
+        const worker = new Worker(new URL(import.meta.url), {
+          workerData: {
+            durableAuthorizationShard: { rootDir, sourceRoot, only, changedFiles, shard: { index, count } },
+          },
+        });
+        worker.once("message", (payload) => {
+          message = payload;
+          hasMessage = true;
+        });
+        worker.once("error", reject);
+        worker.once("exit", (code) => {
+          if (code !== 0) reject(new Error(`authorization shard ${index} exited with ${code}`));
+          else if (!hasMessage) reject(new Error(`authorization shard ${index} exited without result`));
+          else resolve(message);
+        });
+      });
+    }
+  }
+  await Promise.all(Array.from({ length: concurrency }, () => runWorkerSlot()));
+  const rows = shards.flatMap((shard) => shard.rows).sort((left, right) => left.index - right.index),
     receipt = shards[0].receipt,
+    scopedDescriptorIds = shards.some((shard) => shard.scopeInfo?.descriptorIds === null)
+      ? null
+      : new Set(shards.flatMap((shard) => shard.scopeInfo?.descriptorIds ?? [])),
+    durableDescriptorIds = new Set(shards[0].scopeInfo?.durableDescriptorIds ?? []),
+    rowById = new Map(rows.map((row) => [row.id, row])),
     sourceRows = shards
       .flatMap((shard) => shard.sourceRows)
       .map((sourceRow) => {
         if (!sourceRow.ok || sourceRow.authority !== "client-entry" || sourceRow.isRead) return sourceRow;
         const required = sourceRow.clientRoutes?.length ? sourceRow.clientRoutes : [sourceRow.route];
         const badRoute = required.find((r) => {
-          const rRow = rows.find((row) => row.id === r);
+          if (!durableDescriptorIds.has(r)) return true;
+          if (scopedDescriptorIds !== null && !scopedDescriptorIds.has(r)) return false;
+          const rRow = rowById.get(r);
           return !rRow || !rRow.ok;
         });
         return badRoute
@@ -809,15 +959,21 @@ export async function main(argv = process.argv.slice(2)) {
 }
 
 if (!isMainThread && workerData?.durableAuthorizationShard) {
-  const { rootDir, shard, changedFiles } = workerData.durableAuthorizationShard;
+  const { rootDir, sourceRoot, only, shard, changedFiles } = workerData.durableAuthorizationShard;
+  let scopeInfo = null;
   const { rows, sourceRows, receipt } = auditDurableActionAuthorization(
     rootDir,
     await loadAuthorizationInputs(rootDir),
     {
+      sourceRoot,
+      only,
       shard,
       changedFiles,
+      onScope: (info) => {
+        scopeInfo = info;
+      },
     },
   );
-  parentPort.postMessage({ rows, sourceRows, receipt });
+  parentPort.postMessage({ rows, sourceRows, receipt, scopeInfo });
 } else if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href)
   process.exitCode = await main();

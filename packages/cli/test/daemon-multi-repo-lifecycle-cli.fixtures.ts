@@ -1,21 +1,19 @@
+import { cli, git } from "./cli-process.fixture.mjs";
+export { cli, builtCli, git, gitLedgerWriter } from "./cli-process.fixture.mjs";
 import type { TestContext } from "node:test";
 import { after } from "node:test";
 import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes, readDaemonRegistry } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 import { openPersistentWriterEpoch } from "@harness-anything/storage";
-import { HARNESS_LEDGER_WRITER_ENV } from "@harness-anything/storage";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 import { readDaemonPid } from "@harness-anything/daemon/internal/runtime";
 import { ownDaemonFixture } from "./daemon-cleanup.fixture.ts";
-
-export const cli = path.resolve("packages/cli/src/index.ts");
-export const builtCli = path.resolve("packages/cli/dist/cli/src/index.js");
 
 const realm = await spawnKeycloak();
 after(() => realm.close());
@@ -303,30 +301,4 @@ export function stop(root: string, userRoot: string, entry = cli): void {
     encoding: "utf8",
     env: { ...process.env, HARNESS_DAEMON_USER_ROOT: userRoot },
   });
-}
-// The ledger repository is created by `ha init`, which supplies the commit
-// identity per command instead of configuring it in the repository. Fixture
-// commits must carry their own identity: an ambient global identity exists on
-// developer machines and not on CI runners.
-function gitSpawn(root: string, args: readonly string[], extraEnv: NodeJS.ProcessEnv): string {
-  return execFileSync("git", ["-C", root, ...args], {
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      GIT_AUTHOR_NAME: "W3 Test",
-      GIT_AUTHOR_EMAIL: "w3@example.test",
-      GIT_COMMITTER_NAME: "W3 Test",
-      GIT_COMMITTER_EMAIL: "w3@example.test",
-      ...extraEnv,
-    },
-  }).trim();
-}
-export function git(root: string, ...args: string[]): string {
-  return gitSpawn(root, args, {});
-}
-// A fixture commit inside the ledger repository plays the out-of-band writer
-// whose commit the guard exists to refuse; carrying the daemon's writer marker
-// casts the fixture in that role so the state it constructs still lands.
-export function gitLedgerWriter(root: string, ...args: string[]): string {
-  return gitSpawn(root, args, { [HARNESS_LEDGER_WRITER_ENV]: "1" });
 }

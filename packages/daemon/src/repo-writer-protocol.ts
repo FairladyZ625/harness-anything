@@ -333,7 +333,7 @@ export interface RepoReadPayload {
   /** Client lifetime identity: identical repository configuration still requires a handle handoff. */
   readonly readerId?: string;
   readonly config: Pick<
-    import("./repo-cell-open.ts").RepoCellOpenInput,
+    import("./repo-cell-types.ts").RepoCellOpenInput,
     "repoId" | "rootDir" | "storage" | "mode" | "authoredBranch"
   >;
   readonly method: string;

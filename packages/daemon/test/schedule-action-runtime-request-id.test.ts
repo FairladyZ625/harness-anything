@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { WriteReceipt } from "@harness-anything/kernel";
-import type { RepoCellRuntimeContext } from "../src/repo-cell-action-context.ts";
+import type { RepoCellRuntimeContext } from "../src/repo-cell-types.ts";
 import type { RuntimeAttemptTerminal, TrustedScheduleRuntime } from "../src/runtime-spawn.ts";
 import { settleScheduledRuntime } from "../src/schedule-action-runtime.ts";
 

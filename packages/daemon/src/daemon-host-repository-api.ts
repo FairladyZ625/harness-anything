@@ -38,7 +38,7 @@ import {
   recoverPresetRunStatus,
 } from "@harness-anything/preset";
 import { repoReadCommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
-import type { DaemonHost } from "./daemon-host.ts";
+import type { DaemonHost } from "./daemon-host-types.ts";
 import {
   canonicalRoot,
   commandDescriptorForAction,
@@ -50,7 +50,7 @@ import { withLocalDispatchStreamEvidence } from "./dispatch-activity-read.ts";
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
 import { seedBuiltinSchedules } from "./schedule-builtin-executor.ts";
 import { resolveRepoBootstrap, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
-import { type RepoCell, type RepoCellReadMethod, type RepoTaskAction } from "./repo-cell.ts";
+import { type RepoCell, type RepoCellReadMethod, type RepoTaskAction } from "./repo-cell-types.ts";
 import type { SquadControlResult } from "./squad-control-result.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
 import { localDefaultBinding, localSystemActionBinding } from "./daemon-host-binding.ts";

@@ -17,7 +17,7 @@ import {
   type WriteReceipt,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
-import type { RepoCellApiContext } from "./repo-cell-api.ts";
+import type { RepoCellApiContext } from "./repo-cell-types.ts";
 import {
   evaluateRepoCellAction,
   bindVerifiedExecutorClaim,

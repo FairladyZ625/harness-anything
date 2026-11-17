@@ -4,7 +4,7 @@ import type { DaemonRepoMode, InvalidDaemonRegistryRepo } from "@harness-anythin
 import type { registerDaemonRepo } from "@harness-anything/storage";
 import type { RuntimeInstanceSummary, openRuntimeInstanceStore } from "./agent-runtime-instances.ts";
 import type { DaemonBuildObserver } from "./build-identity.ts";
-import type { DaemonHostOpenInput } from "./daemon-host-open.ts";
+import type { DaemonHostOpenInput } from "./daemon-host-types.ts";
 import type { DaemonHost } from "./daemon-host-types.ts";
 import type { RuntimeForwardingRequest } from "./fleet/forwarding-port.ts";
 import type { FleetVersionWarning } from "./fleet/peer.ts";
@@ -95,7 +95,7 @@ export interface DaemonHostRegistryContext extends HostMaps, DaemonHostAdmission
   readonly decisionPointExecutorFor: (repoId: string, rootDir: string) => ReturnType<typeof openDecisionPointExecutor>;
   readonly runtimeDaemonRoute: RuntimeDaemonRoute;
   readonly keycloakCenter: import("./transport/auth-context.ts").KeycloakCenterAuthority;
-  readonly keycloakSession: NonNullable<import("./repo-cell-open.ts").RepoCellOpenInput["keycloakSession"]>;
+  readonly keycloakSession: NonNullable<import("./repo-cell-types.ts").RepoCellOpenInput["keycloakSession"]>;
   readonly scheduleScheduler: ReturnType<typeof makeScheduleScheduler>;
   readonly onAutoClaimTrigger: (
     reason: string,
@@ -164,7 +164,7 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
     readonly certificateKeyFile: string;
   } | null;
   readonly keycloakCenter: import("./transport/auth-context.ts").KeycloakCenterAuthority;
-  readonly keycloakSession: NonNullable<import("./repo-cell-open.ts").RepoCellOpenInput["keycloakSession"]>;
+  readonly keycloakSession: NonNullable<import("./repo-cell-types.ts").RepoCellOpenInput["keycloakSession"]>;
   readonly oidc: import("@harness-anything/kernel").IdentitySessionPort;
   readonly accessAdmin: import("./access-admin-service.ts").AccessAdminService;
   readonly localOnly: typeof import("./daemon-host-status.ts").localOnly;

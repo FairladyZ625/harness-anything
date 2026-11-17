@@ -14,7 +14,7 @@ import {
   runtimeSessionIdFromActor,
   stableStringify,
 } from "@harness-anything/kernel";
-import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
+import type { RepoCellActionContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoTaskAction, RuntimeIngressAction } from "./repo-cell-types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { cellCriterionError } from "./repo-cell-errors.ts";

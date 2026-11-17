@@ -107,7 +107,7 @@ import type {
   Skip,
 } from "./migration-import-types.ts";
 import { yieldToEventLoop } from "./process-port.ts";
-import type { RepoCellBinding, RepoTaskAction } from "./repo-cell.ts";
+import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 export interface MigrationImportRunInput {
   readonly action: RepoTaskAction;

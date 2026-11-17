@@ -11,7 +11,7 @@ import {
   type CanonicalWriteBundle,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import type { RepoTaskAction, RepoCellBinding } from "./repo-cell-types.ts";
 import { applyPreparedTaskCreate, prepareTaskCreateAt, type PreparedTaskCreate } from "./repo-cell-task-create.ts";
 import { relationDocumentUpdates } from "./entity-action-relation.ts";

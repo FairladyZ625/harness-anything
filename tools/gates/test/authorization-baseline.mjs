@@ -47,7 +47,7 @@ function baselineSourceGraph() {
         sourceFiles,
         lexicalFiles: guiCallbackCallerFiles(
           repoRoot,
-          sourceFiles.filter((file) => /^packages\/gui\/src\/(?:renderer|preload|browser)\//u.test(file)),
+          sourceFiles.filter((file) => /^packages\/gui\/src\/(?:renderer|preload|browser|main)\//u.test(file)),
         ),
       }),
     );

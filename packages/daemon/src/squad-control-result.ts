@@ -4,7 +4,7 @@ export { isSquadControlResult };
 import type { WriteReceiptDraft } from "@harness-anything/kernel";
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import type { RepoCellRuntimeContext } from "./repo-cell-action-context.ts";
+import type { RepoCellRuntimeContext } from "./repo-cell-types.ts";
 
 export type SquadControlCommand = "squad-run" | "squad-cancel";
 type AcceptanceKeys =

@@ -5,7 +5,7 @@ import { readDaemonRegistry } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
 import { acquireDaemonSingleton, daemonPidPath } from "./daemon-singleton.ts";
-import type { openDaemonHost } from "./daemon-host.ts";
+import type { openDaemonHost } from "./daemon-host-open.ts";
 import type { openDaemonRequestLog } from "./request-log.ts";
 import { openDaemonLifecycleLog } from "./lifecycle-log.ts";
 import { openDaemonConnLog } from "./conn-log.ts";
@@ -13,7 +13,7 @@ import { daemonBuildStamp, observeDaemonBuild, type DaemonBuildObserver } from "
 import { firstWorkspaceLinkFinding, workspaceLinkFailure } from "./workspace-link-integrity.ts";
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import { createUnixSocketTransportServer } from "./transport/unix-socket.ts";
-import type { DaemonHostOpenInput } from "./daemon-host-open.ts";
+import type { DaemonHostOpenInput } from "./daemon-host-types.ts";
 import type { DaemonLifecycleEntry, DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import type { DaemonBuildDrainStatus } from "./protocol/daemon-protocol.contract.ts";
 import type { openDaemonDiagnostics } from "./daemon-diagnostics.ts";

@@ -1,14 +1,10 @@
+import type { DaemonHostOpenInput } from "./daemon-host-types.ts";
 import { createFleetMemberDeviceLink } from "./fleet/peer.ts";
 import { forward, resolveRuntimeLocation, type RuntimeForwardingRequest } from "./fleet/forwarding-port.ts";
 import { forwardingIntentForAction, runtimeForwardingIntent } from "./fleet/forwarding-intent.ts";
 import { runtimeInstanceUsesCredential } from "./runtime-hosting-credentials.ts";
 import { markDaemonOperationPhase } from "./daemon-operation.ts";
-import type {
-  FleetDeviceLoginNotice,
-  IdentityManagementPort,
-  IdentitySessionPort,
-  TaskReviewDispatchFailureV1,
-} from "@harness-anything/kernel";
+import type { FleetDeviceLoginNotice, TaskReviewDispatchFailureV1 } from "@harness-anything/kernel";
 import { readHomeOverview } from "./home/home-overview-read.ts";
 import { readFleetCenterConfig } from "./fleet-center-config.ts";
 import {
@@ -20,7 +16,7 @@ import { executionCredentialRejected, runtimeExecutionActor } from "./runtime-ex
 /** @daemon-transport-authority Host composition and RepoCell ownership. */
 import path from "node:path";
 import { readFileSync } from "node:fs";
-import { readDaemonStorageConfig, registerDaemonRepo, type DaemonStorageConfig } from "@harness-anything/storage";
+import { readDaemonStorageConfig, registerDaemonRepo } from "@harness-anything/storage";
 import {
   consumeKnownError,
   validateScheduleV1,
@@ -115,7 +111,7 @@ import { openFleetEdgeRuntime, type FleetEdgeRuntimeRequest } from "./fleet-edge
 import { applyFleetMirrorCut, revokeFleetMirrorTree } from "./fleet-edge-mirror.ts";
 import type { FleetTlsCenter } from "./fleet/center.ts";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
-import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
+
 import { canonicalRoot, jsonRpcMethodContracts, workspaceId } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./protocol/version.ts";
@@ -130,12 +126,12 @@ import {
 } from "./repo-cell.ts";
 import { openRepoCell } from "./repo-cell-open.ts";
 import { type RepoModeAdmission } from "./repo-mode.ts";
-import type { RuntimeLauncher } from "./runtime-spawn.ts";
+
 import { makeScheduleScheduler } from "./schedule-scheduler.ts";
 import type { DaemonAuthenticationContext, KeycloakCenterAuthority } from "./transport/auth-context.ts";
 import type { DaemonHostApiContext, DaemonHostRegistryContext } from "./daemon-host-context.ts";
 import { openRemoteProxyManager } from "./remote-proxy.ts";
-import { credentialPort, type CredentialPort } from "./agent-runtime-credential-port.ts";
+import { credentialPort } from "./agent-runtime-credential-port.ts";
 import { runtimeInstanceCredentialService } from "./runtime-instance-credentials.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
 import { openRuntimeRecoveryWatch, runReplicaConfirmedRound } from "./runtime-recovery-watch.ts";
@@ -143,60 +139,17 @@ import { openDecisionProviderService } from "./decision-provider.ts";
 import { openDecisionPointExecutorFactory } from "./decision-point-executor.ts";
 import { createNodeRetirement } from "./fleet/node-retirement.ts";
 import { AccessAdminService } from "./access-admin-service.ts";
-import type { EdgeJoinSshTunnelManager } from "./fleet/edge-join-ssh-tunnel.ts";
-import type { createEdgeJoinStore } from "./fleet/edge-join.ts";
+
 import { accessAdminOperations } from "./protocol/daemon-protocol.contract.ts";
 import { createIdentityManagement } from "./authorization-provider.ts";
 import { createIdentitySession } from "./authorization-provider.ts";
-import type { SkillEvalRunner } from "./skill-eval-runner.ts";
-import { openSkillEvalProduction, type SkillEvalProductionInput } from "./skill-eval-production.ts";
+
+import { openSkillEvalProduction } from "./skill-eval-production.ts";
 import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-sync.ts";
 import { createFleetReplicaAccessTokenReader } from "./fleet/replica-token.ts";
 import type { FleetVersionWarning } from "./fleet/peer.ts";
 import { migrateFleetEdgeWorkspace } from "./fleet-edge-workspace-migration.ts";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
-
-export interface DaemonHostOpenInput {
-  readonly storage?: Readonly<Record<string, DaemonStorageConfig>>;
-  readonly daemonId: string;
-  readonly userRoot: string;
-  readonly endpoint?: string;
-  readonly startedAt?: string;
-  readonly now?: () => string;
-  readonly runtimeLaunch?: RuntimeLauncher;
-  readonly runtimeInstanceCapacities?: Readonly<Record<string, number>>;
-  readonly runtimeDiscover?: () =>
-    | readonly RuntimeInstallationWitness[]
-    | Promise<readonly RuntimeInstallationWitness[]>;
-  readonly runtimeEnv?: NodeJS.ProcessEnv;
-  /** Reads the operator's GitHub token for a launch; tests substitute it so no host login is read. */
-  readonly runtimeGithubToken?: (environment: NodeJS.ProcessEnv) => Promise<string | null>;
-  readonly runtimeCredentialPort?: CredentialPort;
-  readonly authenticateExecutionPrincipal?: (
-    credential: string,
-  ) => Promise<import("./runtime-execution-credential.ts").RuntimeExecutionPrincipal>;
-  readonly runtimeFile?: string;
-  readonly shutdownRequested?: () => boolean;
-  readonly recordLifecycle?: DaemonLifecycleRecorder;
-  readonly buildDraining?: () => boolean;
-  readonly onRepoStatusChange?: () => void;
-  /** One persisted transport record per completed request, shared with local JSON-RPC traffic. */
-  readonly recordTraffic?: (entry: import("./conn-log.ts").DaemonTrafficLogEntry) => void;
-  /** The daemon's one OIDC session service; the transport binds requests through the same instance. */
-  readonly oidc?: IdentitySessionPort;
-  /** The managed identity center's lifecycle; a hermetic host substitutes it to stage its resume. */
-  readonly managedRbac?: Pick<IdentityManagementPort, "run" | "resume" | "stop" | "loginListenerCertificate">;
-  readonly attachTimeoutMs?: number;
-  readonly openCell?: (
-    input: Parameters<typeof openRepoCell>[0] & { readonly onStatus?: (status: RepoCellStatus) => void },
-  ) => Promise<RepoCell>;
-  readonly sshTunnels?: EdgeJoinSshTunnelManager;
-  readonly edgeJoins?: ReturnType<typeof createEdgeJoinStore>;
-  /** Optional deployment overrides; the daemon composes the default catalog, policy, runtime and slot queue. */
-  readonly skillEval?: Omit<SkillEvalProductionInput, "userRoot" | "runner">;
-  /** Test/deployment replacement for the composed runner. */
-  readonly skillEvalRunner?: SkillEvalRunner;
-}
 
 export async function openDaemonHost(input: DaemonHostOpenInput): Promise<DaemonHost> {
   input = { ...input, storage: input.storage ?? readDaemonStorageConfig(input.userRoot) };

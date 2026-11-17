@@ -22,7 +22,7 @@ import {
 import { fleetEdgeBackoffMs } from "./fleet-edge-task.ts";
 import { cellErrorCode } from "./repo-cell-errors.ts";
 import { scheduleOutcomeFromRuntime } from "./schedule-runtime-outcome.ts";
-import type { RepoCell, RepoCellBinding } from "./repo-cell.ts";
+import type { RepoCell, RepoCellBinding } from "./repo-cell-types.ts";
 
 type TimerHandle = ReturnType<typeof setTimeout>;
 type ScheduleAction = Readonly<Record<string, unknown>> & { readonly kind: string };

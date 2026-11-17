@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import type { RepoCellApiContext } from "../src/repo-cell-types.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
@@ -8,7 +9,7 @@ import path from "node:path";
 import type { DecisionProjectionRow } from "@harness-anything/kernel";
 import { dispatchRead } from "../src/repo-cell-command.ts";
 import type { DecisionListFilters } from "@harness-anything/kernel";
-import { createRepoCellApi, type RepoCellApiContext } from "../src/repo-cell-api.ts";
+import { createRepoCellApi } from "../src/repo-cell-api.ts";
 
 function decision(decisionId: string): DecisionProjectionRow {
   return {

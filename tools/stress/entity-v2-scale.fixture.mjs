@@ -5,7 +5,7 @@ import { Session } from "node:inspector/promises";
 import { tmpdir, loadavg, availableParallelism, cpus, totalmem, freemem } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { cli, git } from "../../packages/cli/test/daemon-multi-repo-lifecycle-cli.fixtures.ts";
+import { cli, git } from "../../packages/cli/test/cli-process.fixture.mjs";
 import { percentile } from "../measure-cli-command-timing.mjs";
 
 export const frame = (type, value) =>

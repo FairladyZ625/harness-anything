@@ -21,7 +21,7 @@ import { actorHint, runtimeSessionDispatchRole } from "./repo-cell-proof.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
 import { leaseTtlMs, type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import { reviewerArtifactsForReview } from "./reviewer-artifact-publication.ts";
 
 const REVISION_CRITERION = "task-lifecycle-contract-support/revisionIssues";

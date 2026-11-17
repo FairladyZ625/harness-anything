@@ -1,6 +1,6 @@
 import { unbindDaemonRepo, type InvalidDaemonRegistryRepo } from "@harness-anything/kernel";
 import { hostCodedError } from "./daemon-host-errors.ts";
-import { type RepoCell, type RepoCellStatus } from "./repo-cell.ts";
+import { type RepoCell, type RepoCellStatus } from "./repo-cell-types.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 
 export function requiredCell(

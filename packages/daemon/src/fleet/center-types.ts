@@ -1,6 +1,6 @@
 import type { ReplicaDeliveryLease } from "@harness-anything/storage";
 import { type WriteReceiptDraft as WriteReceipt } from "@harness-anything/kernel";
-import type { DaemonHost } from "../daemon-host.ts";
+import type { DaemonHost } from "../daemon-host-types.ts";
 import type { WriterEpochLease } from "@harness-anything/storage";
 import { type FleetBlob, type FleetDescriptor, type FleetFrameV1 } from "./command-protocol.ts";
 import type { ReplicationSlotKey, ReplicaDeliveryKey } from "@harness-anything/storage";

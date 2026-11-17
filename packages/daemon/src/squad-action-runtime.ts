@@ -14,7 +14,7 @@ import {
   storedAgentDeclarationOutcome,
   validateAgentEntityAction,
 } from "./agent-entities.ts";
-import type { RepoCellRuntimeContext } from "./repo-cell-action-context.ts";
+import type { RepoCellRuntimeContext } from "./repo-cell-types.ts";
 import { cellCriterionError } from "./repo-cell-errors.ts";
 import type { EntityActionCatalogRunner } from "./entity-action-catalog-executor.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";

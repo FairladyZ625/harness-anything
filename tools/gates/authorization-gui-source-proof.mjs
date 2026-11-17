@@ -1,5 +1,5 @@
-// Non-main GUI client & higher-order callback source-proof (dec_7E44897ECDCAEF2B92EC66A260/CH1).
-// Resolves direct RPC/IPC transport calls and higher-order callback runners in packages/gui/src/{renderer,preload,browser}
+// GUI client, main forwarding & higher-order callback source-proof (dec_7E44897ECDCAEF2B92EC66A260/CH1).
+// Resolves direct RPC/IPC transport calls and higher-order callback runners in packages/gui/src/{renderer,preload,browser,main}
 // to their concrete ActionDeclaration and daemon protocol route, failing closed on unproven callbacks.
 import fs from "node:fs";
 import path from "node:path";
@@ -7,6 +7,7 @@ import ts from "typescript";
 import { allDaemonProtocolMethods } from "../../packages/daemon/src/protocol/daemon-protocol-commands.ts";
 import { daemonGuiStreamFacets } from "../../packages/daemon/src/protocol/daemon-protocol.contract.ts";
 import { isFunctionNode, unwrap } from "./authorization-flow-graph.mjs";
+import { resolvedGuiMainForwarding } from "./authorization-gui-main-source-proof.mjs";
 
 const nodeStarts = new WeakMap();
 
@@ -21,7 +22,7 @@ export function nodeStart(node) {
 
 export const sourceSite = (graph, node) => `${graph.fileOf(node)}:${nodeStart(node)}:${node.end}`;
 export const guiClientSource = (graph, node) =>
-  /^packages\/gui\/src\/(?:renderer|preload|browser)\//u.test(graph.fileOf(node));
+  /^packages\/gui\/src\/(?:renderer|preload|browser|main)\//u.test(graph.fileOf(node));
 
 export function declaredPortKey(graph, node) {
   const declaration = graph.callDeclaration(node);
@@ -1005,6 +1006,16 @@ function resolveGuiCallPortKey(graph, callExpr) {
 
 function walkGuiCall(ctx, callExpr, env, depth) {
   const portKey = resolveGuiCallPortKey(ctx.graph, callExpr);
+  const mainForward = resolvedGuiMainForwarding(ctx.graph, callExpr, portKey, ctx.descriptors, (method, payload) =>
+    resolveGuiRpcMethod(ctx.graph, method, payload, env, ctx.descriptors),
+  );
+  if (mainForward) {
+    ctx.reachesDaemonTransport ||= mainForward.reachesDaemonTransport;
+    ctx.hasUnprovenCallback ||= mainForward.hasUnprovenCallback;
+    ctx.viaCallbackParam ||= mainForward.viaCallbackParam;
+    ctx.rawBindings.push(...mainForward.bindings.map((binding) => ({ ...binding, depth })));
+    return;
+  }
   if (portKey === "packages/gui/src/renderer/api-client-invoke.ts#invoke") {
     ctx.reachesDaemonTransport = true;
     const method = evalGuiString(ctx.graph, callExpr.arguments[0], env);
@@ -1041,7 +1052,9 @@ function walkGuiCall(ctx, callExpr, env, depth) {
       }
     }
   }
-  walkGuiInjectedParam(ctx, callExpr, env, depth);
+  // Main injects native desktop I/O receivers, not renderer callback runners. Concrete bodies
+  // and callbacks are still traversed; typed daemon bridge/RPC leaves above fail closed.
+  if (!ctx.graph.fileOf(callExpr).startsWith("packages/gui/src/main/")) walkGuiInjectedParam(ctx, callExpr, env, depth);
   walkGuiResolvedCallee(ctx, callExpr.expression, callExpr, env, depth);
 }
 
@@ -1063,7 +1076,7 @@ function walkGuiSubtree(ctx, root, env, depth) {
   });
 }
 
-/** Resolve daemon RPC or daemon-forwarding IPC actions reached by a non-main GUI callsite. */
+/** Resolve daemon RPC or daemon-forwarding IPC actions reached by a GUI callsite. */
 export function resolvedGuiClientBindings(graph, node, descriptors = []) {
   const empty = {
     bindings: [],
@@ -1072,6 +1085,14 @@ export function resolvedGuiClientBindings(graph, node, descriptors = []) {
     hasUnprovenCallback: false,
   };
   if (!ts.isCallExpression(node) || !guiClientSource(graph, node)) return empty;
+  const forwarding = resolvedGuiMainForwarding(
+    graph,
+    node,
+    declaredPortKey(graph, node),
+    descriptors,
+    (method, payload) => resolveGuiRpcMethod(graph, method, payload, new Map(), descriptors),
+  );
+  if (forwarding) return forwarding;
   const ctx = {
     graph,
     descriptors,
@@ -1110,7 +1131,7 @@ export function resolvedGuiClientBindings(graph, node, descriptors = []) {
   };
 }
 
-function listGuiClientTreeFiles(rootDir) {
+function listGuiClientTreeFiles(rootDir, includeMain) {
   const result = [];
   function walkDir(relDir) {
     const abs = path.join(rootDir, relDir);
@@ -1128,7 +1149,9 @@ function listGuiClientTreeFiles(rootDir) {
       }
     }
   }
-  for (const dir of ["packages/gui/src/renderer", "packages/gui/src/preload", "packages/gui/src/browser"]) walkDir(dir);
+  const dirs = ["packages/gui/src/renderer", "packages/gui/src/preload", "packages/gui/src/browser"];
+  if (includeMain) dirs.push("packages/gui/src/main", "packages/gui/src/api");
+  for (const dir of dirs) walkDir(dir);
   return result;
 }
 
@@ -1186,7 +1209,8 @@ function findGuiDirectCallbackSink(text, filePath) {
 
 export function guiCallbackCallerFiles(rootDir, seedFiles) {
   if (seedFiles.length === 0) return [];
-  const allFiles = listGuiClientTreeFiles(rootDir),
+  const includeMain = seedFiles.some((f) => f.startsWith("packages/gui/src/main/")),
+    allFiles = listGuiClientTreeFiles(rootDir, includeMain),
     fileSet = new Set(allFiles),
     texts = new Map(),
     forward = new Map(),

@@ -16,7 +16,7 @@ import {
 } from "@harness-anything/kernel";
 import { readDispatchLiveIndex } from "./dispatch-stream.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
-import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
+import type { RepoCellActionContext } from "./repo-cell-types.ts";
 
 interface TaskMutation {
   readonly type: TaskEventV1["type"];

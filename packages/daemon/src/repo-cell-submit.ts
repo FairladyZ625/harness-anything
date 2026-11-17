@@ -18,7 +18,7 @@ import {
   isAgentRuntimeEvent,
   type AgentRuntimeEventV1,
 } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoCellContinuationWrite, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { readSubmissionAdmission } from "./submission-admission.ts";
 import { createSubmissionArtifactReader } from "./submission-artifacts.ts";

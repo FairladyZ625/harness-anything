@@ -180,6 +180,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           G38_PHASE: legacy
+          NODE_OPTIONS: --max-old-space-size=4096
         run: node tools/run-manifest-gates.mjs --workflow-job quick-gates --github-groups --parallel 4 --exclude typecheck
   fast-contract:
     name: fast-contract (${{ matrix.partition }})

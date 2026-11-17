@@ -1,7 +1,7 @@
 /** @daemon-transport-authority Transport-derived actor binding for local sessions and fleet nodes. */
 import { actionDeclarations } from "@harness-anything/kernel";
 import { hostCodedError } from "./daemon-host-errors.ts";
-import { type RepoCellBinding } from "./repo-cell.ts";
+import { type RepoCellBinding } from "./repo-cell-types.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import type { RuntimeOperatorSession } from "./runtime-online-binding.ts";
 import { withWriterEpochFenceDescriptor, type WriterEpochFenceDescriptor } from "@harness-anything/storage";
