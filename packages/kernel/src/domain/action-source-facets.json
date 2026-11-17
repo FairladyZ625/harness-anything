@@ -145,6 +145,24 @@
         "route": "task.submit",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/ipc-handlers.ts#registerHarnessIpcHandlers:5962930d2276bc85a0442ce47be53e01",
+        "route": "task.submit",
+        "role": "client",
+        "port": "packages/gui/src/api/service-bridge.ts#GuiServiceBridge.invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/local-composition-root.ts#request:38ae245f20c60c7081c99b35ffcecf6d",
+        "route": "task.submit",
+        "role": "client",
+        "port": "packages/gui/src/main/local-composition-root.ts#request.invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/local-main-controls.ts#addLocalMainControls.invoke.result:b26c933742e8f0b55938b6d6a48bd009",
+        "route": "task.submit",
+        "role": "client",
+        "port": "packages/gui/src/api/service-bridge.ts#GuiServiceBridge.invoke"
       }
     ]
   },
@@ -1946,6 +1964,21 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.host.manageRbac:97ac26b82a689aef98ce00ee87bc497b",
         "route": "rbac-bootstrap",
         "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/oidc-auth-ipc.ts#registerOidcAuthIpc:39fc2d6d9a21ff2b49561a05ac72cc28",
+        "route": "rbac-bootstrap",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/oidc-auth-ipc.ts#requireSuccessfulAuthReply:a0b68b8febf3373d61fde184e686413e",
+        "route": "rbac-bootstrap",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/oidc-auth-ipc.ts#embeddedBrowserLogin.server:af525759ee4aef940f5d6046eab885b4",
+        "route": "rbac-bootstrap",
+        "role": "support"
       }
     ],
     "concurrency": {
@@ -12918,6 +12951,141 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/runtime-spawn-types.ts#RuntimeProcess.terminate"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/agent-runtime-ipc.ts#registerAgentRuntimeIpc:a1c8b9028d9e0fa7e105b6ec7d48abff",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/agent-runtime-ipc.ts#registerAgentRuntimeIpc.detach:a1c8b9028d9e0fa7e105b6ec7d48abff",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/artifact-open-ipc.ts#openMaterializedCopy.sha:f985ef049b0e0370f71bcbde6731d9e7",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/artifact-open-ipc.ts#openMaterializedCopy:a106b38a2de1f502b4f88c19af6fd79a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/desktop-first-run.ts#ensureShim:bcc4d8730d24fe47e2643cf1410a3aa7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/desktop-first-run.ts#ensureShellPath:a2113125a6d2b7358c754941878e1e3c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/desktop-first-run.ts#serviceInstallFailure.result:f9245357c763b078d0a167992e01aaf5",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/gui/src/main/desktop-first-run.ts#serviceInstallFailure.run"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/electron-main.ts#createTrustedMainWindow:c8c90eee688f472bb00f6d49c8787ae7",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/local-composition-root.ts#request:c608ebc31eb68140235e75ba222ae194",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/local-composition-root.ts#repoTarget:0297f56b364c7b46df63269b919ddf5b",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/local-doc-ipc.ts#registerLocalDocIpc.resources:4b0b6336aaf340dfb5833c9776738197",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es5.d.ts#ObjectConstructor.create"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/local-doc-ipc.ts#writeLocalDocument:4c3aa1ff2ffb484ef99480c8bdac88dd",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.writeFile"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/login-webview-boundary.ts#createLoginWebviewGrants.unbindGuestWebContents:c0e0d1cdf99bac93b5267115b20b2a8c",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/login-webview-boundary.ts#createLoginWebviewGrants.release:ece57aef0795504bde7b2cc20da4c327",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/login-webview-proxy.ts#openLoginProxy.proxy.onData:9622a5c0b3e8c0e10d4ea2a4893fddc9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/oidc-auth-ipc.ts#embeddedBrowserLogin.server:ad07ebe4713024ae0a7fb31b381d7418",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/gui/src/main/oidc-auth-ipc.ts#embeddedBrowserLogin.settle"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/oidc-auth-ipc.ts#embeddedBrowserLogin.server:6a805cf26df041f0465f91ce5c5ecf0b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/gui/src/main/oidc-auth-ipc.ts#embeddedBrowserLogin.settle"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/project-windows.ts#createProjectWindowRegistry.newWindow:b1c6a25e0b29fcede3d27feedd620aa5",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/update-service.ts#registerUpdaterIpc:45e05236e45382f63da38e010fc43d92",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/gui/src/main/update-service.ts#registerUpdaterIpc.publish"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/update-service.ts#registerUpdaterIpc:01be381df106a86a6f5b473706589893",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/gui/src/main/update-service.ts#registerUpdaterIpc.publish"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/update-service.ts#registerUpdaterIpc:a195083d94f25146f4c14b2636dc5ad7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/gui/src/main/update-service.ts#registerUpdaterIpc.publish"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/update-service.ts#registerUpdaterIpc:5cd86ff4e83c704e4e9bae20792999e7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/gui/src/main/update-service.ts#registerUpdaterIpc.publish"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/update-service.ts#registerUpdaterIpc:d0d3938c5f4da268616e8c0167242be5",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/gui/src/main/update-service.ts#registerUpdaterIpc.publish"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/update-service.ts#registerUpdaterIpc:45e05236e45382f63da38e010fc43d92:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/gui/src/main/update-service.ts#registerUpdaterIpc.publish"
       }
     ],
     "technical": true
@@ -13157,6 +13325,12 @@
         "route": "repo-bootstrap",
         "role": "client",
         "port": "packages/gui/src/preload/electron-preload.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/local-composition-root.ts#bootstrapLocalRepository:38ae245f20c60c7081c99b35ffcecf6d",
+        "route": "repo-bootstrap",
+        "role": "client",
+        "port": "packages/gui/src/main/local-composition-root.ts#bootstrapLocalRepository.invoke"
       }
     ],
     "execution": {
