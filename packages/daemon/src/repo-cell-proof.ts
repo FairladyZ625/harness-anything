@@ -447,11 +447,20 @@ export async function proofFor(
       (typeof command.source === "object" &&
         command.source.kind === "node" &&
         (!session?.azp || !session.scopes?.includes("consent")))
-    )
-      throw cellCodedError(
+    ) {
+      const retry = `ha task review-consent ${command.taskId} --execution-id ${command.executionId} --review-id ${command.reviewId}`;
+      throw cellCriterionError(
         "human_confirmation_required",
-        "Consent requires a personal session and a client granted the consent scope.",
+        "Consent requires a personal session and a client granted the consent scope. " +
+          `On the center machine, open this repository's canonical checkout in a terminal outside an agent runtime, ` +
+          `sign in with your personal session, then run: ${retry}. ` +
+          "An edge GUI login uses the same node client; signing in again there does not grant consent scope. " +
+          "A remote client must be explicitly granted consent scope by the identity administrator.",
+        "consent",
+        "task-lifecycle-review-transitions/consent.validate",
+        [retry],
       );
+    }
     // Consent confirms that this cut's reviews concluded: an approved review beside a lane that is
     // still queued or running is not that confirmation, and the owner would merge on it (task_cffec8b1,
     // PR #3922). Settlement is the dispatch's own terminal verdict — the same signal `--wait` uses.
