@@ -37,7 +37,7 @@ export function installAdapter(config) {
   const receiveBootstrap = ({ port, bootstrap }) => {
     if (bootstrap?.schema === "harness-repo-writer-bootstrap/v1") port.on("message", received);
   };
-  if (/\/repo-orchestration-worker\.(?:ts|js)$/u.test(process.argv[1] ?? ""))
+  if (/[\\/]repo-orchestration-worker\.(?:ts|js)$/u.test(process.argv[1] ?? ""))
     parentPort.on("message", receiveBootstrap);
   const peers = new WeakMap(),
     targets = new WeakMap(),

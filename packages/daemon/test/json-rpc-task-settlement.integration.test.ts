@@ -325,6 +325,8 @@ test("Decision full vertical golden rebuilds proposal, prose, claim, relation, c
     // so an unmaterialized generated cache is not a gap in what was served and must not
     // leak through as a permanent hard-fail warning on an otherwise fully-answered read.
     assert.deepEqual(graph.warnings, []);
+    // Cold-cache rebuild owns the cache file only after the live follower has drained and closed.
+    await cell.close(); cell = undefined;
     const store = makeTaskEventReader({ repoId: "decision-vertical", rootDir }), projection = makeTaskProjection({ rootDir, eventStore: store }), before = { decision: projection.readDecision(decisionId).decision, document: projection.readDocument(logical).document, graph: projection.readDecisionGraph() }; projection.close(); rmSync(projection.path); projection.rebuild(); assert.deepEqual({ decision: projection.readDecision(decisionId).decision, document: projection.readDocument(logical).document, graph: projection.readDecisionGraph() }, before); projection.close();
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
