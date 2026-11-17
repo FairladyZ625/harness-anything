@@ -1,16 +1,25 @@
 import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import { consumeKnownError } from "@harness-anything/kernel";
 import {
+  compileDecisionWrite,
   decisionMachineDigest,
   deriveRelationId,
   readFrontmatter,
   readScalar,
   stableStringify,
+  timestamp,
+  type AuthorizationDecision,
   type DecisionAmendableSnapshot,
   type DecisionListFilters,
   type DecisionProjectionRow,
+  type EntityUpsertBundle,
   type TaskProjection,
+  type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
+import type { makeDecisionService } from "../decision-service.ts";
+import type { CommandAction, CommandBinding } from "./command-ports.ts";
+import { preparedEntityReport, previewReceipt } from "./entity-action-catalog-receipts.ts";
+import { reject } from "./entity-action-write-helpers.ts";
 
 interface DecisionReadService {
   readonly show: (selector: string) => {
@@ -409,4 +418,100 @@ function scopeStrings(value: unknown, field: string): readonly string[] {
   if (values.some((entry) => !entry.trim()) || new Set(values).size !== values.length)
     fail(`${field} must contain unique non-empty strings.`);
   return values;
+}
+
+export function decisionApproval(
+  action: Readonly<Record<string, unknown>>,
+  binding: CommandBinding,
+): Parameters<typeof compileDecisionWrite>[0]["approval"] {
+  if (action.kind === "decision-amend") return undefined;
+  if ([action.consentBy, action.consentAt, action.consentChannel].every((value) => value === undefined))
+    return undefined;
+  if (
+    action.kind !== "decision-accept" &&
+    action.kind !== "decision-reject" &&
+    action.kind !== "decision-defer" &&
+    action.kind !== "decision-override-review"
+  )
+    reject(
+      "invalid_command",
+      "Human consent is only valid for Decision acceptance, rejection, deferral, or review override.",
+    );
+  if (action.consentBy !== binding.actor.principal.personId)
+    reject("actor_unauthorized", "Human consent must name the authenticated principal person.");
+  if (
+    typeof action.consentAt !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u.test(action.consentAt) ||
+    !Number.isFinite(Date.parse(action.consentAt)) ||
+    !["chat", "cli", "gui"].includes(String(action.consentChannel))
+  )
+    reject("invalid_command", "Human consent requires an ISO UTC consentAt and a chat, cli, or gui consentChannel.");
+  return {
+    approvedBy: binding.actor.principal.personId,
+    at: action.consentAt,
+    channel: action.consentChannel as "chat" | "cli" | "gui",
+  };
+}
+
+export function decisionAmendmentConsent(
+  action: Readonly<Record<string, unknown>>,
+  decision: ReturnType<ReturnType<typeof makeDecisionService>["show"]>["decision"],
+  binding: CommandBinding,
+) {
+  const values = [action.consentBy, action.consentAt, action.consentChannel],
+    supplied = values.some((value) => value !== undefined),
+    required = decision.state === "in_effect";
+  if (!supplied && !required) return undefined;
+  if (values.some((value) => value === undefined))
+    reject("invalid_command", "Decision amendment consent requires --consent-by, --consent-at, and --consent-channel.");
+  if (
+    action.consentBy !== binding.actor.principal.personId ||
+    action.consentBy !== decision.proposer.principal.personId
+  )
+    reject("actor_unauthorized", "Decision amendment consent must come from the authenticated proposal owner.");
+  if (
+    typeof action.consentAt !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u.test(action.consentAt) ||
+    !timestamp(action.consentAt) ||
+    !["chat", "cli", "gui"].includes(String(action.consentChannel))
+  )
+    reject(
+      "invalid_command",
+      "Decision amendment consent requires an ISO UTC consentAt and a chat, cli, or gui consentChannel.",
+    );
+  return {
+    consentBy: action.consentBy,
+    consentAt: action.consentAt,
+    consentChannel: action.consentChannel as "chat" | "cli" | "gui",
+    recordedBy: binding.actor,
+  };
+}
+
+export function entityPreview(
+  action: CommandAction,
+  bundle: EntityUpsertBundle,
+  revision: number,
+  authorizationDecision: AuthorizationDecision,
+): WriteReceipt {
+  const claim = bundle.event.payload.declarationDocumentClaim;
+  return {
+    ...previewReceipt(
+      bundle.event.opId,
+      revision,
+      JSON.stringify({
+        report: preparedEntityReport(action),
+        eventType: bundle.event.type,
+        targetRevision: bundle.event.workspaceRevision,
+        declaration: claim,
+        writePlan: bundle.plan,
+        dryRun: true,
+      }),
+      authorizationDecision,
+    ),
+    unmetCriteria: [],
+    effects: [],
+    updatedProjection: null,
+    rejectionExplanation: null,
+    nextActions: ["Remove --dry-run to publish this Agent declaration through the canonical event stream."],
+  };
 }

@@ -8,7 +8,7 @@ import path from "node:path";
 import { createRepoCellActionContext } from "../../src/repo-cell-action-context.ts";
 import { createRepoCellApi } from "../../src/repo-cell-api.ts";
 import { makeRepoCellSettingsState } from "../../src/repo-cell-settings-state.ts";
-import { makeEntityActionCatalogExecutor } from "../../src/entity-action-catalog-executor.ts";
+import { makeEntityActionCatalogExecutor } from "@harness-anything/application/commands";
 import { makeAgentActionRuntime, makeSquadActionRuntime } from "../../src/squad-action-runtime.ts";
 import { makePersonActionRuntime } from "../../src/person-action-runtime.ts";
 import { makeScheduleActionRuntime } from "../../src/schedule-action-runtime.ts";

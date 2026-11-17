@@ -7,7 +7,7 @@ import {
   sha256Bytes,
   type ArtifactDelivery,
 } from "@harness-anything/kernel";
-import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
+import type { SubmissionArtifactCell } from "./command-ports.ts";
 
 /** Anchors name this task's artifacts package-relative; the frozen cut stores the full task-package path. */
 export function submissionArtifactPath(packagePath: string, path: string): string {
@@ -22,7 +22,7 @@ type SubmissionArtifact = {
 };
 
 /** One read operation owns its acceptance index; no acceptance state survives the operation. */
-export function createSubmissionArtifactReader(cell: Pick<RepoCellOperationalContext, "store" | "cellCodedError">) {
+export function createSubmissionArtifactReader(cell: SubmissionArtifactCell) {
   const acceptances = new Map<
     number,
     { readonly opId: string; readonly blobs: ReadonlyMap<string, string | undefined> } | null
@@ -82,7 +82,7 @@ export function createSubmissionArtifactReader(cell: Pick<RepoCellOperationalCon
 
 /** Resolve only center-accepted bytes; current workspace files are never evidence for a historical cut. */
 export function readSubmissionArtifact(
-  cell: Pick<RepoCellOperationalContext, "store" | "cellCodedError">,
+  cell: SubmissionArtifactCell,
   packagePath: string,
   path: string,
   revision: number,
@@ -92,7 +92,7 @@ export function readSubmissionArtifact(
 }
 
 export function readSubmissionArtifactRange(
-  cell: Pick<RepoCellOperationalContext, "store" | "cellCodedError">,
+  cell: SubmissionArtifactCell,
   packagePath: string,
   path: string,
   revision: number,
@@ -136,7 +136,7 @@ const verifiedContent = new Map<string, "utf8" | "base64">();
 
 /** Verify a frozen claim through the storage port's bounded range reads. */
 export function verifyAcceptedContent(
-  cell: Pick<RepoCellOperationalContext, "store" | "cellCodedError">,
+  cell: SubmissionArtifactCell,
   blobSha256: string,
   size: number,
 ): "utf8" | "base64" {
@@ -184,7 +184,7 @@ export function verifyAcceptedContent(
 }
 
 function resolveSubmissionArtifact(
-  cell: Pick<RepoCellOperationalContext, "store" | "cellCodedError">,
+  cell: SubmissionArtifactCell,
   packagePath: string,
   path: string,
   revision: number,

@@ -9,7 +9,7 @@ import {
   readArtifactDescriptor,
   type ArtifactEntityCurrent,
   type ArtifactSourceResolution,
-} from "@harness-anything/application";
+} from "@harness-anything/application/internal/artifact-entity-service";
 import {
   compiledRelationDirections,
   artifactObservationId,

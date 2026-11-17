@@ -21,7 +21,7 @@ import {
 import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoCellContinuationWrite, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { readSubmissionAdmission } from "./submission-admission.ts";
-import { createSubmissionArtifactReader } from "./submission-artifacts.ts";
+import { createSubmissionArtifactReader } from "@harness-anything/application/internal/commands/submission-artifacts.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { dispatchInReviewCutReview } from "./task-review-dispatch.ts";

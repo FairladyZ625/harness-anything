@@ -14,11 +14,11 @@ import {
 import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import type { RepoTaskAction, RepoCellBinding } from "./repo-cell-types.ts";
 import { applyPreparedTaskCreate, prepareTaskCreateAt, type PreparedTaskCreate } from "./repo-cell-task-create.ts";
-import { relationDocumentUpdates } from "./entity-action-relation.ts";
+import { relationDocumentUpdates } from "@harness-anything/application/internal/commands/entity-action-relation.ts";
 import { relationDirectionRegistry } from "./artifact-entity-action.ts";
-import { noChanges, reject } from "./entity-action-write-helpers.ts";
+import { noChanges, reject } from "@harness-anything/application/internal/commands/entity-action-write-helpers.ts";
 
-import { readTodos, todoRelations } from "./todo-read.ts";
+import { readTodos, todoRelations } from "@harness-anything/application/internal/queries/todo-read.ts";
 import { todoSoftLimitWarnings } from "./todo-soft-limit.ts";
 
 export function runTodoAction(

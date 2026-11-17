@@ -1,4 +1,4 @@
-import type { RepoCell, RepoTaskAction } from "./repo-cell-types.ts";
+import type { CommandAction, VerticalKindReadPort } from "./command-ports.ts";
 
 type DeclarationRead = {
   readonly declaration: { readonly entityKinds: readonly unknown[] };
@@ -13,15 +13,15 @@ type DeclarationRead = {
  * center's judgement, made when the fenced command runs.
  */
 export async function resolveVerticalKindCommandAction(
-  cell: RepoCell,
-  action: RepoTaskAction,
-): Promise<RepoTaskAction> {
+  cell: VerticalKindReadPort,
+  action: CommandAction,
+): Promise<CommandAction> {
   if (!isFacade(action)) return action;
   const current = (await cell.read("repo.vertical.declaration.read")) as unknown as DeclarationRead;
   return { ...action, expectedVersion: kindFence(current, String(action.kindId ?? "")) };
 }
 
-function isFacade(action: RepoTaskAction): boolean {
+function isFacade(action: CommandAction): boolean {
   return (
     ["vertical-kind-upsert", "vertical-kind-publish-schema", "vertical-kind-retire"].includes(action.kind) &&
     !("expectedVersion" in action)

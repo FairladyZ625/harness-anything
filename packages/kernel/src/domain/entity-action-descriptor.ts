@@ -422,3 +422,50 @@ export function withDerivedActionReturns(descriptor: EntityActionContract): Enti
   assertEntityActionDescriptor(derived);
   return Object.freeze(derived);
 }
+
+/**
+ * Resolves declared follow-up guidance entries for an executed entity action receipt.
+ */
+export function actionReceiptGuidance(
+  action: Readonly<{ readonly returns: Pick<ActionReturnsContract, "guidance"> }>,
+  values: Readonly<Record<string, unknown>>,
+): readonly ReceiptGuidanceContractEntry[] {
+  return Object.freeze(
+    action.returns.guidance
+      .filter((entry) => Object.values(entry.args).every((argument) => argumentAvailable(argument, values)))
+      .map((entry) => resolveGuidanceEntry(entry, values)),
+  );
+}
+
+function argumentAvailable(argument: ReceiptGuidanceArgument, values: Readonly<Record<string, unknown>>): boolean {
+  if (typeof argument !== "string") return true;
+  return [...argument.matchAll(/\{([^{}]+)\}/gu)].every(([, field]) =>
+    ["string", "number", "boolean"].includes(typeof values[field as string]),
+  );
+}
+
+function resolveGuidanceEntry(
+  entry: ReceiptGuidanceContractEntry,
+  values: Readonly<Record<string, unknown>>,
+): ReceiptGuidanceContractEntry {
+  return Object.freeze({
+    kind: entry.kind,
+    args: Object.freeze(
+      Object.fromEntries(Object.entries(entry.args).map(([field, value]) => [field, resolveArgument(value, values)])),
+    ),
+    ...(entry.when ? { when: entry.when } : {}),
+  });
+}
+
+function resolveArgument(
+  argument: ReceiptGuidanceArgument,
+  values: Readonly<Record<string, unknown>>,
+): ReceiptGuidanceArgument {
+  if (typeof argument !== "string") return argument;
+  return argument.replaceAll(/\{([^{}]+)\}/gu, (_match, field: string) => {
+    const value = values[field];
+    if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean")
+      throw new Error(`Receipt guidance placeholder ${field} is not available.`);
+    return String(value);
+  });
+}

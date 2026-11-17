@@ -1,4 +1,5 @@
-import { consumeKnownError, type TaskIndexProjectionRow } from "@harness-anything/kernel";
+import { consumeKnownError, type CursorPage, type TaskIndexProjectionRow } from "@harness-anything/kernel";
+export type { CursorPage };
 
 export interface TaskIndexFilters {
   readonly status?: string;
@@ -222,12 +223,6 @@ function renderTreeRows(rows: readonly Record<string, unknown>[]): string {
       stack.push({ row: children[index]!, depth: depth + 1 });
   }
   return lines.join("\n");
-}
-
-export interface CursorPage {
-  readonly limit: number;
-  readonly cursor: string | null;
-  readonly nextCursor: string | null;
 }
 
 /** Shared keyset pagination for sorted in-memory reads. The complete ordering key

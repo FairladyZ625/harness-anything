@@ -1,10 +1,9 @@
-import type { DaemonTaskDispatchesPayload } from "./protocol/daemon-protocol-gui-types.ts";
-import type { RepoCellApiContext } from "./repo-cell-types.ts";
+import type { ApiPayloadQueryContext, TaskDispatchesPayload } from "./query-ports.ts";
 import { decisionReadSurfaces } from "@harness-anything/kernel";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 
 export function agendaQueryFromPayload(
-  context: RepoCellApiContext,
+  context: ApiPayloadQueryContext,
   payload: Readonly<Record<string, unknown>>,
 ): {
   readonly limit?: number;
@@ -40,9 +39,9 @@ export function agendaQueryFromPayload(
 }
 
 export function taskDispatchesPayloadFromCell(
-  context: RepoCellApiContext,
+  context: ApiPayloadQueryContext,
   payload: Readonly<Record<string, unknown>>,
-): DaemonTaskDispatchesPayload {
+): TaskDispatchesPayload {
   const advisorySurface = decisionReadSurfaces.find((surface) => surface === payload.advisorySurface);
   if (payload.advisorySurface !== undefined && advisorySurface === undefined)
     throw context.cellCodedError("invalid_command", "Task dispatch advisorySurface is invalid.");
@@ -73,7 +72,7 @@ export function taskDispatchesPayloadFromCell(
       limit,
       ...(agentId === undefined ? {} : { agentId }),
       ...(squadId === undefined ? {} : { squadId }),
-    } as DaemonTaskDispatchesPayload;
+    } as TaskDispatchesPayload;
   }
   if (!Array.isArray(payload.taskIds))
     return { ...advisory, taskId: context.requiredCellText(payload.taskId, "taskId") };

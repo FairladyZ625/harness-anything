@@ -379,9 +379,11 @@ type DaemonGuiReadDataMap = {
   readonly "repo.tasks.claimable": TaskClaimableResult;
   readonly "repo.tasks.list": DaemonTaskSnapshotListResult;
   readonly "repo.tasks.wip": DaemonTaskWipResult;
-  readonly "repo.works.index": ReturnType<typeof import("../work-read.ts").workIndexFromProjection>;
-  readonly "repo.work.topology.read": import("../work-topology-read.ts").WorkTopologyRead;
-  readonly "repo.works.briefs.read": import("../work-briefs-read.ts").WorkBriefsReadResult;
+  readonly "repo.works.index": ReturnType<
+    typeof import("@harness-anything/application/queries").workIndexFromProjection
+  >;
+  readonly "repo.work.topology.read": import("@harness-anything/application/queries").WorkTopologyRead;
+  readonly "repo.works.briefs.read": import("@harness-anything/application/queries").WorkBriefsReadResult;
   readonly "repo.projection.read": DaemonUseCaseProjectionResult;
   readonly "repo.entity.actions.explain": EntityActionExplanationSetV1;
   readonly "repo.entity.kinds.read": EntityKindCatalogV1;
@@ -394,12 +396,14 @@ type DaemonGuiReadDataMap = {
   readonly "repo.entity.locator.read": import("../entity-locator-read.ts").EntityLocatorReadV1;
   readonly "repo.entity.content.read": import("../entity-content-read.ts").EntityContentReadV1;
   readonly "repo.settings.read": import("./daemon-settings-read-types.ts").DaemonSettingsRead;
-  readonly "repo.reckoning.signals.read": import("../reckoning-signals.ts").ReckoningResult & { readonly ok: true };
+  readonly "repo.reckoning.signals.read": import("@harness-anything/application/queries").ReckoningResult & {
+    readonly ok: true;
+  };
   readonly "repo.policy.metadata.read": Awaited<
-    ReturnType<typeof import("../policy-metadata-read.ts").readPolicyMetadata>
+    ReturnType<typeof import("@harness-anything/application/queries").readPolicyMetadata>
   >;
   readonly "repo.workspace.summary.read": DaemonWorkspaceSummaryResult;
-  readonly "repo.workspace.scope.read": import("../workspace-scope-read.ts").WorkspaceScopeRead;
+  readonly "repo.workspace.scope.read": import("@harness-anything/application/queries").WorkspaceScopeRead;
   readonly "repo.agenda.read": DaemonAgendaResult;
   readonly "repo.triadic.relationGraph": DaemonRelationGraphResult;
   readonly "repo.decisions.list": DaemonDecisionListResult;

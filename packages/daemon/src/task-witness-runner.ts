@@ -12,7 +12,7 @@ import {
 import type { RepoCellApiContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { chainRepoCellWrite } from "./repo-cell.ts";
-import { centerWitnessAction } from "./task-witness-action.ts";
+import { centerWitnessAction } from "@harness-anything/application/internal/commands/task-witness-action.ts";
 import { witnessAdapters } from "./repo-cell-witness-adapters.ts";
 import { readTaskWitnessRequest, type TaskWitnessRequest } from "./task-witness-request.ts";
 

@@ -1,5 +1,5 @@
 import { isSameExecution, type CanonicalEventStore, type TaskProjection } from "@harness-anything/kernel";
-import type { EntityActionCatalogRuntimes } from "./entity-action-catalog-executor.ts";
+import type { EntityActionCatalogRuntimes } from "@harness-anything/application/internal/commands/entity-action-catalog-executor.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellActionContext, RepoCellRuntimeContext } from "./repo-cell-types.ts";

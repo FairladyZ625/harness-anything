@@ -2,19 +2,26 @@ import type * as Coverage from "../domain/decision-coverage.ts";
 import type { relationStates } from "../domain/relation-state.ts";
 
 import type { SessionProvenanceV1 } from "../domain/agent-runtime.ts";
-import type {
-  DecisionAmendmentV1,
-  DecisionContentPinV1,
-  DecisionDocumentState,
-  DecisionFulfillmentMode,
-  DecisionJudgmentConsentV1,
-  DecisionState,
+import {
+  decisionAcceptReviewReadiness,
+  decisionReviewContentDigest,
+  type DecisionAcceptReviewReadiness,
+  type DecisionAmendmentV1,
+  type DecisionContentPinV1,
+  type DecisionDocumentState,
+  type DecisionFulfillmentMode,
+  type DecisionJudgmentConsentV1,
+  type DecisionRelationLinkResolver,
+  type DecisionState,
 } from "../domain/decision-event.ts";
+import { parseEntityRef } from "../domain/entity-ref.ts";
 import type { EntityRelationRecord } from "../domain/entity-relation.ts";
+import type { DecisionReviewRequirement } from "../domain/settings.ts";
 import type { ActorIdentity } from "../domain/write-chain.contract.ts";
 import type { EntityVersion, RelationFreshness } from "../domain/entity-freshness.ts";
 import type { DecisionReadinessProjection } from "./projection-contracts.ts";
 import type { DecisionCapability } from "../domain/decision-board-projection.ts";
+import type { TaskProjection } from "./task-projection.ts";
 
 export interface DecisionBodyRow {
   readonly path: string;
@@ -139,4 +146,58 @@ export interface DecisionCoverageRow {
   readonly refutingFactRefs: readonly string[];
   readonly relationPath: readonly string[];
   readonly basisRevision: number;
+}
+
+/** Resolves one relation endpoint to the current canonical document path and a one-line label. */
+export function decisionRelationLinkResolver(
+  projection: Pick<TaskProjection, "readDecision" | "readFact" | "read">,
+): DecisionRelationLinkResolver {
+  const label = (text: string) => text.replace(/\s+/gu, " ").trim();
+  return (ref) => {
+    const parsed = parseEntityRef(ref);
+    if (!parsed) return null;
+    if (parsed.kind === "decision") {
+      const decision = projection.readDecision(parsed.id).decision;
+      return decision === null
+        ? null
+        : { path: `decisions/decision-${parsed.id}/decision.md`, label: label(decision.title) };
+    }
+    if (parsed.kind === "fact") {
+      const fact = projection.readFact(parsed.id).fact;
+      return fact === null ? null : { path: `facts/${parsed.id}.md`, label: label(fact.statement) };
+    }
+    if (parsed.kind === "task") {
+      const read = projection.read(parsed.id);
+      return read.packagePath === null || read.snapshot.task === null
+        ? null
+        : { path: `${read.packagePath}/INDEX.md`, label: label(read.snapshot.task.title) };
+    }
+    return null;
+  };
+}
+
+/**
+ * The review cut and accept readiness derived from Decision projection + review requirement.
+ */
+export function decisionReviewState(
+  row: DecisionProjectionRow,
+  requirement: DecisionReviewRequirement,
+): {
+  readonly currentReviewContentDigest: `sha256:${string}` | null;
+  readonly acceptReviewReadiness: DecisionAcceptReviewReadiness | null;
+} {
+  if (row.body === null) return { currentReviewContentDigest: null, acceptReviewReadiness: null };
+  const digest = decisionReviewContentDigest(row, row.body.body);
+  return {
+    currentReviewContentDigest: digest,
+    acceptReviewReadiness:
+      row.state === "proposed" ? decisionAcceptReviewReadiness(row, row.body.body, requirement) : null,
+  };
+}
+
+/**
+ * The canonical rationale for the awaits edge telling a proposal owner about unresolved review changes.
+ */
+export function decisionReviewAwaitRationale(decisionId: string): string {
+  return `consent: Decision ${decisionId} has review changes to resolve.`;
 }

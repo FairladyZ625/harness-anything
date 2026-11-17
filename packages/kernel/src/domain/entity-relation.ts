@@ -563,8 +563,8 @@ export const relationEndpointPolicy = {
 // Source identities and values for daemon policy declarations registered by EntityKindContract.
 export const daemonRelationPolicySources = [
   [
-    "policy:packages/daemon:packages/daemon/src/entity-action-relation.ts#readRelationCycleWitnessAtCut.readOutgoing.cut.limit:281836eca24c2eb78d50f8542399ca4d",
-    "packages/daemon/src/entity-action-relation.ts#readRelationCycleWitnessAtCut.readOutgoing.cut.limit",
+    "policy:packages/application:packages/application/src/commands/entity-action-relation.ts#readRelationCycleWitnessAtCut.readOutgoing.cut.limit:281836eca24c2eb78d50f8542399ca4d",
+    "packages/application/src/commands/entity-action-relation.ts#readRelationCycleWitnessAtCut.readOutgoing.cut.limit",
     "limit: 100,",
   ],
 ] as const;

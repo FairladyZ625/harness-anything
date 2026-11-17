@@ -17,7 +17,7 @@ import { compileEntityUpsert, sha256Bytes } from "@harness-anything/kernel";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { renderEvidencePayload } from "../src/repo-cell-evidence.ts";
+import { renderEvidencePayload } from "@harness-anything/application/queries";
 import { assertAgentDispatchable, prepareAgentEntityDelete, readAgentDeclaration } from "../src/agent-entities.ts";
 
 const binding = withPolicyGroup(

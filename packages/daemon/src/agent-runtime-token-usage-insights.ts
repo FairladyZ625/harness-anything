@@ -3,7 +3,7 @@ import {
   type AgentRuntimeTokenUsageOutcome,
 } from "@harness-anything/kernel/internal/domain/client-view-status.ts";
 import type { AgentRuntimeTokenUsageSessionRow } from "./agent-runtime-token-usage.ts";
-import type { WorkRuleTask } from "./workspace-scope-read.ts";
+import type { WorkRuleTask } from "@harness-anything/application/internal/queries/workspace-scope-read.ts";
 import { modelPriceOf, usageCostUsd } from "./agent-runtime-model-pricing.ts";
 
 /**

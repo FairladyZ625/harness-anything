@@ -104,7 +104,7 @@
         "output": "void",
         "failureCodes": ["actor_unauthorized"],
         "explain": "Enforce Decision reviewer independence from both the original proposer and every recorded amendment author under the repository reviewIndependence setting.",
-        "consumers": ["packages/daemon/src/entity-action-catalog-executor.ts"],
+        "consumers": ["packages/application/src/commands/entity-action-catalog-executor.ts"],
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/decision-event-document.ts#assertDecisionReviewerIndependent:a3be2e008f69cb263d361803e7ff6e19",
@@ -266,24 +266,24 @@
         ]
       },
       {
-        "id": "daemon/src/decision-surface-actions.ts#validateDecisionPackages",
-        "symbol": "packages/daemon/src/decision-surface-actions.ts#validateDecisionPackages",
+        "id": "application/src/commands/decision-surface-actions.ts#validateDecisionPackages",
+        "symbol": "packages/application/src/commands/decision-surface-actions.ts#validateDecisionPackages",
         "explain": "Repository scan adapter aggregating per-package `decision.md` frontmatter and projection parity diagnostics.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/decision-surface-actions.ts#validateDecisionPackages:716f3dfddac329d6340e8c0a98658329",
-            "route": "packages/daemon/src/decision-surface-actions.ts#validateDecisionPackages"
+            "candidateId": "judgment:packages/application:packages/application/src/commands/decision-surface-actions.ts#validateDecisionPackages:716f3dfddac329d6340e8c0a98658329",
+            "route": "packages/application/src/commands/decision-surface-actions.ts#validateDecisionPackages"
           }
         ]
       },
       {
-        "id": "daemon/src/decision-surface-actions.ts#validateOne",
-        "symbol": "packages/daemon/src/decision-surface-actions.ts#validateOne",
+        "id": "application/src/commands/decision-surface-actions.ts#validateOne",
+        "symbol": "packages/application/src/commands/decision-surface-actions.ts#validateOne",
         "explain": "Single-package `decision.md` authored-file vs canonical Decision projection consistency inspector.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/decision-surface-actions.ts#validateOne:75ec792826972c8f8c4c29875b185939",
-            "route": "packages/daemon/src/decision-surface-actions.ts#validateOne"
+            "candidateId": "judgment:packages/application:packages/application/src/commands/decision-surface-actions.ts#validateOne:75ec792826972c8f8c4c29875b185939",
+            "route": "packages/application/src/commands/decision-surface-actions.ts#validateOne"
           }
         ]
       }
@@ -1216,13 +1216,13 @@
         ]
       },
       {
-        "id": "daemon/src/work-topology-read.ts#assertSameCut",
-        "symbol": "packages/daemon/src/work-topology-read.ts#assertSameCut",
+        "id": "application/src/queries/work-topology-read.ts#assertSameCut",
+        "symbol": "packages/application/src/queries/work-topology-read.ts#assertSameCut",
         "explain": "Projection watermark/sourceRevision consistency guard across paged `workTopologyFromProjection` index reads while preserving partial-status warnings.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/work-topology-read.ts#assertSameCut:241a4c20b06e16318968b63a54937320",
-            "route": "packages/daemon/src/work-topology-read.ts#assertSameCut"
+            "candidateId": "judgment:packages/application:packages/application/src/queries/work-topology-read.ts#assertSameCut:241a4c20b06e16318968b63a54937320",
+            "route": "packages/application/src/queries/work-topology-read.ts#assertSameCut"
           }
         ]
       }

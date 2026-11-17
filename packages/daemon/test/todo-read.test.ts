@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readTodos } from "../src/todo-read.ts";
+import { readTodos } from "@harness-anything/application/queries";
 
 test("todo list read model resolves related entity titles for CLI and GUI consumers", () => {
   const todos = readTodos({

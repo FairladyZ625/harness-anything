@@ -16,8 +16,8 @@ import type { PublicPublication, RepoCellBinding, RepoTaskAction, TaskCreateRece
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import { receiptLayoutRoots, taskCreateGuidance, workspaceRelativePath } from "./receipt-guidance.ts";
-import { workReceiptLine } from "./work-read.ts";
-import { relationDocumentUpdates } from "./entity-action-relation.ts";
+import { workReceiptLine } from "@harness-anything/application/internal/queries/work-read.ts";
+import { relationDocumentUpdates } from "@harness-anything/application/internal/commands/entity-action-relation.ts";
 import { relationDirectionRegistry } from "./artifact-entity-action.ts";
 import { taskDecisionGuidance } from "@harness-anything/preset/internal/preset-command-contract";
 

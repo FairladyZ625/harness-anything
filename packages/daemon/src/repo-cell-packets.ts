@@ -22,7 +22,7 @@ import type { PublicPublication, RepoTaskAction, Snapshot } from "./repo-cell-ty
 import { readWorkspaceText } from "./workspace-text-port.ts";
 import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
-import { workRootOf } from "./workspace-scope-read.ts";
+import { workRootOf } from "@harness-anything/application/internal/queries/workspace-scope-read.ts";
 
 export function packetJson(
   value: unknown,

@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   compileEntityDocumentRematerialization,
   DECISION_DOCUMENT_POLICY_ID,
+  decisionRelationLinkResolver,
   documentWorkspacePath,
   FACT_DOCUMENT_POLICY_ID,
   parseEntityRef,
@@ -18,9 +19,12 @@ import {
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
-import { reject } from "./entity-action-write-helpers.ts";
-import { decisionRelationLinkResolver } from "./entity-document-links.ts";
-import { factDocumentRecord, publicationKillpoints, relationRows } from "./entity-action-relation.ts";
+import { reject } from "@harness-anything/application/internal/commands/entity-action-write-helpers.ts";
+import {
+  factDocumentRecord,
+  publicationKillpoints,
+  relationRows,
+} from "@harness-anything/application/internal/commands/entity-action-relation.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import { readCompletionContext } from "./task-completion-read.ts";

@@ -45,9 +45,6 @@
       "path": "../kernel"
     },
     {
-      "path": "../application"
-    },
-    {
       "path": "../daemon"
     },
     {

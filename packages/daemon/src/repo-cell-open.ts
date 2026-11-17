@@ -74,7 +74,10 @@ import type {
   RepoCellWriteQueueState,
   RepoTaskAction,
 } from "./repo-cell-types.ts";
-import type { EntityActionCatalogPreparer, EntityActionCatalogRuntimes } from "./entity-action-catalog-executor.ts";
+import type {
+  EntityActionCatalogPreparer,
+  EntityActionCatalogRuntimes,
+} from "@harness-anything/application/internal/commands/entity-action-catalog-executor.ts";
 import { makeRuntimeSpawner, type RuntimeAttemptTerminal } from "./runtime-spawn.ts";
 import { withOnlineRuntimeSession } from "./runtime-online-binding.ts";
 import { makeRepoCellSquadCoordinator } from "./repo-cell-squad-coordinator.ts";

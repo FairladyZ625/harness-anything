@@ -1,18 +1,17 @@
 import {
+  collectQueryEvents,
   migrateTaskAssignments,
   relationEventWritePlan,
   isRelationEvent,
   type TaskEventV1,
 } from "@harness-anything/kernel";
-import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
-import { collectQueryEvents } from "./repo-cell-event-query.ts";
-import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import type { AssignmentMigrationCommandCell, CommandAction, CommandBinding } from "./command-ports.ts";
 
 /** One-shot migration boundary: legacy task events are input, Relation events are the only live output. */
 export function runAssignmentMigrationAction(
-  cell: RepoCellOperationalContext,
-  action: RepoTaskAction,
-  binding: RepoCellBinding,
+  cell: AssignmentMigrationCommandCell,
+  action: CommandAction,
+  binding: CommandBinding,
 ) {
   const legacy = collectQueryEvents(cell.store, [
     { eventType: "task_assigned" },

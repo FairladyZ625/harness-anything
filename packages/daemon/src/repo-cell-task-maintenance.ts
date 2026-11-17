@@ -20,7 +20,7 @@ import {
   type RestatedTaskContract,
 } from "./migration-import-task-restatement.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import { collectQueryEvents } from "./repo-cell-event-query.ts";
+import { collectQueryEvents } from "@harness-anything/application/internal/queries/repo-cell-event-query.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import { taskMutation } from "./repo-cell-task-mutation.ts";
 import {

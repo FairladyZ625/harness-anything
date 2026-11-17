@@ -2,7 +2,7 @@ import { markDaemonOperationPhase } from "./daemon-operation.ts";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { consumeKnownError, mediaTypeForBinaryPath, RAW_ARTIFACT_MEDIA_TYPE } from "@harness-anything/kernel";
 import type { ArtifactTimelineCursor, ArtifactTimelineKind, TaskProjection } from "@harness-anything/kernel";
-import type { CursorPage } from "./task-index-query.ts";
+import type { CursorPage } from "@harness-anything/application/internal/queries/task-index-query.ts";
 import type { ArtifactGuiKind, ArtifactGuiRowDto, ArtifactsListResult } from "./protocol/artifacts-gui-contract.ts";
 
 /** The GUI timeline needs exactly one projection read: the ordered artifact index page. Tests can

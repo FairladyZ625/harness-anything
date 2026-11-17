@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { graphView } from "../src/repo-cell-graph-view.ts";
+import { graphView } from "@harness-anything/application/queries";
 import type { TaskQueryCell } from "../src/repo-cell-task-query.ts";
 import type { RepoCellBinding, RepoTaskAction } from "../src/repo-cell-types.ts";
 

@@ -17,7 +17,7 @@
   "include": [
     "src/**/*.ts",
     "../kernel/src/**/*.ts",
-    "../application/src/task-lifecycle-service.ts",
+    "../application/src/**/*.ts",
     "../daemon/src/**/*.ts"
   ]
 }

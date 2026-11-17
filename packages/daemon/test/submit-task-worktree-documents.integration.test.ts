@@ -16,7 +16,7 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { isTaskEvent } from "@harness-anything/kernel";
-import { readSubmissionArtifact } from "../src/submission-artifacts.ts";
+import { readSubmissionArtifact } from "@harness-anything/application/commands";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";

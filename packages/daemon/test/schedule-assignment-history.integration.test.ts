@@ -13,7 +13,7 @@ import {
   validateScheduleV1,
   type CanonicalEventV1,
 } from "@harness-anything/kernel";
-import { inspectScheduleProjection } from "../src/schedule-projection.ts";
+import { inspectScheduleProjection } from "@harness-anything/application/queries";
 import { readSchedulesGui } from "../src/schedules-gui-read.ts";
 
 // Original accepted bytes from the Owner's eight counterexamples, before S8 rewrote current fixtures.

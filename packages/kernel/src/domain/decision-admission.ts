@@ -391,18 +391,18 @@ export const daemonDecisionPolicySources = [
     'return new OpenRouter({ apiKey, retryConfig: { strategy: "none" }, timeoutMs: requestTimeoutMs });',
   ],
   [
-    "policy:packages/daemon:packages/daemon/src/decision-surface-actions.ts#prepareDecisionAmend:6dc792252bdb1c9f7bc757b66d2c747e",
-    "packages/daemon/src/decision-surface-actions.ts#prepareDecisionAmend",
+    "policy:packages/application:packages/application/src/commands/decision-surface-actions.ts#prepareDecisionAmend:6dc792252bdb1c9f7bc757b66d2c747e",
+    "packages/application/src/commands/decision-surface-actions.ts#prepareDecisionAmend",
     'if (action.standingPolicy === true) decisionClass = "standing_policy";',
   ],
   [
-    "policy:packages/daemon:packages/daemon/src/entity-action-catalog-receipts.ts#decisionFilters:99ea0340819d1cd08f6d45c54776a94e",
-    "packages/daemon/src/entity-action-catalog-receipts.ts#decisionFilters",
+    "policy:packages/application:packages/application/src/commands/entity-action-catalog-receipts.ts#decisionFilters:99ea0340819d1cd08f6d45c54776a94e",
+    "packages/application/src/commands/entity-action-catalog-receipts.ts#decisionFilters",
     "if (",
   ],
   [
-    "policy:packages/daemon:packages/daemon/src/entity-action-catalog-receipts.ts#decisionFilters:78f06c4227ba785282a4e80f837cbc12",
-    "packages/daemon/src/entity-action-catalog-receipts.ts#decisionFilters",
+    "policy:packages/application:packages/application/src/commands/entity-action-catalog-receipts.ts#decisionFilters:78f06c4227ba785282a4e80f837cbc12",
+    "packages/application/src/commands/entity-action-catalog-receipts.ts#decisionFilters",
     '...(typeof action.limit === "number" ? { limit: action.limit } : {}),',
   ],
 ] as const;

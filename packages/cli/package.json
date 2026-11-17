@@ -50,7 +50,6 @@
   "dependencies": {
     "@effect/experimental": "0.60.0",
     "@effect/platform": "0.96.2",
-    "@harness-anything/application": "0.1.0",
     "@harness-anything/daemon": "0.1.0",
     "@harness-anything/kernel": "0.1.0",
     "@harness-anything/preset": "0.1.0",

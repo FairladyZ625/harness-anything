@@ -10,7 +10,7 @@ import {
   withWorkspaceDocumentPaths,
 } from "./doc-sync-command-actions.ts";
 import { runDocMaterialize } from "./doc-sync-materialize-action.ts";
-import { settleHostLocalReceipt } from "./write-receipt-settlement.ts";
+import { settleHostLocalReceipt } from "@harness-anything/application/internal/commands/write-receipt-settlement.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 

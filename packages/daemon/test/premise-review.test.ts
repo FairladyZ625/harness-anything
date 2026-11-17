@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parsePremiseReview, premiseReviewCommand } from "../src/premise-review.ts";
+import { parsePremiseReview, premiseReviewCommand } from "@harness-anything/application/queries";
 
 const printedStatement = (taskId: string) => /--statement "(.*)"$/u.exec(premiseReviewCommand(taskId))![1]!;
 

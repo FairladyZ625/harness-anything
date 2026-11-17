@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { TaskIndexProjectionRow, TaskRelationProjectionRow, TaskProjection } from "@harness-anything/kernel";
-import { workTopologyFromProjection } from "../src/work-topology-read.ts";
+import { workTopologyFromProjection } from "@harness-anything/application/queries";
 import { parseDaemonGuiReadResult, validateDaemonWorkTopology } from "../src/protocol/gui-result-validation.ts";
 import { daemonGuiReadSchemas } from "../src/protocol/daemon-protocol-schema-registry.ts";
 import { validateDaemonRpcCall } from "../src/protocol/daemon-protocol.contract.ts";

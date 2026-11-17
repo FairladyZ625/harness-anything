@@ -1,6 +1,6 @@
 import type { WriteReceiptDraft as WriteReceipt } from "@harness-anything/kernel";
 import { dismissIncidentActionReceipt } from "./decision-incident-receipt.ts";
-import { noChanges } from "./entity-action-write-helpers.ts";
+import { noChanges } from "@harness-anything/application/internal/commands/entity-action-write-helpers.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 

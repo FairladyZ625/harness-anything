@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { getExecutableEntityAction, INITIAL_SETTINGS_V1, repositorySettings } from "@harness-anything/kernel";
-import { makeEntityActionCatalogExecutor, deriveActionResult } from "../src/entity-action-catalog-executor.ts";
+import { makeEntityActionCatalogExecutor, deriveActionResult } from "@harness-anything/application/commands";
 import { rejectExecutionSelection } from "../src/repo-cell-execution-selection.ts";
 import { cellCriterionError } from "../src/repo-cell-errors.ts";
 import { failed } from "../src/repo-cell-settlement.ts";

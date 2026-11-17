@@ -958,7 +958,7 @@ test("S2h converged review, decision-independence, submitted-cut, and rework-cut
   const expectedJudgments = [
     [
       "packages/kernel/src/domain/decision-event-document.ts#assertDecisionReviewerIndependent",
-      ["packages/daemon/src/entity-action-catalog-executor.ts"],
+      ["packages/application/src/commands/entity-action-catalog-executor.ts"],
     ],
     ["packages/kernel/src/domain/review.ts#hasApprovedReviewForExecution", ["packages/daemon/src/task-query-read.ts"]],
     [

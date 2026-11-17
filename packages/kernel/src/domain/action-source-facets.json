@@ -83,17 +83,17 @@
         "role": "support"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/submission-artifacts.ts#createSubmissionArtifactReader:a90fd32eb02c5973cfcf0c346fb48244",
+        "candidateId": "action:packages/application:packages/application/src/commands/submission-artifacts.ts#createSubmissionArtifactReader:a90fd32eb02c5973cfcf0c346fb48244",
         "route": "task-submit",
         "role": "support"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/submission-artifacts.ts#verifyAcceptedContent:891cf706fc2f3e7e9e9d4577001c173f",
+        "candidateId": "action:packages/application:packages/application/src/commands/submission-artifacts.ts#verifyAcceptedContent:891cf706fc2f3e7e9e9d4577001c173f",
         "route": "task-submit",
         "role": "support"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/submission-artifacts.ts#resolveSubmissionArtifact:a90fd32eb02c5973cfcf0c346fb48244",
+        "candidateId": "action:packages/application:packages/application/src/commands/submission-artifacts.ts#resolveSubmissionArtifact:a90fd32eb02c5973cfcf0c346fb48244",
         "route": "task-submit",
         "role": "support"
       },
@@ -1569,7 +1569,7 @@
         "role": "effect"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-runtime-session.ts#commitRuntimeSessionBundle.appended:aca15e02146445d36e47128025d8565d",
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-runtime-session.ts#commitRuntimeSessionBundle.appended:aca15e02146445d36e47128025d8565d",
         "route": "runtime-run",
         "role": "effect"
       }
@@ -2352,7 +2352,7 @@
         "role": "support"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/assignment-migration-action.ts#runAssignmentMigrationAction:ef6ed4cd9cf801668581af3a2b5b8950",
+        "candidateId": "action:packages/application:packages/application/src/commands/assignment-migration-action.ts#runAssignmentMigrationAction:ef6ed4cd9cf801668581af3a2b5b8950",
         "route": "assignment-migrate",
         "role": "effect"
       }
@@ -2533,7 +2533,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-relation.ts#executeRelationAction:5f11e18294d5c688445b459ccef26f23",
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-relation.ts#executeRelationAction:5f11e18294d5c688445b459ccef26f23",
         "route": "relation-relate",
         "role": "effect"
       }
@@ -7637,43 +7637,43 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#executeRepoAction:073d5757a6e0e2e07b4a3ac8182c84e7",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+        "port": "packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#executeRepoAction:d968548a3c3abc18da11dccf63fa01f0",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+        "port": "packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#executeRepoAction:52611581169a40a1e2837621f5283a0e",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+        "port": "packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#executeRepoAction:637566ea505b09a9bcb2aa877d15f5fd",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+        "port": "packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#executeRepoAction:ce79acf571ea0efb525a2f827d323d11",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+        "port": "packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#executeRepoAction:22d36d14c5f63204e2009bf6a24413a9",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+        "port": "packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#executeRepoAction:03f4791faf5ab5eb67d91ce2c9f266be",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+        "port": "packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#runTaskEscalation.cancel:364b37e490c16d5d9a18e01abc959f42",
@@ -7801,7 +7801,7 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-fact-action.ts#runFactActionNow:e12b337955ca378488b468293cb6ca75",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+        "port": "packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-lock.ts#acquireWorkspaceLock:40cd7c19cc5ce15809235b9b48edbbf2",
@@ -7866,7 +7866,7 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell:536bf9a97a944c928786b6e0178517fe",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+        "port": "packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell:86b49fcc8aa54880b86b42d0081f80bf",
@@ -7957,7 +7957,7 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-squad-coordinator.ts#makeRepoCellSquadCoordinator.settleScheduleOccurrence:b43ad24105a5a234eb5a1976cc2c4665",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+        "port": "packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-squad-coordinator.ts#makeRepoCellSquadCoordinator.runtimeSpawner.cancel:d326c1bab9a65326ebef1517535867d1",
@@ -10145,7 +10145,7 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/runtime-session-action-runtime.ts#commitRuntimeSessionAction:90f4e24e9eb57a785b203141176e73ec",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+        "port": "packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/runtime-session-action-runtime.ts#invalidRuntimeSessionAction.error:5e760bf72f2e4e84a5d8c4f6eddc5d65",
@@ -10838,7 +10838,7 @@
         "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/terminal-awaits-retirement.ts#retireAwaitsInitiatedBy.opId:cccf30449f9ce3be8cdbb6d07b19ac0d",
+        "candidateId": "action:packages/application:packages/application/src/commands/terminal-awaits-retirement.ts#retireAwaitsInitiatedBy.opId:cccf30449f9ce3be8cdbb6d07b19ac0d",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
@@ -12414,7 +12414,7 @@
         "role": "support"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/decision-review-awaits.ts#runRelation.opId:f3220783d57d4b8cee48a2565021b256",
+        "candidateId": "action:packages/application:packages/application/src/commands/decision-review-awaits.ts#runRelation.opId:f3220783d57d4b8cee48a2565021b256",
         "route": "daemon:bin",
         "role": "support"
       },
@@ -12429,73 +12429,73 @@
         "role": "support"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.runCompiled:3b1bdf80285f54671a38f4aa9448f454",
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.runCompiled:3b1bdf80285f54671a38f4aa9448f454",
         "route": "daemon:bin",
         "role": "support"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run:f47ce2f25bf225a6d17659c6febb0754",
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run:f47ce2f25bf225a6d17659c6febb0754",
         "route": "daemon:bin",
         "role": "support"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run:b9a8c648637d40233464c7c470ec9cc9",
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run:b9a8c648637d40233464c7c470ec9cc9",
         "route": "daemon:bin",
         "role": "support"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.repinAll.bundles.memberOpId:9b2b428560348c799a5f73e79ca031b4",
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.repinAll.bundles.memberOpId:9b2b428560348c799a5f73e79ca031b4",
         "route": "daemon:bin",
         "role": "support"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.runEntityWrite.appended:5ca10d09f5449f58673022183be08681",
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.runEntityWrite.appended:5ca10d09f5449f58673022183be08681",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.compileAction.eventId:a29f1d8dc5945125c2c24bf5941ea324",
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.compileAction.eventId:a29f1d8dc5945125c2c24bf5941ea324",
         "route": "daemon:bin",
         "role": "support"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#resolveActionCriterion:08a06fa1f7e195c18289260d0cb24fd6",
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#resolveActionCriterion:08a06fa1f7e195c18289260d0cb24fd6",
         "route": "daemon:bin",
         "role": "support"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#executableAction:640630fcf885f9920926519a0012de0f",
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#executableAction:640630fcf885f9920926519a0012de0f",
         "route": "daemon:bin",
         "role": "support"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-catalog-receipts.ts#previewReceipt.opId:a29f1d8dc5945125c2c24bf5941ea324",
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-receipts.ts#previewReceipt.opId:a29f1d8dc5945125c2c24bf5941ea324",
         "route": "daemon:bin",
         "role": "support"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-relation.ts#derivedRelationOperationId:d6e1a7e93d14804ffeb33a2fa9ae904c",
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-relation.ts#derivedRelationOperationId:d6e1a7e93d14804ffeb33a2fa9ae904c",
         "route": "daemon:bin",
         "role": "support"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-runtime-session.ts#rejectRuntimeSessionAction:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-runtime-session.ts#rejectRuntimeSessionAction:5e760bf72f2e4e84a5d8c4f6eddc5d65",
         "route": "daemon:bin",
         "role": "support"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-write-helpers.ts#reject:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-write-helpers.ts#reject:5e760bf72f2e4e84a5d8c4f6eddc5d65",
         "route": "daemon:bin",
         "role": "support"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/entity-pin-action.ts#runEntityPinAction.compiled.eventId:a29f1d8dc5945125c2c24bf5941ea324",
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-pin-action.ts#runEntityPinAction.compiled.eventId:a29f1d8dc5945125c2c24bf5941ea324",
         "route": "daemon:bin",
         "role": "support"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/fact-archive-document.ts#archiveAllFacts.bundles.memberOpId:64725725ff1c16481a0bdc3af5cca7da",
+        "candidateId": "action:packages/application:packages/application/src/commands/fact-archive-document.ts#archiveAllFacts.bundles.memberOpId:64725725ff1c16481a0bdc3af5cca7da",
         "route": "daemon:bin",
         "role": "support"
       },
@@ -12702,7 +12702,7 @@
         "role": "support"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/task-witness-action.ts#runTaskWitnessAction.compiled.eventId:a29f1d8dc5945125c2c24bf5941ea324",
+        "candidateId": "action:packages/application:packages/application/src/commands/task-witness-action.ts#runTaskWitnessAction.compiled.eventId:a29f1d8dc5945125c2c24bf5941ea324",
         "route": "daemon:bin",
         "role": "support"
       },
@@ -13862,7 +13862,7 @@
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/entity-pin-action.ts#runEntityPinAction.appended:45d7f1624d843b4db4ce2ba40a15919d",
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-pin-action.ts#runEntityPinAction.appended:45d7f1624d843b4db4ce2ba40a15919d",
         "route": "entity-pin",
         "role": "effect"
       }
@@ -14255,7 +14255,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.repinAll:f62e63de0d5257051d2b5b71ac126b0d",
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.repinAll:f62e63de0d5257051d2b5b71ac126b0d",
         "route": "decision-repin",
         "role": "effect"
       }
@@ -14294,7 +14294,7 @@
         "port": "packages/gui/src/renderer/awaits-answer.ts#useAwaitsAnswer.submit"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-relation.ts#executeRelationAction:fed58a5b10375bfd6f6c955229608358",
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-relation.ts#executeRelationAction:fed58a5b10375bfd6f6c955229608358",
         "route": "relation-unrelate",
         "role": "effect"
       }
@@ -16223,7 +16223,7 @@
     "owner": "fact",
     "sources": [
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/fact-archive-document.ts#archiveAllFacts:f62e63de0d5257051d2b5b71ac126b0d",
+        "candidateId": "action:packages/application:packages/application/src/commands/fact-archive-document.ts#archiveAllFacts:f62e63de0d5257051d2b5b71ac126b0d",
         "route": "fact-archive",
         "role": "effect"
       }
@@ -16237,7 +16237,7 @@
     "owner": "task",
     "sources": [
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/task-witness-action.ts#runTaskWitnessAction.appended:45d7f1624d843b4db4ce2ba40a15919d",
+        "candidateId": "action:packages/application:packages/application/src/commands/task-witness-action.ts#runTaskWitnessAction.appended:45d7f1624d843b4db4ce2ba40a15919d",
         "route": "task-witness-rerun",
         "role": "effect"
       }

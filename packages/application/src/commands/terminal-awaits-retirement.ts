@@ -7,11 +7,12 @@ import {
   type CanonicalEventStore,
   type DomainStatus,
   type EventPublicationKillpoint,
+  type CanonicalRelationDirection,
+  type SessionIdentity,
   type TaskProjection,
 } from "@harness-anything/kernel";
 import { executeRelationAction, reject } from "./entity-action-relation.ts";
-import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
-import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import type { CommandAction, CommandBinding } from "./command-ports.ts";
 
 export interface TerminalAwaitsWriteContext {
   readonly rootDir?: string;
@@ -19,11 +20,13 @@ export interface TerminalAwaitsWriteContext {
   readonly store: CanonicalEventStore;
   readonly projection: TaskProjection;
   readonly now: () => string;
+  readonly sessionIdentity: (binding: CommandBinding) => SessionIdentity;
+  readonly relationDirections?: () => readonly CanonicalRelationDirection[];
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
 }
 
 interface AwaitsRetirementInput {
-  readonly binding: RepoCellBinding;
+  readonly binding: CommandBinding;
   readonly opId: string;
   readonly authorizationDecision: AuthorizationDecision | null;
   readonly context: TerminalAwaitsWriteContext;
@@ -50,7 +53,7 @@ export function retireTaskAwaitsAtTerminalStatus(
 /** Only rejected and superseded retire their waits: those transitions are in this change's scope,
  * while other Decision states keep whatever asks their owners posted. */
 export function retireDecisionAwaitsAfterWrite(
-  input: { readonly action: RepoTaskAction } & AwaitsRetirementInput,
+  input: { readonly action: CommandAction } & AwaitsRetirementInput,
 ): void {
   const supersededTarget =
       input.action.kind === "relation-relate" && input.action.relationType === "supersedes"
@@ -97,14 +100,15 @@ function retireAwaitsInitiatedBy(entityRef: string, reason: string, input: Await
         relationId,
         reason,
         expectedVersion: current.workspaceRevision ?? 0,
-      } as RepoTaskAction,
+      } as CommandAction,
       binding: input.binding,
       opId: `op_${createHash("sha256").update(`${input.opId}:terminal-awaits:${relationId}`).digest("hex")}`,
       occurredAt: input.context.now(),
       authorizationDecision: input.authorizationDecision,
       store: input.context.store,
       projection: input.context.projection,
-      sessionIdentity: (binding) => resolveWriteSessionIdentity(binding, input.context.projection),
+      sessionIdentity: input.context.sessionIdentity,
+      ...(input.context.relationDirections ? { relationDirections: input.context.relationDirections } : {}),
       ...(input.context.killpoint ? { killpoint: input.context.killpoint } : {}),
     });
   }

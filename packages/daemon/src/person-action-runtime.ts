@@ -26,7 +26,7 @@ import {
 } from "./protocol/daemon-protocol-commands-people.ts";
 import type { RepoCellRuntimeContext } from "./repo-cell-types.ts";
 import { resolvePacketAction, type PacketActionContract } from "./repo-cell-action-parse.ts";
-import type { EntityActionCatalogRunner } from "./entity-action-catalog-executor.ts";
+import type { EntityActionCatalogRunner } from "@harness-anything/application/internal/commands/entity-action-catalog-executor.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
 

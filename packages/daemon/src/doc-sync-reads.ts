@@ -52,8 +52,8 @@ import {
   readSubmissionArtifactRange,
   submissionArtifactPath,
   verifyAcceptedContent,
-} from "./submission-artifacts.ts";
-import { renderWorkExplainer } from "./work-read.ts";
+} from "@harness-anything/application/internal/commands/submission-artifacts.ts";
+import { renderWorkExplainer } from "@harness-anything/application/internal/queries/work-read.ts";
 import { projectedTaskMaterializationState } from "./repo-cell-completion.ts";
 
 export function readAction(input: Input): WriteReceipt {

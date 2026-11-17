@@ -18,7 +18,7 @@ import {
 } from "@harness-anything/kernel";
 import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import { noChanges, reject } from "./entity-action-write-helpers.ts";
+import { noChanges, reject } from "@harness-anything/application/internal/commands/entity-action-write-helpers.ts";
 
 /** The one projection facility the declaration is read through; nothing here needs wider authority. */
 export type VerticalDeclarationReader = Pick<TaskProjection, "readDocument"> & {

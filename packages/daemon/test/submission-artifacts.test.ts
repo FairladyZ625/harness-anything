@@ -15,7 +15,7 @@ import {
   createSubmissionArtifactReader,
   readSubmissionArtifact,
   readSubmissionArtifactRange,
-} from "../src/submission-artifacts.ts";
+} from "@harness-anything/application/commands";
 import { deriveCloseoutSubmission } from "./closeout-submission.fixture.ts";
 
 const repositorySettingsStub = {

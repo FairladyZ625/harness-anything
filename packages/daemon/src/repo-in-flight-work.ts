@@ -2,7 +2,7 @@ import type { TaskProjection } from "@harness-anything/kernel";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { readActiveDispatchLifecycleSync } from "./runtime-dispatch-admission.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
-import { inspectScheduleProjection } from "./schedule-projection.ts";
+import { inspectScheduleProjection } from "@harness-anything/application/internal/queries/schedule-projection.ts";
 import type { RepoInFlightWork } from "./repo-cell-types.ts";
 
 export function readRepoInFlightWork(input: {

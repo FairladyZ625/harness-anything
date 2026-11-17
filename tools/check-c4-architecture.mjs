@@ -12,43 +12,82 @@ const sourceCounterpartExtensions = new Map([
 ]);
 
 const architecturePackages = [
-  { id: "kernel", root: "packages/kernel", packageName: "@harness-anything/kernel" },
-  { id: "application", root: "packages/application", packageName: "@harness-anything/application" },
-  { id: "preset", root: "packages/preset", packageName: "@harness-anything/preset" },
-  { id: "cli", root: "packages/cli", packageName: "@harness-anything/cli" },
-  { id: "daemon", root: "packages/daemon", packageName: "@harness-anything/daemon" },
-  { id: "gui", root: "packages/gui", packageName: "@harness-anything/gui" },
-  { id: "storage", root: "packages/storage", packageName: "@harness-anything/storage" },
-  { id: "adapter-local", root: "packages/adapters/local", packageName: "@harness-anything/adapter-local" },
+  { id: "kernel", c4Id: "kernel", root: "packages/kernel", packageName: "@harness-anything/kernel" },
+  { id: "storage", c4Id: "storage", root: "packages/storage", packageName: "@harness-anything/storage" },
   {
-    id: "adapter-multica",
-    root: "packages/adapters/multica",
-    packageName: "@harness-anything/adapter-multica",
+    id: "application",
+    c4Id: "application",
+    root: "packages/application",
+    packageName: "@harness-anything/application",
   },
+  { id: "preset", c4Id: "preset", root: "packages/preset", packageName: "@harness-anything/preset" },
+  {
+    id: "authorization-builtin",
+    c4Id: "authorizationBuiltin",
+    root: "packages/authorization-builtin",
+    packageName: "@harness-anything/authorization-builtin",
+  },
+  {
+    id: "authorization-keycloak",
+    c4Id: "authorizationKeycloak",
+    root: "packages/authorization-keycloak",
+    packageName: "@harness-anything/authorization-keycloak",
+  },
+  {
+    id: "authorization-gui",
+    c4Id: "authorizationGui",
+    root: "packages/authorization-gui",
+    packageName: "@harness-anything/authorization-gui",
+  },
+  {
+    id: "authorization-keycloak-gui",
+    c4Id: "authorizationKeycloakGui",
+    root: "packages/authorization-keycloak-gui",
+    packageName: "@harness-anything/authorization-keycloak-gui",
+  },
+  { id: "dsh-plugin", c4Id: "dshPlugin", root: "packages/dsh-plugin", packageName: "@harness-anything/dsh-plugin" },
+  { id: "daemon", c4Id: "daemon", root: "packages/daemon", packageName: "@harness-anything/daemon" },
+  { id: "cli", c4Id: "cli", root: "packages/cli", packageName: "@harness-anything/cli" },
+  { id: "gui", c4Id: "gui", root: "packages/gui", packageName: "@harness-anything/gui" },
 ];
 
-// dec_89D06D7360CBEC09795F7B12EC CH1/C4: keep public package intent deterministic without private harness data.
-const packageRelations = [
-  ["cli", "daemon", "allowed"],
-  ["gui", "daemon", "allowed"],
-  ["gui", "application", "allowed"],
-  ["gui", "kernel", "allowed"],
-  ["daemon", "kernel", "allowed"],
-  ["daemon", "preset", "allowed"],
-  ["daemon", "application", "allowed"],
-  ["daemon", "adapter-local", "allowed"],
-  ["daemon", "adapter-multica", "allowed"],
-  ["application", "kernel", "allowed"],
-  ["preset", "kernel", "allowed"],
-  ["cli", "kernel", "forbidden"],
-  ["cli", "application", "forbidden"],
-  ["daemon", "gui", "forbidden"],
-  ["kernel", "daemon", "forbidden"],
-  ["kernel", "cli", "forbidden"],
-  ["storage", "kernel", "allowed"],
-  ["daemon", "storage", "allowed"],
-  ["kernel", "storage", "forbidden"],
-];
+// dec_04A9211B073F29F0FC1E1CA573 CH1/CH3/RJ2 & dec_7C93DEBCFB2D1A94C6FA07AAAD CH2:
+// closed-world deterministic 12-package C4 matrix (22 allowed, 110 forbidden).
+const allowedPackageEdgeSet = new Set([
+  "storage->kernel",
+  "preset->kernel",
+  "application->kernel",
+  "authorization-builtin->kernel",
+  "authorization-keycloak->kernel",
+  "authorization-gui->kernel",
+  "authorization-keycloak-gui->kernel",
+  "authorization-keycloak-gui->authorization-gui",
+  "dsh-plugin->kernel",
+  "daemon->kernel",
+  "daemon->storage",
+  "daemon->application",
+  "daemon->preset",
+  "daemon->authorization-builtin",
+  "daemon->authorization-keycloak",
+  "cli->daemon",
+  "cli->kernel",
+  "cli->preset",
+  "gui->daemon",
+  "gui->kernel",
+  "gui->authorization-gui",
+  "gui->authorization-keycloak-gui",
+]);
+
+const packageRelations = architecturePackages.flatMap(({ id: from }) =>
+  architecturePackages
+    .filter(({ id: to }) => to !== from)
+    .map(({ id: to }) => [from, to, allowedPackageEdgeSet.has(`${from}->${to}`) ? "allowed" : "forbidden"]),
+);
+
+const modelNodeIdToPackageId = new Map([
+  ...architecturePackages.map(({ c4Id, id }) => [c4Id, id]),
+  ...architecturePackages.map(({ id }) => [id, id]),
+]);
 
 // CH2 lists the planes from the pure writer core out to the daemon composition root.
 const planeOrder = ["writer-cell", "runtime-engine", "fleet-sync", "daemon-host"];
@@ -194,12 +233,20 @@ async function walk(directory, visitor) {
   for (const entry of entries) {
     const absolute = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      if ([".git", "node_modules", "dist", "coverage"].includes(entry.name)) continue;
+      if ([".git", "node_modules", "app-node_modules", "dist", "dist-electron", "coverage"].includes(entry.name))
+        continue;
       await walk(absolute, visitor);
     } else if (entry.isFile()) {
       await visitor(absolute);
     }
   }
+}
+
+function internalDependencyNames(section) {
+  if (!section || typeof section !== "object") return [];
+  return Object.keys(section)
+    .filter((dependency) => dependency.startsWith("@harness-anything/"))
+    .sort();
 }
 
 async function loadWorkspace(root) {
@@ -216,6 +263,11 @@ async function loadWorkspace(root) {
           root: path.dirname(relative),
           exports: packageJson.exports,
           type: packageJson.type,
+          private: packageJson.private === true,
+          dependencies: internalDependencyNames(packageJson.dependencies),
+          peerDependencies: internalDependencyNames(packageJson.peerDependencies),
+          optionalDependencies: internalDependencyNames(packageJson.optionalDependencies),
+          devDependencies: internalDependencyNames(packageJson.devDependencies),
         });
     }
   });
@@ -226,14 +278,15 @@ async function loadWorkspace(root) {
   );
   const packageEntries = packages.map((workspacePackage) => {
     const authored = architecturePackages.find(
-      (item) => item.packageName === workspacePackage.name || item.root === workspacePackage.root,
+      (item) => item.packageName === workspacePackage.name && item.root === workspacePackage.root,
     );
     return authored
-      ? { ...authored, root: workspacePackage.root, modeled: true }
+      ? { ...authored, root: workspacePackage.root, private: workspacePackage.private, modeled: true }
       : {
           id: `unmodeled:${workspacePackage.name}`,
           packageName: workspacePackage.name,
           root: workspacePackage.root,
+          private: workspacePackage.private,
           modeled: false,
         };
   });
@@ -364,9 +417,7 @@ function relationKey(from, to) {
 }
 
 function nodePackageId(node) {
-  if (node === "adapterLocal") return "adapter-local";
-  if (node === "adapterMultica") return "adapter-multica";
-  return architecturePackages.some(({ id }) => id === node) ? node : null;
+  return modelNodeIdToPackageId.get(node) ?? null;
 }
 
 function readModelRelations(modelText) {
@@ -476,23 +527,151 @@ function compareModel(modelText, modelPath) {
   return violations;
 }
 
-async function findModels(root) {
-  const paths = [
-    path.join(root, "harness/context/architecture/model/model.c4"),
-    path.join(root, ".harness/ledger-files/context/architecture/model/model.c4"),
-  ];
-  const models = [];
-  for (const absolute of paths) {
-    try {
-      models.push({ path: normalizeRelative(path.relative(root, absolute)), text: await readFile(absolute, "utf8") });
-    } catch (error) {
-      if (error?.code !== "ENOENT") throw error;
-    }
+async function readOptionalModel(root, absolute) {
+  try {
+    return { path: normalizeRelative(path.relative(root, absolute)), text: await readFile(absolute, "utf8") };
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+    return null;
   }
-  return models;
 }
 
-export async function checkArchitecture(root = process.cwd()) {
+async function findModels(root, explicitModelPath) {
+  if (explicitModelPath) {
+    const absolute = path.isAbsolute(explicitModelPath) ? explicitModelPath : path.resolve(root, explicitModelPath);
+    const loaded = await readOptionalModel(root, absolute);
+    return loaded
+      ? { models: [loaded], missingExplicitPath: null }
+      : { models: [], missingExplicitPath: explicitModelPath };
+  }
+
+  const localModel = path.join(root, "harness/context/architecture/model/model.c4");
+  const ledgerModel = path.join(root, ".harness/ledger-files/context/architecture/model/model.c4");
+  const isWorktree = path.basename(path.dirname(root)) === ".worktrees";
+  const worktreeMainModel = isWorktree ? path.resolve(root, "../../harness/context/architecture/model/model.c4") : null;
+
+  const candidates = isWorktree ? [localModel, worktreeMainModel] : [localModel, ledgerModel];
+  const models = [];
+  for (const absolute of candidates) {
+    if (!absolute) continue;
+    const loaded = await readOptionalModel(root, absolute);
+    if (loaded) models.push(loaded);
+  }
+  if (isWorktree && models.length === 0) {
+    const fallback = await readOptionalModel(root, ledgerModel);
+    if (fallback) models.push(fallback);
+  }
+  return { models, missingExplicitPath: null };
+}
+
+function internalPackageName(specifier) {
+  if (!specifier.startsWith("@harness-anything/")) return null;
+  const segments = specifier.split("/");
+  return segments.slice(0, 2).join("/");
+}
+
+function manifestSatisfiesImport(sourceManifest, targetPackage) {
+  if (!sourceManifest) return false;
+  if (
+    sourceManifest.dependencies.includes(targetPackage.packageName) ||
+    sourceManifest.peerDependencies.includes(targetPackage.packageName) ||
+    sourceManifest.optionalDependencies.includes(targetPackage.packageName)
+  ) {
+    return true;
+  }
+  // Public workspaces bundle private workspaces via devDependencies because public-workspaces
+  // forbids private packages in runtime dependencies/peerDependencies.
+  return (
+    !sourceManifest.private &&
+    targetPackage.private === true &&
+    sourceManifest.devDependencies.includes(targetPackage.packageName)
+  );
+}
+
+function checkManifestDependencies(workspace, importedBySource) {
+  const violations = [];
+  const entriesByPackageName = new Map(workspace.packageEntries.map((entry) => [entry.packageName, entry]));
+  for (const sourceEntry of workspace.packageEntries) {
+    const manifest = workspace.packagesByName.get(sourceEntry.packageName);
+    if (!manifest) continue;
+    const importedTargets = importedBySource.get(sourceEntry.id) ?? new Set();
+    for (const [section, names] of [
+      ["dependencies", manifest.dependencies],
+      ["peerDependencies", manifest.peerDependencies],
+      ["optionalDependencies", manifest.optionalDependencies],
+    ]) {
+      for (const depName of names) {
+        if (depName === sourceEntry.packageName) {
+          violations.push(`${sourceEntry.root}/package.json: ${section}.${depName} cannot reference itself`);
+          continue;
+        }
+        const targetEntry = entriesByPackageName.get(depName);
+        if (!targetEntry) {
+          violations.push(
+            `${sourceEntry.root}/package.json: ${section}.${depName} references missing workspace package`,
+          );
+          continue;
+        }
+        if (sourceEntry.modeled === false || targetEntry.modeled === false) continue;
+        const expectation = expectedRelations.get(relationKey(sourceEntry.id, targetEntry.id));
+        if (expectation !== "allowed") {
+          violations.push(
+            `${sourceEntry.root}/package.json: ${section}.${depName} (${sourceEntry.id} -> ${targetEntry.id}) is forbidden by C4 rules`,
+          );
+          continue;
+        }
+        if (!sourceEntry.private && targetEntry.private) {
+          violations.push(
+            `${sourceEntry.root}/package.json: public package must not declare private ${depName} in ${section}`,
+          );
+          continue;
+        }
+        if (!importedTargets.has(targetEntry.id)) {
+          violations.push(
+            `${sourceEntry.root}/package.json: ${section}.${depName} is a ghost internal dependency (0 imports in ${sourceEntry.root}/src)`,
+          );
+        }
+      }
+    }
+    for (const depName of manifest.devDependencies) {
+      if (depName === sourceEntry.packageName) {
+        violations.push(`${sourceEntry.root}/package.json: devDependencies.${depName} cannot reference itself`);
+        continue;
+      }
+      const targetEntry = entriesByPackageName.get(depName);
+      if (!targetEntry) {
+        violations.push(
+          `${sourceEntry.root}/package.json: devDependencies.${depName} references missing workspace package`,
+        );
+        continue;
+      }
+      if (sourceEntry.modeled === false || targetEntry.modeled === false) continue;
+      if (!sourceEntry.private && targetEntry.private) {
+        const expectation = expectedRelations.get(relationKey(sourceEntry.id, targetEntry.id));
+        if (expectation !== "allowed") {
+          violations.push(
+            `${sourceEntry.root}/package.json: devDependencies.${depName} (${sourceEntry.id} -> ${targetEntry.id}) is forbidden by C4 rules`,
+          );
+        } else if (!importedTargets.has(targetEntry.id)) {
+          violations.push(
+            `${sourceEntry.root}/package.json: devDependencies.${depName} is a ghost internal dependency (0 imports in ${sourceEntry.root}/src)`,
+          );
+        }
+      }
+    }
+  }
+  return violations;
+}
+
+/**
+ * Checks closed-world C4 package boundaries and (when scope !== "packages") daemon 4-plane boundaries.
+ * Temporary W1A flag `--scope packages` (dec_04A9211B073F29F0FC1E1CA573 / dec_7C93DEBCFB2D1A94C6FA07AAAD)
+ * is scheduled for retirement in W1B (task_557b9975f04b275d492f25c1cb) once daemon planes are extracted.
+ */
+export async function checkArchitecture(root = process.cwd(), options = {}) {
+  const scope = options.scope ?? "all";
+  if (scope !== "all" && scope !== "packages")
+    throw new Error(`Unsupported --scope "${scope}"; expected packages or all`);
   const absoluteRoot = path.resolve(root);
   const workspace = await loadWorkspace(absoluteRoot);
   const violations = [];
@@ -504,7 +683,18 @@ export async function checkArchitecture(root = process.cwd()) {
         `${workspacePackage.root}: workspace package ${workspacePackage.packageName} has no canonical architecture endpoint`,
       );
   }
+  if (workspace.packages.length > 0) {
+    const discoveredKeys = new Set(workspace.packages.map((item) => `${item.name}@${item.root}`));
+    for (const expected of architecturePackages) {
+      if (!discoveredKeys.has(`${expected.packageName}@${expected.root}`)) {
+        violations.push(
+          `${expected.root}/package.json: modeled workspace package ${expected.packageName} is missing from packages/`,
+        );
+      }
+    }
+  }
 
+  const importedBySource = new Map();
   for (const file of workspace.sourceFiles) {
     const { imports, parseDiagnostics } = importsFromSource(
       await readFile(path.join(absoluteRoot, file), "utf8"),
@@ -516,10 +706,23 @@ export async function checkArchitecture(root = process.cwd()) {
       violations.push(`${file}:${line + 1}:${character + 1}: TypeScript AST parse error: ${message}`);
     }
     const sourcePackage = packageForPath(file, workspace.packageEntries);
-    const sourcePlane = planeForPath(file);
-    if (sourcePackage?.id === "daemon" && file.startsWith("packages/daemon/src/") && !sourcePlane)
+    const sourceManifest = sourcePackage ? workspace.packagesByName.get(sourcePackage.packageName) : null;
+    const sourcePlane = scope === "packages" ? null : planeForPath(file);
+    if (
+      scope !== "packages" &&
+      sourcePackage?.id === "daemon" &&
+      file.startsWith("packages/daemon/src/") &&
+      !sourcePlane
+    )
       violations.push(`${file}: daemon source file must be assigned to one of ${planeOrder.join(", ")}`);
     for (const imported of imports) {
+      const internalName = internalPackageName(imported.specifier);
+      if (internalName && !workspace.packagesByName.has(internalName)) {
+        violations.push(
+          `${file}:${imported.line}: ${sourcePackage?.packageName ?? file} imports unknown workspace package ${internalName}`,
+        );
+        continue;
+      }
       const target = resolveTarget(
         file,
         imported.specifier,
@@ -529,14 +732,31 @@ export async function checkArchitecture(root = process.cwd()) {
         imported.resolutionMode,
       );
       const targetPackage = resolveWorkspaceTargetPackage(file, imported.specifier, absoluteRoot, workspace);
-      const targetPlane = targetPackage?.id === "daemon" && target ? planeForPath(target) : null;
+      const targetPlane =
+        scope !== "packages" && targetPackage?.id === "daemon" && target ? planeForPath(target) : null;
       if (sourcePackage && targetPackage && sourcePackage.id !== targetPackage.id) {
         checkedImports += 1;
+        let targets = importedBySource.get(sourcePackage.id);
+        if (!targets) {
+          targets = new Set();
+          importedBySource.set(sourcePackage.id, targets);
+        }
+        targets.add(targetPackage.id);
         const expectation = expectedRelations.get(relationKey(sourcePackage.id, targetPackage.id));
         if (expectation !== "allowed") {
           const label = expectation === "forbidden" ? "is forbidden" : "has no canonical allowed relation";
           violations.push(
             `${file}:${imported.line}: ${sourcePackage.id} -> ${targetPackage.id} ${label} (${imported.kind} ${imported.specifier})`,
+          );
+        } else if (
+          sourcePackage.modeled !== false &&
+          targetPackage.modeled !== false &&
+          !manifestSatisfiesImport(sourceManifest, targetPackage)
+        ) {
+          const expectedField =
+            !sourceManifest?.private && targetPackage.private ? "devDependencies" : "dependencies/peerDependencies";
+          violations.push(
+            `${file}:${imported.line}: ${sourcePackage.packageName} imports ${targetPackage.packageName} (${imported.specifier}) without declaring it in ${sourcePackage.root}/package.json ${expectedField}`,
           );
         }
       }
@@ -556,11 +776,15 @@ export async function checkArchitecture(root = process.cwd()) {
     }
   }
 
-  const models = await findModels(absoluteRoot);
+  violations.push(...checkManifestDependencies(workspace, importedBySource));
+
+  const { models, missingExplicitPath } = await findModels(absoluteRoot, options.modelPath);
+  if (missingExplicitPath) violations.push(`${missingExplicitPath}: model.c4 not found`);
   for (const model of models) violations.push(...compareModel(model.text, model.path));
   violations.sort((left, right) => left.localeCompare(right));
   return {
     ok: violations.length === 0,
+    scope,
     violations,
     sourceFiles: workspace.sourceFiles.length,
     checkedImports,
@@ -569,23 +793,49 @@ export async function checkArchitecture(root = process.cwd()) {
 }
 
 function printHelp() {
-  console.log("Usage: node tools/check-c4-architecture.mjs [--explain <file>] [--json]");
+  console.log(
+    "Usage: node tools/check-c4-architecture.mjs [--scope packages|all] [--model <path>] [--explain <file>] [--json]",
+  );
+}
+
+function parseCliOptions(args) {
+  const options = { json: false, help: false, scope: "all", modelPath: null, explainFile: null };
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--help" || arg === "-h") options.help = true;
+    else if (arg === "--json") options.json = true;
+    else if (arg === "--explain") {
+      const value = args[++index];
+      if (!value || value.startsWith("--")) throw new Error("--explain requires a file path");
+      options.explainFile = value;
+    } else if (arg === "--scope") {
+      const value = args[++index];
+      if (value !== "packages" && value !== "all") throw new Error("--scope must be 'packages' or 'all'");
+      options.scope = value;
+    } else if (arg === "--model") {
+      const value = args[++index];
+      if (!value || value.startsWith("--")) throw new Error("--model requires a path");
+      options.modelPath = value;
+    } else {
+      throw new Error(`Unknown argument: ${arg}`);
+    }
+  }
+  return options;
 }
 
 async function main(args) {
-  const json = args.includes("--json");
-  const explainIndex = args.indexOf("--explain");
-  if (args.includes("--help") || args.includes("-h")) {
+  const cli = parseCliOptions(args);
+  if (cli.help) {
     printHelp();
     return 0;
   }
-  if (explainIndex >= 0) {
-    const file = args[explainIndex + 1];
-    if (!file || file.startsWith("--")) throw new Error("--explain requires a file path");
-    const normalized = path.isAbsolute(file) ? path.relative(process.cwd(), file) : file;
+  if (cli.explainFile) {
+    const normalized = path.isAbsolute(cli.explainFile)
+      ? path.relative(process.cwd(), cli.explainFile)
+      : cli.explainFile;
     const workspace = await loadWorkspace(process.cwd());
     const explanation = explainFile(normalized, workspace.packageEntries);
-    if (json) console.log(JSON.stringify(explanation, null, 2));
+    if (cli.json) console.log(JSON.stringify(explanation, null, 2));
     else {
       console.log(`${explanation.file}`);
       console.log(
@@ -602,17 +852,17 @@ async function main(args) {
     return 0;
   }
 
-  const result = await checkArchitecture(process.cwd());
-  if (json) console.log(JSON.stringify(result, null, 2));
+  const result = await checkArchitecture(process.cwd(), { scope: cli.scope, modelPath: cli.modelPath });
+  if (cli.json) console.log(JSON.stringify(result, null, 2));
   else if (result.ok) {
     console.log(
-      `C4 architecture check passed: ${result.sourceFiles} source files, ${result.checkedImports} architectural imports; model ${result.model.status}.`,
+      `C4 architecture check passed (${result.scope}): ${result.sourceFiles} source files, ${result.checkedImports} architectural imports; model ${result.model.status}.`,
     );
   } else {
     console.error("C4 architecture violations:");
     for (const violation of result.violations) console.error(`- ${violation}`);
     console.error(
-      `Checked ${result.checkedImports} architectural imports across ${result.sourceFiles} source files; model ${result.model.status}.`,
+      `Checked ${result.checkedImports} architectural imports across ${result.sourceFiles} source files (scope=${result.scope}); model ${result.model.status}.`,
     );
   }
   return result.ok ? 0 : 1;

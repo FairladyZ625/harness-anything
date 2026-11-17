@@ -41,10 +41,10 @@ import {
   squadControlRejected,
   type SquadControlResult,
 } from "./squad-control-result.ts";
-import { deriveActionResult } from "./entity-action-catalog-executor.ts";
+import { deriveActionResult } from "@harness-anything/application/internal/commands/entity-action-catalog-executor.ts";
 import { executeVerticalScriptAction, publishExecutedVerticalScript } from "./vertical-script-actions.ts";
 import { readBeforeWriteQueue } from "./write-queue-external-reads.ts";
-import { inspectScheduleProjection } from "./schedule-projection.ts";
+import { inspectScheduleProjection } from "@harness-anything/application/internal/queries/schedule-projection.ts";
 import { resolveDecisionReviewAction } from "./repo-cell-action-parse.ts";
 import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";

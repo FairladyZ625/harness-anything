@@ -18,8 +18,8 @@ import type {
   TokenUsageDispatchFact,
 } from "./agent-runtime-token-usage-insights.ts";
 import { cacheWriteTokensOfUsage } from "./runtime-spawn-provider-stream.ts";
-import { workRootWalk } from "./workspace-scope-read.ts";
-import type { WorkRuleTask } from "./workspace-scope-read.ts";
+import { workRootWalk } from "@harness-anything/application/internal/queries/workspace-scope-read.ts";
+import type { WorkRuleTask } from "@harness-anything/application/internal/queries/workspace-scope-read.ts";
 import { modelPriceOf, modelPricingVersion, usageCostUsd } from "./agent-runtime-model-pricing.ts";
 
 export {

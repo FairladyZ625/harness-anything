@@ -51,7 +51,8 @@ import type {
   publishGateWitness as publishGateWitnessImpl,
 } from "./repo-cell-completion.ts";
 import type { errorOperationId, publishGeneratedArtifact } from "./repo-cell-errors.ts";
-import type { decodeEvidencePayload, renderEvidencePayload } from "./repo-cell-evidence.ts";
+import type { decodeEvidencePayload } from "@harness-anything/application/internal/queries/evidence-payload.ts";
+import type { renderEvidencePayload } from "@harness-anything/application/internal/queries/repo-cell-evidence.ts";
 import type {
   completeRetryCommand,
   explicitExecutionId,
@@ -111,10 +112,16 @@ import type {
   wipSnapshotEntries as wipSnapshotEntriesImpl,
   TaskQueryCell,
 } from "./repo-cell-task-query.ts";
-import type { graphView as graphViewImpl } from "./repo-cell-graph-view.ts";
-import type { listEvents as listEventsImpl, showEvent as showEventImpl } from "./repo-cell-event-query.ts";
+import type { graphView as graphViewImpl } from "@harness-anything/application/internal/queries/repo-cell-graph-view.ts";
+import type {
+  listEvents as listEventsImpl,
+  showEvent as showEventImpl,
+} from "@harness-anything/application/internal/queries/repo-cell-event-query.ts";
 import type { makeSquadCoordinator } from "./squad-coordinator.ts";
-import type { EntityActionCatalogRuntimes, makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
+import type {
+  EntityActionCatalogRuntimes,
+  makeEntityActionCatalogExecutor,
+} from "@harness-anything/application/internal/commands/entity-action-catalog-executor.ts";
 import type { makeRuntimeSpawner } from "./runtime-spawn.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { makeRecoveryProbe } from "./recovery-state.ts";

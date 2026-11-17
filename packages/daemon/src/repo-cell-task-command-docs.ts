@@ -22,7 +22,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { adjudicateDocIntent, claimBytes, recycleClaims, rejectDocSyncAction } from "./doc-sync-actions.ts";
-import { someQueryEvent } from "./repo-cell-event-query.ts";
+import { someQueryEvent } from "@harness-anything/application/internal/queries/repo-cell-event-query.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
 import { assertTaskTransitionDocumentReady, readOnDiskBody } from "./transition-document-access.ts";
@@ -30,7 +30,9 @@ import type { RepoCellActionContext, RepoCellOperationalContext } from "./repo-c
 import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
 import { reviewerArtifactsForReview } from "./reviewer-artifact-publication.ts";
 import { runTaskActionCatalogRuntime } from "./task-action-catalog-runtime.ts";
-import { retireTaskAwaitsAtTerminalStatus } from "./terminal-awaits-retirement.ts";
+import { relationDirectionRegistry } from "./artifact-entity-action.ts";
+import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
+import { retireTaskAwaitsAtTerminalStatus } from "@harness-anything/application/internal/commands/terminal-awaits-retirement.ts";
 import { reviewExecutionSelection } from "./repo-cell-execution-selection.ts";
 
 export type TaskCommandWithDocsAction = RepoTaskAction & {
@@ -355,6 +357,8 @@ export async function runTaskCommandWithDocs(
         store: cell.store,
         projection: cell.projection,
         now: cell.now,
+        sessionIdentity: (value) => resolveWriteSessionIdentity(value, cell.projection),
+        relationDirections: () => relationDirectionRegistry(cell.projection, cell.input.repoId),
         ...(cell.input.killpoint ? { killpoint: cell.input.killpoint } : {}),
       },
     });

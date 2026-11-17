@@ -8,7 +8,10 @@ import {
   sha256Text,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
-import { deriveActionResult, type EntityActionCatalogPreparer } from "./entity-action-catalog-executor.ts";
+import {
+  deriveActionResult,
+  type EntityActionCatalogPreparer,
+} from "@harness-anything/application/internal/commands/entity-action-catalog-executor.ts";
 import type { RepoCellActionContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoTaskAction, RuntimeIngressAction } from "./repo-cell-types.ts";
 

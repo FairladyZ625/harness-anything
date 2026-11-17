@@ -12,7 +12,7 @@ import {
   type DecisionEventV1,
   type FactEventV1,
 } from "@harness-anything/kernel";
-import type { RepoTaskAction } from "./repo-cell-types.ts";
+import type { CommandAction } from "./command-ports.ts";
 import { reject } from "./entity-action-relation.ts";
 import { factReplayBundle } from "./fact-supersede-document.ts";
 import type { RuntimeSessionBundle } from "./entity-action-runtime-session.ts";
@@ -40,7 +40,7 @@ type ReplayBundle =
 export function matchingReplayBundle(
   store: CanonicalEventStore,
   contract: ExecutableAction,
-  action: RepoTaskAction,
+  action: CommandAction,
   existing: ReturnType<CanonicalEventStore["readEvent"]>,
 ): ReplayBundle | null {
   const writesFact = contract.target.kind === "fact" || contract.id === "reckon";

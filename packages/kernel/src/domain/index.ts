@@ -48,8 +48,7 @@ export {
   type CanonicalMaterializationState,
 } from "./entity-relation.ts";
 export { taskIncludedByNodeMaterializationPolicy, type NodeTaskMaterializationPolicy } from "./task-wip-policy.ts";
-export { deriveActionReturnsContract } from "./entity-action-descriptor.ts";
-export type { ReceiptGuidanceArgument, ReceiptGuidanceContractEntry } from "./entity-action-descriptor.ts";
+export { actionReceiptGuidance } from "./entity-action-descriptor.ts";
 export { evaluateTaskActionCapability, taskLifecycleNextActions } from "./task-action-capability.ts";
 export { actionDeclarations, actionPresentation, isArtifactActionIngressKind } from "./action-declaration.ts";
 export { artifactActionPoliciesByKind, registeredArtifactActionPolicyActions } from "./artifact-action-declarations.ts";

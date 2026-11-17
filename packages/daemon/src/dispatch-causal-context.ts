@@ -1,6 +1,12 @@
-import { readTaskAncestry, readTaskReadSet } from "@harness-anything/application";
+import { readTaskAncestry } from "@harness-anything/application/internal/task-ancestry-read.ts";
+import { readTaskReadSet } from "@harness-anything/application/internal/task-read-set-service.ts";
+import { planGoalSummary } from "@harness-anything/application/internal/queries/work-read.ts";
+export { planGoalSummary };
 import type { DecisionProjectionRow, TaskProjectionQueries } from "@harness-anything/kernel";
-import { requireSameProjectionCut, type ProjectionCut } from "./projection-cut.ts";
+import {
+  requireSameProjectionCut,
+  type ProjectionCut,
+} from "@harness-anything/application/internal/queries/projection-cut.ts";
 
 /**
  * Dispatch-time causal context: the bounded slice of the causal graph a freshly
@@ -399,25 +405,6 @@ function escapeXml(text: string): string {
   return text.replace(/[&<>"]/gu, (char) =>
     char === "&" ? "&amp;" : char === "<" ? "&lt;" : char === ">" ? "&gt;" : "&quot;",
   );
-}
-
-/**
- * The one-paragraph goal/mission statement of a task plan, if the plan declares one. Returns plain
- * compacted text — the caller's render line is the single XML-escape point, so this must not pre-escape.
- */
-export function planGoalSummary(body: string): string | null {
-  // The create-work plan states its goal under Mission.
-  for (const heading of ["Goal", "Brief", "Mission"]) {
-    const section = new RegExp(`^## ${heading}\\s*\\r?\\n([\\s\\S]*?)(?=^## |$)`, "mu").exec(body)?.[1],
-      text = section
-        ?.split(/\r?\n/u)
-        .map((line) => line.replace(/^\s*(?:[-*]|\d+[.)])\s*/u, "").trim())
-        .filter(Boolean)
-        .slice(0, 2)
-        .join(" ");
-    if (text) return text.replace(/\*\*/gu, "").replace(/\s+/gu, " ").trim();
-  }
-  return null;
 }
 
 /** Collapse whitespace and bound one plain-text field; the render path escapes it exactly once. */

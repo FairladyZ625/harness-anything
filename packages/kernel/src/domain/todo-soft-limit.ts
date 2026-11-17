@@ -41,8 +41,8 @@ export const todoSoftLimitPolicy = {
 // Source identities and values for daemon policy declarations registered by EntityKindContract.
 export const daemonTodoPolicySources = [
   [
-    "policy:packages/daemon:packages/daemon/src/todo-read.ts#todoRelations.page.limit:281836eca24c2eb78d50f8542399ca4d",
-    "packages/daemon/src/todo-read.ts#todoRelations.page.limit",
+    "policy:packages/application:packages/application/src/queries/todo-read.ts#todoRelations.page.limit:281836eca24c2eb78d50f8542399ca4d",
+    "packages/application/src/queries/todo-read.ts#todoRelations.page.limit",
     'const page = projection.readRelationQuery({ ...query, state: "active", limit: 100, ...(cursor ? { cursor } : {}) });',
   ],
 ] as const;

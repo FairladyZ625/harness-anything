@@ -7,7 +7,7 @@ import test, { type TestContext } from "node:test";
 import { actionDeclarations, deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { BuiltinPolicyAdapter } from "@harness-anything/authorization-builtin";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
-import { readPolicyMetadata } from "../src/policy-metadata-read.ts";
+import { readPolicyMetadata } from "@harness-anything/application/queries";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
 const config = { url: "http://127.0.0.1:8080", realm: "harness", resourceServerClientId: "harness-center" };
