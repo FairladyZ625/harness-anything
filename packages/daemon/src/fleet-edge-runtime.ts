@@ -69,6 +69,8 @@ import { orchestrateRuntimeSessionsAwait } from "./runtime-orchestration.ts";
 import { prepareScheduleOccurrenceWorkspace, scheduleSettlementDetail } from "./schedule-occurrence-workspace.ts";
 import { taskMissionSections, taskPlanSection, runtimeMissionName } from "./runtime-spawn-mission.ts";
 import { readRuntimeDispatchOwnerEvidence } from "./runtime-spawn-control.ts";
+import { runtimeSpawnReceipt } from "./runtime-spawn-receipt.ts";
+import { admitTaskDispatch } from "./task-dispatch-recovery.ts";
 import { runtimeForwardingContext } from "./fleet/forwarding-port.ts";
 import type { FleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { assertFleetEdgeRepositoryGit } from "./fleet-edge-git-preflight.ts";
@@ -1193,21 +1195,63 @@ export function openFleetEdgeRuntime(input: {
               rollout,
             ),
         });
-      return method === "repo.agentRuntime.spawn"
-        ? spawner.spawn(action, await controlBinding(request))
-        : ((await readFleetOperationalClient({
-            ...runtimeReadPeer,
-            repoId: request.repoId,
-            method,
-            payload: action,
-            connectionSignal,
-          })) as JsonObject);
+      if (method === "repo.agentRuntime.spawn") {
+        const prepared = action.recovery === undefined ? null : await prepareEdgeRecoverySpawn(action);
+        if (prepared?.replay) return prepared.replay;
+        const receipt = await spawner.spawn(
+          prepared?.payload ?? action,
+          await controlBinding(request),
+          null,
+          Boolean(prepared?.recovery),
+        );
+        return prepared?.recovery ? { ...receipt, recovery: { ...prepared.recovery, replayed: false } } : receipt;
+      }
+      return (await readFleetOperationalClient({
+        ...runtimeReadPeer,
+        repoId: request.repoId,
+        method,
+        payload: action,
+        connectionSignal,
+      })) as JsonObject;
     },
     close: () => {
       workQueue.close();
       spawner.close();
     },
   };
+
+  async function prepareEdgeRecoverySpawn(action: JsonObject): Promise<
+    | { readonly replay: JsonObject; readonly payload?: undefined; readonly recovery?: undefined }
+    | {
+        readonly replay?: undefined;
+        readonly payload: JsonObject;
+        readonly recovery: Exclude<ReturnType<typeof admitTaskDispatch>, { kind: "replay" }>["recovery"];
+      }
+  > {
+    const { request } = context();
+    await pullRuntimeReplica();
+    const admitted = await readRuntimeProjection(request, (projection) =>
+      admitTaskDispatch({
+        repoId: request.repoId,
+        rootDir: request.workspaceRoot,
+        projection: projection as TaskProjection,
+        payload: action,
+      }),
+    );
+    if (admitted.kind === "replay")
+      return {
+        replay: {
+          ...runtimeSpawnReceipt(
+            admitted.event,
+            { cut: { opId: admitted.event.opId, revision: admitted.event.workspaceRevision } } as never,
+            admitted.event.payload.runtimeSessionId,
+            admitted.event.payload.dispatchId,
+          ),
+          recovery: admitted.recovery,
+        } as unknown as JsonObject,
+      };
+    return { payload: admitted.payload, recovery: admitted.recovery };
+  }
 
   async function readRuntimeProjection<T>(
     request: FleetRuntimeLocation,

@@ -367,6 +367,7 @@ export {
   commandDescriptorForAction,
   maybeCommandDescriptorForAction,
   commandIdForDaemonMethod,
+  daemonMethodPayloadFields,
   daemonProtocolCommands,
   hasCommandDescriptor,
   hiddenCliCommands,

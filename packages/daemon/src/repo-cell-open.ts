@@ -764,7 +764,11 @@ export async function openRepoWriterCell(
           lease.actor.executor?.kind === "agent" && lease.actor.executor.id.startsWith("runtime-session:")
             ? lease.actor.executor.id.slice("runtime-session:".length)
             : null,
-        dispatcherOwnsLease = isSameExecution(lease.actor, binding.actor),
+        barePersonLease =
+          lease.actor.executor === null &&
+          isSamePerson(lease.actor, binding.actor) &&
+          !binding.actor.executor?.id.startsWith("runtime-session:"),
+        dispatcherOwnsLease = isSameExecution(lease.actor, binding.actor) || barePersonLease,
         trustedRuntimeHandoff =
           heldRuntimeSessionId !== null &&
           heldRuntimeSessionId === fromRuntimeSessionId &&

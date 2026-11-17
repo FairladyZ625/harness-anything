@@ -1,4 +1,5 @@
 import { resolveHarnessLayout, validSquadDispatchContext } from "@harness-anything/kernel";
+import { daemonMethodPayloadFields } from "./protocol/daemon-protocol-commands.ts";
 import { unknownFieldViolation } from "./protocol/json-rpc-types.ts";
 import { readHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { verifiedHandoffVersions } from "./runtime-handoff-native.ts";
@@ -312,6 +313,15 @@ export function assertNativeResumeNotExported(
   }
 }
 
+const runtimeSpawnInternalFields = Object.freeze([
+  "arrangementId",
+  "squadRun",
+  "executionId",
+  "preferredRuntimeInstanceId",
+  "preferredModel",
+  "avoidVendor",
+]);
+
 /** Select trusted checkpoint inheritance or ordinary local resume before assembling a launch. */
 export function resolveRuntimeResume(
   input: import("./runtime-spawn-types.ts").RuntimeSpawnerInput,
@@ -319,34 +329,7 @@ export function resolveRuntimeResume(
   handoff?: import("./runtime-handoff-store.ts").RuntimeHandoffCheckpoint,
 ) {
   const allowed = [
-      "handoffEnabled",
-      "arrangementId",
-      "runtimeInstanceId",
-      "dispatchId",
-      "agentId",
-      "targetAgentId",
-      "squadId",
-      "squadRun",
-      "role",
-      "model",
-      "effort",
-      "fast",
-      "permissionMode",
-      "mcpPolicy",
-      "cwd",
-      "prompt",
-      "promptSource",
-      "missionName",
-      "onExitCommand",
-      "taskId",
-      "executionId",
-      "reviewTarget",
-      "dispatchKey",
-      "providerSessionId",
-      "preferredRuntimeInstanceId",
-      "preferredModel",
-      "avoidVendor",
-      "dryRun",
+      ...new Set([...daemonMethodPayloadFields("repo.agentRuntime.spawn"), ...runtimeSpawnInternalFields]),
     ],
     unknownField = unknownFieldViolation(payload, allowed);
   if (unknownField)

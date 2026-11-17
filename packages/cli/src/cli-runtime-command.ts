@@ -120,15 +120,16 @@ export async function runRuntimeFacadeCommand(
       : result;
   }
   const { randomUUID } = await import("node:crypto"),
-    { noStream: _noStream, detach = false, ...spawnAction } = action,
+    { projectRuntimeSpawnRpcPayload } = await import("./cli/thin-command-runtime.ts"),
+    detach = action.detach === true,
+    spawnAction = projectRuntimeSpawnRpcPayload({
+      ...action,
+      // A caller idempotency key is the dispatch key; only a keyless run gets a fresh one.
+      dispatchKey: typeof action.dispatchKey === "string" ? action.dispatchKey : `runtime-cli-${randomUUID()}`,
+    }),
     spawned = await send({
       ...command,
-      action: {
-        ...spawnAction,
-        // A caller idempotency key is the dispatch key; only a keyless run gets a fresh one.
-        dispatchKey:
-          typeof spawnAction.dispatchKey === "string" ? spawnAction.dispatchKey : `runtime-cli-${randomUUID()}`,
-      },
+      action: { kind: action.kind, ...spawnAction },
     });
   // --dry-run: the daemon returned the assembled dispatch preview; print the
   // injected prompt verbatim and never enter the wait/attach path.

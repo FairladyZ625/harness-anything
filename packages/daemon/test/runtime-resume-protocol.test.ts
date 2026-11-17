@@ -6,11 +6,20 @@ import path from "node:path";
 import test from "node:test";
 import type { RuntimeDispatchProjectionRow } from "@harness-anything/kernel";
 import { archiveDispatchStream, openDispatchStream } from "../src/dispatch-stream.ts";
-import { parseDaemonRpcParams } from "../src/protocol/daemon-protocol.contract.ts";
+import {
+  daemonGuiActionMethods,
+  daemonMethodPayloadFields,
+  parseDaemonRpcParams,
+} from "../src/protocol/daemon-protocol.contract.ts";
+import { daemonProtocolMethods } from "../src/protocol/daemon-protocol-commands.ts";
+import { cancelRuntime, steerRuntime } from "../src/runtime-spawn-control.ts";
+import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
+import { taskDispatchLeaseQualifies } from "../src/task-dispatch-admission.ts";
 import { validAgentRuntimeAttemptChain } from "../src/runtime-attempt-contract.ts";
 import {
   admitRuntimeResume,
   assertRuntimeHandoffLaunch,
+  resolveRuntimeResume,
   runtimeResumeAdmission,
 } from "../src/runtime-resume-admission.ts";
 
@@ -191,4 +200,124 @@ test("handoff target admission reads the same verified Codex version list as sou
     });
   // No checkpoint means no native state to admit, so the version gate does not apply.
   assert.doesNotThrow(() => assertRuntimeHandoffLaunch(true, undefined, launch, "codex", "codex-cli 0.163.1"));
+});
+
+test("resolveRuntimeResume derives its wire allowlist from the protocol contract and accepts executor and recovery while rejecting bogusField", () => {
+  const input = {
+    rootDir: process.cwd(),
+    repoId: "protocol-probe",
+    now: () => "2026-11-17T00:00:00.000Z",
+  };
+  assert.deepEqual(
+    resolveRuntimeResume(input, {
+      agentId: "terra",
+      taskId: "task-1",
+      dispatchKey: "executor-key",
+      executor: { kind: "agent", id: "claude-session:claude-1" },
+    }),
+    { requestedDispatchId: undefined, resumed: null, inherited: undefined, handoffEnabled: false },
+  );
+  assert.deepEqual(
+    resolveRuntimeResume(input, {
+      agentId: "terra",
+      taskId: "task-1",
+      dispatchKey: "recovery-key",
+      recovery: { dispatchId: "dispatch_0123456789abcdef01234567", executionId: "exe-1", expectedVersion: 1 },
+    }),
+    { requestedDispatchId: undefined, resumed: null, inherited: undefined, handoffEnabled: false },
+  );
+  assert.throws(
+    () =>
+      resolveRuntimeResume(input, {
+        agentId: "terra",
+        taskId: "task-1",
+        dispatchKey: "bogus-key",
+        bogusField: "unexpected",
+      }),
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "invalid_runtime_spawn" &&
+      /unknown field "bogusField"/u.test(error.message),
+  );
+});
+
+test("runtime control handlers and duplicate protocol registrations align with daemonMethodPayloadFields", async () => {
+  const controlSteer = daemonProtocolMethods.find((entry) => entry.method === "repo.agentRuntime.steer");
+  const guiSteer = daemonGuiActionMethods.find((entry) => entry.method === "repo.agentRuntime.steer");
+  assert.ok(controlSteer && guiSteer);
+  assert.deepEqual(
+    Object.keys((controlSteer.params.fields.payload as { fields: Record<string, unknown> }).fields),
+    Object.keys((guiSteer.params.fields.payload as { fields: Record<string, unknown> }).fields),
+  );
+  assert.ok(daemonMethodPayloadFields("repo.agentRuntime.spawn").includes("executor"));
+  assert.ok(daemonMethodPayloadFields("repo.agentRuntime.spawn").includes("recovery"));
+  assert.ok(daemonMethodPayloadFields("repo.agentRuntime.cancel").includes("ruling"));
+  assert.ok(daemonMethodPayloadFields("repo.agentRuntime.steer").includes("expected"));
+
+  const stubContext = {
+    input: { repoId: "protocol-probe", rootDir: process.cwd(), now: () => "2026-11-17T00:00:00.000Z" },
+    runtimeSpawnError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+  } as unknown as RuntimeSpawnerContext;
+  const binding = { actor: { principal: { personId: "owner" }, executor: null }, source: "local" as const };
+  await assert.rejects(
+    cancelRuntime(stubContext, { runtimeSessionId: "runtime_1", bogusField: true }, binding),
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "invalid_runtime_cancel" &&
+      /unknown field "bogusField"/u.test(error.message),
+  );
+  await assert.rejects(
+    steerRuntime(stubContext, { runtimeSessionId: "runtime_1", prompt: "go", bogusField: true }, binding),
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "invalid_runtime_steer" &&
+      /unknown field "bogusField"/u.test(error.message),
+  );
+});
+
+test("taskDispatchLeaseQualifies allows same-person host CLI sessions to hand off a bare-person lease while isolating runtime sessions", () => {
+  const bareLease = {
+    schema: "lease/v1" as const,
+    taskId: "task-1",
+    executionId: "exe-1",
+    actor: { principal: { personId: "person-a" }, executor: null },
+    source: "local" as const,
+    phase: "held" as const,
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    ttlMs: 60_000,
+    version: 1,
+  };
+  assert.equal(
+    taskDispatchLeaseQualifies(
+      bareLease,
+      { principal: { personId: "person-a" }, executor: { kind: "agent", id: "claude-session:s1" } },
+      "runtime_target",
+      null,
+      true,
+    ),
+    true,
+  );
+  assert.equal(
+    taskDispatchLeaseQualifies(
+      bareLease,
+      { principal: { personId: "person-a" }, executor: { kind: "agent", id: "runtime-session:other" } },
+      "runtime_target",
+      null,
+      true,
+    ),
+    false,
+  );
+  assert.equal(
+    taskDispatchLeaseQualifies(
+      bareLease,
+      { principal: { personId: "person-b" }, executor: { kind: "agent", id: "claude-session:s1" } },
+      "runtime_target",
+      null,
+      true,
+    ),
+    false,
+  );
 });

@@ -8606,7 +8606,7 @@
         "port": "packages/daemon/src/fleet-squad-coordinator.ts#makeFleetSquadCoordinator.run"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-runtime.ts#openFleetEdgeRuntime.run:e75fe6d8939f6befaf6c94995b31aa28",
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-runtime.ts#openFleetEdgeRuntime.run.receipt:789976b816fc275f593d3eb2655b834c",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.spawn"

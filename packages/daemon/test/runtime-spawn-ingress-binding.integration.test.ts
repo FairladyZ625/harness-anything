@@ -714,6 +714,37 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", { time
         projected.close();
       }
     });
+    await t.test(
+      "unknown bogusField on repo.agentRuntime.spawn fails closed with unknown_field / invalid_runtime_spawn",
+      async () => {
+        const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
+          repo: { repoId },
+          payload: {
+            runtimeInstanceId: ingressDefinition.instanceId,
+            cwd: { scope: "repo-root" },
+            prompt: "Reject bogus field",
+            dispatchKey: "ingress-bogus",
+            bogusField: true,
+          },
+        });
+        assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
+        assert.equal(receipt.code, "unknown_field", JSON.stringify(receipt));
+        await assert.rejects(
+          host.spawnRuntime(
+            repoId,
+            {
+              runtimeInstanceId: ingressDefinition.instanceId,
+              cwd: { scope: "repo-root" },
+              prompt: "Reject bogus field directly",
+              dispatchKey: "ingress-bogus-host",
+              bogusField: true,
+            },
+            auth,
+          ),
+          { code: "invalid_runtime_spawn" },
+        );
+      },
+    );
   } finally {
     await transport.stop();
     await host.close();

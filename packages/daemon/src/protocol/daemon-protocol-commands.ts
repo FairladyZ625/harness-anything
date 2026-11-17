@@ -915,3 +915,12 @@ export function daemonMethodAcceptsPayload(method: string): boolean {
     "payload",
   );
 }
+
+/** Authoritative payload field names for a contracted daemon RPC method, derived from the same shapes validateDaemonRpcCall enforces. */
+export function daemonMethodPayloadFields(method: string): readonly string[] {
+  const fields = allDaemonProtocolMethods.find((entry) => entry.method === method)?.params.fields,
+    payload = fields && "payload" in fields ? fields.payload : undefined;
+  return typeof payload === "object" && payload !== null && "fields" in payload
+    ? Object.freeze(Object.keys(payload.fields))
+    : Object.freeze([]);
+}

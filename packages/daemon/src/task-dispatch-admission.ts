@@ -53,15 +53,15 @@ export function taskDispatchLeaseQualifies(
 ): boolean {
   if (lease === null || lease.phase === "released" || lease.phase === "orphaned") return canHandoff;
   const leaseExecutorId = lease.actor.executor?.id ?? null,
-    leaseHeldByRuntime = leaseExecutorId?.startsWith("runtime-session:") === true,
     dispatchLeaseExecutor = `runtime-session:${runtimeSessionId}`,
-    trustedSourceExecutor = trustedHandoffSource ? `runtime-session:${trustedHandoffSource}` : null;
+    trustedSourceExecutor = trustedHandoffSource ? `runtime-session:${trustedHandoffSource}` : null,
+    callerIsRuntimeSession = actor.executor?.id.startsWith("runtime-session:") === true;
   return (
     lease.phase === "held" &&
     isSamePerson(lease.actor, actor) &&
     (isSameExecution(lease.actor, actor) ||
       leaseExecutorId === dispatchLeaseExecutor ||
-      leaseExecutorId === trustedSourceExecutor ||
-      (actor.executor === null && !leaseHeldByRuntime))
+      (trustedSourceExecutor !== null && leaseExecutorId === trustedSourceExecutor) ||
+      (lease.actor.executor === null && !callerIsRuntimeSession))
   );
 }

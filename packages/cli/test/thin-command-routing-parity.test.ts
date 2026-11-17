@@ -8,6 +8,7 @@ import {
   DAEMON_RPC_SCHEMA,
   commandIdForDaemonMethod,
   daemonMethodAcceptsPayloadExecutor,
+  daemonMethodPayloadFields,
   daemonProtocolCommands,
   hiddenCliCommands,
   hiddenSince,
@@ -28,6 +29,7 @@ import {
   renderThinHelp,
 } from "../src/cli/thin-command.ts";
 import { clientLocalCommands } from "../src/cli/thin-command-help.ts";
+import { projectRuntimeSpawnRpcPayload } from "../src/cli/thin-command-runtime.ts";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { emit, main, resolveCliVersion } from "../src/index.ts";
 
@@ -1720,4 +1722,170 @@ test("parsed commands name their route id and sole-method attribution matches th
   assert.equal(commandIdForDaemonMethod("repo.entity.actions.explain"), "explain");
   assert.equal(commandIdForDaemonMethod("repo.task.run"), null);
   assert.equal(commandIdForDaemonMethod("protocol.hello"), null);
+});
+
+test("CLI runtime spawn and control RPC payloads align with daemonMethodPayloadFields and reject undeclared fields", () => {
+  const spawnCases: readonly { readonly argv: readonly string[]; readonly expectedFields?: readonly string[] }[] = [
+    { argv: ["agent", "run", "terra", "--task", "task_1", "--model", "gpt-5.6-sol", "--detach"] },
+    {
+      argv: [
+        "agent",
+        "run",
+        "terra",
+        "--task",
+        "task_1",
+        "--recover-dispatch",
+        "dispatch_0123456789abcdef01234567",
+        "--execution-id",
+        "exe_1",
+        "--expected-version",
+        "3",
+        "--idempotency-key",
+        "recover-k1",
+      ],
+      expectedFields: ["recovery", "dispatchKey"],
+    },
+    {
+      argv: ["agent", "run", "terra", "--resume-dispatch", "dispatch_0123456789abcdef01234567", "--prompt", "continue"],
+      expectedFields: ["dispatchId", "prompt"],
+    },
+    { argv: ["agent", "run", "terra", "--claim-next", "--no-stream"] },
+    { argv: ["agent", "run", "terra", "--task", "task_1", "--dry-run", "--no-stream"], expectedFields: ["dryRun"] },
+    { argv: ["runtime", "run", "inst-1", "--prompt", "inspect", "--cwd", "."] },
+    {
+      argv: ["runtime", "run", "--resume-dispatch", "dispatch_0123456789abcdef01234567", "--prompt", "resume"],
+    },
+  ];
+  const declaredSpawnFields = new Set(daemonMethodPayloadFields("repo.agentRuntime.spawn"));
+  for (const { argv, expectedFields } of spawnCases) {
+    const parsed = parseThinCommand(argv, "/repo");
+    assert.equal(parsed.ok, true, argv.join(" "));
+    if (!parsed.ok) continue;
+    const wire = projectRuntimeSpawnRpcPayload({
+      ...parsed.command.action,
+      dispatchKey:
+        typeof parsed.command.action.dispatchKey === "string" ? parsed.command.action.dispatchKey : "parity-key",
+      ...(parsed.command.action.claimNext ? { taskId: "task_1" } : {}),
+      executor: { kind: "agent", id: "claude-session:parity" },
+    });
+    for (const field of expectedFields ?? [])
+      assert.equal(Object.hasOwn(wire, field), true, `${argv.join(" ")}:${field}`);
+    for (const key of Object.keys(wire))
+      assert.equal(declaredSpawnFields.has(key), true, `${argv.join(" ")}: undeclared wire field ${key}`);
+    assert.deepEqual(
+      validateDaemonRpcCall({
+        method: "repo.agentRuntime.spawn",
+        params: { repo: { repoId: "parity" }, payload: wire },
+      }),
+      [],
+      argv.join(" "),
+    );
+  }
+  assert.throws(() => projectRuntimeSpawnRpcPayload({ dispatchKey: "k", bogusField: true }), /bogusField/u);
+
+  const controlCases: readonly {
+    readonly argv: readonly string[];
+    readonly strip?: readonly string[];
+    readonly inject?: Readonly<Record<string, unknown>>;
+    readonly expectedMethod: string;
+  }[] = [
+    { argv: ["runtime", "cancel", "runtime_1", "--ruling", "stopped"], expectedMethod: "repo.agentRuntime.cancel" },
+    {
+      argv: [
+        "runtime",
+        "steer",
+        "runtime_1",
+        "--prompt",
+        "redirect",
+        "--expect-task",
+        "task_1",
+        "--expect-execution",
+        "exe_1",
+        "--expect-dispatch",
+        "dispatch_0123456789abcdef01234567",
+        "--expect-version",
+        "2",
+      ],
+      expectedMethod: "repo.agentRuntime.steer",
+    },
+    {
+      argv: ["runtime", "status", "--task", "task_1", "--limit", "5"],
+      strip: ["noStream"],
+      expectedMethod: "repo.agentRuntime.overview",
+    },
+    {
+      argv: ["runtime", "status", "runtime_1"],
+      strip: ["noStream"],
+      expectedMethod: "repo.agentRuntime.sessions.read",
+    },
+    {
+      argv: ["runtime", "status", "runtime_1", "--wait", "--all"],
+      strip: ["noStream"],
+      expectedMethod: "repo.agentRuntime.sessions.await",
+    },
+    {
+      argv: [
+        "runtime",
+        "handoff",
+        "claim",
+        "dispatch_0123456789abcdef01234567",
+        "--instance",
+        "codex-1",
+        "--prompt",
+        "take over",
+        "--idempotency-key",
+        "claim-1",
+      ],
+      expectedMethod: "repo.agentRuntime.handoff",
+    },
+  ];
+  for (const item of controlCases) {
+    const parsed = parseThinCommand(item.argv, "/repo");
+    assert.equal(parsed.ok, true, item.argv.join(" "));
+    if (!parsed.ok) continue;
+    assert.equal(parsed.command.method, item.expectedMethod, item.argv.join(" "));
+    const allowed = new Set(daemonMethodPayloadFields(item.expectedMethod));
+    const { kind: _kind, ...rest } = parsed.command.action;
+    const payload = Object.fromEntries(
+      Object.entries({ ...rest, ...(item.inject ?? {}) }).filter(
+        ([key, value]) => !(item.strip ?? []).includes(key) && value !== undefined,
+      ),
+    );
+    for (const key of Object.keys(payload))
+      assert.equal(allowed.has(key), true, `${item.argv.join(" ")}: undeclared field ${key}`);
+    assert.deepEqual(
+      validateDaemonRpcCall({ method: item.expectedMethod, params: { repo: { repoId: "parity" }, payload } }),
+      [],
+      item.argv.join(" "),
+    );
+    const rejected = validateDaemonRpcCall({
+      method: item.expectedMethod,
+      params: { repo: { repoId: "parity" }, payload: { ...payload, bogusField: true } },
+    });
+    assert.ok(rejected.length > 0, `${item.expectedMethod} must reject bogusField`);
+  }
+
+  for (const [argv, expectedKind] of [
+    [
+      ["decision", "dispatch-review", "dec_1", "--agent", "closeout-reviewer", "--expected-digest", "sha256:abc"],
+      "decision-dispatch-review",
+    ],
+    [
+      ["task", "dispatch-review", "task_1", "--agent", "closeout-reviewer", "--execution-id", "exe_1"],
+      "task-dispatch-review",
+    ],
+  ] as const) {
+    const parsed = parseThinCommand(argv, "/repo");
+    assert.equal(parsed.ok, true, argv.join(" "));
+    if (!parsed.ok) continue;
+    assert.equal(parsed.command.method, "repo.task.run");
+    assert.equal(parsed.command.action.kind, expectedKind);
+    assert.deepEqual(
+      validateDaemonRpcCall({
+        method: "repo.task.run",
+        params: { repo: { repoId: "parity" }, payload: { action: parsed.command.action } },
+      }),
+      [],
+    );
+  }
 });

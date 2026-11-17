@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { sameWriteSource, type TaskProjection } from "@harness-anything/kernel";
+import { daemonMethodPayloadFields } from "./protocol/daemon-protocol-commands.ts";
 import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-types.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
@@ -29,7 +30,7 @@ export async function cancelRuntime(
   payload: JsonObject,
   binding: RuntimeBinding,
 ): Promise<JsonObject> {
-  const allowed = ["runtimeSessionId", "escalation", "ruling"],
+  const allowed = [...new Set([...daemonMethodPayloadFields("repo.agentRuntime.cancel"), "escalation"])],
     unknownField = unknownFieldViolation(payload, allowed);
   if (unknownField)
     throw runtimeSpawnError("invalid_runtime_cancel", `Runtime cancel payload contains an ${unknownField}`);
@@ -286,7 +287,7 @@ export async function steerRuntime(
   payload: JsonObject,
   binding: RuntimeBinding,
 ): Promise<JsonObject> {
-  const unknownField = unknownFieldViolation(payload, ["runtimeSessionId", "dispatchId", "prompt", "expected"]);
+  const unknownField = unknownFieldViolation(payload, daemonMethodPayloadFields("repo.agentRuntime.steer"));
   if (unknownField)
     throw runtimeSpawnError("invalid_runtime_steer", `Runtime steer payload contains an ${unknownField}`);
   const runtimeSessionIdInput = payload.runtimeSessionId,
