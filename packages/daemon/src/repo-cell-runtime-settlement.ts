@@ -47,7 +47,7 @@ export async function commitRuntimeSettlement(
   if (preview.kind !== "applied")
     throw cell.cellCodedError("runtime_event_rejected", "Dispatch lifecycle rejected the terminal outcome.");
   if (current.policy.attemptSettled && !current.policy.fallbackPending) return commit(bundle);
-  if (current.attempt.stopProof !== "proven_stopped")
+  if (current.attempt.stopProof !== "proven_stopped" && !preview.ownerAbandonment)
     throw cell.cellCodedError("runtime_process_group_unproven", "Dispatch settlement requires accepted stop proof.");
   const task = current.attempt.task;
   if (!task || task.role !== "implementer" || preview.groupPhase === "waiting_backoff") return commit(bundle);

@@ -28,6 +28,7 @@ type Token = {
   readonly t: "R" | "S" | "L" | "C" | "X" | "O";
   readonly liveness?: string;
   readonly outcome?: string;
+  readonly exitCode?: number | null;
   readonly classification?: string;
   readonly fallbackState?: string;
   readonly reasonCode?: string;
@@ -75,6 +76,7 @@ function runtimeEvent(
   if (token.t === "L") payload.liveness = token.liveness;
   if (token.t === "O") {
     payload.outcome = token.outcome;
+    if ("exitCode" in token) payload.exitCode = token.exitCode;
     if (token.reasonCode) payload.reasonCode = token.reasonCode;
     if (token.classification || token.fallbackState)
       payload.attempt = {
@@ -538,6 +540,19 @@ test("an attempt never acquires a replacement lease generation after releasing i
     assert.equal(view.attempt.task?.leaseReleased, true);
     assert.equal(view.policy.capacity, "held", "lease handoff does not prove the runtime stopped");
   }
+});
+
+test("an explicit owner abandonment closes an unreachable attempt without manufacturing stop proof", () => {
+  const ids = { dispatchId: "d-abandon", runtimeSessionId: "s-abandon", attemptGroupId: "d-abandon" },
+    events = (
+      [{ t: "R" }, { t: "S" }, { t: "O", outcome: "unknown", reasonCode: "ruling_resolved", exitCode: null }] as Token[]
+    ).map((token) => runtimeEvent(token, ids) as DispatchLifecycleInput),
+    view = dispatchLifecycleView(fold(events).groups.get(ids.attemptGroupId)!);
+  assert.equal(view.groupPhase, "closed");
+  assert.equal(view.attempt.outcome, "unknown");
+  assert.equal(view.attempt.stopProof, "unproven");
+  assert.equal(view.policy.groupSettled, true);
+  assert.equal(view.policy.capacity, "released");
 });
 
 test("ruling resolution closes the group and admits its next attempt", () => {

@@ -5,7 +5,7 @@ import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-type
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import { adoptRuntimes, ownedByRuntimeSpawner, assertRuntimeRecoveryReady } from "./runtime-spawn-adoption.ts";
-import { appendRuntimeWorkerRecord, readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { probeProcessGroup, processGroupRecoveryHint } from "./runtime/process-group-reconciler.ts";
 import type { ActiveRuntime, RuntimeBinding, RuntimeDispatchOwnerEvidence } from "./runtime-spawn-types.ts";
@@ -95,9 +95,7 @@ export async function cancelRuntime(
         context.ownsModelSlot?.(runtimeSessionId) === true,
       hasReadableDispatch =
         matchingHeader !== undefined ||
-        (canonicalDispatch?.payload.dispatchId
-          ? readDispatchStreamSummary(context.input.rootDir, canonicalDispatch.payload.dispatchId) !== null
-          : false),
+        headers.some((header) => header.dispatchId === canonicalDispatch?.payload.dispatchId),
       hasRecordedProcessGroup = !crossNodeCenterRuling && canonicalDispatch?.processGroupPid != null;
     if (hasLocalOwner || hasReadableDispatch || hasRecordedProcessGroup)
       throw runtimeSpawnError(
@@ -153,15 +151,15 @@ export async function cancelRuntime(
           ? ownerEvidence.processGroupPid
           : null;
     // Remote edge PIDs cannot be probed against center's OS PID table during cross-node ruling.
-    const stoppedOnHost =
-      !crossNodeCenterRuling &&
+    if (
+      crossNodeCenterRuling ||
       probeProcessGroup({
         pgid: processGroupPid ?? undefined,
         ...(matchingHeader
           ? { dispatch: { rootDir: context.input.rootDir, dispatchId: matchingHeader.dispatchId } }
           : {}),
-      }) === "proven_stopped";
-    if (!stoppedOnHost) {
+      }) !== "proven_stopped"
+    ) {
       if (ruling !== null) {
         const rulingBinding = crossNodeCenterRuling ? { ...binding, source: ownerBinding.source } : binding;
         const resultBody = JSON.stringify({

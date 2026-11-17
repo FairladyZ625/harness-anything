@@ -162,19 +162,15 @@ export function makeRepoCellCommandRunner(
   ): Promise<WriteReceipt | SquadControlResult> => {
     if (context.state !== "attached")
       await context.attemptRecovery(recoveryCommandPolicy(action.kind, context.causeClass)?.settlesLatch === true);
-    const recoveryDispatchId = edgeReviewerRecoveryDispatchId(action, binding);
-    if (recoveryDispatchId !== null && binding.keycloakAuthorization?.center) {
-      // Resolve the dispatch identity before authorizing or capturing its executor claim.
-      binding = await recoverEdgeReviewerExecutionBinding({
-        dispatchId: recoveryDispatchId,
+    if (action.kind === "task-review-execution")
+      binding = await bindCurrentPersonIdentityWitnesses(
         action,
         binding,
-        projection: context.projection,
-        repoId: context.input.repoId,
-        now: context.now(),
-        center: await binding.keycloakAuthorization.center(),
-      });
-    }
+        context.projection,
+        context.rootDir,
+        context.input.repoId,
+        context.now(),
+      );
     const artifactKindResolver = (kind: string): string | null =>
       findArtifactKindContract(kind, compiledArtifactKinds(context.projection, context.input.repoId))?.typeIdentity ??
       null;
@@ -248,8 +244,15 @@ export function makeRepoCellCommandRunner(
           revision,
           now: context.now(),
         }).then(async (decision) => {
-          if (decision.outcome === "allowed")
-            binding = await bindCurrentPersonIdentityWitnesses(action, binding, context.projection, context.rootDir);
+          if (decision.outcome === "allowed" && action.kind !== "task-review-execution")
+            binding = await bindCurrentPersonIdentityWitnesses(
+              action,
+              binding,
+              context.projection,
+              context.rootDir,
+              context.input.repoId,
+              context.now(),
+            );
           return decision;
         });
       },
@@ -663,6 +666,8 @@ async function bindCurrentPersonIdentityWitnesses(
   binding: RepoCellBinding,
   projection: RepoCellApiContext["projection"],
   rootDir: string,
+  repoId: string,
+  now: string,
 ): Promise<RepoCellBinding> {
   const ids = new Set<string>();
   if (
@@ -715,13 +720,26 @@ async function bindCurrentPersonIdentityWitnesses(
       throw Object.assign(new Error(`Node ${id} is not registered and active.`), { code: "entity_not_found" });
     if (kind === "team") await adapter.readTeam(center.accessToken, id);
   }
-  if (ids.size === 0) return binding;
+  const recoveryDispatchId = edgeReviewerRecoveryDispatchId(action, binding);
+  if (ids.size === 0 && recoveryDispatchId === null) return binding;
   const credential = binding.keycloakAuthorization;
+  if (!credential && ids.size === 0) return binding;
   if (!credential)
     throw Object.assign(new Error("Person identity references require Keycloak."), { code: "authentication_required" });
   const center = credential.center ? await credential.center() : undefined,
     adapter = center ? center.provider : null,
     witnesses = new Map(binding.personIdentityWitnesses ?? []);
+  if (recoveryDispatchId !== null && center)
+    binding = await recoverEdgeReviewerExecutionBinding({
+      dispatchId: recoveryDispatchId,
+      action,
+      binding,
+      projection,
+      repoId,
+      now,
+      center,
+    });
+  if (ids.size === 0) return binding;
   for (const personId of ids) {
     if (witnesses.has(personId)) continue;
     const userId =
