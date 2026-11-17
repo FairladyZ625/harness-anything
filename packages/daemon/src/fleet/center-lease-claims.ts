@@ -82,6 +82,30 @@ export function findOwnedClaim(
   );
 }
 
+/**
+ * One line for a claim miss: how many uploads this node holds for the repository and whether the
+ * referenced claim file is still on disk. Together they separate a consumed claim from an upload
+ * this node never staged, without needing the upload history that consumption already removed.
+ */
+export function describeClaimMiss(
+  context: Pick<FleetLeaseClaimsContext, "state" | "safeLocal">,
+  nodeId: string,
+  repoId: string,
+  descriptor: FleetDescriptor,
+): string {
+  const uploads = Object.values(context.state.uploads).filter(
+      (upload) => upload.nodeId === nodeId && upload.repoId === repoId,
+    ),
+    claim = path.join(context.safeLocal(repoId, "doc-sync-claims"), path.basename(descriptor.ref));
+  return [
+    `node=${nodeId}`,
+    `repo=${repoId}`,
+    `nodeUploads=${uploads.length}`,
+    `staged=${uploads.filter((upload) => upload.descriptor !== null).length}`,
+    `claimFile=${existsSync(claim) ? "present" : "absent"}`,
+  ].join(", ");
+}
+
 export function discardOwnedClaims(
   context: FleetLeaseClaimsContext,
   nodeId: string,

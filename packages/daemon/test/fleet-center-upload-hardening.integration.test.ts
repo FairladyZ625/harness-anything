@@ -5,7 +5,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { connect, type TLSSocket } from "node:tls";
 import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
-import { FLEET_UPLOAD_MAX_BYTES, type FleetFrameV1 } from "../src/fleet/command-protocol.ts";
+import { FLEET_UPLOAD_MAX_BYTES, type FleetDescriptor, type FleetFrameV1 } from "../src/fleet/command-protocol.ts";
+import { readFleetRepositoryMetadataClient, runFleetUploadClient } from "../src/fleet/peer.ts";
 import { fleetFixture, rawPeer, replicaQuota } from "./fleet-tls-session.fixture.ts";
 
 const beginFrame = (repoId: string, messageId: string, size: number, seed = messageId): FleetFrameV1 => ({
@@ -377,5 +378,102 @@ test("recovery window errors and center status name receiving and staged occupan
     Object.keys(JSON.parse(readFileSync(path.join(fixture.stateRoot, "state.json"), "utf8")).uploads).length,
     64,
   );
+  peer.close();
+});
+
+test("a retried command stages the same claim identity and replays at the center", { timeout: 60_000 }, async (t) => {
+  const fixture = await fleetFixture(t);
+  t.after(() => fixture.close());
+  const center = await fixture.center(),
+    peerOptions = {
+      port: center.port,
+      ca: fixture.cert,
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId: fixture.subject.repoId,
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+    },
+    // A command upload whose reply was lost is retried from a fresh process: same path, same
+    // bytes, no shared request id. The descriptor travels inside the command intent, so the
+    // retry must present the same claim reference to be recognized as a replay.
+    path = "context/retried-command.md",
+    body = "# Retried command\n",
+    changes = [{ path, body, mediaType: "text/markdown" }],
+    before = await readFleetRepositoryMetadataClient(peerOptions),
+    first = (await runFleetUploadClient({ ...peerOptions, changes }))[0]!,
+    peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret"),
+    submit = (candidate: FleetDescriptor, messageId: string) =>
+      peer.request({
+        schema: "fleet.doc.submit/v1",
+        messageId,
+        opId: `op-${messageId}`,
+        repoId: fixture.subject.repoId,
+        executionId: null,
+        writerEpoch: before.writerEpoch,
+        baseLedgerSha: before.baseLedgerSha,
+        changes: [{ path, baseBlobSha256: null, policyId: "markdown-body-replaceable/v1", candidate }],
+      }),
+    firstSubmit = await submit(first, "retried-first");
+  assert.equal(firstSubmit.schema, "fleet.doc.result/v1", JSON.stringify(firstSubmit));
+  if (firstSubmit.schema !== "fleet.doc.result/v1") throw new Error("doc result expected");
+  assert.equal(firstSubmit.outcome, "applied", JSON.stringify(firstSubmit));
+  const afterFirst = fixture.eventCount(),
+    // The first attempt's claim is consumed. The restarted process now re-stages the same bytes
+    // and must land on the same claim reference, then name the same bookkeeping base so the center
+    // replays instead of applying the change again against a stale base.
+    retried = (await runFleetUploadClient({ ...peerOptions, changes }))[0]!,
+    retriedSubmit = await submit(retried, "retried-second");
+  assert.equal(retried.ref, first.ref, "a retried command must present the same claim reference");
+  assert.equal(retriedSubmit.schema, "fleet.doc.result/v1", JSON.stringify(retriedSubmit));
+  if (retriedSubmit.schema !== "fleet.doc.result/v1") throw new Error("doc result expected");
+  assert.notEqual(retriedSubmit.outcome, "op_rejected", JSON.stringify(retriedSubmit));
+  assert.equal(fixture.eventCount(), afterFirst, "the replay must not append a second document event");
+  peer.close();
+});
+
+test("each attempt-scoped publish keeps its own claim for identical bytes", { timeout: 60_000 }, async (t) => {
+  const fixture = await fleetFixture(t);
+  t.after(() => fixture.close());
+  const center = await fixture.center(),
+    peerOptions = {
+      port: center.port,
+      ca: fixture.cert,
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId: fixture.subject.repoId,
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+    },
+    // A runtime result is attempt-scoped: two dispatches can publish the same failure body, and
+    // the publisher names each attempt with its event request id. Neither may consume the
+    // other's claim.
+    body = "Runtime dispatch failed before provider registration: provider unavailable\n",
+    changes = [{ path: "context/reused-publish.md", body, mediaType: "text/markdown" }],
+    first = (await runFleetUploadClient({ ...peerOptions, changes, operationIds: ["op-attempt-first"] }))[0]!,
+    second = (await runFleetUploadClient({ ...peerOptions, changes, operationIds: ["op-attempt-second"] }))[0]!,
+    peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret"),
+    submit = async (candidate: FleetDescriptor, path: string, messageId: string) => {
+      const metadata = await readFleetRepositoryMetadataClient(peerOptions);
+      return peer.request({
+        schema: "fleet.doc.submit/v1",
+        messageId,
+        opId: `op-${messageId}`,
+        repoId: fixture.subject.repoId,
+        executionId: null,
+        writerEpoch: metadata.writerEpoch,
+        baseLedgerSha: metadata.baseLedgerSha,
+        changes: [{ path, baseBlobSha256: null, policyId: "markdown-body-replaceable/v1", candidate }],
+      });
+    },
+    firstSubmit = await submit(first, "context/reused-first.md", "reused-first");
+  assert.notEqual(second.ref, first.ref, "each attempt must own its claim identity");
+  assert.equal(firstSubmit.schema, "fleet.doc.result/v1", JSON.stringify(firstSubmit));
+  if (firstSubmit.schema !== "fleet.doc.result/v1") throw new Error("doc result expected");
+  assert.equal(firstSubmit.outcome, "applied", JSON.stringify(firstSubmit));
+  // The first publish consumed its claim. The second publish's identical bytes must still
+  // resolve; a shared claim answers claim_not_owned here.
+  const secondSubmit = await submit(second, "context/reused-second.md", "reused-second");
+  assert.equal(secondSubmit.schema, "fleet.doc.result/v1", JSON.stringify(secondSubmit));
+  if (secondSubmit.schema !== "fleet.doc.result/v1") throw new Error("doc result expected");
+  assert.equal(secondSubmit.outcome, "applied", JSON.stringify(secondSubmit));
   peer.close();
 });

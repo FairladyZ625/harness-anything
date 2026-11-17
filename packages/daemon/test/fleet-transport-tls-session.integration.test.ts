@@ -673,6 +673,7 @@ test(
       conflictingUploadId = digestId(
         fixture.subject.nodeId,
         fixture.subject.repoId,
+        "op-upload-test",
         conflictingContent.sha256,
         String(conflictingContent.size),
         conflictingContent.mediaType,
