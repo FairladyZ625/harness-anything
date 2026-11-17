@@ -166,14 +166,26 @@ test("Windows desktop session and window handle probes classify Session 0, MainW
 });
 
 class MockWebContents extends EventEmitter {
+  destroyed = false;
   crashed = false;
+  offCalls = 0;
+
+  isDestroyed(): boolean {
+    return this.destroyed;
+  }
   isCrashed(): boolean {
+    if (this.destroyed) throw new TypeError("Object has been destroyed");
     return this.crashed;
+  }
+  override off(eventName: string | symbol, listener: (...args: any[]) => void): this {
+    this.offCalls += 1;
+    if (this.destroyed) throw new TypeError("Object has been destroyed");
+    return super.off(eventName, listener);
   }
 }
 
 class MockBrowserWindow extends EventEmitter implements ReadinessWindowPort {
-  readonly webContents = new MockWebContents();
+  readonly rawWebContents = new MockWebContents();
   destroyed = false;
   visible = false;
   minimized = false;
@@ -183,6 +195,15 @@ class MockBrowserWindow extends EventEmitter implements ReadinessWindowPort {
   focusCalls = 0;
   restoreCalls = 0;
 
+  get webContents(): MockWebContents {
+    if (this.destroyed) throw new TypeError("Object has been destroyed");
+    return this.rawWebContents;
+  }
+  destroyAndEmitClosed(): void {
+    this.destroyed = true;
+    this.rawWebContents.destroyed = true;
+    this.emit("closed");
+  }
   isDestroyed(): boolean {
     return this.destroyed;
   }
@@ -335,9 +356,51 @@ test("F1: post-ready-to-show render-process-gone, did-fail-load, closed, and loa
       pid: 999,
       verifyWindowsVisible: async () => slowProbe.promise,
     });
-    win.destroyed = true;
-    win.emit("closed");
+    win.destroyAndEmitClosed();
     await assert.rejects(ensuring, /GUI window closed before finishing startup/u);
+  }
+});
+
+test("F1 regression: closed handler never dereferences destroyed win.webContents or calls off on destroyed webContents", async () => {
+  // Desktop and headless modes: destroying both BrowserWindow and WebContents before "closed" must not throw.
+  for (const backgroundTest of [false, true]) {
+    const win = new MockBrowserWindow();
+    const tracker = bindWindowReadiness(win, Promise.resolve(), backgroundTest);
+    assert.doesNotThrow(() => win.destroyAndEmitClosed());
+    assert.equal(tracker.isReady(), false);
+    assert.equal(tracker.failure(), "GUI window closed before finishing startup.");
+    assert.equal(win.rawWebContents.offCalls, 0);
+    await assert.rejects(tracker.waitUntilReady(), /GUI window closed before finishing startup/u);
+  }
+
+  // If BrowserWindow is destroyed before WebContents, pre-captured webContents detaches listeners without reading win.webContents.
+  {
+    const win = new MockBrowserWindow();
+    const tracker = bindWindowReadiness(win, Promise.resolve(), false);
+    win.destroyed = true;
+    assert.doesNotThrow(() => win.emit("closed"));
+    assert.equal(tracker.failure(), "GUI window closed before finishing startup.");
+    assert.equal(win.rawWebContents.offCalls, 2);
+  }
+
+  // If WebContents is destroyed before ready-to-show / did-finish-load, markReadyIfHealthy fails cleanly without calling isCrashed().
+  {
+    const win = new MockBrowserWindow();
+    const tracker = bindWindowReadiness(win, Promise.resolve(), true);
+    win.rawWebContents.destroyed = true;
+    assert.doesNotThrow(() => win.rawWebContents.emit("did-finish-load"));
+    assert.equal(tracker.isReady(), false);
+    assert.equal(tracker.failure(), "GUI window was destroyed before showing.");
+  }
+
+  // Calling bindWindowReadiness on an already-destroyed window fails cleanly without touching win.webContents.
+  {
+    const win = new MockBrowserWindow();
+    win.destroyed = true;
+    win.rawWebContents.destroyed = true;
+    const tracker = bindWindowReadiness(win, Promise.resolve(), false);
+    assert.equal(tracker.isReady(), false);
+    assert.equal(tracker.failure(), "GUI window was destroyed before finishing startup.");
   }
 });
 
