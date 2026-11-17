@@ -53,7 +53,7 @@ export const requested = (
     runtimeSessionId,
     instanceId: "codex-fixture",
     installationId: "installation-codex",
-    kindId: "codex",
+    kindId: extra.kindId ?? "codex",
     dispatchKey: `${dispatchId}-key`,
     definitionSnapshotRef: "artifact:runtime-definitions/codex/v1",
     definitionSnapshot: {
@@ -61,7 +61,7 @@ export const requested = (
       configVersion: 1,
       instanceId: "codex-fixture",
       installationId: "installation-codex",
-      kindId: "codex",
+      kindId: extra.kindId ?? "codex",
       providerId: "openai",
       model: "codex-fixture",
       reasoningEffort: null,
@@ -71,12 +71,12 @@ export const requested = (
     ...extra,
     ...(attemptGroupId ? { attemptGroupId, attemptIndex: 1 } : {}),
   });
-export const started = (runtimeSessionId: string) =>
+export const started = (runtimeSessionId: string, kindId = "codex") =>
   runtimeEvent("runtime_session_started", {
     runtimeSessionId,
     instanceId: "codex-fixture",
     installationId: "installation-codex",
-    kindId: "codex",
+    kindId,
     definitionSnapshotRef: "artifact:runtime-definitions/codex/v1",
     launchGeneration: 1,
     attachable: false,
@@ -99,8 +99,8 @@ export function history(): AgentRuntimeEventV1[] {
     started("session-a"),
     runtimeEvent("runtime_session_exited", { runtimeSessionId: "session-a" }),
     outcome("session-a", "failed", { classification: "provider_quota", reason: "quota", fallbackState: "scheduled" }),
-    requested("dispatch-a2", "session-a2", "dispatch-a"),
-    started("session-a2"),
+    requested("dispatch-a2", "session-a2", "dispatch-a", { kindId: "agy" }),
+    started("session-a2", "agy"),
     // A dispatch whose owner lost sight of the process: it keeps its slot and blocks its owner.
     requested("dispatch-b", "session-b"),
     started("session-b"),

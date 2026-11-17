@@ -22,7 +22,7 @@ export function withLocalDispatchStreamEvidence(
     // A submitted implementation waits on the PR/CI/review path; that canonical judgment outranks
     // any provider frame still trickling in locally.
     if (row.status !== "running" || row.activityStatus === "waiting") return { ...row, eventStreamRef };
-    const processAlive = row.lifecycle?.policy?.canSteer === true,
+    const processAlive = row.lifecycle?.policy?.processAlive === true,
       providerUnreachable = providerConnectionFailure(
         {
           lastProgressAt: stream.lastProgressAt,

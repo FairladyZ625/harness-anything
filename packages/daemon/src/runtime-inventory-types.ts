@@ -1,3 +1,4 @@
+import type { RuntimeSteer } from "@harness-anything/kernel/internal/domain/runtime-steering.ts";
 // The provider declaration contract: the shape every built-in runtime kind
 // declares. Split from the runtime-inventory catalog so the contract and the
 // data it constrains live in separately-scoped modules; the catalog file
@@ -163,18 +164,9 @@ export interface RuntimeProviderDeclaration {
     readonly apiKeyArgs?: readonly string[];
     readonly fastArgs?: readonly string[];
   };
-  /** How a live turn is redirected. "interrupt-resume" restarts a CLI that only accepts a
-   * prompt at launch; "cancel-reprompt" keeps the session and uses the protocol's own cancel
-   * notification, which every ACP agent answers by ending the in-flight turn. */
-  readonly steer?:
-    | {
-        readonly strategy: "interrupt-resume";
-        /** The provider argv for resuming `providerSessionId`, or null when this dispatch's argv
-         * cannot be expressed as a resume command. Null is a settled answer, not an error: the
-         * caller keeps the evidence it already has and records the refusal. */
-        readonly resumeArgs: (args: readonly string[], providerSessionId: string) => readonly string[] | null;
-      }
-    | { readonly strategy: "cancel-reprompt" };
+  /** Explicit current adapter capability, derived from the shared steering implementation. */
+  readonly steerSupported: boolean;
+  readonly steer?: RuntimeSteer;
   readonly sessionIdentity: {
     readonly eventDiscriminator: readonly [string, string] | null;
     readonly eventIdField: string;
