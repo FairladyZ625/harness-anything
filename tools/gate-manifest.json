@@ -1195,7 +1195,7 @@
     },
     {
       "id": "test-pglite-node26",
-      "command": "node tools/run-node-tests.mjs --prefix packages/storage/test/pglite --prefix packages/daemon/test/pglite-repo-cell.integration.test.ts --concurrency 2",
+      "command": "node tools/run-node-tests.mjs --prefix packages/storage/test/pglite --concurrency 2 && node tools/run-node-tests.mjs --file packages/daemon/test/pglite-repo-cell.integration.test.ts --concurrency 2",
       "category": "local-consistency",
       "tier": "pr-advisory",
       "tierReason": "The PGlite database arm runs on every PR and push under Node 26; existing Node 24 shards verify factory refusal. A new lane is not promoted to branch protection in this change.",
@@ -1205,7 +1205,9 @@
         "packages/storage/src/pglite/transaction.ts",
         ".github/workflows/rewrite-ci.yml:jobs.pglite-node26"
       ],
-      "consumerScope": ["all disk-discovered PGlite database integration/runtime contracts and the daemon commit-isolate restart/document-restore regression"],
+      "consumerScope": [
+        "all disk-discovered PGlite database integration/runtime contracts and the daemon commit-isolate restart/document-restore regression"
+      ],
       "githubContext": {
         "requiredContexts": [],
         "workflowJobs": ["pglite-node26"],

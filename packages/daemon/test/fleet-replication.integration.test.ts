@@ -102,10 +102,28 @@ const mirrorHead = (ledgerPath: string): number => {
         .sort(),
     );
 
-/** Compare every table in a center database and its complete edge mirror. */
+// dec_04A9211B073F29F0FC1E1CA573/CH2: Git publication progress belongs to the host,
+// while the replica follows canonical events. A snapshot carries the old outbox;
+// streaming must neither publish it nor advance it as a second write authority.
+const mirrorOutbox = (databasePath: string) => {
+  const { git_outbox, git_outbox_baseline } = tableRows(databasePath);
+  return { git_outbox, git_outbox_baseline };
+};
+
+/** Compare every canonical/projection table; check host-local outboxes separately. */
 const compareDatabase = (centerPath: string, edgePath: string, label: string): void => {
-  const { replication_log: edgeLog, ...edgeTables } = tableRows(edgePath),
-    { replication_log: centerLog, ...centerTables } = tableRows(centerPath);
+  const {
+      replication_log: edgeLog,
+      git_outbox: _edgeOutbox,
+      git_outbox_baseline: _edgeBaseline,
+      ...edgeTables
+    } = tableRows(edgePath),
+    {
+      replication_log: centerLog,
+      git_outbox: _centerOutbox,
+      git_outbox_baseline: _centerBaseline,
+      ...centerTables
+    } = tableRows(centerPath);
   assert.deepEqual(edgeTables, centerTables, `${label}: every table row matches center`);
   if (edgeLog === undefined) return;
   const applied = (edgeTables.replication_state as unknown as readonly { sequence: number }[])[0]!.sequence,
@@ -127,6 +145,7 @@ test("three process-level edges hold one consistent mirror of every center read"
   await fixture.openCenter();
   const edges = replicationNodes.map((nodeId) => fixture.startEdge(nodeId));
   const installs = await Promise.all(edges.map((edge) => edge.waitForEvent("installed")));
+  const installedOutboxes = installs.map((installed) => mirrorOutbox(String(installed.ledgerPath)));
   await Promise.all(
     installs.map((installed, index) =>
       edges[index]!.waitForWhere(
@@ -299,7 +318,12 @@ test("three process-level edges hold one consistent mirror of every center read"
       "the runtime event replicated exactly once to every mirror",
     );
   }
-  for (const installed of installs) {
+  for (const [index, installed] of installs.entries()) {
+    assert.deepEqual(
+      mirrorOutbox(String(installed.ledgerPath)),
+      installedOutboxes[index],
+      "canonical streaming leaves the replica's snapshot outbox untouched",
+    );
     compareDatabase(fixture.ledgerPath, String(installed.ledgerPath), "ledger");
     compareDatabase(
       path.join(fixture.repo, ".harness/cache/task.sqlite"),

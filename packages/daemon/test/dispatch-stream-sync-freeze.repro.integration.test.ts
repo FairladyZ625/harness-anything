@@ -109,7 +109,7 @@ function measureInProbe(
   archive: boolean,
 ): ProbeSample {
   const script = `
-    import { readAllDispatchStreamSummaries, readDispatchStreamHeaders } from ${JSON.stringify(path.join(here, "src/dispatch-stream.ts"))};
+    import { readAllDispatchStreamSummaries, readDispatchStreamHeaders } from ${JSON.stringify(path.join(here, "src/daemon-host/dispatch-stream.ts"))};
     const rootDir = ${JSON.stringify(rootDir)};
     let scanFinished = false;
     let timerFiredDuringScan = false;

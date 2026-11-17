@@ -40,7 +40,7 @@ test(
         exited: boolean;
       }
     >();
-    // The writer's nested monitor worker inherits this preload; trigger a native watcher error
+    // The orchestration host's nested monitor inherits this preload; trigger a native watcher error
     // only after both runtimes are attached and the test changes the faulted workspace.
     const preload = `
 import fs from "node:fs";
@@ -62,9 +62,10 @@ syncBuiltinESMExports();
       class extends originalWorker {
         constructor(filename: string | URL, options: WorkerOptions = {}) {
           const writer = String(filename).includes("repo-writer-worker.") && options.workerData?.role !== "reader";
+          const orchestration = String(filename).includes("repo-orchestration-worker.");
           super(
             filename,
-            writer
+            orchestration
               ? {
                   ...options,
                   execArgv: [

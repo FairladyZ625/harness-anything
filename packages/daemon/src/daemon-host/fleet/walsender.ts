@@ -9,7 +9,11 @@ import {
 } from "@harness-anything/storage";
 import { type PersistedCanonicalEventV1 } from "@harness-anything/kernel";
 import type { BaseBackupArchive } from "@harness-anything/storage";
-import { REPLICATION_CHUNK_BYTES, SNAPSHOT_RESUME_CAPABILITY, type ReplicationPeer } from "../../fleet-sync/fleet/protocol.ts";
+import {
+  REPLICATION_CHUNK_BYTES,
+  SNAPSHOT_RESUME_CAPABILITY,
+  type ReplicationPeer,
+} from "../../fleet-sync/fleet/protocol.ts";
 import type { ReplicationSlotLease, ReplicationSlots } from "@harness-anything/storage";
 
 export interface ReplicationSource {

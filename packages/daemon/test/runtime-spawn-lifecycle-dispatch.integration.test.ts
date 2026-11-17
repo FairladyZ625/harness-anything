@@ -16,7 +16,11 @@ import {
 import { resolveAgentRuntimeDeclaration } from "../src/daemon-host/agent-declaration-resolution.ts";
 import { type RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
 import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
-import { canonicalRoot, daemonMethodPayloadFields, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import {
+  canonicalRoot,
+  daemonMethodPayloadFields,
+  workspaceId,
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";

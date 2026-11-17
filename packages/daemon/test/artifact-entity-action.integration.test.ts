@@ -596,7 +596,7 @@ test("URL source resolution does not block a concurrent repository write", { tim
   const address = server.address();
   assert.ok(address && typeof address === "object");
   const url = `http://127.0.0.1:${address.port}/controlled.md`;
-  // The writer runs in its own isolate. Control only this response's abort boundary there;
+  // HTTP runs in the orchestration host. Control only this response's abort boundary there;
   // the adjacent real-HTTP timeout test retains coverage of resolver deadline behavior.
   const preload = `data:text/javascript,${encodeURIComponent(`
     const fetch = globalThis.fetch;
@@ -610,7 +610,7 @@ test("URL source resolution does not block a concurrent repository write", { tim
       constructor(filename: string | URL, options: workerThreads.WorkerOptions = {}) {
         super(
           filename,
-          String(filename).includes("repo-writer-worker")
+          String(filename).includes("repo-orchestration-worker")
             ? {
                 ...options,
                 execArgv: [...(options.execArgv ?? process.execArgv), `--import=${preload}`],

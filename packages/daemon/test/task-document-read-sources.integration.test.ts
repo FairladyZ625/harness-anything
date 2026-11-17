@@ -748,10 +748,10 @@ syncBuiltinESMExports();
         "Worker",
         class extends NativeWorker {
           constructor(filename: string | URL, options: WorkerOptions = {}) {
-            const writer = String(filename).includes("repo-writer-worker.") && options.workerData?.role !== "reader";
+            const orchestration = String(filename).includes("repo-orchestration-worker.");
             super(
               filename,
-              writer
+              orchestration
                 ? {
                     ...options,
                     execArgv: [

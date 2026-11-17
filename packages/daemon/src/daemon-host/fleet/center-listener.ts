@@ -69,7 +69,11 @@ import { FleetFault } from "./center-types.ts";
 import { type FleetFrameV1 } from "./command-protocol.ts";
 import type { FleetOverviewResult } from "./fleet-overview-read.ts";
 import { openFleetStorage, hasDaemonGitFollower } from "@harness-anything/storage";
-import { isBaseBackupMetadata, isReplicationPosition, SNAPSHOT_RESUME_CAPABILITY } from "../../fleet-sync/fleet/protocol.ts";
+import {
+  isBaseBackupMetadata,
+  isReplicationPosition,
+  SNAPSHOT_RESUME_CAPABILITY,
+} from "../../fleet-sync/fleet/protocol.ts";
 import { runWalSender } from "./walsender.ts";
 import { createReplicationRetention, openReplicationSlots, replicationSlotKey } from "@harness-anything/storage";
 import { createNodeRetirementAdmission } from "./node-retirement.ts";
