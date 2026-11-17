@@ -3789,10 +3789,10 @@
       {
         "id": "daemon/src/protocol/daemon-protocol-validate-results.ts#validateDaemonGuiCommandReceipt",
         "symbol": "packages/daemon/src/protocol/daemon-protocol-validate-results.ts#validateDaemonGuiCommandReceipt",
-        "explain": "Wire-response validator for `command-receipt/v2` GUI mutation receipts across entity commands, checking cut fidelity and delegating committed acceptance intervals to kernel `validateReceiptAcceptance`.",
+        "explain": "Wire-response validator for `command-receipt/v2` GUI mutation receipts across entity commands, checking cut fidelity and optional boolean steerSupported only on runtime-spawn, and delegating committed acceptance intervals to kernel `validateReceiptAcceptance`.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-results.ts#validateDaemonGuiCommandReceipt:1cc2daac1f7e8541fa106a8b80677a7a",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-results.ts#validateDaemonGuiCommandReceipt:998f4707c79d8e840c9f9c156237f36a",
             "route": "packages/daemon/src/protocol/daemon-protocol-validate-results.ts#validateDaemonGuiCommandReceipt"
           }
         ]
@@ -4168,10 +4168,10 @@
       {
         "id": "daemon/src/gui-s3-control.ts#validateRuntimeSpawnReceipt",
         "symbol": "packages/daemon/src/gui-s3-control.ts#validateRuntimeSpawnReceipt",
-        "explain": "GUI S3 control wire-response validator for `runtime-spawn` `command-receipt/v2` envelopes, delegating committed cut/facet invariants to kernel `validateReceiptAcceptance`.",
+        "explain": "GUI S3 control wire-response validator for `runtime-spawn` `command-receipt/v2` envelopes, accepting optional boolean steerSupported from current and previous peers, and delegating committed cut/facet invariants to kernel `validateReceiptAcceptance`.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/gui-s3-control.ts#validateRuntimeSpawnReceipt:ee377e1813248d09041382688bbf31ae",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/gui-s3-control.ts#validateRuntimeSpawnReceipt:61d0638547073a88ae47c8e315c87500",
             "route": "packages/daemon/src/gui-s3-control.ts#validateRuntimeSpawnReceipt"
           }
         ]
