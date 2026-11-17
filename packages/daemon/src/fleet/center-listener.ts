@@ -21,6 +21,7 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -32,6 +33,7 @@ import { randomUUID } from "node:crypto";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
 import {
+  consumeKnownError,
   resolveHarnessLayout,
   sha256Bytes,
   TASK_EVENT_SHAPE_COMPAT_VERSION,
@@ -39,7 +41,13 @@ import {
 } from "@harness-anything/kernel";
 import { squadObservationEventOpId } from "../squad-observation.ts";
 import { daemonBuildStamp } from "../build-identity.ts";
-import { readFileWindow, syncDirectory, syncFile, type BaseBackupArchive } from "@harness-anything/storage";
+import {
+  readFileWindow,
+  syncDirectory,
+  syncFile,
+  type BaseBackupArchive,
+  type BaseBackupMetadata,
+} from "@harness-anything/storage";
 import {
   openPersistentWriterEpoch,
   readLedgerWriterEpoch,
@@ -61,6 +69,7 @@ import { FleetFault } from "./center-types.ts";
 import { type FleetFrameV1 } from "./command-protocol.ts";
 import type { FleetOverviewResult } from "./fleet-overview-read.ts";
 import { openFleetStorage, hasDaemonGitFollower } from "@harness-anything/storage";
+import { isBaseBackupMetadata, isReplicationPosition, SNAPSHOT_RESUME_CAPABILITY } from "./protocol.ts";
 import { runWalSender } from "./walsender.ts";
 import { createReplicationRetention, openReplicationSlots, replicationSlotKey } from "@harness-anything/storage";
 import { createNodeRetirementAdmission } from "./node-retirement.ts";
@@ -354,7 +363,24 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       return value.outcome === "applied" || (value.event !== null && value.event !== undefined);
     };
   const backupBuildQueue = createBaseBackupQueue(options.replicationBaseBackupConcurrency ?? 2);
+  const snapshotPinTtlMs = options.replicationSnapshotPinTtlMs ?? 24 * 60 * 60 * 1000;
+  const snapshotMaxPins = options.replicationSnapshotMaxPins ?? 16;
+  const snapshotMaxBytes = options.replicationSnapshotMaxBytes ?? 16 * 1024 * 1024 * 1024;
+  interface SnapshotPinRecord {
+    readonly schema: "fleet-snapshot-pin/v1";
+    readonly snapshotId: string;
+    readonly repoId: string;
+    readonly metadata: BaseBackupMetadata;
+    readonly position: import("@harness-anything/storage").ReplicationPosition;
+    readonly size: number;
+    readonly sha256: string;
+    readonly archiveFile: string;
+    readonly createdAt: string;
+    readonly expiresAt: string;
+  }
   type CachedBackup = {
+    readonly snapshotId: string;
+    readonly repoId: string;
     readonly archive: Promise<BaseBackupArchive>;
     readonly directory: string;
     readonly controller: AbortController;
@@ -365,17 +391,32 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     users: number;
     building: boolean;
     retired: boolean;
+    acked: boolean;
+    createdAtMs: number;
+    expiresAtMs: number;
+    size: number;
+    positionSequence: number | null;
     queueStatus: import("./basebackup-queue.ts").BaseBackupQueueStatus | null;
     releaseRetention: () => void;
   };
   const backupCache = new Map<string, CachedBackup>();
-  // Each backup owns a directory under replication-backups; none outlives the process that built it.
+  const pinnedSnapshots = new Map<string, CachedBackup>();
+  // Each built snapshot owns <backupsRoot>/<repoId>/<snapshotId>/ with pin.json so valid pins
+  // survive center restarts for byte-range resume.
   const backupsRoot = path.join(options.stateRoot, "replication-backups");
-  /* @gate-identity non-state/environment-io.22ed4ffe787ceb39 */ rmSync(backupsRoot, { recursive: true, force: true });
-  const retireBackup = (repoId: string, cached: CachedBackup): void => {
+  const removeEmptyRepoBackupDir = (repoDir: string): void => {
+    if (existsSync(repoDir) && readdirSync(repoDir).length === 0) {
+      /* @gate-identity non-state/environment-io.1f2e3d4c5b6a7980 */ rmSync(repoDir, {
+        recursive: true,
+        force: true,
+      });
+    }
+  };
+  const retireBackup = (cached: CachedBackup): void => {
     if (cached.retired) return;
     cached.retired = true;
-    if (backupCache.get(repoId) === cached) backupCache.delete(repoId);
+    if (backupCache.get(cached.repoId) === cached) backupCache.delete(cached.repoId);
+    pinnedSnapshots.delete(cached.snapshotId);
     if (cached.building) cached.controller.abort();
     const cleanup = () => {
       cached.releaseRetention();
@@ -383,16 +424,130 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         recursive: true,
         force: true,
       });
+      removeEmptyRepoBackupDir(path.dirname(cached.directory));
     };
     if (cached.building) void cached.archive.then(cleanup, cleanup);
     else cleanup();
   };
-  // Concurrent edges share one archive. It is deleted with its last user: kept longer, its retention pin
-  // would hold the log back and a later edge could get a start already past the retention window.
-  const releaseBackupUser = (repoId: string, cached: CachedBackup, nodeId: string): void => {
+  const evictSnapshotsIfNeeded = (): void => {
+    const now = Date.now();
+    for (const cached of [...pinnedSnapshots.values()]) {
+      if (!cached.building && cached.users === 0 && (cached.acked || now >= cached.expiresAtMs)) {
+        retireBackup(cached);
+      }
+    }
+    const idlePins = [...pinnedSnapshots.values()]
+      .filter((cached) => !cached.building && !cached.retired && cached.users === 0)
+      .sort((a, b) => a.createdAtMs - b.createdAtMs);
+    let totalPins = [...pinnedSnapshots.values()].filter((cached) => !cached.retired).length;
+    let totalBytes = [...pinnedSnapshots.values()]
+      .filter((cached) => !cached.retired)
+      .reduce((sum, cached) => sum + cached.size, 0);
+    for (const candidate of idlePins) {
+      if (totalPins <= snapshotMaxPins && totalBytes <= snapshotMaxBytes) break;
+      totalPins -= 1;
+      totalBytes -= candidate.size;
+      retireBackup(candidate);
+    }
+  };
+  // Reload valid, non-expired pinned snapshots on center boot; remove corrupt/expired/unpinned dirs.
+  if (existsSync(backupsRoot)) {
+    const now = Date.now();
+    for (const repoEntry of readdirSync(backupsRoot, { withFileTypes: true })) {
+      const repoPath = path.join(backupsRoot, repoEntry.name);
+      if (!repoEntry.isDirectory()) {
+        /* @gate-identity non-state/environment-io.22ed4ffe787ceb39 */ rmSync(repoPath, {
+          recursive: true,
+          force: true,
+        });
+        continue;
+      }
+      const repoId = repoEntry.name;
+      for (const snapEntry of readdirSync(repoPath, { withFileTypes: true })) {
+        const snapshotDir = path.join(repoPath, snapEntry.name);
+        let loaded = false;
+        if (snapEntry.isDirectory()) {
+          try {
+            const raw = readFileSync(path.join(snapshotDir, "pin.json"), "utf8");
+            const pin = JSON.parse(raw) as Partial<SnapshotPinRecord>;
+            const createdAtMs = typeof pin.createdAt === "string" ? Date.parse(pin.createdAt) : Number.NaN;
+            const expiresAtMs = typeof pin.expiresAt === "string" ? Date.parse(pin.expiresAt) : Number.NaN;
+            if (
+              pin.schema === "fleet-snapshot-pin/v1" &&
+              pin.snapshotId === snapEntry.name &&
+              pin.repoId === repoId &&
+              isBaseBackupMetadata(pin.metadata) &&
+              isReplicationPosition(pin.position) &&
+              Number.isSafeInteger(pin.size) &&
+              (pin.size ?? -1) >= 0 &&
+              typeof pin.sha256 === "string" &&
+              /^[a-f0-9]{64}$/u.test(pin.sha256) &&
+              typeof pin.archiveFile === "string" &&
+              pin.archiveFile.length > 0 &&
+              !path.isAbsolute(pin.archiveFile) &&
+              !pin.archiveFile.includes("..") &&
+              !Number.isNaN(createdAtMs) &&
+              !Number.isNaN(expiresAtMs) &&
+              expiresAtMs > now
+            ) {
+              const archivePath = path.join(snapshotDir, pin.archiveFile);
+              if (existsSync(archivePath) && statSync(archivePath).size === pin.size) {
+                const unpin = retentionFor(repoId).pin(pin.position);
+                let retained = true;
+                const archiveValue: BaseBackupArchive = {
+                  metadata: pin.metadata,
+                  file: archivePath,
+                  size: pin.size,
+                  sha256: pin.sha256,
+                };
+                const cached: CachedBackup = {
+                  snapshotId: pin.snapshotId,
+                  repoId,
+                  archive: Promise.resolve(archiveValue),
+                  directory: snapshotDir,
+                  controller: new AbortController(),
+                  queueListeners: new Map(),
+                  users: 0,
+                  building: false,
+                  retired: false,
+                  acked: false,
+                  createdAtMs,
+                  expiresAtMs,
+                  size: pin.size,
+                  positionSequence: pin.position.sequence,
+                  queueStatus: null,
+                  releaseRetention: () => {
+                    if (!retained) return;
+                    retained = false;
+                    unpin();
+                  },
+                };
+                pinnedSnapshots.set(pin.snapshotId, cached);
+                loaded = true;
+              }
+            }
+          } catch (error) {
+            consumeKnownError(error);
+            loaded = false;
+          }
+        }
+        if (!loaded) {
+          /* @gate-identity non-state/environment-io.22ed4ffe787ceb39 */ rmSync(snapshotDir, {
+            recursive: true,
+            force: true,
+          });
+        }
+      }
+      removeEmptyRepoBackupDir(repoPath);
+    }
+    evictSnapshotsIfNeeded();
+  }
+  const releaseBackupUser = (cached: CachedBackup, nodeId: string): void => {
     cached.queueListeners.delete(nodeId);
     if (cached.users > 0) cached.users -= 1;
-    if (cached.users === 0) retireBackup(repoId, cached);
+    if (cached.users === 0 && !cached.building && (cached.acked || Date.now() >= cached.expiresAtMs)) {
+      retireBackup(cached);
+    }
   };
   const listenForBackupQueue = (cached: CachedBackup, nodeId: string, repoId: string): void => {
     cached.queueListeners.set(nodeId, (status) =>
@@ -447,10 +602,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
       throw new FleetFault(failure.code, failure.message);
     }
+    const supportsSnapshotResume = frame.capabilities?.includes(SNAPSHOT_RESUME_CAPABILITY) ?? false;
     await peer.send({
       type: "replica.accept",
       centerBuildCommit,
       taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
+      ...(supportsSnapshotResume ? { capabilities: [SNAPSHOT_RESUME_CAPABILITY] } : {}),
     });
     const rootDir = repoRoot(frame.repoId);
     const store = openFleetStorage({ rootDir, repoId: frame.repoId, storage: options.storage?.[frame.repoId] });
@@ -461,6 +618,22 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         slots.claim({ repoId: frame.repoId, nodeId }, store.replicationPosition().history),
       );
     const retention = retentionFor(frame.repoId);
+    let activeBackup: CachedBackup | null = null;
+    const attachBackupUser = (cached: CachedBackup, archive: BaseBackupArchive, resumeOffset: number) => {
+      activeBackup = cached;
+      let releasedAt: number | undefined;
+      return {
+        ...archive,
+        snapshotId: cached.snapshotId,
+        resumeOffset,
+        metadata: { ...archive.metadata, readerProfile },
+        release: async () => {
+          if (releasedAt !== undefined) return;
+          releasedAt = Date.now();
+          releaseBackupUser(cached, nodeId);
+        },
+      };
+    };
     const source = {
       authorize: async () => {
         writerEpoch.assert(frame.repoId, owned.epoch, owned.holderId);
@@ -478,7 +651,17 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         if (head.sequence - after.sequence > retentionWindowCommits) return null;
         return store.replicationCommits(after, 64);
       },
-      acknowledged: () => retention.advance(store.replicationPosition()),
+      acknowledged: async (ackSeq?: number) => {
+        await retention.advance(store.replicationPosition());
+        if (
+          activeBackup &&
+          ackSeq !== undefined &&
+          activeBackup.positionSequence !== null &&
+          ackSeq >= activeBackup.positionSequence
+        ) {
+          activeBackup.acked = true;
+        }
+      },
       // Commits land in the repo writer process, so this process polls the head on a short timer; an
       // idle stream costs one indexed read per interval, never a spinning event loop.
       // Returning without a new commit makes the sender emit `replica.progress`: the idle keepalive.
@@ -490,36 +673,52 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         while (!until.aborted && store.replicationPosition().sequence <= after.sequence)
           await delay(REPLICATION_HEAD_POLL_MS, until);
       },
-      backup: async (backupSignal: AbortSignal) => {
+      backup: async (
+        backupSignal: AbortSignal,
+        resumeSnapshot?: { readonly snapshotId: string; readonly offset: number },
+      ) => {
+        evictSnapshotsIfNeeded();
+        if (resumeSnapshot && resumeSnapshot.offset > 0) {
+          const pinned = pinnedSnapshots.get(resumeSnapshot.snapshotId);
+          if (pinned && pinned.repoId === frame.repoId && !pinned.retired && Date.now() < pinned.expiresAtMs) {
+            replicaStatus.recordActivity(replicaKeyForNode, "waiting_shared_backup");
+            pinned.users += 1;
+            listenForBackupQueue(pinned, nodeId, frame.repoId);
+            try {
+              const archive = await awaitWithSignal(pinned.archive, backupSignal);
+              if (resumeSnapshot.offset <= archive.size) {
+                return attachBackupUser(pinned, archive, resumeSnapshot.offset);
+              }
+              releaseBackupUser(pinned, nodeId);
+            } catch (error) {
+              releaseBackupUser(pinned, nodeId);
+              throw error;
+            }
+          }
+        }
         const cached = backupCache.get(frame.repoId);
-        if (cached) {
+        if (cached && !cached.retired && Date.now() < cached.expiresAtMs) {
           replicaStatus.recordActivity(replicaKeyForNode, "waiting_shared_backup");
           cached.users += 1;
           listenForBackupQueue(cached, nodeId, frame.repoId);
           try {
             const archive = await awaitWithSignal(cached.archive, backupSignal);
-            let released = false;
-            return {
-              ...archive,
-              metadata: { ...archive.metadata, readerProfile },
-              release: async () => {
-                if (released) return;
-                released = true;
-                releaseBackupUser(frame.repoId, cached, nodeId);
-              },
-            };
+            return attachBackupUser(cached, archive, 0);
           } catch (error) {
-            releaseBackupUser(frame.repoId, cached, nodeId);
+            releaseBackupUser(cached, nodeId);
             throw error;
           }
         }
         let resolveArchive!: (archive: BaseBackupArchive) => void, rejectArchive!: (error: unknown) => void;
+        const snapshotId = randomUUID();
         const archive = new Promise<BaseBackupArchive>((resolve, reject) => {
             resolveArchive = resolve;
             rejectArchive = reject;
           }),
-          directory = path.join(backupsRoot, randomUUID()),
+          directory = path.join(backupsRoot, frame.repoId, snapshotId),
           cachedArchive: CachedBackup = {
+            snapshotId,
+            repoId: frame.repoId,
             archive,
             directory,
             controller: new AbortController(),
@@ -527,6 +726,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             users: 1,
             building: true,
             retired: false,
+            acked: false,
+            createdAtMs: Date.now(),
+            expiresAtMs: Date.now() + snapshotPinTtlMs,
+            size: 0,
+            positionSequence: null,
             queueStatus: null,
             releaseRetention: () => undefined,
           };
@@ -568,32 +772,56 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           .then(
             (built) => {
               completed = true;
+              const createdAtMs = Date.now();
+              const expiresAtMs = createdAtMs + snapshotPinTtlMs;
+              cachedArchive.size = built.size;
+              cachedArchive.positionSequence = built.metadata.position.sequence;
+              cachedArchive.createdAtMs = createdAtMs;
+              cachedArchive.expiresAtMs = expiresAtMs;
+              const pinRecord: SnapshotPinRecord = {
+                schema: "fleet-snapshot-pin/v1",
+                snapshotId,
+                repoId: frame.repoId,
+                metadata: { ...built.metadata, readerProfile: null },
+                position: built.metadata.position,
+                size: built.size,
+                sha256: built.sha256,
+                archiveFile: path.basename(built.file),
+                createdAt: new Date(createdAtMs).toISOString(),
+                expiresAt: new Date(expiresAtMs).toISOString(),
+              };
+              const pinTmp = path.join(directory, "pin.json.tmp");
+              const pinFile = path.join(directory, "pin.json");
+              /* @gate-identity non-state/environment-io.3a4b5c6d7e8f9012 */ writeFileSync(
+                pinTmp,
+                JSON.stringify(pinRecord),
+                "utf8",
+              );
+              /* @gate-identity non-state/environment-io.4b5c6d7e8f901234 */ renameSync(pinTmp, pinFile);
+              pinnedSnapshots.set(snapshotId, cachedArchive);
               resolveArchive(built);
+              evictSnapshotsIfNeeded();
             },
             (error: unknown) => {
               rejectArchive(error);
-              retireBackup(frame.repoId, cachedArchive);
+              retireBackup(cachedArchive);
             },
           )
           .finally(() => {
             cachedArchive.building = false;
             releaseSlot?.(completed);
-            if (cachedArchive.users === 0) retireBackup(frame.repoId, cachedArchive);
+            if (
+              cachedArchive.users === 0 &&
+              (!completed || cachedArchive.acked || Date.now() >= cachedArchive.expiresAtMs)
+            ) {
+              retireBackup(cachedArchive);
+            }
           });
         try {
           const built = await awaitWithSignal(cachedArchive.archive, backupSignal);
-          let released = false;
-          return {
-            ...built,
-            metadata: { ...built.metadata, readerProfile },
-            release: async () => {
-              if (released) return;
-              released = true;
-              releaseBackupUser(frame.repoId, cachedArchive, nodeId);
-            },
-          };
+          return attachBackupUser(cachedArchive, built, 0);
         } catch (error) {
-          releaseBackupUser(frame.repoId, cachedArchive, nodeId);
+          releaseBackupUser(cachedArchive, nodeId);
           throw error;
         }
       },

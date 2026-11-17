@@ -566,9 +566,15 @@ test("each base backup owns a directory that keeps only its archive", { timeout:
   const edge = fixture.startEdge("edge-one", { holdAcks: true });
   await edge.waitForEvent("installed");
   const backups = readdirSync(backupsRoot);
-  assert.equal(backups.length, 1, JSON.stringify(backups));
-  assert.match(backups[0]!, /^[0-9a-f-]{36}$/u, "a backup directory is named for that backup, not shared");
-  assert.deepEqual(readdirSync(path.join(backupsRoot, backups[0]!)), ["base.tar.gz"], "the staged payload is gone");
+  assert.deepEqual(backups, [replicationRepoId], JSON.stringify(backups));
+  const repoBackups = readdirSync(path.join(backupsRoot, replicationRepoId));
+  assert.equal(repoBackups.length, 1, JSON.stringify(repoBackups));
+  assert.match(repoBackups[0]!, /^[0-9a-f-]{36}$/u, "a backup directory is named for that backup, not shared");
+  assert.deepEqual(
+    readdirSync(path.join(backupsRoot, replicationRepoId, repoBackups[0]!)).sort(),
+    ["base.tar.gz", "pin.json"],
+    "only the archive and its pin metadata are kept",
+  );
   edge.control({ control: "release-acks" });
   await waitForState(() => readdirSync(backupsRoot).length === 0, "last backup user to release its archive");
 });

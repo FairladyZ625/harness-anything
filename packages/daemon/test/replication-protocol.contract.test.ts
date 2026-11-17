@@ -10,6 +10,7 @@ import {
   REPLICATION_CHUNK_BYTES,
   REPLICATION_FRAME_BYTES,
   ReplicationDecoder,
+  SNAPSHOT_RESUME_CAPABILITY,
   parseReplicationCommit,
   parseReplicationFrame,
   serializeReplicationFrame,
@@ -312,4 +313,105 @@ test("decoder accepts many frames per chunk and bounds only the pending remainde
   assert.throws(() =>
     serializeReplicationFrame({ type: "replica.resync", reason: "x".repeat(REPLICATION_FRAME_BYTES) }),
   );
+});
+
+test("snapshot-resume/v1 protocol extensions round-trip and preserve legacy backward compatibility", () => {
+  const extendedFrames: readonly ReplicationFrame[] = [
+    {
+      type: "replica.start",
+      repoId: "repo",
+      position: null,
+      edgeBuildCommit: "5b496c24",
+      taskEventShapeVersion: 1,
+      capabilities: [SNAPSHOT_RESUME_CAPABILITY],
+      resumeSnapshot: { snapshotId: "snap-123", offset: 65536 },
+    },
+    {
+      type: "replica.start",
+      repoId: "repo",
+      position: null,
+      capabilities: [SNAPSHOT_RESUME_CAPABILITY],
+    },
+    {
+      type: "replica.accept",
+      centerBuildCommit: "86d1398",
+      taskEventShapeVersion: 2,
+      capabilities: [SNAPSHOT_RESUME_CAPABILITY],
+    },
+    {
+      type: "replica.backup",
+      metadata,
+      size: 4096,
+      sha256: "b".repeat(64),
+      snapshotId: "snap-123",
+      resumeOffset: 1024,
+    },
+  ];
+  for (const frame of extendedFrames) {
+    assert.deepEqual(parseReplicationFrame(serializeReplicationFrame(frame).trimEnd()), frame, frame.type);
+  }
+  // Legacy 4-key/5-key replica.start still parses cleanly.
+  assert.deepEqual(
+    parseReplicationFrame(
+      JSON.stringify({
+        type: "replica.start",
+        repoId: "repo",
+        position: null,
+        edgeBuildCommit: null,
+        taskEventShapeVersion: 1,
+      }),
+    ),
+    {
+      type: "replica.start",
+      repoId: "repo",
+      position: null,
+      edgeBuildCommit: null,
+      taskEventShapeVersion: 1,
+    },
+  );
+  // Reject invalid resumeOffset > size, negative offset, unknown keys, or mismatched version fields.
+  for (const invalid of [
+    {
+      type: "replica.start",
+      repoId: "repo",
+      position: null,
+      edgeBuildCommit: null,
+    },
+    {
+      type: "replica.start",
+      repoId: "repo",
+      position: null,
+      resumeSnapshot: { snapshotId: "snap-1", offset: -1 },
+    },
+    {
+      type: "replica.start",
+      repoId: "repo",
+      position: null,
+      extra: true,
+    },
+    {
+      type: "replica.accept",
+      centerBuildCommit: null,
+      taskEventShapeVersion: 1,
+      capabilities: ["ok"],
+      extra: 1,
+    },
+    {
+      type: "replica.backup",
+      metadata,
+      size: 100,
+      sha256: "b".repeat(64),
+      snapshotId: "snap-1",
+      resumeOffset: 101,
+    },
+    {
+      type: "replica.backup",
+      metadata,
+      size: 100,
+      sha256: "b".repeat(64),
+      snapshotId: "snap-1",
+    },
+  ]) {
+    assert.throws(() => parseReplicationFrame(JSON.stringify(invalid)), undefined, JSON.stringify(invalid));
+  }
 });

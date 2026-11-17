@@ -1,4 +1,4 @@
-import { mkdir, open, rename, rm } from "node:fs/promises";
+import { mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -8,10 +8,15 @@ import {
   type ReplicationPosition,
   type SqliteEventRow,
 } from "@harness-anything/storage";
-import { TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
+import { consumeKnownError, TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
 import { openReplicationCommitFile } from "./commit-file.ts";
 import { daemonBuildStamp } from "../build-identity.ts";
-import { ReplicationError, type ReplicationPeer } from "./protocol.ts";
+import {
+  isBaseBackupMetadata,
+  ReplicationError,
+  SNAPSHOT_RESUME_CAPABILITY,
+  type ReplicationPeer,
+} from "./protocol.ts";
 import type { BaseBackupMetadata } from "@harness-anything/storage";
 import type { ReplicaGeneration } from "./replica-generation.ts";
 import { syncDirectory } from "@harness-anything/storage";
@@ -71,13 +76,93 @@ export interface ReplicationTarget {
   readonly revoke?: () => Promise<void>;
 }
 
+const SNAPSHOT_TRANSFER_FLUSH_BYTES = 4 * 1024 * 1024;
+
+interface StagedSnapshotTransfer {
+  readonly schema: "fleet-snapshot-transfer/v1";
+  readonly snapshotId: string;
+  readonly metadata: BaseBackupMetadata;
+  readonly size: number;
+  readonly sha256: string;
+  readonly receivedBytes: number;
+}
+
+async function findResumableSnapshot(snapshotsRoot: string): Promise<{
+  readonly snapshotId: string;
+  readonly offset: number;
+  readonly transfer: StagedSnapshotTransfer;
+} | null> {
+  let entries;
+  try {
+    entries = await readdir(snapshotsRoot, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      consumeKnownError(error);
+      return null;
+    }
+    throw error;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const snapshotDir = path.join(snapshotsRoot, entry.name);
+    try {
+      const raw = await readFile(path.join(snapshotDir, "transfer.json"), "utf8");
+      const parsed = JSON.parse(raw) as Partial<StagedSnapshotTransfer>;
+      if (
+        parsed.schema !== "fleet-snapshot-transfer/v1" ||
+        parsed.snapshotId !== entry.name ||
+        !isBaseBackupMetadata(parsed.metadata) ||
+        !Number.isSafeInteger(parsed.size) ||
+        (parsed.size ?? 0) <= 0 ||
+        typeof parsed.sha256 !== "string" ||
+        !/^[a-f0-9]{64}$/u.test(parsed.sha256) ||
+        !Number.isSafeInteger(parsed.receivedBytes) ||
+        (parsed.receivedBytes ?? -1) < 0 ||
+        (parsed.receivedBytes ?? 0) > parsed.size!
+      )
+        continue;
+      const partStat = await stat(path.join(snapshotDir, "archive.part"));
+      const offset = Math.min(partStat.size, parsed.receivedBytes!);
+      if (offset > 0 && offset <= parsed.size!) {
+        return {
+          snapshotId: parsed.snapshotId,
+          offset,
+          transfer: parsed as StagedSnapshotTransfer,
+        };
+      }
+    } catch (error) {
+      consumeKnownError(error);
+      continue;
+    }
+  }
+  return null;
+}
+
+async function writeTransferState(transferFile: string, state: StagedSnapshotTransfer): Promise<void> {
+  const tmpFile = `${transferFile}.tmp`;
+  await /* @gate-identity non-state/environment-io.7a1c9e2b4d6f8012 */ writeFile(
+    tmpFile,
+    JSON.stringify(state),
+    "utf8",
+  );
+  await /* @gate-identity non-state/environment-io.8b2d0f3c5e7a9123 */ rename(tmpFile, transferFile);
+}
+
+async function clearStagedSnapshots(snapshotsRoot: string): Promise<void> {
+  await /* @gate-identity non-state/environment-io.9c3e1a4d6f8b0234 */ rm(snapshotsRoot, {
+    recursive: true,
+    force: true,
+  });
+}
+
 async function receiveBytes(
   peer: ReplicationPeer,
   size: number,
   signal: AbortSignal,
   write: (bytes: Buffer) => Promise<void>,
+  initialOffset = 0,
 ): Promise<void> {
-  let offset = 0;
+  let offset = initialOffset;
   while (offset < size) {
     const frame = await peer.receive(signal);
     if (frame.type !== "replica.data" || frame.offset !== offset)
@@ -109,14 +194,20 @@ export async function runWalReceiver(input: {
     return failure;
   };
   try {
+    const snapshotsRoot = path.join(input.directory, "snapshots");
+    const initialPosition = target.position();
+    const stagedResume = initialPosition === null ? await findResumableSnapshot(snapshotsRoot) : null;
     await peer.send({
       type: "replica.start",
       repoId: input.repoId,
-      position: target.position(),
+      position: initialPosition,
       edgeBuildCommit: daemonBuildStamp().commit,
       taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
+      capabilities: [SNAPSHOT_RESUME_CAPABILITY],
+      ...(stagedResume ? { resumeSnapshot: { snapshotId: stagedResume.snapshotId, offset: stagedResume.offset } } : {}),
     });
     const rejectUnauthorizedRead = async (): Promise<never> => {
+      await clearStagedSnapshots(snapshotsRoot);
       await target.reset?.();
       await target.revoke?.();
       throw new ReplicationError(
@@ -174,31 +265,116 @@ export async function runWalReceiver(input: {
         // A denied replica is withdrawn and the stream fails: the owner and doctor see the denial, and
         // the reconnect loop re-admits the replica once the grant returns.
         if (frame.reason === "authorization_denied") await rejectUnauthorizedRead();
+        await clearStagedSnapshots(snapshotsRoot);
         await target.reset?.();
         continue;
       }
       if (frame.type === "replica.backup") {
         if (frame.size > input.quotaBytes)
           throw new ReplicationError("base backup exceeds disk quota", "replica_quota_exceeded");
-        await /* @gate-identity non-state/environment-io.4f62e1d5a38603ae */ mkdir(input.directory, {
-          recursive: true,
-        });
-        const file = path.join(input.directory, `${randomUUID()}.tar.gz`);
-        const handle = await /* @gate-identity non-state/environment-io.86c097b43a2b67a1 */ open(file, "wx");
-        try {
-          try {
-            await receiveBytes(peer, frame.size, signal, async (bytes) => {
-              await handle.writeFile(bytes);
+        if (frame.snapshotId) {
+          const snapshotDir = path.join(snapshotsRoot, frame.snapshotId);
+          const partFile = path.join(snapshotDir, "archive.part");
+          const transferFile = path.join(snapshotDir, "transfer.json");
+          const resumeOffset = frame.resumeOffset ?? 0;
+          if (resumeOffset > 0) {
+            const currentStaged =
+              stagedResume?.snapshotId === frame.snapshotId ? stagedResume : await findResumableSnapshot(snapshotsRoot);
+            if (
+              !currentStaged ||
+              currentStaged.snapshotId !== frame.snapshotId ||
+              currentStaged.transfer.size !== frame.size ||
+              currentStaged.transfer.sha256 !== frame.sha256 ||
+              resumeOffset > currentStaged.offset
+            ) {
+              await clearStagedSnapshots(snapshotsRoot);
+              throw new ReplicationError("resumed snapshot metadata mismatch", "replica_protocol_error");
+            }
+          } else {
+            await clearStagedSnapshots(snapshotsRoot);
+            await /* @gate-identity non-state/environment-io.ad4f2b5e7c9d1345 */ mkdir(snapshotDir, {
+              recursive: true,
             });
+          }
+          const transferBase: Omit<StagedSnapshotTransfer, "receivedBytes"> = {
+            schema: "fleet-snapshot-transfer/v1",
+            snapshotId: frame.snapshotId,
+            metadata: frame.metadata,
+            size: frame.size,
+            sha256: frame.sha256,
+          };
+          let receivedBytes = resumeOffset;
+          let lastFlushedBytes = resumeOffset;
+          if (resumeOffset === 0) {
+            await writeTransferState(transferFile, { ...transferBase, receivedBytes: 0 });
+          }
+          if (resumeOffset > 0) {
+            const truncateHandle = await /* @gate-identity non-state/environment-io.be503c6f8dae2456 */ open(
+              partFile,
+              "r+",
+            );
+            try {
+              await truncateHandle.truncate(resumeOffset);
+            } finally {
+              await truncateHandle.close();
+            }
+          }
+          const handle = await /* @gate-identity non-state/environment-io.cf614d7e9fbf3567 */ open(
+            partFile,
+            resumeOffset > 0 ? "a" : "w+",
+          );
+          try {
+            await receiveBytes(
+              peer,
+              frame.size,
+              signal,
+              async (bytes) => {
+                await handle.writeFile(bytes);
+                receivedBytes += bytes.length;
+                if (receivedBytes - lastFlushedBytes >= SNAPSHOT_TRANSFER_FLUSH_BYTES) {
+                  await writeTransferState(transferFile, { ...transferBase, receivedBytes });
+                  lastFlushedBytes = receivedBytes;
+                }
+              },
+              resumeOffset,
+            );
             await expect("replica.backup.end");
             await handle.sync();
           } finally {
+            if (receivedBytes !== lastFlushedBytes) {
+              await writeTransferState(transferFile, { ...transferBase, receivedBytes }).catch(() => undefined);
+            }
             await handle.close();
           }
-          await target.install(file, frame.metadata, frame.size, frame.sha256);
+          try {
+            await target.install(partFile, frame.metadata, frame.size, frame.sha256);
+          } catch (error) {
+            await clearStagedSnapshots(snapshotsRoot);
+            throw error;
+          }
           await ack(frame.metadata.position);
-        } finally {
-          await /* @gate-identity non-state/environment-io.4d1cb7398be78de6 */ rm(file, { force: true });
+          await clearStagedSnapshots(snapshotsRoot);
+        } else {
+          await /* @gate-identity non-state/environment-io.4f62e1d5a38603ae */ mkdir(input.directory, {
+            recursive: true,
+          });
+          const file = path.join(input.directory, `${randomUUID()}.tar.gz`);
+          const handle = await /* @gate-identity non-state/environment-io.86c097b43a2b67a1 */ open(file, "wx");
+          try {
+            try {
+              await receiveBytes(peer, frame.size, signal, async (bytes) => {
+                await handle.writeFile(bytes);
+              });
+              await expect("replica.backup.end");
+              await handle.sync();
+            } finally {
+              await handle.close();
+            }
+            await target.install(file, frame.metadata, frame.size, frame.sha256);
+            await ack(frame.metadata.position);
+          } finally {
+            await /* @gate-identity non-state/environment-io.4d1cb7398be78de6 */ rm(file, { force: true });
+          }
         }
       } else if (frame.type === "replica.commit") {
         if (frame.size > input.quotaBytes)

@@ -13,6 +13,7 @@ export class ReplicationError extends Error {
 
 export const REPLICATION_FRAME_BYTES = daemonProtocolFleetPolicy.defaultValue.fleet.frameBytes;
 export const REPLICATION_CHUNK_BYTES = daemonProtocolFleetPolicy.defaultValue.fleet.chunkBytes;
+export const SNAPSHOT_RESUME_CAPABILITY = "snapshot-resume/v1";
 
 export type ReplicationFrame =
   | {
@@ -21,11 +22,14 @@ export type ReplicationFrame =
       readonly position: ReplicationPosition | null;
       readonly edgeBuildCommit?: string | null;
       readonly taskEventShapeVersion?: number;
+      readonly capabilities?: readonly string[];
+      readonly resumeSnapshot?: { readonly snapshotId: string; readonly offset: number };
     }
   | {
       readonly type: "replica.accept";
       readonly centerBuildCommit: string | null;
       readonly taskEventShapeVersion: number;
+      readonly capabilities?: readonly string[];
     }
   | {
       readonly type: "replica.reject";
@@ -40,6 +44,8 @@ export type ReplicationFrame =
       readonly metadata: BaseBackupMetadata;
       readonly size: number;
       readonly sha256: string;
+      readonly snapshotId?: string;
+      readonly resumeOffset?: number;
     }
   | { readonly type: "replica.data"; readonly offset: number; readonly data: string }
   | { readonly type: "replica.backup.end" }
@@ -67,21 +73,66 @@ const shape = (value: unknown, fields: Record<string, Check>): boolean =>
   object(value) &&
   Object.keys(value).length === Object.keys(fields).length &&
   Object.entries(fields).every(([key, check]) => check(value[key]));
-const isReplicaStart = (value: unknown): boolean => {
-  const common = {
-    type: (v: unknown) => v === "replica.start",
-    repoId: text,
-    position: (v: unknown) => v === null || isReplicationPosition(v),
-  };
-  return (
-    shape(value, common) ||
-    shape(value, {
-      ...common,
+const isCapabilities = (value: unknown): boolean => Array.isArray(value) && value.length <= 32 && value.every(text);
+const isResumeSnapshot = (value: unknown): boolean => shape(value, { snapshotId: text, offset: uint });
+const optionalShape = (value: unknown, required: Record<string, Check>, optional: Record<string, Check>): boolean => {
+  if (!object(value)) return false;
+  for (const [key, check] of Object.entries(required)) {
+    if (!Object.hasOwn(value, key) || !check(value[key])) return false;
+  }
+  for (const key of Object.keys(value)) {
+    if (Object.hasOwn(required, key)) continue;
+    if (!Object.hasOwn(optional, key) || !optional[key]!(value[key])) return false;
+  }
+  return true;
+};
+const isReplicaStart = (value: unknown): boolean =>
+  object(value) &&
+  Object.hasOwn(value, "edgeBuildCommit") === Object.hasOwn(value, "taskEventShapeVersion") &&
+  optionalShape(
+    value,
+    {
+      type: (v: unknown) => v === "replica.start",
+      repoId: text,
+      position: (v: unknown) => v === null || isReplicationPosition(v),
+    },
+    {
       edgeBuildCommit: (v: unknown) => v === null || text(v),
       taskEventShapeVersion: uint,
-    })
+      capabilities: isCapabilities,
+      resumeSnapshot: isResumeSnapshot,
+    },
   );
-};
+const isReplicaAccept = (value: unknown): boolean =>
+  optionalShape(
+    value,
+    {
+      type: (v: unknown) => v === "replica.accept",
+      centerBuildCommit: (v: unknown) => v === null || text(v),
+      taskEventShapeVersion: uint,
+    },
+    {
+      capabilities: isCapabilities,
+    },
+  );
+const isReplicaBackup = (value: unknown): boolean =>
+  object(value) &&
+  (shape(value, {
+    type: (v: unknown) => v === "replica.backup",
+    metadata: isBaseBackupMetadata,
+    size: uint,
+    sha256: hash,
+  }) ||
+    (shape(value, {
+      type: (v: unknown) => v === "replica.backup",
+      metadata: isBaseBackupMetadata,
+      size: uint,
+      sha256: hash,
+      snapshotId: text,
+      resumeOffset: uint,
+    }) &&
+      (value as { readonly resumeOffset: number; readonly size: number }).resumeOffset <=
+        (value as { readonly size: number }).size));
 export const isReplicationPosition = (value: unknown): value is ReplicationPosition =>
   shape(value, { history: text, sequence: uint, revision: uint });
 export const isBaseBackupMetadata = (value: unknown): value is BaseBackupMetadata =>
@@ -125,10 +176,6 @@ function parseReplicationFrameValue(value: unknown): ReplicationFrame {
       { code: "center_upgrade_required" },
     );
   const types: Record<string, Record<string, Check>> = {
-    "replica.accept": {
-      centerBuildCommit: (v) => v === null || text(v),
-      taskEventShapeVersion: uint,
-    },
     "replica.reject": {
       code: text,
       message: text,
@@ -136,7 +183,6 @@ function parseReplicationFrameValue(value: unknown): ReplicationFrame {
       taskEventShapeVersion: uint,
     },
     "replica.failure": { code: text, message: text },
-    "replica.backup": { metadata: isBaseBackupMetadata, size: uint, sha256: hash },
     "replica.data": {
       offset: uint,
       data: (v) =>
@@ -155,12 +201,15 @@ function parseReplicationFrameValue(value: unknown): ReplicationFrame {
     "replica.resync": { reason: text },
   };
   const fields = Object.hasOwn(types, value.type) ? types[value.type] : undefined;
-  if (
-    !(value.type === "replica.start"
+  const valid =
+    value.type === "replica.start"
       ? isReplicaStart(value)
-      : fields && shape(value, { type: (v) => v === value.type, ...fields }))
-  )
-    throw new Error("invalid replication frame");
+      : value.type === "replica.accept"
+        ? isReplicaAccept(value)
+        : value.type === "replica.backup"
+          ? isReplicaBackup(value)
+          : Boolean(fields && shape(value, { type: (v) => v === value.type, ...fields }));
+  if (!valid) throw new Error("invalid replication frame");
   return value as unknown as ReplicationFrame;
 }
 
