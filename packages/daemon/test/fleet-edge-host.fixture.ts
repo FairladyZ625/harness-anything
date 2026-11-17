@@ -190,7 +190,15 @@ export async function fleetEdgeHostFixture(
       } catch (cause) {
         throw new Error(`edge host ${name} failed to close`, { cause });
       }
-      rmSync(root, { recursive: true, force: true });
+      // A Windows tree can still hold a file open for a moment after the hosts close, and
+      // a throwing hook skips every later fixture's after hook (node:test stops the queue),
+      // stranding that fixture's host and its replica-sync retry timer. Retry, then report the
+      // leftover instead of aborting cleanup; the OS temp cleaner removes what remains.
+      try {
+        rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      } catch (error) {
+        console.warn(`[fleet-edge-host-fixture] could not remove ${root}: ${String(error)}`);
+      }
     })();
     return closePromise;
   };
