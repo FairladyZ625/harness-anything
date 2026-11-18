@@ -116,14 +116,18 @@ test("dry-run rejects corrupted hunks, trailing garbage and non-diff text", asyn
     entry.diff.replace(/@@ -(\d+),(\d+)/u, (_, line, count) => `@@ -${line},${Number(count) + 1}`),
     entry.diff + "+extra hunk line\n",
     entry.diff + "trailing garbage\n",
+    "diff --git a/reviewer-probe.txt b/reviewer-probe.txt\nnew file mode 100644\n--- /dev/null\n+++ b/reviewer-probe.txt\n@@ -1 +1 @@\n-old\n+new\n",
+    "diff --git a/reviewer-probe.txt b/reviewer-probe.txt\ndeleted file mode 100644\n--- a/reviewer-probe.txt\n+++ /dev/null\n@@ -1 +1 @@\n-old\n+new\n",
   ]) {
     await writeFile(invalidCasesPath, JSON.stringify({ schema, cases: [{ ...entry, diff }] }));
     assert.throws(() => runDryRun(invalidCasesPath), /invalid unified diff/u);
   }
 
   assert.match(
-    collectEvalCaseIssues({ schema, cases: [{ ...entry, expectedEvidence: [["  "], ["404"]] }] }).join("\n"),
-    /positive case needs at least two non-empty evidence groups/u,
+    collectEvalCaseIssues({ schema, cases: [{ ...entry, expectedEvidence: [["  "], ["404"], ["headers"]] }] }).join(
+      "\n",
+    ),
+    /positive case needs at least three non-empty evidence groups/u,
   );
 });
 
@@ -187,13 +191,23 @@ test("recall requires a legal blocking finding with all evidence groups on the s
     { ...finding, text: "Unrelated naming concern" },
     { ...finding, anchor: "test/static-broker.test.ts:2", text: "Rename the test." },
     { ...finding, text: "The response is 404." },
+    {
+      ...finding,
+      anchor: "test/static-broker.test.ts:7",
+      text: "The 404 response body uses an inconsistent capitalization for its error message.",
+    },
     { ...finding, text: "The policy has a 1404 error." },
     { ...finding, blocking: false },
     { ...finding, category: "style" },
   ];
   for (const candidate of alternatives) {
     const report = scoreEvalResults([incident], [{ ...response, findings: [candidate] }]);
-    assert.equal(report.validResponses, 1);
+    if (candidate.blocking && candidate.category !== "style") {
+      assert.equal(report.validResponses, 1);
+    } else {
+      assert.equal(report.adapterErrors, 1);
+      assert.equal(report.validResponses, 0);
+    }
     assert.equal(report.metrics.recall, 0, JSON.stringify(candidate));
   }
   const split = scoreEvalResults(
@@ -203,7 +217,18 @@ test("recall requires a legal blocking finding with all evidence groups on the s
   assert.equal(split.metrics.recall, 0);
   const anchored = scoreEvalResults(
     [incident],
-    [{ ...response, findings: [{ ...finding, anchor: "test/static-broker.test.ts:2", text: "Response is 404." }] }],
+    [
+      {
+        ...response,
+        findings: [
+          {
+            ...finding,
+            anchor: "test/static-broker.test.ts:2",
+            text: "The security headers test does not set up dist or assert status, so a 404 with those headers satisfies the test.",
+          },
+        ],
+      },
+    ],
   );
   assert.equal(anchored.metrics.recall, 1);
 });
@@ -214,7 +239,7 @@ test("malformed verdicts and findings are protocol errors on both positive and c
   for (const [index, response] of perfectResponsesFor(pair).entries()) {
     const finding = {
       findingId: "f-1",
-      text: "static-broker.test.ts returns 404",
+      text: "static-broker.test.ts returns 404 with security headers",
       category: "correctness",
       blocking: true,
     };
@@ -230,6 +255,13 @@ test("malformed verdicts and findings are protocol errors on both positive and c
       { ...response, findings: [{ ...finding, category: "unknown" }] },
       { ...response, findings: [{ ...finding, blocking: "yes" }] },
       { ...response, findings: [finding, finding] },
+      { ...response, verdict: "changes_requested", findings: [] },
+      {
+        ...response,
+        verdict: "changes_requested",
+        findings: [{ findingId: "ci", blocking: true, category: "ci-required", text: "CI is pending." }],
+      },
+      { ...response, verdict: "approved", findings: [finding] },
     ]) {
       const report = scoreEvalResults([pair[index]], [badResponse]);
       assert.deepEqual(report.counts, { passed: 0, failed: 1, timedOut: 0, unexecuted: 0 });
@@ -247,13 +279,22 @@ test("FPR counts only legal reviewer false blocks against the full fixture denom
   const clean = cases.filter(({ bucket }) => bucket !== "positive");
   const responses = perfectResponsesFor(clean);
   responses[0] = { ...responses[0], status: "errored", error: "command not found" };
-  responses[1] = { ...responses[1], verdict: "changes_requested", findings: [] };
+  responses[1] = {
+    ...responses[1],
+    verdict: "changes_requested",
+    findings: [{ findingId: "fp-clean", blocking: true, category: "correctness", text: "Spurious block on clean PR." }],
+  };
+  responses[2] = { ...responses[2], verdict: "changes_requested", findings: [] };
   responses[5] = { ...responses[5], status: "unavailable", error: "missing adapter" };
-  responses[6] = { ...responses[6], findings: [{ ...responses[6].findings[0], blocking: true }] };
+  responses[6] = {
+    ...responses[6],
+    verdict: "changes_requested",
+    findings: [{ findingId: "fp-pre", blocking: true, category: "correctness", text: "Blocked on untouched code." }],
+  };
   const report = scoreEvalResults(clean, responses);
-  assert.deepEqual(report.counts, { passed: 3, failed: 3, timedOut: 0, unexecuted: 1 });
-  assert.equal(report.adapterErrors, 2);
-  assert.equal(report.validResponses, 5);
+  assert.deepEqual(report.counts, { passed: 2, failed: 4, timedOut: 0, unexecuted: 1 });
+  assert.equal(report.adapterErrors, 3);
+  assert.equal(report.validResponses, 4);
   assert.equal(report.byBucket.pre_existing.adapterErrors, 1);
   assert.equal(report.byBucket.pre_existing.validResponses, 1);
   assert.equal(report.metrics.falsePositiveRate, 2 / 7);

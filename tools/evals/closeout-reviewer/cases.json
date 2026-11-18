@@ -18,8 +18,9 @@
       },
       "diff": "diff --git a/src/http/static-broker.ts b/src/http/static-broker.ts\nindex af74e7a..ab72259 100644\n--- a/src/http/static-broker.ts\n+++ b/src/http/static-broker.ts\n@@ -1,7 +1,7 @@\n export function handleBrokerRequest(assetPackageRoot: string, req: Request, res: Response) {\n   res.setHeader(\"Content-Security-Policy\", \"default-src 'self'\");\n   res.setHeader(\"X-Content-Type-Options\", \"nosniff\");\n-  const target = path.join(assetPackageRoot, \"public\", \"index.html\");\n+  const target = path.join(assetPackageRoot, \"dist\", \"index.html\");\n   if (!existsSync(target)) {\n     res.statusCode = 404;\n     res.end(\"not found\");\ndiff --git a/test/static-broker.test.ts b/test/static-broker.test.ts\nindex 2496003..a4a4ccb 100644\n--- a/test/static-broker.test.ts\n+++ b/test/static-broker.test.ts\n@@ -2,4 +2,5 @@ test(\"static broker sets security headers\", async () => {\n   const workspaceRoot = createTempWorkspaceWithoutDist();\n   const res = await requestBroker(workspaceRoot, \"/\");\n   assert.equal(res.headers[\"content-security-policy\"], \"default-src 'self'\");\n+  assert.equal(res.headers[\"x-content-type-options\"], \"nosniff\");\n });\n",
       "expectedEvidence": [
-        ["static-broker.test.ts", "security headers", "content-security-policy", "nosniff"],
-        ["404", "missing dist", "without dist", "status code", "success response", "response body"]
+        ["static-broker", "security headers", "requestBroker"],
+        ["404", "missing dist", "without dist", "not set up dist"],
+        ["security headers", "headers", "content-security-policy", "nosniff", "200", "status"]
       ]
     },
     {
@@ -37,8 +38,9 @@
       },
       "diff": "diff --git a/test/worker-install.integration.test.ts b/test/worker-install.integration.test.ts\nindex a9f0c77..8e2a154 100644\n--- a/test/worker-install.integration.test.ts\n+++ b/test/worker-install.integration.test.ts\n@@ -1,7 +1,9 @@\n test(\"replica install worker completes install\", async () => {\n   const targetDir = createTempDir();\n   const worker = startInstallWorker({ targetDir });\n-  await worker.waitUntilReady();\n-  const manifest = JSON.parse(readFileSync(path.join(targetDir, \"manifest.json\"), \"utf8\"));\n-  assert.equal(manifest.installed, true);\n+  const started = Date.now();\n+  await new Promise((resolve) => setTimeout(resolve, 10));\n+  const ticks = Date.now() - started;\n+  assert.ok(ticks > 0, \"worker install should take positive time\");\n+  await worker.stop();\n });\n",
       "expectedEvidence": [
-        ["ticks", "wall clock", "elapsed time", "setTimeout"],
-        ["manifest", "persist", "installation completion", "install result", "worker behavior"]
+        ["worker-install", "ticks", "setTimeout", "Date.now"],
+        ["elapsed time", "wall clock", "positive time", "sleep"],
+        ["manifest", "persisting", "persist", "installed", "installation completion"]
       ]
     },
     {
@@ -57,15 +59,8 @@
       "diff": "diff --git a/src/maintenance/stale-lease-reaper.ts b/src/maintenance/stale-lease-reaper.ts\nnew file mode 100644\nindex 0000000..2a3ea95\n--- /dev/null\n+++ b/src/maintenance/stale-lease-reaper.ts\n@@ -0,0 +1,5 @@\n+export interface LeaseRecord { readonly id: string; readonly expiresAtMs: number; }\n+\n+export function selectExpiredLeaseIds(leases: readonly LeaseRecord[], nowMs: number): string[] {\n+  return leases.filter((lease) => lease.expiresAtMs <= nowMs).map((lease) => lease.id);\n+}\ndiff --git a/test/stale-lease-reaper.test.ts b/test/stale-lease-reaper.test.ts\nnew file mode 100644\nindex 0000000..1b8ecb9\n--- /dev/null\n+++ b/test/stale-lease-reaper.test.ts\n@@ -0,0 +1,7 @@\n+import assert from \"node:assert/strict\";\n+import test from \"node:test\";\n+import { selectExpiredLeaseIds } from \"../src/maintenance/stale-lease-reaper.ts\";\n+\n+test(\"selects expired leases\", () => {\n+  assert.deepEqual(selectExpiredLeaseIds([{ id: \"l1\", expiresAtMs: 10 }, { id: \"l2\", expiresAtMs: 50 }], 20), [\"l1\"]);\n+});\n",
       "expectedEvidence": [
         ["stale-lease-reaper", "selectExpiredLeaseIds", "lease reaper"],
-        [
-          "unwired",
-          "not wired",
-          "never called",
-          "no production",
-          "maintenance loop",
-          "only the test",
-          "only used by tests"
-        ]
+        ["only used by tests", "only the test", "unwired", "not wired", "never called"],
+        ["no production", "production caller", "maintenance loop", "daemon"]
       ]
     },
     {
@@ -83,8 +78,9 @@
       },
       "diff": "diff --git a/packages/daemon/src/task-completion-policy.ts b/packages/daemon/src/task-completion-policy.ts\nnew file mode 100644\nindex 0000000..6a7d86d\n--- /dev/null\n+++ b/packages/daemon/src/task-completion-policy.ts\n@@ -0,0 +1,18 @@\n+export interface TaskSnapshot {\n+  readonly status: \"active\" | \"in_review\" | \"done\";\n+  readonly approvedReviewCount: number;\n+  readonly hasConsent: boolean;\n+}\n+\n+export function evaluateCompletionReadiness(snapshot: TaskSnapshot): { ready: boolean; blocker: string | null } {\n+  if (snapshot.status !== \"in_review\") {\n+    return { ready: false, blocker: \"not_in_review\" };\n+  }\n+  if (snapshot.approvedReviewCount === 0) {\n+    return { ready: false, blocker: \"missing_approved_review\" };\n+  }\n+  if (!snapshot.hasConsent) {\n+    return { ready: false, blocker: \"missing_owner_consent\" };\n+  }\n+  return { ready: true, blocker: null };\n+}\n",
       "expectedEvidence": [
-        ["task-completion-policy", "evaluateCompletionReadiness", "readiness"],
-        ["daemon", "host package", "kernel"]
+        ["task-completion-policy", "evaluateCompletionReadiness", "completion readiness"],
+        ["daemon", "host package"],
+        ["kernel", "pure transition", "domain"]
       ]
     },
     {
@@ -102,8 +98,9 @@
       },
       "diff": "diff --git a/test/auth-policy.test.ts b/test/auth-policy.test.ts\nindex b4476e3..3dcd72b 100644\n--- a/test/auth-policy.test.ts\n+++ b/test/auth-policy.test.ts\n@@ -1,5 +1,4 @@\n test(\"rejects unprivileged caller\", async () => {\n   const res = await invokeAction({ actorRole: \"viewer\", action: \"delete_task\" });\n-  assert.equal(res.status, 403);\n-  assert.equal(res.errorCode, \"policy_denied\");\n+  assert.ok(res.status >= 200);\n });\n",
       "expectedEvidence": [
-        ["auth-policy.test.ts", "policy_denied", "403", "unprivileged caller"],
-        ["status >= 200", "weakens", "weakened", "assertion", "accepts success"]
+        ["auth-policy", "unprivileged caller", "invokeAction"],
+        ["403", "policy_denied"],
+        ["status >= 200", "weakens", "weakened", "relaxes", "accepts success"]
       ]
     },
     {
@@ -121,8 +118,9 @@
       },
       "diff": "diff --git a/test/fixtures/parser-golden.json b/test/fixtures/parser-golden.json\nindex 2b188a6..bbfa86c 100644\n--- a/test/fixtures/parser-golden.json\n+++ b/test/fixtures/parser-golden.json\n@@ -1,5 +1,3 @@\n [\n-  { \"input\": \"a=\\\"1,2\\\"\", \"expected\": { \"a\": \"1,2\" } },\n-  { \"input\": \"b=''\", \"expected\": { \"b\": \"\" } },\n   { \"input\": \"c=plain\", \"expected\": { \"c\": \"plain\" } }\n ]\ndiff --git a/test/parser.test.ts b/test/parser.test.ts\nindex b3de576..33b40ff 100644\n--- a/test/parser.test.ts\n+++ b/test/parser.test.ts\n@@ -1,5 +1,5 @@\n test(\"parses all golden fixtures\", () => {\n   const cases = loadGoldenCases();\n-  assert.equal(cases.length, 3);\n+  assert.ok(cases.length >= 1);\n   for (const item of cases) assert.deepEqual(parseLine(item.input), item.expected);\n });\n",
       "expectedEvidence": [
-        ["parser-golden.json", "quoted fields", "escaped quotes", "golden fixture"],
-        ["removed", "removes", "deleted", "drops", "coverage", "cases.length"]
+        ["parser-golden", "golden fixture", "loadGoldenCases"],
+        ["quoted fields", "escaped quotes"],
+        ["removing", "removed", "removes", "deleted", "drops", "cases.length"]
       ]
     },
     {
@@ -140,8 +138,9 @@
       },
       "diff": "diff --git a/src/storage/checkpoint-writer.ts b/src/storage/checkpoint-writer.ts\nindex 3376eec..9777bd0 100644\n--- a/src/storage/checkpoint-writer.ts\n+++ b/src/storage/checkpoint-writer.ts\n@@ -1,4 +1,8 @@\n export async function writeCheckpoint(store: EventStore, record: CheckpointRecord) {\n-  await store.append(\"checkpoint_saved\", record);\n-  return { persisted: true };\n+  try {\n+    await store.append(\"checkpoint_saved\", record);\n+    return { persisted: true };\n+  } catch {\n+    return { persisted: true };\n+  }\n }\n",
       "expectedEvidence": [
-        ["writeCheckpoint", "checkpoint-writer", "store.append", "checkpoint"],
-        ["persisted true", "false success", "reports success", "swallows", "swallowed", "hides", "data loss"]
+        ["writeCheckpoint", "checkpoint-writer", "store.append"],
+        ["swallows", "swallowed", "catch", "hides"],
+        ["persisted true", "false success", "reports success", "data loss"]
       ]
     },
     {
@@ -159,8 +158,9 @@
       },
       "diff": "diff --git a/src/config/root-resolver.ts b/src/config/root-resolver.ts\nindex 7ecc39a..95ee5dc 100644\n--- a/src/config/root-resolver.ts\n+++ b/src/config/root-resolver.ts\n@@ -1,3 +1,12 @@\n export function legacyResolveRoot(cwd: string): string {\n   return `${cwd}/.legacy`;\n }\n+\n+export function resolveConfiguredRoot(cwd: string, options?: { enableLegacyFallback?: boolean }): string {\n+  try {\n+    return `${cwd}/.config`;\n+  } catch {\n+    if (options?.enableLegacyFallback) return legacyResolveRoot(cwd);\n+    return legacyResolveRoot(cwd);\n+  }\n+}\n",
       "expectedEvidence": [
-        ["legacyResolveRoot", "legacy resolver", "resolveConfiguredRoot"],
-        ["fallback", "not removed", "still present", "keeps", "retains", "dead catch"]
+        ["resolveConfiguredRoot", "root-resolver"],
+        ["legacyResolveRoot", "legacy resolver", "enableLegacyFallback"],
+        ["retains", "keeps", "fallback", "not removed", "still present", "delete"]
       ]
     },
     {

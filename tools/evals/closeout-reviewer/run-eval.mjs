@@ -104,7 +104,7 @@ export function collectEvalCaseIssues(doc) {
       }
     }
     if (entry.bucket === "positive" && !hasExpectedEvidence(entry.expectedEvidence)) {
-      issues.push(`${label}: positive case needs at least two non-empty evidence groups`);
+      issues.push(`${label}: positive case needs at least three non-empty evidence groups`);
     }
     if (!entry.taskContext || typeof entry.taskContext !== "object" || typeof entry.taskContext.summary !== "string") {
       issues.push(`${label}: missing taskContext.summary`);
@@ -163,7 +163,7 @@ function evidenceWords(text) {
 function hasExpectedEvidence(groups) {
   return (
     Array.isArray(groups) &&
-    groups.length >= 2 &&
+    groups.length >= 3 &&
     groups.every(
       (group) =>
         Array.isArray(group) &&
@@ -176,17 +176,28 @@ function hasExpectedEvidence(groups) {
 function reviewerProtocolIssue(response) {
   if (response.status !== undefined) return `unknown response status: ${String(response.status)}`;
   if (!EVAL_VERDICTS.includes(response.verdict)) return `invalid or missing verdict: ${String(response.verdict)}`;
-  const [issue] = validateReviewFindings(response.findings, true);
+  const [issue] = validateReviewFindings(response.findings);
   if (issue) return issue.message;
   if (response.findings.some(({ category }) => category === undefined)) return "each finding requires a category";
+  if (
+    response.verdict === "changes_requested" &&
+    !response.findings.some((item) => item.blocking && !NON_BLOCKING_ONLY_CATEGORIES.includes(item.category))
+  ) {
+    return "changes_requested review requires a blocking finding outside style/diagnostic/cleanup";
+  }
+  if (response.verdict === "approved" && response.findings.some((item) => item.blocking)) {
+    return "approved review cannot contain blocking findings";
+  }
   return null;
 }
 
 function matchesExpectedEvidence(evalCase, finding) {
-  const text = ` ${evidenceWords(`${finding.anchor ?? ""} ${finding.text}`)} `;
-  return evalCase.expectedEvidence.every((group) =>
-    group.some((phrase) => text.includes(` ${evidenceWords(phrase)} `)),
-  );
+  const combined = ` ${evidenceWords(`${finding.anchor ?? ""} ${finding.text}`)} `;
+  const proseOnly = ` ${evidenceWords(finding.text)} `;
+  return evalCase.expectedEvidence.every((group, groupIndex) => {
+    const haystack = groupIndex === 0 ? combined : proseOnly;
+    return group.some((phrase) => haystack.includes(` ${evidenceWords(phrase)} `));
+  });
 }
 
 /** Evaluate a single reviewer response against one golden case. */
