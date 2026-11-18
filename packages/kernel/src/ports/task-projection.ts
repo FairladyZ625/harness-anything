@@ -279,6 +279,10 @@ export interface TaskProjection {
   ) => readonly RuntimeDispatchProjectionRow[];
   readonly readRuntimeDispatchesByAttemptGroup: (attemptGroupId: string) => readonly RuntimeDispatchProjectionRow[];
   readonly readRuntimeDispatchesByDecision: (decisionId: string) => readonly RuntimeDispatchProjectionRow[];
+  /** Decision-review dispatch events in revision order, without a separate outcome lookup. */
+  readonly readRuntimeDispatchesByDecisions: (
+    decisionIds: readonly string[],
+  ) => readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
   readonly readRuntimeDispatchPage: (query: {
     /** Task-scoped history pages seek each task time index, never materialize its history. */
     readonly taskIds?: readonly string[];
@@ -376,7 +380,12 @@ export interface TaskProjection {
   readonly readPresetSnapshot: (digest: string) => PresetSnapshotProjectionRead;
   readonly readProgress: (taskId: string) => TaskProgressProjectionRead;
   /** The single dispatch lifecycle read port (dec_AEB05951C69E47FCE53E53C341 CH2). */
-  readonly readDispatchLifecycle: (query: DispatchLifecycleQuery) => DispatchLifecycleRead;
+  readonly readDispatchLifecycle: (
+    query:
+      | DispatchLifecycleQuery
+      // Internal projection joins can address an entire result set. The wire query remains bounded.
+      | { readonly by: "dispatch-batch"; readonly dispatchIds: readonly string[] },
+  ) => DispatchLifecycleRead;
   readonly admitFact: (event: FactEventV1) => void;
   readonly readFact: (factId: string) => FactProjectionRead;
   readonly searchFacts: (filters: FactSearchFilters) => FactProjectionSearchRead;

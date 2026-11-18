@@ -61,7 +61,20 @@ test("full decision lists reuse Git calculation across unrelated cuts and invali
         throw new Error("duplicate hydration");
       },
       readCut: () => ({ sourceRevision: revision }),
-      readRuntimeDispatchesByDecision: () => [],
+      readRuntimeDispatchesByDecision: () => assert.fail("full lists must not query dispatches per decision"),
+      readRuntimeDispatchesByDecisions: (() => {
+        let lastList = 0;
+        return (ids: readonly string[]) => {
+          assert.ok(lists > lastList, "full lists may query dispatches once per list");
+          assert.deepEqual(
+            ids,
+            rows.map(({ decisionId }) => decisionId),
+          );
+          lastList = lists;
+          return [];
+        };
+      })(),
+      readDispatchLifecycle: () => assert.fail("lists with no review dispatches must not query lifecycles"),
     },
   } as unknown as RepoCellApiContext);
   const read = () => cell.read("repo.decisions.list", { projection: "full" });

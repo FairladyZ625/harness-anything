@@ -31,7 +31,7 @@ import { exitCodeFor } from "../ontology-gate-lib.mjs";
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 let ordinal = 0;
 function partitionedTest(name, run) {
-  if (testOrdinalInPartition(ordinal++, process.env.HARNESS_TEST_PARTITION, [1, 1, 2, 3, 1, 4, 1, 2, 4]))
+  if (testOrdinalInPartition(ordinal++, process.env.HARNESS_TEST_PARTITION, [1, 1, 2, 3, 1, 4, 1, 2, 4, 2]))
     test(name, run);
 }
 
@@ -359,3 +359,25 @@ partitionedTest("daemon leaf action changes stay below 60 descriptors and detect
   }
   assert.equal(count(), descriptors);
 });
+
+// dec_B9B5BF3C86195DF4186D01668D/CH3 & dec_88CAA23DE4907261D7ECB107ED/CH1: every shard must share
+// technical-port/support roots when computing changedAuthorizationScope so tooling helper edits
+// never cause one shard to run scoped (0 descriptors) while sibling shards fall back to full.
+partitionedTest(
+  "shardedAudit keeps consistent incremental scope across shards when changed files reach only technical-port tooling sources",
+  async () => {
+    const result = await shardedAudit(
+      repoRoot,
+      ["tools/affected-tests.mjs", "tools/affected-tests.test.mjs", "tools/test-tier-manifest.mjs"],
+      { shardCount: 4, concurrency: 2 },
+    );
+    assert.deepEqual(result.findings, []);
+    assert.ok(
+      result.rows.length > 0 && result.rows.length < 100,
+      `expected scoped descriptor rows (1..99), got ${result.rows.length}`,
+    );
+    assert.ok(result.rows.every((row) => row.ok));
+    assert.ok(result.sourceRows.length >= 1, "technical-port tooling importers are verified in incremental scope");
+    assert.ok(result.sourceRows.every((row) => row.ok));
+  },
+);

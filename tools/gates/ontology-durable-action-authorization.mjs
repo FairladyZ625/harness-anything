@@ -425,16 +425,14 @@ function auditAuthorization(rootDir, inputs, options) {
           }))
           .filter((action) => action.ontology.sources.length)
       : onlyActions,
-    includeClientSourcesForScope = (productionFilesInScope(options.changedFiles)?.length ?? 0) > 0,
+    includeAllSourcesForScope = (productionFilesInScope(options.changedFiles)?.length ?? 0) > 0,
     declaredSources = [
       ...new Set([
         ...sourceActions.flatMap((action) => action.ontology.sources),
         ...actions.flatMap((action) =>
           action.ontology.sources.filter(
             (s) =>
-              s.role !== "support" &&
-              s.role !== "technical-port" &&
-              (includeClientSourcesForScope || s.role !== "client"),
+              includeAllSourcesForScope || (s.role !== "support" && s.role !== "technical-port" && s.role !== "client"),
           ),
         ),
       ]),

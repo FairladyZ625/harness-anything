@@ -1659,7 +1659,7 @@ test(
       const seatLaunch = f.launches.find((launch) => launch.prompt.includes(seatDispatch.payload.dispatchId!));
       assert.ok(seatLaunch, `no provider launch carried the seat dispatch ${seatDispatch.payload.dispatchId!}`);
       assert.match(seatLaunch.prompt, /professional reviewer data-migration/u);
-      assert.ok(seatLaunch.prompt.includes(`- ${surface}`), seatLaunch.prompt);
+      assert.ok(seatLaunch.prompt.includes(JSON.stringify(surface)), seatLaunch.prompt);
       assert.match(seatLaunch.prompt, /grants no separate approval/u);
       assert.equal(f.launches.length, beforeSeat + 1, "replacing the seat still costs exactly one reviewer");
     } finally {

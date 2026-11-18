@@ -23,6 +23,79 @@ function gitIn(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
 }
 
+for (const sensitiveCount of [0, 12]) {
+  test(`submit reports a renamed fixture with ${sensitiveCount} sensitive paths in the same cut`, async () => {
+    const f = await fixture(false, true, false, false, false, {
+      autoSubmit: false,
+      create: { presetId: "standard-task", riskTier: "low" },
+    });
+    try {
+      await f.install();
+      await f.cell().settlePendingMaterialization("fixture rename delivery");
+      const worktree = path.join(f.root, ".worktrees", taskId),
+        tools = path.join(f.root, "tools"),
+        oldPath = "packages/app/test/fixtures/expected.json",
+        newPath = "packages/app/data/expected.json";
+      mkdirSync(tools, { recursive: true });
+      writeFileSync(path.join(tools, "gate-manifest.json"), JSON.stringify({ gates: [] }));
+      writeFileSync(
+        path.join(tools, "task-risk-manifest.json"),
+        JSON.stringify({
+          schema: "task-risk-manifest/v1",
+          scripts: [
+            {
+              id: "repository-risk-floor",
+              command: [process.execPath, path.join(import.meta.dirname, "../../../tools/task-risk-floor.mjs")],
+            },
+          ],
+        }),
+      );
+      mkdirSync(path.dirname(path.join(worktree, oldPath)), { recursive: true });
+      writeFileSync(path.join(worktree, oldPath), '{"expected":true}\n');
+      gitIn(worktree, "add", "--", oldPath);
+      gitIn(worktree, "commit", "-qm", "test: seed existing fixture");
+      const baseSha = gitIn(worktree, "rev-parse", "HEAD");
+      gitIn(worktree, "update-ref", "refs/remotes/origin/main", baseSha);
+      mkdirSync(path.dirname(path.join(worktree, newPath)), { recursive: true });
+      gitIn(worktree, "mv", "--", oldPath, newPath);
+      for (let index = 0; index < sensitiveCount; index++) {
+        const sensitive = path.join(worktree, "packages/app/src/auth", `policy-${String(index).padStart(2, "0")}.ts`);
+        mkdirSync(path.dirname(sensitive), { recursive: true });
+        writeFileSync(sensitive, "export {};\n");
+        gitIn(worktree, "add", "--", sensitive);
+      }
+      gitIn(worktree, "commit", "-qm", "test: move existing fixture");
+      assert.match(gitIn(worktree, "diff", "--name-status", "--find-renames", baseSha, "HEAD"), /^R100\t/mu);
+
+      const submission = await f.submit();
+      assert.equal(submission.outcome, "applied", JSON.stringify(submission));
+      const event = f.events().find((candidate) => candidate.type === "execution_submitted");
+      assert.ok(event?.type === "execution_submitted");
+      const assessment = event.payload.execution.submission?.riskTierAssessment,
+        expectedTier = sensitiveCount > 0 ? "high" : "medium";
+      assert.ok(assessment);
+      assert.equal(assessment.deliveryBaseSha, baseSha);
+      assert.equal(assessment.effectiveTier, expectedTier, JSON.stringify(assessment));
+      assert.ok(assessment.reasons.some((reason) => reason.includes(`${oldPath} -> ${newPath}`)));
+      assert.equal(f.launches.length, 1);
+      const prompt = f.launches[0]!.prompt,
+        data = /<risk-assessment-data>\n([^\n]+)\n<\/risk-assessment-data>/u.exec(prompt)?.[1];
+      assert.ok(data, prompt);
+      const { summaries, reasons, omittedReasons } = JSON.parse(data);
+      assert.deepEqual(summaries, [
+        `repository-risk-floor: existing test or fixture changes (total 1): renamed (+0/-0): ${oldPath} -> ${newPath}`,
+      ]);
+      if (sensitiveCount > 0) {
+        assert.equal(reasons.length, 10);
+        assert.match(reasons.at(-1), /policy-09\.ts/u);
+        assert.equal(omittedReasons, 2);
+      }
+    } finally {
+      await f.close();
+    }
+  });
+}
+
 /** Publish a WIP cut, then replace it locally with a different final commit the branch lacks. */
 function publishSupersededWipCut(f: ChildFixture, worktree: string): { readonly wip: string; readonly frozen: string } {
   const baseline = gitIn(worktree, "rev-parse", "HEAD"),

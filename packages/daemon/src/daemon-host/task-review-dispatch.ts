@@ -37,6 +37,7 @@ import {
   reviewFindingCategoryPrompt,
   reviewFindingReverifyPrompt,
   reviewFindingScopePrompt,
+  riskAssessmentGuidancePrompt,
   scopedReReviewPrompt,
 } from "./review-prompt-guidance.ts";
 import { selectReviewSeat, type ReviewSeat, type ReviewSeatSelection } from "./review-panel.ts";
@@ -616,7 +617,8 @@ export function reviewDispatchPrompt(input: {
       : path.join(input.artifactPrefix ?? "harness", report),
     packetFile = input.artifactRoot
       ? path.join(input.artifactRoot, packet)
-      : path.join(input.artifactPrefix ?? "harness", packet);
+      : path.join(input.artifactPrefix ?? "harness", packet),
+    riskReasonsPrompt = riskAssessmentGuidancePrompt(execution.submission?.riskTierAssessment);
   return [
     `Independently review task ${taskId}, execution ${execution.executionId}, ` + `iteration ${execution.iteration}.`,
     ...(input.ownerNote
@@ -676,6 +678,7 @@ export function reviewDispatchPrompt(input: {
       : execution.submission?.riskTierAssessment?.effectiveTier === "high"
         ? ["This is a high-risk review; inspect the full delivery and apply the complete reviewer declaration."]
         : []),
+    ...(riskReasonsPrompt ? [riskReasonsPrompt] : []),
     ...(inapplicable.length ? [`Declared gates not applicable to this delivery: ${inapplicable.join(", ")}.`] : []),
     "Read the task plan, closeout, and submitted delivery yourself. " +
       `${input.reverify?.kind === "re-review" ? scopedReReviewPrompt(input.reverify) : reviewFindingScopePrompt("first")} ` +

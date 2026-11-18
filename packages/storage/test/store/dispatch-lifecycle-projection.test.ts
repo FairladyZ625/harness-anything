@@ -240,13 +240,19 @@ test("active pages are bounded and point reads cap their key count", async () =>
     const second = projection.readDispatchLifecycle({ by: "active", limit: 1, cursor: first.nextCursor! });
     assert.ok(second.status === "ready");
     assert.deepEqual([second.rows.map((row) => row.attemptGroupId), second.nextCursor], [["dispatch-b"], null]);
+    const dispatchIds = Array.from({ length: 101 }, (_, index) => `dispatch-${index}`);
+    dispatchIds.push("dispatch-a", "dispatch-c");
     assert.throws(
       () =>
         projection.readDispatchLifecycle({
           by: "dispatch",
-          dispatchIds: Array.from({ length: 101 }, (_, index) => `dispatch-${index}`),
+          dispatchIds,
         }),
       /at most 100 ids/u,
+    );
+    assert.deepEqual(
+      projection.readDispatchLifecycle({ by: "dispatch-batch", dispatchIds }),
+      projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: ["dispatch-a", "dispatch-c"] }),
     );
     projection.close();
     await store.drain();
