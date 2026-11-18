@@ -24,7 +24,7 @@ import {
   type PreloadApiMethod,
 } from "./allowlist.ts";
 import { agentRuntimePreloadApi } from "./agent-runtime-preload.ts";
-import { accessAdminPreloadApi } from "./access-admin-preload.ts";
+import { accessAdminPreloadApi, fleetAdminFromAccess } from "./access-admin-preload.ts";
 import { centerSettingsPreloadApi } from "./center-settings-preload.ts";
 import { edgeJoinEntryPreloadApi } from "./edge-join-entry-preload.ts";
 import { daemonGuiActionMethods, daemonGuiStreamFacets } from "@harness-anything/daemon/protocol";
@@ -106,6 +106,7 @@ const exposedApi = Object.fromEntries(
       },
     ]),
 ) as Record<PreloadApiMethod, (payload?: unknown) => Promise<unknown>>;
+const accessApi = accessAdminPreloadApi(invoke);
 const exposedHarnessApi = {
   request: (method: string, payload: unknown = null) => {
     assertPreloadPayload(method, payload);
@@ -201,7 +202,8 @@ const exposedHarnessApi = {
     },
   } satisfies AppCommandApi,
   // 账号与访问控制页:策略组、授权与回执,见 preload/access-admin-preload.ts。
-  access: accessAdminPreloadApi(invoke),
+  access: accessApi,
+  fleetAdmin: fleetAdminFromAccess(accessApi),
   centerSettings: centerSettingsPreloadApi(invoke),
   // 边缘节点加入向导(task_0499bcc75d0f):join/poll/progress 与协议激活推送,主进程收窄见
   // main/edge-join-entry-ipc.ts。

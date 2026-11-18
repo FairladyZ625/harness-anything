@@ -196,3 +196,96 @@ test("SQLite member reads skip duplicate and orphan dispatch history", async (t)
     }
   });
 });
+
+test("SQLite dispatch scope retains the matching rows beyond the 12 and 500 unscoped windows", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const fixture = projectionFixture(rootDir);
+    applyDecision(fixture, proposal(1, "dec_MEMBER_SCOPE"));
+    const { projection } = fixture;
+    const db = new DatabaseSync(projection.path);
+    try {
+      const insert = db.prepare("INSERT INTO event_index(op_id,workspace_revision,event_json) VALUES(?,?,?)");
+      const write = (revision: number, type: string, personId: string, source: unknown, payload: object) => {
+        const id = `scope-${revision}`;
+        insert.run(
+          id,
+          revision,
+          JSON.stringify({
+            schema: "agent-runtime-event/v1",
+            type,
+            workspaceRevision: revision,
+            eventId: id,
+            opId: id,
+            actor: { principal: { personId }, executor: null },
+            source,
+            occurredAt: "2026-11-17T00:00:00Z",
+            payload,
+          }),
+        );
+      };
+      const ids = ["alice-old", "alice-older", "bob"];
+      db.exec("BEGIN");
+      for (const id of ids) {
+        db.prepare("INSERT INTO runtime_session(runtime_session_id,workspace_revision,value_json) VALUES(?,1,?)").run(
+          id,
+          JSON.stringify({ runtimeSessionId: id, taskBindings: [] }),
+        );
+      }
+      write(
+        2,
+        "runtime_session_started",
+        "person-alice",
+        { kind: "node", nodeId: "edge-a" },
+        { runtimeSessionId: "source-session" },
+      );
+      for (let i = 0; i < 507; i++) {
+        const requestedByAlice = i < 2 || i === 506;
+        write(
+          i + 3,
+          "runtime_dispatch_requested",
+          requestedByAlice ? "person-alice" : "person-bob",
+          i < 2 ? "runtime-session/source-session" : "local",
+          {
+            dispatchId: `dispatch-${String(i).padStart(3, "0")}`,
+            agentId: "shared-agent",
+            squadId: "shared-squad",
+            runtimeSessionId: ids[i < 2 ? i : 2],
+            startedAt: i < 2 ? "2026-11-17T00:00:00Z" : "2026-11-18T00:00:00Z",
+          },
+        );
+      }
+      db.exec("COMMIT");
+      for (const [member, limit] of [
+        [{ agentId: "shared-agent" }, 12],
+        [{ squadId: "shared-squad" }, 500],
+      ] as const) {
+        const result = projection.readRuntimeDispatchesByMember({
+          ...member,
+          personId: "person-alice",
+          nodeId: "edge-a",
+          limit,
+        });
+        assert.deepEqual(
+          result.rows.map(({ payload }) => payload.dispatchId),
+          ["dispatch-001", "dispatch-000"],
+        );
+        assert.deepEqual(
+          result.sessions.map(({ runtimeSessionId }) => runtimeSessionId),
+          ["alice-old", "alice-older"],
+        );
+        assert.equal(result.truncated, false);
+        const first = projection.readRuntimeDispatchesByMember({
+          ...member,
+          personId: "person-alice",
+          nodeId: "edge-a",
+          limit: 1,
+        });
+        assert.equal(first.truncated, true);
+        assert.equal(first.rows.length, 1);
+        assert.equal(first.sessions.length, 2);
+      }
+    } finally {
+      db.close();
+    }
+  });
+});

@@ -64,7 +64,7 @@ export function useOverviewRuntime(repoId: string | null) {
  */
 
 /** ① 泳道集合:sessionGroups(groupBy=agent,6h 窗)。 */
-export function useOverviewAgentGroups(repoId: string | null) {
+export function useOverviewAgentGroups(repoId: string | null, personId: string | null = null) {
   // since 进 key:窗口锚点在挂载期固定,不随渲染漂移(每帧新 key 会变成持续重取)。
   const since = useMemo(
     () => new Date(Date.now() - AGENT_LANES_WINDOW_MS).toISOString(),
@@ -72,12 +72,19 @@ export function useOverviewAgentGroups(repoId: string | null) {
     [repoId],
   );
   const q = useQuery({
-    queryKey: [...runtimeQueryKeys.sessionGroupsAll(repoId ?? "unselected"), "agent", since, "overview-lanes"],
+    queryKey: [
+      ...runtimeQueryKeys.sessionGroupsAll(repoId ?? "unselected"),
+      "agent",
+      since,
+      personId ?? "",
+      "overview-lanes",
+    ],
     queryFn: () =>
       agentRuntimeClient.sessionGroups(repoId!, {
         groupBy: "agent",
         since,
         limit: guiInteractionPolicy.defaultValue.pageSizes.agentGroups,
+        ...(personId === null ? {} : { personId }),
       }),
     enabled: repoId !== null,
     staleTime: 4_000,
@@ -119,22 +126,29 @@ export function activeAgentIdsOf(
 export function useOverviewAgentMemberPages(
   repoId: string,
   agents: readonly { readonly agentId: string }[],
+  personId: string | null,
 ): ReadonlyMap<
   string,
-  { readonly rows: readonly TaskDispatchProjectionRow[]; readonly titleOf: ReadonlyMap<string, string> }
+  {
+    readonly rows: readonly TaskDispatchProjectionRow[];
+    readonly titleOf: ReadonlyMap<string, string>;
+    readonly truncated: boolean;
+  }
 > {
   const queries = useQueries({
     queries: agents.map((agent) => ({
-      queryKey: [...runtimeQueryKeys.dispatchesAll(repoId), "agent", agent.agentId, AGENT_LANES_MEMBER_PAGE],
+      queryKey: [...runtimeQueryKeys.dispatchesAll(repoId), "agent", agent.agentId, personId, AGENT_LANES_MEMBER_PAGE],
       queryFn: async () => {
         const page = (await harnessClient.getTaskDispatches({
           repoId,
           agentId: agent.agentId,
+          ...(personId === null ? {} : { personId }),
           limit: AGENT_LANES_MEMBER_PAGE,
         })) as TaskDispatchMemberRead;
         return {
           rows: page.dispatches as readonly TaskDispatchProjectionRow[],
           titleOf: new Map(page.taskLabels.map((label) => [label.taskId, label.title] as const)),
+          truncated: page.truncated,
         };
       },
       staleTime: 4_000,
@@ -143,7 +157,7 @@ export function useOverviewAgentMemberPages(
   return useMemo(() => {
     const pages = new Map<
       string,
-      { rows: readonly TaskDispatchProjectionRow[]; titleOf: ReadonlyMap<string, string> }
+      { rows: readonly TaskDispatchProjectionRow[]; titleOf: ReadonlyMap<string, string>; truncated: boolean }
     >();
     agents.forEach((agent, index) => {
       const data = queries[index]?.data;

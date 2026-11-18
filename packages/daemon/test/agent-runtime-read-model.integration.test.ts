@@ -774,6 +774,7 @@ test("member totals use the same task-group normalization as the pre-paging sess
             startedAt,
             agentId,
             agentName: agentId,
+            ...(runtimeSessionId === "session-multi" ? { squadId: "squad-multi" } : {}),
             ...(decisionId === undefined
               ? {}
               : { reviewTarget: { kind: "decision" as const, decisionId, digest: `sha256:${"a".repeat(64)}` } }),
@@ -813,6 +814,12 @@ test("member totals use the same task-group normalization as the pre-paging sess
           ({
             ...value,
             occurredAt: `2026-08-13T02:${String(index).padStart(2, "0")}:00.000Z`,
+            ...(value.type === "runtime_dispatch_requested" && value.payload.runtimeSessionId === "session-multi"
+              ? {
+                  actor: { principal: { personId: "person-alice" }, executor: null },
+                  source: { kind: "node", nodeId: "edge-a" },
+                }
+              : {}),
           }) as AgentRuntimeEventV1,
       );
     for (const value of events) {
@@ -840,6 +847,30 @@ test("member totals use the same task-group normalization as the pre-paging sess
       groups: 1,
       sessions: 1,
     });
+    for (const selector of [{ agentId: "agent-multi" }, { squadId: "squad-multi" }]) {
+      const page = readTaskDispatches({
+        projection,
+        ...selector,
+        personId: "person-alice",
+        nodeId: "edge-a",
+        limit: 1,
+      });
+      assert.ok("groups" in page);
+      assert.deepEqual(
+        page.dispatches.map(({ dispatchId, taskId }) => [dispatchId, taskId]),
+        [["dispatch-multi", ""]],
+      );
+      assert.deepEqual(page.totals, { groups: 2, sessions: 1 });
+      assert.equal(page.truncated, false);
+      assert.deepEqual(
+        page.groups.map(({ key, runtimeSessionIds, roundCount }) => [key, runtimeSessionIds, roundCount]),
+        [
+          ["task-a", ["session-multi"], 1],
+          ["task-b", ["session-multi"], 1],
+        ],
+      );
+      assert.deepEqual(validateDaemonTaskDispatches(page), []);
+    }
   } finally {
     projection?.close();
     rmSync(rootDir, { recursive: true, force: true });

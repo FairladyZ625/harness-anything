@@ -73,6 +73,11 @@ interface Session {
   readonly realmAdmin: { readonly url: string; readonly realm: string; readonly accessToken: string };
 }
 
+interface MutationAdmission {
+  readonly session: () => Promise<Session>;
+  readonly retainReply?: () => void;
+}
+
 const resourceServerClientId = "harness-center",
   receiptListLimit = daemonProtocolFleetPolicy.defaultValue.access.receiptListLimit;
 
@@ -168,7 +173,56 @@ export class AccessAdminService {
     return this.#edgeJoinAdmin.close();
   }
 
+  async readRepositoryMembers(repoId: string, actor: { readonly personId: string; readonly accessToken: string }) {
+    const { provider, accessToken } = await this.#oidc.center();
+    const [repository, fleet] = await Promise.all([
+      provider.authorize({
+        userAccessToken: actor.accessToken,
+        action: "access-manage",
+        resource: { kind: "repository", repoId },
+      }),
+      provider.authorize({ userAccessToken: actor.accessToken, action: "access-manage", resource: { kind: "fleet" } }),
+    ]);
+    const isRepoAdmin = repository.outcome === "allowed";
+    return {
+      ok: true,
+      personId: actor.personId,
+      isRepoAdmin,
+      canManageFleetNodes: fleet.outcome === "allowed",
+      members: isRepoAdmin ? await repositoryMembers(provider, accessToken, repoId) : [],
+    };
+  }
+
+  unregisterFleetNode(
+    request: AccessAdminRequest,
+    actor: { readonly personId: string; readonly accessToken: string },
+    assertSourceOpen: () => void,
+    retainReply?: () => void,
+  ) {
+    return this.#unregisterNode(request, actor.personId, {
+      retainReply,
+      session: async () => {
+        assertSourceOpen();
+        const session = await this.#session(),
+          decision = await session.adapter.authorize({
+            userAccessToken: actor.accessToken,
+            action: "access-manage",
+            resource: { kind: "fleet" },
+          });
+        if (decision.outcome !== "allowed")
+          throw coded("authorization_denied", "Access management requires an access-manage grant on @fleet.");
+        return session;
+      },
+    });
+  }
+
   async run(request: AccessAdminRequest, requester?: string): Promise<Record<string, unknown>> {
+    if (request.operation === "repository-members") {
+      if (requester !== undefined)
+        throw coded("authorization_denied", "The repository member directory requires a signed-in person.");
+      const repoId = text(request.repoId, "repoId");
+      return this.readRepositoryMembers(repoId, await this.#oidc.requireSession(request.rootDir));
+    }
     if (request.operation === "permission-request-decide" && requester !== undefined)
       throw coded("human_confirmation_required", "An execution credential cannot decide permission requests.");
     if (request.operation === "permission-request-create" && requester !== undefined)
@@ -229,9 +283,7 @@ export class AccessAdminService {
       case "node-register":
         return this.#mutate(request, actor, (session) => this.#planNodeRegistration(session, request));
       case "node-unregister":
-        return this.#mutate(request, actor, (session) =>
-          planNodeRetirement(session, request, this.#ports.nodeRetirement!),
-        );
+        return this.#unregisterNode(request, actor);
       case "edge-join-create":
         return this.#oidc.serialize(() => this.#edgeJoinAdmin.create(request, actor, actorSession.accessToken));
       case "edge-join-status":
@@ -603,10 +655,20 @@ export class AccessAdminService {
     return [...byOperation.values()].reverse();
   }
 
+  #unregisterNode(request: AccessAdminRequest, actor: string, admission?: MutationAdmission) {
+    return this.#mutate(
+      { ...request, operation: "node-unregister" },
+      actor,
+      (session) => planNodeRetirement(session, request, this.#ports.nodeRetirement!),
+      admission,
+    );
+  }
+
   #mutate(
     request: AccessAdminRequest,
     actor: string,
     plan: (session: Session) => Promise<Plan | Conflict>,
+    admission?: MutationAdmission,
   ): Promise<Record<string, unknown>> {
     // An operationId is the journal key for retries and reconciliation, not an input the caller must
     // invent: generate one when omitted and return it in the receipt like an explicitly supplied id.
@@ -614,11 +676,12 @@ export class AccessAdminService {
       operationId = suppliedOperationId ? suppliedOperationId : randomUUID(),
       operation = request.operation!;
     return this.#oidc.serialize(async () => {
+      const admittedSession = await admission?.session();
       const recorded = this.#records(operationId);
       if (recorded.some((record) => record.phase === "settled"))
         throw coded("access_operation_settled", `Operation ${operationId} already settled; use a new operationId.`);
       if (recorded.length > 0) throw unsettled(operationId);
-      const session = await this.#session(),
+      const session = admittedSession ?? (await this.#session()),
         planned = await plan(session),
         base = { schema: "harness-access-receipt/v1", operationId, operation, actor, authority: session.authority };
       if (!("conflict" in planned) && planned.preview && request.confirm !== true)
@@ -661,6 +724,7 @@ ${JSON.stringify(planned.preview, null, 2)}`,
         }
         if (removed) await this.#ports.nodeRetirement!.drain(removed);
         const issued = await planned.apply();
+        if (removed) admission?.retainReply?.();
         return {
           ...this.#settle(
             { ...base, expect: planned.expect, ...(planned.preview ? { retirement: planned.preview } : {}) },
@@ -1053,6 +1117,17 @@ ${JSON.stringify(planned.preview, null, 2)}`,
       .map((line) => JSON.parse(line) as Readonly<Record<string, unknown>>)
       .filter((record) => record.operationId === operationId);
   }
+}
+
+async function repositoryMembers(adapter: AuthorizationProvider, token: string, repoId: string) {
+  const [grants, people] = await Promise.all([adapter.readGrants(token), adapter.readPeople(token)]);
+  const members = new Set<string>();
+  for (const grant of grants) {
+    const resource = decodeAuthorizationResource(grant.resource);
+    if (resource.kind === "fleet" || resource.repoId !== repoId) continue;
+    for (const userId of grant.userIds) members.add(userId);
+  }
+  return people.filter(({ userId }) => members.has(userId)).map(({ personId, username }) => ({ personId, username }));
 }
 
 function groupVersion(group: AuthorizationPolicyGroup): string {

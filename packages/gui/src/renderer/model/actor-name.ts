@@ -1,4 +1,4 @@
-import { t, type MessageKey } from "../i18n/index.tsx";
+import { t, type MessageKey } from "../i18n/core.ts";
 
 /**
  * 身份串 → 可读名字(视觉基线 v2:机器编号不当主文字)。

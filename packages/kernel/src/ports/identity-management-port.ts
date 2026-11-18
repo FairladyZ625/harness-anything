@@ -1,5 +1,6 @@
 export interface AccessAdminRequest {
   readonly operation?: string;
+  readonly repoId?: string;
   readonly rootDir?: string;
   readonly operationId?: string;
   readonly confirm?: boolean;
@@ -35,7 +36,6 @@ export interface AccessAdminRequest {
 }
 
 export interface ManagedRbacRequest extends AccessAdminRequest {
-  readonly repoId?: string;
   readonly rootDir?: string;
   /** edge-join: where the remote-edge mirror lives; defaults to ~/harness-edge/<repoId>. */
   readonly workspaceRoot?: string;

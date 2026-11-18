@@ -1237,6 +1237,7 @@
   "views.lineage.collapse": "收起血缘",
   "views.lineage.reading": "正在读取血缘与成本…",
   "views.lineage.readError": "血缘读取失败：{message}",
+  "views.overviewView.memberDispatchesTruncated": "还有更早的派工",
   "views.lineage.truncated": "更早的派工轮次超出单页上限，未计入汇总",
   "views.lineage.sectionTitle": "血缘与成本",
   "views.lineage.sectionNote": "任务、派工轮次与委托链的实时状态、耗时与 Token 成本；父级自动汇总子树",
@@ -2246,5 +2247,16 @@
   "views.settingsView.guiTerminalBrowserDescription": "本机终端中 HTTP(S) 链接的打开目标。",
   "views.settingsView.guiTerminalBrowserEffect": "终端链接立即使用选定的浏览器，只影响本机。",
   "views.settingsView.enum.guiTerminalBrowser.embedded": "内嵌浏览器",
-  "views.settingsView.enum.guiTerminalBrowser.system": "系统浏览器"
+  "views.settingsView.enum.guiTerminalBrowser.system": "系统浏览器",
+  "views.board.groupByPerson": "成员",
+  "views.board.groupByNode": "节点",
+  "views.board.groupByPersonTitle": "按成员分组",
+  "views.board.groupByNodeTitle": "按节点分组",
+  "views.board.unassignedPerson": "未归属成员",
+  "views.board.unassignedNode": "未归属节点",
+  "views.work.filterPerson": "按成员筛选工作",
+  "views.work.filterNode": "按节点筛选工作",
+  "views.work.allMembers": "全部成员",
+  "views.work.allNodes": "全部节点",
+  "views.work.meOption": "我 ({name})"
 }

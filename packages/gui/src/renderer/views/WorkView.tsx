@@ -10,6 +10,9 @@ import { t, type MessageKey } from "../i18n/index.tsx";
 import {
   attentionByWork,
   collectWork,
+  scopeWorkAttention,
+  scopeWorkActivity,
+  scopedWorkLineage,
   workHealth,
   workTier,
   WORK_TIERS,
@@ -31,6 +34,17 @@ import { splitTitleFocus, TitleText } from "../components/primitives/TitleText.t
 import { entryTitle, metaLine, waitingReason } from "./workspace/entry-lines.tsx";
 import { formatListTime } from "../model/time.ts";
 import { formatTime } from "../model/time.ts";
+import {
+  collectMemberOptions,
+  collectNodeOptions,
+  formatNodeDisplay,
+  personShortName,
+  taskExecutionMatches,
+  taskMatchesNode,
+  taskMatchesPerson,
+  type MemberOption,
+  type NodeOption,
+} from "../model/attribution.ts";
 
 /** 注意力条目 kind → 状态色档:等你/阻塞红,裁决/评审/停滞琥珀,待跟进琥珀,可归档灰。 */
 const ATTENTION_TONE: Record<string, StatusTone> = {
@@ -55,6 +69,8 @@ interface WorkEntry {
   readonly health: WorkHealth;
   /** 议程读面里本工作的阻塞/停滞条目;第二行报卡在哪个任务上。 */
   readonly stuck: readonly AgendaAttentionItem[];
+  readonly rootMatches: boolean;
+  readonly lineageTasks: readonly TaskRow[];
 }
 
 const DAY_MS = 86_400_000;
@@ -87,6 +103,12 @@ export function WorkView({
   daemonState,
   onRefreshLedger,
   agenda,
+  scopePersonId = null,
+  currentPersonId = null,
+  knownMembers,
+  knownNodes,
+  nodeOwners,
+  peopleById,
 }: {
   readonly tasks: readonly TaskRow[];
   readonly repoId: string;
@@ -101,19 +123,91 @@ export function WorkView({
   readonly onRefreshLedger: () => void;
   /** `repo.agenda.read` 同一条投影(App 已挂载);注意力条目按 workTaskId 归到各工作。 */
   readonly agenda: AgendaSuccess | undefined;
+  readonly scopePersonId?: string | null;
+  readonly currentPersonId?: string | null;
+  readonly knownMembers?: readonly MemberOption[];
+  readonly knownNodes?: readonly NodeOption[];
+  readonly nodeOwners?: ReadonlyMap<string, string>;
+  readonly peopleById?: ReadonlyMap<string, string>;
 }) {
   const [startWorkOpen, setStartWorkOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<WorkFilter>("all");
   const [sort, setSort] = useState<WorkSort>("attn");
+  const [personFilter, setPersonFilter] = useState<string>("all");
+  const [nodeFilter, setNodeFilter] = useState<string>("all");
   const collections = useMemo(() => collectWork(tasks), [tasks]);
   const attention = useMemo(() => attentionByWork(agenda?.attentionItems ?? []), [agenda]);
   const now = Date.now();
-  const entries: WorkEntry[] = collections.groups.map((group) => ({
-    group,
-    health: workHealth(group, attention.get(group.task.taskId), now),
-    stuck: attention.get(group.task.taskId)?.stuck ?? [],
-  }));
+  const effectivePerson = scopePersonId ?? (personFilter === "all" ? null : personFilter);
+  const memberOptions = useMemo(() => {
+    const list = collectMemberOptions({ tasks, knownMembers, currentPersonId, peopleById });
+    if (personFilter !== "all" && !list.some((item) => item.personId === personFilter)) {
+      return [...list, { personId: personFilter, label: personShortName(personFilter, peopleById) }];
+    }
+    return list;
+  }, [tasks, knownMembers, currentPersonId, peopleById, personFilter]);
+  const nodeOptions = useMemo(() => {
+    const centerLabel = t("collaboration.centerNode");
+    const list = collectNodeOptions({ tasks, knownNodes, nodeOwners, peopleById, centerLabel });
+    if (nodeFilter !== "all" && !list.some((item) => item.nodeId === nodeFilter)) {
+      return [
+        ...list,
+        {
+          nodeId: nodeFilter,
+          ownerPersonId: nodeOwners?.get(nodeFilter) ?? null,
+          label: formatNodeDisplay(nodeFilter, nodeOwners?.get(nodeFilter), { centerLabel, peopleById }),
+        },
+      ];
+    }
+    return list;
+  }, [tasks, knownNodes, nodeOwners, peopleById, nodeFilter]);
+  const effectiveNode = nodeFilter === "all" ? null : nodeFilter;
+  const allParents = useMemo(
+    () => new Set(tasks.flatMap((task) => (task.parentTaskId ? [task.parentTaskId] : []))),
+    [tasks],
+  );
+  const taskById = useMemo(() => new Map(tasks.map((task) => [task.taskId, task] as const)), [tasks]);
+  const entries: WorkEntry[] = useMemo(() => {
+    const hasFilter = effectivePerson !== null || effectiveNode !== null;
+    const matchesAttribution = (task: TaskRow) =>
+      (effectivePerson === null || taskMatchesPerson(task, effectivePerson)) &&
+      (effectiveNode === null || taskMatchesNode(task, effectiveNode));
+    return collections.groups.flatMap<WorkEntry>((rawGroup) => {
+      if (!hasFilter) {
+        return [
+          {
+            group: rawGroup,
+            health: workHealth(rawGroup, attention.get(rawGroup.task.taskId), now),
+            stuck: attention.get(rawGroup.task.taskId)?.stuck ?? [],
+            rootMatches: true,
+            lineageTasks: [rawGroup.task, ...rawGroup.members],
+          },
+        ];
+      }
+      const scoped = scopeWorkActivity(rawGroup.task, rawGroup.members, matchesAttribution, allParents, {
+        personId: effectivePerson,
+        nodeId: effectiveNode,
+      });
+      if (!scoped) return [];
+      const { rootMatches, ...activity } = scoped;
+      const group = { task: rawGroup.task, ...activity };
+      const matchingTaskIds = new Set<string>([
+        ...(rootMatches ? [group.task.taskId] : []),
+        ...group.members.map((member) => member.taskId),
+      ]);
+      const scopedAttention = scopeWorkAttention(attention.get(rawGroup.task.taskId), matchingTaskIds, rootMatches);
+      return [
+        {
+          group,
+          health: workHealth(group, scopedAttention, now, { rootIncluded: rootMatches }),
+          stuck: scopedAttention?.stuck ?? [],
+          rootMatches,
+          lineageTasks: scopedWorkLineage(group, taskById),
+        },
+      ];
+    });
+  }, [allParents, attention, collections.groups, effectiveNode, effectivePerson, now, taskById]);
   const query = search.trim().toLocaleLowerCase();
   const matchesText = (task: TaskRow) => `${task.title} ${task.taskId}`.toLocaleLowerCase().includes(query);
   const searchHits = (entry: WorkEntry) =>
@@ -171,7 +265,7 @@ export function WorkView({
     ] as const
   ).map(([key, label]) => ({ key, label, count: entries.filter((entry) => matchesFilter(entry, key)).length }));
   const mineWorks = entries.filter(({ health }) => health.mine.length > 0).length;
-  const titleOf = (taskId: string) => tasks.find((task) => task.taskId === taskId)?.title;
+  const titleOf = (taskId: string) => taskById.get(taskId)?.title;
   return (
     <div data-testid="work-view" className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 md:p-5">
       <header className="flex flex-wrap items-baseline gap-3">
@@ -221,6 +315,38 @@ export function WorkView({
           <option value="activity">{t("views.work.sort.activity")}</option>
           <option value="progress">{t("views.work.sort.progress")}</option>
         </select>
+        {scopePersonId === null && (
+          <select
+            data-testid="work-filter-person"
+            aria-label={t("views.work.filterPerson")}
+            value={personFilter}
+            onChange={(event) => setPersonFilter(event.target.value)}
+            className="rounded-xs glass-sub p-2 text-text outline-none focus:border-border-strong"
+          >
+            <option value="all">{t("views.work.allMembers")}</option>
+            {memberOptions.map((member) => (
+              <option key={member.personId} value={member.personId}>
+                {currentPersonId !== null && member.personId === currentPersonId
+                  ? t("views.work.meOption", { name: member.label })
+                  : member.label}
+              </option>
+            ))}
+          </select>
+        )}
+        <select
+          data-testid="work-filter-node"
+          aria-label={t("views.work.filterNode")}
+          value={nodeFilter}
+          onChange={(event) => setNodeFilter(event.target.value)}
+          className="rounded-xs glass-sub p-2 text-text outline-none focus:border-border-strong"
+        >
+          <option value="all">{t("views.work.allNodes")}</option>
+          {nodeOptions.map((node) => (
+            <option key={node.nodeId} value={node.nodeId}>
+              {node.label}
+            </option>
+          ))}
+        </select>
       </div>
       <div data-testid="work-filter-chips">
         <FilterChips chips={chips} value={filter} onChange={setFilter} />
@@ -248,8 +374,10 @@ export function WorkView({
                   key={entry.group.task.taskId}
                   entry={entry}
                   size={SECTION_META[tier].size}
-                  tasks={tasks}
+                  tasks={entry.lineageTasks}
                   repoId={repoId}
+                  personId={effectivePerson}
+                  nodeId={effectiveNode}
                   titleOf={titleOf}
                   hits={searchHits(entry)}
                   ready={ready}
@@ -283,12 +411,13 @@ interface WorkReason {
  * 第一个处于阻塞状态的任务——已经报了「等你」时不重复同一条 awaits 边或同一个任务。
  */
 function workReasons(
-  { group, health, stuck }: WorkEntry,
+  { group, health, stuck, rootMatches }: WorkEntry,
   titleOf: (taskId: string) => string | undefined,
   now: number,
 ): readonly WorkReason[] {
   const reasons: WorkReason[] = [],
-    mine = health.mine[0];
+    mine = health.mine[0],
+    scopedTasks = rootMatches ? [group.task, ...group.members] : group.members;
   if (mine !== undefined)
     reasons.push({
       tone: ATTENTION_TONE[mine.kind] ?? "bad",
@@ -301,7 +430,7 @@ function workReasons(
   if (health.blocked) {
     const blockersOf = ({ blockers }: TaskRow) =>
         (blockers ?? []).filter(({ kind }) => mine === undefined || kind === "depends-on"),
-      blockedTask = [group.task, ...group.members].find((row) => blockersOf(row).length > 0),
+      blockedTask = scopedTasks.find((row) => blockersOf(row).length > 0),
       blockedTitle =
         stuck.find(({ kind, title }) => kind === "blocked" && title !== mine?.title)?.title ??
         group.members.find(({ canonicalStatus, title }) => canonicalStatus === "blocked" && title !== mine?.title)
@@ -346,6 +475,8 @@ function WorkCard({
   size,
   tasks,
   repoId,
+  personId,
+  nodeId,
   titleOf,
   hits,
   ready,
@@ -356,9 +487,11 @@ function WorkCard({
 }: {
   readonly entry: WorkEntry;
   readonly size: SummaryCardSize;
-  /** 全仓任务切面:血缘树从中筛本工作子孙。 */
+  /** 经归属收窄后的工作血缘任务切面。 */
   readonly tasks: readonly TaskRow[];
   readonly repoId: string;
+  readonly personId: string | null;
+  readonly nodeId: string | null;
   /** 卡住本工作的任务可能在工作之外,标题从全仓任务切面查。 */
   readonly titleOf: (taskId: string) => string | undefined;
   /** 搜索命中的后代任务,显示在所属卡片底部(样张 v1 的「↳ 命中行」)。 */
@@ -372,26 +505,29 @@ function WorkCard({
   readonly onOpenSession?: (runtimeSessionId: string) => void;
 }) {
   const [lineageOpen, setLineageOpen] = useState(false);
-  const { group } = entry,
+  const { group, rootMatches } = entry,
     { task, counts } = group,
     done = counts.done ?? 0,
     effective = group.leaves - (counts.cancelled ?? 0),
     lastActivity = formatTime(group.lastChangeAt, { style: "month-day-time" }) ?? group.lastChangeAt,
     { focus, supplement } = entryTitle(task.title),
     reasons = size === "large" ? workReasons(entry, titleOf, now) : [],
-    all = [task, ...group.members],
+    all = rootMatches ? [task, ...group.members] : group.members,
     // 第一个在跑的任务:与 `group.live` 同一判据。执行者的名字本页读不到,不写机器标识。
-    runner = all.find(({ activeExecutionId }) => activeExecutionId !== undefined),
+    runner = all.find((candidate) => taskExecutionMatches(candidate, { personId, nodeId })),
     // 最近有动静的任务:只报它的标题,不显示生命周期事件的机器摘要。
     recent = all.find(({ taskId }) => taskId === group.activity?.taskId),
-    ago = (
-      <span
-        data-testid="work-last-activity"
-        title={group.activity ? `${group.activity.taskId} · ${group.activity.summary} · ${lastActivity}` : lastActivity}
-      >
-        {formatListTime(group.lastChangeAt)}
-      </span>
-    ),
+    ago =
+      group.lastChangeAt === "" ? undefined : (
+        <span
+          data-testid="work-last-activity"
+          title={
+            group.activity ? `${group.activity.taskId} · ${group.activity.summary} · ${lastActivity}` : lastActivity
+          }
+        >
+          {formatListTime(group.lastChangeAt)}
+        </span>
+      ),
     progress = (
       <span className="font-mono tabular-nums text-text-muted ui-meta">
         {done}/{effective}
@@ -513,6 +649,8 @@ function WorkCard({
             rootTask={task}
             tasks={tasks}
             live={group.live > 0}
+            personId={personId}
+            nodeId={nodeId}
             onOpenTask={onOpenTask}
             onOpenSession={onOpenSession}
             testId={`work-lineage-tree-${task.taskId}`}

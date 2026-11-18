@@ -1607,6 +1607,27 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         });
       });
     }
+    if (frame.schema === "fleet.node.unregister/v1") {
+      const { oidcPrincipal } = await repoAdmission(await nodeContext(nodeId, frame.repoId, frame.accessToken));
+      if (!oidcPrincipal) throw new FleetFault("authentication_required", "Sign in before retiring a node.");
+      if (!options.host.unregisterFleetNode)
+        throw new FleetFault("node_retirement_unavailable", "Node retirement is unavailable.");
+      const result = await options.host.unregisterFleetNode(
+        frame.request,
+        oidcPrincipal,
+        () => {
+          connectionSignal.throwIfAborted();
+          nodeAdmission.assertOpen(nodeId);
+        },
+        frame.request.nodeId === nodeId ? () => window.retainRetirementReply(frame) : undefined,
+      );
+      return immediate({
+        schema: "fleet.node.unregister.result/v1",
+        messageId: mid(frame.messageId, "node-retirement"),
+        inReplyTo: frame.messageId,
+        result,
+      });
+    }
     if (frame.schema === "fleet.edge.link.create/v1") {
       const principal = await repoAdmission(await nodeContext(nodeId, frame.repoId, frame.accessToken));
       if (!options.createMemberEdgeJoin || !principal.oidcPrincipal)
@@ -1631,13 +1652,19 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           "Runtime read repository must match the authenticated node request.",
         );
       const binding = {
-        ...(await auth(a)),
+        ...(await (frame.method === "repo.access.members.read" ? repoAdmission(a) : auth(a))),
         connectionSignal: connectionSignal ? AbortSignal.any([connectionSignal, closing.signal]) : closing.signal,
       };
       markDaemonOperationPhase("repository-admission");
       let result;
       try {
-        if (frame.method === "repo.agentRuntime.lifecycle.read") {
+        if (frame.method === "repo.access.members.read") {
+          if (Object.keys(frame.payload).length > 0)
+            throw new FleetFault("invalid_field", "The repository directory read takes no payload.");
+          if (!options.host.readRepositoryMembers)
+            throw new FleetFault("repository_members_unavailable", "The repository directory is unavailable.");
+          result = await options.host.readRepositoryMembers(a.repoId, binding);
+        } else if (frame.method === "repo.agentRuntime.lifecycle.read") {
           const query = frame.payload as unknown as import("@harness-anything/kernel").DispatchLifecycleQuery;
           if (!validDispatchLifecycleQuery(query))
             throw new FleetFault("invalid_field", "Invalid dispatch lifecycle query.");
@@ -1743,7 +1770,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   );
   const observedHandle = AsyncLocalStorage.bind((...args: Parameters<Parameters<typeof serve>[2]>) => {
     const [nodeId, frame, window, clientGone, signal, progress, errorReply] = args,
-      runHandle = () => nodeAdmission.run(nodeId, () => handle(nodeId, frame, window, clientGone, signal, progress)),
+      // The identity writer serializes retirement independently of repository writer drains.
+      runHandle = () =>
+        frame.schema === "fleet.node.unregister/v1"
+          ? handle(nodeId, frame, window, clientGone, signal, progress)
+          : nodeAdmission.run(nodeId, () => handle(nodeId, frame, window, clientGone, signal, progress)),
       scope = beginDaemonOperation({
         method: "method" in frame ? String(frame.method) : frame.schema,
         repoId: "repoId" in frame ? String(frame.repoId) : null,

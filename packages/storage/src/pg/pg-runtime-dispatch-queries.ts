@@ -255,18 +255,40 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
         ]);
         return Promise.all(rows.map((event) => projected(client, event)));
       }),
-    readRuntimeDispatchesByMember: ({ agentId, squadId, limit }) =>
+    readRuntimeDispatchesByMember: ({ agentId, squadId, personId, nodeId, limit }) =>
       transaction(async (client) => {
         if ((agentId === undefined) === (squadId === undefined))
           throw new Error("runtime dispatch member page requires exactly one of agentId or squadId");
         if (!validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.standard))
           throw new Error("runtime dispatch member page requires a limit from 1 to 500");
         const field = agentId === undefined ? "squad_id" : "agent_id",
-          value = agentId ?? squadId!,
+          values = [
+            agentId ?? squadId!,
+            ...(personId === undefined ? [] : [personId]),
+            ...(nodeId === undefined ? [] : [nodeId]),
+          ],
+          nodeOf = (alias: string) => `CASE ${alias}.fleet_source_json WHEN '"local"' THEN 'center'
+            ELSE NULLIF(${alias}.source_node_id,'') END`,
+          scopeFor = (alias: string) =>
+            [
+              personId === undefined ? "" : `AND ${alias}.actor_person_id=$7`,
+              nodeId === undefined
+                ? ""
+                : `AND COALESCE(${nodeOf(alias)}, CASE
+              WHEN left(${alias}.fleet_source_json,17)='"runtime-session/' THEN (
+                SELECT ${nodeOf("launch")} FROM ha_events launch
+                WHERE launch.tenant_id=$1 AND launch.project_id=$2 AND launch.repo_id=$3 AND launch.policy_epoch=$4
+                  AND (cardinality($5::text[])=0 OR launch.readers && $5::text[])
+                  AND launch.revision <= (SELECT watermark FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4 AND projection_name='task/v1')
+                  AND launch.event_schema='agent-runtime-event/v1' AND launch.event_type='runtime_session_started'
+                  AND launch.runtime_session_id=substr(${alias}.fleet_source_json,18,length(${alias}.fleet_source_json)-18)
+                ORDER BY launch.revision DESC LIMIT 1
+              ) END)=$${personId === undefined ? 7 : 8}`,
+            ].join(" "),
           raw = await readDispatchRows(
             client,
-            `${field}=$6`,
-            [value],
+            `${field}=$6 ${scopeFor("ha_events")}`,
+            values,
             "dispatch_activity_at DESC,dispatch_id DESC",
             limit + 1,
           ),
@@ -277,6 +299,7 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
               AND d.revision <= (SELECT watermark FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4 AND projection_name='task/v1')
               AND (cardinality($5::text[])=0 OR (d.readers && $5::text[] AND p.readers && $5::text[]))
               AND d.event_schema='agent-runtime-event/v1' AND d.event_type='runtime_dispatch_requested' AND d.runtime_session_present AND d.${field}=$6
+              ${scopeFor("d")}
               ${after ? "AND d.runtime_session_id > previous.runtime_session_id" : ""}
             ORDER BY d.runtime_session_id,d.dispatch_activity_at DESC,d.dispatch_id DESC LIMIT 1`,
           // One index seek per distinct session; the lateral query returning no row ends the recursion.
@@ -285,7 +308,7 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
             `WITH RECURSIVE latest AS ((${candidate(false)}) UNION ALL
               SELECT next.* FROM latest previous CROSS JOIN LATERAL (${candidate(true)}) next)
               SELECT event_json,session FROM latest ORDER BY runtime_session_id`,
-            [scope.tenantId, scope.projectId, repoId, scope.policyEpoch, readers, value],
+            [scope.tenantId, scope.projectId, repoId, scope.policyEpoch, readers, ...values],
           );
         return {
           rows: raw.slice(0, limit).map(publicRuntimeDispatch),

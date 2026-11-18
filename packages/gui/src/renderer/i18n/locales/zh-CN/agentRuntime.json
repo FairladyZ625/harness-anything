@@ -839,5 +839,10 @@
   "agentRuntime.selection_sticky": "黏性复用",
   "agentRuntime.selection_lru": "最久未用优先",
   "agentRuntime.createAndSignIn": "创建并登录",
-  "agentRuntime.details": "详情"
+  "agentRuntime.details": "详情",
+  "agentRuntime.sessionsPersonFilter": "按成员筛选会话",
+  "agentRuntime.sessionsNodeFilter": "按节点筛选会话",
+  "agentRuntime.sessionsAllMembers": "全部成员",
+  "agentRuntime.sessionsAllNodes": "全部节点",
+  "agentRuntime.sessionsMeOption": "我 ({name})"
 }

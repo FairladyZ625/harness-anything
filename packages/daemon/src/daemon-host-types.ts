@@ -69,6 +69,19 @@ export interface DaemonHost {
   };
   readonly remoteProxy: RemoteProxyManager;
   readonly identityCenter: import("@harness-anything/kernel").IdentitySessionPort["center"];
+  readonly readRepositoryMembers: (
+    repoId: string,
+    auth: DaemonAuthenticationContext,
+  ) => Promise<Record<string, unknown>>;
+  readonly unregisterFleetNode: (
+    request: Extract<
+      import("./fleet/command-protocol.ts").FleetFrameV1,
+      { schema: "fleet.node.unregister/v1" }
+    >["request"],
+    actor: NonNullable<DaemonAuthenticationContext["oidcPrincipal"]>,
+    assertSourceOpen: () => void,
+    retainReply?: () => void,
+  ) => Promise<Record<string, unknown>>;
   readonly sessionPrincipal: (
     auth: DaemonAuthenticationContext,
     method: string,

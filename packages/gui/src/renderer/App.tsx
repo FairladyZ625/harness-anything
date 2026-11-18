@@ -38,7 +38,9 @@ import { useEntityNavigation } from "./navigation/useEntityNavigation.ts";
 import { workTargetOf } from "./navigation/entityRoutes.ts";
 import { workIndexOf } from "./model/work-collections.ts";
 import { useAppShortcuts } from "./navigation/useAppShortcuts.ts";
-import { applyTaskFilters, type TaskFilters } from "./model/taskFilters.ts";
+import { applyTaskFilters, DEFAULT_TASK_FILTERS, type TaskFilters } from "./model/taskFilters.ts";
+import { taskMatchesPerson } from "./model/attribution.ts";
+import { useMemberScopeContext } from "./use-member-scope-lens.ts";
 import { adaptProjectionRows } from "./task-adapter.ts";
 import { deriveAttestationLanes, type AttestationPoolTabId } from "./model/attestation-pool.ts";
 import {
@@ -79,7 +81,7 @@ import { adaptRepoProject } from "./model/project-adapter.ts";
 import { TerminalRoute } from "./views/TerminalRoute.tsx";
 import type { TerminalLaunchTask } from "./views/TerminalView.tsx";
 import { BrowserView } from "./views/BrowserView.tsx";
-import { NavigationHistoryBar } from "./components/NavigationHistoryBar.tsx";
+import { GlobalScopeBanner, NavigationHistoryBar } from "./components/NavigationHistoryBar.tsx";
 import { useAppLocation } from "./navigation/useAppLocation.ts";
 import { useProjectSwitch } from "./navigation/useProjectSwitch.ts";
 import { navLabel } from "./navigation/navConfig.tsx";
@@ -95,7 +97,7 @@ import { useEdgeJoinEntry } from "./edge-join-entry.tsx";
 import { LocalDocLayer } from "./local-doc/LocalDocLayer.tsx";
 import { useLocalDocOpener } from "./local-doc/local-doc-context.ts";
 import { useEntityKindOptions, useGovernedEntityRows } from "./entity-kind-data.ts";
-import { guiTransport } from "./gui-transport.ts";
+import { guiHostBridge, guiTransport } from "./gui-transport.ts";
 import { hostProjectWindowApi, useProjectWindowHost, useProjectWindowTitle } from "./project-window-host.ts";
 import { DaemonStartupGate } from "./components/DaemonStartupGate.tsx";
 import { AuroraBackdrop, LiquidFilterDef } from "./components/GlassFoundation.tsx";
@@ -275,6 +277,13 @@ function AppShell() {
   const { openLocalDocument } = useLocalDocOpener();
 
   const projectTasks = useMemo(() => tasks.filter((t) => t.projectId === projectId), [tasks, projectId]);
+  const memberScope = useMemberScopeContext({
+    repoId: activeRepoId,
+    rootDir: activeRepo?.canonicalRoot ?? undefined,
+    tasks: projectTasks,
+    fleetNodes: fleetOverview.overview?.nodes,
+    view,
+  });
   // 总览紧凑协作入口的摘要(折算在 model/collaboration.ts;未选中仓没有仓库视角,不给入口)。
   const collaborationSummary = activeRepo === undefined ? null : collaborationSummaryOf(projectTasks);
   /** task 详情「打开终端」→ 终端页进页即建绑定会话;requestId 让同一请求只消费一次。 */
@@ -296,11 +305,37 @@ function AppShell() {
   const selected = useMemo(() => tasks.find((t) => t.taskId === selectedId) ?? null, [tasks, selectedId]);
   // 根任务即工作:选中位落在工作根(跨仓深链、历史恢复时任务行尚未到)就原地换成工作页。
   const selectedWorkRootId = selected !== null && works.isWorkRoot(selected.taskId) ? selected.taskId : null;
-  const previewTask = useMemo(() => tasks.find((t) => t.taskId === previewId) ?? null, [previewId, tasks]);
-  const filteredProjectTasks = useMemo(
-    () => applyTaskFilters(projectTasks, taskFilters, favorites),
-    [projectTasks, taskFilters, favorites],
+  const scopedProjectTasks = useMemo(
+    () =>
+      memberScope.scopePersonId === null
+        ? projectTasks
+        : projectTasks.filter((task) => taskMatchesPerson(task, memberScope.scopePersonId!)),
+    [projectTasks, memberScope.scopePersonId],
   );
+  const boardFilters = useMemo(
+    () => (memberScope.scopePersonId === null ? taskFilters : { ...taskFilters, person: memberScope.scopePersonId }),
+    [memberScope.scopePersonId, taskFilters],
+  );
+  const filteredProjectTasks = useMemo(
+    () => applyTaskFilters(projectTasks, boardFilters, favorites),
+    [projectTasks, boardFilters, favorites],
+  );
+  const changeBoardFilters = useCallback(
+    (next: TaskFilters) =>
+      setTaskFilters(memberScope.scopePersonId === null ? next : { ...next, person: taskFilters.person }),
+    [memberScope.scopePersonId, setTaskFilters, taskFilters.person],
+  );
+  const previewTasks =
+    view === "board" ? filteredProjectTasks : memberScope.scopePersonId === null ? projectTasks : scopedProjectTasks;
+  const previewTask = useMemo(
+    () => previewTasks.find((task) => task.taskId === previewId) ?? null,
+    [previewId, previewTasks],
+  );
+  const previewExcluded =
+    previewId !== null && previewTask === null && projectTasks.some((task) => task.taskId === previewId);
+  useEffect(() => {
+    if (previewExcluded) updateLocation({ previewId: null });
+  }, [previewExcluded, updateLocation]);
 
   // ----------------------------------------------------------------三元读取分层
   // 窄面也按真实消费者挂载:任务详情/⌘K 需要决策标题,其余页面不背景读它们。
@@ -604,7 +639,30 @@ function AppShell() {
               实时流、终端和本机文件仅桌面版可用。
             </div>
           ) : null}
-          <NavigationHistoryBar canBack={canBack} canForward={canForward} onBack={back} onForward={forward} />
+          <NavigationHistoryBar
+            canBack={canBack}
+            canForward={canForward}
+            onBack={back}
+            onForward={forward}
+            scopeLens={
+              memberScope.canUseGlobalLens && memberScope.currentPersonId
+                ? {
+                    value: memberScope.scopePersonId,
+                    currentPersonId: memberScope.currentPersonId,
+                    members: memberScope.lensMembers,
+                    onChange: memberScope.setScopePersonId,
+                  }
+                : null
+            }
+          />
+          {memberScope.canUseGlobalLens && memberScope.scopePersonId !== null && (
+            <GlobalScopeBanner
+              personId={memberScope.scopePersonId}
+              currentPersonId={memberScope.currentPersonId}
+              peopleById={memberScope.peopleById}
+              onExit={() => memberScope.setScopePersonId(null)}
+            />
+          )}
           <FleetVersionWarningBanner warning={fleetOverview.overview?.versionWarning} />
           <GuiBuildWarningBanner
             guiCommit={systemQuery.data?.guiBuild?.commit}
@@ -732,6 +790,7 @@ function AppShell() {
                     }
                     onUnpin={(taskId) => handleSetPin({ taskId }, false)}
                     onUnpinEntity={handleUnpinEntity}
+                    scopePersonId={memberScope.scopePersonId}
                   />
                 ) : (
                   <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />
@@ -756,6 +815,12 @@ function AppShell() {
                   daemonState={runtimeHealth.daemon.state}
                   onRefreshLedger={refreshLedger}
                   agenda={agendaQuery.data}
+                  scopePersonId={memberScope.scopePersonId}
+                  currentPersonId={memberScope.currentPersonId}
+                  knownMembers={memberScope.memberOptions}
+                  knownNodes={memberScope.nodeOptions}
+                  nodeOwners={memberScope.nodeOwners}
+                  peopleById={memberScope.peopleById}
                 />
               ) : view === "workspace" ? (
                 workspaceScope ? (
@@ -805,10 +870,11 @@ function AppShell() {
               ) : view === "board" ? (
                 <BoardView
                   tasks={filteredProjectTasks}
-                  allTasks={projectTasks}
+                  allTasks={scopedProjectTasks}
                   wipSnapshot={taskWipQuery.data}
-                  filters={taskFilters}
-                  onFiltersChange={setTaskFilters}
+                  filters={boardFilters}
+                  onFiltersChange={changeBoardFilters}
+                  personFilterLocked={memberScope.scopePersonId !== null}
                   onSelect={openTaskPreview}
                   drill={drill}
                   favorites={favorites}
@@ -818,6 +884,11 @@ function AppShell() {
                   onSetPin={handleSetPin}
                   isolatedRows={tasksQuery.data?.invalidRows.length ?? 0}
                   hydrating={(tasksQuery.data?.page?.nextCursor ?? null) !== null}
+                  currentPersonId={memberScope.currentPersonId}
+                  knownMembers={memberScope.memberOptions}
+                  knownNodes={memberScope.nodeOptions}
+                  nodeOwners={memberScope.nodeOwners}
+                  peopleById={memberScope.peopleById}
                 />
               ) : view === "collaboration" ? (
                 // 协作页舰队拓扑(task_8ce646d94):节点/通道/详情/事件全部来自
@@ -830,6 +901,45 @@ function AppShell() {
                   overviewLoading={fleetOverview.loading}
                   onOpenTask={openTaskDetail}
                   onNavigateEntity={navigateToEntity}
+                  canManageFleetNodes={memberScope.canManageFleetNodes}
+                  actorPersonId={memberScope.currentPersonId}
+                  peopleById={memberScope.peopleById}
+                  onOpenNodeBoard={(nodeId) =>
+                    navigate({
+                      view: "board",
+                      selectedId: null,
+                      previewId: null,
+                      focusedEntityRef: null,
+                      drill: null,
+                      taskFilters: { ...DEFAULT_TASK_FILTERS, node: nodeId },
+                    })
+                  }
+                  onOpenNodeSessions={(nodeId) =>
+                    navigate({
+                      view: "sessions",
+                      selectedId: null,
+                      previewId: null,
+                      focusedEntityRef: null,
+                      drill: null,
+                      sessionNodeId: nodeId,
+                      sessionRange: "all",
+                    })
+                  }
+                  onUnregisterNode={async (input) => {
+                    const base = guiHostBridge()?.fleetAdmin;
+                    if (!base) {
+                      return { ok: false, code: "bridge_unavailable", message: "fleetAdmin bridge unavailable" };
+                    }
+                    const fleetAdmin =
+                      activeRepoId && typeof base.forRepository === "function"
+                        ? base.forRepository(activeRepoId)
+                        : base;
+                    const res = await fleetAdmin.unregisterNode(input);
+                    if (res.ok === true && input.confirm === true) {
+                      void queryClient.invalidateQueries({ queryKey: ["fleet-overview", projectId] });
+                    }
+                    return res;
+                  }}
                 />
               ) : view === "graph" ? (
                 <EntityWorkspace
@@ -1002,6 +1112,16 @@ function AppShell() {
                     setDocFocus({ taskId, docPath });
                     openTaskDetail(taskId);
                   }}
+                  scopePersonId={memberScope.scopePersonId}
+                  currentPersonId={memberScope.currentPersonId}
+                  nodeFilter={location.sessionNodeId ?? null}
+                  onNodeFilterChange={(nodeId) => updateLocation({ sessionNodeId: nodeId })}
+                  sessionRange={location.sessionRange ?? null}
+                  onSessionRangeChange={(range) => updateLocation({ sessionRange: range })}
+                  knownMembers={memberScope.memberOptions}
+                  knownNodes={memberScope.nodeOptions}
+                  nodeOwners={memberScope.nodeOwners}
+                  peopleById={memberScope.peopleById}
                 />
               ) : view === "schedules" ? (
                 <SchedulesView
@@ -1113,20 +1233,22 @@ function AppShell() {
             ) : null}
           </aside>
         ) : null}
-        <TaskPreviewDrawer
-          task={previewTask}
-          tasks={projectTasks}
-          relations={edgeRelations}
-          // 抽屉单层(业主 2026-10-17):开抽屉推栈一次、层内换卡原地替换;关闭走 closePreview 一次回列表。
-          onClose={closePreview}
-          onOpenDetail={openTaskDetail}
-          onPreviewTask={openTaskPreview}
-          onSetPin={handleSetPin}
-          onOpenRecord={(taskId, recordRef) => {
-            setRecordFocus({ taskId, recordRef });
-            openTaskDetail(taskId);
-          }}
-        />
+        {!previewExcluded && (
+          <TaskPreviewDrawer
+            task={previewTask}
+            tasks={previewTasks}
+            relations={edgeRelations}
+            // 抽屉单层(业主 2026-10-17):开抽屉推栈一次、层内换卡原地替换;关闭走 closePreview 一次回列表。
+            onClose={closePreview}
+            onOpenDetail={openTaskDetail}
+            onPreviewTask={openTaskPreview}
+            onSetPin={handleSetPin}
+            onOpenRecord={(taskId, recordRef) => {
+              setRecordFocus({ taskId, recordRef });
+              openTaskDetail(taskId);
+            }}
+          />
+        )}
         <CommandPalette
           open={paletteOpen}
           entries={paletteEntries}

@@ -3,6 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Lock, PushPin, Star } from "@phosphor-icons/react";
 import type { TaskRow } from "../model/types";
 import { isExternal, isTerminal } from "../model/types";
+import { attributionBadgeOf, primaryTaskNodeId, primaryTaskPersonId } from "../model/attribution.ts";
 import { leaseNodeIdOf } from "../model/collaboration.ts";
 import { StatusTag } from "../components/primitives/StatusTag";
 import { DenseRow, RowTime } from "../components/primitives/DenseRow";
@@ -62,14 +63,27 @@ const TaskListRow = memo(function TaskListRow({
   isFavorite,
   onToggleFavorite,
   onSetPin,
+  currentPersonId,
+  nodeOwners,
+  peopleById,
 }: {
   task: TaskRow;
   onSelect: (id: string) => void;
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
+  currentPersonId?: string | null;
+  nodeOwners?: ReadonlyMap<string, string>;
+  peopleById?: ReadonlyMap<string, string>;
 }) {
   const pinned = task.pinned === true;
+  const badge = attributionBadgeOf({
+    personId: primaryTaskPersonId(task),
+    nodeId: primaryTaskNodeId(task),
+    currentPersonId,
+    nodeOwners,
+    peopleById,
+  });
   return (
     <div
       role="button"
@@ -100,6 +114,15 @@ const TaskListRow = memo(function TaskListRow({
           time={<RowTime at={task.lastKnownAt} />}
         />
       </div>
+      {badge !== null && (
+        <span
+          data-testid={`list-attribution-badge-${task.taskId}`}
+          title={badge.title}
+          className="max-w-[140px] shrink-0 truncate rounded-full border border-border/70 bg-surface/60 px-1.5 py-0.5 font-mono ui-micro text-text-muted"
+        >
+          {badge.label}
+        </span>
+      )}
       {onSetPin ? (
         <button
           type="button"
@@ -164,6 +187,9 @@ export function ListView({
   favorites,
   onToggleFavorite,
   onSetPin,
+  currentPersonId = null,
+  nodeOwners,
+  peopleById,
 }: {
   tasks: readonly TaskRow[];
   onSelect: (id: string) => void;
@@ -171,6 +197,9 @@ export function ListView({
   onToggleFavorite?: (id: string) => void;
   /** 台账 pin 写通道;缺省时行内只显示 📌 状态,不给写按钮。 */
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
+  currentPersonId?: string | null;
+  nodeOwners?: ReadonlyMap<string, string>;
+  peopleById?: ReadonlyMap<string, string>;
 }) {
   const favSet = favorites ?? new Set<string>();
   // 默认序共用实现(W8):lastKnownAt 倒序打底,pin(canonical)→ 本地收藏稳定置顶;
@@ -239,6 +268,9 @@ export function ListView({
                       isFavorite={favSet.has(entry.task.taskId)}
                       onToggleFavorite={onToggleFavorite ?? (() => undefined)}
                       onSetPin={onSetPin}
+                      currentPersonId={currentPersonId}
+                      nodeOwners={nodeOwners}
+                      peopleById={peopleById}
                     />
                   ) : null}
                 </div>
