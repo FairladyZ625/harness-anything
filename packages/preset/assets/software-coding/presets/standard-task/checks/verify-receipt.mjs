@@ -1,0 +1,111 @@
+import { readFileSync } from "node:fs";
+
+const PREDICATE_TYPE = "software-coding/verification-receipt/v1";
+const RECEIPT_SUFFIX = "/artifacts/verification-receipt.json";
+const REQUIRED_FIELDS = ["commitSha", "passed", "failed", "timedOut", "unexecuted", "total"];
+const COUNT_FIELDS = ["passed", "failed", "timedOut", "unexecuted", "total"];
+
+function emit(result, subjects, predicate, diagnostic) {
+  console.log(
+    JSON.stringify({
+      schema: "preset-script-result/v1",
+      produces: [
+        {
+          capabilityId: "completion-witness",
+          payload: {
+            result,
+            subjects,
+            predicateType: PREDICATE_TYPE,
+            predicate,
+            diagnostic,
+          },
+        },
+      ],
+    }),
+  );
+}
+
+const presetInput = JSON.parse(process.env.HA_PRESET_INPUT ?? "{}");
+const witnessInput = JSON.parse(readFileSync(presetInput.witnessInput, "utf8"));
+const subjects = (witnessInput.subjects ?? []).map(({ file: _file, ...identity }) => identity);
+
+const receiptSubject = (witnessInput.subjects ?? []).find(
+  (item) => item.path === "artifacts/verification-receipt.json" || item.path.endsWith(RECEIPT_SUFFIX),
+);
+
+if (!receiptSubject) {
+  emit("fail", subjects, {}, "Missing required verification receipt artifact: artifacts/verification-receipt.json.");
+  process.exit(0);
+}
+
+let receipt;
+try {
+  receipt = JSON.parse(readFileSync(receiptSubject.file, "utf8"));
+} catch (error) {
+  const detail = error instanceof Error ? error.message : String(error);
+  emit("fail", subjects, {}, `Invalid JSON in artifacts/verification-receipt.json: ${detail}`);
+  process.exit(0);
+}
+
+if (receipt === null || typeof receipt !== "object" || Array.isArray(receipt)) {
+  emit("fail", subjects, {}, "artifacts/verification-receipt.json must contain a JSON object.");
+  process.exit(0);
+}
+
+const predicate = {};
+for (const field of REQUIRED_FIELDS) {
+  if (Object.hasOwn(receipt, field)) predicate[field] = receipt[field];
+}
+
+const errors = [];
+
+for (const field of REQUIRED_FIELDS) {
+  if (!Object.hasOwn(receipt, field)) errors.push(`Missing required field "${field}".`);
+}
+
+if (witnessInput.code !== null) {
+  const expectedSha = witnessInput.code?.commitSha;
+  if (typeof receipt.commitSha !== "string" || receipt.commitSha !== expectedSha) {
+    errors.push(
+      `Receipt commitSha (${JSON.stringify(receipt.commitSha ?? null)}) does not match frozen commitSha (${String(expectedSha)}).`,
+    );
+  }
+} else if (Object.hasOwn(receipt, "commitSha") && receipt.commitSha !== null) {
+  errors.push(`Artifact-only submission requires commitSha to be null (got ${JSON.stringify(receipt.commitSha)}).`);
+}
+
+let countsValid = true;
+for (const field of COUNT_FIELDS) {
+  if (!Object.hasOwn(receipt, field)) {
+    countsValid = false;
+    continue;
+  }
+  const value = receipt[field];
+  if (!Number.isSafeInteger(value) || value < 0) {
+    countsValid = false;
+    errors.push(`Field "${field}" must be a non-negative safe integer (got ${JSON.stringify(value)}).`);
+  }
+}
+
+if (countsValid) {
+  if (receipt.total <= 0) {
+    errors.push(`Field "total" must be greater than 0 (got ${receipt.total}).`);
+  }
+  const sum = receipt.passed + receipt.failed + receipt.timedOut + receipt.unexecuted;
+  if (sum !== receipt.total) {
+    errors.push(
+      `Four-state count sum mismatch: passed(${receipt.passed}) + failed(${receipt.failed}) + timedOut(${receipt.timedOut}) + unexecuted(${receipt.unexecuted}) = ${sum} !== total(${receipt.total}).`,
+    );
+  }
+  if (receipt.failed > 0 || receipt.timedOut > 0 || receipt.unexecuted > 0) {
+    errors.push(
+      `Non-passing outcomes present: failed=${receipt.failed}, timedOut=${receipt.timedOut}, unexecuted=${receipt.unexecuted} (all must be 0).`,
+    );
+  }
+}
+
+if (errors.length > 0) {
+  emit("fail", subjects, predicate, errors.join(" "));
+} else {
+  emit("pass", subjects, predicate, "Verification receipt verified: commitSha and four-state counts match frozen cut.");
+}

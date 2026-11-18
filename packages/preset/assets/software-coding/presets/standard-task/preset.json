@@ -7,9 +7,62 @@
   "kind": "template-content",
   "outputShape": "repository-diff",
   "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
-  "capabilityImports": [{ "id": "standard-task-check", "kind": "checker", "version": "1", "required": false }],
+  "capabilityImports": [
+    { "id": "standard-task-check", "kind": "checker", "version": "1", "required": false },
+    { "id": "completion-witness", "kind": "checker", "version": "1", "required": true }
+  ],
+  "entrypoints": {
+    "verify-receipt": {
+      "type": "script",
+      "intent": "Verify frozen commitSha and four-state test count invariants in artifacts/verification-receipt.json.",
+      "inputs": [{ "name": "witnessInput", "type": "string", "required": true }],
+      "requires": [],
+      "produces": [{ "id": "completion-witness", "kind": "checker", "version": "1" }],
+      "sideEffects": [],
+      "command": "checks/verify-receipt.mjs"
+    }
+  },
+  "completion": {
+    "sources": {
+      "software-coding/verification-receipt": {
+        "kind": "command",
+        "entrypoint": "standard-task/verify-receipt",
+        "predicateType": "software-coding/verification-receipt/v1",
+        "resultSchema": {
+          "type": "object",
+          "required": ["commitSha", "passed", "failed", "timedOut", "unexecuted", "total"],
+          "additionalProperties": false,
+          "properties": {
+            "commitSha": { "type": ["string", "null"] },
+            "passed": { "type": "integer", "minimum": 1 },
+            "failed": { "type": "integer", "const": 0 },
+            "timedOut": { "type": "integer", "const": 0 },
+            "unexecuted": { "type": "integer", "const": 0 },
+            "total": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+    "gates": {
+      "verification-receipt": {
+        "source": "software-coding/verification-receipt",
+        "appliesTo": "submission",
+        "subjects": "all-artifacts",
+        "bindings": {
+          "commitSha": { "artifact": "artifacts/verification-receipt.json", "pointer": "/commitSha" },
+          "passed": { "artifact": "artifacts/verification-receipt.json", "pointer": "/passed" },
+          "failed": { "artifact": "artifacts/verification-receipt.json", "pointer": "/failed" },
+          "timedOut": { "artifact": "artifacts/verification-receipt.json", "pointer": "/timedOut" },
+          "unexecuted": { "artifact": "artifacts/verification-receipt.json", "pointer": "/unexecuted" },
+          "total": { "artifact": "artifacts/verification-receipt.json", "pointer": "/total" }
+        }
+      }
+    },
+    "closeoutDefaults": { "review": false, "consent": false, "factDisposition": false }
+  },
   "profiles": [
     { "id": "baseline", "title": "Baseline", "completionGates": [], "templateSelections": [] },
+    { "id": "verified", "title": "Verified", "completionGates": ["verification-receipt"], "templateSelections": [] },
     {
       "id": "lightweight",
       "title": "Lightweight",
