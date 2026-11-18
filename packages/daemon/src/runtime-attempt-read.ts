@@ -29,6 +29,9 @@ export function readRuntimeAttemptChain(
         // Previous-version wire output only; remove 2026-12-07.
         fallbackState: row.fallbackState,
         lifecycle: row.lifecycle,
+        effectivePermissionMode: row.effectivePermissionMode,
+        requestedPermissionMode: row.requestedPermissionMode,
+        permissionModeSource: row.permissionModeSource,
         nextDispatchId: row.nextDispatchId,
       }))
       .sort((a, b) => a.attemptIndex - b.attemptIndex),

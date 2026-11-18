@@ -19,7 +19,15 @@
  * - task binding: the task lease version the attempt runs under; a pending ruling becomes
  *   `awaiting_ruling` only after the stop is proven and that lease has been released.
  */
-import type { AgentRuntimeEventV1, RuntimeSession } from "./agent-runtime.ts";
+import {
+  validRuntimeLaunchPermissionMode,
+  validRuntimePermissionModeSource,
+  type AgentRuntimeEventV1,
+  type EffectiveRuntimePermissionMode,
+  type EffectiveRuntimePermissionModeSource,
+  type RuntimeLaunchPermissionMode,
+  type RuntimeSession,
+} from "./agent-runtime.ts";
 import { runtimeSteerSupported } from "./runtime-instance-scheduling.ts";
 import { isTerminalStatus } from "./lifecycle-status.ts";
 import type { TaskEventV1, TaskMutationEvent } from "./task-lifecycle-event.ts";
@@ -129,9 +137,34 @@ export interface DispatchLifecycleAttempt {
   /** Only a proven stop releases the provider slot. */
   readonly stopProof: DispatchStopProof;
   readonly outcome: DispatchAttemptOutcome | null;
+  readonly effectivePermissionMode: EffectiveRuntimePermissionMode;
+  readonly requestedPermissionMode: RuntimeLaunchPermissionMode | null;
+  readonly permissionModeSource: EffectiveRuntimePermissionModeSource;
   readonly admittedRevision: number;
   /** Event ids this attempt accepted: a redelivered event is accepted once. */
   readonly eventIds: readonly string[];
+}
+
+export function dispatchPermissionEvidence(payload?: {
+  readonly launchedPermissionMode?: unknown;
+  readonly requestedPermissionMode?: unknown;
+  readonly permissionModeSource?: unknown;
+}): {
+  readonly effectivePermissionMode: EffectiveRuntimePermissionMode;
+  readonly requestedPermissionMode: RuntimeLaunchPermissionMode | null;
+  readonly permissionModeSource: EffectiveRuntimePermissionModeSource;
+} {
+  return {
+    effectivePermissionMode: validRuntimeLaunchPermissionMode(payload?.launchedPermissionMode)
+      ? payload.launchedPermissionMode
+      : "unknown",
+    requestedPermissionMode: validRuntimeLaunchPermissionMode(payload?.requestedPermissionMode)
+      ? payload.requestedPermissionMode
+      : null,
+    permissionModeSource: validRuntimePermissionModeSource(payload?.permissionModeSource)
+      ? payload.permissionModeSource
+      : "unknown",
+  };
 }
 
 export interface DispatchGroupSuccessor {
@@ -395,6 +428,7 @@ function admit(
     role = payload.role === "reviewer" ? "reviewer" : "implementer",
     executionId = payload.executionId ?? null,
     lease = context.taskLease,
+    permissions = dispatchPermissionEvidence(payload),
     attempt: DispatchLifecycleAttempt = {
       dispatchId: payload.dispatchId,
       runtimeSessionId: payload.runtimeSessionId,
@@ -424,6 +458,7 @@ function admit(
       process: "unobserved",
       stopProof: "unproven",
       outcome: null,
+      ...permissions,
       admittedRevision: revision,
       eventIds: [event.eventId],
     };
@@ -896,7 +931,7 @@ export function dispatchGroupIsActive(group: DispatchLifecycleGroup): boolean {
 }
 
 /** Bump when the folded group shape changes: stored lifecycle state of another version is refolded. */
-export const DISPATCH_LIFECYCLE_MODEL_VERSION = 8;
+export const DISPATCH_LIFECYCLE_MODEL_VERSION = 9;
 
 export const DISPATCH_LIFECYCLE_PAGE_LIMIT = 100;
 
@@ -923,6 +958,9 @@ export interface DispatchLifecycleSummary {
   readonly outcome: DispatchAttemptOutcome | null;
   readonly nextDispatchId: string | null;
   readonly displayStatus: (typeof dispatchDisplayStatuses)[number];
+  readonly effectivePermissionMode: EffectiveRuntimePermissionMode;
+  readonly requestedPermissionMode: RuntimeLaunchPermissionMode | null;
+  readonly permissionModeSource: EffectiveRuntimePermissionModeSource;
   readonly policy: DispatchLifecycleView["policy"] | null;
 }
 
@@ -931,7 +969,12 @@ export function dispatchLifecycleSummary(read: DispatchLifecycleRead): DispatchL
   const view = read.status === "ready" ? read.rows[0] : undefined,
     attempt = view?.attempt,
     outcome = attempt?.outcome ?? null,
-    position = view && attempt ? view.groupDispatchIds.indexOf(attempt.dispatchId) : -1;
+    position = view && attempt ? view.groupDispatchIds.indexOf(attempt.dispatchId) : -1,
+    permissions = dispatchPermissionEvidence({
+      launchedPermissionMode: attempt?.effectivePermissionMode,
+      requestedPermissionMode: attempt?.requestedPermissionMode,
+      permissionModeSource: attempt?.permissionModeSource,
+    });
   return {
     status: read.status,
     watermark: read.watermark,
@@ -949,6 +992,7 @@ export function dispatchLifecycleSummary(read: DispatchLifecycleRead): DispatchL
           : outcome === "stopped" && view?.delivery.status === "registered"
             ? "succeeded"
             : (outcome ?? (view?.policy.processAlive ? "running" : "unknown")),
+    ...permissions,
     policy: view?.policy ?? null,
   };
 }
