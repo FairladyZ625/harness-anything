@@ -37,6 +37,7 @@ export type PgRuntimeDispatchQueries = AsyncQueries<
   | "readRuntimeDispatchesByTaskExecution"
   | "readRuntimeDispatchesByAttemptGroup"
   | "readRuntimeDispatchesByDecision"
+  | "readRuntimeDispatchesByDecisions"
   | "readRuntimeDispatchPage"
   | "readRuntimeDispatchesByMember"
 >;
@@ -238,6 +239,14 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
       }),
     readRuntimeDispatchesByAttemptGroup: (id) => byField("attemptGroupId", id, false),
     readRuntimeDispatchesByDecision: (id) => byField("reviewTarget,decisionId", id, false),
+    readRuntimeDispatchesByDecisions: async (ids) =>
+      ids.length === 0
+        ? []
+        : transaction(async (client) =>
+            (await readDispatchRows(client, "review_decision_id = ANY($6::text[])", [ids]))
+              .filter(({ payload }) => payload.reviewTarget?.kind === "decision")
+              .map(publicRuntimeDispatch),
+          ),
     readRuntimeDispatchesByTaskExecution: (taskId, executionId) =>
       transaction(async (client) => {
         const rows = await readDispatchRows(client, "payload_task_id=$6 AND payload_execution_id=$7", [

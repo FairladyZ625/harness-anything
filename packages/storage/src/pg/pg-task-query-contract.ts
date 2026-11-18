@@ -16,6 +16,7 @@ export const PG_TASK_QUERY_METHODS = [
   "readRuntimeDispatchesByTaskExecution",
   "readRuntimeDispatchesByAttemptGroup",
   "readRuntimeDispatchesByDecision",
+  "readRuntimeDispatchesByDecisions",
   "readRuntimeDispatchPage",
   "readTaskIndex",
   "readTaskChildCounts",
