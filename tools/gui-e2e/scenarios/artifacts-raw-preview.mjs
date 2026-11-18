@@ -10,6 +10,7 @@ export default {
   id: "artifacts-raw-preview",
   feature: "sessions-artifacts",
   lane: "isolated",
+  readOnly: true,
   description:
     "A binary artifact is listed under the raw facet and renders a real PDF page through the document read path.",
   async run({ page, shot }) {

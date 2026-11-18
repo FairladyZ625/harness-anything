@@ -228,6 +228,7 @@ export default {
   id: "overview-split-board",
   feature: "overview",
   lane: "isolated",
+  readOnly: true,
   description:
     "The overview board's dock interactions on the 2026-10-21 four-block arrangement (running top-left, works " +
     "stacked below, pins/awaits owning the right column): at 1440 the left-half preview, cancel, docking works " +

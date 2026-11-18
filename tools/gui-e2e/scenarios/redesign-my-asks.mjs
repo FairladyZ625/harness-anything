@@ -12,6 +12,7 @@ export default {
   id: "redesign-my-asks",
   feature: "redesign-zone",
   lane: "isolated",
+  readOnly: true,
   description:
     "Redesign zone sidebar group opens the Your-asks page: AgentInbox attention lanes (Needs you / Running / Done), honest empty states, no IDs on the first screen, single-level drawer.",
   async run({ page, shot }) {

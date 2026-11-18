@@ -2,6 +2,7 @@ export default {
   id: "board-preview-detail",
   feature: "board",
   lane: "isolated",
+  readOnly: true,
   description: "A board card opens its preview drawer and full task detail.",
   async run({ page, shot }) {
     await page.getByRole("button", { name: /^(?:看板|Board)$/u }).click();

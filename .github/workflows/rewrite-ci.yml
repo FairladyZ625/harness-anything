@@ -80,6 +80,8 @@ jobs:
               - 'skills/**'
             gui:
               - 'packages/gui/**'
+              - 'tools/gui-e2e.mjs'
+              - 'tools/gui-e2e/**'
               - 'package.json'
               - 'package-lock.json'
               - 'tsconfig*.json'
@@ -496,7 +498,16 @@ jobs:
       - if: needs.install.outputs.gui != 'false'
         run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
       - if: needs.install.outputs.gui != 'false'
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+      - if: needs.install.outputs.gui != 'false'
         run: node tools/run-manifest-gates.mjs --workflow-job gui-build
+      - uses: actions/upload-artifact@v4
+        if: failure() && needs.install.outputs.gui != 'false'
+        with:
+          name: gui-build-e2e-diagnostics
+          path: .harness/gui-e2e/**
+          if-no-files-found: ignore
+          retention-days: 7
   # dec_F5B2CBF8B45042B6DA2824A7FA/CH3: nightly-only now. All 25 of its real catches in 60
   # days were simultaneously caught by the Node 24 typecheck lane (exclusive catches: 0),
   # and the nightly full-check matrix already runs the aggregate under Node 26.

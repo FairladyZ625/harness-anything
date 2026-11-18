@@ -8,6 +8,7 @@ import {
   preloadAllowlist,
   registerHarnessIpcHandlers,
   assertPreloadPayload,
+  withIpcDomainErrors,
   type GuiServiceBridge,
 } from "../src/index.ts";
 
@@ -229,4 +230,64 @@ test("main process rejects duplicate IPC channels", () => {
     () => assertUniqueHarnessIpcChannels(["getTasks", "getTasks"]),
     /Duplicate Harness IPC handler channel/u,
   );
+});
+
+test("withIpcDomainErrors records desensitized IPC sequence when HARNESS_GUI_IPC_TRACE is enabled", async () => {
+  const prevTrace = process.env.HARNESS_GUI_IPC_TRACE;
+  const globalRecord = globalThis as Record<string, unknown>;
+  const prevGlobal = globalRecord.__harnessGuiIpcTrace;
+  process.env.HARNESS_GUI_IPC_TRACE = "1";
+  try {
+    const handlers = new Map<string, (event: unknown, payload: unknown) => Promise<unknown>>();
+    const registrar = withIpcDomainErrors({
+      handle: (channel, listener) => {
+        handlers.set(channel, listener as (event: unknown, payload: unknown) => Promise<unknown>);
+      },
+      on: () => undefined,
+    });
+    registrar.handle("harness:createRuntimeInstance", async () => ({ ok: true }));
+    registrar.handle("harness:readUseCaseProjection", async () => {
+      throw Object.assign(new Error("projection failed"), { code: "projection_unavailable" });
+    });
+
+    await handlers.get("harness:createRuntimeInstance")?.(trustedEvent, {
+      repoId: "repo-a",
+      name: "Secret Instance",
+      apiKey: "sk-live-secret-12345",
+      token: "tok-live-99999",
+    });
+    const failedReply = await handlers.get("harness:readUseCaseProjection")?.(trustedEvent, {
+      repoId: "repo-a",
+      facet: "overview",
+      body: "large-private-body",
+    });
+    assert.deepEqual(failedReply, {
+      ipcFailure: { code: "projection_unavailable", message: "projection failed" },
+    });
+
+    const tracer = globalRecord.__harnessGuiIpcTrace as { snapshot: (clear?: boolean) => unknown[] };
+    assert.equal(typeof tracer?.snapshot, "function");
+    const entries = tracer.snapshot(true) as Array<Record<string, unknown>>;
+    assert.equal(entries.length, 2);
+    const serialized = JSON.stringify(entries);
+    assert.equal(serialized.includes("sk-live-secret-12345"), false);
+    assert.equal(serialized.includes("tok-live-99999"), false);
+    assert.equal(serialized.includes("large-private-body"), false);
+    assert.equal(entries[0].channel, "harness:createRuntimeInstance");
+    assert.equal(entries[0].result, "ok");
+    assert.deepEqual(entries[0].payloadSummary, {
+      keys: ["apiKey", "name", "repoId", "token"],
+      fields: { name: "Secret Instance", repoId: "repo-a" },
+      redactedKeys: ["apiKey", "token"],
+    });
+    assert.equal(entries[1].channel, "harness:readUseCaseProjection");
+    assert.equal(entries[1].result, "ipc_failure");
+    assert.equal(entries[1].errorCode, "projection_unavailable");
+    assert.equal(tracer.snapshot().length, 0);
+  } finally {
+    if (prevTrace === undefined) delete process.env.HARNESS_GUI_IPC_TRACE;
+    else process.env.HARNESS_GUI_IPC_TRACE = prevTrace;
+    if (prevGlobal === undefined) delete globalRecord.__harnessGuiIpcTrace;
+    else globalRecord.__harnessGuiIpcTrace = prevGlobal;
+  }
 });
