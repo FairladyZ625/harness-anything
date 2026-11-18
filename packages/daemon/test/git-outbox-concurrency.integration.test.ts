@@ -547,8 +547,6 @@ test(
       newBody = "<p>New canonical replacement</p>\n",
       localEdit = "<p>Explicit edit after publication</p>\n",
       replaceQueued = Promise.withResolvers<void>(),
-      coveredQueued = Promise.withResolvers<void>(),
-      submitQueued = Promise.withResolvers<void>(),
       releaseReplace = Promise.withResolvers<void>();
     mkdirSync(rootDir);
     initRepo(rootDir);
@@ -570,6 +568,19 @@ test(
         binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
         nodeBinding = { ...binding, source: { kind: "node", nodeId: "node-one" } as const },
         localSubmit = { kind: "doc-submit", paths: [logical] } as const;
+      async function queueLocalSubmit(selected: string, beforeScan?: () => Promise<unknown>) {
+        const queued = Promise.withResolvers<void>(),
+          receipt = withRepoCellWriteSlot(
+            async (work) => {
+              await beforeScan?.();
+              return await work();
+            },
+            () => writer.run({ kind: "doc-submit", paths: [selected] }, binding, t.signal),
+            queued.resolve,
+          );
+        await Promise.race([queued.promise, receipt.then((result) => assert.fail(JSON.stringify(result)))]);
+        return { receipt };
+      }
       assert.equal(writer.status().state, "attached", JSON.stringify(writer.status()));
       mkdirSync(path.dirname(authored), { recursive: true });
       writeFileSync(authored, oldBody);
@@ -616,25 +627,12 @@ test(
       );
       await Promise.race([replaceQueued.promise, replacement.then((receipt) => assert.fail(JSON.stringify(receipt)))]);
       writeFileSync(coveredFile, localEdit);
-      const submitCovered = withRepoCellWriteSlot(
-        async (work) => {
-          await waitForArrival(() => (existsSync(enteredFile) ? true : null), watchFileArrival(enteredFile));
-          return await work();
-        },
-        () => writer.run({ kind: "doc-submit", paths: [covered] }, binding, t.signal),
-        coveredQueued.resolve,
+      const { receipt: submitCovered } = await queueLocalSubmit(covered, () =>
+        waitForArrival(() => (existsSync(enteredFile) ? true : null), watchFileArrival(enteredFile)),
       );
-      await Promise.race([
-        coveredQueued.promise,
-        submitCovered.then((receipt) => assert.fail(JSON.stringify(receipt))),
-      ]);
-      const submit = withRepoCellWriteSlot(
-        async (work) => await work(),
-        () => writer.run(localSubmit, binding, t.signal),
-        submitQueued.resolve,
-      );
-      await Promise.race([submitQueued.promise, submit.then((receipt) => assert.fail(JSON.stringify(receipt)))]);
-      assert.deepEqual(reader.currentCut(), base, "both local submits queued before the replacement was accepted");
+      const { receipt: repeatCovered } = await queueLocalSubmit(covered);
+      const { receipt: submit } = await queueLocalSubmit(logical);
+      assert.deepEqual(reader.currentCut(), base, "the local submits queued before the replacement was accepted");
 
       writeFileSync(armFile, "armed");
       releaseReplace.resolve();
@@ -643,6 +641,8 @@ test(
       const coveredEdit = await submitCovered;
       assert.equal(coveredEdit.status, "accepted_durable", JSON.stringify(coveredEdit));
       assert.equal((await writer.run({ kind: "doc-show", path: covered }, binding)).evidence, localEdit);
+      const unchanged = await repeatCovered;
+      assert.equal(unchanged.outcome, "no_changes", JSON.stringify(unchanged));
       assert.equal(readFileSync(authored, "utf8"), oldBody);
       const blocked = await submit;
       const duringPause = await writer.run({ kind: "doc-show", path: logical }, binding);

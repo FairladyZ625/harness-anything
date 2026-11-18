@@ -193,16 +193,6 @@ export function scanDocCandidates(input: {
         activeProjected.document !== null || fileSize === null || !document.startsWith("decisions/decision-")
           ? activeProjected
           : (input.projection.readDocumentHistory?.(document) ?? activeProjected);
-    const projectedRevision = projected.document?.workspaceRevision ?? 0;
-    if (
-      input.worktreeRevision !== undefined &&
-      inventoried?.baseBytes === undefined &&
-      input.worktreeRevision < projectedRevision
-    )
-      throw docSyncError(
-        "materialization_failed",
-        `Document ${document} requires authored worktree revision ${projectedRevision} (checkpoint ${input.worktreeRevision}). Retry doc submit after Git publication.`,
-      );
     const inspection = inspectDocCandidate(
         document,
         fileSize,
@@ -218,13 +208,26 @@ export function scanDocCandidates(input: {
       effective = inspection.classification,
       bytes = rawBytes === null ? null : canonicalProseBytes(rawBytes, effective?.policyId),
       current = projected.document?.blobSha256 ?? null,
-      base =
-        inventoried?.baseBytes === undefined
-          ? current
-          : inventoried.baseBytes === null
-            ? null
-            : sha256Bytes(canonicalProseBytes(inventoried.baseBytes, effective?.policyId)),
-      candidate = bytes === null ? null : sha256Bytes(bytes);
+      candidate = bytes === null ? null : sha256Bytes(bytes),
+      projectedRevision = projected.document?.workspaceRevision ?? 0;
+    // Equal bytes already prove the projected document is on disk. Route-owned rows rebuild from projection.
+    if (
+      inspection.kind !== "route-owned" &&
+      candidate !== current &&
+      inventoried?.baseBytes === undefined &&
+      input.worktreeRevision !== undefined &&
+      input.worktreeRevision < projectedRevision
+    )
+      throw docSyncError(
+        "materialization_failed",
+        `Document ${document} requires authored worktree revision ${projectedRevision} (checkpoint ${input.worktreeRevision}). Retry doc submit after Git publication.`,
+      );
+    const base =
+      inventoried?.baseBytes === undefined
+        ? current
+        : inventoried.baseBytes === null
+          ? null
+          : sha256Bytes(canonicalProseBytes(inventoried.baseBytes, effective?.policyId));
     if (
       candidate === null &&
       projected.document !== null &&
