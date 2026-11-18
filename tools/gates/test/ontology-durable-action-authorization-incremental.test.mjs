@@ -31,7 +31,7 @@ import { exitCodeFor } from "../ontology-gate-lib.mjs";
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 let ordinal = 0;
 function partitionedTest(name, run) {
-  if (testOrdinalInPartition(ordinal++, process.env.HARNESS_TEST_PARTITION, [1, 1, 2, 3, 4, 1, 2, 4, 2]))
+  if (testOrdinalInPartition(ordinal++, process.env.HARNESS_TEST_PARTITION, [1, 1, 2, 3, 1, 4, 1, 2, 4, 2]))
     test(name, run);
 }
 
@@ -93,12 +93,12 @@ partitionedTest(
     for (const file of [
       "packages/kernel/src/ports/authorization-port.ts",
       "packages/kernel/src/domain/action-source-facets.json",
-      "packages/daemon/src/protocol/daemon-protocol.contract.ts",
+      "packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts",
       ...["open", "api", "command", "action-context", "action-dispatch", "command-run"].map(
-        (name) => `packages/daemon/src/repo-cell-${name}.ts`,
+        (name) => `packages/daemon/src/daemon-host/repo-cell-${name}.ts`,
       ),
-      "packages/daemon/src/daemon-host-open.ts",
-      "packages/daemon/src/rpc-command-routing.ts",
+      "packages/daemon/src/daemon-host/daemon-host-open.ts",
+      "packages/daemon/src/daemon-host/rpc-command-routing.ts",
       "tools/gates/authorization-flow-graph.mjs",
       "tools/gate-manifest.json",
       "package-lock.json",
@@ -177,7 +177,7 @@ function sourceCopy(t, { copyPackages = ["daemon"] } = {}) {
 partitionedTest("incremental permission route keeps the full proof's positive and negative verdicts", async (t) => {
   const inputs = await loadAuthorizationInputs(repoRoot);
   const dir = sourceCopy(t);
-  const file = "packages/daemon/src/access-admin-service.ts";
+  const file = "packages/daemon/src/daemon-host/access-admin-service.ts";
   const only = ["permission-request-decide"];
   const audit = (changedFiles) =>
     auditDurableActionAuthorization(repoRoot, inputs, { sourceRoot: dir, only, changedFiles });
@@ -204,20 +204,27 @@ function measuredGate(changedFiles) {
   const started = performance.now();
   const result = spawnSync(
     process.execPath,
-    [
-      "tools/gates/ontology-durable-action-authorization.mjs",
-      "--mode",
-      "ratchet",
-      "--changed-files-base64",
-      Buffer.from(JSON.stringify(changedFiles)).toString("base64"),
-    ],
-    { cwd: repoRoot, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
+    ["tools/gates/ontology-durable-action-authorization.mjs", "--mode", "ratchet", "--changed-files-stdin"],
+    { cwd: repoRoot, encoding: "utf8", input: JSON.stringify(changedFiles), maxBuffer: 16 * 1024 * 1024 },
   );
   assert.equal(result.status, 0, result.stderr + result.stdout);
   const count = /unproven authorization routes: 0\/(\d+)/u.exec(result.stdout);
   assert.ok(count, result.stdout);
   return { seconds: (performance.now() - started) / 1000, descriptors: Number(count[1]), stdout: result.stdout };
 }
+
+partitionedTest("stdin authorization scope rejects malformed or non-path input before auditing", () => {
+  // dec_04A9211B073F29F0FC1E1CA573 CH3: transport changes retain fail-closed input parsing.
+  for (const input of ["not-json", "{}", '["valid.ts", 1]']) {
+    const result = spawnSync(
+      process.execPath,
+      ["tools/gates/ontology-durable-action-authorization.mjs", "--changed-files-stdin"],
+      { cwd: repoRoot, encoding: "utf8", input },
+    );
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /JSON|array of paths/u);
+  }
+});
 
 partitionedTest("narrow test helper cut measures the CLI path without tracing unrelated descriptors", () => {
   const { stdout, ...measurement } = measuredGate(["tools/run-local-gates-check.test.mjs"]);
@@ -321,7 +328,7 @@ partitionedTest("daemon leaf action changes stay below 60 descriptors and detect
     ...inputs,
     descriptors: inputs.descriptors.filter((descriptor) => descriptor.commandClass !== "repo-read"),
   };
-  const file = "packages/daemon/src/todo-action.ts";
+  const file = "packages/daemon/src/daemon-host/todo-action.ts";
   const count = () => changedAuthorizationScope(graph, durableInputs, [file]).descriptorIds?.size;
   const selected = changedAuthorizationScope(graph, durableInputs, [file]).descriptorIds;
   assert.ok(selected?.has("todo-add") && selected.has("todo.add"), "both todo write ingresses remain selected");
@@ -332,7 +339,7 @@ partitionedTest("daemon leaf action changes stay below 60 descriptors and detect
   assert.ok(descriptors > 0 && descriptors < 60, `todo-action selected ${descriptors} descriptors; expected 1..59`);
   // Moving declarations alone is insufficient if their signatures still type-import the
   // composition root: every leaf importing the shared contracts joins the dispatcher again.
-  const contracts = "packages/daemon/src/repo-cell-types.ts";
+  const contracts = "packages/daemon/src/daemon-host/repo-cell-types.ts";
   const original = graph.modules.get(contracts);
   try {
     graph.modules.set(contracts, {

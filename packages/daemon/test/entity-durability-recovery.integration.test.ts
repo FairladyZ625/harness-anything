@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { grantArtifactKindScopes, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { makeTaskEventReader, openPersistentWriterEpoch } from "@harness-anything/storage";
@@ -655,7 +655,7 @@ const note = (why) => {
 for (const hook of ["exit", "beforeExit", "SIGTERM", "SIGINT", "SIGHUP"]) process.on(hook, () => note(hook));
 
 const { makeTaskEventReader } = await load("packages/storage/src/index.ts");
-const { canonicalRoot, workspaceId } = await load("packages/daemon/src/protocol/daemon-protocol.contract.ts");
+const { canonicalRoot, workspaceId } = await load("packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts");
 const { openBootstrappedRepoCell } = await load("packages/daemon/test/repo-settings.fixture.ts");
 const { withPolicyGroup } = await load("packages/daemon/test/keycloak-policy.fixtures.ts");
 

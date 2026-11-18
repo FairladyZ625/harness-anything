@@ -25,8 +25,8 @@ import {
   managedRbacVersions,
 } from "@harness-anything/authorization-keycloak/managed-rbac-service";
 import type { ManagedRbacHost } from "../../authorization-keycloak/src/managed-host.ts";
-import { createIdentityManagement } from "../src/authorization-provider.ts";
-import { validateCertificateNames } from "../src/tls-listener-admission.ts";
+import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
+import { validateCertificateNames } from "../src/daemon-host/tls-listener-admission.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
 function selectIdentityMode(root: string, mode: "external" | "managed"): void {

@@ -25,12 +25,13 @@ export interface WriteReceipt { authorizationDecision: AuthorizationDecision }`,
       "packages/kernel/src/ports/task-event-store.ts":
         "export interface CanonicalEventStore { readHead(): { revision: number } | null }",
       "packages/kernel/src/domain/write-chain.contract.ts": "export function assertCurrentWriter() {}",
-      "packages/daemon/src/repo-cell.ts": "export function chainRepoCellWrite(work: () => unknown) { return work(); }",
+      "packages/daemon/src/daemon-host/repo-cell.ts":
+        "export function chainRepoCellWrite(work: () => unknown) { return work(); }",
       [file]: `import { writeFileSync, appendFileSync } from "node:fs";
 import type { AuthorizationPort } from "../../kernel/src/ports/authorization-port.ts";
 import type { CanonicalEventStore } from "../../kernel/src/ports/task-event-store.ts";
 import { assertCurrentWriter } from "../../kernel/src/domain/write-chain.contract.ts";
-import { chainRepoCellWrite } from "./repo-cell.ts";
+import { chainRepoCellWrite } from "./daemon-host/repo-cell.ts";
 declare const port: AuthorizationPort, store: CanonicalEventStore;
 type JsonRpcRequest = { method: string };
 export function entry(request: JsonRpcRequest) {

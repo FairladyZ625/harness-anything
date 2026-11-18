@@ -14,7 +14,7 @@ import {
   assertFleetEdgeRepositoryGit,
   readFleetCenterGitMetadata,
   FleetEdgeGitPreflightError,
-} from "../src/fleet-edge-git-preflight.ts";
+} from "../src/daemon-host/fleet-edge-git-preflight.ts";
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();

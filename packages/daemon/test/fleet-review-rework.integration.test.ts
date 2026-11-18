@@ -7,9 +7,9 @@ import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { submissionDigest } from "@harness-anything/kernel";
 
-import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
-import { readFleetOperationalClient } from "../src/fleet/peer.ts";
-import { openNodeAutoDispatchLoop, parseNodeAutoDispatchSnapshot } from "../src/node-auto-dispatch.ts";
+import { openFleetEdgeRuntime } from "../src/daemon-host/fleet-edge-runtime.ts";
+import { readFleetOperationalClient } from "../src/daemon-host/fleet/peer.ts";
+import { openNodeAutoDispatchLoop, parseNodeAutoDispatchSnapshot } from "../src/daemon-host/node-auto-dispatch.ts";
 import { dualSyncFixture, ledgerRevision } from "./fleet-dual-sync.fixture.ts";
 import { scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
 

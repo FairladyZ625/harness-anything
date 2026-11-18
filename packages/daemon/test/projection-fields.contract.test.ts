@@ -2,7 +2,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { relationIsCurrent, type DecisionState } from "@harness-anything/kernel";
-import { validateDaemonDecisionList, validateDaemonRelationGraph } from "../src/protocol/daemon-protocol.contract.ts";
+import {
+  validateDaemonDecisionList,
+  validateDaemonRelationGraph,
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 
 test("decision full rows carry kernel capabilities while summary rows stay narrow", () => {
   const state: DecisionState = "proposed";

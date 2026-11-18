@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-const commandPath = "packages/daemon/src/protocol/daemon-protocol.contract.ts";
+const commandPath = "packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts";
 const contractPath = "packages/preset/src/preset-command-contract.ts";
 const renderPath = "packages/cli/src/cli/thin-command.ts";
 const entrypointPath = "packages/cli/src/index.ts";

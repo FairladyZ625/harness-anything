@@ -8,10 +8,10 @@ import { runtimeDefinitionSnapshotArtifact, sha256Text } from "@harness-anything
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
-import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
-import { authenticateRuntimeExecutionCredential } from "../src/runtime-execution-credential.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { runtimeDispatchIdentity } from "../src/task-dispatch-recovery.ts";
+import { appendRuntimeWorkerRecord } from "../src/daemon-host/dispatch-stream.ts";
+import { authenticateRuntimeExecutionCredential } from "../src/daemon-host/runtime-execution-credential.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { runtimeDispatchIdentity } from "../src/daemon-host/task-dispatch-recovery.ts";
 import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 import { definition, installation, initIngressRepo } from "./fixtures/runtime-ingress.ts";
 import { policyTestCenter, withPolicyGroup } from "./keycloak-policy.fixtures.ts";

@@ -3,9 +3,13 @@ import assert from "node:assert/strict";
 import { EventEmitter, once } from "node:events";
 import { setImmediate } from "node:timers/promises";
 import type { TLSSocket } from "node:tls";
-import { serve } from "../src/fleet/center-transport.ts";
-import { currentFleetProtocolVersion, parseFleetFrame, serializeFleetFrame } from "../src/fleet/command-protocol.ts";
-import type { FleetCenterOptions } from "../src/fleet/center-types.ts";
+import { serve } from "../src/daemon-host/fleet/center-transport.ts";
+import {
+  currentFleetProtocolVersion,
+  parseFleetFrame,
+  serializeFleetFrame,
+} from "../src/daemon-host/fleet/command-protocol.ts";
+import type { FleetCenterOptions } from "../src/daemon-host/fleet/center-types.ts";
 
 const mode = process.argv[2];
 assert.ok(mode === "drain" || mode === "close" || mode === "error-close" || mode === "error-write");

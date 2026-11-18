@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { SquadRunProjectionRow } from "@harness-anything/kernel";
-import { squadRulingResumeNext } from "../src/squad-ruling-resume.ts";
+import { squadRulingResumeNext } from "../src/daemon-host/squad-ruling-resume.ts";
 
 const SQUAD_RUN_ID = "squad_0123456789abcdef01234567",
   LEADER_DISPATCH_ID = "dispatch_000000000000000000000001",

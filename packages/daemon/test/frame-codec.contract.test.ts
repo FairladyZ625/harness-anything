@@ -5,7 +5,7 @@ import {
   createJsonLineFrameReader,
   encodeJsonLineFrame,
   JSON_LINE_FRAME_MAX_BYTES,
-} from "../src/transport/frame-codec.ts";
+} from "../src/daemon-host/transport/frame-codec.ts";
 
 const request = { jsonrpc: "2.0" as const, method: "ping", params: {} };
 

@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { replicaRetryDelay } from "../src/fleet/replica-retry.ts";
+import { replicaRetryDelay } from "../src/fleet-sync/fleet/replica-retry.ts";
 
 test("protocol and quota failures have a finite three-attempt budget with exponential backoff and jitter", () => {
   for (const code of [

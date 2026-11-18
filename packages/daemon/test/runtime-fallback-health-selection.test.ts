@@ -4,10 +4,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { settleFallbackAttempt } from "../src/runtime-spawn-fallback.ts";
-import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "../src/runtime-fallback-contract.ts";
-import type { RuntimeProviderHealth } from "../src/runtime-provider-health.ts";
-import type { ActiveRuntime, RuntimeAttemptTerminal, RuntimeSpawnerContext } from "../src/runtime-spawn-types.ts";
+import { settleFallbackAttempt } from "../src/daemon-host/runtime-spawn-fallback.ts";
+import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "../src/daemon-host/runtime-fallback-contract.ts";
+import type { RuntimeProviderHealth } from "../src/runtime-engine/runtime-provider-health.ts";
+import type {
+  ActiveRuntime,
+  RuntimeAttemptTerminal,
+  RuntimeSpawnerContext,
+} from "../src/daemon-host/runtime-spawn-types.ts";
 
 // Health is selection-time information, not chain membership. The chain keeps every declared
 // candidate; when the next candidate is cooling the settle must wait for its recovery, and a

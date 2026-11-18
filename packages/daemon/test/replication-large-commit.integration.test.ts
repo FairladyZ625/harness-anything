@@ -14,9 +14,9 @@ import {
   openReplicaProjection,
 } from "@harness-anything/storage";
 import { eventAt, initRepo } from "../../storage/test/store/task-event-store.fixtures.ts";
-import { runWalSender } from "../src/fleet/walsender.ts";
-import { runWalReceiver } from "../src/fleet/walreceiver.ts";
-import type { ReplicationFrame, ReplicationPeer } from "../src/fleet/protocol.ts";
+import { runWalSender } from "../src/daemon-host/fleet/walsender.ts";
+import { runWalReceiver } from "../src/daemon-host/fleet/walreceiver.ts";
+import type { ReplicationFrame, ReplicationPeer } from "../src/fleet-sync/fleet/protocol.ts";
 
 async function streamEnvelope(
   megabytes: number,

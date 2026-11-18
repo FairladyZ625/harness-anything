@@ -4,8 +4,8 @@ import { execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
-import { reportFleetDeviceLogin } from "../../../packages/daemon/src/fleet/peer.ts";
+import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
+import { reportFleetDeviceLogin } from "../../../packages/daemon/src/daemon-host/fleet/peer.ts";
 
 // Real daemon inbox + TLS authentication + Electron IPC/browser; the provider page is a protocol fixture.
 export default {

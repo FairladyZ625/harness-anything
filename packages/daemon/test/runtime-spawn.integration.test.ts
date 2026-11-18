@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { daemonBuildStamp } from "../src/build-identity.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
@@ -13,19 +13,23 @@ import {
   openRuntimeInstanceStore,
   type RuntimeInstallationWitness,
   type RuntimeInstanceSummary,
-} from "../src/agent-runtime-instances.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { appendRuntimeWorkerRecord, dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
+} from "../src/daemon-host/agent-runtime-instances.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import {
+  appendRuntimeWorkerRecord,
+  dispatchStreamPath,
+  readDispatchStream,
+} from "../src/daemon-host/dispatch-stream.ts";
 import { waitForArrival, watchFileArrival } from "../../../tools/fixtures/event-arrival.ts";
-import { validateRuntimeSpawnReceipt } from "../src/gui-s3-control.ts";
+import { validateRuntimeSpawnReceipt } from "../src/daemon-host/gui-s3-control.ts";
 import {
   canonicalRoot,
   makeDaemonCommandReceipt,
   validateDaemonGuiCommandReceipt,
   workspaceId,
-} from "../src/protocol/daemon-protocol.contract.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import {
   openBootstrappedRepoCell as openRepoCell,
   registerSettledBootstrappedDaemonRepo,

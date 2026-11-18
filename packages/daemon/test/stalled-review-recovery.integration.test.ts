@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { fixture, taskId } from "./task-completion-review.fixture.ts";
-import { readDispatchStream } from "../src/dispatch-stream.ts";
+import { readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 
 test("a reviewer launch failure closes its admitted attempt without a process or transcript", async () => {
   const f = await fixture(false, true, false, false, false, { autoSubmit: false, providerInputLimit: 1 });

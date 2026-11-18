@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
-import { runFleetEdgeTaskCommand } from "../src/fleet-edge-write.ts";
+import { runFleetEdgeTaskCommand } from "../src/daemon-host/fleet-edge-write.ts";
 
 test("a task command retry calls the same write closure, so the entry-minted request id is reused", async () => {
   const requestOpId = randomUUID(),

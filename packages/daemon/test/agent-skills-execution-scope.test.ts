@@ -5,15 +5,15 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { BuiltinPolicyAdapter } from "@harness-anything/authorization-builtin";
-import { readAgentSkillsGui } from "../src/agent-skills.ts";
-import { createRepoCellApi, repoCellSynchronousRead } from "../src/repo-cell-api.ts";
-import { daemonGuiReadMethods } from "../src/protocol/daemon-protocol.contract.ts";
+import { readAgentSkillsGui } from "../src/daemon-host/agent-skills.ts";
+import { createRepoCellApi, repoCellSynchronousRead } from "../src/daemon-host/repo-cell-api.ts";
+import { daemonGuiReadMethods } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import {
   authenticateRuntimeExecutionCredential,
   issueRuntimeExecutionCredential,
   runtimeExecutionLifetimeMs,
-} from "../src/runtime-execution-credential.ts";
-import { requireExecutionRequestScope } from "../src/runtime-execution-scope.ts";
+} from "../src/daemon-host/runtime-execution-credential.ts";
+import { requireExecutionRequestScope } from "../src/daemon-host/runtime-execution-scope.ts";
 
 const principal = () => ({
     personId: "person-skills",

@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { readDispatchStream } from "../src/dispatch-stream.ts";
-import { resolveRuntimeCwd } from "../src/runtime-spawn-mission.ts";
+import { readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { resolveRuntimeCwd } from "../src/daemon-host/runtime-spawn-mission.ts";
 import { fixture, owner } from "./task-completion-review.fixture.ts";
 
 test(

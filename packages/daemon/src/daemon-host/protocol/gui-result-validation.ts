@@ -1,0 +1,566 @@
+import { validateHomeOverviewResult } from "../home/home-overview-validation.ts";
+import { repositoryReadData, validateRepositoryReadFrame } from "./repository-read-frame.ts";
+import { validateTaskClaimableResult, validateTaskAssignmentDirectory } from "./daemon-protocol-validate-entities.ts";
+import {
+  validateAgentRuntimeAttach,
+  validateAgentRuntimeAttachEvent,
+  type AgentRuntimeAttachEvent,
+} from "../agent-runtime-stream.ts";
+import {
+  validateAgentRuntimeEvents,
+  validateAgentRuntimeOverview,
+  validateAgentRuntimeSession,
+} from "../agent-runtime-contract.ts";
+import {
+  taskWipRootRowFields,
+  taskWipOccupyingStatuses,
+  validateEntityActionExplanationSet,
+  validateEntityKindCatalog,
+  sha256Bytes,
+  SETTINGS_DECLARATION_RUNTIME,
+  validateSettingsV1,
+  withoutUndeclaredSettingsFields,
+} from "@harness-anything/kernel";
+import { validateVerticalDeclarationRead } from "@harness-anything/kernel/schemas";
+import {
+  validateAgentEntityCatalog,
+  validateAgentEntityDetail,
+  validateAgentHistory,
+  validateAgentSkillCatalog,
+  validateAgentVersion,
+  validateSquadEntityCatalog,
+  validateSquadEntityDetail,
+} from "./agent-entity-gui-contract.ts";
+import { validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
+import { validateDaemonTaskCompletion } from "./daemon-protocol-task-completion.ts";
+import { validateDaemonTaskDeliveryDiff } from "./daemon-protocol-task-delivery-diff.ts";
+import { validateDaemonWorkTopology } from "./daemon-protocol-work-topology.ts";
+export { validateDaemonWorkTopology } from "./daemon-protocol-work-topology.ts";
+import { validateDaemonTaskSnapshotListServed } from "./daemon-protocol-validate-task.ts";
+import { validationError } from "./daemon-protocol-validate-entities.ts";
+import { validateArtifactsList } from "./artifacts-gui-contract.ts";
+import { validateDaemonUseCaseProjection } from "./daemon-protocol-use-case-projection.ts";
+import { validateEntityRowList } from "../entity-rows-read.ts";
+import { validateAgentRuntimeTokenUsage, validateAgentRuntimeTokenUsageDetail } from "../agent-runtime-token-usage.ts";
+import { validateEntityContentRead } from "../entity-content-read.ts";
+import { validateEntityLocatorRead } from "../entity-locator-read.ts";
+import { isJsonObject } from "./json-rpc-types.ts";
+import { validateSquadRunRead, validateSquadRunsList } from "../squad-run-contract.ts";
+import { validateFleetOverview } from "../fleet/fleet-overview-read.ts";
+import {
+  validateAgentDispatchPreview,
+  validateCatalogPreset,
+  validateCatalogRereadReceipt,
+  validateCatalogSnapshot,
+  validateDaemonControlReceipt,
+  validateRuntimeSpawnReceipt,
+  validateSystemStatus,
+  validateTerminalAttach,
+  validateTerminalAttachEvent,
+  validateTerminalControlReceipt,
+  validateTerminalDetachAck,
+  validateTerminalInputAck,
+  validateTerminalSessionList,
+} from "../gui-s3-control.ts";
+import {
+  DaemonProtocolContractError,
+  validateDaemonAgenda,
+  validateDaemonDecisionList,
+  validateDaemonDocumentRead,
+  validateDaemonGuiCommandReceipt,
+  validateDaemonProtocolError,
+  validateDaemonRelationGraph,
+  validateDaemonTaskDispatches,
+  validateDaemonTaskDocumentList,
+  validateDaemonTaskSnapshotList,
+  validateDaemonWorkspaceSummary,
+  type DaemonGuiActionMethod,
+  type DaemonGuiActionResult,
+  type DaemonGuiReadResultMap,
+  type DaemonGuiRpcReadMethod,
+  type DaemonStreamMethod,
+  type DaemonStreamResultMap,
+  type DaemonProtocolErrorResult,
+} from "./daemon-protocol.contract.ts";
+type ResultValidator = (value: unknown) => readonly string[];
+const settingsReadFields = ["schema", "ok", "settings", "values", "revision", "lastChanged", "decisionPoints"] as const;
+// Action values this client declares; a newer daemon may add one this GUI does not know.
+const settingsActionFields = new Set(SETTINGS_DECLARATION_RUNTIME.actionInputFields.map(({ field }) => field));
+const flatSettingsValue = (item: unknown): boolean =>
+  typeof item === "string" ||
+  typeof item === "number" ||
+  typeof item === "boolean" ||
+  (Array.isArray(item) && item.every((entry) => typeof entry === "string"));
+// `roles` is the one action field that is itself a record (role name to declared agent id).
+const settingsActionValue = ([field, item]: readonly [string, unknown]): boolean =>
+  field === "roles"
+    ? isJsonObject(item) && Object.values(item).every((agent) => typeof agent === "string")
+    : field === "runtimeCommandInterceptions"
+      ? Array.isArray(item) && item.every(isJsonObject)
+      : flatSettingsValue(item);
+const clientSettingsActionValue = (entry: readonly [string, unknown]): boolean =>
+  !settingsActionFields.has(entry[0]) || settingsActionValue(entry);
+const settingsLastChange = (item: unknown): boolean =>
+  item === "initial" ||
+  (isJsonObject(item) &&
+    typeof item.occurredAt === "string" &&
+    typeof item.actor === "string" &&
+    Number.isSafeInteger(item.revision));
+function settingsReadErrors(
+  value: Record<string, unknown>,
+  settingsErrors: readonly string[],
+  actionValue: (entry: readonly [string, unknown]) => boolean,
+  exactKeys: boolean,
+): readonly string[] {
+  const valid =
+    (!exactKeys || Object.keys(value).length === 7) &&
+    settingsReadFields.every((field) => Object.hasOwn(value, field)) &&
+    Array.isArray(value.decisionPoints) &&
+    value.schema === "daemon.settings-read/v1" &&
+    value.ok === true &&
+    settingsErrors.length === 0 &&
+    isJsonObject(value.values) &&
+    Object.entries(value.values).every(actionValue) &&
+    Number.isSafeInteger(value.revision) &&
+    settingsLastChange(value.lastChanged);
+  return valid
+    ? []
+    : [
+        validationError(
+          "settings",
+          value.schema !== "daemon.settings-read/v1"
+            ? "schema"
+            : value.ok !== true
+              ? "ok"
+              : settingsErrors.length > 0
+                ? "settings"
+                : "values",
+          value.schema !== "daemon.settings-read/v1"
+            ? value.schema
+            : value.ok !== true
+              ? value.ok
+              : settingsErrors.length > 0
+                ? value.settings
+                : value.values,
+          "must be a valid daemon settings read",
+        ),
+      ];
+}
+const settingsReadShapeError = (value: unknown): readonly string[] => [
+  validationError("settings", "result", value, "must be a valid daemon settings read"),
+];
+/** Daemon exit: the process that owns the contract still judges its own served shape. */
+export const validateDaemonSettingsRead: ResultValidator = (value) =>
+  isJsonObject(value)
+    ? settingsReadErrors(value, validateSettingsV1(value.settings), settingsActionValue, true)
+    : settingsReadShapeError(value);
+/** Client inbound: a GUI built before a daemon release projects undeclared settings fields away
+ * and ignores action values it does not declare. The daemon exit above stays closed. */
+const validateDaemonSettingsReadForClient: ResultValidator = (value) =>
+  isJsonObject(value)
+    ? settingsReadErrors(
+        value,
+        validateSettingsV1(withoutUndeclaredSettingsFields(value.settings)),
+        clientSettingsActionValue,
+        false,
+      )
+    : settingsReadShapeError(value);
+const validateTaskRuntimeContextRead: ResultValidator = (value) =>
+  isJsonObject(value) &&
+  Object.keys(value).length === 11 + Number(Object.hasOwn(value, "escalationContext")) &&
+  value.schema === "task-runtime-context-read/v3" &&
+  (value.escalationContext === undefined ||
+    value.escalationContext === null ||
+    typeof value.escalationContext === "string") &&
+  value.ok === true &&
+  typeof value.taskId === "string" &&
+  value.taskId.length > 0 &&
+  (value.causalContext === null || typeof value.causalContext === "string") &&
+  (value.riskTier === null || ["low", "medium", "high"].includes(String(value.riskTier))) &&
+  (value.riskTierFlowVersion === null || value.riskTierFlowVersion === 1) &&
+  (value.profileId === null || typeof value.profileId === "string") &&
+  (value.reviewerNote === null || typeof value.reviewerNote === "string") &&
+  (value.worktree === null ||
+    (isJsonObject(value.worktree) &&
+      Object.keys(value.worktree).length === 2 &&
+      typeof value.worktree.branch === "string" &&
+      typeof value.worktree.path === "string")) &&
+  (value.continuationContext === null ||
+    (isJsonObject(value.continuationContext) &&
+      Object.keys(value.continuationContext).length === 3 &&
+      typeof value.continuationContext.dispatchId === "string" &&
+      (value.continuationContext.lastConclusion === null ||
+        typeof value.continuationContext.lastConclusion === "string") &&
+      (value.continuationContext.exitHead === null || typeof value.continuationContext.exitHead === "string"))) &&
+  isJsonObject(value.snapshot)
+    ? []
+    : [validationError("task-runtime-context", "result", value, "must be a valid task runtime context read")];
+import { validatePolicyMetadataRead, validateReckoningRead } from "./daemon-protocol-repository-reads.ts";
+
+const resultValidators = {
+  "daemon.gui.system.read": validateSystemStatus,
+  "daemon.gui.home.read": validateHomeOverviewResult,
+  "daemon.gui.control.receipt": validateDaemonControlReceipt,
+  "observe.tail": validateObserveTailResult,
+  "repo.tasks.assignmentDirectory": validateTaskAssignmentDirectory,
+  "repo.tasks.claimable": validateTaskClaimableResult,
+  "repo.tasks.list": validateDaemonTaskSnapshotListServed,
+  "repo.tasks.completion.read": validateDaemonTaskCompletion,
+  "repo.tasks.runtimeContext.read": validateTaskRuntimeContextRead,
+  "repo.tasks.wip": validateDaemonTaskWip,
+  "repo.works.index": validateDaemonWorkIndex,
+  "repo.work.topology.read": validateDaemonWorkTopology,
+  "repo.works.briefs.read": validateDaemonWorkBriefs,
+  "repo.projection.read": validateDaemonUseCaseProjection,
+  "repo.entity.actions.explain": validateEntityActionExplanationSet,
+  "repo.entity.kinds.read": validateEntityKindCatalog,
+  "repo.vertical.declaration.read": validateVerticalDeclarationRead,
+  "repo.entity.rows.read": validateEntityRowList,
+  "repo.entity.locator.read": validateEntityLocatorRead,
+  "repo.entity.content.read": validateEntityContentRead,
+  "repo.settings.read": validateDaemonSettingsRead,
+  "repo.reckoning.signals.read": validateReckoningRead,
+  "repo.policy.metadata.read": validatePolicyMetadataRead,
+  "repo.workspace.summary.read": validateDaemonWorkspaceSummary,
+  "repo.workspace.scope.read": validateDaemonWorkspaceScope,
+  "repo.agenda.read": validateDaemonAgenda,
+  "repo.triadic.relationGraph": validateDaemonRelationGraph,
+  "repo.decisions.list": validateDaemonDecisionList,
+  "repo.tasks.document.read": validateDaemonDocumentRead,
+  "repo.tasks.documents.list": validateDaemonTaskDocumentList,
+  "repo.tasks.deliveryDiff.read": validateDaemonTaskDeliveryDiff,
+  "repo.artifacts.list": validateArtifactsList,
+  "repo.agentRuntime.overview": validateAgentRuntimeOverview,
+  "repo.agentRuntime.sessions.read": validateAgentRuntimeSession,
+  "repo.agentRuntime.events.read": validateAgentRuntimeEvents,
+  "repo.agentRuntime.tokenUsage": validateAgentRuntimeTokenUsage,
+  "repo.agentRuntime.tokenUsageDetail": validateAgentRuntimeTokenUsageDetail,
+  "repo.task.dispatches": validateDaemonTaskDispatches,
+  "repo.agent.entities.list": validateAgentEntityCatalog,
+  "repo.agent.entity.read": validateAgentEntityDetail,
+  "repo.agent.history.read": validateAgentHistory,
+  "repo.agent.version.read": validateAgentVersion,
+  "repo.agent.skills.list": validateAgentSkillCatalog,
+  "repo.squad.entities.list": validateSquadEntityCatalog,
+  "repo.squad.entity.read": validateSquadEntityDetail,
+  "repo.squad.runs.list": validateSquadRunsList,
+  "repo.squad.run.read": validateSquadRunRead,
+  "repo.gui.catalog.snapshot": validateCatalogSnapshot,
+  "repo.gui.catalog.preset.read": validateCatalogPreset,
+  "repo.terminal.sessions.list": validateTerminalSessionList,
+  "repo.fleet.overview.read": validateFleetOverview,
+} satisfies Record<DaemonGuiRpcReadMethod, ResultValidator>;
+
+// Client inbound only. A daemon from the current/previous protocol window may have added a field
+// this GUI bundle does not declare; when the only failures are unknown fields, the read view must
+// still render them. Every other failure (missing field, wrong type, secret-shaped key, schema id)
+// stays fatal. `protocol.hello` already refused any peer outside {current, previous} before this
+// parser runs, so the tolerance is bounded to that window rather than being permanent.
+function isUnknownReadFieldError(error: string): boolean {
+  return (
+    / field "[^"]+" is unknown; remove it\.$/u.test(error) ||
+    / is not allowed$/u.test(error) ||
+    error === "observe tail payload contains an unknown field"
+  );
+}
+const ignoredReadFields = new Set<string>();
+function reportIgnoredReadFields(method: DaemonGuiRpcReadMethod, errors: readonly string[]): void {
+  for (const error of errors) {
+    // Row indexes are not part of the ignored field's identity: agents[0..8] carrying the same
+    // additive field produce one diagnostic, not one per row.
+    const fieldIdentity = error.replace(/\[\d+\]/gu, "[]"),
+      key = `${method}\u0000${fieldIdentity}`;
+    if (ignoredReadFields.has(key)) continue;
+    ignoredReadFields.add(key);
+    console.warn(`[gui-read-compat] ${method} ignored an additive daemon field: ${fieldIdentity}`);
+  }
+}
+
+export function validateDaemonWorkspaceScope(value: unknown): readonly string[] {
+  if (!isJsonObject(value)) return [validationError("workspace-scope", "result", value, "must be an object")];
+  const row = (item: unknown) =>
+    isJsonObject(item) &&
+    typeof item.taskId === "string" &&
+    typeof item.title === "string" &&
+    typeof item.status === "string" &&
+    typeof item.taskClass === "string" &&
+    (item.parentTaskId === null || typeof item.parentTaskId === "string") &&
+    typeof item.hasChildren === "boolean";
+  const valid =
+    value.schema === "daemon.workspace-scope/v1" &&
+    value.ok === true &&
+    (value.status === "ready" || value.status === "pending") &&
+    row(value.root) &&
+    Array.isArray(value.ancestors) &&
+    value.ancestors.every(row) &&
+    Array.isArray(value.groups) &&
+    value.groups.every(row) &&
+    Array.isArray(value.memberTaskIds) &&
+    value.memberTaskIds.every((taskId) => typeof taskId === "string") &&
+    Array.isArray(value.eventSummaries) &&
+    value.eventSummaries.every(isJsonObject) &&
+    typeof value.eventWindowComplete === "boolean" &&
+    Array.isArray(value.tasks) &&
+    value.tasks.every(row) &&
+    isJsonObject(value.counts) &&
+    isJsonObject(value.scope) &&
+    isJsonObject(value.page) &&
+    Array.isArray(value.incompleteParentRefs) &&
+    value.incompleteParentRefs.every((ref) => typeof ref === "string") &&
+    Number.isSafeInteger(value.watermark) &&
+    Number.isSafeInteger(value.sourceRevision) &&
+    Array.isArray(value.warnings);
+  return valid ? [] : [validationError("workspace-scope", "result", value, "must be a valid workspace scope")];
+}
+
+export function validateDaemonWorkIndex(value: unknown): readonly string[] {
+  if (!isJsonObject(value)) return [validationError("work-index", "result", value, "must be an object")];
+  const strings = (items: unknown) => Array.isArray(items) && items.every((item) => typeof item === "string");
+  const work = (item: unknown) =>
+    isJsonObject(item) &&
+    typeof item.taskId === "string" &&
+    typeof item.title === "string" &&
+    (item.root === "declared" || item.root === "derived") &&
+    (item.parentTaskId === null || typeof item.parentTaskId === "string") &&
+    strings(item.memberTaskIds);
+  const valid =
+    value.schema === "daemon.work-index/v1" &&
+    value.ok === true &&
+    (value.status === "ready" || value.status === "pending") &&
+    Array.isArray(value.works) &&
+    value.works.every(work) &&
+    Number.isSafeInteger(value.watermark) &&
+    Number.isSafeInteger(value.sourceRevision) &&
+    Array.isArray(value.warnings);
+  return valid ? [] : [validationError("work-index", "result", value, "must be a valid work index")];
+}
+
+export function validateDaemonWorkBriefs(value: unknown): readonly string[] {
+  if (!isJsonObject(value)) return [validationError("work-briefs", "result", value, "must be an object")];
+  const askKinds = ["question", "acceptance", "consent", "reopen"],
+    buckets = ["waiting", "stuck", "running", "unclear", "done"],
+    partKinds = ["ask", "blocked", "executing", "review", "planned", "delivered", "retired"];
+  const refTimeStringOrNull = (item: unknown) => item === null || typeof item === "string";
+  const drawerTask = (item: unknown) =>
+    isJsonObject(item) &&
+    typeof item.taskId === "string" &&
+    typeof item.title === "string" &&
+    typeof item.status === "string" &&
+    typeof item.updatedAt === "string";
+  const ask = (item: unknown) =>
+    isJsonObject(item) &&
+    typeof item.relationId === "string" &&
+    typeof item.sourceRef === "string" &&
+    typeof item.title === "string" &&
+    typeof item.question === "string" &&
+    askKinds.includes(String(item.askKind));
+  const part = (item: unknown) =>
+    isJsonObject(item) &&
+    partKinds.includes(String(item.kind)) &&
+    // planned 与 retired 是纯状态分句(「还剩没开工的事」/「已收口」),不带标题;其余分句必须带标题。
+    (item.kind === "planned" || item.kind === "retired" || typeof item.title === "string");
+  const pull = (item: unknown) =>
+    isJsonObject(item) &&
+    typeof item.taskId === "string" &&
+    typeof item.branch === "string" &&
+    (item.prNumber === null || typeof item.prNumber === "number") &&
+    (item.pass === null || typeof item.pass === "boolean") &&
+    typeof item.occurredAt === "string";
+  const brief = (item: unknown) =>
+    isJsonObject(item) &&
+    typeof item.taskId === "string" &&
+    typeof item.title === "string" &&
+    buckets.includes(String(item.bucket)) &&
+    typeof item.lastActivityAt === "string" &&
+    refTimeStringOrNull(item.deliveredAt) &&
+    Array.isArray(item.sentenceParts) &&
+    item.sentenceParts.every(part) &&
+    Array.isArray(item.asks) &&
+    item.asks.every(ask) &&
+    Array.isArray(item.openTasks) &&
+    item.openTasks.every(drawerTask) &&
+    Array.isArray(item.deliveredTasks) &&
+    item.deliveredTasks.every(drawerTask) &&
+    Array.isArray(item.pullRequests) &&
+    item.pullRequests.every(pull);
+  const valid =
+    value.schema === "daemon.work-briefs/v1" &&
+    value.ok === true &&
+    (value.status === "ready" || value.status === "pending") &&
+    Array.isArray(value.briefs) &&
+    value.briefs.every(brief) &&
+    Number.isSafeInteger(value.watermark) &&
+    Number.isSafeInteger(value.sourceRevision) &&
+    Array.isArray(value.warnings);
+  return valid ? [] : [validationError("work-briefs", "result", value, "must be a valid work briefs read")];
+}
+
+export function validateDaemonTaskWip(value: unknown): readonly string[] {
+  if (!isJsonObject(value)) return [validationError("task-wip", "result", value, "must be an object")];
+  // Forward-compat: a newer daemon may attach self-describing fields the client ignores, so the
+  // contract is required-field presence plus types, never an exact key count.
+  const fields = ["ok", "limit", "limitLabel", "counted", "roots", "threshold"];
+  if (fields.some((field) => !Object.hasOwn(value, field)))
+    return [validationError("task-wip", "result", value, "must have the declared task WIP fields")];
+  const positive = (item: unknown) => Number.isSafeInteger(item) && Number(item) > 0,
+    nonNegative = (item: unknown) => Number.isSafeInteger(item) && Number(item) >= 0,
+    counted =
+      Array.isArray(value.counted) &&
+      value.counted.every(
+        (row) =>
+          isJsonObject(row) &&
+          typeof row.taskId === "string" &&
+          row.taskId.length > 0 &&
+          typeof row.title === "string" &&
+          (taskWipOccupyingStatuses as readonly string[]).includes(String(row.status)),
+      ),
+    roots =
+      Array.isArray(value.roots) &&
+      value.roots.every(
+        (row) =>
+          isJsonObject(row) &&
+          taskWipRootRowFields.every((field) => Object.hasOwn(row, field)) &&
+          typeof row.taskId === "string" &&
+          row.taskId.length > 0 &&
+          ["declared", "derived"].includes(String(row.reason)) &&
+          nonNegative(row.directChildCount) &&
+          positive(row.threshold),
+      );
+  return value.ok === true &&
+    positive(value.limit) &&
+    typeof value.limitLabel === "string" &&
+    value.limitLabel.length > 0 &&
+    positive(value.threshold) &&
+    counted &&
+    roots
+    ? []
+    : [validationError("task-wip", "result", value, "must be a valid task WIP snapshot")];
+}
+export function parseDaemonGuiReadResult<M extends DaemonGuiRpcReadMethod>(
+  method: M,
+  value: unknown,
+): DaemonGuiReadResultMap[M] {
+  const errors = [...validateRepositoryReadFrame(value), ...resultValidators[method](repositoryReadData(value))];
+  if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
+  return value as DaemonGuiReadResultMap[M];
+}
+/** Client inbound only: hand the renderer the action-value surface this GUI declares. An unknown
+ * key from a newer daemon is ignored rather than forwarded to a guard that cannot know it. */
+function settingsReadWithoutUndeclaredActionValues(value: unknown): unknown {
+  if (!isJsonObject(value)) return value;
+  const data = repositoryReadData(value);
+  if (!isJsonObject(data) || data.schema !== "daemon.settings-read/v1" || !isJsonObject(data.values)) return value;
+  const values = Object.fromEntries(Object.entries(data.values).filter(([field]) => settingsActionFields.has(field)));
+  return Object.keys(values).length === Object.keys(data.values).length ? value : { ...value, values };
+}
+export function parseDaemonGuiReadResponse<M extends DaemonGuiRpcReadMethod>(
+  method: M,
+  value: unknown,
+): DaemonGuiReadResultMap[M] | DaemonProtocolErrorResult {
+  // Client inbound: rows are re-judged here because they crossed a process boundary; the
+  // same-process exit (resultValidators) only re-checks the served shape.
+  const normalized =
+      method === "repo.tasks.document.read"
+        ? previousDocumentReadResult(value)
+        : method === "repo.settings.read"
+          ? settingsReadWithoutUndeclaredActionValues(value)
+          : value,
+    data = repositoryReadData(normalized);
+  const errors =
+      isJsonObject(normalized) && normalized.ok === false
+        ? validateDaemonProtocolError(normalized)
+        : [
+            ...validateRepositoryReadFrame(normalized),
+            ...(method === "repo.tasks.list"
+              ? validateDaemonTaskSnapshotList(data)
+              : method === "repo.settings.read"
+                ? validateDaemonSettingsReadForClient(data)
+                : resultValidators[method](data)),
+          ],
+    ignored = errors.filter(isUnknownReadFieldError),
+    fatal = errors.filter((error) => !isUnknownReadFieldError(error));
+  if (fatal.length) throw new DaemonProtocolContractError("invalid_result", fatal.join("; "));
+  if (ignored.length) reportIgnoredReadFields(method, ignored);
+  return normalized as DaemonGuiReadResultMap[M] | DaemonProtocolErrorResult;
+}
+
+/** A v2 daemon answer has no source/syncState. Keep its readable content, but mark provenance
+ * unknown and make a raw artifact's digest/size describe the bytes that were actually returned. */
+function previousDocumentReadResult(value: unknown): unknown {
+  if (!isJsonObject(value) || value.ok === false) return value;
+  const data = repositoryReadData(value);
+  if (!isJsonObject(data) || Object.hasOwn(data, "source")) return value;
+  const normalized: Record<string, unknown> = {
+    ...value,
+    source: "unobservable",
+    syncState: "unobservable",
+    canonicalVersion: null,
+    execution: null,
+    unobservableReason: "previous_daemon_response",
+  };
+  if (data.contentKind === "binary") {
+    if (typeof data.bytes === "string") {
+      const bytes = Buffer.from(data.bytes, "base64");
+      normalized.blobSha256 = sha256Bytes(bytes);
+      normalized.size = bytes.byteLength;
+    } else {
+      // No returned bytes to hash: the v2 digest may describe the accepted cut while the live
+      // bytes were unavailable, so it cannot be attached to this answer.
+      normalized.blobSha256 = null;
+      normalized.size = null;
+    }
+  }
+  return normalized;
+}
+export function parseDaemonGuiActionResult(method: DaemonGuiActionMethod, value: unknown): DaemonGuiActionResult {
+  const errors =
+    method === "daemon.gui.control.request"
+      ? validateDaemonControlReceipt(value)
+      : method === "repo.gui.catalog.reread"
+        ? validateCatalogRereadReceipt(value)
+        : method === "repo.agentRuntime.spawn"
+          ? isJsonObject(value) && value.schema === "agent-dispatch-preview/v1"
+            ? validateAgentDispatchPreview(value)
+            : validateRuntimeSpawnReceipt(value)
+          : method === "repo.terminal.input"
+            ? validateTerminalInputAck(value)
+            : method === "repo.terminal.detach"
+              ? validateTerminalDetachAck(value)
+              : method.startsWith("repo.terminal.") || method.startsWith("repo.runtimeInstance.auth.")
+                ? validateTerminalControlReceipt(value)
+                : validateDaemonGuiCommandReceipt(value);
+  if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
+  return value as DaemonGuiActionResult;
+}
+export function parseDaemonGuiActionResponse(
+  method: DaemonGuiActionMethod,
+  value: unknown,
+): DaemonGuiActionResult | DaemonProtocolErrorResult {
+  if (isJsonObject(value) && value.opId === "N/A") {
+    if (!isDaemonProtocolErrorResult(value))
+      throw new DaemonProtocolContractError("invalid_result", validateDaemonProtocolError(value).join("; "));
+    return value;
+  }
+  return parseDaemonGuiActionResult(method, value);
+}
+function isDaemonProtocolErrorResult(value: unknown): value is DaemonProtocolErrorResult {
+  return validateDaemonProtocolError(value).length === 0;
+}
+export function parseDaemonStreamResult<M extends DaemonStreamMethod>(
+  method: M,
+  value: unknown,
+): DaemonStreamResultMap[M] {
+  const errors =
+    method === "repo.agentRuntime.attach" ? validateAgentRuntimeAttach(value) : validateTerminalAttach(value);
+  if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
+  return value as DaemonStreamResultMap[M];
+}
+export function parseDaemonStreamEvent(
+  method: DaemonStreamMethod,
+  value: unknown,
+): AgentRuntimeAttachEvent | import("./json-rpc-types.ts").JsonObject {
+  const errors =
+    method === "repo.agentRuntime.attach" ? validateAgentRuntimeAttachEvent(value) : validateTerminalAttachEvent(value);
+  if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
+  return value as AgentRuntimeAttachEvent | import("./json-rpc-types.ts").JsonObject;
+}

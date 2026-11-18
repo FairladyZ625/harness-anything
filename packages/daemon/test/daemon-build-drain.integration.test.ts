@@ -6,21 +6,21 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch, writeF
 import { tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
-import { JsonRpcLineClient } from "../src/client/local-json-rpc-client.ts";
-import { openRemoteProxyManager } from "../src/remote-proxy.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
+import { JsonRpcLineClient } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { openRemoteProxyManager } from "../src/daemon-host/remote-proxy.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection, registerDaemonRepo } from "@harness-anything/storage";
 import { consumeKnownError, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { waitForArrival, waitForDurableCondition, waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
 
-import { ensureLocalDaemonRunning, type DaemonLaunchSpec } from "../src/client/daemon-autostart.ts";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { openDaemonJsonRpcClientAt, requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import { observeDaemonBuild } from "../src/build-identity.ts";
-import { daemonLifecycleLogPath, readDaemonLifecycleRecords } from "../src/lifecycle-log.ts";
-import { daemonSingletonLockPath } from "../src/daemon-singleton.ts";
-import { daemonPidPath, readDaemonPid, startDaemon, type RunningDaemon } from "../src/runtime.ts";
+import { ensureLocalDaemonRunning, type DaemonLaunchSpec } from "../src/daemon-host/client/daemon-autostart.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { openDaemonJsonRpcClientAt, requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { observeDaemonBuild } from "../src/daemon-host/build-identity.ts";
+import { daemonLifecycleLogPath, readDaemonLifecycleRecords } from "../src/daemon-host/lifecycle-log.ts";
+import { daemonSingletonLockPath } from "../src/daemon-host/daemon-singleton.ts";
+import { daemonPidPath, readDaemonPid, startDaemon, type RunningDaemon } from "../src/daemon-host/runtime.ts";
 import { openBootstrappedRepoCell, registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 

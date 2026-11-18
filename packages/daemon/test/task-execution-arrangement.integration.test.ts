@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { runtimeDispatchIdentity } from "../src/task-dispatch-recovery.ts";
+import { runtimeDispatchIdentity } from "../src/daemon-host/task-dispatch-recovery.ts";
 import { submissionDigest } from "@harness-anything/kernel";
 import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";

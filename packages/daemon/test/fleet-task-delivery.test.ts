@@ -5,13 +5,13 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { prepareEdgeTaskDelivery, type FleetDeliveryTask } from "../src/fleet-task-delivery.ts";
+import { prepareEdgeTaskDelivery, type FleetDeliveryTask } from "../src/daemon-host/fleet-task-delivery.ts";
 import {
   fetchWorkerDelivery,
   pushWorkerBranch,
   readPublishedTaskCut,
   workerPushFailureCode,
-} from "../src/runtime-worker-push.ts";
+} from "../src/daemon-host/runtime-worker-push.ts";
 
 for (const denialMode of ["permission", "holder", "cas"])
   test(`edge delivery checks permission and remote CAS (${denialMode})`, async (t) => {

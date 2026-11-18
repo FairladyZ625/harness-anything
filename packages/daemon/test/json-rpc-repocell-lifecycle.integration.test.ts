@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openDaemonHost } from "../src/daemon-host.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
 import { readDaemonRegistry } from "@harness-anything/kernel";
 import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel/internal/domain/receipt-domain-registry";
@@ -16,9 +16,9 @@ import {
   canonicalRoot,
   validateDaemonTaskSnapshotList,
   workspaceId,
-} from "../src/protocol/daemon-protocol.contract.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import {
   withPolicyGroup,
   signInPolicyTestUser,
@@ -26,7 +26,7 @@ import {
   policyTestCenter,
 } from "./keycloak-policy.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { openRepoCell as openProductRepoCell } from "../src/repo-cell-open.ts";
+import { openRepoCell as openProductRepoCell } from "../src/daemon-host/repo-cell-open.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 const DOC_POLICY_ID = "markdown-body-replaceable/v1";
 function assertValidWriteReceipt(value: unknown): void {

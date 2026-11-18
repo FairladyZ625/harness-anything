@@ -6,8 +6,8 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { streamAgentRuntimeAt, type DaemonStreamLost } from "../src/client/local-json-rpc-stream.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { streamAgentRuntimeAt, type DaemonStreamLost } from "../src/daemon-host/client/local-json-rpc-stream.ts";
 
 // #1654: a stream that had attached once reconnected every 40ms forever, invisibly, while the
 // daemon was too busy to answer — a connection storm that kept the daemon busy. The harness below

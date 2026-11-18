@@ -59,7 +59,7 @@
     "harness:check-cli-path-contract": "node tools/check-cli-path-contract.mjs",
     "harness:check-error-classification": "node tools/check-error-classification.mjs",
     "harness:check-import-boundaries": "node tools/check-import-boundaries.mjs",
-    "harness:check-c4-architecture": "node tools/check-c4-architecture.mjs --scope packages",
+    "harness:check-c4-architecture": "node tools/check-c4-architecture.mjs",
     "harness:check-entity-doc-contract": "node tools/generate-entity-doc-contract.mjs --check",
     "harness:check-format": "node tools/check-format.mjs",
     "harness:check-poll-spin-boundary": "node tools/check-poll-spin-boundary.mjs",
@@ -108,7 +108,8 @@
     "harness:check-dependency-policy": "node tools/gates/dependency-policy.mjs",
     "harness:check-cost-budget": "node tools/gates/cost-budget.mjs",
     "postinstall": "node -e \"if(!process.env.ELECTRON_SKIP_BINARY_DOWNLOAD&&require('node:fs').existsSync('node_modules/electron/install.js'))require('./node_modules/electron/install.js')\"",
-    "pr:doctor": "node tools/pr-doctor.mjs"
+    "pr:doctor": "node tools/pr-doctor.mjs",
+    "harness:check-writer-isolate": "node tools/check-writer-isolate.mjs"
   },
   "engines": {
     "node": ">=24"

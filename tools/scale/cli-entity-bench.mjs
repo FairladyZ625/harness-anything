@@ -574,7 +574,9 @@ const listReads = () => [
 ];
 
 async function readMetrics() {
-  const { thinCliCommands } = await import("../../packages/daemon/src/protocol/daemon-protocol.contract.ts");
+  const { thinCliCommands } = await import(
+    "../../packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts"
+  );
   return new Set(thinCliCommands.filter(({ commandClass }) => commandClass === "repo-read").map(({ id }) => id));
 }
 

@@ -1,10 +1,10 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { daemonHelloMismatch } from "../src/client/daemon-hello.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { daemonHelloMismatch } from "../src/daemon-host/client/daemon-hello.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
+import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/auth-context.ts";
 
 // The handshake is the one place every client converges, so the daemon's build identity rides on
 // protocol.hello: a client that can name its own commit can diagnose skew before it surfaces as

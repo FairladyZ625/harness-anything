@@ -96,7 +96,8 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
     git(workerRoot, "commit", "--quiet", "-m", "release acceptance probe script");
     const commitSha = git(workerRoot, "rev-parse", "HEAD");
     writeCloseout(root, packagePath, `The chain fixture is complete at ${commitSha}.`);
-    run(root, userRoot, ["task", "submit", taskId, "--execution-id", executionId], worker);
+    const submitted = run(root, userRoot, ["task", "submit", taskId, "--execution-id", executionId], worker);
+    settle(root, userRoot, String(submitted.opId), worker);
     git(root, "merge", "--no-ff", "--quiet", "-m", "merge release acceptance delivery", taskId);
     const mergeCommitSha = git(root, "rev-parse", "HEAD");
     git(root, "update-ref", "refs/remotes/origin/main", mergeCommitSha);

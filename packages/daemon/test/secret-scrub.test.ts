@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { scrubSecretText } from "../src/secret-scrub.ts";
+import { scrubSecretText } from "../src/runtime-engine/secret-scrub.ts";
 
 // Public, structurally valid samples only: they pin the shape each rule matches without being
 // live credentials. A rule that keeps any of these strings verbatim fails the write boundary.

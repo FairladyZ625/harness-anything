@@ -1,4 +1,4 @@
-import { canonicalEventEntityRefs } from "@harness-anything/kernel";
+import { canonicalEventEntityRefs } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import type { DatabaseSync } from "node:sqlite";
 import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { canonicalEventSummary } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";

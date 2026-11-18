@@ -78,13 +78,13 @@ for (const kind of owners)
 for (const [kind, file, from, to] of [
   [
     "settings-update",
-    "packages/daemon/src/repo-cell-action-dispatch.ts",
+    "packages/daemon/src/daemon-host/repo-cell-action-dispatch.ts",
     "settings: makeSettingsActionRuntime(cell, cell.settings)",
     'settings: () => { throw new Error("detached settings runtime"); }',
   ],
   [
     "task-transition",
-    "packages/daemon/src/repo-cell-action-dispatch.ts",
+    "packages/daemon/src/daemon-host/repo-cell-action-dispatch.ts",
     "task: async (contract, catalogAction, catalogBinding) => {",
     'task: async () => { throw new Error("detached task catalog runtime"); }, detachedTask: async (contract, catalogAction, catalogBinding) => {',
   ],
@@ -103,43 +103,43 @@ for (const [kind, file, from, to] of [
 for (const [label, file, from, to] of [
   [
     "a replaced own Port",
-    "packages/daemon/src/repo-cell-command-run.ts",
+    "packages/daemon/src/daemon-host/repo-cell-command-run.ts",
     "return evaluateRepoCellAction({\n          action,\n          binding,\n          actionId,",
     'return (async () => ({ outcome: "allowed" }))({\n          action,\n          binding,\n          actionId,',
   ],
   [
     "another action kind",
-    "packages/daemon/src/repo-cell-command-run.ts",
+    "packages/daemon/src/daemon-host/repo-cell-command-run.ts",
     "return evaluateRepoCellAction({\n          action,\n          binding,\n          actionId,",
     'return evaluateRepoCellAction({\n          action: { ...action, kind: "settings-update" },\n          binding,\n          actionId,',
   ],
   [
     "a forged actor",
-    "packages/daemon/src/repo-cell-command-run.ts",
+    "packages/daemon/src/daemon-host/repo-cell-command-run.ts",
     "return evaluateRepoCellAction({\n          action,\n          binding,\n          actionId,",
     'return evaluateRepoCellAction({\n          action,\n          binding: { ...binding, actor: { principal: { kind: "user", id: "forged" }, executor: null } },\n          actionId,',
   ],
   [
     "a stale canonical cut",
-    "packages/daemon/src/repo-cell-command-run.ts",
+    "packages/daemon/src/daemon-host/repo-cell-command-run.ts",
     "const revision = context.store.readHead()?.revision ?? 0,\n          actionId = context.operationId(action, binding, context.input.repoId, revision);",
     "const revision = 0,\n          actionId = context.operationId(action, binding, context.input.repoId, revision);",
   ],
   [
     "a bypassed allowed-decision enforcer",
-    "packages/daemon/src/repo-cell-proof.ts",
+    "packages/daemon/src/daemon-host/repo-cell-proof.ts",
     'if (!binding.authorizationDecision || binding.authorizationDecision.outcome !== "allowed")',
     "if (false)",
   ],
   [
     "a detached decision at proofFor",
-    "packages/daemon/src/task-action-catalog-runtime.ts",
+    "packages/daemon/src/daemon-host/task-action-catalog-runtime.ts",
     "authorityProof = await cell.proofFor(command, current.snapshot, binding, cell.projection);",
     "authorityProof = await cell.proofFor(command, current.snapshot, { ...binding, authorizationDecision: undefined }, cell.projection);",
   ],
   [
     "a detached service proof",
-    "packages/daemon/src/task-action-catalog-runtime.ts",
+    "packages/daemon/src/daemon-host/task-action-catalog-runtime.ts",
     ": await cell.service.execute(command, authorityProof);",
     ": await cell.service.execute(command, {});",
   ],

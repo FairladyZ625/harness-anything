@@ -5,10 +5,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { writeDaemonRegistryRepo } from "@harness-anything/kernel/daemon-registry";
-import { readArtifactActionScopes } from "../src/authorization-provider.ts";
-import { authorizationFetch } from "../src/tls-ca-certificate.ts";
-import { evaluateRepoCellAction, authorizeRepoCellAction } from "../src/repo-cell-authorization.ts";
-import type { RepoCellBinding } from "../src/repo-cell-types.ts";
+import { readArtifactActionScopes } from "../src/daemon-host/authorization-provider.ts";
+import { authorizationFetch } from "../src/daemon-host/tls-ca-certificate.ts";
+import { evaluateRepoCellAction, authorizeRepoCellAction } from "../src/daemon-host/repo-cell-authorization.ts";
+import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
 
 test("an injected non-Keycloak provider authorizes through the real daemon and kernel boundary", async () => {
   const requests: string[] = [];

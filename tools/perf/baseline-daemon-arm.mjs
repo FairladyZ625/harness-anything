@@ -9,8 +9,8 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { requestDaemonJsonRpcAt } from "../../packages/daemon/src/client/local-json-rpc-client.ts";
-import { localUserDaemonEndpoint } from "../../packages/daemon/src/client/local-daemon-target.ts";
+import { requestDaemonJsonRpcAt } from "../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
+import { localUserDaemonEndpoint } from "../../packages/daemon/src/daemon-host/client/local-daemon-target.ts";
 import { bytesToMib, round3, stats, summarizeEventLoopLines } from "./baseline-stats.mjs";
 import {
   PROBE_REPO_ID,
@@ -23,7 +23,7 @@ import {
   withoutExecutionCredential,
 } from "./baseline-fixture.mjs";
 
-const daemonHostEntry = "packages/daemon/src/bin.ts";
+const daemonHostEntry = "packages/daemon/src/daemon-host/bin.ts";
 
 export async function runDaemonArm({ rootDir, outDir, readRounds = 10, writeRounds = 8, idleMs = 10_000, log }) {
   const fixture = makeCliFixture(rootDir);

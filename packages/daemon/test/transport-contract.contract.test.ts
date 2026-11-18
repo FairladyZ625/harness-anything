@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { RAW_ARTIFACT_MAX_BYTES } from "@harness-anything/kernel";
-import { FLEET_CHUNK_BYTES, FLEET_FRAME_BYTES } from "../src/fleet/command-protocol.ts";
+import { FLEET_CHUNK_BYTES, FLEET_FRAME_BYTES } from "../src/daemon-host/fleet/command-protocol.ts";
 import {
   contentTransportContract,
   transportFailurePolicy,
@@ -10,7 +10,7 @@ import {
   type ContentSink,
   type ContentBinding,
   type TransportDirection,
-} from "../src/fleet/transport-contract.ts";
+} from "../src/daemon-host/fleet/transport-contract.ts";
 
 test("both directions use bounded chunks and credit independently of multi-GiB object size", () => {
   for (const direction of ["edge-to-center", "center-to-edge"] as const) {

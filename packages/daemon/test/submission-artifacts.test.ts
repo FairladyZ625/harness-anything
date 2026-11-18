@@ -10,7 +10,7 @@ import {
   validateMigrationImportEvent,
   type MigrationImportEventV1,
 } from "@harness-anything/kernel";
-import { validateGuiSubmission } from "../src/protocol/daemon-protocol-validate-entities.ts";
+import { validateGuiSubmission } from "../src/daemon-host/protocol/daemon-protocol-validate-entities.ts";
 import {
   createSubmissionArtifactReader,
   readSubmissionArtifact,

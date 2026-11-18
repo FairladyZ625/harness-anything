@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateGuiSubmission } from "../src/protocol/daemon-protocol.contract.ts";
+import { validateGuiSubmission } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 
 const valid = Object.freeze({
   completionClaim: "Done",

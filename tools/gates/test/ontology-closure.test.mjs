@@ -120,7 +120,7 @@ test("the full repository passes the classified closure gate", (t) => {
 // dec_7E44897ECDCAEF2B92EC66A260/CH1: all 49 host/migration/observation files stay closed.
 test("daemon host migration and observation slice has zero frozen ontology debt", () => {
   const scope =
-    /^packages\/daemon\/(?:scripts\/(?:copy-assets|smoke-package)\.mjs|src\/(?:bin|conn-log|daemon-diagnostics(?:-worker)?|daemon-host-(?:control-api|open|recovery|registry|repository-api|runtime-api|writer-epoch)|daemon-operation(?:-table)?|daemon-singleton|daemon-trace-(?:buckets|completions)|dispatch-(?:activity|causal-context|read|stream(?:-archive|-lines)?)|edge-replica-doctor|gui-catalog|lifecycle-log|migration-import(?:-(?:authored-audit|backfill|dispositions|entities|legacy|oracle-rebuild|projection-restatement|relations|run|task-restatement|tasks))?|node-auto-(?:claim-config|claim|dispatch)|observe-(?:jsonl-tail|tail)|probe-log-sink|projection-readiness|request-log|secret-scrub|unique-id-prefix)\.ts)$/u;
+    /^packages\/daemon\/(?:scripts\/(?:copy-assets|smoke-package)\.mjs|src\/(?:daemon-host|runtime-engine)\/(?:bin|conn-log|daemon-diagnostics(?:-worker)?|daemon-host-(?:control-api|open|recovery|registry|repository-api|runtime-api|writer-epoch)|daemon-operation(?:-table)?|daemon-singleton|daemon-trace-(?:buckets|completions)|dispatch-(?:activity|causal-context|read|stream(?:-archive|-lines)?)|edge-replica-doctor|gui-catalog|lifecycle-log|migration-import(?:-(?:authored-audit|backfill|dispositions|entities|legacy|oracle-rebuild|projection-restatement|relations|run|task-restatement|tasks))?|node-auto-(?:claim-config|claim|dispatch)|observe-(?:jsonl-tail|tail)|probe-log-sink|projection-readiness|request-log|secret-scrub|unique-id-prefix)\.ts)$/u;
   const baseline = loadGateAllowlist("ontology-closure", { report: false }).candidates;
   assertEmpty(baseline.filter((row) => scope.test(row.path)));
   const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
@@ -146,8 +146,8 @@ test("daemon host migration and observation slice has zero frozen ontology debt"
 
   const snapshot = loadOntologyClosureSnapshot(repoRoot);
   for (const [file, from, to, category] of [
-    ["daemon-operation-table.ts", "table full", "table capacity", "ACTION"],
-    ["secret-scrub.ts", "registeredSecretLimit = 64", "registeredSecretLimit = 65", "POLICY"],
+    ["daemon-host/daemon-operation-table.ts", "table full", "table capacity", "ACTION"],
+    ["runtime-engine/secret-scrub.ts", "registeredSecretLimit = 64", "registeredSecretLimit = 65", "POLICY"],
   ]) {
     const target = `packages/daemon/src/${file}`,
       source = readFileSync(path.join(repoRoot, target), "utf8");
@@ -165,7 +165,7 @@ test("daemon host migration and observation slice has zero frozen ontology debt"
 // and business effects stay attached to their owning ActionDeclaration.
 test("daemon domain service actions and policies are closed under the shared ontology", () => {
   const domainPath =
-    /^(?:packages\/daemon\/src|packages\/application\/src\/(?:commands|queries))\/(?:schedule-|squad-|decision-|fact-|artifact-|agent-(?!runtime-instance)|task-|todo-|work-|person-|settings-|vertical-|entity-action-|entity-pin-|assignment-|distill-|reckoning-|home\/)/u;
+    /^(?:packages\/daemon\/src\/daemon-host|packages\/application\/src\/(?:commands|queries))\/(?:schedule-|squad-|decision-|fact-|artifact-|agent-(?!runtime-instance)|task-|todo-|work-|person-|settings-|vertical-|entity-action-|entity-pin-|assignment-|distill-|reckoning-|home\/)/u;
   const baseline = loadGateAllowlist("ontology-closure", { report: false }).candidates;
   assert.deepEqual(
     baseline.filter((row) => domainPath.test(row.path)),
@@ -181,7 +181,8 @@ test("daemon domain service actions and policies are closed under the shared ont
   const policies = candidates.filter((row) => row.category === "policy");
   // CEO ruling dispatch_294b4cda7cf887e9077a2a81 Route 1 deleted the duplicate manual
   // `cell.service.execute` call site in `task-return-dispatch.ts` in favor of `RepoCellContinuationWrite`.
-  assert.equal(actions.length, 161);
+  // dec_04A9211B073F29F0FC1E1CA573/CH2 shares the primary and fallback review launch call site.
+  assert.equal(actions.length, 160);
   // CH1 closes migration debt, while later registered policies may grow the live set.
   assert.ok(policies.length >= 126, "all 126 migrated policy sources remain represented");
   assert.deepEqual(
@@ -198,23 +199,23 @@ test("daemon domain service actions and policies are closed under the shared ont
   );
   for (const [candidateId, declarationRef] of [
     [
-      "action:packages/daemon:packages/daemon/src/schedule-builtin-executor.ts#<module>:74bbf4d4372d5c6828f6a19fabe5115f",
+      "action:packages/daemon:packages/daemon/src/daemon-host/schedule-builtin-executor.ts#<module>:74bbf4d4372d5c6828f6a19fabe5115f",
       "action:daemon-local-state",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/agent-declaration-migration.ts#migrateAgentDeclarations:73681f4ddda1c539eea9587cd4ae75be",
+      "action:packages/daemon:packages/daemon/src/daemon-host/agent-declaration-migration.ts#migrateAgentDeclarations:73681f4ddda1c539eea9587cd4ae75be",
       "action:daemon-local-state",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/task-worktree.ts#applyTaskWorktreeLifecycle.receipt:d132352a9aa80621aa573b0a6935dc15",
+      "action:packages/daemon:packages/daemon/src/daemon-host/task-worktree.ts#applyTaskWorktreeLifecycle.receipt:d132352a9aa80621aa573b0a6935dc15",
       "action:task-transition",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/schedule-scheduler.ts#makeScheduleScheduler.tick:03f7df144e0da4b8d8de43d116dd75a0",
+      "action:packages/daemon:packages/daemon/src/daemon-host/schedule-scheduler.ts#makeScheduleScheduler.tick:03f7df144e0da4b8d8de43d116dd75a0",
       "action:daemon-local-state",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/decision-point-executor.ts#openDecisionPointExecutor.settle.apply:79a44954c303732a0c96fdbd6afe2c74",
+      "action:packages/daemon:packages/daemon/src/daemon-host/decision-point-executor.ts#openDecisionPointExecutor.settle.apply:79a44954c303732a0c96fdbd6afe2c74",
       "action:daemon-local-state",
     ],
     [
@@ -222,15 +223,19 @@ test("daemon domain service actions and policies are closed under the shared ont
       "action:fact-archive",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/task-action-catalog-runtime.ts#runTaskActionCatalogRuntime:3141039e8e0edac7120fa68967ce7466",
+      "action:packages/daemon:packages/daemon/src/daemon-host/task-action-catalog-runtime.ts#runTaskActionCatalogRuntime:3141039e8e0edac7120fa68967ce7466",
       "action:task-transition",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/settings-action-runtime.ts#publishSettingsDraft.appended:27280392f0c307d2d9bd09af88c49ab7",
+      "action:packages/daemon:packages/daemon/src/daemon-host/task-review-dispatch.ts#spawnCutReviewDispatch.prepareAndLaunch:9030b04c8201332d5d65d14f2b188188",
+      "action:daemon-local-state",
+    ],
+    [
+      "action:packages/daemon:packages/daemon/src/daemon-host/settings-action-runtime.ts#publishSettingsDraft.appended:27280392f0c307d2d9bd09af88c49ab7",
       "action:settings-update",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/vertical-declaration-action.ts#runVerticalDeclarationAction.appended:5ca10d09f5449f58673022183be08681",
+      "action:packages/daemon:packages/daemon/src/daemon-host/vertical-declaration-action.ts#runVerticalDeclarationAction.appended:5ca10d09f5449f58673022183be08681",
       "action:vertical-kind-upsert",
     ],
   ]) {
@@ -245,32 +250,32 @@ test("daemon domain service actions and policies are closed under the shared ont
   );
   assert.equal(
     policyRefByCandidate.get(
-      "policy:packages/daemon:packages/daemon/src/schedule-scheduler.ts#HUMAN_BLOCK_RETRY_MS:92965c5ace2b459d9fd1e652e9c7097d",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/schedule-scheduler.ts#HUMAN_BLOCK_RETRY_MS:92965c5ace2b459d9fd1e652e9c7097d",
     ),
     "policy:schedule/daemon-schedule-domain-policy",
   );
   assert.equal(
     policyRefByCandidate.get(
-      "policy:packages/daemon:packages/daemon/src/task-wip-settings.ts#TASK_WIP_LIMIT_SETTING:ca330956d3d92d07a920b97f0da879bb",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/task-wip-settings.ts#TASK_WIP_LIMIT_SETTING:ca330956d3d92d07a920b97f0da879bb",
     ),
     "policy:task/daemon-task-domain-policy",
   );
   // CH1: main removed this leaf default in favor of the runtime provider contract; do not revive its source.
   assert.equal(
     policyRefByCandidate.has(
-      "policy:packages/daemon:packages/daemon/src/agent-runtime-installation-discovery.ts#discoverRuntimeModelCatalog.discovered.output.timeoutMs:056c7dce56e510cebb035d21bd434840",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-installation-discovery.ts#discoverRuntimeModelCatalog.discovered.output.timeoutMs:056c7dce56e510cebb035d21bd434840",
     ),
     false,
   );
   for (const candidateId of [
-    "policy:packages/daemon:packages/daemon/src/squad-coordinator-publication.ts#makeSquadPublicationController.publishState:c33102c3afb14ad57596688874a8b88c",
-    "policy:packages/daemon:packages/daemon/src/task-query-read.ts#makeTaskQueryReadModel.agenda.awaitingRuling:632767b9b836887b526c540ca6ec1de4",
-    "policy:packages/daemon:packages/daemon/src/task-query-read.ts#makeTaskQueryReadModel.agenda.awaitingRuling:c6e10f3bdbdac92ac14cf8e1b3956656",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/squad-coordinator-publication.ts#makeSquadPublicationController.publishState:c33102c3afb14ad57596688874a8b88c",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/task-query-read.ts#makeTaskQueryReadModel.agenda.awaitingRuling:632767b9b836887b526c540ca6ec1de4",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/task-query-read.ts#makeTaskQueryReadModel.agenda.awaitingRuling:c6e10f3bdbdac92ac14cf8e1b3956656",
   ]) {
     assert.equal(policyRefByCandidate.get(candidateId), "policy:runtime-session/dispatch-reservations", candidateId);
   }
 
-  const schedulerPath = "packages/daemon/src/schedule-scheduler.ts";
+  const schedulerPath = "packages/daemon/src/daemon-host/schedule-scheduler.ts";
   const scheduler = readFileSync(path.join(repoRoot, schedulerPath), "utf8");
   const changedScheduler = scheduler.replace(
     "const HUMAN_BLOCK_RETRY_MS = 60_000;",
@@ -287,7 +292,7 @@ test("daemon domain service actions and policies are closed under the shared ont
   );
 
   const undeclared = scanOntologyText(
-    "packages/daemon/src/schedule-scheduler.ts",
+    "packages/daemon/src/daemon-host/schedule-scheduler.ts",
     "function undeclaredDaemonScheduleAction() { dispatch(); }",
   );
   assert.equal(undeclared.length, 1);
@@ -353,7 +358,7 @@ test("daemon protocol and Fleet boundary remains at zero ontology migration debt
   const baseline = loadGateAllowlist("ontology-closure", { report: false }).candidates;
   const boundary = (row) =>
     row.owner === "packages/daemon" &&
-    /^packages\/daemon\/src\/(?:protocol\/|client\/|fleet\/|fleet-|access-|gui-s3-|oidc-|keycloak-|host-action-authorization\.ts|authorization-provider\.ts|hosting-provider\.ts|remote-proxy\.ts|rpc-command-routing\.ts|transport\/|tls-)/u.test(
+    /^packages\/daemon\/src\/(?:daemon-host|runtime-engine|fleet-sync|writer-cell)\/(?:protocol\/|client\/|fleet\/|fleet-|access-|gui-s3-|oidc-|keycloak-|host-action-authorization\.ts|authorization-provider\.ts|hosting-provider\.ts|remote-proxy\.ts|rpc-command-routing\.ts|transport\/|tls-)/u.test(
       row.path,
     );
   assert.deepEqual(baseline.filter(boundary), []);
@@ -385,7 +390,7 @@ test("daemon boundary registrations reject changed policies and undeclared actio
       ({ code }) => code === "ONTOLOGY_POLICY_UNDECLARED",
     ),
   );
-  const daemonTarget = "packages/daemon/src/client/local-json-rpc-stream.ts";
+  const daemonTarget = "packages/daemon/src/daemon-host/client/local-json-rpc-stream.ts";
   const daemonSource = readFileSync(path.join(repoRoot, daemonTarget), "utf8");
   assert.deepEqual(audit(scanOntologyText(daemonTarget, daemonSource), { snapshot }).findings, []);
   for (const [extra, expected] of [
@@ -1382,7 +1387,7 @@ test("explicit tool constant sources retain technical reads and observations of 
 // contracts keep their exact source owner, with zero frozen judgment debt in those paths.
 test("daemon protocol, client, home and fleet judgment candidates leave the migration baseline", () => {
   const s2gPath =
-    /^packages\/daemon\/src\/(?:protocol\/|gui-s3-control\.ts$|client\/|home\/|fleet\/|fleet-edge-git-preflight\.ts$|fleet-task-delivery\.ts$)/u;
+    /^packages\/daemon\/src\/(?:daemon-host|runtime-engine|fleet-sync|writer-cell)\/(?:runtime-relay-target\.ts$|json-helpers\.ts$|protocol\/|gui-s3-control\.ts$|client\/|home\/|fleet\/|fleet-edge-git-preflight\.ts$|fleet-task-delivery\.ts$)/u;
   const baseline = loadGateAllowlist("ontology-closure", {
     allowlistRoot: path.join(repoRoot, "tools/gate-allowlists"),
     report: false,
@@ -1402,9 +1407,9 @@ test("daemon protocol, client, home and fleet judgment candidates leave the migr
 
   const snapshot = loadOntologyClosureSnapshot(repoRoot);
   for (const target of [
-    "packages/daemon/src/protocol/unregistered-wire-guard.ts",
-    "packages/daemon/src/client/unregistered-socket-guard.ts",
-    "packages/daemon/src/fleet/unregistered-frame-guard.ts",
+    "packages/daemon/src/daemon-host/protocol/unregistered-wire-guard.ts",
+    "packages/daemon/src/daemon-host/client/unregistered-socket-guard.ts",
+    "packages/daemon/src/daemon-host/fleet/unregistered-frame-guard.ts",
   ]) {
     const undeclared = scanOntologyText(
       target,
@@ -1479,7 +1484,7 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1 S2h: repository-wide judgment baseline 
 // shared kernel policy declarations (never cli-local-effects).
 test("dec_7E44897ECDCAEF2B92EC66A260/CH1: daemon repo/writer/submission/doc-sync/workspace action & policy closure", () => {
   const scopePath =
-    /^packages\/daemon\/src\/(?:repo-|writer-|submission-|doc-sync|artifacts-gui-read|entity-document-|ignored-ledger-|submit-old-|transition-document-|workspace-|worktree-)/u;
+    /^packages\/daemon\/src\/(?:daemon-host|runtime-engine|fleet-sync|writer-cell)\/(?:repo-|writer-|submission-|doc-sync|artifacts-gui-read|entity-document-|ignored-ledger-|submit-old-|transition-document-|workspace-|worktree-)/u;
   const baseline = loadGateAllowlist("ontology-closure", {
     allowlistRoot: path.join(repoRoot, "tools/gate-allowlists"),
     report: false,
@@ -1574,7 +1579,8 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1: daemon repo/writer/submission/doc-sync
 // world boundary. Removing its frozen rows is safe only while every live source is
 // bound to the shared ActionDeclaration or EntityKindContract Policy registry.
 test("dec_7E44897ECDCAEF2B92EC66A260/CH1: daemon runtime/terminal/evaluation closure is ratcheted", () => {
-  const scopePath = /^packages\/daemon\/src\/(?:runtime|agent-runtime-instance|terminal-|process-port|skill-eval-)/u;
+  const scopePath =
+    /^packages\/daemon\/src\/(?:daemon-host|runtime-engine|fleet-sync|writer-cell)\/(?:runtime|agent-runtime-instance|terminal-|process-port|skill-eval-)/u;
   const baseline = loadGateAllowlist("ontology-closure", {
     allowlistRoot: path.join(repoRoot, "tools/gate-allowlists"),
     report: false,
@@ -1590,11 +1596,11 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1: daemon runtime/terminal/evaluation clo
   // Shared Policy consolidation removes leaf candidates. Verify discovery by
   // subsystem rather than imposing a minimum on the debt that CH1 removes.
   for (const file of [
-    "runtime.ts",
-    "agent-runtime-instance-storage.ts",
-    "terminal-host.ts",
-    "process-port.ts",
-    "skill-eval-runner.ts",
+    "daemon-host/runtime.ts",
+    "daemon-host/agent-runtime-instance-storage.ts",
+    "daemon-host/terminal-host.ts",
+    "daemon-host/process-port.ts",
+    "runtime-engine/skill-eval-runner.ts",
   ]) {
     assert.ok(
       inScope.some((row) => row.file === `packages/daemon/src/${file}`),
@@ -1735,61 +1741,82 @@ test("daemon runtime Policy owns concrete defaults and consumers have no leaf bu
 
   const consumers = [
     [
-      "packages/daemon/src/runtime-inventory.ts",
+      "packages/daemon/src/runtime-engine/runtime-inventory.ts",
       [
         "daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs",
         "daemonRuntimePolicy.defaultValue.runtime.unsettledTurnMaxContinuations",
       ],
     ],
-    ["packages/daemon/src/runtime.ts", ["daemonRuntimePolicy.defaultValue.daemon"]],
-    ["packages/daemon/src/runtime-dispatch-evidence.ts", ["daemonRuntimePolicy.defaultValue.evidence"]],
-    ["packages/daemon/src/runtime-spawn-deepseek-session.ts", ["daemonRuntimePolicy.defaultValue.evidence"]],
-    ["packages/daemon/src/runtime-worker-control.ts", ["daemonRuntimePolicy.defaultValue.process"]],
-    ["packages/daemon/src/runtime-spawn-provider-stream.ts", ["daemonRuntimePolicy.defaultValue.process"]],
-    ["packages/daemon/src/runtime/process-group-reconciler.ts", ["daemonRuntimePolicy.defaultValue.process"]],
-    ["packages/daemon/src/runtime/model-slot-queue.ts", ["daemonRuntimePolicy.defaultValue.runtime.modelSlots"]],
-    ["packages/daemon/src/agent-runtime-instance-storage.ts", ["daemonRuntimePolicy.defaultValue.process"]],
+    ["packages/daemon/src/daemon-host/runtime.ts", ["daemonRuntimePolicy.defaultValue.daemon"]],
+    ["packages/daemon/src/daemon-host/runtime-dispatch-evidence.ts", ["daemonRuntimePolicy.defaultValue.evidence"]],
     [
-      "packages/daemon/src/runtime-orchestration.ts",
+      "packages/daemon/src/runtime-engine/runtime-spawn-deepseek-session.ts",
+      ["daemonRuntimePolicy.defaultValue.evidence"],
+    ],
+    ["packages/daemon/src/daemon-host/runtime-worker-control.ts", ["daemonRuntimePolicy.defaultValue.process"]],
+    ["packages/daemon/src/daemon-host/runtime-spawn-provider-stream.ts", ["daemonRuntimePolicy.defaultValue.process"]],
+    [
+      "packages/daemon/src/daemon-host/runtime/process-group-reconciler.ts",
+      ["daemonRuntimePolicy.defaultValue.process"],
+    ],
+    [
+      "packages/daemon/src/daemon-host/runtime/model-slot-queue.ts",
+      ["daemonRuntimePolicy.defaultValue.runtime.modelSlots"],
+    ],
+    ["packages/daemon/src/daemon-host/agent-runtime-instance-storage.ts", ["daemonRuntimePolicy.defaultValue.process"]],
+    [
+      "packages/daemon/src/daemon-host/runtime-orchestration.ts",
       [
         "daemonRuntimePolicy.defaultValue.batch.defaultConcurrency",
         "daemonRuntimePolicy.defaultValue.batch.maximumConcurrency",
       ],
     ],
-    ["packages/daemon/src/runtime-spawn-process.ts", ["daemonRuntimePolicy.defaultValue.process"]],
-    ["packages/daemon/src/runtime-spawner.ts", ["daemonRuntimePolicy.defaultValue.process"]],
-    ["packages/daemon/src/runtime-worker-acp.ts", ["daemonRuntimePolicy.defaultValue.acp.cancelGraceMs"]],
-    ["packages/daemon/src/runtime-provider-health.ts", ["daemonRuntimePolicy.defaultValue.health"]],
-    ["packages/daemon/src/runtime-continuation-context.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
-    ["packages/daemon/src/runtime-github-credentials.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
-    ["packages/daemon/src/runtime-handoff-native.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
-    ["packages/daemon/src/runtime-task-publication.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
-    ["packages/daemon/src/runtime-worker-push.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
-    ["packages/daemon/src/runtime-settlement.ts", ["daemonRuntimePolicy.defaultValue.runtime.outcomeRecheckMs"]],
+    ["packages/daemon/src/daemon-host/runtime-spawn-process.ts", ["daemonRuntimePolicy.defaultValue.process"]],
+    ["packages/daemon/src/daemon-host/runtime-spawner.ts", ["daemonRuntimePolicy.defaultValue.process"]],
+    ["packages/daemon/src/daemon-host/runtime-worker-acp.ts", ["daemonRuntimePolicy.defaultValue.acp.cancelGraceMs"]],
+    ["packages/daemon/src/runtime-engine/runtime-provider-health.ts", ["daemonRuntimePolicy.defaultValue.health"]],
+    ["packages/daemon/src/daemon-host/runtime-continuation-context.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
+    ["packages/daemon/src/daemon-host/runtime-github-credentials.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
+    ["packages/daemon/src/daemon-host/runtime-handoff-native.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
+    ["packages/daemon/src/daemon-host/runtime-task-publication.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
+    ["packages/daemon/src/daemon-host/runtime-worker-push.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
     [
-      "packages/daemon/src/runtime/cloud-dispatch-relay.ts",
+      "packages/daemon/src/daemon-host/runtime-settlement.ts",
+      ["daemonRuntimePolicy.defaultValue.runtime.outcomeRecheckMs"],
+    ],
+    [
+      "packages/daemon/src/daemon-host/runtime/cloud-dispatch-relay.ts",
       ["daemonRuntimePolicy.defaultValue.runtime.cloudDispatchRelay"],
     ],
-    ["packages/daemon/src/runtime/windows-process-group-port.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
     [
-      "packages/daemon/src/terminal-environment.ts",
+      "packages/daemon/src/daemon-host/runtime/windows-process-group-port.ts",
+      ["daemonRuntimePolicy.defaultValue.runtime"],
+    ],
+    [
+      "packages/daemon/src/daemon-host/terminal-environment.ts",
       ["daemonRuntimePolicy.defaultValue.terminal.loginShellSnapshotTimeoutMs"],
     ],
-    ["packages/daemon/src/terminal-host.ts", ["daemonRuntimePolicy.defaultValue.terminal"]],
-    ["packages/daemon/src/skill-eval-runner.ts", ["daemonRuntimePolicy.defaultValue.skillEvaluation"]],
-    ["packages/daemon/src/skill-eval-production.ts", ["daemonRuntimePolicy.defaultValue.skillEvaluation"]],
+    ["packages/daemon/src/daemon-host/terminal-host.ts", ["daemonRuntimePolicy.defaultValue.terminal"]],
+    ["packages/daemon/src/runtime-engine/skill-eval-runner.ts", ["daemonRuntimePolicy.defaultValue.skillEvaluation"]],
+    ["packages/daemon/src/daemon-host/skill-eval-production.ts", ["daemonRuntimePolicy.defaultValue.skillEvaluation"]],
   ];
   for (const [target, references] of consumers) {
     const source = readFileSync(path.join(repoRoot, target), "utf8");
     for (const reference of references)
       assert.match(source, new RegExp(reference.replaceAll(".", "\\.")), `${target} must read ${reference}`);
   }
-  const spawnLimits = readFileSync(path.join(repoRoot, "packages/daemon/src/runtime-spawn-limits.ts"), "utf8");
+  const spawnLimits = readFileSync(
+    path.join(repoRoot, "packages/daemon/src/runtime-engine/runtime-spawn-limits.ts"),
+    "utf8",
+  );
   assert.match(spawnLimits, /daemonRuntimePolicy\.defaultValue\.process/u);
   assert.doesNotMatch(spawnLimits, /(?:64 \* 1024|30_000)/u, "the compatibility exports must not own defaults");
-  const cloudRelay = readFileSync(path.join(repoRoot, "packages/daemon/src/runtime/cloud-dispatch-relay.ts"), "utf8");
+  const cloudRelay = readFileSync(
+    path.join(repoRoot, "packages/daemon/src/daemon-host/runtime/cloud-dispatch-relay.ts"),
+    "utf8",
+  );
   assert.doesNotMatch(cloudRelay, /(?:600_000|125_000|10_000|\?\? 2|> 10_000)/u, "the relay must not own budgets");
-  const daemonTarget = "packages/daemon/src/runtime-orchestration.ts",
+  const daemonTarget = "packages/daemon/src/daemon-host/runtime-orchestration.ts",
     daemonSource = readFileSync(path.join(repoRoot, daemonTarget), "utf8"),
     restoredLeaf = daemonSource.replace("daemonRuntimePolicy.defaultValue.batch.defaultConcurrency", "2");
   assert.notEqual(restoredLeaf, daemonSource);

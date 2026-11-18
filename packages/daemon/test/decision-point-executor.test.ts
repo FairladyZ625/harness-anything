@@ -14,27 +14,27 @@ import {
   type DecisionQuestionDeclaration,
   type VerticalDefinition,
 } from "@harness-anything/kernel";
-import type { RepoCell } from "../src/repo-cell-types.ts";
-import type { CredentialPort } from "../src/agent-runtime-credential-port.ts";
-import { openDispatchStream } from "../src/dispatch-stream.ts";
-import { incidentDispositionQuestionVersion } from "../src/decision-incident-action.ts";
-import { openDecisionProviderService } from "../src/decision-provider.ts";
+import type { RepoCell } from "../src/daemon-host/repo-cell-types.ts";
+import type { CredentialPort } from "../src/daemon-host/agent-runtime-credential-port.ts";
+import { openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { incidentDispositionQuestionVersion } from "../src/daemon-host/decision-incident-action.ts";
+import { openDecisionProviderService } from "../src/daemon-host/decision-provider.ts";
 import {
   decisionPointBindingDigestForVertical,
   openDecisionPointExecutor,
   projectDecisionInput,
-} from "../src/decision-point-executor.ts";
+} from "../src/daemon-host/decision-point-executor.ts";
 import {
   decisionAdvisoryFromProvider,
   decisionAnnotationRetention,
   openDecisionAnnotationStore,
   readDecisionAnnotationsByDispatch,
-} from "../src/decision-annotations.ts";
+} from "../src/daemon-host/decision-annotations.ts";
 import {
   appendIncidentActionReceipt,
   incidentContinuationUsed,
   readIncidentActionReceipt,
-} from "../src/decision-incident-receipt.ts";
+} from "../src/daemon-host/decision-incident-receipt.ts";
 
 const dispatchId = "dispatch_a1b2c3d4e5f60718293a4b5c",
   pointId = "dispatch-stop-reason",

@@ -8,10 +8,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
 
 // Real CLI, local socket and HTTP; the authority implements only this test's OIDC/Admin REST calls.
 test("external credentials enter through CLI stdin, failed replacement preserves them and first-admin closes", async () => {

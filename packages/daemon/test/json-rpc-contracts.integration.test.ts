@@ -1,11 +1,11 @@
 // harness-test-tier: integration
-import { daemonBuildStamp } from "../src/build-identity.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { PassThrough } from "node:stream";
-import { JsonRpcLineClient } from "../src/client/local-json-rpc-client.ts";
-import { serveJsonRpcStream } from "../src/transport/json-rpc-stream.ts";
+import { JsonRpcLineClient } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { serveJsonRpcStream } from "../src/daemon-host/transport/json-rpc-stream.ts";
 import { projectDecisionReadiness } from "@harness-anything/storage";
 import { INITIAL_SETTINGS_V1, SETTINGS_DECLARATION_RUNTIME, settingsUpdateInputFields } from "@harness-anything/kernel";
 import {
@@ -20,10 +20,10 @@ import {
   validateDaemonGuiCommandReceipt,
   validateDaemonRelationGraph,
   validateDaemonTaskSnapshotList,
-} from "../src/protocol/daemon-protocol.contract.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
+import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
 import { decisionSummaryRead } from "./fixtures/decision-summary-read.ts";
 function assertValidationDiagnostic(errors: readonly string[], entity: RegExp, field: string): void {
   assert.equal(errors.length, 1);
@@ -205,7 +205,7 @@ test("preset process RPC enforces object inputs and keeps status closed", () => 
 // prettier-ignore
 
 test("GUI action facets are exact, typed, and exclude the generic runner", () => {
-  const submission = { completionClaim: "Ready.", deliverables: ["code"], outputs: ["packages/daemon/src/repo-cell.ts"], verificationNotes: ["tests"], knownGaps: [], residualRisks: [], commitSha: "a".repeat(40) }, proposal = { title: "Typed actions", question: "Ship?", riskTier: "medium", urgency: "high", vertical: "software/coding", preset: "standard-task", appliesTo: { modules: ["daemon"], productLines: ["gui"] }, decisionClass: "ordinary", chosen: [{ id: "CH1", text: "Ship" }], rejected: [{ id: "RJ1", text: "Wait", whyNot: "No need" }], body: "# Typed actions\n", claims: [], fulfillments: [] };
+  const submission = { completionClaim: "Ready.", deliverables: ["code"], outputs: ["packages/daemon/src/daemon-host/repo-cell.ts"], verificationNotes: ["tests"], knownGaps: [], residualRisks: [], commitSha: "a".repeat(40) }, proposal = { title: "Typed actions", question: "Ship?", riskTier: "medium", urgency: "high", vertical: "software/coding", preset: "standard-task", appliesTo: { modules: ["daemon"], productLines: ["gui"] }, decisionClass: "ordinary", chosen: [{ id: "CH1", text: "Ship" }], rejected: [{ id: "RJ1", text: "Wait", whyNot: "No need" }], body: "# Typed actions\n", claims: [], fulfillments: [] };
   // dec_DBF9CCB96B1A7D35A3214615E1 CH2/CH6: a single explicit handoff facet.
   const cases = new Map<string, Record<string, unknown>>([
     ["repo.agentRuntime.handoff", { operation: "export", dispatchId: "dispatch_" + "a".repeat(24) }],

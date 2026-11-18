@@ -2,11 +2,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { RuntimeSessionReadQuery, TaskProjection } from "@harness-anything/kernel";
-import { admitHandoffDispatch } from "../src/runtime-handoff-store.ts";
-import { assertNativeResumeNotExported } from "../src/runtime-resume-admission.ts";
-import { resolveRuntimeDispatchResources } from "../src/runtime-spawn-allowlist.ts";
-import { createRuntimeInstanceDispatchState } from "../src/runtime-instance-selection.ts";
-import type { RuntimeSessionSelection, RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
+import { admitHandoffDispatch } from "../src/daemon-host/runtime-handoff-store.ts";
+import { assertNativeResumeNotExported } from "../src/daemon-host/runtime-resume-admission.ts";
+import { resolveRuntimeDispatchResources } from "../src/daemon-host/runtime-spawn-allowlist.ts";
+import { createRuntimeInstanceDispatchState } from "../src/daemon-host/runtime-instance-selection.ts";
+import type { RuntimeSessionSelection, RuntimeSpawnerInput } from "../src/daemon-host/runtime-spawn-types.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 
 const settledHistory = 12_995;

@@ -4,14 +4,14 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { parseDaemonGuiActionResult } from "../src/protocol/gui-result-validation.ts";
-import { runRuntimeHandoff } from "../src/runtime-handoff.ts";
+import { parseDaemonGuiActionResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { runRuntimeHandoff } from "../src/daemon-host/runtime-handoff.ts";
 import {
   assertHandoffClaim,
   runRuntimeHandoffAction,
   type RuntimeHandoffCheckpoint,
-} from "../src/runtime-handoff-store.ts";
-import type { RepoCellActionContext } from "../src/repo-cell-types.ts";
+} from "../src/daemon-host/runtime-handoff-store.ts";
+import type { RepoCellActionContext } from "../src/daemon-host/repo-cell-types.ts";
 import { buildHandoffPacket } from "@harness-anything/kernel";
 
 const dispatchId = `dispatch_${"a".repeat(24)}`;

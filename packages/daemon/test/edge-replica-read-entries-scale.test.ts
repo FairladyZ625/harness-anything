@@ -14,17 +14,17 @@ import {
   startBaseBackup,
 } from "@harness-anything/storage";
 import { seedSettingsEvent } from "./repo-settings.fixture.ts";
-import { writeFleetEdgeConfig, type FleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
-import { edgeReplicaDoctor } from "../src/edge-replica-doctor.ts";
-import { readEdgeRepository, waitForMinimumCut, withEdgeReadModel } from "../src/fleet-edge-task-read.ts";
+import { writeFleetEdgeConfig, type FleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
+import { edgeReplicaDoctor } from "../src/daemon-host/edge-replica-doctor.ts";
+import { readEdgeRepository, waitForMinimumCut, withEdgeReadModel } from "../src/daemon-host/fleet-edge-task-read.ts";
 import {
   installReplicaGeneration,
   readReplicaGeneration,
   replicaGenerationReaders,
-} from "../src/fleet/replica-generation.ts";
-import type { RepoCellBinding } from "../src/repo-cell-types.ts";
-import { makeRepoReadRuntime } from "../src/repo-read-runtime.ts";
-import { readEdgeRuntimeResult } from "../src/runtime-result-read.ts";
+} from "../src/fleet-sync/fleet/replica-generation.ts";
+import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
+import { makeRepoReadRuntime } from "../src/daemon-host/repo-read-runtime.ts";
+import { readEdgeRuntimeResult } from "../src/daemon-host/runtime-result-read.ts";
 import { installCostProbe, resetCostProbe, snapshotCostProbe } from "./fixtures/g1-cost-probe.mjs";
 
 interface EdgeScaleFixture {

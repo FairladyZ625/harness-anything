@@ -5,13 +5,13 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { daemonHostStartRefusal } from "../src/client/daemon-autostart.ts";
-import { startDaemon } from "../src/runtime.ts";
+import { daemonHostStartRefusal } from "../src/daemon-host/client/daemon-autostart.ts";
+import { startDaemon } from "../src/daemon-host/runtime.ts";
 import {
   checkWorkspaceLinks,
   firstWorkspaceLinkFinding,
   workspaceLinkDoctorCheck,
-} from "../src/workspace-link-integrity.ts";
+} from "../src/daemon-host/workspace-link-integrity.ts";
 
 function workspaceFixture(): string {
   const root = mkdtempSync(path.join(tmpdir(), "ha-workspace-links-"));

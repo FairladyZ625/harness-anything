@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { selectExecutorDeclaration, type TaskAuthoringExecutorCandidate } from "../src/dispatch-read.ts";
+import { selectExecutorDeclaration, type TaskAuthoringExecutorCandidate } from "../src/daemon-host/dispatch-read.ts";
 
 const candidate = (
   runtimeSessionId: string,

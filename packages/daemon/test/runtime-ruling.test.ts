@@ -4,8 +4,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
-import { classifyRuntimeExit } from "../src/runtime-provider-fault.ts";
+import type { ActiveRuntime } from "../src/daemon-host/runtime-spawn-types.ts";
+import { classifyRuntimeExit } from "../src/daemon-host/runtime-provider-fault.ts";
 import { recordedRuling, recordedStream } from "./fixtures/task-936005e1-ruling.ts";
 import {
   parseRulingArtifact,
@@ -14,7 +14,7 @@ import {
   readDispatchRulingFromWorker,
   rulingReceiptText,
   runtimeRulingPath,
-} from "../src/runtime-ruling.ts";
+} from "../src/runtime-engine/runtime-ruling.ts";
 
 const { question, options, body: rulingBody } = recordedRuling,
   dispatchRecord = recordedStream.find((record) => record.kind === "dispatch")!,

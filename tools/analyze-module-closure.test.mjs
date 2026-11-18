@@ -344,7 +344,7 @@ test("forbidden target rules cover runtime-spawn, fleet, and authorization packa
 
 test("capability bridge audit maps worker calls to supervisor handlers", (t) => {
   const root = fixture(t, {
-    "packages/daemon/src/repo-writer-worker.ts": [
+    "packages/daemon/src/writer-cell/repo-writer-worker.ts": [
       'syncCapability("now", null);',
       'asyncCapability("prepareRuntimeLaunch", payload);',
       'notify("runtimeSignal", payload);',
@@ -355,7 +355,7 @@ test("capability bridge audit maps worker calls to supervisor handlers", (t) => 
       "asyncCapabilities.get(callId);",
       "asyncCapabilities.delete(callId);",
     ].join("\n"),
-    "packages/daemon/src/writer-supervisor.ts": [
+    "packages/daemon/src/daemon-host/writer-supervisor.ts": [
       'if (message.capability === "runtimeSignal") return;',
       "async function capabilityValue(call) {",
       "  switch (call.capability) {",
@@ -383,14 +383,17 @@ test("capability bridge audit maps worker calls to supervisor handlers", (t) => 
   assert.deepEqual(audit.dynamicWorkerCalls, [{ capability: null, mode: "async", line: 5 }]);
 });
 
-test("repo-writer-worker closure stays bounded and its bridge audit finds runtime launch", () => {
+test("pure canonical Writer closure is bounded and the host bridge still owns runtime launch", () => {
   const root = path.resolve(".");
-  const result = analyzeModuleClosure({ root, entry: "packages/daemon/src/repo-writer-worker.ts" });
-  const bridge = analyzeCapabilityBridge({ root });
+  const result = analyzeModuleClosure({ root, entry: "packages/daemon/src/writer-cell/repo-writer-worker.ts" });
+  const bridge = analyzeCapabilityBridge({
+    root,
+    workerPath: "packages/daemon/src/daemon-host/repo-orchestration-host.ts",
+  });
 
   assert.ok(result.moduleCount > 0);
-  assert.ok(result.forbiddenTargets.length > 0);
+  assert.deepEqual(result.forbiddenTargets, []);
   assert.ok(bridge.methods.some((method) => method.capability === "runtimeLaunch"));
   // A dependency explosion is structural; shared-runner scheduling is not a correctness signal.
-  assert.ok(result.moduleCount < 2_000, `worker closure contains ${result.moduleCount} modules`);
+  assert.ok(result.moduleCount < 950, `worker closure contains ${result.moduleCount} modules`);
 });

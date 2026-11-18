@@ -10,7 +10,7 @@ import test from "node:test";
 import { ManagedRbacService, managedRbacVersions } from "@harness-anything/authorization-keycloak/managed-rbac-service";
 import type { ManagedRbacHost } from "../../authorization-keycloak/src/managed-host.ts";
 import { stopManagedKeycloakOrphan } from "../../authorization-keycloak/src/managed-keycloak-orphan.ts";
-import { createIdentityManagement } from "../src/authorization-provider.ts";
+import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
 
 test("Windows orphan ownership requires the exact Keycloak home property", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-rbac-keycloak-windows-ownership-")),

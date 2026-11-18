@@ -7,7 +7,7 @@ import test from "node:test";
 import { writeDaemonRegistryRepo } from "@harness-anything/kernel/daemon-registry";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import { migrateCompletion } from "@harness-anything/preset/internal/preset-resolver";
-import { readArtifactActionScopes } from "../src/authorization-provider.ts";
+import { readArtifactActionScopes } from "../src/daemon-host/authorization-provider.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
 const sharedKind = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",

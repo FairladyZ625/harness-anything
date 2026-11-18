@@ -1,9 +1,9 @@
 # 唯一写路径
 
 CLI 与 GUI 经 daemon JSON-RPC 提交 typed command。daemon 为每仓持有串行化 `RepoCell`
-(`packages/daemon/src/repo-cell.ts`)；实际写者运行在专用
-`packages/daemon/src/repo-writer-worker.ts` 线程内，由
-`packages/daemon/src/writer-supervisor.ts` 监管。`writer-epoch` 持久 fence
+(`packages/daemon/src/daemon-host/repo-cell.ts`)；实际写者运行在专用
+`packages/daemon/src/writer-cell/repo-writer-worker.ts` 线程内，由
+`packages/daemon/src/daemon-host/writer-supervisor.ts` 监管。`writer-epoch` 持久 fence
 (`packages/daemon/src/writer-epoch.ts`)在 daemon 重启后拒绝旧写者，也让 fleet 中
 任何时刻只有一个写者；`remote-edge` 节点把命令转发给 `remote-center`，不获得第二个写者。
 application 与 domain handler 在接受前校验权限、实体转换和冻结写计划。

@@ -1,9 +1,9 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { RegisteredRepoInput } from "../src/daemon-host-context.ts";
-import type { DaemonHostRegistryContext } from "../src/daemon-host-context.ts";
-import { attachInitial } from "../src/daemon-host-recovery.ts";
+import type { RegisteredRepoInput } from "../src/daemon-host/daemon-host-context.ts";
+import type { DaemonHostRegistryContext } from "../src/daemon-host/daemon-host-context.ts";
+import { attachInitial } from "../src/daemon-host/daemon-host-recovery.ts";
 
 test("initial attachment starts later repositories without waiting for an earlier slow attach", async () => {
   const repos: RegisteredRepoInput[] = [

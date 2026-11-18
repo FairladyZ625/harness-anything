@@ -9,9 +9,9 @@ import {
   resolveHarnessLayout,
 } from "../../../packages/kernel/src/index.ts";
 import { makeTaskEventStore, makeTaskProjection, sqliteLedgerPath } from "../../../packages/storage/src/index.ts";
-import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
+import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
 import { startBaseBackup } from "../../../packages/storage/src/fleet-basebackup.ts";
-import { installReplicaGeneration } from "../../../packages/daemon/src/fleet/replica-generation.ts";
+import { installReplicaGeneration } from "../../../packages/daemon/src/fleet-sync/fleet/replica-generation.ts";
 import { guiE2eRuntimeSessionId } from "./sessions-grouping.mjs";
 import { bridgeReady, nav } from "./helpers.mjs";
 

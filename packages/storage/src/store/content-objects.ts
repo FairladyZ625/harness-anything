@@ -2,7 +2,8 @@ import path from "node:path";
 import { localContentObjectFileSystem } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import { readFileWindow } from "../durable-file.ts";
 import { validateContentRange } from "../content-blob-range.ts";
-import { TaskEventStoreError, type CanonicalContentBlob, type CanonicalEventV1 } from "@harness-anything/kernel";
+import { TaskEventStoreError } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
+import type { CanonicalContentBlob, CanonicalEventV1 } from "@harness-anything/kernel";
 import { contentClaims } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 // Claimed content objects live under objectRoot/<2>/<62>; every claim is validated before any object is
 // written, and objects are persisted in fsync batches ahead of the SQLite accept.

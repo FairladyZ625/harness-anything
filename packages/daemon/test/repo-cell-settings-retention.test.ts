@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { INITIAL_SETTINGS_V1, type TaskProjectionQueries } from "@harness-anything/kernel";
-import { readEffectiveDispatchArchiveRetention } from "../src/repo-cell-settings-state.ts";
+import { readEffectiveDispatchArchiveRetention } from "../src/daemon-host/repo-cell-settings-state.ts";
 
 const projectionOf = (settingsValue: unknown): Pick<TaskProjectionQueries, "getEntity"> => ({
   getEntity: (entityKind: string, entityId: string) =>

@@ -8,14 +8,14 @@ import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { type DaemonRepoMode } from "@harness-anything/kernel";
 import { withPolicyGroup, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import {
   builtinLedgerBackupScheduleId,
   builtinNightlyReckoningScheduleId,
   scheduledLedgerBackupRoot,
   seedBuiltinSchedules,
-} from "../src/schedule-builtin-executor.ts";
+} from "../src/daemon-host/schedule-builtin-executor.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import {
   openBootstrappedRepoCell as openRepoCell,

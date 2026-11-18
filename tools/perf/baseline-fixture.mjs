@@ -16,9 +16,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { daemonRuntimeScopedEnvironmentKeys } from "../../packages/cli/src/daemon/client.ts";
-import { requestDaemonJsonRpcAt } from "../../packages/daemon/src/client/local-json-rpc-client.ts";
-import { requestDaemonShutdownAt } from "../../packages/daemon/src/client/local-json-rpc-shutdown.ts";
-import { localUserDaemonEndpoint } from "../../packages/daemon/src/client/local-daemon-target.ts";
+import { requestDaemonJsonRpcAt } from "../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
+import { requestDaemonShutdownAt } from "../../packages/daemon/src/daemon-host/client/local-json-rpc-shutdown.ts";
+import { localUserDaemonEndpoint } from "../../packages/daemon/src/daemon-host/client/local-daemon-target.ts";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "../../packages/kernel/src/index.ts";
 import { signInAt, spawnKeycloak } from "../../packages/daemon/test/keycloak.fixtures.ts";
 

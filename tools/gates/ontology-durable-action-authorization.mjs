@@ -60,9 +60,9 @@ function productionFilesInScope(changedFiles) {
   if (
     files.some(
       (file) =>
-        /^(?:packages\/kernel\/src\/|packages\/daemon\/src\/protocol\/|tools\/gates\/)/u.test(file) ||
+        /^(?:packages\/kernel\/src\/|packages\/daemon\/src\/daemon-host\/protocol\/|tools\/gates\/)/u.test(file) ||
         /^(?:tools\/(?:gate-manifest\.json|run-manifest-gates\.mjs)|package(?:-lock)?\.json)$/u.test(file) ||
-        /^packages\/daemon\/src\/(?:repo-cell(?:-(?:open|api|command|action-context|action-dispatch|command-run|authorization))?|daemon-host-(?:open|context)|rpc-command-routing|daemon-operation)\.ts$/u.test(
+        /^packages\/daemon\/src\/daemon-host\/(?:repo-cell(?:-(?:open|api|command|action-context|action-dispatch|command-run|authorization))?|daemon-host-(?:open|context)|rpc-command-routing|daemon-operation)\.ts$/u.test(
           file,
         ) ||
         file.split("/").includes("..") ||
@@ -257,8 +257,8 @@ export async function loadAuthorizationInputs(rootDir) {
   const actionDeclarationRelPath = "packages/kernel/src/domain/action-declaration.ts";
   const entityKindRelPath = "packages/kernel/src/domain/entity-kind-registry.ts";
   const [contract, commands, kernel, domainDeclarations, entityKinds] = await Promise.all([
-    load("packages/daemon/src/protocol/daemon-protocol.contract.ts"),
-    load("packages/daemon/src/protocol/daemon-protocol-commands.ts"),
+    load("packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts"),
+    load("packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts"),
     load("packages/kernel/src/index.ts"),
     fs.existsSync(path.join(rootDir, actionDeclarationRelPath)) ? load(actionDeclarationRelPath) : null,
     fs.existsSync(path.join(rootDir, entityKindRelPath)) ? load(entityKindRelPath) : null,
@@ -532,7 +532,7 @@ function auditAuthorization(rootDir, inputs, options) {
         name: "CanonicalEventStore",
         member: "readHead",
       },
-      writerQueue: { file: "packages/daemon/src/repo-cell.ts", name: "chainRepoCellWrite" },
+      writerQueue: { file: "packages/daemon/src/daemon-host/repo-cell.ts", name: "chainRepoCellWrite" },
       writerFence: { file: "packages/kernel/src/domain/write-chain.contract.ts", name: "assertCurrentWriter" },
       sessions: sessionAnchors,
       services: serviceAnchors,
@@ -946,19 +946,16 @@ function typeContainsNullish(node) {
 
 export async function main(argv = process.argv.slice(2)) {
   try {
-    const changedIndex = argv.findIndex((arg) => arg === "--changed-files" || arg === "--changed-files-base64");
+    const changedIndex = argv.findIndex((arg) => arg === "--changed-files" || arg === "--changed-files-stdin");
+    const fromStdin = argv[changedIndex] === "--changed-files-stdin";
     const changedFiles =
-      changedIndex < 0
-        ? undefined
-        : JSON.parse(
-            argv[changedIndex] === "--changed-files-base64"
-              ? Buffer.from(argv[changedIndex + 1], "base64").toString("utf8")
-              : argv[changedIndex + 1],
-          );
+      changedIndex < 0 ? undefined : JSON.parse(fromStdin ? fs.readFileSync(0, "utf8") : argv[changedIndex + 1]);
     if (changedIndex >= 0 && (!Array.isArray(changedFiles) || changedFiles.some((file) => typeof file !== "string")))
       throw new Error("--changed-files requires a JSON array of paths");
     const { rootDir, mode } = parseCommonArgs(
-      changedIndex < 0 ? argv : argv.filter((_, index) => index !== changedIndex && index !== changedIndex + 1),
+      changedIndex < 0
+        ? argv
+        : argv.filter((_, index) => index !== changedIndex && (fromStdin || index !== changedIndex + 1)),
     );
     const started = Date.now();
     const result = await shardedAudit(rootDir, changedFiles);

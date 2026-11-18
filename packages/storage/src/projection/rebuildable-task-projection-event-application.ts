@@ -64,7 +64,7 @@ import {
   ENTITY_CONTENT_POLICY_ID,
   entityOwnedDocumentClaims,
 } from "@harness-anything/kernel/internal/domain/entity-owned-content.ts";
-import { canonicalDocumentRetirements } from "@harness-anything/kernel";
+import { canonicalDocumentRetirements } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 import { interpretEntityValue } from "@harness-anything/kernel/internal/domain/entity-kind-projection.ts";
 import { interpretReplayDeclaration } from "./entity-declaration-replay.ts";
 import {

@@ -1,5 +1,5 @@
 import { parentPort, workerData } from "node:worker_threads";
-import type { RepoReadPayload, RepoWriterRequestV1 } from "../../src/repo-writer-protocol.ts";
+import type { RepoReadPayload, RepoWriterRequestV1 } from "../../src/daemon-host/repo-writer-protocol.ts";
 const barrier = new Int32Array(workerData.barrier as SharedArrayBuffer);
 // Inject synchronous CPU/I/O occupancy before the real query, on the actual production worker.
 parentPort!.on("message", (request: RepoWriterRequestV1) => {
@@ -9,4 +9,4 @@ parentPort!.on("message", (request: RepoWriterRequestV1) => {
   Atomics.notify(barrier, 1);
   Atomics.wait(barrier, 2, 0);
 });
-await import("../../src/repo-reader-worker.ts");
+await import("../../src/daemon-host/repo-reader-worker.ts");

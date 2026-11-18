@@ -2,10 +2,13 @@
 import { lifecycleSummaryFor } from "./dispatch-lifecycle-read.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AgentRuntimeSessionResult } from "../src/agent-runtime-contract.ts";
-import { taskDispatchRowsSettled } from "../src/dispatch-read.ts";
-import type { DaemonTaskDispatchesResult, TaskDispatchRow } from "../src/protocol/daemon-protocol.contract.ts";
-import { orchestrateRuntimeSessionsAwait, type RuntimeAwaitContext } from "../src/runtime-orchestration.ts";
+import type { AgentRuntimeSessionResult } from "../src/daemon-host/agent-runtime-contract.ts";
+import { taskDispatchRowsSettled } from "../src/daemon-host/dispatch-read.ts";
+import type {
+  DaemonTaskDispatchesResult,
+  TaskDispatchRow,
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { orchestrateRuntimeSessionsAwait, type RuntimeAwaitContext } from "../src/daemon-host/runtime-orchestration.ts";
 
 function sessionResult(
   runtimeSessionId: string,
@@ -338,7 +341,7 @@ test("a sessions.await on an already-closed connection answers client_disconnect
 
 for (const target of ["sessions", "tasks"] as const) {
   test(`sessions.await retains a terminal notification during an asynchronous ${target} read`, async () => {
-    const { createRuntimeOutcomeWaiters } = await import("../src/runtime-settlement.ts"),
+    const { createRuntimeOutcomeWaiters } = await import("../src/daemon-host/runtime-settlement.ts"),
       signals = createRuntimeOutcomeWaiters({
         readLifecycle: async () => ({ status: "ready", watermark: 0, sourceRevision: 0, rows: [], nextCursor: null }),
       });
@@ -378,7 +381,7 @@ for (const target of ["sessions", "tasks"] as const) {
 
 test("local outcome waiter waits for an accepted lifecycle terminal after process stop", async () => {
   const { lifecycleEvent, dispatchLifecycleReadOf } = await import("./dispatch-lifecycle-read.fixtures.ts"),
-    { createRuntimeOutcomeWaiters } = await import("../src/runtime-settlement.ts"),
+    { createRuntimeOutcomeWaiters } = await import("../src/daemon-host/runtime-settlement.ts"),
     runtimeSessionId = "session-outcome-waiter",
     source = "local" as const,
     events = [
@@ -409,7 +412,7 @@ test("local outcome waiter waits for an accepted lifecycle terminal after proces
 
 test("orchestration waits for canonical publication after local host-loss evidence", async () => {
   const { lifecycleEvent, dispatchLifecycleReadOf } = await import("./dispatch-lifecycle-read.fixtures.ts"),
-    { runtimeOutcomeSettled } = await import("../src/runtime-settlement.ts"),
+    { runtimeOutcomeSettled } = await import("../src/daemon-host/runtime-settlement.ts"),
     runtimeSessionId = "session-publication",
     source = "local" as const,
     events = [lifecycleEvent("R", runtimeSessionId, { instanceId: "instance", source })],

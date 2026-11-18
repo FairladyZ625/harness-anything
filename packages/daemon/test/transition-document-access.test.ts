@@ -6,7 +6,7 @@ import { assessTransitionDocument, transitionDocumentContract, type TaskProjecti
 import {
   assertTaskTransitionDocumentReady,
   transitionDocumentReadinessContract,
-} from "../src/transition-document-access.ts";
+} from "../src/daemon-host/transition-document-access.ts";
 
 const planHeadings = [
   "Brief",

@@ -16,7 +16,7 @@ import { taskCreated, relation } from "../../storage/test/store/relation-graph-p
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
-import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
+import { applyFleetMirrorCut } from "../src/daemon-host/fleet-edge-mirror.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 const actor = { principal: { personId: "person-one" }, executor: null } as const;

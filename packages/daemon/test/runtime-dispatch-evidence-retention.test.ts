@@ -3,16 +3,19 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { appendIncidentActionReceipt, readIncidentActionReceipt } from "../src/decision-incident-receipt.ts";
-import { dispatchEvidenceStatePath, readDispatchEvidenceState } from "../src/dispatch-evidence-state.ts";
+import {
+  appendIncidentActionReceipt,
+  readIncidentActionReceipt,
+} from "../src/daemon-host/decision-incident-receipt.ts";
+import { dispatchEvidenceStatePath, readDispatchEvidenceState } from "../src/daemon-host/dispatch-evidence-state.ts";
 import {
   appendRuntimeWorkerRecord,
   archiveDispatchStream,
   dispatchStreamPath,
   openDispatchStream,
   readDispatchStreamSummary,
-} from "../src/dispatch-stream.ts";
-import { purgeRepoCache } from "../src/repo-cache-purge.ts";
+} from "../src/daemon-host/dispatch-stream.ts";
+import { purgeRepoCache } from "../src/daemon-host/repo-cache-purge.ts";
 import { publishExit } from "./runtime-spawn-settlement.fixtures.ts";
 import {
   fixtureTaskId,

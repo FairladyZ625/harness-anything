@@ -10,13 +10,13 @@ import {
   userRootFromBuiltinUrl,
 } from "@harness-anything/authorization-builtin";
 import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
-import { AccessAdminService } from "../src/access-admin-service.ts";
+import { AccessAdminService } from "../src/daemon-host/access-admin-service.ts";
 import {
   createAuthorizationProvider,
   createIdentityManagement,
   createIdentitySession,
-} from "../src/authorization-provider.ts";
-import { createEdgeJoinStore } from "../src/fleet/edge-join.ts";
+} from "../src/daemon-host/authorization-provider.ts";
+import { createEdgeJoinStore } from "../src/daemon-host/fleet/edge-join.ts";
 
 test("clean user roots select built-in identity without a managed runtime", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-identity-"));

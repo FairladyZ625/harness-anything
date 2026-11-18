@@ -2,18 +2,18 @@
 // dec_F01770FD0DCF72683B7C4C7A47/CH5–CH7: one person's independently revocable devices.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
 import { serveKeycloak } from "./keycloak.fixtures.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import test from "node:test";
-import { AccessAdminService, type AccessAdminRequest } from "../src/access-admin-service.ts";
-import { keycloakNodeRegistry } from "../src/fleet-center-admission.ts";
+import { AccessAdminService, type AccessAdminRequest } from "../src/daemon-host/access-admin-service.ts";
+import { keycloakNodeRegistry } from "../src/daemon-host/fleet-center-admission.ts";
 import { KeycloakPolicyAdapter, type KeycloakNode } from "@harness-anything/authorization-keycloak";
-import { createIdentitySession } from "../src/authorization-provider.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { fakeKeycloak, keycloakUserRoot, keycloakUrl, keycloakRealm } from "./keycloak.fixtures.ts";
 
 test("owners rename, transfer, pause, reapprove, remove and globally revoke versioned devices", async (t) => {

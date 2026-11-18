@@ -6,17 +6,17 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
-import { createIdentitySession } from "../src/authorization-provider.ts";
-import { managedRbacReceiptJournal } from "../src/access-admin-state.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
+import { managedRbacReceiptJournal } from "../src/daemon-host/access-admin-state.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { keycloakRealm, keycloakSessionStore, keycloakUserRoot, serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { git, initRepo } from "./fleet-runtime-recovery.fixtures.ts";
-import { writeFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
-import { oidcCenterSelections } from "../src/oidc-center-selection.ts";
-import { startDaemon, type RunningDaemon } from "../src/runtime.ts";
-import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
+import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
+import { oidcCenterSelections } from "../src/daemon-host/oidc-center-selection.ts";
+import { startDaemon, type RunningDaemon } from "../src/daemon-host/runtime.ts";
+import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
 
 test("registered edges read only their current repository's member directory without a local Keycloak center", async (t) => {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-edge-member-directory-"))),

@@ -7,7 +7,7 @@ import test, { type TestContext } from "node:test";
 import { sha256Bytes } from "@harness-anything/kernel";
 
 import { deriveCloseoutSubmission } from "./closeout-submission.fixture.ts";
-import { reviewPathHits, reviewPathRules } from "../src/review-path-matching.ts";
+import { reviewPathHits, reviewPathRules } from "../src/daemon-host/review-path-matching.ts";
 import { packagePath, git, put, commit, fixture, artifactStore, derive } from "./closeout-submission-cut.fixture.ts";
 
 /** A moving-main world: sibling PRs land on main before and after this delivery merges. */

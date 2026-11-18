@@ -30,7 +30,7 @@ import { entityKindContracts } from "../packages/kernel/src/domain/entity-kind-r
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const GUI_MODEL = "packages/gui/src/renderer/model/types.ts";
 const GUI_ADAPTER = "packages/gui/src/renderer/triadic-data.ts";
-const DAEMON_PROTOCOL = "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts";
+const DAEMON_PROTOCOL = "packages/daemon/src/daemon-host/protocol/daemon-protocol-vocabulary.ts";
 
 const register = await import(new URL("../packages/kernel/src/domain/status-vocabulary.ts", import.meta.url));
 const realDecisionModule = await import(
@@ -103,7 +103,7 @@ test("the scan root covers every package, not only kernel domain and three mirro
     ["packages/storage/src/rogue.ts", 'export type StoreState = "before" | "after";\n'],
     ["packages/preset/src/rogue.ts", 'export type PresetPhase = "one" | "two";\n'],
     ["packages/gui/src/renderer/rogue.ts", 'export type WidgetStatus = "up" | "down";\n'],
-    ["packages/daemon/src/fleet/rogue.ts", 'export type PeerState = "up" | "down";\n'],
+    ["packages/daemon/src/daemon-host/fleet/rogue.ts", 'export type PeerState = "up" | "down";\n'],
     ["packages/cli/src/rogue.ts", 'export type CliState = "up" | "down";\n'],
   ]) {
     const findings = coverageFor(sitesWithModules([[module, body]]));
@@ -201,7 +201,7 @@ test("bypass fixture: re-introducing an inline literal union in a retired daemon
   const findings = coverageFor(
     sitesWithModules([
       [
-        "packages/daemon/src/dispatch-activity.ts",
+        "packages/daemon/src/daemon-host/dispatch-activity.ts",
         'export type DispatchActivityStatus = "thinking" | "tool" | "waiting" | "silent" | "stalled" | "unknown" | "paused";\n',
       ],
     ]),
@@ -338,7 +338,7 @@ test("bypass fixture: an unregistered authored-document inline readiness union i
     register,
     sitesWithModules([
       [
-        "packages/daemon/src/fleet/edge-doc-readiness.ts",
+        "packages/daemon/src/daemon-host/fleet/edge-doc-readiness.ts",
         'export interface EdgeDocReadiness { readonly readinessState: "ready" | "awaiting_center"; }\n',
       ],
     ]),
@@ -425,7 +425,7 @@ test("bypass fixture: a single-quoted status union is scanned", () => {
 });
 
 test("bypass fixture: a status-word const alias is resolved and refused when unregistered", () => {
-  const wire = "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts";
+  const wire = "packages/daemon/src/daemon-host/protocol/daemon-protocol-vocabulary.ts";
   const findings = coverageFor(
     sitesWithModules([[wire, `${sources.get(wire)}\nexport const timewarpStateWords = taskStatusWords;\n`]]),
   );
@@ -436,7 +436,7 @@ test("bypass fixture: a status-word const alias is resolved and refused when unr
 });
 
 test("bypass fixture: a status-word const alias with an unknown target is refused", () => {
-  const wire = "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts";
+  const wire = "packages/daemon/src/daemon-host/protocol/daemon-protocol-vocabulary.ts";
   const findings = coverageFor(
     sitesWithModules([[wire, `${sources.get(wire)}\nexport const timewarpStateWords = missingStates;\n`]]),
   );
@@ -738,7 +738,7 @@ test("authored-document vocabularies are covered by the generic scan", () => {
     "packages/kernel/src/domain/authored-document-status.ts#docCandidateStates",
     "packages/kernel/src/domain/authored-document-status.ts#projectedDocumentSyncStates",
     "packages/kernel/src/domain/authored-document-status.ts#observedDocumentSyncStates",
-    "packages/daemon/src/protocol/daemon-protocol-gui-types.ts##syncState",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-types.ts##syncState",
   ];
   for (const key of expected) {
     const [module, anchor] = key.split("#", 2);
@@ -758,7 +758,7 @@ test("authored-document vocabularies are covered by the generic scan", () => {
   );
   const rogue = [
     [
-      "packages/daemon/src/fleet/edge-doc-candidate.ts",
+      "packages/daemon/src/daemon-host/fleet/edge-doc-candidate.ts",
       'export type EdgeDocCandidateState = "clean" | "candidate_v2";\n',
     ],
   ];
@@ -800,47 +800,47 @@ test("only daemon declarations remain in the status vocabulary baseline", () => 
 // dec_499E4E98A3D4754132B3BCA1E6: daemon batches 3+4 retire their declaration debt.
 test("fleet/access and repository/document/operations have no status vocabulary debt", () => {
   const retiredModules = new Set([
-    "packages/daemon/src/access-admin-service.ts",
-    "packages/daemon/src/daemon-host-types.ts",
-    "packages/daemon/src/daemon-operation.ts",
-    "packages/daemon/src/decision-annotations.ts",
-    "packages/daemon/src/decision-incident-action.ts",
-    "packages/daemon/src/decision-incident-receipt.ts",
+    "packages/daemon/src/daemon-host/access-admin-service.ts",
+    "packages/daemon/src/daemon-host/daemon-host-types.ts",
+    "packages/daemon/src/daemon-host/daemon-operation.ts",
+    "packages/daemon/src/daemon-host/decision-annotations.ts",
+    "packages/daemon/src/daemon-host/decision-incident-action.ts",
+    "packages/daemon/src/daemon-host/decision-incident-receipt.ts",
     "packages/application/src/commands/decision-surface-actions.ts",
-    "packages/daemon/src/doc-sync-publication.ts",
+    "packages/daemon/src/daemon-host/doc-sync-publication.ts",
     "packages/application/src/commands/entity-action-catalog-receipts.ts",
-    "packages/daemon/src/entity-content-read.ts",
-    "packages/daemon/src/entity-locator-read.ts",
-    "packages/daemon/src/fleet-edge-mirror.ts",
-    "packages/daemon/src/fleet-edge-runtime.ts",
-    "packages/daemon/src/fleet/edge-join-client.ts",
-    "packages/daemon/src/fleet/edge-join-ssh-tunnel.ts",
-    "packages/daemon/src/fleet/edge-join.ts",
-    "packages/daemon/src/fleet/fleet-overview-read.ts",
-    "packages/daemon/src/fleet/replica-status.ts",
-    "packages/daemon/src/migration-import-authored-classification.ts",
-    "packages/daemon/src/migration-import-legacy.ts",
-    "packages/daemon/src/migration-import-task-restatement.ts",
-    "packages/daemon/src/migration-import-types.ts",
-    "packages/daemon/src/observe-jsonl-tail.ts",
-    "packages/daemon/src/observe-tail.ts",
-    "packages/daemon/src/repo-bootstrap.ts",
-    "packages/daemon/src/repo-cell-doctor.ts",
-    "packages/daemon/src/repo-cell-status.ts",
-    "packages/daemon/src/repo-cell-task-create.ts",
-    "packages/daemon/src/repo-cell-task-query.ts",
-    "packages/daemon/src/repo-cell-types.ts",
-    "packages/daemon/src/repo-cell.ts",
-    "packages/daemon/src/repo-local-root-residue.ts",
-    "packages/daemon/src/repo-writer-protocol.ts",
-    "packages/daemon/src/review-prompt-guidance.ts",
-    "packages/daemon/src/skill-eval-runner.ts",
-    "packages/daemon/src/task-risk-tier.ts",
-    "packages/daemon/src/task-worktree-legacy-rename.ts",
-    "packages/daemon/src/terminal-host.ts",
+    "packages/daemon/src/daemon-host/entity-content-read.ts",
+    "packages/daemon/src/daemon-host/entity-locator-read.ts",
+    "packages/daemon/src/daemon-host/fleet-edge-mirror.ts",
+    "packages/daemon/src/daemon-host/fleet-edge-runtime.ts",
+    "packages/daemon/src/daemon-host/fleet/edge-join-client.ts",
+    "packages/daemon/src/fleet-sync/fleet/edge-join-ssh-tunnel.ts",
+    "packages/daemon/src/daemon-host/fleet/edge-join.ts",
+    "packages/daemon/src/daemon-host/fleet/fleet-overview-read.ts",
+    "packages/daemon/src/daemon-host/fleet/replica-status.ts",
+    "packages/daemon/src/daemon-host/migration-import-authored-classification.ts",
+    "packages/daemon/src/daemon-host/migration-import-legacy.ts",
+    "packages/daemon/src/daemon-host/migration-import-task-restatement.ts",
+    "packages/daemon/src/daemon-host/migration-import-types.ts",
+    "packages/daemon/src/daemon-host/observe-jsonl-tail.ts",
+    "packages/daemon/src/daemon-host/observe-tail.ts",
+    "packages/daemon/src/daemon-host/repo-bootstrap.ts",
+    "packages/daemon/src/daemon-host/repo-cell-doctor.ts",
+    "packages/daemon/src/daemon-host/repo-cell-status.ts",
+    "packages/daemon/src/daemon-host/repo-cell-task-create.ts",
+    "packages/daemon/src/daemon-host/repo-cell-task-query.ts",
+    "packages/daemon/src/daemon-host/repo-cell-types.ts",
+    "packages/daemon/src/daemon-host/repo-cell.ts",
+    "packages/daemon/src/daemon-host/repo-local-root-residue.ts",
+    "packages/daemon/src/daemon-host/repo-writer-protocol.ts",
+    "packages/daemon/src/daemon-host/review-prompt-guidance.ts",
+    "packages/daemon/src/runtime-engine/skill-eval-runner.ts",
+    "packages/daemon/src/daemon-host/task-risk-tier.ts",
+    "packages/daemon/src/daemon-host/task-worktree-legacy-rename.ts",
+    "packages/daemon/src/daemon-host/terminal-host.ts",
     "packages/application/src/queries/work-briefs-read.ts",
     "packages/application/src/queries/work-topology-read.ts",
-    "packages/daemon/src/workspace-link-integrity.ts",
+    "packages/daemon/src/daemon-host/workspace-link-integrity.ts",
     "packages/application/src/queries/workspace-scope-read.ts",
   ]);
   assert.deepEqual(
@@ -856,16 +856,16 @@ test("fleet/access and repository/document/operations have no status vocabulary 
 // dec_499E4E98A3D4754132B3BCA1E6/CH1: daemon batch 2 retires protocol/gui/home declaration debt.
 test("daemon protocol/gui/home modules have no status vocabulary debt", () => {
   const retiredModules = new Set([
-    "packages/daemon/src/gui-s3-control.ts",
-    "packages/daemon/src/home/home-overview-types.ts",
-    "packages/daemon/src/protocol/artifacts-gui-contract.ts",
-    "packages/daemon/src/protocol/daemon-protocol-gui-types.ts",
-    "packages/daemon/src/protocol/daemon-protocol-task-delivery-diff.ts",
-    "packages/daemon/src/protocol/daemon-protocol-validate-results.ts",
-    "packages/daemon/src/protocol/daemon-status-contract.ts",
-    "packages/daemon/src/protocol/schedule-runs-contract.ts",
-    "packages/daemon/src/protocol/schedules-gui-contract.ts",
-    "packages/daemon/src/protocol/task-dispatch-contract.ts",
+    "packages/daemon/src/daemon-host/gui-s3-control.ts",
+    "packages/daemon/src/daemon-host/home/home-overview-types.ts",
+    "packages/daemon/src/daemon-host/protocol/artifacts-gui-contract.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-types.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-task-delivery-diff.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-results.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-status-contract.ts",
+    "packages/daemon/src/daemon-host/protocol/schedule-runs-contract.ts",
+    "packages/daemon/src/daemon-host/protocol/schedules-gui-contract.ts",
+    "packages/daemon/src/daemon-host/protocol/task-dispatch-contract.ts",
   ]);
   assert.deepEqual(
     statusVocabularyBaseline.filter(({ key }) => retiredModules.has(key.split("#")[0])),

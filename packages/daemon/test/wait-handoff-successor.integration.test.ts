@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
-import { daemonBuildStamp } from "../src/build-identity.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
@@ -8,12 +8,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { bindWriterGenerationToken } from "@harness-anything/kernel";
-import { bootstrapRepo, resolveRepoBootstrap } from "../src/repo-bootstrap.ts";
-import { startDaemon, type RunningDaemon } from "../src/runtime.ts";
-import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
+import { bootstrapRepo, resolveRepoBootstrap } from "../src/daemon-host/repo-bootstrap.ts";
+import { startDaemon, type RunningDaemon } from "../src/daemon-host/runtime.ts";
+import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import { openBootstrappedRepoCell, registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { policyTestCenter, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
@@ -60,7 +60,7 @@ for (const execution of [false, true]) {
       const daemon = (await startDaemon(input)) as RunningDaemon;
       assert.equal(daemon.endpoint, predecessor.endpoint);
       const socket = net.createConnection(daemon.endpoint);
-      const { JsonRpcLineClient } = await import("../src/client/local-json-rpc-client.ts");
+      const { JsonRpcLineClient } = await import("../src/daemon-host/client/local-json-rpc-client.ts");
       const client = new JsonRpcLineClient(socket, socket);
       let receipt: unknown;
       try {

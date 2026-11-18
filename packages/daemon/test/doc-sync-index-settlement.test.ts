@@ -7,7 +7,7 @@ import test from "node:test";
 import { resolveLedgerGitLayout } from "@harness-anything/storage";
 
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { actor, initNestedLedgerRepo, rows, write } from "./doc-sync-slice-a.fixtures.ts";
 

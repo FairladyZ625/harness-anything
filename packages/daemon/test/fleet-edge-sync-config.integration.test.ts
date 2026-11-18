@@ -11,10 +11,10 @@ import path from "node:path";
 import test from "node:test";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
-import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
-import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
-import { readReplicaHealth } from "../src/fleet/replica-health.ts";
-import { waitForFleetReplicaReady } from "../src/fleet/replica-sync.ts";
+import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
+import { readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
+import { readReplicaHealth } from "../src/fleet-sync/fleet/replica-health.ts";
+import { waitForFleetReplicaReady } from "../src/daemon-host/fleet/replica-sync.ts";
 
 test(
   "a successful edge sync persists its connection and starts the resident stream",

@@ -4,10 +4,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openDispatchStream, type DispatchStallEvidence } from "../src/dispatch-stream.ts";
-import { attachActiveRuntime, disposeActiveRuntimeObservations } from "../src/runtime-spawn-active.ts";
-import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
-import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
+import { openDispatchStream, type DispatchStallEvidence } from "../src/daemon-host/dispatch-stream.ts";
+import { attachActiveRuntime, disposeActiveRuntimeObservations } from "../src/daemon-host/runtime-spawn-active.ts";
+import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
+import type { ActiveRuntime } from "../src/daemon-host/runtime-spawn-types.ts";
 import { active as runtimeFixture } from "./runtime-spawn-settlement.fixtures.ts";
 import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 

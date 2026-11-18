@@ -1,13 +1,13 @@
 // harness-test-tier: integration
 import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
-import { currentGateRun, isTaskEvent } from "@harness-anything/kernel";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { currentGateRun, isTaskEvent, resolveHarnessLayout } from "@harness-anything/kernel";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
@@ -212,11 +212,29 @@ for (const order of ["old-first", "new-first"] as const) {
   test(`amend and complete race with source execution: ${order} arrival retains one current run after cold replay`, async () => {
     const f = await fixture(
       frame +
-        `await new Promise(resolve=>setTimeout(resolve,metadata.seed===42?${order === "old-first" ? 1000 : 3000}:${order === "old-first" ? 2000 : 0}));` +
+        `
+import { existsSync, watch, writeFileSync } from "node:fs";
+writeFileSync("output/ready-" + metadata.seed, "");
+await new Promise(resolve => {
+  const watcher = watch("output", check);
+  function check() {
+    if (!existsSync("output/release")) return;
+    watcher.close();
+    resolve();
+  }
+  check();
+});
+` +
         output,
       { seed: 42 },
     );
-    const waiting: Promise<unknown>[] = [];
+    const waiting: Promise<unknown>[] = [],
+      staging = path.join(resolveHarnessLayout(f.root).localRoot, "preset-runs", "staging"),
+      ready = new Map<number, string>();
+    const release = (seed: number) => {
+      const output = ready.get(seed);
+      if (output && existsSync(output)) writeFileSync(path.join(output, "release"), "");
+    };
     const started = async (seed: number) => {
       const count = seed === 42 ? 1 : 2;
       await waitForDurableValue(() =>
@@ -230,6 +248,15 @@ for (const order of ["old-first", "new-first"] as const) {
           )
           ? true
           : null,
+      );
+      ready.set(
+        seed,
+        await waitForDurableValue(() => {
+          const child = readdirSync(staging).find((entry) =>
+            existsSync(path.join(staging, entry, "output", `ready-${seed}`)),
+          );
+          return child === undefined ? null : path.join(staging, child, "output");
+        }),
       );
     };
     try {
@@ -247,11 +274,11 @@ for (const order of ["old-first", "new-first"] as const) {
       waiting.push(second);
       await started(43);
       if (order === "old-first") {
+        release(42);
         await first;
-        await second;
-      } else {
-        await second;
       }
+      release(43);
+      await second;
       const complete = await f.cell.run(
         { kind: "task-complete", taskId: f.taskId, executionId: f.executionId },
         f.owner,
@@ -259,6 +286,7 @@ for (const order of ["old-first", "new-first"] as const) {
       assert.equal(complete.outcome, "applied", JSON.stringify(complete));
       await waitForFixturePublication(f.cell, complete.opId, f.owner);
       if (order === "new-first") {
+        release(42);
         await first;
       }
       const witnesses = f.events().filter((event) => event.type === "completion_gate_verified");
@@ -294,6 +322,8 @@ for (const order of ["old-first", "new-first"] as const) {
         projection.close();
       }
     } finally {
+      release(42);
+      release(43);
       await Promise.allSettled(waiting);
       await f.close();
     }

@@ -7,8 +7,8 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
-import { syncFleetEdgeMirror } from "../src/fleet-center-admission.ts";
-import { openPeer } from "../src/fleet/peer.ts";
+import { syncFleetEdgeMirror } from "../src/daemon-host/fleet-center-admission.ts";
+import { openPeer } from "../src/daemon-host/fleet/peer.ts";
 import { fleetFixture } from "./fleet-tls-session.fixture.ts";
 
 type Fixture = Awaited<ReturnType<typeof fleetFixture>>;

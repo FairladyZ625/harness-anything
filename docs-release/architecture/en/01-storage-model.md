@@ -69,7 +69,7 @@ schema `execution/v1`, carrying `actor`, `sessionBindings`, and a `submission`.
 It is not assembled from CLI flags — `ha task submit` takes no submission
 packet arguments. Instead the daemon **derives** the Submission from the
 task package's realized `closeout.md`
-(`packages/daemon/src/repo-cell-submit.ts`). The closeout Summary must name
+(`packages/daemon/src/daemon-host/repo-cell-submit.ts`). The closeout Summary must name
 one delivery commit, or at least one `artifact:path@revision` anchor;
 `deliverables` come from that commit's `git diff`, `outputs` records deleted
 paths and artifact anchors, and `artifacts`/`commitSha` are settled alongside.

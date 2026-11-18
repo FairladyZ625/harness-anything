@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { listenFleetTls } from "../src/fleet/center.ts";
-import type { FleetFrameV1 } from "../src/fleet/command-protocol.ts";
+import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
+import type { FleetFrameV1 } from "../src/daemon-host/fleet/command-protocol.ts";
 import { fleetFixture, localAuthFixture, rawPeer } from "./fleet-tls-session.fixture.ts";
-import { createIdentitySession } from "../src/authorization-provider.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 
 function deferred() {
   let resolve!: () => void;

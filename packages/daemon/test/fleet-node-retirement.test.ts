@@ -2,15 +2,15 @@
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 import path from "node:path";
 import { createReplicationRetention, openReplicationSlots } from "@harness-anything/storage";
-import { createReplicaStatusTracker } from "../src/fleet/replica-status.ts";
+import { createReplicaStatusTracker } from "../src/daemon-host/fleet/replica-status.ts";
 import { renderCliReceipt } from "@harness-anything/cli/internal/cli/receipt-render-registry";
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
-import { AccessAdminService } from "../src/access-admin-service.ts";
-import { createIdentitySession } from "../src/authorization-provider.ts";
-import { managedRbacReceiptJournal } from "../src/access-admin-state.ts";
-import { retiredNodeExecutions } from "../src/fleet/node-retirement.ts";
+import { AccessAdminService } from "../src/daemon-host/access-admin-service.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
+import { managedRbacReceiptJournal } from "../src/daemon-host/access-admin-state.ts";
+import { retiredNodeExecutions } from "../src/daemon-host/fleet/node-retirement.ts";
 import { fakeKeycloak, keycloakUserRoot, keycloakUrl, keycloakRealm, signInAt } from "./keycloak.fixtures.ts";
 
 function retirementFixture(t: TestContext, ownerExists = true) {

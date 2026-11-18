@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { type ActorIdentity, type LeaseV1, type TaskLifecycleSnapshot, type TaskV2 } from "@harness-anything/kernel";
-import { taskSurfaceWrite } from "../src/repo-cell-task-command-docs.ts";
-import { taskMutation } from "../src/repo-cell-task-mutation.ts";
+import { taskSurfaceWrite } from "../src/daemon-host/repo-cell-task-command-docs.ts";
+import { taskMutation } from "../src/daemon-host/repo-cell-task-mutation.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 
 const now = "2026-08-25T03:15:20.000Z";

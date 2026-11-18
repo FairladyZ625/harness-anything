@@ -13,19 +13,20 @@ import {
   type ReviewV1,
   type DispatchLifecycleQuery,
 } from "@harness-anything/kernel";
-import { reviewPacket } from "../src/repo-cell-packets.ts";
-import { reviewFindingScopePrompt } from "../src/review-prompt-guidance.ts";
+import { reviewPacket } from "../src/daemon-host/repo-cell-packets.ts";
+import { reviewFindingScopePrompt } from "../src/daemon-host/review-prompt-guidance.ts";
 import {
   decisionReviewDispatchPrompt,
   dispatchTaskReview,
+  prepareTaskReviewDispatch,
   nodeReviewDispatchCandidate,
   reviewDispatchPrompt,
-} from "../src/task-review-dispatch.ts";
-import { taskExecutionPlacement } from "../src/task-execution-placement.ts";
-import { openNodeAutoDispatchLoop, parseNodeAutoDispatchSnapshot } from "../src/node-auto-dispatch.ts";
-import { nodeReworkDispatchCandidate } from "../src/task-return-dispatch.ts";
-import { readLastExecutionWorkerDispatch } from "../src/dispatch-read.ts";
-import { runtimeVendorForKind } from "../src/runtime-inventory.ts";
+} from "../src/daemon-host/task-review-dispatch.ts";
+import { taskExecutionPlacement } from "../src/daemon-host/task-execution-placement.ts";
+import { openNodeAutoDispatchLoop, parseNodeAutoDispatchSnapshot } from "../src/daemon-host/node-auto-dispatch.ts";
+import { nodeReworkDispatchCandidate } from "../src/daemon-host/task-return-dispatch.ts";
+import { readLastExecutionWorkerDispatch } from "../src/daemon-host/dispatch-read.ts";
+import { runtimeVendorForKind } from "../src/runtime-engine/runtime-inventory.ts";
 
 const sha256 = (body: string | Uint8Array) => createHash("sha256").update(body).digest("hex");
 
@@ -213,11 +214,10 @@ test("explicit review dispatch stays pending when its execution source cannot be
       store: { readHead: () => ({ revision: 2 }) },
       operationId: () => "op-review-placement-unresolved",
     } as unknown as Parameters<typeof dispatchTaskReview>[0];
-  const result = await dispatchTaskReview(
-    cell,
-    { kind: "task-dispatch-review", taskIds: [taskId], agentId: "selected-reviewer" } as never,
-    { actor: { principal: { personId: "owner" }, executor: null }, source: "local" } as never,
-  );
+  const action = { kind: "task-dispatch-review", taskIds: [taskId], agentId: "selected-reviewer" },
+    binding = { actor: { principal: { personId: "owner" }, executor: null }, source: "local" as const },
+    prepared = await prepareTaskReviewDispatch(cell, action, binding),
+    result = await dispatchTaskReview(cell, action, binding, prepared);
   const step = (result.dispatches as readonly Record<string, unknown>[])[0];
   assert.equal(result.outcome, "pending", JSON.stringify(result));
   assert.equal(step?.outcome, "pending", JSON.stringify(step));
@@ -270,6 +270,7 @@ test("a default review dispatch writes a minimal intent and its node consumer sp
       }),
       readRuntimeDispatchesByTaskExecution: () => [],
       readRuntimeDispatchByDispatchKey: () => null,
+      readTaskSubmissionOperation: () => "submitted-op",
     },
     settings: { readRepository: () => ({ roles: { defaultReviewer: "closeout-reviewer" } }) },
     store: { readHead: () => ({ revision: 2 }), readEntityDeclarations: () => [] },
@@ -280,11 +281,10 @@ test("a default review dispatch writes a minimal intent and its node consumer sp
     },
     operationId: () => "op-review-default-intent",
   } as unknown as Parameters<typeof dispatchTaskReview>[0];
-  const result = await dispatchTaskReview(
-    cell,
-    { kind: "task-dispatch-review", taskIds: [taskId] } as never,
-    { actor: { principal: { personId: "owner" }, executor: null }, source: "local" } as never,
-  );
+  const action = { kind: "task-dispatch-review", taskIds: [taskId] },
+    binding = { actor: { principal: { personId: "owner" }, executor: null }, source: "local" as const },
+    prepared = await prepareTaskReviewDispatch(cell, action, binding),
+    result = await dispatchTaskReview(cell, action, binding, prepared);
   const step = (result.dispatches as readonly Record<string, unknown>[])[0];
   assert.deepEqual(writtenIntent, { executionId, reviewerId: "closeout-reviewer" });
   assert.equal(result.outcome, "pending", JSON.stringify(result));

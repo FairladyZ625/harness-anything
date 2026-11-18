@@ -1,8 +1,8 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
-import { resolveRuntimeDispatchResources } from "../src/runtime-spawn-allowlist.ts";
+import type { RuntimeSpawnerInput } from "../src/daemon-host/runtime-spawn-types.ts";
+import { resolveRuntimeDispatchResources } from "../src/daemon-host/runtime-spawn-allowlist.ts";
 
 test("remote dispatch resources do not require a local task projection", async () => {
   const resources = await resolveRuntimeDispatchResources(

@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 import {
   createTaskPackagePath,
   resolveHarnessLayout,

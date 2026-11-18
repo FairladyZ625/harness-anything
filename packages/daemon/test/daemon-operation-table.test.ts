@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createDaemonOperationTable, readDaemonOperationTable } from "../src/daemon-operation-table.ts";
+import { createDaemonOperationTable, readDaemonOperationTable } from "../src/daemon-host/daemon-operation-table.ts";
 
 test("shared in-flight table publishes begins, updates and ends without messages", () => {
   const table = createDaemonOperationTable(2),

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { DecisionProviderRecord } from "@harness-anything/kernel";
-import { decisionProviderDoctorCheck } from "../src/decision-provider-doctor.ts";
+import { decisionProviderDoctorCheck } from "../src/daemon-host/decision-provider-doctor.ts";
 
 const userRoot = "/tmp/ha-doctor-user",
   configPath = "/tmp/ha-doctor-user/decision-providers.json",

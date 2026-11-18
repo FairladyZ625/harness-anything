@@ -5,9 +5,9 @@ import path from "node:path";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
-import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
-import { daemonMethodAcceptsPayload } from "../src/protocol/daemon-protocol-rpc-validation.ts";
+import { locateFleetMirrorView } from "../src/daemon-host/fleet-edge-mirror.ts";
+import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { daemonMethodAcceptsPayload } from "../src/daemon-host/protocol/daemon-protocol-rpc-validation.ts";
 import { sha256Text } from "@harness-anything/kernel";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
@@ -17,16 +17,16 @@ import {
   readFleetRepositoryMetadataClient,
   runFleetUploadClient,
   runFleetTaskCommandClient,
-} from "../src/fleet/peer.ts";
+} from "../src/daemon-host/fleet/peer.ts";
 
-import { openDaemonHost } from "../src/daemon-host.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { latestSquadStates } from "./squad-run-state.fixture.ts";
-import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
-import { squadRunObservation } from "../src/squad-observation.ts";
+import { appendRuntimeWorkerRecord } from "../src/daemon-host/dispatch-stream.ts";
+import { squadRunObservation } from "../src/daemon-host/squad-observation.ts";
 import { makeTaskEventReader, openPersistentWriterEpoch } from "@harness-anything/storage";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { waitForState } from "./fleet-replication.fixture.ts";
-import { makeFleetSquadCoordinator } from "../src/fleet-squad-coordinator.ts";
+import { makeFleetSquadCoordinator } from "../src/daemon-host/fleet-squad-coordinator.ts";
 
 test("owner edge Squad launch publishes a canonical run visible on another edge", { timeout: 180_000 }, async (t) => {
   const witness = {

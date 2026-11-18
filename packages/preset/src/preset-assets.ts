@@ -4,8 +4,13 @@ import {
   validateTemplateCatalogBodies,
   validateVerticalDefinition,
 } from "./preset-extension-model.ts";
-import { compileVerticalContract, decodeVerticalDefinition, TemplateCatalogSchema } from "@harness-anything/kernel";
-import type { CompiledVerticalContract, TemplateCatalog } from "@harness-anything/kernel";
+import { compileVerticalContract } from "@harness-anything/kernel";
+import {
+  decodeVerticalDefinition,
+  TemplateCatalogSchema,
+  type TemplateCatalog,
+} from "@harness-anything/kernel/schemas";
+import type { CompiledVerticalContract } from "@harness-anything/kernel";
 import { requiredRegularFile, safeTemplatePath } from "./preset-materialization.ts";
 import { parsePresetJson } from "./preset-json.ts";
 import {
@@ -15,7 +20,7 @@ import {
   resolverContentHash,
 } from "./preset-resolver-common.ts";
 import type { CanonicalAssets, CatalogSource, DecodedPresetPackageV3, Provider } from "./preset-resolver-types.ts";
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 import { existsSync, lstatSync, readdirSync } from "node:fs";
 import path from "node:path";
 

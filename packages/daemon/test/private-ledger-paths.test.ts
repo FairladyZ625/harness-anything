@@ -5,15 +5,15 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { addManagedWorktree } from "../src/schedule-occurrence-workspace.ts";
+import { addManagedWorktree } from "../src/daemon-host/schedule-occurrence-workspace.ts";
 import {
   dispatchLedgerReadTexts,
   privateLedgerReadSection,
   privateLedgerReferences,
   resolvePrivateLedgerReads,
-} from "../src/private-ledger-paths.ts";
-import { reviewPromptData } from "../src/review-path-matching.ts";
-import { runWorktreeSetup, workerLedgerPath } from "../src/worktree-setup.ts";
+} from "../src/daemon-host/private-ledger-paths.ts";
+import { reviewPromptData } from "../src/daemon-host/review-path-matching.ts";
+import { runWorktreeSetup, workerLedgerPath } from "../src/daemon-host/worktree-setup.ts";
 
 const planBody = "# Plan\n",
   // Prompt prose and the reference extractor use forward slashes on every platform; `path.join`

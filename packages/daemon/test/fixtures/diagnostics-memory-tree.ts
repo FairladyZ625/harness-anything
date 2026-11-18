@@ -1,5 +1,5 @@
 import { parentPort, Worker, workerData } from "node:worker_threads";
-import { observeWorkerMemory } from "../../src/daemon-diagnostics-memory.ts";
+import { observeWorkerMemory } from "../../src/writer-cell/daemon-diagnostics-memory.ts";
 observeWorkerMemory();
 const retained = {
   heap: Array.from({ length: 200_000 }, (_, index) => ({ index })),

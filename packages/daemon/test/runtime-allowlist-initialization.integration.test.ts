@@ -3,15 +3,15 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instances.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { rpc } from "./fixtures/runtime-ingress.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveRuntimeInstanceCandidates } from "../src/runtime-spawn-mission.ts";
+import { resolveRuntimeInstanceCandidates } from "../src/daemon-host/runtime-spawn-mission.ts";
 
 test("runtime dispatch does not initialize a missing repository allowlist", () => {
   assert.throws(

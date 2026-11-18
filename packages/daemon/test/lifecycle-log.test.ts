@@ -10,7 +10,7 @@ import {
   openDaemonLifecycleLog,
   readDaemonLifecycleGeneration,
   readDaemonLifecycleRecords,
-} from "../src/lifecycle-log.ts";
+} from "../src/daemon-host/lifecycle-log.ts";
 
 function lifecycleLine(daemonId: string, entry: Readonly<Record<string, unknown>>): string {
   return JSON.stringify({

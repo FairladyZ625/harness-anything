@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { validateReceiptAcceptance } from "@harness-anything/kernel";
-import { validateDaemonGuiCommandReceipt } from "../src/protocol/daemon-protocol-validate-results.ts";
-import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
+import { validateDaemonGuiCommandReceipt } from "../src/daemon-host/protocol/daemon-protocol-validate-results.ts";
+import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
 
 test("GUI command receipt wire validation delegates receipt acceptance to kernel validateReceiptAcceptance", () => {
   const cut = { repoId: "repo", generation: 1, revision: 2, headDigest: `sha256:${"a".repeat(64)}` };

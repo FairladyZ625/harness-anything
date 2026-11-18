@@ -166,7 +166,7 @@ function fleetSchemaKinds(graph) {
   }
 
   for (const [file, mod] of graph.modules) {
-    if (!file.startsWith("packages/daemon/src/fleet/")) continue;
+    if (!/^packages\/daemon\/src\/(?:daemon-host|fleet-sync)\/fleet\//u.test(file)) continue;
     ts.forEachChild(mod.sourceFile, function visit(node) {
       if (ts.isIfStatement(node)) {
         const schema = extractSchemaEquality(node.expression);
@@ -537,7 +537,8 @@ function walkWrapperCommandSignals(graph, declaration, fleetSchemas, descriptors
   const cached = graphCache.get(declaration);
   if (cached && seen.size === 0) return cached;
   const file = graph.fileOf(declaration);
-  if (!file.startsWith("tools/") && !file.startsWith("packages/daemon/src/fleet/")) return empty;
+  if (!file.startsWith("tools/") && !/^packages\/daemon\/src\/(?:daemon-host|fleet-sync)\/fleet\//u.test(file))
+    return empty;
   seen.add(declaration);
   const paramSeen = new Set();
   for (const param of declaration.parameters ?? []) {
@@ -842,11 +843,11 @@ function hostApiFactory(graph, entry) {
     })
   )
     return null;
-  const contract = graph.interfaceMembers("packages/daemon/src/daemon-host-types.ts", "DaemonHost"),
+  const contract = graph.interfaceMembers("packages/daemon/src/daemon-host/daemon-host-types.ts", "DaemonHost"),
     name =
       member.name && (ts.isIdentifier(member.name) || ts.isStringLiteralLike(member.name)) ? member.name.text : null,
     declaration = name && contract.get(name),
-    hosted = graph.modules.get("packages/daemon/src/daemon-host-open.ts")?.sourceFile;
+    hosted = graph.modules.get("packages/daemon/src/daemon-host/daemon-host-open.ts")?.sourceFile;
   if (!name || !declaration || !hosted || !graph.implementsMember(member, name, new Set([declaration]))) return null;
   let registered = false;
   (function visit(node) {
@@ -1043,7 +1044,7 @@ function scopedHostGuard(graph, call, fn) {
     resolvedMemberCall(
       graph,
       call,
-      "packages/daemon/src/daemon-host-context.ts",
+      "packages/daemon/src/daemon-host/daemon-host-context.ts",
       "DaemonHostApiContext",
       "requireHostMode",
     ) &&
@@ -1099,7 +1100,7 @@ function scopedWitnessIssuer(graph, fn) {
       resolvedMemberCall(
         graph,
         token,
-        "packages/daemon/src/agent-runtime-stream.ts",
+        "packages/daemon/src/daemon-host/agent-runtime-stream.ts",
         "AgentRuntimeStreamHub",
         "issueWitnessToken",
       ) &&
@@ -1124,7 +1125,7 @@ export function hostServiceEntryEvidence(graph, node, source, action, route) {
   const fn = entry.fn;
   if (entry.name === "runtimeIngress") {
     const ingress = dominatingCall(fn, node, "runtimeIngress", (call) =>
-        portMemberCall(graph, call, "packages/daemon/src/repo-cell-types.ts", "RepoCell", "runtimeIngress"),
+        portMemberCall(graph, call, "packages/daemon/src/daemon-host/repo-cell-types.ts", "RepoCell", "runtimeIngress"),
       ),
       cell = scopedCell(graph, callReceiver(ingress, "runtimeIngress"), fn, ingress),
       receipt = referenceBinding(graph, memberBase(node.arguments[1], ["event"])),
@@ -1157,7 +1158,13 @@ export function hostServiceEntryEvidence(graph, node, source, action, route) {
       sameReference(graph, memberBase(callReceiver(bind, "bindWitness"), ["runtime"]), cell) &&
       sameReference(graph, bind.arguments[0], fn.parameters[1]) &&
       sameReference(graph, node.arguments[1], fn.parameters[2]) &&
-      portMemberCall(graph, node, "packages/daemon/src/agent-runtime-stream.ts", "AgentRuntimeStreamHub", "publish") &&
+      portMemberCall(
+        graph,
+        node,
+        "packages/daemon/src/daemon-host/agent-runtime-stream.ts",
+        "AgentRuntimeStreamHub",
+        "publish",
+      ) &&
       dominatingCall(
         fn,
         node,
@@ -1167,7 +1174,7 @@ export function hostServiceEntryEvidence(graph, node, source, action, route) {
           portMemberCall(
             graph,
             call,
-            "packages/daemon/src/agent-runtime-stream.ts",
+            "packages/daemon/src/daemon-host/agent-runtime-stream.ts",
             "AgentRuntimeStreamHub",
             "bindWitness",
           ),
@@ -1358,10 +1365,10 @@ function runtimeForwardingServiceEvidence(graph, node) {
     ts.isObjectLiteralExpression(object) &&
     ts.isCallExpression(call) &&
     forward?.name?.getText() === "forward" &&
-    graph.fileOf(forward) === "packages/daemon/src/fleet/forwarding-port.ts" &&
+    graph.fileOf(forward) === "packages/daemon/src/daemon-host/fleet/forwarding-port.ts" &&
     reachableCall(graph, forward, "runRuntime") &&
     service &&
-    graph.fileOf(service) === "packages/daemon/src/fleet-edge-runtime.ts" &&
+    graph.fileOf(service) === "packages/daemon/src/daemon-host/fleet-edge-runtime.ts" &&
     service.parent?.name?.getText() === "run"
     ? ["runtime-run: invoked forwarding callback delegates to the typed Fleet edge runtime owner"]
     : null;
@@ -1373,7 +1380,9 @@ function typedHostMemberShape(graph, node, name) {
   const fn = member && unwrap(member.initializer),
     object = member?.parent,
     host = object?.parent,
-    declaration = graph.interfaceMembers("packages/daemon/src/daemon-host-types.ts", "DaemonHost").get(name);
+    declaration = graph
+      .interfaceMembers("packages/daemon/src/daemon-host/daemon-host-types.ts", "DaemonHost")
+      .get(name);
   let owner = host?.parent;
   while (owner && !isFunctionNode(owner)) owner = owner.parent;
   if (
@@ -1399,7 +1408,7 @@ function typedHostMember(graph, node, name) {
     guard = call && ts.isCallExpression(call) && graph.callDeclaration(call),
     auth = call && ts.isCallExpression(call) && unwrap(call.arguments[0]);
   return guard?.name?.getText() === "localOnly" &&
-    graph.fileOf(guard) === "packages/daemon/src/daemon-host-status.ts" &&
+    graph.fileOf(guard) === "packages/daemon/src/daemon-host/daemon-host-status.ts" &&
     auth &&
     ts.isIdentifier(auth) &&
     graph.lookup(auth.text, auth)?.parameter === fn.parameters[1]
@@ -1419,7 +1428,7 @@ function forwardingServiceShape(graph, node) {
       ts.isObjectLiteralExpression(object) &&
       ts.isCallExpression(call) &&
       forward?.name?.getText() === "forward" &&
-      graph.fileOf(forward) === "packages/daemon/src/fleet/forwarding-port.ts",
+      graph.fileOf(forward) === "packages/daemon/src/daemon-host/fleet/forwarding-port.ts",
   );
 }
 
@@ -1503,7 +1512,7 @@ function hostRbacServiceEvidence(graph, node) {
     declaration = ts.isCallExpression(guard) && graph.callDeclaration(guard);
   return declaration &&
     declaration.name?.getText() === "requireAuthorizedHostAction" &&
-    graph.fileOf(declaration) === "packages/daemon/src/host-action-authorization.ts" &&
+    graph.fileOf(declaration) === "packages/daemon/src/daemon-host/host-action-authorization.ts" &&
     effectiveObjectProperty(graph, guard.arguments[0], "kind") === "rbac-bootstrap"
     ? ["rbac-bootstrap: managed lifecycle callback runs after the host action's enforced authorization promise"]
     : null;
@@ -1515,10 +1524,13 @@ export function migrationServiceEntryEvidence(graph, node, source, action) {
   const fn = functionAncestor(node),
     file = fn && graph.fileOf(fn);
   if (!fn || !file) return null;
-  const importFile = "packages/daemon/src/migration-import.ts",
+  const importFile = "packages/daemon/src/daemon-host/migration-import.ts",
     run = functionNamed(graph, importFile, "runMigrationImport");
   if (!run) return null;
-  if (fn.name?.getText() === "stageAuthored" && file === "packages/daemon/src/migration-import-oracle-rebuild.ts") {
+  if (
+    fn.name?.getText() === "stageAuthored" &&
+    file === "packages/daemon/src/daemon-host/migration-import-oracle-rebuild.ts"
+  ) {
     const factory = functionNamed(graph, file, "createMigrationPlanningWorkspace"),
       view = functionNamed(graph, importFile, "stagedImportView"),
       callback = returnedPropertyFunction(factory, "stage");
@@ -1575,7 +1587,7 @@ export function repoReadServiceEvidence(graph, node, source, action, descriptors
     member.name.getText() !== "run" ||
     !ts.isInterfaceDeclaration(owner) ||
     owner.name.text !== "RepoCell" ||
-    graph.fileOf(declaration) !== "packages/daemon/src/repo-cell-types.ts"
+    graph.fileOf(declaration) !== "packages/daemon/src/daemon-host/repo-cell-types.ts"
   )
     return null;
   const callback = functionAncestor(node),
@@ -1583,7 +1595,7 @@ export function repoReadServiceEvidence(graph, node, source, action, descriptors
     object = binding?.parent,
     call = object?.parent,
     service = call && ts.isCallExpression(call) ? graph.callDeclaration(call) : null;
-  const scheduler = functionNamed(graph, "packages/daemon/src/schedule-scheduler.ts", "evaluationPlan"),
+  const scheduler = functionNamed(graph, "packages/daemon/src/daemon-host/schedule-scheduler.ts", "evaluationPlan"),
     reachesRead = Boolean(scheduler && reachesSource(graph, scheduler, node));
   if (
     !callback ||
@@ -1594,7 +1606,7 @@ export function repoReadServiceEvidence(graph, node, source, action, descriptors
     !ts.isIdentifier(unwrap(call.expression)) ||
     unwrap(call.expression).text !== "makeScheduleScheduler" ||
     service?.name?.getText() !== "makeScheduleScheduler" ||
-    graph.fileOf(service) !== "packages/daemon/src/schedule-scheduler.ts" ||
+    graph.fileOf(service) !== "packages/daemon/src/daemon-host/schedule-scheduler.ts" ||
     !reachesRead
   )
     return null;

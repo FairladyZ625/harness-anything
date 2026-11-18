@@ -73,6 +73,17 @@ export function resolveStorageBackend(options: StorageBackendOptions = {}): Reso
   };
 }
 
+/** A selected physical commit entry must never silently open another persistence backend. */
+export function storageForWriter<B extends StorageBackend>(
+  storage: StorageBackendConfig | undefined,
+  expected: B,
+): Extract<StorageBackendConfig, { readonly backend?: B }> {
+  const config: StorageBackendConfig = storage ?? { backend: "sqlite" };
+  if ((config.backend ?? "sqlite") !== expected)
+    throw new TypeError(`Writer entry ${expected} cannot open storage backend ${config.backend}`);
+  return config as Extract<StorageBackendConfig, { readonly backend?: B }>;
+}
+
 export function unsupportedStorageBackendError(backend: StorageBackend): UnsupportedStorageBackendError {
   return new UnsupportedStorageBackendError(backend);
 }

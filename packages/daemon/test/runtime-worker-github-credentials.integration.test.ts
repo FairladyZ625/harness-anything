@@ -10,11 +10,14 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 
-import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import { readDispatchStream } from "../src/dispatch-stream.ts";
-import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
+import {
+  openRuntimeInstanceStore,
+  type RuntimeInstallationWitness,
+} from "../src/daemon-host/agent-runtime-instances.ts";
+import { readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import type { RuntimeProcess } from "../src/daemon-host/runtime-spawn-types.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "../../..");

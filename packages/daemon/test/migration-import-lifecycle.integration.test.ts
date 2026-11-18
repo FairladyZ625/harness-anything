@@ -17,7 +17,7 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { compileFactWrite, serializeCanonicalEvent, sha256Text } from "@harness-anything/kernel";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openFencedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import {

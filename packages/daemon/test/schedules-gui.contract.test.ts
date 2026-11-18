@@ -10,33 +10,33 @@ import {
   daemonGuiActionMethods,
   daemonGuiReadMethods,
   validateDaemonRpcCall,
-} from "../src/protocol/daemon-protocol.contract.ts";
-import { daemonGuiReadSchemas } from "../src/protocol/daemon-protocol-schema-registry.ts";
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { daemonGuiReadSchemas } from "../src/daemon-host/protocol/daemon-protocol-schema-registry.ts";
 import {
   DAEMON_SCHEDULES_LIST_SCHEMA,
   DAEMON_SCHEDULE_RUNS_SCHEMA,
   DAEMON_USE_CASE_PROJECTION_SCHEMA,
-} from "../src/protocol/daemon-protocol-schema-ids.ts";
-import { validateDaemonUseCaseProjection } from "../src/protocol/daemon-protocol-use-case-projection.ts";
+} from "../src/daemon-host/protocol/daemon-protocol-schema-ids.ts";
+import { validateDaemonUseCaseProjection } from "../src/daemon-host/protocol/daemon-protocol-use-case-projection.ts";
 import {
   SCHEDULE_MIN_EVERY_MS,
   formatScheduleDuration,
   parseScheduleDuration,
   scheduleDurationUnitMs,
   scheduleDurationUnits,
-} from "../src/protocol/daemon-protocol-vocabulary.ts";
+} from "../src/daemon-host/protocol/daemon-protocol-vocabulary.ts";
 import { deriveUseCaseProjectionInputs } from "@harness-anything/kernel";
 import {
   deriveScheduleExecutionAvailability,
   readSchedulesGui,
   type SchedulesGuiReadContext,
-} from "../src/schedules-gui-read.ts";
+} from "../src/daemon-host/schedules-gui-read.ts";
 import {
   serializeSchedulesList,
   validateSchedulesList,
   type ScheduleGuiRowDto,
   type SchedulesListResult,
-} from "../src/protocol/schedules-gui-contract.ts";
+} from "../src/daemon-host/protocol/schedules-gui-contract.ts";
 const now = "2026-08-27T08:00:00.000Z";
 const actor = { principal: { personId: "schedule-gui" }, executor: null } as const;
 

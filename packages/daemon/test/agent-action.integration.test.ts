@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import {
   activateEmptyCanonicalGeneration,
   makeTaskEventReader,
@@ -18,7 +18,11 @@ import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } f
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { renderEvidencePayload } from "@harness-anything/application/queries";
-import { assertAgentDispatchable, prepareAgentEntityDelete, readAgentDeclaration } from "../src/agent-entities.ts";
+import {
+  assertAgentDispatchable,
+  prepareAgentEntityDelete,
+  readAgentDeclaration,
+} from "../src/daemon-host/agent-entities.ts";
 
 const binding = withPolicyGroup(
   {

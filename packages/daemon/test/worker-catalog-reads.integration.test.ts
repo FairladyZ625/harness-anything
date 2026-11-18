@@ -8,16 +8,16 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
-import { openRepoCell } from "../src/repo-cell-open.ts";
+import { openRepoCell } from "../src/daemon-host/repo-cell-open.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
-import { startDaemon } from "../src/runtime.ts";
-import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
+import { startDaemon } from "../src/daemon-host/runtime.ts";
+import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { initIngressRepo, spawnCli } from "./fixtures/runtime-ingress.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
-import { commandDescriptorForAction } from "../src/protocol/daemon-protocol.contract.ts";
-import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
+import { commandDescriptorForAction } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
 
 // The dispatched implementer's catalog reads (dec_9DFDC635180975FDFC0CDB33D7): the real daemon,
 // Keycloak fixture, spawned runtime credential, and CLI binary drive preset list/inspect,

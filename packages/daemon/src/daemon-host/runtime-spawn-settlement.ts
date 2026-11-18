@@ -1,0 +1,1365 @@
+import { releaseFallbackResources } from "./runtime-spawn-fallback.ts";
+import { createHash, randomUUID } from "node:crypto";
+import path from "node:path";
+import type {
+  AgentRuntimeEventV1,
+  CanonicalEventStore,
+  CanonicalSquadRun,
+  DispatchLifecycleView,
+  RuntimeResultClaim,
+} from "@harness-anything/kernel";
+import { consumeKnownError } from "@harness-anything/kernel";
+import {
+  readDispatchStream,
+  readDispatchStreamSummary,
+  scrubProviderValue,
+  type DispatchTerminalOutcome,
+} from "./dispatch-stream.ts";
+import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
+import type { ActiveRuntime, ReviewerReviewArtifacts, RuntimeProcess } from "./runtime-spawn-types.ts";
+import { runtimeSpendCapReason, runtimeSpendCapReasonCode } from "./runtime-spend-cap.ts";
+import { workerBranchHasDelivery } from "./runtime-worker-push.ts";
+import { strayWriteWarning } from "../runtime-engine/runtime-write-boundary.ts";
+import { cacheWriteTokensOfUsage, consumeDurableOutput, writeRuntime } from "./runtime-spawn-provider-stream.ts";
+import { classifyRuntimeExit } from "./runtime-provider-fault.ts";
+import {
+  readDispatchRuling,
+  readDispatchRulingFromWorker,
+  readFileIfPresent,
+  rulingReceiptText,
+  type RuntimeRulingArtifact,
+} from "../runtime-engine/runtime-ruling.ts";
+import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
+import { runtimeErrorCode, runtimeErrorMessage } from "../runtime-engine/runtime-spawn-errors.ts";
+import { scheduleOutcomeFromRuntime } from "./schedule-runtime-outcome.ts";
+import type { RuntimeSpawnerContext, RuntimeTerminalReplay } from "./runtime-spawn-context.ts";
+import type { JsonObject } from "./protocol/json-rpc-types.ts";
+import { presetSnapshotReader, taskOutputShape } from "./task-worktree.ts";
+import { publishTaskWorkerBranch } from "./runtime-task-publication.ts";
+import { taskPrBodyRenderer } from "./task-pr-body-render.ts";
+import { detectHostingProvider } from "./hosting-provider.ts";
+import { boundedRuntimeConclusion, currentWorktreeHead } from "./runtime-continuation-context.ts";
+import { reviewCutSupersededExplanation } from "./repo-cell-execution-selection.ts";
+import { disposeActiveRuntimeObservations } from "./runtime-spawn-active.ts";
+import { captureDispatchForensics, dispatchForensicsRequired } from "./runtime-dispatch-evidence.ts";
+import { writeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
+import { readIncidentActionReceipt } from "./decision-incident-receipt.ts";
+import { runtimeSpawnReceipt } from "../runtime-engine/runtime-spawn-receipt.ts";
+import { processGroupRecoveryHint, probeProcessGroup } from "./runtime/process-group-reconciler.ts";
+import { terminateRuntimeTree } from "./runtime-spawn-process.ts";
+export { runtimeSpawnReceipt } from "../runtime-engine/runtime-spawn-receipt.ts";
+
+export async function publishExit(
+  context: RuntimeSpawnerContext,
+  active: ActiveRuntime | RuntimeTerminalReplay,
+  code: number | null,
+  _resumePublishedExit = false,
+): Promise<void> {
+  if ("terminal" in active) return publishTerminalOutcome(context, active.terminal, active);
+  if (active.exitSettlement) return active.exitSettlement;
+  if (context.exiting.has(active.runtimeSessionId)) return;
+  let resolveSettlement!: () => void, rejectSettlement!: (error: unknown) => void;
+  const settlement = new Promise<void>((resolve, reject) => {
+    resolveSettlement = resolve;
+    rejectSettlement = reject;
+  });
+  void settlement.catch(() => undefined);
+  active.exitSettlement = settlement;
+  let settlementFailed = false,
+    stopProofPending = false;
+  let preserveEvidence: ((reason: string) => void) | undefined;
+  const escalationStop = active.cancelRequested && active.cancelOpId?.endsWith(":escalation") === true;
+  try {
+    context.exiting.add(active.runtimeSessionId);
+    if (escalationStop) {
+      // The escalation action returns its pending receipt before the CLI child can exit. Yield
+      // that response first, then make terminal settlement own the complete process-tree stop.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    stopProofPending = true;
+    if (!(await runtimeProcessTreeStopped(context.input.rootDir, active.dispatchId, active.process)))
+      throw context.runtimeSpawnError(
+        "runtime_process_group_unproven",
+        `Runtime process group ${String(active.process.pid)} has no stop proof.${processGroupRecoveryHint()}`,
+      );
+    stopProofPending = false;
+    context.dispatchState?.deactivate(active.runtimeSessionId);
+    // Cancel holds the write queue: consume lines flushed by the complete tree stop before
+    // settlement retires the runtime and drops its queued output callbacks.
+    if (active.cancelRequested) await consumeDurableOutput(context, active);
+    disposeActiveRuntimeObservations(active);
+    // Every terminal path — success, failure, cancellation, and the daemon-restart loss
+    // settlement — flows through here, so the run's own temp directory goes with it. A
+    // filesystem refusal (a dying provider can still hold a lock) is recorded below in the
+    // terminal body; the next daemon start's settled-session sweep is the retry.
+    const tempReclaimFailure =
+      context.input.reclaimRuntimeTempDirectory?.(active.instanceId, active.runtimeSessionId) ?? null;
+    if (tempReclaimFailure)
+      console.error(
+        `[runtime-temp] ${active.instanceId}/${active.runtimeSessionId} could not be reclaimed: ${tempReclaimFailure.message}`,
+      );
+    const cancelled = active.cancelRequested && !escalationStop,
+      terminalBinding = runtimeSessionBinding(active.binding, active.runtimeSessionId),
+      squadLeaderControl = active.squadId !== null && active.delegatedBy === null;
+    const persistedTerminal = readDispatchStream(context.input.rootDir, active.dispatchId)?.terminalOutcome;
+    // The durable terminal is the publication retry cut, including reviewer failures.
+    // Reclassification would replace its body/result reference after a failed publication.
+    if (
+      persistedTerminal &&
+      !(
+        active.lossReason !== null &&
+        persistedTerminal.payload.outcome === "unknown" &&
+        persistedTerminal.payload.reasonCode === "lease_conflict"
+      )
+    ) {
+      context.processes.delete(active.runtimeSessionId);
+      active.process.release?.();
+      const previous = await dispatchLifecycleForTerminal(context, active.dispatchId);
+      await publishTerminalOutcome(context, persistedTerminal, { active, previous });
+      context.input.remote?.releaseExecutionCredential?.(active.runtimeSessionId);
+      return;
+    }
+    if (!cancelled && code === null)
+      context.input.stream.publish(active.runtimeSessionId, {
+        type: "error",
+        code: "provider_disconnected",
+      });
+    // `finalText` is worker completion evidence, not a provider protocol terminal. ACP may
+    // report `end_turn` without a final message; keep that attempt unknown, but do not call
+    // the valid provider stream malformed when its session and terminal outcome are present.
+    if (!cancelled && (active.providerSessionId === null || (code === 0 && active.providerOutcome === null)))
+      context.markProtocolError(active);
+    // One read of the worker's own ruling artifact feeds both the settlement classification and
+    // the receipt body: the file is worktree-local at exit time, so settlement must not re-read it
+    // from the projection.
+    const { ruling, reviewTargetWithdrawn } = await runtimeRulingRequest(context, active);
+    let remoteReviewArtifacts: ReviewerReviewArtifacts | null = null;
+    if (active.role === "reviewer" && active.task && context.input.remote?.readReviewerArtifacts) {
+      try {
+        remoteReviewArtifacts = await context.input.remote.readReviewerArtifacts({
+          taskId: active.task.taskId,
+          dispatchId: active.dispatchId,
+          cwd: active.cwd,
+        });
+      } catch (error) {
+        consumeKnownError(error);
+        const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
+        console.error(`[review-recovery] ${active.dispatchId} could not read carried review: ${detail}`);
+      }
+    }
+    const reviewReport = remoteReviewArtifacts?.report ?? runtimeReviewReport(context, active),
+      reviewPacket = remoteReviewArtifacts?.packet ?? runtimeReviewPacket(context, active),
+      { outcome: initialOutcome, ...classifiedAttempt } = classifyRuntimeExit(active, code, ruling);
+    let outcome = initialOutcome,
+      reviewResultMissing = false;
+    if (
+      (outcome === "unknown" || outcome === "stopped") &&
+      code === 0 &&
+      (await runtimeDeliveryWitness(context, active))
+    )
+      outcome = "succeeded";
+    const submittedStall =
+      !cancelled &&
+      active.task !== null &&
+      active.role !== "reviewer" &&
+      active.permissionMode !== "read-only" &&
+      active.stalledAt !== null &&
+      active.stalledAt !== undefined &&
+      hasAcceptedExecutionSubmission(context, active);
+    if (submittedStall) outcome = "succeeded";
+    const reviewId = `review-${active.dispatchId}`;
+    // A reviewer owes a registered review, not merely a report or a clean provider exit. Check
+    // the event on the node that owns the projection so normal exit without registration cannot
+    // look complete. A remote edge uses its center-issued Review Action and replicated read port.
+    let reviewRegistered = await reviewerReviewRegistered(context, active, reviewId);
+    // An edge has no local projection: the center's admission refusal is its supersession witness.
+    // A reviewer whose own verdict moved the task out of review still settles on its registered review.
+    const reviewSuperseded =
+      reviewTargetWithdrawn !== null && !reviewRegistered
+        ? { superseded: true, reason: reviewTargetWithdrawn }
+        : outcome !== "succeeded" && active.role === "reviewer" && active.task && context.input.projection
+          ? (() => {
+              const read = context.requiredRuntimeProjection(context.input).read(active.task.taskId);
+              return read?.snapshot
+                ? reviewCutSupersededExplanation(read.snapshot, active.task.executionId)
+                : { superseded: false };
+            })()
+          : { superseded: false };
+    const reviewerCommandEvidenceMissing =
+      !cancelled &&
+      !reviewSuperseded.superseded &&
+      active.kindId === "codex" &&
+      active.role === "reviewer" &&
+      active.permissionMode === "read-only" &&
+      !active.localCommandSucceeded;
+    const providerAlreadyFailed = outcome === "failed";
+    if (
+      !cancelled &&
+      ruling === null &&
+      !reviewSuperseded.superseded &&
+      (active.role === "reviewer" ||
+        (active.decisionReviewTarget !== null && active.decisionReviewTarget !== undefined)) &&
+      (context.input.projection || context.input.remote?.readReviewerArtifacts) &&
+      (active.task !== null || (active.decisionReviewTarget !== null && active.decisionReviewTarget !== undefined)) &&
+      !reviewRegistered
+    ) {
+      const recoverReview = context.input.remote?.recoverReviewerReview ?? context.input.recoverReviewerReview;
+      // Recovery records a durable Review; reject missing local evidence before invoking its writer.
+      if (
+        !providerAlreadyFailed &&
+        !reviewerCommandEvidenceMissing &&
+        active.task !== null &&
+        reviewReport !== null &&
+        reviewPacket !== null &&
+        recoverReview
+      ) {
+        try {
+          await recoverReview({
+            taskId: active.task.taskId,
+            executionId: active.task.executionId,
+            dispatchId: active.dispatchId,
+            runtimeSessionId: active.runtimeSessionId,
+            // Recovery is a durable Review Action and must carry the terminal runtime
+            // identity, even when the dispatch was admitted from a principal-only binding.
+            binding: terminalBinding,
+            packet: reviewPacket,
+            report: reviewReport,
+          });
+          // Both paths confirm the canonical Review event through their owning read port: the
+          // local RepoCell projection or the edge's center-backed replica.
+          reviewRegistered = await reviewerReviewRegistered(context, active, reviewId);
+        } catch (error) {
+          consumeKnownError(error);
+          const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(
+            0,
+            512,
+          );
+          console.error(`[review-recovery] ${active.dispatchId} could not register carried review: ${detail}`);
+        }
+      }
+      if (reviewRegistered) {
+        // The carried Review Action is the terminal witness. Keep the provider's successful
+        // outcome and continue through the ordinary archive/terminal path.
+        if (!providerAlreadyFailed) outcome = "succeeded";
+        reviewResultMissing = false;
+      } else {
+        if (!providerAlreadyFailed) outcome = "failed";
+        reviewResultMissing = true;
+      }
+    }
+    // Keep the terminal check as a final guard against any later success witness.
+    const reviewerCommandEvidenceGate =
+      reviewerCommandEvidenceMissing && (outcome === "succeeded" || (reviewResultMissing && !providerAlreadyFailed));
+    if (reviewerCommandEvidenceGate) outcome = "failed";
+    const attemptClassification = reviewerCommandEvidenceGate
+      ? { ...classifiedAttempt, classification: "gate_red" as const }
+      : classifiedAttempt;
+    const attemptOutcome = {
+      ...attemptClassification,
+      // Provider failures are the classifications a fallback continuation carries forward, and
+      // their reason is a raw diagnostic excerpt — shape those into one line plus the dispatch
+      // stream reference. Worker-stop and gate-red reasons stay byte-identical to before.
+      reason: reviewSuperseded.superseded
+        ? reviewSuperseded.reason!
+        : reviewResultMissing && !providerAlreadyFailed
+          ? `Review ${reviewId} was not registered before reviewer settlement.`
+          : reviewerCommandEvidenceGate
+            ? "Read-only reviewer produced no successful local command evidence."
+            : isProviderFailureClassification(attemptClassification.classification)
+              ? attemptOutcomeReason(attemptClassification.reason, active.stream.ref)
+              : outcome === "succeeded"
+                ? "Worker completed the attempt successfully."
+                : String(scrubProviderValue(attemptClassification.reason)).slice(0, 1024),
+    };
+    const endedAt = context.input.now(),
+      exitHead = active.task ? await currentWorktreeHead(active.cwd) : null,
+      lastConclusion = boundedRuntimeConclusion(
+        active.finalText === null ? null : String(scrubProviderValue(active.finalText)),
+      );
+    active.stream.appendAttemptOutcome(attemptOutcome, endedAt);
+    const runtimeMetrics = {
+      inputTokens: active.inputTokens,
+      cacheReadTokens: active.cacheReadTokens,
+      ...(cacheWriteTokensOfUsage(active.rawUsage) === null ? {} : { cacheWriteTokens: active.cacheWriteTokens }),
+      outputTokens: active.outputTokens,
+      totalTokens: active.inputTokens + active.outputTokens,
+      toolCallCount: active.toolCallCount,
+      usageUnavailable: !active.usageReported,
+    };
+    active.stream.appendRuntimeMetrics?.(
+      { ...runtimeMetrics, compacted: active.compacted, raw: active.rawUsage },
+      endedAt,
+    );
+    // The kernel event's runtimeMetrics copy stays the three-count shape its domain
+    // whitelist pins (validRuntimeDispatchMetrics): kernel consumers do not price, so the
+    // separate cache-write counter travels only in the stream records, where the token
+    // usage read side picks it up.
+    const { cacheWriteTokens: _cacheWriteTokens, ...kernelMetrics } = runtimeMetrics;
+    let body = context.runtimeResultText(active, code, outcome);
+    if (submittedStall)
+      body +=
+        `\n\nTask ${active.task!.taskId} execution ${active.task!.executionId} has an accepted submission; ` +
+        "the submitted cut is delivered. The runtime stalled during post-submit wrap-up. The owner/CEO should " +
+        "inspect the PR publication result and finish any missing delivery report or handoff before review.";
+    if (reviewResultMissing) body = `${body}\n\nReview ${reviewId} was not registered before reviewer settlement.`;
+    if (
+      !active.finalText?.trim() &&
+      (active.toolCallObserved ||
+        Number(active.toolCallCount ?? 0) > 0 ||
+        Number(active.workspaceActivityCount ?? 0) > 0)
+    )
+      body = [
+        body,
+        `Work observed before final text was absent: ${String(active.toolCallCount ?? 0)} tool calls and ` +
+          `${String(active.workspaceActivityCount ?? 0)} workspace change events. Dispatch transcript: ${active.stream?.ref ?? "unavailable"}` +
+          (reviewReport ? ` Reviewer report: ${reviewReport.path}.` : ""),
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+    // The question and its options ride the persisted result. The receipt body is what
+    // `ha runtime wait`, the dispatch row and the archived report all render, and a provider's exit
+    // diagnostic alone never tells the owner what was asked.
+    if (ruling !== null) body = `${body}\n\n${rulingReceiptText(ruling)}`;
+    // Settlement carries the reclaim failure in its result text: the outcome itself is
+    // unaffected (per-run temp is node hygiene, not part of the delivery cut), but the
+    // terminal record must not claim a clean reclamation that did not happen.
+    if (tempReclaimFailure) body = `${body}\n\nPer-run temp directory reclaim failed: ${tempReclaimFailure.message}`;
+    let hasDelivery =
+      active.task && outcome === "succeeded" && active.publicationOwner === "commander" && !squadLeaderControl
+        ? await workerBranchHasDelivery({
+            cwd: active.cwd,
+            canonicalRoot: context.input.rootDir,
+            taskId: active.task.taskId,
+          })
+        : false;
+    // Squad children deliver local commits for Commander integration; leaders own publication.
+    // Keep leader control JSON and child delivery text intact. Direct dispatches retain auto-push.
+    if (
+      active.task &&
+      context.input.projection &&
+      outcome === "succeeded" &&
+      active.role !== "reviewer" &&
+      active.publicationOwner !== "commander" &&
+      !squadLeaderControl
+    ) {
+      try {
+        // Edge publication belongs to submit preparation; settlement must never replace its accepted cut.
+        const projection = context.requiredRuntimeProjection(context.input),
+          snapshot = projection.read(active.task.taskId).snapshot,
+          submission = snapshot.executions.find(
+            (execution) => execution.executionId === active.task?.executionId,
+          )?.submission,
+          submittedCommitSha = submission?.commitSha,
+          hosting = await detectHostingProvider(context.input.rootDir, undefined, true),
+          env = hosting ? await context.prepareDaemonGitEnvironment(active.instanceId, hosting.kind) : undefined,
+          renderBody = submission
+            ? await taskPrBodyRenderer({
+                rootDir: context.input.rootDir,
+                projection,
+                taskId: active.task.taskId,
+                submission,
+              })
+            : undefined,
+          publication = await publishTaskWorkerBranch({
+            cwd: active.cwd,
+            canonicalRoot: context.input.rootDir,
+            taskId: active.task.taskId,
+            personId: active.binding.actor.principal.personId,
+            ...(submittedCommitSha ? { submittedCommitSha } : {}),
+            forceWithLease: false,
+            classifyRemoteAhead: submittedCommitSha !== undefined,
+            env,
+            ...(hosting && submission?.commitSha
+              ? {
+                  pullRequest: {
+                    hosting,
+                    taskTitle: snapshot.task?.title ?? active.task.taskId,
+                    submission,
+                    ...(renderBody ? { renderBody } : {}),
+                  },
+                }
+              : {}),
+          }),
+          push = publication.push;
+        hasDelivery = push.attempted && push.pushedCommit !== null;
+        if (push.attempted)
+          body = push.ok
+            ? `${body}\n\nWorker branch pushed at settlement: ${push.branch} @ ${push.pushedCommit}${
+                push.head === push.pushedCommit ? "" : ` (worker HEAD ${push.head})`
+              }`
+            : push.code === "remote_ahead_of_frozen_cut"
+              ? `${body}\n\n${push.detail}`
+              : [
+                  `${body}\n\nWorker branch push failed (no retry):`,
+                  `${push.branch ?? "unknown branch"} @ ${push.pushedCommit ?? "unknown delivery commit"}${
+                    push.head && push.head !== push.pushedCommit ? ` (worker HEAD ${push.head})` : ""
+                  }: ${push.detail}`,
+                ].join(" ");
+        if (publication.pullRequest) body += `\n\nTask pull request published: ${publication.pullRequest.url}`;
+      } catch (error) {
+        consumeKnownError(error);
+        const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
+        body =
+          runtimeErrorCode(error) === "delivery_publish_failed"
+            ? `${body}\n\n${detail}`
+            : `${body}\n\nWorker branch push failed (no retry): ${detail || "GitHub credential resolution failed."}`;
+      }
+    }
+    const submissionRecovery = unsubmittedDeliveryRecovery(context, active, outcome, hasDelivery);
+    if (submissionRecovery) body = `${body}\n\n${submissionRecovery}`;
+    const exitGuidance = unsubmittedExitGuidance(active, outcome);
+    if (exitGuidance) body = `${body}\n\n${exitGuidance}`;
+    let reasonCode: string | null =
+        active.observationError && !cancelled
+          ? "runtime_observation_failed"
+          : active.spendCapExceeded && !cancelled
+            ? runtimeSpendCapReasonCode
+            : reviewSuperseded.superseded
+              ? "review_cut_superseded"
+              : reviewResultMissing
+                ? "review_result_missing"
+                : null,
+      sha256 = createHash("sha256").update(body).digest("hex"),
+      result: RuntimeResultClaim = {
+        sha256,
+        size: Buffer.byteLength(body),
+        mediaType: context.resultMediaType,
+      },
+      resultRef = `artifact:runtime-result/sha256/${sha256}`;
+    const archiveBase = {
+      dispatchId: active.dispatchId,
+      ...(active.agent ? { agentId: active.agent.id, agentName: active.agent.name } : {}),
+      ...(active.squadId ? { squadId: active.squadId } : {}),
+      ...(active.parentRuntimeSessionId ? { parentRuntimeSessionId: active.parentRuntimeSessionId } : {}),
+      ...(active.delegatedBy
+        ? {
+            delegatedByAgentId: active.delegatedBy.id,
+            delegatedByAgentName: active.delegatedBy.name,
+          }
+        : {}),
+      instanceId: active.instanceId,
+      model: active.model,
+      reasoningEffort: active.reasoningEffort,
+      fast: active.fast,
+      cwd: active.cwd,
+      prompt: scrubProviderValue(active.prompt) as string,
+      ...(active.promptSource ? { promptSource: active.promptSource } : {}),
+      ...(active.onExitCommand ? { onExitCommand: active.onExitCommand } : {}),
+      runtimeSessionId: active.runtimeSessionId,
+      providerSessionId: active.providerSessionId,
+      startedAt: active.startedAt,
+      endedAt,
+      outcome,
+      exitCode: cancelled ? null : code,
+      resultRef,
+      resultText: body,
+      lastConclusion,
+      exitHead,
+      eventStreamRef: active.stream.ref,
+      attemptGroupId: attemptOutcome.attemptGroupId,
+      attemptIndex: attemptOutcome.attemptIndex,
+      provider: { instance: attemptOutcome.provider.instance, model: attemptOutcome.provider.model },
+      classification: attemptOutcome.classification,
+      reason: attemptOutcome.reason,
+      ...(ruling === null ? {} : { ruling: { path: ruling.path, body: ruling.body } }),
+      ...(reviewReport === null ? {} : { reviewReport }),
+    };
+    // Copy an abnormal dispatch's transport evidence while the live stream is still on disk: the
+    // archive below is what renames and compacts it, and a later cache purge deletes the whole
+    // dispatches root. The copy rides the same settlement artifact transaction as the dispatch
+    // record, so a success or an owner-ruling wait stores nothing extra.
+    let forensics: ReturnType<typeof captureDispatchForensics> = null,
+      evidencePending = false,
+      archivePublished = false;
+    const writeEvidenceState = (state: "pending" | "stored" | "not-required", reason: string): boolean => {
+      try {
+        writeDispatchEvidenceState(context.input.rootDir, active.dispatchId, state, reason);
+        return true;
+      } catch (error) {
+        consumeKnownError(error);
+        console.error(`[runtime-forensics] ${active.dispatchId} could not write evidence state ${state}`);
+        return false;
+      }
+    };
+    const incident = readIncidentActionReceipt(context.input.rootDir, active.dispatchId),
+      marked = incident !== null && incident.status !== "claimed" && incident.action === "needs_attention",
+      evidenceRequired =
+        (active.task !== null || active.decisionReviewTarget !== null) &&
+        dispatchForensicsRequired(outcome, attemptOutcome.classification, marked);
+    // The sidecar is the durable disposition read by archive/purge/adoption. It is written before
+    // the stream can grow a large terminal body; a write failure is fail-closed, not "not stored".
+    if (
+      !writeEvidenceState(
+        evidenceRequired ? "pending" : "not-required",
+        evidenceRequired ? "capture pending" : "no abnormal terminal",
+      )
+    )
+      evidencePending = true;
+    const markEvidencePending = (reason: string): void => {
+      evidencePending = true;
+      writeEvidenceState("pending", reason);
+      if (readDispatchStreamSummary(context.input.rootDir, active.dispatchId) === null) return;
+      try {
+        active.stream.appendEvidenceState?.({ state: "pending", reason }, context.input.now());
+      } catch (error) {
+        consumeKnownError(error);
+      }
+    };
+    preserveEvidence = markEvidencePending;
+    if (evidenceRequired) {
+      try {
+        forensics = captureDispatchForensics({
+          rootDir: context.input.rootDir,
+          dispatchId: active.dispatchId,
+          runtimeSessionId: active.runtimeSessionId,
+          taskId: active.task?.taskId ?? null,
+          executionId: active.task?.executionId ?? null,
+          instanceId: active.instanceId,
+          kindId: active.kindId,
+          providerSessionId: active.providerSessionId ?? null,
+          resolvedProviderDirectory: active.resolvedProviderDirectory ?? null,
+          outcome,
+          classification: attemptOutcome.classification,
+          reason: attemptOutcome.reason,
+          endedAt,
+          evidenceRequired: marked,
+          request: {
+            dispatchOpId: active.dispatchOpId,
+            actor: active.binding.actor,
+            source: active.binding.source,
+            permissionMode: active.permissionMode,
+            model: active.model,
+            reasoningEffort: active.reasoningEffort,
+            cwd: active.cwd,
+            startedAt: active.startedAt,
+            promptSource: active.promptSource ?? null,
+            prompt: active.prompt,
+          },
+        });
+        if (forensics === null) markEvidencePending("capture returned no stream bytes");
+      } catch (error) {
+        consumeKnownError(error);
+        const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
+        markEvidencePending(`capture failed: ${detail || "unknown error"}`);
+        console.error(`[runtime-forensics] ${active.dispatchId} could not be captured: ${detail}`);
+      }
+    }
+    // A Decision review dispatch owns no task execution; its archive binds the reviewed Decision.
+    const archive: RuntimeDispatchArchive | null = active.task
+      ? {
+          ...archiveBase,
+          taskId: active.task.taskId,
+          executionId: active.task.executionId,
+          ...(forensics === null ? {} : { forensics }),
+        }
+      : active.decisionReviewTarget
+        ? {
+            ...archiveBase,
+            taskId: null,
+            executionId: null,
+            decisionReview: active.decisionReviewTarget,
+            ...(forensics === null ? {} : { forensics }),
+          }
+        : null;
+    if (archive) {
+      try {
+        const archiveBinding = context.input.remote
+          ? terminalBinding
+          : await (context.input.authorizeRuntimeArchive?.(archive, terminalBinding) ?? terminalBinding);
+        const archived = context.input.remote
+          ? await context.input.remote.archive(archive)
+          : await writeRuntime(
+              context,
+              () =>
+                archiveRuntimeDispatch({
+                  workspaceId: context.input.repoId,
+                  rootDir: context.input.rootDir,
+                  store: context.requiredRuntimeStore(context.input),
+                  projection: context.requiredRuntimeProjection(context.input),
+                  binding: archiveBinding,
+                  now: context.input.now,
+                  archive,
+                }),
+              archiveBinding,
+            );
+        if (archived.outcome !== "applied" && archived.outcome !== "no_changes")
+          throw context.runtimeSpawnError(
+            "runtime_archive_failed",
+            `Runtime archive ${active.dispatchId} was not applied: ${archived.outcome}${
+              "code" in archived && typeof archived.code === "string" ? ` ${archived.code}` : ""
+            }${"detail" in archived && archived.detail ? ` ${JSON.stringify(archived.detail)}` : ""}`,
+          );
+        archivePublished = true;
+      } catch (error) {
+        consumeKnownError(error);
+        const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
+        // A required task report is part of the success cut. Keep the terminal
+        // event honest when publication fails, while still publishing the exit
+        // event so the runtime cannot remain live forever.
+        console.error(`[runtime-archive] ${active.dispatchId} could not be archived: ${detail}`);
+        // A local projection or the edge's center-backed read can witness a registered review
+        // despite an archive failure.
+        // Settlement honesty for a local reviewer is whether the review was registered, not whether
+        // every archive document was fresh: a reviewer that already recorded its RecordReview
+        // (which publishes the report documents itself) keeps its real outcome, and the archive
+        // failure is recorded as a note instead of flipping the dispatch to failed.
+        const reviewWasRecorded =
+          active.role === "reviewer" &&
+          (reviewRegistered ||
+            (!context.input.remote &&
+              (active.task !== null
+                ? context
+                    .requiredRuntimeProjection(context.input)
+                    .read(active.task.taskId)
+                    .snapshot.reviews.some(
+                      (review) =>
+                        review.reviewId === `review-${active.dispatchId}` ||
+                        review.actor.executor?.id === `runtime-session:${active.runtimeSessionId}`,
+                    )
+                : active.decisionReviewTarget !== null &&
+                  decisionReviewRegistered(context, active.decisionReviewTarget, active.dispatchId))));
+        if (!reviewWasRecorded && !reviewSuperseded.superseded) {
+          // This branch changes an otherwise successful terminal to failed: the earlier
+          // not-required disposition is no longer the final fact, so fail closed before cleanup.
+          markEvidencePending(`runtime archive publication failed: ${detail || "unknown error"}`);
+          outcome = cancelled ? "cancelled" : "failed";
+          reasonCode = "runtime_archive_failed";
+        }
+        // The worker result is independently durable input to this settlement.
+        // Preserve it in the terminal content while appending the reason that
+        // prevents this Task execution from claiming success.
+        body = `${body}\n\nRuntime archive publication failed: ${detail || "unknown error"}`;
+        sha256 = createHash("sha256").update(body).digest("hex");
+        result = { sha256, size: Buffer.byteLength(body), mediaType: context.resultMediaType };
+        resultRef = `artifact:runtime-result/sha256/${sha256}`;
+      }
+    }
+    if (forensics !== null && archivePublished) {
+      if (!writeEvidenceState("stored", "archive accepted")) evidencePending = true;
+      try {
+        active.stream.appendEvidenceState?.({ state: "stored" }, context.input.now());
+      } catch (error) {
+        consumeKnownError(error);
+      }
+    }
+    context.processes.delete(active.runtimeSessionId);
+    if (!escalationStop) active.process.release?.();
+    const processGroupPid =
+      Number.isSafeInteger(active.process.pid) && active.process.pid > 1 && active.process.pid !== process.pid
+        ? active.process.pid
+        : undefined;
+    const fallback = await context.settleFallback(active, attemptOutcome, {
+      runtimeSessionId: active.runtimeSessionId,
+      dispatchId: active.dispatchId,
+      task: null,
+      schedule: active.schedule,
+      outcome: active.schedule
+        ? scheduleOutcomeFromRuntime(outcome, active.finalText)
+        : outcome === "succeeded"
+          ? "succeeded"
+          : reviewSuperseded.superseded
+            ? "superseded"
+            : "failed",
+      reason: outcome === "succeeded" ? null : attemptOutcome.reason,
+      endedAt,
+      ...(ruling === null ? {} : { waitingOnOwner: true }),
+      binding: active.binding,
+      ...(processGroupPid === undefined ? {} : { processGroupPid }),
+    });
+    // Keep required evidence until the accepted terminal can be archived.
+    if (
+      !evidencePending &&
+      (active.task !== null || active.decisionReviewTarget !== null) &&
+      dispatchForensicsRequired(outcome, attemptOutcome.classification, marked) &&
+      (forensics === null || !archivePublished)
+    )
+      markEvidencePending("final terminal became abnormal after the archive decision");
+    if (escalationStop) {
+      context.processes.delete(active.runtimeSessionId);
+      active.process.release?.();
+    }
+    const { budgetRefusal, ...fallbackDisposition } = fallback ?? { fallbackState: null };
+    const terminalOutcome: DispatchTerminalOutcome = {
+      payload: {
+        runtimeSessionId: active.runtimeSessionId,
+        outcome,
+        exitCode: cancelled ? null : code,
+        resultRef,
+        result,
+        ...(budgetRefusal ? { reasonCode: budgetRefusal.code } : reasonCode ? { reasonCode } : {}),
+        dispatchId: active.dispatchId,
+        endedAt,
+        runtimeMetrics: kernelMetrics,
+        attempt: {
+          classification: attemptOutcome.classification,
+          reason: attemptOutcome.reason,
+          ...fallbackDisposition,
+          ...(budgetRefusal ? { reason: `${budgetRefusal.code}: ${budgetRefusal.message}` } : {}),
+          ...(attemptOutcome.faultClass ? { faultClass: attemptOutcome.faultClass } : {}),
+          ...(attemptOutcome.resetAt ? { resetAt: attemptOutcome.resetAt } : {}),
+        },
+      },
+      body,
+      reason: budgetRefusal ? `${budgetRefusal.code}: ${budgetRefusal.message}` : attemptOutcome.reason,
+      ...(processGroupPid === undefined ? {} : { processGroupPid }),
+    };
+    active.stream.appendTerminalOutcome(terminalOutcome, endedAt);
+    await publishTerminalOutcome(context, terminalOutcome, { active, archiveAllowed: !evidencePending });
+    context.input.remote?.releaseExecutionCredential?.(active.runtimeSessionId);
+  } catch (error) {
+    preserveEvidence?.("runtime terminal settlement failed");
+    if (!stopProofPending) {
+      context.processes.delete(active.runtimeSessionId);
+      active.process.release?.();
+      // The transport ended even if terminal publication was denied. This notification
+      // closes subscriptions; outcome waiters still re-read the accepted lifecycle.
+      context.input.stream.publish(active.runtimeSessionId, { type: "exit", outcome: "unknown" });
+    }
+    settlementFailed = true;
+    if (active.exitSettlement === settlement) active.exitSettlement = undefined;
+    rejectSettlement(error);
+    throw error;
+  } finally {
+    context.exiting.delete(active.runtimeSessionId);
+    if (!stopProofPending) active.releaseAuthorization?.();
+    if (!settlementFailed) resolveSettlement();
+  }
+}
+
+export async function runtimeProcessTreeStopped(
+  rootDir: string,
+  dispatchId: string,
+  runtime: RuntimeProcess,
+): Promise<boolean> {
+  const pid = runtime.pid;
+  if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid) return false;
+  if (probeProcessGroup({ pid, dispatch: { rootDir, dispatchId } }) === "proven_stopped") return true;
+  if (runtime.terminateTree) await runtime.terminateTree();
+  else {
+    runtime.terminate();
+    if (probeProcessGroup({ pid, dispatch: { rootDir, dispatchId } }) !== "proven_stopped")
+      await terminateRuntimeTree(rootDir, dispatchId, pid);
+  }
+  return probeProcessGroup({ pid, dispatch: { rootDir, dispatchId } }) === "proven_stopped";
+}
+
+async function dispatchLifecycleForTerminal(
+  context: RuntimeSpawnerContext,
+  dispatchId: string,
+): Promise<DispatchLifecycleView> {
+  const query = { by: "dispatch", dispatchIds: [dispatchId] } as const,
+    read = context.input.remote
+      ? await context.input.remote.readDispatchLifecycle(query)
+      : context.requiredRuntimeProjection(context.input).readDispatchLifecycle(query);
+  if (read.status !== "ready")
+    throw context.runtimeSpawnError("runtime_event_missing", `Dispatch lifecycle ${dispatchId} is not ready.`);
+  const view = read.rows.find(({ attempt }) => attempt.dispatchId === dispatchId);
+  if (!view)
+    throw context.runtimeSpawnError("runtime_event_missing", `Dispatch lifecycle ${dispatchId} has no attempt.`);
+  return view;
+}
+
+type TerminalPublication =
+  | { readonly active: ActiveRuntime; readonly previous?: DispatchLifecycleView; readonly archiveAllowed?: boolean }
+  | RuntimeTerminalReplay;
+
+async function publishTerminalOutcome(
+  context: RuntimeSpawnerContext,
+  terminal: DispatchTerminalOutcome,
+  publication: TerminalPublication,
+): Promise<void> {
+  const attempt = "active" in publication ? publication.active : publication.attempt,
+    active = "active" in publication ? publication.active : null,
+    opId = "opId" in publication ? publication.opId : null,
+    { runtimeSessionId, dispatchId, schedule, binding } = attempt,
+    { payload, body } = terminal,
+    terminalBinding = runtimeSessionBinding(binding, runtimeSessionId),
+    cancelled = active
+      ? active.cancelRequested && active.cancelOpId?.endsWith(":escalation") !== true
+      : payload.outcome === "cancelled";
+  const stopAlreadyProven = "attempt" in publication && publication.previous.attempt.stopProof === "proven_stopped";
+  if (!stopAlreadyProven)
+    await context.publishRuntimeEvent(
+      "runtime_session_exited",
+      { runtimeSessionId },
+      opId ? `${opId}-exited` : randomUUID(),
+      terminalBinding,
+    );
+  if (cancelled)
+    await context.publishRuntimeEvent(
+      "runtime_session_cancelled",
+      { runtimeSessionId },
+      opId ? `${opId}-cancelled` : (active?.cancelOpId ?? randomUUID()),
+      active?.cancelBinding ?? binding,
+    );
+  const outcomeEvent = await context.publishRuntimeEvent(
+    "runtime_session_outcome_observed",
+    payload,
+    opId ? `${opId}-outcome` : randomUUID(),
+    terminalBinding,
+    body,
+  );
+  if (outcomeEvent.event) context.input.onRuntimeOutcome?.(outcomeEvent.event, schedule);
+  const lifecycle = await dispatchLifecycleForTerminal(context, dispatchId);
+  if (lifecycle.policy.fallbackPending) await context.reconcileFallback(dispatchId);
+  if ("active" in publication) {
+    const { active, archiveAllowed = true } = publication;
+    if (
+      outcomeEvent.event &&
+      active.role === "reviewer" &&
+      active.task &&
+      payload.outcome === "failed" &&
+      (payload.attempt?.classification === "dispatch_stalled" ||
+        (payload.reasonCode === "review_result_missing" &&
+          (payload.attempt?.classification === "worker_stop" ||
+            payload.attempt?.classification === "completed_without_final_text")))
+    )
+      context.input.onStalledReviewer?.({
+        dispatchId: active.dispatchId,
+        task: active.task,
+        binding: active.binding,
+      });
+    context.input.recordLifecycle?.({
+      event: "runtime_exit",
+      runtimeSessionId: active.runtimeSessionId,
+      dispatchId: active.dispatchId,
+      pid: active.process.pid,
+      exitCode: active.lossExitCode ?? payload.exitCode,
+      signal: active.lossSignal,
+      outcome: active.lossReason ? "lost" : payload.outcome,
+      reason: active.lossReason ?? (payload.outcome === "succeeded" ? null : terminal.reason),
+    });
+    context.input.stream.publish(active.runtimeSessionId, { type: "exit", outcome: payload.outcome });
+    if (archiveAllowed) await releaseFallbackResources(context, lifecycle, active.role, active.cwd);
+    const onExitCommand = active.onExitCommand;
+    if (typeof onExitCommand === "string")
+      setImmediate(() =>
+        context.launchExitNotification({
+          command: onExitCommand,
+          cwd: active.cwd,
+          stream: active.stream,
+          payload: {
+            schema: "runtime-session-exited/v1" as const,
+            runtimeSessionId: active.runtimeSessionId,
+            outcome: payload.outcome,
+            exitCode: payload.exitCode,
+          },
+          now: context.input.now,
+        }),
+      );
+  }
+  if (publication.previous && !publication.previous.policy.attemptSettled && lifecycle.groupPhase !== "waiting_backoff")
+    await context.input.onAttemptTerminal?.({
+      runtimeSessionId,
+      dispatchId,
+      task: null,
+      schedule,
+      outcome: schedule
+        ? scheduleOutcomeFromRuntime(payload.outcome, body)
+        : payload.outcome === "succeeded"
+          ? "succeeded"
+          : payload.outcome === "cancelled"
+            ? "cancelled"
+            : "failed",
+      reason: payload.outcome === "succeeded" ? null : terminal.reason,
+      endedAt: payload.endedAt ?? context.input.now(),
+      ...(terminal.processGroupPid === undefined ? {} : { processGroupPid: terminal.processGroupPid }),
+      ...(payload.attempt?.classification === "awaiting_ruling" ? { waitingOnOwner: true } : {}),
+      binding,
+    });
+}
+
+function unsubmittedDeliveryRecovery(
+  context: RuntimeSpawnerContext,
+  active: ActiveRuntime,
+  outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped",
+  hasDelivery: boolean,
+): string | null {
+  if (outcome !== "succeeded" || !active.task || active.role === "reviewer" || !hasDelivery) return null;
+  // The owner recovery reads this node's projection; an edge has none, and its center reports the task state.
+  if (!context.input.projection) return null;
+  const projection = context.requiredRuntimeProjection(context.input),
+    read = projection.read(active.task.taskId),
+    execution = read.snapshot.executions.find((candidate) => candidate.executionId === active.task?.executionId);
+  if (
+    execution?.submission ||
+    taskOutputShape(read.snapshot.task, presetSnapshotReader(projection)) !== "repository-diff" ||
+    !read.packagePath ||
+    !projection.readDocument(`${read.packagePath}/closeout.md`).document
+  )
+    return null;
+  return (
+    `Task ${active.task.taskId} is not submitted: runtime success and task submission are separate states. ` +
+    `The owner can recover this delivered closeout with: ha task submit ${active.task.taskId} --as-owner`
+  );
+}
+
+/** An undelivered stop names the task it left unsubmitted and hands back the recovery entry, so the
+ * receipt reads as "exited without delivering" plus the way to continue rather than a success shape
+ * the owner must discover is hollow (dec_614F7BBB18C8687E7EFC72173D CH1). Reviewers re-dispatch
+ * through review dispatches and squad turns through their coordinator, so only direct task exits. */
+function unsubmittedExitGuidance(
+  active: ActiveRuntime,
+  outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped",
+): string | null {
+  if (outcome !== "stopped" || !active.task || active.role === "reviewer" || active.squadId !== null) return null;
+  return (
+    `Task ${active.task.taskId} is not submitted: the worker exited without a submitted delivery. ` +
+    `Recover the stopped worker with: ha agent run ${active.agent?.id ?? "<agent-id>"} --task ${active.task.taskId} ` +
+    `--recover-dispatch ${active.dispatchId} --execution-id ${active.task.executionId} ` +
+    "--expected-version <revision> --idempotency-key <key>"
+  );
+}
+
+function runtimeSessionBinding(binding: ActiveRuntime["binding"], runtimeSessionId: string): ActiveRuntime["binding"] {
+  const { authorizationDecision: _spawnDecision, ...current } = binding;
+  return {
+    ...current,
+    actor: {
+      principal: binding.actor.principal,
+      executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` },
+    },
+  };
+}
+
+/**
+ * The ruling a worker left in its task package, read at the single settlement entry. Only a
+ * task-bound dispatch has a package to read. The worker's own filesystem is authoritative: a
+ * worktree artifact is a new local file that no doc sync has published yet, so the projection
+ * fallback below can only serve an artifact the worker itself published. An edge settles by the
+ * same ordinary classification it always had.
+ */
+async function runtimeRulingRequest(
+  context: RuntimeSpawnerContext,
+  active: ActiveRuntime,
+): Promise<{ readonly ruling: RuntimeRulingArtifact | null; readonly reviewTargetWithdrawn: string | null }> {
+  const ruling = (value: RuntimeRulingArtifact | null) => ({ ruling: value, reviewTargetWithdrawn: null });
+  if (!active.task) return ruling(null);
+  if (context.input.remote && typeof context.input.remote.taskContext === "function") {
+    // Settlement uses the existing replica and worker package, including while the center is
+    // disconnected. It must reach the durable archive/publication retry path without requiring
+    // the fresh serving context that only a new mission needs.
+    let remoteTask: Awaited<ReturnType<NonNullable<RuntimeSpawnerContext["input"]["remote"]>["taskContext"]>>;
+    try {
+      remoteTask = await context.input.remote.taskContext(
+        active.task.taskId,
+        undefined,
+        active.role === "reviewer" ? { executionId: active.task.executionId } : undefined,
+        undefined,
+        "settlement",
+      );
+    } catch (error) {
+      // Task context rechecks the review target on this read. A target that left review can no
+      // longer take this reviewer's verdict, so its settlement is final instead of retried forever.
+      if (
+        active.role === "reviewer" &&
+        ["review_admission_denied", "review_target_missing"].includes(runtimeErrorCode(error) ?? "")
+      ) {
+        consumeKnownError(error);
+        return {
+          ruling: null,
+          reviewTargetWithdrawn:
+            `Review target ${active.task.executionId} left review before reviewer settlement: ` +
+            String(scrubProviderValue(runtimeErrorMessage(error))).slice(0, 512),
+        };
+      }
+      if (
+        runtimeErrorCode(error) !== "execution_missing" ||
+        active.role === "reviewer" ||
+        active.cancelOpId?.endsWith(":escalation") === true
+      )
+        throw error;
+      // A late ordinary edge callback can outlive the task execution that launched it. It no longer
+      // has an active execution to block, so preserve its ordinary terminal outcome.
+      consumeKnownError(error);
+      return { ruling: null, reviewTargetWithdrawn: null };
+    }
+    const packagePath = path
+      .relative(context.input.rootDir, remoteTask.packageRoot)
+      .replaceAll(path.sep, "/")
+      .replace(/^harness\//u, "");
+    // A freshly written ruling lives in the worker worktree until the next mirror pull. Check that
+    // serving cwd first, then the mirrored package and finally the canonical root fallback.
+    return ruling(
+      readDispatchRulingFromWorker({
+        cwd: active.cwd,
+        rootDir: context.input.rootDir,
+        packagePath,
+        dispatchId: active.dispatchId,
+      }) ??
+        readDispatchRulingFromWorker({
+          cwd: remoteTask.packageRoot,
+          rootDir: context.input.rootDir,
+          packagePath: "",
+          dispatchId: active.dispatchId,
+        }) ??
+        readDispatchRulingFromWorker({
+          cwd: context.input.rootDir,
+          rootDir: context.input.rootDir,
+          packagePath,
+          dispatchId: active.dispatchId,
+        }),
+    );
+  }
+  if (!context.input.projection) return ruling(null);
+  const projection = context.requiredRuntimeProjection(context.input),
+    packagePath = projection.read(active.task.taskId).packagePath;
+  if (typeof packagePath !== "string") return ruling(null);
+  return ruling(
+    readDispatchRulingFromWorker({
+      cwd: active.cwd,
+      rootDir: context.input.rootDir,
+      packagePath,
+      dispatchId: active.dispatchId,
+    }) ??
+      readDispatchRuling(
+        (relative) => projection.readDocument(relative).document?.body ?? null,
+        packagePath,
+        active.dispatchId,
+      ),
+  );
+}
+
+function runtimeReviewReport(context: RuntimeSpawnerContext, active: ActiveRuntime) {
+  if (active.role !== "reviewer") return null;
+  if (context.input.remote) return null;
+  const packagePath = active.task
+    ? context.requiredRuntimeProjection(context.input).read(active.task.taskId).packagePath
+    : active.decisionReviewTarget
+      ? `decisions/decision-${active.decisionReviewTarget.decisionId}`
+      : null;
+  if (typeof packagePath !== "string") return null;
+  const reportPath = `${packagePath}/artifacts/reports/${active.dispatchId}.md`,
+    packageRelative = reportPath.split("/");
+  const candidates = [
+    path.join(active.cwd, "harness", ...packageRelative),
+    path.join(active.cwd, ...packageRelative),
+    path.join(active.cwd, "artifacts", "reports", `${active.dispatchId}.md`),
+    path.join(context.input.rootDir, "harness", ...packageRelative),
+  ];
+  for (const candidate of new Set(candidates)) {
+    const body = readFileIfPresent(candidate, 2 * 1024 * 1024);
+    if (body !== null && body.trim() !== "") return { path: reportPath, body };
+  }
+  return null;
+}
+
+function runtimeReviewPacket(context: RuntimeSpawnerContext, active: ActiveRuntime) {
+  if (active.role !== "reviewer" || active.task === null || context.input.remote) return null;
+  const packagePath = context.requiredRuntimeProjection(context.input).read(active.task.taskId).packagePath;
+  if (typeof packagePath !== "string") return null;
+  const packetPath = `${packagePath}/artifacts/reports/${active.dispatchId}.json`,
+    packageRelative = packetPath.split("/"),
+    candidates = [
+      path.join(active.cwd, "harness", ...packageRelative),
+      path.join(active.cwd, ...packageRelative),
+      path.join(active.cwd, "artifacts", "reports", `${active.dispatchId}.json`),
+      path.join(context.input.rootDir, "harness", ...packageRelative),
+    ];
+  for (const candidate of new Set(candidates)) {
+    const body = readFileIfPresent(candidate, 2 * 1024 * 1024);
+    if (body !== null && body.trim() !== "") return { path: packetPath, body };
+  }
+  return null;
+}
+
+async function reviewerReviewRegistered(
+  context: RuntimeSpawnerContext,
+  active: ActiveRuntime,
+  reviewId: string,
+): Promise<boolean> {
+  if (active.task !== null && context.input.remote?.reviewerReviewRegistered)
+    return context.input.remote.reviewerReviewRegistered({
+      taskId: active.task.taskId,
+      reviewId,
+      runtimeSessionId: active.runtimeSessionId,
+    });
+  if (active.task !== null)
+    return (
+      context.input.projection !== undefined &&
+      context
+        .requiredRuntimeProjection(context.input)
+        .read(active.task.taskId)
+        .snapshot.reviews.some(
+          (review) =>
+            review.reviewId === reviewId || review.actor.executor?.id === `runtime-session:${active.runtimeSessionId}`,
+        )
+    );
+  return active.decisionReviewTarget !== null && active.decisionReviewTarget !== undefined
+    ? decisionReviewRegistered(context, active.decisionReviewTarget, active.dispatchId)
+    : false;
+}
+
+/** The registration witness for a dispatched Decision review: the Decision carries a review by
+ * this dispatch at the reviewed content digest. */
+function decisionReviewRegistered(
+  context: RuntimeSpawnerContext,
+  target: { readonly decisionId: string; readonly digest: string },
+  dispatchId: string,
+): boolean {
+  return (
+    context
+      .requiredRuntimeProjection(context.input)
+      .readDecision(target.decisionId)
+      .decision?.reviews.some(
+        (review) => review.reviewId === `review-${dispatchId}` && review.reviewContentDigest === target.digest,
+      ) === true
+  );
+}
+
+async function runtimeDeliveryWitness(context: RuntimeSpawnerContext, active: ActiveRuntime): Promise<boolean> {
+  if (active.decisionReviewTarget) return true;
+  // Taskless runs have no declared repository or task-package output. Their positive delivery is
+  // the provider's completed turn and final result, both durably replayed from the worker stream
+  // when a successor daemon adopts the runtime.
+  if (!active.task) return active.providerOutcome === "succeeded" && active.finalText !== null;
+  // A read-only analysis attach delivers its dispatch report into the task package; that report is
+  // a durable witness. A final provider message alone is not, so without the report the remaining
+  // witnesses below decide.
+  if (active.permissionMode === "read-only" && active.role !== "reviewer" && context.input.projection) {
+    const projection = context.requiredRuntimeProjection(context.input),
+      packagePath = projection.read(active.task.taskId).packagePath;
+    if (
+      typeof packagePath === "string" &&
+      projection.readDocument(`${packagePath}/artifacts/reports/${active.dispatchId}.md`).document !== null
+    )
+      return true;
+  }
+  // A reviewer's positive delivery is the registered review, never branch commits: a report file
+  // can exist (and be committed) while the review itself was never registered. Only the node
+  // holding the task projection can witness registration; an edge settles unknown rather than
+  // guessing from its branch.
+  if (active.role === "reviewer")
+    return context.input.projection
+      ? context
+          .requiredRuntimeProjection(context.input)
+          .read(active.task.taskId)
+          .snapshot.reviews.some(
+            (review) =>
+              review.reviewId === `review-${active.dispatchId}` ||
+              review.actor.executor?.id === `runtime-session:${active.runtimeSessionId}`,
+          )
+      : false;
+  // A squad leader turn owes no repository artifacts: children deliver the commits and the leader's
+  // delivery is its decision, carried in the provider's structured result and re-verified by the
+  // coordinator parsing it. The same evidence class as a taskless run witnesses the turn.
+  if (active.squadId !== null && active.delegatedBy === null)
+    return active.providerOutcome === "succeeded" && active.finalText !== null;
+  // A squad worker hands local commits on its child task branch to the commander. That branch is
+  // stacked on the Commander HEAD the run recorded before the spawn, so counting from the
+  // repository baseline would credit inherited Commander commits to a worker that committed
+  // nothing. A remote edge has no canonical projection to read that base from and keeps the
+  // repository-baseline witness. At the center a direct dispatch delivers only its accepted
+  // submission — mid-work branch commits are not a delivery facet (dec_614F7BBB18C8687E7EFC72173D
+  // RJ1: a normal exit without a submitted delivery must not settle succeeded).
+  if (active.squadId !== null) {
+    const cut = squadWorkerCut(context, active);
+    if (cut.runOwned) {
+      if (cut.baseRef !== undefined)
+        return workerBranchHasDelivery({
+          cwd: active.cwd,
+          canonicalRoot: context.input.rootDir,
+          taskId: active.task.taskId,
+          baseRef: cut.baseRef,
+        });
+      // A run-owned worker whose run no longer names its cut must not fall back to the repository
+      // baseline: that is exactly the silent false positive this witness exists to prevent.
+      return false;
+    }
+  }
+  if (
+    (active.squadId !== null || !context.input.projection) &&
+    (await workerBranchHasDelivery({
+      cwd: active.cwd,
+      canonicalRoot: context.input.rootDir,
+      taskId: active.task.taskId,
+    }))
+  )
+    return true;
+  // Remote-edge settlement has no local canonical projection. Its repo-root fixtures also have no
+  // repository-diff witness; absence must settle unknown rather than abort terminal publication.
+  return hasAcceptedExecutionSubmission(context, active);
+}
+
+/** Whether this dispatch belongs to a squad run, and if so the exact cut its child branch was
+ * stacked on. The run records that base before spawning the worker, so settlement counts only the
+ * worker's own commits. A dispatch that carries a squad roster id but no run context is not a
+ * run-owned worker and keeps the repository-baseline witness. */
+function squadWorkerCut(
+  context: RuntimeSpawnerContext,
+  active: ActiveRuntime,
+): { readonly runOwned: boolean; readonly baseRef?: string } {
+  if (active.squadId === null || context.input.projection === undefined) return { runOwned: false };
+  const projection = context.requiredRuntimeProjection(context.input),
+    dispatch = projection.readRuntimeDispatchById(active.dispatchId)?.event,
+    squadRunId = dispatch?.payload.squadRun?.squadRunId;
+  if (squadRunId === undefined) return { runOwned: false };
+  const run = projection.readSquadRun(squadRunId)?.state as unknown as CanonicalSquadRun | undefined,
+    baseRef = run?.workerAttempts.find((attempt) => attempt.dispatchId === active.dispatchId)?.baseSha;
+  return baseRef === null || baseRef === undefined ? { runOwned: true } : { runOwned: true, baseRef };
+}
+
+function hasAcceptedExecutionSubmission(context: RuntimeSpawnerContext, active: ActiveRuntime): boolean {
+  if (!active.task || !context.input.projection) return false;
+  const snapshot = context.requiredRuntimeProjection(context.input).read(active.task.taskId).snapshot,
+    submission = snapshot.executions.find(
+      (execution) => execution.executionId === active.task?.executionId,
+    )?.submission;
+  // Submission is the accepted delivery witness. The submit boundary already validates the
+  // preset contract and durably records the accepted submission; settlement must not derive its
+  // meaning again from outputShape or require a commitSha.
+  return submission !== null && submission !== undefined;
+}
+
+export function runtimeResultText(
+  context: RuntimeSpawnerContext,
+  active: ActiveRuntime,
+  code: number | null,
+  outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped",
+): string {
+  const text = runtimeResultBody(active, code, outcome),
+    stray = active.strayWritePaths ?? [];
+  if (stray.length === 0) return text;
+  return `${strayWriteWarning(stray, { rootDir: context.input.rootDir, workerRoot: active.cwd })}\n\n${text}`;
+}
+
+function runtimeResultBody(
+  active: ActiveRuntime,
+  code: number | null,
+  outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped",
+): string {
+  if (active.spendCapExceeded && outcome !== "cancelled") return runtimeSpendCapReason(active);
+  if (active.lossReason)
+    return `Runtime session lost: ${active.lossReason}${active.lossSignal ? ` (${active.lossSignal})` : ""}.`;
+  if (code === 0 || code === null)
+    return scrubProviderValue(
+      active.finalText ??
+        (outcome === "failed"
+          ? (boundedFailureText(active) ?? "Provider reported failure without a structured diagnostic.")
+          : ""),
+    ) as string;
+  const details = [boundedFailureText(active), stderrDiagnosticSummary(active)].filter(
+    (value): value is string => value !== null,
+  );
+  if (details.length) return `Provider exited with code ${String(code)}. ${details.join("\n")}`;
+  return active.stdoutObserved
+    ? `Provider exited with code ${String(code)} without a structured failure or stderr diagnostic.`
+    : `Provider exited with code ${String(code)} and produced no output.`;
+}
+
+/**
+ * The persisted attempt reason is inlined by every consumer — dispatch rows, the fallback
+ * continuation mission, settlement receipts — so it is one bounded line plus a reference to
+ * the dispatch stream, which keeps the raw provider stderr as worker-host provider_stderr
+ * records. It must never carry the provider's multi-line log verbatim.
+ */
+function attemptOutcomeReason(reason: string, ref: string): string {
+  return `${firstDiagnosticLine(reason)}; full diagnostics: ${ref}`;
+}
+
+/** Provider frame failure text is receipt prose, not log storage: one scrubbed, bounded excerpt. */
+function boundedFailureText(active: ActiveRuntime): string | null {
+  return active.failureText === null ? null : String(scrubProviderValue(active.failureText)).slice(0, 1024);
+}
+
+/** The raw provider stderr stays in the dispatch stream; the result text carries one line and the reference. */
+function stderrDiagnosticSummary(active: ActiveRuntime): string | null {
+  if (active.errorOverflowed) return "Provider stderr was omitted because it exceeded the diagnostic limit.";
+  const stderr = active.errorBuffer.trim();
+  return stderr ? `${firstDiagnosticLine(stderr)}; full stderr: ${active.stream.ref}` : null;
+}
+
+/** The first non-empty, trimmed line of a scrubbed diagnostic, bounded for inline consumption. */
+function firstDiagnosticLine(value: string): string {
+  const scrubbed = String(scrubProviderValue(value));
+  return (
+    scrubbed
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? ""
+  ).slice(0, 200);
+}
+
+export function applied(
+  _context: RuntimeSpawnerContext,
+  event: AgentRuntimeEventV1,
+  publication: ReturnType<CanonicalEventStore["publication"]>,
+  runtimeSessionId: string,
+  dispatchId: string,
+) {
+  return runtimeSpawnReceipt(event, publication, runtimeSessionId, dispatchId);
+}
+
+export function controlReceipt(
+  context: RuntimeSpawnerContext,
+  opId: string,
+  runtimeSessionId: string,
+  detail = "cancelled",
+): JsonObject {
+  if (context.input.remote) {
+    const centerReceipt = context.input.remote.runtimeControlReceipt?.(runtimeSessionId);
+    if (centerReceipt) {
+      const outcome = centerReceipt.outcome;
+      return {
+        ...centerReceipt,
+        schema: "command-receipt/v2",
+        ok: outcome === "applied" || outcome === "pending" || outcome === "no_changes",
+        command: "runtime-cancel",
+        opId: typeof centerReceipt.opId === "string" ? centerReceipt.opId : opId,
+        runtimeSessionId,
+        evidence: `runtime-cancel:${detail}:${runtimeSessionId}:center:${String(centerReceipt.opId ?? "unknown")}`,
+        visibility: "center",
+        detail,
+        ...(outcome === "pending" ? { guidance: [{ kind: "retry-receipt", args: { opId } }] } : {}),
+      };
+    }
+    return {
+      schema: "command-receipt/v2",
+      ok: true,
+      command: "runtime-cancel",
+      outcome: "pending",
+      opId,
+      runtimeSessionId,
+      status: "unknown",
+      acceptance: null,
+      projection: { state: "pending", cut: null, reason: "Center cancellation receipt is not available yet." },
+      git: { state: "pending", cut: null, reason: "Center cancellation receipt is not available yet." },
+      worktree: { state: "pending", cut: null, reason: "Center cancellation receipt is not available yet." },
+      replica: { state: "pending", cut: null, reason: "Center cancellation receipt is not available yet." },
+      evidence: `runtime-cancel:${detail}:${runtimeSessionId}`,
+      visibility: "center",
+      detail,
+      guidance: [{ kind: "retry-receipt", args: { opId } }],
+    };
+  }
+  const store = context.requiredRuntimeStore(context.input),
+    published = store.readEvent(opId),
+    revision = published?.workspaceRevision ?? store.readHead()?.revision ?? 0,
+    publication = published ? store.publication(published) : null,
+    canonicalVisible = published !== null && publication?.cut.opId === opId && publication.cut.revision === revision,
+    base = {
+      schema: "command-receipt/v2",
+      ok: true,
+      command: "runtime-cancel",
+      opId,
+      runtimeSessionId,
+      revision,
+      evidence: `runtime-cancel:${detail}:${runtimeSessionId}`,
+      visibility: "center" as const,
+      proof: {
+        committedRevision: revision,
+        appliedCut: publication?.cut.revision ?? 0,
+        durable: canonicalVisible,
+        canonicalVisible,
+        worktreeVisible: null,
+      },
+      detail,
+    };
+  return canonicalVisible
+    ? { ...base, outcome: "applied" as const }
+    : {
+        ...base,
+        outcome: "pending" as const,
+        guidance: [{ kind: "retry-receipt", args: { opId } }],
+      };
+}

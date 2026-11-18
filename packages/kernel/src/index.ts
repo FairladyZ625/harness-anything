@@ -257,15 +257,7 @@ export * from "./ports/index.ts";
 export { renderDecisionDocument } from "./domain/decision-event.ts";
 export { renderFactsDocument } from "./domain/fact-event.ts";
 export { emptyTaskLifecycleSnapshot } from "./domain/task-lifecycle.contract.ts";
-export { schemaRegistry, TemplateCatalogSchema } from "./schemas/registry.ts";
 export type { VerticalCompletionDeclaration } from "./domain/completion-source.ts";
-export { VerticalCompletionDeclarationSchema } from "./schemas/completion-source.ts";
-export type { TemplateCatalog, TemplateSelection } from "./schemas/registry.ts";
-export {
-  decodeVerticalDefinition,
-  parseVerticalDeclarationDocument,
-  validateVerticalDeclarationRead,
-} from "./schemas/vertical-definition.ts";
 export {
   readDaemonRegistry,
   registerDaemonConnection,
@@ -324,23 +316,6 @@ export { reduceArtifactEntityState, type ArtifactEntityState } from "./domain/ar
 
 export { currentGateRun, claimGateRun, settleGateRun, validCompletionWitnessResult } from "./domain/gate-run.ts";
 export type { GateRun, CompletionWitnessResult } from "./domain/gate-run.ts";
-export { completionPredicateIssues } from "./schemas/completion-predicate.ts";
-
-export {
-  SKILL_EVAL_GATE,
-  SKILL_EVAL_SOURCE,
-  SKILL_EVAL_PREDICATE,
-  evaluateSkillCase,
-  judgeSkillEvaluation,
-} from "./skill-eval-gate.ts";
-export type {
-  SkillEvalCaseExpectation,
-  SkillEvalCaseInput,
-  SkillEvalCaseResult,
-  SkillEvalDraftContract,
-  SkillEvalOutcome,
-  SkillEvalJudgment,
-} from "./skill-eval-gate.ts";
 
 export { compileGateRunChange } from "./domain/gate-run-publication.ts";
 

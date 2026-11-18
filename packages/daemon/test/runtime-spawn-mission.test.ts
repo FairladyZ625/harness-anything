@@ -9,7 +9,7 @@ import {
   runtimeProgressSnapshot,
   currentWorktreeHead,
   latestRuntimeContinuationSeed,
-} from "../src/runtime-continuation-context.ts";
+} from "../src/daemon-host/runtime-continuation-context.ts";
 import {
   assembleScheduledMission,
   assembleTaskMission,
@@ -24,7 +24,7 @@ import {
   taskPrPublicationNote,
   taskQueryGuidance,
   workerRootPathToken,
-} from "../src/runtime-spawn-mission.ts";
+} from "../src/daemon-host/runtime-spawn-mission.ts";
 
 const daemonRoute = { userRoot: "/tmp/ha/user", daemonId: "default", endpoint: "/tmp/ha/user/daemon.sock" };
 

@@ -281,10 +281,25 @@ function openSqliteEventStoreInternal(
         "VALUES (?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now')))",
     );
 
+  let hasOutbox = !options.readOnly,
+    transactionDepth = 0,
+    activeReadOnlyTransaction = false;
   const transaction = <A>(run: () => A, readOnly = false): A => {
+    if (transactionDepth > 0) {
+      if (!readOnly && activeReadOnlyTransaction)
+        throw new Error("Cannot start an immediate write transaction inside a SQLite read snapshot");
+      transactionDepth += 1;
+      try {
+        return run();
+      } finally {
+        transactionDepth -= 1;
+      }
+    }
     /* @gate-identity state-store/task.source.storage.src.store.sqlite-event-store.sqlite-database */ db.exec(
       readOnly ? "BEGIN" : "BEGIN IMMEDIATE",
     );
+    transactionDepth = 1;
+    activeReadOnlyTransaction = readOnly;
     try {
       const result = run();
       /* @gate-identity state-store/task.source.storage.src.store.sqlite-event-store.sqlite-database */ db.exec(
@@ -302,6 +317,9 @@ function openSqliteEventStoreInternal(
         consumeKnownError(rollbackError);
       }
       throw error;
+    } finally {
+      transactionDepth = 0;
+      activeReadOnlyTransaction = false;
     }
   };
   // Expand/catch up declaration columns before event-query backfill can apply entity events.
@@ -435,10 +453,24 @@ function openSqliteEventStoreInternal(
         status = input.rejectionCode ? "rejected" : "accepted_durable",
         recordedAt = input.historicalRecord?.recordedAt ?? new Date().toISOString(),
         memberOpIds = input.events.map((event) => event.opId);
-      if (lastRevision !== null)
+      if (lastRevision !== null) {
         /* @gate-identity state-store/task.source.storage.src.store.sqlite-event-store.sqlite-database */ db.prepare(
           "UPDATE ledger_meta SET revision=? WHERE singleton=1",
         ).run(lastRevision);
+        query(
+          "INSERT INTO git_outbox(singleton, pending_revision, pending_epoch, pending_holder, updated_at) VALUES (1, ?, ?, ?, ?) " +
+            "ON CONFLICT(singleton) DO UPDATE SET pending_revision=excluded.pending_revision, pending_epoch=excluded.pending_epoch, pending_holder=excluded.pending_holder, updated_at=excluded.updated_at",
+          [lastRevision, input.fence.epoch, input.fence.holder, recordedAt],
+        );
+        if (input.outboxBaselines) {
+          for (const [logicalPath, baseline] of input.outboxBaselines)
+            query(
+              "INSERT INTO git_outbox_baseline(logical_path, fingerprint, preserve) VALUES (?, ?, ?) " +
+                "ON CONFLICT(logical_path) DO UPDATE SET fingerprint=excluded.fingerprint, preserve=excluded.preserve",
+              [logicalPath, baseline.fingerprint, baseline.preserve ? 1 : 0],
+            );
+        }
+      }
       input.beforeOutcome?.();
       /* @gate-identity state-store/task.source.storage.src.store.sqlite-event-store.sqlite-database */ db.prepare(
         "INSERT INTO command_outcome(" +
@@ -623,6 +655,61 @@ function openSqliteEventStoreInternal(
       }),
     queryEvents: (input) => queryEvents(query, input),
     readEntityDeclarations: (input) => transaction(() => readSqliteEntityDeclarations(query, input), true),
+    gitOutboxState: () => {
+      if (!hasOutbox)
+        hasOutbox = query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='git_outbox' LIMIT 1").length > 0;
+      if (!hasOutbox) {
+        const writer = readWriter(db, repoId);
+        return {
+          pendingRevision: readRevision(db),
+          pendingEpoch: writer?.epoch ?? 0,
+          pendingHolder: writer?.holder ?? "",
+          publishedRevision: 0,
+          publishedCommitSha: null,
+          baselines: new Map(),
+        };
+      }
+      const row = query(
+          "SELECT pending_revision, pending_epoch, pending_holder, published_revision, published_commit_sha FROM git_outbox WHERE singleton=1",
+        ).at(0),
+        baselines = new Map(
+          query("SELECT logical_path, fingerprint, preserve FROM git_outbox_baseline").map((entry) => [
+            String(entry.logical_path),
+            { fingerprint: String(entry.fingerprint), preserve: Number(entry.preserve) === 1 },
+          ]),
+        );
+      return {
+        pendingRevision: row ? Number(row.pending_revision) : readRevision(db),
+        pendingEpoch: row ? Number(row.pending_epoch) : 0,
+        pendingHolder: row ? String(row.pending_holder) : "",
+        publishedRevision: row ? Number(row.published_revision) : 0,
+        publishedCommitSha: row && row.published_commit_sha !== null ? String(row.published_commit_sha) : null,
+        baselines,
+      };
+    },
+    markGitOutboxPublished: ({ revision, commitSha, settledPaths, clearBaselines }) =>
+      transaction(() => {
+        const now = new Date().toISOString();
+        query(
+          "INSERT INTO git_outbox(singleton, pending_revision, pending_epoch, pending_holder, published_revision, published_commit_sha, updated_at) " +
+            "VALUES (1, ?, 0, '', ?, ?, ?) " +
+            "ON CONFLICT(singleton) DO UPDATE SET " +
+            "published_revision=MAX(published_revision, excluded.published_revision), " +
+            "published_commit_sha=CASE WHEN excluded.published_revision>=published_revision THEN COALESCE(excluded.published_commit_sha, published_commit_sha) ELSE published_commit_sha END, " +
+            "updated_at=excluded.updated_at",
+          [revision, revision, commitSha, now],
+        );
+        if (clearBaselines)
+          // A canonical append may advance the outbox while Git is publishing this cut.
+          // Keep its durable baselines until the follower has reached that newer revision.
+          query(
+            "DELETE FROM git_outbox_baseline WHERE (SELECT pending_revision FROM git_outbox WHERE singleton=1)<=?",
+            [revision],
+          );
+        else if (settledPaths?.length)
+          for (const target of settledPaths) query("DELETE FROM git_outbox_baseline WHERE logical_path=?", [target]);
+      }),
+    readSnapshot: <A>(run: () => A): A => transaction(run, true),
     close: registerLedgerClose(databasePath, db),
   };
 }
@@ -730,12 +817,29 @@ function createSchema(db: DatabaseSync, query: SqliteQuery, repoId: string, gene
       lease_expires_at TEXT NOT NULL, reason TEXT NOT NULL,
       PRIMARY KEY(task_id, execution_id, acquired_revision)
     ) STRICT;
+    CREATE TABLE IF NOT EXISTS git_outbox (
+      singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+      pending_revision INTEGER NOT NULL DEFAULT 0 CHECK(pending_revision>=0),
+      pending_epoch INTEGER NOT NULL DEFAULT 0 CHECK(pending_epoch>=0),
+      pending_holder TEXT NOT NULL DEFAULT '',
+      published_revision INTEGER NOT NULL DEFAULT 0 CHECK(published_revision>=0),
+      published_commit_sha TEXT,
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS git_outbox_baseline (
+      logical_path TEXT PRIMARY KEY,
+      fingerprint TEXT NOT NULL,
+      preserve INTEGER NOT NULL CHECK(preserve IN (0,1))
+    ) STRICT;
     ${REPLICATION_LOG_SQL}
     ${SQLITE_DECLARATION_INDEX_DDL}
   `);
   /* @gate-identity state-store/task.source.storage.src.store.sqlite-event-store.sqlite-database */ db.prepare(
     "INSERT OR IGNORE INTO ledger_meta(singleton, repo_id, generation, revision) " + "VALUES (1, ?, ?, 0)",
   ).run(repoId, generation);
+  query(
+    "INSERT OR IGNORE INTO git_outbox(singleton, pending_revision, pending_epoch, pending_holder, published_revision, published_commit_sha) VALUES (1, 0, 0, '', 0, NULL)",
+  );
   query(
     "INSERT OR IGNORE INTO replication_log SELECT 0,revision,NULL,NULL FROM ledger_meta JOIN replication_state USING(singleton) WHERE sequence=0",
   );

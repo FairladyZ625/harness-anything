@@ -1,6 +1,7 @@
 import { presetCommands, presetMethods } from "./preset-command-contract.ts";
-import { VerticalCompletionDeclarationSchema, type VerticalCompletionDeclaration } from "@harness-anything/kernel";
-import { Schema } from "effect";
+import { type VerticalCompletionDeclaration } from "@harness-anything/kernel";
+import { VerticalCompletionDeclarationSchema } from "@harness-anything/kernel/schemas";
+import * as Schema from "effect/Schema";
 import type { PresetRunOutcomeV1, PresetRunPhaseV1 } from "./preset-run-receipt-types.ts";
 export {
   decisionProposalDefaultJsonFields,

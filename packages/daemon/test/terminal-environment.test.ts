@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { captureLoginShellEnvironment, terminalEnvironment } from "../src/terminal-environment.ts";
+import { captureLoginShellEnvironment, terminalEnvironment } from "../src/daemon-host/terminal-environment.ts";
 
 test("login shell environment parser preserves values containing equals signs", () => {
   let invocation: readonly unknown[] | undefined;

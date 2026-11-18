@@ -1,4 +1,4 @@
-import { relationCreatedEventForReplay } from "@harness-anything/kernel";
+import { relationCreatedEventForReplay } from "@harness-anything/kernel/internal/domain/relation-event.ts";
 import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import type { DatabaseSync } from "node:sqlite";
 import {

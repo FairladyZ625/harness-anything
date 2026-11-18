@@ -5,19 +5,19 @@ import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak"
 import { fakeKeycloak } from "../keycloak.fixtures.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { createRepoCellActionContext } from "../../src/repo-cell-action-context.ts";
-import { createRepoCellApi } from "../../src/repo-cell-api.ts";
-import { makeRepoCellSettingsState } from "../../src/repo-cell-settings-state.ts";
+import { createRepoCellActionContext } from "../../src/daemon-host/repo-cell-action-context.ts";
+import { createRepoCellApi } from "../../src/daemon-host/repo-cell-api.ts";
+import { makeRepoCellSettingsState } from "../../src/daemon-host/repo-cell-settings-state.ts";
 import { makeEntityActionCatalogExecutor } from "@harness-anything/application/commands";
-import { makeAgentActionRuntime, makeSquadActionRuntime } from "../../src/squad-action-runtime.ts";
-import { makePersonActionRuntime } from "../../src/person-action-runtime.ts";
-import { makeScheduleActionRuntime } from "../../src/schedule-action-runtime.ts";
-import { executeRepoReadAction } from "../../src/repo-cell-action-dispatch.ts";
-import { dispatchRead } from "../../src/repo-cell-command.ts";
-import { requiredCellText } from "../../src/repo-cell-settlement.ts";
-import { cellCodedError } from "../../src/repo-cell-errors.ts";
-import { makeAgentRuntimeStreamHub } from "../../src/agent-runtime-stream.ts";
-import { repositoryRuntimeReads } from "../../src/repository-runtime-reads.ts";
+import { makeAgentActionRuntime, makeSquadActionRuntime } from "../../src/daemon-host/squad-action-runtime.ts";
+import { makePersonActionRuntime } from "../../src/daemon-host/person-action-runtime.ts";
+import { makeScheduleActionRuntime } from "../../src/daemon-host/schedule-action-runtime.ts";
+import { executeRepoReadAction } from "../../src/daemon-host/repo-cell-action-dispatch.ts";
+import { dispatchRead } from "../../src/daemon-host/repo-cell-command.ts";
+import { requiredCellText } from "../../src/daemon-host/repo-cell-settlement.ts";
+import { cellCodedError } from "../../src/daemon-host/repo-cell-errors.ts";
+import { makeAgentRuntimeStreamHub } from "../../src/daemon-host/agent-runtime-stream.ts";
+import { repositoryRuntimeReads } from "../../src/daemon-host/repository-runtime-reads.ts";
 
 export async function createReadFixtureRuntime({ projection, store, rootDir }, now) {
   const input = { repoId: "g38-read", runtimeInstances: () => [] },

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { escapesWorkerWorktree, strayWriteWarning } from "../src/runtime-write-boundary.ts";
+import { escapesWorkerWorktree, strayWriteWarning } from "../src/runtime-engine/runtime-write-boundary.ts";
 
 const rootDir = mkdtempSync(path.join(tmpdir(), "ha-write-boundary-"));
 const workerRoot = path.join(rootDir, ".worktrees", "task_aaaaaaaaaaaaaaaaaaaaaaaa");

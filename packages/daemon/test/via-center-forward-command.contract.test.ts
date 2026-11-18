@@ -7,13 +7,13 @@ import test from "node:test";
 import { INITIAL_SETTINGS_V1, getExecutableEntityAction } from "@harness-anything/kernel";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { serializeFleetAction } from "@harness-anything/cli/internal/daemon/fleet-payload-serializer";
-import { daemonProtocolCommands } from "../src/protocol/daemon-protocol-commands.ts";
-import { parseFleetFrame } from "../src/fleet/command-protocol.ts";
-import { parseDaemonRpcParams } from "../src/protocol/daemon-protocol-rpc-validation.ts";
-import { forwardingIntentForAction, forwardingIntentIssue } from "../src/fleet/forwarding-intent.ts";
-import { decisionProposalAction, taskCreateAction } from "../src/repo-cell-action-parse.ts";
-import type { RepoTaskAction } from "../src/repo-cell-types.ts";
-import { readAgentEntityDeclarationSource } from "../src/agent-entities.ts";
+import { daemonProtocolCommands } from "../src/daemon-host/protocol/daemon-protocol-commands.ts";
+import { parseFleetFrame } from "../src/daemon-host/fleet/command-protocol.ts";
+import { parseDaemonRpcParams } from "../src/daemon-host/protocol/daemon-protocol-rpc-validation.ts";
+import { forwardingIntentForAction, forwardingIntentIssue } from "../src/daemon-host/fleet/forwarding-intent.ts";
+import { decisionProposalAction, taskCreateAction } from "../src/daemon-host/repo-cell-action-parse.ts";
+import type { RepoTaskAction } from "../src/daemon-host/repo-cell-types.ts";
+import { readAgentEntityDeclarationSource } from "../src/daemon-host/agent-entities.ts";
 
 type Command = (typeof daemonProtocolCommands)[number];
 type CliInput = {

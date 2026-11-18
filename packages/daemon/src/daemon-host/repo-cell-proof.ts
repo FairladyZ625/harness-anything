@@ -1,0 +1,831 @@
+import { type TaskLifecycleServiceProof } from "@harness-anything/application/internal/task-lifecycle-service";
+import { localGitObjectRefStore, makeTaskProjection } from "@harness-anything/storage";
+import {
+  canonicalGateReceipts,
+  isRetiredCiRequirement,
+  closeoutReadiness,
+  consumeKnownError,
+  consentedApprovedReviewForExecution,
+  evaluateTaskActionCapability,
+  gateResults,
+  heldLeaseForExecutionActor,
+  getTaskActionForTransition,
+  isIndependentFrom,
+  isNativeExecution,
+  isSameExecution,
+  isSamePerson,
+  requiredGateWitnessCount,
+  runtimeSessionIdFromActor,
+  submissionDigest,
+  TASK_LIFECYCLE_TRANSITIONS,
+  type ActorIdentity,
+  type AuthorizationDecision,
+  type CompleteTaskCommand,
+  type ExecutionDeliveryBaseline,
+  type ProofFor,
+  type SettingsV1,
+  type TaskLifecycleCommand,
+  type TaskProjection,
+  type WriteReceipt,
+} from "@harness-anything/kernel";
+import { resolveStackedTaskBaseline } from "./stacked-task-start.ts";
+import { cellCodedError, cellCriterionError } from "./repo-cell-errors.ts";
+import { actorHint, operationId, witnessOperationId } from "./operation-id.ts";
+export { actorHint, operationId, witnessOperationId };
+import { makeGitReadinessSource } from "./process-port.ts";
+import { remoteDefaultBranch, repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
+import { readDispatchStreamHeader } from "./dispatch-stream.ts";
+import { readTaskLineageDispatches, unsettledCutReviewDispatches } from "./dispatch-read.ts";
+import { reviewDispatchKey } from "./review-dispatch-key.ts";
+import { presetSnapshotReader, taskWorktreeBinding, taskOutputShape } from "./task-worktree.ts";
+import type { PublicPublication, RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
+import { leaseTtlMs } from "./repo-cell-types.ts";
+import { isCutReturningRework } from "@harness-anything/kernel/internal/domain/task-lifecycle-command-transitions.ts";
+import { readCompletionDeliveryStatus } from "./task-completion-read.ts";
+import { readEffectiveCloseoutGates, readEffectiveReviewReturnBudget } from "./repo-cell-settings-state.ts";
+import {
+  latestPremiseReview,
+  PREMISE_REVIEW_SOURCE,
+  premiseReviewCommand,
+} from "@harness-anything/application/internal/queries/premise-review.ts";
+
+const START_VALIDATION_CRITERION = "task-lifecycle-command-transitions/start.validate";
+const SUBMIT_PROOF_CRITERION = "repo-cell-proof/proofFor.SubmitExecution";
+const REVIEW_PROOF_CRITERION = "repo-cell-proof/proofFor.RecordReview";
+const REVIEW_RESPONSE_PROOF_CRITERION = "repo-cell-proof/proofFor.RespondReview";
+const COMPLETE_VALIDATION_CRITERION = "task-lifecycle-review-transitions/complete.validate";
+
+/**
+ * Observe the project comparison cut an execution will diff its delivery against. The project
+ * repository is the Git work tree containing the canonical root — a nested ledger repository is a
+ * different repository and never supplies this baseline. A task with its own delivery branch forks
+ * the default branch at one commit, and that fork is the comparison cut: freezing it keeps the
+ * baseline an ancestor of every delivery the branch can produce, however far main advances between
+ * rework rounds. A task with no readable branch here (no worktree yet, an artifact task, another
+ * node's checkout) observes the project HEAD instead. An artifact-only task outside Git has no code
+ * comparison point and freezes `empty-tree`, as does an unborn repository. A repository whose baseline cannot be read fails closed rather
+ * than guessing from the default branch or a moving `HEAD`.
+ */
+export function observeDeliveryBaseline(
+  rootDir: string,
+  deliveryBranch?: string,
+  outputShape?: string | null,
+): ExecutionDeliveryBaseline {
+  const git = makeGitReadinessSource(),
+    top = git.run(rootDir, ["rev-parse", "--show-toplevel"]);
+  if ((!top.ok || !top.stdout) && outputShape === "task-package-artifact") return { kind: "empty-tree" };
+  if (!top.ok || !top.stdout)
+    throw cellCriterionError(
+      "invalid_proof",
+      `Execution start requires a project Git repository containing ${rootDir}.`,
+      "start",
+      START_VALIDATION_CRITERION,
+    );
+  const fork = deliveryBranchFork(git, top.stdout, deliveryBranch);
+  if (fork !== null) return { kind: "commit", commitSha: fork };
+  const head = git.run(top.stdout, ["rev-parse", "--verify", "HEAD^{commit}"]);
+  if (head.ok) return { kind: "commit", commitSha: head.stdout };
+  const commits = git.run(top.stdout, ["rev-list", "--all", "--count"]);
+  if (commits.ok && commits.stdout === "0") return { kind: "empty-tree" };
+  throw cellCriterionError(
+    "invalid_proof",
+    "The project repository has history but no readable HEAD baseline; resolve HEAD before starting an execution.",
+    "start",
+    START_VALIDATION_CRITERION,
+  );
+}
+
+/** Where the task's delivery branch left the default branch; null when that fork cannot be derived. */
+function deliveryBranchFork(
+  git: ReturnType<typeof makeGitReadinessSource>,
+  top: string,
+  deliveryBranch: string | undefined,
+): string | null {
+  // The binding derives the branch from the task id; anything Git could read as an option is rejected.
+  if (deliveryBranch === undefined || !/^[a-zA-Z0-9][a-zA-Z0-9._/-]*$/u.test(deliveryBranch)) return null;
+  const tip = git.run(top, ["rev-parse", "--verify", "--quiet", `refs/heads/${deliveryBranch}^{commit}`]);
+  if (!tip.ok || !tip.stdout) return null;
+  const base = repositoryBaseRef(top);
+  if (base === null) return null;
+  const point = git.run(top, ["merge-base", base, tip.stdout]);
+  return point.ok && point.stdout ? point.stdout : null;
+}
+
+/**
+ * Resolve the dispatch role of a runtime-session actor, or null when the actor is not a runtime
+ * session (or its dispatch stream carries no role). The dispatch stream header is authoritative:
+ * it is written by the spawner before the session is admitted.
+ */
+export function runtimeSessionDispatchRole(
+  projection: Pick<TaskProjection, "readRuntimeDispatch" | "readRuntimeSession">,
+  rootDir: string,
+  actor: ActorIdentity,
+): { readonly runtimeSessionId: string; readonly role: string | null } | null {
+  const runtimeSessionId = runtimeSessionIdFromActor(actor);
+  if (runtimeSessionId === null) return null;
+  const session = projection.readRuntimeSession(runtimeSessionId),
+    dispatch =
+      session === null ? null : projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
+  return {
+    runtimeSessionId,
+    role: dispatch ? (readDispatchStreamHeader(rootDir, dispatch.payload.dispatchId)?.role ?? null) : null,
+  };
+}
+
+export async function proofFor(
+  command: TaskLifecycleCommand,
+  snapshot: Snapshot,
+  binding: RepoCellBinding,
+  projection: ReturnType<typeof makeTaskProjection>,
+  rootDir: string,
+  getSettings: () => SettingsV1,
+): Promise<TaskLifecycleServiceProof<typeof command> & { readonly authorizationDecision?: AuthorizationDecision }> {
+  if (command.type === "CreateReplayTask") return { taskIdUnique: true, actorBinding: command.actor };
+  // A reviewer runtime session is bound to the submitted cut under review and holds no task lease:
+  // the only lifecycle write it may ever perform is RecordReview. Every other lifecycle command
+  // (start, submit, transition, release) would mutate the implementation iteration it must not own.
+  const actorSession = runtimeSessionDispatchRole(projection, rootDir, command.actor);
+  if (actorSession !== null && actorSession.role === "reviewer" && command.type !== "RecordReview")
+    throw cellCriterionError(
+      "runtime_reviewer_lifecycle_forbidden",
+      `Reviewer runtime ${actorSession.runtimeSessionId} may only record a review; ${command.type} belongs to an ` +
+        "implementation executor and would mutate the task's implementation iteration.",
+      "start",
+      START_VALIDATION_CRITERION,
+    );
+  const transition = TASK_LIFECYCLE_TRANSITIONS.find((candidate) => candidate.matches(command, snapshot)),
+    lifecycleAction = transition ? getTaskActionForTransition(transition.actionId) : undefined,
+    lifecycleExecution = lifecycleAction?.execution?.lifecycle;
+  if (lifecycleExecution?.coordination === "reserve") {
+    const commandFields = command as unknown as Readonly<Record<string, unknown>>,
+      executionId = commandFields[lifecycleExecution.targetIdField],
+      ttlMs = typeof commandFields.ttlMs === "number" ? commandFields.ttlMs : leaseTtlMs;
+    if (typeof executionId !== "string")
+      throw cellCriterionError(
+        "invalid_command",
+        `${lifecycleExecution.commandType} requires a target entity id.`,
+        "start",
+        START_VALIDATION_CRITERION,
+      );
+    const authorizationDecision = requiredAuthorizationDecision(binding);
+    // A rejoin re-proves the baseline the execution already froze; only a first start observes it.
+    // A first start freezes the fork of the task's own delivery branch — the branch may predate this
+    // execution by whole rework rounds, so where main sits now is not where the delivery began.
+    const rejoined = snapshot.executions.find((execution) => execution.executionId === executionId),
+      stacked = resolveStackedTaskBaseline(
+        projection,
+        command.taskId,
+        typeof commandFields.stackOn === "string" ? commandFields.stackOn : undefined,
+      );
+    if (stacked?.kind === "commit") {
+      const branch = taskWorktreeBinding(snapshot.task, presetSnapshotReader(projection))?.branch;
+      if (
+        !branch ||
+        !localGitObjectRefStore.isAncestor(
+          rootDir,
+          stacked.commitSha,
+          localGitObjectRefStore.resolveCommit(rootDir, `refs/heads/${branch}`),
+        )
+      )
+        throw cellCodedError("invalid_proof", "Stack start requires its delivery branch at the declared anchor.");
+    }
+    return {
+      actorBinding: command.actor,
+      claimant: binding.taskClaimant,
+      deliveryBaseline:
+        rejoined !== undefined && isNativeExecution(rejoined) && rejoined.deliveryBaseline !== undefined
+          ? rejoined.deliveryBaseline
+          : (stacked ??
+            observeDeliveryBaseline(
+              rootDir,
+              taskWorktreeBinding(snapshot.task, presetSnapshotReader(projection))?.branch,
+              taskOutputShape(snapshot.task, presetSnapshotReader(projection)),
+            )),
+      reservation: {
+        taskId: command.taskId,
+        executionId,
+        expiresAt: new Date(Date.parse(command.occurredAt) + ttlMs).toISOString(),
+        ttlMs,
+        previousHolder: null,
+        reason: "initial_claim",
+        version: 0,
+      },
+      authorizationDecision,
+    };
+  }
+  if (command.type === "TransitionTask" || command.type === "AssignTask" || command.type === "UnassignTask")
+    return { authorizationDecision: requiredAuthorizationDecision(binding) };
+  if (command.type === "SubmitExecution") {
+    if (command.amend === true)
+      return {
+        actorBinding: command.actor,
+        leaseVersion: null,
+        sessionDisposition: "unavailable",
+      };
+    const lease = heldLeaseForExecutionActor(snapshot, command.executionId, command.actor);
+    if (!lease) {
+      const alreadySubmitted = snapshot.executions.some(
+        (execution) => execution.executionId === command.executionId && execution.state === "submitted",
+      );
+      throw cellCriterionError(
+        alreadySubmitted ? "invalid_transition" : "lease_required",
+        "Task submit requires the active lease; use --amend only to replace the current submitted packet.",
+        "submit",
+        SUBMIT_PROOF_CRITERION,
+        alreadySubmitted
+          ? [
+              `ha task submit ${command.taskId} --execution-id ${command.executionId} ` +
+                "--amend --json-input '<submission-json>'",
+            ]
+          : [],
+      );
+    }
+    return {
+      actorBinding: command.actor,
+      leaseVersion: lease.version,
+      sessionDisposition: "unavailable",
+    };
+  }
+  if (command.type === "RespondReview") {
+    const current = snapshot.executions.find(
+      (candidate) => candidate.executionId === command.executionId && candidate.state === "active",
+    );
+    if (
+      !current ||
+      !heldLeaseForExecutionActor(snapshot, command.executionId, command.actor) ||
+      snapshot.task?.status !== "active" ||
+      snapshot.task.currentNode !== "implementation"
+    )
+      throw cellCriterionError(
+        "actor_unauthorized",
+        "Task review responses require the current implementation execution lease.",
+        "respondReview",
+        REVIEW_RESPONSE_PROOF_CRITERION,
+      );
+    const authorizationDecision = requiredAuthorizationDecision(binding);
+    return {
+      actorBinding: command.actor,
+      capability: "execution-review-response@v1",
+      capabilityRef: authorizationDecision.policyRef,
+      authorizationDecision,
+    };
+  }
+  if (command.type === "RecordReview") {
+    const settings = getSettings();
+    const runtimeSessionId = runtimeSessionIdFromActor(command.actor),
+      runtimeSession = runtimeSessionId === null ? null : projection.readRuntimeSession(runtimeSessionId),
+      runtimeBinding = runtimeSession?.taskBindings.some(
+        (taskBinding) => taskBinding.taskId === command.taskId && taskBinding.executionId === command.executionId,
+      )
+        ? {
+            runtimeSessionId: runtimeSession.runtimeSessionId,
+            taskId: command.taskId,
+            executionId: command.executionId,
+          }
+        : null,
+      execution = snapshot.executions.find(
+        (candidate) => candidate.executionId === command.executionId && candidate.submission !== null,
+      ),
+      authorizationDecision = requiredAuthorizationDecision(binding),
+      reviewCriterion = lifecycleAction
+        ? evaluateTaskActionCapability({
+            action: lifecycleAction,
+            snapshot,
+            actor: command.actor,
+            invocation: {
+              taskId: command.taskId,
+              executionId: command.executionId,
+              reviewId: command.reviewId,
+              runtimeTaskBound: runtimeBinding !== null,
+            },
+          }).find(({ criterionRef }) => criterionRef === REVIEW_PROOF_CRITERION)
+        : undefined;
+    if (!reviewCriterion)
+      throw new Error(`Task review criterion ${REVIEW_PROOF_CRITERION} has no capability evaluation.`);
+    const executionActor = execution?.actor,
+      leaseHolder = snapshot.lease?.executionId === command.executionId ? snapshot.lease.actor : null,
+      runtimeIsExecutionActor = executionActor !== undefined && isSameExecution(executionActor, command.actor),
+      runtimeHoldsLease = leaseHolder !== null && isSameExecution(leaseHolder, command.actor);
+    if (runtimeBinding !== null && (runtimeIsExecutionActor || runtimeHoldsLease))
+      throw cellCriterionError(
+        "runtime_task_self_review_forbidden",
+        "Task review runtime-binding independence proof was not satisfied.",
+        "review",
+        REVIEW_PROOF_CRITERION,
+        reviewCriterion.nextActions,
+      );
+    const dispatch = runtimeSession
+        ? projection.readRuntimeDispatch(runtimeSession.runtimeSessionId, runtimeSession.definitionSnapshotRef)
+        : null,
+      key = dispatch?.payload.dispatchKey;
+    // A runtime session bound to the submitted cut may register a verdict only when it was
+    // dispatched as a reviewer. A read-only attach binds to the cut to observe it, and an
+    // implementation sibling binds to it to build it; for either, binding is observation
+    // authority, never review authority. The self-review rejection above stays first so the
+    // submitting executor keeps its own diagnosis.
+    if (runtimeBinding !== null && dispatch?.payload.role !== "reviewer")
+      throw cellCriterionError(
+        "runtime_task_review_dispatch_required",
+        "Task review registration requires a reviewer dispatch; a bound non-reviewer session cannot register a verdict.",
+        "review",
+        REVIEW_PROOF_CRITERION,
+        [`ha task dispatch-review ${command.taskId} --agent <reviewer-agent-id>`],
+      );
+    if ((key?.startsWith("task-review:") || key?.startsWith("complete-review:")) && execution?.submission) {
+      const currentKey = reviewDispatchKey(command.taskId, execution),
+        legacyKey = currentKey.replace(/^task-review:/u, "complete-review:");
+      // The current key ends in the fixed-length submission digest, so no earlier cut's key can be
+      // a strict prefix. Every reviewer dispatch — the submit-time auto-dispatch or the manual
+      // dispatch-review lane — shares this one key shape; past the ":" is the attempt of the same cut.
+      if (![currentKey, legacyKey].some((cut) => key === cut || key.startsWith(`${cut}:`)))
+        throw cellCodedError(
+          "invalid_proof",
+          "This reviewer dispatch belongs to an earlier submission cut; use the reviewer dispatch for the current submitted cut.",
+        );
+    }
+    const independentActor =
+        execution !== undefined && isIndependentFrom(execution.actor, command.actor, settings.reviewIndependence),
+      principalIndependenceRequired =
+        settings.reviewIndependence === "principal" &&
+        execution !== undefined &&
+        !isIndependentFrom(execution.actor, command.actor, settings.reviewIndependence),
+      externalCompletionEvidence = independentActor
+        ? false
+        : validExternalCompletionEvidence(command, projection, rootDir),
+      explicitlyUnreviewed = independentActor ? false : validNoIndependentReview(command, projection);
+    if (!independentActor && !externalCompletionEvidence && !explicitlyUnreviewed) {
+      // The dispatch lineage read exists only to explain this rejection, so it runs inside the branch.
+      const dispatchlessExecution =
+        execution?.actor.executor === null &&
+        command.actor.executor === null &&
+        readTaskLineageDispatches({ projection, taskId: command.taskId, includeAncestors: true }).length === 0;
+      const principalSettingGuidance = principalIndependenceRequired
+        ? [
+            "Repository setting reviewIndependence currently equals principal, so the reviewer and execution " +
+              "actor must have different principals.",
+            "ha settings update --review-independence execution",
+          ]
+        : dispatchlessExecution
+          ? [
+              "Have a different person run the review, or use HARNESS_ACTOR=agent:<id> for an auditable " +
+                "same-principal review; ha task declare-executor requires an existing dispatch record and is " +
+                "unavailable for this execution.",
+            ]
+          : reviewCriterion.nextActions;
+      throw cellCriterionError(
+        "actor_unauthorized",
+        principalIndependenceRequired
+          ? "Repository setting reviewIndependence is principal; the reviewer and execution actor have the same " +
+              "principal. Change it with `ha settings update --review-independence execution`."
+          : dispatchlessExecution
+            ? "Task review actor independence proof was not satisfied: the submitted execution has no executor " +
+              "and the current reviewer has no executor. Use a different person, or run the review with " +
+              "HARNESS_ACTOR=agent:<id>; declare-executor requires an existing dispatch record."
+            : "Task review actor independence proof was not satisfied.",
+        "review",
+        REVIEW_PROOF_CRITERION,
+        principalSettingGuidance,
+        principalIndependenceRequired
+          ? {
+              kind: "validation",
+              entity: "repository setting",
+              field: "reviewIndependence",
+              actual: "principal",
+              expectation:
+                "Use a reviewer with a different principal, or run ha settings update --review-independence execution",
+            }
+          : dispatchlessExecution
+            ? {
+                kind: "validation",
+                entity: "task review",
+                field: "actor",
+                actual: "dispatch-less execution and reviewer",
+                expectation:
+                  "Use a different person, or run the review with HARNESS_ACTOR=agent:<id>; " +
+                  "declare-executor requires an existing dispatch record",
+              }
+            : undefined,
+      );
+    }
+    return {
+      actorBinding: command.actor,
+      capability: "execution-review@v1",
+      capabilityRef: authorizationDecision.policyRef,
+      // The repository rework budget travels with the proof: the kernel review transition reopens
+      // the implementation round for a changes_requested verdict below it, in this same write.
+      reworkBudget: readEffectiveReviewReturnBudget(projection),
+      authorizationDecision,
+    };
+  }
+  if (command.type === "ReworkTask") {
+    const authorizationDecision = requiredAuthorizationDecision(binding),
+      task = snapshot.task;
+    if (!task || !isSamePerson(task.createdBy, command.actor))
+      throw cellCriterionError(
+        "invalid_proof",
+        "Only the task-owning principal may return a cut to rework.",
+        "rework",
+        "repo-cell-proof/proofFor.ReworkTask",
+        [`ha task rework ${command.taskId} --reason <why the owner is returning this cut>`],
+      );
+    assertPremiseReviewedPastBudget(command, snapshot, projection);
+    return {
+      actorBinding: command.actor,
+      capability: "task-rework@v1",
+      capabilityRef: authorizationDecision.policyRef,
+      authorizationDecision,
+    } as TaskLifecycleServiceProof<typeof command>;
+  }
+  if (command.type === "RecordReviewConsent") {
+    // dec_E610E1D99A39003886D1B5EE7C CH1: a personal token may delegate confirmation to its
+    // issued-to client. Only the IdP-granted consent scope admits that client; device or execution
+    // authority alone cannot consent. The client is responsible for displaying the current cut.
+    const session = binding.keycloakAuthorization?.session;
+    if (
+      binding.executionPrincipal ||
+      (typeof command.source === "object" &&
+        command.source.kind === "node" &&
+        (!session?.azp || !session.scopes?.includes("consent")))
+    ) {
+      const retry = `ha task review-consent ${command.taskId} --execution-id ${command.executionId} --review-id ${command.reviewId}`;
+      throw cellCriterionError(
+        "human_confirmation_required",
+        "Consent requires a personal session and a client granted the consent scope. " +
+          `On the center machine, open this repository's canonical checkout in a terminal outside an agent runtime, ` +
+          `sign in with your personal session, then run: ${retry}. ` +
+          "An edge GUI login uses the same node client; signing in again there does not grant consent scope. " +
+          "A remote client must be explicitly granted consent scope by the identity administrator.",
+        "consent",
+        "task-lifecycle-review-transitions/consent.validate",
+        [retry],
+      );
+    }
+    // Consent confirms that this cut's reviews concluded: an approved review beside a lane that is
+    // still queued or running is not that confirmation, and the owner would merge on it (task_cffec8b1,
+    // PR #3922). Settlement is the dispatch's own terminal verdict — the same signal `--wait` uses.
+    const consented = snapshot.executions.find((execution) => execution.executionId === command.executionId),
+      pending = consented?.submission
+        ? unsettledCutReviewDispatches({
+            projection,
+            rootDir,
+            taskId: command.taskId,
+            executionId: command.executionId,
+            submissionDigest: submissionDigest(consented.submission),
+          })
+        : [];
+    if (pending.length > 0)
+      throw cellCriterionError(
+        "review_dispatch_unsettled",
+        `Consent on task ${command.taskId} waits for every review of this cut to conclude; ` +
+          `${String(pending.length)} review dispatch(es) have not settled: ` +
+          `${pending.map((row) => `${row.dispatchId} (${row.status})`).join(", ")}. Wait for them with ` +
+          `ha runtime status --task ${command.taskId} --wait, or cancel each with ` +
+          `ha runtime cancel <runtime-session-id>; then retry ha task review-consent ${command.taskId}.`,
+        "consent",
+        "task-lifecycle-review-transitions/consent.validate",
+        [
+          `ha runtime status --task ${command.taskId} --wait`,
+          ...pending.map((row) => `ha runtime cancel ${row.runtimeSessionId}`),
+        ],
+        {
+          kind: "validation",
+          entity: `task ${command.taskId} execution ${command.executionId}`,
+          field: "reviewDispatches",
+          actual: pending.map((row) => `${row.dispatchId}=${row.status}`).join(", "),
+          expectation: "Every review dispatch bound to this cut reached its terminal verdict",
+        },
+      );
+    const authorizationDecision = requiredAuthorizationDecision(binding);
+    return {
+      actorBinding: command.actor,
+      capability: "execution-consent@v1",
+      ...(session?.azp ? { azp: session.azp } : {}),
+      capabilityRef: authorizationDecision.policyRef,
+      authorizationDecision,
+    };
+  }
+  if (command.type !== "CompleteTask")
+    throw cellCodedError("invalid_command", `No authority proof plan exists for ${command.type}.`);
+  return completeProof(command, snapshot, binding, projection, rootDir) as TaskLifecycleServiceProof<typeof command>;
+}
+
+/**
+ * Past the repository rework budget, an owner return needs a premise review newer than the last
+ * return: rounds beyond the budget are where a task keeps being repaired inside a contract nobody
+ * re-asked about (task_9e275cf8: 24 rounds). A `stop` conclusion refuses the return outright.
+ * The owner return that budget exhaustion itself asks for (`ha task rework` once the review stops
+ * returning) stays unasked; only a return after that one exceeds the budget.
+ */
+function assertPremiseReviewedPastBudget(
+  command: Extract<TaskLifecycleCommand, { readonly type: "ReworkTask" }>,
+  snapshot: Snapshot,
+  projection: ReturnType<typeof makeTaskProjection>,
+): void {
+  const returnsCut = isCutReturningRework(snapshot, command),
+    returned = snapshot.executions.filter((execution) => execution.state === "changes_requested"),
+    budget = readEffectiveReviewReturnBudget(projection);
+  if (!returnsCut || returned.length <= budget) return;
+  const lastReturn = returned.reduce((latest, execution) => {
+      const closedAt = execution.closedAt ?? "";
+      return closedAt > latest ? closedAt : latest;
+    }, ""),
+    found = latestPremiseReview(projection, command.taskId, lastReturn),
+    recordCommand = premiseReviewCommand(command.taskId),
+    missing = found?.review.ok === false ? found.review.missing : null,
+    rounds = `${String(returned.length)} returns already exceed the rework budget of ${String(budget)}`;
+  if (found?.review.ok === true && found.review.conclusion !== "stop") return;
+  if (found?.review.ok === true)
+    throw cellCriterionError(
+      "premise_review_stop",
+      `Task ${command.taskId}: premise review ${found.fact.ref} concluded stop, so the cut is not returned for ` +
+        "another round. Cancel the task, or record a newer premise review if the conclusion changed.",
+      "rework",
+      "repo-cell-proof/proofFor.ReworkTask",
+      [
+        `ha task transition ${command.taskId} cancelled --reason "<premise review ${found.fact.ref}: stop>"`,
+        recordCommand,
+      ],
+    );
+  throw cellCriterionError(
+    "premise_review_required",
+    `Task ${command.taskId}: ${rounds}. Another return needs a premise review recorded after the last return` +
+      (lastReturn ? ` (${lastReturn})` : "") +
+      (found
+        ? `; ${found.fact.ref} is missing ${found.review.ok ? "" : found.review.missing.join(", ")}.`
+        : ". Answer: would we start this today, what is the simplest alternative, is spent cost driving it; " +
+          "then conclude continue, narrow, or stop."),
+    "rework",
+    "repo-cell-proof/proofFor.ReworkTask",
+    [recordCommand, `ha task rework ${command.taskId} --reason <why>`],
+    {
+      kind: "validation",
+      entity: `task ${command.taskId}`,
+      field: "premiseReview",
+      actual: found ? found.fact.ref : "none after the last return",
+      expectation:
+        found !== null && missing !== null
+          ? `${found.fact.ref} is missing ${missing.join(", ")}; ` +
+            `record the complete premise review with: ${recordCommand}`
+          : `A standing Fact for this task with source ${PREMISE_REVIEW_SOURCE}, recorded after the last return, ` +
+            `concluding continue or narrow; record it with: ${recordCommand}`,
+    },
+  );
+}
+
+function validNoIndependentReview(
+  command: Extract<TaskLifecycleCommand, { readonly type: "RecordReview" }>,
+  projection: ReturnType<typeof makeTaskProjection>,
+): boolean {
+  return (
+    command.noIndependentReview === true &&
+    command.noIndependentReviewReason !== undefined &&
+    command.noIndependentReviewReason.trim().length > 0 &&
+    readTaskLineageDispatches({ projection, taskId: command.taskId, includeAncestors: true }).length === 0
+  );
+}
+
+function validExternalCompletionEvidence(
+  command: Extract<TaskLifecycleCommand, { readonly type: "RecordReview" }>,
+  projection: ReturnType<typeof makeTaskProjection>,
+  rootDir: string,
+): boolean {
+  if (
+    command.externalCompletionAnchor === undefined ||
+    command.noDispatchReason === undefined ||
+    command.noDispatchReason.trim().length === 0 ||
+    readTaskLineageDispatches({ projection, taskId: command.taskId, includeAncestors: true }).length > 0
+  )
+    return false;
+  const anchor = command.externalCompletionAnchor.trim();
+  if (/^[0-9a-f]{40}$/u.test(anchor))
+    try {
+      const published = remoteDefaultBranch(rootDir);
+      if (!published) return false;
+      const tip = localGitObjectRefStore.resolveCommit(rootDir, `refs/remotes/${published}`);
+      return localGitObjectRefStore.isAncestor(rootDir, anchor, tip);
+    } catch (error) {
+      consumeKnownError(error);
+      return false;
+    }
+  return (
+    /^PR #[1-9][0-9]*$/u.test(anchor) ||
+    /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/[1-9][0-9]*$/u.test(anchor) ||
+    /^https:\/\/github\.com\/[^/]+\/[^/]+\/actions\/runs\/[1-9][0-9]*$/u.test(anchor)
+  );
+}
+
+/** External resolution is only proven when the named immutable commit is in the published
+ * default branch's history; a local-only or unmerged commit is not evidence of a delivered fix. */
+function isCommitOnPublishedDefaultBranch(rootDir: string | undefined, commitSha: string): boolean {
+  if (!rootDir || !/^[0-9a-f]{40}$/u.test(commitSha)) return false;
+  const published = remoteDefaultBranch(rootDir);
+  return (
+    published !== null &&
+    localGitObjectRefStore.hasCommit(rootDir, commitSha) &&
+    localGitObjectRefStore.isAncestor(rootDir, commitSha, published)
+  );
+}
+
+export function completeProof(
+  command: CompleteTaskCommand,
+  snapshot: Snapshot,
+  binding: RepoCellBinding,
+  projection?: TaskProjection,
+  rootDir?: string,
+): ProofFor<CompleteTaskCommand> & { readonly authorizationDecision: AuthorizationDecision } {
+  if (snapshot.lease !== null)
+    throw cellCriterionError(
+      "active_lease",
+      "Task completion lease-release proof was not satisfied.",
+      "complete",
+      COMPLETE_VALIDATION_CRITERION,
+    );
+  const authorizationDecision = requiredAuthorizationDecision(binding);
+  if (!snapshot.task)
+    throw cellCriterionError(
+      "task_not_found",
+      "Task completion requires an existing task.",
+      "complete",
+      COMPLETE_VALIDATION_CRITERION,
+    );
+  if (command.resolution) {
+    const fact = projection?.readFact(command.resolution.factRef.slice("fact/".length));
+    if ("resolvedByCommit" in command.resolution) {
+      const commitSha = command.resolution.resolvedByCommit;
+      if (!isCommitOnPublishedDefaultBranch(rootDir, commitSha))
+        throw cellCodedError(
+          "invalid_proof",
+          `External resolution requires commit ${commitSha} to be an ancestor of main. ` +
+            "Merge the contribution first, then pass its merge commit sha.",
+        );
+      if (
+        !/^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(command.resolution.factRef) ||
+        !fact?.fact ||
+        fact.status !== "ready"
+      )
+        throw cellCodedError("invalid_proof", "External resolution requires an existing, projected canonical Fact.");
+      return {
+        capability: "task-complete@v1",
+        capabilityRef: authorizationDecision.policyRef,
+        actorRole: "owner",
+        noActiveLease: true,
+        closeoutGates: { review: false, consent: false, factDisposition: false },
+        gateReceipts: [],
+        externalResolution: { commitSha, factOnMain: true, factRef: command.resolution.factRef },
+        authorizationDecision,
+      };
+    }
+    const source = projection?.read(command.resolution.resolvedByTaskId),
+      sourceSnapshot = source?.snapshot,
+      accepted = sourceSnapshot?.executions.find(
+        (candidate) =>
+          isNativeExecution(candidate) &&
+          candidate.state === "accepted" &&
+          candidate.iteration === sourceSnapshot.task?.iteration,
+      );
+    if (
+      !sourceSnapshot ||
+      source?.status !== "ready" ||
+      sourceSnapshot.task?.status !== "done" ||
+      !accepted ||
+      !isNativeExecution(accepted) ||
+      !consentedApprovedReviewForExecution(
+        sourceSnapshot.reviews,
+        sourceSnapshot.consents,
+        accepted,
+        sourceSnapshot.reviewDispositions,
+      ) ||
+      closeoutReadiness(
+        sourceSnapshot,
+        undefined,
+        projection ? readEffectiveCloseoutGates(projection, sourceSnapshot) : undefined,
+        projection ? readCompletionDeliveryStatus(projection, sourceSnapshot, rootDir) : undefined,
+      ).readiness !== "passed"
+    )
+      throw cellCodedError(
+        "invalid_proof",
+        "Sibling resolution requires a done source with an accepted execution, approved review, consent, and passed completion gates. Complete the source task first.",
+      );
+    if (!/^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(command.resolution.factRef) || !fact?.fact || fact.status !== "ready")
+      throw cellCodedError("invalid_proof", "Sibling resolution requires an existing, projected canonical Fact.");
+    return {
+      capability: "task-complete@v1",
+      capabilityRef: authorizationDecision.policyRef,
+      actorRole: "owner",
+      noActiveLease: true,
+      closeoutGates: { review: false, consent: false, factDisposition: false },
+      gateReceipts: [],
+      siblingResolution: {
+        sourceTaskId: command.resolution.resolvedByTaskId,
+        sourceDone: true,
+        factRef: command.resolution.factRef,
+      },
+      authorizationDecision,
+    };
+  }
+  const execution = snapshot.executions.find(
+    (candidate) => candidate.executionId === command.executionId && candidate.submission !== null,
+  );
+  if (!execution?.submission)
+    throw cellCriterionError(
+      "invalid_transition",
+      "Task completion submitted-execution proof was not satisfied.",
+      "complete",
+      COMPLETE_VALIDATION_CRITERION,
+    );
+  const delivery = projection ? readCompletionDeliveryStatus(projection, snapshot, rootDir) : undefined,
+    receipts = canonicalGateReceipts(snapshot, execution, delivery);
+  if (receipts.length !== requiredGateWitnessCount(snapshot, execution))
+    throw cellCriterionError(
+      "gate_witness_missing",
+      "Task completion canonical gate-witness proof was not satisfied.",
+      "complete",
+      COMPLETE_VALIDATION_CRITERION,
+    );
+  return {
+    capability: "task-complete@v1",
+    capabilityRef: authorizationDecision.policyRef,
+    actorRole: "owner",
+    noActiveLease: true,
+    closeoutGates: execution.submission!.completionContract!.closeoutGates,
+    delivery,
+    gateReceipts: receipts,
+    authorizationDecision,
+  };
+}
+
+function requiredAuthorizationDecision(binding: RepoCellBinding): AuthorizationDecision {
+  if (!binding.authorizationDecision || binding.authorizationDecision.outcome !== "allowed")
+    throw cellCodedError(
+      "authorization_missing",
+      "Durable Task criteria require the center AuthorizationPort decision.",
+    );
+  return binding.authorizationDecision;
+}
+
+export function createTaskId(action: RepoTaskAction, binding: RepoCellBinding, workspaceId: string): string {
+  if (typeof action.taskId === "string" && action.taskId) return action.taskId;
+  return `task_${operationId(action, binding, workspaceId, 0).slice(-26)}`;
+}
+
+export function withoutDryRun(action: RepoTaskAction): RepoTaskAction {
+  const { dryRun: _dryRun, ...canonical } = action;
+  return canonical;
+}
+
+export function receiptProof(
+  event: { readonly opId: string; readonly workspaceRevision: number },
+  publication: PublicPublication,
+): NonNullable<WriteReceipt["proof"]> {
+  const canonicalVisible = publication.cut.opId === event.opId && publication.cut.revision === event.workspaceRevision;
+  return {
+    committedRevision: event.workspaceRevision,
+    appliedCut: publication.cut.revision,
+    durable: canonicalVisible,
+    canonicalVisible,
+    worktreeVisible: canonicalVisible,
+  };
+}
+
+export function gateChecks(snapshot: Snapshot, executionId: string) {
+  const execution = snapshot.executions.find(
+    (value) => value.executionId === executionId && value.iteration === snapshot.task?.iteration,
+  );
+  // Status comes from the one domain judgment; not_applicable stays distinct from pass and
+  // blocked so an out-of-scope gate never reads as satisfied or missing.
+  const results = gateResults(snapshot, undefined, executionId, execution?.submission, execution?.iteration);
+  if (results.length === 0) return [{ gate: "none", status: "pass", witnessRef: null }];
+  return results.map(({ gateId: gate, status: gateStatus }) => {
+    const requirement = execution?.submission?.completionContract.gates.find((candidate) => candidate.gateId === gate),
+      // A task can only reach done after merge evidence retires its historical CI requirement.
+      // Preserve that accepted result in completion receipts even though no ledger witness exists.
+      passed =
+        (snapshot.task?.status === "done" && isRetiredCiRequirement(gate, requirement)) ||
+        gateStatus === "passed" ||
+        gateStatus === "waived",
+      witness =
+        passed && execution?.schema === "execution/v1"
+          ? snapshot.gateWitnesses.find(
+              (value) =>
+                value.gateId === gate &&
+                value.executionId === executionId &&
+                value.commitSha === execution.submission?.commitSha &&
+                value.iteration === execution.iteration &&
+                value.result === "pass",
+            )
+          : undefined;
+    return {
+      gate,
+      status: passed ? "pass" : gateStatus === "not_applicable" ? "not_applicable" : "blocked",
+      witnessRef: witness ? `event:${witness.receiptId}` : null,
+    };
+  });
+}
+
+export function selectedReviewId(snapshot: Snapshot, executionId: string): string | null {
+  const execution = snapshot.executions.find((value) => value.executionId === executionId);
+  return execution?.submission
+    ? (consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, execution, snapshot.reviewDispositions)
+        ?.review.reviewId ?? null)
+    : null;
+}

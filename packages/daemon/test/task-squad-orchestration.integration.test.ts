@@ -1,6 +1,6 @@
 // harness-test-tier: integration
-import { makeScheduleScheduler } from "../src/schedule-scheduler.ts";
-import { taskPrPublicationNote } from "../src/runtime-spawn-mission.ts";
+import { makeScheduleScheduler } from "../src/daemon-host/schedule-scheduler.ts";
+import { taskPrPublicationNote } from "../src/daemon-host/runtime-spawn-mission.ts";
 import { latestSquadStates } from "./squad-run-state.fixture.ts";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -10,18 +10,18 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
 import { makeTaskEventReader, makeTaskProjectionReader } from "@harness-anything/storage";
-import { openRepoWriterCell } from "../src/repo-cell-open.ts";
-import { acquireWorkspaceLock } from "../src/repo-cell-lock.ts";
+import { openRepoWriterCell } from "../src/daemon-host/repo-cell-open.ts";
+import { acquireWorkspaceLock } from "../src/daemon-host/repo-cell-lock.ts";
 import { isExecutionWipTask } from "@harness-anything/kernel";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import type { RuntimeLauncher } from "../src/runtime-spawn-types.ts";
-import type { SquadRunReadResult } from "../src/squad-run-contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import type { RuntimeLauncher } from "../src/daemon-host/runtime-spawn-types.ts";
+import type { SquadRunReadResult } from "../src/daemon-host/squad-run-contract.ts";
 type WorkerAttempt = SquadRunReadResult["run"]["workerAttempts"][number];
 import {
   appendRuntimeWorkerRecord,
   readDispatchStreamHeader,
   readDispatchStreamSummary,
-} from "../src/dispatch-stream.ts";
+} from "../src/daemon-host/dispatch-stream.ts";
 import { fixtureFence, settleSettingsEvent, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { evidence, git } from "./task-surface.fixtures.ts";
 import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";

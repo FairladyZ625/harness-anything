@@ -9,8 +9,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { daemonProcessAlive } from "../src/daemon-singleton.ts";
-import { readDaemonPid } from "../src/runtime.ts";
+import { daemonProcessAlive } from "../src/daemon-host/daemon-singleton.ts";
+import { readDaemonPid } from "../src/daemon-host/runtime.ts";
 import { registerSettledBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../.."),

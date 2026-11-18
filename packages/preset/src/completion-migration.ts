@@ -1,9 +1,5 @@
-import { normalizeHistoricalVerticalDocument } from "@harness-anything/kernel";
-import {
-  decodeVerticalDefinition,
-  isRetiredCodeDocRequirement,
-  parseVerticalDeclarationDocument,
-} from "@harness-anything/kernel";
+import { normalizeHistoricalVerticalDocument, isRetiredCodeDocRequirement } from "@harness-anything/kernel";
+import { decodeVerticalDefinition, parseVerticalDeclarationDocument } from "@harness-anything/kernel/schemas";
 import { isPresetResolutionRecord as record } from "./preset-resolver-common.ts";
 
 // Frozen conversion of software-coding-standard, not the installed version's evolving defaults.

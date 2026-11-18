@@ -10,8 +10,12 @@ import {
   SETTINGS_FIELD_PRESENTATION,
   settingsUpdateInputFields,
 } from "@harness-anything/kernel";
-import { openGuiCatalog } from "../src/gui-catalog.ts";
-import { validateCatalogPreset, validateCatalogRereadReceipt, validateCatalogSnapshot } from "../src/gui-s3-control.ts";
+import { openGuiCatalog } from "../src/daemon-host/gui-catalog.ts";
+import {
+  validateCatalogPreset,
+  validateCatalogRereadReceipt,
+  validateCatalogSnapshot,
+} from "../src/daemon-host/gui-s3-control.ts";
 
 const write = (target: string, body: string) => {
   mkdirSync(path.dirname(target), { recursive: true });

@@ -8,15 +8,15 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { runtimeSessionMissingOutcomeEvidence } from "@harness-anything/kernel";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { parseDaemonGuiActionResult } from "../src/protocol/gui-result-validation.ts";
-import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { listenFleetTls } from "../src/fleet/center.ts";
-import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
-import { runtimePidIsAlive } from "../src/runtime-process-liveness.ts";
-import { readDispatchStream } from "../src/dispatch-stream.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { parseDaemonGuiActionResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
+import { applyFleetMirrorCut } from "../src/daemon-host/fleet-edge-mirror.ts";
+import { runtimePidIsAlive } from "../src/runtime-engine/runtime-process-liveness.ts";
+import { readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
@@ -24,7 +24,7 @@ import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 // Explicit live acceptance uses the installed macOS Codex and each node's own auth link.
 // CI leaves this unset and runs the deterministic provider subprocess.
 const liveCodex = process.env.HARNESS_HANDOFF_LIVE_CODEX;
-import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
+import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 // The provider subprocess is deterministic; TLS, node identity, private transfer, task worktrees,
@@ -197,7 +197,7 @@ for (const row of [{type:'thread.started',thread_id:id},
       );
       f.owners.signIn(userRoot, nodeId, rootDir);
       const host = await openDaemonHost({ daemonId: nodeId, userRoot, runtimeDiscover: () => [installation] });
-      t.after(() => host.close());
+      f.track(() => host.close());
       await host.attachmentsSettled();
       await host.runtimeInstance("daemon.runtimeInstance.create", instance, localAuth);
       const transport = createUnixSocketTransportServer({
@@ -212,7 +212,7 @@ for (const row of [{type:'thread.started',thread_id:id},
           }),
       });
       await transport.start();
-      t.after(() => transport.stop());
+      f.track(() => transport.stop());
       const cli = async (args: string[]) => {
         const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("HARNESS_")));
         const child = spawn(

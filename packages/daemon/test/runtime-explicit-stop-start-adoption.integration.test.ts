@@ -10,8 +10,8 @@ import { pathToFileURL } from "node:url";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { signInProcessPolicyTestUser } from "./keycloak-process-policy.fixtures.ts";
-import { daemonProcessAlive } from "../src/daemon-singleton.ts";
-import { readDispatchStream } from "../src/dispatch-stream.ts";
+import { daemonProcessAlive } from "../src/daemon-host/daemon-singleton.ts";
+import { readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
 const repoRoot = path.resolve("packages/daemon/test/../../..");
@@ -38,7 +38,7 @@ test(
     writeFileSync(
       oldCliStamp,
       `process.env.HARNESS_BUILD_COMMIT = "release-A";\n` +
-        `const {daemonBuildStamp} = await import(${JSON.stringify(pathToFileURL(path.join(repoRoot, "packages/daemon/src/build-identity.ts")).href)});\n` +
+        `const {daemonBuildStamp} = await import(${JSON.stringify(pathToFileURL(path.join(repoRoot, "packages/daemon/src/daemon-host/build-identity.ts")).href)});\n` +
         `const {writeFileSync} = await import("node:fs"); writeFileSync(${JSON.stringify(oldCliIdentity)}, JSON.stringify(daemonBuildStamp()));\n`,
     );
     await signInProcessPolicyTestUser(userRoot, "owner", [repoId], "admin");
@@ -69,7 +69,7 @@ test(
       const child = spawn(
         process.execPath,
         [
-          path.join(repoRoot, "packages/daemon/src/bin.ts"),
+          path.join(repoRoot, "packages/daemon/src/daemon-host/bin.ts"),
           "--service",
           "--user-root",
           userRoot,

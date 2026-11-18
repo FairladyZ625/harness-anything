@@ -5,9 +5,9 @@ import { fleetNodeClaimFixture, localAuthFixture } from "./fleet-node-claim.fixt
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
-import { writeFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
-import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
-import type { ScheduleGuiRowDto, SchedulesListResult } from "../src/protocol/schedules-gui-contract.ts";
+import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
+import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import type { ScheduleGuiRowDto, SchedulesListResult } from "../src/daemon-host/protocol/schedules-gui-contract.ts";
 
 test("edge repository and GUI write RPCs reach the same center command port", { timeout: 90_000 }, async (t) => {
   const installation = {

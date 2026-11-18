@@ -864,7 +864,7 @@ async function spawnRuntimeOwningDaemon(): Promise<RuntimeFixture> {
     socketPath = localUserDaemonEndpoint(userRoot, daemonId),
     pidPath = daemonPidPath(userRoot, daemonId),
     streamPath = path.join(rootDir, ".harness", "runtime", "dispatches", "dispatch_111111111111111111111111.jsonl"),
-    runtimeModule = pathToFileURL(path.resolve("packages/daemon/src/runtime-spawn-process.ts")).href;
+    runtimeModule = pathToFileURL(path.resolve("packages/daemon/src/daemon-host/runtime-spawn-process.ts")).href;
   mkdirSync(userRoot, { recursive: true });
   mkdirSync(path.dirname(socketPath), { recursive: true });
   writeFileSync(
@@ -1067,7 +1067,7 @@ import { pathToFileURL } from "node:url";
 import { existsSync, writeFileSync } from "node:fs";
 const [repoRoot, userRoot, daemonId, releasePath] = process.argv.slice(2);
 const load = (rel) => import(pathToFileURL(path.join(repoRoot, rel)).href);
-const { startDaemon } = await load("packages/daemon/src/runtime.ts");
+const { startDaemon } = await load("packages/daemon/src/daemon-host/runtime.ts");
 const { openBootstrappedRepoCell } = await load("packages/daemon/test/repo-settings.fixture.ts");
 const { waitForArrival, watchFileArrival } = await load("tools/fixtures/event-arrival.ts");
 const waitForRelease = async () => {

@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 import Ajv from "ajv";
 import { gateAppliesTo } from "../domain/completion-source.ts";
 import type { VerticalCompletionDeclaration } from "../domain/completion-source.ts";

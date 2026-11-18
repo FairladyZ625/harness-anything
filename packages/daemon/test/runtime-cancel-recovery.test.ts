@@ -8,11 +8,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { AgentRuntimeEventV1 } from "@harness-anything/kernel";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
-import { cancelRuntime } from "../src/runtime-spawn-control.ts";
-import { publishExit } from "../src/runtime-spawn-settlement.ts";
-import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
-import { runtimeSpawnError } from "../src/runtime-spawn-errors.ts";
+import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { cancelRuntime } from "../src/daemon-host/runtime-spawn-control.ts";
+import { publishExit } from "../src/daemon-host/runtime-spawn-settlement.ts";
+import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
+import { runtimeSpawnError } from "../src/runtime-engine/runtime-spawn-errors.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 
 const binding = { actor: { principal: { personId: "operator" }, executor: null }, source: "local" as const };

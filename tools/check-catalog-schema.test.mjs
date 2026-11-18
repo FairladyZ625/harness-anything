@@ -7,7 +7,7 @@ import { checkCatalogSchema } from "./check-catalog-schema.mjs";
 
 test("catalog schema gate validates the replacement thin command directory", () => {
   for (const specifier of [
-    "../../daemon/src/protocol/daemon-protocol.contract.ts",
+    "../../daemon/src/daemon-host/protocol/daemon-protocol.contract.ts",
     "@harness-anything/daemon/internal/protocol/daemon-protocol.contract",
   ]) {
     assert.deepEqual(
@@ -23,7 +23,7 @@ test("catalog schema gate validates the replacement thin command directory", () 
 });
 test("catalog schema gate rejects incomplete protocol directory imports in both path forms", () => {
   for (const specifier of [
-    "../../daemon/src/protocol/daemon-protocol.contract.ts",
+    "../../daemon/src/daemon-host/protocol/daemon-protocol.contract.ts",
     "@harness-anything/daemon/internal/protocol/daemon-protocol.contract",
   ]) {
     const result = checkCatalogSchema({

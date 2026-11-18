@@ -597,12 +597,12 @@ test("tools client entries bind business actions with transport + command proof 
 test("fleet schema RPC writes and indirect/computed CLI wrappers bind business actions and fail package-assets-build", async () => {
   const { clientEntryEvidence, technicalPortEvidence } = await import("../authorization-source-proof.mjs");
   const tool = "tools/fleet-upload-demo.mjs";
-  const peer = "packages/daemon/src/fleet/peer.ts";
-  const centerListener = "packages/daemon/src/fleet/center-listener.ts";
+  const peer = "packages/daemon/src/daemon-host/fleet/peer.ts";
+  const centerListener = "packages/daemon/src/daemon-host/fleet/center-listener.ts";
   const toolBody = [
     '/// <reference types="node" />',
     'import { execFileSync } from "node:child_process";',
-    'import { runFleetWriteClient } from "../packages/daemon/src/fleet/peer.ts";',
+    'import { runFleetWriteClient } from "../packages/daemon/src/daemon-host/fleet/peer.ts";',
     "function write(docPath, content) {",
     '  return runFleetWriteClient({ schema: "fleet.doc.submit/v1", path: docPath, body: content });',
     "}",
@@ -1581,7 +1581,7 @@ test("a scheduler callback that is no longer invoked cannot prove a repository r
     source = action.ontology.sources.find((entry) => entry.candidateId.endsWith("053357f862e586963fdcff86efcf4395")),
     graph = mutatedDaemonGraph(
       source,
-      "packages/daemon/src/schedule-scheduler.ts",
+      "packages/daemon/src/daemon-host/schedule-scheduler.ts",
       "await input.localBinding(repoId, rootDir, action)",
       "input.localBinding",
     ),
@@ -1598,25 +1598,25 @@ test("migration callback proof requires its invoked binding and a green owning r
   for (const [id, file, from, to] of [
     [
       "f68abf5f098fbd135b616c70ef93c661",
-      "packages/daemon/src/migration-import-oracle-rebuild.ts",
+      "packages/daemon/src/daemon-host/migration-import-oracle-rebuild.ts",
       "stage: (bundle) => stageAuthored(bundle, authoredRoot)",
       "stage: (bundle) => undefined",
     ],
     [
       "f68abf5f098fbd135b616c70ef93c661",
-      "packages/daemon/src/migration-import.ts",
+      "packages/daemon/src/daemon-host/migration-import.ts",
       "stagePrepared: staged.accept",
       "stagePrepared: () => undefined",
     ],
     [
       "f68abf5f098fbd135b616c70ef93c661",
-      "packages/daemon/src/migration-import.ts",
+      "packages/daemon/src/daemon-host/migration-import.ts",
       'if (property === "append")',
       'if (false && property === "append")',
     ],
     [
       "87c6fe90a713fc3ebb2c99fc3b53de3c",
-      "packages/daemon/src/migration-import.ts",
+      "packages/daemon/src/daemon-host/migration-import.ts",
       "matchesRestatedFact(context, row, mappedTaskId, occurredAt, event)",
       "true",
     ],
@@ -1646,7 +1646,7 @@ test("migration and scheduler proofs reject calls retained only in unused closur
     migrateRoute = { id: "migrate-import", kind: "migrate-import", ok: true },
     migrated = mutatedDaemonGraph(
       migrateSource,
-      "packages/daemon/src/migration-import-oracle-rebuild.ts",
+      "packages/daemon/src/daemon-host/migration-import-oracle-rebuild.ts",
       "stage: (bundle) => stageAuthored(bundle, authoredRoot)",
       `stage: (bundle) => {
         const unused = () => stageAuthored(bundle, authoredRoot);
@@ -1672,7 +1672,7 @@ test("migration and scheduler proofs reject calls retained only in unused closur
     readSource = read.ontology.sources.find((entry) => entry.candidateId.endsWith("053357f862e586963fdcff86efcf4395")),
     scheduler = mutatedDaemonGraph(
       readSource,
-      "packages/daemon/src/schedule-scheduler.ts",
+      "packages/daemon/src/daemon-host/schedule-scheduler.ts",
       "await input.localBinding(repoId, rootDir, action)",
       `(() => {
             const unused = () => input.localBinding(repoId, rootDir, action);
@@ -1687,7 +1687,7 @@ test("migration and scheduler proofs reject calls retained only in unused closur
 // dec_7E44897ECDCAEF2B92EC66A260/CH1: these facade calls retain their business action owners.
 test("forwarding and local RBAC facades require their typed, registered service entries", async () => {
   const inputs = await baselineAuthorizationInputs(),
-    file = "packages/daemon/src/daemon-host-open.ts";
+    file = "packages/daemon/src/daemon-host/daemon-host-open.ts";
   for (const [kind, ids] of [
     ["runtime-run", ["2b8047b354430909dfe3b369f1ef375a"]],
     [
@@ -1736,7 +1736,7 @@ test("host service evidence requires an unconditional guard and the typed ingres
   const inputs = await baselineAuthorizationInputs(),
     action = inputs.constants.actionDeclarations.find((entry) => entry.kind === "runtime-run"),
     source = action.ontology.sources.find((entry) => entry.candidateId.endsWith("e4658bef15e769118f6f44bbdb3feb35")),
-    file = "packages/daemon/src/daemon-host-runtime-api.ts",
+    file = "packages/daemon/src/daemon-host/daemon-host-runtime-api.ts",
     route = { id: action.kind, kind: action.kind, ok: true },
     mutations = [
       [
@@ -1790,7 +1790,7 @@ test("host service evidence requires an unconditional guard and the typed ingres
     ),
     graph = mutatedDaemonGraph(
       witness,
-      "packages/daemon/src/daemon-host-control-api.ts",
+      "packages/daemon/src/daemon-host/daemon-host-control-api.ts",
       "witness = cell.runtime.bindWitness(token)",
       "witness = untrusted.bindWitness(token)",
     ),
@@ -1803,7 +1803,7 @@ test("RBAC service callbacks cannot detach from their actual authority or become
   const inputs = await baselineAuthorizationInputs(),
     action = inputs.constants.actionDeclarations.find((entry) => entry.kind === "rbac-bootstrap"),
     route = { id: action.kind, kind: action.kind, ok: true },
-    file = "packages/daemon/src/daemon-host-open.ts";
+    file = "packages/daemon/src/daemon-host/daemon-host-open.ts";
   for (const [id, from, to] of [
     [
       "033286848d57f3b00203615ef676d2c8",
@@ -1836,7 +1836,7 @@ test("RBAC evidence uses the effective top-level authorization kind", async () =
   const inputs = await baselineAuthorizationInputs(),
     action = inputs.constants.actionDeclarations.find((entry) => entry.kind === "rbac-bootstrap"),
     source = action.ontology.sources.find((entry) => entry.candidateId.endsWith(":85833909ab835513f6a37d3d00ce0f77:2")),
-    file = "packages/daemon/src/daemon-host-open.ts",
+    file = "packages/daemon/src/daemon-host/daemon-host-open.ts",
     route = { id: action.kind, kind: action.kind, ok: true },
     mutations = [
       [
@@ -1902,7 +1902,7 @@ test("host authority binds repository and authentication to the ingress and witn
     ],
   ]) {
     const source = action.ontology.sources.find((entry) => entry.candidateId.endsWith(id)),
-      target = `packages/daemon/src/${file}`,
+      target = `packages/daemon/src/daemon-host/${file}`,
       original = baselineFlowGraph(),
       node = sourceWitnesses(original, [source]).get(source.candidateId),
       text = readFileSync(path.join(repoRoot, target), "utf8"),
@@ -1946,7 +1946,7 @@ test("restatement authority starts at the migration entry's actual callback argu
     source = action.ontology.sources.find((entry) => entry.candidateId.endsWith("87c6fe90a713fc3ebb2c99fc3b53de3c")),
     descriptor = inputs.descriptors.find((entry) => entry.id === "migrate-import"),
     route = { id: action.kind, kind: action.kind, ok: true },
-    file = "packages/daemon/src/migration-import.ts",
+    file = "packages/daemon/src/daemon-host/migration-import.ts",
     original = readFileSync(path.join(repoRoot, file), "utf8");
   for (const callback of ["() => undefined", "(context, row) => { const unused = () => addFact(context, row); }"]) {
     const detached = replaceSourceOnce(
@@ -1963,7 +1963,7 @@ test("restatement authority starts at the migration entry's actual callback argu
   }
   const graph = mutatedDaemonGraph(
       source,
-      "packages/daemon/src/migration-import-run.ts",
+      "packages/daemon/src/daemon-host/migration-import-run.ts",
       "return addFactImpl(extracted, row);",
       "return undefined;",
     ),

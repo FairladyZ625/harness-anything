@@ -2,15 +2,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActorIdentity, LeaseV1, TaskLifecycleSnapshot, TaskV2 } from "@harness-anything/kernel";
-import { parseRuntimeBatchEntry } from "../src/runtime-orchestration.ts";
-import { deriveSquadChildPlan, reacquireSquadTaskLease } from "../src/repo-cell-squad-child.ts";
+import { parseRuntimeBatchEntry } from "../src/daemon-host/runtime-orchestration.ts";
+import { deriveSquadChildPlan, reacquireSquadTaskLease } from "../src/daemon-host/repo-cell-squad-child.ts";
 import {
   callbackLeaderPrompt,
   initialLeaderPrompt,
   parseLeaderDecision,
   squadAttemptStatus,
-} from "../src/squad-leader-decision.ts";
-import type { TaskDispatchRow } from "../src/protocol/daemon-protocol.contract.ts";
+} from "../src/daemon-host/squad-leader-decision.ts";
+import type { TaskDispatchRow } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import {
   emptyTaskLifecycleSnapshot,
   normalizeTaskLifecycleCommand,
@@ -19,7 +19,7 @@ import {
 } from "@harness-anything/kernel";
 import { validateTransition } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
-import { actionCriterionFailure } from "../src/repo-cell-errors.ts";
+import { actionCriterionFailure } from "../src/daemon-host/repo-cell-errors.ts";
 
 test("show, squad and transition agree on lease ownership and give executable recovery", async (t) => {
   const active = lifecycleFixture().events.slice(0, 2).reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());

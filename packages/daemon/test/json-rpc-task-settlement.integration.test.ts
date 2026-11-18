@@ -1,6 +1,6 @@
 // harness-test-tier: integration
-import { daemonBuildStamp } from "../src/build-identity.ts";
-import { readDispatchStreamHeaders } from "../src/dispatch-stream.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
+import { readDispatchStreamHeaders } from "../src/daemon-host/dispatch-stream.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import {
   openPersistentWriterEpoch,
   makeTaskEventReader,
@@ -24,16 +24,16 @@ import {
   validateDaemonDecisionList,
   validateDaemonRelationGraph,
   workspaceId,
-} from "../src/protocol/daemon-protocol.contract.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { serveKeycloak, signInAt, signOutAt } from "./keycloak.fixtures.ts";
 import { realizedDecisionBody, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { openRepoCell as openProductRepoCell } from "../src/repo-cell-open.ts";
+import { openRepoCell as openProductRepoCell } from "../src/daemon-host/repo-cell-open.ts";
 import { openBootstrappedRepoCell as openRepoCell, seedSettingsEvent } from "./repo-settings.fixture.ts";
-import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
+import { seedBuiltinSchedules } from "../src/daemon-host/schedule-builtin-executor.ts";
 function assertValidWriteReceipt(value: unknown): void {
   assert.equal(typeof value, "object");
   assert.notEqual(value, null);
@@ -325,6 +325,8 @@ test("Decision full vertical golden rebuilds proposal, prose, claim, relation, c
     // so an unmaterialized generated cache is not a gap in what was served and must not
     // leak through as a permanent hard-fail warning on an otherwise fully-answered read.
     assert.deepEqual(graph.warnings, []);
+    // Cold-cache rebuild owns the cache file only after the live follower has drained and closed.
+    await cell.close(); cell = undefined;
     const store = makeTaskEventReader({ repoId: "decision-vertical", rootDir }), projection = makeTaskProjection({ rootDir, eventStore: store }), before = { decision: projection.readDecision(decisionId).decision, document: projection.readDocument(logical).document, graph: projection.readDecisionGraph() }; projection.close(); rmSync(projection.path); projection.rebuild(); assert.deepEqual({ decision: projection.readDecision(decisionId).decision, document: projection.readDocument(logical).document, graph: projection.readDecisionGraph() }, before); projection.close();
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });

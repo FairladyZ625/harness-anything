@@ -1,8 +1,8 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { withOnlineRuntimeSession, type RuntimeOperatorSession } from "../src/runtime-online-binding.ts";
-import type { RepoCellBinding } from "../src/repo-cell-types.ts";
+import { withOnlineRuntimeSession, type RuntimeOperatorSession } from "../src/daemon-host/runtime-online-binding.ts";
+import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
 
 const operatorSession: RuntimeOperatorSession = {
   personId: "person_owner_1",

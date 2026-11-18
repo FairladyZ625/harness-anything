@@ -8,8 +8,10 @@ import {
 import { isTaskEvent } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { assertFactAdmissionAtCut } from "@harness-anything/kernel/internal/domain/fact-admission.ts";
 import { assertDecisionAdmissionAtCut } from "@harness-anything/kernel/internal/domain/decision-admission.ts";
-import { createSqlTaskQueryReader } from "./sql-task-query-reader.ts";
+import { resolvePostgresEventStoreScope } from "./backend.ts";
+import { createPgTaskQueryReader } from "./pg-task-query-reader.ts";
 import { PG_TASK_QUERY_METHODS } from "./pg-task-query-contract.ts";
+import { requireSqlTaskQueryReader } from "../sql-backend-adapters.ts";
 import { projectionCatchUpLimit } from "../projection/catch-up-limit.ts";
 import { derivedRelationRecordsForReplay } from "../projection/relation-entity-projection.ts";
 import type {
@@ -23,11 +25,19 @@ export function makePgTaskProjection(
 ): TaskProjection {
   const limit = projectionCatchUpLimit(options.catchUpLimit),
     now = options.now ?? (() => new Date().toISOString()),
-    reader = createSqlTaskQueryReader({
-      storage: options.storage,
-      repoId: options.eventStore.ledgerMetadata().repoId,
-      now,
-    }),
+    reader =
+      options.storage.backend === "postgres"
+        ? createPgTaskQueryReader({
+            scope: resolvePostgresEventStoreScope(options.storage.scope),
+            connectionString: options.storage.connectionString,
+            repoId: options.eventStore.ledgerMetadata().repoId,
+            now,
+          })
+        : requireSqlTaskQueryReader("pglite")({
+            storage: options.storage,
+            repoId: options.eventStore.ledgerMetadata().repoId,
+            now,
+          }),
     queries = Object.fromEntries(
       PG_TASK_QUERY_METHODS.map((method) => [
         method,

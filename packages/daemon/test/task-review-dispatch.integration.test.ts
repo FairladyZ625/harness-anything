@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { activeCutReviewDispatches } from "../src/review-dispatch-state.ts";
+import { activeCutReviewDispatches } from "../src/daemon-host/review-dispatch-state.ts";
 import { grantTestPolicyGroups, revokeTestPolicyActions, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 
 /** The principal that records rework-driving verdicts: a person of its own, so denying its
@@ -19,9 +19,9 @@ import {
   sha256Text,
   submissionDigest,
 } from "@harness-anything/kernel";
-import { dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
-import { reviewerArtifactFiles } from "../src/reviewer-artifact-publication.ts";
-import { oldDataCopyReceiptPath } from "../src/submit-old-data-copy.ts";
+import { dispatchStreamPath, readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { reviewerArtifactFiles } from "../src/daemon-host/reviewer-artifact-publication.ts";
+import { oldDataCopyReceiptPath } from "../src/daemon-host/submit-old-data-copy.ts";
 import { realizedDecisionBody, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import {
   executionId,
@@ -31,8 +31,8 @@ import {
   reviewerExecutionBinding,
   taskId,
 } from "./task-completion-review.fixture.ts";
-import { makeDaemonCommandReceipt } from "../src/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiActionResult } from "../src/protocol/gui-result-validation.ts";
+import { makeDaemonCommandReceipt } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { parseDaemonGuiActionResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
 
 // The JSON-RPC exit for repo.decision.dispatchReview: the cell receipt wrapped and re-validated.
 const overGuiWire = (receipt: object) =>

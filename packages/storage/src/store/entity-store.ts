@@ -1,7 +1,7 @@
 import { reduceEntityDeclarationState } from "./entity-declaration-state.ts";
 import type { EntityDeclarationState } from "@harness-anything/kernel/internal/ports/entity-declarations.ts";
-import { createSqlTaskQueryReader } from "../pg/sql-task-query-reader.ts";
-import { resolvePostgresEventStoreScope } from "../pg/backend.ts";
+import { resolvePostgresEventStoreScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
+import { requireSqlTaskQueryReader } from "../sql-backend-adapters.ts";
 import { deepFreeze } from "@harness-anything/kernel/internal/domain/artifact-entity.ts";
 import type { HarnessLayoutInput } from "@harness-anything/kernel/internal/layout/index.ts";
 import {
@@ -197,7 +197,11 @@ export function openEntityStore(
   if (storage?.backend === "postgres" || storage?.backend === "pglite") {
     resolvePostgresEventStoreScope(storage.scope);
     if (!options.repoId) throw new TypeError("SQL entity store requires explicit repoId");
-    const reader = createSqlTaskQueryReader({ storage, repoId: options.repoId, requireRuntimeRole: true }),
+    const reader = requireSqlTaskQueryReader(storage.backend)({
+        storage,
+        repoId: options.repoId,
+        requireRuntimeRole: true,
+      }),
       source: EntityEventSource = {
         readBatch: (cursor, maxItems) =>
           reader.executeCanonical({ operation: "batch", cursor, maxItems }) as ReturnType<

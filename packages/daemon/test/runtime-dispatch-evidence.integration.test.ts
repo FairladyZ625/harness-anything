@@ -6,10 +6,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
-import { dispatchStreamPath, readDispatchStreamSummary } from "../src/dispatch-stream.ts";
+import { dispatchStreamPath, readDispatchStreamSummary } from "../src/daemon-host/dispatch-stream.ts";
 import { waitForDurableValue, waitForArrival, watchFileArrival } from "../../../tools/fixtures/event-arrival.ts";
-import { purgeRepoCache } from "../src/repo-cache-purge.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { purgeRepoCache } from "../src/daemon-host/repo-cache-purge.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { definition, installation, initIngressRepo } from "./fixtures/runtime-ingress.ts";
@@ -167,10 +167,9 @@ test(
         streamPath = path.join(evidenceDir, "stream.jsonl"),
         rolloutPath = path.join(evidenceDir, "provider-rollout.jsonl"),
         tracePath = path.join(evidenceDir, "request-trace.json");
-      await waitForArrival(
-        () => (existsSync(tracePath) && existsSync(streamPath) && existsSync(rolloutPath) ? true : null),
-        watchFileArrival(tracePath),
-      );
+      // Join compaction after the canonical outcome, then wait for the archive's worktree publication.
+      await cell.awaitRuntimeOutcome(String(receipt.runtimeSessionId));
+      await cell.settlePendingMaterialization("runtime dispatch evidence");
       const streamBody = readFileSync(streamPath, "utf8"),
         rolloutBody = readFileSync(rolloutPath, "utf8"),
         traceBody = readFileSync(tracePath, "utf8");
@@ -178,10 +177,6 @@ test(
         assert.doesNotMatch(body, /sk-provider-secret/u, "no snapshot may carry the provider token");
       assert.match(traceBody, /request-1/u);
       assert.match(traceBody, /turn-1/u);
-      // The runtime outcome is the canonical settlement witness; the write-queue drain covers the
-      // compaction that runs after the outcome event, so the purge cannot race the same archive.
-      await cell.awaitRuntimeOutcome(String(receipt.runtimeSessionId));
-      await cell.settlePendingMaterialization("runtime dispatch evidence");
       assert.deepEqual(
         settlementErrors.filter((line) => /runtime-(?:archive|forensics)|ENOENT/u.test(line)),
         [],

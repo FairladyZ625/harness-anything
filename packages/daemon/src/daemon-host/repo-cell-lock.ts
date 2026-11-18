@@ -1,0 +1,78 @@
+import { processLockHolderDead } from "./process-port.ts";
+import { closeSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { consumeKnownError } from "@harness-anything/kernel";
+import type { CanonicalRoot } from "./protocol/daemon-protocol.contract.ts";
+import { cellCodedError, cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
+export { causeClassOf, latchReprobeThrottleMs } from "./repo-cell-cause.ts";
+
+export async function acquireWorkspaceLock(rootDir: CanonicalRoot): Promise<{ readonly close: () => Promise<void> }> {
+  const lockPath = `${rootDir}.harness-anything-writer.lock`;
+  let descriptor: number;
+  try {
+    descriptor = /* @gate-identity state-store/execution.workspace-writer-lock */ openSync(lockPath, "wx", 0o600);
+  } catch (error) {
+    if (!staleWriterLock(lockPath))
+      throw cellCodedError(
+        "writer_rejected",
+        `Workspace writer lock is held for ${rootDir}: ${cellErrorMessage(error)}`,
+      );
+    consumeKnownError(error);
+    /* @gate-identity state-store/execution.workspace-writer-lock */ unlinkSync(lockPath);
+    try {
+      descriptor = /* @gate-identity state-store/execution.workspace-writer-lock */ openSync(lockPath, "wx", 0o600);
+    } catch (retry) {
+      throw cellCodedError(
+        "writer_rejected",
+        `Workspace writer lock recovery raced for ${rootDir}: ${cellErrorMessage(retry)}`,
+      );
+    }
+  }
+  try {
+    /* @gate-identity state-store/execution.workspace-writer-lock */ writeFileSync(
+      descriptor,
+      `${process.pid}\n`,
+      "utf8",
+    );
+  } catch (error) {
+    /* @gate-identity state-store/execution.workspace-writer-lock */ closeSync(descriptor);
+    try {
+      /* @gate-identity state-store/execution.workspace-writer-lock */ unlinkSync(lockPath);
+    } catch (cleanupError) {
+      if (cellErrorCode(cleanupError) !== "ENOENT") throw cleanupError;
+      consumeKnownError(cleanupError);
+    }
+    throw cellCodedError(
+      "writer_rejected",
+      `Workspace writer lock could not be initialized for ${rootDir}: ${cellErrorMessage(error)}`,
+    );
+  }
+  let closed = false;
+  return {
+    close: async () => {
+      if (closed) return;
+      closed = true;
+      /* @gate-identity state-store/execution.workspace-writer-lock */ closeSync(descriptor);
+      try {
+        /* @gate-identity state-store/execution.workspace-writer-lock */ unlinkSync(lockPath);
+      } catch (error) {
+        if (cellErrorCode(error) === "ENOENT") {
+          consumeKnownError(error);
+          return;
+        }
+        throw error;
+      }
+    },
+  };
+}
+
+export function staleWriterLock(target: string): boolean {
+  let pid: number;
+  try {
+    pid = Number(readFileSync(target, "utf8").trim());
+  } catch (error) {
+    if (cellErrorCode(error) !== "ENOENT") throw error;
+    return false;
+  }
+  if (!Number.isSafeInteger(pid) || pid < 1) return false;
+  return processLockHolderDead(target, pid);
+}

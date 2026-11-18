@@ -181,8 +181,8 @@ export function loadActionCoverageSnapshot(rootDir) {
   const modules = [
     "packages/kernel/src/domain/entity-kind-registry.ts",
     "packages/kernel/src/domain/action-declaration.ts",
-    "packages/daemon/src/protocol/daemon-protocol-commands.ts",
-    "packages/daemon/src/protocol/daemon-protocol-gui-actions.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-actions.ts",
   ].map((file) => path.join(rootDir, file));
   const script = [
     "const [registry, declarations, commands, gui] = await Promise.all(process.argv.slice(1, 5).map((url) => import(url)));",

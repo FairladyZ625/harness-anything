@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { TaskProjection } from "@harness-anything/kernel";
 import { stackOn, stackSnapshot } from "./stacked-dispatch.fixtures.ts";
-import { assertTaskDispatchPrerequisites } from "../src/task-dispatch-admission.ts";
+import { assertTaskDispatchPrerequisites } from "../src/daemon-host/task-dispatch-admission.ts";
 
 const edge = (sourceRef: string, targetRef: string, relationType: "derives" | "depends-on") => ({
   relationId: `rel-${relationType}`,

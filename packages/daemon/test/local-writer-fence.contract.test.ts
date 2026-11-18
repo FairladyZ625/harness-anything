@@ -18,9 +18,9 @@ test("every production local binding is covered by a request or cell-default wri
   assert.deepEqual(
     [...counts].sort(([left], [right]) => left.localeCompare(right)),
     [
-      ["daemon-host-binding.ts", 2],
-      ["repo-cell-bootstrap-ledger.ts", 1],
-      ["task-witness-runner.ts", 2],
+      ["daemon-host/daemon-host-binding.ts", 2],
+      ["daemon-host/repo-cell-bootstrap-ledger.ts", 1],
+      ["daemon-host/task-witness-runner.ts", 2],
     ],
     `unclassified production source:local use:\n${uses.map((use) => `${use.file}:${use.line}`).join("\n")}`,
   );
@@ -103,5 +103,5 @@ function sourceFiles(directory: string): readonly string[] {
 }
 
 function source(relative: string): string {
-  return readFileSync(path.join(sourceRoot, relative), "utf8");
+  return readFileSync(path.join(sourceRoot, "daemon-host", relative), "utf8");
 }

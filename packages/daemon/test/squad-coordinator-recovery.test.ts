@@ -15,18 +15,18 @@ import type {
   TaskProjection,
   TaskV2,
 } from "@harness-anything/kernel";
-import { makeSquadCoordinator } from "../src/squad-coordinator.ts";
-import { rejectedSquadAttemptChildren } from "../src/squad-run-state.ts";
+import { makeSquadCoordinator } from "../src/daemon-host/squad-coordinator.ts";
+import { rejectedSquadAttemptChildren } from "../src/daemon-host/squad-run-state.ts";
 import { latestSquadStates } from "./squad-run-state.fixture.ts";
-import { pruneDispatchStreamArchive } from "../src/dispatch-stream-archive.ts";
+import { pruneDispatchStreamArchive } from "../src/daemon-host/dispatch-stream-archive.ts";
 import {
   appendRuntimeWorkerRecord,
   archiveDispatchStream,
   dispatchStreamPath,
   openDispatchStream,
-} from "../src/dispatch-stream.ts";
-import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
-import { noWorktreeSetup } from "../src/worktree-setup.ts";
+} from "../src/daemon-host/dispatch-stream.ts";
+import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
+import { noWorktreeSetup } from "../src/daemon-host/worktree-setup.ts";
 
 const SQUAD_RUN_ID = "squad_0123456789abcdef01234567",
   TASK_ID = "task-squad-recovery",

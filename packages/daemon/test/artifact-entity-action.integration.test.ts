@@ -16,13 +16,13 @@ import {
   deriveArtifactContentVersion,
   requireEntityStoreKindContract,
 } from "@harness-anything/kernel";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { grantArtifactKindScopes, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 
-import { readEntityContent } from "../src/entity-content-read.ts";
-import { prepareDistillCandidate } from "../src/distill-actions.ts";
+import { readEntityContent } from "../src/daemon-host/entity-content-read.ts";
+import { prepareDistillCandidate } from "../src/daemon-host/distill-actions.ts";
 
 test("owned-content size admission avoids reading oversized objects", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-content-size-")),
@@ -596,7 +596,7 @@ test("URL source resolution does not block a concurrent repository write", { tim
   const address = server.address();
   assert.ok(address && typeof address === "object");
   const url = `http://127.0.0.1:${address.port}/controlled.md`;
-  // The writer runs in its own isolate. Control only this response's abort boundary there;
+  // HTTP runs in the orchestration host. Control only this response's abort boundary there;
   // the adjacent real-HTTP timeout test retains coverage of resolver deadline behavior.
   const preload = `data:text/javascript,${encodeURIComponent(`
     const fetch = globalThis.fetch;
@@ -610,7 +610,7 @@ test("URL source resolution does not block a concurrent repository write", { tim
       constructor(filename: string | URL, options: workerThreads.WorkerOptions = {}) {
         super(
           filename,
-          String(filename).includes("repo-writer-worker")
+          String(filename).includes("repo-orchestration-worker")
             ? {
                 ...options,
                 execArgv: [...(options.execArgv ?? process.execArgv), `--import=${preload}`],

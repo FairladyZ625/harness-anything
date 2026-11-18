@@ -5,7 +5,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { INITIAL_SETTINGS_V1 } from "@harness-anything/kernel";
-import { daemonSettingsRead } from "../../daemon/src/protocol/daemon-settings-read-types.ts";
+import { daemonSettingsRead } from "../../daemon/src/daemon-host/protocol/daemon-settings-read-types.ts";
 import { ProvidersView } from "../src/renderer/views/ProvidersView.tsx";
 import { settingsQueryKeys } from "../src/renderer/settings-data.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";

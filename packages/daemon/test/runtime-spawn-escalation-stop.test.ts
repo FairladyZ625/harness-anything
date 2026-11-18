@@ -4,21 +4,21 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { publishExit, runtimeProcessTreeStopped } from "../src/runtime-spawn-settlement.ts";
-import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
-import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
+import { publishExit, runtimeProcessTreeStopped } from "../src/daemon-host/runtime-spawn-settlement.ts";
+import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
+import type { ActiveRuntime } from "../src/daemon-host/runtime-spawn-types.ts";
 import { active } from "./runtime-spawn-settlement.fixtures.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 
 import { statSync, truncateSync } from "node:fs";
-import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
-import { cancelRuntime } from "../src/runtime-spawn-control.ts";
+import { adoptRuntimes } from "../src/daemon-host/runtime-spawn-adoption.ts";
+import { cancelRuntime } from "../src/daemon-host/runtime-spawn-control.ts";
 import {
   appendRuntimeWorkerRecord,
   dispatchStreamPath,
   openDispatchStream,
   readDispatchStream,
-} from "../src/dispatch-stream.ts";
+} from "../src/daemon-host/dispatch-stream.ts";
 import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 import { fixtureRuntimeProcess, runtimeProcessFixture } from "./fixtures/runtime-process.ts";
 import {

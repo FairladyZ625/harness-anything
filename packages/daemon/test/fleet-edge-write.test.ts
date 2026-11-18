@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { runFleetEdgeRetry } from "../src/fleet-edge-write.ts";
+import { runFleetEdgeRetry } from "../src/daemon-host/fleet-edge-write.ts";
 
 test("daemon close stops an edge retry before its backoff starts another attempt", async (t) => {
   const controller = new AbortController(),

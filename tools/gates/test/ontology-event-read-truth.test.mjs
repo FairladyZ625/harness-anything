@@ -15,7 +15,7 @@ test("G0-3 reports the base advisory and points to an L1 read injected into a na
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   writeRepoFile(
     rootDir,
-    "packages/daemon/src/task-query-read.ts",
+    "packages/daemon/src/daemon-host/task-query-read.ts",
     [
       'import { readMarkdown } from "@harness-anything/kernel";',
       "function relationGraphPage() {",
@@ -24,10 +24,10 @@ test("G0-3 reports the base advisory and points to an L1 read injected into a na
       "",
     ].join("\n"),
   );
-  writeRepoFile(rootDir, "packages/daemon/src/repo-cell-task-query.ts", "export {};\n");
+  writeRepoFile(rootDir, "packages/daemon/src/daemon-host/repo-cell-task-query.ts", "export {};\n");
   writeRepoFile(
     rootDir,
-    "packages/daemon/src/agent-runtime-read.ts",
+    "packages/daemon/src/daemon-host/agent-runtime-read.ts",
     [
       "export function runtimeReads(input) {",
       "  return {",

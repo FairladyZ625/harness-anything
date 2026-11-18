@@ -1,16 +1,16 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { runtimeKindIds } from "../src/runtime-inventory.ts";
-import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
-import { isProviderFailureClassification } from "../src/runtime-fallback-contract.ts";
+import { runtimeKindIds } from "../src/runtime-engine/runtime-inventory.ts";
+import type { ActiveRuntime } from "../src/daemon-host/runtime-spawn-types.ts";
+import { isProviderFailureClassification } from "../src/daemon-host/runtime-fallback-contract.ts";
 import {
   classifyRuntimeExit,
   observeProviderFault,
   providerFaultFromFrame,
   providerFaultFromStderr,
-} from "../src/runtime-provider-fault.ts";
-import { parseCodexFrame, parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
+} from "../src/daemon-host/runtime-provider-fault.ts";
+import { parseCodexFrame, parseProviderFrame } from "../src/daemon-host/runtime-spawn-provider-frames.ts";
 
 test("structured provider errors classify rate limits, server faults, quota, model, and auth failures", () => {
   const rateLimit = providerFaultFromFrame("codex", {

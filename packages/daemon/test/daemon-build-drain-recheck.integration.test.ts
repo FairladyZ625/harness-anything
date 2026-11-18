@@ -5,11 +5,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { AgentRuntimeSessionResult } from "../src/agent-runtime-contract.ts";
-import { openDaemonJsonRpcClientAt, type JsonRpcLineClient } from "../src/client/local-json-rpc-client.ts";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { readDaemonLifecycleRecords } from "../src/lifecycle-log.ts";
-import { startDaemon, type RunningDaemon } from "../src/runtime.ts";
+import type { AgentRuntimeSessionResult } from "../src/daemon-host/agent-runtime-contract.ts";
+import { openDaemonJsonRpcClientAt, type JsonRpcLineClient } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { readDaemonLifecycleRecords } from "../src/daemon-host/lifecycle-log.ts";
+import { startDaemon, type RunningDaemon } from "../src/daemon-host/runtime.ts";
 import { openBootstrappedRepoCell, registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 

@@ -4,13 +4,13 @@
 // Otherwise it runs the production resident stream (runFleetReplicaSync) for the span of the call.
 import path from "node:path";
 import type { ReplicationPosition } from "@harness-anything/kernel";
-import { readFleetRepositoryMetadataClient } from "../src/fleet/peer.ts";
-import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
+import { readFleetRepositoryMetadataClient } from "../src/daemon-host/fleet/peer.ts";
+import { readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
 import {
   runFleetReplicaSync,
   waitForFleetReplicaSequence,
   type ReplicaSyncOptions,
-} from "../src/fleet/replica-sync.ts";
+} from "../src/daemon-host/fleet/replica-sync.ts";
 
 export type CatchUpReplicaOptions = Omit<ReplicaSyncOptions, "signal" | "onConfirmed" | "onFailure">;
 
@@ -101,6 +101,6 @@ export async function catchUpReplica(
   return { replica: { viewId: options.nodeId, knownHead: generation.metadata.position } };
 }
 
-export { fleetMirrorCutFile, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
+export { fleetMirrorCutFile, locateFleetMirrorView } from "../src/daemon-host/fleet-edge-mirror.ts";
 
-export { readReplicaHealth } from "../src/fleet/replica-health.ts";
+export { readReplicaHealth } from "../src/fleet-sync/fleet/replica-health.ts";

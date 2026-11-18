@@ -1,9 +1,9 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { launchArgs } from "../src/agent-runtime-launch-config.ts";
-import { runtimeKindForId } from "../src/runtime-inventory.ts";
-import type { RuntimeInstanceConfig } from "../src/agent-runtime-instance-types.ts";
+import { launchArgs } from "../src/daemon-host/agent-runtime-launch-config.ts";
+import { runtimeKindForId } from "../src/runtime-engine/runtime-inventory.ts";
+import type { RuntimeInstanceConfig } from "../src/daemon-host/agent-runtime-instance-types.ts";
 
 // The task prompt is the one launch input composed freely, and on Windows a .cmd-shim
 // runtime re-parses the whole argv through cmd.exe, where no quoting can carry %VAR%, CR

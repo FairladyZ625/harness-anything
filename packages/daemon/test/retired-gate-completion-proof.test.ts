@@ -5,8 +5,8 @@ import { normalizeTaskLifecycleCommand } from "@harness-anything/kernel";
 
 import { emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
 import { implementer, lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
-import { completeProof } from "../src/repo-cell-proof.ts";
-import type { RepoCellBinding, Snapshot } from "../src/repo-cell-types.ts";
+import { completeProof } from "../src/daemon-host/repo-cell-proof.ts";
+import type { RepoCellBinding, Snapshot } from "../src/daemon-host/repo-cell-types.ts";
 
 const binding = {
   actor: implementer,

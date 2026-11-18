@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 import { PublishableProjectionSchema } from "../../src/schemas/registry.ts";
 
 test("publishable projection JSON schema rejects extra private/local-only fields", () => {

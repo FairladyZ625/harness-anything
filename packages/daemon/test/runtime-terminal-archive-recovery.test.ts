@@ -4,9 +4,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
-import { appendRuntimeWorkerRecord, dispatchStreamPath, openDispatchStream } from "../src/dispatch-stream.ts";
-import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
+import { adoptRuntimes } from "../src/daemon-host/runtime-spawn-adoption.ts";
+import {
+  appendRuntimeWorkerRecord,
+  dispatchStreamPath,
+  openDispatchStream,
+} from "../src/daemon-host/dispatch-stream.ts";
+import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
 import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 
 for (const state of ["dead", "foreign", "fallback"] as const) {

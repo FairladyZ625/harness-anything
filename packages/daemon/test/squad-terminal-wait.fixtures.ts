@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import type { AgentDefinitionSnapshot, SquadRunObservation } from "@harness-anything/kernel";
-import type { RepoCell, RepoCellBinding } from "../src/repo-cell.ts";
+import type { RepoCell, RepoCellBinding } from "../src/daemon-host/repo-cell.ts";
 
 export type { SquadRunObservation };
 

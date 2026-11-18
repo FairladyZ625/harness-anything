@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { taskDeliveryStage } from "../src/task-delivery-stage.ts";
+import { taskDeliveryStage } from "../src/daemon-host/task-delivery-stage.ts";
 import { emptyTaskLifecycleSnapshot } from "@harness-anything/kernel";
 
 const readyCloseout = { readiness: "ready" as const, blocker: undefined },

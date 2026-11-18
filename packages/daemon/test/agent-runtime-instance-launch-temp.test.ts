@@ -4,8 +4,8 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeF
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
-import { sweepSettledRuntimeTempDirectories } from "../src/runtime-spawn-adoption.ts";
+import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instances.ts";
+import { sweepSettledRuntimeTempDirectories } from "../src/daemon-host/runtime-spawn-adoption.ts";
 import { codedAs, observed } from "./agent-runtime-instance-environment.fixture.ts";
 import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 

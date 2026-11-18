@@ -1,8 +1,8 @@
 // harness-test-tier: integration
 import { waitForArrival, waitForDurableCondition } from "../../../tools/fixtures/event-arrival.ts";
-import { daemonBuildStamp } from "../src/build-identity.ts";
-import { openRemoteProxyManager } from "../src/remote-proxy.ts";
-import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
+import { openRemoteProxyManager } from "../src/daemon-host/remote-proxy.ts";
+import { appendRuntimeWorkerRecord } from "../src/daemon-host/dispatch-stream.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -14,17 +14,17 @@ import test from "node:test";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { runDaemonControl } from "@harness-anything/cli/internal/daemon/control";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import { streamDaemonFacetAt } from "../src/client/local-json-rpc-stream.ts";
-import { openDaemonHost, type DaemonHost } from "../src/daemon-host.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import { serveJsonRpcStream, type DaemonTransportConnection } from "../src/transport/json-rpc-stream.ts";
-import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { streamDaemonFacetAt } from "../src/daemon-host/client/local-json-rpc-stream.ts";
+import { openDaemonHost, type DaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
+import { serveJsonRpcStream, type DaemonTransportConnection } from "../src/daemon-host/transport/json-rpc-stream.ts";
+import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
 import { openBootstrappedRepoCell, registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
-import type { CredentialPort } from "../src/agent-runtime-credential-port.ts";
+import type { CredentialPort } from "../src/daemon-host/agent-runtime-credential-port.ts";
 import { createLocalGuiServiceBridge } from "../../gui/src/main/local-composition-root.ts";
 import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 

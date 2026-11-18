@@ -1,9 +1,9 @@
-import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { openDaemonDiagnostics } from "../src/daemon-diagnostics.ts";
-import { withDaemonObservation, markDaemonOperationPhase } from "../src/daemon-operation.ts";
-import type { DaemonHost } from "../src/daemon-host.ts";
-import { startDaemon } from "../src/runtime.ts";
+import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { openDaemonDiagnostics } from "../src/daemon-host/daemon-diagnostics.ts";
+import { withDaemonObservation, markDaemonOperationPhase } from "../src/daemon-host/daemon-operation.ts";
+import type { DaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { startDaemon } from "../src/daemon-host/runtime.ts";
 
 const userRoot = process.argv[2]!,
   endpoint = process.argv[3]!,

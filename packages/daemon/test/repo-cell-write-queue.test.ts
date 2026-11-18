@@ -1,8 +1,8 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chainRepoCellWrite, withRepoCellWriteSlot } from "../src/repo-cell.ts";
-import type { RepoCellQueueObservation, RepoCellWriteQueueState } from "../src/repo-cell-types.ts";
+import { chainRepoCellWrite, withRepoCellWriteSlot } from "../src/daemon-host/repo-cell.ts";
+import type { RepoCellQueueObservation, RepoCellWriteQueueState } from "../src/daemon-host/repo-cell-types.ts";
 
 test("queue admission is reported before the preceding write releases its turn", async () => {
   const head = Promise.withResolvers<void>(),

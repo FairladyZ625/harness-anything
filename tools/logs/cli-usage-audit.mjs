@@ -487,7 +487,7 @@ async function main(argv) {
   }
   const rootDir = path.resolve(options.root);
   const commandModule = await import(
-    `${pathToFileURL(path.join(rootDir, "packages/daemon/src/protocol/daemon-protocol-commands.ts"))}?audit=1`
+    `${pathToFileURL(path.join(rootDir, "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts"))}?audit=1`
   );
   const cliModule = await import(
     `${pathToFileURL(path.join(rootDir, "packages/cli/src/cli/thin-command-help.ts")).href}?audit=1`

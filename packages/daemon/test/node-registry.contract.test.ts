@@ -6,14 +6,14 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { AccessAdminService, type AccessAdminRequest } from "../src/access-admin-service.ts";
-import { binding as deriveBinding } from "../src/daemon-host-binding.ts";
-import { keycloakNodeRegistry } from "../src/fleet-center-admission.ts";
+import { AccessAdminService, type AccessAdminRequest } from "../src/daemon-host/access-admin-service.ts";
+import { binding as deriveBinding } from "../src/daemon-host/daemon-host-binding.ts";
+import { keycloakNodeRegistry } from "../src/daemon-host/fleet-center-admission.ts";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
-import { managedRbacReceiptJournal, reserveCredentialFile } from "../src/access-admin-state.ts";
-import { createIdentitySession } from "../src/authorization-provider.ts";
-import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
-import type { RepoCellBinding, RepoTaskAction } from "../src/repo-cell-types.ts";
+import { managedRbacReceiptJournal, reserveCredentialFile } from "../src/daemon-host/access-admin-state.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
+import { evaluateRepoCellAction } from "../src/daemon-host/repo-cell-authorization.ts";
+import type { RepoCellBinding, RepoTaskAction } from "../src/daemon-host/repo-cell-types.ts";
 import { fakeKeycloak, keycloakRealm, keycloakUrl, keycloakUserRoot } from "./keycloak.fixtures.ts";
 
 const center = { url: keycloakUrl, realm: keycloakRealm, clientId: "harness-center", accessToken: "center-token" };

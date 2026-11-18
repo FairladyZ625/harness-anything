@@ -5,14 +5,14 @@ import {
   DEFAULT_NODE_AUTO_CLAIM_POLICY,
   parseNodeAutoClaimPolicy,
   writeNodeAutoClaimPolicy,
-} from "../src/node-auto-claim-config.ts";
+} from "../src/daemon-host/node-auto-claim-config.ts";
 import {
   decideNodeAutoClaim,
   nodeAutoClaimLeaseKey,
   openNodeAutoClaimLoop,
   parseNodeAutoClaimCandidates,
   parseNodeAutoClaimSnapshot,
-} from "../src/node-auto-claim.ts";
+} from "../src/daemon-host/node-auto-claim.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";

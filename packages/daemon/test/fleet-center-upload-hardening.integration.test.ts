@@ -5,8 +5,12 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { connect, type TLSSocket } from "node:tls";
 import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
-import { FLEET_UPLOAD_MAX_BYTES, type FleetDescriptor, type FleetFrameV1 } from "../src/fleet/command-protocol.ts";
-import { readFleetRepositoryMetadataClient, runFleetUploadClient } from "../src/fleet/peer.ts";
+import {
+  FLEET_UPLOAD_MAX_BYTES,
+  type FleetDescriptor,
+  type FleetFrameV1,
+} from "../src/daemon-host/fleet/command-protocol.ts";
+import { readFleetRepositoryMetadataClient, runFleetUploadClient } from "../src/daemon-host/fleet/peer.ts";
 import { fleetFixture, rawPeer, replicaQuota } from "./fleet-tls-session.fixture.ts";
 
 const beginFrame = (repoId: string, messageId: string, size: number, seed = messageId): FleetFrameV1 => ({

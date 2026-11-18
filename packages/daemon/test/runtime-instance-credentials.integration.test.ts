@@ -5,16 +5,19 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { credentialPort, type CredentialPort } from "../src/agent-runtime-credential-port.ts";
-import { openRuntimeInstanceStore } from "../src/agent-runtime-instance-store.ts";
-import { runtimeInstanceCredentialService } from "../src/runtime-instance-credentials.ts";
+import { credentialPort, type CredentialPort } from "../src/daemon-host/agent-runtime-credential-port.ts";
+import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instance-store.ts";
+import { runtimeInstanceCredentialService } from "../src/daemon-host/runtime-instance-credentials.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { registerBootstrappedDaemonRepo, openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { localUserDaemonEndpoint, assertRuntimeCredentialEndpoint } from "../src/client/local-daemon-target.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import {
+  localUserDaemonEndpoint,
+  assertRuntimeCredentialEndpoint,
+} from "../src/daemon-host/client/local-daemon-target.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
 import { createLocalGuiServiceBridge } from "../../gui/src/main/local-composition-root.ts";
 
 const keyA = "fixture-provider-key-a",

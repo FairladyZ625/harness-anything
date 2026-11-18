@@ -1,4 +1,4 @@
-import { createEventShapeMigrationEvent } from "@harness-anything/kernel";
+import { createEventShapeMigrationEvent } from "@harness-anything/kernel/internal/domain/event-shape-migration-event.ts";
 import type { ActorIdentity } from "@harness-anything/kernel/internal/domain/actor-identity.ts";
 import {
   eventShapeMigrationNames,

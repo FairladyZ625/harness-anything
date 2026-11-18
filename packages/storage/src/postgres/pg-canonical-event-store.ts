@@ -1,20 +1,21 @@
-import { existsSync, lstatSync, readFileSync } from "node:fs";
-import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
-import { canonicalDocumentClaims } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
-import { readNodeMaterializationDocuments, requireTaskMaterializationMetadata } from "../storage-backend.ts";
-import {
-  ledgerCommitSha,
-  serializePersistedCanonicalEvent,
-} from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import path from "node:path";
+import { readAuthoredNode } from "../authored-node-read.ts";
+import { resolvePostgresEventStoreScope } from "../pg/backend.ts";
 import {
-  isTaskEvent,
-  resolveHarnessLayout,
-  type CanonicalEventV1,
-  type CanonicalFollowerFacet,
-  type PublicationWrite,
-} from "@harness-anything/kernel";
-import { sha256Bytes, sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
+  createPgTaskQueryReader,
+  type PgQueryConnectionOptions,
+  type PgTaskQueryReader,
+} from "../pg/pg-task-query-reader.ts";
+import {
+  serializePersistedCanonicalEvent,
+  type LedgerCommitSha,
+} from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
+import { canonicalDocumentClaims } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
+import { isTaskEvent } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
+import { resolveHarnessLayout } from "@harness-anything/kernel/internal/layout/index.ts";
+import type { CanonicalEventV1 } from "@harness-anything/kernel";
+import type { HarnessLayoutInput } from "@harness-anything/kernel/internal/layout/index.ts";
+import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import {
   canonicalEventCut,
   canonicalLedgerCut,
@@ -24,34 +25,80 @@ import {
   type CanonicalEventStore,
   type CanonicalCommandOutcome,
   type CanonicalEventAppendReceipt,
+  type MaterializationHealth,
+  type MaterializationReceipt,
+  type MaterializationRequest,
 } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
-import { createSqlTaskQueryReader } from "../pg/sql-task-query-reader.ts";
 import { validateContentRange } from "../content-blob-range.ts";
+import type { PGliteStorageBackendConfig, PostgresStorageBackendConfig } from "../storage-backend.ts";
 import type { PostgresTaskEventStoreOptions, PGliteTaskEventStoreOptions } from "../store/task-event-store-factory.ts";
-import { applyCanonicalTree } from "../canonical-tree-materialization.ts";
-import { resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
-import { localGitObjectRefStore, localGitWorktreeSettlement } from "../store/local-version-control-system.ts";
-import { certifiedFollowerRevision, followerFilesFromDocumentHeads } from "../store/sqlite-task-event-publication.ts";
-import { publishFollowerCut } from "../store/task-event-store-git-refs.ts";
-import { projectionManagedPath, restoreCanonicalDocumentSelection } from "../store/sqlite-task-event-materialize.ts";
-import { createDurableFollowerPublisher } from "../store/durable-follower-publisher.ts";
-import { ledgerAuthoredPath, ledgerGitPath } from "../store/ledger-git-layout.ts";
+
+export interface PgGitFollowerHandle {
+  readonly currentCommit: () => LedgerCommitSha | null;
+  readonly followerStatus: CanonicalEventStore["followerStatus"];
+  readonly materialize: CanonicalEventStore["materialize"];
+  readonly materializationHealth: CanonicalEventStore["materializationHealth"];
+  readonly settlePendingMaterialization: NonNullable<CanonicalEventStore["settlePendingMaterialization"]>;
+  readonly request: () => void;
+  readonly drain: () => Promise<void>;
+}
+
+export interface PgGitFollowerMountContext {
+  readonly options: PostgresTaskEventStoreOptions | PGliteTaskEventStoreOptions;
+  readonly rootInput: HarnessLayoutInput | undefined;
+  readonly reader: PgTaskQueryReader;
+  readonly head: CanonicalEventStore["readHead"];
+  readonly readContentBlob: CanonicalEventStore["readContentBlob"];
+  readonly writable: () => void;
+  readonly acceptedRetired: () => ReadonlyMap<string, string>;
+  readonly retainRetiredPaths: (settledPaths?: readonly string[]) => void;
+  readonly checkpointSource: {
+    readonly metadata: () => { readonly repoId: string; readonly generation: number; readonly revision: number };
+    readonly eventIdentityAtRevision: (revision: number) => {
+      readonly revision: number;
+      readonly opId: string;
+      readonly eventDigest: `sha256:${string}`;
+    } | null;
+  };
+}
+
+export type PgSqlQueryReaderFactory = (
+  options: Omit<PgQueryConnectionOptions, "scope"> & {
+    readonly storage: PostgresStorageBackendConfig | PGliteStorageBackendConfig;
+    readonly requireRuntimeRole?: boolean;
+    readonly epochAuthority?: boolean;
+  },
+) => PgTaskQueryReader;
+
+export type PgCanonicalEventStoreOptions = (PostgresTaskEventStoreOptions | PGliteTaskEventStoreOptions) & {
+  /** Override query reader owner (e.g. PGlite injection from @harness-anything/storage/pglite). */
+  readonly createReader?: PgSqlQueryReaderFactory;
+  /** Optional host/legacy Git follower attachment. Pure PG writer-cells omit this to stay subprocess-free. */
+  readonly attachGitFollower?: (context: PgGitFollowerMountContext) => PgGitFollowerHandle;
+};
 
 /**
- * One handle belongs to the single writer. Its synchronous bridge can wait in SyncRep;
- * concurrent reads must open independent product reader handles on another thread.
- * The host retains the writer slot until the underlying response, even after caller detach.
+ * One handle belongs to the single writer. Its synchronous bridge waits only inside DB SyncRep TX;
+ * concurrent reads open independent product reader handles on another thread.
  */
 export function makePgCanonicalEventStore(
-  options: PostgresTaskEventStoreOptions | PGliteTaskEventStoreOptions,
+  options: PgCanonicalEventStoreOptions,
 ): CanonicalEventStore & { readonly pruneReplicationLog: (beforeSequence: number) => void } {
   const rootInput = options.rootInput ?? options.rootDir,
-    reader = createSqlTaskQueryReader({
-      storage: options.storage,
-      repoId: options.repoId,
-      requireRuntimeRole: true,
-      ...(rootInput === undefined ? {} : { authoredRoot: resolveHarnessLayout(rootInput).authoredRoot }),
-    }),
+    authoredRoot = rootInput === undefined ? undefined : resolveHarnessLayout(rootInput).authoredRoot,
+    reader = options.createReader
+      ? options.createReader({
+          storage: options.storage,
+          repoId: options.repoId,
+          requireRuntimeRole: true,
+          ...(authoredRoot === undefined ? {} : { authoredRoot }),
+        })
+      : openPostgresOnlyReader({
+          storage: options.storage,
+          repoId: options.repoId,
+          requireRuntimeRole: true,
+          ...(authoredRoot === undefined ? {} : { authoredRoot }),
+        }),
     execute = reader.executeCanonical,
     head: CanonicalEventStore["readHead"] = () =>
       execute({ operation: "head" }) as ReturnType<CanonicalEventStore["readHead"]>,
@@ -82,200 +129,43 @@ export function makePgCanonicalEventStore(
       if (options.mutable === false) throw new TaskEventStoreError("invalid_write_plan", "event reader is read-only");
     },
     fence = () => options.writerFence?.() ?? { repoId: options.repoId, holderId: "direct-store", epoch: 1 };
-  let acceptedRetired = new Map<string, string>(),
-    worktree: CanonicalFollowerFacet = { status: "pending", cut: null, commitSha: null },
-    git: CanonicalFollowerFacet = {
-      status: "pending",
-      cut: null,
-      commitSha: null,
-      reason: "Git follower is not configured",
-    };
-  const publishConfirmedFollower = (
-    request?: Parameters<CanonicalEventStore["materialize"]>[0],
-  ): ReturnType<CanonicalEventStore["materialize"]> => {
-    writable();
-    const cut = canonicalLedgerCut(options.repoId, head()),
-      rootInput = options.rootInput ?? options.rootDir,
-      materializeTree = options.storage.materialize !== false;
-    if (options.storage.nodeTaskMaterializationPolicy === "none" && request === undefined) {
-      git = { status: "pending", cut, commitSha: null, reason: "Skipped by node policy" };
-      worktree = { status: "verified", cut, commitSha: null, conflicts: [] };
-      return { status: "visible", commitSha: null, settlements: [], conflicts: [] };
-    }
-    if (!materializeTree && request)
-      throw new TaskEventStoreError("materialization_failed", "Authored tree materialization is disabled");
-    if (rootInput === undefined) {
-      if (request)
-        throw new TaskEventStoreError("materialization_failed", "No authored tree is configured for this repository");
-      return { status: "visible", commitSha: null, settlements: [], conflicts: [] };
-    }
-    const preserveExistingOnly =
-      request?.reconcileNodePolicy && options.storage.nodeTaskMaterializationPolicy === "none";
-    const requirePreviousPaths = (paths: readonly string[]) => {
-      if (preserveExistingOnly) {
-        const prior = new Set(paths);
-        for (const path of entries.keys()) if (!prior.has(path)) entries.delete(path);
+  let acceptedRetired = new Map<string, string>();
+
+  const gitFollower = options.attachGitFollower?.({
+    options,
+    rootInput,
+    reader,
+    head,
+    readContentBlob,
+    writable,
+    acceptedRetired: () => acceptedRetired,
+    retainRetiredPaths: (settledPaths) => {
+      if (!settledPaths) {
+        acceptedRetired = new Map();
+        return;
       }
-      if (paths.some((path) => path.startsWith("tasks/task_") && path.split("/").length > 2))
-        reader.withSession((q) => requireTaskMaterializationMetadata(q, paths));
-    };
-    const layout = resolveHarnessLayout(rootInput),
-      documents =
-        materializeTree || options.storage.gitFollower
-          ? reader.withSession((q) =>
-              readNodeMaterializationDocuments(
-                q,
-                preserveExistingOnly ? "in_flight" : (options.storage.nodeTaskMaterializationPolicy ?? "include_done"),
-                request?.paths,
-              ),
-            )
-          : [],
-      entries = new Map(documents.map((doc) => [doc.path, { sha256: doc.blobSha256 }])),
-      restored =
-        request?.paths && !request.preview
-          ? restoreCanonicalDocumentSelection({
-              ledger: { rootDir: layout.authoredRoot, authoredRoot: layout.authoredRoot, authoredPrefix: "" },
-              layout,
-              headDigest: cut.headDigest,
-              paths: request.paths,
-              canonical: new Map(
-                documents
-                  .filter((doc) => request.paths!.includes(doc.path))
-                  .map((doc) => [
-                    doc.path,
-                    { target: doc.path, mode: "100644" as const, body: readContentBlob(doc.blobSha256)! },
-                  ]),
-              ),
-              killpoint: options.killpoint,
-              withFence: options.withAppendFence,
-            })
-          : null,
-      result = materializeTree
-        ? applyCanonicalTree({
-            layout,
-            markerPath: path.join(layout.localRoot, "fleet-materialized.json"),
-            requirePreviousPaths,
-            generation: 3,
-            revision: cut.revision,
-            entries,
-            preview: request?.preview,
-            selectedPaths: request?.preview ? undefined : request?.paths,
-            acceptedRetired: new Map(acceptedRetired),
-            readHistoricalDocument: (logical) =>
-              reader.withSession((q) => q.readDocumentHistory?.(logical)?.document ?? null),
-            readContent: (logical) => readContentBlob(entries.get(logical)!.sha256),
-            withFence: options.withAppendFence,
-          })
-        : { settlements: [], dirtyPaths: [] };
-    if (materializeTree && !request?.preview) {
-      const settled = request?.paths ? new Set(request.paths) : null;
-      acceptedRetired = settled
-        ? new Map([...acceptedRetired].filter(([logical]) => !settled.has(logical)))
-        : new Map();
-    }
-    if (request?.preview)
-      return {
-        status: "planned",
-        commitSha: git.commitSha ? ledgerCommitSha(options.repoId, git.commitSha) : null,
-        settlements: result.settlements,
-        conflicts: result.dirtyPaths,
-      };
-    const conflicts = [
-      ...new Set([
-        ...result.dirtyPaths,
-        ...(restored?.conflicts ?? []),
-        ...(request?.paths ? (worktree.conflicts ?? []).filter((logical) => !request.paths!.includes(logical)) : []),
-      ]),
-    ];
-    worktree = materializeTree
-      ? {
-          status: conflicts.length === 0 ? "verified" : "pending",
-          cut,
-          commitSha: null,
-          conflicts,
-        }
-      : { status: "pending", cut: null, commitSha: null, reason: "Authored tree materialization is disabled" };
-    const follower = options.storage.gitFollower;
-    if (follower && cut.revision > 0) {
-      const ledger = resolveLedgerGitLayout(rootInput),
-        authoredRef = `refs/heads/${follower.branch}`,
-        parent = localGitObjectRefStore.resolveCommit(ledger.rootDir, authoredRef),
-        checkpoint =
-          git.commitSha === parent && git.cut
-            ? git.cut.revision
-            : certifiedFollowerRevision(ledger, parent, checkpointSource),
-        files = followerFilesForNodePolicy({
-          ledger,
-          documents: preserveExistingOnly ? documents.filter(({ path }) => entries.has(path)) : documents,
-          parent,
-          readContent: readContentBlob,
-          requirePreviousPaths,
-          knownDocumentPaths: (paths) => {
-            const known = new Set<string>(),
-              size = storageReadPolicy.defaultValue.pageSizes.standard;
-            for (let offset = 0; offset < paths.length; offset += size)
-              for (const path of reader.executeCanonical({
-                operation: "document-paths",
-                paths: paths.slice(offset, offset + size),
-              }) as readonly string[])
-                known.add(path);
-            return known;
-          },
-          cut,
-        }),
-        commit = publishFollowerCut(ledger.rootDir, authoredRef, parent, checkpoint, cut, files, {
-          killpoint: options.killpoint,
-          withFence: options.withAppendFence,
-        });
-      git = { status: "verified", cut, commitSha: commit };
-      if (materializeTree) {
-        localGitWorktreeSettlement.index(ledger.rootDir, files, false, options.withAppendFence);
-        // followerFiles puts its generated cut manifest last; authored documents were settled by
-        // the common tree owner above, which preserves concurrent edits instead of overwriting them.
-        localGitWorktreeSettlement.visible(ledger.rootDir, [files.at(-1)! as PublicationWrite], {
-          withFence: options.withAppendFence,
-        });
-      }
-    }
-    return {
-      status: "visible",
-      commitSha: git.commitSha ? ledgerCommitSha(options.repoId, git.commitSha) : null,
-      settlements: restored?.settlements ?? result.settlements,
-      conflicts: restored?.conflicts ?? result.dirtyPaths,
-    };
-  };
-  // Acceptance and follower publication are separate: this detached consumer always rereads the
-  // current PG cut, so its failure cannot turn a committed append into an ambiguous write result.
-  const publishFollower: typeof publishConfirmedFollower = (request) => {
-    try {
-      return publishConfirmedFollower(request);
-    } catch (error) {
-      if (error instanceof Error && error.message === "sync_replication_unconfirmed") {
-        worktree = { ...worktree, status: "pending", reason: error.message };
-        git = { ...git, status: "pending", reason: error.message };
-      }
-      // The existing durable publisher owns retry/backoff; no tree or ref was mutated before the read cut.
-      throw error;
-    }
-  };
-  const publisher = createDurableFollowerPublisher({
-    publish: publishFollower,
-    withFence: options.withAppendFence,
-    revision: () => head()?.revision ?? 0,
-    checkpoint: () =>
-      Math.min(
-        options.storage.materialize === false ? Infinity : (worktree.cut?.revision ?? 0),
-        options.storage.gitFollower ? (git.cut?.revision ?? 0) : (head()?.revision ?? 0),
-      ),
-    onHealthChange: options.onMaterializationHealthChange,
+      const settled = new Set(settledPaths);
+      acceptedRetired = new Map([...acceptedRetired].filter(([logical]) => !settled.has(logical)));
+    },
+    checkpointSource,
   });
-  if (options.mutable !== false) void publisher.request();
+
+  const emptyHealth = (): MaterializationHealth => {
+    const revision = head()?.revision ?? 0;
+    return {
+      state: "ok",
+      lastCheckpointRevision: revision,
+      lastCheckpointAt: null,
+      pendingWalEvents: 0,
+    };
+  };
+
   return {
     canonicalRef: "postgres:canonical",
     read: () => execute({ operation: "stream" }) as ReturnType<CanonicalEventStore["read"]>,
     readHead: head,
     currentCut: () => canonicalLedgerCut(options.repoId, head()),
-    currentCommit: () => (git.commitSha ? ledgerCommitSha(options.repoId, git.commitSha) : null),
+    currentCommit: () => (gitFollower ? gitFollower.currentCommit() : null),
     publication: (event) => ({ commitSha: null, cut: canonicalEventCut(options.repoId, event) }),
     readEvent,
     readEventAtRevision: (value) => execute({ operation: "event", key: "revision", value }) as CanonicalEventV1 | null,
@@ -291,7 +181,13 @@ export function makePgCanonicalEventStore(
     },
     readCommandOutcome: (opId) => execute({ operation: "outcome", opId }) as CanonicalCommandOutcome | null,
     ledgerMetadata: () => ({ repoId: options.repoId, generation: 3, revision: head()?.revision ?? 0 }),
-    followerStatus: () => ({ git, worktree }),
+    followerStatus: () =>
+      gitFollower
+        ? gitFollower.followerStatus()
+        : {
+            git: { status: "pending", cut: null, commitSha: null, reason: "Git follower is host-managed" },
+            worktree: { status: "pending", cut: null, commitSha: null, reason: "Git follower is host-managed" },
+          },
     readBatch: (cursor, maxItems) =>
       execute({ operation: "batch", cursor, maxItems }) as ReturnType<CanonicalEventStore["readBatch"]>,
     readContentBlob,
@@ -305,24 +201,26 @@ export function makePgCanonicalEventStore(
       if (appendAuthoredRoot !== null)
         for (const member of [...(bundle.preceding ?? []), bundle])
           for (const claim of canonicalDocumentClaims(member.event)) {
-            const target = path.join(appendAuthoredRoot, ...claim.path.split("/"));
-            if (existsSync(target) && lstatSync(target).isFile() && sha256Bytes(readFileSync(target)) === claim.sha256)
-              acceptedClaims.set(claim.path, claim.sha256);
+            const node = readAuthoredNode(path.join(appendAuthoredRoot, ...claim.path.split("/")));
+            if (node?.isFile && node.sha256 === claim.sha256) acceptedClaims.set(claim.path, claim.sha256);
           }
-      const receipt = execute({
-        operation: "append",
-        bundle,
-        expectedRevision: bundle.preceding?.[0]?.event.workspaceRevision
-          ? bundle.preceding[0].event.workspaceRevision - 1
-          : bundle.event.workspaceRevision - 1,
-        writerFence: fence(),
-      }) as CanonicalEventAppendReceipt;
+      const receipt = options.canonicalWriter
+        ? options.canonicalWriter.append(bundle)
+        : (execute({
+            operation: "append",
+            bundle,
+            expectedRevision: bundle.preceding?.[0]?.event.workspaceRevision
+              ? bundle.preceding[0].event.workspaceRevision - 1
+              : bundle.event.workspaceRevision - 1,
+            writerFence: fence(),
+          }) as CanonicalEventAppendReceipt);
       for (const [logical, digest] of acceptedClaims) acceptedRetired.set(logical, digest);
-      void publisher.request();
+      gitFollower?.request();
       return receipt;
     },
     appendRejection: (rejection) => {
       writable();
+      if (options.canonicalWriter) return options.canonicalWriter.appendRejection(rejection);
       return execute({
         operation: "reject",
         rejection,
@@ -330,56 +228,42 @@ export function makePgCanonicalEventStore(
         writerFence: fence(),
       }) as CanonicalCommandOutcome;
     },
-    materialize: publisher.publish,
-    materializationHealth: publisher.health,
-    settlePendingMaterialization: publisher.request,
+    materialize: (request?: MaterializationRequest): MaterializationReceipt =>
+      gitFollower
+        ? gitFollower.materialize(request)
+        : { status: request?.preview ? "planned" : "visible", commitSha: null, settlements: [], conflicts: [] },
+    materializationHealth: () => (gitFollower ? gitFollower.materializationHealth() : emptyHealth()),
+    settlePendingMaterialization: async (context) => {
+      if (gitFollower) await gitFollower.settlePendingMaterialization(context);
+    },
     drain: async () => {
-      await publisher.drain();
+      if (gitFollower) await gitFollower.drain();
       reader.close();
     },
     pruneReplicationLog: (beforeSequence) => {
       writable();
-      execute({ operation: "prune", beforeSequence, writerFence: fence() });
+      if (options.canonicalWriter) options.canonicalWriter.pruneReplicationLog(beforeSequence);
+      else execute({ operation: "prune", beforeSequence, writerFence: fence() });
     },
   };
 }
 
-/** Build the local Git follower from the policy-filtered projection and retain event retirements for other paths. */
-function followerFilesForNodePolicy(input: {
-  readonly ledger: ReturnType<typeof resolveLedgerGitLayout>;
-  readonly documents: readonly {
-    readonly path: string;
-    readonly blobSha256: string;
-    readonly size: number;
-    readonly nodeKind?: "file" | "symbolic-link" | null;
-  }[];
-  readonly parent: string;
-  readonly readContent: (sha256: string) => Uint8Array | null;
-  readonly cut: ReturnType<typeof canonicalLedgerCut>;
-  readonly requirePreviousPaths?: (paths: readonly string[]) => void;
-  readonly knownDocumentPaths: (paths: readonly string[]) => ReadonlySet<string>;
-}): readonly (PublicationWrite | { readonly delete: string })[] {
-  const projected = followerFilesFromDocumentHeads(
-      input.ledger,
-      input.documents.map((document) => ({
-        path: document.path,
-        sha256: document.blobSha256,
-        size: document.size,
-        nodeKind: document.nodeKind ?? "file",
-      })),
-      input.readContent,
-      input.cut,
-      3,
-    ),
-    projectedLogical = new Set(input.documents.map(({ path: documentPath }) => documentPath)),
-    previous = localGitObjectRefStore
-      .listTree(input.ledger.rootDir, input.parent, [ledgerGitPath(input.ledger, "").replace(/\/$/u, "") || "."])
-      .map(({ target }) => ({ target, logical: ledgerAuthoredPath(input.ledger, target) }));
-  const known = input.knownDocumentPaths(previous.map(({ logical }) => logical)),
-    owned = previous.filter(({ logical }) => known.has(logical));
-  input.requirePreviousPaths?.(owned.map(({ logical }) => logical));
-  const staleManaged = owned
-    .filter(({ logical }) => projectionManagedPath(logical) && !projectedLogical.has(logical))
-    .map(({ target }) => ({ delete: target }));
-  return [...projected, ...staleManaged];
+function openPostgresOnlyReader(
+  options: Omit<PgQueryConnectionOptions, "scope"> & {
+    readonly storage: PostgresStorageBackendConfig | PGliteStorageBackendConfig;
+    readonly requireRuntimeRole?: boolean;
+    readonly epochAuthority?: boolean;
+  },
+): PgTaskQueryReader {
+  if (options.storage.backend !== "postgres") {
+    throw new Error("makePgCanonicalEventStore requires createReader injection for non-Postgres SQL backends");
+  }
+  const { storage, requireRuntimeRole, epochAuthority, ...connection } = options;
+  return createPgTaskQueryReader({
+    ...connection,
+    scope: resolvePostgresEventStoreScope(storage.scope),
+    connectionString: storage.connectionString,
+    authorityConnectionString: epochAuthority ? storage.authorityConnectionString : undefined,
+    requireRuntimeRole,
+  });
 }

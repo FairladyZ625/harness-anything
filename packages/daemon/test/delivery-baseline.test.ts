@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { observeDeliveryBaseline } from "../src/repo-cell-proof.ts";
+import { observeDeliveryBaseline } from "../src/daemon-host/repo-cell-proof.ts";
 
 function git(root: string, ...args: string[]): string {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();

@@ -24,22 +24,22 @@ import {
   contentClaims,
   preflightConvertedGenerationActivation,
 } from "../../storage/test/store/canonical-generation.fixtures.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { causeClassOf, chainRepoCellWrite, type RepoCell } from "../src/repo-cell.ts";
-import type { RepoCellQueueObservation } from "../src/repo-cell-types.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { causeClassOf, chainRepoCellWrite, type RepoCell } from "../src/daemon-host/repo-cell.ts";
+import type { RepoCellQueueObservation } from "../src/daemon-host/repo-cell-types.ts";
 import {
   fixtureFence,
   openBootstrappedRepoCell as openRepoCell,
   settleSettingsEvent,
 } from "./repo-settings.fixture.ts";
-import { openWriterSupervisor, type WriterSupervisor } from "../src/writer-supervisor.ts";
-import type { RepoWriterStatusV1 } from "../src/repo-writer-protocol.ts";
-import { openRepoWriterCell } from "../src/repo-cell-open.ts";
-import { projectedTaskIds } from "../src/repo-cell-receipts.ts";
-import { cellCodedError } from "../src/repo-cell-errors.ts";
-import { recoveryCommandPolicy } from "../src/recovery-state.ts";
-import { enqueueRuntimePublication } from "../src/runtime-publication-queue.ts";
-import type { RepoCellApiContext } from "../src/repo-cell-types.ts";
+import { openWriterSupervisor, type WriterSupervisor } from "../src/daemon-host/writer-supervisor.ts";
+import type { RepoWriterStatusV1 } from "../src/daemon-host/repo-writer-protocol.ts";
+import { openRepoWriterCell } from "../src/daemon-host/repo-cell-open.ts";
+import { projectedTaskIds } from "../src/daemon-host/repo-cell-receipts.ts";
+import { cellCodedError } from "../src/daemon-host/repo-cell-errors.ts";
+import { recoveryCommandPolicy } from "../src/daemon-host/recovery-state.ts";
+import { enqueueRuntimePublication } from "../src/daemon-host/runtime-publication-queue.ts";
+import type { RepoCellApiContext } from "../src/daemon-host/repo-cell-types.ts";
 
 const actor = { principal: { personId: "person-latch" }, executor: null } as const;
 

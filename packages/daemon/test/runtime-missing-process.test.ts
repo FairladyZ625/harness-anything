@@ -12,16 +12,16 @@ import {
   archiveDispatchStream,
   openDispatchStream,
   readDispatchStream,
-} from "../src/dispatch-stream.ts";
+} from "../src/daemon-host/dispatch-stream.ts";
 import { attachReceiptAcceptance } from "@harness-anything/kernel";
-import { validateDaemonGuiCommandReceipt } from "../src/protocol/daemon-protocol.contract.ts";
-import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
-import { runtimeSpawnError } from "../src/runtime-spawn-errors.ts";
-import { cancelRuntime, closeRuntimes, steerRuntime } from "../src/runtime-spawn-control.ts";
-import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
-import { ModelSlotQueue } from "../src/runtime/model-slot-queue.ts";
-import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
-import type { RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
+import { validateDaemonGuiCommandReceipt } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { adoptRuntimes } from "../src/daemon-host/runtime-spawn-adoption.ts";
+import { runtimeSpawnError } from "../src/runtime-engine/runtime-spawn-errors.ts";
+import { cancelRuntime, closeRuntimes, steerRuntime } from "../src/daemon-host/runtime-spawn-control.ts";
+import { makeRuntimeSpawner } from "../src/daemon-host/runtime-spawner.ts";
+import { ModelSlotQueue } from "../src/daemon-host/runtime/model-slot-queue.ts";
+import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
+import type { RuntimeSpawnerInput } from "../src/daemon-host/runtime-spawn-types.ts";
 import {
   dispatchLifecycleReadOf,
   emptyDispatchLifecycleRead,

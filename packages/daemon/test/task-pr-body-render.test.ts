@@ -6,8 +6,8 @@ import test from "node:test";
 import type { SubmissionV1, TaskProjectionQueries } from "@harness-anything/kernel";
 import { checkPrBody } from "../../../tools/check-pr-body.mjs";
 import { checkPrGovernance } from "../../../tools/check-pr-governance.mjs";
-import { publishTaskWorkerBranch } from "../src/runtime-task-publication.ts";
-import { taskPrBodyRenderer } from "../src/task-pr-body-render.ts";
+import { publishTaskWorkerBranch } from "../src/daemon-host/runtime-task-publication.ts";
+import { taskPrBodyRenderer } from "../src/daemon-host/task-pr-body-render.ts";
 import {
   git,
   publishExit,

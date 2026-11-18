@@ -8,8 +8,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Worker } from "node:worker_threads";
-import { connectSocket, requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
+import { connectSocket, requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 
 for (const transport of ["local", "tcp"] as const) {
   test(`${transport}: an accepted connection survives a caller stalled before polling connect`, async (context) => {

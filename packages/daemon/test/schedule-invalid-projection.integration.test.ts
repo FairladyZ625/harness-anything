@@ -7,10 +7,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
-import type { SchedulesListResult } from "../src/protocol/schedules-gui-contract.ts";
-import type { RepoCell } from "../src/repo-cell.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import type { SchedulesListResult } from "../src/daemon-host/protocol/schedules-gui-contract.ts";
+import type { RepoCell } from "../src/daemon-host/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 
 const actor = withPolicyGroup(

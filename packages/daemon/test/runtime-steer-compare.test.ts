@@ -8,10 +8,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { attachReceiptAcceptance } from "@harness-anything/kernel";
-import { openDispatchStream, readDispatchStream } from "../src/dispatch-stream.ts";
-import { validateDaemonGuiCommandReceipt } from "../src/protocol/daemon-protocol.contract.ts";
-import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
-import { steerRuntime } from "../src/runtime-spawn-control.ts";
+import { openDispatchStream, readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { validateDaemonGuiCommandReceipt } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { evaluateRepoCellAction } from "../src/daemon-host/repo-cell-authorization.ts";
+import { steerRuntime } from "../src/daemon-host/runtime-spawn-control.ts";
 
 const binding = { actor: { principal: { personId: "operator" }, executor: null }, source: "local" as const };
 const A = "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa",

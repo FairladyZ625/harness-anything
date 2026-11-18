@@ -1,11 +1,10 @@
-import { EventEmitter } from "node:events";
+import { PortQueryEndpoint } from "../pg/port-query-endpoint.ts";
 import { extname, resolve } from "node:path";
 import { MessageChannel, MessagePort, Worker } from "node:worker_threads";
 import {
   createPgTaskQueryReader,
   waitForPgQueryWorker,
   restorePgQueryError,
-  type PgQueryEndpoint,
   type PgQueryConnectionOptions,
   type PgTaskQueryReader,
 } from "../pg/pg-task-query-reader.ts";
@@ -106,7 +105,7 @@ export function createPGliteTaskQueryReader(
         },
         [input.responsePort],
       );
-      return new PortEndpoint(input.requestPort);
+      return new PortQueryEndpoint(input.requestPort);
     });
     return {
       ...reader,
@@ -229,23 +228,4 @@ function acquireOwner(options: PgQueryConnectionOptions & { readonly storage: PG
       }
     },
   };
-}
-
-class PortEndpoint extends EventEmitter implements PgQueryEndpoint {
-  private readonly port: MessagePort;
-  constructor(port: MessagePort) {
-    super();
-    this.port = port;
-    port.on("close", () => this.emit("exit", 0));
-    port.on("messageerror", (error: Error) => this.emit("error", error));
-  }
-  postMessage(value: unknown): void {
-    this.port.postMessage(value);
-  }
-  terminate(): void {
-    this.port.close();
-  }
-  unref(): void {
-    this.port.unref();
-  }
 }

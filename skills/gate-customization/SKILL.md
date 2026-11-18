@@ -346,7 +346,7 @@ only the short result needed to show the documented behavior.
   inputs.
 - `packages/preset/src/preset-runtime.ts` merges vertical and preset
   declarations, resolves profile gate ids, and checks command entrypoints.
-- `packages/daemon/src/repo-cell-command-witness.ts` runs command witnesses
+- `packages/daemon/src/daemon-host/repo-cell-command-witness.ts` runs command witnesses
   against accepted submission artifacts, not the mutable working directory.
 - `packages/kernel/src/domain/settings-closeout.ts` resolves domain defaults
   under repository and task-profile overrides.

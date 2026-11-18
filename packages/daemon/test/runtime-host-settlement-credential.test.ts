@@ -7,8 +7,8 @@ import {
   issueRuntimeExecutionCredential,
   readRuntimeExecutionPrincipal,
   executionCredentialRejected,
-} from "../src/runtime-execution-credential.ts";
-import { requireCurrentExecutionScope } from "../src/runtime-execution-scope.ts";
+} from "../src/daemon-host/runtime-execution-credential.ts";
+import { requireCurrentExecutionScope } from "../src/daemon-host/runtime-execution-scope.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 import { center, principal, executionLifecycle } from "./runtime-execution-credential.fixtures.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";

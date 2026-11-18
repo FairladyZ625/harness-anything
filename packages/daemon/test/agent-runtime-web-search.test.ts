@@ -5,14 +5,17 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { AgentRuntimeEventV1 } from "@harness-anything/kernel";
-import { launchArgs } from "../src/agent-runtime-launch-config.ts";
-import { runtimeInstanceConfig } from "../src/agent-runtime-instance-config.ts";
-import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import type { RuntimeInstanceConfig } from "../src/agent-runtime-instance-types.ts";
-import { runtimeSpawnReceipt } from "../src/runtime-spawn-receipt.ts";
-import { runtimeKinds } from "../src/runtime-inventory.ts";
-import { runtimeWebSearchVersionGate } from "../src/runtime-version.ts";
-import type { RuntimeWebSearchMode } from "../src/runtime-inventory.ts";
+import { launchArgs } from "../src/daemon-host/agent-runtime-launch-config.ts";
+import { runtimeInstanceConfig } from "../src/daemon-host/agent-runtime-instance-config.ts";
+import {
+  openRuntimeInstanceStore,
+  type RuntimeInstallationWitness,
+} from "../src/daemon-host/agent-runtime-instances.ts";
+import type { RuntimeInstanceConfig } from "../src/daemon-host/agent-runtime-instance-types.ts";
+import { runtimeSpawnReceipt } from "../src/runtime-engine/runtime-spawn-receipt.ts";
+import { runtimeKinds } from "../src/runtime-engine/runtime-inventory.ts";
+import { runtimeWebSearchVersionGate } from "../src/daemon-host/runtime-version.ts";
+import type { RuntimeWebSearchMode } from "../src/runtime-engine/runtime-inventory.ts";
 import {
   allowedWebSearchModesInPolicy,
   decodeCodexManagedPolicyPreference,
@@ -20,7 +23,7 @@ import {
   runtimeWebSearchForConfig,
   runtimeWebSearchModelGate,
   runtimeWebSearchPolicyConflict,
-} from "../src/agent-runtime-web-search.ts";
+} from "../src/daemon-host/agent-runtime-web-search.ts";
 
 const witness: RuntimeInstallationWitness = {
   installationId: "codex-installation-web-search",

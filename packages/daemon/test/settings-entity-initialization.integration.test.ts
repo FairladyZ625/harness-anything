@@ -6,12 +6,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openFencedRepoCell } from "./repo-settings.fixture.ts";
-import { resolveRepoBootstrap } from "../src/repo-bootstrap.ts";
+import { resolveRepoBootstrap } from "../src/daemon-host/repo-bootstrap.ts";
 import { openPersistentWriterEpoch } from "@harness-anything/storage";
-import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
+import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/auth-context.ts";
 
 // Typed through the sanctioned fixture, never through packages/daemon/src/repo-cell directly:
 // the import-boundary gate requires tests to obtain repositories from this fixture.

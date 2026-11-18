@@ -5,7 +5,7 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { verifyFleetHuman, verifyFleetReplica } from "@harness-anything/authorization-keycloak/oidc-fleet-principal";
-import { createIdentitySession } from "../src/authorization-provider.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { serveKeycloak } from "./keycloak.fixtures.ts";
 
 const claims = {
@@ -214,7 +214,7 @@ test("the center's local session never supplies a missing edge human credential"
 
 // dec_F01770FD0DCF72683B7C4C7A47: a device client alone never supplies a user session.
 test("Fleet binding requires a request user session even when center authority exists", async () => {
-  const { binding } = await import("../src/daemon-host-binding.ts");
+  const { binding } = await import("../src/daemon-host/daemon-host-binding.ts");
   let centerCalls = 0;
   const auth = {
     transportKind: "fleet-tls" as const,

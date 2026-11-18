@@ -1,8 +1,8 @@
 // harness-test-tier: fast
-import type { RepoCellApiContext } from "../src/repo-cell-types.ts";
+import type { RepoCellApiContext } from "../src/daemon-host/repo-cell-types.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createRepoCellApi } from "../src/repo-cell-api.ts";
+import { createRepoCellApi } from "../src/daemon-host/repo-cell-api.ts";
 
 type Cut = { readonly status: "ready" | "pending"; readonly watermark: number; readonly sourceRevision: number };
 

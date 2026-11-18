@@ -15,7 +15,7 @@ import {
   type ActorIdentity,
   type ArchivedExecutionV0,
 } from "@harness-anything/kernel";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import {
   acceptedWorkDecision,
   openBootstrappedRepoCell as openRepoCell,
@@ -27,9 +27,9 @@ import {
   TASK_ROOT_THRESHOLD_ENV,
   TASK_ROOT_THRESHOLD_SETTING,
   TASK_WIP_LIMIT_ENV,
-} from "../src/task-wip-settings.ts";
+} from "../src/daemon-host/task-wip-settings.ts";
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
+import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
 
 const actor: ActorIdentity = { principal: { personId: "person-wip" }, executor: null } as const;
 type Cell = Awaited<ReturnType<typeof openRepoCell>>;

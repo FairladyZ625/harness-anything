@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { queryPayloadValidation } from "@harness-anything/kernel/internal/domain/query-payload-validation.ts";
-import { validateDaemonRpcCall } from "../src/protocol/daemon-protocol-rpc-validation.ts";
-import { validateDaemonQueryPayload } from "../src/protocol/daemon-protocol-validate-relation-query.ts";
+import { validateDaemonRpcCall } from "../src/daemon-host/protocol/daemon-protocol-rpc-validation.ts";
+import { validateDaemonQueryPayload } from "../src/daemon-host/protocol/daemon-protocol-validate-relation-query.ts";
 
 test("daemon query payload and RPC validation delegate shared facet rules to kernel queryPayloadValidation", () => {
   const repo = { repoId: "repo-1" };

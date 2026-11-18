@@ -13,7 +13,7 @@ test("W3 API registry accepts the exact transport-bound daemon catalog", () =>
 
 test("W3 API registry contracts one owner-targeted steer method through exactly one GUI facet", () =>
   withFixture((root) => {
-    const file = path.join(root, "packages/daemon/src/protocol/daemon-protocol-commands.ts");
+    const file = path.join(root, "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts");
     assert.deepEqual(evaluateApiContractRegistry(root), []);
     writeFileSync(file, validRegistry().replace('dispatchId: "string?", ', ""));
     assert.match(evaluateApiContractRegistry(root).join("\\n"), /runtime steer contract must bind one owner target/u);
@@ -27,7 +27,7 @@ test("W3 API registry contracts one owner-targeted steer method through exactly 
     assert.match(evaluateApiContractRegistry(root).join("\\n"), /exactly one registered method/u);
     // W3-T1: 一个 facet 合法,重复注册才违规(旧「steer 不得进 GUI 面」已由 decision 反转)。
     writeFileSync(
-      path.join(root, "packages/daemon/src/protocol/daemon-protocol-gui-actions.ts"),
+      path.join(root, "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-actions.ts"),
       `${validRuntimeActions()}${validRuntimeActions()}`,
     );
     assert.match(evaluateApiContractRegistry(root).join("\\n"), /must be registered exactly once/u);
@@ -35,7 +35,7 @@ test("W3 API registry contracts one owner-targeted steer method through exactly 
 
 test("W3 API registry rejects an unregistered compatibility method", () =>
   withFixture((root) => {
-    const file = path.join(root, "packages/daemon/src/protocol/daemon-protocol-commands.ts");
+    const file = path.join(root, "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts");
     writeFileSync(
       file,
       validRegistry().replace(
@@ -48,7 +48,7 @@ test("W3 API registry rejects an unregistered compatibility method", () =>
 
 test("W3 API registry rejects repo routing that is not repo-scoped", () =>
   withFixture((root) => {
-    const file = path.join(root, "packages/daemon/src/protocol/daemon-protocol-commands.ts");
+    const file = path.join(root, "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts");
     writeFileSync(
       file,
       validRegistry().replace(
@@ -61,7 +61,7 @@ test("W3 API registry rejects repo routing that is not repo-scoped", () =>
 
 test("W3 API registry rejects an undeclared fleet RPC method", () =>
   withFixture((root) => {
-    const file = path.join(root, "packages/daemon/src/protocol/daemon-protocol-commands.ts");
+    const file = path.join(root, "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts");
     writeFileSync(
       file,
       validRegistry().replace(
@@ -74,7 +74,7 @@ test("W3 API registry rejects an undeclared fleet RPC method", () =>
 
 test("W3 API registry rejects a fleet method without a validated params shape", () =>
   withFixture((root) => {
-    const file = path.join(root, "packages/daemon/src/protocol/daemon-protocol-commands.ts");
+    const file = path.join(root, "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts");
     writeFileSync(file, validRegistry().replace(', params: shape({ payload: shape({ host: "string" }) })', ""));
     assert.match(
       evaluateApiContractRegistry(root).join("\n"),
@@ -90,7 +90,11 @@ test("W3 API registry rejects restoration of the retired task route authority", 
 
 test("W3 API registry rejects loss of payload self-report filtering", () =>
   withFixture((root) => {
-    write(root, "packages/daemon/src/repository-dispatch.ts", validRepositoryDispatch().replace(', "occurredAt"', ""));
+    write(
+      root,
+      "packages/daemon/src/daemon-host/repository-dispatch.ts",
+      validRepositoryDispatch().replace(', "occurredAt"', ""),
+    );
     assert.match(
       evaluateApiContractRegistry(root).join("\n"),
       /missing transport-bound RepoCell authority token occurredAt/u,
@@ -100,12 +104,12 @@ test("W3 API registry rejects loss of payload self-report filtering", () =>
 test("W3 API registry follows a renamed transport-authority module", () =>
   withFixture((root) => {
     renameSync(
-      path.join(root, "packages/daemon/src/transport-binding.ts"),
-      path.join(root, "packages/daemon/src/renamed-authority.ts"),
+      path.join(root, "packages/daemon/src/daemon-host/transport-binding.ts"),
+      path.join(root, "packages/daemon/src/daemon-host/renamed-authority.ts"),
     );
     write(
       root,
-      "packages/daemon/src/transport-composition.ts",
+      "packages/daemon/src/daemon-host/transport-composition.ts",
       validHostComposition().replace("./transport-binding.ts", "./renamed-authority.ts"),
     );
     assert.deepEqual(evaluateApiContractRegistry(root), []);
@@ -138,7 +142,7 @@ for (const [label, before, after] of [
         ["transport-binding.ts", validTransportBinding()],
         ["node-registry.ts", validNodeRegistry()],
       ]) {
-        write(root, `packages/daemon/src/${file}`, source.replace(before, after) + `\n// ${before}\n`);
+        write(root, `packages/daemon/src/daemon-host/${file}`, source.replace(before, after) + `\n// ${before}\n`);
       }
       assert.match(evaluateApiContractRegistry(root).join("\n"), /missing authenticated principal wiring/u);
     }));
@@ -148,7 +152,7 @@ test("API registry rejects a restored roster branch after OIDC binding", () =>
   withFixture((root) => {
     write(
       root,
-      "packages/daemon/src/transport-binding.ts",
+      "packages/daemon/src/daemon-host/transport-binding.ts",
       validTransportBinding().replace(
         "return localDefaultBinding(auth, executor);\n}",
         "return rosterBinding(auth);\n}",
@@ -162,7 +166,7 @@ for (const field of ["actor", "root", "source"]) {
     withFixture((root) => {
       write(
         root,
-        "packages/daemon/src/repository-dispatch.ts",
+        "packages/daemon/src/daemon-host/repository-dispatch.ts",
         validRepositoryDispatch() + `\nexport const injected = payload.${field};\n`,
       );
       assert.match(evaluateApiContractRegistry(root).join("\n"), /must bind actor\/root\/source/u);
@@ -177,12 +181,12 @@ for (const [label, specifier] of [
     withFixture((root) => {
       write(
         root,
-        "packages/daemon/src/unsafe-authority.ts",
+        "packages/daemon/src/daemon-host/unsafe-authority.ts",
         "/** @daemon-transport-authority */\nexport const unsafe = payload.root;\n",
       );
       write(
         root,
-        "packages/daemon/src/daemon-host.ts",
+        "packages/daemon/src/daemon-host/daemon-host.ts",
         `import { unsafe } from "${specifier}";\nexport { openDaemonHost } from "./transport-composition.ts";\nexport { unsafe };\n`,
       );
       assert.match(evaluateApiContractRegistry(root).join("\n"), /must bind actor\/root\/source/u);
@@ -197,25 +201,29 @@ function withFixture(run) {
       "packages/daemon/package.json",
       JSON.stringify({
         name: "@harness-anything/daemon",
-        exports: { "./internal/unsafe-authority": "./src/unsafe-authority.ts" },
+        exports: { "./internal/unsafe-authority": "./src/daemon-host/unsafe-authority.ts" },
       }),
     );
-    write(root, "packages/daemon/src/protocol/daemon-protocol-commands.ts", validRegistry());
-    write(root, "packages/daemon/src/protocol/daemon-protocol-gui-actions.ts", validRuntimeActions());
-    write(root, "packages/daemon/src/protocol/json-rpc-server.ts", validServer());
-    write(root, "packages/daemon/src/daemon-host.ts", 'export { openDaemonHost } from "./transport-composition.ts";\n');
-    write(root, "packages/daemon/src/transport-composition.ts", validHostComposition());
-    write(root, "packages/daemon/src/transport-binding.ts", validTransportBinding());
+    write(root, "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts", validRegistry());
+    write(root, "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-actions.ts", validRuntimeActions());
+    write(root, "packages/daemon/src/daemon-host/protocol/json-rpc-server.ts", validServer());
     write(
       root,
-      "packages/daemon/src/mode-admission.ts",
+      "packages/daemon/src/daemon-host/daemon-host.ts",
+      'export { openDaemonHost } from "./transport-composition.ts";\n',
+    );
+    write(root, "packages/daemon/src/daemon-host/transport-composition.ts", validHostComposition());
+    write(root, "packages/daemon/src/daemon-host/transport-binding.ts", validTransportBinding());
+    write(
+      root,
+      "packages/daemon/src/daemon-host/mode-admission.ts",
       "/** @daemon-transport-authority */\nexport function admit(auth) { return auth.nodePrincipal; }\n",
     );
-    write(root, "packages/daemon/src/repository-dispatch.ts", validRepositoryDispatch());
-    write(root, "packages/daemon/src/node-registry.ts", validNodeRegistry());
+    write(root, "packages/daemon/src/daemon-host/repository-dispatch.ts", validRepositoryDispatch());
+    write(root, "packages/daemon/src/daemon-host/node-registry.ts", validNodeRegistry());
     write(
       root,
-      "packages/daemon/src/transport/auth-context.ts",
+      "packages/daemon/src/daemon-host/transport/auth-context.ts",
       'export type DaemonTransportKind = "unix-socket"; export interface Auth { unixSocketOwnerBoundary: unknown; nodePrincipal: { nodeId: string; personId: string }; }\n',
     );
     run(root);

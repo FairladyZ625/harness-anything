@@ -2,13 +2,13 @@
 import assert from "node:assert/strict";
 import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 import test from "node:test";
-import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
-import { prepareRuntimeInstance, resolveRuntimeInstanceCandidates } from "../src/runtime-spawn-mission.ts";
+import type { RuntimeInstanceSummary } from "../src/daemon-host/agent-runtime-instances.ts";
+import { prepareRuntimeInstance, resolveRuntimeInstanceCandidates } from "../src/daemon-host/runtime-spawn-mission.ts";
 import {
   agentRuntimeAmbiguityWarning,
   selectedRuntimeInstance,
   createRuntimeInstanceDispatchState,
-} from "../src/runtime-instance-selection.ts";
+} from "../src/daemon-host/runtime-instance-selection.ts";
 
 const instance = (instanceId: string, tier: number, models = ["Hydrogen"]): RuntimeInstanceSummary =>
   ({

@@ -21,7 +21,7 @@ import {
   serializeCanonicalEvent,
   sha256Text,
 } from "@harness-anything/kernel";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 
 import { actor, git, initRepo, ownerBinding, rows, standardMigration, write } from "./doc-sync-slice-a.fixtures.ts";
@@ -152,7 +152,10 @@ test("artifact add is the untracked UTF-8 canonical subset of doc submit", async
       "applied",
     );
     await seed.close();
-    cpSync(left, right, { recursive: true });
+    cpSync(left, right, {
+      recursive: true,
+      filter: (source) => source !== path.join(left, ".harness", "fixture-writer-epochs"),
+    });
     const artifactCell = await openRepoCell({
         repoId,
         rootDir: canonicalRoot(left),

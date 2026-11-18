@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import { Readable, Writable } from "node:stream";
 import test from "node:test";
-import { serveJsonRpcStream } from "../src/transport/json-rpc-stream.ts";
-import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
+import { serveJsonRpcStream } from "../src/daemon-host/transport/json-rpc-stream.ts";
+import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/auth-context.ts";
 
 function timingFor(adjustFrameArrival: ((observedAtMs: number) => number) | undefined, line: string) {
   return new Promise<{ frameReceivedAt: number; observedAt: number; frameBytes: number | undefined }>(

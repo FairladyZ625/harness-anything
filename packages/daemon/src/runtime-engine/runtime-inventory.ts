@@ -1,0 +1,1224 @@
+import {
+  runtimeSteering,
+  runtimeSteerSupported,
+  codexFreshPermissionArgs,
+  codexResumePermissionArgs,
+} from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
+// Type-only: a value import would pull the effectful kernel barrel (stable-hash → node:crypto)
+// into the GUI renderer bundle. runtimeKindIds is derived from the runtimeKinds catalog below.
+import type { RuntimeInstallation, RuntimeKind, RuntimeKindId } from "@harness-anything/kernel";
+
+import { isRuntimeMcpPolicy, runtimeMcpPolicies, type RuntimeMcpPolicy } from "./runtime-constants.ts";
+import {
+  type RuntimeAuthMode,
+  type RuntimeAcpAuthMethod,
+  type RuntimeCapabilitySupport,
+  type RuntimeEndpointAvailability,
+  type RuntimeProviderDeclaration,
+  type RuntimeWebSearchMode,
+} from "./runtime-inventory-types.ts";
+
+export {
+  isRuntimeMcpPolicy,
+  runtimeMcpPolicies,
+  type RuntimeAuthMode,
+  type RuntimeAcpAuthMethod,
+  type RuntimeCapabilitySupport,
+  type RuntimeEndpointAvailability,
+  type RuntimeMcpPolicy,
+  type RuntimeProviderDeclaration,
+  type RuntimeWebSearchMode,
+};
+
+/** Native search tiers HA exposes. Codex's config schema also has `indexed`, which this
+ *  product does not offer: issue #4369 names disabled/cached/live. */
+export const runtimeWebSearchModes = ["disabled", "cached", "live"] as const satisfies readonly RuntimeWebSearchMode[];
+
+/** Only verified provider/platform pairs may use an independent subscription credential home. */
+export const runtimeSubscriptionMultiAccountIsolation = Object.freeze({
+  "agy@darwin": true,
+  "agy-acp@darwin": true,
+  // dec_DA1602487428A58E8B446ECE38 CH1; native storage verified on macOS.
+  // Claude namespaces its keychain item by CLAUDE_CONFIG_DIR, with a file fallback.
+  "claude@darwin": true,
+  "claude-acp@darwin": true,
+  "codex@darwin": true,
+  "codex-acp@darwin": true,
+  "devin@darwin": true,
+  "opencode@darwin": true,
+  "minimax-code@darwin": true,
+} as const satisfies Readonly<Record<string, true>>);
+
+export function supportsRuntimeSubscriptionMultiAccountIsolation(kindId: string, platform: NodeJS.Platform): boolean {
+  return (
+    runtimeSubscriptionMultiAccountIsolation[
+      `${kindId}@${platform}` as keyof typeof runtimeSubscriptionMultiAccountIsolation
+    ] === true
+  );
+}
+
+// Only daemon-mediated task commands: `ha task artifact add --run`, for example,
+// executes a local subprocess before daemon authorization. Never approve `ha *`.
+export const claudeWorkspaceWriteCli = {
+  // prepareBoundRuntimeLaunch prepends the daemon installation CLI bin to PATH.
+  prefixes: ["ha"],
+  commands: [
+    "--help",
+    "task submit",
+    "task escalate",
+    "task read-set",
+    "task show",
+    "task push",
+    "doc show",
+    "fact record",
+  ],
+} as const;
+
+// Strict native Bash sandbox: arbitrary build/test/git/CLI commands stay inside its boundary;
+// daemon-mediated CLI calls use the per-dispatch relay socket injected by the runtime launcher.
+export const claudeWorkspaceWriteSandbox = {
+  enabled: true,
+  autoAllowBashIfSandboxed: true,
+  allowUnsandboxedCommands: false,
+  failIfUnavailable: true,
+  filesystem: { disabled: false },
+  // Claude Code docs (sandboxing: "A command fails to reach a server on localhost"):
+  // on macOS this lets sandboxed commands listen on localhost for local E2E servers;
+  // Linux/WSL2 already give each command its own loopback. Outbound stays denied.
+  network: { allowedDomains: [], allowLocalBinding: true },
+} as const;
+
+const sharedCapabilities = {
+  commandInterception: "unsupported",
+  resume: "supported",
+  streamingOutput: "supported",
+  sessionIdEveryFrame: "unsupported",
+  modelSelection: "supported",
+  authentication: "supported",
+} as const;
+
+// One resume declaration for the whole acp family: whether an agent can resume is negotiated
+// from its initialize response (agentCapabilities.loadSession vs sessionCapabilities.resume,
+// runtime-worker-acp.ts), so no acp kind carries a per-kind launch flag or capability entry.
+const acpDeclaredCapabilities = ["structured_witness", "resume", "attach", "session_identity"] as const;
+const runtimeUnsettledTurnContinuation = {
+  maxContinuations: daemonRuntimePolicy.defaultValue.runtime.unsettledTurnMaxContinuations,
+  prompt: "Continue the current task from where it left off.",
+} as const;
+
+function acpKind<K extends RuntimeKindId>(
+  kindId: K,
+  displayName: string,
+  command: string,
+  argumentTemplate: readonly string[],
+  configDirectory: string,
+  auth: {
+    shape: "subscription-only" | "separate";
+    modes: readonly RuntimeAuthMode[];
+    subscriptionProbe: RuntimeProviderDeclaration["auth"]["subscriptionProbe"];
+    subscriptionProbeTimeoutMs: number;
+    accountModelProbe?: RuntimeProviderDeclaration["auth"]["accountModelProbe"];
+    commands?: Readonly<Partial<Record<"login" | "logout", readonly string[]>>>;
+    acpAuthMethod?: RuntimeAcpAuthMethod;
+    acpCredentialKey?: string;
+    endpoints?: { baseUrl: RuntimeEndpointAvailability };
+  },
+  modelFamily: "open" | "codex-only" | "gemini-only" = "open",
+  authFile: string | null = null,
+  credentialCommand?: string,
+  defaultProviderId: string = kindId,
+): Omit<RuntimeProviderDeclaration, "steerSupported" | "steer"> & { readonly kindId: K } {
+  return {
+    kindId,
+    protocolFamily: "acp",
+    displayName,
+    defaultProviderId,
+    executable: {
+      command,
+      ...(credentialCommand ? { credentialCommand } : {}),
+      configDirectory,
+      configHomeEnvironment: null,
+      authFile,
+      modelProbe: null,
+      modelProbeFormat: "json-models",
+    },
+    declaredCapabilities: acpDeclaredCapabilities,
+    configuration: { fields: {}, publicFields: {}, publicDefaults: {} },
+    auth: {
+      shape: auth.shape,
+      modes: auth.modes,
+      subscriptionProbe: auth.subscriptionProbe,
+      subscriptionProbeTimeoutMs: auth.subscriptionProbeTimeoutMs,
+      endpoints: auth.endpoints ?? { baseUrl: "none" },
+      ...(auth.accountModelProbe ? { accountModelProbe: auth.accountModelProbe } : {}),
+      ...(auth.commands ? { commands: auth.commands } : {}),
+      ...(auth.acpAuthMethod ? { acpAuthMethod: auth.acpAuthMethod } : {}),
+      ...(auth.acpCredentialKey ? { acpCredentialKey: auth.acpCredentialKey } : {}),
+    },
+    isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
+    permissions: { available: true, defaultMode: "bypass" },
+    launch: {
+      input: "stdin",
+      streamFormat: "jsonl",
+      argumentTemplate,
+      permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
+    },
+    sessionIdentity: {
+      eventDiscriminator: null,
+      eventIdField: "sessionId",
+      environmentFields: [],
+      transcriptReachability: "dispatch_stream_only",
+      everyFrame: true,
+    },
+    gui: { modelFamily, effort: "none", effortValues: [] },
+    capabilities: {
+      ...sharedCapabilities,
+      commandInterception: ["codebuddy", "copilot", "auggie", "droid"].includes(kindId) ? "supported" : "unsupported",
+      sessionIdEveryFrame: "supported",
+      toolAllowlist: "unsupported",
+      toolDenylist: "unsupported",
+      turnLimit: "unsupported",
+      configurationIsolation: "supported",
+      permissionVocabulary: "unverified",
+      independentSandbox: "unverified",
+      approvalEvent: "supported",
+      effort: "unsupported",
+      mcp: "unverified",
+      cwdRestriction: "unverified",
+      gracefulCancel: "unverified",
+    },
+  };
+}
+
+// Declared on every Codex launch so operator or project config.toml files with
+// `inherit = "core"`, `ignore_default_excludes = false`, or filters cannot strip
+// HARNESS_* credentials, GH_TOKEN, or GIT_CONFIG_KEY_* before spawning tool shells.
+const codexToolEnvironmentToml =
+  'shell_environment_policy={inherit="all",ignore_default_excludes=true,exclude=[],include_only=[]}';
+export const codexToolEnvironmentConfig = {
+  inherit: "all",
+  ignore_default_excludes: true,
+  exclude: [],
+  include_only: [],
+} as const;
+
+function withRuntimeSteering<
+  const T extends readonly (Omit<RuntimeProviderDeclaration, "kindId" | "steerSupported" | "steer"> & {
+    readonly kindId: RuntimeKindId;
+  })[],
+>(declarations: T) {
+  const kinds: readonly T[number][] = declarations;
+  return kinds.map((kind) => ({
+    ...kind,
+    steer: runtimeSteering[kind.kindId],
+    steerSupported: runtimeSteerSupported(kind.kindId),
+    capabilities: {
+      ...kind.capabilities,
+      steer: runtimeSteerSupported(kind.kindId) ? ("supported" as const) : ("unsupported" as const),
+    },
+  }));
+}
+
+export const runtimeKinds = withRuntimeSteering([
+  {
+    kindId: "claude",
+    protocolFamily: "claude-compatible",
+    displayName: "Claude Code",
+    defaultProviderId: "anthropic",
+    executable: {
+      command: "claude",
+      configDirectory: ".claude",
+      configHomeEnvironment: "CLAUDE_CONFIG_DIR",
+      authFile: ".credentials.json",
+      modelProbe: ["--help"],
+      modelProbeFormat: "aliases-from-help",
+      // Model aliases resolve inside the CLI, not here: a build older than this floor maps
+      // the launch model to an id this catalog no longer selects. Which builds can honor the
+      // launch contract is a precondition of it, so it is catalog data alongside the args.
+      minimumVersion: "2.1.280",
+    },
+    declaredCapabilities: ["structured_witness", "resume", "attach", "session_identity"] as const,
+    configuration: {
+      fields: { effort: "effort", baseUrl: "url" },
+      publicFields: { effort: "effort", baseUrl: "baseUrl", baseUrlConfigured: "baseUrlConfigured" },
+      publicDefaults: { effort: null, baseUrl: null, baseUrlConfigured: false },
+    },
+    auth: {
+      accountModelProbe: { kind: "claude-sdk" },
+      shape: "api-override",
+      modes: ["subscription", "api-key"],
+      subscriptionProbe: ["auth", "status", "--json"],
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.status,
+      // The API override sets ANTHROPIC_BASE_URL; empty falls back to the official endpoint.
+      endpoints: { baseUrl: "optional" },
+    },
+    isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
+    permissions: { available: true, defaultMode: "bypass" },
+    launch: {
+      input: "argument",
+      streamFormat: "stream-json",
+      resumeFlag: "--resume",
+      argumentTemplate: [
+        "-p",
+        "--verbose",
+        // Harness-dispatched workers commit under the repository identity; Claude Code's
+        // default commit/PR attribution would violate that, so hide it via --settings.
+        "--settings",
+        "$claude-settings",
+        "--output-format",
+        "stream-json",
+        "$permission",
+        "--model",
+        "$model",
+        "$effort-flag",
+        "$api-auth",
+        "$mcp-policy",
+        "$resume",
+      ],
+      permissionArgs: {
+        bypass: ["--permission-mode", "bypassPermissions"],
+        "workspace-write": [
+          "--permission-mode",
+          "acceptEdits",
+          "--setting-sources",
+          "",
+          "--allowedTools",
+          ...claudeWorkspaceWriteCli.prefixes.flatMap((prefix) =>
+            claudeWorkspaceWriteCli.commands.map((command) => `Bash(${prefix} ${command} *)`),
+          ),
+        ],
+        "read-only": ["--permission-mode", "plan"],
+      },
+      apiKeyArgs: ["--bare"],
+    },
+    unsettledTurnContinuation: runtimeUnsettledTurnContinuation,
+    sessionIdentity: {
+      eventDiscriminator: null,
+      eventIdField: "session_id",
+      environmentFields: ["CLAUDE_CODE_SESSION_ID"],
+      transcriptReachability: "by_session_id",
+      everyFrame: false,
+    },
+    // Installed parser 2.1.260 accepts low/medium/high/xhigh/max (capability matrix
+    // dimension 12, E-level). `minimal` is deliberately absent: the launcher rewrites
+    // it to `low` (agent-runtime-launch-config.ts), so offering it would let the GUI
+    // submit a value that never reaches the provider as typed.
+    gui: { modelFamily: "open", effort: "enum", effortValues: ["low", "medium", "high", "xhigh", "max"] },
+    capabilities: {
+      ...sharedCapabilities,
+      commandInterception: "supported",
+      toolAllowlist: "supported",
+      toolDenylist: "supported",
+      turnLimit: "supported",
+      configurationIsolation: "supported",
+      permissionVocabulary: "supported",
+      independentSandbox: "unverified",
+      approvalEvent: "unverified",
+      effort: "supported",
+      mcp: "supported",
+      cwdRestriction: "unverified",
+      gracefulCancel: "unverified",
+    },
+  },
+  {
+    kindId: "codex",
+    protocolFamily: "codex",
+    displayName: "Codex",
+    defaultProviderId: "openai",
+    executable: {
+      command: "codex",
+      configDirectory: ".codex",
+      configHomeEnvironment: "CODEX_HOME",
+      authFile: "auth.json",
+      modelProbe: ["debug", "models", "--bundled"],
+      modelProbeFormat: "json-models",
+    },
+    declaredCapabilities: ["structured_witness", "resume", "attach", "session_identity"] as const,
+    configuration: {
+      fields: {
+        reasoningEffort: "effort",
+        fast: "boolean",
+        webSearch: "identifier",
+        baseUrl: "url",
+        allowInsecureHttp: "boolean",
+        wireApi: "identifier",
+        requiresOpenAiAuth: "boolean",
+        httpHeaders: "headers",
+        credentialHeader: "header-name",
+      },
+      choices: { webSearch: runtimeWebSearchModes },
+      // Native hosted search is a provider capability, not a general HTTP permission.
+      // The launch argv always states the effective tier explicitly, including the
+      // default, so an inherited Codex config cannot upgrade a dispatch.
+      webSearch: {
+        modes: runtimeWebSearchModes,
+        defaultMode: "disabled",
+        providers: ["openai"],
+        // Verified against codex-cli 0.163.0 (this workspace) and reported on 0.164.0
+        // (issue #4369): both recognize the `web_search` config key.
+        minimumVersion: "0.163.0",
+      },
+      publicFields: {
+        reasoningEffort: "reasoningEffort",
+        fast: "fast",
+        webSearch: "webSearch",
+        baseUrl: "baseUrl",
+        baseUrlConfigured: "baseUrlConfigured",
+        allowInsecureHttp: "allow_insecure_http",
+        wireApi: "wire_api",
+        requiresOpenAiAuth: "requires_openai_auth",
+        httpHeaders: "http_headers",
+        credentialHeader: "credential_header",
+      },
+      publicDefaults: {
+        reasoningEffort: null,
+        fast: false,
+        webSearch: "disabled",
+        baseUrl: null,
+        baseUrlConfigured: false,
+        wire_api: null,
+        requires_openai_auth: null,
+        http_headers: null,
+      },
+    },
+    auth: {
+      accountModelProbe: { kind: "codex-app-server" },
+      shape: "separate",
+      modes: ["subscription", "api-key"],
+      apiKeyIsolation: "enforced",
+      subscriptionProbe: ["login", "status"],
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.status,
+      // Codex signs in through `codex login`/`codex logout`, not `codex auth <action>`.
+      commands: { login: ["login"], logout: ["logout"] },
+      // API-key instances write model_providers.<id>.base_url into the generated
+      // config.toml; absent means the provider's built-in endpoint.
+      endpoints: { baseUrl: "optional" },
+    },
+    unsettledTurnContinuation: runtimeUnsettledTurnContinuation,
+    isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
+    permissions: { available: true, defaultMode: "bypass" },
+    launch: {
+      input: "stdin",
+      streamFormat: "jsonl",
+      resumeFlag: "resume",
+      argumentTemplate: [
+        "exec",
+        "$resume-command",
+        "--json",
+        "$mcp-policy",
+        "$permission",
+        "$callback-relay-socket",
+        "--model",
+        "$model",
+        "$effort-config",
+        "$fast",
+        "$web-search",
+        "--config",
+        codexToolEnvironmentToml,
+        "$session",
+        "-",
+      ],
+      permissionArgs: codexFreshPermissionArgs,
+      resumePermissionArgs: codexResumePermissionArgs,
+      fastArgs: ["--config", 'service_tier="fast"'],
+    },
+    sessionIdentity: {
+      eventDiscriminator: ["type", "thread.started"],
+      eventIdField: "thread_id",
+      environmentFields: ["CODEX_THREAD_ID", "CODEX_SESSION_ID"],
+      transcriptReachability: "dispatch_stream_only",
+      everyFrame: false,
+    },
+    gui: { modelFamily: "codex-only", effort: "free", effortValues: [] },
+    capabilities: {
+      ...sharedCapabilities,
+      commandInterception: "supported",
+      toolAllowlist: "unsupported",
+      toolDenylist: "unsupported",
+      turnLimit: "unsupported",
+      configurationIsolation: "supported",
+      permissionVocabulary: "supported",
+      independentSandbox: "supported",
+      approvalEvent: "unverified",
+      effort: "supported",
+      mcp: "supported",
+      cwdRestriction: "unverified",
+      gracefulCancel: "unverified",
+    },
+  },
+  {
+    kindId: "agy",
+    protocolFamily: "agy",
+    displayName: "AGY (Gemini)",
+    defaultProviderId: "google",
+    executable: {
+      command: "agy",
+      configDirectory: ".gemini",
+      configHomeEnvironment: null,
+      authFile: "antigravity-oauth-token",
+      modelProbe: ["models"],
+      modelProbeFormat: "tabular-models",
+    },
+    declaredCapabilities: ["structured_witness", "resume", "attach", "session_identity"] as const,
+    configuration: {
+      fields: { effort: "agy-effort" },
+      publicFields: { effort: "effort" },
+      publicDefaults: { effort: null },
+    },
+    auth: {
+      shape: "subscription-only",
+      modes: ["subscription"],
+      // `agy models` boots a language server, resolves OAuth, then fetches the model
+      // list: measured 5-22s end to end, so the probe budget must clear that tail.
+      subscriptionProbe: ["models"],
+      accountModelProbe: { kind: "command", args: ["models"] },
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.modelListing,
+      endpoints: { baseUrl: "none" },
+      commands: { login: ["acp", "--login"] },
+    },
+    isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
+    permissions: { available: false, defaultMode: "bypass" },
+    launch: {
+      // Print mode reads the prompt from a piped stdin (measured 2026-10-24: without -p and
+      // with stdin piped, agy logs `Print mode: starting (promptLength=<stdin length>)`), so the
+      // prompt never joins a command line — on Windows a .cmd shim launch would otherwise pass
+      // it through cmd.exe parsing, where no quoting can carry % or CR/LF verbatim.
+      input: "stdin",
+      streamFormat: "stream-json",
+      resumeFlag: "--conversation",
+      argumentTemplate: [
+        "--output-format",
+        "stream-json",
+        "--print-timeout",
+        daemonRuntimePolicy.defaultValue.runtime.nativePrintTimeout,
+        "--model",
+        "$model",
+        "$permission",
+        "$effort-flag",
+        "$resume",
+      ],
+      permissionArgs: { bypass: ["--dangerously-skip-permissions"], "workspace-write": [], "read-only": [] },
+    },
+    sessionIdentity: {
+      eventDiscriminator: ["event", "init"],
+      eventIdField: "conversation_id",
+      environmentFields: [],
+      transcriptReachability: "dispatch_stream_only",
+      everyFrame: false,
+    },
+    gui: { modelFamily: "gemini-only", effort: "enum", effortValues: ["low", "medium", "high", "xhigh", "max"] },
+    capabilities: {
+      ...sharedCapabilities,
+      toolAllowlist: "unsupported",
+      toolDenylist: "unsupported",
+      turnLimit: "unsupported",
+      configurationIsolation: "unsupported",
+      permissionVocabulary: "unverified",
+      independentSandbox: "unverified",
+      approvalEvent: "unsupported",
+      effort: "unverified",
+      mcp: "unverified",
+      cwdRestriction: "unverified",
+      gracefulCancel: "unverified",
+    },
+  },
+  {
+    kindId: "zcode",
+    protocolFamily: "zcode",
+    displayName: "ZCode",
+    defaultProviderId: "zai",
+    executable: {
+      command: "zcode",
+      configDirectory: ".zcode",
+      configHomeEnvironment: null,
+      authFile: "v2/credentials.json",
+      modelProbe: null,
+      modelProbeFormat: "json-models",
+    },
+    declaredCapabilities: ["structured_witness", "resume", "attach", "session_identity"] as const,
+    configuration: {
+      fields: { baseUrl: "url" },
+      publicFields: { baseUrl: "baseUrl", baseUrlConfigured: "baseUrlConfigured" },
+      publicDefaults: { baseUrl: null, baseUrlConfigured: false },
+    },
+    auth: {
+      shape: "separate",
+      modes: ["subscription", "api-key"],
+      apiKeyIsolation: "enforced",
+      subscriptionProbe: ["doctor"],
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.status,
+      // API-key instances write provider options.baseURL into the generated
+      // cli/config.json; absent means the provider's default endpoint (default: zai).
+      endpoints: { baseUrl: "optional" },
+    },
+    isolation: { defaultState: "enforced", states: ["enforced", "operator-environment"] },
+    permissions: { available: true, defaultMode: "bypass" },
+    launch: {
+      input: "argument",
+      streamFormat: "stream-json",
+      resumeFlag: "--resume",
+      // The launcher already executes in the requested cwd; its generic template has no $cwd token.
+      argumentTemplate: ["--output-format", "stream-json", "$permission", "--prompt", "$prompt", "$resume"],
+      permissionArgs: {
+        bypass: ["--mode", "yolo"],
+        "workspace-write": ["--mode", "edit"],
+        "read-only": ["--mode", "plan"],
+      },
+    },
+    sessionIdentity: {
+      eventDiscriminator: null,
+      eventIdField: "sessionId",
+      environmentFields: [],
+      transcriptReachability: "dispatch_stream_only",
+      everyFrame: true,
+    },
+    // ZCode has no catalog probe, so models remain explicit free-form instance configuration.
+    gui: { modelFamily: "open", effort: "none", effortValues: [] },
+    capabilities: {
+      ...sharedCapabilities,
+      sessionIdEveryFrame: "supported",
+      toolAllowlist: "unsupported",
+      toolDenylist: "supported",
+      turnLimit: "unsupported",
+      configurationIsolation: "supported",
+      permissionVocabulary: "supported",
+      independentSandbox: "unverified",
+      approvalEvent: "supported",
+      effort: "unverified",
+      mcp: "unverified",
+      cwdRestriction: "unverified",
+      gracefulCancel: "unverified",
+    },
+  },
+  {
+    kindId: "devin",
+    protocolFamily: "acp",
+    displayName: "Devin",
+    defaultProviderId: "devin",
+    executable: {
+      command: "devin",
+      configDirectory: ".local/share/devin",
+      configHomeEnvironment: null,
+      authFile: "credentials.toml",
+      // Requires authentication; exits non-zero when logged out, so a failed
+      // probe simply yields no models.
+      modelProbe: ["models", "list", "--format", "json"],
+      modelProbeFormat: "json-families",
+    },
+    declaredCapabilities: acpDeclaredCapabilities,
+    configuration: {
+      fields: {},
+      publicFields: {},
+      publicDefaults: {},
+    },
+    auth: {
+      shape: "separate",
+      modes: ["subscription", "api-key"],
+      // `devin auth status` exits 0 whether or not credentials exist (verified
+      // 3000.10.21). The credential the ACP `authenticate` handshake actually
+      // consumes is the windsurf_api_key entry in credentials.toml, so presence
+      // of that key is the meaningful local readiness check.
+      subscriptionProbe: { kind: "file-key" },
+      accountModelProbe: { kind: "command", args: ["models", "list", "--format", "json"] },
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
+      acpCredentialKey: "windsurf_api_key",
+      // ACP local binary: the key rides authenticate's _meta.api_key; no endpoint exists.
+      endpoints: { baseUrl: "none" },
+    },
+    isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
+    permissions: { available: true, defaultMode: "bypass" },
+    launch: {
+      // The prompt travels inside session/prompt and the permission mode is applied
+      // through session/set_mode; resume is negotiated by the shared client from the
+      // initialize capabilities. Only the model rides argv.
+      input: "stdin",
+      streamFormat: "jsonl",
+      argumentTemplate: ["acp", "--model", "$model"],
+      permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
+    },
+    sessionIdentity: {
+      // Every canonical ACP frame carries the session id, so no discriminator.
+      eventDiscriminator: null,
+      eventIdField: "sessionId",
+      environmentFields: [],
+      transcriptReachability: "dispatch_stream_only",
+      everyFrame: true,
+    },
+    gui: { modelFamily: "open", effort: "none", effortValues: [] },
+    capabilities: {
+      ...sharedCapabilities,
+      sessionIdEveryFrame: "supported",
+      toolAllowlist: "unsupported",
+      toolDenylist: "unsupported",
+      turnLimit: "unsupported",
+      configurationIsolation: "supported",
+      permissionVocabulary: "supported",
+      independentSandbox: "unverified",
+      approvalEvent: "supported",
+      effort: "unsupported",
+      mcp: "unverified",
+      cwdRestriction: "unverified",
+      gracefulCancel: "supported",
+    },
+  },
+  {
+    kindId: "cursor",
+    protocolFamily: "acp",
+    displayName: "Cursor",
+    defaultProviderId: "cursor",
+    executable: {
+      command: "cursor-agent",
+      configDirectory: ".cursor",
+      configHomeEnvironment: null,
+      // cli-config.json carries authInfo for `cursor-agent login`; linking it is
+      // what makes the ACP `cursor_login` authenticate succeed for instances.
+      authFile: "cli-config.json",
+      // Models arrive on session/new (models.availableModels); the CLI exposes
+      // no model-listing subcommand.
+      modelProbe: null,
+      modelProbeFormat: "json-models",
+    },
+    declaredCapabilities: acpDeclaredCapabilities,
+    configuration: {
+      fields: {},
+      publicFields: {},
+      publicDefaults: {},
+    },
+    auth: {
+      shape: "subscription-only",
+      modes: ["subscription"],
+      subscriptionProbe: ["status"],
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
+      // `cursor_login` consumes the linked cli-config.json and accepts an empty
+      // api_key; it is the only advertised method anyway.
+      acpAuthMethod: "cursor_login",
+      endpoints: { baseUrl: "none" },
+    },
+    isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
+    permissions: { available: true, defaultMode: "bypass" },
+    launch: {
+      input: "stdin",
+      streamFormat: "jsonl",
+      argumentTemplate: ["acp"],
+      permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
+    },
+    sessionIdentity: {
+      eventDiscriminator: null,
+      eventIdField: "sessionId",
+      environmentFields: [],
+      transcriptReachability: "dispatch_stream_only",
+      everyFrame: true,
+    },
+    gui: { modelFamily: "open", effort: "none", effortValues: [] },
+    capabilities: {
+      ...sharedCapabilities,
+      commandInterception: "supported",
+      sessionIdEveryFrame: "supported",
+      toolAllowlist: "unsupported",
+      toolDenylist: "unsupported",
+      turnLimit: "unsupported",
+      configurationIsolation: "supported",
+      permissionVocabulary: "supported",
+      independentSandbox: "unverified",
+      approvalEvent: "supported",
+      effort: "unsupported",
+      mcp: "unverified",
+      cwdRestriction: "unverified",
+      gracefulCancel: "unverified",
+    },
+  },
+  {
+    kindId: "codex-acp",
+    protocolFamily: "acp",
+    displayName: "Codex (ACP)",
+    defaultProviderId: "openai",
+    executable: {
+      // npm bin of @agentclientprotocol/codex-acp; wraps the codex CLI and
+      // reuses its CODEX_HOME login.
+      command: "codex-acp",
+      credentialCommand: "codex",
+      configDirectory: ".codex",
+      configHomeEnvironment: "CODEX_HOME",
+      authFile: "auth.json",
+      // Models arrive on session/new (models.availableModels); the wrapper
+      // exposes no model-listing subcommand.
+      modelProbe: null,
+      modelProbeFormat: "json-models",
+    },
+    declaredCapabilities: acpDeclaredCapabilities,
+    configuration: {
+      fields: { reasoningEffort: "effort" },
+      publicFields: { reasoningEffort: "reasoningEffort" },
+      publicDefaults: { reasoningEffort: null },
+    },
+    auth: {
+      accountModelProbe: { kind: "acp" },
+      shape: "separate",
+      modes: ["subscription", "api-key"],
+      apiKeyIsolation: "enforced",
+      // Account operations use credentialCommand in this instance's CODEX_HOME.
+      subscriptionProbe: ["login", "status"],
+      commands: { login: ["login"], logout: ["logout"] },
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
+      // Advertised methods are ["api-key", "chat-gpt"]; the ChatGPT login in
+      // the linked auth.json answers "chat-gpt" with an empty api_key.
+      acpAuthMethod: { subscription: "chat-gpt", "api-key": "api-key" },
+      endpoints: { baseUrl: "none" },
+    },
+    acp: {
+      inputTokensIncludeCache: false,
+      effortSelector: { ids: ["reasoning_effort", "effort"], categories: ["thought_level"] },
+    },
+    unsettledTurnContinuation: runtimeUnsettledTurnContinuation,
+    isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
+    permissions: { available: true, defaultMode: "bypass" },
+    launch: {
+      input: "stdin",
+      streamFormat: "jsonl",
+      argumentTemplate: [],
+      permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
+    },
+    sessionIdentity: {
+      eventDiscriminator: null,
+      eventIdField: "sessionId",
+      environmentFields: [],
+      transcriptReachability: "dispatch_stream_only",
+      everyFrame: true,
+    },
+    // Reasoning effort is negotiated through the ACP session configOptions selector.
+    gui: { modelFamily: "codex-only", effort: "enum", effortValues: ["low", "medium", "high", "xhigh", "max"] },
+    capabilities: {
+      ...sharedCapabilities,
+      sessionIdEveryFrame: "supported",
+      toolAllowlist: "unsupported",
+      toolDenylist: "unsupported",
+      turnLimit: "unsupported",
+      configurationIsolation: "supported",
+      permissionVocabulary: "supported",
+      independentSandbox: "unverified",
+      approvalEvent: "supported",
+      effort: "supported",
+      mcp: "unverified",
+      cwdRestriction: "unverified",
+      gracefulCancel: "unverified",
+    },
+  },
+  {
+    kindId: "claude-acp",
+    protocolFamily: "acp",
+    displayName: "Claude (ACP)",
+    defaultProviderId: "anthropic",
+    executable: {
+      // npm bin of @agentclientprotocol/claude-agent-acp; wraps the claude CLI
+      // and reuses its CLAUDE_CONFIG_DIR credentials. The adapter advertises no
+      // authMethods: the wrapped CLI authenticates from its own login.
+      command: "claude-agent-acp",
+      credentialCommand: "claude",
+      configDirectory: ".claude",
+      configHomeEnvironment: "CLAUDE_CONFIG_DIR",
+      authFile: ".credentials.json",
+      modelProbe: null,
+      modelProbeFormat: "json-models",
+    },
+    declaredCapabilities: acpDeclaredCapabilities,
+    configuration: {
+      fields: {},
+      publicFields: {},
+      publicDefaults: {},
+    },
+    auth: {
+      accountModelProbe: { kind: "acp" },
+      shape: "subscription-only",
+      modes: ["subscription"],
+      subscriptionProbe: ["auth", "status", "--json"],
+      commands: { login: ["auth", "login"], logout: ["auth", "logout"] },
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
+      endpoints: { baseUrl: "none" },
+    },
+    isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
+    permissions: { available: true, defaultMode: "bypass" },
+    launch: {
+      input: "stdin",
+      streamFormat: "jsonl",
+      argumentTemplate: [],
+      permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
+    },
+    sessionIdentity: {
+      eventDiscriminator: null,
+      eventIdField: "sessionId",
+      environmentFields: [],
+      transcriptReachability: "dispatch_stream_only",
+      everyFrame: true,
+    },
+    gui: { modelFamily: "open", effort: "none", effortValues: [] },
+    capabilities: {
+      ...sharedCapabilities,
+      sessionIdEveryFrame: "supported",
+      toolAllowlist: "unsupported",
+      toolDenylist: "unsupported",
+      turnLimit: "unsupported",
+      configurationIsolation: "supported",
+      permissionVocabulary: "supported",
+      independentSandbox: "unverified",
+      approvalEvent: "supported",
+      effort: "unsupported",
+      mcp: "unverified",
+      cwdRestriction: "unverified",
+      gracefulCancel: "unverified",
+    },
+  },
+  acpKind("copilot", "GitHub Copilot", "copilot", ["--acp"], ".copilot", {
+    shape: "subscription-only",
+    modes: ["subscription"],
+    subscriptionProbe: ["--version"],
+    subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
+    acpAuthMethod: "copilot-login",
+  }),
+  acpKind("auggie", "Auggie CLI", "auggie", ["--acp"], ".auggie", {
+    shape: "subscription-only",
+    modes: ["subscription"],
+    subscriptionProbe: ["--version"],
+    subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
+  }),
+  acpKind("droid", "Factory Droid", "droid", ["exec", "--output-format", "acp-daemon"], ".factory", {
+    shape: "separate",
+    modes: ["subscription", "api-key"],
+    subscriptionProbe: ["--version"],
+    subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
+    acpAuthMethod: "factory-api-key",
+    acpCredentialKey: "factory_api_key",
+  }),
+  acpKind("grok", "Grok Build", "grok", ["agent", "stdio"], ".grok", {
+    shape: "subscription-only",
+    modes: ["subscription"],
+    subscriptionProbe: ["--version"],
+    subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
+    acpAuthMethod: "grok.com",
+  }),
+  acpKind("kimi", "Kimi CLI", "kimi", ["acp"], ".kimi", {
+    shape: "subscription-only",
+    modes: ["subscription"],
+    subscriptionProbe: ["--version"],
+    subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.extended,
+  }),
+  acpKind("qwen-code", "Qwen Code", "qwen", ["--acp"], ".qwen-code", {
+    shape: "separate",
+    modes: ["api-key"],
+    subscriptionProbe: ["--version"],
+    subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
+    acpAuthMethod: "openai",
+    acpCredentialKey: "openai_api_key",
+  }),
+  // `mcode` stores its data in `~/.minimax` (the package's `.minimax-code` string is an npm
+  // install-path heuristic), signs in with top-level `login`/`logout`, and `--version` exits 0
+  // signed out. Its own auth-state.json carries both the status and the expiry the probe needs.
+  // The bundled native addon's ABI is the installation's concern: rebuild it under the runtime
+  // you launch with; a mismatch surfaces through the provider's own stderr, not a catalog guess.
+  acpKind(
+    "minimax-code",
+    "MiniMax Code",
+    "mcode",
+    ["acp"],
+    ".minimax",
+    {
+      accountModelProbe: { kind: "acp" },
+      shape: "subscription-only",
+      modes: ["subscription"],
+      subscriptionProbe: {
+        kind: "json-auth-state",
+        file: "auth/prod/cn/mcode-public/auth-state.json",
+        statusField: "status",
+        readyStatus: "authenticated",
+        expiresAtField: "expiresAtMs",
+      },
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
+      commands: { login: ["login"], logout: ["logout"] },
+    },
+    "open",
+    "auth",
+  ),
+  acpKind("mistral-vibe", "Mistral Vibe", "vibe-acp", [], ".vibe", {
+    shape: "subscription-only",
+    modes: ["subscription"],
+    subscriptionProbe: ["--version"],
+    subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
+    acpAuthMethod: "browser-auth",
+  }),
+  acpKind("junie", "Junie", "junie", ["--acp=true"], ".junie", {
+    shape: "subscription-only",
+    modes: ["subscription"],
+    subscriptionProbe: ["--version"],
+    subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
+  }),
+  acpKind("codebuddy", "Codebuddy Code", "codebuddy", ["--acp"], ".codebuddy", {
+    shape: "subscription-only",
+    modes: ["subscription"],
+    subscriptionProbe: ["--version"],
+    subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
+  }),
+  acpKind("glm-acp", "GLM (ACP)", "glm-acp-agent", [], ".glm-acp-agent", {
+    shape: "separate",
+    modes: ["subscription", "api-key"],
+    subscriptionProbe: ["--version"],
+    subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
+    acpAuthMethod: "z-ai-api-key",
+  }),
+  acpKind(
+    "agy-acp",
+    "AGY (ACP)",
+    "agy_acp_server",
+    [],
+    ".gemini",
+    {
+      shape: "separate",
+      modes: ["subscription", "api-key"],
+      subscriptionProbe: ["--notices"],
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.modelListing,
+      commands: { login: ["acp", "--login"] },
+      acpAuthMethod: "gemini-api-key",
+    },
+    "gemini-only",
+    "antigravity-oauth-token",
+    "agy",
+    "google",
+  ),
+  {
+    kindId: "opencode",
+    protocolFamily: "acp",
+    displayName: "OpenCode",
+    defaultProviderId: "opencode",
+    executable: {
+      // ACP mode needs opencode >= 1.18 (`opencode acp`); older brew builds
+      // answer nothing on stdio.
+      command: "opencode",
+      configDirectory: ".local/share/opencode",
+      configHomeEnvironment: null,
+      authFile: "auth.json",
+      // Models arrive on session/new configOptions; the CLI exposes no
+      // model-listing subcommand.
+      modelProbe: null,
+      modelProbeFormat: "json-models",
+    },
+    declaredCapabilities: acpDeclaredCapabilities,
+    configuration: {
+      fields: {},
+      publicFields: {},
+      publicDefaults: {},
+    },
+    auth: {
+      accountModelProbe: { kind: "acp" },
+      shape: "subscription-only",
+      modes: ["subscription"],
+      subscriptionProbe: {
+        kind: "json-credential-map",
+        contentEnvironment: "OPENCODE_AUTH_CONTENT",
+        directoryEnvironment: "XDG_DATA_HOME",
+        directoryName: "opencode",
+      },
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
+      // 1.18.30's authenticate accepts this method without checking credentials.
+      // Auth.json supplies metadata; an ACP auth_required refusal overrides it.
+      acpAuthMethod: "opencode-login",
+      endpoints: { baseUrl: "none" },
+    },
+    isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
+    permissions: { available: true, defaultMode: "bypass" },
+    launch: {
+      input: "stdin",
+      streamFormat: "jsonl",
+      argumentTemplate: ["acp"],
+      permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
+    },
+    sessionIdentity: {
+      eventDiscriminator: null,
+      eventIdField: "sessionId",
+      environmentFields: [],
+      transcriptReachability: "dispatch_stream_only",
+      everyFrame: true,
+    },
+    gui: { modelFamily: "open", effort: "none", effortValues: [] },
+    capabilities: {
+      ...sharedCapabilities,
+      sessionIdEveryFrame: "supported",
+      toolAllowlist: "unsupported",
+      toolDenylist: "unsupported",
+      turnLimit: "unsupported",
+      configurationIsolation: "supported",
+      // session/new advertises configOptions but no permission modes, so no
+      // permission vocabulary can be negotiated.
+      permissionVocabulary: "unsupported",
+      independentSandbox: "unverified",
+      approvalEvent: "unverified",
+      effort: "unsupported",
+      mcp: "unverified",
+      cwdRestriction: "unverified",
+      gracefulCancel: "unverified",
+    },
+  },
+  {
+    kindId: "deepseek-harness",
+    protocolFamily: "acp",
+    displayName: "DeepSeek Harness",
+    defaultProviderId: "deepseek",
+    executable: {
+      // Standalone CLIs and Windows installers expose dsh on PATH; the macOS App can
+      // keep its CLI private. Both entries serve ACP through `dsh --profile acp`.
+      command: "dsh",
+      bundledEntries: {
+        darwin: ["/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"],
+      },
+      configDirectory: ".dsh",
+      configHomeEnvironment: "DSH_HOME",
+      authFile: null,
+      // The CLI exposes no model-listing subcommand. Subscription selectors are advertised
+      // by account route; API-key models come from the instance's profile patch.
+      modelProbe: null,
+      modelProbeFormat: "json-models",
+    },
+    // initialize advertises agentCapabilities.sessionCapabilities.resume and no loadSession
+    // (measured 2026-10-24, task artifacts/evidence/dsh-real-resume-20261024.md), so the
+    // shared client's negotiation picks session/resume here — the family declaration covers it.
+    declaredCapabilities: acpDeclaredCapabilities,
+    configuration: {
+      fields: { baseUrl: "url", wireApi: "identifier", reasoningEffort: "effort" },
+      choices: { wireApi: ["openai-completions", "openai-responses", "anthropic-messages"] },
+      publicFields: {
+        baseUrl: "baseUrl",
+        baseUrlConfigured: "baseUrlConfigured",
+        wireApi: "wireApi",
+        reasoningEffort: "reasoningEffort",
+      },
+      publicDefaults: { baseUrl: null, baseUrlConfigured: false, wireApi: null, reasoningEffort: null },
+    },
+    auth: {
+      shape: "separate",
+      modes: ["subscription", "api-key"],
+      apiKeyIsolation: "enforced",
+      subscriptionIsolation: "operator-environment",
+      // initialize advertises authMethods: [] — the App's login is the whole credential story,
+      // so presence (--version exits 0 in 0.2s) is the only local readiness check.
+      subscriptionProbe: ["--version"],
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
+      endpoints: { baseUrl: "optional" },
+    },
+    acp: {
+      effortSelector: {
+        ids: ["reasoning_effort", "effort"],
+        categories: ["thought_level"],
+        valueMap: { minimal: "off" },
+      },
+    },
+    // Subscription reuses the App's login. API-key calls use a separate profile and DSH_HOME.
+    isolation: { defaultState: "operator-environment", states: ["operator-environment", "enforced"] },
+    permissions: { available: true, defaultMode: "bypass" },
+    launch: {
+      input: "stdin",
+      streamFormat: "jsonl",
+      argumentTemplate: ["--profile", "acp"],
+      permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
+      // The acp profile has no session modes and takes no flags: its sandbox-policy and
+      // user-approval plugins read DSH_PERMISSION_MODE (default workspace-write). Only
+      // danger-full-access turns approval off; the other two keep approval=ask, which
+      // arrives as session/request_permission and is answered from the permission mode.
+      permissionEnvironment: {
+        bypass: { DSH_PERMISSION_MODE: "danger-full-access" },
+        "workspace-write": { DSH_PERMISSION_MODE: "workspace-write" },
+        "read-only": { DSH_PERMISSION_MODE: "read-only" },
+      },
+    },
+    sessionIdentity: {
+      eventDiscriminator: null,
+      eventIdField: "sessionId",
+      environmentFields: [],
+      transcriptReachability: "dispatch_stream_only",
+      everyFrame: true,
+    },
+    gui: { modelFamily: "open", effort: "enum", effortValues: ["minimal", "low", "high", "max"] },
+    capabilities: {
+      ...sharedCapabilities,
+      sessionIdEveryFrame: "supported",
+      toolAllowlist: "unsupported",
+      toolDenylist: "unsupported",
+      turnLimit: "unsupported",
+      configurationIsolation: "unsupported",
+      permissionVocabulary: "supported",
+      // Measured 2026-10-18 (read-only dispatch): the write was denied by the DSH file sandbox
+      // itself — "Operation not permitted [sandbox: file access denied under read-only mode]" —
+      // with no permission round trip, so enforcement does not depend on the approval event.
+      independentSandbox: "supported",
+      approvalEvent: "unverified",
+      // session/new offers a reasoning_effort selector (off/low/high/max), driven by the
+      // shared ACP selector negotiator when an instance/request selects an effort.
+      effort: "supported",
+      mcp: "unverified",
+      cwdRestriction: "unverified",
+      gracefulCancel: "unverified",
+    },
+  },
+]);
+
+export type RuntimeProtocolFamily = (typeof runtimeKinds)[number]["protocolFamily"];
+export type RuntimeKindInventory = (typeof runtimeKinds)[number] &
+  RuntimeProviderDeclaration &
+  RuntimeKind & {
+    readonly steer?: RuntimeProviderDeclaration["steer"];
+  };
+export type { RuntimeKindId };
+// Catalog-derived, mirroring runtimeProtocolFamilies below; the annotation keeps the
+// catalog fail-closed against the kernel vocabulary (an extra kindId fails to compile).
+export const runtimeKindIds: readonly RuntimeKindId[] = runtimeKinds.map(({ kindId }) => kindId);
+export const runtimeProtocolFamilies: readonly RuntimeProtocolFamily[] = runtimeKinds.map(
+  ({ protocolFamily }) => protocolFamily,
+);
+export function isRuntimeKindId(value: unknown): value is RuntimeKindId {
+  return typeof value === "string" && runtimeKindIds.some((kindId) => kindId === value);
+}
+
+export function runtimeKindForInstallation(installation: RuntimeInstallation): RuntimeKindInventory {
+  // Several kinds can share one protocol family (multiple ACP agents), so the
+  // witnessed kindId decides; protocolFamily remains the fallback for
+  // installations witnessed before kindId was recorded.
+  const found =
+    runtimeKinds.find((kind) => kind.kindId === installation.kindId) ??
+    runtimeKinds.find((kind) => kind.protocolFamily === installation.protocolFamily);
+  if (!found) throw new Error(`Unknown runtime protocol family: ${installation.protocolFamily}`);
+  return found;
+}
+export function runtimeKindForId(kindId: string): RuntimeKindInventory {
+  const found = runtimeKinds.find((kind) => kind.kindId === kindId);
+  if (!found) throw new Error(`Unknown runtime kind: ${kindId}`);
+  return found;
+}
+
+/** Vendor family for a runtime kind (google, openai, deepseek, anthropic, etc.), backed by runtimeKinds SSoT. */
+export function runtimeVendorForKind(kindId: string): string | null {
+  return runtimeKinds.find((kind) => kind.kindId === kindId)?.defaultProviderId ?? null;
+}
+
+/** The provider's own sign-in argv for one action. A kind whose CLI exposes a top-level
+ * `login`/`logout` declares it; every other kind keeps the `auth <action>` form. */
+export function runtimeAuthArgs(kindId: string, action: "login" | "logout"): readonly string[] {
+  return runtimeKindForId(kindId).auth.commands?.[action] ?? ["auth", action];
+}
+
+/** The configuration key that stores this kind's reasoning effort ("effort" or
+ * "reasoningEffort"), or undefined when the kind declares no effort field. The update
+ * write path and the edit form both key off this instead of hard-coding kind lists. */
+export function runtimeEffortField(kindId: string): string | undefined {
+  return Object.entries(runtimeKindForId(kindId).configuration.fields).find(
+    ([, shape]) => shape === "effort" || shape === "agy-effort",
+  )?.[0];
+}
+
+/** Whether this kind delivers effort through its provider config system (a
+ * $effort-config launch token) rather than a launch flag. Such kinds materialize the
+ * stored effort into the provider config file at launch (writeCodexConfig writes
+ * model_reasoning_effort), so their launch args carry only a request-level effort;
+ * flag kinds have no other consumption channel and must re-deliver the stored value
+ * on every launch. */
+export function runtimeEffortRidesProviderConfig(kindId: string): boolean {
+  // some() rather than includes(): the catalog's argument templates are literal tuples,
+  // and includes() would type its parameter as one kind's token union only.
+  return runtimeKindForId(kindId).launch.argumentTemplate.some((token) => token === "$effort-config");
+}

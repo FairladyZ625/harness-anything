@@ -6,13 +6,14 @@ import path from "node:path";
 import test from "node:test";
 import { Worker } from "node:worker_threads";
 import { policyTestCenter, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openPersistentWriterEpoch } from "@harness-anything/storage";
-import { openWriterSupervisor } from "../src/writer-supervisor.ts";
-import { dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
+import { openWriterSupervisor } from "../src/daemon-host/writer-supervisor.ts";
+import { dispatchStreamPath, readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
+import { probedOrchestrationHost } from "./fixtures/orchestration-probe.ts";
 
 test(
   "ordinary writes remain available while an active runtime workspace continuously changes thousands of files",
@@ -180,6 +181,11 @@ syncBuiltinESMExports();
         },
         {
           onPublishedStatus: (status) => publishedQueueDepths.push(status.queueDepth),
+          connectHost: probedOrchestrationHost((options) => ({
+            ...options,
+            workerData: { ...options.workerData, shutdownGate: shutdownGate.buffer, stopChurn: stopChurn.buffer },
+            execArgv: [...(options.execArgv ?? []), "--import", `data:text/javascript,${encodeURIComponent(preload)}`],
+          })),
           createWorker: (url, options) => {
             const worker = new Worker(url, {
               ...options,

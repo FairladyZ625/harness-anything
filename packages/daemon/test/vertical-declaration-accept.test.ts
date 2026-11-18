@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { decodeVerticalDefinition } from "@harness-anything/kernel";
-import { runVerticalDeclarationAction } from "../src/vertical-declaration-action.ts";
+import { decodeVerticalDefinition } from "@harness-anything/kernel/schemas";
+import { runVerticalDeclarationAction } from "../src/daemon-host/vertical-declaration-action.ts";
 
 /**
  * A kind may be governed by any accepted decision, not just a kernel built-in. The accept path

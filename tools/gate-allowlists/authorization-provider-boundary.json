@@ -4,38 +4,41 @@
     "providerWaivers": [
       {
         "scope": "packages/daemon/src/** (278 audit lines)",
-        "paths": ["packages/daemon/src/**"],
+        "paths": [
+          "packages/daemon/src/**"
+        ],
         "remediationTask": "task_273e5317cfe2d8740fadaee7e7",
         "expiresOn": "2026-12-07",
         "reason": "Legacy provider-specific daemon implementation and RPC wiring; exact source rows are enumerated in the task audit artifact. Pure OpenInput contract relocation in task_8cbccd711211f24ff006bda248 preserves the same four legacy provider rows (two identical context rows); three exact destination fingerprints track those rows without widening the provider surface."
       },
       {
         "scope": "packages/gui/src/** (62 audit lines; 45 remain)",
-        "paths": ["packages/gui/src/**"],
+        "paths": [
+          "packages/gui/src/**"
+        ],
         "remediationTask": "task_273e5317cfe2d8740fadaee7e7",
         "expiresOn": "2026-12-07",
         "reason": "Legacy provider-specific GUI IPC, presentation and copy; exact source rows are enumerated in the task audit artifact."
       },
       {
         "scope": "packages/cli/src/** (4 audit lines; rbac-bootstrap provider flags remain)",
-        "paths": ["packages/cli/src/**"],
+        "paths": [
+          "packages/cli/src/**"
+        ],
         "remediationTask": "task_273e5317cfe2d8740fadaee7e7",
         "expiresOn": "2026-12-07",
         "reason": "Legacy provider-specific rbac-bootstrap flags (--realm, --client-id, --client-secret-stdin) that move with the daemon.rbac.manage schema; device-login copy is already provider-neutral."
       },
       {
         "scope": "packages/authorization-builtin/src/** (16 authority/plugin source lines)",
-        "paths": ["packages/authorization-builtin/src/**"],
+        "paths": [
+          "packages/authorization-builtin/src/**"
+        ],
         "remediationTask": "task_273e5317cfe2d8740fadaee7e7",
         "expiresOn": "2026-12-07",
         "reason": "Builtin session/config exports still carry realm/clientId fields and collaboration guidance names Keycloak; migrate the authority contract and documentation under the shared remediation task."
       }
     ],
-    "lineFingerprints": [
-      "786528431aaca30c736a534a83d4f13ae2418f342293db454c77444af288c4c4",
-      "959505d6c2cfc1e9fb2e0dc722dc7e7196df2459f7686aa64cf2b88b29244f76",
-      "22bd9c26bfe2c8e76f5ebff0313159eebda98ae31b762baad91f2a24f6ed1aa4",
-      "d512d15fdeafcf1bfed142bba0aa00baf638471cfb0e431f1ed325c7bcb7aceb"
-    ]
+    "lineFingerprints": []
   }
 }

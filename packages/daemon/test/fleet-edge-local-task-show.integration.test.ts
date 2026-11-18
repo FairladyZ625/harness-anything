@@ -6,8 +6,8 @@ import test from "node:test";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import { readEdgeRepository } from "../src/fleet-edge-task-read.ts";
-import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
+import { readEdgeRepository } from "../src/daemon-host/fleet-edge-task-read.ts";
+import { locateFleetMirrorView } from "../src/daemon-host/fleet-edge-mirror.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 const quota = 64 * 1024 * 1024;

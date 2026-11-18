@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { runFleetRuntimeEventClient } from "../src/fleet/peer.ts";
+import { runFleetRuntimeEventClient } from "../src/daemon-host/fleet/peer.ts";
 import { definition } from "./schedule-actions.fixtures.ts";
 import { fleetFixture, rawPeer } from "./fleet-runtime-recovery.fixtures.ts";
 

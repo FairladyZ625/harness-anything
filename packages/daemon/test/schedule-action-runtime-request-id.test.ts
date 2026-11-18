@@ -2,9 +2,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { WriteReceipt } from "@harness-anything/kernel";
-import type { RepoCellRuntimeContext } from "../src/repo-cell-types.ts";
-import type { RuntimeAttemptTerminal, TrustedScheduleRuntime } from "../src/runtime-spawn.ts";
-import { settleScheduledRuntime } from "../src/schedule-action-runtime.ts";
+import type { RepoCellRuntimeContext } from "../src/daemon-host/repo-cell-types.ts";
+import type { RuntimeAttemptTerminal, TrustedScheduleRuntime } from "../src/daemon-host/runtime-spawn.ts";
+import { settleScheduledRuntime } from "../src/daemon-host/schedule-action-runtime.ts";
 
 const runtimeSessionId = "runtime_0123456789abcdef01234567",
   uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;

@@ -1,0 +1,294 @@
+import { createHash } from "node:crypto";
+import { accessSync, constants, realpathSync } from "node:fs";
+import path from "node:path";
+import { consumeKnownError } from "@harness-anything/kernel";
+import type { RuntimeInstallationWitness, RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
+import { runProcessExitAsync, runProcessTextAsync, type ProcessExitResult, type ProcessInput } from "./process-port.ts";
+import {
+  runtimeKindForId,
+  runtimeKinds,
+  type RuntimeProviderDeclaration,
+} from "../runtime-engine/runtime-inventory.ts";
+import { runtimeVersionGate } from "./runtime-version.ts";
+
+export async function discoverRuntimeInstallations(
+  input: {
+    readonly env?: NodeJS.ProcessEnv;
+    readonly now?: () => string;
+    readonly platform?: NodeJS.Platform;
+  } = {},
+): Promise<readonly RuntimeInstallationWitness[]> {
+  const env = input.env ?? process.env,
+    platform = input.platform ?? process.platform,
+    observedAt = (input.now ?? (() => new Date().toISOString()))(),
+    seen = new Set<string>(),
+    candidates: {
+      readonly kindId: RuntimeInstanceKind;
+      readonly executableEntryPath: string;
+      readonly executablePath: string;
+      readonly key: string;
+    }[] = [],
+    // Windows resolves commands through PATHEXT. An extensionless file is not
+    // directly launchable by Node, so only inspect executable suffixes here;
+    // test and real installations expose the command through a .cmd/.exe entry.
+    suffixes = platform === "win32" ? [".cmd", ".exe"] : [""];
+  const directories = (env.PATH ?? "").split(path.delimiter).filter(Boolean);
+  for (const { kindId, executable } of runtimeKinds) {
+    const declaration: RuntimeProviderDeclaration["executable"] = executable,
+      entries = [
+        ...directories.flatMap((directory) =>
+          suffixes.map((suffix) => path.resolve(directory, `${executable.command}${suffix}`)),
+        ),
+        ...(declaration.bundledEntries?.[platform] ?? []),
+      ];
+    for (const executableEntryPath of entries) {
+      const key = `${kindId}\0${executableEntryPath}`;
+      try {
+        accessSync(executableEntryPath, constants.X_OK);
+        const executablePath = realpathSync.native(executableEntryPath),
+          targetKey = `${kindId}\0${executablePath}`;
+        // PATH wins when a bundle and a command entry resolve to the same executable.
+        // Identity still uses the entry path so upgrades behind it keep the same ID.
+        if (seen.has(targetKey)) continue;
+        seen.add(targetKey);
+        candidates.push({ kindId, executableEntryPath, executablePath, key });
+      } catch (error) {
+        consumeKnownError(error);
+      }
+    }
+  }
+  const discovered = await mapConcurrent(
+      candidates,
+      2,
+      async ({ kindId, executableEntryPath, executablePath, key }) => {
+        try {
+          const version = await runExecutable(platform, executablePath, ["--version"], {
+            env: versionProbeEnvironment(env, platform),
+            timeoutMs: 5_000,
+            captureOutput: true,
+          });
+          if (!version) return null;
+          const installationId = `${kindId}_${createHash("sha256").update(key).digest("hex").slice(0, 24)}`,
+            // A build below the kind's floor cannot honor the launch contract, so its model
+            // catalog is not advertised: offering models that build would reject invites the
+            // configuration this gate exists to refuse. The witness itself stays, so the
+            // operator still sees which build is installed and why it is refused.
+            catalog =
+              runtimeVersionGate(kindId, version) === null && kindId !== "agy"
+                ? await discoverRuntimeModelCatalog({ platform, executablePath, kindId, env })
+                : null;
+          return {
+            installationId,
+            kindId,
+            executableEntryPath,
+            executablePath,
+            version,
+            observedAt,
+            ...(catalog ?? {}),
+          } satisfies RuntimeInstallationWitness;
+        } catch (error) {
+          consumeKnownError(error);
+          return null;
+        }
+      },
+    ),
+    result = discovered.filter((entry): entry is Exclude<(typeof discovered)[number], null> => entry !== null);
+  return result.sort((a, b) => a.installationId.localeCompare(b.installationId));
+}
+
+export function discoverRuntimeModelCatalog(input: {
+  readonly platform: NodeJS.Platform;
+  readonly executablePath: string;
+  readonly kindId: RuntimeInstanceKind;
+  readonly env: NodeJS.ProcessEnv;
+  readonly signal?: AbortSignal;
+}): Promise<{
+  readonly models: readonly string[];
+  readonly defaultModel: string;
+  readonly searchCapableModels?: readonly string[];
+} | null> {
+  const declaration = runtimeKindForId(input.kindId);
+  if (declaration.executable.modelProbe === null) return Promise.resolve(null);
+  const timeoutMs = declaration.auth.subscriptionProbeTimeoutMs;
+  return runExecutable(input.platform, input.executablePath, declaration.executable.modelProbe, {
+    env: input.env,
+    timeoutMs,
+    captureOutput: true,
+    signal: input.signal ?? AbortSignal.timeout(timeoutMs),
+  })
+    .then((output) => {
+      const models = [...parseRuntimeModelCatalogOutput(input.kindId, output)],
+        searchCapableModels =
+          declaration.executable.modelProbeFormat === "json-models" ? modelSearchCapableModels(output) : [],
+        capable = [...new Set(searchCapableModels)].filter((model) => models.includes(model));
+      return models[0]
+        ? {
+            models,
+            defaultModel: models[0],
+            ...(capable.length > 0 ? { searchCapableModels: capable } : {}),
+          }
+        : null;
+    })
+    .catch(() => null);
+}
+
+type ModelProbeFormat = RuntimeProviderDeclaration["executable"]["modelProbeFormat"];
+
+// Each CLI model-listing shape gets exactly one named parser; a new provider
+// shape is a function here plus one catalog line, never a new code path.
+const modelProbeParsers: Record<ModelProbeFormat, (output: string) => readonly string[]> = {
+  "json-models": (output) => {
+    const decoded = JSON.parse(output) as {
+      readonly models?: readonly {
+        readonly slug?: unknown;
+        readonly id?: unknown;
+      }[];
+    };
+    return (decoded.models ?? [])
+      .map((model) => (typeof model.slug === "string" ? model.slug : typeof model.id === "string" ? model.id : ""))
+      .filter(Boolean);
+  },
+  // devin `models list --format json` (3000.10.27, F-069741D0):
+  // {families:[{slug,aliases,variants:[{model_uid}]}]} — the family slug is the
+  // launch-level model token, so the catalog flattens families, not variants.
+  "json-families": (output) => {
+    const decoded = JSON.parse(output) as {
+      readonly families?: readonly { readonly slug?: unknown }[];
+    };
+    return (decoded.families ?? [])
+      .map((family) => family.slug)
+      .filter((slug): slug is string => typeof slug === "string" && slug !== "");
+  },
+  "tabular-models": (output) =>
+    output
+      .split(/\r?\n/u)
+      .map((line) => (line.includes("\t") ? line.split("\t", 1)[0]!.trim() : ""))
+      .filter((model) => /^[A-Za-z0-9][A-Za-z0-9._-]+$/u.test(model)),
+  "aliases-from-help": (output) =>
+    ["fable", "sonnet", "opus"].filter((alias) => output.includes(`'${alias}'`) || output.includes(`"${alias}"`)),
+};
+
+export function parseRuntimeModelCatalogOutput(kindId: RuntimeInstanceKind, output: string): readonly string[] {
+  const declaration = runtimeKindForId(kindId);
+  return declaration.executable.modelProbe === null
+    ? []
+    : [...new Set(modelProbeParsers[declaration.executable.modelProbeFormat](output))];
+}
+
+/** Codex's bundled catalog marks models that expose the native hosted search tool. Other
+ *  json-model providers do not publish this field and yield an empty (unknown) subset. */
+function modelSearchCapableModels(output: string): string[] {
+  const decoded = JSON.parse(output) as {
+    readonly models?: readonly {
+      readonly slug?: unknown;
+      readonly id?: unknown;
+      readonly supports_search_tool?: unknown;
+    }[];
+  };
+  return (decoded.models ?? [])
+    .filter((model) => model.supports_search_tool === true)
+    .map((model) => (typeof model.slug === "string" ? model.slug : typeof model.id === "string" ? model.id : ""))
+    .filter(Boolean);
+}
+
+export function versionProbeEnvironment(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): NodeJS.ProcessEnv {
+  const result: NodeJS.ProcessEnv = {
+    PATH: env.PATH ?? "",
+    LANG: "C",
+    LC_ALL: "C",
+  };
+  if (platform === "win32")
+    for (const key of ["SYSTEMROOT", "SYSTEMDRIVE", "COMSPEC", "PATHEXT", "TEMP", "TMP"])
+      if (env[key]) result[key] = env[key];
+  return result;
+}
+
+// Executes a witnessed runtime executable across platforms without `shell: true`:
+// native executables spawn argv-direct, while Windows command shims (.cmd/.bat)
+// run through an explicit cmd.exe argv with a fully controlled command line.
+export async function runExecutable(
+  platform: NodeJS.Platform,
+  executablePath: string,
+  args: readonly string[],
+  options: {
+    readonly env: NodeJS.ProcessEnv;
+    readonly timeoutMs: number;
+    readonly captureOutput: boolean;
+    readonly input?: ProcessInput;
+    readonly cwd?: string;
+    readonly signal?: AbortSignal;
+  },
+): Promise<string> {
+  const invocation = executableInvocation(platform, executablePath, args),
+    { command, argv, windowsVerbatimArguments } = invocation;
+  const stdout = await runProcessTextAsync(
+    command,
+    argv,
+    options.cwd,
+    options.env,
+    options.input,
+    options.signal ?? AbortSignal.timeout(options.timeoutMs),
+    {
+      timeoutMs: options.timeoutMs,
+      ...(windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+    },
+  );
+  return options.captureOutput ? stdout.trim() : "";
+}
+
+export function runExecutableResult(
+  platform: NodeJS.Platform,
+  executablePath: string,
+  args: readonly string[],
+  options: {
+    readonly env: NodeJS.ProcessEnv;
+    readonly timeoutMs: number;
+    readonly cwd?: string;
+    readonly input?: string;
+    readonly signal?: AbortSignal;
+  },
+): Promise<ProcessExitResult> {
+  const invocation = executableInvocation(platform, executablePath, args),
+    { command, argv, windowsVerbatimArguments } = invocation;
+  return runProcessExitAsync(
+    command,
+    argv,
+    options.cwd,
+    options.env,
+    options.input,
+    options.signal ?? AbortSignal.timeout(options.timeoutMs),
+    {
+      timeoutMs: options.timeoutMs,
+      ...(windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+    },
+  );
+}
+
+async function mapConcurrent<T, R>(values: readonly T[], limit: number, map: (value: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, values.length) }, async () => {
+      while (next < values.length) {
+        const index = next++;
+        results[index] = await map(values[index]!);
+      }
+    }),
+  );
+  return results;
+}
+
+function executableInvocation(
+  platform: NodeJS.Platform,
+  executablePath: string,
+  args: readonly string[],
+): { readonly command: string; readonly argv: readonly string[]; readonly windowsVerbatimArguments: boolean } {
+  const shim = (platform === "win32" || process.platform === "win32") && /\.(?:cmd|bat)$/iu.test(executablePath),
+    command =
+      shim && process.platform === "win32" ? (process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe") : "cmd.exe";
+  return {
+    command: shim ? command : executablePath,
+    argv: shim ? ["/d", "/s", "/c", `"${executablePath}" ${args.join(" ")}`] : [...args],
+    windowsVerbatimArguments: shim,
+  };
+}

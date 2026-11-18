@@ -2,9 +2,9 @@
 
 CLI and GUI submit typed commands over the daemon JSON-RPC protocol. The daemon
 owns a serialized `RepoCell` per repository
-(`packages/daemon/src/repo-cell.ts`); the actual writer runs in a dedicated
-`packages/daemon/src/repo-writer-worker.ts` thread supervised by
-`packages/daemon/src/writer-supervisor.ts`. The persistent `writer-epoch` fence
+(`packages/daemon/src/daemon-host/repo-cell.ts`); the actual writer runs in a dedicated
+`packages/daemon/src/writer-cell/repo-writer-worker.ts` thread supervised by
+`packages/daemon/src/daemon-host/writer-supervisor.ts`. The persistent `writer-epoch` fence
 (`packages/daemon/src/writer-epoch.ts`) rejects stale writers after a daemon
 restart and keeps exactly one writer at any moment in a fleet; `remote-edge`
 nodes forward commands to `remote-center` and do not gain a second writer.

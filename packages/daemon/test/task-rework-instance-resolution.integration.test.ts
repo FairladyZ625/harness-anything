@@ -4,7 +4,7 @@ import test from "node:test";
 
 import { fixture, owner, taskId, executionId } from "./task-completion-review.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { readDispatchStream } from "../src/dispatch-stream.ts";
+import { readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import {
   createMultiVendorHarness,
   latestReviewerDispatchFor,

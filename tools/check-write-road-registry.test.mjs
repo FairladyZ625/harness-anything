@@ -54,7 +54,7 @@ test("write-road registry rejects an unregistered replication receiver", () =>
   withFixture((root) => {
     write(
       root,
-      "packages/daemon/src/fleet/walreceiver.ts",
+      "packages/daemon/src/daemon-host/fleet/walreceiver.ts",
       'import { open } from "node:fs/promises";\nawait open(target, "wx");\n',
     );
     assert.match(
@@ -149,8 +149,8 @@ test("write-road registry does not flag a file whose sqlite sites are all read-o
 // dec_4190D5EA63D9DD208CE946F133: command input staging replaces the shell adapter's sink.
 test("command witness staging replaces the retired adapter physical-write registration", () =>
   withFixture((root) => {
-    const oldPath = "packages/daemon/src/repo-cell-witness-adapters.ts";
-    const newPath = "packages/daemon/src/repo-cell-command-witness.ts";
+    const oldPath = "packages/daemon/src/daemon-host/repo-cell-witness-adapters.ts";
+    const newPath = "packages/daemon/src/daemon-host/repo-cell-command-witness.ts";
     write(root, oldPath, "export {};\n");
     write(root, newPath, 'import { mkdirSync } from "node:fs"; mkdirSync("frozen-input");\n');
     const file = path.join(root, "tools/write-road-registry.json");
@@ -253,7 +253,7 @@ function withFixture(run) {
     );
     write(
       root,
-      "packages/daemon/src/repo-cell.ts",
+      "packages/daemon/src/daemon-host/repo-cell.ts",
       `import { openSync } from "node:fs";\nopenSync(lockPath, "wx");\nconst store = makeTaskEventStore({ rootDir });\nconst service = makeTaskLifecycleService({ eventStore: store, projection });\nlet tail = Promise.resolve(); tail = tail.then(() => service.execute(command));\n`,
     );
     write(
@@ -283,10 +283,13 @@ function withFixture(run) {
                 "task-respond-review",
                 "task-submit",
               ],
-              authority: "packages/daemon/src/repo-cell.ts",
+              authority: "packages/daemon/src/daemon-host/repo-cell.ts",
               store: "packages/storage/src/store/task-event-store.ts",
               leasePolicy: "domain-contract",
-              evidence: ["packages/daemon/src/repo-cell.ts", "packages/storage/src/store/task-event-store.ts"],
+              evidence: [
+                "packages/daemon/src/daemon-host/repo-cell.ts",
+                "packages/storage/src/store/task-event-store.ts",
+              ],
             },
             {
               id: "workspace.bootstrap",
@@ -299,14 +302,14 @@ function withFixture(run) {
                 "rbac-bootstrap",
                 "repo-bootstrap",
               ],
-              authority: "packages/daemon/src/daemon-host.ts",
-              evidence: ["packages/daemon/src/daemon-host.ts"],
+              authority: "packages/daemon/src/daemon-host/daemon-host.ts",
+              evidence: ["packages/daemon/src/daemon-host/daemon-host.ts"],
             },
             {
               id: "daemon.runtime-control",
               actions: ["daemon-start", "daemon-stop"],
-              authority: "packages/daemon/src/runtime.ts",
-              evidence: ["packages/daemon/src/runtime.ts"],
+              authority: "packages/daemon/src/daemon-host/runtime.ts",
+              evidence: ["packages/daemon/src/daemon-host/runtime.ts"],
             },
             {
               id: "projection.sqlite",
@@ -326,8 +329,8 @@ function withFixture(run) {
                 "fleet.upload.chunk/v1",
                 "fleet.upload.finish/v1",
               ],
-              authority: "packages/daemon/src/fleet-edge-write.ts",
-              evidence: ["packages/daemon/src/fleet-edge-write.ts"],
+              authority: "packages/daemon/src/daemon-host/fleet-edge-write.ts",
+              evidence: ["packages/daemon/src/daemon-host/fleet-edge-write.ts"],
             },
             {
               id: "fleet.center-write",
@@ -341,22 +344,22 @@ function withFixture(run) {
                 "fleet.upload.chunk/v1",
                 "fleet.upload.finish/v1",
               ],
-              authority: "packages/daemon/src/fleet/center-listener.ts",
-              evidence: ["packages/daemon/src/fleet/center-listener.ts"],
+              authority: "packages/daemon/src/daemon-host/fleet/center-listener.ts",
+              evidence: ["packages/daemon/src/daemon-host/fleet/center-listener.ts"],
             },
           ],
-          physicalWriteFiles: ["packages/daemon/src/repo-cell.ts"],
+          physicalWriteFiles: ["packages/daemon/src/daemon-host/repo-cell.ts"],
         },
         null,
         2,
       ),
     );
     for (const file of [
-      "packages/daemon/src/daemon-host.ts",
-      "packages/daemon/src/runtime.ts",
+      "packages/daemon/src/daemon-host/daemon-host.ts",
+      "packages/daemon/src/daemon-host/runtime.ts",
       "packages/storage/src/projection/rebuildable-task-projection.ts",
-      "packages/daemon/src/fleet-edge-write.ts",
-      "packages/daemon/src/fleet/center-listener.ts",
+      "packages/daemon/src/daemon-host/fleet-edge-write.ts",
+      "packages/daemon/src/daemon-host/fleet/center-listener.ts",
     ])
       write(root, file, "export {};\n");
     run(root);

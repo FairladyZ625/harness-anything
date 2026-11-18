@@ -100,10 +100,10 @@ export const READ_MARGINS = Object.freeze({
 
 export async function readInventory(rootDir) {
   const { daemonProtocolCommands, allDaemonProtocolMethods } = await import(
-    pathToFileURL(path.join(rootDir, "packages/daemon/src/protocol/daemon-protocol-commands.ts")).href
+    pathToFileURL(path.join(rootDir, "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts")).href
   );
   const { daemonRpcRoutingDeclarations } = await import(
-    pathToFileURL(path.join(rootDir, "packages/daemon/src/rpc-command-routing.ts")).href
+    pathToFileURL(path.join(rootDir, "packages/daemon/src/daemon-host/rpc-command-routing.ts")).href
   );
   return [
     ...deriveReadInventory({

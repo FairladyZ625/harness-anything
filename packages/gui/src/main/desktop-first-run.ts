@@ -41,6 +41,7 @@ export function desktopRuntimePaths(
       "dist",
       "daemon",
       "src",
+      "daemon-host",
       "bin.js",
     ),
   };

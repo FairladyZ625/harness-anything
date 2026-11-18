@@ -5,14 +5,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { DISPATCH_LIFECYCLE_PAGE_LIMIT, type DispatchLifecycleQuery } from "@harness-anything/kernel";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
-import { createRuntimeInstanceDispatchState } from "../src/runtime-instance-selection.ts";
-import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
-import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
+import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { createRuntimeInstanceDispatchState } from "../src/daemon-host/runtime-instance-selection.ts";
+import { adoptRuntimes } from "../src/daemon-host/runtime-spawn-adoption.ts";
+import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
 import {
   importedRuntimeSessionProjection,
   sameImportedRuntimeSessionProjection,
-} from "../src/runtime-imported-settlement.ts";
+} from "../src/runtime-engine/runtime-imported-settlement.ts";
 import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 
 test("a recovered imported session still reconciles with its replayed source at a later observation stamp", () => {

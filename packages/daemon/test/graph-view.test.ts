@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { graphView } from "@harness-anything/application/queries";
-import type { TaskQueryCell } from "../src/repo-cell-task-query.ts";
-import type { RepoCellBinding, RepoTaskAction } from "../src/repo-cell-types.ts";
+import type { TaskQueryCell } from "../src/daemon-host/repo-cell-task-query.ts";
+import type { RepoCellBinding, RepoTaskAction } from "../src/daemon-host/repo-cell-types.ts";
 
 function fixture(finalRevision = 1, anchorRevision = 1, labelRevision = 1): TaskQueryCell {
   const cut = (revision = 1) => ({ status: "ready" as const, watermark: revision, sourceRevision: revision });

@@ -19,8 +19,8 @@ import { BASE_BACKUP_ARCHIVE_ROOT } from "./fleet-basebackup-layout.ts";
 
 const { storageContext, ...input } = workerData as BaseBackupInput & { readonly storageContext?: StorageWorkerContext };
 if (storageContext) {
-  const { installStorageWorkerContext } = await import("./storage-worker-context.ts");
-  installStorageWorkerContext(storageContext);
+  const { installPGliteWorkerContext } = await import("./pglite/query-owner.ts");
+  installPGliteWorkerContext(storageContext);
 }
 const sqlBackup = async () => {
   if (!("storage" in input)) throw new TypeError("SQL backup requires storage");

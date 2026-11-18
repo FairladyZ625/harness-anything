@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { Effect } from "effect";
-import type { Exit } from "effect";
+import * as Effect from "effect/Effect";
+import type * as Exit from "effect/Exit";
 import type { WriteOp } from "@harness-anything/kernel/internal/ports/index.ts";
 import { closeTaskProjectionsUnder } from "../../src/projection/rebuildable-task-projection.ts";
 import { closeSqliteEventStoresUnder } from "../../src/store/sqlite-ledger-connections.ts";

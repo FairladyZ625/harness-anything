@@ -79,7 +79,8 @@ test("PR authorization scope is shell-neutral and does not narrow the quick-gate
       manifest.gates.map((gate) => gate.id),
     );
     assert.equal(plan[1].command, manifest.gates[1].command);
-    const command = `${manifest.gates[0].command} --changed-files-base64 ${Buffer.from(JSON.stringify(files)).toString("base64")}`;
+    const command = `${manifest.gates[0].command} --changed-files-stdin`;
+    assert.equal(plan[0].input, JSON.stringify(files));
     for (const platform of ["win32", "linux", "darwin"])
       assert.equal(commandForPlatformShell(plan[0].command, { platform, env: {} }), command);
   }
@@ -101,7 +102,10 @@ function authorizationRunnerFixture() {
   const { rootDir } = makeRepo({
     "tools/gate-manifest.json": JSON.stringify(authorizationManifest()),
     "tools/test-quarantine.json": JSON.stringify({ schema: "harness-test-quarantine/v1", tests: [] }),
-    "tools/capture.mjs": 'console.log("CAPTURE " + JSON.stringify(process.argv.slice(2)));',
+    "tools/capture.mjs": `import { readFileSync } from "node:fs";
+const args = process.argv.slice(2);
+if (args.includes("--changed-files-stdin")) args.push(readFileSync(0, "utf8"));
+console.log("CAPTURE " + JSON.stringify(args));`,
     "old name.ts": "export const old = 1;\n",
     "deleted.ts": "export const deleted = 1;\n",
   });
@@ -112,6 +116,47 @@ function authorizationRunnerFixture() {
   runGit(rootDir, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
   return rootDir;
 }
+
+// dec_04A9211B073F29F0FC1E1CA573 CH3: the complete migration diff must reach the
+// authorization proof without exceeding the operating system's argument limit.
+for (const parallel of [false, true])
+  test(`large PR authorization scope reaches the real ${parallel ? "parallel" : "sequential"} gate process`, () => {
+    const root = authorizationRunnerFixture(),
+      files = Array.from({ length: 3000 }, (_, index) => `packages/daemon/src/路径 & 'quote'/module-${index}.ts`);
+    assert.ok(Buffer.byteLength(JSON.stringify(files)) > 131_072);
+    writeRepoFile(root, "expected.json", JSON.stringify(files));
+    writeRepoFile(
+      root,
+      "tools/capture.mjs",
+      `import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+assert.deepEqual(process.argv.slice(2), ["authorization", "--changed-files-stdin"]);
+assert.deepEqual(JSON.parse(readFileSync(0, "utf8")), JSON.parse(readFileSync("expected.json", "utf8")));
+console.log("Complete authorization scope received");`,
+    );
+    writeRepoFile(
+      root,
+      "tools/large-scope.mjs",
+      `import { readFileSync } from "node:fs";
+import { buildManifestGatePlan, runManifestGatePlan, runManifestGatePlanParallel } from "./run-manifest-gates.mjs";
+const manifest = JSON.parse(readFileSync("tools/gate-manifest.json", "utf8"));
+manifest.gates = manifest.gates.slice(0, 1);
+const plan = buildManifestGatePlan(manifest, {
+  workflowJob: "quick-gates", eventName: "pull_request",
+  authorizationChangedPaths: JSON.parse(readFileSync("expected.json", "utf8")),
+});
+const result = await ${parallel ? "runManifestGatePlanParallel(plan, { concurrency: 2 })" : "runManifestGatePlan(plan)"};
+process.exitCode = result.failedGateIds.length ? 1 : 0;`,
+    );
+    const result = spawnSync(process.execPath, ["tools/large-scope.mjs"], { cwd: root, encoding: "utf8" }),
+      diagnostics = `${result.stderr}\n${result.stdout}`
+        .split("\n")
+        .filter((line) => line.length < 600)
+        .slice(-12)
+        .join("\n");
+    assert.equal(result.status, 0, diagnostics);
+    assert.match(result.stdout, /Complete authorization scope received/u);
+  });
 
 function capturedAuthorizationRun(rootDir, eventName, args = []) {
   const env = { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull };
@@ -146,13 +191,8 @@ test("CLI passes the exact PR merge-base diff, including both rename sides and d
   for (const event of ["pull_request", "merge_group"]) {
     const captured = capturedAuthorizationRun(root, event);
     assert.deepEqual(captured[1], ["other"]);
-    assert.deepEqual(captured[0].slice(0, 2), ["authorization", "--changed-files-base64"]);
-    assert.deepEqual(JSON.parse(Buffer.from(captured[0][2], "base64").toString("utf8")), [
-      "deleted.ts",
-      "new name.ts",
-      "old name.ts",
-      "路径 & 'quote'.ts",
-    ]);
+    assert.deepEqual(captured[0].slice(0, 2), ["authorization", "--changed-files-stdin"]);
+    assert.deepEqual(JSON.parse(captured[0][2]), ["deleted.ts", "new name.ts", "old name.ts", "路径 & 'quote'.ts"]);
   }
 });
 
@@ -172,7 +212,7 @@ test("CLI supports an explicit comparison base without enabling push scoping", (
   commitAll(root);
   const args = ["--changed-base", "comparison"];
   const captured = capturedAuthorizationRun(root, "pull_request", args);
-  assert.deepEqual(JSON.parse(Buffer.from(captured[0][2], "base64").toString("utf8")), ["leaf.ts"]);
+  assert.deepEqual(JSON.parse(captured[0][2]), ["leaf.ts"]);
   assert.deepEqual(capturedAuthorizationRun(root, "push", args), [["authorization"], ["other"]]);
 });
 
@@ -518,12 +558,12 @@ test("standalone changed mode selects every cheap local gate for a path it check
   ]);
   // One path per gate that the gate reads; the first four are paths a local stop run once missed.
   const representativePaths = {
-    "canonical-event-compat": "packages/daemon/src/protocol/readside-validator.ts",
+    "canonical-event-compat": "packages/daemon/src/daemon-host/protocol/readside-validator.ts",
     "check-write-coordinator-boundary": "packages/cli/src/new-command.ts",
     "check-write-road-registry": "packages/cli/src/new-command.ts",
     "check-file-complexity": "packages/application/src/commands/entity-action-catalog-executor.ts",
     "entity-id-links": "packages/gui/src/renderer/views/DecisionJudgeTab.tsx",
-    "check-poll-spin-boundary": "packages/daemon/src/runtime-poll.ts",
+    "check-poll-spin-boundary": "packages/daemon/src/daemon-host/runtime-poll.ts",
     "check-fallback-boundaries": "tools/gates/receipt-verify.mjs",
     "check-entity-doc-contract": "packages/kernel/src/domain/entity-kind-registry.ts",
     "check-format": "packages/cli/src/index.ts",
@@ -531,16 +571,17 @@ test("standalone changed mode selects every cheap local gate for a path it check
     "check-test-tier-manifest": "packages/storage/test/store/task-event-store.test.ts",
     "check-cli-structure": "packages/cli/src/new-command.ts",
     "check-cli-path-contract": "tools/check-cli-path-contract.mjs",
-    "check-cli-help-contract": "packages/daemon/src/protocol/daemon-protocol.contract.ts",
+    "check-cli-help-contract": "packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts",
     "check-cli-error-codes": "packages/cli/src/new-command.ts",
     "check-error-classification": "packages/cli/src/cli/thin-command.ts",
     "check-import-boundaries": "packages/daemon/package.json",
     "check-c4-architecture": "packages/daemon/package.json",
+    "check-writer-isolate": "packages/daemon/src/writer-cell/repo-writer-worker.ts",
     "check-bypass-write-boundary": "packages/storage/src/store/task-event-store.ts",
-    "check-kernel-dead-exports": "packages/daemon/src/repo-cell.ts",
+    "check-kernel-dead-exports": "packages/daemon/src/daemon-host/repo-cell.ts",
     "check-relation-cycle-substrate": "packages/kernel/src/domain/relation-cycle.ts",
     "check-domain-judgment-single-definition": "packages/gui/src/renderer/task-adapter.ts",
-    "check-relation-canonical-direction": "packages/daemon/src/repo-cell.ts",
+    "check-relation-canonical-direction": "packages/daemon/src/daemon-host/repo-cell.ts",
     "check-task-event-aggregate-entry": "packages/application/src/task-lifecycle-service.ts",
     "scan-forbidden-symbols": "packages/gui/src/main.ts",
     "check-self-repo-path-literals": "packages/kernel/src/domain/gate-run.ts",
@@ -553,18 +594,18 @@ test("standalone changed mode selects every cheap local gate for a path it check
     "authorization-provider-boundary": "tools/gates/authorization-provider-boundary.mjs",
     "check-template-command-surface": "packages/cli/src/cli/thin-command.ts",
     "check-locale-content": "packages/cli/src/cli/thin-command.ts",
-    "check-catalog-schema": "packages/daemon/src/protocol/daemon-protocol.contract.ts",
+    "check-catalog-schema": "packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts",
     "check-runtime-release-readiness": "packages/kernel/src/domain/runtime-release-readiness.ts",
     "check-package-policy": "packages/cli/package.json",
     "check-implementation-contracts": "package-lock.json",
     "check-service-mappability": "packages/application/src/index.ts",
-    "check-api-contract-registry": "packages/daemon/src/daemon-host.ts",
+    "check-api-contract-registry": "packages/daemon/src/daemon-host/daemon-host.ts",
     "check-schema-contracts": "packages/kernel/fixtures/schemas/task-plan/valid.json",
     "check-schema-field-coverage": "packages/kernel/src/domain/entity-field-contracts.ts",
     "check-legacy-intake-readiness": "tools/legacy-intake/behavior-corpus-classification.json",
     "smoke-legacy-intake": "packages/cli/src/commands/migration.ts",
     "check-status-vocabulary": "packages/kernel/src/domain/status-vocabulary.ts",
-    "check-sync-subprocess": "packages/daemon/src/repo-cell.ts",
+    "check-sync-subprocess": "packages/daemon/src/daemon-host/repo-cell.ts",
     "derived-contracts": "tools/gates/contracts/gates.contract.mjs",
     "schema-closure": "packages/daemon/fixtures/contracts/x.json",
     "dependency-policy": "package-lock.json",

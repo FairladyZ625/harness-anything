@@ -9,10 +9,10 @@ import test from "node:test";
 import { makeTaskEventReader, makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { REPLAY_TASK_GRAPH, canonicalizeContractValue, readSettingsFacet, sha256Text } from "@harness-anything/kernel";
 import { compileRepoTaskPackage } from "@harness-anything/preset";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { blob, claim, prepare } from "../src/migration-import-events.ts";
-import { reboundRef, type MigrationRelationsContext } from "../src/migration-import-relations.ts";
-import { taskTitleFromPackage } from "../src/migration-import-tasks.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { blob, claim, prepare } from "../src/daemon-host/migration-import-events.ts";
+import { reboundRef, type MigrationRelationsContext } from "../src/daemon-host/migration-import-relations.ts";
+import { taskTitleFromPackage } from "../src/daemon-host/migration-import-tasks.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 

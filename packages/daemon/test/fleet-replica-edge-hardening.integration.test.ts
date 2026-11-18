@@ -19,11 +19,11 @@ import {
   runFleetReplicaSync,
   waitForFleetReplicaSequence,
   type ReplicaSyncOptions,
-} from "../src/fleet/replica-sync.ts";
-import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
-import { edgeReplicaDoctor } from "../src/edge-replica-doctor.ts";
-import { runWalReceiver } from "../src/fleet/walreceiver.ts";
-import { REPLICATION_CHUNK_BYTES, type ReplicationFrame } from "../src/fleet/protocol.ts";
+} from "../src/daemon-host/fleet/replica-sync.ts";
+import { readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
+import { edgeReplicaDoctor } from "../src/daemon-host/edge-replica-doctor.ts";
+import { runWalReceiver } from "../src/daemon-host/fleet/walreceiver.ts";
+import { REPLICATION_CHUNK_BYTES, type ReplicationFrame } from "../src/fleet-sync/fleet/protocol.ts";
 import {
   fleetReplicationFixture,
   replicationRepoId,

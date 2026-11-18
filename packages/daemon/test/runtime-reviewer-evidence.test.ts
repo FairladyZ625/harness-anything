@@ -4,10 +4,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { observeProviderFault } from "../src/runtime-provider-fault.ts";
-import { parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
+import { observeProviderFault } from "../src/daemon-host/runtime-provider-fault.ts";
+import { parseProviderFrame } from "../src/daemon-host/runtime-spawn-provider-frames.ts";
 import { publishExit } from "./runtime-spawn-settlement.fixtures.ts";
-import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
+import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
 import { tasklessSettlementRuntime } from "./runtime-spawn-settlement.fixtures.ts";
 
 const blocked = {

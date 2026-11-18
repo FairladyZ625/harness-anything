@@ -421,7 +421,7 @@ test("prints a JSON explanation for the requested source file", () => {
   assert.ok(explanation.plane.forbiddenTargets.includes("daemon-host"));
 });
 
-test("explains authorization-builtin as a modeled C4 endpoint and passes CLI --scope packages", () => {
+test("explains authorization-builtin as a modeled C4 endpoint and passes the complete CLI gate", () => {
   const result = spawnSync(
     process.execPath,
     [checkerPath, "--explain", "packages/authorization-builtin/src/builtin-policy-adapter.ts", "--json"],
@@ -435,18 +435,18 @@ test("explains authorization-builtin as a modeled C4 endpoint and passes CLI --s
   assert.deepEqual(explanation.package.allowedTargets, ["kernel"]);
   assert.ok(explanation.package.forbiddenTargets.includes("daemon"));
 
-  const cliCheck = spawnSync(process.execPath, [checkerPath, "--scope", "packages", "--json"], {
+  const cliCheck = spawnSync(process.execPath, [checkerPath, "--json"], {
     cwd: repoRoot,
     encoding: "utf8",
   });
   assert.equal(cliCheck.status, 0, cliCheck.stderr || cliCheck.stdout);
   const parsed = JSON.parse(cliCheck.stdout);
   assert.equal(parsed.ok, true);
-  assert.equal(parsed.scope, "packages");
+  assert.equal(parsed.scope, "all");
 });
 
 // dec_04A9211B073F29F0FC1E1CA573 CH3 & dec_7C93DEBCFB2D1A94C6FA07AAAD CH2
-test("enforces closed-world workspace inventory and --scope packages", async (t) => {
+test("enforces closed-world workspace inventory and rejects retired scope bypasses", async (t) => {
   const root = await fixture(t);
   await seedClosedWorldPackages(root);
   await source(root, "daemon", "src/unassigned-top.ts", "export const ok = true;\n");
@@ -455,11 +455,15 @@ test("enforces closed-world workspace inventory and --scope packages", async (t)
   assert.equal(defaultScope.ok, false);
   assert.ok(defaultScope.violations.some((m) => m.includes("must be assigned to one of")));
 
-  const packagesScope = await checkArchitecture(root, { scope: "packages" });
-  assert.equal(packagesScope.ok, true, packagesScope.violations.join("\n"));
+  // dec_04A9211B073F29F0FC1E1CA573 CH3 negative control: a caller cannot disable plane checks.
+  await assert.rejects(checkArchitecture(root, { scope: "packages" }), /scope was retired/u);
+  const cli = spawnSync(process.execPath, [checkerPath, "--scope", "packages"], { cwd: root, encoding: "utf8" });
+  assert.equal(cli.status, 1);
+  assert.match(cli.stderr, /Unknown argument: --scope/u);
+  await rm(path.join(root, "packages/daemon/src/unassigned-top.ts"));
 
   await rm(path.join(root, "packages/dsh-plugin/package.json"));
-  const missingPkg = await checkArchitecture(root, { scope: "packages" });
+  const missingPkg = await checkArchitecture(root);
   assert.equal(missingPkg.ok, false);
   assert.ok(missingPkg.violations.some((m) => m.includes("@harness-anything/dsh-plugin is missing from packages/")));
 });
@@ -476,7 +480,7 @@ test("reconciles package.json internal dependencies against AST imports and C4 r
   });
   await source(root, "application", "src/index.ts", 'import "@harness-anything/kernel";\n');
 
-  const result = await checkArchitecture(root, { scope: "packages" });
+  const result = await checkArchitecture(root);
 
   assert.equal(result.ok, false);
   assert.ok(
@@ -511,7 +515,7 @@ test("reconciles package.json internal dependencies against AST imports and C4 r
     gui: { devDependencies: { "@harness-anything/authorization-gui": "0.1.0" } },
   });
   await source(root, "gui", "src/index.ts", 'import "@harness-anything/authorization-gui";\n');
-  const validPrivateBundle = await checkArchitecture(root, { scope: "packages" });
+  const validPrivateBundle = await checkArchitecture(root);
   assert.equal(validPrivateBundle.ok, true, validPrivateBundle.violations.join("\n"));
 });
 
@@ -519,7 +523,7 @@ test("resolves explicit --model paths and worktree parent harness fallback clean
   const root = await fixture(t);
   await seedClosedWorldPackages(root);
 
-  const missingExplicit = await checkArchitecture(root, { scope: "packages", modelPath: "missing/model.c4" });
+  const missingExplicit = await checkArchitecture(root, { modelPath: "missing/model.c4" });
   assert.equal(missingExplicit.ok, false);
   assert.ok(missingExplicit.violations.some((m) => m.includes("missing/model.c4: model.c4 not found")));
 
@@ -528,7 +532,7 @@ test("resolves explicit --model paths and worktree parent harness fallback clean
   const mainModel = path.join(root, "harness/context/architecture/model/model.c4");
   await mkdir(path.dirname(mainModel), { recursive: true });
   await writeFile(mainModel, "model {}\n");
-  const worktreeResult = await checkArchitecture(worktreeContainer, { scope: "packages" });
+  const worktreeResult = await checkArchitecture(worktreeContainer);
   assert.equal(worktreeResult.ok, false);
   assert.equal(worktreeResult.model.status, "checked");
   assert.ok(worktreeResult.model.paths.some((p) => p.endsWith("harness/context/architecture/model/model.c4")));

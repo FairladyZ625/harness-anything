@@ -33,12 +33,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { documentPath } from "../packages/kernel/src/domain/doc-sync-codec.ts";
 import { resolveWorkspaceDocumentPath } from "../packages/kernel/src/layout/index.ts";
-import { isDocAction } from "../packages/daemon/src/doc-sync-command-actions.ts";
-import { validateSelectedDocPaths } from "../packages/daemon/src/doc-sync-candidate-scanner.ts";
-import { daemonProtocolCommands } from "../packages/daemon/src/protocol/daemon-protocol-commands.ts";
+import { isDocAction } from "../packages/daemon/src/daemon-host/doc-sync-command-actions.ts";
+import { validateSelectedDocPaths } from "../packages/daemon/src/daemon-host/doc-sync-candidate-scanner.ts";
+import { daemonProtocolCommands } from "../packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts";
 import { parseThinCommand } from "../packages/cli/src/cli/thin-command.ts";
 import { readCliInputFile } from "../packages/cli/src/cli-input-codec.ts";
-import { workspaceText } from "../packages/daemon/src/repo-cell-packets.ts";
+import { workspaceText } from "../packages/daemon/src/daemon-host/repo-cell-packets.ts";
 
 // CLI-host files: the one exempt coordinate. Credential material is the adjudicated case
 // (fact F-0B58827E) and `task artifact add --source` is the caller-local artifact source; neither

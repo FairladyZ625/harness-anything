@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseDaemonRpcParams } from "../src/protocol/daemon-protocol.contract.ts";
+import { parseDaemonRpcParams } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 
 const parse = (payload: Record<string, unknown>) =>
   parseDaemonRpcParams("daemon.runtimeInstance.update", { payload: { instanceId: "claude-api-test", ...payload } });

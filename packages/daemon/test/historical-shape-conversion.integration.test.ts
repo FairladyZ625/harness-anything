@@ -24,8 +24,8 @@ import {
 import { planLegacyGenerationConversion } from "../../storage/test/store/canonical-generation.fixtures.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { initRepo } from "./migration-import.fixtures.ts";
-import { canonicalRoot } from "../src/protocol/daemon-protocol.contract.ts";
-import { makeTaskQueryReadModel } from "../src/task-query-read.ts";
+import { canonicalRoot } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { makeTaskQueryReadModel } from "../src/daemon-host/task-query-read.ts";
 
 function sourceStore(events: readonly CanonicalEventV1[], content: ReadonlyMap<string, Buffer>): CanonicalEventStore {
   return {

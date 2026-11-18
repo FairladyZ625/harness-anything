@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { daemonBuildStamp } from "../src/build-identity.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
@@ -9,13 +9,17 @@ import test from "node:test";
 import { INITIAL_SETTINGS_V1, isTaskEvent, writeRepositorySettingsFacet } from "@harness-anything/kernel";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import { localUserDaemonEndpoint, mkdirSecurely } from "../src/client/local-daemon-target.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { canonicalRoot, daemonProtocolMethods, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import { serveJsonRpcStream } from "../src/transport/json-rpc-stream.ts";
+import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { localUserDaemonEndpoint, mkdirSecurely } from "../src/daemon-host/client/local-daemon-target.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import {
+  canonicalRoot,
+  daemonProtocolMethods,
+  workspaceId,
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
+import { serveJsonRpcStream } from "../src/daemon-host/transport/json-rpc-stream.ts";
 import { researchPackage } from "./completion-command-source.fixture.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 import { signInPolicyTestUser, withPolicyGroup } from "./keycloak-policy.fixtures.ts";

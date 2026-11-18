@@ -11,26 +11,26 @@ import { createInterface } from "node:readline";
 import { reviewDispatchDiagnostic } from "@harness-anything/application/internal/queries/review-dispatch-failure-read.ts";
 import { sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
-import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
-import { digestId } from "../src/fleet/center-transport.ts";
-import { daemonBuildStamp } from "../src/build-identity.ts";
+import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { digestId } from "../src/daemon-host/fleet/center-transport.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import {
   readFleetRepositoryMetadataClient,
   runFleetWriteClient,
   openPeer,
   readFleetOperationalClient,
   type FleetWriteClientOptions,
-} from "../src/fleet/peer.ts";
+} from "../src/daemon-host/fleet/peer.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import {
   FleetUtf8LineDecoder,
   parseFleetFrame,
   serializeFleetFrame,
   type FleetFrameV1,
-} from "../src/fleet/command-protocol.ts";
+} from "../src/daemon-host/fleet/command-protocol.ts";
 import { fleetFixture, rawPeer, replicaQuota, splitWrite, waitForReceiptCommit } from "./fleet-tls-session.fixture.ts";
-import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
-import { fleetMirrorCutFile, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
+import { readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
+import { fleetMirrorCutFile, locateFleetMirrorView } from "../src/daemon-host/fleet-edge-mirror.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 type RoundTripOptions = FleetWriteClientOptions & { readonly viewRoot: string };

@@ -1,8 +1,11 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseDaemonGuiReadResponse, validateDaemonSettingsRead } from "../src/protocol/gui-result-validation.ts";
-import { daemonSettingsRead } from "../src/protocol/daemon-settings-read-types.ts";
+import {
+  parseDaemonGuiReadResponse,
+  validateDaemonSettingsRead,
+} from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { daemonSettingsRead } from "../src/daemon-host/protocol/daemon-settings-read-types.ts";
 import { INITIAL_SETTINGS_V1 } from "@harness-anything/kernel";
 import {
   makeDaemonCommandReceipt,
@@ -18,14 +21,14 @@ import {
   validateDaemonTaskSnapshotList,
   validateDaemonWorkspaceSummary,
   validateGuiSubmission,
-} from "../src/protocol/daemon-protocol.contract.ts";
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import {
   validateCatalogActionPayload,
   validateSessionEnvironment,
-} from "../src/protocol/daemon-protocol-validate-task.ts";
-import { validationValueSummary } from "../src/protocol/json-rpc-types.ts";
-import { writeReceipt } from "../src/protocol/daemon-protocol-validate-results.ts";
-import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
+} from "../src/daemon-host/protocol/daemon-protocol-validate-task.ts";
+import { validationValueSummary } from "../src/daemon-host/protocol/json-rpc-types.ts";
+import { writeReceipt } from "../src/daemon-host/protocol/daemon-protocol-validate-results.ts";
+import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
 
 test("unaccepted pending and no-op receipts carry no fabricated committed proof", () => {
   const riskTierAdvice = {

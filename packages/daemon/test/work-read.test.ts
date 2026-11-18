@@ -8,7 +8,7 @@ import {
   workReceiptLine,
   workShowFromProjection,
 } from "@harness-anything/application/queries";
-import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
+import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
 
 const task = (
   taskId: string,

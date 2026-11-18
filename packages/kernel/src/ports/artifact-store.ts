@@ -1,4 +1,6 @@
-import { Context, Effect, Option } from "effect";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import type { ArtifactStoreError } from "../domain/errors.js";
 import type { EngineId, ExternalRef, TaskId } from "../domain/task.js";
 import type { PackageDisposition } from "../domain/package-disposition.js";

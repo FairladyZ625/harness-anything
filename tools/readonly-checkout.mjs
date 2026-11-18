@@ -19,7 +19,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { mirrorNodeModules } from "../packages/daemon/src/worktree-node-modules-mirror.ts";
+import { mirrorNodeModules } from "../packages/daemon/src/daemon-host/worktree-node-modules-mirror.ts";
 import { renderToolHelp, readonlyCheckoutCommand, parseToolOptions, toolValue } from "./tool-command-contract.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

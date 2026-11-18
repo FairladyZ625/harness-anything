@@ -6,7 +6,7 @@ import {
   riskTierCompletionContract,
   sameFrozenSubmissionCut,
   submissionForRiskTierRetry,
-} from "../src/repo-cell-submit.ts";
+} from "../src/daemon-host/repo-cell-submit.ts";
 
 const digest = `sha256:${"a".repeat(64)}`;
 

@@ -9,10 +9,10 @@ import {
   fleetNodeOwners,
   waitForFleetPublication,
 } from "./fleet-store.fixture.ts";
-import { openDaemonHost, type DaemonHost } from "../src/daemon-host.ts";
-import { createIdentitySession } from "../src/authorization-provider.ts";
-import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
-import { runFleetTaskCommandClient } from "../src/fleet/peer.ts";
+import { openDaemonHost, type DaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
+import { listenFleetTls, type FleetTlsCenter } from "../src/daemon-host/fleet/center.ts";
+import { runFleetTaskCommandClient } from "../src/daemon-host/fleet/peer.ts";
 import { randomUUID } from "node:crypto";
 import {
   registerBootstrappedDaemonRepo as registerDaemonRepo,
@@ -113,7 +113,7 @@ export async function fleetNodeClaimFixture(
       authenticateExecutionPrincipal: owners.authenticateExecutionPrincipal,
       ...(replicaOptions.replicaAdmission
         ? {
-            verifyReplica: (auth: import("../src/transport/auth-context.ts").DaemonAuthenticationContext) =>
+            verifyReplica: (auth: import("../src/daemon-host/transport/auth-context.ts").DaemonAuthenticationContext) =>
               createIdentitySession(userRoot, { fetch: owners.keycloak.fetch }).bindReplica!(auth),
           }
         : {}),

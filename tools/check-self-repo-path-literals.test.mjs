@@ -118,7 +118,7 @@ test("contract provenance file references and their anchors pass", () => {
       "packages/kernel/src/domain/status-vocabulary.ts",
       [
         'export const statusVocabularies = [{ module: "packages/kernel/src/domain/gate-run.ts", anchor: "gateRunStates" }];',
-        'export const registry = { schema: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DAEMON_RPC_SCHEMA" };',
+        'export const registry = { schema: "packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts#DAEMON_RPC_SCHEMA" };',
         "export const dynamic = (name: string) => `packages/preset/src/preset.contract.ts#${name}`;",
         'export const deleted = "tools/gates/canonical-event-compat.mjs";',
       ].join("\n"),
@@ -183,7 +183,7 @@ test("a directory literal for another repository's package is allowed", () => {
     writeFixtureAllowlist(root);
     writeSource(
       root,
-      "packages/daemon/src/squad-leader-decision.ts",
+      "packages/daemon/src/daemon-host/squad-leader-decision.ts",
       'export const example = { ownedPaths: ["packages/example/src/"] };\n',
     );
 
@@ -203,7 +203,7 @@ test("the harness layout contract is not a monorepo-private path", () => {
     writeFixtureAllowlist(root);
     writeSource(
       root,
-      "packages/daemon/src/task-review-dispatch.ts",
+      "packages/daemon/src/daemon-host/task-review-dispatch.ts",
       [
         "export const decisionPath = (decisionId: string) => `harness/decisions/decision-${decisionId}`;",
         'export const layoutRoots = ["harness/tasks/", "harness/decisions/"];',

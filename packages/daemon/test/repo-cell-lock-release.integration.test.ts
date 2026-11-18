@@ -5,12 +5,12 @@ import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { resolveRepoBootstrap } from "../src/repo-bootstrap.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { resolveRepoBootstrap } from "../src/daemon-host/repo-bootstrap.ts";
 import { openFencedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { signInPolicyTestUser, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
+import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/auth-context.ts";
 
 const auth = {
   transportKind: "unix-socket",

@@ -5,11 +5,11 @@ import {
   markDaemonOperationPhase,
   type DaemonOperationObserver,
   type DaemonOperationTrace,
-} from "../src/daemon-operation.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import type { DaemonHost } from "../src/daemon-host.ts";
-import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
+} from "../src/daemon-host/daemon-operation.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
+import type { DaemonHost } from "../src/daemon-host/daemon-host.ts";
+import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/auth-context.ts";
 
 function observer() {
   const traces: DaemonOperationTrace[] = [];

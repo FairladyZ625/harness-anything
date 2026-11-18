@@ -6,10 +6,10 @@ import path from "node:path";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { type AgentDefinitionSnapshot, type AgentRuntimeEventV1 } from "@harness-anything/kernel";
 import { realizeTaskPlanFixture } from "../../../../tools/fixtures/task-plan.mjs";
-import type { RuntimeInstanceSummary } from "../../src/agent-runtime-instances.ts";
-import { appendRuntimeWorkerRecord } from "../../src/dispatch-stream.ts";
-import { canonicalRoot, workspaceId } from "../../src/protocol/daemon-protocol.contract.ts";
-import type { RuntimeProcess } from "../../src/runtime-spawn-types.ts";
+import type { RuntimeInstanceSummary } from "../../src/daemon-host/agent-runtime-instances.ts";
+import { appendRuntimeWorkerRecord } from "../../src/daemon-host/dispatch-stream.ts";
+import { canonicalRoot, workspaceId } from "../../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import type { RuntimeProcess } from "../../src/daemon-host/runtime-spawn-types.ts";
 import {
   grantTestPolicyGroups,
   policyTestRealm,

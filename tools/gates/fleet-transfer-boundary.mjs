@@ -3,11 +3,11 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
 
-const FLEET_ROOT = "packages/daemon/src/fleet";
+const FLEET_ROOTS = ["packages/daemon/src/daemon-host/fleet", "packages/daemon/src/fleet-sync/fleet"];
 const FORWARDING_ROOTS = Object.freeze(["packages/cli/src/daemon", "packages/daemon/src"]);
 const FORWARDING_BOUNDARY_SOURCES = new Set([
   "packages/cli/src/daemon/fleet-payload-serializer.ts",
-  "packages/daemon/src/fleet/forwarding-port.ts",
+  "packages/daemon/src/daemon-host/fleet/forwarding-port.ts",
 ]);
 
 function portablePath(relative) {
@@ -27,7 +27,9 @@ function collectTypeScriptSources(rootDir, relativeRoot) {
 }
 
 export function fleetSources(rootDir) {
-  return collectTypeScriptSources(rootDir, FLEET_ROOT).concat("packages/daemon/src/daemon-host-repository-api.ts");
+  return FLEET_ROOTS.flatMap((root) => collectTypeScriptSources(rootDir, root)).concat(
+    "packages/daemon/src/daemon-host/daemon-host-repository-api.ts",
+  );
 }
 
 export function forwardingSources(rootDir) {
@@ -170,7 +172,7 @@ export function findFleetTransferBypasses(sourceText, fileName = "inline.ts") {
  */
 export function findFleetForwardingBypasses(sourceText, fileName = "inline.ts") {
   const file = portablePath(fileName);
-  if (file === "packages/daemon/src/fleet/forwarding-port.ts") return [];
+  if (file === "packages/daemon/src/daemon-host/fleet/forwarding-port.ts") return [];
   const source = String(sourceText),
     tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true),
     violations = [];
@@ -230,7 +232,7 @@ export function findFleetForwardingBypasses(sourceText, fileName = "inline.ts") 
         kind = properties.get("kind"),
         schema = properties.get("schema"),
         wireCall =
-          file === `${FLEET_ROOT}/peer.ts` &&
+          file === "packages/daemon/src/daemon-host/fleet/peer.ts" &&
           ts.isCallExpression(node.parent) &&
           node.parent.expression.getText(tree) === "session.request";
       if (

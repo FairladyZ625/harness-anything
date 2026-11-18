@@ -112,7 +112,7 @@ test("daemon launch spawns the published daemon host entry with the product argu
     },
   });
   assert.equal(launch.command, process.execPath);
-  assert.match(launch.args[0], /packages\/daemon\/src\/bin\.ts$/u);
+  assert.match(launch.args[0], /packages\/daemon\/src\/daemon-host\/bin\.ts$/u);
   assert.deepEqual(launch.args.slice(1), ["serve", "--user-root", "/tmp/soak-user", "--daemon-id", "nightly-soak-1"]);
   assert.equal(launch.env.HOME, "/tmp/soak-home");
   assert.equal(launch.env.USERPROFILE, "/tmp/soak-home");

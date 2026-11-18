@@ -15,7 +15,7 @@ const sourceRoots = ["packages/kernel/src", "packages/daemon/src", "packages/sto
 
 export async function generateCoverageDenominators({ repoRoot, mappedIds = [] }) {
   const commandModule = await import(
-    pathToFileURL(path.join(repoRoot, "packages/daemon/src/protocol/daemon-protocol-commands.ts")).href
+    pathToFileURL(path.join(repoRoot, "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts")).href
   );
   const eventModule = await import(
     pathToFileURL(path.join(repoRoot, "packages/kernel/src/domain/doc-sync-canonical-events.ts")).href
@@ -29,7 +29,7 @@ export async function generateCoverageDenominators({ repoRoot, mappedIds = [] })
       commandClass: command.commandClass,
       method: command.method,
       path: command.path.join(" "),
-      source: "packages/daemon/src/protocol/daemon-protocol-commands.ts#thinCliCommands",
+      source: "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts#thinCliCommands",
     }));
   const eventSchemas = eventModule.canonicalEventSchemas.map((registration) => ({
     id: `event-schema:${registration.schema}`,
@@ -90,7 +90,7 @@ export async function generateCoverageDenominators({ repoRoot, mappedIds = [] })
     schema: "sqlite-stress-denominators/v1",
     digest: `sha256:${digest}`,
     sources: [
-      "packages/daemon/src/protocol/daemon-protocol-commands.ts#thinCliCommands",
+      "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts#thinCliCommands",
       "packages/kernel/src/domain/doc-sync-canonical-events.ts#canonicalEventSchemas",
       ...sourceRoots,
     ],

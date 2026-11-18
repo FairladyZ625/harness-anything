@@ -34,7 +34,7 @@ For example, after reading `fleet.repo.metadata.get/v1` to obtain the current wr
 }
 ```
 
-This illustrates the existing wire contract, not a new HTTP endpoint. The authoritative schemas are in `packages/daemon/src/fleet/command-protocol.ts` and its imported frame types. The executable isolated example is `packages/daemon/test/fleet-user-token-api.integration.test.ts`: it uses one TLS connection for two users, verifies canonical event actors, revokes a grant/session, and exercises consent scope admission through the real host and writer.
+This illustrates the existing wire contract, not a new HTTP endpoint. The authoritative schemas are in `packages/daemon/src/daemon-host/fleet/command-protocol.ts` and its imported frame types. The executable isolated example is `packages/daemon/test/fleet-user-token-api.integration.test.ts`: it uses one TLS connection for two users, verifies canonical event actors, revokes a grant/session, and exercises consent scope admission through the real host and writer.
 
 The response is the existing `fleet.task.result/v1` receipt (or `fleet.error/v1` ingress failure). Absent/invalid personal tokens fail with `authentication_required`/`human_confirmation_required`; IdP outages retain the existing `keycloak_unavailable` error; RBAC and lifecycle failures retain their own receipt codes. Missing consent scope returns `human_confirmation_required`. Continue to use the existing operation IDs and receipt/retry contract; consent does not complete a task automatically. Request-supplied actor, azp or proof overrides are rejected by action validation.
 

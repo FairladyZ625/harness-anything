@@ -6,10 +6,10 @@ import path from "node:path";
 import test from "node:test";
 import { readSettingsFacet, type TaskV2 } from "@harness-anything/kernel";
 import { compileRepoTaskPackage } from "@harness-anything/preset";
-import { backfillRestatedContractDocuments } from "../src/migration-import-task-restatement.ts";
-import { withBackfilledContractDocuments } from "../src/repo-cell-task-maintenance.ts";
-import { taskMutation } from "../src/repo-cell-task-mutation.ts";
-import type { RepoCellActionContext, RepoCellOperationalContext } from "../src/repo-cell-types.ts";
+import { backfillRestatedContractDocuments } from "../src/daemon-host/migration-import-task-restatement.ts";
+import { withBackfilledContractDocuments } from "../src/daemon-host/repo-cell-task-maintenance.ts";
+import { taskMutation } from "../src/daemon-host/repo-cell-task-mutation.ts";
+import type { RepoCellActionContext, RepoCellOperationalContext } from "../src/daemon-host/repo-cell-types.ts";
 
 function compileCurrentContract(rootDir: string): { readonly body: string; readonly digest: `sha256:${string}` } {
   const compiled = compileRepoTaskPackage({

@@ -30,8 +30,11 @@ import { isRelationEvent, relationEventWritePlan } from "../../packages/kernel/s
 import { sha256Text } from "../../packages/kernel/src/integrity/stable-hash.ts";
 import { makeTaskProjection } from "../../packages/storage/src/projection/rebuildable-task-projection.ts";
 import { canonicalEventContentClaims } from "../../packages/storage/src/store/task-event-store.ts";
-import { listProjectedTaskDocuments, readProjectedDocument } from "../../packages/daemon/src/doc-sync-actions.ts";
-import { readTaskDispatches } from "../../packages/daemon/src/dispatch-read.ts";
+import {
+  listProjectedTaskDocuments,
+  readProjectedDocument,
+} from "../../packages/daemon/src/daemon-host/doc-sync-actions.ts";
+import { readTaskDispatches } from "../../packages/daemon/src/daemon-host/dispatch-read.ts";
 import {
   validateDaemonAgenda,
   validateDaemonDecisionList,
@@ -41,8 +44,8 @@ import {
   validateDaemonTaskDocumentList,
   validateDaemonTaskSnapshotList,
   validateDaemonWorkspaceSummary,
-} from "../../packages/daemon/src/protocol/daemon-protocol.contract.ts";
-import { makeTaskQueryReadModel } from "../../packages/daemon/src/task-query-read.ts";
+} from "../../packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { makeTaskQueryReadModel } from "../../packages/daemon/src/daemon-host/task-query-read.ts";
 import { workspaceSummaryFromReads } from "@harness-anything/application/queries";
 import { git, pathExistsAt, pullRequestBase, repoRoot } from "./git.mjs";
 

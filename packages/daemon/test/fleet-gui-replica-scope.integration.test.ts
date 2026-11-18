@@ -9,7 +9,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
+import { locateFleetMirrorView } from "../src/daemon-host/fleet-edge-mirror.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 test(

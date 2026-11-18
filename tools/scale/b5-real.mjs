@@ -128,7 +128,7 @@ async function measureB5RealSingle(options) {
   const kernel = await importSource("packages/kernel/src/index.ts");
   const { makeTaskProjection } = await importSource("packages/storage/src/projection/rebuildable-task-projection.ts");
   const relationGraphProjection = await importSource("packages/storage/src/projection/relation-graph-projection.ts");
-  const daemonQueryModule = await importSource("packages/daemon/src/task-query-read.ts").catch(() => null);
+  const daemonQueryModule = await importSource("packages/daemon/src/daemon-host/task-query-read.ts").catch(() => null);
   const metadata =
     options.events !== null
       ? {

@@ -1,6 +1,6 @@
 import type { TaskProjection } from "@harness-anything/kernel";
 import { runtimeSessionOutcomeFromEvidence } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
-import { readDispatchStreamHeaders, readDispatchStreamSummary } from "../src/dispatch-stream.ts";
+import { readDispatchStreamHeaders, readDispatchStreamSummary } from "../src/daemon-host/dispatch-stream.ts";
 import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 
 /** Publish the seeded analytics cases as canonical read-port fixtures as well as transcript data. */

@@ -7,9 +7,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { AgentDefinitionSnapshot } from "@harness-anything/kernel";
-import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import { appendRuntimeWorkerRecord, readDispatchStreamHeaders } from "../src/dispatch-stream.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
+import { appendRuntimeWorkerRecord, readDispatchStreamHeaders } from "../src/daemon-host/dispatch-stream.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { grantTestPolicyGroups, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 

@@ -4,8 +4,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { readDispatchContextOccupancy, occupancyOfStreamRecord } from "../src/context-occupancy.ts";
-import { dispatchStreamPath } from "../src/dispatch-stream.ts";
+import { readDispatchContextOccupancy, occupancyOfStreamRecord } from "../src/daemon-host/context-occupancy.ts";
+import { dispatchStreamPath } from "../src/daemon-host/dispatch-stream.ts";
 
 const dispatchId = "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa";
 

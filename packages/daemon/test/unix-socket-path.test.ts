@@ -6,8 +6,8 @@ import { mkdirSync, statSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import test from "node:test";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { defaultUnixSocketPath } from "../src/transport/unix-socket.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { defaultUnixSocketPath } from "../src/daemon-host/transport/unix-socket.ts";
 
 test(
   "Unix daemon endpoints connect independently of long process TMPDIR values",

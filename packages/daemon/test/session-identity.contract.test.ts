@@ -3,13 +3,13 @@ import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { type RuntimeProtocolFamily, type SessionIdentity } from "@harness-anything/kernel";
-import { runtimeProtocolFamilies } from "../src/runtime-inventory.ts";
+import { runtimeProtocolFamilies } from "../src/runtime-engine/runtime-inventory.ts";
 import {
   resolveSessionIdentity,
   resolveWriteSessionIdentity,
   sessionIdentityResolverFor,
   transcriptRefForSessionIdentity,
-} from "../src/session-identity/index.ts";
+} from "../src/daemon-host/session-identity/index.ts";
 
 interface FixtureMeta {
   readonly fixture: "captured-provider-session-identity/v1";

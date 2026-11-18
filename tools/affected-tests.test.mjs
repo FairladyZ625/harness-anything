@@ -32,11 +32,11 @@ function fastTest(body) {
 // and one imports the settlement module as a type only. The fixture is fixed here so a
 // selector that only sees direct imports fails this test even when the repository moves.
 const positiveControlFiles = {
-  "packages/daemon/src/runtime-spawn-settlement.ts": "export const settle = true;\n",
-  "packages/daemon/src/runtime-settlement.ts":
+  "packages/daemon/src/daemon-host/runtime-spawn-settlement.ts": "export const settle = true;\n",
+  "packages/daemon/src/daemon-host/runtime-settlement.ts":
     'import { settle } from "./runtime-spawn-settlement.ts";\nexport const settlement = settle;\n',
   "packages/daemon/test/runtime-settlement.fixtures.ts":
-    'import { settlement } from "../src/runtime-settlement.ts";\nexport const runtimeSettlementFixture = settlement;\n',
+    'import { settlement } from "../src/daemon-host/runtime-settlement.ts";\nexport const runtimeSettlementFixture = settlement;\n',
   "packages/daemon/test/fleet-squad-canonical.integration.test.ts": integrationTest(
     'import { runtimeSettlementFixture } from "./runtime-settlement.fixtures.ts";\nexport const value = runtimeSettlementFixture;\n',
   ),
@@ -44,7 +44,7 @@ const positiveControlFiles = {
     'import { runtimeSettlementFixture } from "./runtime-settlement.fixtures.ts";\nexport const value = runtimeSettlementFixture;\n',
   ),
   "packages/daemon/test/review-independence-diagnostics.integration.test.ts": integrationTest(
-    'import type { settle } from "../src/runtime-spawn-settlement.ts";\nexport const value: typeof settle = true;\n',
+    'import type { settle } from "../src/daemon-host/runtime-spawn-settlement.ts";\nexport const value: typeof settle = true;\n',
   ),
   "packages/daemon/test/unrelated.integration.test.ts": integrationTest("export const value = 1;\n"),
 };
@@ -54,7 +54,7 @@ test("reverse selection reaches the PR #4498 suites through the settlement chain
   const testFiles = Object.keys(positiveControlFiles).filter((file) => file.includes(".integration.test."));
   const result = selectAffectedTests({
     root,
-    changedFiles: ["packages/daemon/src/runtime-spawn-settlement.ts"],
+    changedFiles: ["packages/daemon/src/daemon-host/runtime-spawn-settlement.ts"],
     testFiles,
     ratio: 1,
   });
@@ -68,7 +68,7 @@ test("reverse selection reaches the PR #4498 suites through the settlement chain
     ],
   );
   for (const { via, changed } of result.selected) {
-    assert.equal(via, "packages/daemon/src/runtime-spawn-settlement.ts");
+    assert.equal(via, "packages/daemon/src/daemon-host/runtime-spawn-settlement.ts");
     assert.equal(changed, false);
   }
   assert.equal(result.tooMany, false);
@@ -228,30 +228,30 @@ test("the third-slice settlement fixture selects every reported CI failure withi
   // every daemon test. The five files that failed CI are hidden among forty unrelated
   // integration suites that reach the same module through a longer, unrelated chain.
   const files = {
-    "packages/daemon/src/runtime-spawn-settlement.ts": "export const settle = true;\n",
-    "packages/daemon/src/runtime-spawner.ts":
+    "packages/daemon/src/daemon-host/runtime-spawn-settlement.ts": "export const settle = true;\n",
+    "packages/daemon/src/daemon-host/runtime-spawner.ts":
       'import { settle } from "./runtime-spawn-settlement.ts";\nexport const spawner = settle;\n',
-    "packages/daemon/src/runtime-spawn.ts":
+    "packages/daemon/src/daemon-host/runtime-spawn.ts":
       'import { spawner } from "./runtime-spawner.ts";\nexport const spawn = spawner;\n',
-    "packages/daemon/src/repo-cell-open.ts":
+    "packages/daemon/src/daemon-host/repo-cell-open.ts":
       'import { spawn } from "./runtime-spawn.ts";\nexport const open = spawn;\n',
-    "packages/daemon/src/fleet-squad-coordinator.ts":
+    "packages/daemon/src/daemon-host/fleet-squad-coordinator.ts":
       'import { spawner } from "./runtime-spawner.ts";\nexport const squad = spawner;\n',
-    "packages/daemon/src/fleet-edge-runtime.ts":
+    "packages/daemon/src/daemon-host/fleet-edge-runtime.ts":
       'import { spawn } from "./runtime-spawn.ts";\nexport const edge = spawn;\n',
-    "packages/daemon/src/unrelated-host.ts":
+    "packages/daemon/src/daemon-host/unrelated-host.ts":
       'import { spawn } from "./runtime-spawn.ts";\nexport const host = spawn;\n',
-    "packages/daemon/src/unrelated-spawn.ts":
+    "packages/daemon/src/daemon-host/unrelated-spawn.ts":
       'import { host } from "./unrelated-host.ts";\nexport const unrelatedSpawn = host;\n',
     "packages/daemon/test/fixtures/runtime-process.ts":
-      'import { settle } from "../../src/runtime-spawn-settlement.ts";\nexport const runtimeProcessFixture = settle;\n',
+      'import { settle } from "../../src/daemon-host/runtime-spawn-settlement.ts";\nexport const runtimeProcessFixture = settle;\n',
     "packages/daemon/test/dispatch-lifecycle-read.fixtures.ts": 'export const lifecycleEvent = "lifecycle";\n',
     "packages/daemon/test/repo-settings.fixture.ts":
-      'import { open } from "../src/repo-cell-open.ts";\nexport const openBootstrappedRepoCell = open;\n',
+      'import { open } from "../src/daemon-host/repo-cell-open.ts";\nexport const openBootstrappedRepoCell = open;\n',
     "packages/daemon/test/fleet-runtime-recovery.fixtures.ts": 'export const fleetFixture = "fleet";\n',
     "packages/daemon/test/runtime-spawn-settlement.test.ts": fastTest(
       [
-        'import { publishExit } from "../src/runtime-spawn-settlement.ts";',
+        'import { publishExit } from "../src/daemon-host/runtime-spawn-settlement.ts";',
         'import { lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";',
         'import { runtimeProcessFixture } from "./fixtures/runtime-process.ts";',
         "export const value = [publishExit, lifecycleEvent, runtimeProcessFixture];",
@@ -260,7 +260,7 @@ test("the third-slice settlement fixture selects every reported CI failure withi
     ),
     "packages/daemon/test/runtime-spawn-escalation-stop.test.ts": fastTest(
       [
-        'import { publishExit } from "../src/runtime-spawn-settlement.ts";',
+        'import { publishExit } from "../src/daemon-host/runtime-spawn-settlement.ts";',
         'import { lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";',
         "export const value = [publishExit, lifecycleEvent];",
         "",
@@ -268,7 +268,7 @@ test("the third-slice settlement fixture selects every reported CI failure withi
     ),
     "packages/daemon/test/fleet-squad-canonical.integration.test.ts": integrationTest(
       [
-        'import { squad } from "../src/fleet-squad-coordinator.ts";',
+        'import { squad } from "../src/daemon-host/fleet-squad-coordinator.ts";',
         'import { lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";',
         "export const value = [squad, lifecycleEvent];",
         "",
@@ -276,7 +276,7 @@ test("the third-slice settlement fixture selects every reported CI failure withi
     ),
     "packages/daemon/test/fleet-runtime-assignment-ownership.integration.test.ts": integrationTest(
       [
-        'import { edge } from "../src/fleet-edge-runtime.ts";',
+        'import { edge } from "../src/daemon-host/fleet-edge-runtime.ts";',
         'import { fleetFixture } from "./fleet-runtime-recovery.fixtures.ts";',
         "export const value = [edge, fleetFixture];",
         "",
@@ -301,14 +301,14 @@ test("the third-slice settlement fixture selects every reported CI failure withi
   };
   for (let index = 0; index < 40; index += 1) {
     files[`packages/daemon/test/unrelated-${index}.integration.test.ts`] = integrationTest(
-      `import { unrelatedSpawn } from "../src/unrelated-spawn.ts";\nexport const value = ${index} + unrelatedSpawn;\n`,
+      `import { unrelatedSpawn } from "../src/daemon-host/unrelated-spawn.ts";\nexport const value = ${index} + unrelatedSpawn;\n`,
     );
   }
   const root = fixture(t, files);
   const testFiles = Object.keys(files).filter((file) => /\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(file));
   const result = selectAffectedTests({
     root,
-    changedFiles: ["packages/daemon/src/runtime-spawn-settlement.ts"],
+    changedFiles: ["packages/daemon/src/daemon-host/runtime-spawn-settlement.ts"],
     testFiles,
     ratio: 0.25,
   });
@@ -339,29 +339,29 @@ test("the full third-slice fixture keeps all five targets when changed tests occ
   // one fast target, two integration targets), a changed fixture that directly covers the
   // settlement, and a large integration layer.
   const files = {
-    "packages/daemon/src/runtime-spawn-settlement.ts": "export const settle = true;\n",
-    "packages/daemon/src/runtime-spawner.ts":
+    "packages/daemon/src/daemon-host/runtime-spawn-settlement.ts": "export const settle = true;\n",
+    "packages/daemon/src/daemon-host/runtime-spawner.ts":
       'import { settle } from "./runtime-spawn-settlement.ts";\nexport const spawner = settle;\n',
-    "packages/daemon/src/runtime-spawn.ts":
+    "packages/daemon/src/daemon-host/runtime-spawn.ts":
       'import { spawner } from "./runtime-spawner.ts";\nexport const spawn = spawner;\n',
-    "packages/daemon/src/repo-cell-open.ts":
+    "packages/daemon/src/daemon-host/repo-cell-open.ts":
       'import { spawn } from "./runtime-spawn.ts";\nexport const open = spawn;\n',
-    "packages/daemon/src/unrelated-host.ts":
+    "packages/daemon/src/daemon-host/unrelated-host.ts":
       'import { spawn } from "./runtime-spawn.ts";\nexport const host = spawn;\n',
-    "packages/daemon/src/unrelated-spawn.ts":
+    "packages/daemon/src/daemon-host/unrelated-spawn.ts":
       'import { host } from "./unrelated-host.ts";\nexport const unrelatedSpawn = host;\n',
     "packages/daemon/test/fixtures/runtime-process.ts":
-      'import { settle } from "../../src/runtime-spawn-settlement.ts";\nexport const runtimeProcessFixture = settle;\n',
+      'import { settle } from "../../src/daemon-host/runtime-spawn-settlement.ts";\nexport const runtimeProcessFixture = settle;\n',
     "packages/daemon/test/repo-settings.fixture.ts":
-      'import { open } from "../src/repo-cell-open.ts";\nexport const openBootstrappedRepoCell = open;\n',
+      'import { open } from "../src/daemon-host/repo-cell-open.ts";\nexport const openBootstrappedRepoCell = open;\n',
     "packages/daemon/test/fleet-squad-canonical.integration.test.ts": integrationTest(
-      'import { spawner } from "../src/runtime-spawner.ts";\nexport const value = spawner;\n',
+      'import { spawner } from "../src/daemon-host/runtime-spawner.ts";\nexport const value = spawner;\n',
     ),
     "packages/daemon/test/fleet-runtime-assignment-ownership.integration.test.ts": integrationTest(
-      'import { spawn } from "../src/runtime-spawn.ts";\nexport const value = spawn;\n',
+      'import { spawn } from "../src/daemon-host/runtime-spawn.ts";\nexport const value = spawn;\n',
     ),
     "packages/daemon/test/runtime-spawn-escalation-stop.test.ts": fastTest(
-      'import { settle } from "../src/runtime-spawn-settlement.ts";\nexport const value = settle;\n',
+      'import { settle } from "../src/daemon-host/runtime-spawn-settlement.ts";\nexport const value = settle;\n',
     ),
     "packages/daemon/test/review-independence-diagnostics.integration.test.ts": integrationTest(
       'import { runtimeProcessFixture } from "./fixtures/runtime-process.ts";\nexport const value = runtimeProcessFixture;\n',
@@ -378,18 +378,18 @@ test("the full third-slice fixture keeps all five targets when changed tests occ
   for (let index = 0; index < 10; index += 1) {
     const file = `packages/daemon/test/changed-${index}.test.ts`;
     files[file] = fastTest(
-      'import { settle } from "../src/runtime-spawn-settlement.ts";\nexport const value = settle;\n',
+      'import { settle } from "../src/daemon-host/runtime-spawn-settlement.ts";\nexport const value = settle;\n',
     );
     changedTests.push(file);
   }
   for (let index = 0; index < 20; index += 1) {
     files[`packages/daemon/test/direct-${index}.test.ts`] = fastTest(
-      'import { settle } from "../src/runtime-spawn-settlement.ts";\nexport const value = settle;\n',
+      'import { settle } from "../src/daemon-host/runtime-spawn-settlement.ts";\nexport const value = settle;\n',
     );
   }
   for (let index = 0; index < 100; index += 1) {
     files[`packages/daemon/test/unrelated-${index}.integration.test.ts`] = integrationTest(
-      `import { unrelatedSpawn } from "../src/unrelated-spawn.ts";\nexport const value = ${index} + unrelatedSpawn;\n`,
+      `import { unrelatedSpawn } from "../src/daemon-host/unrelated-spawn.ts";\nexport const value = ${index} + unrelatedSpawn;\n`,
     );
   }
   const root = fixture(t, files);
@@ -397,9 +397,9 @@ test("the full third-slice fixture keeps all five targets when changed tests occ
   const result = selectAffectedTests({
     root,
     changedFiles: [
-      "packages/daemon/src/runtime-spawn-settlement.ts",
-      "packages/daemon/src/runtime-spawn.ts",
-      "packages/daemon/src/repo-cell-open.ts",
+      "packages/daemon/src/daemon-host/runtime-spawn-settlement.ts",
+      "packages/daemon/src/daemon-host/runtime-spawn.ts",
+      "packages/daemon/src/daemon-host/repo-cell-open.ts",
       "packages/daemon/test/fixtures/runtime-process.ts",
       ...changedTests,
     ],

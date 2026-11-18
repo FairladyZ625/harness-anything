@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { consumeKnownError } from "@harness-anything/kernel";
+import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import { openSqliteEventStore, resolveActiveGeneration, sqliteLedgerPath } from "./store/sqlite-event-store.ts";
 
 export { WriterEpochError } from "./writer-epoch-contract.ts";
@@ -15,7 +15,7 @@ import {
   type PersistentWriterEpoch,
 } from "./writer-epoch-contract.ts";
 import type { StorageBackendConfig } from "./storage-backend.ts";
-import { openPgWriterEpoch } from "./postgres/pg-writer-epoch.ts";
+import { requireExternalWriterEpochOpener } from "./sql-backend-adapters.ts";
 import { writerEpochStorage } from "./writer-epoch-storage.ts";
 
 type EpochRow = {
@@ -93,6 +93,7 @@ function openRepoEpochAuthority(options: {
           "version=excluded.version, issued_at=excluded.issued_at",
       );
   let closed = false;
+  let followerDatabase: DatabaseSync | undefined;
   const ensureOpen = (): void => {
     if (closed) throw new WriterEpochError("writer_epoch_invalid", "writer epoch authority is closed");
   };
@@ -100,26 +101,68 @@ function openRepoEpochAuthority(options: {
     const row = selectCurrent.get(repoId) as EpochRow | undefined;
     return row ? leaseFromRow(row) : null;
   };
-  const withImmediateTransaction = <T>(operation: () => T): T => {
+  const withImmediateTransaction = <T>(operation: () => T, target = database): T => {
     ensureOpen();
-    /* @gate-identity state-store/execution.source.storage.src.writer-epoch.sqlite-database */ database.exec(
+    /* @gate-identity state-store/execution.source.storage.src.writer-epoch.sqlite-database */ target.exec(
       "BEGIN IMMEDIATE",
     );
     try {
       const result = operation();
-      /* @gate-identity state-store/execution.source.storage.src.writer-epoch.sqlite-database */ database.exec(
-        "COMMIT",
-      );
+      /* @gate-identity state-store/execution.source.storage.src.writer-epoch.sqlite-database */ target.exec("COMMIT");
       return result;
     } catch (error) {
       try {
-        /* @gate-identity state-store/execution.source.storage.src.writer-epoch.sqlite-database */ database.exec(
+        /* @gate-identity state-store/execution.source.storage.src.writer-epoch.sqlite-database */ target.exec(
           "ROLLBACK",
         );
       } catch (rollbackError) {
         consumeKnownError(rollbackError);
       }
       throw error;
+    }
+  };
+  // The follower lock contains no epoch state. Both lanes read the single writer_epochs
+  // authority; takeover/retirement acquire follower -> append before changing that row.
+  // A crash therefore cannot leave two epoch copies disagreeing. WAL readers do not
+  // reserve the canonical database's write lock while Git runs under the follower lock.
+  let followerAsyncQueue: Promise<void> = Promise.resolve();
+  const withFollowerTransaction = <T>(operation: () => T): T => {
+    ensureOpen();
+    followerDatabase ??= openEpochDatabase(options.databasePath.replace(/\.sqlite$/u, ".follower.sqlite"));
+    return withImmediateTransaction(operation, followerDatabase);
+  };
+  const withFollowerTransactionAsync = async <T>(operation: () => Promise<T>): Promise<T> => {
+    ensureOpen();
+    const previous = followerAsyncQueue;
+    let release!: () => void;
+    followerAsyncQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      ensureOpen();
+      const target = (followerDatabase ??= openEpochDatabase(
+        options.databasePath.replace(/\.sqlite$/u, ".follower.sqlite"),
+      ));
+      /* @gate-identity state-store/execution.source.storage.src.writer-epoch.sqlite-database */ target.exec(
+        "BEGIN IMMEDIATE",
+      );
+      try {
+        const result = await operation();
+        /* @gate-identity state-store/execution.source.storage.src.writer-epoch.sqlite-database */ target.exec(
+          "COMMIT",
+        );
+        return result;
+      } catch (error) {
+        if (target.isTransaction) {
+          /* @gate-identity state-store/execution.source.storage.src.writer-epoch.sqlite-database */ target.exec(
+            "ROLLBACK",
+          );
+        }
+        throw error;
+      }
+    } finally {
+      release();
     }
   };
   const initialEpochFloor = options.initialEpochFloor;
@@ -146,26 +189,28 @@ function openRepoEpochAuthority(options: {
       ensureOpen();
       if (!Number.isSafeInteger(observedLedgerEpoch) || observedLedgerEpoch < 0)
         throw new WriterEpochError("writer_epoch_invalid", "Observed ledger epoch must be a nonnegative safe integer");
-      return withImmediateTransaction(() => {
-        const previous = readCurrent(repoId),
-          floor = Number((selectFloor.get(repoId) as { readonly floor: number | null }).floor ?? 0),
-          epoch = Math.max(previous?.epoch ?? 0, floor, observedLedgerEpoch) + 1,
-          lease: WriterEpochLease = {
-            repoId,
-            holderId: options.holderId,
-            epoch,
-            version: Math.max(previous?.version ?? 0, floor) + 1,
-            issuedAt: options.now(),
-          } satisfies WriterEpochLease;
-        if (!Number.isSafeInteger(epoch))
-          throw new WriterEpochError(
-            "writer_epoch_invalid",
-            `writer epoch for ${repoId} exceeds the safe integer range`,
-          );
-        insertHistory.run(repoId, lease.epoch);
-        upsertCurrent.run(repoId, lease.holderId, lease.epoch, lease.version, lease.issuedAt);
-        return lease;
-      });
+      return withFollowerTransaction(() =>
+        withImmediateTransaction(() => {
+          const previous = readCurrent(repoId),
+            floor = Number((selectFloor.get(repoId) as { readonly floor: number | null }).floor ?? 0),
+            epoch = Math.max(previous?.epoch ?? 0, floor, observedLedgerEpoch) + 1,
+            lease: WriterEpochLease = {
+              repoId,
+              holderId: options.holderId,
+              epoch,
+              version: Math.max(previous?.version ?? 0, floor) + 1,
+              issuedAt: options.now(),
+            } satisfies WriterEpochLease;
+          if (!Number.isSafeInteger(epoch))
+            throw new WriterEpochError(
+              "writer_epoch_invalid",
+              `writer epoch for ${repoId} exceeds the safe integer range`,
+            );
+          insertHistory.run(repoId, lease.epoch);
+          upsertCurrent.run(repoId, lease.holderId, lease.epoch, lease.version, lease.issuedAt);
+          return lease;
+        }),
+      );
     },
     current: (repoId: string): WriterEpochLease | null => {
       ensureOpen();
@@ -178,9 +223,11 @@ function openRepoEpochAuthority(options: {
       return Math.max(current, history);
     },
     retireCurrent: (repoId: string): void => {
-      withImmediateTransaction(() => {
-        deleteCurrent.run(repoId);
-      });
+      withFollowerTransaction(() =>
+        withImmediateTransaction(() => {
+          deleteCurrent.run(repoId);
+        }),
+      );
     },
     assert: (repoId: string, epoch: number, expectedHolderId: string): void => {
       ensureOpen();
@@ -191,9 +238,25 @@ function openRepoEpochAuthority(options: {
         assertState(repoId, epoch, expectedHolderId);
         return operation();
       }),
+    withFollowerFence: <T>(repoId: string, epoch: number, expectedHolderId: string, operation: () => T): T =>
+      withFollowerTransaction(() => {
+        assertState(repoId, epoch, expectedHolderId);
+        return operation();
+      }),
+    withFollowerFenceAsync: <T>(
+      repoId: string,
+      epoch: number,
+      expectedHolderId: string,
+      operation: () => Promise<T>,
+    ): Promise<T> =>
+      withFollowerTransactionAsync(() => {
+        assertState(repoId, epoch, expectedHolderId);
+        return operation();
+      }),
     close: () => {
       if (closed) return;
       closed = true;
+      followerDatabase?.close();
       database.close();
     },
   };
@@ -466,7 +529,7 @@ export function openPersistentWriterEpoch(options: {
   readonly storageByRepo?: Readonly<Record<string, StorageBackendConfig>>;
 }): PersistentWriterEpoch {
   if (options.storage?.backend === "postgres" || options.storage?.backend === "pglite")
-    return openPgWriterEpoch({ ...options, storage: options.storage });
+    return requireExternalWriterEpochOpener(options.storage.backend)({ ...options, storage: options.storage });
   /* @gate-identity state-store/execution.source.storage.src.writer-epoch.filesystem-store */ mkdirSync(
     options.stateRoot,
     { recursive: true },
@@ -487,7 +550,7 @@ export function openPersistentWriterEpoch(options: {
     if (!authority) {
       const storage = options.storageByRepo?.[repoId];
       if (storage?.backend === "postgres" || storage?.backend === "pglite") {
-        authority = openPgWriterEpoch({ ...options, storage });
+        authority = requireExternalWriterEpochOpener(storage.backend)({ ...options, storage });
         authorities.set(repoId, authority);
         return authority;
       }
@@ -515,6 +578,14 @@ export function openPersistentWriterEpoch(options: {
       authorityFor(repoId).assert(repoId, epoch, expectedHolderId),
     withAppendFence: (repoId, epoch, expectedHolderId, operation) =>
       authorityFor(repoId).withAppendFence(repoId, epoch, expectedHolderId, operation),
+    withFollowerFence: (repoId, epoch, expectedHolderId, operation) =>
+      authorityFor(repoId).withFollowerFence(repoId, epoch, expectedHolderId, operation),
+    withFollowerFenceAsync: (repoId, epoch, expectedHolderId, operation) => {
+      const authority = authorityFor(repoId);
+      if (authority.withFollowerFenceAsync)
+        return authority.withFollowerFenceAsync(repoId, epoch, expectedHolderId, operation);
+      return Promise.reject(new WriterEpochError("writer_epoch_invalid", "Asynchronous follower fence unavailable"));
+    },
     close: () => {
       if (closed) return;
       closed = true;
@@ -551,6 +622,27 @@ export function withWriterEpochFenceDescriptor<T>(descriptor: WriterEpochFenceDe
     descriptor.holderId,
     operation,
   );
+}
+
+/** Host follower mutations exclude takeover, without excluding canonical appends. */
+export function withFollowerEpochFenceDescriptor<T>(descriptor: WriterEpochFenceDescriptor, operation: () => T): T {
+  return descriptorAuthority(descriptor).withFollowerFence(
+    descriptor.repoId,
+    descriptor.epoch,
+    descriptor.holderId,
+    operation,
+  );
+}
+
+/** Asynchronous follower fence: releases the orchestration event loop while subprocesses run inside the lock. */
+export async function withFollowerEpochFenceDescriptorAsync<T>(
+  descriptor: WriterEpochFenceDescriptor,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const authority = descriptorAuthority(descriptor);
+  if (authority.withFollowerFenceAsync)
+    return await authority.withFollowerFenceAsync(descriptor.repoId, descriptor.epoch, descriptor.holderId, operation);
+  throw new WriterEpochError("writer_epoch_invalid", "Asynchronous follower fence unavailable");
 }
 
 export function assertWriterEpochFenceDescriptor(descriptor: WriterEpochFenceDescriptor): void {

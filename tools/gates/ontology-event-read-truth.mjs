@@ -5,9 +5,9 @@ import ts from "typescript";
 import { exitCodeFor, lineNumber, parseCommonArgs, parseTypeScript } from "./ontology-gate-lib.mjs";
 
 const eventReadPaths = Object.freeze([
-  "packages/daemon/src/task-query-read.ts",
-  "packages/daemon/src/repo-cell-task-query.ts",
-  "packages/daemon/src/agent-runtime-read.ts",
+  "packages/daemon/src/daemon-host/task-query-read.ts",
+  "packages/daemon/src/daemon-host/repo-cell-task-query.ts",
+  "packages/daemon/src/daemon-host/agent-runtime-read.ts",
 ]);
 const legacyReadCalls = new Set(["readFile", "readFileSync", "readMarkdown", "readTaskPackage"]);
 const materializedFields = new Set(["coverageRows", "edges", "factAnchors", "facts", "taskRows", "warnings"]);
@@ -43,7 +43,7 @@ export function auditEventReadTruth(rootDir = process.cwd()) {
       }
       ts.forEachChild(node, visit);
     }
-    if (file === "packages/daemon/src/agent-runtime-read.ts") auditRuntimeEventCut(sourceFile, report);
+    if (file === "packages/daemon/src/daemon-host/agent-runtime-read.ts") auditRuntimeEventCut(sourceFile, report);
   }
   const deduped = [
     ...new Map(findings.map((finding) => [`${finding.file}:${finding.line}:${finding.reason}`, finding])).values(),

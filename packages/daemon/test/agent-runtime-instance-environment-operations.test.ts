@@ -18,10 +18,10 @@ import {
   discoverRuntimeInstallations,
   openRuntimeInstanceStore,
   type RuntimeAuthReadiness,
-} from "../src/agent-runtime-instances.ts";
+} from "../src/daemon-host/agent-runtime-instances.ts";
 import { codedAs, observed } from "./agent-runtime-instance-environment.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
-import { runtimeKindForId } from "../src/runtime-inventory.ts";
+import { runtimeKindForId } from "../src/runtime-engine/runtime-inventory.ts";
 
 test("Claude effort defaults and per-launch overrides reach the Claude Code CLI", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-claude-effort-")),

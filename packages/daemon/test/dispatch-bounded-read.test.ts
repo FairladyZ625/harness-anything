@@ -3,7 +3,7 @@ import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentRuntimeEventV1, RuntimeSession, TaskProjectionQueries } from "@harness-anything/kernel";
-import { readLastExecutionWorkerDispatch, readTaskAgentDispatch } from "../src/dispatch-read.ts";
+import { readLastExecutionWorkerDispatch, readTaskAgentDispatch } from "../src/daemon-host/dispatch-read.ts";
 
 type DispatchEvent = Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>;
 

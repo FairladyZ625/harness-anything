@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { selectReviewSeat } from "../src/review-panel.ts";
+import { selectReviewSeat } from "../src/daemon-host/review-panel.ts";
 
 test("a cut seats one default reviewer from the repository setting", () => {
   assert.deepEqual(selectReviewSeat({ repositoryDefault: "closeout-reviewer" }), {

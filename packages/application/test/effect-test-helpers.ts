@@ -1,5 +1,5 @@
-import { Effect } from "effect";
-import type { Exit } from "effect";
+import * as Effect from "effect/Effect";
+import type * as Exit from "effect/Exit";
 
 export async function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
   const exit = await runEffectExit(effect);

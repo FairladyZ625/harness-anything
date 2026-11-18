@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { DEFAULT_AGENT_HOST_ACCESS, resolveAgentHostAccess } from "@harness-anything/kernel";
-import { agentRolePrompt } from "../src/agent-role-prompts.ts";
+import { agentRolePrompt } from "../src/daemon-host/agent-role-prompts.ts";
 
 // The regression shape: a second, literal default for the dispatch host access. The Kernel
 // constant is the only place the default may be written.
@@ -24,7 +24,7 @@ test("the undeclared hostAccess default has one Kernel definition and the daemon
   for (const hostAccess of ["isolated", "operator", "bypass"] as const)
     assert.deepEqual(resolveAgentHostAccess(hostAccess), { hostAccess, hostAccessSource: "declared" });
 
-  const rolePrompts = readFileSync(new URL("../src/agent-role-prompts.ts", import.meta.url), "utf8");
+  const rolePrompts = readFileSync(new URL("../src/daemon-host/agent-role-prompts.ts", import.meta.url), "utf8");
   assert.match(rolePrompts, /DEFAULT_AGENT_HOST_ACCESS/u);
   assert.doesNotMatch(rolePrompts, literalDefault);
   assert.match(agentRolePrompt(undefined), /Host access: operator/u);

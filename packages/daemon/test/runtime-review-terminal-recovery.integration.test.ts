@@ -10,7 +10,7 @@ import {
   dispatchStreamPath,
   readDispatchStream,
   reopenDispatchStream,
-} from "../src/dispatch-stream.ts";
+} from "../src/daemon-host/dispatch-stream.ts";
 import { fixture, owner, taskId } from "./task-completion-review.fixture.ts";
 import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
 

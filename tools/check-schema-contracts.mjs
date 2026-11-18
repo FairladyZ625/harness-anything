@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 import { schemaRegistry } from "../packages/kernel/src/schemas/registry.ts";
 
 const root = process.cwd();

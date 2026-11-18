@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { saveFleetCenterConfig } from "../../../packages/daemon/src/fleet-center-config.ts";
+import { saveFleetCenterConfig } from "../../../packages/daemon/src/daemon-host/fleet-center-config.ts";
 /* global window, document, navigator */
 import assert from "node:assert/strict";
 

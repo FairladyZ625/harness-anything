@@ -14,7 +14,7 @@ import {
   canonicalRoot,
   parseDaemonRpcParams,
   workspaceId,
-} from "../src/protocol/daemon-protocol.contract.ts";
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 const binding = withPolicyGroup(

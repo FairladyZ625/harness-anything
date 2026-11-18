@@ -7,10 +7,14 @@ import { pgRuntimeFixture } from "../../storage/test/postgres/pg-runtime.fixture
 import { makeTaskEventReader, openFleetStorage } from "@harness-anything/storage";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { fleetReplicationFixture, replicationRepoId, waitForState } from "./fleet-replication.fixture.ts";
-import { runFleetReplicaSync } from "../src/fleet/replica-sync.ts";
-import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
-import { applyFleetMirrorCut, locateFleetMirrorView, revokeFleetMirrorTree } from "../src/fleet-edge-mirror.ts";
-import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
+import { runFleetReplicaSync } from "../src/daemon-host/fleet/replica-sync.ts";
+import { readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
+import {
+  applyFleetMirrorCut,
+  locateFleetMirrorView,
+  revokeFleetMirrorTree,
+} from "../src/daemon-host/fleet-edge-mirror.ts";
+import { runFleetEdgeTask } from "../src/daemon-host/fleet-edge-task.ts";
 
 for (const { gitFollower, materialize } of [
   { gitFollower: undefined, materialize: true },
@@ -141,9 +145,16 @@ for (const { gitFollower, materialize } of [
         const one = start("edge-one"),
           two = start("edge-two");
         await Promise.all([converge(one), converge(two)]);
-        await waitForState(
-          () => existsSync(path.join(one.workspaceRoot, "harness", packagePath, "task_plan.md")),
-          "agent task plan before authoring",
+        await Promise.all(
+          [one, two].map((edge) =>
+            waitForState(() => {
+              const view = locateFleetMirrorView(edge.viewRoot, replicationRepoId);
+              return (
+                view !== null &&
+                [...view.entries].every(([logical]) => existsSync(path.join(edge.workspaceRoot, "harness", logical)))
+              );
+            }, "every authored file materialized on both PG edges"),
+          ),
         );
         const authoritative = makeTaskEventReader({
           rootDir: fixture.repo,
@@ -164,10 +175,6 @@ for (const { gitFollower, materialize } of [
         } finally {
           await authoritative.drain();
         }
-        await waitForState(
-          () => existsSync(path.join(one.workspaceRoot, "harness", packagePath, "task_plan.md")),
-          "complete agent harness tree",
-        );
         for (const edge of [one, two])
           writeFileSync(
             path.join(edge.workspaceRoot, "harness", packagePath, "task_plan.md"),

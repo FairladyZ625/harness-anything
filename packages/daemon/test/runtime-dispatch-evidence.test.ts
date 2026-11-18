@@ -5,12 +5,12 @@ import { zstdCompressSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { dispatchStreamPath, openDispatchStream } from "../src/dispatch-stream.ts";
+import { dispatchStreamPath, openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import {
   captureDispatchForensics,
   dispatchForensicsRequired,
   type DispatchForensicsInput,
-} from "../src/runtime-dispatch-evidence.ts";
+} from "../src/daemon-host/runtime-dispatch-evidence.ts";
 
 const dispatchId = "dispatch_0123456789abcdef01234567",
   runtimeSessionId = "runtime-forensics",

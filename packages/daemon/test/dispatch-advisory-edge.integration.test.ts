@@ -7,10 +7,10 @@ import test from "node:test";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import { openDecisionAnnotationStore } from "../src/decision-annotations.ts";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
+import { openDecisionAnnotationStore } from "../src/daemon-host/decision-annotations.ts";
+import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { decisionReadSurfaces } from "@harness-anything/kernel";
-import type { TaskDispatchRow } from "../src/protocol/daemon-protocol.contract.ts";
+import type { TaskDispatchRow } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 
 // Real center projection + local-only annotations + authenticated edge JSON-RPC read.
 test(

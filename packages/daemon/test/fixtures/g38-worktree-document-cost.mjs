@@ -8,7 +8,7 @@ import { pathToFileURL } from "node:url";
 /** Count production file reads, including baseline reads, rather than imposing a wall-clock budget. */
 export async function measureWorktreeDocuments(rootDir, size, legacy = false) {
   const { taskWorktreeCandidateInventory } = await import(
-    pathToFileURL(path.join(rootDir, "packages/daemon/src/task-worktree-candidates.ts")).href
+    pathToFileURL(path.join(rootDir, "packages/daemon/src/daemon-host/task-worktree-candidates.ts")).href
   );
   const scratch = mkdtempSync(path.join(tmpdir(), "ha-worktree-doc-cost-")),
     worker = path.join(scratch, "worker"),

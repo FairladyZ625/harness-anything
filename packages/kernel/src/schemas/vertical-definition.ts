@@ -1,4 +1,5 @@
-import { ParseResult, Schema } from "effect";
+import * as ParseResult from "effect/ParseResult";
+import * as Schema from "effect/Schema";
 import { VerticalCompletionDeclarationSchema } from "./completion-source.ts";
 import { RelationTypeSchema } from "./entity-relations.ts";
 import { isRecord } from "../domain/write-chain.contract.ts";

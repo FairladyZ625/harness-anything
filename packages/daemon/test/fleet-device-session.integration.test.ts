@@ -2,10 +2,10 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
-import { openPeer, readFleetLoginAuthorityClient } from "../src/fleet/peer.ts";
-import { readEdgeRepository, withEdgeReadModel } from "../src/fleet-edge-task-read.ts";
+import { openPeer, readFleetLoginAuthorityClient } from "../src/daemon-host/fleet/peer.ts";
+import { readEdgeRepository, withEdgeReadModel } from "../src/daemon-host/fleet-edge-task-read.ts";
 import { fleetFixture, replicaQuota } from "./fleet-tls-session.fixture.ts";
-import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
+import { readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 const isReadDenied = (viewDir: string): boolean => readReplicaGeneration(viewDir) === null;

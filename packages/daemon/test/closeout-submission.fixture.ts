@@ -1,6 +1,6 @@
 /** Exercise the production preparation/finalization ports without the command-runner fixture. */
-import { finalizeCloseoutSubmission, readCloseoutSubmission as finalize } from "../src/repo-cell-submit.ts";
-import { prepareSubmissionDelivery } from "../src/submission-delivery.ts";
+import { finalizeCloseoutSubmission, readCloseoutSubmission as finalize } from "../src/daemon-host/repo-cell-submit.ts";
+import { prepareSubmissionDelivery } from "../src/daemon-host/submission-delivery.ts";
 
 type FinalizeArgs = Parameters<typeof finalizeCloseoutSubmission>;
 type DeriveArgs = [

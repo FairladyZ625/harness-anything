@@ -4,8 +4,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
-import { readAgentRuntimeTokenUsage, readAgentRuntimeTokenUsageDetail } from "../src/agent-runtime-token-usage.ts";
+import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import {
+  readAgentRuntimeTokenUsage,
+  readAgentRuntimeTokenUsageDetail,
+} from "../src/daemon-host/agent-runtime-token-usage.ts";
 import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 
 test("usage outcomes and pending receipts follow canonical lifecycle despite contradictory local evidence", (t) => {

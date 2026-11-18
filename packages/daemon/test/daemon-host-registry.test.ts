@@ -7,9 +7,9 @@ import path from "node:path";
 import test from "node:test";
 import { readDaemonRegistry, updateDaemonRepo } from "@harness-anything/kernel/daemon-registry";
 import { registerDaemonRepo } from "@harness-anything/storage";
-import type { DaemonHostRegistryContext } from "../src/daemon-host-context.ts";
-import type { RepoCell, RepoCellStatus } from "../src/repo-cell-types.ts";
-import { refreshRegistry } from "../src/daemon-host-registry.ts";
+import type { DaemonHostRegistryContext } from "../src/daemon-host/daemon-host-context.ts";
+import type { RepoCell, RepoCellStatus } from "../src/daemon-host/repo-cell-types.ts";
+import { refreshRegistry } from "../src/daemon-host/daemon-host-registry.ts";
 
 test("registry refresh reopens a migrated edge repo at its new workspace root", async (t) => {
   const temp = mkdtempSync(path.join(tmpdir(), "ha-edge-root-migration-"));

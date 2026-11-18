@@ -9,9 +9,9 @@ import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-any
 import { readBundledAgentDeclaration } from "@harness-anything/preset";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import { startDaemon } from "../src/runtime.ts";
-import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
+import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { startDaemon } from "../src/daemon-host/runtime.ts";
+import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { initIngressRepo, spawnCli } from "./fixtures/runtime-ingress.ts";

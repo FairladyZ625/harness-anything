@@ -50,7 +50,7 @@ import {
   READ_SCALES,
   evaluateReadMeasurements,
 } from "../../../tools/gates/cost-budget-reads.mjs";
-import { readObserveEventTail } from "../src/observe-tail.ts";
+import { readObserveEventTail } from "../src/daemon-host/observe-tail.ts";
 import { READ_PROBES, measureReadScale } from "./fixtures/g38-read-cost.mjs";
 import { READ_HISTORY_BATCH_SIZE, seedReadLedger } from "./fixtures/g38-read-ledger.mjs";
 import { installReadProbe, planRowsRead, resetReadProbe, snapshotReadProbe } from "./fixtures/g38-read-probe.mjs";

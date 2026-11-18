@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { eventObjectTarget, type AgentRuntimeEventV1, type FrozenWritePlan } from "@harness-anything/kernel";
-import { makeAgentRuntimeReadModel } from "../src/agent-runtime-read.ts";
+import { makeAgentRuntimeReadModel } from "../src/daemon-host/agent-runtime-read.ts";
 
 test("runtime lifecycle cursors stay at the projection cut while the canonical stream is ahead", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-read-cut-"));

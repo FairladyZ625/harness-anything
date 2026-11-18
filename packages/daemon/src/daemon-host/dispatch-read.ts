@@ -1,0 +1,1044 @@
+import {
+  consumeKnownError,
+  documentWorkspacePath,
+  dispatchLifecycleSummary,
+  dispatchPermissionEvidence,
+  sameWriteSource,
+  type AgentRuntimeEventV1,
+  type CanonicalSquadRun,
+  type DecisionReadSurface,
+  type DispatchLifecycleSummary,
+  type RuntimeSession,
+  type TaskProjectionQueries,
+  type WriteSource,
+  latestRuntimeActivityAt,
+} from "@harness-anything/kernel";
+import { readDecisionAnnotationsByDispatch } from "./decision-annotations.ts";
+import { readEscalationResolution } from "@harness-anything/application/internal/queries/task-escalation-context.ts";
+import { readDispatchRuling } from "../runtime-engine/runtime-ruling.ts";
+import { incidentActionFromRecord } from "./decision-incident-receipt.ts";
+import {
+  agentRuntimeSessionGroupTotals,
+  buildAgentRuntimeMemberSessionGroups,
+  latestDispatchStartedAt,
+  latestEntityNames,
+  runtimeTaskLabels,
+} from "./agent-runtime-session-groups.ts";
+import { readDispatchStreamSummary } from "./dispatch-stream.ts";
+import type {
+  DaemonTaskDispatchesPayload,
+  DaemonTaskDispatchesResult,
+  TaskDispatchRow,
+} from "./protocol/daemon-protocol.contract.ts";
+import { projectedTaskNotFound } from "./projection-readiness.ts";
+import { runtimeResumeAdmission } from "./runtime-resume-admission.ts";
+import { dispatchActivityIdleMinutes, dispatchActivityStatus } from "./dispatch-activity.ts";
+import { cursorStep } from "./paginated-read.ts";
+import {
+  writeSourceNodeId,
+  writeSourceRuntimeSessionId,
+} from "@harness-anything/kernel/internal/domain/write-source.ts";
+
+type DispatchBatchRead = Extract<DaemonTaskDispatchesResult, { readonly taskIds: readonly string[] }>;
+
+/** Internal consumers that need a complete verdict must drain the same public pages. */
+export async function readAllTaskDispatchPages(
+  readPage: (facets: { readonly cursor?: string }) => Promise<DaemonTaskDispatchesResult>,
+): Promise<DispatchBatchRead> {
+  const rows = new Map<string, TaskDispatchRow>(),
+    taskIds = new Set<string>(),
+    unavailable = new Set<string>();
+  const cursors = new Set<string>();
+  let cursor: string | undefined,
+    pending = false,
+    watermark = Infinity,
+    sourceRevision = 0;
+  while (true) {
+    const result = await readPage(cursor === undefined ? {} : { cursor });
+    if (!("page" in result)) throw new Error("Task dispatch batch read returned no page receipt.");
+    for (const row of result.dispatches) rows.set(row.dispatchId, row);
+    for (const taskId of result.taskIds) taskIds.add(taskId);
+    for (const taskId of result.unavailableTaskIds) unavailable.add(taskId);
+    pending ||= result.status === "pending";
+    watermark = Math.min(watermark, result.watermark);
+    sourceRevision = Math.max(sourceRevision, result.sourceRevision);
+    const next = cursorStep(result.page, cursors, "task dispatches");
+    if (next === undefined) {
+      const dispatches = [...rows.values()].sort(
+        (left, right) =>
+          left.startedAt.localeCompare(right.startedAt) || left.dispatchId.localeCompare(right.dispatchId),
+      );
+      return {
+        ...result,
+        dispatches,
+        taskIds: [...taskIds],
+        unavailableTaskIds: [...unavailable],
+        ...taskDispatchesOutcome(dispatches),
+        status: pending ? "pending" : "ready",
+        watermark,
+        sourceRevision,
+        page: { ...result.page, cursor: null, nextCursor: null },
+      };
+    }
+    cursor = next;
+  }
+}
+
+type DispatchEvent = Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }>;
+type DispatchQueries = Pick<
+  TaskProjectionQueries,
+  | "read"
+  | "readTaskIndex"
+  | "readDocument"
+  | "readDocumentHistory"
+  | "readRuntimeSession"
+  | "readRuntimeSessionEventsByType"
+  | "readRuntimeDispatchesByTaskExecution"
+  | "readDispatchLifecycle"
+  | "readSquadRun"
+>;
+
+/** Repository dispatch reads consume only canonical queries; local activity has its separate reader above. */
+export function readTaskDispatches(
+  input: { readonly projection: TaskProjectionQueries; readonly rootDir?: string } & DaemonTaskDispatchesPayload,
+): DaemonTaskDispatchesResult {
+  const { projection, rootDir } = input;
+  if (input.agentId !== undefined || input.squadId !== undefined)
+    return withWorkspacePathPrefix(readMemberTaskDispatches(input), rootDir);
+  if (input.latestOnly === true && input.taskIds !== undefined)
+    return withWorkspacePathPrefix(readLatestTaskDispatches({ ...input, taskIds: input.taskIds }), rootDir);
+  if (input.taskIds !== undefined)
+    return withWorkspacePathPrefix(readTaskDispatchPage({ ...input, taskIds: input.taskIds }), rootDir);
+  const singleTaskId = input.taskId!,
+    task = projection.read(singleTaskId),
+    cut = projection.readCut();
+  const notFound = projectedTaskNotFound(task, singleTaskId);
+  if (notFound !== null) throw notFound;
+  if (cut.status === "ready" && !task.packagePath)
+    throw Object.assign(new Error(`Task ${singleTaskId} has no projected package.`), { code: "task_not_found" });
+  const dispatchEvents = projection.readRuntimeDispatchesByTaskIds([singleTaskId]),
+    annotations = rootDir
+      ? readDecisionAnnotationsByDispatch(
+          rootDir,
+          dispatchEvents.map((event) => event.payload.dispatchId),
+          input.advisorySurface ?? "task.dispatches",
+        )
+      : new Map();
+  const dispatches = dispatchEvents
+    .map((event) =>
+      canonicalDispatchRow(
+        projection,
+        event,
+        projection.readRuntimeSession(event.payload.runtimeSessionId) ?? undefined,
+        rootDir,
+        annotations.get(event.payload.dispatchId) ?? [],
+      ),
+    )
+    .sort((left, right) => left.startedAt.localeCompare(right.startedAt));
+  return {
+    ok: true,
+    status:
+      cut.status === "pending" || dispatches.some((row) => row.lifecycle?.status === "pending") ? "pending" : "ready",
+    dispatches,
+    ...taskDispatchesOutcome(dispatches),
+    watermark: cut.watermark,
+    sourceRevision: cut.sourceRevision,
+    ...(rootDir === undefined ? {} : { workspacePathPrefix: documentWorkspacePath(rootDir, "") }),
+    taskId: singleTaskId,
+  };
+}
+
+/** Explicit history pages bound both dispatch and session reads by the returned window. */
+function readTaskDispatchPage(input: {
+  readonly projection: TaskProjectionQueries;
+  readonly taskIds: readonly string[];
+  readonly rootDir?: string;
+  readonly limit?: number;
+  readonly cursor?: string;
+  readonly advisorySurface?: DecisionReadSurface;
+}): DispatchBatchRead {
+  const { projection, taskIds } = input,
+    limit = input.limit ?? 500;
+  let cursor: { readonly startedAt: string; readonly dispatchId: string } | undefined;
+  if (input.cursor !== undefined) {
+    const parts: unknown = JSON.parse(Buffer.from(input.cursor, "base64url").toString("utf8"));
+    if (
+      !Array.isArray(parts) ||
+      parts.length !== 2 ||
+      !parts.every((part) => typeof part === "string" && part.length > 0)
+    )
+      throw new Error("query cursor is invalid");
+    cursor = { startedAt: parts[0], dispatchId: parts[1] };
+  }
+  const page = projection.readRuntimeDispatchPage({ taskIds, startedAtGte: "", cursor, limit }),
+    annotations = input.rootDir
+      ? readDecisionAnnotationsByDispatch(
+          input.rootDir,
+          page.rows.map(({ event }) => event.payload.dispatchId),
+          input.advisorySurface ?? "task.dispatches",
+        )
+      : new Map(),
+    dispatches = page.rows.map(({ event }) =>
+      canonicalDispatchRow(
+        projection,
+        event,
+        projection.readRuntimeSession(event.payload.runtimeSessionId) ?? undefined,
+        input.rootDir,
+        annotations.get(event.payload.dispatchId) ?? [],
+      ),
+    ),
+    cut = projection.readCut(),
+    metadata = projection.readTaskIndex({ taskIds });
+  return {
+    ok: true,
+    ...cut,
+    status:
+      cut.status === "pending" ||
+      metadata.status === "pending" ||
+      dispatches.some((row) => row.lifecycle?.status === "pending")
+        ? "pending"
+        : "ready",
+    dispatches,
+    taskIds,
+    unavailableTaskIds: taskIds.filter(
+      (taskId) => !metadata.rows.some((row) => row.taskId === taskId && row.packagePath),
+    ),
+    ...taskDispatchesOutcome(dispatches),
+    page: {
+      limit,
+      cursor: input.cursor ?? null,
+      nextCursor: page.done
+        ? null
+        : Buffer.from(JSON.stringify([page.nextCursor!.startedAt, page.nextCursor!.dispatchId])).toString("base64url"),
+    },
+  };
+}
+
+function withWorkspacePathPrefix(
+  result: DaemonTaskDispatchesResult,
+  rootDir: string | undefined,
+): DaemonTaskDispatchesResult {
+  return rootDir === undefined ? result : { ...result, workspacePathPrefix: documentWorkspacePath(rootDir, "") };
+}
+
+/** The aggregate read: one current dispatch per requested task, never the task's whole history.
+ * Fleet overview only shows what each in-flight lease is running now, so its cost is the number
+ * of leases, not the number of dispatches those tasks accumulated. Rows are deliberately shallow:
+ * the full canonical row re-derives delivered/blocked/relations that this view never renders. */
+function readLatestTaskDispatches(input: {
+  readonly projection: TaskProjectionQueries;
+  readonly taskIds: readonly string[];
+}): DispatchBatchRead {
+  const { projection } = input,
+    taskIds = [...input.taskIds],
+    dispatches = projection
+      .readLatestRuntimeDispatchesByTaskIds(taskIds)
+      .map((event) => {
+        return shallowSessionGroupRow(
+          projection,
+          event,
+          projection.readRuntimeSession(event.payload.runtimeSessionId) ?? undefined,
+        );
+      })
+      .sort(
+        (left, right) =>
+          left.startedAt.localeCompare(right.startedAt) || left.dispatchId.localeCompare(right.dispatchId),
+      ),
+    cut = projection.readCut();
+  return {
+    ok: true,
+    status: cut.status,
+    dispatches,
+    ...taskDispatchesOutcome(dispatches),
+    watermark: cut.watermark,
+    sourceRevision: cut.sourceRevision,
+    taskIds,
+    unavailableTaskIds: [],
+    page: { limit: taskIds.length, cursor: null, nextCursor: null },
+  };
+}
+
+/** The member-scoped page of `repo.task.dispatches`: an executor's newest dispatch rows, one
+ * read bounded by the caller's limit — the first screen never pays for the member's total
+ * history. Rows carry the same canonical construction as every other dispatch listing, the
+ * groups describe exactly the returned window, and `totals` count the member's full history with
+ * the same task-group normalization as the window (bindings, decision review, unattributed). */
+function readMemberTaskDispatches(input: {
+  readonly projection: TaskProjectionQueries;
+  readonly agentId?: string;
+  readonly squadId?: string;
+  readonly personId?: string;
+  readonly nodeId?: string;
+  readonly limit: number;
+}): DaemonTaskDispatchesResult {
+  const member = input.projection.readRuntimeDispatchesByMember({
+    ...(input.agentId !== undefined ? { agentId: input.agentId } : { squadId: input.squadId! }),
+    ...(input.personId === undefined ? {} : { personId: input.personId }),
+    ...(input.nodeId === undefined ? {} : { nodeId: input.nodeId }),
+    limit: input.limit,
+  });
+  const sessions = [...new Set(member.rows.map((event) => event.payload.runtimeSessionId))]
+      .map((id) => input.projection.readRuntimeSession(id))
+      .filter((session): session is RuntimeSession => session !== null),
+    dispatches = readSessionGroupDispatches({ sessions, events: member.rows, projection: input.projection }),
+    cut = input.projection.readCut(),
+    taskLabels = runtimeTaskLabels(input.projection, [
+      ...new Set([
+        ...sessions.flatMap(({ taskBindings }) => taskBindings.map(({ taskId }) => taskId)),
+        ...dispatches.flatMap((row) => (row.taskId ? [row.taskId] : [])),
+      ]),
+    ]),
+    entityNames = new Map<string, ReadonlyMap<string, string>>();
+  const entityLabel = (kind: "agent" | "squad", id: string): string | null => {
+    if (cut.status !== "ready") return null;
+    let names = entityNames.get(kind);
+    if (names === undefined) {
+      names = latestEntityNames(input.projection.listEntities(kind));
+      entityNames.set(kind, names);
+    }
+    return names.get(id) ?? null;
+  };
+  const groups = buildAgentRuntimeMemberSessionGroups({
+    sessions,
+    dispatches,
+    dispatchEvents: member.rows,
+    dispatchStartedAt: latestDispatchStartedAt(member.rows),
+    taskLabels,
+    entityLabel,
+    query: {
+      groupBy: "task",
+      since: "1970-01-01T00:00:00.000Z",
+      tokens: [],
+      agentId: null,
+      squadId: null,
+      personId: input.personId,
+      nodeId: input.nodeId,
+      status: [],
+      sessionIds: [],
+      limit: input.limit,
+    },
+    cut,
+  });
+  return {
+    ok: true,
+    status: cut.status,
+    dispatches,
+    ...taskDispatchesOutcome(dispatches),
+    watermark: cut.watermark,
+    sourceRevision: cut.sourceRevision,
+    ...(input.agentId !== undefined ? { agentId: input.agentId } : { squadId: input.squadId! }),
+    groups,
+    taskLabels: [...taskLabels.entries()].map(([taskId, title]) => ({ taskId, title })),
+    totals: agentRuntimeSessionGroupTotals(member.sessions),
+    truncated: member.truncated,
+  };
+}
+
+/** The aggregate terminal verdict for a task's dispatch list, computed once beside the rows so
+ * transports render it instead of re-deriving outcome semantics per caller. A still-dispatched
+ * fallback attempt is not a verdict; its successor row is. */
+export function taskDispatchesOutcome(dispatches: readonly TaskDispatchRow[]): {
+  readonly outcome: NonNullable<TaskDispatchRow["outcome"]>;
+  readonly exitCode: number;
+} {
+  const finalRows = dispatches.filter((row) => !row.nextDispatchId),
+    unsettled = finalRows.length === 0 || finalRows.some((row) => row.lifecycle?.policy?.groupSettled !== true),
+    outcome =
+      unsettled || finalRows.some((row) => row.status === "lost" || row.status === "unknown")
+        ? "unknown"
+        : finalRows.some((row) => row.status === "failed")
+          ? "failed"
+          : finalRows.some((row) => row.status === "cancelled")
+            ? "cancelled"
+            : finalRows.some((row) => row.status === "stopped" || row.status === "blocked")
+              ? "stopped"
+              : "succeeded";
+  return { outcome, exitCode: unsettled || outcome === "succeeded" ? 0 : 1 };
+}
+
+/** A dispatch list is settled when every row reached its own terminal verdict. */
+export function taskDispatchRowsSettled(rows: readonly TaskDispatchRow[]): boolean {
+  return rows.every((row) => row.lifecycle?.policy?.groupSettled === true);
+}
+
+/**
+ * Reviewer dispatches bound to exactly one submission cut that have not reached their own terminal
+ * verdict: still queued, still running, or still projecting their exit. Consent is the owner's
+ * confirmation that this cut's reviews concluded, so any one of these makes that confirmation
+ * premature. A dispatch of an earlier cut is not this cut's review, and a cancelled, failed, or
+ * stopped one already reached its verdict.
+ */
+export function unsettledCutReviewDispatches(input: {
+  readonly projection: TaskProjectionQueries;
+  readonly rootDir?: string;
+  readonly taskId: string;
+  readonly executionId: string;
+  readonly submissionDigest: `sha256:${string}`;
+}): readonly TaskDispatchRow[] {
+  const events = input.projection
+      .readRuntimeDispatchesByTaskExecution(input.taskId, input.executionId)
+      .map(({ event }) => event)
+      .filter(
+        (event) =>
+          event.payload.role === "reviewer" &&
+          event.payload.reviewTarget?.kind === "task" &&
+          event.payload.reviewTarget.digest === input.submissionDigest,
+      ),
+    sessions = events.flatMap((event) => input.projection.readRuntimeSession(event.payload.runtimeSessionId) ?? []),
+    rows = readSessionGroupDispatches({ events, sessions, projection: input.projection, shallow: true });
+  return rows.filter((row) => row.lifecycle?.policy?.consentBlocked !== false);
+}
+
+export function readTaskDispatchSession(
+  projection: Pick<TaskProjectionQueries, "readRuntimeDispatchById">,
+  taskId: string,
+  dispatchId: string,
+): { readonly runtimeSessionId: string } | null {
+  const event = projection.readRuntimeDispatchById(dispatchId)?.event;
+  return event?.payload.taskId === taskId ? { runtimeSessionId: event.payload.runtimeSessionId } : null;
+}
+
+export function readTaskLineageDispatches(input: {
+  readonly projection: TaskProjectionQueries;
+  readonly taskId: string;
+  /**
+   * Walk parent tasks too. Defaults to false so submit's automatic attribution only replays a
+   * dispatch that provably belongs to this execution; a parent's author cannot be assumed to be
+   * the child's author when the child may have been authored outside the ledger.
+   */
+  readonly includeAncestors?: boolean;
+}): readonly TaskDispatchRow[] {
+  const taskIds: string[] = [],
+    visited = new Set<string>();
+  let candidate: string | null = input.taskId;
+  while (candidate !== null && !visited.has(candidate)) {
+    taskIds.push(candidate);
+    visited.add(candidate);
+    candidate =
+      input.includeAncestors === true
+        ? (input.projection.read(candidate).snapshot.task?.metadata?.parentTaskId ?? null)
+        : null;
+  }
+  const rows: TaskDispatchRow[] = [];
+  for (const taskId of taskIds) rows.push(...readTaskDispatches({ projection: input.projection, taskId }).dispatches);
+  return rows.sort((left, right) => left.startedAt.localeCompare(right.startedAt));
+}
+
+export interface TaskAuthoringExecutorCandidate {
+  readonly runtimeSessionId: string;
+  readonly executorId: string;
+  readonly agentId: string | undefined;
+  readonly dispatchTaskId: string;
+  readonly executionId: string;
+}
+
+/** The raw and prefixed spellings a declared executor may use for one reviewer session. */
+function reviewerIdentityForms(runtimeSessionId: string, agentId: string | undefined): readonly string[] {
+  return [runtimeSessionId, `runtime-session:${runtimeSessionId}`, ...(agentId === undefined ? [] : [agentId])];
+}
+
+function normalizeDeclaredExecutor(value: string): string {
+  const trimmed = value.trim();
+  return trimmed.startsWith("agent:") ? trimmed.slice("agent:".length) : trimmed;
+}
+
+/**
+ * The authoring dispatches `declare-executor` may replay for this cut, split by what they prove.
+ * `exact` rows are bound to this execution; `fallback` also includes ancestors for the legacy
+ * recovery path. Reviewer dispatches are never candidates: attribution exists to judge reviewer
+ * independence, so a review session offered as a candidate would let the reviewer become the author.
+ */
+export function taskLineageExecutorCandidates(input: {
+  readonly projection: TaskProjectionQueries;
+  readonly taskId: string;
+  readonly executionId?: string;
+}): {
+  readonly exact: readonly TaskAuthoringExecutorCandidate[];
+  readonly fallback: readonly TaskAuthoringExecutorCandidate[];
+  readonly reviewerIdentities: ReadonlySet<string>;
+} {
+  const rows = readTaskLineageDispatches({ ...input, includeAncestors: true }),
+    reviewerRows = rows.filter((dispatch) => isReviewerDispatch(input.projection, dispatch.dispatchId)),
+    authoringRows = rows.filter((dispatch) => !isReviewerDispatch(input.projection, dispatch.dispatchId)),
+    candidate = (dispatch: TaskDispatchRow): TaskAuthoringExecutorCandidate => ({
+      runtimeSessionId: dispatch.runtimeSessionId,
+      executorId: `runtime-session:${dispatch.runtimeSessionId}`,
+      agentId: dispatch.agentId,
+      dispatchTaskId: dispatch.taskId,
+      executionId: dispatch.executionId,
+    }),
+    dedupe = (entries: readonly TaskDispatchRow[]): readonly TaskAuthoringExecutorCandidate[] => [
+      ...new Map(entries.map((dispatch) => [dispatch.runtimeSessionId, candidate(dispatch)])).values(),
+    ];
+  return {
+    exact: dedupe(
+      input.executionId === undefined ? [] : authoringRows.filter((row) => row.executionId === input.executionId),
+    ),
+    fallback: dedupe(authoringRows),
+    reviewerIdentities: new Set(
+      reviewerRows.flatMap((dispatch) => reviewerIdentityForms(dispatch.runtimeSessionId, dispatch.agentId)),
+    ),
+  };
+}
+
+export type ExecutorDeclarationSelection =
+  | { readonly kind: "replay"; readonly candidate: TaskAuthoringExecutorCandidate }
+  | { readonly kind: "external"; readonly executorId: string }
+  | { readonly kind: "reviewer-alias"; readonly requested: string }
+  | { readonly kind: "choose"; readonly requested: string | undefined; readonly choices: readonly string[] }
+  | { readonly kind: "owner-declaration-required" };
+
+/**
+ * One decision shared by the writer and its tests. Exact dispatches are authoritative; ancestors
+ * are only a fallback when the caller did not name a different agent. An explicit agent that
+ * matches no authoring dispatch is an owner declaration, so an unrelated parent dispatch cannot
+ * block recording the real external author. Reviewer aliases are rejected before any match.
+ */
+export function selectExecutorDeclaration(input: {
+  readonly requested?: string;
+  readonly exact: readonly TaskAuthoringExecutorCandidate[];
+  readonly fallback: readonly TaskAuthoringExecutorCandidate[];
+  readonly reviewerIdentities: ReadonlySet<string>;
+}): ExecutorDeclarationSelection {
+  const requested = input.requested === undefined ? undefined : normalizeDeclaredExecutor(input.requested);
+  if (requested !== undefined && input.reviewerIdentities.has(requested)) return { kind: "reviewer-alias", requested };
+  const search = input.exact.length > 0 ? input.exact : input.fallback,
+    matches =
+      requested === undefined
+        ? search
+        : search.filter(
+            (candidate) =>
+              requested === candidate.executorId ||
+              requested === candidate.runtimeSessionId ||
+              requested === candidate.agentId,
+          );
+  if (matches.length === 1) return { kind: "replay", candidate: matches[0]! };
+  if (input.exact.length === 0 && requested !== undefined && matches.length === 0)
+    return { kind: "external", executorId: requested };
+  if (requested !== undefined)
+    return { kind: "choose", requested, choices: search.map((candidate) => candidate.executorId) };
+  if (search.length === 0) return { kind: "owner-declaration-required" };
+  return { kind: "choose", requested: undefined, choices: search.map((candidate) => candidate.executorId) };
+}
+
+/** Reviewer identity is canonical in the dispatch event, including rows whose projected role is absent. */
+export function isReviewerDispatch(
+  projection: Pick<TaskProjectionQueries, "readRuntimeDispatchById">,
+  dispatchId: string,
+): boolean {
+  const payload = projection.readRuntimeDispatchById(dispatchId)?.event.payload;
+  return payload?.role === "reviewer" || payload?.reviewTarget !== undefined;
+}
+
+export function readSessionGroupDispatches(input: {
+  readonly sessions: readonly RuntimeSession[];
+  readonly events: readonly DispatchEvent[];
+  readonly projection: DispatchQueries;
+  readonly rootDir?: string;
+  /** Aggregate pages need grouping fields, not the full delivered/blocked dispatch derivation. */
+  readonly shallow?: boolean;
+}): readonly TaskDispatchRow[] {
+  const sessions = new Map(input.sessions.map((session) => [session.runtimeSessionId, session]));
+  return input.events.map((event) =>
+    input.shallow
+      ? shallowSessionGroupRow(input.projection, event, sessions.get(event.payload.runtimeSessionId))
+      : canonicalDispatchRow(input.projection, event, sessions.get(event.payload.runtimeSessionId), input.rootDir),
+  );
+}
+
+/** Bounded group-row projection: only fields the session-group aggregation renders are filled;
+ * delivered/blocked, task snapshot, document and dispatch-stream reads are intentionally absent. */
+function shallowSessionGroupRow(
+  projection: Pick<TaskProjectionQueries, "readDispatchLifecycle" | "readRuntimeSessionEventsByType">,
+  event: DispatchEvent,
+  session: RuntimeSession | undefined,
+): TaskDispatchRow {
+  const payload = event.payload,
+    lifecycle = dispatchLifecycleSummary(
+      projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [payload.dispatchId] }),
+    ),
+    outcome = lifecycle.outcome,
+    status = lifecycle.displayStatus;
+  return {
+    dispatchId: payload.dispatchId,
+    ...dispatchAttribution(projection, event),
+    taskId: payload.taskId ?? "",
+    executionId: payload.executionId ?? "",
+    ...(payload.reviewTarget?.kind === "decision" && payload.reviewTarget.decisionId
+      ? {
+          reviewTarget: {
+            kind: "decision" as const,
+            decisionId: payload.reviewTarget.decisionId,
+            digest: payload.reviewTarget.digest,
+          },
+        }
+      : payload.reviewTarget?.kind === "task" && payload.reviewTarget.taskId && payload.reviewTarget.executionId
+        ? {
+            reviewTarget: {
+              kind: "task" as const,
+              taskId: payload.reviewTarget.taskId,
+              executionId: payload.reviewTarget.executionId,
+              digest: payload.reviewTarget.digest,
+            },
+          }
+        : {}),
+    runtimeSessionId: payload.runtimeSessionId,
+    ...(payload.role ? { role: payload.role } : {}),
+    instanceId: payload.instanceId,
+    attemptGroupId: payload.attemptGroupId ?? payload.dispatchId,
+    attemptIndex: payload.attemptIndex ?? 0,
+    provider: { instance: payload.instanceId, model: payload.definitionSnapshot?.model ?? null },
+    classification: null,
+    reason: null,
+    fallbackState: null,
+    lifecycle,
+    ...rowPermissionEvidence(lifecycle, payload),
+    nextDispatchId: lifecycle.nextDispatchId,
+    ...(payload.agentId ? { agentId: payload.agentId, agentName: payload.agentName ?? payload.agentId } : {}),
+    ...(payload.squadId ? { squadId: payload.squadId } : {}),
+    providerSessionId: session?.providerSessionId ?? null,
+    eventStreamRef: null,
+    startedAt: payload.startedAt ?? event.occurredAt,
+    endedAt: outcome === null ? null : (session?.lastObservedAt ?? event.occurredAt),
+    outcome,
+    status,
+    resultRef: session?.resultRef ?? null,
+    exitCode: session?.exitCode ?? null,
+  };
+}
+
+/**
+ * One run's dispatch rows read by identity instead of by task: each named dispatch plus the
+ * fallback successors it spawned, so a task-less run (a schedule-occurrence Squad) joins exactly
+ * its own dispatch history. Terminates on the visited-rows set; fallback chains are linear.
+ */
+export function readDispatchRowsByIds(input: {
+  readonly projection: DispatchQueries & Pick<TaskProjectionQueries, "readRuntimeDispatchById" | "readRuntimeSession">;
+  readonly rootDir?: string;
+  readonly dispatchIds: readonly string[];
+}): readonly TaskDispatchRow[] {
+  const rows = new Map<string, TaskDispatchRow>(),
+    queue = [...input.dispatchIds];
+  while (queue.length > 0) {
+    const dispatchId = queue.shift()!;
+    if (rows.has(dispatchId)) continue;
+    const event = input.projection.readRuntimeDispatchById(dispatchId)?.event;
+    if (!event) continue;
+    const row = canonicalDispatchRow(
+      input.projection,
+      event,
+      input.projection.readRuntimeSession(event.payload.runtimeSessionId) ?? undefined,
+      input.rootDir,
+    );
+    rows.set(dispatchId, row);
+    if (row.nextDispatchId) queue.push(row.nextDispatchId);
+  }
+  return [...rows.values()].sort((left, right) => left.startedAt.localeCompare(right.startedAt));
+}
+
+/** Assemble one dispatch row from its canonical event. Callers that selected a single dispatch
+ *  use this instead of assembling every dispatch of the task. */
+export function readTaskDispatchRow(
+  projection: DispatchQueries,
+  event: DispatchEvent,
+  options: { readonly rootDir?: string; readonly advisorySurface?: DecisionReadSurface } = {},
+): TaskDispatchRow {
+  const annotations = options.rootDir
+    ? readDecisionAnnotationsByDispatch(
+        options.rootDir,
+        [event.payload.dispatchId],
+        options.advisorySurface ?? "task.dispatches",
+      )
+    : new Map<string, readonly import("./decision-annotations.ts").DecisionAnnotationEntry[]>();
+  return canonicalDispatchRow(
+    projection,
+    event,
+    projection.readRuntimeSession(event.payload.runtimeSessionId) ?? undefined,
+    options.rootDir,
+    annotations.get(event.payload.dispatchId) ?? [],
+  );
+}
+
+function rowPermissionEvidence(
+  lifecycle: DispatchLifecycleSummary,
+  payload: DispatchEvent["payload"],
+): Pick<TaskDispatchRow, "effectivePermissionMode" | "requestedPermissionMode" | "permissionModeSource"> {
+  const eventPermission = dispatchPermissionEvidence(payload);
+  return {
+    effectivePermissionMode:
+      lifecycle.effectivePermissionMode !== "unknown"
+        ? lifecycle.effectivePermissionMode
+        : eventPermission.effectivePermissionMode,
+    requestedPermissionMode: lifecycle.requestedPermissionMode ?? eventPermission.requestedPermissionMode,
+    permissionModeSource:
+      lifecycle.permissionModeSource !== "unknown"
+        ? lifecycle.permissionModeSource
+        : eventPermission.permissionModeSource,
+  };
+}
+
+export function dispatchAttribution(
+  projection: Pick<TaskProjectionQueries, "readRuntimeSessionEventsByType">,
+  event: DispatchEvent,
+): { readonly personId: string | null; readonly nodeId: string | null } {
+  const runtimeSessionId = writeSourceRuntimeSessionId(event.source);
+  const launch =
+    runtimeSessionId === null
+      ? undefined
+      : projection.readRuntimeSessionEventsByType(runtimeSessionId, ["runtime_session_started"]).at(-1);
+  return {
+    personId: event.actor?.principal?.personId ?? null,
+    nodeId: writeSourceNodeId(event.source) ?? writeSourceNodeId(launch?.source),
+  };
+}
+
+function dispatchStartedAt(event: DispatchEvent): string {
+  return event.payload.startedAt ?? event.occurredAt;
+}
+
+/** The last dispatch of one execution whose runtime session is one of the given executor ids.
+ *  Reads that execution's dispatch events only, then assembles the selected row. */
+export function readLastExecutionWorkerDispatch(
+  projection: DispatchQueries,
+  input: {
+    readonly taskId: string;
+    readonly executionId: string;
+    readonly workerExecutorIds: ReadonlySet<string>;
+  },
+): TaskDispatchRow | undefined {
+  const event = projection
+    .readRuntimeDispatchesByTaskExecution(input.taskId, input.executionId)
+    .map((row) => row.event)
+    .filter((candidate) => input.workerExecutorIds.has(`runtime-session:${candidate.payload.runtimeSessionId}`))
+    .sort((left, right) => dispatchStartedAt(left).localeCompare(dispatchStartedAt(right)))
+    .at(-1);
+  return event === undefined ? undefined : readTaskDispatchRow(projection, event);
+}
+
+/** The dispatch a fresh child task was accepted with, resolved from the dispatch events alone. */
+export function readTaskAgentDispatch(
+  projection: Pick<TaskProjectionQueries, "readRuntimeDispatchesByTaskIds">,
+  taskId: string,
+  agentId: string,
+): { readonly dispatchId: string; readonly runtimeSessionId: string; readonly executionId: string } | null {
+  const event = projection
+    .readRuntimeDispatchesByTaskIds([taskId])
+    .filter((candidate) => candidate.payload.agentId === agentId)
+    .sort((left, right) => dispatchStartedAt(left).localeCompare(dispatchStartedAt(right)))[0];
+  return event === undefined
+    ? null
+    : {
+        dispatchId: event.payload.dispatchId,
+        runtimeSessionId: event.payload.runtimeSessionId,
+        executionId: event.payload.executionId ?? "",
+      };
+}
+
+function canonicalDispatchRow(
+  projection: DispatchQueries,
+  event: DispatchEvent,
+  session: RuntimeSession | undefined,
+  rootDir?: string,
+  annotations: readonly import("./decision-annotations.ts").DecisionAnnotationEntry[] = [],
+): TaskDispatchRow {
+  const payload = event.payload,
+    taskRead = payload.taskId ? projection.readTaskIndex({ taskIds: [payload.taskId] }).rows[0] : null,
+    packagePath = taskRead?.packagePath ?? null,
+    // The title rides beside taskId from this one read: a caller labelling the row must never
+    // re-join the task through a second listing whose readability rules can differ.
+    taskTitle = taskRead?.title,
+    documentPath = packagePath ? `${packagePath}/artifacts/dispatches/${payload.dispatchId}.json` : null,
+    document = documentPath ? projection.readDocument(documentPath).document : null,
+    archive = document ? parseArchive(document.body) : null,
+    squadRunId = payload.squadRun?.squadRunId,
+    squadChildTaskIds = squadOwnerChildTaskIds(projection, payload),
+    outcomeEvent = projection
+      .readRuntimeSessionEventsByType(payload.runtimeSessionId, ["runtime_session_outcome_observed"])
+      .findLast(
+        (entry): entry is Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }> =>
+          entry.schema === "agent-runtime-event/v1" && entry.type === "runtime_session_outcome_observed",
+      ),
+    metrics = outcomeEvent?.payload.runtimeMetrics,
+    groupId = payload.attemptGroupId ?? payload.dispatchId,
+    lifecycle = dispatchLifecycleSummary(
+      projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [payload.dispatchId] }),
+    ),
+    resumed = new Map(lifecycle.nextDispatchId ? [[payload.dispatchId, lifecycle.nextDispatchId]] : []),
+    resultRef = session?.resultRef ?? (typeof archive?.resultRef === "string" ? archive.resultRef : null),
+    exitCode = session?.exitCode ?? (typeof archive?.exitCode === "number" ? archive.exitCode : null),
+    outcome = lifecycle.outcome,
+    dispatchStream = rootDir ? readDispatchStreamSummary(rootDir, payload.dispatchId) : null,
+    decisionAction = dispatchStream?.decisionActionRecord
+      ? incidentActionFromRecord(dispatchStream.decisionActionRecord)
+      : null,
+    ownerEscalation =
+      decisionAction !== null && decisionAction.status !== "claimed" && decisionAction.action === "needs_attention"
+        ? decisionAction
+        : null,
+    lastObservedAt = latestRuntimeActivityAt([
+      ...(session ? [session.lastObservedAt] : []),
+      ...(dispatchStream ? [dispatchStream.lastObservedAt] : []),
+    ]),
+    activityObservedAt =
+      lastObservedAt === "1970-01-01T00:00:00.000Z" ? (payload.startedAt ?? event.occurredAt) : lastObservedAt,
+    activityProjectionObservedAt = dispatchStream?.lastProgressAt ?? activityObservedAt,
+    status = lifecycle.displayStatus,
+    processAlive = lifecycle.policy?.processAlive === true,
+    providerUnreachable = processAlive ? (session?.providerUnreachable ?? null) : null,
+    activityStatus = dispatchActivityStatus({
+      status,
+      taskStatus: taskRead?.status,
+      role: payload.role,
+      lastObservedAt: activityProjectionObservedAt,
+      lastProgressAt: dispatchStream?.lastProgressAt,
+      stallTimeoutMs: dispatchStream?.header.stallTimeoutMs,
+      stalledAt: dispatchStream?.stalledAt,
+      processAlive,
+      providerActivity: dispatchStream?.lastProviderActivity?.kind ?? null,
+      providerReconnect: dispatchStream?.lastProviderReconnect ?? null,
+      reportedProviderUnreachable: dispatchStream === null ? providerUnreachable : null,
+    }),
+    activityIdleMinutes = dispatchActivityIdleMinutes(activityProjectionObservedAt),
+    fallbackReason = dispatchStream?.records.findLast(
+      (record) => record.kind === "fallback_state" && typeof record.reason === "string",
+    )?.reason,
+    // Only a real question earns the awaiting-ruling classification. A guard refusal is CEO
+    // handling work, so it reads as needs_attention even though the action is the same.
+    classification =
+      ownerEscalation !== null
+        ? ownerEscalation.attention === "question"
+          ? "awaiting_ruling"
+          : "needs_attention"
+        : (outcomeEvent?.payload.attempt?.classification ??
+          (isClassification(archive?.classification) ? archive.classification : null)),
+    providerSessionId =
+      session?.providerSessionId ?? (typeof archive?.providerSessionId === "string" ? archive.providerSessionId : null),
+    reportPath = packagePath ? `${packagePath}/artifacts/reports/${payload.dispatchId}.md` : null;
+  return {
+    dispatchId: payload.dispatchId,
+    ...dispatchAttribution(projection, event),
+    taskId: payload.taskId ?? "",
+    ...(taskTitle ? { taskTitle } : {}),
+    executionId: payload.executionId ?? "",
+    ...(payload.reviewTarget?.kind === "decision" && payload.reviewTarget.decisionId
+      ? {
+          reviewTarget: {
+            kind: "decision" as const,
+            decisionId: payload.reviewTarget.decisionId,
+            digest: payload.reviewTarget.digest,
+          },
+        }
+      : payload.reviewTarget?.kind === "task" && payload.reviewTarget.taskId && payload.reviewTarget.executionId
+        ? {
+            reviewTarget: {
+              kind: "task" as const,
+              taskId: payload.reviewTarget.taskId,
+              executionId: payload.reviewTarget.executionId,
+              digest: payload.reviewTarget.digest,
+            },
+          }
+        : {}),
+    ...(typeof archive?.parentRuntimeSessionId === "string"
+      ? { parentRuntimeSessionId: archive.parentRuntimeSessionId }
+      : {}),
+    ...(typeof archive?.delegatedByAgentId === "string"
+      ? {
+          delegatedByAgentId: archive.delegatedByAgentId,
+          delegatedByAgentName:
+            typeof archive.delegatedByAgentName === "string"
+              ? archive.delegatedByAgentName
+              : archive.delegatedByAgentId,
+        }
+      : {}),
+    runtimeSessionId: payload.runtimeSessionId,
+    ...(payload.role ? { role: payload.role } : {}),
+    lastObservedAt: activityObservedAt,
+    activityStatus,
+    activityObservedAt: activityProjectionObservedAt,
+    activityIdleMinutes,
+    ...(providerUnreachable === null ? {} : { providerUnreachable }),
+    instanceId: payload.instanceId,
+    attemptGroupId: groupId,
+    attemptIndex: payload.attemptIndex ?? 0,
+    provider: { instance: payload.instanceId, model: payload.definitionSnapshot?.model ?? null },
+    classification,
+    reason:
+      ownerEscalation?.reason ??
+      (typeof fallbackReason === "string" ? fallbackReason : null) ??
+      outcomeEvent?.payload.attempt?.reason ??
+      (typeof archive?.reason === "string" ? archive.reason : null),
+    ...(outcomeEvent?.payload.attempt?.faultClass ? { faultClass: outcomeEvent.payload.attempt.faultClass } : {}),
+    ...(outcomeEvent?.payload.attempt?.resetAt ? { resetAt: outcomeEvent.payload.attempt.resetAt } : {}),
+    ...resumeDispatch(payload, providerSessionId, resumed, classification),
+    // Previous-version wire field, removed 2026-12-07; it carries no lifecycle judgment.
+    fallbackState: null,
+    lifecycle,
+    ...rowPermissionEvidence(lifecycle, payload),
+    nextDispatchId: lifecycle.nextDispatchId,
+    ...(metrics ? { metrics: { ...metrics, compacted: null } } : {}),
+    ...(payload.agentId ? { agentId: payload.agentId, agentName: payload.agentName ?? payload.agentId } : {}),
+    ...(payload.squadId ? { squadId: payload.squadId } : {}),
+    ...(squadRunId === undefined ? {} : { squadRunId }),
+    ...(squadChildTaskIds === undefined ? {} : { squadChildTaskIds }),
+    providerSessionId,
+    // The running edge publishes its transcript ref with the provider binding; a settled edge
+    // dispatch also archives the same ref into its dispatch document. Either one survives the
+    // center read, where no local stream exists to answer for it.
+    eventStreamRef:
+      dispatchStream?.header.eventStreamRef ??
+      session?.transcriptRef ??
+      (typeof archive?.eventStreamRef === "string" ? archive.eventStreamRef : null),
+    startedAt: payload.startedAt ?? event.occurredAt,
+    endedAt: outcomeEvent?.payload.endedAt ?? (outcome !== null ? (session?.lastObservedAt ?? event.occurredAt) : null),
+    outcome,
+    status,
+    // The artifact is keyed by dispatch id, so its presence means this dispatch wrote the ask. Read
+    // it here rather than gating on the settled classification: the question must stay visible even
+    // when the stream cut predates the classification.
+    ...awaitingRulingFields(projection, payload),
+    resultRef,
+    exitCode,
+    ...(documentPath && document ? { dispatchPath: documentPath } : {}),
+    ...(reportPath &&
+    (projection.readDocument(reportPath).document ?? projection.readDocumentHistory?.(reportPath).document)
+      ? { reportPath }
+      : {}),
+    ...(annotations.length > 0
+      ? {
+          advisories: annotations.flatMap((entry) =>
+            entry.advisory ? [{ ...entry.advisory, evaluatedAt: entry.updatedAt }] : [],
+          ),
+        }
+      : {}),
+    // The executed incident disposition rides the dispatch's own durable stream, so it is visible
+    // on this canonical row even when the decision annotation store has since evicted the advisory.
+    ...(decisionAction === null ? {} : { decisionAction }),
+  };
+}
+
+/**
+ * The initial leader row is the run's owner: its dispatch context names the run itself, whereas
+ * worker and later-turn contexts only point back at the owner dispatch. Reading that one run is
+ * how the owner row names the child tasks, bounded by the run's own attempts instead of a scan.
+ */
+function squadOwnerChildTaskIds(
+  projection: DispatchQueries,
+  payload: DispatchEvent["payload"],
+): readonly string[] | undefined {
+  const context = payload.squadRun;
+  if (context === undefined || !("subject" in context)) return undefined;
+  // The projection stores the run state it wrote and validated; `ha squad status` already reads
+  // `workerAttempts` from the same row, so following that shape here adds no new assumption.
+  const run = projection.readSquadRun(context.squadRunId)?.state as unknown as CanonicalSquadRun | undefined;
+  if (run === undefined) return undefined;
+  return [
+    ...new Set(run.workerAttempts.flatMap((attempt) => (attempt.taskId === null ? [] : [attempt.taskId]))),
+  ].sort();
+}
+
+/**
+ * An awaiting-ruling row carries the worker's question and options so `ha task dispatches` and the
+ * agenda surface them without opening the raw provider stream. The artifact stays the single
+ * storage; this is the read-side projection of it.
+ */
+function awaitingRulingFields(
+  projection: DispatchQueries,
+  dispatch: { readonly taskId?: string; readonly dispatchId: string },
+): Pick<TaskDispatchRow, "ruling"> {
+  const taskId = dispatch.taskId;
+  if (!taskId) return {};
+  const packagePath = projection.readTaskIndex({ taskIds: [taskId] }).rows[0]?.packagePath;
+  if (typeof packagePath !== "string") return {};
+  if (
+    readEscalationResolution(
+      projection.readDocument(`${packagePath}/artifacts/rulings/${dispatch.dispatchId}.resolution.md`).document?.body ??
+        "",
+      dispatch.dispatchId,
+      taskId,
+    )
+  )
+    return {};
+  const ruling = readDispatchRuling(
+    (relative) => projection.readDocument(relative).document?.body ?? null,
+    packagePath,
+    dispatch.dispatchId,
+  );
+  return ruling === null ? {} : { ruling: { question: ruling.question, options: ruling.options, path: ruling.path } };
+}
+
+function resumeDispatch(
+  dispatch: {
+    readonly dispatchId: string;
+    readonly agentId?: string | null;
+    readonly definitionSnapshot?: { readonly kindId?: string };
+  },
+  providerSessionId: string | null,
+  resumedDispatches: ReadonlyMap<string, string>,
+  classification: TaskDispatchRow["classification"],
+): Pick<TaskDispatchRow, "resume" | "nextAction"> | undefined {
+  const admission = runtimeResumeAdmission({
+    dispatchId: dispatch.dispatchId,
+    agentId: dispatch.agentId ?? null,
+    kindId: dispatch.definitionSnapshot?.kindId ?? null,
+    providerSessionId,
+    resumedDispatches,
+  });
+  if (!admission.resumable) return undefined;
+  const resume = { dispatchId: admission.dispatchId, agentId: admission.agentId };
+  return {
+    resume,
+    ...(classification === "provider_quota" ? { nextAction: resumeDispatchAction(resume) } : {}),
+  };
+}
+function resumeDispatchAction(resume: NonNullable<TaskDispatchRow["resume"]>): string {
+  return resume.agentId
+    ? `ha agent run ${resume.agentId} --resume-dispatch ${resume.dispatchId}`
+    : `ha runtime run --resume-dispatch ${resume.dispatchId} --prompt <follow-up>`;
+}
+function parseArchive(body: string): Record<string, unknown> | null {
+  try {
+    const value: unknown = JSON.parse(body);
+    return isRecord(value) && value.schema === "runtime-dispatch/v1" ? value : null;
+  } catch (error) {
+    consumeKnownError(error);
+    return null;
+  }
+}
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function isClassification(value: unknown): value is NonNullable<TaskDispatchRow["classification"]> {
+  return (
+    value === "provider_fault" ||
+    value === "provider_quota" ||
+    value === "worker_stop" ||
+    value === "dispatch_stalled" ||
+    value === "awaiting_ruling" ||
+    value === "needs_attention" ||
+    value === "gate_red" ||
+    value === "completed_without_final_text"
+  );
+}
+
+/** True when a still-open node-owned reviewer dispatch matches this review request for credential recovery. */
+export function canRecoverEdgeReviewerDispatch(input: {
+  readonly projection: Pick<TaskProjectionQueries, "readRuntimeDispatchById" | "readDispatchLifecycle">;
+  readonly dispatchId: string;
+  readonly taskId: string;
+  readonly executionId: string | null;
+  readonly source: WriteSource;
+  readonly personId: string;
+}): boolean {
+  const row = input.projection.readRuntimeDispatchById(input.dispatchId),
+    lifecycle = input.projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [input.dispatchId] });
+  return (
+    row !== null &&
+    row.event.payload.role === "reviewer" &&
+    row.event.payload.taskId === input.taskId &&
+    (input.executionId === null || row.event.payload.executionId === input.executionId) &&
+    sameWriteSource(row.event.source, input.source) &&
+    row.event.actor.principal.personId === input.personId &&
+    lifecycle.status === "ready" &&
+    Boolean(lifecycle.rows[0] && !lifecycle.rows[0].policy.attemptSettled)
+  );
+}

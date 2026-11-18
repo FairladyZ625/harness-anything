@@ -26,16 +26,20 @@ import {
   sqliteLedgerPath,
   type DaemonStorageConfig,
 } from "@harness-anything/storage";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { createIdentitySession } from "../src/authorization-provider.ts";
-import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
-import { parseFleetFrame, serializeFleetFrame } from "../src/fleet/command-protocol.ts";
-import { parseReplicationFrame, serializeReplicationFrame, type ReplicationFrame } from "../src/fleet/protocol.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
+import { listenFleetTls, type FleetTlsCenter } from "../src/daemon-host/fleet/center.ts";
+import { parseFleetFrame, serializeFleetFrame } from "../src/daemon-host/fleet/command-protocol.ts";
+import {
+  parseReplicationFrame,
+  serializeReplicationFrame,
+  type ReplicationFrame,
+} from "../src/fleet-sync/fleet/protocol.ts";
 import { fleetHostWriterOptions, fleetLedgerRevision, fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { rawPeer } from "./fleet-tls-session.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { requestFleetReplicaToken } from "../src/fleet/replica-token.ts";
+import { requestFleetReplicaToken } from "../src/daemon-host/fleet/replica-token.ts";
 
 export const replicationNodes = ["edge-one", "edge-two", "edge-three"] as const;
 export type ReplicationNodeId = (typeof replicationNodes)[number];
@@ -233,8 +237,9 @@ export async function fleetReplicationFixture(
         ...(options.replicaAdmission === false
           ? {}
           : {
-              verifyReplica: (auth: import("../src/transport/auth-context.ts").DaemonAuthenticationContext) =>
-                createIdentitySession(userRoot, { fetch: owners.keycloak.fetch }).bindReplica!(auth),
+              verifyReplica: (
+                auth: import("../src/daemon-host/transport/auth-context.ts").DaemonAuthenticationContext,
+              ) => createIdentitySession(userRoot, { fetch: owners.keycloak.fetch }).bindReplica!(auth),
             }),
         revokeDeviceSessions: (nodeId: string) => createIdentitySession(userRoot).revokeDeviceSessions(nodeId),
         onError: (entry) => transportErrors.push({ nodeId: entry.nodeId, error: entry.error }),

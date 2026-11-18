@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { installPresetPackage } from "@harness-anything/preset/internal/preset-resolver";
 import { presetUserRoot } from "@harness-anything/preset/internal/preset-system";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./doc-sync-slice-a.fixtures.ts";
 

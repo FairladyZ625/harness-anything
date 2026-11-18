@@ -9,26 +9,26 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { PassThrough, Writable } from "node:stream";
-import {
-  actionDeclarations,
-  compileVerticalContract,
-  decodeVerticalDefinition,
-  getEntityKindContract,
-} from "@harness-anything/kernel";
+import { actionDeclarations, compileVerticalContract, getEntityKindContract } from "@harness-anything/kernel";
+import { decodeVerticalDefinition } from "@harness-anything/kernel/schemas";
 import { artifactActionIngressKinds } from "@harness-anything/kernel/internal/domain/action-declaration.ts";
 import { projectArtifactActionDeclarations } from "@harness-anything/kernel/internal/domain/artifact-action-declarations.ts";
 import { closureDeclarations } from "../../../tools/gates/ontology-closure-audit.mjs";
 import { walkTypeScriptFiles } from "../../../tools/gates/ontology-gate-lib.mjs";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { connectSocket, JsonRpcLineClient, requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import {
+  connectSocket,
+  JsonRpcLineClient,
+  requestDaemonJsonRpcAt,
+} from "../src/daemon-host/client/local-json-rpc-client.ts";
 import {
   actionForDaemonMethod,
   commandClassForAction,
   daemonGuiActionMethods,
   daemonProtocolCommands,
   parseDaemonRpcParams,
-} from "../src/protocol/daemon-protocol.contract.ts";
-import { isJsonObject, rejectSecretKeys } from "../src/protocol/json-rpc-types.ts";
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { isJsonObject, rejectSecretKeys } from "../src/daemon-host/protocol/json-rpc-types.ts";
 
 // The `--wait` reader keeps one daemon connection alive for a whole wait and issues one read round
 // per poll. The line client used to attach a fresh readline interface per request and abandon it at
@@ -908,8 +908,8 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
     localDescriptors = [...daemonProtocolCommands, ...daemonGuiActionMethods],
     writerSources = walkTypeScriptFiles(REPO_ROOT, "packages/daemon/src").filter(
       (file) =>
-        !file.startsWith("packages/daemon/src/protocol/") &&
-        file !== "packages/daemon/src/repo-cell-authorization.ts" &&
+        !file.startsWith("packages/daemon/src/daemon-host/protocol/") &&
+        file !== "packages/daemon/src/daemon-host/repo-cell-authorization.ts" &&
         file !== "packages/application/src/commands/write-receipt-settlement.ts",
     ),
     writerTexts = writerSources.map((file) => [file, readFileSync(path.join(REPO_ROOT, file), "utf8")] as const);

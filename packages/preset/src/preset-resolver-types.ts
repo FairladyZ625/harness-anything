@@ -1,5 +1,6 @@
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
-import type { CompiledVerticalContract, TemplateCatalog } from "@harness-anything/kernel";
+import type { CompiledVerticalContract } from "@harness-anything/kernel";
+import type { TemplateCatalog } from "@harness-anything/kernel/schemas";
 import type {
   CapabilityRefV1,
   PresetDocumentV1,

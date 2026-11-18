@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { summarizeWorkspace } from "@harness-anything/kernel";
-import { validateDaemonWorkspaceSummary } from "../src/protocol/daemon-protocol.contract.ts";
+import { validateDaemonWorkspaceSummary } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import type { TaskProjection } from "@harness-anything/kernel";
 import { workspaceSummaryFromProjection } from "@harness-anything/application/queries";
 

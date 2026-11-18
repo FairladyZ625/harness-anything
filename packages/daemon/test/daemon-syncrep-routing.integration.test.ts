@@ -5,14 +5,14 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
 import { pgRuntimeFixture } from "../../storage/test/postgres/pg-runtime.fixture.ts";
-import { openRepoCellProxy } from "../src/repo-cell-proxy.ts";
-import { openWriterSupervisor } from "../src/writer-supervisor.ts";
-import { bundle, eventAt } from "../../storage/test/store/task-event-store.fixtures.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { openRepoCellProxy } from "../src/daemon-host/repo-cell-proxy.ts";
+import { openWriterSupervisor } from "../src/daemon-host/writer-supervisor.ts";
+import { bundle, eventAt, initRepo } from "../../storage/test/store/task-event-store.fixtures.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { fixtureFence, settleSettingsEvent } from "./repo-settings.fixture.ts";
 import { policyTestCenter, provisionPolicyTestRepository, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import type { RepoWriterRequestV1 } from "../src/repo-writer-protocol.ts";
-import { REPO_WRITER_QUEUE_LIMIT } from "../src/writer-request-queue.ts";
+import type { RepoWriterRequestV1 } from "../src/daemon-host/repo-writer-protocol.ts";
+import { REPO_WRITER_QUEUE_LIMIT } from "../src/daemon-host/writer-request-queue.ts";
 
 async function synchronous(fixture: Awaited<ReturnType<typeof pgRuntimeFixture>>, enabled: boolean) {
   console.log("S3_GUC", "alter", enabled);
@@ -70,12 +70,10 @@ test(
       {
         createWriterWorker: (url, options) => {
           const worker = new Worker(url, options),
-            post = worker.postMessage.bind(worker),
             terminate = worker.terminate.bind(worker);
-          worker.postMessage = (message: RepoWriterRequestV1) => {
+          worker.on("orchestration-post", (message: RepoWriterRequestV1) => {
             if (message.schema === "harness-repo-writer-request/v1") requests.push(message);
-            post(message);
-          };
+          });
           worker.on("message", (message: { schema?: string; capability?: string; payload?: { opId?: string } }) => {
             if (message.schema === "harness-repo-writer-capability-call/v1" && message.capability === "writeOperation")
               attemptedOpId = message.payload?.opId;
@@ -89,6 +87,22 @@ test(
       },
     );
     console.log("S3_STAGE", "writer-open");
+    const independentDirectory = join(fixture.root, "independent");
+    mkdirSync(independentDirectory);
+    const independentRoot = canonicalRoot(independentDirectory),
+      independentId = workspaceId("s3-independent");
+    initRepo(independentRoot);
+    provisionPolicyTestRepository(independentId);
+    const independentFence = fixtureFence(independentId, independentRoot, join(fixture.root, "independent-epochs"));
+    await settleSettingsEvent({ repoId: independentId, rootDir: independentRoot, writerEpochFence: independentFence });
+    const independent = await openRepoCellProxy({
+        repoId: independentId,
+        rootDir: independentRoot,
+        ownerId: "s3-independent",
+        defaultWriterEpochFence: independentFence,
+        keycloakCenter: policyTestCenter,
+      }),
+      independentBinding = { ...binding, writerEpochFence: independentFence, writerEpoch: independentFence.epoch };
     let inflight: Promise<unknown> | undefined;
     try {
       const baseline = await cell.run(
@@ -145,6 +159,13 @@ test(
       );
       assert.ok(attemptedOpId, "the actual attempted publication identity must precede COMMIT");
       console.log("S3_STAGE", "syncrep-blocked");
+      // dec_04A9211B073F29F0FC1E1CA573 CH2: an unbounded DB COMMIT cannot occupy another repository's host turn.
+      const independentReceipt = await independent.run(
+        { kind: "task-create", taskId: "task-s3-independent", title: "another repository", riskTier: "low" },
+        independentBinding,
+      );
+      assert.equal(independentReceipt.outcome, "applied", JSON.stringify(independentReceipt));
+      console.log("S3_STAGE", "independent-write-complete");
       const at = performance.now();
       const [read, oldReceipt, absent] = await Promise.all([
         cell.read("repo.tasks.list", {}, binding),
@@ -259,6 +280,7 @@ test(
       t.signal.removeEventListener("abort", releaseSyncRepOnAbort);
       await synchronous(fixture, false);
       await inflight;
+      await independent.close();
       await cell.close();
       await fixture.pool.end();
       await fixture.close();
@@ -286,6 +308,7 @@ for (const before of [true, false])
       const supervisor = await openWriterSupervisor(
         { repoId, rootDir: canonicalRoot(fixture.root), ownerId: "cas", storage },
         {
+          connectHost: () => undefined,
           createWorker: () => {
             const worker = new Worker(new URL("./fixtures/syncrep-cas-worker.ts", import.meta.url), {
               workerData: { storage, repoId, gate, reached, stats, before },
@@ -381,6 +404,7 @@ test(
     const supervisor = await openWriterSupervisor(
       { repoId, rootDir: canonicalRoot(fixture.root), ownerId: "queued-cancel", storage },
       {
+        connectHost: () => undefined,
         createWorker: () => {
           const worker = new Worker(new URL("./fixtures/syncrep-cas-worker.ts", import.meta.url), {
             workerData: { storage, repoId, gate, reached, queued, stats, before: false, staged: true },

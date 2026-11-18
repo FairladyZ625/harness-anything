@@ -1,7 +1,7 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { performance } from "node:perf_hooks";
-import { requestDaemonJsonRpcAt } from "../../src/client/local-json-rpc-client.ts";
-import { endpointIdentity } from "../../src/protocol/daemon-protocol.contract.ts";
+import { requestDaemonJsonRpcAt } from "../../src/daemon-host/client/local-json-rpc-client.ts";
+import { endpointIdentity } from "../../src/daemon-host/protocol/daemon-protocol.contract.ts";
 
 interface ProbeInput {
   readonly endpoint: string;

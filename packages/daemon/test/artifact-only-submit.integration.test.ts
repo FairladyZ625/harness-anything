@@ -5,11 +5,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
+import { seedBuiltinSchedules } from "../src/daemon-host/schedule-builtin-executor.ts";
 import { readSubmissionArtifact } from "@harness-anything/application/commands";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { isTaskEvent } from "@harness-anything/kernel";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";

@@ -1,21 +1,21 @@
 // harness-test-tier: integration
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
-import { createIdentitySession } from "../src/authorization-provider.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
-import { listenFleetTls } from "../src/fleet/center.ts";
-import { readFleetOperationalClient } from "../src/fleet/peer.ts";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
-import { readDispatchStream } from "../src/dispatch-stream.ts";
+import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { applyFleetMirrorCut } from "../src/daemon-host/fleet-edge-mirror.ts";
+import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
+import { readFleetOperationalClient } from "../src/daemon-host/fleet/peer.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
+import { readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
@@ -218,7 +218,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
           };
         },
       });
-    t.after(() => edgeHost.close());
+    fixture.track(() => edgeHost.close());
     await edgeHost.attachmentsSettled();
     await edgeHost.runtimeInstance("daemon.runtimeInstance.create", codexInstance, localAuth);
     let edgeAwaitRouteCount = 0;

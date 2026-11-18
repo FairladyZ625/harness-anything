@@ -7,8 +7,8 @@ import {
   writeRepositorySettingsFacet,
   type AgentDefinitionSnapshot,
 } from "@harness-anything/kernel";
-import { initialRuntimeInstanceSettings } from "../src/runtime-spawn-allowlist.ts";
-import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
+import { initialRuntimeInstanceSettings } from "../src/daemon-host/runtime-spawn-allowlist.ts";
+import { applyFleetMirrorCut } from "../src/daemon-host/fleet-edge-mirror.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { waitForCondition } from "../../../tools/fixtures/wait-for-condition.ts";
 

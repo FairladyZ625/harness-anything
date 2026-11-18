@@ -1,6 +1,6 @@
 // harness-test-tier: fast
-import { createAuthorizationProvider } from "../src/authorization-provider.ts";
-import { daemonBuildStamp } from "../src/build-identity.ts";
+import { createAuthorizationProvider } from "../src/daemon-host/authorization-provider.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import {
   existsSync,
@@ -16,10 +16,10 @@ import { open as openFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import type { DaemonHost } from "../src/daemon-host.ts";
-import { recordDaemonOperationQueueHead, type DaemonOperationPhaseSpan } from "../src/daemon-operation.ts";
-import { openDaemonConnLog } from "../src/conn-log.ts";
-import { openWriterSupervisor } from "../src/writer-supervisor.ts";
+import type { DaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { recordDaemonOperationQueueHead, type DaemonOperationPhaseSpan } from "../src/daemon-host/daemon-operation.ts";
+import { openDaemonConnLog } from "../src/daemon-host/conn-log.ts";
+import { openWriterSupervisor } from "../src/daemon-host/writer-supervisor.ts";
 import { fixtureFence, openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { policyTestCenter, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { actor, git } from "./task-surface.fixtures.ts";
@@ -29,16 +29,16 @@ import {
   daemonStdioLogPath,
   openDaemonLifecycleLog,
   readDaemonLifecycleRecords,
-} from "../src/lifecycle-log.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import { observeTailKinds } from "../src/protocol/daemon-protocol-gui-types.ts";
+} from "../src/daemon-host/lifecycle-log.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
+import { observeTailKinds } from "../src/daemon-host/protocol/daemon-protocol-gui-types.ts";
 import {
   daemonRequestLogPath,
   openDaemonRequestLog,
   type DaemonRequestLogEntry,
   type DaemonRequestLogRecord,
-} from "../src/request-log.ts";
+} from "../src/daemon-host/request-log.ts";
 
 function tempRoot(t: TestContext): string {
   const root = mkdtempSync(path.join(os.tmpdir(), "harness-request-log-"));

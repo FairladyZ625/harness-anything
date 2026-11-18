@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as kernel from "../../src/index.ts";
+import * as schemas from "../../src/schemas/index.ts";
 import * as runtimeEffortModule from "@harness-anything/kernel/runtime-effort";
 import { TASK_LIFECYCLE_COMMAND_CATALOG } from "../../src/domain/task-lifecycle.contract.ts";
 
@@ -32,5 +33,6 @@ test("kernel public source index is importable by the explicit TS test runner", 
   assert.equal("VersionControlSystem" in kernel, true);
   assert.equal("makeTaskEventStore" in kernel, false);
   assert.equal("makeTaskProjection" in kernel, false);
-  assert.equal(typeof kernel.schemaRegistry.length, "number");
+  assert.equal("schemaRegistry" in kernel, false);
+  assert.equal(typeof schemas.schemaRegistry.length, "number");
 });

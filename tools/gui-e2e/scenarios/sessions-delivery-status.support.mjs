@@ -10,7 +10,7 @@ import {
   openPersistentWriterEpoch,
   readLedgerWriterEpoch,
 } from "../../../packages/storage/src/index.ts";
-import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
+import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
 
 /**
  * 会话页交付真相(task_10e4cd6f09ee0317ae06c641fd):文档类任务的 runtime 结算停在

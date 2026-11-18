@@ -31,7 +31,7 @@ SQLite uses `journal_mode=WAL` with `synchronous=FULL`; see
 CLI and GUI submit typed commands over the daemon JSON-RPC protocol. The daemon
 owns a serialized `RepoCell` per repository; the actual writer runs in a
 dedicated `repo-writer-worker` thread supervised by
-`packages/daemon/src/writer-supervisor.ts`. The persistent `writer-epoch` fence
+`packages/daemon/src/daemon-host/writer-supervisor.ts`. The persistent `writer-epoch` fence
 (`packages/daemon/src/writer-epoch.ts`) rejects stale writers after a daemon
 restart and prevents split-brain writers in fleet scenarios. Application and
 domain handlers validate authorization, entity transitions, and the frozen
@@ -39,7 +39,7 @@ write plan before acceptance; the read projection catches up from the canonical
 SQLite event stream.
 
 A repository runs in one of four modes: `local`, `remote-proxy`,
-`remote-center`, or `remote-edge` (`packages/daemon/src/repo-mode.ts`). Edge
+`remote-center`, or `remote-edge` (`packages/daemon/src/daemon-host/repo-mode.ts`). Edge
 nodes forward commands to the center; they do not gain a second writer.
 
 A write receipt reports `status: accepted_durable` only after a committed

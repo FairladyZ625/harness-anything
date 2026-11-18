@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { daemonBuildStamp } from "../src/build-identity.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
@@ -16,11 +16,11 @@ import {
   type FrozenWritePlan,
   type RuntimeSession,
 } from "@harness-anything/kernel";
-import { makeAgentRuntimeReadModel } from "../src/agent-runtime-read.ts";
-import { readSessionGroupDispatches, readTaskDispatches } from "../src/dispatch-read.ts";
-import { validateAgentRuntimeOverview } from "../src/agent-runtime-contract.ts";
-import { makeAgentRuntimeStreamHub } from "../src/agent-runtime-stream.ts";
-import { readFleetRuntimeSessionsPaged } from "../src/fleet-edge-runtime.ts";
+import { makeAgentRuntimeReadModel } from "../src/daemon-host/agent-runtime-read.ts";
+import { readSessionGroupDispatches, readTaskDispatches } from "../src/daemon-host/dispatch-read.ts";
+import { validateAgentRuntimeOverview } from "../src/daemon-host/agent-runtime-contract.ts";
+import { makeAgentRuntimeStreamHub } from "../src/daemon-host/agent-runtime-stream.ts";
+import { readFleetRuntimeSessionsPaged } from "../src/daemon-host/fleet-edge-runtime.ts";
 import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 import {
   daemonGuiReadMethods,
@@ -28,28 +28,28 @@ import {
   jsonRpcMethodContracts,
   validateDaemonRpcCall,
   validateDaemonTaskDispatches,
-} from "../src/protocol/daemon-protocol.contract.ts";
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import {
   parseDaemonGuiReadResult,
   parseDaemonStreamEvent,
   parseDaemonStreamResult,
-} from "../src/protocol/gui-result-validation.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+} from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import type { DaemonHost } from "../src/daemon-host.ts";
-import { parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
-import { consumeProviderLine } from "../src/runtime-spawn-provider-stream.ts";
-import { validateAgentRuntimeSession } from "../src/agent-runtime-contract.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
+import type { DaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { parseProviderFrame } from "../src/daemon-host/runtime-spawn-provider-frames.ts";
+import { consumeProviderLine } from "../src/daemon-host/runtime-spawn-provider-stream.ts";
+import { validateAgentRuntimeSession } from "../src/daemon-host/agent-runtime-contract.ts";
 import {
   archiveDispatchStream,
   dispatchStreamPath,
   appendRuntimeWorkerRecord,
   openDispatchStream,
   readDispatchStreamSummary,
-} from "../src/dispatch-stream.ts";
+} from "../src/daemon-host/dispatch-stream.ts";
 
 const actor = { principal: { personId: "person-runtime" }, executor: null } as const;
 test("runtime read facets expose safe overview/session/events through the shared contract registry", () =>

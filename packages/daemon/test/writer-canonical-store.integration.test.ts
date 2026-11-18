@@ -13,9 +13,9 @@ import {
 } from "@harness-anything/storage";
 import { startManagedPostgresFixture } from "../../storage/test/postgres/managed-postgres.fixture.ts";
 import { bundle, eventAt, initRepo } from "../../storage/test/store/task-event-store.fixtures.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openWriterSupervisor } from "../src/writer-supervisor.ts";
-import type { RepoWriterCapabilityCallV1 } from "../src/repo-writer-protocol.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { openWriterSupervisor } from "../src/daemon-host/writer-supervisor.ts";
+import type { RepoWriterCapabilityCallV1 } from "../src/daemon-host/repo-writer-protocol.ts";
 import { seedSettingsEvent } from "./repo-settings.fixture.ts";
 
 test("RepoWriter sends complete PG operations asynchronously and drains before returning the borrowed pool", async () => {

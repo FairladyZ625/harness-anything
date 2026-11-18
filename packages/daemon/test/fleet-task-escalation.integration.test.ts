@@ -4,14 +4,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import type { AgentDefinitionSnapshot } from "@harness-anything/kernel";
-import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
+import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { applyFleetMirrorCut } from "../src/daemon-host/fleet-edge-mirror.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { registerBootstrappedDaemonRepo, registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import { readRuntimeExecutionPrincipal } from "../src/runtime-execution-principal-store.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
+import { readRuntimeExecutionPrincipal } from "../src/daemon-host/runtime-execution-principal-store.ts";
 import { fleetFixture, initRepo, localAuthFixture, git } from "./fleet-runtime-recovery.fixtures.ts";
 
 const replicaQuota = 64 * 1024 * 1024;
@@ -110,7 +110,7 @@ test(
         };
       },
     });
-    t.after(() => edgeHost.close());
+    fixture.track(() => edgeHost.close());
     await edgeHost.attachmentsSettled();
     await registerFixtureRuntimeInstance(
       edgeHost,
@@ -277,6 +277,15 @@ test(
     );
     assert.equal(afterRefusal.snapshot.task?.status, "blocked");
     assert.equal(afterRefusal.escalationContext, null);
+
+    // Pin the edge's materialization policy before the answer exists so a background pull
+    // can advance its replica cut without exposing the resolution on disk.
+    const materialization = await edgeHost.run(
+      fixture.subject.repoId,
+      { kind: "settings-update", taskMaterializationPolicy: "none" },
+      localAuthFixture(),
+    );
+    assert.equal(materialization.outcome, "applied", JSON.stringify(materialization));
 
     // The worker RPC mutates its connection auth; the CEO uses a fresh local session.
     const resolved = await fixture.host.run(

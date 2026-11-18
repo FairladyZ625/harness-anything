@@ -23,7 +23,7 @@ const DISPATCH_OBSERVATION_BASELINE = "tools/gate-allowlists/dispatch-lifecycle-
 const judgments = [
   {
     id: "forwardingIntent",
-    canonical: "packages/daemon/src/fleet/forwarding-intent.ts",
+    canonical: "packages/daemon/src/daemon-host/fleet/forwarding-intent.ts",
     symbol: "forwardingIntentIssue",
     declaration: "function",
   },
@@ -34,26 +34,29 @@ const requiredConsumers = new Map([
   ["packages/storage/src/projection/sqlite-task-source.ts", "domainCloseoutReadiness("],
   ["packages/storage/src/projection/fact-event-projection.ts", "factLiveness("],
   ["packages/storage/src/projection/cold-rebuild-source.ts#liveness", "factLiveness("],
-  ["packages/daemon/src/repo-cell.ts#closeout", "closeoutReadiness("],
-  ["packages/daemon/src/repo-cell.ts#blocking", "blockingOf("],
+  ["packages/daemon/src/daemon-host/repo-cell.ts#closeout", "closeoutReadiness("],
+  ["packages/daemon/src/daemon-host/repo-cell.ts#blocking", "blockingOf("],
   ["packages/kernel/src/domain/task-action-capability.ts", "canStartExecution("],
   [
-    "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts#generated-start",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-vocabulary.ts#generated-start",
     "// daemon-status-vocabulary:generated:start",
   ],
-  ["packages/daemon/src/protocol/daemon-protocol-vocabulary.ts#task", "export const taskStatusWords = ["],
-  ["packages/daemon/src/protocol/daemon-protocol-vocabulary.ts#decision", "export const decisionStateWords = ["],
-  ["packages/daemon/src/protocol/daemon-protocol-vocabulary.ts#fact", "export const factLivenessWords = ["],
+  ["packages/daemon/src/daemon-host/protocol/daemon-protocol-vocabulary.ts#task", "export const taskStatusWords = ["],
+  [
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-vocabulary.ts#decision",
+    "export const decisionStateWords = [",
+  ],
+  ["packages/daemon/src/daemon-host/protocol/daemon-protocol-vocabulary.ts#fact", "export const factLivenessWords = ["],
   ["packages/kernel/src/domain/task-pr-body.ts", "missingChineseCloseoutSections("],
-  ["packages/daemon/src/repo-cell-submit.ts", "missingChineseCloseoutSections("],
-  ["packages/daemon/src/transition-document-access.ts", "assertTransitionDocumentReady("],
+  ["packages/daemon/src/daemon-host/repo-cell-submit.ts", "missingChineseCloseoutSections("],
+  ["packages/daemon/src/daemon-host/transition-document-access.ts", "assertTransitionDocumentReady("],
   ["packages/kernel/src/domain/task-lifecycle-review-transitions.ts#reverify", "reviewReverifyRoute("],
   ["packages/kernel/src/domain/completion-readiness.ts#reverify", "reviewReverifyRoute("],
-  ["packages/daemon/src/task-review-dispatch.ts", "reviewReverifyRoute("],
-  ["packages/daemon/src/fleet/forwarding-port.ts", "forwardingIntentIssue("],
-  ["packages/daemon/src/fleet/center-listener.ts", "forwardingIntentIssue("],
-  ["packages/daemon/src/daemon-host-repository-api.ts", "forwardingIntentForAction("],
-  ["packages/daemon/src/daemon-host-open.ts", "forwardingIntentForAction("],
+  ["packages/daemon/src/daemon-host/task-review-dispatch.ts", "reviewReverifyRoute("],
+  ["packages/daemon/src/daemon-host/fleet/forwarding-port.ts", "forwardingIntentIssue("],
+  ["packages/daemon/src/daemon-host/fleet/center-listener.ts", "forwardingIntentIssue("],
+  ["packages/daemon/src/daemon-host/daemon-host-repository-api.ts", "forwardingIntentForAction("],
+  ["packages/daemon/src/daemon-host/daemon-host-open.ts", "forwardingIntentForAction("],
 ]);
 /**
  * Whether a finding is re-reviewed is judged only by the kernel route (dec_BEFCF7D0 CH1). Outside the
@@ -164,7 +167,7 @@ export function checkDomainJudgmentSingleDefinition(
   for (const file of files) {
     if (
       !/^packages\/(?:daemon|cli|gui|application|storage)\//u.test(file) ||
-      /^packages\/daemon\/src\/protocol\//u.test(file)
+      /^packages\/daemon\/src\/daemon-host\/protocol\//u.test(file)
     )
       continue;
     if (REVERIFY_COMPARISON.test(readFileSync(path.join(root, file), "utf8")))
@@ -172,8 +175,8 @@ export function checkDomainJudgmentSingleDefinition(
   }
   const taskAdapter = read(root, "packages/gui/src/renderer/task-adapter.ts"),
     triadic = read(root, "packages/gui/src/renderer/triadic-data.ts");
-  const daemonDispatch = read(root, "packages/daemon/src/repo-cell-action-dispatch.ts"),
-    taskSurface = read(root, "packages/daemon/src/protocol/daemon-protocol-commands-task-surface.ts");
+  const daemonDispatch = read(root, "packages/daemon/src/daemon-host/repo-cell-action-dispatch.ts"),
+    taskSurface = read(root, "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-task-surface.ts");
   if (/function\s+(?:deriveBlocking|closeoutReadiness|gateResults)\s*\(/u.test(taskAdapter))
     findings.push("packages/gui/src/renderer/task-adapter.ts: recomputes closeout or blocking judgment");
   if (!/invalidated:\s*row\.invalidated\b/u.test(triadic))
@@ -188,10 +191,12 @@ export function checkDomainJudgmentSingleDefinition(
       daemonDispatch,
     )
   )
-    findings.push("packages/daemon/src/repo-cell-action-dispatch.ts: carries a second Task startability preview");
+    findings.push(
+      "packages/daemon/src/daemon-host/repo-cell-action-dispatch.ts: carries a second Task startability preview",
+    );
   if (/(?:requiredWhen|allowedWhen):\s*\{\s*field:\s*"status"/su.test(taskSurface))
     findings.push(
-      "packages/daemon/src/protocol/daemon-protocol-commands-task-surface.ts: projects cancellation eligibility into the CLI",
+      "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-task-surface.ts: projects cancellation eligibility into the CLI",
     );
   findings.push(...authoredReadinessFindings(root));
   findings.push(

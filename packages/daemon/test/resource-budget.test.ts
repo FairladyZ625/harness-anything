@@ -6,7 +6,7 @@ import {
   ResourceBudgetExceeded,
   type ResourceBudgetLimits,
   type ResourceScope,
-} from "../src/fleet/resource-budget.ts";
+} from "../src/daemon-host/fleet/resource-budget.ts";
 
 const scope = (nodeId = "node-a", sessionId = "session-a", repoId = "repo-a"): ResourceScope => ({
   nodeId,

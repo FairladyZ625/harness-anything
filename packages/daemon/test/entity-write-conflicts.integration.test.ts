@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { daemonBuildStamp } from "../src/build-identity.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -9,16 +9,16 @@ import test from "node:test";
 import { makeTaskEventReader, openSqliteEventStore } from "@harness-anything/storage";
 import { attributeEntityActionCriterion } from "@harness-anything/kernel";
 
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import { connectSocket, JsonRpcLineClient } from "../src/client/local-json-rpc-client.ts";
-import { DecisionReviewContentConflictError, fatalCellError } from "../src/repo-cell-errors.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
+import { connectSocket, JsonRpcLineClient } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { DecisionReviewContentConflictError, fatalCellError } from "../src/daemon-host/repo-cell-errors.ts";
 import { ArtifactEntityServiceError } from "@harness-anything/application/internal/artifact-entity-service";
 import {
   SettingsActionError,
   SettingsProjectionError,
 } from "@harness-anything/kernel/internal/domain/settings-action-contract";
-import { startDaemon, type RunningDaemon } from "../src/runtime.ts";
+import { startDaemon, type RunningDaemon } from "../src/daemon-host/runtime.ts";
 import {
   openBootstrappedRepoCell,
   registerSettledBootstrappedDaemonRepo,

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
+import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
 import { bridgeReady, nav } from "./helpers.mjs";
 
 // 全局导航历史(业主 2026-10-11「有的页面能退能进,有的不能」):在真实 Electron 壳里

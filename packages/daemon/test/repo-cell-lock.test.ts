@@ -8,14 +8,14 @@ import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { canonicalRoot } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import {
   acquireDaemonAutostartFlight,
   acquireDaemonSingleton,
   daemonAutostartLockPath,
   daemonSingletonLockPath,
-} from "../src/daemon-singleton.ts";
-import { acquireWorkspaceLock, staleWriterLock } from "../src/repo-cell-lock.ts";
+} from "../src/daemon-host/daemon-singleton.ts";
+import { acquireWorkspaceLock, staleWriterLock } from "../src/daemon-host/repo-cell-lock.ts";
 
 for (const signal of ["alive", "EPERM"] as const) {
   for (const creation of [1000, 2000, 3000, "failed", "empty"] as const) {
@@ -179,7 +179,7 @@ test("concurrent dead-holder recovery must have one singleton winner", async (t)
 test("a separate writer process keeps its workspace lock during candidate attach", async (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), "ha-external-writer-"));
   const root = canonicalRoot(dir);
-  const entry = new URL("../src/repo-cell-lock.ts", import.meta.url).href;
+  const entry = new URL("../src/daemon-host/repo-cell-lock.ts", import.meta.url).href;
   const child = childProcess.spawn(
     process.execPath,
     [

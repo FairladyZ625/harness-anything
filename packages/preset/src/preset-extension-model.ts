@@ -1,10 +1,6 @@
 import { presetExecutionPolicy } from "@harness-anything/kernel/internal/domain/preset-execution-policy.ts";
-import type {
-  TemplateCatalog,
-  TemplateSelection,
-  VerticalDefinition,
-  VerticalCompletionDeclaration,
-} from "@harness-anything/kernel";
+import type { VerticalDefinition, VerticalCompletionDeclaration } from "@harness-anything/kernel";
+import type { TemplateCatalog, TemplateSelection } from "@harness-anything/kernel/schemas";
 
 export interface ExtensionValidationIssue {
   readonly code:

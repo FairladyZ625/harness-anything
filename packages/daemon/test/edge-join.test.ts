@@ -5,8 +5,8 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { parseFleetFrame } from "../src/fleet/command-protocol.ts";
-import { admitEdgeJoin } from "../src/fleet/edge-join-admission.ts";
+import { parseFleetFrame } from "../src/daemon-host/fleet/command-protocol.ts";
+import { admitEdgeJoin } from "../src/daemon-host/fleet/edge-join-admission.ts";
 import {
   createEdgeJoinStore,
   decodeEdgeJoinLink,
@@ -15,7 +15,7 @@ import {
   encodeEdgeJoinLink,
   isEdgeJoinPlatform,
   type EdgeJoinRecord,
-} from "../src/fleet/edge-join.ts";
+} from "../src/daemon-host/fleet/edge-join.ts";
 
 const inviteInput = {
   centerOrigin: "https://center.example:8443",

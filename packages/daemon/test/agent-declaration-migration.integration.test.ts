@@ -7,7 +7,7 @@ import test from "node:test";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { validateAgentDeclarationV1 } from "@harness-anything/kernel";
-import { migrateAgentDeclarations } from "../src/agent-declaration-migration.ts";
+import { migrateAgentDeclarations } from "../src/daemon-host/agent-declaration-migration.ts";
 import { install, run } from "./agent-entities.fixtures.ts";
 
 const cli = fileURLToPath(new URL("../../cli/src/index.ts", import.meta.url));

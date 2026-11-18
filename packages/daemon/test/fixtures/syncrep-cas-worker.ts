@@ -9,7 +9,7 @@ import {
   type RepoWriterCapabilityResultV1,
   type RepoWriterControlV1,
   type RepoWriterRequestV1,
-} from "../../src/repo-writer-protocol.ts";
+} from "../../src/daemon-host/repo-writer-protocol.ts";
 import type { PostgresTaskEventStoreRequest } from "../../../storage/src/postgres/pg-task-event-store.ts";
 import type { PostgresStorageBackendConfig } from "../../../storage/src/storage-backend.ts";
 
@@ -94,7 +94,7 @@ if (data.query) {
         transferList: [input.responsePort],
       }),
   );
-  const seam = data.staged ? await import("../../src/repo-cell.ts") : undefined,
+  const seam = data.staged ? await import("../../src/daemon-host/repo-cell.ts") : undefined,
     allQueued = Promise.withResolvers<void>(),
     capabilities = new Map<string, PromiseWithResolvers<unknown>>(),
     context = new AsyncLocalStorage<string>();

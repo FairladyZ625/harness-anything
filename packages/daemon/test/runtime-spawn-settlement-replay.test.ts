@@ -1,25 +1,25 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { checkoutTaskWorktree } from "../src/task-worktree.ts";
-import { noWorktreeSetup } from "../src/worktree-setup.ts";
-import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
-import { scheduleFallbackContinuation } from "../src/runtime-spawn-fallback.ts";
-import { runtimeSpawnError } from "../src/runtime-spawn-errors.ts";
+import { checkoutTaskWorktree } from "../src/daemon-host/task-worktree.ts";
+import { noWorktreeSetup } from "../src/daemon-host/worktree-setup.ts";
+import { adoptRuntimes } from "../src/daemon-host/runtime-spawn-adoption.ts";
+import { scheduleFallbackContinuation } from "../src/daemon-host/runtime-spawn-fallback.ts";
+import { runtimeSpawnError } from "../src/runtime-engine/runtime-spawn-errors.ts";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openDispatchStream, readDispatchStream } from "../src/dispatch-stream.ts";
-import { settleScheduledRuntime } from "../src/schedule-action-runtime.ts";
+import { openDispatchStream, readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { settleScheduledRuntime } from "../src/daemon-host/schedule-action-runtime.ts";
 import {
   scheduleMissionWithOutcomeProtocol,
   scheduleOccurrenceSettlementOwner,
   scheduleOutcomeFromRuntime,
-} from "../src/schedule-runtime-outcome.ts";
+} from "../src/daemon-host/schedule-runtime-outcome.ts";
 import { publishExit } from "./runtime-spawn-settlement.fixtures.ts";
-import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
-import type { RuntimeAttemptTerminal } from "../src/runtime-spawn-types.ts";
+import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
+import type { RuntimeAttemptTerminal } from "../src/daemon-host/runtime-spawn-types.ts";
 import { active } from "./runtime-spawn-settlement.fixtures.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 

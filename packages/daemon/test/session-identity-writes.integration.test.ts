@@ -8,7 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, activateEmptyCanonicalGeneration } from "@harness-anything/storage";
 import { canonicalEventWritePlan, type AgentRuntimeEventV1, type SessionProvenanceV1 } from "@harness-anything/kernel";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 const runtimeSessionId = "runtime-session-identity",

@@ -5,10 +5,10 @@ import {
   actionForDaemonMethod,
   commandClassForAction,
   parseDaemonRpcParams,
-} from "../src/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
-import { repositoryReadDescriptor } from "../src/repository-read-contract.ts";
-import { parseFleetFrame } from "../src/fleet/command-protocol.ts";
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { repositoryReadDescriptor } from "../src/daemon-host/repository-read-contract.ts";
+import { parseFleetFrame } from "../src/daemon-host/fleet/command-protocol.ts";
 
 test("public context, reckoning and policy reads declare repository reader admission", () => {
   for (const method of ["repo.tasks.runtimeContext.read", "repo.reckoning.signals.read", "repo.policy.metadata.read"]) {

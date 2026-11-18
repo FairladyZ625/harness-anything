@@ -5,9 +5,9 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { readAuthoredDocumentBytes } from "../src/authored-document-read-port.ts";
-import { workspaceText } from "../src/repo-cell-packets.ts";
-import { readWorkspaceText } from "../src/workspace-text-port.ts";
+import { readAuthoredDocumentBytes } from "../src/daemon-host/authored-document-read-port.ts";
+import { workspaceText } from "../src/daemon-host/repo-cell-packets.ts";
+import { readWorkspaceText } from "../src/daemon-host/workspace-text-port.ts";
 
 test("generic workspace text reads reject authored documents; the port is the only reader", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-workspace-text-port-")),

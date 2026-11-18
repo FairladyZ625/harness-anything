@@ -7,9 +7,9 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { consumeKnownError, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
-import { type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { type RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
+import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import {
   makeTaskEventReader,
@@ -18,8 +18,8 @@ import {
   readLedgerWriterEpoch,
   type WriterEpochFenceDescriptor,
 } from "@harness-anything/storage";
-import { launchExitNotification } from "../src/runtime-spawn.ts";
-import { RuntimeProcessStartRejected } from "../src/runtime-spawn-process.ts";
+import { launchExitNotification } from "../src/daemon-host/runtime-spawn.ts";
+import { RuntimeProcessStartRejected } from "../src/daemon-host/runtime-spawn-process.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
 function dispatchText(root: string, dispatchId: string): string {

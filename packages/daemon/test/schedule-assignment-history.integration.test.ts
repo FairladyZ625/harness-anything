@@ -14,7 +14,7 @@ import {
   type CanonicalEventV1,
 } from "@harness-anything/kernel";
 import { inspectScheduleProjection } from "@harness-anything/application/queries";
-import { readSchedulesGui } from "../src/schedules-gui-read.ts";
+import { readSchedulesGui } from "../src/daemon-host/schedules-gui-read.ts";
 
 // Original accepted bytes from the Owner's eight counterexamples, before S8 rewrote current fixtures.
 const samples = JSON.parse(

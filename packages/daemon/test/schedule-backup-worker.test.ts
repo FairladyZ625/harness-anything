@@ -4,7 +4,7 @@ import { EventEmitter } from "node:events";
 import test from "node:test";
 import type { Worker } from "node:worker_threads";
 import { DEFAULT_BACKUP_EXECUTION_LIMIT_MS } from "@harness-anything/kernel";
-import { finishLedgerBackup } from "../src/schedule-backup-worker.ts";
+import { finishLedgerBackup } from "../src/daemon-host/schedule-backup-worker.ts";
 
 const limitMs = DEFAULT_BACKUP_EXECUTION_LIMIT_MS;
 const input = {

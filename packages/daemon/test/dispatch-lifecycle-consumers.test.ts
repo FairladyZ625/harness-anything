@@ -2,13 +2,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { dispatchAdmissionRefusal } from "@harness-anything/kernel";
-import { prepareRuntimeInstance } from "../src/runtime-spawn-mission.ts";
-import { liveDispatchIn } from "../src/live-dispatch-worktree.ts";
-import { readActiveDispatchLifecycleSync } from "../src/runtime-dispatch-admission.ts";
-import { runtimeSpawnError } from "../src/runtime-spawn-errors.ts";
-import { requireCurrentExecutionScope } from "../src/runtime-execution-scope.ts";
-import { runtimeExecutionActor } from "../src/runtime-execution-credential.ts";
-import { createRuntimeInstanceDispatchState } from "../src/runtime-instance-selection.ts";
+import { prepareRuntimeInstance } from "../src/daemon-host/runtime-spawn-mission.ts";
+import { liveDispatchIn } from "../src/daemon-host/live-dispatch-worktree.ts";
+import { readActiveDispatchLifecycleSync } from "../src/daemon-host/runtime-dispatch-admission.ts";
+import { runtimeSpawnError } from "../src/runtime-engine/runtime-spawn-errors.ts";
+import { requireCurrentExecutionScope } from "../src/daemon-host/runtime-execution-scope.ts";
+import { runtimeExecutionActor } from "../src/daemon-host/runtime-execution-credential.ts";
+import { createRuntimeInstanceDispatchState } from "../src/daemon-host/runtime-instance-selection.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 
 const principal = {

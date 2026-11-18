@@ -1,0 +1,1351 @@
+import {
+  closeSync,
+  constants as fsConstants,
+  existsSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import path from "node:path";
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
+import {
+  consumeKnownError,
+  resolveHarnessLayout,
+  type ActorIdentity,
+  type AgentRuntimeEventV1,
+  type WriteSource,
+} from "@harness-anything/kernel";
+import type { RuntimeMcpPolicy, RuntimePermissionMode } from "../runtime-engine/runtime-permissions.ts";
+import type { RuntimeMetrics } from "../runtime-engine/runtime-metrics.ts";
+import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
+import type { RuntimeResumeHeader } from "../runtime-engine/runtime-resume-contract.ts";
+import { readLatestLineInTail } from "./dispatch-stream-tail.ts";
+import { writeFileDurably } from "../../../storage/src/durable-file.ts";
+import { scrubProviderValue } from "../runtime-engine/secret-scrub.ts";
+import { dispatchProviderActivity, type DispatchProviderActivity } from "./dispatch-activity.ts";
+import { providerReconnectFromFrame } from "./runtime-provider-fault.ts";
+
+import { archiveDispatchStream as archiveDispatchStreamUnchecked } from "./dispatch-stream-archive.ts";
+import { readDispatchEvidenceState, removeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
+
+/**
+ * The guarded archive entry every settlement/adoption/fallback caller uses. A stream whose
+ * evidence copy is still `pending` is not renamed or compacted: the raw live bytes are the
+ * only recoverable copy until the canonical artifact write end accepts the snapshot.
+ */
+export function archiveDispatchStream(rootDir: string, dispatchId: string): void {
+  const sidecar = readDispatchEvidenceState(rootDir, dispatchId);
+  if (sidecar === "pending") return;
+  const summary = readDispatchStreamSummary(rootDir, dispatchId);
+  if (summary?.evidenceState === "pending") return;
+  // New settlements always write a sidecar. If it is missing while the header advertises
+  // tracking, the disposition write failed: fail closed instead of compacting the only copy.
+  if (sidecar === null && summary?.header.evidenceTrackingVersion === 1) return;
+  archiveDispatchStreamUnchecked(rootDir, dispatchId);
+}
+
+export { scrubProviderValue } from "../runtime-engine/secret-scrub.ts";
+
+const streamSchema = "runtime-dispatch-stream/v1" as const;
+// Byte caps on one retained dispatch stream. They bound a runaway provider transcript's disk
+// footprint, at the cost of log retention: past the write cap only lifecycle records land and
+// provider output is dropped, past the read cap full replays are skipped. Raising them keeps
+// more provider output readable for longer on daemon disk; lowering them sheds tail output sooner.
+const dispatchStreamReadLimitBytes = 200 * 1024 * 1024;
+const dispatchStreamWriteLimitBytes = 500 * 1024 * 1024;
+const liveIndexSchema = "runtime-dispatch-live-index/v1" as const;
+
+export interface DispatchStreamHeader extends RuntimeResumeHeader {
+  readonly handoffEnabled?: boolean;
+  readonly schema: typeof streamSchema;
+  readonly kind: "dispatch";
+  readonly dispatchId: string;
+  readonly taskId: string | null;
+  readonly executionId: string | null;
+  readonly reviewTarget?:
+    | { readonly kind: "task"; readonly taskId: string; readonly executionId: string; readonly digest: string }
+    | { readonly kind: "decision"; readonly decisionId: string; readonly digest: string };
+  readonly leaseVersion?: number;
+  readonly schedule?: {
+    readonly scheduleId: string;
+    readonly occurrenceId: string;
+    readonly claimFence: string;
+    readonly mode: "detect" | "remediate";
+    readonly worktree?: {
+      readonly cwd: string;
+      readonly branch: string;
+      readonly baseRef: string;
+    };
+  };
+  readonly runtimeSessionId: string;
+  readonly instanceId: string;
+  /** The provider config directory the launched environment actually resolved to, frozen at
+   * launch. Native handoff export and settlement metrics read only this witness — never a
+   * userRoot/instance layout or the instance's current configuration. Absent on streams
+   * written before the field existed or when the launch environment had no provider home. */
+  readonly resolvedProviderDirectory?: string;
+  readonly startedAt: string;
+  readonly eventStreamRef: string;
+  readonly role?: string;
+  readonly agentId?: string;
+  readonly agentName?: string;
+  readonly delegatedByAgentId?: string;
+  readonly delegatedByAgentName?: string;
+  readonly squadId?: string;
+  readonly publicationOwner?: "runtime" | "commander";
+  readonly parentRuntimeSessionId?: string;
+  readonly onExitCommand?: string;
+  readonly dispatchOpId?: string;
+  readonly kindId?: string;
+  readonly permissionMode?: RuntimePermissionMode | null;
+  readonly mcpPolicy?: RuntimeMcpPolicy | null;
+  readonly binding?: { readonly actor: ActorIdentity; readonly source: WriteSource };
+  /** Execution host, independent of the request's write provenance. */
+  readonly executionOwner?: "local" | { readonly nodeId: string };
+  readonly cwd?: string;
+  readonly prompt?: string;
+  readonly promptSource?: string;
+  readonly model?: string;
+  readonly reasoningEffort?: string | null;
+  readonly fast?: boolean;
+  /** Total-token cap declared at launch; absent when the repository set no limit. */
+  readonly tokenLimit?: number;
+  /** Frozen repository idle timeout; absent only on streams written before stall detection existed. */
+  readonly stallTimeoutMs?: number;
+  readonly mission?: string;
+  readonly fallbackAttempt?: RuntimeFallbackAttempt;
+  readonly transcriptCompactionVersion?: 1;
+  /** New settlements carry a sidecar evidence disposition; a missing sidecar is then fail-closed. */
+  readonly evidenceTrackingVersion?: 1;
+}
+
+export type DispatchStreamRecord = Record<string, unknown>;
+export type DispatchTerminalOutcome = {
+  readonly payload: Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>["payload"];
+  readonly body: string;
+  readonly reason: string;
+  /** PID captured at terminal observation for a later lease-settlement replay. */
+  readonly processGroupPid?: number;
+};
+export type { RuntimeMetrics };
+export type DispatchProcessState = {
+  readonly pid: number;
+  readonly exitCode: number | null;
+  readonly signal: string | null;
+  readonly exited: boolean;
+};
+export type DispatchStreamActivity = {
+  readonly kind: DispatchProviderActivity;
+  readonly observedAt: string;
+};
+/** The latest provider-reported reconnect attempt in the stream's bounded summary window. */
+export type DispatchProviderReconnect = {
+  readonly occurredAt: string;
+  readonly attempt: number | null;
+  readonly limit: number | null;
+  readonly diagnostic: string;
+};
+
+/** Why the watchdog judged an attempt stalled, written before anything is terminated so the
+ *  stream can answer "last progress and live processes" after the fact. */
+export type DispatchStallEvidence = {
+  readonly lastProgressAt: string;
+  readonly stallTimeoutMs: number;
+  readonly idleMs: number;
+  /** Child pids alive at judgment; null when the process table could not be read. */
+  readonly liveProcessPids: readonly number[] | null;
+};
+
+export interface DispatchStreamWriter {
+  readonly ref: string;
+  /**
+   * Whether the abnormal dispatch's evidence copy reached the canonical artifact write end.
+   * `pending` blocks every archive/compaction/purge pass for this stream until a later settlement
+   * or operator action stores it; `stored` is the normal compaction permit.
+   */
+  readonly appendEvidenceState?: (
+    value: {
+      readonly state: Exclude<OperationalStatus.DispatchEvidenceState, "not-required">;
+      readonly reason?: string;
+      readonly files?: readonly string[];
+    },
+    occurredAt: string,
+  ) => void;
+  /** `connectionFailure` stamps a reconnect frame with the last real progress known when the
+   * frame was written. A bounded tail read can then recover the true progress clock even when
+   * the reconnect diagnostics themselves fill more than the retained tail window. */
+  readonly appendProviderEvent: (
+    value: unknown,
+    occurredAt: string,
+    connectionFailure?: { readonly lastProgressAt: string },
+  ) => void;
+  /** A tiny record written next to every live reconnect frame. It carries the daemon's exact
+   * last real progress (provider or workspace), so a bounded tail read does not have to infer
+   * that clock from a sliding window. */
+  readonly appendProviderProgress: (occurredAt: string, lastProgressAt: string) => void;
+  readonly appendWorkspaceActivity: (occurredAt: string) => void;
+  readonly appendStalled: (occurredAt: string, evidence?: DispatchStallEvidence) => void;
+  readonly appendProviderBinding: (providerSessionId: string, occurredAt: string) => void;
+  readonly appendExitNotification: (
+    value: {
+      readonly phase: OperationalStatus.DispatchExitNotificationPhase;
+      readonly started: boolean;
+      readonly exitCode: number | null;
+      readonly timedOut: boolean;
+      readonly errorCode?: string;
+    },
+    occurredAt: string,
+  ) => void;
+  readonly appendAttemptOutcome: (value: RuntimeAttemptOutcome, occurredAt: string) => void;
+  readonly appendTerminalOutcome: (value: DispatchTerminalOutcome, occurredAt: string) => void;
+  readonly appendFallbackState: (
+    value:
+      | {
+          readonly state: "scheduled";
+          readonly delayMs: number;
+          readonly notBeforeAt: string;
+          readonly waitStartedAt?: string;
+          readonly nextProvider: { readonly instance: string; readonly model?: string };
+        }
+      | { readonly state: "dispatched"; readonly nextDispatchId: string; readonly nextRuntimeSessionId: string }
+      | { readonly state: "exhausted"; readonly reason: string },
+    occurredAt: string,
+  ) => void;
+  readonly appendRuntimeMetrics?: (value: RuntimeMetrics, occurredAt: string) => void;
+}
+
+export interface DispatchLiveIndexEntry {
+  readonly dispatchId: string;
+  readonly taskId: string;
+  readonly runtimeSessionId: string;
+}
+
+export interface DispatchLiveIndex {
+  readonly schema: typeof liveIndexSchema;
+  readonly entries: readonly DispatchLiveIndexEntry[];
+}
+
+/** Metadata needed by daemon hot paths without retaining provider event bodies. */
+export type DispatchStreamSummary = Omit<NonNullable<ReturnType<typeof readDispatchStream>>, "records"> & {
+  readonly lastObservedAt: string;
+  readonly lastProgressAt: string;
+  readonly workspaceActivityCount: number;
+  readonly stalledAt: string | null;
+  readonly lastProviderActivity: DispatchStreamActivity | null;
+  readonly records: readonly DispatchStreamRecord[];
+};
+
+const summaryHeadBytes = 16 * 1024;
+const summaryTailBytes = 128 * 1024;
+// A blind-spot probe overlaps each covered window by this many bytes so a record line that
+// straddles a window boundary is still recovered whole.
+const summaryProbeOverlapBytes = 4 * 1024;
+// A provider's startup preamble (stderr/init output) before its binding has no hard protocol
+// bound, but real providers settle binding within hundreds of KB. Bound the forward probe so
+// oversized or sparse stream files (e.g. hundreds of MB) are never scanned end-to-end.
+const summaryPreambleProbeLimitBytes = 2 * 1024 * 1024;
+const summaryMetricsProbeLimitBytes = 2 * 1024 * 1024;
+const readLimitWarnings = new Set<string>();
+const writeLimitWarnings = new Set<string>();
+const summaryKinds = new Set([
+  "provider_binding",
+  "process_start_rejected",
+  "process_started",
+  "process_containment",
+  "process_stop_unproven",
+  "process_exit",
+  "process_lost",
+  "attempt_outcome",
+  "evidence_state",
+  "terminal_outcome",
+  "fallback_state",
+  "squad_run_state",
+  "squad_run_cancelled",
+  "squad_run_publication_ack",
+  "runtime_metrics",
+  "execution_principal",
+  "decision_action",
+  "workspace_activity",
+  "dispatch_stalled",
+]);
+
+export function openDispatchStream(
+  rootDir: string,
+  header: Omit<DispatchStreamHeader, "schema" | "kind" | "eventStreamRef">,
+): DispatchStreamWriter {
+  const ref = dispatchStreamRef(rootDir, header.dispatchId),
+    target = dispatchStreamPath(rootDir, header.dispatchId);
+  /* @gate-identity state-store/execution.dispatch-stream */ mkdirSync(path.dirname(target), {
+    recursive: true,
+    mode: 0o700,
+  });
+  if (!existsSync(target)) {
+    const record = { schema: streamSchema, kind: "dispatch", ...header, eventStreamRef: ref };
+    /* @gate-identity state-store/execution.dispatch-stream */ writeFileSync(target, `${JSON.stringify(record)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    if (header.taskId) {
+      try {
+        upsertDispatchLiveIndex(rootDir, {
+          dispatchId: header.dispatchId,
+          taskId: header.taskId,
+          runtimeSessionId: header.runtimeSessionId,
+        });
+      } catch (error) {
+        /* @gate-identity state-store/execution.dispatch-stream */ unlinkSync(target);
+        throw error;
+      }
+    }
+  }
+  return {
+    ref,
+    appendProviderEvent: (value, occurredAt, connectionFailure) =>
+      appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
+        schema: streamSchema,
+        kind: "provider_event",
+        occurredAt,
+        ...(connectionFailure === undefined ? {} : { lastProgressAt: connectionFailure.lastProgressAt }),
+        event: scrubProviderValue(value),
+      }),
+    appendProviderProgress: (occurredAt, lastProgressAt) =>
+      appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
+        schema: streamSchema,
+        kind: "provider_progress",
+        occurredAt,
+        lastProgressAt,
+      }),
+    appendWorkspaceActivity: (occurredAt) =>
+      appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
+        schema: streamSchema,
+        kind: "workspace_activity",
+        occurredAt,
+      }),
+    appendStalled: (occurredAt, evidence) =>
+      appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
+        ...evidence,
+        schema: streamSchema,
+        kind: "dispatch_stalled",
+        occurredAt,
+      }),
+    appendProviderBinding: (providerSessionId, occurredAt) =>
+      appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
+        schema: streamSchema,
+        kind: "provider_binding",
+        occurredAt,
+        providerSessionId,
+      }),
+    appendExitNotification: (value, occurredAt) =>
+      appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
+        schema: streamSchema,
+        kind: "exit_notification",
+        occurredAt,
+        ...value,
+      }),
+    appendAttemptOutcome: (value, occurredAt) =>
+      appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
+        schema: streamSchema,
+        kind: "attempt_outcome",
+        occurredAt,
+        ...value,
+      }),
+    appendEvidenceState: (value, occurredAt) =>
+      appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
+        schema: streamSchema,
+        kind: "evidence_state",
+        occurredAt,
+        ...value,
+      }),
+    appendTerminalOutcome: (value, occurredAt) =>
+      appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
+        schema: streamSchema,
+        kind: "terminal_outcome",
+        occurredAt,
+        ...value,
+      }),
+    appendFallbackState: (value, occurredAt) =>
+      appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
+        schema: streamSchema,
+        kind: "fallback_state",
+        occurredAt,
+        ...value,
+      }),
+    appendRuntimeMetrics: (value, occurredAt) =>
+      appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
+        schema: streamSchema,
+        kind: "runtime_metrics",
+        occurredAt,
+        ...value,
+      }),
+  };
+}
+
+export function reopenDispatchStream(rootDir: string, header: DispatchStreamHeader): DispatchStreamWriter {
+  const { schema: _schema, kind: _kind, eventStreamRef: _eventStreamRef, ...stored } = header;
+  return openDispatchStream(rootDir, stored);
+}
+
+export function removeDispatchStream(rootDir: string, dispatchId: string): void {
+  const target = dispatchStreamPath(rootDir, dispatchId),
+    header = readDispatchStreamHeader(rootDir, dispatchId);
+  readLimitWarnings.delete(target);
+  writeLimitWarnings.delete(target);
+  if (existsSync(target)) /* @gate-identity state-store/execution.dispatch-stream */ unlinkSync(target);
+  if (header?.taskId)
+    removeDispatchLiveIndexEntries(rootDir, [
+      { dispatchId, taskId: header.taskId, runtimeSessionId: header.runtimeSessionId },
+    ]);
+  removeDispatchEvidenceState(rootDir, dispatchId);
+}
+
+export function readDispatchLiveIndex(rootDir: string, taskIds: readonly string[]): DispatchLiveIndex {
+  const entries: DispatchLiveIndexEntry[] = [],
+    missing: string[] = [];
+  for (const taskId of new Set(taskIds)) {
+    const stored = readStoredDispatchLiveIndex(dispatchLiveIndexPath(rootDir, taskId), taskId);
+    if (stored) entries.push(...stored.entries);
+    else missing.push(taskId);
+  }
+  if (missing.length > 0) entries.push(...rebuildDispatchLiveIndex(rootDir, missing).entries);
+  return dispatchLiveIndex(entries);
+}
+
+export function rebuildDispatchLiveIndex(rootDir: string, taskIds: readonly string[]): DispatchLiveIndex {
+  const root = dispatchStreamRoot(resolveHarnessLayout(rootDir)),
+    selected = new Set(taskIds);
+  const entries = new Map<string, DispatchLiveIndexEntry>();
+  if (existsSync(root) && statSync(root).isDirectory()) {
+    for (const name of readdirSync(root).filter((value) => /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(value))) {
+      const header = readDispatchStreamHeader(rootDir, name.slice(0, -6));
+      if (!header?.taskId || !selected.has(header.taskId)) continue;
+      entries.set(header.dispatchId, {
+        dispatchId: header.dispatchId,
+        taskId: header.taskId,
+        runtimeSessionId: header.runtimeSessionId,
+      });
+    }
+  }
+  const rebuilt = dispatchLiveIndex([...entries.values()]);
+  for (const taskId of selected) {
+    const owned = rebuilt.entries.filter((entry) => entry.taskId === taskId);
+    writeDispatchLiveIndex(rootDir, taskId, dispatchLiveIndex(owned));
+  }
+  return rebuilt;
+}
+
+export function removeDispatchLiveIndexEntries(rootDir: string, removals: readonly DispatchLiveIndexEntry[]): void {
+  const byTask = new Map<string, Set<string>>();
+  for (const removal of removals) {
+    byTask.set(removal.taskId, (byTask.get(removal.taskId) ?? new Set()).add(removal.dispatchId));
+  }
+  for (const [taskId, dispatchIds] of byTask) {
+    const stored = readStoredDispatchLiveIndex(dispatchLiveIndexPath(rootDir, taskId), taskId);
+    if (!stored) continue;
+    const entries = stored.entries.filter((entry) => !dispatchIds.has(entry.dispatchId));
+    if (entries.length !== stored.entries.length) writeDispatchLiveIndex(rootDir, taskId, dispatchLiveIndex(entries));
+  }
+}
+
+export function readDispatchStreamHeader(rootDir: string, dispatchId: string): DispatchStreamHeader | null {
+  const target = dispatchStreamPath(rootDir, dispatchId);
+  return readDispatchStreamHeaderAt(target, dispatchId);
+}
+
+function readDispatchStreamHeaderAt(target: string, dispatchId: string): DispatchStreamHeader | null {
+  const descriptor = openDispatchStreamForRead(target);
+  if (descriptor === null) return null;
+  const chunks: Buffer[] = [];
+  try {
+    while (true) {
+      const chunk = Buffer.alloc(4096),
+        read = readSync(descriptor, chunk, 0, chunk.length, null);
+      if (read === 0) break;
+      const newline = chunk.subarray(0, read).indexOf(10);
+      chunks.push(chunk.subarray(0, newline === -1 ? read : newline));
+      if (newline !== -1) break;
+    }
+  } finally {
+    /* @gate-identity state-store/execution.dispatch-stream */ closeSync(descriptor);
+  }
+  const first = parseRecord(Buffer.concat(chunks).toString("utf8").replace(/\r$/u, ""));
+  return isHeader(first) && first.dispatchId === dispatchId ? first : null;
+}
+
+/**
+ * Read lifecycle metadata without loading provider output. Lifecycle records are
+ * written at the head or tail of a stream; the bounded windows keep daemon
+ * scans proportional to stream count rather than provider transcript size.
+ */
+export function readDispatchStreamSummary(rootDir: string, dispatchId: string): DispatchStreamSummary | null {
+  const target = dispatchStreamPath(rootDir, dispatchId);
+  const descriptor = openDispatchStreamForRead(target);
+  if (descriptor === null) return null;
+  const stat = fstatSync(descriptor);
+  /* @gate-identity state-store/execution.dispatch-stream */ closeSync(descriptor);
+  if (!stat.isFile()) return null;
+  const header = readDispatchStreamHeaderAt(target, dispatchId);
+  if (!header) return null;
+  const headerEnd = firstLineEndOffset(target, stat.size);
+  const chunks = readBoundedStreamWindows(target, stat.size, headerEnd),
+    records: DispatchStreamRecord[] = [],
+    // The two head windows and the tail window leave a middle gap on a long stream. Facts found
+    // only inside that gap cannot be recovered in O(1), so the tail must carry a conservative
+    // bound instead of letting the summary fall back to the (old) header.
+    tailStart = Math.max(0, stat.size - summaryTailBytes),
+    coveredEnd = Math.min(stat.size, Math.max(summaryHeadBytes, headerEnd + summaryHeadBytes)),
+    hasGap = coveredEnd < tailStart;
+  let lastProviderActivity: DispatchStreamActivity | null = null,
+    lastProviderReconnect: DispatchProviderReconnect | null = null,
+    lastProgressAt = header.startedAt,
+    // The newest exact facts may arrive in either order: an old daemon marker in the head and a
+    // newer worker-host stamp in the tail (or the reverse). Track each independently and merge by
+    // timestamp, never by "which kind exists".
+    lastReconnectProgressStamp: string | null = null,
+    lastProgressMarkerAt: string | null = null,
+    firstTailRecordAt: string | null = null;
+  const seenOffsets = new Set<number>();
+  for (const chunk of chunks) {
+    for (const line of completeLines(chunk.text, chunk.offset)) {
+      if (line.offset === 0 || seenOffsets.has(line.offset)) continue;
+      seenOffsets.add(line.offset);
+      const kind = lineKind(line.value),
+        record = kind === null ? null : parseRecord(line.value);
+      if (
+        hasGap &&
+        line.offset >= tailStart &&
+        record &&
+        typeof record.occurredAt === "string" &&
+        (firstTailRecordAt === null || Date.parse(record.occurredAt) < Date.parse(firstTailRecordAt))
+      )
+        firstTailRecordAt = record.occurredAt;
+      if (kind === "provider_progress") {
+        if (
+          record &&
+          typeof record.lastProgressAt === "string" &&
+          Number.isFinite(Date.parse(record.lastProgressAt)) &&
+          (lastProgressMarkerAt === null || Date.parse(record.lastProgressAt) > Date.parse(lastProgressMarkerAt))
+        )
+          lastProgressMarkerAt = record.lastProgressAt;
+        continue;
+      }
+      if (kind === "provider_event") {
+        const activity = record && providerActivityRecord(header.kindId, record),
+          reconnect = record && providerReconnectRecord(header.kindId, record);
+        // A reconnect attempt is the provider failing to carry the turn, not the turn progressing:
+        // it records the connection error but must not move the real-progress clock.
+        if (record && reconnect !== null) {
+          if (
+            lastProviderReconnect === null ||
+            Date.parse(reconnect.occurredAt) > Date.parse(lastProviderReconnect.occurredAt)
+          )
+            lastProviderReconnect = reconnect;
+          if (
+            typeof record.lastProgressAt === "string" &&
+            Number.isFinite(Date.parse(record.lastProgressAt)) &&
+            (lastReconnectProgressStamp === null ||
+              Date.parse(record.lastProgressAt) > Date.parse(lastReconnectProgressStamp))
+          )
+            lastReconnectProgressStamp = record.lastProgressAt;
+        } else if (
+          record &&
+          typeof record.occurredAt === "string" &&
+          Date.parse(record.occurredAt) > Date.parse(lastProgressAt)
+        )
+          lastProgressAt = record.occurredAt;
+        if (activity !== null) lastProviderActivity = activity;
+        continue;
+      }
+      if (!kind || !summaryKinds.has(kind)) continue;
+      if (record) {
+        records.push(record);
+        if (
+          kind === "workspace_activity" &&
+          typeof record.occurredAt === "string" &&
+          Date.parse(record.occurredAt) > Date.parse(lastProgressAt)
+        )
+          lastProgressAt = record.occurredAt;
+      }
+    }
+  }
+  const stableProgressAt =
+    lastProgressMarkerAt === null
+      ? lastReconnectProgressStamp
+      : lastReconnectProgressStamp === null
+        ? lastProgressMarkerAt
+        : Date.parse(lastProgressMarkerAt) >= Date.parse(lastReconnectProgressStamp)
+          ? lastProgressMarkerAt
+          : lastReconnectProgressStamp;
+  if (stableProgressAt !== null && Date.parse(stableProgressAt) > Date.parse(lastProgressAt))
+    lastProgressAt = stableProgressAt;
+  if (hasGap && stableProgressAt === null) {
+    // Legacy streams carry neither a daemon marker nor a worker-host stamp. Fall back to the
+    // first complete tail record: a conservative upper bound on real progress, so a long
+    // reconnect flood cannot trigger the classification earlier than the true stall threshold.
+    const bound = firstTailRecordAt ?? new Date(stat.mtimeMs).toISOString();
+    if (Number.isFinite(Date.parse(bound)) && Date.parse(bound) > Date.parse(lastProgressAt)) lastProgressAt = bound;
+  }
+  const value = summarizeDispatch(
+    header,
+    records,
+    stat.mtimeMs,
+    lastProviderActivity,
+    lastProgressAt,
+    lastProviderReconnect,
+  );
+  if (value.providerSessionId === null) {
+    // provider_binding lands after the provider's startup preamble, which has no size bound;
+    // when it falls between the head windows and the tail window, probe the gap directly
+    // up to a bounded preamble limit so oversized/sparse streams are not scanned end-to-end.
+    const coveredEnd = Math.min(stat.size, headerEnd + summaryHeadBytes),
+      tailStart = Math.max(0, stat.size - summaryTailBytes),
+      probeLimit = Math.min(stat.size, headerEnd + summaryPreambleProbeLimitBytes);
+    if (coveredEnd < tailStart && coveredEnd < probeLimit) {
+      const binding = readStreamRecordOfKindForward(
+        target,
+        "provider_binding",
+        Math.max(headerEnd, coveredEnd - summaryProbeOverlapBytes),
+        Math.min(probeLimit, tailStart + summaryProbeOverlapBytes),
+      );
+      if (binding) records.push(binding);
+    }
+  }
+  if (value.runtimeMetrics === null) {
+    const runtimeMetrics = readLatestStreamRecord(
+      target,
+      summaryMetricsProbeLimitBytes,
+      ["runtime_metrics"],
+      (record) => (isRuntimeMetrics(record) ? record : null),
+    );
+    if (runtimeMetrics) records.push(runtimeMetrics);
+  }
+  return summarizeDispatch(header, records, stat.mtimeMs, lastProviderActivity, lastProgressAt, lastProviderReconnect);
+}
+
+export function readDispatchStreamHeaders(rootDir: string, includeArchived = false): readonly DispatchStreamHeader[] {
+  const root = dispatchStreamRoot(resolveHarnessLayout(rootDir));
+  return (includeArchived ? [root, path.join(root, "archive")] : [root]).flatMap((directory) => {
+    if (!statSync(directory, { throwIfNoEntry: false })?.isDirectory()) return [];
+    return readdirSync(directory)
+      .filter((name) => /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(name))
+      .map((name) => readDispatchStreamHeaderAt(path.join(directory, name), name.slice(0, -6)))
+      .filter((header): header is DispatchStreamHeader => header !== null);
+  });
+}
+
+/** Replay every retained stream when rebuilding projections that have no other durable source. */
+export function readAllDispatchStreamSummaries(rootDir: string): readonly DispatchStreamSummary[] {
+  const root = dispatchStreamRoot(resolveHarnessLayout(rootDir)),
+    archive = path.join(root, "archive"),
+    dispatchIds = new Set<string>();
+  for (const directory of [root, archive]) {
+    if (!statSync(directory, { throwIfNoEntry: false })?.isDirectory()) continue;
+    for (const name of readdirSync(directory))
+      if (/^dispatch_[a-f0-9]{24}\.jsonl$/u.test(name)) dispatchIds.add(name.slice(0, -6));
+  }
+  return [...dispatchIds]
+    .map((dispatchId) => readDispatchStreamSummary(rootDir, dispatchId))
+    .filter((stream): stream is DispatchStreamSummary => stream !== null);
+}
+
+export function readDispatchStream(
+  rootDir: string,
+  dispatchId: string,
+): {
+  readonly header: DispatchStreamHeader;
+  readonly lastObservedAt: string;
+  readonly providerSessionId: string | null;
+  readonly process: DispatchProcessState | null;
+  readonly attemptOutcome: RuntimeAttemptOutcome | null;
+  readonly terminalOutcome: DispatchTerminalOutcome | null;
+  /** The latest evidence-copy disposition; absent streams settle and compact as before. */
+  readonly evidenceState: Exclude<OperationalStatus.DispatchEvidenceState, "not-required"> | null;
+  readonly runtimeMetrics: RuntimeMetrics | null;
+  /** The latest runtime-incident disposition record this stream carries, still unvalidated: the
+   * record vocabulary (option ids, statuses) belongs to the decision module, not the stream
+   * schema. `null` when the daemon never fenced or executed an incident action for the dispatch. */
+  readonly decisionActionRecord: DispatchStreamRecord | null;
+  readonly lastProviderActivity: DispatchStreamActivity | null;
+  readonly lastProviderReconnect: DispatchProviderReconnect | null;
+  readonly records: readonly DispatchStreamRecord[];
+} | null {
+  const target = dispatchStreamPath(rootDir, dispatchId);
+  const descriptor = openDispatchStreamForRead(target);
+  if (descriptor === null) return null;
+  const stat = fstatSync(descriptor);
+  if (!stat.isFile()) {
+    /* @gate-identity state-store/execution.dispatch-stream */ closeSync(descriptor);
+    return null;
+  }
+  if (stat.size > dispatchStreamReadLimitBytes) {
+    /* @gate-identity state-store/execution.dispatch-stream */ closeSync(descriptor);
+    warnOnce(readLimitWarnings, target, `skipping full read of ${path.basename(target)} at ${String(stat.size)} bytes`);
+    return null;
+  }
+  let body: string;
+  try {
+    body = readFileSync(descriptor, "utf8");
+  } finally {
+    /* @gate-identity state-store/execution.dispatch-stream */ closeSync(descriptor);
+  }
+  const lines = body.split(/\r?\n/u).filter(Boolean),
+    first = parseRecord(lines[0]);
+  if (!isHeader(first) || first.dispatchId !== dispatchId) return null;
+  const records = lines
+    .slice(1)
+    .map(parseRecord)
+    .filter((record): record is DispatchStreamRecord => record !== null);
+  const summary = summarizeDispatch(first, records, stat.mtimeMs, latestProviderActivity(first.kindId, records));
+  return {
+    ...summary,
+    records,
+  };
+}
+
+export function appendRuntimeWorkerRecord(
+  rootDir: string,
+  dispatchId: string,
+  value: Readonly<Record<string, unknown>>,
+): void {
+  // A terminal runtime archives its stream by renaming the live file. Squad state records can
+  // arrive concurrently with that rename; resolve the path again after an ENOENT so the state
+  // remains durable on the archived stream instead of failing the coordinator's write queue.
+  const target = dispatchStreamPath(rootDir, dispatchId);
+  try {
+    appendDispatchStreamRecord(target, value);
+  } catch (error) {
+    if (fsErrorCode(error) !== "ENOENT") throw error;
+    consumeKnownError(error);
+    const retry = dispatchStreamPath(rootDir, dispatchId);
+    if (retry === target || !existsSync(retry)) throw error;
+    appendDispatchStreamRecord(retry, value);
+  }
+}
+
+/** Append to a dispatch stream whose path the caller resolved once for the dispatch's lifetime. */
+export function appendDispatchStreamRecord(target: string, value: Readonly<Record<string, unknown>>): void {
+  appendJsonl(target, { schema: streamSchema, ...value });
+}
+
+export function readDispatchStreamIncrement(
+  target: string,
+  offset: number,
+): { readonly bytes: Buffer; readonly size: number } | null {
+  const descriptor = openDispatchStreamForRead(target);
+  if (descriptor === null) return null;
+  try {
+    const size = fstatSync(descriptor).size;
+    if (size > dispatchStreamReadLimitBytes || size <= offset) return { bytes: Buffer.alloc(0), size };
+    const bytes = Buffer.alloc(size - offset);
+    const read = readSync(descriptor, bytes, 0, bytes.length, offset);
+    return { bytes: bytes.subarray(0, read), size };
+  } finally {
+    /* @gate-identity state-store/execution.dispatch-stream */ closeSync(descriptor);
+  }
+}
+
+export function readRuntimeWorkerChunk(target: string, offset: number, limit = 1024 * 1024): Buffer {
+  const descriptor = openDispatchStreamForRead(target);
+  if (descriptor === null) return Buffer.alloc(0);
+  try {
+    const size = fstatSync(descriptor).size;
+    if (size <= offset) return Buffer.alloc(0);
+    const bytes = Buffer.alloc(Math.min(size - offset, limit));
+    const read = readSync(descriptor, bytes, 0, bytes.length, offset);
+    return bytes.subarray(0, read);
+  } finally {
+    /* @gate-identity state-store/execution.dispatch-stream */ closeSync(descriptor);
+  }
+}
+
+export interface DispatchStreamAppender {
+  readonly append: (value: Readonly<Record<string, unknown>>) => void;
+  readonly close: () => void;
+}
+
+function openStreamAppender(
+  target: string,
+  input: {
+    readonly invalidateSummary: () => void;
+    readonly scrub: (value: unknown) => unknown;
+    readonly unbounded: (value: Readonly<Record<string, unknown>>) => boolean;
+    readonly warnDroppedOutput: () => void;
+  },
+): DispatchStreamAppender {
+  let descriptor: number | null = null;
+  return {
+    append: (value) => {
+      input.invalidateSummary();
+      const owned = descriptor !== null,
+        handle =
+          descriptor ??
+          /* @gate-identity state-store/execution.dispatch-stream */ openSync(
+            target,
+            fsConstants.O_APPEND | fsConstants.O_WRONLY,
+          );
+      try {
+        const size = fstatSync(handle).size;
+        if (size >= dispatchStreamWriteLimitBytes && input.unbounded(value)) {
+          // The disk-footprint cap wins over log retention here: unbounded provider output is
+          // dropped rather than letting one transcript grow without bound on the daemon disk.
+          input.warnDroppedOutput();
+          if (!owned) /* @gate-identity state-store/execution.dispatch-stream */ closeSync(handle);
+          return;
+        }
+        /* @gate-identity state-store/execution.dispatch-stream */ writeFileSync(
+          handle,
+          `${JSON.stringify(input.scrub({ schema: streamSchema, ...value }))}\n`,
+          "utf8",
+        );
+      } catch (error) {
+        // Drop the held descriptor; a close failure surfaces like the finally-close did before the split.
+        descriptor = null;
+        /* @gate-identity state-store/execution.dispatch-stream */ closeSync(handle);
+        throw error;
+      }
+      descriptor = handle;
+    },
+    close: () => {
+      if (descriptor === null) return;
+      const handle = descriptor;
+      descriptor = null;
+      /* @gate-identity state-store/execution.dispatch-stream */ closeSync(handle);
+    },
+  };
+}
+
+export function openDispatchStreamAppender(target: string): DispatchStreamAppender {
+  return openStreamAppender(target, {
+    invalidateSummary: () => undefined,
+    scrub: scrubProviderValue,
+    unbounded: unboundedDispatchRecord,
+    warnDroppedOutput: () =>
+      warnOnce(
+        writeLimitWarnings,
+        target,
+        `${path.basename(target)} reached ${dispatchStreamWriteLimitBytes} bytes; dropping unbounded output`,
+      ),
+  });
+}
+
+export function dispatchStreamRef(rootDir: string, dispatchId: string): string {
+  return `file:${dispatchStreamRelativePath(rootDir, dispatchId)}`;
+}
+
+/** The stream's repository-relative path under this repository's own local root, in POSIX form. */
+export function dispatchStreamRelativePath(rootDir: string, dispatchId: string): string {
+  const layout = resolveHarnessLayout(rootDir);
+  return path.relative(layout.rootDir, dispatchStreamPathForLayout(layout, dispatchId)).split(path.sep).join("/");
+}
+
+export function dispatchStreamPath(rootDir: string, dispatchId: string): string {
+  const live = liveDispatchStreamPath(rootDir, dispatchId),
+    archived = archivedDispatchStreamPath(rootDir, dispatchId);
+  return existsSync(archived) && !existsSync(live) ? archived : live;
+}
+function liveDispatchStreamPath(rootDir: string, dispatchId: string): string {
+  return dispatchStreamPathForLayout(resolveHarnessLayout(rootDir), dispatchId);
+}
+function archivedDispatchStreamPath(rootDir: string, dispatchId: string): string {
+  const layout = resolveHarnessLayout(rootDir);
+  assertDispatchId(dispatchId);
+  return path.join(dispatchStreamRoot(layout), "archive", `${dispatchId}.jsonl`);
+}
+function assertDispatchId(dispatchId: string): void {
+  if (!/^dispatch_[a-f0-9]{24}$/u.test(dispatchId)) throw new Error("dispatch id is invalid");
+}
+function dispatchStreamPathForLayout(layout: ReturnType<typeof resolveHarnessLayout>, dispatchId: string): string {
+  assertDispatchId(dispatchId);
+  return path.join(dispatchStreamRoot(layout), `${dispatchId}.jsonl`);
+}
+export function dispatchLiveIndexPath(rootDir: string, taskId: string): string {
+  const layout = resolveHarnessLayout(rootDir),
+    shard = `task-${Buffer.from(taskId).toString("base64url")}.json`;
+  return path.join(dispatchStreamRoot(layout), "live-index", shard);
+}
+function dispatchStreamRoot(layout: ReturnType<typeof resolveHarnessLayout>): string {
+  return path.join(layout.localRoot, "runtime", "dispatches");
+}
+
+function dispatchLiveIndex(entries: readonly DispatchLiveIndexEntry[]): DispatchLiveIndex {
+  const sorted = [...entries].sort((left, right) => left.dispatchId.localeCompare(right.dispatchId));
+  return { schema: liveIndexSchema, entries: sorted };
+}
+function upsertDispatchLiveIndex(rootDir: string, entry: DispatchLiveIndexEntry): void {
+  const current = readDispatchLiveIndex(rootDir, [entry.taskId]);
+  const entries = new Map(current.entries.map((value) => [value.dispatchId, value]));
+  entries.set(entry.dispatchId, entry);
+  writeDispatchLiveIndex(rootDir, entry.taskId, dispatchLiveIndex([...entries.values()]));
+}
+// The repository writer's worker thread and the main thread's read path both rewrite this index;
+// threads share process.pid, so the shared durable write gives each write its own temporary.
+function writeDispatchLiveIndex(rootDir: string, taskId: string, index: DispatchLiveIndex): void {
+  const target = dispatchLiveIndexPath(rootDir, taskId);
+  /* @gate-identity state-store/execution.dispatch-stream */ mkdirSync(path.dirname(target), {
+    recursive: true,
+    mode: 0o700,
+  });
+  writeFileDurably(target, `${JSON.stringify(index, null, 2)}\n`, 0o600);
+}
+function readStoredDispatchLiveIndex(target: string, taskId: string): DispatchLiveIndex | null {
+  if (!existsSync(target) || !statSync(target).isFile()) return null;
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(target, "utf8"));
+    if (!isDispatchIndexRecord(parsed) || parsed.schema !== liveIndexSchema) return null;
+    if (!Array.isArray(parsed.entries)) return null;
+    const entries: DispatchLiveIndexEntry[] = [];
+    for (const value of parsed.entries) {
+      if (!isDispatchIndexRecord(value) || value.taskId !== taskId) return null;
+      const dispatchId = String(value.dispatchId),
+        runtimeSessionId = value.runtimeSessionId;
+      if (!/^dispatch_[a-f0-9]{24}$/u.test(dispatchId)) return null;
+      if (typeof runtimeSessionId !== "string") return null;
+      entries.push({ dispatchId, taskId: value.taskId, runtimeSessionId });
+    }
+    return dispatchLiveIndex(entries);
+  } catch (error) {
+    consumeKnownError(error);
+    return null;
+  }
+}
+function appendJsonl(target: string, value: unknown): void {
+  const appender = openDispatchStreamAppender(target);
+  try {
+    appender.append(value as Readonly<Record<string, unknown>>);
+  } finally {
+    appender.close();
+  }
+}
+
+function unboundedDispatchRecord(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  if (["provider_event", "provider_output_invalid", "provider_stderr"].includes(String(record.kind))) return true;
+  if (record.kind !== "squad_run_state") return false;
+  const state = record.state;
+  if (!state || typeof state !== "object" || Array.isArray(state)) return true;
+  return !["cancelled", "converged", "failed"].includes(String((state as Record<string, unknown>).phase));
+}
+
+function warnOnce(warnings: Set<string>, target: string, detail: string): void {
+  if (warnings.has(target)) return;
+  warnings.add(target);
+  console.warn(`[runtime-dispatch] ${detail}`);
+}
+
+function summarizeDispatch(
+  header: DispatchStreamHeader,
+  records: readonly DispatchStreamRecord[],
+  modifiedAtMs: number,
+  lastProviderActivity: DispatchStreamActivity | null = latestProviderActivity(header.kindId, records),
+  lastProgressAt = latestDispatchProgressAt(header, records),
+  lastProviderReconnect: DispatchProviderReconnect | null = latestProviderReconnect(header.kindId, records),
+): DispatchStreamSummary {
+  let providerSessionId: string | null = null,
+    processState: DispatchProcessState | null = null,
+    attemptOutcome: RuntimeAttemptOutcome | null = null,
+    terminalOutcome: DispatchTerminalOutcome | null = null,
+    evidenceState: "pending" | "stored" | null = null,
+    runtimeMetrics: RuntimeMetrics | null = null,
+    decisionActionRecord: DispatchStreamRecord | null = null;
+  for (const record of records) {
+    if (record.kind === "provider_binding" && typeof record.providerSessionId === "string")
+      providerSessionId = record.providerSessionId;
+    if (record.kind === "process_started" && Number.isInteger(record.pid) && Number(record.pid) > 0)
+      processState = { pid: Number(record.pid), exitCode: null, signal: null, exited: false };
+    if (record.kind === "process_exit" && processState)
+      processState = {
+        ...processState,
+        exitCode: Number.isInteger(record.exitCode) ? Number(record.exitCode) : null,
+        signal: typeof record.signal === "string" ? record.signal : null,
+        exited: true,
+      };
+    if (record.kind === "attempt_outcome" && isRuntimeAttemptOutcome(record)) attemptOutcome = record;
+    if (record.kind === "terminal_outcome" && isDispatchTerminalOutcome(record, header.runtimeSessionId))
+      terminalOutcome = {
+        payload: record.payload,
+        body: record.body,
+        reason: record.reason,
+        ...(Number.isSafeInteger(record.processGroupPid) && Number(record.processGroupPid) > 1
+          ? { processGroupPid: Number(record.processGroupPid) }
+          : {}),
+      };
+    if (record.kind === "evidence_state" && (record.state === "pending" || record.state === "stored"))
+      evidenceState = record.state;
+    if (record.kind === "decision_action") decisionActionRecord = record;
+    if (record.kind === "runtime_metrics" && isRuntimeMetrics(record)) runtimeMetrics = record;
+  }
+  return {
+    header,
+    lastObservedAt: dispatchLastObservedAt(header, records, modifiedAtMs),
+    lastProgressAt,
+    workspaceActivityCount: records.filter((record) => record.kind === "workspace_activity").length,
+    stalledAt:
+      ([...records].reverse().find((record) => record.kind === "dispatch_stalled")?.occurredAt as string | undefined) ??
+      null,
+    providerSessionId,
+    process: processState,
+    attemptOutcome,
+    terminalOutcome,
+    evidenceState,
+    runtimeMetrics,
+    decisionActionRecord,
+    lastProviderActivity,
+    lastProviderReconnect,
+    records,
+  };
+}
+
+function latestDispatchProgressAt(header: DispatchStreamHeader, records: readonly DispatchStreamRecord[]): string {
+  return records.reduce((latest, record) => {
+    // A reconnect is the provider failing to reach the model endpoint; it is the opposite of
+    // progress. Keeping it out of this clock is what lets a silent connection become visible.
+    if (record.kind === "provider_event" && providerReconnectRecord(header.kindId, record) !== null) return latest;
+    return (record.kind === "provider_event" || record.kind === "workspace_activity") &&
+      typeof record.occurredAt === "string" &&
+      Number.isFinite(Date.parse(record.occurredAt)) &&
+      Date.parse(record.occurredAt) > Date.parse(latest)
+      ? record.occurredAt
+      : latest;
+  }, header.startedAt);
+}
+
+function latestProviderReconnect(
+  kindId: string | undefined,
+  records: readonly DispatchStreamRecord[],
+): DispatchProviderReconnect | null {
+  let latest: DispatchProviderReconnect | null = null;
+  for (const record of records) {
+    const reconnect = providerReconnectRecord(kindId, record);
+    if (reconnect !== null && (latest === null || Date.parse(reconnect.occurredAt) > Date.parse(latest.occurredAt)))
+      latest = reconnect;
+  }
+  return latest;
+}
+
+function providerReconnectRecord(
+  kindId: string | undefined,
+  record: DispatchStreamRecord,
+): DispatchProviderReconnect | null {
+  if (record.kind !== "provider_event" || typeof record.occurredAt !== "string") return null;
+  const event = record.event;
+  if (event === null || typeof event !== "object" || Array.isArray(event)) return null;
+  const reconnect = providerReconnectFromFrame(kindId ?? "", event as Record<string, unknown>);
+  return reconnect === null ? null : { occurredAt: record.occurredAt, ...reconnect };
+}
+
+function latestProviderActivity(
+  kindId: string | undefined,
+  records: readonly DispatchStreamRecord[],
+): DispatchStreamActivity | null {
+  let latest: DispatchStreamActivity | null = null;
+  for (const record of records) {
+    const activity = providerActivityRecord(kindId, record);
+    if (activity !== null && (latest === null || activity.observedAt > latest.observedAt)) latest = activity;
+  }
+  return latest;
+}
+
+function providerActivityRecord(
+  kindId: string | undefined,
+  record: DispatchStreamRecord,
+): DispatchStreamActivity | null {
+  if (record.kind !== "provider_event" || typeof record.occurredAt !== "string" || typeof kindId !== "string")
+    return null;
+  const kind = dispatchProviderActivity(kindId, record.event);
+  return kind === null ? null : { kind, observedAt: record.occurredAt };
+}
+
+function isRuntimeMetrics(value: Record<string, unknown>): value is RuntimeMetrics {
+  return (
+    Number.isInteger(value.inputTokens) &&
+    Number.isInteger(value.cacheReadTokens) &&
+    Number.isInteger(value.outputTokens) &&
+    Number.isInteger(value.totalTokens) &&
+    Number.isInteger(value.toolCallCount) &&
+    // Optional like usageUnavailable: absent on records written before the field existed.
+    (value.cacheWriteTokens === undefined ||
+      (Number.isInteger(value.cacheWriteTokens) && Number(value.cacheWriteTokens) >= 0)) &&
+    typeof value.compacted === "boolean" &&
+    typeof value.raw === "object" &&
+    value.raw !== null &&
+    !Array.isArray(value.raw)
+  );
+}
+
+function isDispatchTerminalOutcome(
+  value: Record<string, unknown>,
+  runtimeSessionId: string,
+): value is Record<string, unknown> & DispatchTerminalOutcome {
+  const payload = value.payload;
+  return (
+    value.kind === "terminal_outcome" &&
+    typeof value.body === "string" &&
+    typeof value.reason === "string" &&
+    payload !== null &&
+    typeof payload === "object" &&
+    !Array.isArray(payload) &&
+    (payload as Record<string, unknown>).runtimeSessionId === runtimeSessionId &&
+    ["succeeded", "failed", "unknown", "cancelled", "stopped"].includes(
+      String((payload as Record<string, unknown>).outcome),
+    ) &&
+    typeof (payload as Record<string, unknown>).resultRef === "string" &&
+    (payload as Record<string, unknown>).result !== undefined &&
+    typeof (payload as Record<string, unknown>).endedAt === "string"
+  );
+}
+
+function dispatchLastObservedAt(
+  header: DispatchStreamHeader,
+  records: readonly DispatchStreamRecord[],
+  modifiedAtMs: number,
+): string {
+  const observed = [header.startedAt, new Date(modifiedAtMs).toISOString()];
+  for (const record of records) if (typeof record.occurredAt === "string") observed.push(record.occurredAt);
+  return observed.reduce((latest, candidate) =>
+    Number.isFinite(Date.parse(candidate)) && Date.parse(candidate) > Date.parse(latest) ? candidate : latest,
+  );
+}
+
+function readBoundedStreamWindows(
+  target: string,
+  size: number,
+  headerEnd: number,
+): readonly { offset: number; text: string }[] {
+  const descriptor = requiredDispatchStreamForRead(target);
+  try {
+    const windows = [
+      { offset: 0, length: Math.min(size, summaryHeadBytes) },
+      ...(headerEnd < size ? [{ offset: headerEnd, length: Math.min(size - headerEnd, summaryHeadBytes) }] : []),
+    ];
+    if (size > summaryHeadBytes)
+      windows.push({ offset: Math.max(0, size - summaryTailBytes), length: Math.min(size, summaryTailBytes) });
+    return windows.map(({ offset, length }) => {
+      const bytes = Buffer.alloc(length),
+        read = readSync(descriptor, bytes, 0, length, offset);
+      return { offset, text: bytes.subarray(0, read).toString("utf8") };
+    });
+  } finally {
+    /* @gate-identity state-store/execution.dispatch-stream */ closeSync(descriptor);
+  }
+}
+
+function firstLineEndOffset(target: string, size: number): number {
+  const descriptor = requiredDispatchStreamForRead(target);
+  try {
+    let offset = 0;
+    while (offset < size) {
+      const bytes = Buffer.alloc(Math.min(4096, size - offset));
+      const read = readSync(descriptor, bytes, 0, bytes.length, offset);
+      if (read === 0) return size;
+      const newline = bytes.subarray(0, read).indexOf(10);
+      if (newline !== -1) return offset + newline + 1;
+      offset += read;
+    }
+    return size;
+  } finally {
+    /* @gate-identity state-store/execution.dispatch-stream */ closeSync(descriptor);
+  }
+}
+
+function completeLines(text: string, offset: number): readonly { offset: number; value: string }[] {
+  const lines = text.split(/\r?\n/u),
+    result: { offset: number; value: string }[] = [];
+  let cursor = offset;
+  for (let index = 0; index < lines.length; index += 1) {
+    const value = lines[index]!;
+    const end = cursor + Buffer.byteLength(value) + 1;
+    if (index > 0 && cursor === offset) {
+      cursor = end;
+      continue;
+    }
+    if (index === lines.length - 1) break;
+    if (value.trim()) result.push({ offset: cursor, value });
+    cursor = end;
+  }
+  return result;
+}
+
+function lineKind(value: string): string | null {
+  const match = /"kind"\s*:\s*"([^"\\]+)"/u.exec(value);
+  return match?.[1] ?? null;
+}
+/** Forward scan of [start, end) for the first JSON-lines record matching `"kind":"${kind}"`.
+ * Used to recover an initialization lifecycle record (e.g. provider_binding) that landed
+ * past the summary's initial head window due to a long provider startup preamble.
+ * Scans byte buffers directly to stay fast and avoid accumulating memory across unread gaps. */
+function readStreamRecordOfKindForward(
+  target: string,
+  kind: string,
+  start: number,
+  end: number,
+): DispatchStreamRecord | null {
+  const descriptor = requiredDispatchStreamForRead(target),
+    marker = Buffer.from(`"kind":"${kind}"`),
+    chunkSize = 64 * 1024,
+    bytes = Buffer.alloc(chunkSize);
+  try {
+    for (let offset = start; offset < end; ) {
+      const length = Math.min(chunkSize, end - offset),
+        read = readSync(descriptor, bytes, 0, length, offset);
+      if (read === 0) break;
+      const slice = bytes.subarray(0, read),
+        markerIndex = slice.indexOf(marker);
+      if (markerIndex !== -1) {
+        const markerOffset = offset + markerIndex,
+          windowStart = Math.max(0, markerOffset - 16 * 1024),
+          windowEnd = markerOffset + 16 * 1024,
+          windowLength = windowEnd - windowStart,
+          windowBuf = Buffer.alloc(windowLength),
+          windowRead = readSync(descriptor, windowBuf, 0, windowLength, windowStart),
+          windowSlice = windowBuf.subarray(0, windowRead),
+          relMarker = markerOffset - windowStart;
+        const lineStart = windowSlice.lastIndexOf(10, relMarker) + 1,
+          newlineAfter = windowSlice.indexOf(10, relMarker),
+          lineEnd = newlineAfter === -1 ? windowRead : newlineAfter,
+          line = windowSlice.subarray(lineStart, lineEnd).toString("utf8"),
+          record = parseRecord(line);
+        if (record?.kind === kind) return record;
+        offset += markerIndex + marker.length;
+        continue;
+      }
+      if (read < length || offset + length >= end) break;
+      offset += length - (marker.length - 1);
+    }
+  } finally {
+    /* @gate-identity state-store/execution.dispatch-stream */ closeSync(descriptor);
+  }
+  return null;
+}
+
+/** Latest matching record in the tail of a dispatch stream. `select` gates both vocabulary and
+ * shape, so a kind marker plus a field check never parses a provider transcript payload. */
+export function readLatestStreamRecord<T>(
+  target: string,
+  probeBytes: number,
+  kinds: readonly string[],
+  select: (record: Record<string, unknown>) => T | null,
+): T | null {
+  const descriptor = openDispatchStreamForRead(target);
+  if (descriptor === null) return null;
+  const markers = kinds.map((kind) => `"kind":"${kind}"`);
+  try {
+    return readLatestLineInTail(descriptor, fstatSync(descriptor).size, probeBytes, (line) => {
+      if (!markers.some((marker) => line.includes(marker))) return null;
+      const record = parseRecord(line);
+      return record === null ? null : select(record);
+    });
+  } finally {
+    /* @gate-identity state-store/execution.dispatch-stream */ closeSync(descriptor);
+  }
+}
+
+/** Read-only descriptor for a live or archived stream; the caller closes it. */
+export function openDispatchStreamForRead(target: string): number | null {
+  const live = openDispatchStreamPath(target);
+  if (live.descriptor !== null) return live.descriptor;
+  const archived = archivedPathForLiveTarget(target);
+  if (archived === null) return null;
+  return openDispatchStreamPath(archived).descriptor;
+}
+
+function openDispatchStreamPath(target: string): { readonly descriptor: number | null } {
+  try {
+    return {
+      descriptor: /* @gate-identity state-store/execution.dispatch-stream */ openSync(target, fsConstants.O_RDONLY),
+    };
+  } catch (error) {
+    if (fsErrorCode(error) !== "ENOENT") throw error;
+    return { descriptor: null };
+  }
+}
+
+function requiredDispatchStreamForRead(target: string): number {
+  const descriptor = openDispatchStreamForRead(target);
+  if (descriptor !== null) return descriptor;
+  throw Object.assign(new Error(`Dispatch stream ${path.basename(target)} does not exist.`), { code: "ENOENT" });
+}
+
+function archivedPathForLiveTarget(target: string): string | null {
+  const name = path.basename(target);
+  return /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(name) && path.basename(path.dirname(target)) !== "archive"
+    ? path.join(path.dirname(target), "archive", name)
+    : null;
+}
+
+function fsErrorCode(error: unknown): string | null {
+  return typeof error === "object" && error !== null && "code" in error ? String(error.code) : null;
+}
+
+export function parseRecord(value: string | undefined): Record<string, unknown> | null {
+  if (!value) return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch (error) {
+    consumeKnownError(error);
+    return null;
+  }
+}
+function isDispatchIndexRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function isRuntimeAttemptOutcome(
+  value: Record<string, unknown>,
+): value is Record<string, unknown> & RuntimeAttemptOutcome {
+  const provider = value.provider;
+  return (
+    [
+      "provider_fault",
+      "provider_quota",
+      "worker_stop",
+      "dispatch_stalled",
+      "awaiting_ruling",
+      "needs_attention",
+      "gate_red",
+      "completed_without_final_text",
+    ].includes(String(value.classification)) &&
+    typeof value.reason === "string" &&
+    typeof value.attemptGroupId === "string" &&
+    Number.isSafeInteger(value.attemptIndex) &&
+    (value.attemptIndex as number) >= 0 &&
+    provider !== null &&
+    typeof provider === "object" &&
+    !Array.isArray(provider) &&
+    typeof (provider as Record<string, unknown>).instance === "string" &&
+    typeof (provider as Record<string, unknown>).model === "string" &&
+    typeof (provider as Record<string, unknown>).kind === "string"
+  );
+}
+function isHeader(value: Record<string, unknown> | null): value is Record<string, unknown> & DispatchStreamHeader {
+  return (
+    value?.schema === streamSchema &&
+    value.kind === "dispatch" &&
+    (value.publicationOwner === undefined ||
+      value.publicationOwner === "runtime" ||
+      value.publicationOwner === "commander") &&
+    typeof value.dispatchId === "string" &&
+    (value.taskId === null || typeof value.taskId === "string") &&
+    (value.schedule === undefined ||
+      (value.schedule !== null &&
+        typeof value.schedule === "object" &&
+        !Array.isArray(value.schedule) &&
+        typeof (value.schedule as Record<string, unknown>).scheduleId === "string" &&
+        typeof (value.schedule as Record<string, unknown>).claimFence === "string" &&
+        ["detect", "remediate"].includes(String((value.schedule as Record<string, unknown>).mode)))) &&
+    (value.executionId === null || typeof value.executionId === "string") &&
+    typeof value.runtimeSessionId === "string" &&
+    typeof value.instanceId === "string" &&
+    typeof value.startedAt === "string" &&
+    (value.stallTimeoutMs === undefined ||
+      (Number.isSafeInteger(value.stallTimeoutMs) && Number(value.stallTimeoutMs) >= 10_000)) &&
+    typeof value.eventStreamRef === "string"
+  );
+}

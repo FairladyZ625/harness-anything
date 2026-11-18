@@ -6,7 +6,7 @@ import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
-import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
+import { readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
 
 test(
   "settings provenance answers through the edge host after the center disconnects",

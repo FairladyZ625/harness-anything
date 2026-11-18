@@ -5,8 +5,8 @@ import {
   validateSquadControlReceipt,
   makeDaemonCommandReceipt,
   validateDaemonGuiCommandReceipt,
-} from "../src/protocol/daemon-protocol-validate-results.ts";
-import type { SquadControlResult } from "../src/squad-control-result.ts";
+} from "../src/daemon-host/protocol/daemon-protocol-validate-results.ts";
+import type { SquadControlResult } from "../src/daemon-host/squad-control-result.ts";
 
 test("Squad control result has a separate wire contract and cannot assert ledger acceptance", () => {
   const control: SquadControlResult = {

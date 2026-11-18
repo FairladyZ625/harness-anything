@@ -23,9 +23,9 @@ import {
   serializeReplicationWireFrame,
   type ReplicationFrame,
   type ReplicationPeer,
-} from "../src/fleet/protocol.ts";
-import { runWalReceiver, type ReplicationTarget } from "../src/fleet/walreceiver.ts";
-import { runWalSender, type ReplicationSource } from "../src/fleet/walsender.ts";
+} from "../src/fleet-sync/fleet/protocol.ts";
+import { runWalReceiver, type ReplicationTarget } from "../src/daemon-host/fleet/walreceiver.ts";
+import { runWalSender, type ReplicationSource } from "../src/daemon-host/fleet/walsender.ts";
 
 function createWirePeerPair(
   options: {

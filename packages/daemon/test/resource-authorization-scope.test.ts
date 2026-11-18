@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canonicalResourceAncestors, policyActionForTarget } from "../src/repo-cell-authorization.ts";
+import { canonicalResourceAncestors, policyActionForTarget } from "../src/daemon-host/repo-cell-authorization.ts";
 
 function projection(
   tasks: Record<string, { taskId: string; taskClass: "work" | "standard"; parentTaskId: string | null }>,

@@ -8,7 +8,7 @@ import test from "node:test";
 import { makeTaskEventReader, resolveLedgerGitLayout, ledgerGitPath } from "@harness-anything/storage";
 
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { removeTemporaryDirectory } from "../../../tools/temporary-directory-cleanup.mjs";

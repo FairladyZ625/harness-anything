@@ -6,9 +6,9 @@ import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openDispatchStream } from "../src/dispatch-stream.ts";
-import { scheduleFallbackContinuation } from "../src/runtime-spawn-fallback.ts";
-import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
+import { openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { scheduleFallbackContinuation } from "../src/daemon-host/runtime-spawn-fallback.ts";
+import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
 
 for (const failedProbe of ["git", "replica"] as const)
   test(`fallback still launches with unavailable context when the ${failedProbe} probe rejects`, async (t) => {

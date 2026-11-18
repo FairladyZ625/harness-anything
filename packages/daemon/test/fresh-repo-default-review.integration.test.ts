@@ -13,11 +13,11 @@ import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import type { AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
-import { resolveRepoBootstrap } from "../src/repo-bootstrap.ts";
-import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
-import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import type { RuntimeInstanceSummary } from "../src/daemon-host/agent-runtime-instances.ts";
+import { resolveRepoBootstrap } from "../src/daemon-host/repo-bootstrap.ts";
+import type { RuntimeProcess } from "../src/daemon-host/runtime-spawn-types.ts";
+import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/auth-context.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openFencedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 

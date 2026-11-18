@@ -5,7 +5,7 @@ import test from "node:test";
 import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { projectDispatchLifecycleEvent } from "../../storage/src/projection/dispatch-lifecycle-projection.ts";
 import { lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
-import { createNodeRetirement } from "../src/fleet/node-retirement.ts";
+import { createNodeRetirement } from "../src/daemon-host/fleet/node-retirement.ts";
 import { withTempStoreAsync } from "../../storage/test/store/helpers.ts";
 import { initRepo } from "../../storage/test/store/task-event-store.fixtures.ts";
 

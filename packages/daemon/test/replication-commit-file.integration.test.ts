@@ -6,9 +6,9 @@ import path from "node:path";
 import test from "node:test";
 import { TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
 import { replicationCommitChunks } from "@harness-anything/storage";
-import { openReplicationCommitFile } from "../src/fleet/commit-file.ts";
-import { runWalReceiver } from "../src/fleet/walreceiver.ts";
-import { parseReplicationCommit, type ReplicationFrame } from "../src/fleet/protocol.ts";
+import { openReplicationCommitFile } from "../src/fleet-sync/fleet/commit-file.ts";
+import { runWalReceiver } from "../src/daemon-host/fleet/walreceiver.ts";
+import { parseReplicationCommit, type ReplicationFrame } from "../src/fleet-sync/fleet/protocol.ts";
 
 const position = { history: "history", sequence: 1, revision: 0 };
 const commit = { position, events: [], outcome: null, writer: null };

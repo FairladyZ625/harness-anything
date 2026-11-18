@@ -7,14 +7,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { readDaemonRegistry } from "@harness-anything/kernel";
-import { doctorHealth, fleetVersionDoctorCheck } from "../src/repo-cell-doctor.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
+import { doctorHealth, fleetVersionDoctorCheck } from "../src/daemon-host/repo-cell-doctor.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 import { removeTemporaryDirectory } from "../../../tools/temporary-directory-cleanup.mjs";
 

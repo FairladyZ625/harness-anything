@@ -6,7 +6,7 @@ import { createServer } from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createIdentitySession } from "../src/authorization-provider.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 
 test("edge device login trusts only the invitation's self-signed Keycloak certificate", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-oidc-login-trust-"));

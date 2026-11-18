@@ -2,10 +2,10 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
-import { createIdentitySession } from "../src/authorization-provider.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { type DeviceLoginRequest } from "@harness-anything/kernel";
-import { listenFleetTls } from "../src/fleet/center.ts";
-import { reportFleetDeviceLogin } from "../src/fleet/peer.ts";
+import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
+import { reportFleetDeviceLogin } from "../src/daemon-host/fleet/peer.ts";
 import { fleetFixture } from "./fleet-tls-session.fixture.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 

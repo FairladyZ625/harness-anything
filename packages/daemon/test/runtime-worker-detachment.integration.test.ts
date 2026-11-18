@@ -21,7 +21,7 @@ test(
     mkdirSync(streamRoot, { recursive: true });
     writeFileSync(path.join(streamRoot, `${dispatchId}.jsonl`), "{}\n");
     const script = path.join(parent, "launcher.mjs");
-    const moduleUrl = pathToFileURL(path.resolve("packages/daemon/src/runtime-spawn-process.ts")).href;
+    const moduleUrl = pathToFileURL(path.resolve("packages/daemon/src/daemon-host/runtime-spawn-process.ts")).href;
     writeFileSync(
       script,
       `import { launchNative } from ${JSON.stringify(moduleUrl)};\nimport { watch, existsSync } from "node:fs";\nconst ready = ${JSON.stringify(path.join(parent, "provider-ready"))};\nconst runtime = launchNative({ executablePath: process.execPath, args: ["-e", 'process.stdin.resume(); process.stdin.once("end", () => require("fs").writeFileSync(process.argv[1], "ready")); setInterval(() => {}, 1000)', ready], env: process.env, cwd: ${JSON.stringify(parent)}, prompt: "hold" }, { rootDir: ${JSON.stringify(parent)}, dispatchId: ${JSON.stringify(dispatchId)} });\nawait new Promise(resolve => { const watcher = watch(${JSON.stringify(parent)}, () => { if (existsSync(ready)) { watcher.close(); resolve(); } }); if (existsSync(ready)) { watcher.close(); resolve(); } });\nprocess.stdout.write(String(runtime.pid) + "\\n");\n`,

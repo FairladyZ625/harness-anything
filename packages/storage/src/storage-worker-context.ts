@@ -1,11 +1,7 @@
 import type { PGliteStorageBackendConfig, StorageBackendConfig } from "./storage-backend.ts";
-import {
-  preparePGliteWorkerContext,
-  installPGliteWorkerContext,
-  type PGliteWorkerContext,
-} from "./pglite/query-owner.ts";
+import { requirePgliteWorkerContextHandler } from "./sql-backend-adapters.ts";
 
-export type StorageWorkerContext = PGliteWorkerContext;
+export type StorageWorkerContext = import("./pglite/query-owner.ts").PGliteWorkerContext;
 
 /** Transferred physical capabilities cannot be rebound by changing a query's JSON config. */
 export function requiresStorageWorkerContext(
@@ -15,12 +11,19 @@ export function requiresStorageWorkerContext(
 }
 
 /** Physical storage capabilities cross worker boundaries separately from public JSON config. */
-export function prepareStorageWorkerContext(storage: StorageBackendConfig | undefined, repoId: string) {
+export function prepareStorageWorkerContext(
+  storage: StorageBackendConfig | undefined,
+  repoId: string,
+): {
+  readonly context: StorageWorkerContext | undefined;
+  readonly transferList: import("node:worker_threads").MessagePort[];
+  readonly close: () => void;
+} {
   return requiresStorageWorkerContext(storage)
-    ? preparePGliteWorkerContext(repoId, storage)
+    ? requirePgliteWorkerContextHandler().prepare(repoId, storage)
     : { context: undefined, transferList: [], close: () => undefined };
 }
 
 export function installStorageWorkerContext(context: StorageWorkerContext | undefined): void {
-  if (context) installPGliteWorkerContext(context);
+  if (context) requirePgliteWorkerContextHandler().install(context);
 }

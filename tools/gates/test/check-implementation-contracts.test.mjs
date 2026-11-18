@@ -156,8 +156,8 @@ test("daemon status-branch rule judges by protocol handler landing site, not com
         encoding: "utf8",
       });
     const readModelProbe = path.join(fixture, "packages/daemon/src/probe-read-model.ts");
-    const handlerProbe = path.join(fixture, "packages/daemon/src/protocol/probe-handler.ts");
-    const wireProbe = path.join(fixture, "packages/daemon/src/protocol/probe-wire-validate.ts");
+    const handlerProbe = path.join(fixture, "packages/daemon/src/daemon-host/protocol/probe-handler.ts");
+    const wireProbe = path.join(fixture, "packages/daemon/src/daemon-host/protocol/probe-wire-validate.ts");
 
     // Below the protocol surface, status classification is the file's own business logic:
     // a direct comparison and the synonymous membership spelling must be treated alike.
@@ -190,7 +190,7 @@ test("daemon status-branch rule judges by protocol handler landing site, not com
     assert.equal(branch.status, 1, branch.stdout);
     assert.match(
       branch.stderr,
-      /packages\/daemon\/src\/protocol\/probe-handler\.ts: daemon protocol handlers must not infer business state from status values/,
+      /packages\/daemon\/src\/daemon-host\/protocol\/probe-handler\.ts: daemon protocol handlers must not infer business state from status values/,
     );
     writeFileSync(
       handlerProbe,

@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const legacyCatalog = "packages/cli/src/commands/extensions/assets/software-coding/template-catalog.json";
-const commandPath = "packages/daemon/src/protocol/daemon-protocol.contract.ts";
+const commandPath = "packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts";
 const parserPath = "packages/cli/src/cli/thin-command.ts";
 const protocolDirectorySpecifiers = new Set(["@harness-anything/daemon/internal/protocol/daemon-protocol.contract"]);
 
@@ -14,7 +14,7 @@ function consumesProtocolCommandDirectory(parser) {
     const specifier = match.groups?.specifier ?? "";
     const isProtocolDirectory =
       protocolDirectorySpecifiers.has(specifier) ||
-      /(?:^|\/)daemon\/src\/protocol\/daemon-protocol\.contract\.ts$/u.test(specifier);
+      /(?:^|\/)daemon\/src\/daemon-host\/protocol\/daemon-protocol\.contract\.ts$/u.test(specifier);
     if (!isProtocolDirectory) continue;
     const bindings = match.groups?.bindings ?? "";
     if (/\bresolveThinCliCommand\b/u.test(bindings) && /\bthinCliCommands\b/u.test(bindings)) return true;

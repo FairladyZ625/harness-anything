@@ -4,15 +4,15 @@ import type { IpcMainInvokeEvent } from "electron";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AccessAdminService } from "../../daemon/src/access-admin-service.ts";
-import type { DaemonHost } from "../../daemon/src/daemon-host-types.ts";
+import { AccessAdminService } from "../../daemon/src/daemon-host/access-admin-service.ts";
+import type { DaemonHost } from "../../daemon/src/daemon-host/daemon-host-types.ts";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
-import { managedRbacReceiptJournal } from "../../daemon/src/access-admin-state.ts";
-import { createIdentitySession } from "../../daemon/src/authorization-provider.ts";
-import { createJsonRpcProtocolServer } from "../../daemon/src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../../daemon/src/protocol/version.ts";
-import { evaluateRepoCellAction } from "../../daemon/src/repo-cell-authorization.ts";
-import type { RepoTaskAction } from "../../daemon/src/repo-cell-types.ts";
+import { managedRbacReceiptJournal } from "../../daemon/src/daemon-host/access-admin-state.ts";
+import { createIdentitySession } from "../../daemon/src/daemon-host/authorization-provider.ts";
+import { createJsonRpcProtocolServer } from "../../daemon/src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../../daemon/src/daemon-host/protocol/version.ts";
+import { evaluateRepoCellAction } from "../../daemon/src/daemon-host/repo-cell-authorization.ts";
+import type { RepoTaskAction } from "../../daemon/src/daemon-host/repo-cell-types.ts";
 import {
   fakeKeycloak,
   keycloakRealm,

@@ -149,8 +149,8 @@ async function daemonDenominators() {
       "packages/storage/src/writer-epoch.ts",
       "packages/storage/src/projection/rebuildable-task-projection-database.ts",
       "packages/storage/src/store/event-shape-migration.ts",
-      "packages/daemon/src/runtime-spawn-adoption.ts",
-      "packages/daemon/src/runtime.ts",
+      "packages/daemon/src/daemon-host/runtime-spawn-adoption.ts",
+      "packages/daemon/src/daemon-host/runtime.ts",
     ],
     required = all.required.filter(({ source }) => sourceFiles.some((file) => source.includes(file))),
     hit = required.map(({ id }) => id);

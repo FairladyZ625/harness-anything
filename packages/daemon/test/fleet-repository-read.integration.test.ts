@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { daemonBuildStamp } from "../src/build-identity.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -9,19 +9,19 @@ import { makeTaskProjectionReader } from "@harness-anything/storage";
 import { actionDeclarations, deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { createIdentitySession } from "../src/authorization-provider.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { daemonMethodAcceptsPayload } from "../src/protocol/daemon-protocol-rpc-validation.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { daemonMethodAcceptsPayload } from "../src/daemon-host/protocol/daemon-protocol-rpc-validation.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
-import { repositoryReadData } from "../src/protocol/repository-read-frame.ts";
+import { repositoryReadData } from "../src/daemon-host/protocol/repository-read-frame.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
-import { syncFleetEdgeMirror } from "../src/fleet-center-admission.ts";
-import { runFleetReplicaSync } from "../src/fleet/replica-sync.ts";
-import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
+import { syncFleetEdgeMirror } from "../src/daemon-host/fleet-center-admission.ts";
+import { runFleetReplicaSync } from "../src/daemon-host/fleet/replica-sync.ts";
+import { readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
 
 test(
   "viewer GUI reads page from a replica cut and withhold it after the next sync reports revocation",

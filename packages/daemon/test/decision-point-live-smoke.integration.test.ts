@@ -9,11 +9,11 @@ import {
   type AgentRuntimeEventV1,
   type VerticalDefinition,
 } from "@harness-anything/kernel";
-import type { CredentialPort } from "../src/agent-runtime-credential-port.ts";
-import { openDecisionAnnotationStore } from "../src/decision-annotations.ts";
-import { openDecisionPointExecutor } from "../src/decision-point-executor.ts";
-import { openDecisionProviderService } from "../src/decision-provider.ts";
-import type { RepoCell } from "../src/repo-cell-types.ts";
+import type { CredentialPort } from "../src/daemon-host/agent-runtime-credential-port.ts";
+import { openDecisionAnnotationStore } from "../src/daemon-host/decision-annotations.ts";
+import { openDecisionPointExecutor } from "../src/daemon-host/decision-point-executor.ts";
+import { openDecisionProviderService } from "../src/daemon-host/decision-provider.ts";
+import type { RepoCell } from "../src/daemon-host/repo-cell-types.ts";
 
 const dispatchId = "dispatch_live_smoke_20261019",
   pointId = "dispatch-stop-reason",

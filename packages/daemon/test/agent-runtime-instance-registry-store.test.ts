@@ -5,14 +5,18 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
-import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
+import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instances.ts";
 import {
   daemonProtocolCommands,
   runtimeInstanceMethods,
   validateDaemonRpcCall,
-} from "../src/protocol/daemon-protocol.contract.ts";
-import { runtimeKindIds, runtimeKinds, type RuntimeProviderDeclaration } from "../src/runtime-inventory.ts";
-import { providerFrameParsers } from "../src/runtime-spawn-provider-frames.ts";
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import {
+  runtimeKindIds,
+  runtimeKinds,
+  type RuntimeProviderDeclaration,
+} from "../src/runtime-engine/runtime-inventory.ts";
+import { providerFrameParsers } from "../src/daemon-host/runtime-spawn-provider-frames.ts";
 import { codedAs, observed } from "./agent-runtime-instance-environment.fixture.ts";
 
 test("ZCode inventory declares API-key configuration isolation", () => {

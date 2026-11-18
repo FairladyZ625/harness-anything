@@ -12,10 +12,10 @@ import {
   readWorkerGitIdentity,
   workerBranchHasDelivery,
   resolveWorkerGitIdentity,
-} from "../src/runtime-worker-push.ts";
-import { readBeforeWriteQueue } from "../src/write-queue-external-reads.ts";
-import type { RepoCellApiContext } from "../src/repo-cell-types.ts";
-import type { RepoCellBinding } from "../src/repo-cell-types.ts";
+} from "../src/daemon-host/runtime-worker-push.ts";
+import { readBeforeWriteQueue } from "../src/daemon-host/write-queue-external-reads.ts";
+import type { RepoCellApiContext } from "../src/daemon-host/repo-cell-types.ts";
+import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
 
 test("worker delivery is witnessed only on its bound task branch with commits above the baseline", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-squad-witness-"));

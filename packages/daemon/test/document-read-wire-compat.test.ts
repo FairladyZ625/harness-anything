@@ -4,8 +4,11 @@
 import assert from "node:assert/strict";
 import { sha256Bytes } from "@harness-anything/kernel";
 import test from "node:test";
-import { daemonProtocolError, validateDaemonDocumentRead } from "../src/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResponse } from "../src/protocol/gui-result-validation.ts";
+import {
+  daemonProtocolError,
+  validateDaemonDocumentRead,
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { parseDaemonGuiReadResponse } from "../src/daemon-host/protocol/gui-result-validation.ts";
 
 const v2Response = {
   ok: true,

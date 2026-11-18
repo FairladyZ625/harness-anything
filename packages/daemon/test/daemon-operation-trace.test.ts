@@ -12,14 +12,14 @@ import {
   withDaemonObservation,
   type DaemonOperationObserver,
   type DaemonOperationTrace,
-} from "../src/daemon-operation.ts";
-import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
-import type { DaemonHost } from "../src/daemon-host-types.ts";
-import { daemonBuildStamp } from "../src/build-identity.ts";
-import type { DaemonTrafficLogEntry } from "../src/conn-log.ts";
-import type { DaemonRequestLogEntry } from "../src/request-log.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
+} from "../src/daemon-host/daemon-operation.ts";
+import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/auth-context.ts";
+import type { DaemonHost } from "../src/daemon-host/daemon-host-types.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
+import type { DaemonTrafficLogEntry } from "../src/daemon-host/conn-log.ts";
+import type { DaemonRequestLogEntry } from "../src/daemon-host/request-log.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 
 function collector() {
   const begins: Record<string, unknown>[] = [];

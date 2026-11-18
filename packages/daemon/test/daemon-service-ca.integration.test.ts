@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
-import { daemonServiceUnit, daemonServiceUnitContent } from "../src/client/daemon-service.ts";
+import { daemonServiceUnit, daemonServiceUnitContent } from "../src/daemon-host/client/daemon-service.ts";
 
 const exec = promisify(execFile);
 

@@ -2,8 +2,8 @@
 
 Runtime providers are product-owned integrations. They are not user-installed entities.
 
-To add one, extend `packages/daemon/src/runtime-inventory.ts` with one declaration and add its frame parser to
-`packages/daemon/src/runtime-spawn-provider-frames.ts`. The declaration owns the provider identity, executable
+To add one, extend `packages/daemon/src/runtime-engine/runtime-inventory.ts` with one declaration and add its frame parser to
+`packages/daemon/src/daemon-host/runtime-spawn-provider-frames.ts`. The declaration owns the provider identity, executable
 discovery, model and authentication probes, instance configuration fields, permission and isolation constraints,
 launch metadata, session identity extraction, renderer plane, and measured capability states.
 

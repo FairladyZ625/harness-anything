@@ -5,10 +5,10 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
-import { currentWorktreeHead } from "../src/runtime-continuation-context.ts";
-import { checkoutTaskWorktree } from "../src/task-worktree.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { appendRuntimeWorkerRecord } from "../src/daemon-host/dispatch-stream.ts";
+import { currentWorktreeHead } from "../src/daemon-host/runtime-continuation-context.ts";
+import { checkoutTaskWorktree } from "../src/daemon-host/task-worktree.ts";
 import {
   openBootstrappedRepoCell as openRepoCell,
   registerBootstrappedDaemonRepo as registerDaemonRepo,

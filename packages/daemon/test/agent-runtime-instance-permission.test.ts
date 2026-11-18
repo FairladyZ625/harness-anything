@@ -4,11 +4,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import { launchArgs } from "../src/agent-runtime-launch-config.ts";
-import { dispatchMissionForPermission, explicitPromptMission } from "../src/runtime-spawn-mission.ts";
-import { dispatchCallbackRelay } from "../src/runtime-callback-relay.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import {
+  openRuntimeInstanceStore,
+  type RuntimeInstallationWitness,
+} from "../src/daemon-host/agent-runtime-instances.ts";
+import { launchArgs } from "../src/daemon-host/agent-runtime-launch-config.ts";
+import { dispatchMissionForPermission, explicitPromptMission } from "../src/daemon-host/runtime-spawn-mission.ts";
+import { dispatchCallbackRelay } from "../src/daemon-host/runtime-callback-relay.ts";
 
 const observed: RuntimeInstallationWitness = {
   installationId: "codex-installation-test",

@@ -8,7 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import { setImmediate } from "node:timers/promises";
 import { fleetReplicationFixture, replicationRepoId } from "../../fleet-replication.fixture.ts";
 import { catchUpReplica } from "../../replica-catch-up.fixture.ts";
-import { readReplicaGeneration } from "../../../src/fleet/replica-generation.ts";
+import { readReplicaGeneration } from "../../../src/fleet-sync/fleet/replica-generation.ts";
 import { cutProbe } from "./probe.ts";
 
 export type Schedule = "stationary" | "after-pinned" | "between-selects";

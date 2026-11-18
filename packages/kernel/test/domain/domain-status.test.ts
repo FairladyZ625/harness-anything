@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 import {
   domainStatuses,
   explainStatusTransition,

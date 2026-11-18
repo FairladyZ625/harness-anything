@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { checkCliPathContract, findRawWorkspaceFileReads } from "../../check-cli-path-contract.mjs";
-import { daemonProtocolCommands } from "../../../packages/daemon/src/protocol/daemon-protocol-commands.ts";
+import { daemonProtocolCommands } from "../../../packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts";
 
 const script = path.resolve(import.meta.dirname, "../../check-cli-path-contract.mjs");
 

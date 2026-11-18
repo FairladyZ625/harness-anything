@@ -2,11 +2,11 @@
 import { describe, expect, it } from "vitest";
 import { INITIAL_SETTINGS_V1 } from "@harness-anything/kernel";
 import { parseDaemonGuiReadResponse } from "@harness-anything/daemon/client";
-import { daemonSettingsRead } from "../../daemon/src/protocol/daemon-settings-read-types.ts";
+import { daemonSettingsRead } from "../../daemon/src/daemon-host/protocol/daemon-settings-read-types.ts";
 import { isSettingsSuccess } from "../src/renderer/settings-payload.ts";
 import { localErrorHint, rendererErrorHint, rendererReadError } from "../src/renderer/result-validation.ts";
 
-// daemonProtocolError() 的真实拒绝形状(packages/daemon/src/protocol/daemon-protocol-validate-results.ts:599):
+// daemonProtocolError() 的真实拒绝形状(packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-results.ts:599):
 // 合法的 op_rejected 回执带 code + rejectionExplanation + error.code,没有 error.hint。
 // 换版排空期 daemon_stopping(json-rpc-dispatch-support.ts:176)、仓库未挂载 repo_unavailable
 // (repo-cell coded error → protocolFailure)都长这样。

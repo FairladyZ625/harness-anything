@@ -6,10 +6,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import type { TaskV2, TaskWorktreeBindingV1 } from "@harness-anything/kernel";
-import { prepareDispatchWorktree } from "../src/runtime-resume-admission.ts";
-import { repositoryBaseRef } from "../src/schedule-occurrence-workspace.ts";
-import { prepareTaskStartWorktree, taskWorkspaceView } from "../src/task-worktree.ts";
-import { noWorktreeSetup } from "../src/worktree-setup.ts";
+import { prepareDispatchWorktree } from "../src/daemon-host/runtime-resume-admission.ts";
+import { repositoryBaseRef } from "../src/daemon-host/schedule-occurrence-workspace.ts";
+import { prepareTaskStartWorktree, taskWorkspaceView } from "../src/daemon-host/task-worktree.ts";
+import { noWorktreeSetup } from "../src/daemon-host/worktree-setup.ts";
 
 // Issue #4431: a task-bound dispatch must be refused when its required worktree cannot be cut from a Git repository,
 // even when an earlier explicit start already recorded an execution. A start may answer "no workspace here" without

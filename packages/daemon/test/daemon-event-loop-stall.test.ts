@@ -6,7 +6,7 @@ import {
   pruneEventLoopStallWindows,
   recordEventLoopStallWindow,
   type EventLoopStallWindow,
-} from "../src/daemon-event-loop-stall.ts";
+} from "../src/daemon-host/daemon-event-loop-stall.ts";
 
 test("only frames read in the recovery grace window clamp back to the stall start", () => {
   const windows: EventLoopStallWindow[] = [];

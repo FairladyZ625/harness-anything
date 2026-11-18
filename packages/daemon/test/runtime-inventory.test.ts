@@ -6,11 +6,11 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
-import { launchArgs } from "../src/agent-runtime-launch-config.ts";
-import { providerConfigDirectory } from "../src/agent-runtime-instance-storage.ts";
-import { runtimeAuthArgs, runtimeKinds } from "../src/runtime-inventory.ts";
-import { prepareBoundRuntimeLaunch } from "../src/runtime-spawn-context.ts";
+import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instances.ts";
+import { launchArgs } from "../src/daemon-host/agent-runtime-launch-config.ts";
+import { providerConfigDirectory } from "../src/daemon-host/agent-runtime-instance-storage.ts";
+import { runtimeAuthArgs, runtimeKinds } from "../src/runtime-engine/runtime-inventory.ts";
+import { prepareBoundRuntimeLaunch } from "../src/daemon-host/runtime-spawn-context.ts";
 
 test("runtime executable commands are bare names; platform paths belong in bundledEntries", () => {
   for (const { kindId, executable } of runtimeKinds) {

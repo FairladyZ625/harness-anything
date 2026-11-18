@@ -1,4 +1,4 @@
-import type { RepoReadPayload, RepoWriterRequestV1 } from "../../src/repo-writer-protocol.ts";
+import type { RepoReadPayload, RepoWriterRequestV1 } from "../../src/daemon-host/repo-writer-protocol.ts";
 export function holdRead(barrier: Int32Array): void {
   const sequence = Atomics.load(barrier, 0);
   if (sequence === 0) return;

@@ -10,8 +10,8 @@ import { makeTaskEventReader, makeTaskEventStore, makeTaskProjection } from "@ha
 import { validateReceiptAcceptance } from "@harness-anything/kernel";
 import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel/internal/domain/receipt-domain-registry";
 import { validateWriteReceipt } from "../../storage/test/store/canonical-generation.fixtures.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { settingsLastChanged } from "../src/repo-cell-settings-state.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { settingsLastChanged } from "../src/daemon-host/repo-cell-settings-state.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 const actor = { principal: { personId: "settings-owner" }, executor: null } as const,
@@ -544,9 +544,10 @@ test("settingsLastChanged uses the canonical projection cut without scanning the
       assert.equal(settingsLastChanged({ readSettingsEvent: () => null }), "initial");
     } finally {
       projection.close();
+      await store.drain();
     }
   } finally {
-    cell?.close();
+    await cell?.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -617,7 +618,7 @@ test("repo.settings.read carries the write-path singleton revision as the GUI op
     assert.equal(stale.outcome, "op_rejected");
     assert.equal(stale.code, "revision_conflict");
   } finally {
-    cell?.close();
+    await cell?.close();
     rmSync(root, { recursive: true, force: true });
   }
 });

@@ -1,8 +1,8 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { actionForDaemonMethod, parseDaemonRpcParams } from "../src/protocol/daemon-protocol.contract.ts";
-import { task } from "../src/protocol/daemon-protocol-validate-entities.ts";
+import { actionForDaemonMethod, parseDaemonRpcParams } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { task } from "../src/daemon-host/protocol/daemon-protocol-validate-entities.ts";
 
 test("assignment GUI aliases keep version and target on the canonical action", () => {
   for (const target of [{ personId: "person-a" }, { nodeId: "node-a" }, { teamId: "team-a" }]) {

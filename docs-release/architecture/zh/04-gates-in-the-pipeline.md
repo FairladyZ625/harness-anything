@@ -9,7 +9,7 @@
 迁移规则在 kernel domain 层定义(`packages/kernel/src/domain/task-lifecycle-command-transitions.ts`、
 `task-lifecycle-review-transitions.ts`),完成判定由
 `packages/kernel/src/domain/completion-readiness.ts` 与 `closeout-readiness.ts` 计算;
-daemon 侧的 RepoCell 编排提交流程、评审与完成(`packages/daemon/src/repo-cell-submit.ts`、
+daemon 侧的 RepoCell 编排提交流程、评审与完成(`packages/daemon/src/daemon-host/repo-cell-submit.ts`、
 `repo-cell-completion.ts`、`task-completion-review.ts`、`repo-cell-review-lint.ts`),
 应用服务在 `packages/application/src/task-lifecycle-service.ts`。CLI 只是把这些命令转发给
 daemon 协议(`packages/cli/src/cli/thin-command-task.ts`)。
@@ -52,7 +52,7 @@ Fact 以单独的 `facts/F-<id>.md` 文档存储。交付证据仍属于 Executi
 ## Submission 派生检查
 
 `ha task submit` 不接受提交参数——它先把任务包做 doc sync,再从 `closeout.md` 派生
-Submission(`packages/daemon/src/repo-cell-submit.ts`)。机械检查包括:
+Submission(`packages/daemon/src/daemon-host/repo-cell-submit.ts`)。机械检查包括:
 
 - Summary 必须点名**一个**交付 commit,或至少一个 `artifact:path@revision` 锚;
   多于一个 commit、零个锚、同一 artifact 路径重复,都是 `invalid_submission`。
@@ -85,7 +85,7 @@ cancelled/failed/stopped 已经到达终态,因此取消不会把这条路径变
 对于没有 Execution 的 legacy task,评审面是任务包的 `review.md`。lint 把发现表解析成
 结构化条目——每条带严重度(`P0`–`P3`)、`open` 与 `blocksRelease` 标记;只要有任何
 既 open 又 release-blocking 的发现,就以 `release_blocking_finding` 拒绝
-(`packages/daemon/src/repo-cell-review-lint.ts`,产出 `verifier-backed-review/v1`
+(`packages/daemon/src/daemon-host/repo-cell-review-lint.ts`,产出 `verifier-backed-review/v1`
 契约)。格式错误的表本身就是拒绝,而不是被悄悄跳过。仍带初始模板的 `review.md`、
 仍与已知模板指纹匹配的 `closeout.md`,一律视为未完成。
 

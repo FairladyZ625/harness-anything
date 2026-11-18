@@ -4,8 +4,8 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 
-import { listenFleetTls } from "../src/fleet/center.ts";
-import { runFleetRuntimeEventClient } from "../src/fleet/peer.ts";
+import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
+import { runFleetRuntimeEventClient } from "../src/daemon-host/fleet/peer.ts";
 import { fleetFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { definition } from "./schedule-actions.fixtures.ts";
 

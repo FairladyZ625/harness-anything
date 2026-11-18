@@ -20,22 +20,22 @@ import { connect, Server as TlsServer } from "node:tls";
 import test, { type TestContext } from "node:test";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { managedRbacVersions } from "@harness-anything/authorization-keycloak/managed-rbac-service";
-import { createIdentityManagement, createIdentitySession } from "../src/authorization-provider.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import type { DaemonHostOpenInput } from "../src/daemon-host-types.ts";
-import { openRepoCell } from "../src/repo-cell-open.ts";
+import { createIdentityManagement, createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import type { DaemonHostOpenInput } from "../src/daemon-host/daemon-host-types.ts";
+import { openRepoCell } from "../src/daemon-host/repo-cell-open.ts";
 import {
   fleetCenterConfigPath,
   parseFleetCenterExternalUrl,
   readFleetCenterCertificatePaths,
   readFleetCenterConfig,
   saveFleetCenterConfig,
-} from "../src/fleet-center-config.ts";
+} from "../src/daemon-host/fleet-center-config.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { fakeKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
-import type { DaemonLifecycleEntry } from "../src/lifecycle-log.ts";
+import type { DaemonLifecycleEntry } from "../src/daemon-host/lifecycle-log.ts";
 
 function generateLocalhostCert(keyPath: string, certPath: string): void {
   execFileSync(

@@ -313,7 +313,7 @@ async function withFixture(run) {
   try {
     const commandPath = write(
       rootDir,
-      "packages/daemon/src/protocol/daemon-protocol.contract.ts",
+      "packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts",
       commandSource("ha task show <id>", "Show a task."),
     );
     write(

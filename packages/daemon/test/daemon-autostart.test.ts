@@ -14,16 +14,16 @@ import {
   runtimeDaemonStartRefusal,
   type DaemonAutostartResult,
   type DaemonLaunchSpec,
-} from "../src/client/daemon-autostart.ts";
+} from "../src/daemon-host/client/daemon-autostart.ts";
 import {
   DAEMON_LIFECYCLE_LOG_SCHEMA,
   daemonLifecycleLogPath,
   daemonStdioLogPath,
   openDaemonLifecycleLog,
-} from "../src/lifecycle-log.ts";
-import { startDetachedProcess, startDetachedProcessChecked } from "../src/process-port.ts";
-import { daemonSingletonLockPath } from "../src/daemon-singleton.ts";
-import { canonicalPath } from "../src/canonical-path.ts";
+} from "../src/daemon-host/lifecycle-log.ts";
+import { startDetachedProcess, startDetachedProcessChecked } from "../src/daemon-host/process-port.ts";
+import { daemonSingletonLockPath } from "../src/daemon-host/daemon-singleton.ts";
+import { canonicalPath } from "../src/daemon-host/canonical-path.ts";
 
 function coded(code: string): Error & { code: string } {
   const error = Object.assign(new Error(`connect ${code}`), { code });

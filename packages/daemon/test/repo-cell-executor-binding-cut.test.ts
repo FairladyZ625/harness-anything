@@ -1,12 +1,12 @@
 // harness-test-tier: contract
-import type { RepoCellApiContext } from "../src/repo-cell-types.ts";
+import type { RepoCellApiContext } from "../src/daemon-host/repo-cell-types.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { bindWriterGenerationToken, type LeaseV1, type RuntimeSession } from "@harness-anything/kernel";
-import { createRepoCellApi } from "../src/repo-cell-api.ts";
-import { failed } from "../src/repo-cell-settlement.ts";
+import { createRepoCellApi } from "../src/daemon-host/repo-cell-api.ts";
+import { failed } from "../src/daemon-host/repo-cell-settlement.ts";
 import { provisionPolicyTestRepository, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import type { RepoCellBinding } from "../src/repo-cell-types.ts";
+import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
 
 provisionPolicyTestRepository("repository");
 
@@ -599,6 +599,12 @@ function contextFor(
       rootDir: "/repository",
       store: {
         readHead: () => ({ revision: 2 }),
+        materializationHealth: () => ({
+          state: "ok",
+          pendingWalEvents: 0,
+          lastCheckpointRevision: 2,
+          lastCheckpointAt: null,
+        }),
         readCommandOutcome: () => ({
           opId: "op-runtime-first-write",
           status: "accepted_durable",
@@ -666,7 +672,7 @@ function contextFor(
         },
         prepareWorktree: (payload: unknown) => {
           fixture.prepared.push(payload);
-          return Promise.resolve(null);
+          return Promise.resolve({ cwd: "/repository/.worktrees/runtime" });
         },
         spawn: (payload: unknown, verified: RepoCellBinding) => {
           fixture.spawned.push({ payload, actor: verified.actor });

@@ -11,7 +11,7 @@ import {
   revokeTestPolicyGroup,
   withPolicyGroup,
 } from "./keycloak-policy.fixtures.ts";
-import { dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
+import { dispatchStreamPath, readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 
 /** The principal that records rework-driving verdicts: a person of its own, so denying its
  * runtime-spawn (which kills the automatic worker continuation at admission) never touches the

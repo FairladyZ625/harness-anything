@@ -29,8 +29,8 @@ import {
 } from "@harness-anything/authorization-keycloak";
 import { managedRbacVersions } from "@harness-anything/authorization-keycloak/managed-rbac-service";
 import type { ListenerWriteStage } from "../../authorization-keycloak/src/managed-rbac-listener-certificate.ts";
-import { createIdentityManagement } from "../src/authorization-provider.ts";
-import { validateCertificateNames } from "../src/tls-listener-admission.ts";
+import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
+import { validateCertificateNames } from "../src/daemon-host/tls-listener-admission.ts";
 
 interface HardeningFixtureOptions {
   readonly userRoot?: string;

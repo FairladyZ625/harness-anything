@@ -10,16 +10,16 @@ import {
   attachActiveRuntime,
   createActiveRuntime,
   disposeActiveRuntimeObservations,
-} from "../src/runtime-spawn-active.ts";
-import { openDispatchStream, readDispatchStream } from "../src/dispatch-stream.ts";
-import { launchArgs } from "../src/agent-runtime-launch-config.ts";
-import { steerRuntime } from "../src/runtime-spawn-control.ts";
-import { launchNative } from "../src/runtime-spawn-process.ts";
-import { consumeProviderChunk, consumeProviderLine } from "../src/runtime-spawn-provider-stream.ts";
-import { parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
-import { runtimeWorkerProviderEnvironment } from "../src/runtime-worker-host.ts";
-import { applyGithubLaunchCredential } from "../src/runtime-github-credentials.ts";
-import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
+} from "../src/daemon-host/runtime-spawn-active.ts";
+import { openDispatchStream, readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { launchArgs } from "../src/daemon-host/agent-runtime-launch-config.ts";
+import { steerRuntime } from "../src/daemon-host/runtime-spawn-control.ts";
+import { launchNative } from "../src/daemon-host/runtime-spawn-process.ts";
+import { consumeProviderChunk, consumeProviderLine } from "../src/daemon-host/runtime-spawn-provider-stream.ts";
+import { parseProviderFrame } from "../src/daemon-host/runtime-spawn-provider-frames.ts";
+import { runtimeWorkerProviderEnvironment } from "../src/daemon-host/runtime-worker-host.ts";
+import { applyGithubLaunchCredential } from "../src/daemon-host/runtime-github-credentials.ts";
+import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
 import { writeAcpProviderStub } from "./fixtures/acp-stub.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 

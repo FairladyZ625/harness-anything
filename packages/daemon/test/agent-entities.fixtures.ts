@@ -19,7 +19,7 @@ import {
   readAgentDeclaration,
   readSquadDeclaration,
   validateAgentEntityAction,
-} from "../src/agent-entities.ts";
+} from "../src/daemon-host/agent-entities.ts";
 
 export const agent = {
     schema: "agent-declaration/v1",

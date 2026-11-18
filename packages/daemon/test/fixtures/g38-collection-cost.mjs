@@ -106,7 +106,7 @@ export async function measureTaskSubmitArtifacts(rootDir, size) {
 // frozen command-gate collection; the request must find the requested gate and validate it.
 export async function measureTaskWitnessGates(rootDir, size) {
   const [{ readTaskWitnessRequest }, { completionSnapshot }] = await Promise.all([
-      load(rootDir, "packages/daemon/src/task-witness-request.ts"),
+      load(rootDir, "packages/daemon/src/daemon-host/task-witness-request.ts"),
       load(rootDir, "packages/kernel/test/domain/completion.fixtures.ts"),
     ]),
     gates = Array.from({ length: size }, (_, index) => ({
@@ -381,10 +381,11 @@ export async function measureEntityPins(rootDir, size, actionKind) {
 }
 
 export async function measureTaskReviewDispatchBatch(rootDir, size) {
-  const [{ dispatchTaskReview, reviewDispatchIds }, { completionSnapshot }] = await Promise.all([
-      load(rootDir, "packages/daemon/src/task-review-dispatch.ts"),
-      load(rootDir, "packages/kernel/test/domain/completion.fixtures.ts"),
-    ]),
+  const [{ dispatchTaskReview, prepareTaskReviewDispatch, reviewDispatchIds }, { completionSnapshot }] =
+      await Promise.all([
+        load(rootDir, "packages/daemon/src/daemon-host/task-review-dispatch.ts"),
+        load(rootDir, "packages/kernel/test/domain/completion.fixtures.ts"),
+      ]),
     ids = Array.from({ length: size }, (_, index) => `task-review-${index}`),
     events = new Map(),
     counts = {
@@ -478,6 +479,7 @@ export async function measureTaskReviewDispatchBatch(rootDir, size) {
           return event ? { event } : null;
         },
         readRuntimeDispatchesByTaskExecution: () => [],
+        readTaskSubmissionOperation: (taskId) => `submission_${taskId}`,
         readRuntimeSessionEvents: () => [],
         readRuntimeSessionEventsByType: () => [],
       },
@@ -527,11 +529,14 @@ export async function measureTaskReviewDispatchBatch(rootDir, size) {
         },
       },
     },
-    result = await dispatchTaskReview(cell, { kind: "task-dispatch-review", taskIds }, binding);
+    action = { kind: "task-dispatch-review", taskIds },
+    prepared = await prepareTaskReviewDispatch(cell, action, binding),
+    result = await dispatchTaskReview(cell, action, binding, prepared);
   counts.dispatchSteps = result.dispatches.length;
   assertTaskReviewDispatchMeasurement(result, size, counts.publications);
   assert.ok(counts.taskProjectionsRead >= size);
-  assert.equal(counts.leaseIntervalsRead, size);
+  // Read placement once during preparation and again at the publication cut for each task.
+  assert.equal(counts.leaseIntervalsRead, size * 2);
   return { size, counts };
 }
 
@@ -550,7 +555,7 @@ export function assertTaskReviewDispatchMeasurement(result, size, publications) 
 }
 
 export async function measureTaskAmendPatches(rootDir, size) {
-  const { taskMutation } = await load(rootDir, "packages/daemon/src/repo-cell-task-mutation.ts"),
+  const { taskMutation } = await load(rootDir, "packages/daemon/src/daemon-host/repo-cell-task-mutation.ts"),
     counts = { patchesExamined: 0 },
     patches = counted(
       Array.from({ length: size }, () => ({ field: "reviewer", value: "closeout-reviewer" })),

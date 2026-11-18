@@ -4,9 +4,9 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import type { AgentRuntimeEventV1, PersistedCanonicalEventV1 } from "@harness-anything/kernel";
 import { normalizeHistoricalSquadRunIdentity } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events";
-import type { RepoCellActionContext } from "../src/repo-cell-types.ts";
-import type { RepoCellBinding, RuntimeIngressAction } from "../src/repo-cell-types.ts";
-import { requireSquadRuntimeOwner } from "../src/squad-runtime-ingress.ts";
+import type { RepoCellActionContext } from "../src/daemon-host/repo-cell-types.ts";
+import type { RepoCellBinding, RuntimeIngressAction } from "../src/daemon-host/repo-cell-types.ts";
+import { requireSquadRuntimeOwner } from "../src/daemon-host/squad-runtime-ingress.ts";
 
 const historicalEvents = JSON.parse(
   readFileSync(new URL("../../kernel/fixtures/squad-history/flat-task-identity.json", import.meta.url), "utf8"),

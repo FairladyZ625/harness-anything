@@ -92,7 +92,7 @@ If the checker discovers a distinct new runtime event callsite, I will register 
 ### 改动清单
 
 - `packages/kernel/src/local/task-holder-state.ts`: holder actor 改为 `{ principal, executor, responsibleHuman }`; `samePrincipal` 只按 `principal.personId` 判等, executor 不参与碰撞/lease 判定。
-- `packages/daemon/src/protocol/json-rpc-server.ts` and `packages/cli/src/daemon/client.ts`: daemon task-holder payload 与 `repo.command.run` payload 接收/传递可选 executor 断言; daemon 仍只用 `AuthenticatedActor` 作为被鉴别 person。
+- `packages/daemon/src/daemon-host/protocol/json-rpc-server.ts` and `packages/cli/src/daemon/client.ts`: daemon task-holder payload 与 `repo.command.run` payload 接收/传递可选 executor 断言; daemon 仍只用 `AuthenticatedActor` 作为被鉴别 person。
 - `packages/kernel/src/domain/runtime-event.ts`, `packages/kernel/src/schemas/runtime-event.ts`, `packages/application/src/runtime-event-ledger-service.ts`: runtime event actor 改为双轴,并兼容读取/写入旧单轴 actor 行。
 - `packages/cli/src/cli/command-runtime-events.ts`: CLI 自动 runtime event 写入双轴 actor; `task transition` 路径覆盖 C4。
 - Tests updated in `packages/application/test/task-holder-service.test.ts`, `packages/daemon/test/task-holder-rpc.test.ts`, `packages/cli/test/runtime-event-cli.test.ts`, `packages/application/test/runtime-event-ledger-service.test.ts`, `packages/daemon/test/json-rpc-protocol.test.ts`, and `packages/kernel/test/contracts/public-surface.test.ts`.

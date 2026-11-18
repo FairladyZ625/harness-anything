@@ -2,8 +2,7 @@ import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/stor
 import { projectionCatchUpLimit } from "./catch-up-limit.ts";
 import { initializeTerminalMaterialization } from "./rebuildable-task-projection-write-model.ts";
 import { transaction } from "./rebuildable-task-projection-sql.ts";
-import { createSqlTaskQueryReader } from "../pg/sql-task-query-reader.ts";
-import { makePgTaskProjection } from "../pg/pg-task-projection.ts";
+import { requireExternalTaskProjectionFactory, requireSqlTaskQueryReader } from "../sql-backend-adapters.ts";
 import { resolveHarnessLayout } from "@harness-anything/kernel/internal/layout/index.ts";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import {
@@ -159,7 +158,9 @@ export function makeTaskProjection(
   options: TaskProjectionFactoryOptions | PostgresTaskProjectionFactoryOptions | PGliteTaskProjectionFactoryOptions,
 ): TaskProjection | TaskProjectionPort {
   if (options.storage?.backend === "postgres" || options.storage?.backend === "pglite")
-    return makePgTaskProjection(options as PostgresTaskProjectionFactoryOptions | PGliteTaskProjectionFactoryOptions);
+    return requireExternalTaskProjectionFactory(options.storage.backend)(
+      options as PostgresTaskProjectionFactoryOptions | PGliteTaskProjectionFactoryOptions,
+    );
   requireSqliteBackend(options);
   const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir);
   const limit = projectionCatchUpLimit(options.catchUpLimit),
@@ -331,7 +332,7 @@ export function makeTaskProjectionReader(
   if (options.storage?.backend === "postgres" || options.storage?.backend === "pglite") {
     const repoId = "repoId" in options ? options.repoId : undefined;
     if (!repoId) throw new TypeError("PostgreSQL projection reader requires a repository id");
-    return createSqlTaskQueryReader({
+    return requireSqlTaskQueryReader(options.storage.backend)({
       storage: options.storage,
       repoId,
       requireRuntimeRole: true,
@@ -466,14 +467,22 @@ export function makeTaskProjectionReader(
         const row = db
           .prepare(
             [
-              "SELECT meta.schema_version, meta.watermark, event.workspace_revision AS head_event_revision",
+              "SELECT meta.schema_version, meta.watermark, meta.scan_cursor, meta.scanned_revision, meta.head_digest,",
+              "event.workspace_revision AS head_event_revision",
               "FROM projection_meta AS meta",
               "LEFT JOIN event_index AS event ON event.workspace_revision = meta.watermark",
               "WHERE meta.singleton = 1",
             ].join(" "),
           )
           .get() as
-          | { readonly schema_version: number; readonly watermark: number; readonly head_event_revision: number | null }
+          | {
+              readonly schema_version: number;
+              readonly watermark: number;
+              readonly scan_cursor: string | null;
+              readonly scanned_revision: number;
+              readonly head_digest: string | null;
+              readonly head_event_revision: number | null;
+            }
           | undefined;
         const observedSchema = row?.schema_version ?? null;
         if (observedSchema !== taskProjectionSchemaVersion)
@@ -488,9 +497,11 @@ export function makeTaskProjectionReader(
             { code: "kernel_schema_mismatch" },
           );
         if (row === undefined) throw new Error("projection metadata is unavailable");
-        const watermark = Number(row.watermark);
-        if (watermark > 0 && row.head_event_revision === null)
-          throw new Error(`projection completed cut ${watermark} has no canonical event`);
+        const watermark = Number(row.watermark),
+          // Private delegation events advance the completed source scan without adding public event rows.
+          scannedHead = row.scan_cursor === null && row.scanned_revision === watermark && row.head_digest !== null;
+        if (watermark > 0 && row.head_event_revision === null && !scannedHead)
+          throw new Error(`projection cut ${watermark} has neither an indexed event nor a completed source scan`);
         publishedHead = watermark > 0 ? { revision: watermark } : null;
         try {
           return read(queries);

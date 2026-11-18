@@ -3,7 +3,7 @@ import ts from "typescript";
 import {
   daemonGuiInvokeFacets,
   daemonProtocolCommands,
-} from "../../packages/daemon/src/protocol/daemon-protocol.contract.ts";
+} from "../../packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { unwrap } from "./authorization-flow-graph.mjs";
 
 const main = "packages/gui/src/main/";

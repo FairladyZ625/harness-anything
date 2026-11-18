@@ -7,8 +7,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { sha256Bytes } from "@harness-anything/kernel";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { type RepoCellBinding } from "../src/repo-cell.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { type RepoCellBinding } from "../src/daemon-host/repo-cell.ts";
 import {
   acceptedWorkDecision,
   openBootstrappedRepoCell as openRepoCell,

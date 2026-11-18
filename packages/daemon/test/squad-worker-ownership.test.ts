@@ -5,7 +5,11 @@ import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { checkWorkerOwnership, overlappingWorkerPaths, parseWorkerOwnedPaths } from "../src/squad-worker-ownership.ts";
+import {
+  checkWorkerOwnership,
+  overlappingWorkerPaths,
+  parseWorkerOwnedPaths,
+} from "../src/daemon-host/squad-worker-ownership.ts";
 
 test("ownership declarations retain canonical files and directories and remove exact duplicates", () => {
   assert.deepEqual(parseWorkerOwnedPaths(["src/", "README.md", "src/", "docs/设计.md"]), [

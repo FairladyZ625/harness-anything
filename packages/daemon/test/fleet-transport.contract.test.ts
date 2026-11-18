@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
-import { parseDaemonRpcParams } from "../src/protocol/daemon-protocol.contract.ts";
+import { parseDaemonRpcParams } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import {
   isFleetProtocolVersionCompatible,
   FLEET_CHUNK_BYTES,
@@ -16,9 +16,13 @@ import {
   parseFleetTransferPayload,
   serializeFleetTransferPayload,
   serializeFleetFrame,
-} from "../src/fleet/command-protocol.ts";
-import { encodeFleetFrames, FleetTransferAssembler, FleetTransferError } from "../src/fleet/command-transfer.ts";
-import { createResourceBudget } from "../src/fleet/resource-budget.ts";
+} from "../src/daemon-host/fleet/command-protocol.ts";
+import {
+  encodeFleetFrames,
+  FleetTransferAssembler,
+  FleetTransferError,
+} from "../src/daemon-host/fleet/command-transfer.ts";
+import { createResourceBudget } from "../src/daemon-host/fleet/resource-budget.ts";
 
 const cut = {
   revision: 7,

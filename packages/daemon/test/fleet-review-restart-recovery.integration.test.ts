@@ -7,9 +7,9 @@ import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { submissionDigest } from "@harness-anything/kernel";
 
-import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
+import { openFleetEdgeRuntime } from "../src/daemon-host/fleet-edge-runtime.ts";
 import { dualSyncFixture } from "./fleet-dual-sync.fixture.ts";
-import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
 
 for (const persistedIdentity of ["valid", "expired", "foreign-person"] as const)

@@ -8,7 +8,7 @@ import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 
 import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { grantArtifactKindScopes, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";

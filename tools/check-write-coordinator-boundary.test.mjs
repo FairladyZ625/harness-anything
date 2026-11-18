@@ -166,7 +166,7 @@ function withFixture(run) {
       execFileSync("git", args, { cwd: root });
     write(
       root,
-      "packages/daemon/src/repo-cell.ts",
+      "packages/daemon/src/daemon-host/repo-cell.ts",
       `import { makeTaskEventStore } from "@harness-anything/kernel";\nimport { makeTaskLifecycleService } from "../../application/src/task-lifecycle-service.ts";\nconst store = makeTaskEventStore({ rootDir });\nconst service = makeTaskLifecycleService({ eventStore: store, projection });\nlet tail = Promise.resolve();\ntail = tail.then(() => service.execute(command));\n`,
     );
     write(

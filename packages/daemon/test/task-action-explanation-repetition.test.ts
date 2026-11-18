@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { getEntityKindContract, type AuthorizationPermissionDecision } from "@harness-anything/kernel";
-import { preparePersonActionExplanationBinding } from "../src/task-action-explanation-read.ts";
-import type { RepoCellBinding } from "../src/repo-cell-types.ts";
+import { preparePersonActionExplanationBinding } from "../src/daemon-host/task-action-explanation-read.ts";
+import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
 
 const now = () => "2026-11-11T00:00:00.000Z";
 

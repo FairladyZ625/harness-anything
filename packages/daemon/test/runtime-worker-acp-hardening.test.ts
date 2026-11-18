@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { runAcpProviderSession } from "../src/runtime-worker-acp.ts";
+import { runAcpProviderSession } from "../src/daemon-host/runtime-worker-acp.ts";
 import { writeAcpProviderStub } from "./fixtures/acp-stub.ts";
 function collect() {
   const records: Record<string, unknown>[] = [];

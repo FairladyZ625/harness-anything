@@ -66,7 +66,7 @@ test("todo-add authorization reaches its registered catalog runtime source", () 
 
 test("removing the todo catalog callback leaves its registered effect unproven", (t) => {
   const dir = sourceCopy(t),
-    file = "packages/daemon/src/repo-cell-action-dispatch.ts",
+    file = "packages/daemon/src/daemon-host/repo-cell-action-dispatch.ts",
     pathName = path.join(dir, file),
     text = readFileSync(pathName, "utf8"),
     callback = "{ entity: { todo: (_contract, intent, actor, opId) => runTodoAction(cell, intent, actor, opId) } },";
@@ -128,7 +128,7 @@ second();
 // CH1: a detached owner route cannot borrow its implementation's reachable source.
 test("a missing queued owner decision leaves its declared effect unproven", (t) => {
   const dir = sourceCopy(t),
-    file = "packages/daemon/src/repo-cell-command-run.ts",
+    file = "packages/daemon/src/daemon-host/repo-cell-command-run.ts",
     target = path.join(dir, file),
     original = readFileSync(target, "utf8");
   writeFileSync(
@@ -177,7 +177,7 @@ test("local maintenance sources require exact technical ports and cannot claim a
     assert.equal(run(local, source).sourceRows[0].ok, true, symbol);
     const wrongPort = source.port.endsWith(".enqueue")
       ? source.port.replace(".enqueue", ".write")
-      : "packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.spawn";
+      : "packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.spawn";
     assert.equal(run(local, { ...source, port: wrongPort }).sourceRows[0].ok, false, symbol);
     assert.equal(run(canonical, { ...source, route: canonical.kind }).sourceRows[0].ok, false, symbol);
   }
@@ -239,52 +239,52 @@ test("daemon source declarations preserve actual driver and business owners", ()
   );
   for (const [candidateId, kind, route, role, port] of [
     [
-      "action:packages/daemon:packages/daemon/src/squad-coordinator-publication.ts#makeSquadPublicationController.publishState:ea198c0ae8e28c5df56304a635c8ee6b",
+      "action:packages/daemon:packages/daemon/src/daemon-host/squad-coordinator-publication.ts#makeSquadPublicationController.publishState:ea198c0ae8e28c5df56304a635c8ee6b",
       "daemon-local-state",
       "daemon-local-state",
       "technical-port",
-      "packages/daemon/src/squad-coordinator-publication.ts#makeSquadPublicationController.input.runtimeSpawner.cancel",
+      "packages/daemon/src/daemon-host/squad-coordinator-publication.ts#makeSquadPublicationController.input.runtimeSpawner.cancel",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.continueLeader:38b1bb3e40bdc47cc1a7037af6cda8e2",
+      "action:packages/daemon:packages/daemon/src/daemon-host/squad-coordinator.ts#makeSquadCoordinator.continueLeader:38b1bb3e40bdc47cc1a7037af6cda8e2",
       "daemon-local-state",
       "daemon-local-state",
       "technical-port",
-      "packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.cancel",
+      "packages/daemon/src/daemon-host/squad-coordinator.ts#makeSquadCoordinator.cancel",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/squad-run-state.ts#cancelRejectedSquadChildren:f2d2fea1c2a61b39b32d718b5ad786f1",
+      "action:packages/daemon:packages/daemon/src/daemon-host/squad-run-state.ts#cancelRejectedSquadChildren:f2d2fea1c2a61b39b32d718b5ad786f1",
       "daemon-local-state",
       "daemon-local-state",
       "technical-port",
-      "packages/daemon/src/squad-run-state.ts#SquadOrphanCancellation.cancel",
+      "packages/daemon/src/daemon-host/squad-run-state.ts#SquadOrphanCancellation.cancel",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/task-review-dispatch.ts#dispatchDecisionReview.spawned:924e97bd48641448595ff43500f7824d",
+      "action:packages/daemon:packages/daemon/src/daemon-host/task-review-dispatch.ts#dispatchDecisionReview.spawned:924e97bd48641448595ff43500f7824d",
       "decision-dispatch-review",
       "decision-dispatch-review",
       "effect",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/schedule-scheduler.ts#makeScheduleScheduler.tick:03f7df144e0da4b8d8de43d116dd75a0",
+      "action:packages/daemon:packages/daemon/src/daemon-host/schedule-scheduler.ts#makeScheduleScheduler.tick:03f7df144e0da4b8d8de43d116dd75a0",
       "daemon-local-state",
       "daemon-local-state",
       "technical-port",
-      "packages/daemon/src/schedule-scheduler.ts#ScheduleTarget.execute",
+      "packages/daemon/src/daemon-host/schedule-scheduler.ts#ScheduleTarget.execute",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/schedule-scheduler.ts#makeScheduleScheduler.targetFor.execute:fedd751c9cee14e8e02fbafe0cb48ac1",
+      "action:packages/daemon:packages/daemon/src/daemon-host/schedule-scheduler.ts#makeScheduleScheduler.targetFor.execute:fedd751c9cee14e8e02fbafe0cb48ac1",
       "daemon-local-state",
       "daemon-local-state",
       "technical-port",
-      "packages/daemon/src/repo-cell-types.ts#RepoCell.run",
+      "packages/daemon/src/daemon-host/repo-cell-types.ts#RepoCell.run",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/decision-point-executor.ts#openDecisionPointExecutor.settle.apply:79a44954c303732a0c96fdbd6afe2c74",
+      "action:packages/daemon:packages/daemon/src/daemon-host/decision-point-executor.ts#openDecisionPointExecutor.settle.apply:79a44954c303732a0c96fdbd6afe2c74",
       "daemon-local-state",
       "daemon-local-state",
       "technical-port",
-      "packages/daemon/src/decision-point-executor.ts#openDecisionPointExecutor.settle",
+      "packages/daemon/src/daemon-host/decision-point-executor.ts#openDecisionPointExecutor.settle",
     ],
     [
       "action:packages/application:packages/application/src/commands/fact-archive-document.ts#archiveAllFacts:f62e63de0d5257051d2b5b71ac126b0d",
@@ -305,39 +305,39 @@ test("daemon source declarations preserve actual driver and business owners", ()
       "effect",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/task-return-dispatch.ts#cancelSubmittingWorker:7e5c4e3cbedb7ebe77094b9412b7f1fc",
+      "action:packages/daemon:packages/daemon/src/daemon-host/task-return-dispatch.ts#cancelSubmittingWorker:7e5c4e3cbedb7ebe77094b9412b7f1fc",
       "daemon-local-state",
       "daemon-local-state",
       "technical-port",
-      "packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.cancel",
+      "packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.cancel",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/task-review-dispatch.ts#spawnCutReviewDispatch:1f4d89e086b95c09c127f22afe418a32",
+      "action:packages/daemon:packages/daemon/src/daemon-host/task-review-dispatch.ts#spawnCutReviewDispatch.prepareAndLaunch:9030b04c8201332d5d65d14f2b188188",
       "daemon-local-state",
       "daemon-local-state",
       "technical-port",
-      "packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.spawn",
+      "packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.spawn",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/task-review-dispatch.ts#spawnCutReviewDispatch.fallbackError:449bb086dc4bfc1f760437e9c2b3be11",
+      "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-open.ts#openRepoWriterCell.runtimeSpawner.onStalledReviewer.receipt:af1ef00d694c4f9a1c4bf9b3fece145f",
       "daemon-local-state",
       "daemon-local-state",
       "technical-port",
-      "packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.spawn",
+      "packages/daemon/src/daemon-host/repo-cell-types.ts#RepoCell.run",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/schedule-action-runtime.ts#settleScheduledRuntime:779d3e75837bcb7e247b063079c97d14",
+      "action:packages/daemon:packages/daemon/src/daemon-host/schedule-action-runtime.ts#settleScheduledRuntime:779d3e75837bcb7e247b063079c97d14",
       "daemon-local-state",
       "daemon-local-state",
       "technical-port",
-      "packages/daemon/src/schedule-action-runtime.ts#settleScheduledRuntime.run",
+      "packages/daemon/src/daemon-host/schedule-action-runtime.ts#settleScheduledRuntime.run",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/schedule-action-runtime.ts#settleScheduledRuntime.receipt:8e4e1b9e6fd99e7638e92e7c9796f069",
+      "action:packages/daemon:packages/daemon/src/daemon-host/schedule-action-runtime.ts#settleScheduledRuntime.receipt:8e4e1b9e6fd99e7638e92e7c9796f069",
       "daemon-local-state",
       "daemon-local-state",
       "technical-port",
-      "packages/daemon/src/schedule-action-runtime.ts#settleScheduledRuntime.run",
+      "packages/daemon/src/daemon-host/schedule-action-runtime.ts#settleScheduledRuntime.run",
     ],
   ]) {
     assert.deepEqual(
@@ -355,15 +355,15 @@ test("return continuation queue and automatic spawner use their actual technical
   const rows = [
     [
       "dispatchContinuation.completed:48dbce6d60b54b29628f5a708899f3eb",
-      "packages/daemon/src/repo-cell-types.ts#RepoCellContinuationWrite",
+      "packages/daemon/src/daemon-host/repo-cell-types.ts#RepoCellContinuationWrite",
     ],
     [
       "dispatchContinuation.spawned:0945e48785ee4398118a84514b3a6fbf",
-      "packages/daemon/src/repo-cell-types.ts#RepoCellContinuationWrite",
+      "packages/daemon/src/daemon-host/repo-cell-types.ts#RepoCellContinuationWrite",
     ],
     [
       "dispatchContinuation.spawned:004f209ef618210157675205bc97597d",
-      "packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.spawn",
+      "packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.spawn",
     ],
   ];
   const sources = rows.map(([suffix, port]) => {
@@ -384,7 +384,7 @@ test("return continuation queue and automatic spawner use their actual technical
       technicalPortEvidence(
         graph,
         node,
-        { ...source, port: "packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.cancel" },
+        { ...source, port: "packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.cancel" },
         local,
         inputs.descriptors,
       ),
@@ -414,7 +414,7 @@ test("the witness collector supplied port preserves its registered queued author
 });
 test("a detached witness catalog callback cannot borrow the collector publisher", (t) => {
   const dir = sourceCopy(t),
-    file = "packages/daemon/src/repo-cell-action-dispatch.ts";
+    file = "packages/daemon/src/daemon-host/repo-cell-action-dispatch.ts";
   const target = path.join(dir, file),
     text = readFileSync(target, "utf8");
   writeFileSync(
@@ -430,4 +430,11 @@ test("a detached witness catalog callback cannot borrow the collector publisher"
   assert.equal(result.rows.find((row) => row.id === "task-witness-rerun")?.ok, true);
   assert.equal(result.sourceRows.find((source) => source.id === witnessSource)?.ok, false);
   assert.ok(result.findings.some((finding) => finding.includes(witnessSource)));
+});
+
+test("manual task review reaches the authorized launch after preparing outside the writer", () => {
+  const result = auditDurableActionAuthorization(repoRoot, inputs, { only: ["task-dispatch-review"] });
+  assert.deepEqual(result.findings, []);
+  assert.equal(result.rows.find(({ id }) => id === "task-dispatch-review")?.ok, true);
+  assert.equal(result.sourceRows.find(({ kind }) => kind === "task-dispatch-review")?.ok, true);
 });

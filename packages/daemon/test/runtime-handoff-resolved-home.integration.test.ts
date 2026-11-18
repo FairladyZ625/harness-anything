@@ -6,15 +6,15 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { listenFleetTls } from "../src/fleet/center.ts";
-import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
-import { dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
+import { applyFleetMirrorCut } from "../src/daemon-host/fleet-edge-mirror.ts";
+import { dispatchStreamPath, readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
-import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
+import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 const fixtureNativeId = "019abcdef-1234-5678-9999-abcdef123456";
@@ -194,7 +194,7 @@ for (const row of [{type:'thread.started',thread_id:id},
       // launch resolves CODEX_HOME from here, not from any instance layout.
       runtimeEnv: { CODEX_HOME: providerHome },
     });
-    t.after(() => host.close());
+    f.track(() => host.close());
     await host.attachmentsSettled();
     await host.runtimeInstance("daemon.runtimeInstance.create", instance, localAuth);
     return {

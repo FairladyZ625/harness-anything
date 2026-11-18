@@ -1,13 +1,13 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import * as XLSX from "xlsx";
-import { daemonBuildStamp } from "../../packages/daemon/src/build-identity.ts";
-import { resolveLocalDaemonEndpoint } from "../../packages/daemon/src/client/local-daemon-target.ts";
-import { requestDaemonJsonRpcAt } from "../../packages/daemon/src/client/local-json-rpc-client.ts";
+import { daemonBuildStamp } from "../../packages/daemon/src/daemon-host/build-identity.ts";
+import { resolveLocalDaemonEndpoint } from "../../packages/daemon/src/daemon-host/client/local-daemon-target.ts";
+import { requestDaemonJsonRpcAt } from "../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
 import {
   currentDaemonProtocolVersion,
   daemonGuiInvokeFacets,
-} from "../../packages/daemon/src/protocol/daemon-protocol.contract.ts";
+} from "../../packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { startGuiResidentDaemonFixture } from "../../packages/gui/test-support/resident-daemon.mjs";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import {

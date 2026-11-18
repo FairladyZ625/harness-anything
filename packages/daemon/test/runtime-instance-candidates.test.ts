@@ -2,16 +2,19 @@
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { prepareRuntimeInstance as prepare, resolveRuntimeInstanceCandidates } from "../src/runtime-spawn-mission.ts";
+import {
+  prepareRuntimeInstance as prepare,
+  resolveRuntimeInstanceCandidates,
+} from "../src/daemon-host/runtime-spawn-mission.ts";
 import { readSettingsFacet } from "@harness-anything/kernel";
-import { initialRuntimeInstanceSettings } from "../src/runtime-spawn-allowlist.ts";
-import type { RuntimeAgent } from "../src/runtime-spawn-types.ts";
+import { initialRuntimeInstanceSettings } from "../src/daemon-host/runtime-spawn-allowlist.ts";
+import type { RuntimeAgent } from "../src/daemon-host/runtime-spawn-types.ts";
 import {
   agentRuntimeAmbiguityWarning,
   runtimeInstanceModel,
   selectedRuntimeInstance,
   createRuntimeInstanceDispatchState,
-} from "../src/runtime-instance-selection.ts";
+} from "../src/daemon-host/runtime-instance-selection.ts";
 
 function prepareRuntimeInstance<T>(
   input: Parameters<typeof resolveRuntimeInstanceCandidates>[0],

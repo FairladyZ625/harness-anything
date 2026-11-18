@@ -1,7 +1,7 @@
-import { readTaskDispatchRow } from "../../src/dispatch-read.ts";
+import { readTaskDispatchRow } from "../../src/daemon-host/dispatch-read.ts";
 import assert from "node:assert/strict";
 import { createReadFixtureRuntime } from "./g38-read-runtime.mjs";
-import { adoptRuntimes, sweepSettledRuntimeTempDirectories } from "../../src/runtime-spawn-adoption.ts";
+import { adoptRuntimes, sweepSettledRuntimeTempDirectories } from "../../src/daemon-host/runtime-spawn-adoption.ts";
 import { HOST_READ_PROBES } from "./g38-read-host-probes.mjs";
 import { METHOD_READ_PROBES, PROJECTION_READ_PROBES } from "./g38-read-method-probes.mjs";
 import { COMMAND_READ_PROBES, ACTION_METHOD_READ_PROBES } from "./g38-read-command-probes.mjs";

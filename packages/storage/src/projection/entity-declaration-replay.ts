@@ -1,4 +1,4 @@
-import { consumeKnownError } from "@harness-anything/kernel";
+import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import type { EntityKindContract } from "@harness-anything/kernel/internal/domain/entity-kind-registry.ts";
 import {
   interpretEntityValue,

@@ -11,7 +11,7 @@ import {
   openEntityStore,
 } from "@harness-anything/storage";
 import { compileAgentRetired, sha256Text } from "@harness-anything/kernel";
-import { prepareAgentEntityInstall } from "../src/agent-entities.ts";
+import { prepareAgentEntityInstall } from "../src/daemon-host/agent-entities.ts";
 import {
   diffAgentDeclarations,
   diffInstructionLines,
@@ -19,9 +19,9 @@ import {
   readAgentHistory,
   readAgentVersion,
   summarizeAgentDeclaration,
-} from "../src/agent-version-read.ts";
-import { validateAgentHistory, validateAgentVersion } from "../src/protocol/agent-entity-gui-contract.ts";
-import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
+} from "../src/daemon-host/agent-version-read.ts";
+import { validateAgentHistory, validateAgentVersion } from "../src/daemon-host/protocol/agent-entity-gui-contract.ts";
+import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
 import { appendLegacyAgentDeclaration, initRepo } from "./agent-entities.fixtures.ts";
 
 /**

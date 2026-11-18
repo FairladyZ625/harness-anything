@@ -24,7 +24,7 @@ const TEST_FILE = /\.(?:integration\.)?(?:spec|test)\.[^.]+$/u;
 const CANONICAL_MODULE =
   /^(?:packages|src)\/(kernel|task-lifecycle|doc-sync|preset|cli|gui|daemon|storage|authority-write-path|identity-rbac|dsh-plugin)(?:\/|$)/u;
 const CONCEPT_MODULE =
-  /^packages\/(?:kernel\/src\/(?:domain|schemas)\/(decision|fact)-event|kernel\/src\/projection\/(decision|fact)-event-projection|application\/src\/(decision|fact)-service|daemon\/src\/(decision|fact)-actions)\.ts$/u;
+  /^packages\/(?:kernel\/src\/(?:domain|schemas)\/(decision|fact)-event|kernel\/src\/projection\/(decision|fact)-event-projection|application\/src\/(decision|fact)-service|daemon\/src\/(?:daemon-host\/)?(decision|fact)-actions)\.ts$/u;
 
 export function normalizeRepoPath(filePath: string): string | null {
   if (typeof filePath !== "string") return null;
@@ -64,10 +64,10 @@ export function classifyModule(filePath: string): string | null {
   if (normalized === "packages/kernel/src/domain/write-chain.contract.ts") return "write-contract";
   const conceptModule = CONCEPT_MODULE.exec(normalized)?.slice(1).find(Boolean);
   if (conceptModule !== undefined) return conceptModule;
-  if (/^packages\/daemon\/src\/fleet\//u.test(normalized)) return "fleet";
+  if (/^packages\/daemon\/src\/(?:(?:daemon-host|fleet-sync)\/)?fleet\//u.test(normalized)) return "fleet";
   if (/agent-runtime/u.test(normalized)) return "agent-runtime";
   if (/^packages\/gui\//u.test(normalized)) return "gui";
-  if (/^packages\/daemon\/src\/identity\//u.test(normalized)) return "identity-rbac";
+  if (/^packages\/daemon\/src\/(?:daemon-host\/)?identity\//u.test(normalized)) return "identity-rbac";
   if (/doc-sync/u.test(normalized)) return "doc-sync";
   if (/^packages\/cli\/src\/(?:cli\/parsers\/extensions-|commands\/extensions\/)/u.test(normalized)) return "preset";
 

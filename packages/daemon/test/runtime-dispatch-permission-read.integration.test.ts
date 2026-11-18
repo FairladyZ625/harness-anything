@@ -12,16 +12,20 @@ import {
   type AgentRuntimeEventV1,
 } from "@harness-anything/kernel";
 import { makeTaskEventStore } from "@harness-anything/storage";
-import { validateAgentRuntimeSession } from "../src/agent-runtime-contract.ts";
-import type { RuntimeInstallationWitness, RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
-import { daemonBuildStamp } from "../src/build-identity.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { canonicalRoot, validateDaemonTaskDispatches, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { validateAgentRuntimeSession } from "../src/daemon-host/agent-runtime-contract.ts";
+import type { RuntimeInstallationWitness, RuntimeInstanceSummary } from "../src/daemon-host/agent-runtime-instances.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import {
+  canonicalRoot,
+  validateDaemonTaskDispatches,
+  workspaceId,
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import {
   validDispatchLifecycleSummary,
   validTaskDispatchAttempt,
-} from "../src/protocol/daemon-protocol-validate-relation-query.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
+} from "../src/daemon-host/protocol/daemon-protocol-validate-relation-query.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import {
   fixtureFence,

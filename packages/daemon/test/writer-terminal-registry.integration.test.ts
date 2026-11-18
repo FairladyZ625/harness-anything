@@ -6,10 +6,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Worker } from "node:worker_threads";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openTerminalHost } from "../src/terminal-host.ts";
-import { loadTmuxSessionRegistry } from "../src/terminal-session-store.ts";
-import { openWriterSupervisor, WRITER_IDLE_TIMEOUT_MS } from "../src/writer-supervisor.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { openTerminalHost } from "../src/daemon-host/terminal-host.ts";
+import { loadTmuxSessionRegistry } from "../src/runtime-engine/terminal-session-store.ts";
+import { openWriterSupervisor, WRITER_IDLE_TIMEOUT_MS } from "../src/daemon-host/writer-supervisor.ts";
 import { policyTestCenter, provisionPolicyTestRepository } from "./keycloak-policy.fixtures.ts";
 import { fixtureFence, settleSettingsEvent } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
@@ -85,9 +85,8 @@ test(
                 new URL("./fixtures/writer-terminal-registry.mjs", import.meta.url).href,
               ],
             });
-            const exited = once(worker, "exit"),
-              post = worker.postMessage.bind(worker);
-            worker.postMessage = (message: unknown, transferList) => {
+            const exited = once(worker, "exit");
+            worker.on("orchestration-post", (message: unknown) => {
               const control = message as { command?: string; requestId?: string };
               if (control.command === "hibernate")
                 attempts.push(
@@ -101,8 +100,7 @@ test(
                     worker.on("message", listener);
                   }),
                 );
-              post(message, transferList);
-            };
+            });
             workers.push(worker);
             return worker;
           },

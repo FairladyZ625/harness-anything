@@ -11,15 +11,15 @@ import {
   fleetNodeOwners,
   waitForFleetPublication,
 } from "./fleet-store.fixture.ts";
-import { createNodeRetirement } from "../src/fleet/node-retirement.ts";
-import { AccessAdminService } from "../src/access-admin-service.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
-import { createIdentitySession } from "../src/authorization-provider.ts";
+import { createNodeRetirement } from "../src/daemon-host/fleet/node-retirement.ts";
+import { AccessAdminService } from "../src/daemon-host/access-admin-service.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { listenFleetTls, type FleetTlsCenter } from "../src/daemon-host/fleet/center.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
-import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/fleet/command-protocol.ts";
-import { FleetTransferAssembler } from "../src/fleet/command-transfer.ts";
+import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/daemon-host/fleet/command-protocol.ts";
+import { FleetTransferAssembler } from "../src/daemon-host/fleet/command-transfer.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 type FleetTestSubject = {
@@ -37,10 +37,10 @@ export const replicaQuota = 64 * 1024 * 1024;
 // `fixture.close` to `t.after`, which node:test does run after a timeout. Sockets and edge children are dropped
 // before the centers so `server.close()` is never left waiting on a peer that outlived the test.
 export function reclaimer() {
-  const closers: Array<() => void> = [],
+  const closers: Array<() => unknown> = [],
     centers: FleetTlsCenter[] = [];
   return {
-    track: (close: () => void) => {
+    track: (close: () => unknown) => {
       closers.push(close);
     },
     hold: async (opening: Promise<FleetTlsCenter>) => {
@@ -49,7 +49,8 @@ export function reclaimer() {
       return center;
     },
     reclaim: async () => {
-      for (const close of closers.splice(0)) close();
+      // Tracked daemons must finish draining before the fixture removes their shared root.
+      for (const close of closers.splice(0)) await close();
       for (const center of centers.splice(0)) await center.close();
     },
   };

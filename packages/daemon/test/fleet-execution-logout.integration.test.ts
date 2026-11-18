@@ -5,20 +5,24 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
-import { readDispatchStream } from "../src/dispatch-stream.ts";
-import { readRuntimeExecutionPrincipal } from "../src/runtime-execution-principal-store.ts";
-import { authenticateRuntimeExecutionPrincipal } from "../src/runtime-execution-credential.ts";
+import { readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { readRuntimeExecutionPrincipal } from "../src/daemon-host/runtime-execution-principal-store.ts";
+import { authenticateRuntimeExecutionPrincipal } from "../src/daemon-host/runtime-execution-credential.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
-import { startDaemon } from "../src/runtime.ts";
-import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
-import { runFleetTaskCommandClient, runFleetRuntimeEventClient, runFleetWriteClient } from "../src/fleet/peer.ts";
+import { startDaemon } from "../src/daemon-host/runtime.ts";
+import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { applyFleetMirrorCut } from "../src/daemon-host/fleet-edge-mirror.ts";
+import {
+  runFleetTaskCommandClient,
+  runFleetRuntimeEventClient,
+  runFleetWriteClient,
+} from "../src/daemon-host/fleet/peer.ts";
 import { IdentitySessionPort, keycloakSessionStore, signInAt } from "./keycloak.fixtures.ts";
 import { fleetFixture, git, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { spawnCli } from "./fixtures/runtime-ingress.ts";
-import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
-import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
+import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
+import { readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { waitForLocalIdentityRetirement } from "./fixtures/fleet-settled-identity/local-identity.ts";
 

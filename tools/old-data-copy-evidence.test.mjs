@@ -131,7 +131,7 @@ function git(root, ...args) {
 /** A miniature stand-in for the canonical workspace: an authored harness/ git repository of its
  *  own (that is the canonical shape) plus a real generation-3 ledger seeded through the
  *  production store, holding one settings event. */
-function createSourceFixture(parent, localRoot = ".harness") {
+async function createSourceFixture(parent, localRoot = ".harness") {
   const root = path.join(parent, "source"),
     harness = path.join(root, "harness");
   mkdirSync(harness, { recursive: true });
@@ -146,21 +146,25 @@ function createSourceFixture(parent, localRoot = ".harness") {
   git(harness, "config", "user.email", "oldcopy@example.test");
   git(harness, "add", "harness.yaml");
   git(harness, "commit", "--quiet", "-m", "fixture");
-  seedSettingsEvent({ repoId: "canonical", rootDir: root });
+  const store = seedSettingsEvent({ repoId: "canonical", rootDir: root, keepOpen: true });
+  assert.ok(store);
+  // The fixture describes an already settled old cut. Drain the seeder's WAL/outbox
+  // before its independent copy starts VACUUM INTO (dec_04A9211B073F29F0FC1E1CA573 CH2).
+  await store.drain();
   // An (empty) cache database so the cache-clone snapshot step is exercised end to end.
   mkdirSync(path.join(root, ...localRoot.split("/"), "cache"), { recursive: true });
   writeFileSync(path.join(root, ...localRoot.split("/"), "cache", "task.sqlite"), "", "utf8");
   return root;
 }
 
-test("copy layout: the source harness.yaml decides the local root, not a default literal", () => {
+test("copy layout: the source harness.yaml decides the local root, not a default literal", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-oldcopy-layout-"));
   try {
-    const defaultRoot = createSourceFixture(path.join(parent, "default"));
+    const defaultRoot = await createSourceFixture(path.join(parent, "default"));
     assert.equal(copyLayout(defaultRoot).localRootRelative, ".harness");
     const renamedParent = path.join(parent, "renamed");
     mkdirSync(renamedParent, { recursive: true });
-    const renamedRoot = createSourceFixture(renamedParent, ".harness.nosync");
+    const renamedRoot = await createSourceFixture(renamedParent, ".harness.nosync");
     const renamed = copyLayout(renamedRoot);
     assert.equal(renamed.localRootRelative, ".harness.nosync");
     assert.equal(renamed.localRoot, path.join(renamedRoot, ".harness.nosync"));
@@ -178,7 +182,7 @@ test("copy layout: the source harness.yaml decides the local root, not a default
 test("snapshot: the harness clone carries objects and config, not the authored tree", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-oldcopy-snapshot-"));
   try {
-    const source = createSourceFixture(parent),
+    const source = await createSourceFixture(parent),
       harness = path.join(source, "harness");
     // A committed authored file of the kind the old checkout materialized. Attach and the cold
     // rebuild read projected documents and the live config, never a task package file.
@@ -233,10 +237,10 @@ function repoHead() {
   return spawnSync("git", ["rev-parse", "--verify", "HEAD"], { cwd: repoRoot, encoding: "utf8" });
 }
 
-test("one command: snapshot, isolated daemon attach, reads, cold rebuild, receipt, cleanup", () => {
+test("one command: snapshot, isolated daemon attach, reads, cold rebuild, receipt, cleanup", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-oldcopy-evidence-test-"));
   try {
-    const source = createSourceFixture(parent);
+    const source = await createSourceFixture(parent);
     const out = path.join(parent, "out");
     const result = runCommand(["--source", source, "--out", out, "--cold-attach", "--attach-timeout-ms", "120000"]);
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
@@ -341,10 +345,10 @@ test("one command: snapshot, isolated daemon attach, reads, cold rebuild, receip
   }
 });
 
-test("one command: medium submission records missing local auth and still cold-rebuilds the copy", () => {
+test("one command: medium submission records missing local auth and still cold-rebuilds the copy", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-oldcopy-medium-submit-test-"));
   try {
-    const source = createSourceFixture(parent);
+    const source = await createSourceFixture(parent);
     const result = runCommand(["--source", source, "--medium-submit", "--attach-timeout-ms", "120000"]);
     assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
     const receipt = JSON.parse(result.stdout),
@@ -403,7 +407,7 @@ test(
   async (t) => {
     const parent = mkdtempSync(path.join(tmpdir(), "ha-oldcopy-evidence-test-"));
     try {
-      const source = createSourceFixture(parent);
+      const source = await createSourceFixture(parent);
       const wal = path.join(source, ".harness", "wal");
       const bin = path.join(parent, "bin");
       const ready = path.join(parent, "copy-started");
@@ -502,10 +506,10 @@ read -r released < "$OLD_COPY_TEST_RELEASE"
   },
 );
 
-test("empty-ledger copy: raw failure in the receipt, non-zero exit, cleanup still runs", () => {
+test("empty-ledger copy: raw failure in the receipt, non-zero exit, cleanup still runs", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-oldcopy-evidence-test-"));
   try {
-    const source = createSourceFixture(parent);
+    const source = await createSourceFixture(parent);
     const generations = path.join(source, ".harness", "store", "generations");
     const generation = readdirSync(generations).find(
       (entry) =>

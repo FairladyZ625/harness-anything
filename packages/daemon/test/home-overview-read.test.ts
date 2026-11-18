@@ -4,12 +4,12 @@ import test from "node:test";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { readHomeOverview } from "../src/home/home-overview-read.ts";
-import { validateHomeOverviewResult } from "../src/home/home-overview-validation.ts";
+import { readHomeOverview } from "../src/daemon-host/home/home-overview-read.ts";
+import { validateHomeOverviewResult } from "../src/daemon-host/home/home-overview-validation.ts";
 import { consumeKnownError } from "@harness-anything/kernel";
-import type { DaemonHostRegistryContext } from "../src/daemon-host-open.ts";
-import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
-import type { RepoCell, RepoCellStatus } from "../src/repo-cell-types.ts";
+import type { DaemonHostRegistryContext } from "../src/daemon-host/daemon-host-open.ts";
+import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/auth-context.ts";
+import type { RepoCell, RepoCellStatus } from "../src/daemon-host/repo-cell-types.ts";
 
 function createRepoRow(
   repoId: string,

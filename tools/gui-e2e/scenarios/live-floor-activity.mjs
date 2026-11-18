@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "../../../packages/daemon/src/dispatch-stream.ts";
+import {
+  appendRuntimeWorkerRecord,
+  openDispatchStream,
+} from "../../../packages/daemon/src/daemon-host/dispatch-stream.ts";
 import { guiE2eDispatchId, guiE2eRuntimeSessionId } from "./sessions-grouping.mjs";
 import { nav } from "./helpers.mjs";
 

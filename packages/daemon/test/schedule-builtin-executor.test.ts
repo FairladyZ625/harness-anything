@@ -7,16 +7,16 @@ import test from "node:test";
 import { Worker, type WorkerOptions } from "node:worker_threads";
 import { makeTaskEventReader, readVerifiedLedgerBackup } from "@harness-anything/storage";
 import { createScheduleV1, nextScheduleOccurrence, type ScheduleV1 } from "@harness-anything/kernel";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import {
   openBootstrappedRepoCell as openRepoCell,
   registerBootstrappedDaemonRepo as registerDaemonRepo,
 } from "./repo-settings.fixture.ts";
 import { withPolicyGroup, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { definition, initHarnessRepo } from "./schedule-actions.fixtures.ts";
-import type { RepoTaskAction } from "../src/repo-cell-types.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { finishLedgerBackup } from "../src/schedule-backup-worker.ts";
+import type { RepoTaskAction } from "../src/daemon-host/repo-cell-types.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { finishLedgerBackup } from "../src/daemon-host/schedule-backup-worker.ts";
 import {
   builtinLedgerBackupScheduleId,
   builtinNightlyReckoningScheduleId,
@@ -24,7 +24,7 @@ import {
   executeBuiltinScheduleOccurrence,
   scheduledLedgerBackupRoot,
   seedBuiltinSchedules,
-} from "../src/schedule-builtin-executor.ts";
+} from "../src/daemon-host/schedule-builtin-executor.ts";
 
 type WriteReceipt = { readonly outcome: string; readonly opId: string; readonly revision: number };
 

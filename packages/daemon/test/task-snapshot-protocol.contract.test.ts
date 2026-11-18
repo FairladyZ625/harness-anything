@@ -4,8 +4,8 @@ import test from "node:test";
 import {
   isolateDaemonTaskSnapshotRows,
   validateDaemonTaskSnapshotList,
-} from "../src/protocol/daemon-protocol.contract.ts";
-import { review as validateReviewProtocolShape } from "../src/protocol/daemon-protocol-validate-entities.ts";
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { review as validateReviewProtocolShape } from "../src/daemon-host/protocol/daemon-protocol-validate-entities.ts";
 import { closeoutReadiness, submissionDigest } from "@harness-anything/kernel";
 import type { CloseoutSnapshot, ExecutionV1, ReviewV1 } from "@harness-anything/kernel";
 

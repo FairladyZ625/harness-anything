@@ -14,8 +14,8 @@ import {
   type TaskProjectionListQuery,
 } from "@harness-anything/kernel";
 type TaskBoardRowInput = Parameters<typeof taskBoardPlacement>[0];
-import { canonicalRoot, validateDaemonTaskSnapshotList } from "../src/protocol/daemon-protocol.contract.ts";
-import { makeTaskQueryReadModel } from "../src/task-query-read.ts";
+import { canonicalRoot, validateDaemonTaskSnapshotList } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { makeTaskQueryReadModel } from "../src/daemon-host/task-query-read.ts";
 
 /**
  * The positive control 4.2 deletes its renderer judgments against. Each mirror below is the GUI

@@ -12,13 +12,13 @@ import {
   openDispatchStream,
   readAllDispatchStreamSummaries,
   readDispatchStream,
-} from "../src/dispatch-stream.ts";
-import { dispatchEvidenceStatePath, writeDispatchEvidenceState } from "../src/dispatch-evidence-state.ts";
+} from "../src/daemon-host/dispatch-stream.ts";
+import { dispatchEvidenceStatePath, writeDispatchEvidenceState } from "../src/daemon-host/dispatch-evidence-state.ts";
 import {
   pruneDispatchStreamArchive,
   readFactEvidenceSources,
   scheduleArchivedDispatchStreamCompaction,
-} from "../src/dispatch-stream-archive.ts";
+} from "../src/daemon-host/dispatch-stream-archive.ts";
 
 const ROOT = tmpdir();
 

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 import { VerticalCompletionDeclarationSchema } from "../src/schemas/completion-source.ts";
 import { effectiveCloseoutGates } from "../src/domain/settings-closeout.ts";
 import { resolveCompletionContract } from "../src/domain/completion-contract.ts";

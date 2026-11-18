@@ -6,9 +6,9 @@ import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { daemonBuildStamp, readDistBuildId } from "../../packages/daemon/src/build-identity.ts";
-import { requestDaemonJsonRpcAt } from "../../packages/daemon/src/client/local-json-rpc-client.ts";
-import { currentDaemonProtocolVersion } from "../../packages/daemon/src/protocol/daemon-protocol.contract.ts";
+import { daemonBuildStamp, readDistBuildId } from "../../packages/daemon/src/daemon-host/build-identity.ts";
+import { requestDaemonJsonRpcAt } from "../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
+import { currentDaemonProtocolVersion } from "../../packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { prepareE2EProbeGui, resolveE2EProbeElectronForTest } from "../e2e-probe.mjs";
 import { startGuiResidentDaemonFixture } from "../../packages/gui/test-support/resident-daemon.mjs";
 

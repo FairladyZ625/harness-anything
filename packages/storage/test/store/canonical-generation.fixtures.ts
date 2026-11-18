@@ -27,7 +27,7 @@ export type { DocEventV1 } from "@harness-anything/kernel/internal/domain/doc-sy
 
 export type { AgentRuntimeEventV1 } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 
-export { makeSqliteTaskEventStore } from "../../src/store/sqlite-task-event-store.ts";
+export { makeSqliteTaskEventStoreWithGitFollower as makeSqliteTaskEventStore } from "../../src/store/sqlite-git-outbox-publisher.ts";
 
 export { planCompletionGeneration } from "../../src/store/completion-generation-plan.ts";
 export { canonicalLedgerCut } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";

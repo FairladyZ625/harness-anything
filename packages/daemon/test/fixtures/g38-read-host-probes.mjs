@@ -1,20 +1,20 @@
-import { orchestrateRuntimeSessionsAwait } from "../../src/runtime-orchestration.ts";
-import { readSquadRecoveryState } from "../../src/squad-run-state.ts";
+import { orchestrateRuntimeSessionsAwait } from "../../src/daemon-host/runtime-orchestration.ts";
+import { readSquadRecoveryState } from "../../src/daemon-host/squad-run-state.ts";
 import { READ_SESSION_ID } from "./g38-read-ledger.mjs";
 import { readRollback } from "../../../cli/test/fixtures/g38-read-rollback.mjs";
-import { readEffectiveDispatchArchiveRetention } from "../../src/repo-cell-settings-state.ts";
-import { readFactEvidenceSources } from "../../src/dispatch-stream-archive.ts";
+import { readEffectiveDispatchArchiveRetention } from "../../src/daemon-host/repo-cell-settings-state.ts";
+import { readFactEvidenceSources } from "../../src/daemon-host/dispatch-stream-archive.ts";
 import { ARCHIVE_READ_PROBES } from "./g38-read-archive.mjs";
-import { readHomeOverview } from "../../src/home/home-overview-read.ts";
-import { readFleetOverviewFromHost } from "../../src/fleet/fleet-overview-read.ts";
-import { readClaimableTasks } from "../../src/task-claimable-read.ts";
-import { readEntityAssignmentDirectory } from "../../src/entity-assignment-directory.ts";
-import { readRepoInFlightWork } from "../../src/repo-in-flight-work.ts";
-import { makeScheduleScheduler } from "../../src/schedule-scheduler.ts";
+import { readHomeOverview } from "../../src/daemon-host/home/home-overview-read.ts";
+import { readFleetOverviewFromHost } from "../../src/daemon-host/fleet/fleet-overview-read.ts";
+import { readClaimableTasks } from "../../src/daemon-host/task-claimable-read.ts";
+import { readEntityAssignmentDirectory } from "../../src/daemon-host/entity-assignment-directory.ts";
+import { readRepoInFlightWork } from "../../src/daemon-host/repo-in-flight-work.ts";
+import { makeScheduleScheduler } from "../../src/daemon-host/schedule-scheduler.ts";
 import { READ_TASK_ID } from "./g38-read-ledger.mjs";
 import assert from "node:assert/strict";
-import { createJsonRpcProtocolServer } from "../../src/protocol/json-rpc-server.ts";
-import { daemonHelloParams } from "../../src/client/daemon-hello.ts";
+import { createJsonRpcProtocolServer } from "../../src/daemon-host/protocol/json-rpc-server.ts";
+import { daemonHelloParams } from "../../src/daemon-host/client/daemon-hello.ts";
 const now = () => "2026-11-05T00:00:00.000Z";
 
 export const HOST_READ_PROBES = {

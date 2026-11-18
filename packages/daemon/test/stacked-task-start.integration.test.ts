@@ -7,10 +7,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
 import { blockingOf, submissionDigest } from "@harness-anything/kernel";
-import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { assertTaskDispatchPrerequisites } from "../src/task-dispatch-admission.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { assertTaskDispatchPrerequisites } from "../src/daemon-host/task-dispatch-admission.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 import { fixture as reviewFixture, taskId as upstreamTaskId } from "./task-completion-review.fixture.ts";
@@ -112,12 +112,13 @@ test("stack start checks out the approved delivery and freezes that exact baseli
     cell.run({ kind: "task-start", taskId: "task_stack_negative", stackOn: "task_stack_base" }, owner),
     /consented approved upstream cut/u,
   );
-  await run({
+  const consent = await run({
     kind: "task-review-consent",
     taskId: "task_stack_base",
     executionId: "exe-base",
     reviewId: "review-stack",
   });
+  await waitForFixturePublication(cell, consent.opId, owner);
   // Main advances independently; the explicit anchor is neither HEAD nor merge-base(main, delivery).
   writeFileSync(path.join(root, "main.txt"), "main advance\n");
   git(root, "add", "main.txt");

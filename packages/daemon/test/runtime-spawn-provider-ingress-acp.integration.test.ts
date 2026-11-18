@@ -9,8 +9,8 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { readDispatchStream } from "../src/dispatch-stream.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { initIngressRepo, rpc, eventuallyValue } from "./fixtures/runtime-ingress.ts";
 import { writeAcpProviderStub } from "./fixtures/acp-stub.ts";

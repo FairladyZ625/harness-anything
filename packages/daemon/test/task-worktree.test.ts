@@ -19,8 +19,8 @@ import test, { type TestContext } from "node:test";
 import { waitForDurableCondition } from "../../../tools/fixtures/event-arrival.ts";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { deriveTaskWorktreeBinding, type TaskV2, type WriteReceiptDraft } from "@harness-anything/kernel";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import {
   applyTaskWorktreeLifecycle,
   checkoutTaskWorktree,
@@ -28,17 +28,17 @@ import {
   reclaimReviewWorktree,
   reconcileClosedTaskWorktrees,
   taskWorkspaceView,
-} from "../src/task-worktree.ts";
-import { prepareWorkerWorktree, reclaimWorkerWorktree } from "../src/squad-worker-checkout.ts";
-import { nodeModulesSetupAdapter } from "../src/worktree-setup-node-modules.ts";
-import { remoteDefaultBranch, repositoryBaseRef } from "../src/schedule-occurrence-workspace.ts";
+} from "../src/daemon-host/task-worktree.ts";
+import { prepareWorkerWorktree, reclaimWorkerWorktree } from "../src/daemon-host/squad-worker-checkout.ts";
+import { nodeModulesSetupAdapter } from "../src/daemon-host/worktree-setup-node-modules.ts";
+import { remoteDefaultBranch, repositoryBaseRef } from "../src/daemon-host/schedule-occurrence-workspace.ts";
 import {
   isLinkedWorktree,
   noWorktreeSetup,
   readWorktreeSetupSucceeded,
   runWorktreeSetup,
   worktreeSetupFailure,
-} from "../src/worktree-setup.ts";
+} from "../src/daemon-host/worktree-setup.ts";
 import { seedSquadWaitState } from "./squad-terminal-wait.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";

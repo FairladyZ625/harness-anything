@@ -7,9 +7,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { readSettingsFacet } from "@harness-anything/kernel";
-import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
-import { openDispatchStream } from "../src/dispatch-stream.ts";
-import { launchNative } from "../src/runtime-spawn-process.ts";
+import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instances.ts";
+import { openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { launchNative } from "../src/daemon-host/runtime-spawn-process.ts";
 
 const cli = (process.env.PATH ?? "")
     .split(path.delimiter)

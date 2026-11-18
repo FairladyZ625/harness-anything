@@ -166,7 +166,7 @@ const hasPublishImplementation = files.some((file) =>
   /packages\/(?:kernel|cli|gui)\/src\/.*publish/i.test(relative(file)),
 );
 const hasLocalLifecycleImplementation =
-  files.some((file) => relative(file) === "packages/daemon/src/repo-cell.ts") &&
+  files.some((file) => relative(file) === "packages/daemon/src/daemon-host/repo-cell.ts") &&
   files.some((file) => relative(file) === "packages/cli/src/cli/thin-command.ts");
 const hasTaskProjectionImplementation = files.some(
   (file) => relative(file) === "packages/storage/src/projection/rebuildable-task-projection.ts",
@@ -256,7 +256,7 @@ if (hasStoreImplementation) {
   // A cell that latches on how long recovery took makes availability a function of machine
   // speed: the same committed recovery attaches on an idle laptop and latches the workspace
   // unavailable on a loaded CI runner. Only the recovery status may decide availability.
-  const cellText = readFileSync(path.join(root, "packages/daemon/src/repo-cell.ts"), "utf8");
+  const cellText = readFileSync(path.join(root, "packages/daemon/src/daemon-host/repo-cell.ts"), "utf8");
   const availability = cellText.slice(
     cellText.indexOf('state: RepoCellStatus["state"] ='),
     cellText.indexOf("let lastError"),
@@ -266,7 +266,7 @@ if (hasStoreImplementation) {
 }
 
 if (hasLocalLifecycleImplementation) {
-  const lifecycleText = ["packages/daemon/src/repo-cell.ts", ...localLifecycleCliTextFiles]
+  const lifecycleText = ["packages/daemon/src/daemon-host/repo-cell.ts", ...localLifecycleCliTextFiles]
     .map((relativePath) => readFileSync(path.join(root, relativePath), "utf8"))
     .join("\n");
   const cliTestPath = "packages/cli/test/daemon-thin-client-cli.test.ts";
@@ -479,7 +479,7 @@ for (const file of files) {
   // status fields for schema validation, which the contract explicitly permits; below the
   // protocol layer, status branching is the file's own business logic.
   if (
-    rel.startsWith("packages/daemon/src/protocol/") &&
+    rel.startsWith("packages/daemon/src/daemon-host/protocol/") &&
     !/(?:^|[-.])(?:contract|validate|validation|types|vocabulary|schema|identifiers|version)(?:[-.]|$)/.test(rel)
   ) {
     if (/switch\s*\([^)]*status[^)]*\)|if\s*\([^)]*status[^)]*(?:===|!==|==|!=)/i.test(text)) {

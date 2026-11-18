@@ -4,7 +4,7 @@ import {
   daemonProtocolCommands,
   allDaemonProtocolMethods,
   actionForDaemonMethod,
-} from "../../src/protocol/daemon-protocol-commands.ts";
+} from "../../src/daemon-host/protocol/daemon-protocol-commands.ts";
 import { READ_DOCUMENT, READ_TASK_ID } from "./g38-read-ledger.mjs";
 
 const agentVersion = ({ projection }) => ({

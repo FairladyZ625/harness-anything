@@ -6,10 +6,10 @@ import net from "node:net";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
 import test from "node:test";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { requestDaemonShutdownAt } from "../src/client/local-json-rpc-shutdown.ts";
-import type { JsonRpcRequest } from "../src/protocol/json-rpc-types.ts";
-import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { requestDaemonShutdownAt } from "../src/daemon-host/client/local-json-rpc-shutdown.ts";
+import type { JsonRpcRequest } from "../src/daemon-host/protocol/json-rpc-types.ts";
+import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
 
 // The daemon stops its transport before its host, so a request still executing
 // when stop() begins can land its write and never reply -- the outcome-unknown

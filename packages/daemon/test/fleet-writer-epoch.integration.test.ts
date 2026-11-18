@@ -29,6 +29,7 @@ import {
   openPersistentWriterEpoch,
   readLedgerWriterEpoch,
   withWriterEpochFenceDescriptor,
+  withFollowerEpochFenceDescriptor,
 } from "@harness-anything/storage";
 
 function probeGit(repo: string, ...args: string[]): string {
@@ -428,6 +429,7 @@ test("SQLite acceptance verifies the writer epoch before committing events and o
     rootDir: repo,
     writerFence: () => fence,
     withAppendFence: (operation) => withWriterEpochFenceDescriptor(fence, operation),
+    withFollowerFence: (operation) => withFollowerEpochFenceDescriptor(fence, operation),
   });
   try {
     appendWorkerTask(store, 1);

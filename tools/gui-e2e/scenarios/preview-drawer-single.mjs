@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
+import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
 import { bridgeReady, nav } from "./helpers.mjs";
 
 // 任务预览抽屉单层语义(业主 2026-10-17「点了之后右边只有一个……前面点了很多,

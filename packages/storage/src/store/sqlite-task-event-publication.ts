@@ -1,3 +1,4 @@
+import { authoredNodeFingerprint, type AuthoredNode } from "../authored-node-read.ts";
 import { decisionDirectoryRetirements } from "./decision-directory-settlement.ts";
 import type { WriteFence } from "../durable-file.ts";
 import {
@@ -17,7 +18,12 @@ import {
 } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 import { canonicalLedgerCut } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
 import { resolveLedgerGitLayout, ledgerAuthoredPath, ledgerGitPath } from "./ledger-git-layout.ts";
-import { localGitObjectRefStore, localGitWorktreeSettlement } from "./local-version-control-system.ts";
+import {
+  localGitObjectRefStore,
+  localGitObjectRefStoreAsync,
+  localGitWorktreeSettlement,
+  localGitWorktreeSettlementAsync,
+} from "./local-version-control-system.ts";
 import { openSqliteEventStore } from "./sqlite-event-store.ts";
 import type { SqliteEventStore } from "./sqlite-event-store.ts";
 import type {
@@ -58,24 +64,35 @@ export function publishConvertedGeneration(input: {
   if (!branch) throw new TaskEventStoreError("publication_indeterminate", "authored branch is detached");
   const authoredRef = `refs/heads/${branch}`,
     parent = localGitObjectRefStore.resolveCommit(ledger.rootDir, authoredRef),
-    revision = input.store.revision();
-  if (revision === 0) return { commitSha: parent, revision, changed: false };
-  const cut = canonicalLedgerCut(input.repoId, input.store.eventIdentityAtRevision(revision)),
-    closureEvents = readEventsThrough(input.store, revision),
-    files = [
-      ...followerFiles(ledger, closureEvents, input.store.readContentObject, cut, input.store.metadata().generation),
-      ...legacyRetirements(ledger, parent),
-    ],
-    directories = followerDirectories(ledger, closureEvents, files, undefined, layout.decisionsRoot),
-    baseline = captureConversionBaseline(input.rootInput, ledger.rootDir, parent, files),
-    commit = publishFollowerCut(
+    manifestBytes = localGitObjectRefStore.readPath(
       ledger.rootDir,
-      authoredRef,
       parent,
-      certifiedFollowerRevision(ledger, parent, input.store, true),
-      cut,
-      files,
-    );
+      ledgerGitPath(ledger, followerManifestPath),
+    ),
+    retiredLegacy = legacyRetirements(ledger, parent),
+    snapshot = input.store.readSnapshot(() => {
+      const revision = input.store.revision();
+      if (revision === 0) return null;
+      const cut = canonicalLedgerCut(input.repoId, input.store.eventIdentityAtRevision(revision)),
+        closureEvents = readEventsThrough(input.store, revision),
+        files = [
+          ...followerFiles(
+            ledger,
+            closureEvents,
+            input.store.readContentObject,
+            cut,
+            input.store.metadata().generation,
+          ),
+          ...retiredLegacy,
+        ],
+        directories = followerDirectories(ledger, closureEvents, files, undefined, layout.decisionsRoot),
+        checkpoint = certifiedFollowerRevisionFromManifest(manifestBytes, input.store, true);
+      return { revision, cut, files, directories, checkpoint };
+    });
+  if (!snapshot) return { commitSha: parent, revision: 0, changed: false };
+  const { revision, cut, files, directories, checkpoint } = snapshot,
+    baseline = captureConversionBaseline(input.rootInput, ledger.rootDir, parent, files),
+    commit = publishFollowerCut(ledger.rootDir, authoredRef, parent, checkpoint, cut, files);
   localGitWorktreeSettlement.index(ledger.rootDir, files);
   if (
     !worktreeMatchesBaseline(ledger.rootDir, baseline, files) ||
@@ -96,11 +113,23 @@ export function readCertifiedGitFollower(input: {
     branch = input.authoredBranch ?? localGitObjectRefStore.currentBranch(ledger.rootDir);
   if (!branch) throw new TaskEventStoreError("publication_indeterminate", "authored branch is detached");
   const commitSha = localGitObjectRefStore.resolveCommit(ledger.rootDir, `refs/heads/${branch}`),
-    revision = certifiedFollowerRevision(ledger, commitSha, input.store);
-  if (revision !== input.store.revision())
-    throw new TaskEventStoreError("publication_indeterminate", "Git follower does not certify the current SQLite cut");
-  const cut = canonicalLedgerCut(input.repoId, input.store.eventIdentityAtRevision(revision)),
-    closure = documentClosure(readEventsThrough(input.store, revision));
+    manifestBytes = localGitObjectRefStore.readPath(
+      ledger.rootDir,
+      commitSha,
+      ledgerGitPath(ledger, followerManifestPath),
+    ),
+    { cut, closure } = input.store.readSnapshot(() => {
+      const revision = certifiedFollowerRevisionFromManifest(manifestBytes, input.store);
+      if (revision !== input.store.revision())
+        throw new TaskEventStoreError(
+          "publication_indeterminate",
+          "Git follower does not certify the current SQLite cut",
+        );
+      return {
+        cut: canonicalLedgerCut(input.repoId, input.store.eventIdentityAtRevision(revision)),
+        closure: documentClosure(readEventsThrough(input.store, revision)),
+      };
+    });
   verifyDocumentClosure(ledger, commitSha, closure);
   return {
     commitSha,
@@ -112,7 +141,8 @@ export function readCertifiedGitFollower(input: {
   };
 }
 
-const followerManifestPath = "events/segments/manifest.json";
+export const FOLLOWER_MANIFEST_PATH = "events/segments/manifest.json";
+const followerManifestPath = FOLLOWER_MANIFEST_PATH;
 
 /** The publication of `events`: their documents' latest bytes, their retirements, and last the cut's manifest. */
 export function followerFiles(
@@ -172,17 +202,36 @@ function followerManifest(generation: number, cut: LedgerCutIdentity): string {
   return `${JSON.stringify({ schema: "sqlite-ledger-segment-manifest/v1", generation, cut })}\n`;
 }
 
+function retirementsFromIndexedAndTree(
+  ledger: ReturnType<typeof resolveLedgerGitLayout>,
+  indexed: readonly string[],
+  treeEntries: readonly { readonly target: string }[],
+): PublicationDelete[] {
+  const retired = new Set(indexed);
+  for (const entry of treeEntries) retired.add(entry.target);
+  retired.delete(ledgerGitPath(ledger, followerManifestPath));
+  return [...retired].map((target) => ({ delete: target }));
+}
+
 /** Pre-SQLite paths the index tracks, and with a `parent`, its tree holds: conversion retires both. */
 export function legacyRetirements(
   ledger: ReturnType<typeof resolveLedgerGitLayout>,
   parent: string | null,
 ): PublicationDelete[] {
   const scopes = [ledgerGitPath(ledger, "events/"), ledgerGitPath(ledger, "objects/sha256/")],
-    retired = new Set(localGitWorktreeSettlement.indexedPaths(ledger.rootDir, scopes));
-  if (parent !== null)
-    for (const entry of localGitObjectRefStore.listTree(ledger.rootDir, parent, scopes)) retired.add(entry.target);
-  retired.delete(ledgerGitPath(ledger, followerManifestPath));
-  return [...retired].map((target) => ({ delete: target }));
+    indexed = localGitWorktreeSettlement.indexedPaths(ledger.rootDir, scopes),
+    tree = parent === null ? [] : localGitObjectRefStore.listTree(ledger.rootDir, parent, scopes);
+  return retirementsFromIndexedAndTree(ledger, indexed, tree);
+}
+
+export async function legacyRetirementsAsync(
+  ledger: ReturnType<typeof resolveLedgerGitLayout>,
+  parent: string | null,
+): Promise<PublicationDelete[]> {
+  const scopes = [ledgerGitPath(ledger, "events/"), ledgerGitPath(ledger, "objects/sha256/")],
+    indexed = await localGitWorktreeSettlementAsync.indexedPaths(ledger.rootDir, scopes),
+    tree = parent === null ? [] : await localGitObjectRefStoreAsync.listTree(ledger.rootDir, parent, scopes);
+  return retirementsFromIndexedAndTree(ledger, indexed, tree);
 }
 
 export interface FollowerDirectorySettlement {
@@ -281,6 +330,22 @@ export function settleWorktreeDirectories(
  * The revision whose cut `commit`'s manifest binds by head digest. Content addressing binds the rest of the tree to
  * that commit, so it is not re-rendered here; `readCertifiedGitFollower` is the full read-back.
  */
+export function certifiedFollowerRevisionFromManifest(
+  bytes: Buffer | null,
+  source: FollowerCheckpointSource,
+  resetPriorGeneration = false,
+): number {
+  return bytes ? manifestRevision(bytes, source, resetPriorGeneration) : 0;
+}
+
+export function peekFollowerManifestRevision(bytes: Buffer | null): number | null {
+  if (!bytes) return null;
+  const match = /"cut"\s*:\s*\{[^}]*"revision"\s*:\s*([0-9]+)\b/u.exec(bytes.toString("utf8"));
+  if (!match) return null;
+  const revision = Number(match[1]);
+  return Number.isSafeInteger(revision) && revision >= 0 ? revision : null;
+}
+
 export function certifiedFollowerRevision(
   ledger: ReturnType<typeof resolveLedgerGitLayout>,
   commit: string,
@@ -288,7 +353,7 @@ export function certifiedFollowerRevision(
   resetPriorGeneration = false,
 ): number {
   const bytes = localGitObjectRefStore.readPath(ledger.rootDir, commit, ledgerGitPath(ledger, followerManifestPath));
-  return bytes ? manifestRevision(bytes, source, resetPriorGeneration) : 0;
+  return certifiedFollowerRevisionFromManifest(bytes, source, resetPriorGeneration);
 }
 
 /** The revision the worktree's own manifest names, or 0 (settle the whole closure) when it names no SQLite cut. */
@@ -391,8 +456,9 @@ export function readEventsThrough(
 export function readPendingEvents(
   sqlite: ReturnType<typeof openSqliteEventStore>,
   revision: number,
+  throughRevision: number = sqlite.revision(),
 ): readonly CanonicalEventV1[] {
-  return [...followerEventsAfter(sqlite.eventsAfter, revision, sqlite.revision())];
+  return [...followerEventsAfter(sqlite.eventsAfter, revision, throughRevision)];
 }
 
 /** Yields the uncertified suffix a bounded source page at a time. */
@@ -620,15 +686,35 @@ export function captureConversionBaseline(
   return baseline;
 }
 
+function gitBaselineTargets(files: readonly PublicationFile[]): readonly string[] {
+  return files.flatMap((file) => {
+    const target = "target" in file ? file.target : "delete" in file ? file.delete : null;
+    return target === null ? [] : [target];
+  });
+}
+
+function buildBaselineFromTree(
+  targets: readonly string[],
+  tree: ReadonlyMap<string, { readonly mode: "100644" | "120000"; readonly oid: string; readonly size: number }>,
+  bodies: ReadonlyMap<string, Buffer>,
+): ReadonlyMap<string, string> {
+  return new Map(
+    targets.map((target) => {
+      const bytes = bodies.get(target) ?? null;
+      return [
+        target,
+        bytes === null ? "missing" : `${tree.get(target)?.mode}:${sha256Bytes(bytes)}:${bytes.byteLength}`,
+      ];
+    }),
+  );
+}
+
 export function captureGitBaseline(
   repoRoot: string,
   commit: string,
   files: readonly PublicationFile[],
 ): ReadonlyMap<string, string> {
-  const targets = files.flatMap((file) => {
-      const target = "target" in file ? file.target : "delete" in file ? file.delete : null;
-      return target === null ? [] : [target];
-    }),
+  const targets = gitBaselineTargets(files),
     tree = new Map(
       localGitObjectRefStore.listTree(repoRoot, commit, targets).map((entry) => [entry.target, entry] as const),
     ),
@@ -640,15 +726,29 @@ export function captureGitBaseline(
         return entry ? [{ target, size: entry.size, oid: entry.oid }] : [];
       }),
     );
-  return new Map(
-    targets.map((target) => {
-      const bytes = bodies.get(target) ?? null;
-      return [
-        target,
-        bytes === null ? "missing" : `${tree.get(target)?.mode}:${sha256Bytes(bytes)}:${bytes.byteLength}`,
-      ];
-    }),
-  );
+  return buildBaselineFromTree(targets, tree, bodies);
+}
+
+export async function captureGitBaselineAsync(
+  repoRoot: string,
+  commit: string,
+  files: readonly PublicationFile[],
+): Promise<ReadonlyMap<string, string>> {
+  const targets = gitBaselineTargets(files),
+    tree = new Map(
+      (await localGitObjectRefStoreAsync.listTree(repoRoot, commit, targets)).map(
+        (entry) => [entry.target, entry] as const,
+      ),
+    ),
+    bodies = await localGitObjectRefStoreAsync.readPaths(
+      repoRoot,
+      commit,
+      targets.flatMap((target) => {
+        const entry = tree.get(target);
+        return entry ? [{ target, size: entry.size, oid: entry.oid }] : [];
+      }),
+    );
+  return buildBaselineFromTree(targets, tree, bodies);
 }
 
 export function worktreeMatchesBaseline(
@@ -680,6 +780,6 @@ export function publicationDigest(body: string | Uint8Array): string {
   return sha256Bytes(publicationBytes(body));
 }
 
-export function worktreeFingerprint(node: ReturnType<typeof localGitWorktreeSettlement.readNode>): string {
-  return node === null ? "missing" : `${node.mode}:${node.sha256}:${node.size}`;
+export function worktreeFingerprint(node: AuthoredNode | null): string {
+  return authoredNodeFingerprint(node);
 }

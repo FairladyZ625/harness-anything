@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
-import { daemonBuildStamp } from "../src/build-identity.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,7 +12,7 @@ import {
   runtimeExecutionLifetimeMs,
   runtimeExecutionActor,
   verifyRuntimeExecutionPrincipal,
-} from "../src/runtime-execution-credential.ts";
+} from "../src/daemon-host/runtime-execution-credential.ts";
 import {
   requireCurrentExecutionScope,
   requireExecutionDocumentSelection,
@@ -20,16 +20,16 @@ import {
   requireExecutionActionScope,
   runtimeExecutionRoleForLaunch,
   taskExecutionSurfaces,
-} from "../src/runtime-execution-scope.ts";
+} from "../src/daemon-host/runtime-execution-scope.ts";
 import {
   actionForDaemonMethod,
   commandClassForAction,
   daemonProtocolCommands,
-} from "../src/protocol/daemon-protocol-commands.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import { executeRepoAction } from "../src/repo-cell-action-dispatch.ts";
-import { bindVerifiedExecutorClaim } from "../src/repo-cell-authorization.ts";
+} from "../src/daemon-host/protocol/daemon-protocol-commands.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
+import { executeRepoAction } from "../src/daemon-host/repo-cell-action-dispatch.ts";
+import { bindVerifiedExecutorClaim } from "../src/daemon-host/repo-cell-authorization.ts";
 import { BuiltinPolicyAdapter } from "@harness-anything/authorization-builtin";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 

@@ -7,14 +7,18 @@ import test from "node:test";
 import { isTaskEvent } from "@harness-anything/kernel";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
-import { RuntimeProcessStartRejected } from "../src/runtime-spawn-process.ts";
+import { RuntimeProcessStartRejected } from "../src/daemon-host/runtime-spawn-process.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
-import { locateFleetMirrorView, applyFleetMirrorCut, scanEdgeTaskWorktrees } from "../src/fleet-edge-mirror.ts";
-import { readFleetOperationalClient } from "../src/fleet/peer.ts";
-import { openNodeAutoDispatchLoop, parseNodeAutoDispatchSnapshot } from "../src/node-auto-dispatch.ts";
-import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
-import { taskWorktreeDocumentBase } from "../src/worktree-setup.ts";
+import { openFleetEdgeRuntime } from "../src/daemon-host/fleet-edge-runtime.ts";
+import {
+  locateFleetMirrorView,
+  applyFleetMirrorCut,
+  scanEdgeTaskWorktrees,
+} from "../src/daemon-host/fleet-edge-mirror.ts";
+import { readFleetOperationalClient } from "../src/daemon-host/fleet/peer.ts";
+import { openNodeAutoDispatchLoop, parseNodeAutoDispatchSnapshot } from "../src/daemon-host/node-auto-dispatch.ts";
+import { runFleetEdgeTask } from "../src/daemon-host/fleet-edge-task.ts";
+import { taskWorktreeDocumentBase } from "../src/daemon-host/worktree-setup.ts";
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";

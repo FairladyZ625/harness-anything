@@ -30,13 +30,13 @@ import {
   readDispatchStreamIncrement,
   readDispatchStreamSummary,
   scrubProviderValue,
-} from "../src/dispatch-stream.ts";
-import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
-import { cancelRuntime } from "../src/runtime-spawn-control.ts";
-import { adoptNativeProcess, terminateRuntimeTree } from "../src/runtime-spawn-process.ts";
-import { runtimeBindingForDispatch } from "../src/runtime-spawn-types.ts";
+} from "../src/daemon-host/dispatch-stream.ts";
+import { adoptRuntimes } from "../src/daemon-host/runtime-spawn-adoption.ts";
+import { cancelRuntime } from "../src/daemon-host/runtime-spawn-control.ts";
+import { adoptNativeProcess, terminateRuntimeTree } from "../src/daemon-host/runtime-spawn-process.ts";
+import { runtimeBindingForDispatch } from "../src/daemon-host/runtime-spawn-types.ts";
 import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
-import { runtimeSessionActionPreparer } from "../src/runtime-session-action-runtime.ts";
+import { runtimeSessionActionPreparer } from "../src/daemon-host/runtime-session-action-runtime.ts";
 import {
   getExecutableEntityAction,
   MIGRATION_IMPORT_SOURCE,

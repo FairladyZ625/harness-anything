@@ -49,7 +49,7 @@ test("thin CLI structure rejects a kernel public barrel reachable from the dist 
   const root = await fixture();
   write(
     root,
-    "packages/daemon/src/client/local-daemon-target.ts",
+    "packages/daemon/src/daemon-host/client/local-daemon-target.ts",
     [
       "import { readDaemonRegistry } from '@harness-anything/kernel';",
       "export const resolveLocalDaemonTarget = readDaemonRegistry;",
@@ -187,7 +187,7 @@ test("daemon transport graph accepts the line client's thin leaf imports", async
   const root = await fixture();
   write(
     root,
-    "packages/daemon/src/client/local-json-rpc-client.ts",
+    "packages/daemon/src/daemon-host/client/local-json-rpc-client.ts",
     [
       "import net from 'node:net';",
       "import { currentDaemonProtocolVersion } from '../protocol/version.ts';",
@@ -195,7 +195,11 @@ test("daemon transport graph accepts the line client's thin leaf imports", async
       "",
     ].join("\n"),
   );
-  write(root, "packages/daemon/src/protocol/version.ts", "export const currentDaemonProtocolVersion = 1;\n");
+  write(
+    root,
+    "packages/daemon/src/daemon-host/protocol/version.ts",
+    "export const currentDaemonProtocolVersion = 1;\n",
+  );
   const result = run(root);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /CLI structure check passed/u);
@@ -205,7 +209,7 @@ test("CLI and daemon transport graphs admit the Decisions provider command decla
   const root = await fixture();
   write(
     root,
-    "packages/daemon/src/protocol/daemon-protocol.contract.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts",
     [
       "import { daemonOwnedProtocolCommands } from './daemon-protocol-commands.ts';",
       "export function resolveThinCliCommand(): void { void daemonOwnedProtocolCommands; }",
@@ -214,7 +218,7 @@ test("CLI and daemon transport graphs admit the Decisions provider command decla
   );
   write(
     root,
-    "packages/daemon/src/protocol/daemon-protocol-commands.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts",
     [
       "import { providerProtocolCommands } from './daemon-protocol-commands-provider.ts';",
       "export const daemonOwnedProtocolCommands = providerProtocolCommands;",
@@ -223,7 +227,7 @@ test("CLI and daemon transport graphs admit the Decisions provider command decla
   );
   write(
     root,
-    "packages/daemon/src/protocol/daemon-protocol-commands-provider.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-provider.ts",
     [
       "import { presetCommands } from '@harness-anything/preset/internal/preset-command-contract';",
       "export const providerProtocolCommands = presetCommands;",
@@ -232,7 +236,7 @@ test("CLI and daemon transport graphs admit the Decisions provider command decla
   );
   write(
     root,
-    "packages/daemon/src/client/local-json-rpc-client.ts",
+    "packages/daemon/src/daemon-host/client/local-json-rpc-client.ts",
     [
       "import { daemonOwnedProtocolCommands } from '../protocol/daemon-protocol-commands.ts';",
       "export function transport(): void { void daemonOwnedProtocolCommands; }",
@@ -249,7 +253,7 @@ test("daemon transport graph rejects a kernel barrel reachable from the line cli
   const root = await fixture();
   write(
     root,
-    "packages/daemon/src/client/local-json-rpc-client.ts",
+    "packages/daemon/src/daemon-host/client/local-json-rpc-client.ts",
     [
       "import { consumeKnownError } from '@harness-anything/kernel';",
       "export function transport(): void { void consumeKnownError; }",
@@ -269,7 +273,7 @@ test("daemon transport graph admits shared Policy values but rejects their trans
   const root = await cliPolicyFixture();
   write(
     root,
-    "packages/daemon/src/client/local-json-rpc-client.ts",
+    "packages/daemon/src/daemon-host/client/local-json-rpc-client.ts",
     "import { cliOperationalPolicy } from '@harness-anything/kernel/internal/domain/cli-operational-policy';\n" +
       "export const timeoutMs = cliOperationalPolicy.defaultValue.waitMaximumMs;\n",
   );
@@ -294,7 +298,7 @@ test("daemon transport graph rejects even a kernel leaf import reachable from th
   const root = await fixture();
   write(
     root,
-    "packages/daemon/src/client/local-json-rpc-client.ts",
+    "packages/daemon/src/daemon-host/client/local-json-rpc-client.ts",
     [
       "import { consumeKnownError } from '@harness-anything/kernel/internal/error-consumption';",
       "export function transport(): void { void consumeKnownError; }",
@@ -346,7 +350,7 @@ async function protocolKernelJudgmentFixture() {
   const root = await fixture();
   write(
     root,
-    "packages/daemon/src/protocol/daemon-protocol.contract.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts",
     [
       "import { validateDaemonQueryPayload } from './daemon-protocol-validate-relation-query.ts';",
       "import { validateDaemonGuiCommandReceipt } from './daemon-protocol-validate-results.ts';",
@@ -356,7 +360,7 @@ async function protocolKernelJudgmentFixture() {
   );
   write(
     root,
-    "packages/daemon/src/client/local-json-rpc-client.ts",
+    "packages/daemon/src/daemon-host/client/local-json-rpc-client.ts",
     [
       "import { validateDaemonQueryPayload } from '../protocol/daemon-protocol-validate-relation-query.ts';",
       "import { validateDaemonGuiCommandReceipt } from '../protocol/daemon-protocol-validate-results.ts';",
@@ -366,7 +370,7 @@ async function protocolKernelJudgmentFixture() {
   );
   write(
     root,
-    "packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-relation-query.ts",
     [
       "import { queryPayloadValidation } from '@harness-anything/kernel/internal/domain/query-payload-validation.ts';",
       "export const validateDaemonQueryPayload = queryPayloadValidation;",
@@ -375,7 +379,7 @@ async function protocolKernelJudgmentFixture() {
   );
   write(
     root,
-    "packages/daemon/src/protocol/daemon-protocol-validate-results.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-results.ts",
     [
       "import { validateReceiptAcceptance } from '@harness-anything/kernel/internal/domain/receipt-acceptance.ts';",
       "export const validateDaemonGuiCommandReceipt = validateReceiptAcceptance;",
@@ -461,9 +465,9 @@ async function fixture() {
     JSON.stringify({
       name: "@harness-anything/daemon",
       exports: {
-        "./internal/client/local-daemon-target": "./src/client/local-daemon-target.ts",
+        "./internal/client/local-daemon-target": "./src/daemon-host/client/local-daemon-target.ts",
         "./internal/hidden": "./src/hidden.ts",
-        "./internal/protocol/daemon-protocol.contract": "./src/protocol/daemon-protocol.contract.ts",
+        "./internal/protocol/daemon-protocol.contract": "./src/daemon-host/protocol/daemon-protocol.contract.ts",
       },
     }),
   );
@@ -502,12 +506,12 @@ async function fixture() {
   write(root, "packages/cli/src/daemon/control.ts", "export function runDaemonControl(): void {}\n");
   write(
     root,
-    "packages/daemon/src/client/local-daemon-target.ts",
+    "packages/daemon/src/daemon-host/client/local-daemon-target.ts",
     ["import path from 'node:path';", "export function resolveLocalDaemonTarget(): void { void path; }", ""].join("\n"),
   );
   write(
     root,
-    "packages/daemon/src/protocol/daemon-protocol.contract.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts",
     [
       "import { presetCommands } from '@harness-anything/preset/internal/preset-command-contract';",
       "export function resolveThinCliCommand(): void { void presetCommands; }",
@@ -515,7 +519,7 @@ async function fixture() {
     ].join("\n"),
   );
   write(root, "packages/preset/src/preset-command-contract.ts", "export const presetCommands = [];\n");
-  write(root, "packages/daemon/src/client/local-json-rpc-client.ts", "export {};\n");
+  write(root, "packages/daemon/src/daemon-host/client/local-json-rpc-client.ts", "export {};\n");
   return root;
 }
 
@@ -560,7 +564,7 @@ test("daemon transport graph rejects a missing required entry", async () => {
   const root = await fixture();
   try {
     renameSync(
-      path.join(root, "packages/daemon/src/client/local-json-rpc-client.ts"),
+      path.join(root, "packages/daemon/src/daemon-host/client/local-json-rpc-client.ts"),
       path.join(root, "escaped-client.ts"),
     );
     const result = run(root);
@@ -570,3 +574,25 @@ test("daemon transport graph rejects a missing required entry", async () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+// dec_04A9211B073F29F0FC1E1CA573 CH2/CH3: extracted transport leaves retain the transitive barrel ban.
+for (const leaf of [
+  "runtime-engine/runtime-constants.ts",
+  "daemon-host/runtime-relay-target.ts",
+  "runtime-engine/json-helpers.ts",
+])
+  test(`extracted transport leaf ${leaf} cannot load the kernel barrel`, async () => {
+    const root = await fixture();
+    write(
+      root,
+      "packages/cli/src/index.ts",
+      entrySource([`import { value } from '../../daemon/src/${leaf}';`, "void value;"]),
+    );
+    write(root, `packages/daemon/src/${leaf}`, "export const value = 1;\n");
+    assert.equal(run(root).status, 0);
+    write(root, "packages/kernel/src/index.ts", "export const value = 1;\n");
+    write(root, `packages/daemon/src/${leaf}`, "export { value } from '@harness-anything/kernel';\n");
+    const result = run(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /kernel public barrel/u);
+  });

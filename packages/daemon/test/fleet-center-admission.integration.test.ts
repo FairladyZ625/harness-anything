@@ -7,14 +7,14 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { connect, type TLSSocket } from "node:tls";
 import { sha256Bytes } from "@harness-anything/kernel";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { listenFleetTls, type FleetTlsCenter } from "../src/daemon-host/fleet/center.ts";
 import {
   currentFleetProtocolVersion,
   parseFleetFrame,
   serializeFleetFrame,
   type FleetFrameV1,
-} from "../src/fleet/command-protocol.ts";
+} from "../src/daemon-host/fleet/command-protocol.ts";
 import { fleetHostWriterOptions, fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 

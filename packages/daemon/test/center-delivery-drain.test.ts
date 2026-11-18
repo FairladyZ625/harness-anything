@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createFleetDeliveryDrain } from "../src/fleet/center-delivery-drain.ts";
+import { createFleetDeliveryDrain } from "../src/fleet-sync/fleet/center-delivery-drain.ts";
 
 for (const order of [
   ["preparationFinished", "sendingFinished", "released"],

@@ -8,19 +8,19 @@ import {
   sqliteLedgerPath,
   startBaseBackup,
 } from "@harness-anything/storage";
-import { installReplicaGeneration, readReplicaGeneration } from "../src/fleet/replica-generation.ts";
+import { installReplicaGeneration, readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
-import { reclaimEdgeTaskWorktrees } from "../src/fleet-edge-worktree-reclaim.ts";
-import { pushWorkerBranch } from "../src/runtime-worker-push.ts";
-import { addManagedWorktree } from "../src/schedule-occurrence-workspace.ts";
-import { checkoutTaskWorktree } from "../src/task-worktree.ts";
-import { noWorktreeSetup } from "../src/worktree-setup.ts";
+import { applyFleetMirrorCut } from "../src/daemon-host/fleet-edge-mirror.ts";
+import { reclaimEdgeTaskWorktrees } from "../src/daemon-host/fleet-edge-worktree-reclaim.ts";
+import { pushWorkerBranch } from "../src/daemon-host/runtime-worker-push.ts";
+import { addManagedWorktree } from "../src/daemon-host/schedule-occurrence-workspace.ts";
+import { checkoutTaskWorktree } from "../src/daemon-host/task-worktree.ts";
+import { noWorktreeSetup } from "../src/daemon-host/worktree-setup.ts";
 
 // dec_57370FF2021DADF04E3B21724D CH4: an edge reclaims its own checkouts of the tasks its mirrored cut says are
 // closed. Two clones of one bare remote stand for two nodes; each has its own replica view of the center's cuts,

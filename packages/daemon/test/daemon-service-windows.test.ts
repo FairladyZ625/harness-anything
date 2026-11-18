@@ -7,8 +7,8 @@ import {
   daemonServiceUnit,
   daemonServiceUnitContent,
   parseDaemonServiceState,
-} from "../src/client/daemon-service.ts";
-import { daemonStdioLogPath } from "../src/lifecycle-log.ts";
+} from "../src/daemon-host/client/daemon-service.ts";
+import { daemonStdioLogPath } from "../src/daemon-host/lifecycle-log.ts";
 
 const target = { userRoot: "C:/Users/edge/user root", daemonId: "edge-a" },
   launch = {

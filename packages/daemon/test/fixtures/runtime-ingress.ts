@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
-import { daemonBuildStamp } from "../../src/build-identity.ts";
+import { daemonBuildStamp } from "../../src/daemon-host/build-identity.ts";
 import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { type AgentDefinitionSnapshot } from "@harness-anything/kernel";
-import { type RuntimeInstallationWitness } from "../../src/agent-runtime-instances.ts";
-import { openDaemonHost } from "../../src/daemon-host.ts";
-import { createJsonRpcProtocolServer } from "../../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../../src/protocol/version.ts";
+import { type RuntimeInstallationWitness } from "../../src/daemon-host/agent-runtime-instances.ts";
+import { openDaemonHost } from "../../src/daemon-host/daemon-host.ts";
+import { createJsonRpcProtocolServer } from "../../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../../src/daemon-host/protocol/version.ts";
 import { writeProviderExecutable } from "./runtime-stub.ts";
 import { waitForValue } from "../../../../tools/fixtures/wait-for-condition.ts";
 

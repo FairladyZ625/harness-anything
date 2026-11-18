@@ -9,8 +9,8 @@ import { createEntityStore, makeTaskEventStore } from "@harness-anything/storage
 import {
   assertBundledAgentLifecycleOpen,
   readAgentDeclarationResolution,
-} from "../src/agent-declaration-resolution.ts";
-import { prepareAgentEntityDelete, prepareAgentEntityInstall } from "../src/agent-entities.ts";
+} from "../src/daemon-host/agent-declaration-resolution.ts";
+import { prepareAgentEntityDelete, prepareAgentEntityInstall } from "../src/daemon-host/agent-entities.ts";
 import { readBundledAgentDeclaration } from "@harness-anything/preset";
 
 const codexInstances = [

@@ -17,12 +17,12 @@ import {
   type EntityUpsertEventV1,
   type EntityOwnedContentV1,
 } from "@harness-anything/kernel";
-import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
-import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
-import { RuntimeProcessStartRejected } from "../src/runtime-spawn-process.ts";
-import type { Snapshot } from "../src/repo-cell-types.ts";
+import type { RuntimeInstanceSummary } from "../src/daemon-host/agent-runtime-instances.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import type { RuntimeProcess } from "../src/daemon-host/runtime-spawn-types.ts";
+import { RuntimeProcessStartRejected } from "../src/daemon-host/runtime-spawn-process.ts";
+import type { Snapshot } from "../src/daemon-host/repo-cell-types.ts";
 import {
   acceptedWorkDecision,
   openBootstrappedRepoCell as openRepoCell,

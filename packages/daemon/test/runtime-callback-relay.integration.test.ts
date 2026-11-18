@@ -1,7 +1,7 @@
 // harness-test-tier: integration
-import { daemonBuildStamp } from "../src/build-identity.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
-import { adoptNativeProcess, launchNative } from "../src/runtime-spawn-process.ts";
+import { adoptNativeProcess, launchNative } from "../src/daemon-host/runtime-spawn-process.ts";
 import { randomBytes } from "node:crypto";
 import net from "node:net";
 import {
@@ -17,24 +17,27 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { JsonRpcLineClient } from "../src/client/local-json-rpc-client.ts";
-import { runtimeExecutionActor, type RuntimeExecutionPrincipal } from "../src/runtime-execution-credential.ts";
-import { requireExecutionRequestScope } from "../src/runtime-execution-scope.ts";
+import { JsonRpcLineClient } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import {
+  runtimeExecutionActor,
+  type RuntimeExecutionPrincipal,
+} from "../src/daemon-host/runtime-execution-credential.ts";
+import { requireExecutionRequestScope } from "../src/daemon-host/runtime-execution-scope.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import {
   localUserDaemonEndpoint,
   perUserSocketRoot,
   resolveLocalDaemonEndpoint,
-} from "../src/client/local-daemon-target.ts";
+} from "../src/daemon-host/client/local-daemon-target.ts";
 import {
   createRuntimeCallbackRelay,
   removeRuntimeCallbackRelay,
   runtimeCallbackRelaySpec,
   validateRuntimeCallbackRelayPath,
-} from "../src/runtime-callback-relay.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import { serveJsonRpcStream } from "../src/transport/json-rpc-stream.ts";
+} from "../src/daemon-host/runtime-callback-relay.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
+import { serveJsonRpcStream } from "../src/daemon-host/transport/json-rpc-stream.ts";
 import { waitForArrival, watchFileArrival } from "../../../tools/fixtures/event-arrival.ts";
 
 /** Real relay sockets share one per-user namespace across concurrently running test files,

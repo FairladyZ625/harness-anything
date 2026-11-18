@@ -4,13 +4,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openDaemonDiagnostics } from "../src/daemon-diagnostics.ts";
-import { withDaemonObservation } from "../src/daemon-operation.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import { daemonDiagnosticsEndpoint, localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
-import type { DaemonHost } from "../src/daemon-host.ts";
+import { openDaemonDiagnostics } from "../src/daemon-host/daemon-diagnostics.ts";
+import { withDaemonObservation } from "../src/daemon-host/daemon-operation.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { daemonDiagnosticsEndpoint, localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
+import type { DaemonHost } from "../src/daemon-host/daemon-host.ts";
 
 async function until<T>(read: () => Promise<T | null>): Promise<T> {
   for (;;) {

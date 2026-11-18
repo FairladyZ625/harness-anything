@@ -6,12 +6,12 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { type TaskProjection } from "@harness-anything/kernel";
-import { runDocAction } from "../src/doc-sync-actions.ts";
-import { scannerRead, scannerSubmit } from "../src/doc-sync-adjudication.ts";
-import { taskWorktreeDocumentBase } from "../src/worktree-setup.ts";
-import { runtimeExecutionActor } from "../src/runtime-execution-credential.ts";
+import { runDocAction } from "../src/daemon-host/doc-sync-actions.ts";
+import { scannerRead, scannerSubmit } from "../src/daemon-host/doc-sync-adjudication.ts";
+import { taskWorktreeDocumentBase } from "../src/daemon-host/worktree-setup.ts";
+import { runtimeExecutionActor } from "../src/daemon-host/runtime-execution-credential.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -135,8 +135,10 @@ test("runtime doc sync writes a granted non-task surface with the execution leas
     },
     headDigest = `sha256:${"a".repeat(64)}`,
     cut = () => ({ repoId, revision, headDigest }),
+    worktree = { status: "verified", cut: cut(), commitSha: null },
     store = {
       currentCut: cut,
+      followerStatus: () => ({ git: worktree, worktree }),
       readHead: () => ({ revision }),
       ledgerMetadata: () => ({ generation: 1 }),
       readEvent: (opId: string) => (submittedEvent?.opId === opId ? submittedEvent : null),

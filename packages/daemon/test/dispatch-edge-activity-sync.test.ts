@@ -13,9 +13,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { AgentRuntimeEventV1, RuntimeSession, TaskProjection } from "@harness-anything/kernel";
-import { readTaskDispatches } from "../src/dispatch-read.ts";
-import { withLocalDispatchStreamEvidence } from "../src/dispatch-activity-read.ts";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
+import { readTaskDispatches } from "../src/daemon-host/dispatch-read.ts";
+import { withLocalDispatchStreamEvidence } from "../src/daemon-host/dispatch-activity-read.ts";
+import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 
 const dispatchId = "dispatch_5beaecffdf966066d2816b0d",
   runtimeSessionId = "runtime_c55acf69e24aca9e79143d30",

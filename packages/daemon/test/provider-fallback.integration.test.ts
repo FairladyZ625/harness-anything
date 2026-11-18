@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
+import { waitForArrival, waitForDurableValue, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
@@ -9,20 +9,21 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore } from "@harness-anything/storage";
 import { type AgentDefinitionSnapshot, type AgentRuntimeEventV1 } from "@harness-anything/kernel";
-import type { RuntimeInstanceSummary, RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import { dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
-import { taskDispatchRowsSettled } from "../src/dispatch-read.ts";
-import type { TaskDispatchRow } from "../src/protocol/daemon-protocol.contract.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import type { RuntimeInstanceSummary, RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
+import { dispatchStreamPath, readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { taskDispatchRowsSettled } from "../src/daemon-host/dispatch-read.ts";
+import type { TaskDispatchRow } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
-import { makeRuntimeSpawner } from "../src/runtime-spawn.ts";
-import type { RuntimeBinding, RuntimeProcess } from "../src/runtime-spawn-types.ts";
+import { makeRuntimeSpawner } from "../src/daemon-host/runtime-spawn.ts";
+import type { RuntimeBinding, RuntimeProcess } from "../src/daemon-host/runtime-spawn-types.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
-import { scheduleFallbackContinuation } from "../src/runtime-spawn-fallback.ts";
-import { runtimeSpawnError } from "../src/runtime-spawn-errors.ts";
-import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
-import type { RuntimeAttemptTerminal } from "../src/runtime-spawn-types.ts";
+import { adoptRuntimes } from "../src/daemon-host/runtime-spawn-adoption.ts";
+import { scheduleFallbackContinuation } from "../src/daemon-host/runtime-spawn-fallback.ts";
+import { runtimeSpawnError } from "../src/runtime-engine/runtime-spawn-errors.ts";
+import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
+import type { RuntimeAttemptTerminal } from "../src/daemon-host/runtime-spawn-types.ts";
+import { RuntimeBoundaryError } from "../src/daemon-host/runtime/model-slot-queue.ts";
 import { dispatchLifecycleReadOf } from "./dispatch-lifecycle-read.fixtures.ts";
 
 const binding = withPolicyGroup(
@@ -67,7 +68,9 @@ const behaviors = new Map<string, Behavior>([
   ["provider-stop-first", "worker_stop"],
   ["provider-unused-second", "success"],
   ["provider-restart-first", "429"],
-  ["provider-restart-second", "success"],
+  // Restart can observe a finished process before its exit code is recorded. Keep the successor
+  // free of tool activity so this case measures continuation independently of loss after tools.
+  ["provider-restart-second", "worker_stop"],
   ["provider-empty-success", "empty_success"],
   ["provider-bare-first", "429"],
   ["provider-bare-second", "success"],
@@ -509,21 +512,18 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     });
     await cell.close();
     cell = await open();
-    const restarted = await eventually(async () => {
+    const restarted = await waitForDurableValue(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_restart" })).dispatches;
       // The successor is published only after its predecessor links to it, so no read may see both
       // rows with the predecessor still scheduled.
       if (rows.length === 2) assert.equal(rows[0]?.nextDispatchId, rows[1]?.dispatchId, JSON.stringify(rows));
-      const successor = rows[1],
-        outcomeMatchesEvidence =
-          successor?.exitCode === null
-            ? successor.outcome === "unknown"
-            : successor?.exitCode === 0
-              ? successor.outcome === "stopped"
-              : false;
-      return rows.length === 2 && outcomeMatchesEvidence && taskDispatchRowsSettled(rows) ? rows : null;
+      return rows.length > 0 && taskDispatchRowsSettled(rows) ? rows : null;
     });
+    assert.equal(restarted.length, 2, restarted.map(({ reason }) => reason).join("\n"));
     assertAttemptChain(restarted, ["provider-restart-first", "provider-restart-second"]);
+    const successor = restarted[1]!;
+    assert.ok(successor.exitCode === null || successor.exitCode === 0, JSON.stringify(successor));
+    assert.equal(successor.outcome, successor.exitCode === null ? "unknown" : "stopped", JSON.stringify(successor));
 
     await startTask(cell, root, "task_provider_fallback_bare", "execution-provider-fallback-bare");
     await cell.spawnRuntime(
@@ -1209,10 +1209,11 @@ for (const recovery of ["reconcile", "adoption", "timer"] as const) {
         publications: unknown[] = [],
         interrupted = new Error("publication interrupted before center acceptance");
       let rejectPublication = true,
+        closeBeforeAdmission = recovery === "timer",
         launches = 0;
       // CH1 prepares host Git facts before the writer queue. Observe that actual
-      // enqueue boundary rather than assuming the timer synchronously queues work.
-      const expectedQueued = recovery === "timer" ? 2 : 1;
+      // enqueue boundary. The timer case needs one callback each for closure, exhaustion and replay.
+      const expectedQueued = recovery === "timer" ? 3 : 1;
       let notifyQueued: () => void;
       const queued = new Promise<void>((resolve) => {
         notifyQueued = resolve;
@@ -1263,6 +1264,10 @@ for (const recovery of ["reconcile", "adoption", "timer"] as const) {
               dispatchId: id,
               launch: async () => {
                 launches += 1;
+                if (closeBeforeAdmission) {
+                  closeBeforeAdmission = false;
+                  throw new RuntimeBoundaryError("RUNTIME_CLOSING", "runtime closed before slot admission", 503);
+                }
                 if (rejectPublication) throw new Error("successor admission refused");
                 return {};
               },
@@ -1271,15 +1276,22 @@ for (const recovery of ["reconcile", "adoption", "timer"] as const) {
         return context;
       };
       const firstContext = openContext();
-      await firstContext.reconcileFallback(dispatchId);
-      if (recovery === "timer") await firstContext.reconcileFallback(dispatchId);
+      for (let index = 0; index < expectedQueued; index++) await firstContext.reconcileFallback(dispatchId);
       t.mock.timers.tick(0);
       await queued;
       assert.equal(queue.length, expectedQueued);
+      if (recovery === "timer") {
+        await queue.shift()!();
+        const closing = await cell.readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] });
+        assert.ok(closing.status === "ready" && closing.rows[0]?.policy.fallbackPending);
+        assert.deepEqual(readDispatchStream(root, dispatchId)?.terminalOutcome, stream.terminalOutcome);
+        assert.equal(publications.length, 0, "closing a model slot queue must preserve the scheduled continuation");
+      }
       await assert.rejects(queue.shift()!(), interrupted);
       const frozen = readDispatchStream(root, dispatchId)!.terminalOutcome!;
       assert.equal(frozen.payload.attempt?.fallbackState, "exhausted");
-      assert.equal(launches, 1);
+      const launchesBeforeReplay = recovery === "timer" ? 2 : 1;
+      assert.equal(launches, launchesBeforeReplay);
       assert.equal(notifications.length, 0);
       assert.equal(path.basename(path.dirname(dispatchStreamPath(root, dispatchId)!)), "dispatches");
       const stillPending = await cell.readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] });
@@ -1290,7 +1302,7 @@ for (const recovery of ["reconcile", "adoption", "timer"] as const) {
       else if (recovery === "adoption") assert.equal((await adoptRuntimes(restarted))[0]?.outcome, "settled");
       t.mock.timers.tick(0);
       while (queue.length) await queue.shift()!();
-      assert.equal(launches, 1, "restart must not attempt another successor, even when launch is available");
+      assert.equal(launches, launchesBeforeReplay, "restart must not attempt another successor after exhaustion");
       assert.deepEqual(publications[1], publications[0], "replay preserves payload, body and operation identity");
       assert.equal(frozen.payload.resultRef, stream.terminalOutcome.payload.resultRef);
       assert.equal(frozen.body, stream.terminalOutcome.body);

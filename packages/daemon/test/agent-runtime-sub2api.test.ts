@@ -4,8 +4,11 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { runtimeHttpHeaders } from "../src/agent-runtime-instance-config.ts";
-import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
+import { runtimeHttpHeaders } from "../src/daemon-host/agent-runtime-instance-config.ts";
+import {
+  openRuntimeInstanceStore,
+  type RuntimeInstallationWitness,
+} from "../src/daemon-host/agent-runtime-instances.ts";
 
 const observed: RuntimeInstallationWitness = {
   installationId: "codex-installation-test",

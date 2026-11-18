@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { renderEvidencePayload } from "@harness-anything/application/queries";
 import { dispatchLifecycleSummary, type AgentRuntimeEventV1 } from "@harness-anything/kernel";
-import { runtimeKinds } from "../src/runtime-inventory.ts";
-import { runtimeSpawnReceipt } from "../src/runtime-spawn-receipt.ts";
-import { validateRuntimeSpawnReceipt } from "../src/gui-s3-control.ts";
-import { validateDaemonGuiCommandReceipt } from "../src/protocol/daemon-protocol-validate-results.ts";
-import { makeAgentActionRuntime } from "../src/squad-action-runtime.ts";
-import { validDispatchLifecycleSummary } from "../src/protocol/daemon-protocol-validate-relation-query.ts";
+import { runtimeKinds } from "../src/runtime-engine/runtime-inventory.ts";
+import { runtimeSpawnReceipt } from "../src/runtime-engine/runtime-spawn-receipt.ts";
+import { validateRuntimeSpawnReceipt } from "../src/daemon-host/gui-s3-control.ts";
+import { validateDaemonGuiCommandReceipt } from "../src/daemon-host/protocol/daemon-protocol-validate-results.ts";
+import { makeAgentActionRuntime } from "../src/daemon-host/squad-action-runtime.ts";
+import { validDispatchLifecycleSummary } from "../src/daemon-host/protocol/daemon-protocol-validate-relation-query.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 
 for (const [kindId, supported] of [

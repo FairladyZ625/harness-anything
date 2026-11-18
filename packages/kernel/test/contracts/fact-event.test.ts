@@ -5,7 +5,7 @@ import type { DecisionEventV1 } from "../../src/domain/decision-event.ts";
 import { embeddedRelationEventsForReplay } from "../../src/domain/relation-event.ts";
 import { FactEventSchema } from "../../src/schemas/fact-event.ts";
 import assert from "node:assert/strict";
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 import test from "node:test";
 import {
   compileDecisionWrite,

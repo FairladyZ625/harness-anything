@@ -17,16 +17,16 @@ import test, { type TestContext } from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
 import { fleetBaseBackupTrace } from "@harness-anything/storage";
-import { syncFleetEdgeMirror } from "../src/fleet-center-admission.ts";
-import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
+import { syncFleetEdgeMirror } from "../src/daemon-host/fleet-center-admission.ts";
+import { locateFleetMirrorView } from "../src/daemon-host/fleet-edge-mirror.ts";
 import {
   runFleetReplicaSync,
   waitForFleetReplicaReady,
   waitForFleetReplicaSequence,
-} from "../src/fleet/replica-sync.ts";
-import { runFleetReplicaStream } from "../src/fleet/peer.ts";
-import { readReplicaGeneration, replicaGenerationReaders } from "../src/fleet/replica-generation.ts";
-import { readReplicaHealth } from "../src/fleet/replica-health.ts";
+} from "../src/daemon-host/fleet/replica-sync.ts";
+import { runFleetReplicaStream } from "../src/daemon-host/fleet/peer.ts";
+import { readReplicaGeneration, replicaGenerationReaders } from "../src/fleet-sync/fleet/replica-generation.ts";
+import { readReplicaHealth } from "../src/fleet-sync/fleet/replica-health.ts";
 import {
   fleetReplicationFixture,
   fakeReplicationCenter,

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { LeaseInterval } from "@harness-anything/kernel";
-import { taskLeaseAcquiredRevision } from "../src/task-worktree.ts";
+import { taskLeaseAcquiredRevision } from "../src/daemon-host/task-worktree.ts";
 
 /** The marker and execution-read checks pin the acquisition identified by the newest interval.
  * `readLatestLeaseInterval` is the only reader they receive, so a history scan cannot creep back in. */

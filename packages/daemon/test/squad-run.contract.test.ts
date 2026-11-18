@@ -6,10 +6,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { type CanonicalSquadRun, type RuntimeSession, type TaskProjection } from "@harness-anything/kernel";
-import { appendRuntimeWorkerRecord, archiveDispatchStream, openDispatchStream } from "../src/dispatch-stream.ts";
-import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
-import { makeSquadCanonicalReader } from "../src/squad-canonical-read.ts";
+import {
+  appendRuntimeWorkerRecord,
+  archiveDispatchStream,
+  openDispatchStream,
+} from "../src/daemon-host/dispatch-stream.ts";
+import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { makeSquadCanonicalReader } from "../src/daemon-host/squad-canonical-read.ts";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { latestSquadStates } from "./squad-run-state.fixture.ts";
@@ -18,7 +22,7 @@ import {
   serializeSquadRunsList,
   validateSquadRunRead,
   validateSquadRunsList,
-} from "../src/squad-run-contract.ts";
+} from "../src/daemon-host/squad-run-contract.ts";
 
 const identity = {
   executionId: "execution-squad",

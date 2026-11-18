@@ -6,10 +6,10 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { ensureLocalDaemonRunning } from "../src/client/daemon-autostart.ts";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { openDaemonJsonRpcClientAt } from "../src/client/local-json-rpc-client.ts";
-import { daemonPidPath, daemonSocketProbe } from "../src/daemon-singleton.ts";
+import { ensureLocalDaemonRunning } from "../src/daemon-host/client/daemon-autostart.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { openDaemonJsonRpcClientAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { daemonPidPath, daemonSocketProbe } from "../src/daemon-host/daemon-singleton.ts";
 
 test("the real daemon entry serves while its owner lives and drains after the owner exits", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-owner-death-")),
@@ -27,7 +27,14 @@ test("the real daemon entry serves while its owner lives and drains after the ow
       invokingRoot: userRoot,
       launch: () => ({
         command: process.execPath,
-        args: [path.resolve("packages/daemon/src/bin.ts"), "serve", "--user-root", userRoot, "--daemon-id", daemonId],
+        args: [
+          path.resolve("packages/daemon/src/daemon-host/bin.ts"),
+          "serve",
+          "--user-root",
+          userRoot,
+          "--daemon-id",
+          daemonId,
+        ],
         env: { ...process.env, HARNESS_DAEMON_OWNER_PID: String(owner.pid) },
       }),
       spawnDetached: async (launch) => {

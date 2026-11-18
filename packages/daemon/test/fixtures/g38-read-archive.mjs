@@ -1,12 +1,12 @@
 import { mkdirSync, writeFileSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { sha256Text } from "@harness-anything/kernel";
-import { readEffectiveDispatchArchiveRetention } from "../../src/repo-cell-settings-state.ts";
+import { readEffectiveDispatchArchiveRetention } from "../../src/daemon-host/repo-cell-settings-state.ts";
 import {
   readFactEvidenceSources,
   pruneDispatchStreamArchive,
   scheduleArchivedDispatchStreamCompaction,
-} from "../../src/dispatch-stream-archive.ts";
+} from "../../src/daemon-host/dispatch-stream-archive.ts";
 
 const now = "2026-11-05T00:00:00.000Z";
 const archiveRoot = (rootDir) => path.join(rootDir, ".harness/runtime/dispatches/archive");

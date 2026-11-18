@@ -2,10 +2,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
-import { code as hostErrorCode } from "../src/daemon-host-errors.ts";
-import { isKeycloakTransportFailure } from "../src/keycloak-transport-failure.ts";
-import { rpcServerErrorCode } from "../src/protocol/json-rpc-dispatch-support.ts";
-import { evaluateKeycloakPerson, evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
+import { code as hostErrorCode } from "../src/daemon-host/daemon-host-errors.ts";
+import { isKeycloakTransportFailure } from "../src/daemon-host/keycloak-transport-failure.ts";
+import { rpcServerErrorCode } from "../src/daemon-host/protocol/json-rpc-dispatch-support.ts";
+import { evaluateKeycloakPerson, evaluateRepoCellAction } from "../src/daemon-host/repo-cell-authorization.ts";
 import { fakeKeycloak, keycloakRealm, keycloakUrl } from "./keycloak.fixtures.ts";
 
 const url = "http://127.0.0.1:1";

@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import { TLSSocket } from "node:tls";
 import { TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
-import { withDaemonObservation, type DaemonOperationObserver } from "../src/daemon-operation.ts";
-import type { DaemonTrafficLogEntry } from "../src/conn-log.ts";
-import { listenFleetTls } from "../src/fleet/center.ts";
+import { withDaemonObservation, type DaemonOperationObserver } from "../src/daemon-host/daemon-operation.ts";
+import type { DaemonTrafficLogEntry } from "../src/daemon-host/conn-log.ts";
+import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
 import { fleetFixture, rawPeer } from "./fleet-tls-session.fixture.ts";
 import {
   fleetReplicationFixture,

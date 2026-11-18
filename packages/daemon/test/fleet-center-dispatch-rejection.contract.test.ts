@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
-import { serializeFleetFrame, type FleetFrameV1 } from "../src/fleet/command-protocol.ts";
-import { serve } from "../src/fleet/center-transport.ts";
+import { serializeFleetFrame, type FleetFrameV1 } from "../src/daemon-host/fleet/command-protocol.ts";
+import { serve } from "../src/daemon-host/fleet/center-transport.ts";
 
 /** A socket stand-in whose error reply waits for drain while the peer closes. */
 class BackpressuredSocket extends EventEmitter {

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ExecutionV1 } from "@harness-anything/kernel";
-import { selectReadOnlyAttachTarget } from "../src/review-dispatch-admission.ts";
+import { selectReadOnlyAttachTarget } from "../src/daemon-host/review-dispatch-admission.ts";
 
 function submittedExecution(executionId: string): ExecutionV1 {
   return {

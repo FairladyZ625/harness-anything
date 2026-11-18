@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { once } from "node:events";
 import { createServer, type Socket } from "node:net";
-import { runProcessTextAsync } from "../src/process-port.ts";
+import { runProcessTextAsync } from "../src/daemon-host/process-port.ts";
 
 test(
   "a timed out command releases pipes before their holder exits",

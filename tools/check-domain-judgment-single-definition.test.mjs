@@ -558,7 +558,7 @@ for (const [name, mutate, forbidden = true] of [
   ["shadowed conversion", (body) => body.replace(producerReason, `const String = releaseCapacity; ${producerReason}`)],
 ]) {
   test(`spool producer boundary ${forbidden ? "refuses" : "accepts"} ${name}`, (t) => {
-    const base = readFileSync(path.join(repoRoot, "packages/daemon/src/runtime-spawn-process.ts"), "utf8");
+    const base = readFileSync(path.join(repoRoot, "packages/daemon/src/daemon-host/runtime-spawn-process.ts"), "utf8");
     assert.ok(base.includes(producerReason), "real producer reason anchor must exist");
     const start = base.indexOf("switch (runtimeSessionId ? livenessEvent.payload.liveness : undefined)"),
       end = base.indexOf("offset += bytes.length;", start);
@@ -865,11 +865,11 @@ test("active writer admission is a canonical judgment with every live consumer",
   const judgment = kinds.flatMap((kind) => kind.judgments ?? []).find((item) => item.symbol === symbol);
   assert.ok(judgment, "the live writer fence must not be classified as syntax");
   assert.deepEqual([...judgment.consumers].sort(), [
-    "packages/daemon/src/repo-bootstrap.ts",
-    "packages/daemon/src/repo-cell-api.ts",
-    "packages/daemon/src/repo-cell-command-run.ts",
-    "packages/daemon/src/runtime-publication-queue.ts",
-    "packages/daemon/src/task-witness-runner.ts",
+    "packages/daemon/src/daemon-host/repo-bootstrap.ts",
+    "packages/daemon/src/daemon-host/repo-cell-api.ts",
+    "packages/daemon/src/daemon-host/repo-cell-command-run.ts",
+    "packages/daemon/src/daemon-host/runtime-publication-queue.ts",
+    "packages/daemon/src/daemon-host/task-witness-runner.ts",
   ]);
   assert.ok(
     kinds
@@ -901,15 +901,15 @@ test("queryPayloadValidation and receiptAcceptance are canonical judgments with 
   );
   assert.ok(queryJudgment, "queryPayloadValidation must be registered as a canonical judgment");
   assert.deepEqual([...queryJudgment.consumers].sort(), [
-    "packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-relation-query.ts",
   ]);
 
   const receiptSymbol = "packages/kernel/src/domain/receipt-acceptance.ts#validateReceiptAcceptance",
     receiptJudgment = judgments.find((item) => item.symbol === receiptSymbol);
   assert.ok(receiptJudgment, "validateReceiptAcceptance must be promoted from syntax contract to canonical judgment");
   assert.deepEqual([...receiptJudgment.consumers].sort(), [
-    "packages/daemon/src/gui-s3-control.ts",
-    "packages/daemon/src/protocol/daemon-protocol-validate-results.ts",
+    "packages/daemon/src/daemon-host/gui-s3-control.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-results.ts",
     "packages/kernel/src/domain/receipt-domain-registry.ts",
   ]);
   assert.ok(
@@ -960,17 +960,23 @@ test("S2h converged review, decision-independence, submitted-cut, and rework-cut
       "packages/kernel/src/domain/decision-event-document.ts#assertDecisionReviewerIndependent",
       ["packages/application/src/commands/entity-action-catalog-executor.ts"],
     ],
-    ["packages/kernel/src/domain/review.ts#hasApprovedReviewForExecution", ["packages/daemon/src/task-query-read.ts"]],
+    [
+      "packages/kernel/src/domain/review.ts#hasApprovedReviewForExecution",
+      ["packages/daemon/src/daemon-host/task-query-read.ts"],
+    ],
     [
       "packages/kernel/src/domain/task-bound-runtime-authority.ts#isSubmittedExecutionCutOpen",
       [
-        "packages/daemon/src/runtime-execution-scope.ts",
+        "packages/daemon/src/daemon-host/runtime-execution-scope.ts",
         "packages/kernel/src/domain/task-lifecycle-command-transitions.ts",
       ],
     ],
     [
       "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#isCutReturningRework",
-      ["packages/daemon/src/repo-cell-proof.ts", "packages/kernel/src/domain/task-lifecycle-command-transitions.ts"],
+      [
+        "packages/daemon/src/daemon-host/repo-cell-proof.ts",
+        "packages/kernel/src/domain/task-lifecycle-command-transitions.ts",
+      ],
     ],
   ];
 

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer, type TLSSocket } from "node:tls";
 import test, { type TestContext } from "node:test";
-import { runFleetReplicaStream } from "../src/fleet/peer.ts";
+import { runFleetReplicaStream } from "../src/daemon-host/fleet/peer.ts";
 
 test("a replica stopped during token resolution never enters the session handshake", async (t) => {
   await cancellationAt(t, "token");

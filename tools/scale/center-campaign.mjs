@@ -1,5 +1,5 @@
-import { requestDaemonJsonRpcAt } from "../../packages/daemon/src/client/local-json-rpc-client.ts";
-import { runFleetWriteClient, runFleetReplicaStream } from "../../packages/daemon/src/fleet/peer.ts";
+import { requestDaemonJsonRpcAt } from "../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
+import { runFleetWriteClient, runFleetReplicaStream } from "../../packages/daemon/src/daemon-host/fleet/peer.ts";
 import { createServer } from "node:tls";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -9,7 +9,7 @@ import {
   FLEET_FRAME_BYTES,
   FLEET_CHUNK_BYTES,
   serializeFleetFrame,
-} from "../../packages/daemon/src/fleet/command-protocol.ts";
+} from "../../packages/daemon/src/daemon-host/fleet/command-protocol.ts";
 import { replayTraffic } from "./center-replay.mjs";
 import { openSyntheticReplica } from "./center-replica.mjs";
 import { syntheticJson } from "./center-ledger.mjs";

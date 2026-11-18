@@ -6,19 +6,19 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
-import { makeTaskEventStore } from "@harness-anything/storage";
+import { makeTaskEventReader } from "@harness-anything/storage";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { definition, git } from "./schedule-actions.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
-import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
-import { listenFleetTls } from "../src/fleet/center.ts";
+import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instances.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { openFleetEdgeRuntime } from "../src/daemon-host/fleet-edge-runtime.ts";
+import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
 import { startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 import { initHarnessRepo, pullScheduleView, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 
@@ -431,7 +431,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
         afterDelete.schedules.some(({ scheduleId }) => scheduleId === "e2e-probe"),
         false,
       );
-      const retainedEvents = makeTaskEventStore({ repoId: "schedule-actions", rootDir: root })
+      const retainedEvents = makeTaskEventReader({ repoId: "schedule-actions", rootDir: root })
         .read()
         .events.filter((event) => event.schema === "schedule-event/v1" && event.entity.id === "e2e-probe");
       assert.equal(

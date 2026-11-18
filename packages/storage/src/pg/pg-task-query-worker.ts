@@ -2,7 +2,7 @@ import { borrowPgReadClient } from "./pg-read-savepoint.ts";
 import { backfillPgEntityDeclarationPage } from "./pg-entity-declaration-catchup.ts";
 import { readCutInTransaction } from "./pg-event-queries.ts";
 import { isMainThread, parentPort, workerData, type MessagePort } from "node:worker_threads";
-import { Pool, type PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { createPgTaskProjectionSource } from "./pg-task-source.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
@@ -17,13 +17,18 @@ import { backfillPgArtifactDocuments } from "./pg-artifact-timeline.ts";
 import { backfillPgDispatchLifecycle } from "./pg-dispatch-lifecycle.ts";
 import { maintainPgRelationCycleAuditPage } from "./pg-relation-cycle-audit.ts";
 import { backfillPgRelationReaderIndexPage } from "./pg-relation-queries.ts";
-import { borrowPostgresCommitWork, withPostgresTransaction, withPostgresCommitGuard } from "../postgres/transaction.ts";
+import {
+  borrowPostgresCommitWork,
+  withPostgresTransaction,
+  withPostgresCommitGuard,
+  createPostgresPool,
+} from "../postgres/transaction.ts";
 import { pgEpochTransactions, type PgEpochRequest } from "../postgres/pg-epoch-transaction.ts";
 import { pgReplicationHead, pgReplicationPage } from "../postgres/pg-replication.ts";
 import type { ReplicationPosition } from "../store/replication-log.ts";
 import { pgSlotOperation } from "../postgres/pg-slot-operations.ts";
 import path from "node:path";
-import { localGitWorktreeSettlement } from "../store/local-version-control-system.ts";
+import { readAuthoredNode } from "../authored-node-read.ts";
 
 export interface PgQuerySessionInput {
   readonly requestPort: MessagePort;
@@ -65,10 +70,8 @@ type StandalonePgWorkerInput = Omit<PgQuerySessionInput, "requestPort"> & {
 };
 const data = workerData as StandalonePgWorkerInput | undefined;
 if (!isMainThread && parentPort && typeof data?.connectionString === "string") {
-  const pool = new Pool({ connectionString: data.connectionString, max: 4 }),
-    authority = data.authorityConnectionString
-      ? new Pool({ connectionString: data.authorityConnectionString, max: 1 })
-      : null,
+  const pool = createPostgresPool(data.connectionString, { max: 4 }),
+    authority = data.authorityConnectionString ? createPostgresPool(data.authorityConnectionString, { max: 1 }) : null,
     session = startWorker({ ...data, requestPort: parentPort }, pool, authority);
   process.on("uncaughtExceptionMonitor", (error) => session.fail(error, true));
   process.on("exit", (code) =>
@@ -110,7 +113,7 @@ function startWorker(
     scope: { ...input.scope, readers: input.scope.readers ?? [] },
     readAuthoredDocument: input.authoredRoot
       ? (logical) => {
-          const node = localGitWorktreeSettlement.readNode(path.join(input.authoredRoot!, ...logical.split("/")));
+          const node = readAuthoredNode(path.join(input.authoredRoot!, ...logical.split("/")));
           return node ? { ...node, nodeKind: node.mode === "120000" ? "symbolic-link" : "file" } : null;
         }
       : undefined,

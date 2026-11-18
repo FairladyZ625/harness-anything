@@ -9,7 +9,7 @@ import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 
 import { writePackage } from "../../preset/test/preset-resolver.fixtures.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 const binding = withPolicyGroup(
