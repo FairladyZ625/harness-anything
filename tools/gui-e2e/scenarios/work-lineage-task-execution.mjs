@@ -25,6 +25,7 @@ export default {
   id: "work-lineage-task-execution",
   feature: "work-lineage",
   lane: "isolated",
+  readOnly: true,
   description:
     "Work cards expand into the lineage tree with subtree cost/duration rollup and task/session jumps; task detail renders dispatch rounds as timed plan steps with a failed-step retry.",
   async run({ page, shot }) {

@@ -23,6 +23,7 @@ export default {
   id: "artifacts-html-preview",
   feature: "sessions-artifacts",
   lane: "isolated",
+  readOnly: true,
   description: "An HTML artifact preview fills its host box so long reports scroll inside the webview.",
   async run({ app, page }) {
     await nav(page, /^(?:产物|Artifacts)$/u, "artifacts-view");
