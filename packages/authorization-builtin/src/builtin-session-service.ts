@@ -90,14 +90,16 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
   async complete(code: string, state: string): Promise<Record<string, unknown>> {
     const external = this.#externalSession() ?? (this.#externalLoginPending ? this.#external : undefined);
     if (external) {
-      try {
-        const result = await external.complete(code, state);
-        this.#externalLoginPending = false;
-        return result;
-      } catch (error) {
-        if ((error as { readonly code?: string })?.code !== "oidc_state_invalid") this.#externalLoginPending = false;
-        throw error;
-      }
+      return external.complete(code, state).then(
+        (settled) => {
+          this.#externalLoginPending = false;
+          return settled;
+        },
+        (error: unknown) => {
+          if ((error as { readonly code?: string })?.code !== "oidc_state_invalid") this.#externalLoginPending = false;
+          throw error;
+        },
+      );
     }
     return this.serialize(async () => {
       if (!this.#loginState || state !== this.#loginState)
