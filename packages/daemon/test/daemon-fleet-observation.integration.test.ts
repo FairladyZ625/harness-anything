@@ -226,7 +226,7 @@ test("two Fleet nodes reuse a messageId, fail together and settle their own deli
   // the pump finish, then assert both owners, before checking individual error details.
   await new Promise<void>((resolve) => setImmediate(resolve));
   assert.equal(traffic.length, 2, JSON.stringify({ traffic, active: [...observed.active.values()] }));
-  assert.equal(traffic[0]!.code, "handler_failed");
+  assert.equal(traffic[0]!.code, "registry_down");
   const failed = observed.records.filter((row) => row.method === frame.schema);
   assert.equal(failed.length, 2, JSON.stringify(failed));
   for (const row of failed) {

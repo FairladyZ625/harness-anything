@@ -1,7 +1,21 @@
-import { mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  link,
+  mkdir,
+  open,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+  type FileHandle,
+} from "node:fs/promises";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import {
+  BASE_BACKUP_ARCHIVE_ROOT,
   openReplicaProjection,
   openReplicaStore,
   type ReplicationCommit,
@@ -14,6 +28,8 @@ import { daemonBuildStamp } from "../build-identity.ts";
 import {
   isBaseBackupMetadata,
   ReplicationError,
+  SNAPSHOT_BINARY_WIRE_CAPABILITY,
+  SNAPSHOT_OBJECT_PACK_CAPABILITY,
   SNAPSHOT_RESUME_CAPABILITY,
   type ReplicationPeer,
 } from "../../fleet-sync/fleet/protocol.ts";
@@ -64,7 +80,13 @@ export function openWalReceiverGeneration(generation: ReplicaGeneration) {
 
 export interface ReplicationTarget {
   readonly position: () => ReplicationPosition | null;
-  readonly install: (archive: string, metadata: BaseBackupMetadata, size: number, sha256: string) => Promise<void>;
+  readonly install: (
+    archive: string,
+    metadata: BaseBackupMetadata,
+    size: number,
+    sha256: string,
+    options?: { readonly stagedObjectsDir?: string },
+  ) => Promise<void>;
   /** Applies a commit whose content objects were already installed through installObject. */
   readonly apply: (commit: ReplicationCommit<Iterable<SqliteEventRow>>) => void;
   readonly installObject: (sha256: string, file: string) => Promise<void>;
@@ -165,14 +187,174 @@ async function receiveBytes(
   let offset = initialOffset;
   while (offset < size) {
     const frame = await peer.receive(signal);
-    if (frame.type !== "replica.data" || frame.offset !== offset)
+    if ((frame.type !== "replica.data" && frame.type !== "replica.data.bin") || frame.offset !== offset)
       throw new ReplicationError("replication byte offset differs", "replica_protocol_error");
-    const bytes = Buffer.from(frame.data, "base64");
+    const bytes =
+      frame.type === "replica.data.bin"
+        ? Buffer.from(frame.data.buffer, frame.data.byteOffset, frame.data.byteLength)
+        : Buffer.from(frame.data, "base64");
     if (bytes.length === 0 || offset + bytes.length > size)
       throw new ReplicationError("replication byte length differs", "replica_protocol_error");
     await write(bytes);
     offset += bytes.length;
   }
+}
+
+function findExistingObjectPaths(viewRoot: string): readonly string[] {
+  const generationsDir = path.join(viewRoot, "generations");
+  if (!existsSync(generationsDir)) return [];
+  const roots: string[] = [];
+  for (const genEntry of readdirSync(generationsDir, { withFileTypes: true })) {
+    if (!genEntry.isDirectory()) continue;
+    const storeGensDir = path.join(generationsDir, genEntry.name, BASE_BACKUP_ARCHIVE_ROOT, "store", "generations");
+    if (!existsSync(storeGensDir)) continue;
+    for (const ledgerGenEntry of readdirSync(storeGensDir, { withFileTypes: true })) {
+      if (!ledgerGenEntry.isDirectory()) continue;
+      const objectsDir = path.join(storeGensDir, ledgerGenEntry.name, "objects", "sha256");
+      if (existsSync(objectsDir)) roots.push(objectsDir);
+    }
+  }
+  return roots;
+}
+
+async function tryReuseExistingObject(
+  stagedObjectsDir: string,
+  existingRoots: readonly string[],
+  sha256: string,
+  expectedSize: number,
+): Promise<boolean> {
+  const prefix = sha256.slice(0, 2);
+  const rest = sha256.slice(2);
+  const stagedTarget = path.join(stagedObjectsDir, prefix, rest);
+  if (existsSync(stagedTarget)) {
+    const existing = statSync(stagedTarget);
+    if (existing.isFile() && existing.size === expectedSize) return true;
+  }
+  for (const root of existingRoots) {
+    const candidate = path.join(root, prefix, rest);
+    if (!existsSync(candidate)) continue;
+    const candidateStat = statSync(candidate);
+    if (!candidateStat.isFile() || candidateStat.size !== expectedSize) continue;
+    await /* @gate-identity non-state/environment-io.1a2b3c4d5e6f7081 */ mkdir(path.dirname(stagedTarget), {
+      recursive: true,
+    });
+    try {
+      await /* @gate-identity non-state/environment-io.2b3c4d5e6f708192 */ link(candidate, stagedTarget);
+    } catch (error) {
+      consumeKnownError(error);
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") return true;
+      await /* @gate-identity non-state/environment-io.3c4d5e6f708192a3 */ copyFile(candidate, stagedTarget);
+    }
+    return true;
+  }
+  return false;
+}
+
+async function receivePackStream(input: {
+  readonly peer: ReplicationPeer;
+  readonly totalBytes: number;
+  readonly expectedCount: number;
+  readonly wantedSizes: ReadonlyMap<string, number>;
+  readonly stagedObjectsDir: string;
+  readonly signal: AbortSignal;
+}): Promise<number> {
+  const { peer, totalBytes, expectedCount, wantedSizes, stagedObjectsDir, signal } = input;
+  const headerBuf = Buffer.allocUnsafe(72);
+  let headerBytes = 0;
+  let currentSha = "";
+  let currentRemaining = 0;
+  let currentHandle: FileHandle | null = null;
+  let currentTmpPath = "";
+  let currentDigest = createHash("sha256");
+  let objectsReceived = 0;
+
+  const finalizeCurrentObject = async () => {
+    const handle = currentHandle;
+    if (!handle) return;
+    const tmpPath = currentTmpPath;
+    const sha = currentSha;
+    const digest = currentDigest;
+    currentHandle = null;
+    currentTmpPath = "";
+    try {
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    if (digest.digest("hex") !== sha) {
+      await /* @gate-identity non-state/environment-io.0e61dbc95383ec54 */ rm(tmpPath, { force: true });
+      throw new ReplicationError("replication pack object digest differs", "replica_protocol_error");
+    }
+    const targetPath = path.join(stagedObjectsDir, sha.slice(0, 2), sha.slice(2));
+    await /* @gate-identity non-state/environment-io.05c64932e0127603 */ rename(tmpPath, targetPath);
+    objectsReceived += 1;
+  };
+
+  try {
+    await receiveBytes(peer, totalBytes, signal, async (bytes) => {
+      let cursor = 0;
+      while (cursor < bytes.length) {
+        if (currentHandle === null) {
+          const needHeader = 72 - headerBytes;
+          const take = Math.min(needHeader, bytes.length - cursor);
+          bytes.copy(headerBuf, headerBytes, cursor, cursor + take);
+          headerBytes += take;
+          cursor += take;
+          if (headerBytes < 72) continue;
+          headerBytes = 0;
+          currentSha = headerBuf.toString("ascii", 0, 64);
+          const expectedSize = wantedSizes.get(currentSha);
+          const declaredSizeBig = headerBuf.readBigUInt64BE(64);
+          if (
+            expectedSize === undefined ||
+            declaredSizeBig > BigInt(Number.MAX_SAFE_INTEGER) ||
+            Number(declaredSizeBig) !== expectedSize
+          ) {
+            throw new ReplicationError("replication pack object header mismatch", "replica_protocol_error");
+          }
+          currentRemaining = expectedSize;
+          const targetDir = path.join(stagedObjectsDir, currentSha.slice(0, 2));
+          await /* @gate-identity non-state/environment-io.6f708192a3b4c5d6 */ mkdir(targetDir, {
+            recursive: true,
+          });
+          currentTmpPath = path.join(targetDir, `${currentSha.slice(2)}.tmp-${randomUUID()}`);
+          currentHandle = await /* @gate-identity non-state/environment-io.708192a3b4c5d6e7 */ open(
+            currentTmpPath,
+            "wx",
+          );
+          currentDigest = createHash("sha256");
+          if (currentRemaining === 0) {
+            await finalizeCurrentObject();
+          }
+        } else {
+          const take = Math.min(currentRemaining, bytes.length - cursor);
+          const slice = bytes.subarray(cursor, cursor + take);
+          currentDigest.update(slice);
+          await currentHandle.writeFile(slice);
+          currentRemaining -= take;
+          cursor += take;
+          if (currentRemaining === 0) {
+            await finalizeCurrentObject();
+          }
+        }
+      }
+    });
+  } catch (error) {
+    const openHandle = currentHandle as FileHandle | null;
+    if (openHandle) {
+      await openHandle.close().catch(() => undefined);
+    }
+    if (currentTmpPath) {
+      await /* @gate-identity non-state/environment-io.4d5e6f708192a3b4 */ rm(currentTmpPath, { force: true }).catch(
+        () => undefined,
+      );
+    }
+    throw error;
+  }
+  if (headerBytes !== 0 || currentRemaining !== 0 || objectsReceived !== expectedCount) {
+    throw new ReplicationError("replication pack truncated", "replica_protocol_error");
+  }
+  return objectsReceived;
 }
 
 export async function runWalReceiver(input: {
@@ -203,7 +385,7 @@ export async function runWalReceiver(input: {
       position: initialPosition,
       edgeBuildCommit: daemonBuildStamp().commit,
       taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
-      capabilities: [SNAPSHOT_RESUME_CAPABILITY],
+      capabilities: [SNAPSHOT_RESUME_CAPABILITY, SNAPSHOT_BINARY_WIRE_CAPABILITY, SNAPSHOT_OBJECT_PACK_CAPABILITY],
       ...(stagedResume ? { resumeSnapshot: { snapshotId: stagedResume.snapshotId, offset: stagedResume.offset } } : {}),
     });
     const rejectUnauthorizedRead = async (): Promise<never> => {
@@ -253,9 +435,50 @@ export async function runWalReceiver(input: {
       }
       await peer.send({ type: "replica.ack", durable: position, applied: position });
     };
-    const expect = async (type: "replica.backup.end" | "replica.commit.end" | "replica.object.end") => {
+    const expect = async (
+      type: "replica.backup.end" | "replica.commit.end" | "replica.object.end" | "replica.objects.pack.end",
+    ) => {
       if ((await peer.receive(signal)).type !== type)
         throw new ReplicationError(`expected ${type}`, "replica_protocol_error");
+    };
+    const receiveSplitObjects = async (stagedObjectsDir: string) => {
+      await /* @gate-identity non-state/environment-io.8192a3b4c5d6e7f8 */ mkdir(stagedObjectsDir, {
+        recursive: true,
+      });
+      const existingRoots = findExistingObjectPaths(path.dirname(input.directory));
+      for (;;) {
+        const manifest = await peer.receive(signal);
+        if (manifest.type !== "replica.objects.manifest")
+          throw new ReplicationError("expected replica.objects.manifest", "replica_protocol_error");
+        const wantedSizes = new Map<string, number>();
+        const wantSha256s: string[] = [];
+        for (const entry of manifest.entries) {
+          const have = await tryReuseExistingObject(stagedObjectsDir, existingRoots, entry.sha256, entry.size);
+          if (!have) {
+            wantedSizes.set(entry.sha256, entry.size);
+            wantSha256s.push(entry.sha256);
+          }
+        }
+        await peer.send({ type: "replica.objects.want", sha256s: wantSha256s });
+        let receivedForBatch = 0;
+        while (receivedForBatch < wantSha256s.length) {
+          const pack = await peer.receive(signal);
+          if (pack.type !== "replica.objects.pack")
+            throw new ReplicationError("expected replica.objects.pack", "replica_protocol_error");
+          if (pack.totalBytes > input.quotaBytes)
+            throw new ReplicationError("replication object pack exceeds disk quota", "replica_quota_exceeded");
+          receivedForBatch += await receivePackStream({
+            peer,
+            totalBytes: pack.totalBytes,
+            expectedCount: pack.count,
+            wantedSizes,
+            stagedObjectsDir,
+            signal,
+          });
+          await expect("replica.objects.pack.end");
+        }
+        if (manifest.done) break;
+      }
     };
     for (;;) {
       signal.throwIfAborted();
@@ -346,8 +569,19 @@ export async function runWalReceiver(input: {
             }
             await handle.close();
           }
+          let stagedObjectsDir: string | undefined;
+          if (frame.objectsMode === "pack") {
+            stagedObjectsDir = path.join(snapshotDir, "objects");
+            await receiveSplitObjects(stagedObjectsDir);
+          }
           try {
-            await target.install(partFile, frame.metadata, frame.size, frame.sha256);
+            await target.install(
+              partFile,
+              frame.metadata,
+              frame.size,
+              frame.sha256,
+              stagedObjectsDir ? { stagedObjectsDir } : undefined,
+            );
           } catch (error) {
             await clearStagedSnapshots(snapshotsRoot);
             throw error;
@@ -359,6 +593,8 @@ export async function runWalReceiver(input: {
             recursive: true,
           });
           const file = path.join(input.directory, `${randomUUID()}.tar.gz`);
+          const stagedObjectsDir =
+            frame.objectsMode === "pack" ? path.join(input.directory, `${randomUUID()}-objects`) : undefined;
           const handle = await /* @gate-identity non-state/environment-io.86c097b43a2b67a1 */ open(file, "wx");
           try {
             try {
@@ -370,10 +606,25 @@ export async function runWalReceiver(input: {
             } finally {
               await handle.close();
             }
-            await target.install(file, frame.metadata, frame.size, frame.sha256);
+            if (stagedObjectsDir) {
+              await receiveSplitObjects(stagedObjectsDir);
+            }
+            await target.install(
+              file,
+              frame.metadata,
+              frame.size,
+              frame.sha256,
+              stagedObjectsDir ? { stagedObjectsDir } : undefined,
+            );
             await ack(frame.metadata.position);
           } finally {
             await /* @gate-identity non-state/environment-io.4d1cb7398be78de6 */ rm(file, { force: true });
+            if (stagedObjectsDir) {
+              await /* @gate-identity non-state/environment-io.92a3b4c5d6e7f809 */ rm(stagedObjectsDir, {
+                recursive: true,
+                force: true,
+              });
+            }
           }
         }
       } else if (frame.type === "replica.commit") {

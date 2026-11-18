@@ -920,8 +920,8 @@ export function createDaemonHostRepositoryApi(
             }),
             await hostedCredentialDoctorCheck(cell.status().rootDir, { repoId, instances: context.instances.list() }),
             fleetVersionDoctorCheck([
-              ...(context.fleetCenter?.versionWarnings() ?? []),
-              ...[...context.fleetVersionWarnings.values()].map((warning) => warning.message),
+              ...(context.fleetCenter?.versionWarnings(repoId) ?? []),
+              ...(context.fleetVersionWarnings.has(repoId) ? [context.fleetVersionWarnings.get(repoId)!.message] : []),
             ]),
           ];
           return { ...health, checks, evidence: JSON.stringify({ ...JSON.parse(health.evidence!), checks }) };

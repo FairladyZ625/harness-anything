@@ -753,7 +753,7 @@ test("overlapping worker declarations reject the second child before execution",
 });
 
 test(
-  "a real parent runtime actor dispatches child plans through its canonical parent lease",
+  "parent runtime delegation waits for accepted parent stop and retains its canonical lease",
   { timeout: 90_000 },
   async (t) => {
     const fixture = await openFixture(t, "runtime-caller", true);
@@ -1024,6 +1024,19 @@ async function openFixture(
         executor: { kind: "agent", id: `runtime-session:${String(caller.runtimeSessionId)}` },
       },
     };
+    // The caller sends its delegation before exiting. Its authenticated request may retain the
+    // canonical parent lease, but a second process must not receive that checkout until it stops.
+    const parentProvider = providers.find((provider) => provider.dispatchId === parentDispatchId)!;
+    await stopFixtureProcess(parentProvider.process!);
+    await cell.runtimeIngress(
+      {
+        kind: "event",
+        type: "runtime_session_exited",
+        opId: "parent-caller-exited-before-squad",
+        payload: { runtimeSessionId: String(caller.runtimeSessionId) },
+      },
+      binding,
+    );
   }
   const started = await cell.run(
     {

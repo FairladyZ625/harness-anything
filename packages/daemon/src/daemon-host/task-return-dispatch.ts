@@ -5,7 +5,10 @@ import {
   type TaskEventV1,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
-import { currentExecutionArrangement } from "@harness-anything/kernel/internal/domain/task-execution-arrangement.ts";
+import {
+  automaticReworkIsUnclaimed,
+  currentExecutionArrangement,
+} from "@harness-anything/kernel/internal/domain/task-execution-arrangement.ts";
 import { readLastExecutionWorkerDispatch } from "./dispatch-read.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { reviewReportRelativePath } from "./reviewer-artifact-publication.ts";
@@ -69,6 +72,7 @@ export function nodeReworkDispatchCandidate(
   const read = cell.projection.read(input.taskId),
     task = read.snapshot.task;
   if (task?.status !== "active" || !read.packagePath) return null;
+  if (!currentExecutionArrangement(read.snapshot)?.agentId && !automaticReworkIsUnclaimed(read.snapshot)) return null;
   const execution = read.snapshot.executions
     .filter(
       (candidate): candidate is ExecutionV1 =>
@@ -345,6 +349,15 @@ async function dispatchContinuation(
     arrangementId = arrangement?.id,
     previous = submittingWorkerDispatch(cell, input.taskId, input.execution.executionId),
     active = initial.lease ? submittingWorkerDispatch(cell, input.taskId, initial.lease.executionId) : undefined;
+  if (!arrangement && !automaticReworkIsUnclaimed(initial))
+    return {
+      continuation: {
+        mode: "active",
+        outcome: "no_changes",
+        taskId: input.taskId,
+        ...(active ? { runtimeSessionId: active.runtimeSessionId } : {}),
+      },
+    };
   // A submitted provider turn can keep using its checkout for post-submit CI repair. Rework
   // retires its execution lease but cannot revoke those OS-level writes, so settle a live source
   // runtime before the continuation receives the same worktree. The existing cancel path waits
@@ -452,6 +465,8 @@ async function dispatchContinuation(
               "execution_scope_mismatch",
               "The return continuation was superseded by another execution arrangement.",
             );
+          if (!arrangement && !automaticReworkIsUnclaimed(snapshot))
+            return { outcome: "no_changes", opId: input.opId, taskId: input.taskId };
           if (authorizedBinding.authorizationDecision?.outcome !== "allowed")
             throw cell.cellCodedError(
               "authorization_denied",
@@ -476,6 +491,11 @@ async function dispatchContinuation(
         if (retryResume(attempt, continuation.mode, spawned.code)) continue;
         return failedReturn(input, continuation, spawned);
       }
+      if (spawned.outcome === "no_changes" && !("dispatchId" in spawned))
+        return {
+          continuation: { mode: "active", ...spawned },
+          next: [{ command: `ha task show ${input.taskId}`, reason: "The current executor owns this rework round." }],
+        };
       return {
         continuation: {
           mode: continuation.mode,

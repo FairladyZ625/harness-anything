@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { readSubmissionFacts, renderSubmissionFacts } from "../../../packages/kernel/src/domain/submission-facts.ts";
 import { checkPrBody } from "../../check-pr-body.mjs";
 import { checkPrGovernance } from "../../check-pr-governance.mjs";
 import { main as dependencyPolicyMain, validateDependencyDeclaration } from "../dependency-policy.mjs";
@@ -1005,4 +1006,130 @@ test("authored closeout prose cannot mint a second submission-facts marker", () 
     body = render(codeSubmission, { closeout: authored });
   assert.equal((body.match(/<!-- harness:submission-facts:start -->/gu) ?? []).length, 1);
   assert.match(body, /&lt;!-- harness:submission-facts:start --&gt;/u);
+});
+
+function changedPaths(count, suffix = "component-with-a-long-name-for-the-refactoring-cut.ts") {
+  return Array.from(
+    { length: count },
+    (_, index) => `packages/kernel/src/refactoring/${String(index).padStart(5, "0")}/${suffix}`,
+  );
+}
+
+test("large frozen cuts stay below GitHub body limits without changing the authoritative paths", () => {
+  for (const count of [1500, 2000, 34000]) {
+    const files = changedPaths(count),
+      submission = { ...codeSubmission, changedFiles: [...files].reverse() },
+      before = structuredClone(submission),
+      body = render(submission);
+    console.log(
+      `changedFiles=${count} rendered.length=${body.length} checkPrBody.ok=${checkPrBody(body, { prTemplate: template }).ok}`,
+    );
+    assert.ok(body.length < 20000, `rendered.length=${body.length} must remain below 20000 and GitHub 65536`);
+    assert.ok(body.includes(`  - ... (${count - 150} more files in commit diff; total ${count} changed files)`));
+    assert.ok(body.includes(files[149]));
+    assert.ok(!body.includes(files[150]));
+    assert.deepEqual(submission, before);
+    assert.deepEqual(readSubmissionFacts(submission).changedFiles, files);
+    assertPassesPrBodyCheck(body, submission);
+  }
+});
+
+test("the inline boundary preserves empty, small, and exactly 150 path lists byte for byte", () => {
+  for (const count of [0, 1, 50, 150, 151]) {
+    const files = changedPaths(count, "file.ts"),
+      submission = { ...codeSubmission, changedFiles: [...files].reverse() },
+      block = renderSubmissionFacts(submission),
+      expectedPaths = files.length
+        ? files.slice(0, 150).map((file) => `  - \`${JSON.stringify(file)}\``)
+        : ["  - none"];
+    if (count > 150)
+      expectedPaths.push(`  - ... (${count - 150} more files in commit diff; total ${count} changed files)`);
+    assert.equal(
+      block,
+      [
+        "## Delivery Facts",
+        `- Delivery commit: \`${commitSha}\``,
+        `- Merge base: \`${baseSha}\``,
+        "- Production delta: +5/-2 (net +3).",
+        "- Changed files:",
+        ...expectedPaths,
+        "- G33 classification: complete.",
+      ].join("\n"),
+    );
+  }
+});
+
+test("legacy and G33 path projections are bounded while machine facts remain complete", () => {
+  const files = changedPaths(2000),
+    legacy = {
+      ...codeSubmission,
+      deliverables: files,
+      changedFiles: undefined,
+      productionDelta: undefined,
+      outputs: [],
+    },
+    unclassified = {
+      ...codeSubmission,
+      changedFiles: files,
+      productionDelta: { ...codeSubmission.productionDelta, unclassified: [...files].reverse() },
+    },
+    before = structuredClone(unclassified);
+  for (const submission of [legacy, unclassified]) {
+    const body = render(submission);
+    assert.ok(body.length < 65536, `rendered.length=${body.length}`);
+    assert.ok(body.includes("1850 more files in commit diff; total 2000 changed files"));
+    assertPassesPrBodyCheck(body, submission);
+  }
+  const block = renderSubmissionFacts(unclassified);
+  assert.match(block, /G33 unclassified production paths:/u);
+  assert.match(block, /1850 more unclassified paths; total 2000 unclassified paths/u);
+  assert.match(block, /Production delta: \+5\/-2 \(net \+3\)/u);
+  assert.deepEqual(unclassified, before);
+});
+
+test("encoded long paths have a character boundary as well as a row boundary", () => {
+  const files = changedPaths(2000, `${"界😀`".repeat(500)}.ts`),
+    submission = {
+      ...codeSubmission,
+      changedFiles: files,
+      productionDelta: { ...codeSubmission.productionDelta, unclassified: files },
+    },
+    body = render(submission);
+  assert.ok(body.length < 65536, `rendered.length=${body.length}`);
+  assert.match(body, /more files in commit diff; total 2000 changed files/u);
+  assert.match(body, /more unclassified paths; total 2000 unclassified paths/u);
+  assertPassesPrBodyCheck(body, submission);
+});
+
+test("a bounded 1500-path body passes every gate in the real PR body workflow", (context) => {
+  const directory = mkdtempSync(path.join(tmpdir(), "bounded-pr-body-")),
+    bodyFile = path.join(directory, "body.md"),
+    submission = {
+      ...codeSubmission,
+      changedFiles: [...changedPaths(1500), "tools/gates/test/render-task-pr-body.test.mjs"],
+    },
+    body = render(submission, { taskId: protectedId, receipt: receipt(submission, {}, protectedId) });
+  context.after(() => rmSync(directory, { recursive: true, force: true }));
+  writeFileSync(bodyFile, body);
+  const output = execFileSync(
+    process.execPath,
+    [
+      fileURLToPath(new URL("../../check-pr-body-workflow.mjs", import.meta.url)),
+      "--body-file",
+      bodyFile,
+      "--base",
+      "origin/main",
+    ],
+    { cwd: fileURLToPath(new URL("../../../", import.meta.url)), encoding: "utf8" },
+  );
+  console.log(output);
+  assert.match(output, /PR body workflow passed: 5 gate\(s\) across 2 job\(s\)/u);
+});
+
+test("path truncation keeps every verification entry in the authored section", () => {
+  const verificationEntries = Array.from({ length: 200 }, (_, index) => `- Verified test ${index}: passed.`),
+    submission = { ...codeSubmission, changedFiles: changedPaths(2000) },
+    body = render(submission, { closeout: closeout.replace(verification, verificationEntries.join("\n")) });
+  for (const entry of verificationEntries) assert.ok(body.includes(entry), entry);
+  assertPassesPrBodyCheck(body, submission);
 });

@@ -5,6 +5,11 @@ import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { preflightNodeReviewDispatch } from "@harness-anything/application/internal/commands/node-review-dispatch-preflight.ts";
+import {
+  reviewDispatchDiagnostic,
+  withReviewDispatchFailures,
+} from "@harness-anything/application/internal/queries/review-dispatch-failure-read.ts";
 import {
   assertFleetEdgeRepositoryGit,
   readFleetCenterGitMetadata,
@@ -183,6 +188,45 @@ test("edge Git preflight rejects a default branch behind the center head", async
         return true;
       },
     );
+    const candidate = {
+        taskId: "task-review-behind",
+        executionId: "execution-review-behind",
+        dispatchKey: "review:behind",
+      },
+      failures: unknown[] = [],
+      preflight = () =>
+        assertFleetEdgeRepositoryGit({ rootDir: edge, center: centerGit, operation: "runtime dispatch" }),
+      diagnostic = (error: unknown) =>
+        reviewDispatchDiagnostic({
+          code: (error as FleetEdgeGitPreflightError).code,
+          message: (error as Error).message,
+        });
+    for (const command of ["task-submit", "task-dispatch-review"]) {
+      const observed = await preflightNodeReviewDispatch({
+        candidates: [candidate],
+        preflight,
+        diagnostic,
+        now: () => "2026-11-17T00:00:00.000Z",
+        writeFailure: async (_candidate, failure) => {
+          failures.push(failure);
+        },
+      });
+      const result = withReviewDispatchFailures({ command, outcome: "applied" }, observed.failures);
+      assert.match(String(result.warnings), /edge_default_branch_behind.*merge --ff-only origin\/main/u);
+      assert.equal(result.outcome, "applied");
+    }
+    assert.equal(failures.length, 2);
+    git(edge, "merge", "--ff-only", "origin/main");
+    const recovered = await preflightNodeReviewDispatch({
+      candidates: [candidate],
+      preflight,
+      diagnostic,
+      now: () => "2026-11-17T00:00:00.000Z",
+      writeFailure: async () => {
+        assert.fail("healthy checkout must not publish a failure");
+      },
+    });
+    assert.deepEqual(recovered.failures, []);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

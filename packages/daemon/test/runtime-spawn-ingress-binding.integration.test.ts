@@ -509,7 +509,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", { time
           createReadyTask("task-runtime-dispatcher-unrelated", "Dispatcher unrelated write"),
         ]);
       assert.equal(concurrent.outcome, "op_rejected", JSON.stringify(concurrent));
-      assert.equal(concurrent.code, "runtime_task_lease_required", JSON.stringify(concurrent));
+      assert.equal(concurrent.code, "runtime_task_writer_conflict", JSON.stringify(concurrent));
+      assert.match(String(concurrent.rejectionExplanation), new RegExp(String(receipt.runtimeSessionId), "u"));
       assert.equal(launchCount, launchesAfterFirst, "the rejected dispatch must not launch a provider");
       assert.equal(unrelated, undefined);
       const projection = makeTaskProjection({

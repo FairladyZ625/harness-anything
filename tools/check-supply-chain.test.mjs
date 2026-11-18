@@ -8,6 +8,21 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 const scriptPath = path.resolve(import.meta.dirname, "check-supply-chain.mjs");
+const reviewedAt = Date.parse("2026-11-19T00:00:00.000Z");
+const expiresAt = Date.parse("2026-12-17T00:00:00.000Z");
+const picomatchPath = "node_modules/picomatch";
+const reviewedRoot = {
+  name: "picomatch",
+  severity: "high",
+  url: "https://github.com/advisories/GHSA-fc5q-39xc-vjpf",
+};
+const unreviewedRoot = { ...reviewedRoot, url: "https://github.com/advisories/GHSA-xxxx-yyyy-zzzz" };
+const picomatchFinding = { severity: "high", via: [reviewedRoot] };
+const outage = {
+  status: 1,
+  stdout: JSON.stringify({ statusCode: 503, message: "503 Service Unavailable" }),
+  stderr: "npm warn audit 503 Service Unavailable\nnpm error audit endpoint returned an error",
+};
 
 test("supply-chain check accepts the expected release gate contract", async () => {
   await withFixtureRepo((root) => {
@@ -198,7 +213,7 @@ test("supply-chain check invokes npm instead of reading fixture output from env"
     });
 
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /npm audit --audit-level=high failed/u);
+    assert.match(result.stderr, /npm audit --omit=dev --audit-level=high --json failed/u);
   });
 });
 
@@ -217,31 +232,294 @@ test("supply-chain check rejects Dependabot directory under wrong ecosystem", as
 
 test("supply-chain check passes and annotates when the advisory endpoint is unreachable", async () => {
   await withFixtureRepo((root) => {
-    writeValidSupplyChainFixture(root, { auditBehavior: "unavailable" });
+    writeValidSupplyChainFixture(root, { allAudit: outage, productionAudit: outage });
 
     const result = runCheck(root);
 
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /::warning title=Supply chain audit did not run::/u);
-    assert.match(result.stdout, /could not reach the advisory endpoint and did not run/u);
+    assert.match(result.stdout, /HTTP 503/u);
     assert.doesNotMatch(result.stderr, /Supply chain check failed/u);
   });
 });
 
 test("supply-chain check still fails when the audit runs and finds a vulnerability", async () => {
   await withFixtureRepo((root) => {
-    writeValidSupplyChainFixture(root, { auditBehavior: "vulnerable" });
+    writeValidSupplyChainFixture(root, {
+      allAudit: auditReport({ picomatch: { severity: "high", via: [unreviewedRoot] } }),
+    });
 
     const result = runCheck(root);
 
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /npm audit --audit-level=high failed/u);
+    assert.match(result.stderr, /unreviewed high advisory GHSA-xxxx-yyyy-zzzz for picomatch/u);
     assert.doesNotMatch(result.stdout, /::warning title=Supply chain audit did not run::/u);
   });
 });
 
-function runCheck(root) {
-  return spawnSync(process.execPath, [scriptPath], {
+test("supply-chain check uses a valid npm v2 report before considering exit status or stderr", async () => {
+  await withFixtureRepo((root) => {
+    writeValidSupplyChainFixture(root, {
+      allAudit: { ...auditReport({}), status: 1, stderr: "npm error E403 Forbidden" },
+    });
+    const result = runCheck(root);
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stdout, /::warning/u);
+  });
+});
+
+test("supply-chain check warns for a reviewed root through a mixed transitive chain at the expiry boundary", async () => {
+  await withFixtureRepo((root) => {
+    writeValidSupplyChainFixture(root, {
+      allAudit: auditReport({
+        picomatch: picomatchFinding,
+        tinyglobby: { severity: "high", via: ["picomatch"] },
+        vite: { severity: "high", via: ["tinyglobby", { name: "vite", severity: "moderate" }] },
+      }),
+      versions: versionOutput(["4.0.7", "4.0.8-beta.1", "4.0.7+build"]),
+    });
+    const result = runCheck(root, expiresAt);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(
+      result.stdout,
+      /::warning title=Reviewed unpatched dev advisory active::.*GHSA-fc5q-39xc-vjpf.*picomatch.*4\.0\.7.*2026-12-17T00:00:00\.000Z/u,
+    );
+  });
+});
+
+test("supply-chain check blocks a registered dev finding in the production audit", async () => {
+  await withFixtureRepo((root) => {
+    writeValidSupplyChainFixture(root, {
+      allAudit: auditReport({ picomatch: picomatchFinding }),
+      productionAudit: auditReport({ picomatch: picomatchFinding }, { high: 0, critical: 0 }),
+    });
+    const result = runCheck(root);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /npm audit --omit=dev --audit-level=high --json failed:.*production/u);
+    assert.doesNotMatch(result.stdout, /Reviewed unpatched dev advisory active/u);
+  });
+});
+
+test("supply-chain check blocks a production audit with only a critical metadata count", async () => {
+  await withFixtureRepo((root) => {
+    writeValidSupplyChainFixture(root, { productionAudit: auditReport({}, { high: 0, critical: 1 }) });
+    const result = runCheck(root);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /npm audit --omit=dev --audit-level=high --json failed:.*production/u);
+  });
+});
+
+for (const [name, options, diagnostic] of [
+  ["a missing lock instance", { lockMutator: (lock) => delete lock.packages[picomatchPath] }, /no lockfile instances/u],
+  [
+    "a lock instance without dev true",
+    { lockMutator: (lock) => delete lock.packages[picomatchPath].dev },
+    /dev === true/u,
+  ],
+  [
+    "a nested devOptional lock instance",
+    {
+      lockMutator: (lock) => {
+        lock.packages["packages/gui/node_modules/vite/node_modules/picomatch"] = {
+          ...lock.packages[picomatchPath],
+          devOptional: true,
+        };
+      },
+    },
+    /devOptional/u,
+  ],
+  [
+    "a lock version beyond the registration",
+    {
+      lockMutator: (lock) => {
+        lock.packages[picomatchPath].version = "4.0.8";
+      },
+    },
+    /lockfile version 4\.0\.8 exceeds 4\.0\.7/u,
+  ],
+  [
+    "a stable patched version",
+    { versions: versionOutput(["4.0.7", "4.0.8"]) },
+    /published 4\.0\.8.*remove the registration/u,
+  ],
+  [
+    "a two-digit patch version",
+    { versions: versionOutput(["4.0.7", "4.0.10"]) },
+    /published 4\.0\.10.*remove the registration/u,
+  ],
+  [
+    "a production npm alias of the reviewed package",
+    {
+      lockMutator: (lock) => {
+        lock.packages["node_modules/old-match"] = { ...lock.packages[picomatchPath], name: "picomatch", dev: false };
+      },
+    },
+    /old-match.*dev === true/u,
+  ],
+  [
+    "a malformed version in the registry list",
+    { versions: versionOutput(["4.0.7", "4.0.08"]) },
+    /expected a non-empty JSON array of SemVer versions/u,
+  ],
+  ["an empty registry list", { versions: versionOutput([]) }, /expected a non-empty JSON array of SemVer versions/u],
+  [
+    "a damaged registry response accompanied by 503",
+    { versions: { ...outage, stdout: '["4.0.7",' } },
+    /npm view picomatch versions --json failed/u,
+  ],
+  [
+    "a missing registry package",
+    { versions: { status: 1, stderr: "npm error E404 Not Found\n503 Service Unavailable" } },
+    /npm view picomatch versions --json failed/u,
+  ],
+  [
+    "a registry permission error",
+    { versions: { status: 1, stderr: "npm error E401 Unauthorized" } },
+    /npm view picomatch versions --json failed/u,
+  ],
+]) {
+  test(`supply-chain check blocks ${name} even when production audit is unavailable`, async () => {
+    await withFixtureRepo((root) => {
+      writeValidSupplyChainFixture(root, {
+        allAudit: auditReport({ picomatch: picomatchFinding }),
+        productionAudit: outage,
+        ...options,
+      });
+      const result = runCheck(root);
+      assert.equal(result.status, 1, result.stdout);
+      assert.match(result.stderr, diagnostic);
+      assert.doesNotMatch(result.stdout, /Reviewed unpatched dev advisory active/u);
+    });
+  });
+}
+
+for (const [name, report, diagnostic] of [
+  [
+    "an independent critical root",
+    auditReport({
+      picomatch: picomatchFinding,
+      other: { severity: "critical", via: [{ ...unreviewedRoot, name: "other", severity: "critical" }] },
+    }),
+    /unreviewed critical advisory .* for other/u,
+  ],
+  [
+    "an unreviewed root on the same chain",
+    auditReport({
+      picomatch: { severity: "high", via: [reviewedRoot, unreviewedRoot] },
+      vite: { severity: "high", via: ["picomatch"] },
+    }),
+    /unreviewed high advisory GHSA-xxxx-yyyy-zzzz for picomatch/u,
+  ],
+  [
+    "a registered GHSA with a different package name",
+    auditReport({
+      picomatch: { severity: "high", via: [{ ...reviewedRoot, name: "other" }] },
+    }),
+    /other/u,
+  ],
+  [
+    "a GHSA appearing outside the advisory URL path",
+    auditReport({
+      picomatch: { severity: "high", via: [{ ...reviewedRoot, url: "https://example.test/?id=GHSA-fc5q-39xc-vjpf" }] },
+    }),
+    /advisory URL/u,
+  ],
+  [
+    "an unexplained high finding alongside a reviewed root",
+    auditReport({
+      picomatch: picomatchFinding,
+      vite: { severity: "high", via: ["tinyglobby"] },
+      tinyglobby: { severity: "high", via: ["vite"] },
+    }),
+    /no matching high root/u,
+  ],
+  [
+    "a critical finding with only a high root",
+    auditReport({
+      picomatch: picomatchFinding,
+      vite: { severity: "critical", via: ["picomatch"] },
+    }),
+    /no matching critical root/u,
+  ],
+  [
+    "a missing transitive reference mixed with the reviewed root",
+    auditReport({
+      picomatch: { severity: "high", via: [reviewedRoot, "unknown"] },
+    }),
+    /invalid audit root or transitive reference/u,
+  ],
+  ["a high metadata count without a finding", auditReport({}, { high: 1, critical: 0 }), /metadata.*high/u],
+]) {
+  test(`supply-chain check blocks ${name}`, async () => {
+    await withFixtureRepo((root) => {
+      writeValidSupplyChainFixture(root, { allAudit: report });
+      const result = runCheck(root);
+      assert.equal(result.status, 1, result.stdout);
+      assert.match(result.stderr, diagnostic);
+      assert.doesNotMatch(result.stdout, /Reviewed unpatched dev advisory active/u);
+    });
+  });
+}
+
+for (const [name, result] of [
+  [
+    "HTTP 403 plus the generic audit error",
+    {
+      status: 1,
+      stdout: JSON.stringify({ statusCode: 403, message: "403 Forbidden" }),
+      stderr: "npm warn audit 403 Forbidden\nnpm error audit endpoint returned an error",
+    },
+  ],
+  [
+    "HTTP 403 mixed with transient audit messages",
+    { ...outage, stderr: `${outage.stderr}\nnpm warn audit E403 Forbidden` },
+  ],
+  [
+    "HTTP 401 plus the generic audit error",
+    { ...outage, stdout: JSON.stringify({ statusCode: 401 }), stderr: "npm error audit endpoint returned an error" },
+  ],
+  ["an unknown audit error", { status: 1, stderr: "npm error audit endpoint returned an error" }],
+  ["damaged audit JSON accompanied by 503", { ...outage, stdout: '{"auditReportVersion": 2,' }],
+  ["unexpected JSON with error-like text", { ...outage, stdout: '{"unexpected":"503 Service Unavailable"}' }],
+  ["a successful exit without an audit report", { status: 0, stdout: "found 0 vulnerabilities" }],
+]) {
+  test(`supply-chain check blocks ${name}`, async () => {
+    await withFixtureRepo((root) => {
+      writeValidSupplyChainFixture(root, { allAudit: result });
+      const check = runCheck(root);
+      assert.equal(check.status, 1, check.stdout);
+      assert.match(check.stderr, /npm audit --audit-level=high --json failed/u);
+      assert.doesNotMatch(check.stdout, /::warning/u);
+    });
+  });
+}
+
+test("supply-chain check warns when the registry lookup is temporarily unavailable", async () => {
+  await withFixtureRepo((root) => {
+    writeValidSupplyChainFixture(root, {
+      allAudit: auditReport({ picomatch: picomatchFinding }),
+      versions: { status: 1, stdout: '{"error":{"code":"EAI_AGAIN","summary":"temporary DNS failure"}}' },
+    });
+    const result = runCheck(root);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /::warning .*npm view picomatch versions --json.*EAI_AGAIN/u);
+    assert.match(result.stdout, /::warning title=Reviewed unpatched dev advisory active::.*patch lookup unavailable/u);
+  });
+});
+
+test("supply-chain check rejects an expired registration using the process clock", async () => {
+  await withFixtureRepo((root) => {
+    writeValidSupplyChainFixture(root, { allAudit: auditReport({ picomatch: picomatchFinding }) });
+    const result = runCheck(root, expiresAt + 1);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /invalid_audit_contract:.*expired/u);
+    assert.doesNotMatch(result.stdout, /Reviewed unpatched dev advisory active/u);
+  });
+});
+
+function runCheck(root, now = reviewedAt) {
+  const clock = `data:text/javascript,${encodeURIComponent(`Date.now = () => ${now}`)}`;
+  return spawnSync(process.execPath, ["--import", clock, scriptPath], {
     cwd: root,
     encoding: "utf8",
     env: {
@@ -335,6 +613,13 @@ function writeValidSupplyChainFixture(root, options = {}) {
         integrity: "sha512-test",
         license: "MIT",
       },
+      [picomatchPath]: {
+        version: "4.0.7",
+        resolved: "https://registry.npmjs.org/picomatch/-/picomatch-4.0.7.tgz",
+        integrity: "sha512-test",
+        license: "MIT",
+        dev: true,
+      },
     },
   };
   options.lockMutator?.(lock);
@@ -344,7 +629,7 @@ function writeValidSupplyChainFixture(root, options = {}) {
   writeFile(root, ".github/workflows/rewrite-ci.yml", options.workflowBody ?? validWorkflow());
   writeFile(root, "README.md", validReadme());
   writeFile(root, "docs-release/release-posture.md", options.supplyDocBody ?? validSupplyDoc());
-  writeMockNpm(root, options.sbomMutator, options.auditBehavior);
+  writeMockNpm(root, options);
 }
 
 function makeDaemonPublicReady(packages) {
@@ -405,40 +690,52 @@ function validWorkflow() {
   ].join("\n");
 }
 
-const auditBehaviors = {
-  clean: ["  console.log('found 0 vulnerabilities');", "  process.exit(0);"],
-  // Shaped after npm's real output when the advisory endpoint is down.
-  unavailable: [
-    "  console.error('npm warn audit 503 Service Unavailable - POST https://registry.npmjs.org/-/npm/v1/security/advisories/bulk');",
-    "  console.error('npm error audit endpoint returned an error');",
-    "  process.exit(1);",
-  ],
-  vulnerable: ["  console.log('1 high severity vulnerability');", "  process.exit(1);"],
-};
+function auditReport(vulnerabilities, counts) {
+  const findings = Object.values(vulnerabilities);
+  const metadata = {
+    vulnerabilities: counts ?? {
+      high: findings.filter(({ severity }) => severity === "high").length,
+      critical: findings.filter(({ severity }) => severity === "critical").length,
+    },
+  };
+  const status = findings.some(({ severity }) => severity === "high" || severity === "critical") ? 1 : 0;
+  return { status, stdout: JSON.stringify({ auditReportVersion: 2, vulnerabilities, metadata }) };
+}
 
-function writeMockNpm(root, sbomMutator, auditBehavior = "clean") {
-  const mockPath = path.join(root, ".mock-bin/npm");
+function versionOutput(versions) {
+  return { status: 0, stdout: JSON.stringify(versions) };
+}
+
+function writeMockNpm(root, options) {
   const sbomValue = validSbom();
-  sbomMutator?.(sbomValue);
-  const sbom = JSON.stringify(sbomValue);
+  options.sbomMutator?.(sbomValue);
+  const responses = {
+    "audit --audit-level=high --json": options.allAudit ?? auditReport({}),
+    "audit --omit=dev --audit-level=high --json": options.productionAudit ?? auditReport({}),
+    "view picomatch versions --json": options.versions ?? versionOutput(["4.0.7"]),
+    "sbom --sbom-format=cyclonedx --sbom-type=application": { status: 0, stdout: JSON.stringify(sbomValue) },
+  };
   writeFile(
     root,
     ".mock-bin/npm",
     [
       "#!/usr/bin/env node",
+      `const responses = ${JSON.stringify(responses)};`,
       "const args = process.argv.slice(2).join(' ');",
-      "if (args === 'audit --audit-level=high' || args === 'audit --omit=dev --audit-level=high') {",
-      ...auditBehaviors[auditBehavior],
+      "const response = responses[args];",
+      "if (!response) {",
+      "  console.error(`unexpected npm args: ${args}`);",
+      "  process.exit(2);",
       "}",
-      "if (args === 'sbom --sbom-format=cyclonedx --sbom-type=application') {",
-      `  console.log(${JSON.stringify(sbom)});`,
-      "  process.exit(0);",
-      "}",
-      "console.error(`unexpected npm args: ${args}`);",
-      "process.exit(1);",
+      "if (response.stdout) console.log(response.stdout);",
+      "if (response.stderr) console.error(response.stderr);",
+      "process.exitCode = response.status;",
     ].join("\n"),
   );
-  chmodSync(mockPath, 0o755);
+  chmodSync(path.join(root, ".mock-bin/npm"), 0o755);
+  if (process.platform === "win32") {
+    writeFile(root, ".mock-bin/npm.cmd", '@"' + process.execPath + '" "%~dp0npm" %*\r\n');
+  }
 }
 
 function validSbom() {

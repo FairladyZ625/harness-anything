@@ -10,7 +10,7 @@ import { makeTaskProjectionReader } from "./projection/rebuildable-task-projecti
 import { openSqliteEventStore } from "./store/sqlite-event-store.ts";
 import { createSqlTaskQueryReader } from "./pg/sql-task-query-reader.ts";
 import { retainPGliteOwner } from "./pglite/query-owner.ts";
-import { startBaseBackup } from "./fleet-basebackup.ts";
+import { startBaseBackup, type BaseBackupMode } from "./fleet-basebackup.ts";
 import type { ReplicationPosition, ReplicationCommit } from "./store/replication-log.ts";
 import {
   canonicalDaemonRegistryRoot,
@@ -227,8 +227,12 @@ export function openFleetStorage(input: {
       readContentObject: (sha256: string) =>
         reader().executeCanonical({ operation: "content", sha256 }) as Uint8Array | null,
       close: () => opened?.close(),
-      startBackup: (directory: string, _projectionPath: string, signal?: AbortSignal) =>
-        startBaseBackup({ repoId: input.repoId, storage, directory }, signal),
+      startBackup: (
+        directory: string,
+        _projectionPath: string,
+        signal?: AbortSignal,
+        backupOptions?: { readonly mode?: BaseBackupMode },
+      ) => startBaseBackup({ repoId: input.repoId, storage, directory, mode: backupOptions?.mode }, signal),
     };
   }
   const ledger = openSqliteEventStore({
@@ -239,7 +243,15 @@ export function openFleetStorage(input: {
   });
   return {
     ...ledger,
-    startBackup: (directory: string, projectionPath: string, signal?: AbortSignal) =>
-      startBaseBackup({ ledgerPath: ledger.databasePath, projectionPath, directory }, signal),
+    startBackup: (
+      directory: string,
+      projectionPath: string,
+      signal?: AbortSignal,
+      backupOptions?: { readonly mode?: BaseBackupMode },
+    ) =>
+      startBaseBackup(
+        { ledgerPath: ledger.databasePath, projectionPath, directory, mode: backupOptions?.mode },
+        signal,
+      ),
   };
 }

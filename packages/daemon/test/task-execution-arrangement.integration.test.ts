@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { runtimeDispatchIdentity } from "../src/daemon-host/task-dispatch-recovery.ts";
 import { submissionDigest } from "@harness-anything/kernel";
 import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
@@ -323,6 +324,274 @@ test("a review-exempt low-risk takeover returns and hands over in one request", 
     assert.equal(((result as Receipt).continuation as Receipt)?.mode, "owner", JSON.stringify(result));
     assert.equal(f.launches.length, 0);
     assert.equal((await f.run({ kind: "task-start", taskId, executionId: "lowrisk-owner" })).outcome, "applied");
+  } finally {
+    await f.close();
+  }
+});
+
+for (const concurrent of [false, true]) {
+  test(`${concurrent ? "concurrent manual contenders" : "manual dispatch"} cannot replace an automatic writer after its task lease is released`, async () => {
+    const f = await fixture(false, true, false, false, false, { autoSubmit: false });
+    try {
+      await f.install();
+      assert.equal((await f.submit()).outcome, "applied");
+      assert.equal((await changes(f, `single-writer-${concurrent}`)).outcome, "applied");
+      const automatic = workers(f).at(-1)!;
+      assert.equal(automatic.type, "runtime_dispatch_requested");
+      assert.equal(
+        (
+          await f
+            .cell()
+            .run(
+              { kind: "task-release", taskId, reason: "Lease release does not stop the process." },
+              workerBinding(automatic.payload.runtimeSessionId),
+            )
+        ).outcome,
+        "applied",
+      );
+      const spawn = (key: string) =>
+        f.cell().spawnRuntime(
+          {
+            agentId: "closeout-reviewer",
+            role: "worker",
+            taskId,
+            dispatchKey: key,
+            prompt: "Manual rework must not race an existing writer.",
+          },
+          owner,
+        );
+      const results = await Promise.allSettled(
+        concurrent ? [spawn("manual-contender-a"), spawn("manual-contender-b")] : [spawn("manual-after-automatic")],
+      );
+      for (const result of results) {
+        assert.equal(result.status, "rejected", JSON.stringify(result));
+        if (result.status !== "rejected") continue;
+        assert.equal(result.reason.code, "runtime_task_writer_conflict");
+        assert.match(result.reason.message, new RegExp(automatic.payload.runtimeSessionId, "u"));
+      }
+      assert.equal(workers(f).length, 1, "only the automatic writer was admitted");
+    } finally {
+      await f.close();
+    }
+  });
+}
+
+test("manual rework during automatic cancellation is refused until the source stops", async () => {
+  const stopReached = Promise.withResolvers<void>(),
+    allowStop = Promise.withResolvers<void>();
+  const f = await fixture(false, true, false, false, false, {
+    autoSubmit: false,
+    beforeRuntimeStop: async () => {
+      stopReached.resolve();
+      await allowStop.promise;
+    },
+  });
+  try {
+    await f.install();
+    const source = await f.cell().spawnRuntime(
+      {
+        agentId: "closeout-reviewer",
+        role: "worker",
+        taskId,
+        dispatchKey: "single-writer-source",
+        prompt: "Implement the submitted cut.",
+      },
+      owner,
+    );
+    assert.equal(source.outcome, "applied", JSON.stringify(source));
+    assert.equal((await f.submit(executionId, workerBinding(String(source.runtimeSessionId)))).outcome, "applied");
+    const automatic = changes(f, "manual-before-automatic");
+    await stopReached.promise;
+    // The old process has not stopped yet: even the released submitted lease cannot admit a writer.
+    await assert.rejects(
+      f.cell().spawnRuntime(
+        {
+          agentId: "closeout-reviewer",
+          role: "worker",
+          taskId,
+          dispatchKey: "manual-during-return",
+          prompt: "Implement the returned cut.",
+        },
+        owner,
+      ),
+      { code: "runtime_task_writer_conflict", message: new RegExp(String(source.runtimeSessionId), "u") },
+    );
+    allowStop.resolve();
+    const reviewed = await automatic;
+    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+    const continuation = (reviewed as Receipt).continuation as Receipt;
+    assert.equal(continuation.outcome, "applied", JSON.stringify(reviewed));
+    assert.equal(workers(f).length, 2, "submitted source then one automatic continuation");
+    const next = workers(f).at(-1)!;
+    assert.equal(next.type, "runtime_dispatch_requested");
+    assert.equal(next.payload.agentId, "closeout-reviewer");
+    const submittedSource = f
+      .events()
+      .find(
+        (event) =>
+          event.type === "runtime_dispatch_requested" && event.payload.runtimeSessionId === source.runtimeSessionId,
+      )!;
+    assert.equal(submittedSource.type, "runtime_dispatch_requested");
+    assert.equal(next.payload.instanceId, submittedSource.payload.instanceId);
+    assert.equal(next.payload.definitionSnapshot?.model, submittedSource.payload.definitionSnapshot?.model);
+  } finally {
+    allowStop.resolve();
+    await f.close();
+  }
+});
+
+test("concurrent automatic and manual rework requests admit one writer", async (t) => {
+  const f = await fixture(false, true, false, false, false, { autoSubmit: false });
+  try {
+    await f.install();
+    assert.equal((await f.submit()).outcome, "applied");
+    const [automatic, manual] = await Promise.allSettled([
+      changes(f, "simultaneous-return"),
+      f.cell().spawnRuntime(
+        {
+          agentId: "closeout-reviewer",
+          role: "worker",
+          taskId,
+          dispatchKey: "simultaneous-manual",
+          prompt: "Implement the returned cut.",
+        },
+        owner,
+      ),
+    ]);
+    assert.equal(automatic.status, "fulfilled");
+    if (automatic.status === "fulfilled")
+      assert.equal(automatic.value.outcome, "applied", JSON.stringify(automatic.value));
+    if (manual.status === "rejected")
+      assert.ok(
+        ["runtime_task_writer_conflict", "execution_frozen"].includes(manual.reason.code),
+        String(manual.reason),
+      );
+    const admitted = workers(f);
+    assert.equal(admitted.length, 1, JSON.stringify(admitted));
+    t.diagnostic(
+      JSON.stringify({
+        dogfood: "changes_requested + manual rework",
+        writers: admitted.length,
+        runtimeSessionIds: admitted.map((event) => event.payload.runtimeSessionId),
+        manual: manual.status,
+      }),
+    );
+  } finally {
+    await f.close();
+  }
+});
+
+test("center event ingress refuses a second task writer independently of spawn preflight", async () => {
+  const f = await fixture(false, true, false, false, false, { autoSubmit: false });
+  try {
+    await f.install();
+    assert.equal((await f.submit()).outcome, "applied");
+    assert.equal((await changes(f, "center-writer-admission")).outcome, "applied");
+    const automatic = workers(f).at(-1)!;
+    assert.equal(automatic.type, "runtime_dispatch_requested");
+    // A self-reported read-only role cannot bypass the task's actual implementation lease.
+    for (const role of [undefined, "read-only"]) {
+      const dispatchKey = `raw-second-writer:${role ?? "worker"}`;
+      const [result] = await Promise.allSettled([
+        f.cell().runtimeIngress(
+          {
+            kind: "event",
+            type: "runtime_dispatch_requested",
+            opId: dispatchKey,
+            payload: {
+              ...automatic.payload,
+              ...runtimeDispatchIdentity("completion-review", dispatchKey),
+              dispatchKey,
+              role,
+              attemptGroupId: undefined,
+            },
+          },
+          owner,
+        ),
+      ]);
+      const refusal = result!.status === "rejected" ? result!.reason : result!.value;
+      assert.equal(refusal.code, "runtime_task_writer_conflict", JSON.stringify(refusal));
+      assert.match(
+        String(refusal.message ?? refusal.rejectionExplanation),
+        new RegExp(automatic.payload.runtimeSessionId, "u"),
+      );
+    }
+    assert.equal(workers(f).length, 1);
+    assert.equal(
+      (
+        await f.cell().run(
+          {
+            kind: "task-respond-review",
+            taskId,
+            executionId: String(automatic.payload.executionId),
+            jsonInput: JSON.stringify({
+              responses: [
+                {
+                  reviewId: "review-center-writer-admission",
+                  findingId: "center-writer-admission",
+                  disposition: "adopt",
+                  rationale: "The worker addressed the returned finding before freezing its cut.",
+                },
+              ],
+            }),
+          },
+          workerBinding(automatic.payload.runtimeSessionId),
+        )
+      ).outcome,
+      "applied",
+    );
+    assert.equal(
+      (await f.submit(String(automatic.payload.executionId), workerBinding(automatic.payload.runtimeSessionId)))
+        .outcome,
+      "applied",
+    );
+    assert.equal(
+      f
+        .events()
+        .some(
+          (event) =>
+            event.type === "runtime_session_outcome_observed" &&
+            event.payload.runtimeSessionId === automatic.payload.runtimeSessionId,
+        ),
+      false,
+      "the submitted writer is still running",
+    );
+    assert.equal(
+      (
+        await f.run({
+          kind: "agent-install",
+          declaration: {
+            schema: "agent-declaration/v1",
+            id: "frozen-scanner",
+            name: "Frozen cut scanner",
+            instructions: "Observe the frozen cut.",
+            runtimes: [],
+            permissionMode: "read-only",
+          },
+        })
+      ).outcome,
+      "applied",
+    );
+    const reader = await f.cell().spawnRuntime(
+      {
+        agentId: "frozen-scanner",
+        runtimeInstanceId: "review-first",
+        taskId,
+        dispatchKey: "unleased-frozen-reader",
+        prompt: "Inspect the frozen cut without an implementation lease.",
+      },
+      owner,
+    );
+    assert.equal(reader.outcome, "applied", JSON.stringify(reader));
+    assert.equal(reader.ledgerAccess, "unavailable");
+    await f.awaitRuntimeLiveness(String(reader.runtimeSessionId));
+    const lifecycle = await f.cell().readDispatchLifecycle({
+      by: "session",
+      runtimeSessionId: String(reader.runtimeSessionId),
+    });
+    assert.equal(lifecycle.status, "ready", JSON.stringify(lifecycle));
+    if (lifecycle.status === "ready")
+      assert.equal(lifecycle.rows[0]?.attempt.task?.leaseVersion, null, "the reader reserves no implementation lease");
   } finally {
     await f.close();
   }

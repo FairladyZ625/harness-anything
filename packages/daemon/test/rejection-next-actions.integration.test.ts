@@ -1164,3 +1164,25 @@ function workspace(name: string): string {
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", args, { cwd: rootDir, encoding: "utf8", windowsHide: true }).trim();
 }
+
+for (const action of ["annotate", "rework"]) {
+  test(`scope refusal keeps its cause and names the owner destination for ${action}`, () => {
+    const receipt = failed(
+      "op-owner-scope",
+      Object.assign(new Error(`Cannot ${action} this execution.`), {
+        code: "execution_scope_mismatch",
+      }),
+    );
+    assert.equal(receipt.code, "execution_scope_mismatch");
+    assert.match(String(receipt.rejectionExplanation), new RegExp(`Cannot ${action} this execution`, "u"));
+    assert.match(String(receipt.rejectionExplanation), /center machine/u);
+    assert.match(String(receipt.rejectionExplanation), /personal session/u);
+    assert.match(String(receipt.rejectionExplanation), /assigned node and execution/u);
+    const host = rejectHostAction(
+      { kind: `task-${action}` },
+      "execution_scope_mismatch",
+      `Cannot ${action} this execution.`,
+    );
+    assert.equal(host.rejectionExplanation, receipt.rejectionExplanation);
+  });
+}

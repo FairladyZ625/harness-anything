@@ -239,6 +239,7 @@ export interface ReplicaCutSource {
 export interface RepoCellFleetBackupInput {
   readonly directory: string;
   readonly writerEpochFence: NonNullable<RepoCellBinding["writerEpochFence"]>;
+  readonly mode?: import("@harness-anything/storage").BaseBackupMode;
 }
 
 export type TaskCreateReceipt = WriteReceiptDraft & {

@@ -86,6 +86,7 @@ export {
   currentTaskForWrite,
   isWorkRoot,
   retiredTaskClassRestatements,
+  reviewDispatchFailureWarning,
   taskClasses,
   validateTaskV2,
 } from "./domain/task.ts";

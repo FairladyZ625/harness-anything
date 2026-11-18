@@ -147,6 +147,7 @@ import {
   verifyHandoffWorktree,
   type TaskWorktreeCheckout,
 } from "./task-worktree.ts";
+import { requireTaskWriterAdmission } from "./runtime-dispatch-admission.ts";
 import { assertTaskDispatchPrerequisites, taskDispatchLeaseQualifies } from "./task-dispatch-admission.ts";
 import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { admitTaskDispatch, runtimeDispatchIdentity } from "./task-dispatch-recovery.ts";
@@ -482,6 +483,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       // write under its lease, so the conflict is rejected here instead of after the work is done.
       // A read-only attach is the exception: it writes nothing, so it may observe the frozen cut.
       if (!dryRun && !readOnlyAttach && frozenTask) throw runtimeTaskExecutionFrozenError(taskId, frozenStatus);
+      if (!dryRun && !readOnlyAttach)
+        requireTaskWriterAdmission((query) => projection!.readDispatchLifecycle(query), taskId, runtimeSpawnError);
       if (!dryRun && !readOnlyAttach && !leaseQualifies)
         throw runtimeSpawnError(
           "runtime_task_lease_required",

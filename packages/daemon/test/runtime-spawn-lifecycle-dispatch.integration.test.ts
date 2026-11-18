@@ -875,7 +875,7 @@ test("runtime resolver preserves installed declarations across missing and orpha
   );
 });
 
-test("dispatch reclaims an orphaned task lease instead of requiring a manual release", async () => {
+test("dispatch reclaims an orphaned task lease after stop proof without a manual release", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-orphan-lease-"));
   // The stall watchdog measures idleness on the wall clock while this cell's `now` is injected:
   // a fixed past date arms it with zero remaining and settles the "live" fixture runtime, whose
@@ -940,6 +940,11 @@ test("dispatch reclaims an orphaned task lease instead of requiring a manual rel
           },
           "admin",
         );
+      const spawn = (dispatchKey: string, prompt: string, actor: Parameters<typeof cell.spawnRuntime>[1] = binding) =>
+        cell.spawnRuntime(
+          { runtimeInstanceId: definition.instanceId, cwd: { scope: "repo-root" }, taskId, dispatchKey, prompt },
+          actor,
+        );
       const created = await cell.run({ kind: "task-create", taskId, title: "Orphan lease dispatch" }, binding);
       assert.equal(created.outcome, "applied");
       await waitForFixturePublication(cell, created.opId, binding);
@@ -949,16 +954,7 @@ test("dispatch reclaims an orphaned task lease instead of requiring a manual rel
         (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
         "Orphan lease dispatch",
       );
-      const initial = await cell.spawnRuntime(
-        {
-          runtimeInstanceId: definition.instanceId,
-          cwd: { scope: "repo-root" },
-          prompt: "Hold the task before the lease expires.",
-          taskId,
-          dispatchKey: "orphan-lease-initial",
-        },
-        binding,
-      );
+      const initial = await spawn("orphan-lease-initial", "Hold the task before the lease expires.");
       assert.equal(initial.outcome, "applied", JSON.stringify(initial));
       const initialProjection = makeTaskProjection({
         rootDir: root,
@@ -985,16 +981,26 @@ test("dispatch reclaims an orphaned task lease instead of requiring a manual rel
         ((await cell.run({ kind: "task-show", taskId }, binding)) as Record<string, unknown>).summary,
       );
       assert.match(lapsed, /\nlease: [^\n]*phase=orphaned/u, lapsed);
+      // Expiry does not prove that the previous writer stopped; canonical stop proof is required.
+      await assert.rejects(spawn("orphan-lease-unproven", "Reclaim before stop proof."), {
+        code: "runtime_task_writer_conflict",
+        message: new RegExp(String(initial.runtimeSessionId), "u"),
+      });
+      const stopped = await cell.runtimeIngress(
+        {
+          kind: "event",
+          type: "runtime_session_exited",
+          opId: "orphan-lease-proven-stop",
+          payload: { runtimeSessionId: String(initial.runtimeSessionId) },
+        },
+        binding,
+      );
+      assert.equal(stopped.outcome, "applied", JSON.stringify(stopped));
       // Only the same principal or the task owner may reclaim it; another person is refused.
       await assert.rejects(
-        cell.spawnRuntime(
-          {
-            runtimeInstanceId: definition.instanceId,
-            cwd: { scope: "repo-root" },
-            prompt: "Reclaim another person's orphaned lease.",
-            taskId,
-            dispatchKey: "orphan-lease-stranger",
-          },
+        spawn(
+          "orphan-lease-stranger",
+          "Reclaim another person's orphaned lease.",
           withPolicyGroup(
             {
               actor: { principal: { personId: "person-orphan-stranger" }, executor: null },
@@ -1005,16 +1011,7 @@ test("dispatch reclaims an orphaned task lease instead of requiring a manual rel
         ),
         /same principal reclaiming an orphaned lease/u,
       );
-      const receipt = await cell.spawnRuntime(
-        {
-          runtimeInstanceId: definition.instanceId,
-          cwd: { scope: "repo-root" },
-          prompt: "Reclaim the orphaned lease and continue the task.",
-          taskId,
-          dispatchKey: "orphan-lease-reclaim",
-        },
-        binding,
-      );
+      const receipt = await spawn("orphan-lease-reclaim", "Reclaim the orphaned lease and continue the task.");
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       const projection = makeTaskProjection({
         rootDir: root,

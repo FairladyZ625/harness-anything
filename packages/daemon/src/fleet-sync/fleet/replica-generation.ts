@@ -1,5 +1,5 @@
 import { Worker } from "node:worker_threads";
-import { existsSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
@@ -39,6 +39,7 @@ export interface InstallReplicaGenerationInput {
   readonly sha256: string;
   readonly size: number;
   readonly quotaBytes: number;
+  readonly stagedObjectsDir?: string;
   readonly onProgress?: (progress: ReplicaInstallProgress) => void;
 }
 
@@ -242,6 +243,43 @@ export async function prepareStagingDirectory(directory: string): Promise<void> 
 
 export async function removeStagingDirectory(directory: string): Promise<void> {
   await /* @gate-identity state-store/task.replica-generation */ rm(directory, { recursive: true, force: true });
+}
+
+export function installStagedObjects(
+  stagedObjectsDir: string,
+  targetObjectsDir: string,
+  remainingQuotaBytes: number,
+): number {
+  if (!existsSync(stagedObjectsDir)) return 0;
+  let totalBytes = 0;
+  for (const prefixEntry of readdirSync(stagedObjectsDir, { withFileTypes: true })) {
+    if (!prefixEntry.isDirectory() || !/^[0-9a-f]{2}$/u.test(prefixEntry.name)) continue;
+    const srcPrefix = path.join(stagedObjectsDir, prefixEntry.name);
+    const dstPrefix = path.join(targetObjectsDir, prefixEntry.name);
+    /* @gate-identity state-store/task.replica-generation */ mkdirSync(dstPrefix, { recursive: true });
+    for (const objEntry of readdirSync(srcPrefix, { withFileTypes: true })) {
+      if (!objEntry.isFile() || !/^[0-9a-f]{62}$/u.test(objEntry.name)) continue;
+      const srcFile = path.join(srcPrefix, objEntry.name);
+      const dstFile = path.join(dstPrefix, objEntry.name);
+      const size = statSync(srcFile).size;
+      totalBytes += size;
+      if (totalBytes > remainingQuotaBytes) {
+        throw new Error("base backup exceeds disk quota");
+      }
+      if (existsSync(dstFile)) {
+        const existing = statSync(dstFile);
+        if (existing.isFile() && existing.size === size) continue;
+      }
+      try {
+        /* @gate-identity state-store/task.replica-generation */ renameSync(srcFile, dstFile);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw error;
+        consumeKnownError(error);
+        /* @gate-identity state-store/task.replica-generation */ copyFileSync(srcFile, dstFile);
+      }
+    }
+  }
+  return totalBytes;
 }
 
 export function publishStagingGeneration(input: {

@@ -126,7 +126,9 @@ test("daemon host migration and observation slice has zero frozen ontology debt"
   const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
   const classified = result.classified.filter((row) => scope.test(row.file));
   assert.equal(new Set(classified.map((row) => row.file)).size, 49);
-  assert.equal(classified.filter((row) => row.category === "action").length, 181);
+  // The node auto-dispatch diagnostic now reuses runtimeSpawnError instead of a local Object.assign.
+  // Its deleted source facet is removed too; all remaining sources must still be registered below.
+  assert.equal(classified.filter((row) => row.category === "action").length, 180);
   assert.equal(classified.filter((row) => row.category === "policy").length, 53);
   assertRegistered(classified); // Includes the node-local replica settlement branch.
   assertEmpty(result.findings.filter((row) => scope.test(row.file)));
