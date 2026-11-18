@@ -5,7 +5,13 @@ import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-type
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import { adoptRuntimes, ownedByRuntimeSpawner, assertRuntimeRecoveryReady } from "./runtime-spawn-adoption.ts";
-import { appendRuntimeWorkerRecord, readDispatchStreamHeaders } from "./dispatch-stream.ts";
+import {
+  appendRuntimeWorkerRecord,
+  readDispatchStream,
+  readDispatchStreamHeaders,
+  readDispatchStreamSummary,
+} from "./dispatch-stream.ts";
+import { scheduleOutcomeFromRuntime } from "./schedule-runtime-outcome.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { probeProcessGroup, processGroupRecoveryHint } from "./runtime/process-group-reconciler.ts";
 import type { ActiveRuntime, RuntimeBinding, RuntimeDispatchOwnerEvidence } from "./runtime-spawn-types.ts";
@@ -132,8 +138,9 @@ export async function cancelRuntime(
     await context.publishExit(active, null);
     return context.controlReceipt(opId, runtimeSessionId);
   }
-  if (attempt?.policy.attemptSettled || attempt?.attempt.stopProof === "proven_stopped") {
-    if (attempt.attempt.stopProof === "proven_stopped") context.dispatchState?.deactivate(runtimeSessionId);
+  const stopAlreadyProven = attempt?.attempt.stopProof === "proven_stopped";
+  if (stopAlreadyProven) context.dispatchState?.deactivate(runtimeSessionId);
+  if (attempt?.policy.attemptSettled) {
     return context.controlReceipt(opId, runtimeSessionId, "already-exited");
   }
   // Missing control transport does not prove the process tree stopped.
@@ -152,13 +159,14 @@ export async function cancelRuntime(
           : null;
     // Remote edge PIDs cannot be probed against center's OS PID table during cross-node ruling.
     if (
-      crossNodeCenterRuling ||
-      probeProcessGroup({
-        pgid: processGroupPid ?? undefined,
-        ...(matchingHeader
-          ? { dispatch: { rootDir: context.input.rootDir, dispatchId: matchingHeader.dispatchId } }
-          : {}),
-      }) !== "proven_stopped"
+      !stopAlreadyProven &&
+      (crossNodeCenterRuling ||
+        probeProcessGroup({
+          pgid: processGroupPid ?? undefined,
+          ...(matchingHeader
+            ? { dispatch: { rootDir: context.input.rootDir, dispatchId: matchingHeader.dispatchId } }
+            : {}),
+        }) !== "proven_stopped")
     ) {
       if (ruling !== null) {
         const rulingBinding = crossNodeCenterRuling ? { ...binding, source: ownerBinding.source } : binding;
@@ -222,16 +230,66 @@ export async function cancelRuntime(
         executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
       },
     };
-    await context.publishRuntimeEvent(
-      "runtime_session_exited",
-      { runtimeSessionId },
-      `${opId}-exited`,
-      terminalBinding,
-    );
+    const persistedTerminal = matchingHeader
+      ? (readDispatchStream(context.input.rootDir, matchingHeader.dispatchId)?.terminalOutcome ??
+        readDispatchStreamSummary(context.input.rootDir, matchingHeader.dispatchId)?.terminalOutcome ??
+        null)
+      : null;
+    if (!stopAlreadyProven) {
+      await context.publishRuntimeEvent(
+        "runtime_session_exited",
+        { runtimeSessionId },
+        `${opId}-exited`,
+        terminalBinding,
+      );
+    }
+    if (persistedTerminal) {
+      if (persistedTerminal.payload.outcome === "cancelled") {
+        await context.publishRuntimeEvent(
+          "runtime_session_cancelled",
+          { runtimeSessionId },
+          `${opId}-cancelled`,
+          binding,
+        );
+      }
+      const outcomeEvent = await context.publishRuntimeEvent(
+        "runtime_session_outcome_observed",
+        persistedTerminal.payload,
+        `${opId}-outcome`,
+        terminalBinding,
+        persistedTerminal.body,
+      );
+      if (outcomeEvent?.event) context.input.onRuntimeOutcome?.(outcomeEvent.event, matchingHeader?.schedule ?? null);
+      await context.input.onAttemptTerminal?.({
+        runtimeSessionId,
+        dispatchId: attempt.attempt.dispatchId,
+        task: null,
+        schedule: matchingHeader?.schedule ?? null,
+        outcome: matchingHeader?.schedule
+          ? scheduleOutcomeFromRuntime(persistedTerminal.payload.outcome, persistedTerminal.body)
+          : persistedTerminal.payload.outcome === "succeeded"
+            ? "succeeded"
+            : persistedTerminal.payload.outcome === "cancelled"
+              ? "cancelled"
+              : "failed",
+        reason: persistedTerminal.payload.outcome === "succeeded" ? null : persistedTerminal.reason,
+        endedAt: persistedTerminal.payload.endedAt ?? context.input.now(),
+        ...(persistedTerminal.processGroupPid === undefined
+          ? {}
+          : { processGroupPid: persistedTerminal.processGroupPid }),
+        ...(persistedTerminal.payload.attempt?.classification === "awaiting_ruling" ? { waitingOnOwner: true } : {}),
+        binding: terminalBinding,
+      });
+      return context.controlReceipt(
+        opId,
+        runtimeSessionId,
+        persistedTerminal.payload.outcome === "cancelled" ? "cancelled" : "already-exited",
+      );
+    }
     await context.publishRuntimeEvent("runtime_session_cancelled", { runtimeSessionId }, `${opId}-cancelled`, binding);
     const resultBody = "Runtime session cancelled after its worker process was no longer available.",
       resultSha256 = createHash("sha256").update(resultBody).digest("hex");
-    await context.publishRuntimeEvent(
+    const outcomeEvent = await context.publishRuntimeEvent(
       "runtime_session_outcome_observed",
       {
         runtimeSessionId,
@@ -245,6 +303,7 @@ export async function cancelRuntime(
       terminalBinding,
       resultBody,
     );
+    if (outcomeEvent?.event) context.input.onRuntimeOutcome?.(outcomeEvent.event, matchingHeader?.schedule ?? null);
     await context.input.onAttemptTerminal?.({
       runtimeSessionId,
       dispatchId: attempt.attempt.dispatchId,

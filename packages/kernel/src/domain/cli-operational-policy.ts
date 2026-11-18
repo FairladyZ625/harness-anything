@@ -461,6 +461,7 @@ export const daemonRuntimeContractPolicy = {
     "policy:packages/daemon:packages/daemon/src/runtime-spawn-adoption.ts#restoreRuntime:39e4830081c0babcb59e3341fa031186",
     "policy:packages/daemon:packages/daemon/src/runtime-spawn-adoption.ts#restoreRuntime:7d3fd3f7168077bcaf35c303654a655e",
     "policy:packages/daemon:packages/daemon/src/runtime-spawn-control.ts#cancelRuntime:f12e9da0d749ff82a1adcbfb4ea3616b",
+    "policy:packages/daemon:packages/daemon/src/runtime-spawn-control.ts#cancelRuntime:f9594f016439097ccbfe3a344b460bae",
     "policy:packages/daemon:packages/daemon/src/runtime-spawn-errors.ts#runtimeTaskLeaseRequiredMessage:25c83a9ee0a22be85f048c21b6b3e2b2",
     "policy:packages/daemon:packages/daemon/src/runtime-spawn-errors.ts#runtimeTaskLeaseRequiredMessage:d1dcaf6ee3b6789b199bdf70b1f5e511",
     "policy:packages/daemon:packages/daemon/src/runtime-spawn-errors.ts#runtimeTaskLeaseRequiredMessage:e5517c87db74daadbf1f42db8cebe890",
