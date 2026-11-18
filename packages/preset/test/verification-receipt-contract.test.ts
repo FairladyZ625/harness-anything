@@ -247,6 +247,22 @@ test("verify-receipt script rejects missing, archive-only, malformed, and invali
       "fail",
     );
 
+    // Duplicate top-level JSON keys (including unicode-escaped duplicates) cannot shadow earlier failures
+    for (const dupJson of [
+      `{"commitSha":"${commitSha}","passed":1,"failed":1,"failed":0,"timedOut":0,"unexecuted":0,"total":1}`,
+      `{"commitSha":"${commitSha}","passed":1,"\\u0066ailed":1,"failed":0,"timedOut":0,"unexecuted":0,"total":1}`,
+    ]) {
+      writeFileSync(badFile, dupJson);
+      const dupResult = runScript({
+        schema: "witness-input/v1",
+        code: { commitSha, directory: "input/code" },
+        subjects: [{ path: "artifacts/verification-receipt.json", revision: 1, blobSha256, file: badFile }],
+      });
+      assert.equal(dupResult.payload.result, "fail");
+      assert.deepEqual(dupResult.payload.predicate, {});
+      assert.match(dupResult.payload.diagnostic, /Duplicate top-level key "failed"/u);
+    }
+
     // 5. Oversized wrong-type field + 6 multi-byte escaped invalid fields -> raw stdout frame strictly < 1024B
     writeFileSync(
       badFile,
