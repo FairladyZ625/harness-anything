@@ -586,6 +586,9 @@ function dispatch(
     endedAt: status === "running" ? null : startedAt,
     outcome: status === "running" || status === "lost" ? null : status,
     status,
+    effectivePermissionMode: "unknown",
+    requestedPermissionMode: null,
+    permissionModeSource: "unknown",
     ...optional,
   };
 }

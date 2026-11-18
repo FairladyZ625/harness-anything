@@ -1,4 +1,10 @@
-import type { DispatchLifecycleSummary, RuntimeProviderUnreachable } from "@harness-anything/kernel";
+import type {
+  DispatchLifecycleSummary,
+  EffectiveRuntimePermissionMode,
+  EffectiveRuntimePermissionModeSource,
+  RuntimeLaunchPermissionMode,
+  RuntimeProviderUnreachable,
+} from "@harness-anything/kernel";
 import type * as ClientStatus from "@harness-anything/kernel/internal/domain/client-view-status.ts";
 import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
@@ -96,6 +102,12 @@ export interface TaskDispatchRow {
   readonly executionId: string;
   /** Source role from runtime_dispatch_requested; absent only on older unclassified events. */
   readonly role?: string;
+  /** Absent only on previous-version peers; remove optionality 2026-12-07. */
+  readonly effectivePermissionMode?: EffectiveRuntimePermissionMode;
+  /** Absent only on previous-version peers; remove optionality 2026-12-07. */
+  readonly requestedPermissionMode?: RuntimeLaunchPermissionMode | null;
+  /** Absent only on previous-version peers; remove optionality 2026-12-07. */
+  readonly permissionModeSource?: EffectiveRuntimePermissionModeSource;
   /** Latest canonical or local dispatch observation, projected beside the dispatch row. */
   readonly lastObservedAt?: string;
   /** Daemon-owned activity judgment for the live-floor page. */
@@ -172,5 +184,8 @@ export type TaskDispatchAttempt = Pick<
   | "nextAction"
   | "fallbackState"
   | "lifecycle"
+  | "effectivePermissionMode"
+  | "requestedPermissionMode"
+  | "permissionModeSource"
   | "nextDispatchId"
 >;

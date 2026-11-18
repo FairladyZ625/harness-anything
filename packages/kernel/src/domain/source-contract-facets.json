@@ -4126,7 +4126,7 @@
         "explain": "RuntimeSessionEntityV1: Accepted session/event identity and provenance fields.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:24c55c043e947588d4f2d4e974b40fdd",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:e207bd2ecb74c583e1bfb866c3728087",
             "route": "packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields"
           }
         ]

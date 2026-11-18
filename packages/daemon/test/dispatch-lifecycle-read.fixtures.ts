@@ -43,6 +43,9 @@ export function lifecycleReadFor(
     readonly process?: "unobserved" | "alive" | "unknown" | "exited";
     readonly stopProof?: "unproven" | "proven_stopped";
     readonly outcome?: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | null;
+    readonly effectivePermissionMode?: "read-only" | "workspace-write" | "bypass" | "unknown";
+    readonly requestedPermissionMode?: "read-only" | "workspace-write" | "bypass" | null;
+    readonly permissionModeSource?: "dispatch" | "agent" | "instance" | "default" | "unknown";
   }[],
 ) {
   const views = lifecycleFixtureViews(entries);
@@ -80,6 +83,9 @@ function lifecycleFixtureViews(entries: Parameters<typeof lifecycleReadFor>[0]):
         process,
         stopProof,
         outcome,
+        effectivePermissionMode: entry.effectivePermissionMode ?? "unknown",
+        requestedPermissionMode: entry.requestedPermissionMode ?? null,
+        permissionModeSource: entry.permissionModeSource ?? "unknown",
         admittedRevision: 1,
         eventIds: [],
       };

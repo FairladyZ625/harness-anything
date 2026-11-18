@@ -129,3 +129,19 @@ provenance 回答*谁产生了这条记录*。runtime witness 回答*见证的�
 实际 runtime session，其 dispatch snapshot 记录实例、运行时类型与模型。既有 provider fault/quota
 continuation 与普通 Agent run 共用实现。旧缓存按投影版本重建，去掉定义里的废弃钉选字段，
 canonical 历史事件原文保留。
+
+## 派工准入与公开读面的生效权限模式证据
+
+派工准入时刻，`runtime_dispatch_requested` 在权威事件 payload 上快照记录实际生效的启动权限模式与来源：
+
+- `launchedPermissionMode`：`"read-only" | "workspace-write" | "bypass"`（实际传给 runtime adapter 的权限模式）
+- `requestedPermissionMode`：`"read-only" | "workspace-write" | "bypass" | null`（派工显式请求的权限模式，未显式指定时为 `null`）
+- `permissionModeSource`：`"dispatch" | "agent" | "instance" | "default"`（解析优先级：派工参数 > Agent 声明 > runtime instance > 默认兜底）
+
+由于该证据在准入时刻随事件落盘，派工启动或结束后再修改 Agent 或 runtime instance 的 `permissionMode`，已记录派工的权限结论保持不变。内核生命周期摘要（`DispatchLifecycleSummary`）及公开读面 `repo.agentRuntime.sessions.read`（顶层 `session` 与 `attemptChain.attempts[]`）和 `repo.task.dispatches`（`dispatches[]`）统一暴露：
+
+- `effectivePermissionMode`：`"read-only" | "workspace-write" | "bypass" | "unknown"`
+- `requestedPermissionMode`：`"read-only" | "workspace-write" | "bypass" | null`
+- `permissionModeSource`：`"dispatch" | "agent" | "instance" | "default" | "unknown"`
+
+缺少 `launchedPermissionMode` 的历史 `runtime_dispatch_requested` 事件固定投影为 `effectivePermissionMode: "unknown"`、`requestedPermissionMode: null`、`permissionModeSource: "unknown"`，读面绝不回查当前可变的 Agent 或 instance 配置猜测补齐。JSON-RPC 客户端通过 `protocol.dispatchLifecycle.enable`（`JsonRpcLineClient` 自动发送）即可在会话与派工读面上接收上述字段。
