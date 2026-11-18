@@ -68,6 +68,8 @@ export type TaskDispatchDecisionAction =
     };
 
 export interface TaskDispatchRow {
+  readonly personId?: string | null;
+  readonly nodeId?: string | null;
   /** Current lifecycle receipt. Absent only on the previous wire version (remove 2026-12-07).
    * Absence is unavailable, never permission to infer state from legacy fields. */
   readonly lifecycle?: DispatchLifecycleSummary;

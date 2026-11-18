@@ -218,6 +218,7 @@ export function validTaskDispatchRow(value: unknown): value is TaskDispatchRow {
     isJsonObject(value) &&
     [value.dispatchId, value.runtimeSessionId, value.instanceId, value.attemptGroupId].every(dispatchText) &&
     typeof value.taskId === "string" &&
+    [value.personId, value.nodeId].every((id) => id === undefined || dispatchNullableText(id)) &&
     typeof value.executionId === "string" &&
     validTaskDispatchAttemptValues(value) &&
     (value.taskTitle === undefined || dispatchText(value.taskTitle)) &&

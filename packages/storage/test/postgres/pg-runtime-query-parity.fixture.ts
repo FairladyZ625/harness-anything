@@ -6,6 +6,7 @@ import type { PgTaskQueryMethods } from "../../src/pg/pg-task-query-contract.ts"
 export async function appendRuntimeQueryFixtures(
   append: (bundle: CanonicalWriteBundle) => Promise<void>,
   revision: () => number,
+  source: AgentRuntimeEventV1["source"] = "local",
 ): Promise<void> {
   const installation: AgentRuntimeEventV1 = {
     schema: "agent-runtime-event/v1",
@@ -15,7 +16,7 @@ export async function appendRuntimeQueryFixtures(
     workspaceRevision: revision(),
     occurredAt: "2026-08-30T00:00:00.000Z",
     actor: { executor: null, principal: { personId: "person_runtime" } },
-    source: "local",
+    source,
     payload: {
       installationId: "runtime-query-installation",
       kindId: "codex",
@@ -39,7 +40,7 @@ export async function appendRuntimeQueryFixtures(
     workspaceRevision: revision(),
     occurredAt: "2026-08-31T00:00:00.000Z",
     actor: { executor: null, principal: { personId: "person_runtime" } },
-    source: "local",
+    source,
     payload: {
       runtimeSessionId: "runtime-query-session",
       instanceId: "runtime-query-instance",
@@ -69,7 +70,7 @@ export async function appendRuntimeQueryFixtures(
       workspaceRevision: revision(),
       occurredAt: startedAt,
       actor: { executor: null, principal: { personId: "person_runtime" } },
-      source: "local",
+      source,
       payload: {
         dispatchId: id,
         dispatchKey: `key-${id}`,

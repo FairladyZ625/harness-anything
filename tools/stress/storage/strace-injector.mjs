@@ -15,7 +15,20 @@ const tracedSyscalls = [
 ];
 
 export async function runUnderStrace({ command, args, tracePath, injection, cwd, env = process.env }) {
-  const straceArgs = ["-f", "-qq", "-yy", "-s", "256", "-o", tracePath, "-e", `trace=${tracedSyscalls.join(",")}`];
+  // Filter in the kernel so each injected process can load Node and its modules without
+  // ptrace stops for unrelated syscalls. The syscall trace and injection ordinals stay the same.
+  const straceArgs = [
+    "-f",
+    "--seccomp-bpf",
+    "-qq",
+    "-yy",
+    "-s",
+    "256",
+    "-o",
+    tracePath,
+    "-e",
+    `trace=${tracedSyscalls.join(",")}`,
+  ];
   if (injection) straceArgs.push("-e", `inject=${injection}`);
   straceArgs.push("--", command, ...args);
   const result = await spawnCapture("strace", straceArgs, { cwd, env });

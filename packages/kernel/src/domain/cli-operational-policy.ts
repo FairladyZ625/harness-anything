@@ -865,6 +865,8 @@ export const daemonProtocolFleetPolicy = {
       edgeJoinAddressTimeoutMs: 30_000,
       edgeJoinSshStartupTimeoutMs: 45_000,
       overviewEventPageLimit: 64,
+      // dec_88F9490EEC6B41FAC3EB572E22/CH4: independent per-node activity windows.
+      nodeActivityRows: { tasks: 10, dispatches: 10, events: 20 },
       overviewPageLimit: 16,
       failurePolicies: {
         busy: { category: "overload", recovery: "same-operation" },
@@ -1006,7 +1008,7 @@ export const daemonProtocolFleetPolicy = {
     "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-gui-actions.ts#daemonGuiActionMethods.timeoutMs:d02b1e232b41987e44ddd45121bbdb3a",
     "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-repository-reads.ts#validateReckoningRead:f33a5cdd4f195ff160f9ba63da6b2cb8",
     "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-repository-reads.ts#validatePolicyMetadataRead:e892d9c9b9f1cfa95daa0960e1bbd3ab",
-    "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateRuntimeSessionGroupsPayload:4bb266a93477b6465cf1e2d51ee33c02",
+    "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateRuntimeSessionGroupsPayload:e0abc5ca2e47fb3a66ae1ac210aaff85",
     "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateSquadRunListPayload:e9645cb502bd19513e5fa1a73bda4fcb",
     "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateAgendaQueryPayload:550cdd0cd7d274cdc7e17e4406201ac1",
     "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateTaskDispatchesPayload:346b1c8c807fbdd9e9cae4888600a00c",

@@ -52,8 +52,11 @@ pgliteIntegrationSuite("complete synchronous query parity", () => {
         revision++;
       };
       try {
-        for (const event of lifecycleFixture({ taskId: "task-parity", executionId: "execution-parity" }).events)
+        const edge = { kind: "node", nodeId: "node-edge-a" } as const;
+        for (const original of lifecycleFixture({ taskId: "task-parity", executionId: "execution-parity" }).events) {
+          const event = { ...original, source: edge };
           await append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+        }
         await appendBootstrapQueryFixture(
           append,
           () => revision,
@@ -61,7 +64,7 @@ pgliteIntegrationSuite("complete synchronous query parity", () => {
         );
         await appendLeaseReplayFixtures(append, () => revision);
         await appendQueryParityFixtures(append, () => revision);
-        await appendRuntimeQueryFixtures(append, () => revision);
+        await appendRuntimeQueryFixtures(append, () => revision, edge);
         await appendTaskEventQueryFixtures(append, () => revision);
         await appendGraphQueryFixtures(append, () => revision);
         await appendRecoveryQueryFixtures(append, () => revision);
@@ -108,6 +111,39 @@ pgliteIntegrationSuite("complete synchronous query parity", () => {
                 queries.readEventSummaries(0, 3, { taskIds }),
                 projection.readEventSummaries(0, 3, { taskIds }),
               );
+            const sqliteTask = projection.list({ taskIds: ["task-parity"] }).rows[0]!,
+              pgTask = queries.list({ taskIds: ["task-parity"] }).rows[0]!;
+            for (const row of [sqliteTask, pgTask]) {
+              assert.equal(row.createdByPersonId, "person-owner");
+              assert.equal(row.originNodeId, edge.nodeId);
+              assert.equal(row.activeOrLatestNodeId, "center");
+              assert.equal(row.activeOrLatestPersonId, "person-owner");
+              assert.equal(row.snapshot.lease, null);
+            }
+            const window = Math.max(0, revision - 51),
+              fields = { fleetNodeIds: [edge.nodeId, "node-query-a", "missing"] },
+              sqliteFleet = projection.readEventSummaries(window, 50, fields),
+              pgFleet = queries.readEventSummaries(window, 50, fields);
+            assert.deepEqual(pgFleet.fleetActivity, sqliteFleet.fleetActivity);
+            for (const fleet of [sqliteFleet, pgFleet]) {
+              const node = fleet.fleetActivity?.find(({ nodeId }) => nodeId === edge.nodeId);
+              assert.ok(node?.recentTasks.some(({ taskId }) => taskId === "task-parity"));
+              assert.ok(node?.recentDispatches.some(({ dispatchId }) => dispatchId === "runtime-query-a"));
+              assert.ok(
+                node?.recentEvents.some(
+                  ({ type, personId }) => type === "task_completed" && personId === "person-owner",
+                ),
+              );
+              assert.ok(
+                !fleet.events.some(({ type, taskId }) => type === "task_completed" && taskId === "task-parity"),
+              );
+              assert.deepEqual(fleet.fleetActivity?.at(-1), {
+                nodeId: "missing",
+                recentTasks: [],
+                recentDispatches: [],
+                recentEvents: [],
+              });
+            }
             const fleetSummary = queries.readEventSummaries(0, 100, "fleet");
             assert.ok(
               fleetSummary.events.some((event) => event.eventId.startsWith("provider-")),

@@ -369,7 +369,9 @@ function linkWorktreeLedger(rootDir: string, cwd: string, taskId: string | null,
   const marker = worktreeLedgerMarkerPath(cwd);
   if (marker === null) return;
   ensureRealDirectory(cwd, path.dirname(marker));
-  const legacyMarker = legacyWorktreeLedgerMarkerPath(cwd),
+  // The legacy marker and document base live beside each other in the same linked Git directory.
+  const gitDirectory = readLinkedWorktreeGitDirectory(cwd),
+    legacyMarker = gitDirectory === null ? null : path.join(gitDirectory, "harness-ledger-mirror"),
     ownershipMarker = lstatSync(marker, { throwIfNoEntry: false }) ? marker : legacyMarker,
     own = taskId === null ? null : ownPackageDirectory(authoredRoot, taskId),
     ownership = mirrorOwnership(mirror, ownershipMarker);
@@ -378,7 +380,7 @@ function linkWorktreeLedger(rootDir: string, cwd: string, taskId: string | null,
     // capture their base only at fresh checkout, never adopt an existing worker's edits as originals.
     const checkedOut = own === null ? null : path.join(mirror, "tasks", path.basename(own));
     if (fresh && checkedOut !== null) {
-      const base = taskWorktreeDocumentBase(cwd, `tasks/${path.basename(own!)}`);
+      const base = documentBaseInGitDirectory(gitDirectory, `tasks/${path.basename(own!)}`);
       /* @gate-identity non-state/environment-io.97ebea1bc7f7c550 */ mkdirSync(path.dirname(base), { recursive: true });
       if (existsSync(checkedOut)) copyWorkerLedgerEntry(checkedOut, base);
       // Keep versions for documents publication has not checked out, without injecting untracked
@@ -408,7 +410,7 @@ function linkWorktreeLedger(rootDir: string, cwd: string, taskId: string | null,
   });
   /* @gate-identity non-state/environment-io.94a0cdf651772a78 */ mkdirSync(path.dirname(marker), { recursive: true });
   /* @gate-identity non-state/environment-io.86a0c8743f85091d */ writeFileSync(marker, worktreeLedgerMarker);
-  mirrorTaskPackage(own, packageMirror, taskWorktreeDocumentBase(cwd, `tasks/${path.basename(own)}`));
+  mirrorTaskPackage(own, packageMirror, documentBaseInGitDirectory(gitDirectory, `tasks/${path.basename(own)}`));
   if (legacyMarker !== null && legacyMarker !== marker && lstatSync(legacyMarker, { throwIfNoEntry: false })) {
     clearWorktreeLedgerCopies(legacyMarker);
     /* @gate-identity non-state/environment-io.0b23760b01d9faf7 */ unlinkSync(legacyMarker);
@@ -418,9 +420,12 @@ function linkWorktreeLedger(rootDir: string, cwd: string, taskId: string | null,
 /** Local baseline bytes are not canonical writes; only doc-sync may accept a worker's edits. */
 export function taskWorktreeDocumentBase(cwd: string, logicalPath: string): string {
   const gitPath = path.join(cwd, ".git"),
-    gitDirectory = lstatSync(gitPath).isFile()
-      ? path.resolve(cwd, /^gitdir: (.+)$/mu.exec(readFileSync(gitPath, "utf8"))![1]!.trim())
-      : gitPath;
+    gitDirectory = lstatSync(gitPath).isFile() ? readLinkedWorktreeGitDirectory(cwd) : gitPath;
+  return documentBaseInGitDirectory(gitDirectory, logicalPath);
+}
+
+function documentBaseInGitDirectory(gitDirectory: string | null, logicalPath: string): string {
+  if (gitDirectory === null) throw new Error("Worktree .git file does not name a Git directory.");
   return path.join(gitDirectory, "harness-ledger-base", ...logicalPath.split("/"));
 }
 
@@ -570,8 +575,13 @@ function worktreeLedgerMarkerPath(cwd: string): string | null {
 function legacyWorktreeLedgerMarkerPath(cwd: string): string | null {
   const gitFile = path.join(cwd, ".git");
   if (!existsSync(gitFile) || !lstatSync(gitFile).isFile()) return null;
-  const match = /^gitdir: (.+)$/mu.exec(readFileSync(gitFile, "utf8"));
-  return match === null ? null : path.join(path.resolve(cwd, match[1]!.trim()), "harness-ledger-mirror");
+  const gitDirectory = readLinkedWorktreeGitDirectory(cwd);
+  return gitDirectory === null ? null : path.join(gitDirectory, "harness-ledger-mirror");
+}
+
+function readLinkedWorktreeGitDirectory(cwd: string): string | null {
+  const match = /^gitdir: (.+)$/mu.exec(readFileSync(path.join(cwd, ".git"), "utf8"));
+  return match === null ? null : path.resolve(cwd, match[1]!.trim());
 }
 
 /** Removes the worker-local mirror before a worktree is reclaimed; canonical files stay untouched. */

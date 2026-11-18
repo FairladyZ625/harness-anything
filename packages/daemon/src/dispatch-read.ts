@@ -30,6 +30,10 @@ import { projectedTaskNotFound } from "./projection-readiness.ts";
 import { runtimeResumeAdmission } from "./runtime-resume-admission.ts";
 import { dispatchActivityIdleMinutes, dispatchActivityStatus } from "./dispatch-activity.ts";
 import { cursorStep } from "./paginated-read.ts";
+import {
+  writeSourceNodeId,
+  writeSourceRuntimeSessionId,
+} from "@harness-anything/kernel/internal/domain/write-source.ts";
 
 type DispatchBatchRead = Extract<DaemonTaskDispatchesResult, { readonly taskIds: readonly string[] }>;
 
@@ -532,7 +536,7 @@ export function readSessionGroupDispatches(input: {
 /** Bounded group-row projection: only fields the session-group aggregation renders are filled;
  * delivered/blocked, task snapshot, document and dispatch-stream reads are intentionally absent. */
 function shallowSessionGroupRow(
-  projection: Pick<TaskProjectionQueries, "readDispatchLifecycle">,
+  projection: Pick<TaskProjectionQueries, "readDispatchLifecycle" | "readRuntimeSessionEventsByType">,
   event: DispatchEvent,
   session: RuntimeSession | undefined,
 ): TaskDispatchRow {
@@ -544,6 +548,7 @@ function shallowSessionGroupRow(
     status = lifecycle.displayStatus;
   return {
     dispatchId: payload.dispatchId,
+    ...dispatchAttribution(projection, event),
     taskId: payload.taskId ?? "",
     executionId: payload.executionId ?? "",
     ...(payload.reviewTarget?.kind === "decision" && payload.reviewTarget.decisionId
@@ -638,6 +643,21 @@ export function readTaskDispatchRow(
     options.rootDir,
     annotations.get(event.payload.dispatchId) ?? [],
   );
+}
+
+function dispatchAttribution(
+  projection: Pick<TaskProjectionQueries, "readRuntimeSessionEventsByType">,
+  event: DispatchEvent,
+): { readonly personId: string | null; readonly nodeId: string | null } {
+  const runtimeSessionId = writeSourceRuntimeSessionId(event.source);
+  const launch =
+    runtimeSessionId === null
+      ? undefined
+      : projection.readRuntimeSessionEventsByType(runtimeSessionId, ["runtime_session_started"]).at(-1);
+  return {
+    personId: event.actor?.principal?.personId ?? null,
+    nodeId: writeSourceNodeId(event.source) ?? writeSourceNodeId(launch?.source),
+  };
 }
 
 function dispatchStartedAt(event: DispatchEvent): string {
@@ -764,6 +784,7 @@ function canonicalDispatchRow(
     reportPath = packagePath ? `${packagePath}/artifacts/reports/${payload.dispatchId}.md` : null;
   return {
     dispatchId: payload.dispatchId,
+    ...dispatchAttribution(projection, event),
     taskId: payload.taskId ?? "",
     ...(taskTitle ? { taskTitle } : {}),
     executionId: payload.executionId ?? "",

@@ -389,9 +389,11 @@ async function runContention(root) {
         withPolicyGroup({ actor, source: "local" }, "contributor"),
       ),
     ),
+  ).finally(() => cell.close());
+  assert.ok(
+    queueReceipts.every(({ outcome }) => outcome === "applied"),
+    JSON.stringify(queueReceipts),
   );
-  assert.ok(queueReceipts.every(({ outcome }) => outcome === "applied"));
-  await cell.close();
   const red = oracleO8({
     availability: {
       watchdog: { status: "timeout", boundary: "sqlite-checkpoint" },
