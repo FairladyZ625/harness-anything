@@ -270,6 +270,33 @@ test("standard-task verified profile blocks missing, stale, folded, and mismatch
     assert.equal(moderateComplete.outcome, "op_rejected");
     assert.equal(moderateComplete.code, "gate_witness_missing");
 
+    // 4d. IEEE-754 rounded fraction (1.0000000000000001) and positive subnormal underflow (1e-324) settle available/fail and reject complete
+    for (const [rawFailed, rawTotal, expectedToken] of [
+      ["0", "1.0000000000000001", "1.0000000000000001"],
+      ["1e-324", "1", "1e-324"],
+    ]) {
+      writeFileSync(
+        receiptPath,
+        `{"commitSha":"${currentSha}","passed":1,"failed":${rawFailed},"timedOut":0,"unexecuted":0,"total":${rawTotal}}`,
+      );
+      await applied({ kind: "doc-submit", taskId });
+      await applied({ kind: "task-submit", taskId, executionId, amend: true });
+      const precisionCut = latestSubmittedCut();
+      const precisionWitness = witnessForCut(precisionCut.digest);
+      assert.ok(precisionWitness, `expected completion_gate_verified bound to precision cut (${expectedToken})`);
+      const precisionRun = currentGateRun(precisionWitness.payload.execution, "verification-receipt")!;
+      assert.equal(precisionRun.submissionDigest, precisionCut.digest);
+      assert.equal(precisionRun.availability, "available");
+      assert.equal(precisionRun.result, "fail");
+      assert.equal(precisionWitness.payload.witness.provenance?.runId, precisionRun.runId);
+      assert.equal(precisionWitness.payload.witness.result, "fail");
+      assert.deepEqual(precisionWitness.payload.witness.predicate, {});
+      assert.ok(precisionWitness.payload.witness.diagnostic.includes(expectedToken));
+      const precisionComplete = await cell.run({ kind: "task-complete", taskId, executionId }, owner);
+      assert.equal(precisionComplete.outcome, "op_rejected");
+      assert.equal(precisionComplete.code, "gate_witness_missing");
+    }
+
     const deepArray = `${"[".repeat(25_000)}0${"]".repeat(25_000)}`;
     writeFileSync(
       receiptPath,

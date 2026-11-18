@@ -218,6 +218,25 @@ test("verify-receipt script rejects missing, archive-only, malformed, and invali
       "fail",
     );
 
+    for (const [rawFailed, rawTotal, expectedToken] of [
+      ["0", "1.0000000000000001", "1.0000000000000001"],
+      ["1e-324", "1", "1e-324"],
+    ]) {
+      writeFileSync(
+        badFile,
+        `{"commitSha":"${commitSha}","passed":1,"failed":${rawFailed},"timedOut":0,"unexecuted":0,"total":${rawTotal}}`,
+      );
+      const precisionFail = runScript({
+        schema: "witness-input/v1",
+        code: { commitSha, directory: "input/code" },
+        subjects: [{ path: "artifacts/verification-receipt.json", revision: 1, blobSha256, file: badFile }],
+      });
+      assert.equal(precisionFail.payload.result, "fail");
+      assert.deepEqual(precisionFail.payload.predicate, {});
+      assert.ok(precisionFail.payload.diagnostic.includes(expectedToken), precisionFail.payload.diagnostic);
+      assert.ok(precisionFail.rawBytes < 1024, `expected rawBytes < 1024, got ${precisionFail.rawBytes}`);
+    }
+
     writeFileSync(badFile, JSON.stringify({ commitSha, passed: 5, failed: 0, timedOut: 1, unexecuted: 0, total: 6 }));
     assert.equal(
       runScript({

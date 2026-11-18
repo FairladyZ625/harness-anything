@@ -20,7 +20,7 @@ function describeValue(value) {
 }
 
 function serializeFrame(result, subjects, predicate, diagnostic) {
-  return `${JSON.stringify({
+  return JSON.stringify({
     schema: "preset-script-result/v1",
     produces: [
       {
@@ -34,19 +34,22 @@ function serializeFrame(result, subjects, predicate, diagnostic) {
         },
       },
     ],
-  })}\n`;
+  });
 }
 
 function emit(result, subjects, predicate, diagnostic) {
   let boundedDiagnostic = diagnostic;
   let frame = serializeFrame(result, subjects, predicate, boundedDiagnostic);
-  if (result === "fail" && Buffer.byteLength(frame, "utf8") > MAX_FAIL_FRAME_BYTES) {
+  if (result === "fail" && Buffer.byteLength(frame, "utf8") + 1 > MAX_FAIL_FRAME_BYTES) {
     let low = 0;
     let high = boundedDiagnostic.length;
     while (low < high) {
       const mid = Math.ceil((low + high) / 2);
       const candidate = `${boundedDiagnostic.slice(0, mid)}...`;
-      if (Buffer.byteLength(serializeFrame(result, subjects, predicate, candidate), "utf8") <= MAX_FAIL_FRAME_BYTES) {
+      if (
+        Buffer.byteLength(serializeFrame(result, subjects, predicate, candidate), "utf8") + 1 <=
+        MAX_FAIL_FRAME_BYTES
+      ) {
         low = mid;
       } else {
         high = mid - 1;
@@ -55,7 +58,7 @@ function emit(result, subjects, predicate, diagnostic) {
     boundedDiagnostic = low > 0 ? `${boundedDiagnostic.slice(0, low)}...` : "Invalid verification receipt.";
     frame = serializeFrame(result, subjects, predicate, boundedDiagnostic);
   }
-  process.stdout.write(frame);
+  console.log(frame);
 }
 
 const presetInput = JSON.parse(process.env.HA_PRESET_INPUT ?? "{}");
@@ -69,9 +72,20 @@ if (!receiptSubject) {
   process.exit(0);
 }
 
+const rawFieldSources = new WeakMap();
 let receipt;
 try {
-  receipt = JSON.parse(readFileSync(receiptSubject.file, "utf8"));
+  receipt = JSON.parse(readFileSync(receiptSubject.file, "utf8"), function (key, value, context) {
+    if (this && typeof this === "object" && typeof context?.source === "string") {
+      let entries = rawFieldSources.get(this);
+      if (!entries) {
+        entries = new Map();
+        rawFieldSources.set(this, entries);
+      }
+      entries.set(key, context.source);
+    }
+    return value;
+  });
 } catch (error) {
   const detail = error instanceof Error ? error.message : String(error);
   emit("fail", subjects, {}, `Invalid JSON in artifacts/verification-receipt.json: ${detail}`);
@@ -100,6 +114,7 @@ if (witnessInput.code !== null) {
   errors.push(`Artifact-only submission requires commitSha to be null (got ${describeValue(receipt.commitSha)}).`);
 }
 
+const rootSources = rawFieldSources.get(receipt);
 let countsValid = true;
 for (const field of COUNT_FIELDS) {
   if (!Object.hasOwn(receipt, field)) {
@@ -107,9 +122,18 @@ for (const field of COUNT_FIELDS) {
     continue;
   }
   const value = receipt[field];
-  if (!Number.isSafeInteger(value) || value < 0) {
+  const rawSource = rootSources?.get(field);
+  const exactInteger =
+    Number.isSafeInteger(value) &&
+    value >= 0 &&
+    (typeof rawSource !== "string" || (/^(?:0|[1-9]\d*)$/u.test(rawSource) && String(value) === rawSource));
+  if (!exactInteger) {
     countsValid = false;
-    errors.push(`Field "${field}" must be a non-negative safe integer (got ${describeValue(value)}).`);
+    const shown =
+      typeof value === "number" && typeof rawSource === "string" && rawSource.length <= 32
+        ? rawSource
+        : describeValue(value);
+    errors.push(`Field "${field}" must be a non-negative safe integer (got ${shown}).`);
   }
 }
 
