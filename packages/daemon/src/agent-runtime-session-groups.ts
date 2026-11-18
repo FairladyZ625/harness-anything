@@ -24,6 +24,8 @@ interface AgentRuntimeSessionGroupsQuery {
   /** 精确归属过滤(G12 §4b):按派工行的 agentId/squadId 精确匹配,替代子串检索。 */
   readonly agentId: string | null;
   readonly squadId: string | null;
+  readonly personId?: string | null;
+  readonly nodeId?: string | null;
   /**
    * 状态维度筛选:成员级、与检索词同层。空集合表示不筛。作用在成员而非组的
    * `latestStatus` 上——后者会把「含 failed 成员但最新是 succeeded」的组整个滤掉。
@@ -58,15 +60,19 @@ function filteredSessionGroupMembers(input: {
   readonly entityLabel: (kind: "agent" | "squad", id: string) => string | null;
   readonly query: AgentRuntimeSessionGroupsQuery;
 }): { readonly attributed: readonly TaskDispatchRow[]; readonly filtered: readonly GroupMember[] } {
-  // 精确归属:先按 agentId/squadId 过滤派工行,再只保留有匹配派工的会话——
-  // 会话归属由其(过滤后的)最新派工决定,任何 groupBy 都与该过滤可组合。
+  // The latest matching dispatch supplies a session’s attribution in every grouping.
   const attributed =
-      input.query.agentId === null && input.query.squadId === null
+      input.query.agentId === null &&
+      input.query.squadId === null &&
+      input.query.personId == null &&
+      input.query.nodeId == null
         ? input.dispatches
         : input.dispatches.filter(
             (row) =>
               (input.query.agentId === null || row.agentId === input.query.agentId) &&
-              (input.query.squadId === null || row.squadId === input.query.squadId),
+              (input.query.squadId === null || row.squadId === input.query.squadId) &&
+              (input.query.personId == null || row.personId === input.query.personId) &&
+              (input.query.nodeId == null || row.nodeId === input.query.nodeId),
           ),
     scoped = attributed === input.dispatches ? input.sessions : sessionsWithDispatch(input.sessions, attributed),
     dispatchBySession = latestDispatches(attributed),
@@ -392,6 +398,8 @@ function finishGroup(group: GroupAccumulator): AgentRuntimeSessionGroupDto {
     latestActivityAt = latestRuntimeActivityAt(members.map((member) => member.session.lastObservedAt));
   return {
     ...group.identity,
+    personId: latest?.dispatch?.personId ?? null,
+    nodeId: latest?.dispatch?.nodeId ?? null,
     latestStatus: latest?.status ?? "unknown",
     latestActivityAt,
     runningCount: members.filter((member) => member.status === "running").length,

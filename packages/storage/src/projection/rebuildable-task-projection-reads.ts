@@ -1,3 +1,5 @@
+import { taskAttribution } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
+import { taskAttributionRows } from "./event-summary-read-index.ts";
 import type { TaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
 import type { TaskV2 } from "@harness-anything/kernel/internal/domain/task.ts";
 import type { DatabaseSync } from "node:sqlite";
@@ -98,23 +100,30 @@ export function listProjection(
             ),
           ),
         ),
-        snapshots = readSnapshots(
-          db,
-          rows.map((row) => row.task_id),
-          at,
-        );
+        taskIds = rows.map(({ task_id }) => task_id),
+        snapshots = readSnapshots(db, taskIds, at),
+        attribution = taskAttributionRows(db, taskIds);
       return {
         status: cut.status,
-        rows: rows.map((row) => ({
-          taskId: row.task_id,
-          packagePath: row.package_path,
-          generation: row.generation,
-          workspaceRevision: row.workspace_revision,
-          createdAt: row.created_at,
-          completedAt: row.completed_at,
-          updatedAt: row.updated_at,
-          snapshot: snapshots.get(row.task_id)!,
-        })),
+        rows: rows.map((row) => {
+          const facts = attribution.get(row.task_id);
+          return {
+            taskId: row.task_id,
+            packagePath: row.package_path,
+            generation: row.generation,
+            workspaceRevision: row.workspace_revision,
+            createdAt: row.created_at,
+            completedAt: row.completed_at,
+            updatedAt: row.updated_at,
+            ...taskAttribution(
+              snapshots.get(row.task_id)!,
+              facts?.origin_node_id ?? null,
+              facts?.latest_node_id ?? null,
+              facts?.latest_person_id ?? null,
+            ),
+            snapshot: snapshots.get(row.task_id)!,
+          };
+        }),
         watermark: cut.watermark,
         sourceRevision: cut.sourceRevision,
         warnings: !existed && cut.sourceRevision > 0 ? ["projection_missing"] : [],
@@ -133,9 +142,11 @@ export function readTaskListAtCut(
   warnings: TaskProjectionListRead["warnings"] = [],
 ): TaskProjectionListRead {
   const page = listTaskRowsNarrow(db, query),
+    taskIds = page.rows.map(({ task_id }) => task_id),
+    attribution = taskAttributionRows(db, taskIds),
     snapshots = readSnapshots(
       db,
-      page.rows.map((row) => row.task_id),
+      taskIds,
       at,
       // Aggregate reads that ask for lifecycle status never render decision lineage beyond
       // `derives`; every other list read keeps the full snapshot relation set.
@@ -143,18 +154,27 @@ export function readTaskListAtCut(
     );
   return {
     status: cut.status,
-    rows: page.rows.map((row) => ({
-      taskId: row.task_id,
-      packagePath: row.package_path,
-      generation: row.generation,
-      workspaceRevision: row.workspace_revision,
-      createdAt: row.created_at,
-      completedAt: row.completed_at,
-      updatedAt: row.updated_at,
-      snapshot: query.presentationStatus
-        ? presentSnapshot(snapshots.get(row.task_id)!, row.presentation_status)
-        : snapshots.get(row.task_id)!,
-    })),
+    rows: page.rows.map((row) => {
+      const facts = attribution.get(row.task_id);
+      return {
+        taskId: row.task_id,
+        packagePath: row.package_path,
+        generation: row.generation,
+        workspaceRevision: row.workspace_revision,
+        createdAt: row.created_at,
+        completedAt: row.completed_at,
+        updatedAt: row.updated_at,
+        ...taskAttribution(
+          snapshots.get(row.task_id)!,
+          facts?.origin_node_id ?? null,
+          facts?.latest_node_id ?? null,
+          facts?.latest_person_id ?? null,
+        ),
+        snapshot: query.presentationStatus
+          ? presentSnapshot(snapshots.get(row.task_id)!, row.presentation_status)
+          : snapshots.get(row.task_id)!,
+      };
+    }),
     watermark: cut.watermark,
     sourceRevision: cut.sourceRevision,
     warnings,

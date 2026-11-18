@@ -50,6 +50,9 @@ export const REPOSITORY_READ_TABLES_SQL = `
       occurred_at TEXT,
       actor_person_id TEXT,
       actor_executor_id TEXT,
+      source_node_id TEXT,
+      activity_task_id TEXT,
+      dispatch_started_at TEXT,
       read_index_version INTEGER NOT NULL DEFAULT 0
     );
     -- One row per expandable entity ref suffix: entity matches a full kind/id ref or a bare id,
@@ -72,8 +75,26 @@ export const REPOSITORY_READ_TABLES_SQL = `
       ON event_summary(actor_person_id, workspace_revision DESC);
     CREATE INDEX IF NOT EXISTS event_summary_actor_executor_revision
       ON event_summary(actor_executor_id, workspace_revision DESC);
-    CREATE INDEX IF NOT EXISTS event_summary_read_index_pending
-      ON event_summary(workspace_revision) WHERE read_index_version < 1;
+    /* @gate-identity state-store/task.projection.fleet_node_task */ CREATE TABLE IF NOT EXISTS fleet_node_task (
+      node_id TEXT NOT NULL,
+      task_id TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      person_id TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(node_id,task_id)
+    ) WITHOUT ROWID;
+    CREATE INDEX IF NOT EXISTS fleet_node_task_updated ON fleet_node_task(node_id,updated_at DESC,task_id);
+    CREATE INDEX IF NOT EXISTS event_summary_fleet_node ON event_summary(source_node_id,workspace_revision DESC);
+    CREATE INDEX IF NOT EXISTS event_summary_fleet_dispatch ON event_summary(source_node_id,dispatch_started_at DESC,workspace_revision DESC)
+      WHERE event_type = 'runtime_dispatch_requested';
+    CREATE INDEX IF NOT EXISTS event_summary_fleet_task_person ON event_summary(activity_task_id,workspace_revision DESC)
+      WHERE actor_person_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS event_summary_fleet_task_node ON event_summary(activity_task_id,workspace_revision DESC)
+      WHERE source_node_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS event_summary_fleet_task_origin ON event_summary(activity_task_id,workspace_revision)
+      WHERE event_type IN ('task_created','task_bootstrapped');
+    CREATE INDEX IF NOT EXISTS event_summary_read_index_pending_v2
+      ON event_summary(workspace_revision) WHERE read_index_version < 2;
     ${EVENT_SUMMARY_READ_INDEX_TRIGGERS_SQL};
     /* @gate-identity state-store/task.projection.runtime_installation */ CREATE TABLE IF NOT EXISTS runtime_installation (
       installation_id TEXT PRIMARY KEY,
@@ -227,6 +248,11 @@ export const REPOSITORY_READ_TABLES_SQL = `
     CREATE INDEX IF NOT EXISTS event_index_runtime_session ON event_index(
       json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1';
+    CREATE INDEX IF NOT EXISTS event_index_fleet_session_launch ON event_index(
+      json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision DESC
+    ) WHERE json_extract(event_json,'$.schema')='agent-runtime-event/v1'
+      AND json_extract(event_json,'$.type')='runtime_session_started'
+      AND json_extract(event_json,'$.source.nodeId') IS NOT NULL;
     -- Recovery now reads its node scope from runtime_session.execution_node_id; this superseded
     -- dispatch-source scan index is removed when an existing projection reopens.
     DROP INDEX IF EXISTS event_index_runtime_dispatch_node;

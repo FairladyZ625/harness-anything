@@ -1,3 +1,15 @@
+import type { PoolClient } from "pg";
+import {
+  FLEET_RECENT_DISPATCH_LIMIT,
+  FLEET_RECENT_EVENT_LIMIT,
+  FLEET_RECENT_TASK_LIMIT,
+  fleetEventSummary,
+  type FleetNodeActivity,
+  type FleetRecentDispatch,
+  type FleetRecentTask,
+} from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
+import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
+
 import {
   storageReadPolicy,
   validateStorageReadWindow,
@@ -16,6 +28,7 @@ import {
 import type { EventListRow } from "@harness-anything/kernel/internal/domain/event-list.ts";
 import {
   canonicalEventSummary,
+  canonicalEventFleetSummary,
   type CanonicalEventSummary,
 } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
 import { isTaskEvent } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
@@ -238,7 +251,7 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
         if (!validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.summaries, afterRevision))
           throw new Error("event summary page requires a non-negative revision and a limit from 1 to 2048");
         const cut = await readCutInTransaction(client, claims, readers, repoId);
-        if (typeof fields === "object") {
+        if (typeof fields === "object" && "taskIds" in fields) {
           const taskIds = [...new Set(fields.taskIds)].filter((taskId) => taskId.length > 0);
           if (taskIds.length === 0) return { ...cut, events: [], hasMore: false };
           await assertPgEventReadIndexReady(client, claims, repoId);
@@ -272,7 +285,13 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
           selected.sort((left, right) => right.workspaceRevision - left.workspaceRevision);
           return { ...cut, events: selected.slice(0, limit).reverse(), hasMore: selected.length > limit };
         }
-        if (fields === "fleet") {
+        if (fields === "fleet" || typeof fields === "object") {
+          const nodeIds = typeof fields === "object" ? fields.fleetNodeIds : null;
+          if (nodeIds !== null) await assertPgEventReadIndexReady(client, claims, repoId, 7);
+          const fleetActivity =
+            nodeIds === null
+              ? undefined
+              : await readPgFleetNodeActivity(client, options.scope, repoId, cut.watermark, nodeIds);
           // The fleet overview renders only a bounded header. `summary_json` is the fleet summary
           // computed in JS at write time (and backfilled for old rows): parsing a whole event with
           // jsonb would reject legal NUL bytes in provider strings, and shipping whole bodies would
@@ -298,11 +317,16 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
             );
             return {
               ...cut,
-              events: rows.map(({ event_json }) => canonicalEventSummary(JSON.parse(event_json) as CanonicalEventV1)),
+              events: rows.map(({ event_json }) =>
+                canonicalEventFleetSummary(JSON.parse(event_json) as CanonicalEventV1),
+              ),
+              ...(fleetActivity === undefined ? {} : { fleetActivity }),
             };
           }
-          const result = await client.query<{ event_json: string }>(
-            `SELECT summary_json AS event_json
+          const result = await client.query<PgFleetHeaderRow>(
+            `SELECT summary_json, fleet_node_id,
+                    COALESCE(fleet_source_json, (ha_read_index_json(event_json)->'source')::text) AS fleet_source_json,
+                    COALESCE(actor_person_id, ha_read_index_json(event_json)#>>'{actor,principal,personId}') AS actor_person_id
              FROM ha_events
              WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND policy_epoch=$4
                AND event_type <> 'ci_run_observed'
@@ -323,10 +347,8 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
           );
           return {
             ...cut,
-            events: result.rows.map(
-              ({ event_json }) =>
-                canonicalEventSummary(JSON.parse(event_json) as CanonicalEventV1) as CanonicalEventSummary,
-            ),
+            events: result.rows.map(pgFleetHeader),
+            ...(fleetActivity === undefined ? {} : { fleetActivity }),
           };
         }
         await assertPgEventReadIndexReady(client, claims, repoId);
@@ -490,4 +512,114 @@ export async function readCutInTransaction(
   if (watermark > sourceRevision)
     throw Object.assign(new Error("sync_replication_unconfirmed"), { code: "sync_replication_unconfirmed" });
   return { status: watermark === sourceRevision ? "ready" : "pending", watermark, sourceRevision };
+}
+
+export function pgTaskAttributionColumns(repoParameter: number): string {
+  const scope = `e.tenant_id=$1 AND e.project_id=$2 AND e.policy_epoch=$3 AND e.repo_id=$${repoParameter}
+    AND e.fleet_task_id=ha_task_snapshots.task_id
+    AND (cardinality($4::text[])=0 OR e.readers && $4::text[])`;
+  return `
+    (SELECT fleet_node_id FROM ha_events e WHERE ${scope}
+      AND event_type IN ('task_created','task_bootstrapped') ORDER BY revision LIMIT 1) AS origin_node_id,
+    (SELECT fleet_node_id FROM ha_events e WHERE ${scope}
+      AND fleet_node_id IS NOT NULL ORDER BY revision DESC LIMIT 1) AS latest_node_id,
+    (SELECT actor_person_id FROM ha_events e WHERE ${scope} AND actor_person_id IS NOT NULL
+      ORDER BY revision DESC LIMIT 1) AS latest_person_id`;
+}
+
+interface PgFleetHeaderRow {
+  readonly summary_json: string;
+  readonly fleet_node_id: string | null;
+  readonly fleet_source_json: string | null;
+  readonly actor_person_id: string | null;
+}
+
+function pgFleetHeader(row: PgFleetHeaderRow): CanonicalEventSummary {
+  const header = canonicalEventSummary(JSON.parse(row.summary_json) as CanonicalEventV1);
+  return {
+    ...header,
+    ...(row.fleet_source_json === null ? {} : { source: JSON.parse(row.fleet_source_json) as unknown }),
+    nodeId: row.fleet_node_id,
+    ...(row.actor_person_id === null
+      ? {}
+      : {
+          actor: {
+            ...header.actor,
+            principal: { personId: row.actor_person_id },
+          },
+        }),
+  };
+}
+
+// Limit each node's activity first, then hydrate tasks by their scoped primary key.
+// A regular join can scan every task snapshot to decorate just ten activity rows.
+async function readPgFleetNodeActivity(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  repoId: string,
+  watermark: number,
+  nodeIds: readonly string[],
+): Promise<FleetNodeActivity[]> {
+  const eventScope = `tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 AND revision <= $6
+    AND (cardinality($5::text[])=0 OR readers && $5::text[])`;
+  const { rows } = await client.query<{
+    node_id: string;
+    tasks: FleetRecentTask[];
+    dispatches: FleetRecentDispatch[];
+    events: PgFleetHeaderRow[];
+  }>(
+    `SELECT nodes.id AS node_id, tasks.rows AS tasks, dispatches.rows AS dispatches, events.rows AS events
+    FROM unnest($7::text[]) AS nodes(id)
+    CROSS JOIN LATERAL (
+      SELECT COALESCE(json_agg(json_build_object('taskId',a.task_id,'title',t.task_title,
+        'coordinationStatus',COALESCE(t.task_status,'unknown'),'personId',a.person_id,'updatedAt',a.updated_at)
+        ORDER BY a.updated_at DESC,a.task_id), '[]') AS rows
+      FROM (
+        SELECT task_id,person_id,updated_at
+        FROM ha_fleet_node_tasks
+        WHERE ${eventScope} AND node_id=nodes.id
+        ORDER BY updated_at DESC,task_id LIMIT ${FLEET_RECENT_TASK_LIMIT}
+      ) a CROSS JOIN LATERAL (
+        SELECT task_title,task_status FROM ha_task_snapshots
+        WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id=a.task_id
+          AND (cardinality($5::text[])=0 OR readers && $5::text[])
+        LIMIT 1
+      ) t
+    ) tasks
+    CROSS JOIN LATERAL (
+      SELECT COALESCE(json_agg(json_build_object('dispatchId',d.dispatch_id,'runtimeSessionId',d.runtime_session_id,
+        'taskId',d.fleet_task_id,'taskTitle',t.task_title,'agentId',d.agent_id,'agentLabel',COALESCE(d.agent_label,d.agent_id),
+        'personId',d.actor_person_id,'status',COALESCE(s.runtime_outcome,
+          CASE WHEN s.runtime_liveness IN ('live','stale') THEN 'running' ELSE 'unknown' END),
+        'startedAt',d.dispatch_activity_at) ORDER BY d.dispatch_activity_at DESC,d.revision DESC), '[]') AS rows
+      FROM (
+        SELECT revision,dispatch_id,runtime_session_id,fleet_task_id,actor_person_id,agent_id,agent_label,dispatch_activity_at
+        FROM ha_events WHERE ${eventScope} AND fleet_node_id=nodes.id AND event_type='runtime_dispatch_requested'
+        ORDER BY dispatch_activity_at DESC,revision DESC LIMIT ${FLEET_RECENT_DISPATCH_LIMIT}
+      ) d
+      LEFT JOIN LATERAL (
+        SELECT task_title FROM ha_task_snapshots
+        WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+          AND task_id=d.fleet_task_id COLLATE "default" AND (cardinality($5::text[])=0 OR readers && $5::text[])
+        LIMIT 1
+      ) t ON true
+      LEFT JOIN ha_projection_values s ON s.tenant_id=$1 AND s.project_id=$2 AND s.policy_epoch=$3
+        AND s.model='runtime-session' AND s.owner_id='' AND s.entity_id=d.runtime_session_id COLLATE "default"
+        AND (cardinality($5::text[])=0 OR s.readers && $5::text[])
+    ) dispatches
+    CROSS JOIN LATERAL (
+      SELECT COALESCE(json_agg(e ORDER BY e.revision DESC), '[]') AS rows
+      FROM (
+        SELECT revision,summary_json,fleet_node_id,fleet_source_json,actor_person_id FROM ha_events WHERE ${eventScope} AND fleet_node_id=nodes.id AND event_type<>'ci_run_observed'
+        ORDER BY revision DESC LIMIT ${FLEET_RECENT_EVENT_LIMIT}
+      ) e
+    ) events`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch, repoId, scope.readers ?? [], watermark, nodeIds],
+  );
+  return rows.map((row) => ({
+    nodeId: row.node_id,
+    recentTasks: row.tasks,
+    recentDispatches: row.dispatches,
+    recentEvents: row.events.map((event) => fleetEventSummary(pgFleetHeader(event))),
+  }));
 }

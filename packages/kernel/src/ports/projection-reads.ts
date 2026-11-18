@@ -1,3 +1,4 @@
+import type { TaskAttribution } from "../domain/canonical-event-summary.ts";
 import type * as ReadSet from "../domain/task-read-set.ts";
 import type { LeaseChangeReason, TaskLifecycleSnapshot } from "../domain/task-lifecycle.contract.ts";
 import type { CanonicalEventV1, DocumentState } from "../domain/doc-sync.contract.ts";
@@ -33,7 +34,7 @@ export interface TaskProjectionRead {
   readonly warnings: readonly TaskProjectionWarning[];
   readonly catchUp: { readonly maxItems: number; readonly reducedItems: number; readonly storeTransactions: 0 | 1 };
 }
-export interface TaskProjectionListRow {
+export interface TaskProjectionListRow extends Partial<TaskAttribution> {
   readonly taskId: string;
   readonly packagePath: string | null;
   readonly generation: "v0" | "v1";

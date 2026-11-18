@@ -468,6 +468,8 @@ function sessionGroupsQuery(payload: Readonly<Record<string, unknown>>): {
   readonly tokens: readonly string[];
   readonly agentId: string | null;
   readonly squadId: string | null;
+  readonly personId: string | null;
+  readonly nodeId: string | null;
   readonly status: readonly AgentRuntimeSessionGroupStatus[];
   readonly sessionIds: readonly string[];
   /** Read only sessions whose canonical outcome is still unset; aggregate "in flight" readers. */
@@ -480,6 +482,8 @@ function sessionGroupsQuery(payload: Readonly<Record<string, unknown>>): {
     query = payload.query,
     agentId = payload.agentId,
     squadId = payload.squadId,
+    personId = payload.personId,
+    nodeId = payload.nodeId,
     status = payload.status,
     sessionIds = payload.sessionIds,
     unsettledOnly = payload.unsettledOnly,
@@ -487,15 +491,27 @@ function sessionGroupsQuery(payload: Readonly<Record<string, unknown>>): {
   if (
     keys.some(
       (key) =>
-        !["groupBy", "since", "query", "agentId", "squadId", "status", "sessionIds", "unsettledOnly", "limit"].includes(
-          key,
-        ),
+        ![
+          "groupBy",
+          "since",
+          "query",
+          "agentId",
+          "squadId",
+          "personId",
+          "nodeId",
+          "status",
+          "sessionIds",
+          "unsettledOnly",
+          "limit",
+        ].includes(key),
     ) ||
     (groupBy !== undefined && !["task", "squad", "agent", "day"].includes(String(groupBy))) ||
     (since !== undefined && (typeof since !== "string" || !Number.isFinite(Date.parse(since)))) ||
     (query !== undefined && typeof query !== "string") ||
     (agentId !== undefined && (typeof agentId !== "string" || !agentId)) ||
     (squadId !== undefined && (typeof squadId !== "string" || !squadId)) ||
+    (personId !== undefined && (typeof personId !== "string" || !personId)) ||
+    (nodeId !== undefined && (typeof nodeId !== "string" || !nodeId)) ||
     (status !== undefined && !isSessionGroupStatusSelection(status)) ||
     (sessionIds !== undefined &&
       (!Array.isArray(sessionIds) || sessionIds.some((id) => typeof id !== "string" || !id))) ||
@@ -504,7 +520,7 @@ function sessionGroupsQuery(payload: Readonly<Record<string, unknown>>): {
   )
     throw coded(
       "invalid_request",
-      "Agent runtime session groups accept groupBy, ISO since, text query, exact agent/squad ids, " +
+      "Agent runtime session groups accept groupBy, ISO since, text query, exact agent/squad/person/node ids, " +
         "unsettledOnly, status among " +
         `${agentRuntimeSessionGroupStatusWords.join(", ")}, and limit 1..1000.`,
     );
@@ -514,6 +530,8 @@ function sessionGroupsQuery(payload: Readonly<Record<string, unknown>>): {
     tokens: typeof query === "string" ? query.toLocaleLowerCase().trim().split(/\s+/u).filter(Boolean) : [],
     agentId: typeof agentId === "string" ? agentId : null,
     squadId: typeof squadId === "string" ? squadId : null,
+    personId: typeof personId === "string" ? personId : null,
+    nodeId: typeof nodeId === "string" ? nodeId : null,
     status: status === undefined ? [] : (status as readonly AgentRuntimeSessionGroupStatus[]),
     sessionIds: sessionIds === undefined ? [] : [...new Set(sessionIds as readonly string[])],
     unsettledOnly: unsettledOnly === true,

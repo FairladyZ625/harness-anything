@@ -196,7 +196,7 @@ test("edge fields the read surface cannot see are unavailable with a reason, nev
   assert.equal(edge.replicaReason, "replica-catching-up");
   // notes 是稳定 key=value 机器码;人话解释归 GUI i18n,daemon 不内嵌单语言文案。
   assert.deepEqual(result.notes, [
-    "events-attribution=current-lease",
+    "events-attribution=event-source",
     "edge-online=center-replication-session",
     "sync-internals=center-sender-phase",
   ]);
@@ -269,7 +269,7 @@ test("queued first backups expose their queue position and measured wait in the 
   }
 });
 
-test("events are attributed by the task's current lease, executor session join, else the center", () => {
+test("event sources take precedence over lease and executor fallback", () => {
   const result = buildFleetOverview(
     input({
       leaseReads: {
@@ -282,6 +282,8 @@ test("events are attributed by the task's current lease, executor session join, 
         event("evt-2", { executorId: "runtime-session:runtime_task_3" }),
         event("evt-3"),
         event("evt-4", { executorId: "runtime-session:runtime_unknown" }),
+        event("evt-local", { taskId: "task_2", source: "local", personId: "person_center" }),
+        event("evt-indirect", { source: "runtime-session/runtime_task_3", nodeId: "edge-session" }),
       ],
     }),
   );
@@ -292,6 +294,8 @@ test("events are attributed by the task's current lease, executor session join, 
       ["evt-2", FLEET_CENTER_NODE_ID],
       ["evt-3", FLEET_CENTER_NODE_ID],
       ["evt-4", FLEET_CENTER_NODE_ID],
+      ["evt-local", FLEET_CENTER_NODE_ID],
+      ["evt-indirect", "edge-session"],
     ],
   );
 });
@@ -506,7 +510,14 @@ test("the host assembly maps task snapshots, dispatch rows, the event tail and r
   // Start from lease rows: a growing lease-less active population must not enlarge this read.
   assert.ok(listCalls.every((call) => call.leaseOnly === true));
   // Header-only event tail: the overview renders no payload body, so it must not ship one.
-  assert.deepEqual(eventTailCalls, [{ kind: "events", direction: "history", fields: "fleet" }]);
+  assert.deepEqual(eventTailCalls, [
+    {
+      kind: "events",
+      direction: "history",
+      fields: "fleet",
+      fleetNodeIds: ["center", "cc90-ubuntu", "edge-late-01"],
+    },
+  ]);
   assert.equal(listCalls[1]!.cursor, "task_aa_0499");
   const lateEdge = result.nodes.find((node) => node.nodeId === "edge-late-01")!;
   const lateLease = (lateEdge.leases as { taskId: string; phase: string | null }[]).find(
@@ -619,4 +630,100 @@ test("the collaboration read omits a retired node even when force preserved its 
     result.links.map((link) => link.nodeId),
     ["healthy-node"],
   );
+});
+
+test("a completed edge task keeps its event provenance after releasing its lease", async () => {
+  const completedAt = "2026-10-06T00:05:00.000Z",
+    edge = "node-edge-a",
+    personId = "person_alice",
+    overview = (denied: boolean) =>
+      readFleetOverviewFromHost({
+        repoId: "repo-test",
+        mode: "remote-center",
+        cell: {
+          read: async () => {
+            if (denied) throw Object.assign(new Error("denied"), { code: "authorization_denied" });
+            return { rows: [] };
+          },
+          observeTail: async (request: Readonly<Record<string, unknown>>) => ({
+            ...(request.fleetNodeIds === undefined
+              ? {}
+              : {
+                  fleetActivity: [
+                    {
+                      nodeId: edge,
+                      recentTasks: [
+                        {
+                          taskId: "task_edge",
+                          title: "Edge task",
+                          coordinationStatus: "done",
+                          personId,
+                          updatedAt: completedAt,
+                        },
+                      ],
+                      recentDispatches: [
+                        {
+                          dispatchId: "dispatch_edge",
+                          runtimeSessionId: "runtime_edge",
+                          taskId: "task_edge",
+                          taskTitle: "Edge task",
+                          agentId: "agent_worker",
+                          agentLabel: "Worker",
+                          personId,
+                          status: "succeeded",
+                          startedAt: completedAt,
+                        },
+                      ],
+                      recentEvents: Array.from({ length: 21 }, (_, index) => ({
+                        eventId: `older-edge-event-${index}`,
+                        type: "task_progress_recorded",
+                        occurredAt: completedAt,
+                        workspaceRevision: 149 - index,
+                        taskId: "task_edge",
+                        title: null,
+                        personId,
+                        nodeId: edge,
+                      })),
+                    },
+                  ],
+                }),
+            status: "ready",
+            items: [
+              {
+                eventId: "edge-completed",
+                type: "task_completed",
+                occurredAt: "2026-10-06T00:05:00.000Z",
+                workspaceRevision: 150,
+                taskId: "task_edge",
+                source: { kind: "node", nodeId: "node-edge-a" },
+                actor: { principal: { personId: "person_alice" } },
+                payload: {},
+              },
+            ],
+          }),
+          statusCuts: () => null,
+        } as never,
+        binding: {} as never,
+        nodeSessions: [],
+        fleetReplicas: [replica("node-edge-a")],
+        keycloakCenter: (async () => {
+          throw new Error("keycloak-unreachable");
+        }) as never,
+        now: "2026-10-06T01:00:00.000Z",
+        userRoot: "/tmp/fleet-overview-test",
+        daemon: CENTER,
+      });
+  const result = await overview(false),
+    node = result.nodes.find(({ nodeId }) => nodeId === edge)!;
+  assert.equal(result.events[0]?.nodeId, edge);
+  assert.equal(result.events[0]?.personId, personId);
+  assert.deepEqual(node.leases, []);
+  assert.equal(Array.isArray(node.recentTasks) && node.recentTasks[0]?.coordinationStatus, "done");
+  assert.equal(Array.isArray(node.recentDispatches) && node.recentDispatches[0]?.dispatchId, "dispatch_edge");
+  assert.equal(Array.isArray(node.recentEvents) && node.recentEvents.length, 20);
+  assert.equal(Array.isArray(node.recentEvents) && node.recentEvents[0]?.eventId, "older-edge-event-0");
+  assert.equal(parseDaemonGuiReadResult("repo.fleet.overview.read", result), result);
+  const restricted = (await overview(true)).nodes.find(({ nodeId }) => nodeId === edge)!;
+  for (const value of [restricted.recentTasks, restricted.recentDispatches, restricted.recentEvents])
+    assert.deepEqual(value, { redacted: "authorization_denied" });
 });

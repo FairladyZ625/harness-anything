@@ -23,6 +23,18 @@ const eventReadFields = {
   executor_id: "v#>>'{actor,executor,id}'",
   runtime_session_id: "v#>>'{payload,runtimeSessionId}'",
   source_node_id: "v#>>'{source,nodeId}'",
+  actor_person_id: "v#>>'{actor,principal,personId}'",
+  fleet_source_json: "(v->'source')::text",
+  fleet_node_id: `CASE v->>'source' WHEN 'local' THEN 'center'
+    ELSE CASE WHEN v#>>'{source,kind}' IN ('node','assignment') THEN v#>>'{source,nodeId}'
+    WHEN left(v->>'source',16)='runtime-session/' THEN (
+      SELECT source_node_id FROM ha_events s WHERE s.tenant_id=NEW.tenant_id AND s.project_id=NEW.project_id
+        AND s.policy_epoch=NEW.policy_epoch AND s.repo_id=NEW.repo_id
+        AND s.runtime_session_id=substr(v->>'source',17) AND s.event_type='runtime_session_started'
+        AND s.revision<NEW.revision AND s.source_node_id IS NOT NULL ORDER BY s.revision DESC LIMIT 1
+    ) END END`,
+  fleet_task_id: `CASE WHEN v->>'schema' IN ('task-event/v1','task-bootstrap-event/v1','task-progress-event/v1')
+    OR NEW.event_type='runtime_dispatch_requested' THEN COALESCE(v->>'taskId',v#>>'{payload,taskId}') END`,
   fact_anchor_id:
     "CASE WHEN NEW.event_type='fact_recorded' THEN v->>'factId' WHEN NEW.event_type='entity_migrated' THEN v#>>'{payload,entity,fact,factId}' END",
   dispatch_id: "v#>>'{payload,dispatchId}'",
@@ -39,6 +51,7 @@ const eventReadFields = {
   canonical_task_id: "v->>'taskId'",
   task_execution_id: "v#>>'{payload,execution,executionId}'",
   agent_id: "v#>>'{payload,agentId}'",
+  agent_label: "v#>>'{payload,agentName}'",
   squad_id: "v#>>'{payload,squadId}'",
   ["attempt_group_id"]: "v#>>'{payload,attemptGroupId}'",
   review_decision_id: "v#>>'{payload,reviewTarget,decisionId}'",
@@ -84,6 +97,13 @@ export function eventReadIndexDdl(): readonly string[] {
   return [
     ...POSTGRES_EVENT_REF_INDEX_SCHEMA_STATEMENTS,
     ...postgresScopeRlsStatements("ha_event_entity_refs", { ifNotExists: true }),
+    /* @gate-identity state-store/task.projection.ha_fleet_node_tasks */ `CREATE TABLE IF NOT EXISTS ha_fleet_node_tasks (
+      tenant_id text NOT NULL, project_id text NOT NULL, policy_epoch bigint NOT NULL, repo_id text NOT NULL,
+      readers text[] NOT NULL, node_id text COLLATE "C" NOT NULL, task_id text NOT NULL,
+      revision bigint NOT NULL, person_id text, updated_at text NOT NULL,
+      PRIMARY KEY (tenant_id,project_id,policy_epoch,repo_id,node_id,task_id)
+    )`,
+    ...postgresScopeRlsStatements("ha_fleet_node_tasks", { ifNotExists: true }),
     // An old writer may run as soon as the trigger is installed. Prepare its table privileges
     // first, without relying on default grants. Embedded/schema-owner-only databases have no
     // runtime roles; the explicit external grant entrypoint still requires both existing roles.
@@ -172,7 +192,7 @@ export function eventReadIndexDdl(): readonly string[] {
         SELECT ha_fleet_event_summary_from_jsonb(ha_read_index_json(serialized))
       $function$`,
     // Keep the old v5 marker until ref maintenance is installed. A writer between DDL
-    // statements must never publish v6 without inserting its entity refs in that transaction.
+    // statements must never publish the new index version without inserting its entity refs in that transaction.
     `CREATE OR REPLACE FUNCTION ha_event_entity_ref_fields() RETURNS trigger
       LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
       BEGIN
@@ -188,6 +208,18 @@ export function eventReadIndexDdl(): readonly string[] {
           WHERE strpos(ref,'/')>0 AND substr(ref,strpos(ref,'/')+1)<>''
         ) SELECT NEW.tenant_id,NEW.project_id,NEW.policy_epoch,NEW.repo_id,NEW.readers,ref,NEW.revision FROM suffixes
           WHERE NEW.event_type<>'ci_run_observed';
+        IF NEW.fleet_node_id IS NOT NULL AND NEW.fleet_task_id IS NOT NULL AND (
+          NEW.event_type IN ('task_created','task_bootstrapped','execution_started','execution_submitted','runtime_dispatch_requested')
+          OR EXISTS (SELECT 1 FROM ha_fleet_node_tasks a WHERE a.tenant_id=NEW.tenant_id AND a.project_id=NEW.project_id
+            AND a.policy_epoch=NEW.policy_epoch AND a.repo_id=NEW.repo_id AND a.node_id=NEW.fleet_node_id AND a.task_id=NEW.fleet_task_id)
+        ) THEN
+          INSERT INTO ha_fleet_node_tasks(tenant_id,project_id,policy_epoch,repo_id,readers,node_id,task_id,revision,person_id,updated_at)
+          VALUES(NEW.tenant_id,NEW.project_id,NEW.policy_epoch,NEW.repo_id,NEW.readers,NEW.fleet_node_id,NEW.fleet_task_id,
+            NEW.revision,NEW.actor_person_id,NEW.occurred_at)
+          ON CONFLICT(tenant_id,project_id,policy_epoch,repo_id,node_id,task_id) DO UPDATE
+            SET readers=excluded.readers,revision=excluded.revision,person_id=excluded.person_id,updated_at=excluded.updated_at
+            WHERE ha_fleet_node_tasks.revision <= excluded.revision;
+        END IF;
         RETURN NULL;
       END $function$`,
     `CREATE OR REPLACE TRIGGER ha_event_entity_ref_fields AFTER INSERT OR UPDATE OF event_json,entity_refs,readers ON ha_events
@@ -218,7 +250,7 @@ export function eventReadIndexDdl(): readonly string[] {
         IF NEW.summary_json IS NULL THEN
           NEW.summary_json := ha_fleet_event_summary_from_jsonb(v);
         END IF;
-        NEW.read_index_version := 6;
+        NEW.read_index_version := 7;
         RETURN NEW;
       END $function$`,
     `CREATE OR REPLACE TRIGGER ha_event_read_index_fields BEFORE INSERT OR UPDATE OF event_json,entity_refs ON ha_events
@@ -231,6 +263,25 @@ export function eventReadIndexDdl(): readonly string[] {
       (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE read_index_version<5`,
     `CREATE INDEX IF NOT EXISTS ha_events_read_index_pending_v6 ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE read_index_version<6`,
+    `CREATE INDEX IF NOT EXISTS ha_events_fleet_pending
+      ON ha_events (${eventScope},revision) WHERE read_index_version<7`,
+    `CREATE INDEX IF NOT EXISTS ha_events_fleet_node
+      ON ha_events (${eventScope},fleet_node_id,revision DESC) WHERE event_type<>'ci_run_observed'`,
+    `CREATE INDEX IF NOT EXISTS ha_events_fleet_dispatch
+      ON ha_events (${eventScope},fleet_node_id,dispatch_activity_at DESC,revision DESC)
+      WHERE event_type='runtime_dispatch_requested'`,
+    `CREATE INDEX IF NOT EXISTS ha_events_fleet_task_person
+      ON ha_events (${eventScope},fleet_task_id,revision DESC) WHERE actor_person_id IS NOT NULL`,
+    `CREATE INDEX IF NOT EXISTS ha_events_fleet_task_node
+      ON ha_events (${eventScope},fleet_task_id,revision DESC) WHERE fleet_node_id IS NOT NULL`,
+    `CREATE INDEX IF NOT EXISTS ha_events_fleet_task_origin
+      ON ha_events (${eventScope},fleet_task_id,revision)
+      WHERE event_type IN ('task_created','task_bootstrapped')`,
+    `CREATE INDEX IF NOT EXISTS ha_events_fleet_session_launch
+      ON ha_events (${eventScope},runtime_session_id,revision DESC)
+      WHERE event_type='runtime_session_started' AND source_node_id IS NOT NULL`,
+    `CREATE INDEX IF NOT EXISTS ha_fleet_node_tasks_updated
+      ON ha_fleet_node_tasks (${eventScope},node_id,updated_at DESC,task_id)`,
     `CREATE INDEX IF NOT EXISTS ha_events_schema_revision ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,event_schema,revision)`,
     `CREATE INDEX IF NOT EXISTS ha_events_schema_entity_revision ON ha_events
@@ -300,10 +351,11 @@ export function eventReadIndexDdl(): readonly string[] {
         WITH batch AS (
           SELECT tenant_id,project_id,repo_id,revision FROM ha_events
           WHERE tenant_id=tenant AND project_id=project AND policy_epoch=epoch AND repo_id=repo
-            AND (read_index_version<6 OR summary_json IS NULL)
+            AND (read_index_version<7 OR summary_json IS NULL)
           ORDER BY revision LIMIT 64 FOR UPDATE
         ), filled AS (
-          UPDATE ha_events e SET event_json=e.event_json, summary_json=ha_fleet_event_summary(e.event_json) FROM batch b
+          UPDATE ha_events e SET event_json=e.event_json,
+            summary_json=COALESCE(e.summary_json,ha_fleet_event_summary(e.event_json)) FROM batch b
           WHERE (e.tenant_id,e.project_id,e.repo_id,e.revision)=(b.tenant_id,b.project_id,b.repo_id,b.revision) RETURNING 1
         ) SELECT count(*)::integer INTO processed FROM filled;
         IF processed = 0 THEN
@@ -322,6 +374,7 @@ export function eventRefIndexGrantDdl(): readonly string[] {
     (role) => `DO $grant$ BEGIN
       IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='${role}') THEN
         GRANT SELECT,INSERT,DELETE ON ha_event_entity_refs TO "${role}";
+        GRANT SELECT,INSERT,UPDATE ON ha_fleet_node_tasks TO "${role}";
       END IF;
     END $grant$`,
   );
@@ -331,7 +384,7 @@ export async function assertPgEventReadIndexReady(
   client: PoolClient,
   scope: PgProjectionScope,
   repoId: string,
-  minimumVersion: 5 | 6 = 5,
+  minimumVersion: 5 | 6 | 7 = 5,
 ): Promise<void> {
   const pending = await client.query(
     `SELECT 1 FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4
