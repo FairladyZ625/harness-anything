@@ -279,21 +279,7 @@ export class ManagedRbacService {
         );
         throw error;
       }
-      try {
-        pruneListenerCertificateVersions(
-          this.#root,
-          nextListener,
-          previousListener,
-          this.#ports.protectedListenerPaths?.() ?? [],
-          this.#ports.onListenerWriteStage,
-        );
-      } catch (error) {
-        consumeKnownError(error);
-        this.#ports.recordLifecycle?.({
-          event: "rbac_listener_cleanup_failed",
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
+      this.#pruneListenerVersions(nextListener, previousListener);
     } else if (config.stopped) {
       this.#writeConfig({ ...config, stopped: false });
     }
@@ -522,20 +508,8 @@ export class ManagedRbacService {
       }
       throw this.#host.mapListenerBindError(error);
     }
-    let cleanupWarning: string | undefined;
-    try {
-      pruneListenerCertificateVersions(
-        this.#root,
-        listener,
-        config.listener,
-        this.#ports.protectedListenerPaths?.() ?? [],
-        this.#ports.onListenerWriteStage,
-      );
-    } catch (error) {
-      consumeKnownError(error);
-      cleanupWarning = error instanceof Error ? error.message : String(error);
-      this.#ports.recordLifecycle?.({ event: "rbac_listener_cleanup_failed", error: cleanupWarning });
-    }
+    const cleanup = this.#pruneListenerVersions(listener, config.listener);
+    const cleanupWarning = cleanup.ok ? undefined : cleanup.error;
     return {
       ok: true,
       command: "rbac-listener-set",
@@ -544,6 +518,26 @@ export class ManagedRbacService {
       version: listenerVersion(listener, plan.certificateMode, listenerGeneration),
       ...(cleanupWarning ? { cleanupWarning } : {}),
     };
+  }
+
+  #pruneListenerVersions(
+    activeListener: ManagedRbacListener | undefined,
+    previousListener: ManagedRbacListener | undefined,
+  ): { readonly ok: true } | { readonly ok: false; readonly error: string } {
+    try {
+      pruneListenerCertificateVersions(
+        this.#root,
+        activeListener,
+        previousListener,
+        this.#ports.protectedListenerPaths?.() ?? [],
+        this.#ports.onListenerWriteStage,
+      );
+      return { ok: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.#ports.recordLifecycle?.({ event: "rbac_listener_cleanup_failed", error: message });
+      return { ok: false, error: message };
+    }
   }
 
   #resolveListenerPlan(

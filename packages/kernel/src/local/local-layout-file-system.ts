@@ -23,7 +23,6 @@ import {
   writeSync,
 } from "node:fs";
 import path from "node:path";
-import { consumeKnownError } from "../error-consumption.ts";
 import type { LayoutFileSystem } from "../layout/file-system.ts";
 
 export const localLayoutFileSystem: LayoutFileSystem = {
@@ -224,15 +223,11 @@ function isExclusiveCreateConflict(error: unknown): boolean {
 export function readRegularFileIfPresent(
   filePath: string,
 ): { readonly bytes: Buffer; readonly mode: number } | undefined {
-  let descriptor: number;
-  try {
-    descriptor =
-      /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
-      openSync(filePath, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
-  } catch (error) {
-    consumeKnownError(error);
-    return undefined;
-  }
+  const initialStat = statSync(filePath, { throwIfNoEntry: false });
+  if (!initialStat || !initialStat.isFile()) return undefined;
+  const descriptor =
+    /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
+    openSync(filePath, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
   try {
     const stats = fstatSync(descriptor);
     if (!stats.isFile()) return undefined;

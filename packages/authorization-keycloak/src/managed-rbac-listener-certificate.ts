@@ -22,7 +22,6 @@ import {
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 import path from "node:path";
-import { consumeKnownError } from "@harness-anything/kernel";
 import { readRegularFileIfPresent } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import type { ManagedRbacHost } from "./managed-host.ts";
 
@@ -70,12 +69,7 @@ function createListenerCertificateVersionPaths(
 }
 
 function lstatIfPresent(targetPath: string): Stats | undefined {
-  try {
-    return lstatSync(targetPath);
-  } catch (error) {
-    consumeKnownError(error);
-    return undefined;
-  }
+  return lstatSync(targetPath, { throwIfNoEntry: false });
 }
 
 function hasRealDirectory(directory: string): boolean {
@@ -190,8 +184,7 @@ export function validateCertificateChainAndKeyPair(
   let certificates: X509Certificate[];
   try {
     certificates = blocks.map((block) => new X509Certificate(block));
-  } catch (error) {
-    consumeKnownError(error);
+  } catch {
     throw listenerError("The listener certificate contains malformed X.509 PEM data.");
   }
   for (const certificate of certificates) {
@@ -222,8 +215,7 @@ export function validateCertificateChainAndKeyPair(
   let privateKey: KeyObject;
   try {
     privateKey = createPrivateKey(keyBytes);
-  } catch (error) {
-    consumeKnownError(error);
+  } catch {
     throw listenerError("The listener private key must be a valid unencrypted PEM private key.");
   }
   const certPublicKey = leaf.publicKey.export({ type: "spki", format: "der" }),
@@ -239,15 +231,13 @@ export function listenerMaterialProblem(
   let keyBytes: Buffer;
   try {
     keyBytes = readRegularFileWithStats(listener.certificateKeyFile, { requireOwnerOnlyMode: true }).bytes;
-  } catch (error) {
-    consumeKnownError(error);
+  } catch {
     return "exposed_key";
   }
   let certificateBytes: Buffer;
   try {
     certificateBytes = readRegularFileWithStats(listener.certificateFile).bytes;
-  } catch (error) {
-    consumeKnownError(error);
+  } catch {
     return "missing_certificate";
   }
   try {
@@ -257,8 +247,7 @@ export function listenerMaterialProblem(
       validateCertificateNames ? [listener.address, listener.hostname] : undefined,
       validateCertificateNames,
     );
-  } catch (error) {
-    consumeKnownError(error);
+  } catch {
     return "invalid_material";
   }
   return undefined;
