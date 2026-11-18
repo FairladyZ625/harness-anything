@@ -4,11 +4,11 @@ import path from "node:path";
 import test from "node:test";
 import { reviewFindingCategories, reviewVerdicts } from "@harness-anything/kernel/internal/domain/review.ts";
 import {
-  assertFourStateCounts,
+  verifyFourStateCounts,
   loadEvalCases,
   runDryRun,
   scoreEvalResults,
-  validateEvalCasesDocument,
+  collectEvalCaseIssues,
 } from "./run-eval.mjs";
 
 const casesPath = path.resolve(import.meta.dirname, "cases.json");
@@ -77,16 +77,16 @@ test("schema validator rejects unknown categories, non-blocking-only positives, 
 
   const badCategoryDoc = structuredClone(doc);
   badCategoryDoc.cases[0].expectedCategories = ["invented-category"];
-  assert.ok(validateEvalCasesDocument(badCategoryDoc).some((msg) => msg.includes("unknown ReviewFindingCategory")));
+  assert.ok(collectEvalCaseIssues(badCategoryDoc).some((msg) => msg.includes("unknown ReviewFindingCategory")));
 
   const styleOnlyPositiveDoc = structuredClone(doc);
   styleOnlyPositiveDoc.cases[0].expectedCategories = ["style"];
-  assert.ok(validateEvalCasesDocument(styleOnlyPositiveDoc).some((msg) => msg.includes("style/diagnostic/cleanup")));
+  assert.ok(collectEvalCaseIssues(styleOnlyPositiveDoc).some((msg) => msg.includes("style/diagnostic/cleanup")));
 
   const leakedPathDoc = structuredClone(doc);
   const privateDir = [".harness", "-private"].join("");
   leakedPathDoc.cases[0].diff += `\n// leaked path: ${privateDir}/secret-notes.md\n`;
-  assert.ok(validateEvalCasesDocument(leakedPathDoc).some((msg) => msg.includes("private path marker")));
+  assert.ok(collectEvalCaseIssues(leakedPathDoc).some((msg) => msg.includes("private path marker")));
 });
 
 test("scorer computes 100% recall and 0% FPR on perfect responses, and drops recall or raises FPR on errors", () => {
@@ -169,7 +169,7 @@ test("four-state accounting keeps timedOut and unexecuted in total denominator a
 
   // Positive control: attempting to drop timedOut/unexecuted from total denominator must throw.
   assert.throws(
-    () => assertFourStateCounts({ passed: cases.length - 2, failed: 0, timedOut: 1, unexecuted: 1 }, cases.length - 2),
+    () => verifyFourStateCounts({ passed: cases.length - 2, failed: 0, timedOut: 1, unexecuted: 1 }, cases.length - 2),
     /four-state accounting mismatch/u,
   );
   assert.throws(

@@ -9,8 +9,8 @@
  * - Supports `--dry-run` (offline structural check), `--input <file>` (deterministic scoring), and explicit
  *   opt-in `--live` evaluation (never wired into daily PR required gates).
  */
-import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { createWriteStream, readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
@@ -23,7 +23,7 @@ export const VALID_BUCKETS = Object.freeze(["positive", "negative", "pre_existin
 export const NON_BLOCKING_ONLY_CATEGORIES = Object.freeze(["style", "diagnostic", "cleanup"]);
 
 const DEFAULT_CASES_PATH = path.resolve(import.meta.dirname, "cases.json");
-const DEFAULT_LIVE_TIMEOUT_MS = 60_000;
+const DEFAULT_LIVE_WAIT_MS = 60_000;
 const PRIVATE_LEAK_PATTERN = /(?:^|[^a-zA-Z0-9_.-])(?:\.harness-private\/|harness\/|\.harness\/|\/Users\/)/u;
 
 /** Scan a JSON-serializable fixture document for private ledger paths or local user directories. */
@@ -33,8 +33,8 @@ export function findPrivateLeakage(document) {
   return match ? [match[0].trim()] : [];
 }
 
-/** Validate the golden case dataset against kernel ReviewFindingCategory and ReviewVerdict vocabularies. */
-export function validateEvalCasesDocument(doc) {
+/** Collect structural or vocabulary issues on the golden case dataset against kernel ReviewFindingCategory and ReviewVerdict. */
+export function collectEvalCaseIssues(doc) {
   const issues = [];
   if (!doc || typeof doc !== "object" || doc.schema !== EVAL_CASES_SCHEMA || !Array.isArray(doc.cases)) {
     return [`expected ${EVAL_CASES_SCHEMA} document with a cases array`];
@@ -114,7 +114,7 @@ export function validateEvalCasesDocument(doc) {
 /** Read and validate the golden eval cases file. */
 export function loadEvalCases(casesPath = DEFAULT_CASES_PATH) {
   const raw = JSON.parse(readFileSync(casesPath, "utf8"));
-  const issues = validateEvalCasesDocument(raw);
+  const issues = collectEvalCaseIssues(raw);
   if (issues.length > 0) {
     throw new Error(`Invalid eval cases (${casesPath}):\n- ${issues.join("\n- ")}`);
   }
@@ -122,7 +122,7 @@ export function loadEvalCases(casesPath = DEFAULT_CASES_PATH) {
 }
 
 /** Enforce explicit four-state accounting so timed-out or unexecuted cases can never be dropped from the denominator. */
-export function assertFourStateCounts(counts, totalCases, label = "eval") {
+export function verifyFourStateCounts(counts, totalCases, label = "eval") {
   if (!counts || typeof counts !== "object") {
     throw new Error(`${label}: counts object is required`);
   }
@@ -283,12 +283,12 @@ export function scoreEvalResults(cases, responses = [], options = {}) {
   }
 
   const expectedTotal = options.expectedTotalCases ?? cases.length;
-  assertFourStateCounts(counts, expectedTotal, "total");
+  verifyFourStateCounts(counts, expectedTotal, "total");
   for (const [bucket, bucketCounts] of Object.entries(byBucket)) {
-    assertFourStateCounts(bucketCounts, bucketCounts.total, `bucket:${bucket}`);
+    verifyFourStateCounts(bucketCounts, bucketCounts.total, `bucket:${bucket}`);
   }
   for (const [defectClass, classCounts] of Object.entries(byDefectClass)) {
-    assertFourStateCounts(classCounts, classCounts.total, `defectClass:${defectClass}`);
+    verifyFourStateCounts(classCounts, classCounts.total, `defectClass:${defectClass}`);
   }
 
   const positiveOutcomes = outcomes.filter((item) => item.bucket === "positive");
@@ -355,46 +355,24 @@ function buildReviewerPrompt(evalCase) {
   });
 }
 
-function invokeReviewerCommand(command, evalCase, timeoutMs) {
+function invokeReviewerCommand(command, evalCase, caseWaitMs) {
   return new Promise((resolve) => {
     const startedAt = Date.now();
-    const child = spawn(command, { shell: true, stdio: ["pipe", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    let timedOut = false;
-    let settled = false;
-
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGTERM");
-    }, timeoutMs);
-
-    child.stdout.on("data", (chunk) => {
-      stdout += String(chunk);
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-    child.on("error", (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve({ caseId: evalCase.id, status: "unexecuted", error: error.message, latencyMs: Date.now() - startedAt });
-    });
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
+    const child = execFile("sh", ["-c", command], { timeout: caseWaitMs }, (error, stdout, stderr) => {
       const latencyMs = Date.now() - startedAt;
-      if (timedOut) {
-        resolve({ caseId: evalCase.id, status: "timedOut", error: `timed out after ${timeoutMs}ms`, latencyMs });
-        return;
-      }
-      if (code !== 0) {
+      if (error) {
+        if (error.killed || error.signal === "SIGTERM") {
+          resolve({ caseId: evalCase.id, status: "timedOut", error: `timed out after ${caseWaitMs}ms`, latencyMs });
+          return;
+        }
+        if (error.code === "ENOENT") {
+          resolve({ caseId: evalCase.id, status: "unexecuted", error: error.message, latencyMs });
+          return;
+        }
         resolve({
           caseId: evalCase.id,
           status: "errored",
-          error: stderr.trim() || `reviewer exited with code ${String(code)}`,
+          error: stderr.trim() || error.message,
           latencyMs,
         });
         return;
@@ -408,24 +386,23 @@ function invokeReviewerCommand(command, evalCase, timeoutMs) {
           reason: parsed.reason,
           latencyMs,
         });
-      } catch (error) {
+      } catch (parseError) {
         resolve({
           caseId: evalCase.id,
           status: "errored",
-          error: `invalid JSON from reviewer: ${error instanceof Error ? error.message : String(error)}`,
+          error: `invalid JSON from reviewer: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
           latencyMs,
         });
       }
     });
-
-    child.stdin.end(buildReviewerPrompt(evalCase));
+    child.stdin?.end(buildReviewerPrompt(evalCase));
   });
 }
 
 /** Run explicit on-demand live evaluation against a reviewer command that reads JSON on stdin and writes verdict JSON. */
 export async function runLiveEval(options = {}) {
   const doc = loadEvalCases(options.casesPath ?? DEFAULT_CASES_PATH);
-  const timeoutMs = options.timeoutMs ?? DEFAULT_LIVE_TIMEOUT_MS;
+  const caseWaitMs = options.caseWaitMs ?? DEFAULT_LIVE_WAIT_MS;
   const reviewerCmd = options.reviewerCmd ?? process.env.CLOSEOUT_REVIEWER_EVAL_CMD;
   if (!reviewerCmd) {
     const unexecuted = doc.cases.map((item) => ({
@@ -437,9 +414,18 @@ export async function runLiveEval(options = {}) {
   }
   const responses = [];
   for (const evalCase of doc.cases) {
-    responses.push(await invokeReviewerCommand(reviewerCmd, evalCase, timeoutMs));
+    responses.push(await invokeReviewerCommand(reviewerCmd, evalCase, caseWaitMs));
   }
   return scoreEvalResults(doc.cases, responses, { mode: "live" });
+}
+
+function writeReportFile(targetPath, content) {
+  return new Promise((resolve, reject) => {
+    const stream = createWriteStream(targetPath, "utf8");
+    stream.on("error", reject);
+    stream.on("finish", resolve);
+    stream.end(content);
+  });
 }
 
 async function main() {
@@ -451,14 +437,14 @@ async function main() {
       cases: { type: "string" },
       out: { type: "string" },
       "reviewer-cmd": { type: "string" },
-      "timeout-ms": { type: "string" },
+      "case-wait-ms": { type: "string" },
       help: { type: "boolean", default: false },
     },
   });
 
   if (values.help) {
-    process.stdout.write(
-      "Usage: node tools/evals/closeout-reviewer/run-eval.mjs [--dry-run | --input <responses.json> | --live --reviewer-cmd <cmd>] [--cases <cases.json>] [--out <report.json>]\n",
+    console.log(
+      "Usage: node tools/evals/closeout-reviewer/run-eval.mjs [--dry-run | --input <responses.json> | --live --reviewer-cmd <cmd>] [--cases <cases.json>] [--out <report.json>]",
     );
     return;
   }
@@ -473,21 +459,21 @@ async function main() {
     const responses = Array.isArray(input) ? input : input.responses;
     report = scoreEvalResults(doc.cases, responses, { mode: "offline-replay" });
   } else {
-    const timeoutMs = values["timeout-ms"] ? Number(values["timeout-ms"]) : DEFAULT_LIVE_TIMEOUT_MS;
-    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
-      throw new Error("--timeout-ms must be a positive integer");
+    const caseWaitMs = values["case-wait-ms"] ? Number(values["case-wait-ms"]) : DEFAULT_LIVE_WAIT_MS;
+    if (!Number.isSafeInteger(caseWaitMs) || caseWaitMs <= 0) {
+      throw new Error("--case-wait-ms must be a positive integer");
     }
-    report = await runLiveEval({ casesPath, reviewerCmd: values["reviewer-cmd"], timeoutMs });
+    report = await runLiveEval({ casesPath, reviewerCmd: values["reviewer-cmd"], caseWaitMs });
   }
 
-  const formatted = `${JSON.stringify(report, null, 2)}\n`;
-  if (values.out) writeFileSync(path.resolve(values.out), formatted, "utf8");
-  process.stdout.write(formatted);
+  const formatted = JSON.stringify(report, null, 2);
+  if (values.out) await writeReportFile(path.resolve(values.out), `${formatted}\n`);
+  console.log(formatted);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   main().catch((error) => {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   });
 }
