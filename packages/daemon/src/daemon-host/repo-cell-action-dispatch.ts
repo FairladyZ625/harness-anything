@@ -70,12 +70,12 @@ export async function executeAction(
 async function runSettledAction<T>(
   cell: RepoCellOperationalContext,
   settlementContext: string,
-  run: () => T | Promise<T>,
+  perform: () => T | Promise<T>,
 ): Promise<T> {
   // Async Git/worktree publication runs outside the writer turn; settle pending revisions before
   // actions that compare on-disk authored files against the SQLite projection.
   await cell.store.settlePendingMaterialization?.(settlementContext);
-  return run();
+  return perform();
 }
 
 function docSettlementContext(kind: string, source: RepoCellBinding["source"]): string | null {
