@@ -7,6 +7,8 @@ import { reviewPathMatches, reviewPathRules } from "./review-path-matching.ts";
 
 export type RiskTier = NonNullable<TaskMetadataV1["riskTier"]>;
 export const taskRiskManifestPath = "tools/task-risk-manifest.json";
+/** A repository script can mark a reason for the review prompt's separate summary slot. */
+export const reviewSummaryReasonPrefix = "[review-summary] ";
 
 export interface TaskRiskTierScript {
   readonly id: string;
@@ -31,6 +33,7 @@ export interface TaskRiskTierScriptInput {
     readonly headSha: string | null;
     readonly files: readonly {
       readonly path: string;
+      readonly oldPath?: string;
       readonly status: OperationalStatus.DeliveryFileStatus;
       readonly additions: number;
       readonly deletions: number;
@@ -143,7 +146,13 @@ export async function assessTaskRiskTier(input: {
       );
     const result = parseScriptResult(script.id, processResult.stdout);
     tiers.push(result.minimumTier);
-    reasons.push(...result.reasons.map((reason) => `${script.id}: ${reason}`));
+    reasons.push(
+      ...result.reasons.map((reason) =>
+        reason.startsWith(reviewSummaryReasonPrefix)
+          ? `${reviewSummaryReasonPrefix}${script.id}: ${reason.slice(reviewSummaryReasonPrefix.length)}`
+          : `${script.id}: ${reason}`,
+      ),
+    );
   }
   const effectiveTier = tiers.reduce(maxTier);
   if (!reasons.length)
