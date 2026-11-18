@@ -1807,7 +1807,7 @@ test("RBAC service callbacks cannot detach from their actual authority or become
   for (const [id, from, to] of [
     [
       "85833909ab835513f6a37d3d00ce0f77:2",
-      'return oidc.configureAuthority(\n            async () => {\n              if (ownerRecovery)\n                await requireAuthorizedHostAction({\n                  kind: "rbac-bootstrap",\n                  binding: localSystemBinding(input.userRoot),\n                  actionId: `rbac-bootstrap:${request.operation}`,\n                  evaluatedAtCut: "daemon-rbac:current",\n                });\n              return managedRbac.run(request);\n            },\n            loginTarget,\n            brokenListener ? { ownerRecovery } : undefined,\n          );',
+      "return oidc.configureAuthority(\n            () => managedRbac.run(request),\n            loginTarget,\n            brokenListener ? { ownerRecovery } : undefined,\n          );",
       "return Promise.resolve().then(() => managedRbac.run(request));",
     ],
     [

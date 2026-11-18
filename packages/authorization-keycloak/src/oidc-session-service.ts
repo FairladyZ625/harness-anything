@@ -771,27 +771,36 @@ export class OidcSessionService {
     return this.serialize(async () => {
       const configFile = path.join(this.#rbacRoot, "config.json"),
         configBefore = existsSync(configFile) ? readFileSync(configFile, "utf8") : undefined;
-      if (options?.ownerRecovery === true) {
-        // Verified local socket-owner recovery runs inside the OIDC write queue without touching the broken Keycloak first.
-      } else if (options?.ownerRecovery === false) {
+      if (options?.ownerRecovery === true)
+        return this.#finishAuthorityUpdate(operation, loginTarget, configFile, configBefore);
+      if (options?.ownerRecovery === false) {
         if (!this.configured() || !this.#centers.read(loginTarget))
           throw coded("authentication_required", "Sign in with the selected center first.");
         await this.requireAccessManagement(loginTarget, true);
-      } else {
-        const sessionStore = this.configured() ? (await this.#centerIdentity(loginTarget)).sessionStore : undefined;
-        if (existsSync(configFile) && !(await this.#bootstrapRequired(await this.#centerToken()))) {
-          if (!sessionStore) throw coded("authentication_required", "Sign in with the selected center first.");
-          await this.requireAccessManagement(loginTarget, true);
-        }
+        return this.#finishAuthorityUpdate(operation, loginTarget, configFile, configBefore);
       }
-      const result = await operation(),
-        configAfter = existsSync(configFile) ? readFileSync(configFile, "utf8") : undefined;
-      if (configAfter !== configBefore) {
-        this.#centerTokenCache = undefined;
-        if (this.configured()) await this.#centerIdentity(loginTarget, true);
+      const sessionStore = this.configured() ? (await this.#centerIdentity(loginTarget)).sessionStore : undefined;
+      if (existsSync(configFile) && !(await this.#bootstrapRequired(await this.#centerToken()))) {
+        if (!sessionStore) throw coded("authentication_required", "Sign in with the selected center first.");
+        await this.requireAccessManagement(loginTarget, true);
       }
-      return result;
+      return this.#finishAuthorityUpdate(operation, loginTarget, configFile, configBefore);
     });
+  }
+
+  async #finishAuthorityUpdate<T>(
+    operation: () => Promise<T>,
+    loginTarget: string | undefined,
+    configFile: string,
+    configBefore: string | undefined,
+  ): Promise<T> {
+    const result = await operation(),
+      configAfter = existsSync(configFile) ? readFileSync(configFile, "utf8") : undefined;
+    if (configAfter !== configBefore) {
+      this.#centerTokenCache = undefined;
+      if (this.configured()) await this.#centerIdentity(loginTarget, true);
+    }
+    return result;
   }
 
   async #bootstrapRequired(token: string): Promise<boolean> {

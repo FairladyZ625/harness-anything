@@ -1357,16 +1357,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               "Only the local daemon socket owner can repair a broken listener configuration.",
             );
           return oidc.configureAuthority(
-            async () => {
-              if (ownerRecovery)
-                await requireAuthorizedHostAction({
-                  kind: "rbac-bootstrap",
-                  binding: localSystemBinding(input.userRoot),
-                  actionId: `rbac-bootstrap:${request.operation}`,
-                  evaluatedAtCut: "daemon-rbac:current",
-                });
-              return managedRbac.run(request);
-            },
+            () => managedRbac.run(request),
             loginTarget,
             brokenListener ? { ownerRecovery } : undefined,
           );
