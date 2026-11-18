@@ -347,12 +347,13 @@ function windowsJavaProperty(commandLine: string, property: string, value: strin
   const args = parseWindowsCommandLine(commandLine),
     boundary = javaLauncherBoundary(args);
   if (boundary === undefined) return false;
-  const expected = normalizedWindowsPath(value),
+  const expected = normalizedWindowsPath(path.win32.resolve(value)),
     prefix = args.slice(1, boundary.jvmOptionsEnd);
   return prefix.some((arg) => {
     const marker = `-D${property}=`;
     if (!arg.toLowerCase().startsWith(marker.toLowerCase())) return false;
-    return normalizedWindowsPath(arg.slice(marker.length)) === expected;
+    const candidate = arg.slice(marker.length);
+    return path.win32.isAbsolute(candidate) && normalizedWindowsPath(path.win32.resolve(candidate)) === expected;
   });
 }
 
