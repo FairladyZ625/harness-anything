@@ -25,6 +25,33 @@ type QueuedPublication = ((
   readonly ingest?: (binding: RepoCellBinding) => void;
 };
 
+export function readsAuthoredWorktree(action: RepoTaskAction, source: RepoCellBinding["source"]): boolean {
+  switch (action.kind) {
+    case "doc-materialize":
+    case "doc-retire":
+    case "doc-conflict-resolve":
+    case "doc-conflict-overwrite-center":
+    case "decision-dispatch-review":
+    case "decision-rematerialize":
+    case "fact-rematerialize":
+    case "task-rematerialize":
+      return true;
+    case "doc-submit":
+      return source === "local";
+    case "task-artifact-add":
+      return typeof action.source === "string";
+    case "task-amend":
+      return (
+        Array.isArray(action.patches) &&
+        action.patches.some(
+          (patch) => patch !== null && typeof patch === "object" && "field" in patch && patch.field === "title",
+        )
+      );
+    default:
+      return false;
+  }
+}
+
 // A URL artifact source, GitHub, or a task worktree's setup install can stall without bound, and every
 // other write to the repository would wait behind it in the write queue. These finish first; only the
 // returned publication of what they produced runs inside the queue.

@@ -755,7 +755,7 @@ export async function runSingleMigrationImport(
       appliedCut: writesAllowed ? input.projection.readCut().watermark : initialRevision,
       durable: canonicalVisible,
       canonicalVisible,
-      worktreeVisible: writesAllowed,
+      worktreeVisible: false,
     },
     summary,
     mode: dryRun ? "dry-run" : "apply",

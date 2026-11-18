@@ -7,7 +7,6 @@ import { continueReviewRework } from "./task-return-dispatch.ts";
 import { makeRuntimeRecoveryWork } from "./runtime-recovery-work.ts";
 import { localOperatorBinding } from "./daemon-host-binding.ts";
 import { scheduleOccurrenceSettlementOwner } from "./schedule-runtime-outcome.ts";
-import { dispatchTaskReview } from "./task-review-dispatch.ts";
 import { reviewDispatchKey } from "./review-dispatch-key.ts";
 import { resolveAgentRuntimeDeclaration } from "./agent-declaration-resolution.ts";
 import { createEntityStore } from "@harness-anything/storage";
@@ -480,7 +479,8 @@ export async function openRepoWriterCell(
     },
     onStalledReviewer: (continuation) => {
       if (mode !== "local") return;
-      schedule(async () => {
+      const releaseAuthorization = continuation.binding.retainAuthorization?.();
+      void (async () => {
         const dispatch = projection.readRuntimeDispatchById(continuation.dispatchId)?.event,
           taskId = continuation.task.taskId,
           executionId = continuation.task.executionId;
@@ -510,14 +510,12 @@ export async function openRepoWriterCell(
           ...continuation.binding,
           actor: { principal: continuation.binding.actor.principal, executor: null },
         };
-        const receipt = await dispatchTaskReview(
-          operationalContext,
-          { kind: "task-dispatch-review", taskIds: [taskId] },
-          binding,
-        );
+        const receipt = await api.run({ kind: "task-dispatch-review", taskIds: [taskId] }, binding);
         if (receipt.outcome !== "applied")
           console.warn(`[review-stall-recovery] task ${taskId} automatic attempt failed: ${JSON.stringify(receipt)}`);
-      }, continuation.binding);
+      })()
+        .finally(() => releaseAuthorization?.())
+        .catch((error: unknown) => console.error("[review-stall-recovery]", error));
     },
     onAttemptTerminal: async (terminal) => {
       // A squad-owned scheduled dispatch settles its occurrence with the run, not with its
@@ -1016,7 +1014,8 @@ export async function openRepoWriterCell(
     },
     lock,
   };
-  return Object.assign(createRepoCellApi(apiContext), {
+  const api = createRepoCellApi(apiContext);
+  return Object.assign(api, {
     backup,
     pruneReplicationLog,
     fleetBackup: makeRepoCellFleetBackup(apiContext, input.storage),

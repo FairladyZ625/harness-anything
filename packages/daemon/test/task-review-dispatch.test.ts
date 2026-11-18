@@ -217,6 +217,7 @@ test("explicit review dispatch stays pending when its execution source cannot be
     cell,
     { kind: "task-dispatch-review", taskIds: [taskId], agentId: "selected-reviewer" } as never,
     { actor: { principal: { personId: "owner" }, executor: null }, source: "local" } as never,
+    async () => assert.fail("unresolved placement must not publish a dispatch"),
   );
   const step = (result.dispatches as readonly Record<string, unknown>[])[0];
   assert.equal(result.outcome, "pending", JSON.stringify(result));
@@ -270,6 +271,7 @@ test("a default review dispatch writes a minimal intent and its node consumer sp
       }),
       readRuntimeDispatchesByTaskExecution: () => [],
       readRuntimeDispatchByDispatchKey: () => null,
+      readTaskSubmissionOperation: () => "submitted-op",
     },
     settings: { readRepository: () => ({ roles: { defaultReviewer: "closeout-reviewer" } }) },
     store: { readHead: () => ({ revision: 2 }), readEntityDeclarations: () => [] },
@@ -284,6 +286,7 @@ test("a default review dispatch writes a minimal intent and its node consumer sp
     cell,
     { kind: "task-dispatch-review", taskIds: [taskId] } as never,
     { actor: { principal: { personId: "owner" }, executor: null }, source: "local" } as never,
+    async (publish) => publish({ actor: { principal: { personId: "owner" }, executor: null }, source: "local" }),
   );
   const step = (result.dispatches as readonly Record<string, unknown>[])[0];
   assert.deepEqual(writtenIntent, { executionId, reviewerId: "closeout-reviewer" });

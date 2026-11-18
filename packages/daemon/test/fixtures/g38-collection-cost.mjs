@@ -478,6 +478,7 @@ export async function measureTaskReviewDispatchBatch(rootDir, size) {
           return event ? { event } : null;
         },
         readRuntimeDispatchesByTaskExecution: () => [],
+        readTaskSubmissionOperation: (taskId) => `submission_${taskId}`,
         readRuntimeSessionEvents: () => [],
         readRuntimeSessionEventsByType: () => [],
       },
@@ -527,7 +528,9 @@ export async function measureTaskReviewDispatchBatch(rootDir, size) {
         },
       },
     },
-    result = await dispatchTaskReview(cell, { kind: "task-dispatch-review", taskIds }, binding);
+    result = await dispatchTaskReview(cell, { kind: "task-dispatch-review", taskIds }, binding, async (apply) =>
+      apply(binding),
+    );
   counts.dispatchSteps = result.dispatches.length;
   assertTaskReviewDispatchMeasurement(result, size, counts.publications);
   assert.ok(counts.taskProjectionsRead >= size);

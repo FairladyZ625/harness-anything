@@ -6959,10 +6959,16 @@
         "port": "packages/daemon/src/daemon-host/agent-runtime-stream.ts#AgentRuntimeStreamHub.publish"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-open.ts#openRepoWriterCell:ab98770cb40cde7a97777d58f1eb9012",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-open.ts#openRepoWriterCell:22adc4369a52ac4ff388c97ba81e495e",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-open.ts#openRepoWriterCell.runtimeSpawner.onStalledReviewer.receipt:af1ef00d694c4f9a1c4bf9b3fece145f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-host/repo-cell-types.ts#RepoCell.run"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-orchestration-host.ts#connectRepoWriterHost.startRepoWriterWorker.relayFleetBackupTrace:0105d380172ef5b9747fb0554d6c0f73",
@@ -7721,7 +7727,7 @@
         "port": "packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-action-dispatch.ts#executeRepoAction:7f55559b6ca18ece30013eb2cb6dd3c7",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-action-dispatch.ts#executeRepoAction:71eea958dc1f1d9010ab992d88469e42",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
@@ -10673,12 +10679,6 @@
         "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime.ts#startDaemon.createProtocolServer.executionPrincipal:60477ceb6aa0daab6ef9b627b03596ac",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime.ts#startDaemon:d0d3b2a344a0c55e28a416c06a653f11",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -12830,13 +12830,7 @@
         "port": "packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.cancel"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/task-review-dispatch.ts#spawnCutReviewDispatch:1f4d89e086b95c09c127f22afe418a32",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.spawn"
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/task-review-dispatch.ts#spawnCutReviewDispatch.fallbackError:449bb086dc4bfc1f760437e9c2b3be11",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/task-review-dispatch.ts#spawnCutReviewDispatch.prepareAndLaunch:9030b04c8201332d5d65d14f2b188188",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.spawn"
@@ -16529,7 +16523,7 @@
     "owner": "task",
     "sources": [
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/task-review-dispatch.ts#dispatchTaskReview.spawned:6786c20b62d1c30475cf5886e9fa8637",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/task-review-dispatch.ts#dispatchTaskReview.receipt.spawned:afa4e96877e7c20baff51beb659cfb35",
         "route": "task-dispatch-review",
         "role": "effect"
       }

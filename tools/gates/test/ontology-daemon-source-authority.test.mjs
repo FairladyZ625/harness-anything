@@ -312,18 +312,18 @@ test("daemon source declarations preserve actual driver and business owners", ()
       "packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.cancel",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/daemon-host/task-review-dispatch.ts#spawnCutReviewDispatch:1f4d89e086b95c09c127f22afe418a32",
+      "action:packages/daemon:packages/daemon/src/daemon-host/task-review-dispatch.ts#spawnCutReviewDispatch.prepareAndLaunch:9030b04c8201332d5d65d14f2b188188",
       "daemon-local-state",
       "daemon-local-state",
       "technical-port",
       "packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.spawn",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/daemon-host/task-review-dispatch.ts#spawnCutReviewDispatch.fallbackError:449bb086dc4bfc1f760437e9c2b3be11",
+      "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-open.ts#openRepoWriterCell.runtimeSpawner.onStalledReviewer.receipt:af1ef00d694c4f9a1c4bf9b3fece145f",
       "daemon-local-state",
       "daemon-local-state",
       "technical-port",
-      "packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.spawn",
+      "packages/daemon/src/daemon-host/repo-cell-types.ts#RepoCell.run",
     ],
     [
       "action:packages/daemon:packages/daemon/src/daemon-host/schedule-action-runtime.ts#settleScheduledRuntime:779d3e75837bcb7e247b063079c97d14",
@@ -430,4 +430,11 @@ test("a detached witness catalog callback cannot borrow the collector publisher"
   assert.equal(result.rows.find((row) => row.id === "task-witness-rerun")?.ok, true);
   assert.equal(result.sourceRows.find((source) => source.id === witnessSource)?.ok, false);
   assert.ok(result.findings.some((finding) => finding.includes(witnessSource)));
+});
+
+test("manual task review reaches the authorized launch after preparing outside the writer", () => {
+  const result = auditDurableActionAuthorization(repoRoot, inputs, { only: ["task-dispatch-review"] });
+  assert.deepEqual(result.findings, []);
+  assert.equal(result.rows.find(({ id }) => id === "task-dispatch-review")?.ok, true);
+  assert.equal(result.sourceRows.find(({ kind }) => kind === "task-dispatch-review")?.ok, true);
 });

@@ -315,16 +315,16 @@ export function archiveRuntimeDispatch(
         // archive target before settlement runs. That is this archive's own input, not a collision —
         // but it is still NOT in the projection, so it must be published like any other fresh
         // document or the read faces never see the ask.
-        selfAuthored = document.path === documentPath(rulingRef) && authoredBody !== null,
-        fresh = read.status === "ready" && read.document === null && (authoredBody === null || selfAuthored);
+        isRuling = document.path === documentPath(rulingRef),
+        fresh = read.status === "ready" && read.document === null && (authoredBody === null || isRuling);
       let identical = false;
       if (!fresh) {
-        const digest = sha256Bytes(document.bytes);
+        const digest = sha256Bytes(document.bytes),
+          matchesProjection = read.status === "ready" && read.document?.blobSha256 === digest;
+        // A CLI escalation may already be in SQLite while its worktree has yet to settle.
         identical =
-          reviewer &&
-          ((read.status === "ready" && read.document?.blobSha256 === digest) ||
-            (authoredBody !== null && sha256Bytes(authoredBody) === digest));
-        if (!identical && selfAuthored) identical = sha256Bytes(authoredBody!) === sha256Bytes(document.bytes);
+          ((reviewer || isRuling) && matchesProjection) ||
+          (reviewer && authoredBody !== null && sha256Bytes(authoredBody) === digest);
       }
       return { document, fresh, identical };
     });

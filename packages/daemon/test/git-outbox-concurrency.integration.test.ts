@@ -319,12 +319,14 @@ function decisionProposeAction(title: string) {
 // DM-2: Exercise production openRepoCellProxy -> openWriterSupervisor -> shared repo-orchestration-worker.
 // Suspend Repo A's real git subprocess (`fast-import` and `update-ref`), and verify Repo B and Repo A
 // both complete cell.run to `accepted_durable` while Git remains suspended.
-for (const suspendedSubcommand of ["fast-import", "update-ref"] as const)
+for (const scenario of ["fast-import", "update-ref", "first-attempt-fails"] as const)
   test(
-    `DM-2 (${suspendedSubcommand}): cell.run reaches accepted_durable across shared orchestration worker while git is suspended`,
+    `Git outbox (${scenario}): the same repo writes during review preparation and failed publication is retryable`,
     { timeout: 60_000 },
-    async () => {
-      const parent = mkdtempSync(path.join(tmpdir(), `ha-dm2-${suspendedSubcommand}-`)),
+    async (t) => {
+      const failFirstAttempt = scenario === "first-attempt-fails",
+        suspendedSubcommand = failFirstAttempt ? "fast-import" : scenario,
+        parent = mkdtempSync(path.join(tmpdir(), `ha-outbox-${scenario}-`)),
         controlDir = path.join(parent, "control"),
         binDir = path.join(parent, "bin"),
         repoAPath = path.join(parent, "repo-a"),
@@ -388,6 +390,7 @@ if (matchesTarget && fs.existsSync(armFile) && !fs.existsSync(releaseFile)) {
       }
     });
   }
+  if (claimed && fs.readFileSync(releaseFile, "utf8") === "fail") process.exit(1);
 }
 
 const result = spawnSync(realGit, args, { stdio: "inherit" });
@@ -450,14 +453,46 @@ process.exit(result.status ?? 1);
         await waitForArrival(() => (existsSync(enteredFile) ? true : null), watchFileArrival(enteredFile));
         assert.equal(existsSync(releaseFile), false, "git subprocess must be suspended now");
 
+        // dec_04A9211B073F29F0FC1E1CA573 CH2, DM-3/DM-4: send the Decision dispatch first.
+        // A later catalog request on the same proxy is the delivery barrier for the dispatch.
+        // The deliberately stale digest can only be checked after preparation; no provider is needed.
+        let dispatchFinished = false;
+        const { decisionId } = JSON.parse(String(cmdA1.evidence)),
+          dispatchAction = {
+            kind: "decision-dispatch-review",
+            decisionId,
+            expectedDigest: `sha256:${"0".repeat(64)}`,
+          },
+          authoredDecision = path.join(repoARoot, "harness", "decisions", `decision-${decisionId}`, "decision.md"),
+          dispatchBinding = withPolicyGroup(bindingA, "admin"),
+          dispatch = cellA.run(dispatchAction, dispatchBinding).finally(() => {
+            dispatchFinished = true;
+          });
+        await Promise.resolve();
+        await cellA.catalog.snapshot();
+        assert.equal(existsSync(authoredDecision), false, "the target Decision is still only in the ledger");
+        if (failFirstAttempt) {
+          writeFileSync(releaseFile, "fail", "utf8");
+          const failed = await dispatch;
+          assert.equal(failed.code, "materialization_failed", JSON.stringify(failed));
+          assert.match(failed.rejectionExplanation ?? "", /retry/iu);
+          await waitForArrival(() => (existsSync(authoredDecision) ? true : null), watchFileArrival(authoredDecision));
+          const retried = await cellA.run(dispatchAction, dispatchBinding);
+          assert.equal(retried.code, "version_conflict", JSON.stringify(retried));
+          return;
+        }
+
         // While Repo A's git subprocess is suspended, both Repo B (sharing the singleton orchestration worker)
         // and Repo A itself must finish cell.run cleanly and reach durable SQLite acceptance (`accepted_durable`).
+        // The deadline only bounds the negative control so cleanup can release the Git child.
+        const signal = AbortSignal.any([t.signal, AbortSignal.timeout(10_000)]);
         const [cmdB2, cmdA2] = await Promise.all([
-          cellB.run(decisionProposeAction("DM2 concurrent B2"), bindingB),
-          cellA.run(decisionProposeAction("DM2 concurrent A2"), bindingA),
+          cellB.run(decisionProposeAction("DM2 concurrent B2"), bindingB, signal),
+          cellA.run(decisionProposeAction("DM2 concurrent A2"), bindingA, signal),
         ]);
         assert.equal(cmdB2.outcome, "applied");
         assert.equal(cmdA2.outcome, "applied");
+        assert.equal(dispatchFinished, false, "the dispatch is still waiting for Git");
         assert.equal(existsSync(releaseFile), false, "cell.run calls must finish before git is released");
 
         const readerA = makeTaskEventReader({ repoId: repoAId, rootDir: repoARoot }),
@@ -472,6 +507,8 @@ process.exit(result.status ?? 1);
 
         // Release suspended git and confirm both repositories converge cleanly in Git.
         writeFileSync(releaseFile, "release", "utf8");
+        const rejected = await dispatch;
+        assert.equal(rejected.code, "version_conflict", JSON.stringify(rejected));
         await waitForFixturePublication(cellA, cmdA2.opId, bindingA);
         await waitForFixturePublication(cellB, cmdB2.opId, bindingB);
       } finally {

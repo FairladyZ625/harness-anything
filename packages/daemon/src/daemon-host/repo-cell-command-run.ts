@@ -43,7 +43,7 @@ import {
 } from "./squad-control-result.ts";
 import { deriveActionResult } from "@harness-anything/application/internal/commands/entity-action-catalog-executor.ts";
 import { executeVerticalScriptAction, publishExecutedVerticalScript } from "./vertical-script-actions.ts";
-import { readBeforeWriteQueue } from "./write-queue-external-reads.ts";
+import { readBeforeWriteQueue, readsAuthoredWorktree } from "./write-queue-external-reads.ts";
 import { inspectScheduleProjection } from "@harness-anything/application/internal/queries/schedule-projection.ts";
 import { resolveDecisionReviewAction } from "./repo-cell-action-parse.ts";
 import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
@@ -54,6 +54,8 @@ import {
   runtimeExecutionActor,
 } from "./runtime-execution-credential.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
+import { dispatchTaskReview } from "./task-review-dispatch.ts";
+import { settleAuthoredMaterialization } from "./repo-cell-materialization.ts";
 
 const taskWritesWithProjectionSpecificNotFound = new Set(["task-annotate", "task-attest", "task-declare-executor"]);
 
@@ -536,7 +538,7 @@ export function makeRepoCellCommandRunner(
     };
     if (action.kind === "script-run")
       // The script reads the published commit, so it waits for every accepted write to be published first.
-      return Promise.resolve(context.store.settlePendingMaterialization?.("vertical script"))
+      return settleAuthoredMaterialization(context.store, "run vertical script")
         .then(() =>
           executeVerticalScriptAction({
             action,
@@ -565,6 +567,36 @@ export function makeRepoCellCommandRunner(
           async (error) =>
             failAction(context, action, binding, error, durable ? await authorizeAtCurrentCut()! : undefined),
         );
+    if (action.kind === "task-dispatch-review") {
+      const admission = admitRepoMode(context.mode, command, binding.source);
+      if (!admission.ok)
+        return frameCurrent(
+          context.rejected(context.operationId(action, binding, context.input.repoId, 0), admission.code),
+          [],
+          admission.nextAction,
+        );
+      const claimRejected = claimAtPublication ? await bindExecutorClaim() : null;
+      if (claimRejected) return claimRejected;
+      let decision = await authorizeAtCurrentCut()!;
+      if (decision.outcome === "denied")
+        return withAuthorizationDecision(
+          context.rejected(context.operationId(action, binding, context.input.repoId, 0), "authorization_denied"),
+          decision,
+        );
+      return dispatchTaskReview(
+        context.extracted,
+        action,
+        binding,
+        (apply) =>
+          enqueuePublication((atCut) => {
+            decision = atCut ?? decision;
+            return apply({ ...binding, authorizationDecision: decision });
+          }) as Promise<WriteReceiptDraft>,
+      ).then(
+        (receipt) => context.withHumanSummary(withAuthorizationDecision(receipt, decision)) as WriteReceipt,
+        (error: unknown) => failAction(context, action, binding, error, decision),
+      );
+    }
     // Submission preparation reads with the verified actor too; publication rechecks the claim.
     if ((action.kind === "task-submit" || action.kind === "task-settle") && claimAtPublication) {
       const claimRejected = await bindExecutorClaim();
@@ -636,9 +668,17 @@ export function makeRepoCellCommandRunner(
       if (rerunDecision.outcome !== "allowed") return receipt;
       return await appendCompletionWarnings(receipt, { ...binding, authorizationDecision: rerunDecision });
     }
-    return enqueuePublication((authorizationDecision) =>
-      context.executeAction(action, authorizationDecision ? { ...binding, authorizationDecision } : binding),
-    );
+    const materializationFailure = readsAuthoredWorktree(action, binding.source)
+      ? await settleAuthoredMaterialization(context.store, action.kind).then(
+          () => null,
+          (error: unknown) => ({ error }),
+        )
+      : null;
+    return enqueuePublication((authorizationDecision) => {
+      // Admission owns the error response even when an earlier disk preparation failed.
+      if (materializationFailure) throw materializationFailure.error;
+      return context.executeAction(action, authorizationDecision ? { ...binding, authorizationDecision } : binding);
+    });
   };
   const enqueueCommand = run;
   return async (

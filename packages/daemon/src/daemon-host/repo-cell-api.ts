@@ -1,5 +1,5 @@
 import type { RepoCellApiContext } from "./repo-cell-types.ts";
-import { settlePendingMaterializationIfNeeded } from "./task-review-dispatch.ts";
+import { requireTaskPackageMaterialization, settleAuthoredMaterialization } from "./repo-cell-materialization.ts";
 import { scheduleOccurrenceSettlementOwner } from "./schedule-runtime-outcome.ts";
 import { appendSquadRunObservation } from "./repo-cell-squad-child.ts";
 import { makeSquadCanonicalReader } from "./squad-canonical-read.ts";
@@ -731,8 +731,11 @@ export function createRepoCellApi(
     if (spawn.dryRun === true) return context.runtimeSpawner.spawn(spawn, binding);
     // A task dispatch's worktree checkout and setup finish first; the queue receives only the dispatch itself.
     const worktree = await context.runtimeSpawner.prepareWorktree(spawn);
-    if (worktree === null && typeof spawn.taskId === "string")
-      await settlePendingMaterializationIfNeeded(context.store, "runtime spawn");
+    const authoredTask = worktree === null && typeof spawn.taskId === "string" ? spawn.taskId : null;
+    if (authoredTask !== null) {
+      await settleAuthoredMaterialization(context.store, "spawn runtime");
+      requireTaskPackageMaterialization(context, authoredTask);
+    }
     const progress = await context.runtimeSpawner.prepareProgress(spawn, worktree);
     return enqueueRuntimePublication(
       context,
@@ -743,8 +746,10 @@ export function createRepoCellApi(
         executionRuntimeIngress: { kind: "runtime-run", ...payload },
       },
       binding,
-      (authorizedBinding) =>
-        context.runtimeSpawner.spawnTask(spawn, authorizedBinding, worktree, context.projection, progress),
+      (authorizedBinding) => {
+        if (authoredTask !== null) requireTaskPackageMaterialization(context, authoredTask);
+        return context.runtimeSpawner.spawnTask(spawn, authorizedBinding, worktree, context.projection, progress);
+      },
       queueObservation,
       onExecutionStart,
     );
@@ -998,13 +1003,12 @@ export function createRepoCellApi(
       rootDir: context.rootDir,
       now: context.now,
       backupExecutionLimitMs: context.settings.read().storage.backupExecutionLimitMs,
-      runSnapshot: <T>(work: () => T | PromiseLike<T>): Promise<T> => {
+      runSnapshot: async <T>(work: () => T | PromiseLike<T>): Promise<T> => {
+        await settleAuthoredMaterialization(context.store, "capture backup");
         context.queueDepth += 1;
         const snapshot = chainRepoCellWrite(
           context.tail,
           async () => {
-            // Await the existing follower before worker IO yields this event loop.
-            await context.store.settlePendingMaterialization?.("backup capture");
             if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
             assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
             const current = context.projection.getEntity("schedule", schedule.scheduleId)?.value as
@@ -1013,6 +1017,12 @@ export function createRepoCellApi(
             if (current?.status.activeRun?.claimFence !== active.claimFence)
               throw context.cellCodedError("schedule_claim_stale", "Builtin occurrence claim is no longer current.");
             if (writerDescriptor) assertWriterEpochFenceDescriptor(writerDescriptor);
+            const materialization = context.store.materializationHealth();
+            if (materialization.state !== "ok" || materialization.pendingWalEvents !== 0)
+              throw context.cellCodedError(
+                "materialization_failed",
+                "The authored backup cut changed during preparation. Retry after Git publication settles.",
+              );
             // Each canonical append owns its epoch transaction; nesting an outer epoch
             // transaction here would reject a valid append. Bind this executor's fence
             // to the store for the synchronous accept turn, not another command's fence.

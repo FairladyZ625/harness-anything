@@ -79,6 +79,20 @@ export async function settleWriteReceipt(
     return receipt;
   const read = () => attachWriteReceiptAcceptance(context, action, receipt);
   if (action.kind === "task-create" && receipt.proof?.durable === true) return settleTaskCreateScaffold(context, read);
+  if (action.kind === "migrate-import" && receipt.proof?.durable === true) {
+    // Import hands back an authored id map. The batch is already durable and the writer turn
+    // has ended, so settling here leaves the queue available for other commands.
+    await context.store.settlePendingMaterialization?.("migration import");
+    const settled = read();
+    if (settled.proof?.worktreeVisible === true) return settled;
+    return {
+      ...settled,
+      outcome: "pending",
+      code: "materialization_failed",
+      exitCode: 3,
+      nextAction: `ha receipt show ${settled.opId} --wait worktree_visible`,
+    } as WriteReceipt;
+  }
   if (isRelationWrite(action) && receipt.proof?.durable === true) {
     await context.store.settlePendingMaterialization?.("relation document write");
     return read();

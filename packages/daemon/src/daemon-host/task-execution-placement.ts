@@ -42,6 +42,6 @@ function placementFromSource(source: unknown): TaskExecutionPlacement | null {
     : null;
 }
 
-function samePlacement(left: TaskExecutionPlacement, right: TaskExecutionPlacement): boolean {
+export function samePlacement(left: TaskExecutionPlacement, right: TaskExecutionPlacement): boolean {
   return left.kind === right.kind && (left.kind !== "node" || (right.kind === "node" && left.nodeId === right.nodeId));
 }

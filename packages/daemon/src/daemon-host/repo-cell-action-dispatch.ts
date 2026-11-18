@@ -33,11 +33,7 @@ import { type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo
 import { selectExecutorDeclaration, taskLineageExecutorCandidates } from "./dispatch-read.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
 import { taskShowFromProjection } from "./repo-cell-completion.ts";
-import {
-  dispatchDecisionReview,
-  dispatchTaskReview,
-  settlePendingMaterializationIfNeeded,
-} from "./task-review-dispatch.ts";
+import { dispatchDecisionReview } from "./task-review-dispatch.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import { runFactAction } from "./repo-cell-fact-action.ts";
 import { deriveActionResult } from "@harness-anything/application/internal/commands/entity-action-catalog-executor.ts";
@@ -71,46 +67,17 @@ export async function executeAction(
   );
 }
 
-async function runSettledAction<T>(
-  cell: RepoCellOperationalContext,
-  settlementContext: string,
-  perform: () => T | Promise<T>,
-): Promise<T> {
-  await settlePendingMaterializationIfNeeded(cell.store, settlementContext);
-  return perform();
-}
-
-function docSettlementContext(kind: string, source: RepoCellBinding["source"]): string | null {
-  if (kind === "doc-materialize") return "doc materialize";
-  if (kind === "doc-retire") return "doc retire";
-  if (kind === "doc-conflict-resolve" || kind === "doc-conflict-overwrite-center") return "doc conflict resolve";
-  if (kind === "doc-submit" && source === "local") return "doc submit";
-  return null;
-}
-
-function amendsTaskTitle(action: RepoTaskAction): boolean {
-  return (
-    action.kind === "task-amend" &&
-    Array.isArray(action.patches) &&
-    action.patches.some(
-      (patch) => patch !== null && typeof patch === "object" && "field" in patch && patch.field === "title",
-    )
-  );
-}
-
 function runRepoArtifactAdd(cell: RepoCellOperationalContext, action: RepoTaskAction, binding: RepoCellBinding) {
-  return runSettledAction(cell, "task artifact add", () =>
-    runArtifactAdd({
-      action,
-      binding,
-      workspaceId: cell.input.repoId,
-      rootDir: cell.rootDir,
-      store: cell.store,
-      projection: cell.projection,
-      now: cell.now,
-      killpoint: cell.input.killpoint,
-    }),
-  );
+  return runArtifactAdd({
+    action,
+    binding,
+    workspaceId: cell.input.repoId,
+    rootDir: cell.rootDir,
+    store: cell.store,
+    projection: cell.projection,
+    now: cell.now,
+    killpoint: cell.input.killpoint,
+  });
 }
 
 export function executeRepoAction(
@@ -122,22 +89,18 @@ export function executeRepoAction(
   // doc sync has one writer: publishing a DocEventIntent. Its catalog binding (document/*) names the
   // stream for Policy and explanations, never a second compile path, so it stays ahead of the generic
   // catalog runtime below.
-  if (isDocAction(action.kind)) {
-    const runDoc = () =>
-      runDocAction({
-        action,
-        binding,
-        workspaceId: cell.input.repoId,
-        rootDir: cell.rootDir,
-        store: cell.store,
-        projection: cell.projection,
-        nodeTaskMaterializationPolicy: cell.input.nodeTaskMaterializationPolicy,
-        now: cell.now,
-        killpoint: cell.input.killpoint,
-      });
-    const settlementContext = docSettlementContext(action.kind, binding.source);
-    return settlementContext ? runSettledAction(cell, settlementContext, runDoc) : runDoc();
-  }
+  if (isDocAction(action.kind))
+    return runDocAction({
+      action,
+      binding,
+      workspaceId: cell.input.repoId,
+      rootDir: cell.rootDir,
+      store: cell.store,
+      projection: cell.projection,
+      nodeTaskMaterializationPolicy: cell.input.nodeTaskMaterializationPolicy,
+      now: cell.now,
+      killpoint: cell.input.killpoint,
+    });
   if (["runtime-handoff-export", "runtime-handoff-claim", "runtime-handoff-revoke"].includes(action.kind))
     return runRuntimeHandoffAction(cell, action, binding);
   if (
@@ -247,15 +210,13 @@ export function executeRepoAction(
   if (action.kind === "task-read-set") return cell.taskReadSet(action, binding);
   if (action.kind === "graph") return cell.graphView(action, binding);
   if (action.kind === "task-review") return cell.reviewTask(action, binding);
-  if (action.kind === "task-dispatch-review") return dispatchTaskReview(cell, action, binding);
-  if (action.kind === "decision-dispatch-review")
-    return runSettledAction(cell, "decision dispatch review", () => dispatchDecisionReview(cell, action, binding));
+  if (action.kind === "decision-dispatch-review") return dispatchDecisionReview(cell, action, binding);
   if (
     action.kind === "decision-rematerialize" ||
     action.kind === "fact-rematerialize" ||
     action.kind === "task-rematerialize"
   )
-    return runSettledAction(cell, "entity rematerialize", () => runEntityDocumentRematerialize(cell, action, binding));
+    return runEntityDocumentRematerialize(cell, action, binding);
   if (action.kind === "distill-candidate") {
     const taskId = cell.requiredCellText(action.taskId, "taskId");
     if (!cell.projection.read(taskId).snapshot.task)
@@ -380,8 +341,6 @@ export function executeRepoAction(
               return cell.archiveTasks(catalogAction, catalogBinding);
             if (catalogAction.kind === "task-supersede" && typeof catalogAction.title === "string")
               return cell.supersedeWithNewTask(catalogAction, catalogBinding);
-            if (amendsTaskTitle(catalogAction))
-              return runSettledAction(cell, "task amend", () => cell.taskSurfaceWrite(catalogAction, catalogBinding));
             return cell.taskSurfaceWrite(catalogAction, catalogBinding);
           }
           return contract.execution?.implementation === "task-completion"

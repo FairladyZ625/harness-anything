@@ -258,6 +258,7 @@ export interface CanonicalEventStore {
   /** Read-only health of the WAL to Git materialization owned by this store. */
   readonly materializationHealth: () => MaterializationHealth;
   readonly drain: () => Promise<void>;
+  /** Waits for the follower's attempt. Verify the relevant checkpoint before consuming the worktree. */
   readonly settlePendingMaterialization?: (context: string) => Promise<void>;
 }
 
