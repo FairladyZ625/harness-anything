@@ -93,6 +93,7 @@ export interface ObserveSmellStat {
   readonly matchText: string;
   /** slow_write_request 的单写队列等待毫秒(value 减去它即执行);日志未记录时为 null。 */
   readonly queueMs?: number | null;
+  readonly writeExecutionMs?: number;
   /** slow_write_request 排队时占住队首的写请求;日志未记录时为 null。 */
   readonly queueHead?: ObserveQueueHead | null;
 }
@@ -192,6 +193,7 @@ interface ObserveSlowWrite {
   readonly atMs: number;
   readonly durationMs: number;
   readonly queueMs: number | null;
+  readonly writeExecutionMs: number | null;
   readonly queueHead: ObserveQueueHead | null;
 }
 
@@ -291,18 +293,20 @@ export class ObserveStatsState {
       this.failures.push({ command: row.type, atMs: row.atMs });
       if (this.failures.length > FAILURE_CAP) this.failures.splice(0, this.failures.length - FAILURE_CAP);
     }
+    const writeMs = row.writeExecutionMs === null ? row.durationMs : (row.queueMs ?? 0) + row.writeExecutionMs;
     if (
       !row.wait &&
       row.opClass === "write" &&
-      row.durationMs !== null &&
-      row.durationMs > OBSERVE_SLOW_WRITE_MS &&
+      writeMs !== null &&
+      writeMs > OBSERVE_SLOW_WRITE_MS &&
       row.atMs !== null
     ) {
       this.slowWrites.push({
         command: row.type,
         atMs: row.atMs,
-        durationMs: row.durationMs,
+        durationMs: writeMs,
         queueMs: row.queueMs,
+        writeExecutionMs: row.writeExecutionMs,
         queueHead: row.queueHead,
       });
       if (this.slowWrites.length > SLOW_WRITE_CAP) this.slowWrites.splice(0, this.slowWrites.length - SLOW_WRITE_CAP);
@@ -517,6 +521,7 @@ export class ObserveStatsState {
         value: worstSlow.durationMs,
         matchText: worstSlow.command,
         ...(worstSlow.queueMs === null ? {} : { queueMs: worstSlow.queueMs }),
+        ...(worstSlow.writeExecutionMs === null ? {} : { writeExecutionMs: worstSlow.writeExecutionMs }),
         ...(worstSlow.queueHead === null ? {} : { queueHead: worstSlow.queueHead }),
       });
     if (burst !== null && burst.count > OBSERVE_POLL_BURST_PER_SEC * (OBSERVE_BUCKET_MS / 1_000))

@@ -83,6 +83,12 @@ export interface RepoWriterRequestV1 {
   readonly writerEpoch: SerializableRepoCellBindingV1["writerEpochFence"] | null;
 }
 
+export interface RuntimeWriteTurnTiming {
+  readonly queuedAtMs: number;
+  startedAtMs?: number;
+  finishedAtMs?: number;
+}
+
 export interface RepoWriterReceiptV1 {
   readonly schema: "harness-repo-writer-receipt/v1";
   readonly protocolVersion: typeof REPO_WRITER_PROTOCOL_VERSION;
@@ -94,6 +100,8 @@ export interface RepoWriterReceiptV1 {
   readonly startedAtMs?: number;
   /** Actual dequeue point inside the cell's single-write chain; defaults to `startedAtMs` when absent. */
   readonly executionStartedAtMs?: number;
+  /** Measured per turn for runtime methods, including requests that never entered the queue. */
+  readonly runtimeWriteTurns?: readonly RuntimeWriteTurnTiming[];
   /** Process-monotonic milliseconds when the worker finished it; same clock as the daemon. */
   readonly finishedAtMs?: number;
   /** The write that held the queue when this request was appended; absent when it did not wait. */
