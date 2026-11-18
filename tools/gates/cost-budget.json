@@ -33,7 +33,7 @@
         "sha256Calls": 47,
         "sha256Bytes": 27132,
         "gitProcesses": 6,
-        "fileReadBytes": 6053
+        "fileReadBytes": 6201
       },
       "task-progress-append": {
         "sqlRowsRead": 220,
@@ -133,7 +133,7 @@
         "sha256Calls": 47,
         "sha256Bytes": 27132,
         "gitProcesses": 6,
-        "fileReadBytes": 6053
+        "fileReadBytes": 6201
       },
       "task-progress-append": {
         "sqlRowsRead": 220,

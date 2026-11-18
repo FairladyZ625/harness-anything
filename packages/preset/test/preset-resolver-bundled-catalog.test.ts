@@ -297,35 +297,50 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
       assert.match(plan, /No source tests|不要求源码测试/u);
     }
     const matrix = [
-      ["standard-task", "repository-diff", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
-      ["docs-task", "task-package-artifact", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
+      [
+        "standard-task",
+        "repository-diff",
+        [],
+        ["task.plan", "task.closeout", "task.artifacts.keep"],
+        ["verify-receipt"],
+      ],
+      ["docs-task", "task-package-artifact", [], ["task.plan", "task.closeout", "task.artifacts.keep"], []],
       [
         "lifecycle-blackbox-acceptance",
         "task-package-artifact",
         [],
         ["task.plan", "task.closeout", "task.artifacts.keep", "task.lifecycle.blackbox.acceptance"],
+        [],
       ],
       [
         "code-impact-analysis",
         "task-package-artifact",
         [],
         ["task.plan", "task.closeout", "task.artifacts.keep", "task.code.impact.analysis"],
+        [],
       ],
       [
         "worker-dispatch",
         "repository-diff",
         [],
         ["task.plan", "task.closeout", "task.artifacts.keep", "task.worker.flow"],
+        [],
       ],
-      ["architecture-rot-audit", "task-package-artifact", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
-      ["github-issue-repair", "repository-diff", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
-      ["legacy-migration", "repository-diff", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
-      ["create-work", "repository-diff", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
-      ["work-closeout", "repository-diff", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
-      ["decision-conformance", "repository-diff", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
-      ["subtask-expansion", "task-package-artifact", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
+      [
+        "architecture-rot-audit",
+        "task-package-artifact",
+        [],
+        ["task.plan", "task.closeout", "task.artifacts.keep"],
+        [],
+      ],
+      ["github-issue-repair", "repository-diff", [], ["task.plan", "task.closeout", "task.artifacts.keep"], []],
+      ["legacy-migration", "repository-diff", [], ["task.plan", "task.closeout", "task.artifacts.keep"], []],
+      ["create-work", "repository-diff", [], ["task.plan", "task.closeout", "task.artifacts.keep"], []],
+      ["work-closeout", "repository-diff", [], ["task.plan", "task.closeout", "task.artifacts.keep"], []],
+      ["decision-conformance", "repository-diff", [], ["task.plan", "task.closeout", "task.artifacts.keep"], []],
+      ["subtask-expansion", "task-package-artifact", [], ["task.plan", "task.closeout", "task.artifacts.keep"], []],
     ] as const;
-    for (const [presetId, outputShape, completionGateIds, slots] of matrix) {
+    for (const [presetId, outputShape, completionGateIds, slots, entrypoints] of matrix) {
       const result = await resolver.resolve({ ...common, presetId });
       assert.equal(result.ok, true, presetId);
       if (result.ok)
@@ -336,7 +351,7 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
             slots: result.snapshot.templates.map(({ slot }) => slot),
             entrypoints: Object.keys(result.snapshot.entrypoints),
           },
-          { outputShape, completionGateIds, slots, entrypoints: [] },
+          { outputShape, completionGateIds, slots, entrypoints },
         );
     }
     for (const locale of ["en-US", "zh-CN"] as const) {
