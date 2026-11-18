@@ -16,7 +16,6 @@ import {
   seedTriadicReviewAwait,
   writeTriadicLedger,
 } from "../../packages/gui/test-support/triadic-ledger.mjs";
-import { assessHermeticConfig } from "../test-hermetic-preflight.mjs";
 import { seedScheduleRuntimeOrder } from "./scenarios/schedule-run-history.mjs";
 import { seedGuiE2eRuntimeSessions, seedGuiE2eSessionTasks } from "./scenarios/sessions-grouping.mjs";
 import { seedGuiE2eDeliverySessions, seedGuiE2eDeliveryTasks } from "./scenarios/sessions-delivery-status.support.mjs";
@@ -118,15 +117,7 @@ function buildSanitizedFixtureEnv(env, fixture) {
   return { ...cleanEnv, ...fixture.env, HARNESS_DAEMON_ENDPOINT: fixture.endpoint };
 }
 
-function assertHermeticFixtureTarget(fixture, isolatedEnv) {
-  const preflight = assessHermeticConfig({
-    userRoot: fixture.userRoot,
-    daemonId: fixture.daemonId,
-    userRootSource: "flag",
-  });
-  if (!preflight.ok) {
-    throw new Error(`Hermetic fixture preflight failed: ${preflight.failures.join("; ")}`);
-  }
+function assertFixtureEndpoint(fixture, isolatedEnv) {
   const resolvedEndpoint = resolveLocalDaemonEndpoint({
     userRoot: fixture.userRoot,
     daemonId: fixture.daemonId,
@@ -243,7 +234,7 @@ export async function openIsolatedFixture({
     }
     if (deliveryTaskPackages) fixture.packagePaths = deliveryTaskPackages;
     const isolatedEnv = buildSanitizedFixtureEnv(env, fixture);
-    assertHermeticFixtureTarget(fixture, isolatedEnv);
+    assertFixtureEndpoint(fixture, isolatedEnv);
     const hello = await requestDaemonJsonRpcAt(
       fixture.endpoint,
       "protocol.hello",
@@ -251,12 +242,16 @@ export async function openIsolatedFixture({
       2_000,
       5_000,
     );
-    const build = hello.build;
+    const daemonCommit = hello.build?.commit;
+    const sourceCommit = daemonBuildStamp().commit;
+    if (sourceCommit && daemonCommit !== sourceCommit) {
+      throw new Error(`GUI fixture daemon build ${daemonCommit ?? "unknown"} differs from source ${sourceCommit}`);
+    }
     assertCanonicalDaemonMethods({
       daemonMethods: Array.isArray(hello.methods) ? hello.methods : [],
       requiredMethods: daemonGuiInvokeFacets.map((facet) => facet.method),
-      daemonCommit: build && typeof build === "object" && !Array.isArray(build) ? build.commit : null,
-      guiCommit: daemonBuildStamp().commit,
+      daemonCommit,
+      guiCommit: sourceCommit,
     });
     return {
       fixture,
@@ -296,19 +291,22 @@ export async function openIsolatedFixture({
   }
 }
 
-export async function openLane({
-  workspaceRoot,
-  scenarioId,
-  env,
-  runRoot,
-  startDriver,
-  runtimeInstance,
-  decisionProviderCredentials,
-  identityProvider,
-}) {
+export async function openLane(
+  {
+    workspaceRoot,
+    scenarioId,
+    env,
+    runRoot,
+    startDriver,
+    runtimeInstance,
+    decisionProviderCredentials,
+    identityProvider,
+  },
+  { openFixture = openIsolatedFixture } = {},
+) {
   // Both canonical and isolated lanes run against a hermetic preflighted fixture daemon,
   // explicit HARNESS_DAEMON_ENDPOINT, and built dist-electron/electron-main.js.
-  const isolatedFixture = await openIsolatedFixture({
+  const isolatedFixture = await openFixture({
     workspaceRoot,
     scenarioId,
     env,
@@ -326,8 +324,11 @@ export async function openLane({
   return {
     driver,
     async close() {
-      await driver.close();
-      await isolatedFixture.close();
+      try {
+        await driver.close();
+      } finally {
+        await isolatedFixture.close();
+      }
     },
   };
 }

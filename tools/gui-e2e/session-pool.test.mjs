@@ -4,8 +4,12 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { setTimeout } from "node:timers/promises";
+import { startGuiResidentDaemonFixture } from "../../packages/gui/test-support/resident-daemon.mjs";
 import { runGuiE2E } from "../gui-e2e.mjs";
+import { assessHermeticConfig } from "../test-hermetic-preflight.mjs";
 import { resolveProfileBaseDir, runScenario } from "./driver.mjs";
+import { openLane } from "./lanes.mjs";
 import { createLaneSessionPool, isShareableReadOnlyScenario } from "./session-pool.mjs";
 
 function makeFakeEnv() {
@@ -39,14 +43,13 @@ function makeFakeEnv() {
           kill() {
             alive = false;
           },
-          async resetForScenario(nextRoot) {
+          async resetForScenario() {
             if (!alive) throw new Error("crashed");
             if (resetErrors.length > 0) {
               const nextError = resetErrors.shift();
               throw nextError;
             }
-            resets.push({ driverId: `driver-${dId}`, nextRoot });
-            this.runRoot = nextRoot;
+            resets.push({ driverId: `driver-${dId}`, nextRoot: this.runRoot });
           },
           async close() {
             alive = false;
@@ -104,6 +107,91 @@ test("isShareableReadOnlyScenario keeps write-state and custom-fixture scenarios
   assert.equal(isShareableReadOnlyScenario({ id: "mut", readOnly: false }, "canonical"), false);
 });
 
+test("a rejected temporary user root never starts the fixture daemon", async () => {
+  let starts = 0;
+  let userRoot;
+  await assert.rejects(async () => {
+    const fixture = await startGuiResidentDaemonFixture({
+      assessConfig(config) {
+        userRoot = config.userRoot;
+        // Simulate the newly allocated path resolving to the same directory as the account root.
+        return assessHermeticConfig({ ...config, readIdentity: () => ({ dev: 1, ino: 2 }) });
+      },
+      start() {
+        starts += 1;
+        throw new Error("unexpected daemon start");
+      },
+    });
+    await fixture.stop();
+  }, /Hermetic fixture preflight failed:.*is the default daemon root/u);
+  assert.equal(starts, 0);
+  assert.throws(() => readFileSync(path.dirname(userRoot)), { code: "ENOENT" });
+});
+
+test("dedicated lane closes the daemon even if Electron close rejects", async () => {
+  let fixtureCloses = 0;
+  const lane = await openLane(
+    {},
+    {
+      openFixture: async () => ({
+        launchDriver: async () => ({
+          async close() {
+            throw new Error("driver_close_probe");
+          },
+        }),
+        async close() {
+          fixtureCloses += 1;
+        },
+      }),
+    },
+  );
+  await assert.rejects(() => lane.close(), /driver_close_probe/u);
+  assert.equal(fixtureCloses, 1);
+});
+
+test("dedicated acquire timeout closes a session that finishes opening later", async (t) => {
+  const opened = Promise.withResolvers();
+  const closed = Promise.withResolvers();
+  const keepAlive = new AbortController();
+  t.after(() => keepAlive.abort());
+  // The production deadline is unref'd. Hold the test process open until the deadline settles.
+  void setTimeout(5_000, undefined, { signal: keepAlive.signal }).catch(() => undefined);
+  const pool = createLaneSessionPool({
+    lane: "isolated",
+    acquireTimeoutMs: 5,
+    openLaneImpl: () => opened.promise,
+  });
+  t.after(() => pool.close());
+  await assert.rejects(pool.acquire({ id: "write" }, "/tmp/run/write"), /Timed out acquiring dedicated session/u);
+  let closes = 0;
+  opened.resolve({
+    async close() {
+      closes += 1;
+      closed.resolve();
+    },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(closes, 1);
+  await closed.promise;
+});
+
+test("shared pool rebuilds a dead fixture before resetting a still-live Electron", async (t) => {
+  const fake = makeFakeEnv();
+  const pool = createLaneSessionPool({ lane: "isolated", ...fake });
+  t.after(() => pool.close());
+  const first = await pool.acquire({ id: "s1", readOnly: true }, "/tmp/run/s1");
+  await first.release({ outcome: "healthy" });
+  fake.markFixtureUnhealthy("fixture-1");
+  assert.equal(first.driver.isAlive(), true);
+
+  const next = await pool.acquire({ id: "s2", readOnly: true }, "/tmp/run/s2");
+  await next.release({ outcome: "healthy" });
+  assert.equal(next.driver.id, "driver-2");
+  assert.deepEqual(fake.stats().closedDrivers, ["driver-1"]);
+  assert.deepEqual(fake.stats().closedFixtures, ["fixture-1"]);
+  assert.deepEqual(fake.stats().resets, []);
+});
+
 test("isolated and canonical pools reuse one hermetic fixture and Electron driver across healthy read-only scenarios", async () => {
   for (const lane of ["isolated", "canonical"]) {
     const fake = makeFakeEnv();
@@ -126,6 +214,7 @@ test("isolated and canonical pools reuse one hermetic fixture and Electron drive
     assert.equal(l2.shared, true);
     assert.equal(l2.driver.id, "driver-1");
     assert.equal(l2.driver.runRoot, "/tmp/run/s2");
+    await l2.prepare();
     await l2.release({ outcome: "healthy" });
 
     // Write-state scenario gets its own isolated fixture & closes immediately.
@@ -166,11 +255,12 @@ test("shared pool destroys a failed or crashed Electron driver and recreates cle
   assert.equal(l2.driver.id, "driver-2");
   await l2.release({ outcome: "healthy" });
 
-  // If reset itself fails (e.g. console.error/pageerror during reload), the error is NOT swallowed:
-  // the pool discards the dirty driver and throws so the acquiring scenario fails, while the next
-  // scenario recovers with a fresh driver.
+  // The runner can collect evidence before releasing a driver whose reset failed.
   fake.queueResetError(new Error("renderer console errors:\nsynthetic_reset_error"));
-  await assert.rejects(() => pool.acquire({ id: "s2b", readOnly: true }, "/tmp/run/s2b"), /synthetic_reset_error/u);
+  const l2b = await pool.acquire({ id: "s2b", readOnly: true }, "/tmp/run/s2b");
+  await assert.rejects(l2b.prepare, /synthetic_reset_error/u);
+  assert.equal(l2b.driver.isAlive(), true);
+  await l2b.release({ outcome: "failed" });
 
   const l2c = await pool.acquire({ id: "s2c", readOnly: true }, "/tmp/run/s2c");
   assert.equal(l2c.driver.id, "driver-3");
@@ -228,6 +318,37 @@ test("runScenario attributes tracing.start failures to the scenario without thro
     assert.match(res.message, /tracing_start_boom/u);
   } finally {
     rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test("the final scenario fails on renderer errors delivered while screenshots or tracing stop finish", async (t) => {
+  const outDir = mkdtempSync(path.join(tmpdir(), "gui-late-renderer-error-"));
+  t.after(() => rmSync(outDir, { recursive: true, force: true }));
+  for (const phase of ["screenshot", "trace-stop"]) {
+    const consoleFailures = [];
+    const driver = {
+      async assertBackground() {},
+      assertConsoleClean(from) {
+        assert.deepEqual(consoleFailures.slice(from), []);
+      },
+      async shot() {
+        if (phase === "screenshot") consoleFailures.push("late_renderer_error");
+        return null;
+      },
+      page: {
+        context: () => ({
+          tracing: {
+            async start() {},
+            async stop(options) {
+              if (phase === "trace-stop" && !options) consoleFailures.push("late_renderer_error");
+            },
+          },
+        }),
+      },
+    };
+    const res = await runScenario(driver, { id: "last", run: async () => undefined }, { shots: outDir });
+    assert.equal(res.outcome, "failed", phase);
+    assert.match(res.message, /late_renderer_error/u);
   }
 });
 

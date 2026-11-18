@@ -1,10 +1,14 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { once } from "node:events";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { daemonBuildStamp, readDistBuildId } from "../../packages/daemon/src/build-identity.ts";
+import { requestDaemonJsonRpcAt } from "../../packages/daemon/src/client/local-json-rpc-client.ts";
+import { currentDaemonProtocolVersion } from "../../packages/daemon/src/protocol/daemon-protocol.contract.ts";
 import { prepareE2EProbeGui, resolveE2EProbeElectronForTest } from "../e2e-probe.mjs";
 import { startGuiResidentDaemonFixture } from "../../packages/gui/test-support/resident-daemon.mjs";
 
@@ -25,6 +29,8 @@ test(
     // prepareE2EProbeGui must therefore produce it on a clean checkout.
     const mainPath = path.join(workspaceRoot, "packages/gui/dist-electron/electron-main.js");
     assert.equal(existsSync(mainPath), true, `prepareE2EProbeGui must build ${mainPath}`);
+    const guiCommit = readDistBuildId(path.join(workspaceRoot, "packages/gui"));
+    assert.equal(guiCommit, daemonBuildStamp().commit ?? "source-archive");
     const { startGuiDriver } = await import("./driver.mjs");
     const fixture = await startGuiResidentDaemonFixture({
       prefix: "ha-gui-driver-profile-",
@@ -33,6 +39,13 @@ test(
       task: { taskId: "task-gui-driver-profile", title: "Keep the Electron profile out of artifacts" },
     });
     t.after(fixture.stop);
+    const hello = await requestDaemonJsonRpcAt(
+      fixture.endpoint,
+      "protocol.hello",
+      { protocolVersion: currentDaemonProtocolVersion },
+      2_000,
+    );
+    assert.equal(hello.build.commit ?? "source-archive", guiCommit);
     // 模拟 worker 把运行目录指进任务包产物目录。目录必须放在 os.tmpdir() 之外:profile 若仍从
     // runRoot 派生(本测试锁定的回归),userData 会落在 outDir 下而不是系统临时目录。
     const outDir = path.join(workspaceRoot, ".harness", "gui-e2e-driver-profile-test");
@@ -52,6 +65,9 @@ test(
     // 断言失败也不能泄漏 Electron:不注册这个钩子,一次红会把 node --test 挂在子进程的管道上。
     // 显式 close 之后 playwright 连接已关,二次 close 会抛 TypeError,安全网只兜进程不判重入。
     t.after(() => driver.close().catch(() => undefined));
+    const status = await driver.page.evaluate(() => globalThis.harness.getSystemStatus());
+    assert.equal(status.guiBuild.commit, guiCommit);
+    assert.equal(status.daemon.build.commitSha ?? "source-archive", guiCommit);
     // Electron 把 --user-data-dir 开关映射到 app.getPath("userData"),且返回 realpath
     // (macOS 上带 /private 前缀),所以对照 realpathSync 后的系统临时目录。
     const userData = await driver.app.evaluate(({ app }) => app.getPath("userData"));
@@ -246,17 +262,14 @@ test(
         lane: "isolated",
         readOnly: true,
         run: async (driver) => {
-          await driver.app.evaluate(({ BrowserWindow }) => {
-            BrowserWindow.getAllWindows()[0]?.webContents.forcefullyCrashRenderer();
-          });
-          await new Promise((resolve) => {
-            if (!driver.isAlive()) {
-              resolve();
-              return;
-            }
-            driver.page.once("crash", resolve);
-            setTimeout(resolve, 2_000);
-          });
+          const crashed = once(driver.page, "crash", { signal: AbortSignal.timeout(2_000) });
+          // Register the event waiter before asking the main process to kill the renderer.
+          await Promise.all([
+            crashed,
+            driver.app.evaluate(({ BrowserWindow }) => {
+              BrowserWindow.getAllWindows()[0]?.webContents.forcefullyCrashRenderer();
+            }),
+          ]);
         },
       },
       {
@@ -349,13 +362,12 @@ test(
     t.after(runtime.close);
     prepareE2EProbeGui(workspaceRoot, runtime.env);
     const mainPath = path.join(workspaceRoot, "packages/gui/dist-electron/electron-main.js");
+    const { runGuiE2E } = await import("../gui-e2e.mjs");
     const { runScenario, startGuiDriver } = await import("./driver.mjs");
     const { createLaneSessionPool } = await import("./session-pool.mjs");
 
     let mode = "startup-error";
-    let requestSeq = 0;
     const server = http.createServer((_req, res) => {
-      requestSeq += 1;
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       if (mode === "startup-error") {
         res.end(
@@ -363,10 +375,10 @@ test(
         );
         return;
       }
-      // Mode "reset-error": loads 1 & 2 (initial + startGuiDriver reload) are clean, load 3 (reset) errors, load 4 clean.
-      if (requestSeq === 3) {
+      if (mode === "reset-error" && _req.url === "/") {
+        mode = "clean";
         res.end(
-          "<!doctype html><html><body><script>console.error('synthetic_reset_console_probe');</script></body></html>",
+          "<!doctype html><html><body><script>throw new Error('synthetic_reset_pageerror_probe');</script></body></html>",
         );
       } else {
         res.end("<!doctype html><html><body><h1>ok</h1></body></html>");
@@ -400,47 +412,54 @@ test(
     assert.match(startupResult.message, /synthetic_startup_console_probe/u);
 
     // 2. Shared reset console.error must fail the acquiring scenario instead of being swallowed by pool retry.
-    mode = "reset-error";
-    requestSeq = 0;
-    const pool = createLaneSessionPool({
+    mode = "clean";
+    let firstPid;
+    const { result, runRoot } = await runGuiE2E({
       lane: "isolated",
-      workspaceRoot,
-      env: runtime.env,
-      startDriver: startGuiDriver,
-      openIsolatedFixtureImpl: async () => ({
-        fixture: { rootDir: outDir },
-        isHealthy: async () => true,
-        launchDriver: ({ runRoot, startDriver }) =>
-          startDriver({ workspaceRoot, mainPath, rootDir: outDir, env: runtime.env, runRoot, rendererUrl }),
-        close: async () => undefined,
-      }),
+      noBuild: true,
+      shots: outDir,
+      selectedScenarios: [
+        [
+          "before-reset",
+          async (driver) => {
+            firstPid = await driver.app.evaluate(() => process.pid);
+            mode = "reset-error";
+          },
+        ],
+        ["failed-reset", async () => assert.fail("the scenario must not run after a failed reset")],
+        ["after-reset", async (driver) => assert.notEqual(await driver.app.evaluate(() => process.pid), firstPid)],
+      ].map(([id, run]) => ({ id, feature: "reset", lane: "isolated", readOnly: true, run })),
+      createPool: (opts) =>
+        createLaneSessionPool({
+          ...opts,
+          openIsolatedFixtureImpl: async () => ({
+            fixture: { rootDir: outDir },
+            isHealthy: async () => true,
+            launchDriver: ({ runRoot, startDriver }) =>
+              startDriver({ workspaceRoot, mainPath, rootDir: outDir, env: runtime.env, runRoot, rendererUrl }),
+            close: async () => undefined,
+          }),
+        }),
     });
-    t.after(() => pool.close().catch(() => undefined));
-
-    const rootA = path.join(outDir, "a");
-    mkdirSync(rootA, { recursive: true });
-    const leaseA = await pool.acquire({ id: "s-a", readOnly: true }, rootA);
-    const resA = await runScenario(
-      leaseA.driver,
-      { id: "s-a", feature: "reset", lane: "isolated", run: async () => undefined },
-      { shots: null },
+    assert.deepEqual(
+      result.scenarios.map(({ outcome }) => outcome),
+      ["healthy", "failed", "healthy"],
     );
-    await leaseA.release({ outcome: resA.outcome });
-    assert.equal(resA.outcome, "healthy");
-
-    const rootB = path.join(outDir, "b");
-    mkdirSync(rootB, { recursive: true });
-    await assert.rejects(() => pool.acquire({ id: "s-b", readOnly: true }, rootB), /synthetic_reset_console_probe/u);
-
-    const rootC = path.join(outDir, "c");
-    mkdirSync(rootC, { recursive: true });
-    const leaseC = await pool.acquire({ id: "s-c", readOnly: true }, rootC);
-    const resC = await runScenario(
-      leaseC.driver,
-      { id: "s-c", feature: "reset", lane: "isolated", run: async () => undefined },
-      { shots: null },
-    );
-    await leaseC.release({ outcome: resC.outcome });
-    assert.equal(resC.outcome, "healthy");
+    const diskResult = JSON.parse(readFileSync(path.join(runRoot, "result.json"), "utf8"));
+    assert.deepEqual(diskResult, result);
+    const failure = diskResult.scenarios[1];
+    assert.equal(failure.failedStep, "failed-reset");
+    assert.match(failure.message, /synthetic_reset_pageerror_probe/u);
+    const artifactRoot = path.join(runRoot, "isolated", "failed-reset");
+    for (const artifact of [failure.screenshotPath, failure.tracePath, failure.windowStatePath, failure.ipcTracePath]) {
+      assert.ok(artifact && path.dirname(artifact) === artifactRoot && statSync(artifact).size > 0, String(artifact));
+    }
+    assert.equal(readFileSync(failure.screenshotPath).subarray(1, 4).toString(), "PNG");
+    assert.equal(readFileSync(failure.tracePath).subarray(0, 2).toString(), "PK");
+    assert.deepEqual(JSON.parse(readFileSync(failure.windowStatePath, "utf8")), [{ visible: false, focused: false }]);
+    const ipc = JSON.parse(readFileSync(failure.ipcTracePath, "utf8"));
+    assert.equal(ipc.schema, "gui-e2e-ipc-trace/v1");
+    assert.equal(ipc.scenarioId, "failed-reset");
+    assert.equal(ipc.count, ipc.entries.length);
   },
 );

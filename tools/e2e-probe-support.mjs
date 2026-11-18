@@ -31,19 +31,18 @@ export function prepareE2EProbeGui(rootDir = repositoryRoot, env = process.env) 
   if (!existsSync(vite)) throw probeError("gui_dependencies_missing", `Missing ${vite}; run npm install first.`);
   // Concurrent GUI tests share this checkout. Rebuild every entrypoint without
   // clearing files another test may still be launching or serving.
-  for (const config of ["vite.config.ts", "vite.preload.config.ts", "vite.main.config.ts"])
-    try {
-      execFileSync(process.execPath, [vite, "build", "--config", config, "--no-emptyOutDir"], {
-        cwd: guiRoot,
-        env,
-        encoding: "utf8",
-        stdio: "pipe",
-        maxBuffer: 16 * 1024 * 1024,
-      });
-    } catch (error) {
-      const detail = typeof error?.stderr === "string" ? error.stderr.trim() : String(error);
-      throw probeError("gui_build_failed", `${config}: ${detail}`);
-    }
+  try {
+    execFileSync(process.execPath, ["scripts/build.mjs", "--preserve-output"], {
+      cwd: guiRoot,
+      env,
+      encoding: "utf8",
+      stdio: "pipe",
+      maxBuffer: 16 * 1024 * 1024,
+    });
+  } catch (error) {
+    const detail = typeof error?.stderr === "string" ? error.stderr.trim() : String(error);
+    throw probeError("gui_build_failed", detail);
+  }
 }
 
 export function resolveE2EProbeElectronForTest(rootDir = repositoryRoot, env = process.env) {

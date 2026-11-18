@@ -164,9 +164,8 @@ export async function startGuiDriver({
       async clearIpcTrace() {
         await driver.readIpcTrace({ clear: true });
       },
-      async resetForScenario(nextRunRoot, { timeoutMs = DEFAULT_RESET_TIMEOUT_MS, scenarioId = "reset" } = {}) {
+      async resetForScenario({ timeoutMs = DEFAULT_RESET_TIMEOUT_MS } = {}) {
         if (!driver.isAlive()) throw new Error("Electron session is not alive");
-        driver.runRoot = nextRunRoot;
         await withTimeout(
           async () => {
             await driver.clearIpcTrace();
@@ -201,19 +200,11 @@ export async function startGuiDriver({
               await page.reload({ waitUntil: "domcontentloaded" });
             }
             await driver.assertBackground();
-            driver.assertConsoleClean(driver.consoleCursor);
-            driver.markConsoleClean();
+            driver.assertConsoleClean();
           },
           timeoutMs,
           `Electron reset timed out after ${timeoutMs}ms`,
-        ).catch(async (error) => {
-          try {
-            await withTimeout(driver.shot(`${scenarioId}-failure`), 3_000, "Reset failure screenshot timed out");
-          } catch {
-            // Best-effort screenshot when reset itself fails.
-          }
-          throw error;
-        });
+        );
       },
       async close(closeTimeoutMs = DEFAULT_CLEANUP_TIMEOUT_MS) {
         await stopElectronApp(app, closeTimeoutMs);
@@ -282,6 +273,7 @@ export async function runScenario(
   {
     shots,
     trace = true,
+    prepare,
     injectFault,
     scenarioTimeoutMs = DEFAULT_SCENARIO_TIMEOUT_MS,
     cleanupTimeoutMs = DEFAULT_CLEANUP_TIMEOUT_MS,
@@ -294,12 +286,16 @@ export async function runScenario(
   try {
     if (trace && context?.tracing) {
       await withTimeout(
-        context.tracing.start({ screenshots: true, snapshots: true, sources: false }),
+        // A live screencast can leave Chromium frame acknowledgements in flight when
+        // Playwright clears the crashed renderer's pending CDP calls. Keep DOM and
+        // network snapshots in the trace and capture a full-page PNG on failure.
+        context.tracing.start({ snapshots: true, sources: false }),
         cleanupTimeoutMs,
         `Playwright tracing.start timed out for ${scenario.id}`,
       );
       tracingStarted = true;
     }
+    await prepare?.();
     await withTimeout(
       async () => {
         await scenario.run(driver);
@@ -308,9 +304,8 @@ export async function runScenario(
           throw new Error(`Electron renderer/session died during ${scenario.id}`);
         }
         await driver.assertBackground();
-        driver.assertConsoleClean(consoleOffset);
-        if (typeof driver.markConsoleClean === "function") driver.markConsoleClean();
         if (shots) await driver.shot(scenario.id);
+        driver.assertConsoleClean(consoleOffset);
       },
       scenarioTimeoutMs,
       `Scenario "${scenario.id}" timed out after ${scenarioTimeoutMs}ms`,
@@ -323,6 +318,9 @@ export async function runScenario(
       );
       tracingStarted = false;
     }
+    // Playwright can deliver renderer errors while the last tracing command is in flight.
+    driver.assertConsoleClean(consoleOffset);
+    driver.markConsoleClean?.();
     return {
       id: scenario.id,
       feature: scenario.feature,
@@ -332,6 +330,15 @@ export async function runScenario(
     };
   } catch (error) {
     const targetRoot = driver.runRoot ?? shots ?? "";
+    const windowState = targetRoot ? path.join(targetRoot, "window-state.json") : null;
+    if (windowState && !existsSync(windowState)) {
+      // Even a crashed renderer may still have a reachable Electron main process.
+      await withTimeout(
+        () => driver.assertBackground(),
+        cleanupTimeoutMs,
+        `Failure window state timed out for ${scenario.id}`,
+      ).catch(() => undefined);
+    }
     let screenshotPath = targetRoot ? path.join(targetRoot, `${scenario.id}-failure.png`) : null;
     const sessionAlive = typeof driver.isAlive !== "function" || driver.isAlive();
     try {
@@ -400,6 +407,7 @@ export async function runScenario(
       failedStep: scenario.id,
       message: error instanceof Error ? error.message : String(error),
       screenshotPath,
+      windowStatePath: windowState && existsSync(windowState) ? windowState : null,
       tracePath,
       ipcTracePath,
     };

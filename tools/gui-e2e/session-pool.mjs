@@ -63,26 +63,18 @@ export function createLaneSessionPool({
     }
   }
 
-  async function acquireShared(scenario, scenarioRoot) {
-    if (sharedDriver) {
-      const alive = typeof sharedDriver.isAlive === "function" ? sharedDriver.isAlive() : true;
-      if (!alive) {
-        await discardSharedDriver();
-      } else {
-        try {
-          await sharedDriver.resetForScenario(scenarioRoot, { scenarioId: scenario.id });
-          return sharedDriver;
-        } catch (error) {
-          // Do not swallow reset errors (such as console.error, pageerror, or hidden-window
-          // assertion failures during reload): discard the dirty session and attribute the
-          // failure to the acquiring scenario so false greens are impossible.
-          await discardSharedDriver();
-          throw error;
-        }
-      }
-    }
+  async function acquireShared(scenarioRoot) {
     if (sharedFixture && !(await sharedFixture.isHealthy())) {
       await discardSharedAll();
+    }
+    if (sharedDriver) {
+      const alive = typeof sharedDriver.isAlive === "function" ? sharedDriver.isAlive() : true;
+      if (alive) {
+        const driver = sharedDriver;
+        driver.runRoot = scenarioRoot;
+        return { driver, prepare: () => driver.resetForScenario() };
+      }
+      await discardSharedDriver();
     }
     if (!sharedFixture) {
       const fixturePromise = openIsolatedFixtureImpl({
@@ -111,7 +103,7 @@ export function createLaneSessionPool({
         acquireTimeoutMs,
         `Timed out launching shared ${lane} Electron driver`,
       );
-      return sharedDriver;
+      return { driver: sharedDriver };
     } catch (error) {
       void driverPromise.then((driver) => driver?.close?.().catch(() => undefined)).catch(() => undefined);
       await discardSharedAll();
@@ -122,21 +114,29 @@ export function createLaneSessionPool({
   return {
     async acquire(scenario, scenarioRoot) {
       if (!isShareableReadOnlyScenario(scenario, lane)) {
-        const active = await withTimeout(
-          openLaneImpl({
-            lane,
-            scenarioId: scenario.id,
-            workspaceRoot,
-            env,
-            runRoot: scenarioRoot,
-            startDriver,
-            runtimeInstance: scenario.runtimeInstance,
-            identityProvider: scenario.identityProvider,
-            decisionProviderCredentials: scenario.decisionProviderCredentials,
-          }),
-          acquireTimeoutMs,
-          `Timed out acquiring dedicated session for ${scenario.id}`,
-        );
+        const opening = openLaneImpl({
+          lane,
+          scenarioId: scenario.id,
+          workspaceRoot,
+          env,
+          runRoot: scenarioRoot,
+          startDriver,
+          runtimeInstance: scenario.runtimeInstance,
+          identityProvider: scenario.identityProvider,
+          decisionProviderCredentials: scenario.decisionProviderCredentials,
+        });
+        let active;
+        try {
+          active = await withTimeout(
+            opening,
+            acquireTimeoutMs,
+            `Timed out acquiring dedicated session for ${scenario.id}`,
+          );
+        } catch (error) {
+          // A timed-out acquisition no longer has a lease to close a late session.
+          void opening.then((late) => late.close()).catch(() => undefined);
+          throw error;
+        }
         return {
           driver: active.driver,
           shared: false,
@@ -154,10 +154,11 @@ export function createLaneSessionPool({
         };
       }
 
-      const driver = await acquireShared(scenario, scenarioRoot);
+      const { driver, prepare } = await acquireShared(scenarioRoot);
 
       return {
         driver,
+        prepare,
         shared: true,
         async release({ outcome } = {}) {
           const alive = typeof driver.isAlive === "function" ? driver.isAlive() : true;

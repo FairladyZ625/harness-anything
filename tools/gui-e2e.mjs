@@ -71,6 +71,7 @@ export async function runGuiE2E(options = {}) {
             {
               shots: options.shots,
               trace: options.trace ?? true,
+              prepare: lease.prepare,
               injectFault: options.injectFault,
               ...(options.scenarioTimeoutMs === undefined ? {} : { scenarioTimeoutMs: options.scenarioTimeoutMs }),
               ...(options.cleanupTimeoutMs === undefined ? {} : { cleanupTimeoutMs: options.cleanupTimeoutMs }),

@@ -11,6 +11,7 @@ import { registerDaemonRepo } from "@harness-anything/storage";
 import { BuiltinIdentitySession } from "@harness-anything/authorization-builtin";
 import { serveKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { assessHermeticConfig } from "../../../tools/test-hermetic-preflight.mjs";
 import { copyHarnessLedgerWithCow, copyHarnessRuntimeLedgerWithCow } from "./harness-copy.mjs";
 
 export async function startGuiResidentDaemonFixture({
@@ -30,11 +31,17 @@ export async function startGuiResidentDaemonFixture({
   afterRestart,
   runtimeInstance,
   decisionProviderCredentials = false,
+  assessConfig = assessHermeticConfig,
+  start = startDaemon,
 } = {}) {
   const parent = mkdtempSync(path.join(tmpdir(), prefix));
   const rootDir = path.join(parent, "repo"),
     userRoot = path.join(parent, "user");
   try {
+    const preflight = assessConfig({ userRoot, daemonId, userRootSource: "flag" });
+    if (!preflight.ok) {
+      throw new Error(`Hermetic fixture preflight failed: ${preflight.failures.join("; ")}`);
+    }
     if (sourceLedgerRoot) {
       mkdirSync(rootDir, { recursive: true });
       copyHarnessLedgerWithCow(sourceLedgerRoot, path.join(rootDir, "harness"));
@@ -126,7 +133,7 @@ export async function startGuiResidentDaemonFixture({
   delete process.env.HARNESS_EXECUTION_CREDENTIAL;
   try {
     const startedAt = Date.now();
-    daemon = await startDaemon({
+    daemon = await start({
       daemonId,
       userRoot,
       ...(attachTimeoutMs === undefined ? {} : { attachTimeoutMs }),
@@ -153,7 +160,7 @@ export async function startGuiResidentDaemonFixture({
     const originalTmpdir = process.env.TMPDIR;
     process.env.TMPDIR = "/tmp";
     try {
-      daemon = await startDaemon({
+      daemon = await start({
         daemonId,
         userRoot,
         ...(attachTimeoutMs === undefined ? {} : { attachTimeoutMs }),
@@ -275,7 +282,7 @@ export async function startGuiResidentDaemonFixture({
         authority.close();
       }
       await beforeRestart(rootDir, repoId, writerFence);
-      daemon = await startDaemon({ daemonId, userRoot });
+      daemon = await start({ daemonId, userRoot });
       await afterRestart?.(daemon.endpoint, repoId);
     }
     return {
