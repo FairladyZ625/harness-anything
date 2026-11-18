@@ -218,7 +218,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
           };
         },
       });
-    t.after(() => edgeHost.close());
+    fixture.track(() => edgeHost.close());
     await edgeHost.attachmentsSettled();
     await edgeHost.runtimeInstance("daemon.runtimeInstance.create", codexInstance, localAuth);
     let edgeAwaitRouteCount = 0;

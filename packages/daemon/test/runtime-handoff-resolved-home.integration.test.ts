@@ -194,7 +194,7 @@ for (const row of [{type:'thread.started',thread_id:id},
       // launch resolves CODEX_HOME from here, not from any instance layout.
       runtimeEnv: { CODEX_HOME: providerHome },
     });
-    t.after(() => host.close());
+    f.track(() => host.close());
     await host.attachmentsSettled();
     await host.runtimeInstance("daemon.runtimeInstance.create", instance, localAuth);
     return {

@@ -197,7 +197,7 @@ for (const row of [{type:'thread.started',thread_id:id},
       );
       f.owners.signIn(userRoot, nodeId, rootDir);
       const host = await openDaemonHost({ daemonId: nodeId, userRoot, runtimeDiscover: () => [installation] });
-      t.after(() => host.close());
+      f.track(() => host.close());
       await host.attachmentsSettled();
       await host.runtimeInstance("daemon.runtimeInstance.create", instance, localAuth);
       const transport = createUnixSocketTransportServer({

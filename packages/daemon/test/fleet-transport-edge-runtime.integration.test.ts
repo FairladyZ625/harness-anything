@@ -337,7 +337,7 @@ test(
         };
       },
     });
-    t.after(() => edgeHost.close());
+    fixture.track(() => edgeHost.close());
     await edgeHost.attachmentsSettled();
     await assert.rejects(
       edgeHost.spawnRuntime(
@@ -947,7 +947,7 @@ test(
           };
         },
       });
-    t.after(() => edgeHost.close());
+    fixture.track(() => edgeHost.close());
     await edgeHost.attachmentsSettled();
     await registerFixtureRuntimeInstance(edgeHost, repoId, localAuth, codexInstance, { allowHost: fixture.host });
     const oldRoot = edgeRoot,

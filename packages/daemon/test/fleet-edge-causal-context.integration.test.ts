@@ -246,7 +246,7 @@ test(
         };
       },
     });
-    t.after(() => edgeHost.close());
+    fixture.track(() => edgeHost.close());
     await edgeHost.attachmentsSettled();
     await registerFixtureRuntimeInstance(
       edgeHost,

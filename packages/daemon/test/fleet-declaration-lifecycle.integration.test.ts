@@ -82,7 +82,7 @@ test(
         createConvenienceLinks: false,
       });
       const edge = await openDaemonHost({ daemonId, userRoot: edgeUser, oidc });
-      t.after(() => edge.close());
+      fixture.track(() => edge.close());
       await edge.attachmentsSettled();
       await catchUpReplica({
         port: center.port,

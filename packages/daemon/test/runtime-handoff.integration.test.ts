@@ -283,7 +283,7 @@ test(
     await center.close();
     await f.host.close();
     const restarted = await openDaemonHost({ daemonId: "fleet-center", userRoot: path.join(f.root, "user") });
-    t.after(() => restarted.close());
+    f.track(() => restarted.close());
     await restarted.attachmentsSettled();
     const afterRestart = await restarted.run(source.repoId, claim, f.owners.auth(target));
     assert.equal(afterRestart.code, "runtime_dispatch_already_resumed", JSON.stringify(afterRestart));
