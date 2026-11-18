@@ -181,7 +181,8 @@ test("daemon domain service actions and policies are closed under the shared ont
   const policies = candidates.filter((row) => row.category === "policy");
   // CEO ruling dispatch_294b4cda7cf887e9077a2a81 Route 1 deleted the duplicate manual
   // `cell.service.execute` call site in `task-return-dispatch.ts` in favor of `RepoCellContinuationWrite`.
-  assert.equal(actions.length, 161);
+  // dec_04A9211B073F29F0FC1E1CA573/CH2 shares the primary and fallback review launch call site.
+  assert.equal(actions.length, 160);
   // CH1 closes migration debt, while later registered policies may grow the live set.
   assert.ok(policies.length >= 126, "all 126 migrated policy sources remain represented");
   assert.deepEqual(
@@ -224,6 +225,10 @@ test("daemon domain service actions and policies are closed under the shared ont
     [
       "action:packages/daemon:packages/daemon/src/daemon-host/task-action-catalog-runtime.ts#runTaskActionCatalogRuntime:3141039e8e0edac7120fa68967ce7466",
       "action:task-transition",
+    ],
+    [
+      "action:packages/daemon:packages/daemon/src/daemon-host/task-review-dispatch.ts#spawnCutReviewDispatch.prepareAndLaunch:9030b04c8201332d5d65d14f2b188188",
+      "action:daemon-local-state",
     ],
     [
       "action:packages/daemon:packages/daemon/src/daemon-host/settings-action-runtime.ts#publishSettingsDraft.appended:27280392f0c307d2d9bd09af88c49ab7",

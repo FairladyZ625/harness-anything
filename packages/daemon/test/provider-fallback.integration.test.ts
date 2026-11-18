@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
+import { waitForArrival, waitForDurableValue, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
@@ -67,7 +67,9 @@ const behaviors = new Map<string, Behavior>([
   ["provider-stop-first", "worker_stop"],
   ["provider-unused-second", "success"],
   ["provider-restart-first", "429"],
-  ["provider-restart-second", "success"],
+  // Restart can observe a finished process before its exit code is recorded. Keep the successor
+  // free of tool activity so this case measures continuation independently of loss after tools.
+  ["provider-restart-second", "worker_stop"],
   ["provider-empty-success", "empty_success"],
   ["provider-bare-first", "429"],
   ["provider-bare-second", "success"],
@@ -509,21 +511,17 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     });
     await cell.close();
     cell = await open();
-    const restarted = await eventually(async () => {
+    const restarted = await waitForDurableValue(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_restart" })).dispatches;
       // The successor is published only after its predecessor links to it, so no read may see both
       // rows with the predecessor still scheduled.
       if (rows.length === 2) assert.equal(rows[0]?.nextDispatchId, rows[1]?.dispatchId, JSON.stringify(rows));
-      const successor = rows[1],
-        outcomeMatchesEvidence =
-          successor?.exitCode === null
-            ? successor.outcome === "unknown"
-            : successor?.exitCode === 0
-              ? successor.outcome === "stopped"
-              : false;
-      return rows.length === 2 && outcomeMatchesEvidence && taskDispatchRowsSettled(rows) ? rows : null;
+      return rows.length >= 2 && taskDispatchRowsSettled(rows) ? rows : null;
     });
     assertAttemptChain(restarted, ["provider-restart-first", "provider-restart-second"]);
+    const successor = restarted[1]!;
+    assert.ok(successor.exitCode === null || successor.exitCode === 0, JSON.stringify(successor));
+    assert.equal(successor.outcome, successor.exitCode === null ? "unknown" : "stopped", JSON.stringify(successor));
 
     await startTask(cell, root, "task_provider_fallback_bare", "execution-provider-fallback-bare");
     await cell.spawnRuntime(
