@@ -55,6 +55,7 @@ export function accessAdminPreloadApi(
     updateGroup: (input) => ask({ operation: "group-update", ...input }),
     deleteGroup: (input) => ask({ operation: "group-delete", ...input }),
     grants: () => ask({ operation: "grant-list" }),
+    repositoryMembers: () => ask({ operation: "repository-members" }),
     permissionRequests: () => ask({ operation: "permission-request-list" }),
     requestPermission: (input) => ask({ operation: "permission-request-create", ...input }),
     decidePermissionRequest: (input) => ask({ operation: "permission-request-decide", ...input }),

@@ -117,6 +117,13 @@ export interface AccessGrantsReply {
   readonly grants: readonly AccessGrant[];
 }
 
+export interface RepositoryMembersReply {
+  readonly personId: string;
+  readonly isRepoAdmin: boolean;
+  readonly canManageFleetNodes: boolean;
+  readonly members: readonly { readonly personId: string; readonly username: string }[];
+}
+
 export interface AccessEffectivePermissionsReply {
   readonly personId: string;
   readonly resource: string;
@@ -192,6 +199,7 @@ export type AccessAdminRequest = { readonly repoId?: string } & (
         | "credential-support";
     }
   | { readonly operation: "access-password-change"; readonly password: string }
+  | { readonly operation: "repository-members" }
   | { readonly operation: "access-password-reset"; readonly personId: string; readonly password: string }
   | ({ readonly operation: "device-rename"; readonly displayName: string } & AccessDeviceChange)
   | ({ readonly operation: "device-pause" | "device-resume" | "device-remove" } & AccessDeviceChange)
@@ -268,6 +276,7 @@ export interface AccessAdminApi {
   readonly updateGroup: (input: AccessGroupWrite & { readonly expectedVersion: string }) => Reply<AccessReceipt>;
   readonly deleteGroup: (input: { readonly groupId: string; readonly expectedVersion: string }) => Reply<AccessReceipt>;
   readonly grants: () => Reply<AccessGrantsReply>;
+  readonly repositoryMembers: () => Reply<RepositoryMembersReply>;
   readonly permissionRequests: () => Reply<{
     readonly canDecide: boolean;
     readonly requests: readonly PermissionRequest[];

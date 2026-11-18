@@ -126,22 +126,29 @@ export function activeAgentIdsOf(
 export function useOverviewAgentMemberPages(
   repoId: string,
   agents: readonly { readonly agentId: string }[],
+  personId: string | null,
 ): ReadonlyMap<
   string,
-  { readonly rows: readonly TaskDispatchProjectionRow[]; readonly titleOf: ReadonlyMap<string, string> }
+  {
+    readonly rows: readonly TaskDispatchProjectionRow[];
+    readonly titleOf: ReadonlyMap<string, string>;
+    readonly truncated: boolean;
+  }
 > {
   const queries = useQueries({
     queries: agents.map((agent) => ({
-      queryKey: [...runtimeQueryKeys.dispatchesAll(repoId), "agent", agent.agentId, AGENT_LANES_MEMBER_PAGE],
+      queryKey: [...runtimeQueryKeys.dispatchesAll(repoId), "agent", agent.agentId, personId, AGENT_LANES_MEMBER_PAGE],
       queryFn: async () => {
         const page = (await harnessClient.getTaskDispatches({
           repoId,
           agentId: agent.agentId,
+          ...(personId === null ? {} : { personId }),
           limit: AGENT_LANES_MEMBER_PAGE,
         })) as TaskDispatchMemberRead;
         return {
           rows: page.dispatches as readonly TaskDispatchProjectionRow[],
           titleOf: new Map(page.taskLabels.map((label) => [label.taskId, label.title] as const)),
+          truncated: page.truncated,
         };
       },
       staleTime: 4_000,
@@ -150,7 +157,7 @@ export function useOverviewAgentMemberPages(
   return useMemo(() => {
     const pages = new Map<
       string,
-      { rows: readonly TaskDispatchProjectionRow[]; titleOf: ReadonlyMap<string, string> }
+      { rows: readonly TaskDispatchProjectionRow[]; titleOf: ReadonlyMap<string, string>; truncated: boolean }
     >();
     agents.forEach((agent, index) => {
       const data = queries[index]?.data;

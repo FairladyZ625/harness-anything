@@ -1237,6 +1237,7 @@
   "views.lineage.collapse": "Collapse lineage",
   "views.lineage.reading": "Reading lineage and costs…",
   "views.lineage.readError": "Lineage read failed: {message}",
+  "views.overviewView.memberDispatchesTruncated": "Older dispatches omitted",
   "views.lineage.truncated": "Older dispatch rounds are beyond the page limit and excluded from the totals",
   "views.lineage.sectionTitle": "Lineage & cost",
   "views.lineage.sectionNote": "Live status, duration and token cost of tasks, dispatch rounds and delegation chains; parents roll up their subtree",

@@ -438,6 +438,8 @@ export interface Project {
 
 export interface EventEntry {
   readonly at: string;
+  readonly personId?: string | null;
+  readonly nodeId?: string | null;
   readonly projectId: string;
   readonly taskId: string;
   /** 事件种类(与工作概况「最近进展」同一 WorkStepKind 词表;标签/色调经 STEP_META 查)。 */

@@ -17,11 +17,7 @@ import {
 } from "../src/renderer/model/attribution.ts";
 import { applyTaskFilters, DEFAULT_TASK_FILTERS } from "../src/renderer/model/taskFilters.ts";
 import type { TaskRow } from "../src/renderer/model/types.ts";
-import {
-  evaluateFleetNodeAdminAccess,
-  evaluateRepoAdminFromExplain,
-  filterRepoKnownMembers,
-} from "../src/renderer/use-member-scope-lens.ts";
+import { useMemberScopeContext } from "../src/renderer/use-member-scope-lens.ts";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
 import { CollaborationView } from "../src/renderer/views/CollaborationView.tsx";
 import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
@@ -173,98 +169,55 @@ describe("attribution formatting and zero-noise rules (CH3)", () => {
 });
 
 describe("admin global member scope lens (CH2)", () => {
-  it("grants repo admin lens strictly from repo.entity.actions.explain, separates @fleet manage, and scopes knownMembers", async () => {
-    expect(
-      evaluateRepoAdminFromExplain("person_bob", {
-        subjects: [
-          {
-            ref: "person/person_bob",
-            failure: null,
-            actions: [{ action: { kind: "person", id: "delegate" }, authorizationDecision: { outcome: "denied" } }],
-          },
-        ],
-      }),
-    ).toBe(false);
-
-    expect(
-      evaluateRepoAdminFromExplain("person_bob", {
-        ok: false,
-        subjects: [],
-      }),
-    ).toBe(false);
-
-    expect(
-      evaluateRepoAdminFromExplain("person_alice", {
-        subjects: [
-          {
-            ref: "person/person_alice",
-            failure: { code: "entity_not_found" },
-            actions: [],
-          },
-        ],
-      }),
-    ).toBe(false);
-
-    expect(
-      evaluateRepoAdminFromExplain("person_alice", {
-        subjects: [
-          {
-            ref: "person/person_alice",
-            failure: null,
-            actions: [{ action: { kind: "person", id: "delegate" }, authorizationDecision: { outcome: "allowed" } }],
-          },
-        ],
-      }),
-    ).toBe(true);
-
-    expect(
-      evaluateFleetNodeAdminAccess({
-        ok: true,
-        personId: "person_alice",
-        resource: "@fleet",
-        grants: [],
-        actions: [{ action: "read" }] as never,
-      }),
-    ).toBe(false);
-    expect(
-      evaluateFleetNodeAdminAccess({
-        ok: true,
-        personId: "person_alice",
-        resource: "@fleet",
-        grants: [],
-        actions: [{ action: "access-manage" }] as never,
-      }),
-    ).toBe(true);
-
-    const { memberPeople, allPeople } = filterRepoKnownMembers("repo-test", {
+  it("offers a second repository member before any tasks or nodes exist and rejects an unrelated identity reply", async () => {
+    let reply = {
       ok: true,
-      repoId: "repo-test",
-      grants: [
-        { personId: "person_alice", groupId: "admin", resource: "repo-test" } as never,
-        { personId: "person_chen", groupId: "contributor", resource: "@fleet" } as never,
-        { personId: "person_outsider", groupId: "admin", resource: "other-repo" } as never,
-      ],
-      people: [
-        { personId: "person_alice", username: "alice" },
-        { personId: "person_chen", username: "chenyirun" },
-        { personId: "person_outsider", username: "outsider" },
-      ],
+      personId: "person_bob",
+      isRepoAdmin: true,
+      canManageFleetNodes: false,
+      members: [{ personId: "person_chen", username: "chenyirun" }],
+    };
+    vi.stubGlobal("harness", {
+      auth: {
+        status: async () => ({ authenticated: true, personId: "person_alice" }),
+        bindingStatus: async () => ({ mode: "keycloak" }),
+      },
+      access: { forRepository: () => ({ repositoryMembers: async () => reply }) },
     });
-    expect(memberPeople.map((p) => p.personId)).toEqual(["person_alice", "person_chen"]);
-    expect(allPeople.map((p) => p.personId)).toEqual(["person_alice", "person_chen", "person_outsider"]);
-
-    const view = renderDom(
-      createElement(NavigationHistoryBar, {
+    function Header() {
+      const scope = useMemberScopeContext({ repoId: "repo-test", rootDir: undefined, tasks: [] });
+      return createElement(NavigationHistoryBar, {
         canBack: false,
         canForward: false,
         onBack: () => {},
         onForward: () => {},
-        scopeLens: null,
-      }),
-    );
-    await view.mount();
-    expect(view.container.querySelector('[data-testid="global-scope-select"]')).toBeNull();
-    view.unmount();
+        scopeLens:
+          scope.canUseGlobalLens && scope.currentPersonId
+            ? {
+                value: scope.scopePersonId,
+                currentPersonId: scope.currentPersonId,
+                members: scope.lensMembers,
+                onChange: scope.setScopePersonId,
+              }
+            : null,
+      });
+    }
+    const view = renderDom(createElement(Header));
+    try {
+      await view.mount();
+      expect(view.container.querySelector('[data-testid="global-scope-select"]')).toBeNull();
+      reply = { ...reply, personId: "person_alice" };
+      await act(async () => window.dispatchEvent(new Event("harness-access-changed")));
+      const select = view.container.querySelector<HTMLSelectElement>('[data-testid="global-scope-select"]');
+      expect([...select!.options].map(({ value }) => value)).toEqual(["", "person_alice", "person_chen"]);
+      expect(select?.textContent).toContain("chenyirun");
+      reply = { ...reply, ok: false };
+      await act(async () => window.dispatchEvent(new Event("harness-access-changed")));
+      expect(view.container.querySelector('[data-testid="global-scope-select"]')).toBeNull();
+    } finally {
+      view.unmount();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("allows admin to switch scope to self/member and exit via compact banner", async () => {
@@ -383,21 +336,19 @@ describe("admin global member scope lens (CH2)", () => {
       pinnedEntities: [
         {
           ref: "task/task-alice",
-          entityKind: "task",
-          entityId: "task-alice",
+          kind: "task",
           title: "Alice Active",
-          summary: null,
+          status: "active",
           pinnedAt: "2026-10-06T00:00:00.000Z",
         },
         {
           ref: "task/task-chen",
-          entityKind: "task",
-          entityId: "task-chen",
+          kind: "task",
           title: "Chen Active",
-          summary: null,
+          status: "active",
           pinnedAt: "2026-10-06T00:00:00.000Z",
         },
-      ] as never,
+      ],
       regionWeights: { mine: 0, stuck: 2, run: 0, review: 0, queue: 0, recent: 0, works: 0 },
     });
 

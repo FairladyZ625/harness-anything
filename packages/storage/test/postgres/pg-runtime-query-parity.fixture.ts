@@ -69,7 +69,7 @@ export async function appendRuntimeQueryFixtures(
       opId: `operation-${id}`,
       workspaceRevision: revision(),
       occurredAt: startedAt,
-      actor: { executor: null, principal: { personId: "person_runtime" } },
+      actor: { executor: null, principal: { personId: id === "runtime-query-c" ? "person_other" : "person_runtime" } },
       source,
       payload: {
         dispatchId: id,
@@ -261,6 +261,19 @@ function dispatchContract(
   );
   assert.equal(queries.countRuntimeDispatchesByAgent("parity-agent"), 3);
   assert.equal(queries.countRuntimeDispatchesByAgent("missing-agent"), 0);
+  const scope = { agentId: "parity-agent", personId: "person_runtime", nodeId: "center", limit: 1 };
+  const memberPage = queries.readRuntimeDispatchesByMember(scope);
+  assert.deepEqual(
+    memberPage.rows.map(({ payload }) => payload.dispatchId),
+    ["runtime-query-b"],
+  );
+  assert.equal(memberPage.sessions.length, 1);
+  assert.equal(memberPage.truncated, true);
+  assert.deepEqual(queries.readRuntimeDispatchesByMember({ ...scope, nodeId: "edge-missing" }), {
+    rows: [],
+    sessions: [],
+    truncated: false,
+  });
   for (const keyed of [
     queries.readRuntimeDispatchesByTaskIds(["task-parity"]),
     queries.readRuntimeDispatchEventsBySession("runtime-query-session"),

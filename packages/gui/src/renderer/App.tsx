@@ -305,7 +305,6 @@ function AppShell() {
   const selected = useMemo(() => tasks.find((t) => t.taskId === selectedId) ?? null, [tasks, selectedId]);
   // 根任务即工作:选中位落在工作根(跨仓深链、历史恢复时任务行尚未到)就原地换成工作页。
   const selectedWorkRootId = selected !== null && works.isWorkRoot(selected.taskId) ? selected.taskId : null;
-  const previewTask = useMemo(() => tasks.find((t) => t.taskId === previewId) ?? null, [previewId, tasks]);
   const scopedProjectTasks = useMemo(
     () =>
       memberScope.scopePersonId === null
@@ -313,10 +312,30 @@ function AppShell() {
         : projectTasks.filter((task) => taskMatchesPerson(task, memberScope.scopePersonId!)),
     [projectTasks, memberScope.scopePersonId],
   );
-  const filteredProjectTasks = useMemo(
-    () => applyTaskFilters(scopedProjectTasks, taskFilters, favorites),
-    [scopedProjectTasks, taskFilters, favorites],
+  const boardFilters = useMemo(
+    () => (memberScope.scopePersonId === null ? taskFilters : { ...taskFilters, person: memberScope.scopePersonId }),
+    [memberScope.scopePersonId, taskFilters],
   );
+  const filteredProjectTasks = useMemo(
+    () => applyTaskFilters(projectTasks, boardFilters, favorites),
+    [projectTasks, boardFilters, favorites],
+  );
+  const changeBoardFilters = useCallback(
+    (next: TaskFilters) =>
+      setTaskFilters(memberScope.scopePersonId === null ? next : { ...next, person: taskFilters.person }),
+    [memberScope.scopePersonId, setTaskFilters, taskFilters.person],
+  );
+  const previewTasks =
+    view === "board" ? filteredProjectTasks : memberScope.scopePersonId === null ? projectTasks : scopedProjectTasks;
+  const previewTask = useMemo(
+    () => previewTasks.find((task) => task.taskId === previewId) ?? null,
+    [previewId, previewTasks],
+  );
+  const previewExcluded =
+    previewId !== null && previewTask === null && projectTasks.some((task) => task.taskId === previewId);
+  useEffect(() => {
+    if (previewExcluded) updateLocation({ previewId: null });
+  }, [previewExcluded, updateLocation]);
 
   // ----------------------------------------------------------------三元读取分层
   // 窄面也按真实消费者挂载:任务详情/⌘K 需要决策标题,其余页面不背景读它们。
@@ -630,7 +649,7 @@ function AppShell() {
                 ? {
                     value: memberScope.scopePersonId,
                     currentPersonId: memberScope.currentPersonId,
-                    members: memberScope.memberOptions,
+                    members: memberScope.lensMembers,
                     onChange: memberScope.setScopePersonId,
                   }
                 : null
@@ -853,8 +872,9 @@ function AppShell() {
                   tasks={filteredProjectTasks}
                   allTasks={scopedProjectTasks}
                   wipSnapshot={taskWipQuery.data}
-                  filters={taskFilters}
-                  onFiltersChange={setTaskFilters}
+                  filters={boardFilters}
+                  onFiltersChange={changeBoardFilters}
+                  personFilterLocked={memberScope.scopePersonId !== null}
                   onSelect={openTaskPreview}
                   drill={drill}
                   favorites={favorites}
@@ -1213,20 +1233,22 @@ function AppShell() {
             ) : null}
           </aside>
         ) : null}
-        <TaskPreviewDrawer
-          task={previewTask}
-          tasks={projectTasks}
-          relations={edgeRelations}
-          // 抽屉单层(业主 2026-10-17):开抽屉推栈一次、层内换卡原地替换;关闭走 closePreview 一次回列表。
-          onClose={closePreview}
-          onOpenDetail={openTaskDetail}
-          onPreviewTask={openTaskPreview}
-          onSetPin={handleSetPin}
-          onOpenRecord={(taskId, recordRef) => {
-            setRecordFocus({ taskId, recordRef });
-            openTaskDetail(taskId);
-          }}
-        />
+        {!previewExcluded && (
+          <TaskPreviewDrawer
+            task={previewTask}
+            tasks={previewTasks}
+            relations={edgeRelations}
+            // 抽屉单层(业主 2026-10-17):开抽屉推栈一次、层内换卡原地替换;关闭走 closePreview 一次回列表。
+            onClose={closePreview}
+            onOpenDetail={openTaskDetail}
+            onPreviewTask={openTaskPreview}
+            onSetPin={handleSetPin}
+            onOpenRecord={(taskId, recordRef) => {
+              setRecordFocus({ taskId, recordRef });
+              openTaskDetail(taskId);
+            }}
+          />
+        )}
         <CommandPalette
           open={paletteOpen}
           entries={paletteEntries}

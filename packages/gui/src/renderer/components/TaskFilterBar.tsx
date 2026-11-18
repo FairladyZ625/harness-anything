@@ -127,6 +127,7 @@ export function TaskFilterBar({
   coldTerminalCount,
   toolbarExtra,
   currentPersonId = null,
+  personFilterLocked,
   knownMembers,
   knownNodes,
   nodeOwners,
@@ -142,6 +143,7 @@ export function TaskFilterBar({
   /** 本行中段控件(看板的 列/泳道/列表 视图切换等);与筛选入口同行。 */
   toolbarExtra?: ReactNode;
   currentPersonId?: string | null;
+  personFilterLocked?: boolean;
   knownMembers?: readonly MemberOption[];
   knownNodes?: readonly NodeOption[];
   nodeOwners?: ReadonlyMap<string, string>;
@@ -253,8 +255,9 @@ export function TaskFilterBar({
               data-testid="board-filter-person"
               aria-label={t("components.taskFilterBar.person")}
               value={filters.person}
+              disabled={personFilterLocked}
               onChange={(event) => patch({ person: event.target.value })}
-              className="rounded-md border border-border bg-surface-raised px-2 py-1.5 ui-body text-text outline-none transition-colors duration-100 hover:border-border-strong focus:border-border-strong"
+              className="rounded-md border border-border bg-surface-raised px-2 py-1.5 ui-body text-text outline-none transition-colors duration-100 hover:border-border-strong focus:border-border-strong disabled:opacity-60"
             >
               <option value="all">{t("components.taskFilterBar.all")}</option>
               {memberOptions.map((member) => (

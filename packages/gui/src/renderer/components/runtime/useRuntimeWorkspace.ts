@@ -1,6 +1,6 @@
 import type * as DomainStatus from "../../../api/renderer-dto.ts";
 import { guiInteractionPolicy } from "../../../api/renderer-dto.ts";
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import type { AgentDeclarationV1, SquadDeclarationV1, TerminalControlReceipt } from "@harness-anything/daemon/protocol";
@@ -30,6 +30,7 @@ import {
   filterDispatchesByAttribution,
   filterRelatedSessionGroups,
   hasSessionAttributionFilter,
+  indexSessionDispatches,
   sessionDelegation,
   type SessionAttributionFilter,
   type SessionGroupBy,
@@ -251,12 +252,14 @@ export function useSessionsWorkspace(
     staleTime: 4_000,
   });
   const squadRuns = useQuery({
-    queryKey: [...runtimeQueryKeys.squadRunsAll(repoId), list.squadSince, list.query],
+    queryKey: [...runtimeQueryKeys.squadRunsAll(repoId), list.squadSince, list.query, list.personId, list.nodeId],
     queryFn: () =>
       squadRunsClient.list(repoId, {
         since: list.squadSince,
         ...(list.query === "" ? {} : { query: list.query }),
         limit: SQUAD_RUNS_LIMIT,
+        ...(list.personId ? { personId: list.personId } : {}),
+        ...(list.nodeId ? { nodeId: list.nodeId } : {}),
       }),
     staleTime: 4_000,
   });
@@ -526,35 +529,42 @@ export function useRelatedDispatches(
   related: { readonly kind: "agent" | "squad"; readonly id: string } | null,
   attribution?: SessionAttributionFilter | null,
 ) {
-  const [windowRows, setWindowRows] = useState(RELATED_SESSIONS_PAGE);
-  // 换选中者回到第一页:窗口是本选择的读取参数,不跨选择延续。
-  const relatedKey = related === null ? "" : `${related.kind}:${related.id}`;
-  useEffect(() => {
-    setWindowRows(RELATED_SESSIONS_PAGE);
-  }, [relatedKey]);
+  const personId = attribution?.personId ?? null,
+    nodeId = attribution?.nodeId ?? null,
+    scopeKey = JSON.stringify([repoId, related?.kind, related?.id, personId, nodeId]);
+  const [window, setWindow] = useState<{ key: string; rows: number } | null>(null);
+  const windowRows = window?.key === scopeKey ? window.rows : RELATED_SESSIONS_PAGE;
   const read = useQuery({
-    queryKey: [...runtimeQueryKeys.relatedDispatchesAll(repoId), relatedKey, windowRows],
+    queryKey: [...runtimeQueryKeys.relatedDispatchesAll(repoId), scopeKey, windowRows],
     queryFn: async (): Promise<TaskDispatchMemberRead> => {
       if (related === null) throw new Error("Related dispatches require an agent or squad selection.");
-      return (await (related.kind === "agent"
-        ? harnessClient.getTaskDispatches({ repoId, agentId: related.id, limit: windowRows })
-        : harnessClient.getTaskDispatches({
-            repoId,
-            squadId: related.id,
-            limit: windowRows,
-          }))) as TaskDispatchMemberRead;
+      return (await harnessClient.getTaskDispatches({
+        repoId,
+        ...(related.kind === "agent" ? { agentId: related.id } : { squadId: related.id }),
+        ...(personId === null ? {} : { personId }),
+        ...(nodeId === null ? {} : { nodeId }),
+        limit: windowRows,
+      })) as TaskDispatchMemberRead;
     },
     enabled: related !== null,
     staleTime: 4_000,
     // 放大窗口重读期间保留旧列表:首屏不清空,新窗口到达后原位替换。换选中者
     // 不沿用上一个执行者的行——否则 lastDispatch/删除拦截会短暂指向别人。
-    placeholderData: (previous, previousQuery) =>
-      previousQuery?.queryKey[1] === repoId && previousQuery.queryKey[2] === relatedKey ? previous : undefined,
+    placeholderData: (previous, previousQuery) => (previousQuery?.queryKey[2] === scopeKey ? previous : undefined),
   });
-  const rawDispatches = read.data?.dispatches ?? [],
-    attributionActive = hasSessionAttributionFilter(attribution),
-    dispatchRows = attributionActive ? filterDispatchesByAttribution(rawDispatches, attribution) : rawDispatches,
-    relatedLabels = new Map((read.data?.taskLabels ?? []).map((label) => [label.taskId, label.title])),
+  const dispatchRows = useMemo(
+    () => filterDispatchesByAttribution(read.data?.dispatches ?? [], { personId, nodeId }),
+    [read.data?.dispatches, personId, nodeId],
+  );
+  const dispatchesByGroup = useMemo(() => indexSessionDispatches(dispatchRows), [dispatchRows]);
+  const groups = useMemo(
+    () =>
+      hasSessionAttributionFilter({ personId, nodeId })
+        ? filterRelatedSessionGroups(read.data?.groups ?? [], dispatchesByGroup)
+        : (read.data?.groups ?? []),
+    [dispatchesByGroup, read.data?.groups, personId, nodeId],
+  );
+  const relatedLabels = new Map((read.data?.taskLabels ?? []).map((label) => [label.taskId, label.title])),
     dockRows: readonly RuntimeDockRow[] = dispatchRows.map((row) => ({
       runtimeSessionId: row.runtimeSessionId,
       agentId: row.agentId ?? null,
@@ -572,22 +582,19 @@ export function useRelatedDispatches(
       dispatchId: row.dispatchId,
       delegation: sessionDelegation(row),
     })),
-    groups = attributionActive
-      ? filterRelatedSessionGroups(read.data?.groups ?? [], dispatchRows, attribution)
-      : (read.data?.groups ?? []),
-    totals = attributionActive
-      ? { groups: groups.length, sessions: new Set(dispatchRows.map((row) => row.runtimeSessionId)).size }
-      : (read.data?.totals ?? { groups: 0, sessions: 0 }),
+    totals = read.data?.totals ?? { groups: 0, sessions: 0 },
     truncated = read.data?.truncated ?? false;
   return {
     dockRows,
     // 原始派工行留给会话页钻入:窗口内按任务组成轮次,不在视图里重发 task.dispatches。
     dispatchRows,
+    dispatchesByGroup,
     groups,
     totals,
     truncated,
-    hasMore: truncated && rawDispatches.length >= windowRows && windowRows < RELATED_SESSIONS_WINDOW_MAX,
-    loadMore: () => setWindowRows((current) => Math.min(current + RELATED_SESSIONS_PAGE, RELATED_SESSIONS_WINDOW_MAX)),
+    hasMore: truncated && (read.data?.dispatches.length ?? 0) >= windowRows && windowRows < RELATED_SESSIONS_WINDOW_MAX,
+    loadMore: () =>
+      setWindow({ key: scopeKey, rows: Math.min(windowRows + RELATED_SESSIONS_PAGE, RELATED_SESSIONS_WINDOW_MAX) }),
     loadingMore: read.isFetching && read.data !== undefined,
     pending: read.isPending,
     error: read.isError ? (read.error instanceof Error ? read.error.message : String(read.error)) : null,

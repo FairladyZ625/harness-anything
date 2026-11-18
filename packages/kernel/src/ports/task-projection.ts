@@ -293,6 +293,8 @@ export interface TaskProjection {
   readonly readRuntimeDispatchesByMember: (query: {
     readonly agentId?: string;
     readonly squadId?: string;
+    readonly personId?: string;
+    readonly nodeId?: string;
     readonly limit: number;
   }) => RuntimeDispatchMemberRead;
   readonly readRuntimeSessionEvents: (

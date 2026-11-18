@@ -1,5 +1,6 @@
 import type { AgendaAttentionItem, WorkIndexRead } from "../../api/renderer-dto.ts";
 import type { EventEntry, TaskRow } from "./types.ts";
+import { matchesAttribution, taskExecutionMatches, type AttributionScope } from "./attribution.ts";
 
 export interface WorkGroup {
   readonly task: TaskRow;
@@ -16,9 +17,10 @@ export interface WorkGroup {
 }
 
 /** task-adapter emits exactly execution/review/consent/gate lifecycle events. */
-function latestActivity(task: TaskRow): WorkGroup["activity"] {
+function latestActivity(task: TaskRow, scope?: AttributionScope): WorkGroup["activity"] {
   return (task.events ?? []).reduce<WorkGroup["activity"]>(
-    (latest, event) => (!latest || event.at > latest.at ? event : latest),
+    (latest, event) =>
+      (!scope || matchesAttribution(event, scope)) && (!latest || event.at > latest.at) ? event : latest,
     null,
   );
 }
@@ -41,7 +43,7 @@ export function collectWork(tasks: readonly TaskRow[]): { groups: WorkGroup[]; i
         activity: null,
         members: [],
         lastChangeAt: task.lastKnownAt,
-        live: task.activeExecutionId !== undefined ? 1 : 0,
+        live: 0,
       });
     }
   }
@@ -139,6 +141,7 @@ export function scopeWorkGroup(
   group: WorkGroup,
   matchesTask: (task: TaskRow) => boolean,
   allParents: ReadonlySet<string>,
+  scope: AttributionScope,
 ): ScopedWorkResult | null {
   const rootMatches = matchesTask(group.task);
   const matchingMembers = group.members.filter(matchesTask);
@@ -159,11 +162,22 @@ export function scopeWorkGroup(
   let lastChangeAt = "";
   let live = 0;
   for (const task of participants) {
-    const taskActivity = latestActivity(task);
+    const taskActivity = latestActivity(task, scope);
     if (taskActivity && (!activity || taskActivity.at > activity.at)) activity = taskActivity;
-    if (task.lastKnownAt > lastChangeAt) lastChangeAt = task.lastKnownAt;
+    if (
+      task.createdAt &&
+      task.createdAt > lastChangeAt &&
+      matchesAttribution(
+        {
+          personId: task.createdByPersonId ?? task.createdBy,
+          nodeId: task.originNodeId,
+        },
+        scope,
+      )
+    )
+      lastChangeAt = task.createdAt;
     if (taskActivity && taskActivity.at > lastChangeAt) lastChangeAt = taskActivity.at;
-    if (task.activeExecutionId !== undefined) live += 1;
+    if (taskExecutionMatches(task, scope)) live += 1;
   }
 
   return {
@@ -175,10 +189,28 @@ export function scopeWorkGroup(
       counts,
       activity,
       members: matchingMembers,
-      lastChangeAt: lastChangeAt || group.task.lastKnownAt,
+      lastChangeAt,
       live,
     },
   };
+}
+
+/** Materialize only the visible branches and the ancestors that connect them to the work root. */
+export function scopedWorkLineage(group: WorkGroup, taskById: ReadonlyMap<string, TaskRow>): readonly TaskRow[] {
+  const lineage = new Map([
+    [group.task.taskId, group.task],
+    ...group.members.map((task) => [task.taskId, task] as const),
+  ]);
+  for (const task of group.members) {
+    let parentId = task.parentTaskId;
+    while (parentId !== undefined && !lineage.has(parentId)) {
+      const parent = taskById.get(parentId);
+      if (parent === undefined) break;
+      lineage.set(parentId, parent);
+      parentId = parent.parentTaskId;
+    }
+  }
+  return [...lineage.values()];
 }
 
 /** Narrow a work's agenda attention items to tasks surviving the current attribution filter. */

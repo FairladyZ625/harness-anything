@@ -875,9 +875,12 @@ export interface PinnedEntityRow {
   readonly title: string;
 }
 
-export function pinnedEntityRows(agenda: AgendaSuccess | undefined): readonly PinnedEntityRow[] {
+export function pinnedEntityRows(
+  agenda: AgendaSuccess | undefined,
+  personId: string | null,
+): readonly PinnedEntityRow[] {
   if (agenda === undefined) return [];
   return agenda.pinnedEntities
-    .filter((entity) => entity.kind !== "task")
+    .filter((entity) => entity.kind !== "task" && (personId === null || entity.personIds?.includes(personId)))
     .map((entity) => ({ ref: entity.ref, kind: entity.kind, title: entity.title }));
 }

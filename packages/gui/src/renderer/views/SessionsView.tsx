@@ -50,7 +50,6 @@ import {
   sessionDecisionRefs,
   sessionOrphans,
   sessionRounds,
-  sessionRoundsByTask,
   sessionStatusFilterKey,
   sessionStatusFilterWords,
   sessionStatusesInBucket,
@@ -70,6 +69,7 @@ import {
   collectMemberOptions,
   collectNodeOptions,
   formatNodeDisplay,
+  matchesAttribution,
   personShortName,
   type MemberOption,
   type NodeOption,
@@ -440,14 +440,17 @@ export function SessionsView({
         });
         return;
       }
-      const allRounds = sessionRounds(group.taskId, group.label, dispatches ?? []);
-      const rounds = filterDispatchesByAttribution(allRounds, attributionFilter);
+      const rounds = sessionRounds(
+        group.taskId,
+        group.label,
+        filterDispatchesByAttribution(dispatches ?? [], attributionFilter),
+      );
       // Daemon sessionGroups excludes unattributed/orphan sessions whenever personId or nodeId
       // filters are active; keeping task orphans empty under active attribution matches that
       // boundary and prevents another member's filtered-out dispatch session from becoming an orphan.
       const orphans = hasAttributionFilter
         ? []
-        : sessionOrphans(group.taskId, group.label, taskSessionsByTask.get(group.taskId) ?? [], allRounds);
+        : sessionOrphans(group.taskId, group.label, taskSessionsByTask.get(group.taskId) ?? [], rounds);
       rows.set(group.key, {
         rounds,
         orphans,
@@ -495,43 +498,38 @@ export function SessionsView({
   // 钻入的轮次来自同一批派工行:按任务组分好即挂到组体,点开组头不再二次读。
   const drillRowsByGroup = useMemo(() => {
     if (drill === null) return new Map<string, SessionGroupRows>();
-    const rounds = sessionRoundsByTask(related.groups, related.dispatchRows),
-      rows = new Map<string, SessionGroupRows>();
+    const rows = new Map<string, SessionGroupRows>();
     for (const group of related.groups) {
-      if (group.kind === "unattributed") {
-        rows.set(group.key, {
-          rounds: rounds.get(group.key) ?? [],
-          orphans: [],
-          pending: related.pending,
-          error: related.error,
-        });
-        continue;
-      }
-      if (group.taskId === undefined) continue;
-      rows.set(group.taskId, {
-        rounds: rounds.get(group.taskId) ?? [],
+      if (group.kind !== "task" && group.kind !== "unattributed") continue;
+      rows.set(group.key, {
+        rounds: sessionRounds(
+          group.taskId ?? null,
+          group.kind === "task" ? group.label : null,
+          related.dispatchesByGroup.get(group.key) ?? [],
+        ),
         orphans: [],
         pending: related.pending,
         error: related.error,
       });
     }
     return rows;
-  }, [drill, related.groups, related.dispatchRows, related.pending, related.error]);
+  }, [drill, related.groups, related.dispatchesByGroup, related.pending, related.error]);
   const displayedRowsByGroup = drill === null ? groupRows : drillRowsByGroup;
 
   // Decision 组:daemon 组行只带 decisionId,组头标题与展开行都取 Decision full 行(标题、
   // reviewDispatches),与决策池/详情共用同一缓存键;列表里有 Decision 组或落 Decision 会话深链时才读。
-  const decisionGroupIds = useMemo(
-    () =>
-      (drill === null ? groups : related.groups).flatMap((group) =>
-        group.kind === "decision" && group.decisionId !== undefined ? [group.decisionId] : [],
-      ),
-    [drill, groups, related.groups],
-  );
+  const decisionGroupIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const group of drill === null ? groups : related.groups) {
+      if (group.kind === "decision" && group.decisionId !== undefined) ids.add(group.decisionId);
+    }
+    if (decisionFocus) ids.add(decisionFocus.decisionId);
+    return [...ids];
+  }, [drill, groups, related.groups, decisionFocus?.decisionId]);
   const decisionRowsQuery = useQuery({
     queryKey: triadicQueryKeys.decisions(repoId),
     queryFn: () => harnessClient.getDecisions({ repoId }),
-    enabled: decisionGroupIds.length > 0 || decisionFocus?.runtimeSessionId != null,
+    enabled: decisionGroupIds.length > 0,
     staleTime: 10_000,
   });
   const reviewedDecisions = useMemo(
@@ -594,43 +592,23 @@ export function SessionsView({
   );
   const decisionGroupRows = useMemo(() => {
     const rows = new Map<string, DecisionGroupRows>();
-    const activeGroups = drill === null ? groups : related.groups;
+    const decisionsById = new Map(reviewedDecisions.map((row) => [row.decisionId, row] as const));
     for (const decisionId of decisionGroupIds) {
-      const decision = reviewedDecisions.find((row) => row.decisionId === decisionId);
+      const decision = decisionsById.get(decisionId);
       const rawRounds = decision ? decisionReviewRounds(decision) : null;
-      let rounds = rawRounds;
-      if (rounds !== null && hasAttributionFilter) {
-        if (drill !== null) {
-          const allowedDispatchIds = new Set(related.dispatchRows.map((row) => row.dispatchId));
-          const allowedSessionIds = new Set(related.dispatchRows.map((row) => row.runtimeSessionId));
-          rounds = rounds.filter(
-            (round) =>
-              allowedDispatchIds.has(round.dispatch.dispatchId) ||
-              allowedSessionIds.has(round.dispatch.runtimeSessionId),
-          );
-        } else {
-          const group = activeGroups.find(
-            (candidate) => candidate.kind === "decision" && candidate.decisionId === decisionId,
-          );
-          const groupMatches =
-            group !== undefined &&
-            (effectivePersonFilter === null || group.personId === effectivePersonFilter) &&
-            (effectiveNodeFilter === null || group.nodeId === effectiveNodeFilter);
-          if (!groupMatches || group.latestRound == null) {
-            rounds = [];
-          } else {
-            const latest = group.latestRound;
-            rounds = rounds.filter(
-              (round) =>
-                (latest.dispatchId !== null && round.dispatch.dispatchId === latest.dispatchId) ||
-                round.dispatch.runtimeSessionId === latest.runtimeSessionId,
-            );
-          }
-        }
-      }
+      const drillDispatchIds =
+        drill === null
+          ? null
+          : new Set((related.dispatchesByGroup.get(decisionId) ?? []).map(({ dispatchId }) => dispatchId));
+      const scopedRounds =
+        rawRounds?.filter(({ dispatch }) =>
+          drillDispatchIds === null
+            ? matchesAttribution(dispatch, attributionFilter)
+            : drillDispatchIds.has(dispatch.dispatchId),
+        ) ?? null;
       rows.set(decisionId, {
         title: decision?.title ?? null,
-        rounds,
+        rounds: scopedRounds,
         pending: decisionRowsQuery.isPending,
         error: decisionRowsQuery.isError
           ? decisionRowsQuery.error instanceof Error
@@ -643,39 +621,19 @@ export function SessionsView({
   }, [
     decisionGroupIds,
     reviewedDecisions,
-    hasAttributionFilter,
     drill,
-    groups,
-    related.groups,
-    related.dispatchRows,
-    effectivePersonFilter,
-    effectiveNodeFilter,
+    related.dispatchesByGroup,
+    attributionFilter,
     decisionRowsQuery.isPending,
     decisionRowsQuery.isError,
     decisionRowsQuery.error,
   ]);
-  const selectedReviewRound = useMemo(() => {
-    if (decisionFocus?.runtimeSessionId == null) return null;
-    if (hasAttributionFilter) {
-      return (
-        decisionGroupRows
+  const selectedReviewRound =
+    decisionFocus?.runtimeSessionId == null
+      ? null
+      : (decisionGroupRows
           .get(decisionFocus.decisionId)
-          ?.rounds?.find((round) => round.dispatch.runtimeSessionId === decisionFocus.runtimeSessionId) ?? null
-      );
-    }
-    const decision = reviewedDecisions.find((row) => row.decisionId === decisionFocus.decisionId);
-    return (
-      (decision ? decisionReviewRounds(decision) : null)?.find(
-        (round) => round.dispatch.runtimeSessionId === decisionFocus.runtimeSessionId,
-      ) ?? null
-    );
-  }, [
-    decisionFocus?.decisionId,
-    decisionFocus?.runtimeSessionId,
-    decisionGroupRows,
-    hasAttributionFilter,
-    reviewedDecisions,
-  ]);
+          ?.rounds?.find(({ dispatch }) => dispatch.runtimeSessionId === decisionFocus.runtimeSessionId) ?? null);
 
   // 深链 session/<id> 始终先成为精确选择;存在性与 task binding 由同一个
   // repo.agentRuntime.sessions.read 判定,绝不因组尚未展开而改选首组 latestRound。
@@ -702,6 +660,9 @@ export function SessionsView({
   const focusedInVisibleList =
     focusedSessionId !== null &&
     (allRows.some((row) => row.runtimeSessionId === focusedSessionId) ||
+      [...decisionGroupRows.values()].some(({ rounds }) =>
+        rounds?.some(({ dispatch }) => dispatch.runtimeSessionId === focusedSessionId),
+      ) ||
       sortedGroups.some(
         (group) => group.latestRound?.runtimeSessionId === focusedSessionId && groupMatchesFilter(group),
       ));
@@ -742,8 +703,7 @@ export function SessionsView({
       (drill !== null
         ? related.dockRows.some((row) => row.runtimeSessionId === focusedSessionId)
         : !hasAttributionFilter || focusedInVisibleList || focusedInAttributedDispatches),
-    decisionFocusVisible =
-      decisionFocus?.runtimeSessionId != null && (!hasAttributionFilter || selectedReviewRound !== null),
+    decisionFocusVisible = decisionFocus?.runtimeSessionId != null && selectedReviewRound !== null,
     selectedSessionId =
       (decisionFocusVisible ? decisionFocus!.runtimeSessionId : null) ??
       (focusedSessionVisible ? focusedSessionId : null) ??
@@ -1142,7 +1102,7 @@ export function SessionsView({
             }))}
           />
         )}
-        {segment === "sessions" && drill === null && (memberOptions.length > 0 || effectivePersonFilter !== null) && (
+        {(memberOptions.length > 0 || effectivePersonFilter !== null) && (
           <select
             data-testid="sessions-person-filter"
             aria-label={t("agentRuntime.sessionsPersonFilter")}
@@ -1161,7 +1121,7 @@ export function SessionsView({
             ))}
           </select>
         )}
-        {segment === "sessions" && drill === null && (nodeOptions.length > 0 || effectiveNodeFilter !== null) && (
+        {(nodeOptions.length > 0 || effectiveNodeFilter !== null) && (
           <select
             data-testid="sessions-node-filter"
             aria-label={t("agentRuntime.sessionsNodeFilter")}

@@ -8,13 +8,11 @@ type RepoScope = { readonly repoId: string };
 // Renderer client for the squad-run orchestration reads. One `ha squad run` is one
 // list unit; range and query narrowing stay daemon-side, and the per-run detail
 // (leader turns / worker attempts) is the GUI projection of `ha squad status`.
-type SquadRunsListQuery = {
-  readonly since?: string;
-  readonly query?: string;
-  readonly limit?: number;
-};
 export const squadRunsClient = {
-  list: async (repoId: string, query: SquadRunsListQuery = {}): Promise<SquadRunsListResult> => {
+  list: async (
+    repoId: string,
+    query: DaemonGuiReadPayloadMap["repo.squad.runs.list"] = {},
+  ): Promise<SquadRunsListResult> => {
     const value = await invoke(
       "repo.squad.runs.list",
       {

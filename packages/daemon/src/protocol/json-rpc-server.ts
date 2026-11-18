@@ -360,7 +360,11 @@ export function createJsonRpcProtocolServer(options: {
               code: "local_transport_required",
             });
           const { repoId: _target, rootDir: _root, ...remoteParams } = params;
-          const result = await remoteProxy.request(remoteRepoId, method, remoteParams);
+          const result = await remoteProxy.request(
+            remoteRepoId,
+            method,
+            params.operation === "repository-members" ? { ...remoteParams, repoId: remoteRepoId } : remoteParams,
+          );
           return reply(
             method,
             (params.operation === "bootstrap-status" && result.ok !== false

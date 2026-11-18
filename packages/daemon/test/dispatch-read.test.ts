@@ -1051,6 +1051,16 @@ test("member dispatch payloads accept one selector and a bounded limit at both b
     parse = (payload: Readonly<Record<string, unknown>>) => taskDispatchesPayloadFromCell(context, payload);
   assert.deepEqual(parse({ agentId: "terra", limit: 50 }), { agentId: "terra", limit: 50 });
   assert.deepEqual(parse({ squadId: "squad-x", limit: 500 }), { squadId: "squad-x", limit: 500 });
+  assert.deepEqual(
+    validateDaemonRpcCall({
+      method: "repo.task.dispatches",
+      params: {
+        repo: { repoId: "repo-a" },
+        payload: { agentId: "terra", personId: "person-alice", nodeId: "edge-a", limit: 12 },
+      },
+    }),
+    [],
+  );
   for (const advisorySurface of decisionReadSurfaces) {
     const payload = { taskIds: ["task-a"], advisorySurface };
     assert.deepEqual(parse(payload), payload);

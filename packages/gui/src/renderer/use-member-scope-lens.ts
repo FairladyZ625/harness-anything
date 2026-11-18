@@ -1,18 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type {
-  AccessEffectivePermissionsReply,
-  AccessGrantsReply,
-  AccessRejection,
-} from "@harness-anything/authorization-gui/access-admin-contract";
+import type { RepositoryMembersReply } from "@harness-anything/authorization-gui/access-admin-contract";
+import { consumeKnownError } from "../api/error-consumption.ts";
 import type { FleetOverviewNode } from "../api/renderer-dto.ts";
-import { scopeOfResource } from "./access-model.ts";
-import { guiHostBridge, guiTransport } from "./gui-transport.ts";
-import { repositoryReadFailure } from "./repository-read-frame.ts";
+import { guiHostBridge } from "./gui-transport.ts";
 import { readIdentity, type IdentitySnapshot } from "./identity-session.ts";
 import {
   collectMemberOptions,
   collectNodeOptions,
-  personShortName,
   primaryTaskNodeId,
   type MemberOption,
   type NodeOption,
@@ -20,130 +14,21 @@ import {
 import type { TaskRow } from "./model/types.ts";
 import { t } from "./i18n/index.tsx";
 
-export interface RepoAdminExplainAction {
-  readonly action?: { readonly kind?: string; readonly id?: string } | null;
-  readonly authorizationDecision?: { readonly outcome?: string } | null;
-}
-
-export interface RepoAdminExplainReply {
-  readonly ok?: boolean;
-  readonly subjects?: readonly {
-    readonly ref?: string;
-    readonly failure?: { readonly code?: string } | null;
-    readonly actions?: readonly RepoAdminExplainAction[];
-  }[];
-}
-
-export interface AccessPersonRecord {
-  readonly personId: string;
-  readonly username: string;
-}
-
-async function explainRepoPersonActions(repoId: string, personId: string): Promise<RepoAdminExplainReply | null> {
-  const result = await guiTransport().request(
-    "repo.entity.actions.explain",
-    {
-      repo: { repoId },
-      payload: {
-        schema: "entity-action-explain-request/v1",
-        mode: "object",
-        entityKind: null,
-        refs: [`person/${personId}`],
-      },
-    },
-    "explainEntityActions",
-  );
-  const failure = repositoryReadFailure(result);
-  if (failure) {
-    if ((failure as Error & { readonly code?: string }).code === "authentication_required") {
-      window.dispatchEvent(new Event("harness-auth-changed"));
-    }
-    throw failure;
-  }
-  return result as unknown as RepoAdminExplainReply;
-}
-
-export function evaluateRepoAdminFromExplain(
-  personId: string | null | undefined,
-  reply: RepoAdminExplainReply | null | undefined,
-): boolean {
-  if (!personId || personId.trim() === "" || !reply || reply.ok === false || !Array.isArray(reply.subjects)) {
-    return false;
-  }
-  const targetRef = `person/${personId}`;
-  const subject = reply.subjects.find((entry) => entry?.ref === targetRef);
-  if (!subject || subject.failure != null || !Array.isArray(subject.actions)) {
-    return false;
-  }
-  const delegateAction = subject.actions.find(
-    (entry: RepoAdminExplainAction) =>
-      (entry?.action?.kind === undefined || entry.action.kind === "person") &&
-      (entry?.action?.id === "delegate" || entry?.action?.id === "person/delegate"),
-  );
-  return delegateAction?.authorizationDecision?.outcome === "allowed";
-}
-
-export function evaluateFleetNodeAdminAccess(
-  effectiveReply: ({ readonly ok: true } & AccessEffectivePermissionsReply) | AccessRejection | null | undefined,
-): boolean {
-  return Boolean(
-    effectiveReply &&
-      effectiveReply.ok === true &&
-      effectiveReply.actions.some((action) => action.action === "access-manage"),
-  );
-}
-
-export function grantAppliesToRepository(resource: string, repoId: string): boolean {
-  if (!repoId) return false;
-  const scope = scopeOfResource(resource);
-  return scope.kind === "fleet" || scope.repoId === repoId;
-}
-
-export function filterRepoKnownMembers(
-  repoId: string,
-  grantsReply: ({ readonly ok: true } & AccessGrantsReply) | AccessRejection | null | undefined,
-): {
-  readonly memberPeople: readonly AccessPersonRecord[];
-  readonly allPeople: readonly AccessPersonRecord[];
-} {
-  if (!grantsReply || grantsReply.ok !== true) {
-    return { memberPeople: [], allPeople: [] };
-  }
-  const eligiblePersonIds = new Set(
-    grantsReply.grants
-      .filter((grant) => grantAppliesToRepository(grant.resource, repoId))
-      .map((grant) => grant.personId),
-  );
-  return {
-    memberPeople: grantsReply.people.filter((person) => eligiblePersonIds.has(person.personId)),
-    allPeople: grantsReply.people,
-  };
-}
-
 export interface MemberScopeContext {
   readonly currentPersonId: string | null;
-  readonly isAdmin: boolean;
   readonly canManageFleetNodes: boolean;
   readonly canUseGlobalLens: boolean;
   readonly scopePersonId: string | null;
   readonly setScopePersonId: (personId: string | null) => void;
+  readonly lensMembers: readonly MemberOption[];
   readonly memberOptions: readonly MemberOption[];
   readonly nodeOptions: readonly NodeOption[];
   readonly peopleById: ReadonlyMap<string, string>;
   readonly nodeOwners: ReadonlyMap<string, string>;
 }
 
-const EMPTY_ADMIN_STATE: {
-  readonly isRepoAdmin: boolean;
-  readonly canManageFleetNodes: boolean;
-  readonly memberPeople: readonly AccessPersonRecord[];
-  readonly allPeople: readonly AccessPersonRecord[];
-} = {
-  isRepoAdmin: false,
-  canManageFleetNodes: false,
-  memberPeople: [],
-  allPeople: [],
-};
+const EMPTY_NODES: readonly FleetOverviewNode[] = [];
+const EMPTY_MEMBERS: RepositoryMembersReply["members"] = [];
 
 export function useMemberScopeContext(input: {
   readonly repoId: string | null;
@@ -152,7 +37,7 @@ export function useMemberScopeContext(input: {
   readonly fleetNodes?: readonly FleetOverviewNode[];
   readonly view?: string;
 }): MemberScopeContext {
-  const { repoId, rootDir, tasks, fleetNodes = [], view } = input;
+  const { repoId, rootDir, tasks, fleetNodes = EMPTY_NODES, view } = input;
   const bridge = guiHostBridge();
   const auth = bridge?.auth && typeof bridge.auth.status === "function" ? bridge.auth : undefined;
   const access = useMemo(
@@ -161,7 +46,8 @@ export function useMemberScopeContext(input: {
     [bridge?.access, repoId],
   );
 
-  const [identity, setIdentity] = useState<IdentitySnapshot | null>(null);
+  const identityKey = JSON.stringify([repoId, rootDir]);
+  const [identity, setIdentity] = useState<{ key: string; snapshot: IdentitySnapshot } | null>(null);
   const [authEpoch, setAuthEpoch] = useState(0);
   const identitySeq = useRef(0);
   useEffect(() => {
@@ -171,10 +57,11 @@ export function useMemberScopeContext(input: {
       const seq = ++identitySeq.current;
       void readIdentity(auth, repoId ?? undefined, rootDir).then((snapshot) => {
         if (identitySeq.current !== seq) return;
-        setIdentity(snapshot);
+        setIdentity({ key: identityKey, snapshot });
       });
     };
     const refreshAuthAndGrants = () => {
+      setIdentity(null);
       refreshIdentity();
       setAuthEpoch((epoch) => epoch + 1);
     };
@@ -191,7 +78,7 @@ export function useMemberScopeContext(input: {
       window.removeEventListener("harness-auth-signed-in", refreshAuthAndGrants);
       window.removeEventListener("harness-access-changed", refreshAccessOnly);
     };
-  }, [auth, repoId, rootDir]);
+  }, [auth, identityKey, repoId, rootDir]);
 
   const prevViewRef = useRef<string | undefined>(view);
   useEffect(() => {
@@ -202,48 +89,42 @@ export function useMemberScopeContext(input: {
     }
   }, [view]);
 
-  const rawPersonId = identity?.phase === "ready" && identity.authenticated ? identity.personId : null;
-  const currentPersonId = rawPersonId && rawPersonId.trim() !== "" ? rawPersonId : null;
-
-  const [adminState, setAdminState] = useState(EMPTY_ADMIN_STATE);
-  const adminSeq = useRef(0);
-  const lastAuthContextRef = useRef<string>("");
+  const snapshot = identity?.key === identityKey ? identity.snapshot : null;
+  const currentPersonId =
+    snapshot?.phase === "ready" && snapshot.authenticated ? snapshot.personId?.trim() || null : null;
+  const accessKey = JSON.stringify([identityKey, currentPersonId, authEpoch]);
+  const [accessRead, setAccessRead] = useState<{ key: string; reply: RepositoryMembersReply } | null>(null);
 
   useEffect(() => {
-    const contextKey = `${repoId ?? ""}\0${currentPersonId ?? ""}`;
-    if (!currentPersonId || !repoId || lastAuthContextRef.current !== contextKey) {
-      setAdminState(EMPTY_ADMIN_STATE);
-    }
-    lastAuthContextRef.current = contextKey;
-    if (!currentPersonId || !repoId) return;
-    const seq = ++adminSeq.current;
-    void (async () => {
-      const [explainReply, fleetEffectiveReply, grantsReply] = await Promise.all([
-        explainRepoPersonActions(repoId, currentPersonId).catch(() => null),
-        access && typeof access.effectivePermissions === "function"
-          ? access.effectivePermissions({ personId: currentPersonId, resource: "@fleet" }).catch(() => null)
-          : Promise.resolve(null),
-        access && typeof access.grants === "function" ? access.grants().catch(() => null) : Promise.resolve(null),
-      ]);
-      if (adminSeq.current !== seq) return;
-      const isRepoAdmin = evaluateRepoAdminFromExplain(currentPersonId, explainReply);
-      const canManageFleetNodes = evaluateFleetNodeAdminAccess(fleetEffectiveReply);
-      const { memberPeople, allPeople } = filterRepoKnownMembers(repoId, grantsReply);
-      setAdminState({
-        isRepoAdmin,
-        canManageFleetNodes,
-        memberPeople: isRepoAdmin ? memberPeople : [],
-        allPeople,
-      });
-    })();
+    if (currentPersonId === null || typeof access?.repositoryMembers !== "function") return;
+    let current = true;
+    void access
+      .repositoryMembers()
+      .then((reply) => {
+        if (current && reply.ok === true && reply.personId === currentPersonId)
+          setAccessRead({ key: accessKey, reply });
+      })
+      .catch(consumeKnownError);
     return () => {
-      adminSeq.current += 1;
+      current = false;
     };
-  }, [access, authEpoch, currentPersonId, repoId]);
+  }, [access, accessKey, currentPersonId]);
 
+  // An access refresh changes the key in the render that handles the event, before effects or RPCs settle.
+  const adminState = accessRead?.key === accessKey ? accessRead.reply : null;
+  const memberPeople = adminState?.members ?? EMPTY_MEMBERS;
   const peopleById = useMemo(
-    () => new Map(adminState.allPeople.map((person) => [person.personId, person.username] as const)),
-    [adminState.allPeople],
+    () => new Map(memberPeople.map((person) => [person.personId, person.username] as const)),
+    [memberPeople],
+  );
+  const lensMembers = useMemo(
+    () =>
+      collectMemberOptions({
+        knownMembers: memberPeople.map((person) => ({ personId: person.personId, label: person.username })),
+        currentPersonId,
+        peopleById,
+      }),
+    [memberPeople, currentPersonId, peopleById],
   );
 
   const nodeOwners = useMemo(() => {
@@ -266,15 +147,12 @@ export function useMemberScopeContext(input: {
     () =>
       collectMemberOptions({
         tasks,
-        knownMembers: adminState.memberPeople.map((person) => ({
-          personId: person.personId,
-          label: person.username || personShortName(person.personId),
-        })),
+        knownMembers: lensMembers,
         extraPersonIds: [...nodeOwners.values()],
         currentPersonId,
         peopleById,
       }),
-    [tasks, adminState.memberPeople, nodeOwners, currentPersonId, peopleById],
+    [tasks, lensMembers, nodeOwners, currentPersonId, peopleById],
   );
 
   const nodeOptions = useMemo(
@@ -304,23 +182,22 @@ export function useMemberScopeContext(input: {
   );
 
   const canUseGlobalLens =
-    adminState.isRepoAdmin && currentPersonId !== null && (memberOptions.length >= 2 || hasExternalNodes);
-
-  const [scopePersonId, setScopePersonId] = useState<string | null>(null);
-  useEffect(() => {
-    setScopePersonId(null);
-  }, [repoId, currentPersonId]);
-  useEffect(() => {
-    if (!canUseGlobalLens) setScopePersonId(null);
-  }, [canUseGlobalLens]);
+    adminState?.isRepoAdmin === true && currentPersonId !== null && (lensMembers.length >= 2 || hasExternalNodes);
+  const [selection, setSelection] = useState<{ key: string; personId: string } | null>(null);
+  const scopePersonId =
+    canUseGlobalLens &&
+    selection?.key === accessKey &&
+    lensMembers.some(({ personId }) => personId === selection.personId)
+      ? selection.personId
+      : null;
 
   return {
     currentPersonId,
-    isAdmin: adminState.isRepoAdmin,
-    canManageFleetNodes: adminState.canManageFleetNodes,
+    canManageFleetNodes: adminState?.canManageFleetNodes === true,
     canUseGlobalLens,
     scopePersonId,
-    setScopePersonId,
+    setScopePersonId: (personId) => setSelection(personId === null ? null : { key: accessKey, personId }),
+    lensMembers,
     memberOptions,
     nodeOptions,
     peopleById,

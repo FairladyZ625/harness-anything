@@ -1,6 +1,7 @@
 import {
   agentRuntimeInstallationState,
   agentRuntimeSessionGroupStatusWords,
+  agentRuntimeUnattributedGroupKeys,
   type AgentRuntimeEventsResult,
   type AgentRuntimeSessionDto,
   type AgentRuntimeSessionGroupDto,
@@ -13,6 +14,7 @@ import type { TaskDispatchProjectionRow } from "../api/renderer-dto.ts";
 import type { WorkIndex, WorkRef } from "./model/work-collections.ts";
 import type { RelationEdge } from "./model/types.ts";
 import { computePromptCacheTtlState, type PromptCacheTtlState } from "./model/smart-attention.ts";
+import { matchesAttribution, type AttributionScope } from "./model/attribution.ts";
 
 /**
  * 会话页的纯数据模型(设计稿 §2–§5):组、轮次行、孤儿会话行全部是 daemon 读面的
@@ -434,29 +436,20 @@ export function sessionRounds(
   }));
 }
 
-/** 钻入读面已批量取回该执行者的派工行:按任务组分好轮次,组头一展开即有行,不再二次读。 */
-export function sessionRoundsByTask(
-  groups: readonly SessionGroup[],
+export function indexSessionDispatches(
   dispatches: readonly TaskDispatchProjectionRow[],
-): ReadonlyMap<string, readonly SessionRound[]> {
-  const byTask = new Map<string, TaskDispatchProjectionRow[]>(),
-    unattributed: TaskDispatchProjectionRow[] = [];
+): ReadonlyMap<string, readonly TaskDispatchProjectionRow[]> {
+  const byGroup = new Map<string, TaskDispatchProjectionRow[]>();
   for (const row of dispatches) {
-    if (!row.taskId) {
-      unattributed.push(row);
-      continue;
-    }
-    const rows = byTask.get(row.taskId);
-    if (rows === undefined) byTask.set(row.taskId, [row]);
+    const key =
+      row.reviewTarget?.kind === "decision"
+        ? row.reviewTarget.decisionId
+        : row.taskId || agentRuntimeUnattributedGroupKeys.noTask;
+    const rows = byGroup.get(key);
+    if (rows === undefined) byGroup.set(key, [row]);
     else rows.push(row);
   }
-  const result = new Map<string, readonly SessionRound[]>();
-  for (const group of groups) {
-    if (group.taskId !== undefined)
-      result.set(group.taskId, sessionRounds(group.taskId, group.label, byTask.get(group.taskId) ?? []));
-    else if (group.kind === "unattributed") result.set(group.key, sessionRounds(null, null, unattributed));
-  }
-  return result;
+  return byGroup;
 }
 
 /** 派工台账没有记录的会话:组内「无派工记录」小节或 unattributed:no-dispatch 组的来源。 */
@@ -500,45 +493,18 @@ export function shortRef(id: string, keep = 12): string {
   return id.length > keep ? `${id.slice(0, keep)}…` : id;
 }
 
-export interface SessionAttributionFilter {
-  readonly personId: string | null;
-  readonly nodeId: string | null;
-}
+export type SessionAttributionFilter = AttributionScope;
 
 export function hasSessionAttributionFilter(filter?: SessionAttributionFilter | null): boolean {
   return filter != null && (filter.personId !== null || filter.nodeId !== null);
 }
 
-export function sessionRoundMatchesAttribution(
-  row: { readonly personId?: string | null; readonly nodeId?: string | null },
-  filter?: SessionAttributionFilter | null,
-): boolean {
-  if (!filter) return true;
-  return (
-    (filter.personId === null || row.personId === filter.personId) &&
-    (filter.nodeId === null || row.nodeId === filter.nodeId)
-  );
-}
-
 export function filterDispatchesByAttribution<
   T extends { readonly personId?: string | null; readonly nodeId?: string | null },
 >(dispatches: readonly T[], filter?: SessionAttributionFilter | null): readonly T[] {
-  if (!hasSessionAttributionFilter(filter)) return dispatches;
-  return dispatches.filter((row) => sessionRoundMatchesAttribution(row, filter));
-}
-
-function dispatchMatchesSessionGroup(row: TaskDispatchProjectionRow, group: SessionGroup): boolean {
-  if (group.kind === "task") {
-    return group.taskId !== undefined && row.taskId === group.taskId;
-  }
-  if (group.kind === "decision") {
-    return (
-      group.decisionId !== undefined &&
-      row.reviewTarget?.kind === "decision" &&
-      row.reviewTarget.decisionId === group.decisionId
-    );
-  }
-  return !row.taskId && row.reviewTarget?.kind !== "decision";
+  return filter && hasSessionAttributionFilter(filter)
+    ? dispatches.filter((row) => matchesAttribution(row, filter))
+    : dispatches;
 }
 
 /**
@@ -547,23 +513,25 @@ function dispatchMatchesSessionGroup(row: TaskDispatchProjectionRow, group: Sess
  */
 export function filterRelatedSessionGroups(
   groups: readonly SessionGroup[],
-  filteredDispatches: readonly TaskDispatchProjectionRow[],
-  filter?: SessionAttributionFilter | null,
+  dispatchesByGroup: ReadonlyMap<string, readonly TaskDispatchProjectionRow[]>,
 ): readonly SessionGroup[] {
-  if (!hasSessionAttributionFilter(filter)) return groups;
   const narrowed: SessionGroup[] = [];
   for (const group of groups) {
-    const matching = filteredDispatches
-      .filter((row) => dispatchMatchesSessionGroup(row, group))
-      .sort((left, right) => right.startedAt.localeCompare(left.startedAt));
-    const latest = matching[0];
-    if (!latest) continue;
+    const matching = dispatchesByGroup.get(group.key);
+    if (!matching?.length) continue;
+    // The daemon's member page is newest first.
+    const latest = matching[0]!;
+    const sessions = new Map<string, TaskDispatchProjectionRow>();
+    for (const row of matching) {
+      if (!sessions.has(row.runtimeSessionId)) sessions.set(row.runtimeSessionId, row);
+    }
     narrowed.push({
       ...group,
       personId: latest.personId ?? null,
       nodeId: latest.nodeId ?? null,
-      sessionCount: new Set(matching.map((row) => row.runtimeSessionId)).size,
-      runningCount: matching.filter((row) => row.status === "running").length,
+      sessionCount: sessions.size,
+      roundCount: matching.length,
+      runningCount: [...sessions.values()].filter((row) => row.status === "running").length,
       latestStatus: latest.status,
       latestActivityAt: latest.endedAt ?? latest.startedAt,
       latestRound: {

@@ -117,33 +117,31 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
     vi.spyOn(agentRuntimeClient, "sessionGroups").mockImplementation(async (_repoId, query) => {
       const personId = query?.personId;
       const groups = [
-        ...(personId === undefined || personId === "person_bob"
-          ? [
-              {
-                kind: "agent" as const,
-                key: "agent:agent-shared",
-                groupKey: "agent:agent-shared",
-                label: "SharedAgent",
-                agentId: "agent-shared",
-                taskId: "t-shared",
-                personId: "person_bob",
-                nodeId: edgeB,
-                sessionCount: 1,
-                roundCount: 1,
-                runningCount: 1,
-                latestStatus: "running" as const,
-                latestActivityAt: recentAt,
-                latestRound: {
-                  runtimeSessionId: "rt-bob",
-                  dispatchId: "d-bob",
-                  agentName: "SharedAgent",
-                  instanceId: "inst-1",
-                  status: "running" as const,
-                  startedAt: recentAt,
-                },
-              },
-            ]
-          : []),
+        ...[
+          {
+            kind: "agent" as const,
+            key: "agent:agent-shared",
+            groupKey: "agent:agent-shared",
+            label: "SharedAgent",
+            agentId: "agent-shared",
+            taskId: "t-shared",
+            personId: personId ?? "person_bob",
+            nodeId: personId === "person_alice" ? edgeA : edgeB,
+            sessionCount: 1,
+            roundCount: 1,
+            runningCount: 1,
+            latestStatus: "running" as const,
+            latestActivityAt: recentAt,
+            latestRound: {
+              runtimeSessionId: personId === "person_alice" ? "rt-alice" : "rt-bob",
+              dispatchId: personId === "person_alice" ? "d-alice" : "d-bob",
+              agentName: "SharedAgent",
+              instanceId: "inst-1",
+              status: "running" as const,
+              startedAt: recentAt,
+            },
+          },
+        ],
       ];
       return {
         ok: true,
@@ -173,28 +171,36 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
         },
       ],
     } as never);
-    vi.spyOn(harnessClient, "getTaskDispatches").mockResolvedValue({
-      ok: true,
-      status: "ready",
-      unavailableTaskIds: [],
-      page: { limit: 100, cursor: null, nextCursor: null },
-      dispatches: [
-        {
-          dispatchId: "d-bob",
-          runtimeSessionId: "rt-bob",
-          agentId: "agent-shared",
-          personId: "person_bob",
-          nodeId: edgeB,
-          instanceId: "inst-1",
-          taskId: "t-shared",
-          startedAt: recentAt,
-          endedAt: null,
-          status: "running",
-        },
-      ],
-      taskLabels: [{ taskId: "t-shared", title: "Alice Created Shared Task" }],
-      truncated: false,
-    } as never);
+    const dispatchRead = vi.spyOn(harnessClient, "getTaskDispatches").mockImplementation(async (request) => {
+      const newestBob = Array.from({ length: 12 }, (_, index) => ({
+        dispatchId: `d-bob-${index}`,
+        runtimeSessionId: `rt-bob-${index}`,
+        personId: "person_bob",
+        nodeId: edgeB,
+        taskId: "t-shared",
+        status: "running",
+        startedAt: recentAt,
+        endedAt: null,
+      }));
+      const olderAlice = {
+        ...newestBob[0],
+        dispatchId: "d-alice",
+        runtimeSessionId: "rt-alice",
+        personId: "person_alice",
+        nodeId: edgeA,
+        taskId: "sub-alice",
+        startedAt: new Date(Date.parse(recentAt) - 60_000).toISOString(),
+      };
+      const matching = [...newestBob, olderAlice].filter(
+        (row) => request.personId === undefined || row.personId === request.personId,
+      );
+      return {
+        ok: true,
+        dispatches: matching.slice(0, request.limit),
+        taskLabels: [],
+        truncated: matching.length > (request.limit ?? 0),
+      } as never;
+    });
     vi.spyOn(harnessClient, "tailObservability").mockResolvedValue({
       schema: "daemon.observe-tail/v3",
       ok: true,
@@ -304,7 +310,31 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
           awaitingDecision: [],
           waitingOnOthers: [],
           attentionItems: [],
-          pinnedEntities: [],
+          pinnedEntities: [
+            {
+              ref: "decision/dec-alice",
+              kind: "decision",
+              title: "Alice Pinned Decision",
+              status: "proposed",
+              pinnedAt: recentAt,
+              personIds: ["person_alice"],
+            },
+            {
+              ref: "decision/dec-bob",
+              kind: "decision",
+              title: "Bob Pinned Decision",
+              status: "proposed",
+              pinnedAt: recentAt,
+              personIds: ["person_bob"],
+            },
+            {
+              ref: "decision/dec-unknown",
+              kind: "decision",
+              title: "Unattributed Pinned Decision",
+              status: "proposed",
+              pinnedAt: recentAt,
+            },
+          ],
           regionWeights: { mine: 0, stuck: 0, run: 0, review: 0, queue: 0, recent: 0, works: 1 },
         }),
         works: works as never,
@@ -335,8 +365,15 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
 
     const text = view.container.textContent ?? "";
     expect(text).toContain("Shared Two-Member Work");
-    // Bob's running dispatch on Alice-created t-shared must not appear as Alice running task
-    expect(view.container.querySelector('[data-testid="overview-running-empty"]')).toBeTruthy();
+    const running = view.container.querySelector('[data-testid="overview-region-running"]');
+    expect(dispatchRead).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: "agent-shared", personId: "person_alice", limit: 12 }),
+    );
+    expect(running?.textContent).toContain("Alice Subtask");
+    expect(running?.textContent).not.toContain("Alice Created Shared Task");
+    expect(text).toContain("Alice Pinned Decision");
+    expect(text).not.toContain("Bob Pinned Decision");
+    expect(text).not.toContain("Unattributed Pinned Decision");
     // Bob's cadence event on w-shared and Bob's handler on w-shared must not appear
     expect(text).not.toContain("Bob secret progress");
     expect(text).not.toContain("codex");
@@ -408,6 +445,8 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
       title: "Alice EdgeA Task",
       coordinationStatus: "active",
       activeExecutionId: "exe-alice",
+      leaseActor: { principal: { personId: "person_alice" }, executor: null },
+      leaseSource: { kind: "node", nodeId: edgeA },
       createdByPersonId: "person_alice",
       activeOrLatestPersonId: "person_alice",
       originNodeId: edgeA,
@@ -420,6 +459,8 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
           taskId: "sub-alice",
           kind: "execution" as never,
           ref: "exe-alice",
+          personId: "person_alice",
+          nodeId: edgeA,
           summary: "Alice event summary",
         },
       ],
@@ -431,6 +472,8 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
       title: "Bob EdgeB Blocked Task",
       coordinationStatus: "blocked",
       activeExecutionId: "exe-bob",
+      leaseActor: { principal: { personId: "person_bob" }, executor: null },
+      leaseSource: { kind: "node", nodeId: edgeB },
       createdByPersonId: "person_bob",
       activeOrLatestPersonId: "person_bob",
       originNodeId: edgeB,
@@ -443,6 +486,8 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
           taskId: "sub-bob",
           kind: "execution" as never,
           ref: "exe-bob",
+          personId: "person_bob",
+          nodeId: edgeB,
           summary: "Bob event summary",
         },
       ],
@@ -522,6 +567,24 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
     expect(tree.textContent).toContain("Alice EdgeA Task");
     expect(tree.textContent).not.toContain("Bob EdgeB Blocked Task");
     expect(tree.textContent).not.toContain("d-bob-root");
+
+    const aliceWithBobExecution = {
+      ...subAlice,
+      activeOrLatestPersonId: "person_bob",
+      activeOrLatestNodeId: edgeB,
+      leaseActor: subBob.leaseActor,
+      leaseSource: subBob.leaseSource,
+      activeExecutionId: subBob.activeExecutionId,
+      lastKnownAt: subBob.lastKnownAt,
+      events: [...subAlice.events!, { ...subBob.events![0]!, taskId: subAlice.taskId }],
+    };
+    await view.mount(createElement(WorkView, { ...baseWorkProps, tasks: [workRoot, aliceWithBobExecution, subBob] }));
+    const mixedCard = view.container.querySelector('[data-work-id="w-mix"]')!;
+    const recentActivity = mixedCard.querySelector('[data-testid="work-last-activity"]');
+    expect(recentActivity?.getAttribute("title")).toContain("Alice event summary");
+    expect(recentActivity?.getAttribute("title")).not.toContain("Bob event summary");
+    expect(mixedCard.querySelector('[data-testid="work-running"]')).toBeNull();
+    await view.mount(createElement(WorkView, baseWorkProps));
 
     // Cross-task conjunction negative test: Alice has edgeA, Bob has edgeB -> Alice + edgeB must yield empty!
     await changeValue(view.container.querySelector<HTMLSelectElement>('[data-testid="work-filter-node"]'), edgeB);
@@ -772,6 +835,8 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
             {
               dispatchId: "d-dec-alice",
               runtimeSessionId: "rt-dec-alice",
+              personId: "person_alice",
+              nodeId: edgeA,
               status: "succeeded",
               reviewContentDigest: "sha256:aaa",
               reportRef: null,
@@ -779,8 +844,21 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
               findingCount: 0,
             },
             {
+              dispatchId: "d-dec-alice-older",
+              runtimeSessionId: "rt-dec-alice-older",
+              personId: "person_alice",
+              nodeId: edgeA,
+              status: "succeeded",
+              reviewContentDigest: "sha256:older",
+              reportRef: null,
+              reviewer: "EarlierReviewerAlice",
+              findingCount: 0,
+            },
+            {
               dispatchId: "d-dec-bob",
               runtimeSessionId: "rt-dec-bob",
+              personId: "person_bob",
+              nodeId: edgeB,
               status: "succeeded",
               reviewContentDigest: "sha256:bbb",
               reportRef: null,
@@ -799,12 +877,27 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
       awaitingDecisionReview: [],
     } as never);
     vi.spyOn(harnessClient, "getTasks").mockResolvedValue({ ok: true, rows: [], invalidRows: [] } as never);
-    vi.spyOn(squadRunsClient, "list").mockResolvedValue({
-      ok: true,
-      repoId: "repo-test",
-      runs: [],
-      totals: { runs: 0 },
-    } as never);
+    vi.spyOn(squadRunsClient, "list").mockImplementation(async (_repoId, query) => {
+      const runs = ["alice", "bob"]
+        .map((member) => ({
+          squadRunId: `run-${member}`,
+          squadId: `squad-${member}`,
+          phase: "converged",
+          subject: { kind: "task", taskId: "t-mix" },
+          mission: `Squad run by ${member}`,
+          latestActivityAt: "2026-10-06T00:08:00.000Z",
+          owner: { personId: `person_${member}`, source: { kind: "node", nodeId: member === "alice" ? edgeA : edgeB } },
+          leaderTurnCount: 1,
+          workerAttemptCount: 1,
+          runningCount: 0,
+        }))
+        .filter(
+          ({ owner }) =>
+            (!query?.personId || owner.personId === query.personId) &&
+            (!query?.nodeId || owner.source.nodeId === query.nodeId),
+        );
+      return { ok: true, runs, totals: { runs: runs.length }, truncated: false } as never;
+    });
 
     // 1) Pre-select rt-bob under unfiltered scope, then apply scopePersonId=person_alice
     const sessionsProps = (scopePersonId: string | null, sessionRange: "24h" | "all" | null = null) => ({
@@ -855,13 +948,44 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
     expect(view.container.querySelector('[data-testid="rail-session-rt-bob"]')).toBeNull();
     expect(view.container.querySelector('[data-testid="rail-session-rt-orphan"]')).toBeNull();
     expect(view.container.querySelector('[data-testid="rail-session-rt-dec-alice"]')).toBeTruthy();
+    expect(view.container.querySelector('[data-testid="rail-session-rt-dec-alice-older"]')).toBeTruthy();
+    await view.mount(
+      createElement(SessionsView, {
+        ...sessionsProps("person_alice"),
+        focusedEntityRef: "decisionsessions/dec-mix/rt-dec-alice-older",
+      }),
+    );
+    await flushMicroAndTimers();
+    expect(agentRuntimeClient.session).toHaveBeenCalledWith("repo-test", "rt-dec-alice-older");
+    await view.mount(createElement(SessionsView, sessionsProps("person_alice")));
+    await flushMicroAndTimers();
     expect(view.container.querySelector('[data-testid="rail-session-rt-dec-bob"]')).toBeNull();
+
+    await click(view.container.querySelector('[data-testid="sessions-segment-squads"]'));
+    await changeValue(view.container.querySelector<HTMLSelectElement>('[data-testid="sessions-node-filter"]'), edgeA);
+    await flushMicroAndTimers();
+    expect(squadRunsClient.list).toHaveBeenCalledWith(
+      "repo-test",
+      expect.objectContaining({ personId: "person_alice", nodeId: edgeA }),
+    );
+    const squadList = view.container.querySelector('[data-testid="squad-run-list"]');
+    expect(squadList?.textContent).toContain("squad-alice");
+    expect(squadList?.textContent).not.toContain("squad-bob");
+    await click(view.container.querySelector('[data-testid="sessions-segment-sessions"]'));
 
     // Agent drill-down narrows dispatches/groups to Alice only
     await click(view.container.querySelector('[data-testid="sessions-group-agent"]'));
     await flushMicroAndTimers();
     await click(view.container.querySelector('[data-testid="session-group-drill-agent-a"]'));
     await flushMicroAndTimers();
+    expect(harnessClient.getTaskDispatches).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "agent-a",
+        personId: "person_alice",
+        nodeId: edgeA,
+        limit: 50,
+      }),
+    );
     await click(view.container.querySelector('[data-testid="session-group-toggle-t-mix"]'));
     await flushMicroAndTimers();
     expect(view.container.querySelector('[data-testid="rail-session-rt-alice"]')).toBeTruthy();
@@ -878,7 +1002,7 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
     allView.unmount();
   });
 
-  it("wires real <App /> member scope lens via entity.actions.explain, excludes unrelated repos, clears on exit/logout, and handles node session range & repo-scoped unregister", async () => {
+  it("wires real <App /> member scope lens via the repository access directory, excludes unrelated repos, clears on exit/logout, and handles node session range & repo-scoped unregister", async () => {
     vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
       return this.hasAttribute("data-index") ? 28 : 600;
     });
@@ -994,7 +1118,8 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
     const sessionGroupCalls: Array<Record<string, unknown>> = [];
     const fleetUnregisterCalls: Array<{ repoId: string; input: unknown }> = [];
     let isAuthenticated = true;
-    let isDelegateAllowed = true;
+    let isRepoAdmin = true;
+    let pendingDirectory: Promise<unknown> | null = null;
     let canFleetManage = true;
 
     const mountWithBridge = async () => {
@@ -1027,27 +1152,21 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
         },
         access: {
           forRepository: (repoId: string) => ({
-            grants: async () => ({
-              ok: true,
-              repoId,
-              grants: [
-                { personId: "person_alice", groupId: "admin", resource: "repo-test" },
-                { personId: "person_bob", groupId: "contributor", resource: "repo-test" },
-                { personId: "person_outsider", groupId: "admin", resource: "other-repo" },
-              ],
-              people: [
-                { personId: "person_alice", username: "alice" },
-                { personId: "person_bob", username: "bob" },
-                { personId: "person_outsider", username: "outsider" },
-              ],
-            }),
-            effectivePermissions: async () => ({
-              ok: true,
-              personId: "person_alice",
-              resource: "@fleet",
-              grants: [],
-              actions: canFleetManage ? [{ action: "access-manage" }] : [{ action: "read" }],
-            }),
+            repositoryMembers: async () =>
+              pendingDirectory ?? {
+                ok: true,
+                repoId,
+                personId: "person_alice",
+                isRepoAdmin,
+                canManageFleetNodes: canFleetManage,
+                members: isRepoAdmin
+                  ? [
+                      { personId: "person_alice", username: "alice" },
+                      { personId: "person_bob", username: "bob" },
+                      { personId: "person_chenyirun", username: "chenyirun" },
+                    ]
+                  : [],
+              },
           }),
         },
         fleetAdmin: {
@@ -1295,7 +1414,7 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
               actions: [
                 {
                   action: { kind: "person", id: "delegate" },
-                  authorizationDecision: { outcome: isDelegateAllowed ? "allowed" : "denied" },
+                  authorizationDecision: { outcome: "allowed" },
                 },
               ],
             },
@@ -1395,7 +1514,7 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
     };
 
     // 1) Non-admin user: lens stays hidden
-    isDelegateAllowed = false;
+    isRepoAdmin = false;
     const nonAdminApp = await mountWithBridge();
     await nonAdminApp.mount();
     await flushMicroAndTimers();
@@ -1404,8 +1523,8 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
 
     // 2) Target-repo admin (with outsider excluded), switch member across Overview -> Work -> Board -> Sessions,
     //    exit via banner, logout clearing, plus Collaboration jump & repo-scoped unregister
-    isDelegateAllowed = true;
-    canFleetManage = true;
+    isRepoAdmin = true;
+    canFleetManage = false;
     isAuthenticated = true;
     const adminApp = await mountWithBridge();
     await adminApp.mount();
@@ -1417,6 +1536,29 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
     expect(optionValues).toContain("person_alice");
     expect(optionValues).toContain("person_bob");
     expect(optionValues).not.toContain("person_outsider");
+    expect(optionValues).toContain("person_chenyirun");
+
+    await clickSidebarNav(adminApp.container, "看板");
+    await click(adminApp.container.querySelector('[data-testid="board-filter-toggle"]'));
+    const boardPerson = () =>
+      adminApp.container.querySelector<HTMLSelectElement>('[data-testid="board-filter-person"]');
+    const boardNode = () => adminApp.container.querySelector<HTMLSelectElement>('[data-testid="board-filter-node"]');
+    await changeValue(boardPerson(), "person_alice");
+    await changeValue(boardNode(), edgeA);
+    const aliceCard = [...adminApp.container.querySelectorAll('[data-testid="board-task-card"]')].find((card) =>
+      card.textContent?.includes("App Alice Subtask"),
+    );
+    await click(aliceCard);
+    await flushMicroAndTimers();
+    expect(adminApp.container.querySelector('[data-testid="task-preview-pin-toggle"]')).toBeTruthy();
+    await changeValue(scopeSelect, "person_bob");
+    expect(adminApp.container.querySelector('[data-testid="task-preview-pin-toggle"]')).toBeNull();
+    expect(boardPerson()?.value).toBe("person_bob");
+    expect(boardPerson()?.disabled).toBe(true);
+    expect(boardNode()?.value).toBe(edgeA);
+    expect(adminApp.container.textContent).not.toContain("App Bob Subtask");
+    await changeValue(boardNode(), edgeB);
+    expect(adminApp.container.textContent).toContain("App Bob Subtask");
 
     // Switch topbar lens to Bob
     await changeValue(scopeSelect, "person_bob");
@@ -1457,6 +1599,34 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
     expect(adminApp.container.querySelector('[data-testid="session-group-t-app-alice"]')).toBeTruthy();
     expect(adminApp.container.querySelector('[data-testid="session-group-t-app-bob"]')).toBeTruthy();
 
+    // Revoke access while the same signed-in identity's directory read is pending.
+    await changeValue(
+      adminApp.container.querySelector<HTMLSelectElement>('[data-testid="global-scope-select"]'),
+      "person_bob",
+    );
+    const earlierAdminReply = Promise.withResolvers<unknown>();
+    pendingDirectory = earlierAdminReply.promise;
+    await act(async () => window.dispatchEvent(new Event("harness-access-changed")));
+    expect(adminApp.container.querySelector('[data-testid="global-scope-select"]')).toBeNull();
+    expect(adminApp.container.querySelector('[data-testid="global-scope-banner"]')).toBeNull();
+    expect(adminApp.container.querySelector('[data-testid="session-group-t-app-alice"]')).toBeTruthy();
+    pendingDirectory = null;
+    isRepoAdmin = false;
+    await act(async () => window.dispatchEvent(new Event("harness-access-changed")));
+    await act(async () =>
+      earlierAdminReply.resolve({
+        ok: true,
+        personId: "person_alice",
+        isRepoAdmin: true,
+        canManageFleetNodes: false,
+        members: [],
+      }),
+    );
+    expect(adminApp.container.querySelector('[data-testid="global-scope-select"]')).toBeNull();
+    isRepoAdmin = true;
+    await act(async () => window.dispatchEvent(new Event("harness-access-changed")));
+    await flushMicroAndTimers();
+
     // Select Bob again then simulate logout -> clears scope & hides lens
     await changeValue(
       adminApp.container.querySelector<HTMLSelectElement>('[data-testid="global-scope-select"]'),
@@ -1472,8 +1642,9 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
     expect(adminApp.container.querySelector('[data-testid="global-scope-select"]')).toBeNull();
     expect(adminApp.container.querySelector('[data-testid="global-scope-banner"]')).toBeNull();
 
-    // Re-authenticate as admin -> navigate to Collaboration -> test repo-scoped unregister & "View dispatches in sessions" (range=all)
+    // Re-authenticate with fleet access for the existing node-unregister route.
     isAuthenticated = true;
+    canFleetManage = true;
     await act(async () => {
       window.dispatchEvent(new Event("harness-auth-signed-in"));
     });

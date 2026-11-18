@@ -1189,13 +1189,18 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         if (request.operation === "edge-join-progress") {
           return { ok: true, command: "edge-join", ...edgeJoinProgress.read() };
         }
-        const loginTarget =
-            request.rootDir ??
-            request.workspaceRoot ??
-            (request.repoId
-              ? (readDaemonRegistry({ userRoot: input.userRoot }).repos.find((repo) => repo.repoId === request.repoId)
-                  ?.canonicalRoot ?? undefined)
-              : undefined),
+        const registeredRoot = () =>
+            request.repoId
+              ? (readDaemonRegistry({ userRoot: input.userRoot }).repos.find(
+                  (repo) =>
+                    repo.repoId === request.repoId &&
+                    (request.operation !== "repository-members" || repo.state === "enabled"),
+                )?.canonicalRoot ?? undefined)
+              : undefined,
+          loginTarget =
+            request.operation === "repository-members"
+              ? registeredRoot()
+              : (request.rootDir ?? request.workspaceRoot ?? registeredRoot()),
           requireLoginTarget = () => {
             if (!loginTarget)
               throw hostCodedError("oidc_center_required", "Select a repository root to choose its identity center.");

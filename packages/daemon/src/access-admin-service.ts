@@ -169,6 +169,29 @@ export class AccessAdminService {
   }
 
   async run(request: AccessAdminRequest, requester?: string): Promise<Record<string, unknown>> {
+    if (request.operation === "repository-members") {
+      if (requester !== undefined)
+        throw coded("authorization_denied", "The repository member directory requires a signed-in person.");
+      const repoId = text(request.repoId, "repoId");
+      const actor = await this.#oidc.requireSession(request.rootDir);
+      const { adapter, token } = await this.#session();
+      const [repository, fleet] = await Promise.all([
+        adapter.authorize({
+          userAccessToken: actor.accessToken,
+          action: "access-manage",
+          resource: { kind: "repository", repoId },
+        }),
+        adapter.authorize({ userAccessToken: actor.accessToken, action: "access-manage", resource: { kind: "fleet" } }),
+      ]);
+      const isRepoAdmin = repository.outcome === "allowed";
+      return {
+        ok: true,
+        personId: actor.personId,
+        isRepoAdmin,
+        canManageFleetNodes: fleet.outcome === "allowed",
+        members: isRepoAdmin ? await repositoryMembers(adapter, token, repoId) : [],
+      };
+    }
     if (request.operation === "permission-request-decide" && requester !== undefined)
       throw coded("human_confirmation_required", "An execution credential cannot decide permission requests.");
     if (request.operation === "permission-request-create" && requester !== undefined)
@@ -1053,6 +1076,17 @@ ${JSON.stringify(planned.preview, null, 2)}`,
       .map((line) => JSON.parse(line) as Readonly<Record<string, unknown>>)
       .filter((record) => record.operationId === operationId);
   }
+}
+
+async function repositoryMembers(adapter: AuthorizationProvider, token: string, repoId: string) {
+  const [grants, people] = await Promise.all([adapter.readGrants(token), adapter.readPeople(token)]);
+  const members = new Set<string>();
+  for (const grant of grants) {
+    const resource = decodeAuthorizationResource(grant.resource);
+    if (resource.kind === "fleet" || resource.repoId !== repoId) continue;
+    for (const userId of grant.userIds) members.add(userId);
+  }
+  return people.filter(({ userId }) => members.has(userId)).map(({ personId, username }) => ({ personId, username }));
 }
 
 function groupVersion(group: AuthorizationPolicyGroup): string {

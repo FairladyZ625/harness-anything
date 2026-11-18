@@ -477,6 +477,7 @@ export const BoardView = memo(function BoardView({
   wipSnapshot,
   filters,
   onFiltersChange,
+  personFilterLocked,
   onSelect,
   drill,
   favorites,
@@ -499,6 +500,7 @@ export const BoardView = memo(function BoardView({
   wipSnapshot?: TaskWipRead;
   filters: TaskFilters;
   onFiltersChange: (filters: TaskFilters) => void;
+  personFilterLocked?: boolean;
   onSelect: (id: string) => void;
   drill?: { lane: string; status: SnapshotStatus; groupBy: LaneGroupBy } | null;
   favorites: ReadonlySet<string>;
@@ -733,6 +735,7 @@ export const BoardView = memo(function BoardView({
         tasks={allTasks}
         filters={filters}
         onChange={onFiltersChange}
+        personFilterLocked={personFilterLocked}
         contextLabel="看板"
         favorites={favorites}
         coldTerminalCount={coldPartition.collapsed.length}

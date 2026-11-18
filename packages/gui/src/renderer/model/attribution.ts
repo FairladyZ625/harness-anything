@@ -15,6 +15,38 @@ export interface NodeOption {
   readonly label: string;
 }
 
+export interface AttributionScope {
+  readonly personId: string | null;
+  readonly nodeId: string | null;
+}
+
+export function matchesAttribution(
+  row: { readonly personId?: string | null; readonly nodeId?: string | null },
+  scope: AttributionScope,
+): boolean {
+  return (
+    (scope.personId === null || row.personId === scope.personId) &&
+    (scope.nodeId === null || row.nodeId === scope.nodeId)
+  );
+}
+
+export function attributionNodeIdOf(source: TaskRow["leaseSource"]): string | null {
+  return source === "local" ? CENTER_NODE_ID : leaseNodeIdOf(source);
+}
+
+export function taskExecutionMatches(task: TaskRow, scope: AttributionScope): boolean {
+  return (
+    task.activeExecutionId !== undefined &&
+    matchesAttribution(
+      {
+        personId: task.leaseActor?.principal.personId,
+        nodeId: attributionNodeIdOf(task.leaseSource),
+      },
+      scope,
+    )
+  );
+}
+
 const UUID_OR_HEX_NODE_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-|[0-9a-f]{12,}$)/iu;
 
 /** Shortens raw UUID / long hex node IDs to 6 chars while keeping semantic hostnames intact. */

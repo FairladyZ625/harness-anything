@@ -201,12 +201,15 @@ export type DecisionReviewRound = {
 export function decisionReviewRounds(decision: DecisionRow): readonly DecisionReviewRound[] | null {
   const review = decision.review;
   if (!review?.dispatches) return null;
+  const reviewsByReport = new Map<string, DecisionReview>();
+  for (const row of review.reviews) {
+    if (row.reportRef !== null && !reviewsByReport.has(row.reportRef)) reviewsByReport.set(row.reportRef, row);
+  }
   return review.dispatches.map((dispatch) => ({
     decisionId: decision.decisionId,
     decisionTitle: decision.title,
     dispatch,
-    review:
-      dispatch.reportRef === null ? null : (review.reviews.find((row) => row.reportRef === dispatch.reportRef) ?? null),
+    review: dispatch.reportRef === null ? null : (reviewsByReport.get(dispatch.reportRef) ?? null),
     currentDigest: review.currentDigest,
   }));
 }

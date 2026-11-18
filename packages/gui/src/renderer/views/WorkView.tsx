@@ -12,6 +12,7 @@ import {
   collectWork,
   scopeWorkAttention,
   scopeWorkGroup,
+  scopedWorkLineage,
   workHealth,
   workTier,
   WORK_TIERS,
@@ -38,6 +39,7 @@ import {
   collectNodeOptions,
   formatNodeDisplay,
   personShortName,
+  taskExecutionMatches,
   taskMatchesNode,
   taskMatchesPerson,
   type MemberOption,
@@ -179,11 +181,14 @@ export function WorkView({
             health: workHealth(rawGroup, attention.get(rawGroup.task.taskId), now),
             stuck: attention.get(rawGroup.task.taskId)?.stuck ?? [],
             rootMatches: true,
-            lineageTasks: tasks,
+            lineageTasks: [rawGroup.task, ...rawGroup.members],
           },
         ];
       }
-      const scoped = scopeWorkGroup(rawGroup, matchesAttribution, allParents);
+      const scoped = scopeWorkGroup(rawGroup, matchesAttribution, allParents, {
+        personId: effectivePerson,
+        nodeId: effectiveNode,
+      });
       if (!scoped) return [];
       const matchingTaskIds = new Set<string>([
         ...(scoped.rootMatches ? [rawGroup.task.taskId] : []),
@@ -194,28 +199,17 @@ export function WorkView({
         matchingTaskIds,
         scoped.rootMatches,
       );
-      const lineageIds = new Set<string>([
-        rawGroup.task.taskId,
-        ...scoped.group.members.map((member) => member.taskId),
-      ]);
-      for (const member of scoped.group.members) {
-        let cursor = member.parentTaskId ? taskById.get(member.parentTaskId) : undefined;
-        while (cursor && cursor.taskId !== rawGroup.task.taskId && !lineageIds.has(cursor.taskId)) {
-          lineageIds.add(cursor.taskId);
-          cursor = cursor.parentTaskId ? taskById.get(cursor.parentTaskId) : undefined;
-        }
-      }
       return [
         {
           group: scoped.group,
           health: workHealth(scoped.group, scopedAttention, now, { rootIncluded: scoped.rootMatches }),
           stuck: scopedAttention?.stuck ?? [],
           rootMatches: scoped.rootMatches,
-          lineageTasks: tasks.filter((task) => lineageIds.has(task.taskId)),
+          lineageTasks: scopedWorkLineage(scoped.group, taskById),
         },
       ];
     });
-  }, [allParents, attention, collections.groups, effectiveNode, effectivePerson, now, taskById, tasks]);
+  }, [allParents, attention, collections.groups, effectiveNode, effectivePerson, now, taskById]);
   const query = search.trim().toLocaleLowerCase();
   const matchesText = (task: TaskRow) => `${task.title} ${task.taskId}`.toLocaleLowerCase().includes(query);
   const searchHits = (entry: WorkEntry) =>
@@ -273,7 +267,7 @@ export function WorkView({
     ] as const
   ).map(([key, label]) => ({ key, label, count: entries.filter((entry) => matchesFilter(entry, key)).length }));
   const mineWorks = entries.filter(({ health }) => health.mine.length > 0).length;
-  const titleOf = (taskId: string) => tasks.find((task) => task.taskId === taskId)?.title;
+  const titleOf = (taskId: string) => taskById.get(taskId)?.title;
   return (
     <div data-testid="work-view" className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 md:p-5">
       <header className="flex flex-wrap items-baseline gap-3">
@@ -522,17 +516,20 @@ function WorkCard({
     reasons = size === "large" ? workReasons(entry, titleOf, now) : [],
     all = rootMatches ? [task, ...group.members] : group.members,
     // 第一个在跑的任务:与 `group.live` 同一判据。执行者的名字本页读不到,不写机器标识。
-    runner = all.find(({ activeExecutionId }) => activeExecutionId !== undefined),
+    runner = all.find((candidate) => taskExecutionMatches(candidate, { personId, nodeId })),
     // 最近有动静的任务:只报它的标题,不显示生命周期事件的机器摘要。
     recent = all.find(({ taskId }) => taskId === group.activity?.taskId),
-    ago = (
-      <span
-        data-testid="work-last-activity"
-        title={group.activity ? `${group.activity.taskId} · ${group.activity.summary} · ${lastActivity}` : lastActivity}
-      >
-        {formatListTime(group.lastChangeAt)}
-      </span>
-    ),
+    ago =
+      group.lastChangeAt === "" ? undefined : (
+        <span
+          data-testid="work-last-activity"
+          title={
+            group.activity ? `${group.activity.taskId} · ${group.activity.summary} · ${lastActivity}` : lastActivity
+          }
+        >
+          {formatListTime(group.lastChangeAt)}
+        </span>
+      ),
     progress = (
       <span className="font-mono tabular-nums text-text-muted ui-meta">
         {done}/{effective}

@@ -36,6 +36,7 @@ const operationFields: Readonly<Record<string, Readonly<Record<string, Field>>>>
   "team-member-remove": { teamId: "text", personId: "text", expectedVersion: "text" },
   "group-list": {},
   "grant-list": {},
+  "repository-members": {},
   "permission-request-list": {},
   "permission-request-create": { groupId: "text", resource: "text", rationale: "optional-text" },
   "permission-request-decide": { requestId: "text", requestVersion: "seconds", decision: "text" },

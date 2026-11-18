@@ -17,6 +17,41 @@ import { keycloakIssuer, keycloakRealm, keycloakUrl, keycloakSessionStore } from
 
 import { accessAdminFixture as fixture, edgeJoinCenter } from "./access-admin-service.fixture.ts";
 
+test("the repository directory uses repository policy, covers idle members, and keeps fleet grants private", async (t) => {
+  const { admin, keycloak, run, signIn, journal } = await fixture(t);
+  for (const id of ["person-repo-admin", "person-idle", "person-delegate", "person-outsider"]) keycloak.account(id);
+  await run({ operation: "grant", groupId: "admin", resource: "repo-a", personId: "person-repo-admin" });
+  await run({ operation: "grant", groupId: "viewer", resource: "repo-a", personId: "person-idle" });
+  await run({ operation: "grant", groupId: "admin", resource: "repo-b", personId: "person-outsider" });
+  keycloak.permit("person-delegate", "repo-a:person/person-delegate", ["people-delegate"]);
+  keycloak.accessAdmin("person-delegate");
+  const receipts = journal().length;
+  const read = { operation: "repository-members", repoId: "repo-a" };
+
+  signIn("person-delegate", []);
+  assert.deepEqual(await run(read), {
+    ok: true,
+    personId: "person-delegate",
+    isRepoAdmin: false,
+    canManageFleetNodes: true,
+    members: [],
+  });
+  signIn("person-repo-admin", []);
+  assert.deepEqual(await run(read), {
+    ok: true,
+    personId: "person-repo-admin",
+    isRepoAdmin: true,
+    canManageFleetNodes: false,
+    members: [
+      { personId: "person-idle", username: "person-idle" },
+      { personId: "person-repo-admin", username: "person-repo-admin" },
+    ],
+  });
+  await assert.rejects(() => run({ operation: "grant-list" }), { code: "authorization_denied" });
+  await assert.rejects(() => admin.run(read, "person-repo-admin"), { code: "authorization_denied" });
+  assert.equal(journal().length, receipts);
+});
+
 test("password changes use the signed-in subject; other-account reset requires access management and leaves no receipt", async (t) => {
   const { keycloak, run, signIn, journal } = await fixture(t);
   keycloak.account("person-target");

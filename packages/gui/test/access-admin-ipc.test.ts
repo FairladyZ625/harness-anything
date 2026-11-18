@@ -56,6 +56,7 @@ test("every preload method reaches the daemon as one operation the protocol cont
   await api.updateGroup({ ...group, expectedVersion: "v1" });
   await api.deleteGroup({ groupId: "release", expectedVersion: "v1" });
   await api.grants();
+  await api.forRepository("repo-a").repositoryMembers();
   await api.grant(grant);
   await api.revoke(grant);
   await api.effectivePermissions({ personId: "alice", resource: "repo-a" });
@@ -104,6 +105,7 @@ test("every preload method reaches the daemon as one operation the protocol cont
     { operation: "group-update", ...group, expectedVersion: "v1", operationId: "operation-2" },
     { operation: "group-delete", groupId: "release", expectedVersion: "v1", operationId: "operation-3" },
     { operation: "grant-list" },
+    { operation: "repository-members", repoId: "repo-a" },
     { operation: "grant", ...grant, operationId: "operation-4" },
     { operation: "revoke", ...grant, operationId: "operation-5" },
     { operation: "effective-permissions", personId: "alice", resource: "repo-a" },

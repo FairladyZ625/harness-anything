@@ -265,10 +265,14 @@ function readMemberTaskDispatches(input: {
   readonly projection: TaskProjectionQueries;
   readonly agentId?: string;
   readonly squadId?: string;
+  readonly personId?: string;
+  readonly nodeId?: string;
   readonly limit: number;
 }): DaemonTaskDispatchesResult {
   const member = input.projection.readRuntimeDispatchesByMember({
     ...(input.agentId !== undefined ? { agentId: input.agentId } : { squadId: input.squadId! }),
+    ...(input.personId === undefined ? {} : { personId: input.personId }),
+    ...(input.nodeId === undefined ? {} : { nodeId: input.nodeId }),
     limit: input.limit,
   });
   const sessions = member.rows
@@ -647,7 +651,7 @@ export function readTaskDispatchRow(
   );
 }
 
-function dispatchAttribution(
+export function dispatchAttribution(
   projection: Pick<TaskProjectionQueries, "readRuntimeSessionEventsByType">,
   event: DispatchEvent,
 ): { readonly personId: string | null; readonly nodeId: string | null } {

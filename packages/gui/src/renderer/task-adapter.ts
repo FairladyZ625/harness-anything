@@ -3,6 +3,7 @@ import type { TaskSnapshotProjectionRow } from "../api/renderer-dto.ts";
 import { t } from "./i18n/index.tsx";
 import { actorDisplayName } from "./model/actor-name.ts";
 import { leaseNodeIdOf } from "./model/collaboration.ts";
+import { attributionNodeIdOf } from "./model/attribution.ts";
 import type { EventEntry, TaskRow } from "./model/types.ts";
 import { WORK_STEP_LABEL_KEY, type WorkStepKind } from "./model/workspace-narrative.ts";
 import { NO_WORKS, type WorkIndex } from "./model/work-collections.ts";
@@ -160,37 +161,66 @@ function lifecycleEvents(row: TaskSnapshotProjectionRow, projectId: string): Tas
   const taskId = row.taskId;
   // 引用对象的 recordRef 在记录源头按种类拼好(execution/review/consent/witness),
   // 渲染层不从 ref 文本猜类型;同 execution 的多条事件共用同一引用。
-  const event = (at: string, kind: WorkStepKind, ref: string, recordKind: string): EventEntry => ({
+  const event = (
+    at: string,
+    kind: WorkStepKind,
+    ref: string,
+    recordKind: string,
+    personId: string | undefined,
+    nodeId: string | null = null,
+  ): EventEntry => ({
     at,
     projectId,
     taskId,
     kind,
     ref,
+    ...(personId === undefined ? {} : { personId }),
+    ...(nodeId === null ? {} : { nodeId }),
     recordRef: `${recordKind}/${ref}`,
     summary: t(WORK_STEP_LABEL_KEY[kind]),
   });
   const events = [
-    ...row.snapshot.executions.flatMap((execution) => [
-      event(execution.claimedAt, "start", execution.executionId, "execution"),
-      ...(execution.submittedAt ? [event(execution.submittedAt, "submit", execution.executionId, "execution")] : []),
-      // 未登记的终态按已完成收束(词表没有中性的「关闭」;编号行尾仍可达)。
-      ...(execution.closedAt
-        ? [
-            event(
-              execution.closedAt,
-              EXECUTION_CLOSED_KIND[execution.state] ?? "completed",
-              execution.executionId,
-              "execution",
-            ),
-          ]
-        : []),
-    ]),
+    ...row.snapshot.executions.flatMap((execution) => {
+      const lease = row.snapshot.lease;
+      const nodeId = lease?.executionId === execution.executionId ? attributionNodeIdOf(lease.source) : null;
+      const step = (at: string, kind: WorkStepKind) =>
+        event(at, kind, execution.executionId, "execution", execution.actor?.principal?.personId, nodeId);
+      return [
+        step(execution.claimedAt, "start"),
+        ...(execution.submittedAt ? [step(execution.submittedAt, "submit")] : []),
+        ...(execution.closedAt
+          ? [step(execution.closedAt, EXECUTION_CLOSED_KIND[execution.state] ?? "completed")]
+          : []),
+      ];
+    }),
     ...row.snapshot.reviews.map((review) =>
-      event(review.reviewedAt, REVIEW_VERDICT_KIND[review.verdict] ?? "rejected", review.reviewId, "review"),
+      event(
+        review.reviewedAt,
+        REVIEW_VERDICT_KIND[review.verdict] ?? "rejected",
+        review.reviewId,
+        "review",
+        review.actor?.principal?.personId,
+      ),
     ),
-    ...row.snapshot.consents.map((consent) => event(consent.consentedAt, "consent", consent.consentId, "consent")),
+    ...row.snapshot.consents.map((consent) =>
+      event(
+        consent.consentedAt,
+        "consent",
+        consent.consentId,
+        "consent",
+        consent.actor?.principal?.personId,
+        attributionNodeIdOf(consent.source),
+      ),
+    ),
     ...row.snapshot.gateWitnesses.map((witness) =>
-      event(witness.verifiedAt, GATE_RESULT_KIND[witness.result] ?? "gateCheck", witness.witnessId, "witness"),
+      event(
+        witness.verifiedAt,
+        GATE_RESULT_KIND[witness.result] ?? "gateCheck",
+        witness.witnessId,
+        "witness",
+        witness.actor?.principal?.personId,
+        attributionNodeIdOf(witness.source),
+      ),
     ),
   ];
   return events.sort((left, right) => right.at.localeCompare(left.at));

@@ -163,16 +163,7 @@ export function OverviewView({
     [rawPinned, scopePersonId, scopedTaskIds],
   );
   // 置顶的非任务实体(Decision、Schedule…):同一读面派生,行上走实体级解 pin 通道。
-  const rawPinnedOthers = useMemo(() => pinnedEntityRows(agenda), [agenda]);
-  const pinnedOthers = useMemo(
-    () =>
-      scopePersonId === null
-        ? rawPinnedOthers
-        : rawPinnedOthers.filter(
-            (entity) => !entity.ref.startsWith("task/") || scopedTaskIds.has(entity.ref.slice("task/".length)),
-          ),
-    [rawPinnedOthers, scopePersonId, scopedTaskIds],
-  );
+  const pinnedOthers = useMemo(() => pinnedEntityRows(agenda, scopePersonId), [agenda, scopePersonId]);
   // 关注的活动窗口:天数走设置项,读面落定前的 undefined 用声明默认,不猜。
   const settingsQuery = useSettingsQuery(repoId);
   const activityDays = useMemo(() => {
@@ -194,7 +185,8 @@ export function OverviewView({
     () => activeAgentIdsOf(agentGroupsQuery.data?.groups ?? [], awaitsOfTask),
     [agentGroupsQuery.data, awaitsOfTask],
   );
-  const memberPages = useOverviewAgentMemberPages(repoId, activeAgents);
+  const memberPages = useOverviewAgentMemberPages(repoId, activeAgents, scopePersonId);
+  const dispatchesTruncated = [...memberPages.values()].some(({ truncated }) => truncated);
   const lanesNowMs = Date.parse(now);
   const lanesModel = useMemo(
     () =>
@@ -442,6 +434,7 @@ export function OverviewView({
                     footer={
                       // 全量入口收在页脚:名单在区内滚动,入口保持可达(不随列表滚走)。
                       <>
+                        {dispatchesTruncated && <span>{t("views.overviewView.memberDispatchesTruncated")}</span>}
                         <button
                           type="button"
                           data-testid="overview-running-all-tasks"
