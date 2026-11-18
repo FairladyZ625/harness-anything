@@ -551,7 +551,8 @@ function pgFleetHeader(row: PgFleetHeaderRow): CanonicalEventSummary {
   };
 }
 
-/** Lateral LIMITs keep each list on the matching node and ordered index range. */
+// Limit each node's activity first, then hydrate tasks by their scoped primary key.
+// A regular join can scan every task snapshot to decorate just ten activity rows.
 async function readPgFleetNodeActivity(
   client: PoolClient,
   scope: PgProjectionScope,
@@ -578,8 +579,12 @@ async function readPgFleetNodeActivity(
         FROM ha_fleet_node_tasks
         WHERE ${eventScope} AND node_id=nodes.id
         ORDER BY updated_at DESC,task_id LIMIT ${FLEET_RECENT_TASK_LIMIT}
-      ) a JOIN ha_task_snapshots t ON t.tenant_id=$1 AND t.project_id=$2 AND t.policy_epoch=$3 AND t.task_id=a.task_id
-        AND (cardinality($5::text[])=0 OR t.readers && $5::text[])
+      ) a CROSS JOIN LATERAL (
+        SELECT task_title,task_status FROM ha_task_snapshots
+        WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id=a.task_id
+          AND (cardinality($5::text[])=0 OR readers && $5::text[])
+        LIMIT 1
+      ) t
     ) tasks
     CROSS JOIN LATERAL (
       SELECT COALESCE(json_agg(json_build_object('dispatchId',d.dispatch_id,'runtimeSessionId',d.runtime_session_id,
@@ -592,8 +597,12 @@ async function readPgFleetNodeActivity(
         FROM ha_events WHERE ${eventScope} AND fleet_node_id=nodes.id AND event_type='runtime_dispatch_requested'
         ORDER BY dispatch_activity_at DESC,revision DESC LIMIT ${FLEET_RECENT_DISPATCH_LIMIT}
       ) d
-      LEFT JOIN ha_task_snapshots t ON t.tenant_id=$1 AND t.project_id=$2 AND t.policy_epoch=$3
-        AND t.task_id=d.fleet_task_id AND (cardinality($5::text[])=0 OR t.readers && $5::text[])
+      LEFT JOIN LATERAL (
+        SELECT task_title FROM ha_task_snapshots
+        WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+          AND task_id=d.fleet_task_id COLLATE "default" AND (cardinality($5::text[])=0 OR readers && $5::text[])
+        LIMIT 1
+      ) t ON true
       LEFT JOIN ha_projection_values s ON s.tenant_id=$1 AND s.project_id=$2 AND s.policy_epoch=$3
         AND s.model='runtime-session' AND s.owner_id='' AND s.entity_id=d.runtime_session_id COLLATE "default"
         AND (cardinality($5::text[])=0 OR s.readers && $5::text[])
