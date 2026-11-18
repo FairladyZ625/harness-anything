@@ -20,7 +20,15 @@ const requestLogFileName = "requests.jsonl";
 const defaultKeptDays = 7;
 const dayMs = 86_400_000;
 
-export interface DaemonRequestLogEntry {
+export interface DaemonWriteTiming {
+  /** Wall time spent waiting for the single writer, excluding its execution. */
+  readonly queueMs?: number;
+  /** Wall time spent executing inside the single writer. */
+  readonly writeExecutionMs?: number;
+  readonly queueHead?: DaemonOperationQueueHead;
+}
+
+export interface DaemonRequestLogEntry extends DaemonWriteTiming {
   readonly method: string;
   readonly repoId: string;
   readonly command: string;
@@ -35,14 +43,10 @@ export interface DaemonRequestLogEntry {
   readonly detail?: string | null;
   readonly dispatchDelayMs?: number;
   readonly serviceMs?: number;
-  /** Time a write waited in the repository's single write queue before it executed. */
-  readonly queueMs?: number;
-  /** The write that held the queue when this request was appended. */
-  readonly queueHead?: DaemonOperationQueueHead;
   readonly durationMs: number;
 }
 
-export interface DaemonRequestLogRecord {
+export interface DaemonRequestLogRecord extends DaemonWriteTiming {
   readonly schema: string;
   readonly at: string;
   readonly connectionId: string;
@@ -64,10 +68,6 @@ export interface DaemonRequestLogRecord {
   readonly detail?: string | null;
   readonly dispatchDelayMs: number;
   readonly serviceMs: number;
-  /** Present for writes: the write-queue wait inside serviceMs; the rest of serviceMs is execution. */
-  readonly queueMs?: number;
-  /** The request at the head of the write queue when this write was appended. */
-  readonly queueHead?: DaemonOperationQueueHead;
   readonly durationMs: number;
 }
 
@@ -267,6 +267,7 @@ function buildRecord(entry: DaemonRequestLogEntry, at: Date): DaemonRequestLogRe
     dispatchDelayMs: entry.dispatchDelayMs ?? 0,
     serviceMs: entry.serviceMs ?? entry.durationMs,
     ...(entry.queueMs === undefined ? {} : { queueMs: entry.queueMs }),
+    ...(entry.writeExecutionMs === undefined ? {} : { writeExecutionMs: entry.writeExecutionMs }),
     ...(entry.queueHead === undefined ? {} : { queueHead: entry.queueHead }),
     durationMs: entry.durationMs,
   };
