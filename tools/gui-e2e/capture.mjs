@@ -115,7 +115,13 @@ async function startViteRenderer(port) {
   // (调用方式与 tools/e2e-probe.mjs 的 prepareE2EProbeGui 相同,~0.3s)。
   execFileSync(
     process.execPath,
-    [path.join(workspaceRoot, "node_modules", "vite", "bin", "vite.js"), "build", "--config", "vite.preload.config.ts"],
+    [
+      path.join(workspaceRoot, "node_modules", "vite", "bin", "vite.js"),
+      "build",
+      "--config",
+      "vite.preload.config.ts",
+      "--no-emptyOutDir",
+    ],
     { cwd: path.join(workspaceRoot, "packages", "gui"), stdio: "pipe" },
   );
   const vite = spawn(
@@ -242,8 +248,8 @@ async function main(argv) {
         ...process.env,
         ...(branchFixture ? branchFixture.env : {}),
         ...(branchFixture ? { HARNESS_DAEMON_ENDPOINT: branchFixture.endpoint } : {}),
-        ELECTRON_RENDERER_URL: `http://127.0.0.1:${port}`,
       },
+      rendererUrl: `http://127.0.0.1:${port}`,
       runRoot,
       headless: !options.show,
     });

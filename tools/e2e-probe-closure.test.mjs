@@ -168,6 +168,7 @@ test("probe-created task has a dispatchable Brief with scenario, failure, run, a
     "Deliverable Contract",
     "Evidence Protocol",
     "Verification",
+    "Recurrence Gate",
   ])
     assert.match(authoredPlan, new RegExp(`^## ${heading}$`, "mu"));
 });
