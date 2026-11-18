@@ -243,6 +243,7 @@ export function scannerSubmit(input: Input): DocCandidateScan {
     actor: input.binding.actor,
     source: input.binding.source,
     now: input.now(),
+    worktreeRevision: input.store.followerStatus().worktree.cut?.revision ?? 0,
     nodeTaskMaterializationPolicy: input.nodeTaskMaterializationPolicy,
     ...(!taskScoped ? { selection: input.action.paths as string[] } : {}),
     ...(typeof input.action.taskId === "string" ? { taskId: input.action.taskId } : {}),

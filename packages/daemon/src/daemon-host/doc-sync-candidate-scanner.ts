@@ -92,6 +92,8 @@ export function scanDocCandidates(input: {
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
   readonly now: string;
+  /** The write turn's worktree checkpoint when a submit borrows its base from the projection. */
+  readonly worktreeRevision?: number;
   readonly selection?: readonly string[];
   readonly taskId?: string;
   readonly executionId?: string;
@@ -190,8 +192,18 @@ export function scanDocCandidates(input: {
       projected =
         activeProjected.document !== null || fileSize === null || !document.startsWith("decisions/decision-")
           ? activeProjected
-          : (input.projection.readDocumentHistory?.(document) ?? activeProjected),
-      inspection = inspectDocCandidate(
+          : (input.projection.readDocumentHistory?.(document) ?? activeProjected);
+    const projectedRevision = projected.document?.workspaceRevision ?? 0;
+    if (
+      input.worktreeRevision !== undefined &&
+      inventoried?.baseBytes === undefined &&
+      input.worktreeRevision < projectedRevision
+    )
+      throw docSyncError(
+        "materialization_failed",
+        `Document ${document} requires authored worktree revision ${projectedRevision} (checkpoint ${input.worktreeRevision}). Retry doc submit after Git publication.`,
+      );
+    const inspection = inspectDocCandidate(
         document,
         fileSize,
         projected.document?.policyId ?? null,

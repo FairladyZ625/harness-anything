@@ -1,13 +1,13 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { Worker } from "node:worker_threads";
-import { consumeKnownError } from "@harness-anything/kernel";
+import { consumeKnownError, OPAQUE_TEXTUAL_POLICY_ID, sha256Text } from "@harness-anything/kernel";
 import {
   attachSqliteGitFollower,
   closeWriterEpochFenceDescriptors,
@@ -24,6 +24,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { openRepoCellProxy } from "../src/daemon-host/repo-cell-proxy.ts";
 import { acquireWorkspaceLock } from "../src/daemon-host/repo-cell-lock.ts";
 import { openRepoWriterCell } from "../src/daemon-host/repo-cell-open.ts";
+import { withRepoCellWriteSlot } from "../src/daemon-host/repo-cell.ts";
 import { fixtureFence, settleSettingsEvent, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { policyTestCenter, provisionPolicyTestRepository, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { actor } from "./task-surface.fixtures.ts";
@@ -316,51 +317,28 @@ function decisionProposeAction(title: string) {
   };
 }
 
-// DM-2: Exercise production openRepoCellProxy -> openWriterSupervisor -> shared repo-orchestration-worker.
-// Suspend Repo A's real git subprocess (`fast-import` and `update-ref`), and verify Repo B and Repo A
-// both complete cell.run to `accepted_durable` while Git remains suspended.
-for (const scenario of ["fast-import", "update-ref", "first-attempt-fails"] as const)
-  test(
-    `Git outbox (${scenario}): the same repo writes during review preparation and failed publication is retryable`,
-    { timeout: 60_000 },
-    async (t) => {
-      const failFirstAttempt = scenario === "first-attempt-fails",
-        suspendedSubcommand = failFirstAttempt ? "fast-import" : scenario,
-        parent = mkdtempSync(path.join(tmpdir(), `ha-outbox-${scenario}-`)),
-        controlDir = path.join(parent, "control"),
-        binDir = path.join(parent, "bin"),
-        repoAPath = path.join(parent, "repo-a"),
-        repoBPath = path.join(parent, "repo-b");
-      mkdirSync(controlDir, { recursive: true });
-      mkdirSync(binDir, { recursive: true });
-      mkdirSync(repoAPath, { recursive: true });
-      mkdirSync(repoBPath, { recursive: true });
-      const repoARoot = canonicalRoot(repoAPath),
-        repoBRoot = canonicalRoot(repoBPath),
-        repoAId = workspaceId("dm2-repo-a"),
-        repoBId = workspaceId("dm2-repo-b"),
-        epochsRoot = path.join(parent, "epochs"),
-        armFile = path.join(controlDir, "arm"),
-        enteredFile = path.join(controlDir, "entered"),
-        releaseFile = path.join(controlDir, "release"),
-        realGit = resolveSystemGit(),
-        originalPath = process.env.PATH ?? "",
-        gitShimPath = path.join(binDir, "git");
-      initRepo(repoARoot);
-      initRepo(repoBRoot);
-
-      // Wrapper script intercepts only armed invocations for repoARoot + target subcommand, pausing via fs.watch.
-      writeFileSync(
-        gitShimPath,
-        `#!${process.execPath}
+function pauseGitPublication(parent: string, repoRoot: string, subcommand: string) {
+  const controlDir = path.join(parent, "control"),
+    binDir = path.join(parent, "bin"),
+    armFile = path.join(controlDir, "arm"),
+    enteredFile = path.join(controlDir, "entered"),
+    releaseFile = path.join(controlDir, "release"),
+    realGit = resolveSystemGit(),
+    gitShimPath = path.join(binDir, "git");
+  mkdirSync(controlDir);
+  mkdirSync(binDir);
+  // Wrapper script intercepts only armed invocations for repoARoot + target subcommand, pausing via fs.watch.
+  writeFileSync(
+    gitShimPath,
+    `#!${process.execPath}
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
 const args = process.argv.slice(2);
 const realGit = ${JSON.stringify(realGit)};
-const repoA = ${JSON.stringify(repoARoot)};
-const targetCmd = ${JSON.stringify(suspendedSubcommand)};
+const repoA = ${JSON.stringify(repoRoot)};
+const targetCmd = ${JSON.stringify(subcommand)};
 const armFile = ${JSON.stringify(armFile)};
 const enteredFile = ${JSON.stringify(enteredFile)};
 const releaseFile = ${JSON.stringify(releaseFile)};
@@ -396,9 +374,37 @@ if (matchesTarget && fs.existsSync(armFile) && !fs.existsSync(releaseFile)) {
 const result = spawnSync(realGit, args, { stdio: "inherit" });
 process.exit(result.status ?? 1);
 `,
-        "utf8",
-      );
-      chmodSync(gitShimPath, 0o755);
+    "utf8",
+  );
+  chmodSync(gitShimPath, 0o755);
+  return { binDir, armFile, enteredFile, releaseFile };
+}
+
+// DM-2: Exercise production openRepoCellProxy -> openWriterSupervisor -> shared repo-orchestration-worker.
+// Suspend Repo A's real git subprocess (`fast-import` and `update-ref`), and verify Repo B and Repo A
+// both complete cell.run to `accepted_durable` while Git remains suspended.
+for (const scenario of ["fast-import", "update-ref", "first-attempt-fails"] as const)
+  test(
+    `Git outbox (${scenario}): the same repo writes during review preparation and failed publication is retryable`,
+    { timeout: 60_000 },
+    async (t) => {
+      const failFirstAttempt = scenario === "first-attempt-fails",
+        suspendedSubcommand = failFirstAttempt ? "fast-import" : scenario,
+        parent = mkdtempSync(path.join(tmpdir(), `ha-outbox-${scenario}-`)),
+        repoAPath = path.join(parent, "repo-a"),
+        repoBPath = path.join(parent, "repo-b");
+      mkdirSync(repoAPath, { recursive: true });
+      mkdirSync(repoBPath, { recursive: true });
+      const repoARoot = canonicalRoot(repoAPath),
+        repoBRoot = canonicalRoot(repoBPath),
+        repoAId = workspaceId("dm2-repo-a"),
+        repoBId = workspaceId("dm2-repo-b"),
+        epochsRoot = path.join(parent, "epochs"),
+        originalPath = process.env.PATH ?? "";
+      initRepo(repoARoot);
+      initRepo(repoBRoot);
+
+      const { binDir, armFile, enteredFile, releaseFile } = pauseGitPublication(parent, repoARoot, suspendedSubcommand);
 
       let cellA: Awaited<ReturnType<typeof openRepoCellProxy>> | undefined,
         cellB: Awaited<ReturnType<typeof openRepoCellProxy>> | undefined;
@@ -522,3 +528,133 @@ process.exit(result.status ?? 1);
       }
     },
   );
+
+// dec_04A9211B073F29F0FC1E1CA573 CH2, DM-4: the worktree may advance independently
+// of the writer queue. Hold the replacement turn until the local submit has queued behind it.
+test(
+  "DM-4: queued local doc-submit cannot replace a newer canonical HTML with stale worktree bytes",
+  { timeout: 60_000 },
+  async (t) => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-doc-submit-cut-")),
+      rootDir = canonicalRoot(path.join(parent, "repo"), true),
+      repoId = workspaceId("doc-submit-cut"),
+      originalPath = process.env.PATH ?? "",
+      logical = "context/research/cut/index.html",
+      authored = path.join(rootDir, "harness", logical),
+      oldBody = "<p>Previously published</p>\n",
+      newBody = "<p>New canonical replacement</p>\n",
+      localEdit = "<p>Explicit edit after publication</p>\n",
+      replaceQueued = Promise.withResolvers<void>(),
+      submitQueued = Promise.withResolvers<void>(),
+      releaseReplace = Promise.withResolvers<void>();
+    mkdirSync(rootDir);
+    initRepo(rootDir);
+    const { binDir, armFile, enteredFile, releaseFile } = pauseGitPublication(parent, rootDir, "fast-import");
+    let cell: Awaited<ReturnType<typeof openRepoWriterCell>> | undefined;
+    let lock: Awaited<ReturnType<typeof acquireWorkspaceLock>> | undefined;
+    let reader: ReturnType<typeof makeTaskEventReader> | undefined;
+    try {
+      process.env.PATH = [binDir, originalPath].join(path.delimiter);
+      provisionPolicyTestRepository(repoId);
+      const fence = fixtureFence(repoId, rootDir, path.join(parent, "epochs"));
+      await settleSettingsEvent({ repoId, rootDir, writerEpochFence: fence });
+      lock = await acquireWorkspaceLock(rootDir);
+      cell = await openRepoWriterCell(
+        { repoId, rootDir, ownerId: "doc-submit-cut", defaultWriterEpochFence: fence },
+        lock,
+      );
+      const writer = cell,
+        binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
+        nodeBinding = { ...binding, source: { kind: "node", nodeId: "node-one" } as const },
+        localSubmit = { kind: "doc-submit", paths: [logical] } as const;
+      assert.equal(writer.status().state, "attached", JSON.stringify(writer.status()));
+      mkdirSync(path.dirname(authored), { recursive: true });
+      writeFileSync(authored, oldBody);
+      const seeded = await writer.run(localSubmit, binding);
+      assert.equal(seeded.outcome, "applied", JSON.stringify(seeded));
+      await waitForFixturePublication(writer, seeded.opId, binding);
+
+      reader = makeTaskEventReader({ repoId, rootDir });
+      const base = reader.currentCut(),
+        sha = sha256Text(newBody),
+        claim = path.join(rootDir, ".harness", "doc-sync-claims", sha);
+      mkdirSync(path.dirname(claim), { recursive: true });
+      writeFileSync(claim, newBody);
+      const replacement = withRepoCellWriteSlot(
+        async (work) => {
+          await releaseReplace.promise;
+          return await work();
+        },
+        () =>
+          writer.run(
+            {
+              kind: "doc-submit",
+              executionId: null,
+              baseLedgerSha: base,
+              changes: [
+                {
+                  path: logical,
+                  baseBlobSha256: sha256Text(oldBody),
+                  policyId: OPAQUE_TEXTUAL_POLICY_ID,
+                  candidate: {
+                    ref: "doc-sync-claims/" + sha,
+                    sha256: sha,
+                    size: Buffer.byteLength(newBody),
+                    mediaType: "text/html",
+                  },
+                },
+              ],
+            },
+            nodeBinding,
+            t.signal,
+          ),
+        replaceQueued.resolve,
+      );
+      await Promise.race([replaceQueued.promise, replacement.then((receipt) => assert.fail(JSON.stringify(receipt)))]);
+      const submit = withRepoCellWriteSlot(
+        async (work) => await work(),
+        () => writer.run(localSubmit, binding, t.signal),
+        submitQueued.resolve,
+      );
+      await Promise.race([submitQueued.promise, submit.then((receipt) => assert.fail(JSON.stringify(receipt)))]);
+      assert.deepEqual(reader.currentCut(), base, "both commands queued before the replacement was accepted");
+
+      writeFileSync(armFile, "armed");
+      releaseReplace.resolve();
+      const replaced = await replacement;
+      assert.equal(replaced.status, "accepted_durable", JSON.stringify(replaced));
+      await waitForArrival(() => (existsSync(enteredFile) ? true : null), watchFileArrival(enteredFile));
+      assert.equal(readFileSync(authored, "utf8"), oldBody);
+      const blocked = await submit;
+      const duringPause = await writer.run({ kind: "doc-show", path: logical }, binding);
+      assert.equal(duringPause.evidence, newBody, "stale disk bytes must not overwrite the canonical replacement");
+      assert.equal(blocked.code, "materialization_failed", JSON.stringify(blocked));
+      assert.match(blocked.rejectionExplanation ?? "", /retry/iu);
+      assert.equal(reader.readEvent(blocked.opId), null);
+      assert.equal(reader.currentCut().revision, replaced.revision);
+
+      const ordinary = await writer.run(decisionProposeAction("Write during stale doc submit"), binding, t.signal);
+      assert.equal(reader.readCommandOutcome(ordinary.opId)?.status, "accepted_durable");
+      assert.equal(existsSync(releaseFile), false);
+      writeFileSync(releaseFile, "release");
+      await waitForFixturePublication(writer, ordinary.opId, binding);
+      assert.equal(readFileSync(authored, "utf8"), newBody);
+      const retry = await writer.run(localSubmit, binding);
+      assert.equal(retry.outcome, "no_changes", JSON.stringify(retry));
+
+      writeFileSync(authored, localEdit);
+      const edited = await writer.run(localSubmit, binding);
+      assert.equal(edited.status, "accepted_durable", JSON.stringify(edited));
+      assert.equal((await writer.run({ kind: "doc-show", path: logical }, binding)).evidence, localEdit);
+    } finally {
+      releaseReplace.resolve();
+      writeFileSync(releaseFile, "release");
+      await cell?.close();
+      await reader?.drain();
+      await lock?.close();
+      process.env.PATH = originalPath;
+      closeWriterEpochFenceDescriptors();
+      rmSync(parent, { recursive: true, force: true });
+    }
+  },
+);
