@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -175,6 +176,110 @@ test("dedicated acquire timeout closes a session that finishes opening later", a
   await closed.promise;
 });
 
+test("interleaved dedicated fixtures keep ambient execution credentials suppressed until the last fixture stops", async (t) => {
+  const sockDir = mkdtempSync(path.join(tmpdir(), "gui-interleaved-sock-"));
+  const priorCredential = process.env.HARNESS_EXECUTION_CREDENTIAL;
+  process.env.HARNESS_EXECUTION_CREDENTIAL = "ambient-worker-credential";
+  t.after(() => {
+    rmSync(sockDir, { recursive: true, force: true });
+    if (priorCredential === undefined) delete process.env.HARNESS_EXECUTION_CREDENTIAL;
+    else process.env.HARNESS_EXECUTION_CREDENTIAL = priorCredential;
+  });
+
+  const observedHelloCredentials = [];
+  const serveMockBootstrap = async (index) => {
+    const sockPath = path.join(sockDir, `d-${index}.sock`);
+    const server = net.createServer((socket) => {
+      let buf = "";
+      socket.setEncoding("utf8");
+      socket.on("data", (chunk) => {
+        buf += chunk;
+        let nl;
+        while ((nl = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (!line) continue;
+          const req = JSON.parse(line);
+          if (req.method === "protocol.hello") {
+            observedHelloCredentials.push({ index, cred: req.params?.executionCredential });
+            socket.write(
+              `${JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { ok: true, protocolVersion: req.params?.protocolVersion, methods: ["daemon.repo.bootstrap"] } })}\n`,
+            );
+          } else if (req.method === "daemon.repo.bootstrap") {
+            const leaked = observedHelloCredentials.find((x) => x.index === index && x.cred !== undefined);
+            socket.write(
+              `${JSON.stringify({ jsonrpc: "2.0", id: req.id, result: leaked ? { ok: false, code: "execution_credential_rejected" } : { ok: true } })}\n`,
+            );
+          }
+        }
+      });
+    });
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(sockPath, resolve);
+    });
+    return {
+      endpoint: sockPath,
+      async stop() {
+        await new Promise((resolve) => server.close(() => resolve()));
+      },
+    };
+  };
+
+  const firstReady = Promise.withResolvers();
+  const lateOpenGate = Promise.withResolvers();
+  const lateClosed = Promise.withResolvers();
+  let callIndex = 0;
+  const pool = createLaneSessionPool({
+    lane: "isolated",
+    acquireTimeoutMs: 1_500,
+    openLaneImpl: async () => {
+      const currentCall = ++callIndex;
+      const fixture = await startGuiResidentDaemonFixture({
+        identityProvider: "builtin",
+        start: async () => {
+          const started = await serveMockBootstrap(currentCall);
+          if (currentCall === 2) {
+            // Force the timed-out first session to finish opening and close right before
+            // the second fixture performs its daemon.repo.bootstrap RPC handshake.
+            await firstReady.promise;
+            lateOpenGate.resolve();
+            await lateClosed.promise;
+          }
+          return started;
+        },
+      });
+      assert.equal(process.env.HARNESS_EXECUTION_CREDENTIAL, undefined);
+      if (currentCall === 1) {
+        firstReady.resolve();
+        await lateOpenGate.promise;
+      }
+      return {
+        driver: { isAlive: () => true },
+        async close() {
+          await fixture.stop();
+          if (currentCall === 1) lateClosed.resolve();
+        },
+      };
+    },
+  });
+
+  await assert.rejects(
+    pool.acquire({ id: "timed-out-write" }, "/tmp/run/s1"),
+    /Timed out acquiring dedicated session/u,
+  );
+  const secondLease = await pool.acquire({ id: "next-write" }, "/tmp/run/s2");
+  assert.equal(process.env.HARNESS_EXECUTION_CREDENTIAL, undefined);
+  assert.deepEqual(observedHelloCredentials, [
+    { index: 1, cred: undefined },
+    { index: 2, cred: undefined },
+  ]);
+
+  await secondLease.release({ outcome: "healthy" });
+  await pool.close();
+  assert.equal(process.env.HARNESS_EXECUTION_CREDENTIAL, "ambient-worker-credential");
+});
+
 test("shared pool rebuilds a dead fixture before resetting a still-live Electron", async (t) => {
   const fake = makeFakeEnv();
   const pool = createLaneSessionPool({ lane: "isolated", ...fake });
@@ -321,12 +426,16 @@ test("runScenario attributes tracing.start failures to the scenario without thro
   }
 });
 
-test("the final scenario fails on renderer errors delivered while screenshots or tracing stop finish", async (t) => {
+test("the final scenario fails on renderer errors delivered while screenshots or tracing stop finish and preserves trace ZIP", async (t) => {
   const outDir = mkdtempSync(path.join(tmpdir(), "gui-late-renderer-error-"));
   t.after(() => rmSync(outDir, { recursive: true, force: true }));
+  const zipHeader = Buffer.from([0x50, 0x4b, 0x05, 0x06, ...new Array(18).fill(0)]);
   for (const phase of ["screenshot", "trace-stop"]) {
+    const phaseDir = path.join(outDir, phase);
+    mkdirSync(phaseDir, { recursive: true });
     const consoleFailures = [];
     const driver = {
+      runRoot: phaseDir,
       async assertBackground() {},
       assertConsoleClean(from) {
         assert.deepEqual(consoleFailures.slice(from), []);
@@ -340,16 +449,55 @@ test("the final scenario fails on renderer errors delivered while screenshots or
           tracing: {
             async start() {},
             async stop(options) {
-              if (phase === "trace-stop" && !options) consoleFailures.push("late_renderer_error");
+              if (options?.path) writeFileSync(options.path, zipHeader);
+              if (phase === "trace-stop") consoleFailures.push("late_renderer_error");
             },
           },
         }),
       },
     };
-    const res = await runScenario(driver, { id: "last", run: async () => undefined }, { shots: outDir });
+    const res = await runScenario(driver, { id: "last", run: async () => undefined }, { shots: phaseDir });
     assert.equal(res.outcome, "failed", phase);
     assert.match(res.message, /late_renderer_error/u);
+    assert.equal(res.tracePath, path.join(phaseDir, "last-trace.zip"), phase);
+    assert.equal(existsSync(res.tracePath), true, phase);
+    assert.deepEqual(readFileSync(res.tracePath).subarray(0, 4), Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+    assert.deepEqual(
+      readdirSync(phaseDir).filter((file) => file.endsWith(".zip")),
+      ["last-trace.zip"],
+    );
   }
+
+  const healthyDir = path.join(outDir, "healthy");
+  mkdirSync(healthyDir, { recursive: true });
+  const healthyRes = await runScenario(
+    {
+      runRoot: healthyDir,
+      async assertBackground() {},
+      assertConsoleClean() {},
+      async shot() {
+        return null;
+      },
+      page: {
+        context: () => ({
+          tracing: {
+            async start() {},
+            async stop(options) {
+              if (options?.path) writeFileSync(options.path, zipHeader);
+            },
+          },
+        }),
+      },
+    },
+    { id: "clean-last", run: async () => undefined },
+    { shots: healthyDir },
+  );
+  assert.equal(healthyRes.outcome, "healthy");
+  assert.equal(healthyRes.tracePath, undefined);
+  assert.deepEqual(
+    readdirSync(healthyDir).filter((file) => file.endsWith(".zip")),
+    [],
+  );
 });
 
 test("runGuiE2E converts acquire, release, and dead-renderer faults into per-scenario failures and writes result.json", async () => {

@@ -111,6 +111,8 @@ export function createLaneSessionPool({
     }
   }
 
+  const pendingDedicatedCloses = new Set();
+
   return {
     async acquire(scenario, scenarioRoot) {
       if (!isShareableReadOnlyScenario(scenario, lane)) {
@@ -133,8 +135,11 @@ export function createLaneSessionPool({
             `Timed out acquiring dedicated session for ${scenario.id}`,
           );
         } catch (error) {
-          // A timed-out acquisition no longer has a lease to close a late session.
-          void opening.then((late) => late.close()).catch(() => undefined);
+          // A timed-out acquisition no longer has a lease to close a late session; track background
+          // teardown so pool.close() awaits every late fixture before returning.
+          const lateClose = opening.then((late) => late.close()).catch(() => undefined);
+          pendingDedicatedCloses.add(lateClose);
+          void lateClose.finally(() => pendingDedicatedCloses.delete(lateClose));
           throw error;
         }
         return {
@@ -173,7 +178,7 @@ export function createLaneSessionPool({
     },
 
     async close() {
-      await discardSharedAll();
+      await Promise.all([discardSharedAll(), Promise.allSettled([...pendingDedicatedCloses])]);
     },
   };
 }

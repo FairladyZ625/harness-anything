@@ -14,6 +14,31 @@ import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { assessHermeticConfig } from "../../../tools/test-hermetic-preflight.mjs";
 import { copyHarnessLedgerWithCow, copyHarnessRuntimeLedgerWithCow } from "./harness-copy.mjs";
 
+let ambientCredentialSuppressionCount = 0;
+let savedAmbientExecutionCredential;
+
+function suppressAmbientExecutionCredential() {
+  if (ambientCredentialSuppressionCount === 0) {
+    savedAmbientExecutionCredential = process.env.HARNESS_EXECUTION_CREDENTIAL;
+    delete process.env.HARNESS_EXECUTION_CREDENTIAL;
+  }
+  ambientCredentialSuppressionCount += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    ambientCredentialSuppressionCount -= 1;
+    if (ambientCredentialSuppressionCount === 0) {
+      if (savedAmbientExecutionCredential !== undefined) {
+        process.env.HARNESS_EXECUTION_CREDENTIAL = savedAmbientExecutionCredential;
+        savedAmbientExecutionCredential = undefined;
+      } else {
+        delete process.env.HARNESS_EXECUTION_CREDENTIAL;
+      }
+    }
+  };
+}
+
 export async function startGuiResidentDaemonFixture({
   prefix = "ha-gui-resident-daemon-",
   daemonId = "gui-integration",
@@ -128,9 +153,9 @@ export async function startGuiResidentDaemonFixture({
   }
   // 夹具是封闭的抛弃型 daemon:外层运行时注入的任务执行凭据与本夹具无关,留着会被
   // executionCredentialParams 附到每个请求上,被夹具 daemon 按「超出派工作用域」拒绝
-  // (bootstrap 即 execution_credential_rejected)。夹具存续期间摘掉,stop 时恢复。
-  const ambientExecutionCredential = process.env.HARNESS_EXECUTION_CREDENTIAL;
-  delete process.env.HARNESS_EXECUTION_CREDENTIAL;
+  // (bootstrap 即 execution_credential_rejected)。按活跃夹具引用计数摘掉,仅当最后一只夹具
+  // stop 时恢复,避免迟到关闭的专用夹具在后续夹具运行期间提前恢复进程级凭据。
+  const releaseAmbientExecutionCredential = suppressAmbientExecutionCredential();
   try {
     const startedAt = Date.now();
     daemon = await start({
@@ -147,8 +172,7 @@ export async function startGuiResidentDaemonFixture({
       await realm?.close();
     } finally {
       rmSync(parent, { recursive: true, force: true });
-      if (ambientExecutionCredential !== undefined)
-        process.env.HARNESS_EXECUTION_CREDENTIAL = ambientExecutionCredential;
+      releaseAmbientExecutionCredential();
     }
     throw error;
   }
@@ -184,8 +208,7 @@ export async function startGuiResidentDaemonFixture({
         await realm?.close();
       } finally {
         rmSync(parent, { recursive: true, force: true });
-        if (ambientExecutionCredential !== undefined)
-          process.env.HARNESS_EXECUTION_CREDENTIAL = ambientExecutionCredential;
+        releaseAmbientExecutionCredential();
       }
     }
   };

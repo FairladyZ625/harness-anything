@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { _electron as electron } from "playwright-core";
@@ -282,7 +282,9 @@ export async function runScenario(
   const started = Date.now();
   const consoleOffset = typeof driver.consoleCursor === "number" ? driver.consoleCursor : 0;
   const context = typeof driver.page?.context === "function" ? driver.page.context() : null;
+  const targetRoot = driver.runRoot ?? shots ?? "";
   let tracingStarted = false;
+  let stagedTracePath = null;
   try {
     if (trace && context?.tracing) {
       await withTimeout(
@@ -311,8 +313,12 @@ export async function runScenario(
       `Scenario "${scenario.id}" timed out after ${scenarioTimeoutMs}ms`,
     );
     if (tracingStarted) {
+      if (targetRoot) {
+        stagedTracePath = path.join(targetRoot, `.${scenario.id}-trace.staging.zip`);
+        mkdirSync(path.dirname(stagedTracePath), { recursive: true, mode: 0o700 });
+      }
       await withTimeout(
-        context.tracing.stop(),
+        context.tracing.stop(stagedTracePath ? { path: stagedTracePath } : undefined),
         cleanupTimeoutMs,
         `Playwright tracing.stop timed out for ${scenario.id}`,
       );
@@ -320,6 +326,9 @@ export async function runScenario(
     }
     // Playwright can deliver renderer errors while the last tracing command is in flight.
     driver.assertConsoleClean(consoleOffset);
+    if (stagedTracePath) {
+      rmSync(stagedTracePath, { force: true });
+    }
     driver.markConsoleClean?.();
     return {
       id: scenario.id,
@@ -329,7 +338,6 @@ export async function runScenario(
       durationMs: Date.now() - started,
     };
   } catch (error) {
-    const targetRoot = driver.runRoot ?? shots ?? "";
     const windowState = targetRoot ? path.join(targetRoot, "window-state.json") : null;
     if (windowState && !existsSync(windowState)) {
       // Even a crashed renderer may still have a reachable Electron main process.
@@ -355,8 +363,8 @@ export async function runScenario(
       screenshotPath = screenshotPath && existsSync(screenshotPath) ? screenshotPath : null;
     }
     let tracePath = null;
+    const candidateTracePath = targetRoot ? path.join(targetRoot, `${scenario.id}-trace.zip`) : null;
     if (tracingStarted) {
-      const candidateTracePath = targetRoot ? path.join(targetRoot, `${scenario.id}-trace.zip`) : null;
       try {
         if (candidateTracePath) {
           mkdirSync(path.dirname(candidateTracePath), { recursive: true, mode: 0o700 });
@@ -372,6 +380,18 @@ export async function runScenario(
       } catch {
         tracePath = candidateTracePath && existsSync(candidateTracePath) ? candidateTracePath : null;
       }
+    } else if (stagedTracePath && candidateTracePath && existsSync(stagedTracePath)) {
+      try {
+        mkdirSync(path.dirname(candidateTracePath), { recursive: true, mode: 0o700 });
+        renameSync(stagedTracePath, candidateTracePath);
+        stagedTracePath = null;
+        if (existsSync(candidateTracePath)) tracePath = candidateTracePath;
+      } catch {
+        tracePath = candidateTracePath && existsSync(candidateTracePath) ? candidateTracePath : null;
+      }
+    }
+    if (stagedTracePath) {
+      rmSync(stagedTracePath, { force: true });
     }
     let ipcTracePath = null;
     if (targetRoot && typeof driver.readIpcTrace === "function") {
