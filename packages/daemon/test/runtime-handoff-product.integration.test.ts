@@ -212,7 +212,7 @@ for (const row of [{type:'thread.started',thread_id:id},
           }),
       });
       await transport.start();
-      t.after(() => transport.stop());
+      f.track(() => transport.stop());
       const cli = async (args: string[]) => {
         const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("HARNESS_")));
         const child = spawn(

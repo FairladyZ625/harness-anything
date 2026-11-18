@@ -107,7 +107,7 @@ test(
           }),
       });
       await transport.start();
-      t.after(() => transport.stop());
+      fixture.track(() => transport.stop());
     };
     await openEdge("node-one", edgeRoot, edgeUser);
     let activeRoot = edgeRoot,

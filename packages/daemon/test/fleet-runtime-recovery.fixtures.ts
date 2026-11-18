@@ -9,7 +9,7 @@ import { connect, type TLSSocket } from "node:tls";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
-import { listenFleetTls, type FleetTlsCenter } from "../src/daemon-host/fleet/center.ts";
+import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
 import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/daemon-host/fleet/command-protocol.ts";
 import { FleetTransferAssembler } from "../src/daemon-host/fleet/command-transfer.ts";
 import {
@@ -21,6 +21,7 @@ import {
 import { signInAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { scheduleRepositoryDocument } from "./schedule-actions.fixtures.ts";
+import { reclaimer } from "./fleet-tls-session.fixture.ts";
 type FleetTestSubject = {
   nodeId: string;
   repoId: string;
@@ -32,25 +33,6 @@ type FleetTestSubject = {
 
 const replicaQuota = 64 * 1024 * 1024;
 
-function reclaimer() {
-  const closers: Array<() => unknown> = [],
-    centers: FleetTlsCenter[] = [];
-  return {
-    track: (close: () => unknown) => {
-      closers.push(close);
-    },
-    hold: async (opening: Promise<FleetTlsCenter>) => {
-      const center = await opening;
-      centers.push(center);
-      return center;
-    },
-    reclaim: async () => {
-      // Tracked daemons must finish draining before the fixture removes their shared root.
-      for (const close of closers.splice(0)) await close();
-      for (const center of centers.splice(0)) await center.close();
-    },
-  };
-}
 export async function fleetFixture(
   t: TestContext,
   paths: readonly string[] = ["tasks/task-fleet-fleet/notes.md"],

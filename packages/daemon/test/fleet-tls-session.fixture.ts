@@ -37,10 +37,10 @@ export const replicaQuota = 64 * 1024 * 1024;
 // `fixture.close` to `t.after`, which node:test does run after a timeout. Sockets and edge children are dropped
 // before the centers so `server.close()` is never left waiting on a peer that outlived the test.
 export function reclaimer() {
-  const closers: Array<() => void> = [],
+  const closers: Array<() => unknown> = [],
     centers: FleetTlsCenter[] = [];
   return {
-    track: (close: () => void) => {
+    track: (close: () => unknown) => {
       closers.push(close);
     },
     hold: async (opening: Promise<FleetTlsCenter>) => {
@@ -49,7 +49,8 @@ export function reclaimer() {
       return center;
     },
     reclaim: async () => {
-      for (const close of closers.splice(0)) close();
+      // Tracked daemons must finish draining before the fixture removes their shared root.
+      for (const close of closers.splice(0)) await close();
       for (const center of centers.splice(0)) await center.close();
     },
   };
