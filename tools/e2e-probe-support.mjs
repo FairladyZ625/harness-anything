@@ -19,6 +19,8 @@ export function buildProbeFailureBundle(result, scenario, now = Date.now()) {
     failedStep: scenario?.failedStep,
     message: scenario?.message,
     screenshotPath: scenario?.screenshotPath ?? null,
+    ...(scenario?.tracePath ? { tracePath: scenario.tracePath } : {}),
+    ...(scenario?.ipcTracePath ? { ipcTracePath: scenario.ipcTracePath } : {}),
     failureSignature: result.failureSignature,
   };
 }

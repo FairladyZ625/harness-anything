@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -122,3 +123,324 @@ test("GUI driver removes its profile directory when the launch fails", { timeout
     rmSync(isolatedTmpdir, { recursive: true, force: true });
   }
 });
+
+test(
+  "shared pool isolates cross-scenario state, exports trace+IPC only on failure, and self-heals after real renderer crash and timeout",
+  { timeout: 240_000 },
+  async (t) => {
+    const runtime = resolveE2EProbeElectronForTest(workspaceRoot);
+    if (!runtime.available) {
+      t.skip(runtime.reason);
+      return;
+    }
+    t.after(runtime.close);
+    prepareE2EProbeGui(workspaceRoot, runtime.env);
+    const { runGuiE2E } = await import("../gui-e2e.mjs");
+    const { openIsolatedFixture } = await import("./lanes.mjs");
+    const { startGuiDriver } = await import("./driver.mjs");
+    const { createLaneSessionPool } = await import("./session-pool.mjs");
+
+    const outDir = mkdtempSync(path.join(tmpdir(), "gui-driver-trace-"));
+    t.after(() => rmSync(outDir, { recursive: true, force: true }));
+
+    // Verify canonical lane also enforces hermetic isolation and built main entrypoint.
+    const canonicalFixture = await openIsolatedFixture({
+      workspaceRoot,
+      scenarioId: "canonical-hermetic-check",
+      env: { ...runtime.env, HARNESS_DAEMON_USER_ROOT: path.join(process.env.HOME ?? tmpdir(), ".harness") },
+    });
+    t.after(() => canonicalFixture.close().catch(() => undefined));
+    assert.notEqual(
+      canonicalFixture.fixture.userRoot,
+      path.join(process.env.HOME ?? tmpdir(), ".harness"),
+      "canonical fixture must never bind host default userRoot",
+    );
+    await canonicalFixture.close();
+
+    // Run a single runGuiE2E batch over real Electron covering:
+    // 1. Healthy scenario + IPC calls -> zero .zip / -ipc-trace.json written
+    // 2. Dirty state mutation (localStorage/sessionStorage/window size/extra window) -> next scenario resets cleanly on same PID
+    // 3. Real renderer crash (webContents.forcefullyCrashRenderer) -> fails with trace/PNG/IPC, rebuilds Electron, next passes
+    // 4. Real scenario timeout -> fails with timeout error + artifacts, rebuilds Electron, next passes
+    let pidAfterFirst = null;
+    let pidAfterDirtyReset = null;
+    let pidAfterCrash = null;
+    let pidAfterTimeout = null;
+    let primaryWindowId = null;
+    const scenarios = [
+      {
+        id: "healthy-baseline",
+        feature: "overview",
+        lane: "isolated",
+        readOnly: true,
+        run: async (driver) => {
+          await driver.page.getByTestId("app-sidebar").waitFor({ timeout: 20_000 });
+          pidAfterFirst = await driver.app.evaluate(() => process.pid);
+          primaryWindowId = await driver.app.evaluate(
+            ({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.id ?? null,
+          );
+        },
+      },
+      {
+        id: "dirty-state-mutator",
+        feature: "overview",
+        lane: "isolated",
+        readOnly: true,
+        run: async (driver) => {
+          await driver.page.evaluate(() => {
+            globalThis.localStorage.setItem("e2e.polluted", "yes");
+            globalThis.sessionStorage.setItem("e2e.sessionPolluted", "yes");
+          });
+          const extraPagePromise = driver.app.waitForEvent("window");
+          await driver.app.evaluate(({ BrowserWindow }, primaryId) => {
+            const win =
+              (primaryId !== null ? BrowserWindow.fromId(primaryId) : null) ?? BrowserWindow.getAllWindows()[0];
+            win.setSize(1200, 800);
+            const extra = new BrowserWindow({ show: false, focusable: false });
+            void extra.loadURL("about:blank");
+          }, primaryWindowId);
+          const extraPage = await extraPagePromise;
+          await extraPage.waitForLoadState("domcontentloaded");
+          const pollutedBefore = await driver.page.evaluate(() => ({
+            ls: globalThis.localStorage.getItem("e2e.polluted"),
+            ss: globalThis.sessionStorage.getItem("e2e.sessionPolluted"),
+          }));
+          assert.equal(pollutedBefore.ls, "yes");
+          assert.equal(pollutedBefore.ss, "yes");
+        },
+      },
+      {
+        id: "clean-after-reset",
+        feature: "overview",
+        lane: "isolated",
+        readOnly: true,
+        run: async (driver) => {
+          pidAfterDirtyReset = await driver.app.evaluate(() => process.pid);
+          assert.equal(pidAfterDirtyReset, pidAfterFirst, "reset must reuse the healthy Electron process");
+          const clean = await driver.page.evaluate(() => ({
+            ls: globalThis.localStorage.getItem("e2e.polluted"),
+            ss: globalThis.sessionStorage.getItem("e2e.sessionPolluted"),
+            firstRun: globalThis.localStorage.getItem("harness.desktop-first-run.done"),
+          }));
+          assert.equal(clean.ls, null, "resetForScenario must clear cross-scenario localStorage");
+          assert.equal(clean.ss, null, "resetForScenario must clear cross-scenario sessionStorage");
+          assert.equal(clean.firstRun, "1", "resetForScenario must preserve first-run suppression");
+          const winState = await driver.app.evaluate(({ BrowserWindow }) => {
+            const wins = BrowserWindow.getAllWindows();
+            return {
+              count: wins.length,
+              size: wins[0].getSize(),
+              visible: wins[0].isVisible(),
+              focused: wins[0].isFocused(),
+            };
+          });
+          assert.equal(winState.count, 1, "resetForScenario must close extra windows");
+          assert.deepEqual(winState.size, [1440, 920], "resetForScenario must restore 1440x920 window size");
+          assert.equal(winState.visible, false);
+          assert.equal(winState.focused, false);
+        },
+      },
+      {
+        id: "real-renderer-crash",
+        feature: "crash",
+        lane: "isolated",
+        readOnly: true,
+        run: async (driver) => {
+          await driver.app.evaluate(({ BrowserWindow }) => {
+            BrowserWindow.getAllWindows()[0]?.webContents.forcefullyCrashRenderer();
+          });
+          await new Promise((resolve) => {
+            if (!driver.isAlive()) {
+              resolve();
+              return;
+            }
+            driver.page.once("crash", resolve);
+            setTimeout(resolve, 2_000);
+          });
+        },
+      },
+      {
+        id: "recovered-after-crash",
+        feature: "overview",
+        lane: "isolated",
+        readOnly: true,
+        run: async (driver) => {
+          await driver.page.getByTestId("app-sidebar").waitFor({ timeout: 20_000 });
+          pidAfterCrash = await driver.app.evaluate(() => process.pid);
+          assert.notEqual(pidAfterCrash, pidAfterFirst, "pool must relaunch Electron after real renderer crash");
+        },
+      },
+      {
+        id: "real-scenario-timeout",
+        feature: "timeout",
+        lane: "isolated",
+        readOnly: true,
+        run: async (driver) => {
+          await driver.page.evaluate(() =>
+            globalThis.harness?.getTasks?.({ repoId: "gui-e2e-catalog" }).catch(() => null),
+          );
+          await new Promise(() => undefined);
+        },
+      },
+      {
+        id: "recovered-after-timeout",
+        feature: "overview",
+        lane: "isolated",
+        readOnly: true,
+        run: async (driver) => {
+          await driver.page.getByTestId("app-sidebar").waitFor({ timeout: 20_000 });
+          pidAfterTimeout = await driver.app.evaluate(() => process.pid);
+          assert.notEqual(pidAfterTimeout, pidAfterCrash, "pool must relaunch Electron after scenario timeout");
+        },
+      },
+    ];
+
+    const { result, runRoot } = await runGuiE2E({
+      lane: "isolated",
+      noBuild: true,
+      shots: outDir,
+      selectedScenarios: scenarios,
+      scenarioTimeoutMs: 6_000,
+      createPool: (opts) => createLaneSessionPool({ ...opts, env: runtime.env, startDriver: startGuiDriver }),
+    });
+
+    assert.equal(result.outcome, "failed");
+    assert.equal(result.scenarios.length, scenarios.length);
+    const byId = Object.fromEntries(result.scenarios.map((entry) => [entry.id, entry]));
+
+    assert.equal(byId["healthy-baseline"].outcome, "healthy", JSON.stringify(byId["healthy-baseline"]));
+    const healthyDir = path.join(runRoot, "isolated", "healthy-baseline");
+    assert.deepEqual(
+      readdirSync(healthyDir).filter((name) => name.endsWith(".zip") || name.endsWith("-ipc-trace.json")),
+      [],
+      "healthy scenario must not write trace.zip or ipc-trace.json",
+    );
+
+    assert.equal(byId["clean-after-reset"].outcome, "healthy", JSON.stringify(byId["clean-after-reset"]));
+    assert.equal(byId["real-renderer-crash"].outcome, "failed", JSON.stringify(byId["real-renderer-crash"]));
+    assert.equal(byId["recovered-after-crash"].outcome, "healthy", JSON.stringify(byId["recovered-after-crash"]));
+
+    const timeoutEntry = byId["real-scenario-timeout"];
+    assert.equal(timeoutEntry.outcome, "failed");
+    assert.match(timeoutEntry.message, /timed out/iu);
+    assert.ok(timeoutEntry.screenshotPath && existsSync(timeoutEntry.screenshotPath), "timeout screenshot must exist");
+    assert.ok(timeoutEntry.tracePath && existsSync(timeoutEntry.tracePath), "timeout trace.zip must exist");
+    assert.ok(statSync(timeoutEntry.tracePath).size > 0);
+    assert.equal(readFileSync(timeoutEntry.tracePath).subarray(0, 2).toString(), "PK");
+    assert.ok(timeoutEntry.ipcTracePath && existsSync(timeoutEntry.ipcTracePath), "timeout ipc-trace.json must exist");
+    const ipcDoc = JSON.parse(readFileSync(timeoutEntry.ipcTracePath, "utf8"));
+    assert.equal(ipcDoc.schema, "gui-e2e-ipc-trace/v1");
+    assert.ok(ipcDoc.count > 0 && Array.isArray(ipcDoc.entries));
+    assert.ok(ipcDoc.entries.some((entry) => entry.channel === "harness:getTasks"));
+
+    assert.equal(byId["recovered-after-timeout"].outcome, "healthy");
+  },
+);
+
+test(
+  "driver attributes startup and shared-reset console errors to the responsible scenario without swallowing",
+  { timeout: 180_000 },
+  async (t) => {
+    const runtime = resolveE2EProbeElectronForTest(workspaceRoot);
+    if (!runtime.available) {
+      t.skip(runtime.reason);
+      return;
+    }
+    t.after(runtime.close);
+    prepareE2EProbeGui(workspaceRoot, runtime.env);
+    const mainPath = path.join(workspaceRoot, "packages/gui/dist-electron/electron-main.js");
+    const { runScenario, startGuiDriver } = await import("./driver.mjs");
+    const { createLaneSessionPool } = await import("./session-pool.mjs");
+
+    let mode = "startup-error";
+    let requestSeq = 0;
+    const server = http.createServer((_req, res) => {
+      requestSeq += 1;
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      if (mode === "startup-error") {
+        res.end(
+          "<!doctype html><html><body><script>console.error('synthetic_startup_console_probe');</script></body></html>",
+        );
+        return;
+      }
+      // Mode "reset-error": loads 1 & 2 (initial + startGuiDriver reload) are clean, load 3 (reset) errors, load 4 clean.
+      if (requestSeq === 3) {
+        res.end(
+          "<!doctype html><html><body><script>console.error('synthetic_reset_console_probe');</script></body></html>",
+        );
+      } else {
+        res.end("<!doctype html><html><body><h1>ok</h1></body></html>");
+      }
+    });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    t.after(() => server.close());
+    const { port } = server.address();
+    const rendererUrl = `http://127.0.0.1:${port}/`;
+
+    const outDir = mkdtempSync(path.join(tmpdir(), "gui-startup-reset-err-"));
+    t.after(() => rmSync(outDir, { recursive: true, force: true }));
+
+    // 1. Startup console.error must fail the first scenario instead of being skipped by consoleOffset.
+    const d1 = await startGuiDriver({
+      workspaceRoot,
+      mainPath,
+      rootDir: outDir,
+      env: runtime.env,
+      runRoot: path.join(outDir, "startup"),
+      rendererUrl,
+    });
+    t.after(() => d1.close().catch(() => undefined));
+    const startupResult = await runScenario(
+      d1,
+      { id: "startup-probe", feature: "startup", lane: "isolated", run: async () => undefined },
+      { shots: null },
+    );
+    await d1.close();
+    assert.equal(startupResult.outcome, "failed");
+    assert.match(startupResult.message, /synthetic_startup_console_probe/u);
+
+    // 2. Shared reset console.error must fail the acquiring scenario instead of being swallowed by pool retry.
+    mode = "reset-error";
+    requestSeq = 0;
+    const pool = createLaneSessionPool({
+      lane: "isolated",
+      workspaceRoot,
+      env: runtime.env,
+      startDriver: startGuiDriver,
+      openIsolatedFixtureImpl: async () => ({
+        fixture: { rootDir: outDir },
+        isHealthy: async () => true,
+        launchDriver: ({ runRoot, startDriver }) =>
+          startDriver({ workspaceRoot, mainPath, rootDir: outDir, env: runtime.env, runRoot, rendererUrl }),
+        close: async () => undefined,
+      }),
+    });
+    t.after(() => pool.close().catch(() => undefined));
+
+    const rootA = path.join(outDir, "a");
+    mkdirSync(rootA, { recursive: true });
+    const leaseA = await pool.acquire({ id: "s-a", readOnly: true }, rootA);
+    const resA = await runScenario(
+      leaseA.driver,
+      { id: "s-a", feature: "reset", lane: "isolated", run: async () => undefined },
+      { shots: null },
+    );
+    await leaseA.release({ outcome: resA.outcome });
+    assert.equal(resA.outcome, "healthy");
+
+    const rootB = path.join(outDir, "b");
+    mkdirSync(rootB, { recursive: true });
+    await assert.rejects(() => pool.acquire({ id: "s-b", readOnly: true }, rootB), /synthetic_reset_console_probe/u);
+
+    const rootC = path.join(outDir, "c");
+    mkdirSync(rootC, { recursive: true });
+    const leaseC = await pool.acquire({ id: "s-c", readOnly: true }, rootC);
+    const resC = await runScenario(
+      leaseC.driver,
+      { id: "s-c", feature: "reset", lane: "isolated", run: async () => undefined },
+      { shots: null },
+    );
+    await leaseC.release({ outcome: resC.outcome });
+    assert.equal(resC.outcome, "healthy");
+  },
+);

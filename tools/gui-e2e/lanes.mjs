@@ -1,12 +1,8 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import * as XLSX from "xlsx";
 import { daemonBuildStamp } from "../../packages/daemon/src/build-identity.ts";
-import {
-  daemonIdFromEnv,
-  daemonUserRoot,
-  resolveLocalDaemonEndpoint,
-} from "../../packages/daemon/src/client/local-daemon-target.ts";
+import { resolveLocalDaemonEndpoint } from "../../packages/daemon/src/client/local-daemon-target.ts";
 import { requestDaemonJsonRpcAt } from "../../packages/daemon/src/client/local-json-rpc-client.ts";
 import {
   currentDaemonProtocolVersion,
@@ -20,11 +16,20 @@ import {
   seedTriadicReviewAwait,
   writeTriadicLedger,
 } from "../../packages/gui/test-support/triadic-ledger.mjs";
+import { assessHermeticConfig } from "../test-hermetic-preflight.mjs";
 import { seedScheduleRuntimeOrder } from "./scenarios/schedule-run-history.mjs";
 import { seedGuiE2eRuntimeSessions, seedGuiE2eSessionTasks } from "./scenarios/sessions-grouping.mjs";
 import { seedGuiE2eDeliverySessions, seedGuiE2eDeliveryTasks } from "./scenarios/sessions-delivery-status.support.mjs";
 import { seedGuiE2eCollaborationTasks, seedGuiE2eCollaborationLeases } from "./scenarios/collaboration-view.mjs";
-import { warmDaemonProjection } from "../e2e-probe-support.mjs";
+
+const AMBIENT_DAEMON_ENV_KEYS = [
+  "HARNESS_DAEMON_USER_ROOT",
+  "HARNESS_DAEMON_ID",
+  "HARNESS_DAEMON_REPO_ID",
+  "HARNESS_DAEMON_ENDPOINT",
+  "HARNESS_GUI_READONLY_DAEMON_USER_ROOT",
+  "HARNESS_CANONICAL_ROOT",
+];
 
 // Long script-free HTML report: tall enough that a 150px-default webview clips after
 // the first section, so the preview-height scenario measures real guest-side scrolling.
@@ -107,48 +112,61 @@ function writeDeclaredEntitySource(rootDir) {
   );
 }
 
-export async function openLane({
-  lane,
+function buildSanitizedFixtureEnv(env, fixture) {
+  const cleanEnv = { ...env };
+  for (const key of AMBIENT_DAEMON_ENV_KEYS) delete cleanEnv[key];
+  return { ...cleanEnv, ...fixture.env, HARNESS_DAEMON_ENDPOINT: fixture.endpoint };
+}
+
+function assertHermeticFixtureTarget(fixture, isolatedEnv) {
+  const preflight = assessHermeticConfig({
+    userRoot: fixture.userRoot,
+    daemonId: fixture.daemonId,
+    userRootSource: "flag",
+  });
+  if (!preflight.ok) {
+    throw new Error(`Hermetic fixture preflight failed: ${preflight.failures.join("; ")}`);
+  }
+  const resolvedEndpoint = resolveLocalDaemonEndpoint({
+    userRoot: fixture.userRoot,
+    daemonId: fixture.daemonId,
+    env: isolatedEnv,
+  });
+  if (resolvedEndpoint !== fixture.endpoint) {
+    throw new Error(`Hermetic fixture endpoint mismatch: expected ${fixture.endpoint}, resolved ${resolvedEndpoint}`);
+  }
+}
+
+async function retryWhileRepoWarming(fn, { attempts = 25, delayMs = 200 } = {}) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (attempt >= attempts || !message.includes('"code":"repo_warming"')) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
+export async function openIsolatedFixture({
   workspaceRoot,
   scenarioId,
   env,
-  runRoot,
-  startDriver,
   runtimeInstance,
   decisionProviderCredentials,
   identityProvider,
 }) {
-  if (lane === "canonical") {
-    await warmDaemonProjection({ rootDir: workspaceRoot, workspaceRoot, env });
-    const endpoint = resolveLocalDaemonEndpoint({
-        userRoot: daemonUserRoot(env),
-        daemonId: daemonIdFromEnv(env),
-        env,
-      }),
-      hello = await requestDaemonJsonRpcAt(
-        endpoint,
-        "protocol.hello",
-        { protocolVersion: currentDaemonProtocolVersion },
-        2_000,
-        5_000,
-      ),
-      build = hello.build;
-    assertCanonicalDaemonMethods({
-      daemonMethods: Array.isArray(hello.methods) ? hello.methods : [],
-      requiredMethods: daemonGuiInvokeFacets.map((facet) => facet.method),
-      daemonCommit: build && typeof build === "object" && !Array.isArray(build) ? build.commit : null,
-      guiCommit: daemonBuildStamp().commit,
-    });
-    const driver = await startDriver({ workspaceRoot, rootDir: workspaceRoot, env, runRoot });
-    driver.runRoot = runRoot;
-    return { driver, close: () => driver.close() };
+  const mainPath = path.join(workspaceRoot, "packages/gui/dist-electron/electron-main.js");
+  if (!existsSync(mainPath)) {
+    throw new Error(`Built GUI main bundle missing at ${mainPath}; build @harness-anything/gui first.`);
   }
   const originalTmpdir = process.env.TMPDIR;
   process.env.TMPDIR = "/tmp";
   let fixture;
-  let sessionTaskPackages;
   let deliveryTaskPackages;
   try {
+    let sessionTaskPackages;
     // Provider scenarios need a machine catalog, not synthetic task executions.
     fixture = await startGuiResidentDaemonFixture(
       identityProvider === "builtin"
@@ -188,7 +206,7 @@ export async function openLane({
                   effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
                 );
               },
-              afterRestart: seedTriadicReviewAwait,
+              afterRestart: (endpoint, repoId) => retryWhileRepoWarming(() => seedTriadicReviewAwait(endpoint, repoId)),
               // 层次 fixture 的任务实体要在 daemon 停机前经 repo.task.create 落进投影;
               // 事件与派工归档仍在停机窗口里种(sessions-grouping 场景自持)。
               beforeStop: async (endpoint, repoId) => {
@@ -215,37 +233,101 @@ export async function openLane({
     if (originalTmpdir === undefined) delete process.env.TMPDIR;
     else process.env.TMPDIR = originalTmpdir;
   }
-  if (!runtimeInstance && identityProvider !== "builtin") {
-    writeTriadicLedger(fixture.rootDir);
-    writeHtmlPreviewArtifact(fixture.rootDir, fixture.packagePath);
-    writeRawArtifact(fixture.rootDir, fixture.packagePath);
-    writeSpreadsheetArtifact(fixture.rootDir, fixture.packagePath);
-    writeDeclaredEntitySource(fixture.rootDir);
-  }
-  // Electron 应用面对的是夹具 daemon。外层运行时注入的任务执行凭据不需要在这里剥:
-  // GUI 主进程启动时已丢弃它(electron-main.ts),应用永远以本机会话连 daemon。
-  const isolatedEnv = { ...env, ...fixture.env, HARNESS_DAEMON_ENDPOINT: fixture.endpoint };
-  let driver;
   try {
-    driver = await startDriver({
-      workspaceRoot,
-      mainPath: path.join(workspaceRoot, "packages/gui/dist-electron/electron-main.js"),
-      rootDir: fixture.rootDir,
-      env: isolatedEnv,
-      runRoot,
+    if (!runtimeInstance && identityProvider !== "builtin") {
+      writeTriadicLedger(fixture.rootDir);
+      writeHtmlPreviewArtifact(fixture.rootDir, fixture.packagePath);
+      writeRawArtifact(fixture.rootDir, fixture.packagePath);
+      writeSpreadsheetArtifact(fixture.rootDir, fixture.packagePath);
+      writeDeclaredEntitySource(fixture.rootDir);
+    }
+    if (deliveryTaskPackages) fixture.packagePaths = deliveryTaskPackages;
+    const isolatedEnv = buildSanitizedFixtureEnv(env, fixture);
+    assertHermeticFixtureTarget(fixture, isolatedEnv);
+    const hello = await requestDaemonJsonRpcAt(
+      fixture.endpoint,
+      "protocol.hello",
+      { protocolVersion: currentDaemonProtocolVersion },
+      2_000,
+      5_000,
+    );
+    const build = hello.build;
+    assertCanonicalDaemonMethods({
+      daemonMethods: Array.isArray(hello.methods) ? hello.methods : [],
+      requiredMethods: daemonGuiInvokeFacets.map((facet) => facet.method),
+      daemonCommit: build && typeof build === "object" && !Array.isArray(build) ? build.commit : null,
+      guiCommit: daemonBuildStamp().commit,
     });
+    return {
+      fixture,
+      async isHealthy() {
+        try {
+          const ping = await requestDaemonJsonRpcAt(
+            fixture.endpoint,
+            "protocol.hello",
+            { protocolVersion: currentDaemonProtocolVersion },
+            1_500,
+            3_000,
+          );
+          return Boolean(ping && typeof ping === "object");
+        } catch {
+          return false;
+        }
+      },
+      async launchDriver({ runRoot, startDriver }) {
+        // Electron 应用面对的是夹具 daemon。外层运行时注入的任务执行凭据不需要在这里剥:
+        // GUI 主进程启动时已丢弃它(electron-main.ts),应用永远以本机会话连 daemon。
+        const driver = await startDriver({
+          workspaceRoot,
+          mainPath,
+          rootDir: fixture.rootDir,
+          env: isolatedEnv,
+          runRoot,
+        });
+        driver.runRoot = runRoot;
+        driver.fixture = fixture;
+        return driver;
+      },
+      close: () => fixture.stop(),
+    };
   } catch (error) {
-    await fixture.stop();
+    await fixture.stop().catch(() => undefined);
     throw error;
   }
-  driver.runRoot = runRoot;
-  driver.fixture = fixture;
-  if (deliveryTaskPackages) fixture.packagePaths = deliveryTaskPackages;
+}
+
+export async function openLane({
+  workspaceRoot,
+  scenarioId,
+  env,
+  runRoot,
+  startDriver,
+  runtimeInstance,
+  decisionProviderCredentials,
+  identityProvider,
+}) {
+  // Both canonical and isolated lanes run against a hermetic preflighted fixture daemon,
+  // explicit HARNESS_DAEMON_ENDPOINT, and built dist-electron/electron-main.js.
+  const isolatedFixture = await openIsolatedFixture({
+    workspaceRoot,
+    scenarioId,
+    env,
+    runtimeInstance,
+    decisionProviderCredentials,
+    identityProvider,
+  });
+  let driver;
+  try {
+    driver = await isolatedFixture.launchDriver({ runRoot, startDriver });
+  } catch (error) {
+    await isolatedFixture.close();
+    throw error;
+  }
   return {
     driver,
     async close() {
       await driver.close();
-      await fixture.stop();
+      await isolatedFixture.close();
     },
   };
 }
