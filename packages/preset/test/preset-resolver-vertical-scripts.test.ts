@@ -66,7 +66,7 @@ test("generic list, inspect, check, install, and uninstall actions share the can
         })),
         outputShape: "repository-diff",
         completionGates: [],
-        entrypoints: [],
+        entrypoints: ["verify-receipt"],
         issues: [],
         issueCount: 0,
       },
@@ -80,7 +80,7 @@ test("generic list, inspect, check, install, and uninstall actions share the can
       entrypoints: string[];
     };
     assert.equal(inspected.manifest.id, "standard-task");
-    assert.deepEqual(inspected.entrypoints, []);
+    assert.deepEqual(inspected.entrypoints, ["verify-receipt"]);
     assert.match(inspected.snapshot.digest, /^sha256:/u);
     assert.deepEqual(
       await runPresetAction({
