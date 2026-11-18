@@ -707,3 +707,126 @@ test("local sign-in pages are bilingual, reject expiry and deliver readable resu
     true,
   );
 });
+
+test("builtin root routes edge browser complete and device poll to external OIDC without changing global mode", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-edge-complete-")),
+    edgeRoot = mkdtempSync(path.join(tmpdir(), "ha-builtin-edge-repo-"));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(edgeRoot, { recursive: true, force: true });
+  });
+  mkdirSync(path.join(root, "rbac"), { recursive: true });
+  writeFileSync(
+    path.join(root, "rbac", "config.json"),
+    JSON.stringify({
+      schema: "harness-builtin-rbac/v1",
+      mode: "builtin",
+      url: "builtin://local",
+      realm: "local",
+      clientId: "harness-center",
+    }),
+  );
+  writeFileSync(
+    path.join(edgeRoot, "fleet-edge.json"),
+    JSON.stringify({
+      schema: "fleet-edge-config/v1",
+      repoId: "edge-repo",
+      host: "10.211.55.2",
+      port: 7545,
+      caPath: path.join(edgeRoot, "ca.pem"),
+      loginUrl: "https://edge-center.example.invalid",
+      loginBrowserUrl: "https://edge-center.example.invalid",
+      loginRealm: "harness",
+      nodeId: "edge-node-1",
+      credential: "edge-credential",
+      viewRoot: edgeRoot,
+      quotaBytes: 1024,
+    }),
+  );
+
+  const issuer = "https://edge-center.example.invalid/realms/harness";
+  let devicePollCount = 0;
+  let nowMs = 1_000_000;
+  const session = createIdentitySession(root, {
+    now: () => nowMs,
+    loginAuthority: async () => ({
+      url: "https://edge-center.example.invalid",
+      realm: "harness",
+      clientId: "harness-gui",
+    }),
+    reportDevice: async () => undefined,
+    fetch: (async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/.well-known/openid-configuration")) return Response.json({ issuer });
+      if (url.pathname.endsWith("/userinfo"))
+        return Response.json({ sub: "sub-edge", harness_person_id: "person-edge" });
+      if (url.pathname.endsWith("/revoke")) return new Response(null, { status: 200 });
+      if (url.pathname.endsWith("/auth/device"))
+        return Response.json({
+          device_code: "edge-device-code",
+          user_code: "ABCD-1234",
+          verification_uri: "https://edge-center.example.invalid/realms/harness/device",
+          interval: 1,
+          expires_in: 300,
+        });
+      if (url.pathname.endsWith("/token")) {
+        const body = init?.body as URLSearchParams;
+        if (body.get("grant_type") === "urn:ietf:params:oauth:grant-type:device_code" && ++devicePollCount === 1) {
+          return Response.json({ error: "authorization_pending" }, { status: 400 });
+        }
+        return Response.json({
+          access_token: `x.${Buffer.from(JSON.stringify({ iss: issuer, realm_access: { roles: [] } })).toString("base64url")}.x`,
+          refresh_token: "edge-refresh",
+          expires_in: 3600,
+          refresh_expires_in: 7200,
+        });
+      }
+      throw new Error(`Unexpected OIDC request ${url}`);
+    }) as typeof fetch,
+  });
+  assert.ok(session instanceof BuiltinIdentitySession);
+  await session.bootstrapAdmin({
+    username: "owner",
+    email: "owner@example.invalid",
+    displayName: "Owner",
+    password: "local-password",
+    personId: "person-local",
+  });
+
+  // 1. Browser login on edge target -> complete() without loginTarget still routes to external OIDC.
+  const pending = await session.begin("http://127.0.0.1:43123/callback", edgeRoot);
+  assert.match(String(pending.authorizationUrl), /edge-center\.example\.invalid/u);
+  // A mismatched state must keep the external pending login route intact for the real callback.
+  await assert.rejects(session.complete("auth-code", "wrong-state"), { code: "oidc_state_invalid" });
+  const completed = await session.complete("auth-code", String(pending.state));
+  assert.equal(completed.authenticated, true);
+  assert.equal(completed.personId, "person-edge");
+  assert.equal((await session.status(edgeRoot)).personId, "person-edge");
+  assert.equal((await session.status()).authenticated, false);
+
+  // 2. Starting a local builtin browser login clears external pending routing and completes locally.
+  const localLogin = await session.begin("http://127.0.0.1:43123/callback");
+  const localForm = await fetch(String(localLogin.authorizationUrl), {
+    method: "POST",
+    redirect: "manual",
+    body: new URLSearchParams({ username: "owner", password: "local-password", state: String(localLogin.state) }),
+  });
+  const localCallback = new URL(localForm.headers.get("location")!);
+  const localCompleted = await session.complete(
+    localCallback.searchParams.get("code")!,
+    localCallback.searchParams.get("state")!,
+  );
+  assert.equal(localCompleted.authenticated, true);
+  assert.equal(localCompleted.personId, "person-local");
+
+  // 3. Device login on edge target -> pollDevice() without loginTarget also routes to external OIDC.
+  await session.logout(edgeRoot);
+  const device = await session.beginDevice(edgeRoot);
+  assert.equal(device.userCode, "ABCD-1234");
+  nowMs += 2_000;
+  assert.equal((await session.pollDevice()).pending, true);
+  nowMs += 2_000;
+  const deviceDone = await session.pollDevice();
+  assert.equal(deviceDone.authenticated, true);
+  assert.equal(deviceDone.personId, "person-edge");
+});
