@@ -1015,7 +1015,9 @@ test("runtime steer rejects a provider without a declared steer strategy", async
     const context = {
       input: {
         rootDir,
-        remote: { readDispatchLifecycle: lifecycleReadFor([{ dispatchId, runtimeSessionId, process: "alive" }]) },
+        remote: {
+          readDispatchLifecycle: lifecycleReadFor([{ dispatchId, runtimeSessionId, kindId: "agy", process: "alive" }]),
+        },
         repoId: "steer-test",
         now: () => "2026-09-13T00:01:00.000Z",
       },

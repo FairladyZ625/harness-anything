@@ -45,6 +45,10 @@ test("the lifecycle read model folds accepted runtime events and equals every re
       onlineDigest = projection.readStateDigest();
     assert.equal(online.active.status, "ready");
     assert.ok(online.active.status === "ready");
+    const agy = online.active.rows.find(({ attempt }) => attempt.dispatchId === "dispatch-a2")!;
+    assert.equal(agy.attempt.kindId, "agy");
+    assert.equal(agy.policy.processAlive, true);
+    assert.equal(agy.policy.canSteer, false);
     assert.deepEqual(
       online.active.rows.map((row) => [
         row.attemptGroupId,

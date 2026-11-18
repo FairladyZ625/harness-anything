@@ -336,7 +336,7 @@ export async function steerRuntime(
               rootDir,
               repoId,
               header,
-              view?.policy.canSteer ? "running" : view?.attempt.phase === "starting" ? "starting" : "stopped",
+              view?.policy.processAlive ? "running" : view?.attempt.phase === "starting" ? "starting" : "stopped",
             ),
           )
         : runtimeSpawnError(code, message);
@@ -363,11 +363,11 @@ export async function steerRuntime(
       throw refuse("runtime_steer_target_changed", "The steer target changed while it was being resolved.");
     }
   }
+  if (active && !runtimeKindForId(active.kindId).steerSupported)
+    throw refuse("runtime_steer_unsupported", `${active.kindId} does not support runtime steering.`);
   if (!view?.policy.canSteer)
     throw refuse("runtime_steer_unavailable", "The canonical lifecycle has no running control target.");
   if (!active) throw refuse("runtime_steer_unavailable", "Runtime control transport is unavailable.");
-  if (!runtimeKindForId(active.kindId).steer)
-    throw refuse("runtime_steer_unsupported", `${active.kindId} does not support runtime steering.`);
   if (!active.providerSessionId)
     throw refuse("runtime_steer_unavailable", "Provider has not established a resumable session yet.");
   const target = runtimeSteerTarget(rootDir, repoId, header, "running"),

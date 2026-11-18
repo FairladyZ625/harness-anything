@@ -70,6 +70,7 @@ function runtimeEvent(
     Object.assign(payload, {
       dispatchId: ids.dispatchId,
       instanceId: options.instanceId ?? "instance-a",
+      kindId: "codex",
       ...(ids.attemptGroupId === ids.dispatchId ? {} : { attemptGroupId: ids.attemptGroupId }),
       ...options.dispatch,
     });

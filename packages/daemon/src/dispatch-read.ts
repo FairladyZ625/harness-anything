@@ -733,7 +733,7 @@ function canonicalDispatchRow(
       lastObservedAt === "1970-01-01T00:00:00.000Z" ? (payload.startedAt ?? event.occurredAt) : lastObservedAt,
     activityProjectionObservedAt = dispatchStream?.lastProgressAt ?? activityObservedAt,
     status = lifecycle.displayStatus,
-    processAlive = lifecycle.policy?.canSteer === true,
+    processAlive = lifecycle.policy?.processAlive === true,
     providerUnreachable = processAlive ? (session?.providerUnreachable ?? null) : null,
     activityStatus = dispatchActivityStatus({
       status,
