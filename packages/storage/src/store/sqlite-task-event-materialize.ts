@@ -14,6 +14,7 @@ import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-h
 import { decisionDirectoryFiles } from "./decision-directory-settlement.ts";
 import { ledgerAuthoredPath, ledgerGitPath, type LedgerGitLayout } from "./ledger-git-layout.ts";
 import {
+  alignFollowerIndex,
   localGitObjectRefStore,
   localGitObjectRefStoreAsync,
   localGitWorktreeSettlement,
@@ -352,7 +353,8 @@ export function restoreRequestedDocuments(
   logicals: readonly string[],
 ): MaterializationReceipt {
   const currentLedger = context.ledger(),
-    parent = localGitObjectRefStore.resolveCommit(currentLedger.rootDir, context.authoredRef()),
+    authoredRef = context.authoredRef(),
+    parent = localGitObjectRefStore.resolveCommit(currentLedger.rootDir, authoredRef),
     parentTreePaths = context.readMaterializationDocuments
       ? listParentTreePaths(currentLedger, context.authoredRef(), parent)
       : undefined,
@@ -385,7 +387,17 @@ export function restoreRequestedDocuments(
     context.acceptedWorktree.delete(ledgerAuthoredPath(currentLedger, file.target));
   }
   if (restored.written.length > 0)
-    localGitWorktreeSettlement.index(currentLedger.rootDir, restored.written, false, context.withFence);
+    alignFollowerIndex(
+      {
+        repoRoot: currentLedger.rootDir,
+        authoredRef,
+        authoredPrefix: currentLedger.authoredPrefix,
+        head: parent,
+        previous: null,
+        visibility: restored.written,
+      },
+      context.withFence,
+    );
   return {
     status: "visible",
     commitSha: ledgerCommitSha(context.repoId, parent),

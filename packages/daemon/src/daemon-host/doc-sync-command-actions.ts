@@ -69,6 +69,7 @@ export interface Binding {
   readonly source: WriteSource;
   readonly authorizationDecision?: AuthorizationDecision;
   readonly executionPrincipal?: RuntimeExecutionPrincipal;
+  readonly observedDocGitPaths?: readonly string[] | null;
 }
 
 export type Input = {

@@ -84,10 +84,25 @@ export interface AuthoredCandidateInventoryV1 {
   }[];
 }
 
+/** Resolve candidate names before a local submit takes the writer turn. */
+export function discoverDocCandidateGitPaths(input: {
+  readonly rootDir: string;
+  readonly store: CanonicalEventStore;
+  readonly projection: TaskProjection;
+  readonly taskId?: string;
+}): readonly string[] | null {
+  const prefix = input.taskId === undefined ? "" : input.projection.read(input.taskId).packagePath;
+  if (prefix === null) return [];
+  const ledger = findCanonicalLedgerGitLayout(input.rootDir, input.store);
+  return ledger === null ? null : dirtyPaths(ledger.rootDir, ledger.authoredPrefix, prefix);
+}
+
 export function scanDocCandidates(input: {
   readonly rootDir: string;
   readonly workspaceId: string;
-  readonly store: CanonicalEventStore;
+  readonly store: CanonicalEventStore & {
+    readonly readDocumentRetirementRevision?: (path: string) => number | null;
+  };
   readonly projection: TaskProjection;
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
@@ -98,10 +113,10 @@ export function scanDocCandidates(input: {
   readonly taskId?: string;
   readonly executionId?: string;
   readonly inventory?: AuthoredCandidateInventoryV1;
+  readonly observedGitPaths?: readonly string[] | null;
   readonly nodeTaskMaterializationPolicy?: NodeTaskMaterializationPolicy;
 }): DocCandidateScan {
   const layout = resolveHarnessLayout(input.rootDir),
-    ledger = findCanonicalLedgerGitLayout(input.rootDir, input.store),
     task = input.taskId === undefined ? null : input.projection.read(input.taskId),
     taskPrefix =
       input.taskId === undefined
@@ -119,19 +134,20 @@ export function scanDocCandidates(input: {
     selected = input.selection?.map((value) => documentPath(value)),
     inventoryByPath = new Map(input.inventory?.rows.map((row) => [row.path, row] as const) ?? []),
     conflictsByPath = localDocConflictsByPath(layout),
+    observedGitPaths = selected?.length
+      ? []
+      : input.observedGitPaths === undefined
+        ? discoverDocCandidateGitPaths(input)
+        : input.observedGitPaths,
     candidates = selected?.length
       ? [...new Set(selected)]
       : [
           ...new Set([
-            ...(ledger
-              ? dirtyPaths(ledger.rootDir, ledger.authoredPrefix, conflictsByPath.keys(), taskPrefix ?? "")
-              : input.inventory
+            ...(observedGitPaths ??
+              (input.inventory
                 ? []
-                : [
-                    ...authoredTreePaths(layout, enumerationScope),
-                    ...materializedPaths(layout.localRoot).filter((path) => path.startsWith(enumerationScope)),
-                    ...conflictsByPath.keys(),
-                  ]),
+                : [...authoredTreePaths(layout, enumerationScope), ...materializedPaths(layout.localRoot)])),
+            ...(observedGitPaths === null && input.inventory ? [] : conflictsByPath.keys()),
             ...(input.inventory?.rows.map((row) => row.path) ?? []),
           ]),
         ].filter((value) => value.startsWith(enumerationScope)),
@@ -166,11 +182,13 @@ export function scanDocCandidates(input: {
   function frozenTaskIdsFor(scanned: readonly string[]): readonly string[] {
     const ids = [...new Set(scanned.flatMap((value) => input.projection.taskIdForDocumentPath(value) ?? []))];
     if (ids.length === 0) return [];
-    const statuses = input.projection.readTaskStatuses(ids).rows;
-    return ids.filter((id) => {
-      const status = statuses.find((row) => row.taskId === id)?.status;
-      return status === "submitted" || status === "in_review";
-    });
+    const frozen = new Set(
+      input.projection
+        .readTaskStatuses(ids)
+        .rows.filter(({ status }) => status === "submitted" || status === "in_review")
+        .map(({ taskId }) => taskId),
+    );
+    return ids.filter((id) => frozen.has(id));
   }
   function scanOne(logical: string): ScannedDocCandidate {
     const inventoried = inventoryByPath.get(logical),
@@ -192,7 +210,18 @@ export function scanDocCandidates(input: {
       projected =
         activeProjected.document !== null || fileSize === null || !document.startsWith("decisions/decision-")
           ? activeProjected
-          : (input.projection.readDocumentHistory?.(document) ?? activeProjected);
+          : (input.projection.readDocumentHistory?.(document) ?? activeProjected),
+      retiredRevision =
+        input.worktreeRevision !== undefined && fileSize !== null && projected.document === null
+          ? (input.store.readDocumentRetirementRevision?.(document) ?? 0)
+          : 0;
+    // Explicit retirement removes both active and historical projection rows. The canonical
+    // head keeps its tombstone until a later accepted write replaces it.
+    if (input.worktreeRevision !== undefined && input.worktreeRevision < retiredRevision)
+      throw docSyncError(
+        "materialization_failed",
+        `Document ${document} was retired at revision ${retiredRevision} (checkpoint ${input.worktreeRevision}). Retry doc submit after Git publication.`,
+      );
     const inspection = inspectDocCandidate(
         document,
         fileSize,
@@ -630,12 +659,7 @@ export function resolveDocExecutionBinding(
   return { id: lease?.executionId ?? null, candidates: [], lease, runtimeDelegatedTaskId: null };
 }
 
-function dirtyPaths(
-  repoRoot: string,
-  authoredPrefix: string,
-  conflictPaths: Iterable<string>,
-  logicalScope = "",
-): string[] {
+function dirtyPaths(repoRoot: string, authoredPrefix: string, logicalScope = ""): string[] {
   const scopePath = [authoredPrefix, logicalScope.replace(/\/$/u, "")].filter(Boolean).join("/"),
     scope = scopePath || ".",
     changed = gitStatusNames(repoRoot, scope),
@@ -649,12 +673,7 @@ function dirtyPaths(
             !value.includes(".conflict-") &&
             !/\/\.ha-(?:visible|settle)-/u.test(`/${value}`),
         )
-        .map((value) => value.slice(prefix.length))
-        .concat(
-          [...conflictPaths].filter(
-            (logical) => !logicalScope || logical.startsWith(`${logicalScope.replace(/\/$/u, "")}/`),
-          ),
-        ),
+        .map((value) => value.slice(prefix.length)),
     ),
   ];
 }
@@ -715,7 +734,12 @@ function localDocConflictsByPath(
 function gitNames(repoRoot: string, args: readonly string[]): string[] {
   return (
     /* @gate-identity check-sync-subprocess/sync-subprocess-007 */
-    execFileSync("git", ["-C", repoRoot, ...args], { encoding: "utf8", windowsHide: true })
+    execFileSync("git", ["-C", repoRoot, ...args], {
+      encoding: "utf8",
+      // A NUL-delimited path inventory may legitimately exceed Node's 1 MiB default.
+      maxBuffer: 256 * 1024 * 1024,
+      windowsHide: true,
+    })
       .split("\0")
       .filter(Boolean)
   );

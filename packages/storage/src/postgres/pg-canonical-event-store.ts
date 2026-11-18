@@ -81,9 +81,10 @@ export type PgCanonicalEventStoreOptions = (PostgresTaskEventStoreOptions | PGli
  * One handle belongs to the single writer. Its synchronous bridge waits only inside DB SyncRep TX;
  * concurrent reads open independent product reader handles on another thread.
  */
-export function makePgCanonicalEventStore(
-  options: PgCanonicalEventStoreOptions,
-): CanonicalEventStore & { readonly pruneReplicationLog: (beforeSequence: number) => void } {
+export function makePgCanonicalEventStore(options: PgCanonicalEventStoreOptions): CanonicalEventStore & {
+  readonly pruneReplicationLog: (beforeSequence: number) => void;
+  readonly readDocumentRetirementRevision: (path: string) => number | null;
+} {
   const rootInput = options.rootInput ?? options.rootDir,
     authoredRoot = rootInput === undefined ? undefined : resolveHarnessLayout(rootInput).authoredRoot,
     reader = options.createReader
@@ -170,6 +171,8 @@ export function makePgCanonicalEventStore(
     readEvent,
     readEventAtRevision: (value) => execute({ operation: "event", key: "revision", value }) as CanonicalEventV1 | null,
     readEventById: (value) => execute({ operation: "event", key: "event_id", value }) as CanonicalEventV1 | null,
+    readDocumentRetirementRevision: (path) =>
+      execute({ operation: "document-retirement-revision", path }) as number | null,
     queryEvents: (query) => execute({ operation: "events", query }) as readonly CanonicalEventV1[],
     readEntityDeclarations: (query) =>
       execute({ operation: "entity-declarations", query }) as ReturnType<

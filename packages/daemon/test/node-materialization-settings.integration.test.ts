@@ -133,6 +133,11 @@ test("local policy changes reconcile done packages without canonical writes and 
     for (const taskMaterializationPolicy of ["in_flight", "include_done", "none", "include_done"] as const) {
       const receipt = await cell.run({ kind: "settings-update", taskMaterializationPolicy }, binding);
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      assert.equal(
+        execFileSync("git", ["status", "--porcelain", "--", "harness"], { cwd: rootDir, encoding: "utf8" }),
+        "",
+        "the certified Git cut, index and policy-filtered worktree have no spurious changes",
+      );
       assert.deepEqual(
         reader.currentCut(),
         beforeCut,

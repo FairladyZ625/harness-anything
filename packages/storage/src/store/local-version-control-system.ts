@@ -5,6 +5,7 @@ import {
 } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
+  createReadStream,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -35,6 +36,7 @@ import type {
 import { VcsCommandError } from "@harness-anything/kernel/internal/ports/version-control-system.ts";
 import { cmdShellInvocation } from "./cmd-command-line.ts";
 import { makeLocalVersionControlCommands } from "./local-version-control-commands.ts";
+import { followerIndexCommands, type FollowerIndexCut } from "./git-follower-index.ts";
 import { writeFileDurably, type WriteFence } from "../durable-file.ts";
 
 const gitMaxBuffer = 256 * 1024 * 1024,
@@ -542,38 +544,29 @@ function appendListTreeOutput(output: Buffer, scopes: ReadonlySet<string>, entri
   }
 }
 
-export type UpdateIndexPayloads = { readonly indexInfo: Buffer; readonly skipPaths: Buffer | null };
-
-export function buildUpdateIndexPayloads(
-  files: readonly (
-    | {
-        readonly target: string;
-        readonly body: string | Uint8Array;
-        readonly mode?: "100644" | "120000";
-      }
-    | { readonly delete: string }
-  )[],
-  skipWorktree: boolean,
-): UpdateIndexPayloads {
-  const zero = "0".repeat(40),
-    indexInfo = Buffer.from(
-      files
-        .map((file) =>
-          "delete" in file
-            ? `0 ${zero}\t${file.delete}\0`
-            : `${file.mode ?? "100644"} ${gitBlobOidBytes(asBytes(file.body))}\t${file.target}\0`,
-        )
-        .join(""),
-    ),
-    skipPaths = skipWorktree
-      ? Buffer.from(files.map((file) => `${"delete" in file ? file.delete : file.target}\0`).join(""))
-      : null;
-  return { indexInfo, skipPaths };
+async function readLooseBranchCommit(repoRoot: string, ref: string): Promise<string | null> {
+  if (
+    !ref.startsWith("refs/heads/") ||
+    ref.split("/").some((part) => !part || part === "." || part === "..") ||
+    process.env.GIT_DIR ||
+    process.env.GIT_COMMON_DIR ||
+    process.env.GIT_NAMESPACE
+  )
+    return null;
+  const looseRef = path.join(repoRoot, ".git", ref);
+  // Git resolves linked worktrees, packed refs, and other ref storage formats.
+  if (!existsSync(looseRef) || !lstatSync(looseRef, { throwIfNoEntry: false })?.isFile()) return null;
+  // A loose SHA-1 ref is 41 bytes. Read at most one extra byte to reject overlong values.
+  let value = "";
+  for await (const chunk of createReadStream(looseRef, { encoding: "utf8", start: 0, end: 41 })) value += String(chunk);
+  return value.length === 41 ? (/^([0-9a-f]{40})\n$/u.exec(value)?.[1] ?? null) : null;
 }
 
 export const localGitObjectRefStoreAsync = Object.freeze({
   resolveCommit: async (repoRoot: string, revision: string): Promise<string> =>
     (await spawnGitBytesAsync(repoRoot, ["rev-parse", revision])).toString("utf8").trim(),
+  resolveBranchCommit: async (repoRoot: string, ref: string): Promise<string> =>
+    (await readLooseBranchCommit(repoRoot, ref)) ?? (await localGitObjectRefStoreAsync.resolveCommit(repoRoot, ref)),
   readPath: async (repoRoot: string, commit: string, target: string): Promise<Buffer | null> => {
     try {
       return await spawnGitBytesAsync(repoRoot, ["show", `${commit}:${target}`]);
@@ -629,10 +622,56 @@ export const localGitObjectRefStoreAsync = Object.freeze({
   },
 });
 
-export function runUpdateIndexPayloads(repoRoot: string, payloads: UpdateIndexPayloads): void {
-  localGitBytes(repoRoot, ["update-index", "-z", "--index-info"], payloads.indexInfo);
-  if (payloads.skipPaths)
-    localGitBytes(repoRoot, ["update-index", "--skip-worktree", "-z", "--stdin"], payloads.skipPaths);
+export function alignFollowerIndex(cut: FollowerIndexCut, withFence?: WriteFence): void {
+  if (localGitObjectRefStore.currentBranch(cut.repoRoot) !== cut.authoredRef.slice("refs/heads/".length)) return;
+  const align = () => {
+    const commands = followerIndexCommands(cut);
+    for (let step = commands.next(); !step.done; ) {
+      const { args, input } = step.value;
+      const output = input
+        ? withStdinFile(cut.repoRoot, ".ha-index-", [input], (fd) => localGitBytes(cut.repoRoot, args, fd))
+        : localGitBytes(cut.repoRoot, args);
+      step = commands.next(output);
+    }
+  };
+  if (withFence) withFence(align);
+  else align();
+}
+
+export async function alignFollowerIndexAsync(
+  cut: FollowerIndexCut,
+  withFence?: WriteFence,
+  withFenceAsync?: <T>(operation: () => Promise<T>) => Promise<T>,
+): Promise<void> {
+  if (!withFenceAsync && withFence) return alignFollowerIndex(cut, withFence);
+  if (localGitObjectRefStore.currentBranch(cut.repoRoot) !== cut.authoredRef.slice("refs/heads/".length)) return;
+  const align = async () => {
+    const commands = followerIndexCommands(cut);
+    for (let step = commands.next(); !step.done; )
+      step = commands.next(await spawnGitBytesAsync(cut.repoRoot, step.value.args, step.value.input));
+  };
+  if (withFenceAsync) await withFenceAsync(align);
+  else await align();
+}
+
+const checkoutBranches = new Map<string, { readonly stamp: string; readonly branch: string | null }>();
+
+function checkoutBranch(repoRoot: string): string | null {
+  const dotGit = path.join(repoRoot, ".git"),
+    gitDir = statSync(dotGit).isDirectory()
+      ? dotGit
+      : path.resolve(repoRoot, /^gitdir: (.+)$/mu.exec(readFileSync(dotGit, "utf8"))?.[1] ?? ""),
+    head = path.join(gitDir, "HEAD"),
+    info = statSync(head, { bigint: true }),
+    stamp = `${info.dev}:${info.ino}:${info.ctimeNs}:${info.mtimeNs}:${info.size}`,
+    cached = checkoutBranches.get(head);
+  if (cached?.stamp === stamp) return cached.branch;
+  // Git updates symbolic HEAD by rename. Re-read on a checkout without re-reading HEAD
+  // during both parent selection and index alignment for every normal publication.
+  const branch = /^ref: refs\/heads\/(.+)$/mu.exec(readFileSync(head, "utf8"))?.[1] ?? null;
+  if (checkoutBranches.size >= 64) checkoutBranches.clear();
+  checkoutBranches.set(head, { stamp, branch });
+  return branch;
 }
 
 export const localGitWorktreeSettlementAsync = Object.freeze({
@@ -643,25 +682,6 @@ export const localGitWorktreeSettlementAsync = Object.freeze({
           .toString("utf8")
           .split("\0")
           .filter(Boolean),
-  index: async (
-    repoRoot: string,
-    files: readonly (
-      | {
-          readonly target: string;
-          readonly body: string | Uint8Array;
-          readonly mode?: "100644" | "120000";
-        }
-      | { readonly delete: string }
-    )[],
-    skipWorktree = false,
-  ): Promise<number> => {
-    if (files.length === 0) return 0;
-    const payloads = buildUpdateIndexPayloads(files, skipWorktree);
-    await spawnGitBytesAsync(repoRoot, ["update-index", "-z", "--index-info"], payloads.indexInfo);
-    if (payloads.skipPaths)
-      await spawnGitBytesAsync(repoRoot, ["update-index", "--skip-worktree", "-z", "--stdin"], payloads.skipPaths);
-    return 1;
-  },
 });
 
 export const localGitObjectRefStore = Object.freeze({
@@ -695,12 +715,7 @@ export const localGitObjectRefStore = Object.freeze({
   },
   currentBranch: (repoRoot: string): string | null => {
     try {
-      const dotGit = path.join(repoRoot, ".git"),
-        gitDir = statSync(dotGit).isDirectory()
-          ? dotGit
-          : path.resolve(repoRoot, /^gitdir: (.+)$/mu.exec(readFileSync(dotGit, "utf8"))?.[1] ?? ""),
-        ref = /^ref: refs\/heads\/(.+)$/mu.exec(readFileSync(path.join(gitDir, "HEAD"), "utf8"))?.[1];
-      return ref ?? null;
+      return checkoutBranch(repoRoot);
     } catch (error) {
       consumeKnownError(error);
       return null;
@@ -989,28 +1004,6 @@ export const localGitWorktreeSettlement = Object.freeze({
       hooks.afterRename?.();
     }
   },
-  index: (
-    repoRoot: string,
-    files: readonly (
-      | {
-          readonly target: string;
-          readonly body: string | Uint8Array;
-          readonly mode?: "100644" | "120000";
-        }
-      | { readonly delete: string }
-    )[],
-    skipWorktree = false,
-    withFence?: WriteFence,
-  ): number => {
-    if (files.length === 0) return 0;
-    const payloads = buildUpdateIndexPayloads(files, skipWorktree);
-    // The synchronous Git port joins the index write before releasing ownership. A timed
-    // worker wait could release the fence while its update-index child was still running.
-    const publish = () => runUpdateIndexPayloads(repoRoot, payloads);
-    if (withFence) withFence(publish);
-    else publish();
-    return 1;
-  },
   preserveConflict: (layout: HarnessLayout, target: string, logical: string, commit: string): string =>
     preserveConflict(layout, target, logical, commit, true),
   preserveVisibleConflict: (layout: HarnessLayout, target: string, logical: string, cutIdentity: string): string =>
@@ -1165,9 +1158,6 @@ function asBytes(body: string | Uint8Array): Buffer {
 }
 function linkTarget(body: string | Uint8Array): string {
   return typeof body === "string" ? body : asBytes(body).toString("utf8");
-}
-function gitBlobOidBytes(bytes: Uint8Array): string {
-  return createHash("sha1").update(`blob ${bytes.byteLength}\0`).update(bytes).digest("hex");
 }
 function hashVcsBytes(algorithm: "sha256", body: string | Uint8Array): string {
   return createHash(algorithm).update(body).digest("hex");
