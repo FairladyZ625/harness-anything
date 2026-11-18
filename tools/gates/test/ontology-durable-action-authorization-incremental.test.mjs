@@ -365,7 +365,11 @@ partitionedTest(
       { shardCount: 4, concurrency: 2 },
     );
     assert.deepEqual(result.findings, []);
-    assert.equal(result.rows.length, 0);
+    assert.ok(
+      result.rows.length > 0 && result.rows.length < 100,
+      `expected scoped descriptor rows (1..99), got ${result.rows.length}`,
+    );
+    assert.ok(result.rows.every((row) => row.ok));
     assert.ok(result.sourceRows.length >= 1, "technical-port tooling importers are verified in incremental scope");
     assert.ok(result.sourceRows.every((row) => row.ok));
   },
