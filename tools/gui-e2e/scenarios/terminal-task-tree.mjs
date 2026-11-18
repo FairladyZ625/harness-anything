@@ -2,6 +2,7 @@ export default {
   id: "terminal-task-tree",
   feature: "terminal-task-tree",
   lane: "isolated",
+  readOnly: true,
   description: "Task tree searches seeded tasks and binds the selected task.",
   async run({ page }) {
     await page.getByRole("button", { name: /^(?:终端|Terminal)$/u }).click();

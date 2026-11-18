@@ -593,6 +593,7 @@ export default {
   id: "sessions-grouping",
   feature: "sessions",
   lane: "isolated",
+  readOnly: true,
   description:
     "Seeded runtime sessions group into reason-named unattributed buckets, the status filter narrows the list and says so, totals.sessions agree across group-by dimensions, and task groups read as heads over single-line round rows under a guide line.",
   async run({ page, app, runRoot, shot }) {

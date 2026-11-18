@@ -11,6 +11,7 @@ export default {
   id: "artifacts-spreadsheet-preview",
   feature: "sessions-artifacts",
   lane: "isolated",
+  readOnly: true,
   description:
     "A multi-sheet XLSX artifact renders real cell values with sheet switching and two-axis internal scrolling.",
   async run({ page, shot }) {

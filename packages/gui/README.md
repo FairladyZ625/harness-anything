@@ -78,3 +78,14 @@ when a person explicitly requests a demonstration.
 GUI implementation guidance: [harness-gui skill](../../skills/harness-gui/SKILL.md). GUI agents and the `gui-development` preset use this shared contract.
 
 GUI 开发指引：[harness-gui skill](../../skills/harness-gui/SKILL.md)。GUI Agent 与 `gui-development` preset 复用此契约。
+
+## Headless E2E Smoke
+
+After editing `packages/gui/**` or `tools/gui-e2e/**`, run the `< 2m` headless Electron smoke suite against the built GUI bundle:
+
+```bash
+npm run build -w @harness-anything/gui
+npm run test:gui:smoke
+```
+
+The CI `gui-build` job uses the same command. On headless Linux the runner starts `node tools/gui-e2e.mjs --smoke --no-build` under `xvfb-run --auto-servernum`. Read-only smoke scenarios share an isolated daemon and a hidden Electron instance. Failed scenarios can record a screenshot, window state, Playwright trace, and sanitized IPC trace.

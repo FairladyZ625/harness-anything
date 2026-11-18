@@ -140,10 +140,25 @@ export const catalog = [
   workLineageTaskExecution,
 ];
 
-export function selectScenarios({ lane, ids }) {
+export const SMOKE_SCENARIO_IDS = Object.freeze([
+  "shell-navigation",
+  "overview-first-usable",
+  "overview-task-preview-lanes",
+  "board-preview-detail",
+  "work-lineage-task-execution",
+  "decision-supersede-chain",
+  "terminal-sidebar",
+]);
+
+export function selectScenarios({ lane, ids = [], smoke = false }) {
+  if (smoke) {
+    if (ids.length > 0) throw new Error("--smoke cannot be combined with --scenario");
+    if (lane !== "isolated") throw new Error("--smoke only supports the isolated lane");
+  }
+  const effectiveIds = smoke ? SMOKE_SCENARIO_IDS : ids;
   return catalog.filter(
     (scenario) =>
-      (!ids.length || ids.includes(scenario.id)) &&
+      (!effectiveIds.length || effectiveIds.includes(scenario.id)) &&
       (lane === "all" || scenario.lane === "both" || scenario.lane === lane),
   );
 }

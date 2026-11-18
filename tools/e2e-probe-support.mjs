@@ -19,6 +19,8 @@ export function buildProbeFailureBundle(result, scenario, now = Date.now()) {
     failedStep: scenario?.failedStep,
     message: scenario?.message,
     screenshotPath: scenario?.screenshotPath ?? null,
+    ...(scenario?.tracePath ? { tracePath: scenario.tracePath } : {}),
+    ...(scenario?.ipcTracePath ? { ipcTracePath: scenario.ipcTracePath } : {}),
     failureSignature: result.failureSignature,
   };
 }
@@ -29,19 +31,19 @@ export function prepareE2EProbeGui(rootDir = repositoryRoot, env = process.env) 
   if (!existsSync(vite)) throw probeError("gui_dependencies_missing", `Missing ${vite}; run npm install first.`);
   // Concurrent GUI tests share this checkout. Rebuild every entrypoint without
   // clearing files another test may still be launching or serving.
-  for (const config of ["vite.config.ts", "vite.preload.config.ts", "vite.main.config.ts"])
-    try {
-      execFileSync(process.execPath, [vite, "build", "--config", config, "--no-emptyOutDir"], {
-        cwd: guiRoot,
-        env,
-        encoding: "utf8",
-        stdio: "pipe",
-        maxBuffer: 16 * 1024 * 1024,
-      });
-    } catch (error) {
-      const detail = typeof error?.stderr === "string" ? error.stderr.trim() : String(error);
-      throw probeError("gui_build_failed", `${config}: ${detail}`);
-    }
+  try {
+    execFileSync(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "build"], {
+      cwd: guiRoot,
+      env: { ...env, HARNESS_GUI_BUILD_PRESERVE_OUTPUT: "1" },
+      shell: process.platform === "win32",
+      encoding: "utf8",
+      stdio: "pipe",
+      maxBuffer: 16 * 1024 * 1024,
+    });
+  } catch (error) {
+    const detail = typeof error?.stderr === "string" ? error.stderr.trim() : String(error);
+    throw probeError("gui_build_failed", detail);
+  }
 }
 
 export function resolveE2EProbeElectronForTest(rootDir = repositoryRoot, env = process.env) {

@@ -14,6 +14,7 @@ export default {
   id: "decision-supersede-chain",
   feature: "decisions",
   lane: "isolated",
+  readOnly: true,
   description:
     "Supersede link chains stay single-line and scroll inside the chain; links still navigate; scroll and keyboard panning do not.",
   async run({ page, shot }) {

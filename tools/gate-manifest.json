@@ -1443,6 +1443,67 @@
       }
     },
     {
+      "id": "gui-e2e-smoke",
+      "command": "npm run test:gui:smoke",
+      "category": "smoke",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "tools/gui-e2e.mjs",
+        "tools/gui-e2e/run-smoke.mjs",
+        "package.json:scripts.test:gui:smoke",
+        "decision/dec_88CAA23DE4907261D7ECB107ED#CH1",
+        ".github/workflows/rewrite-ci.yml:jobs.gui-build"
+      ],
+      "consumerScope": [
+        "Core headless Electron GUI E2E smoke flows (overview, board/detail, work lineage, decision pool, terminal sidebar, hidden window and clean console)"
+      ],
+      "githubContext": {
+        "requiredContexts": ["gui-build"],
+        "workflowJobs": ["gui-build"],
+        "nodeVersions": [24],
+        "pathFiltered": true
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "GUI smoke gate has no allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": ["tools/gui-e2e/run-smoke.mjs", ".github/workflows/rewrite-ci.yml"]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": false,
+          "checkPr": false,
+          "script": null
+        },
+        "rewriteCi": {
+          "pullRequestJobs": ["gui-build"],
+          "nonPullRequestJobs": ["gui-build"],
+          "pathFiltered": true
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": ["gui-build"]
+        },
+        "classes": ["pr"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/gui-e2e/driver.test.mjs",
+          "tools/gui-e2e/run-smoke.test.mjs",
+          "tools/gates/test/rewrite-ci-pr-ci-slimming.test.mjs"
+        ]
+      }
+    },
+    {
       "id": "test-gui-e2e",
       "command": "npm run test:gui:e2e",
       "category": "smoke",
