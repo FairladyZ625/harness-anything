@@ -167,3 +167,77 @@ it.each(["zh-CN", "en-US"] as const)(
     expect(strip).toContain(locale === "zh-CN" ? "慢写请求 1 条" : "1 slow write requests");
   },
 );
+
+describe("runtime write queue timing", () => {
+  const spawn = {
+    event: "request",
+    method: "repo.agentRuntime.spawn",
+    command: "agent-run",
+    at: records[1]!.at,
+  };
+  const renderStrip = (stats: ReturnType<typeof statsFor>) =>
+    renderToStaticMarkup(
+      createElement(ObserveSnifferStrip, {
+        testId: "sniff",
+        stats,
+        window: "15m",
+        isLogPane: true,
+        onFocusSmell: () => {},
+      }),
+    );
+
+  it("keeps a long worktree preparation in total RPC times without a slow write alert", () => {
+    setActiveLocale("en-US");
+    const stats = statsFor([
+      {
+        ...spawn,
+        durationMs: 18_810,
+        queueMs: 0,
+        phases: [
+          { name: "write-prepare", startedAtMs: 100, endedAtMs: 18_895 },
+          { name: "write-queue", startedAtMs: 18_895, endedAtMs: 18_895 },
+          { name: "write-execution", startedAtMs: 18_895, endedAtMs: 18_910 },
+        ],
+      },
+    ]);
+    expect(stats.windows["15m"].writes.slowWrites).toBe(0);
+    expect(stats.windows["15m"].smells.some(({ kind }) => kind === "slow_write_request")).toBe(false);
+    expect(renderStrip(stats)).not.toContain('data-testid="sniff-smell"');
+    const board = renderToStaticMarkup(
+      createElement(ObserveSlowOpsBoard, { testId: "slow", stats, onFocusCommand: () => {} }),
+    );
+    expect(board).toContain("agent-run");
+    expect(board).toContain("19s");
+  });
+
+  it("alerts on slow execution using the explicit execution time", () => {
+    setActiveLocale("en-US");
+    const stats = statsFor([{ ...spawn, durationMs: 18_810, writeExecutionMs: 1_200 }]);
+    expect(stats.windows["15m"].writes.slowWrites).toBe(1);
+    expect(stats.windows["15m"].smells).toContainEqual(
+      expect.objectContaining({ kind: "slow_write_request", value: 1_200 }),
+    );
+    expect(renderStrip(stats)).toContain("1200ms");
+  });
+
+  it("alerts on time spent in the queue and shows the queue head", () => {
+    setActiveLocale("en-US");
+    const stats = statsFor([
+      {
+        ...spawn,
+        durationMs: 1_562,
+        queueMs: 1_500,
+        writeExecutionMs: 12,
+        queueHead: { requestId: "blocked-on-backup", command: "ledger-backup", executingMs: 500 },
+      },
+    ]);
+    expect(stats.windows["15m"].writes.slowWrites).toBe(1);
+    expect(stats.windows["15m"].smells).toContainEqual(
+      expect.objectContaining({ kind: "slow_write_request", value: 1_512, queueMs: 1_500 }),
+    );
+    const strip = renderStrip(stats);
+    expect(strip).toContain("queued 1500ms");
+    expect(strip).toContain("executed 12ms");
+    expect(strip).toContain("ledger-backup");
+  });
+});

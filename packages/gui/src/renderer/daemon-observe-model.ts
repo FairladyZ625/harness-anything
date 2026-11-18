@@ -55,8 +55,10 @@ export interface ObserveRow {
   readonly atMs: number | null;
   /** 日志行的 RPC 耗时毫秒(仅 request/conn 记录;events 行为 null),慢操作统计的输入。 */
   readonly durationMs: number | null;
-  /** 写请求在单写队列里的等待毫秒(请求日志 queueMs;其余 durationMs 为执行);无则 null。 */
+  /** 写请求在单写队列里的等待毫秒，无则 null。 */
   readonly queueMs: number | null;
+  /** 单写队列内执行耗时，无计时证据则为 null。 */
+  readonly writeExecutionMs: number | null;
   /** 排队时占住队首的写请求;日志未记录或未等待时为 null。 */
   readonly queueHead: ObserveQueueHead | null;
   /** 请求/连接日志自带的节点标识(daemonId/nodeId 字段;多节点透镜区分归属用)。 */
@@ -521,6 +523,7 @@ function gapMarkerRow(gap: { readonly reason: string; readonly requestedFileId: 
     atMs: null,
     durationMs: null,
     queueMs: null,
+    writeExecutionMs: null,
     queueHead: null,
     nodeId: null,
     code: null,
@@ -567,6 +570,7 @@ export function observeEventRow(event: ObserveTailRead["items"][number]): Observ
       atMs: epochMsOf(at),
       durationMs: null as number | null,
       queueMs: null as number | null,
+      writeExecutionMs: null as number | null,
       queueHead: null as ObserveQueueHead | null,
       nodeId: null as string | null,
       code: null as string | null,
@@ -582,8 +586,10 @@ export function observeLogRow(record: Readonly<Record<string, unknown>>, seq: nu
   const method = stringOf(record.method),
     event = stringOf(record.event),
     command = stringOf(record.command),
+    commandClass = stringOf(record.commandClass),
     outcome = stringOf(record.outcome) ?? stringOf(record.code),
     duration = numberToMs(record.durationMs),
+    phases = Array.isArray(record.phases) ? record.phases : [],
     at = stringOf(record.at),
     base = {
       key: `log:${seq}`,
@@ -600,7 +606,11 @@ export function observeLogRow(record: Readonly<Record<string, unknown>>, seq: nu
       atMs: epochMsOf(at),
       durationMs:
         typeof record.durationMs === "number" && Number.isFinite(record.durationMs) ? record.durationMs : null,
-      queueMs: typeof record.queueMs === "number" && Number.isFinite(record.queueMs) ? record.queueMs : null,
+      queueMs: finiteMs(record.queueMs) ?? writePhaseMs(phases, "write-queue"),
+      writeExecutionMs:
+        finiteMs(record.writeExecutionMs) ??
+        writePhaseMs(phases, "write-execution") ??
+        (phases.some((phase) => recordOf(phase)?.name === "write-prepare") ? 0 : null),
       queueHead: observeQueueHeadOf(record.queueHead),
       nodeId: stringOf(record.daemonId) ?? stringOf(record.nodeId),
       code: outcome,
@@ -608,9 +618,27 @@ export function observeLogRow(record: Readonly<Record<string, unknown>>, seq: nu
       subject: (stringOf(recordOf(record.executor)?.id) ?? stringOf(record.connectionId) ?? stringOf(record.conn)) as
         | string
         | null,
-      opClass: observeLogOpClass(command ?? method ?? event ?? "", stringOf(record.commandClass)),
+      opClass:
+        observeLogOpClass(command ?? method ?? event ?? "", commandClass) ??
+        (commandClass === null && command !== null && method !== null ? observeLogOpClass(method, null) : null),
     };
   return { ...base, searchText: searchTextOf(base) };
+}
+
+function finiteMs(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function writePhaseMs(phases: readonly unknown[], name: string): number | null {
+  let total: number | null = null;
+  for (const value of phases) {
+    const phase = recordOf(value);
+    if (phase?.name !== name) continue;
+    const start = finiteMs(phase.startedAtMs),
+      end = finiteMs(phase.endedAtMs);
+    if (start !== null && end !== null && end >= start) total = (total ?? 0) + (end - start);
+  }
+  return total;
 }
 
 /** 解析请求日志的 queueHead;命令名缺失的记录视为没有队首证据。 */
@@ -647,7 +675,7 @@ export function observeLogOpClass(method: string, commandClass: string | null): 
 
 const declaredCommandClasses = new Map(
   daemonProtocolCommands.flatMap((command) =>
-    [...new Set([command.id, ...("actionKind" in command ? [command.actionKind] : [])])].map(
+    [...new Set([command.id, command.method, ...("actionKind" in command ? [command.actionKind] : [])])].map(
       (name) => [name, command.commandClass] as const,
     ),
   ),

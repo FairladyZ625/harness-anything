@@ -389,21 +389,25 @@ export interface RepoCell {
     payload: JsonObject,
     binding: RepoCellBinding,
     queueObservation?: RepoCellQueueObservation,
+    onExecutionStart?: () => void,
   ) => Promise<JsonObject>;
   readonly handoffRuntime: (
     payload: JsonObject,
     binding: RepoCellBinding,
     queueObservation?: RepoCellQueueObservation,
+    onExecutionStart?: () => void,
   ) => Promise<JsonObject>;
   readonly cancelRuntime: (
     payload: JsonObject,
     binding: RepoCellBinding,
     queueObservation?: RepoCellQueueObservation,
+    onExecutionStart?: () => void,
   ) => Promise<JsonObject>;
   readonly steerRuntime: (
     payload: JsonObject,
     binding: RepoCellBinding,
     queueObservation?: RepoCellQueueObservation,
+    onExecutionStart?: () => void,
   ) => Promise<JsonObject>;
   /** Resolves when the session's projected outcome is settled per the domain settle predicate. */
   readonly awaitRuntimeOutcome: (runtimeSessionId: string) => Promise<void>;
@@ -414,6 +418,7 @@ export interface RepoCell {
     action: RuntimeIngressAction,
     binding: RepoCellBinding,
     queueObservation?: RepoCellQueueObservation,
+    onExecutionStart?: () => void,
   ) => Promise<JsonObject>;
   readonly catalog: ReturnType<typeof openGuiCatalog>;
   readonly terminal: RepoCellTerminal;

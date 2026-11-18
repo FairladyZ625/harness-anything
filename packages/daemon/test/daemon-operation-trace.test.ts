@@ -14,6 +14,12 @@ import {
   type DaemonOperationTrace,
 } from "../src/daemon-operation.ts";
 import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
+import type { DaemonHost } from "../src/daemon-host-types.ts";
+import { daemonBuildStamp } from "../src/build-identity.ts";
+import type { DaemonTrafficLogEntry } from "../src/conn-log.ts";
+import type { DaemonRequestLogEntry } from "../src/request-log.ts";
+import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 
 function collector() {
   const begins: Record<string, unknown>[] = [];
@@ -137,4 +143,52 @@ test("observeDaemonRequest records the authenticated fleet node, never a payload
   );
   const trace = observed.traces[0]!;
   assert.equal(trace.nodeId, "node-9");
+});
+
+test("parallel runtime batch turns count overlapping queue and execution time once in both logs", async () => {
+  const observed = collector(),
+    traffic: DaemonTrafficLogEntry[] = [],
+    requests: DaemonRequestLogEntry[] = [],
+    build = daemonBuildStamp(),
+    server = createJsonRpcProtocolServer({
+      host: {
+        batchRuntime: async () => {
+          const start = Number(process.hrtime.bigint() / 1_000_000n);
+          recordDaemonOperationPhaseSpan("write-queue", start, start + 100);
+          recordDaemonOperationPhaseSpan("write-execution", start + 100, start + 200);
+          recordDaemonOperationPhaseSpan("write-queue", start + 50, start + 225);
+          recordDaemonOperationPhaseSpan("write-execution", start + 225, start + 375);
+          return { ok: true };
+        },
+      } as unknown as DaemonHost,
+      build,
+      authContext: { transportKind: "unix-socket" },
+      emit: async () => undefined,
+      operationObserver: observed.observer,
+      recordRequest: (record) => requests.push(record),
+      recordTraffic: (record) => traffic.push(record),
+    });
+  try {
+    await server.handle({
+      jsonrpc: "2.0",
+      method: "protocol.hello",
+      id: 1,
+      params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: build.commit },
+    });
+    await server.handle({
+      jsonrpc: "2.0",
+      method: "repo.agentRuntime.batch",
+      id: 2,
+      params: { repo: { repoId: "fixture" }, payload: { declaration: "fixture" } },
+    });
+    const request = requests[0]!,
+      conn = traffic.find(({ method }) => method === "repo.agentRuntime.batch")!;
+    assert.equal(request.queueMs, 125);
+    assert.equal(request.writeExecutionMs, 250);
+    assert.equal(conn.queueMs, request.queueMs);
+    assert.equal(conn.writeExecutionMs, request.writeExecutionMs);
+    assert.ok(conn.phases?.some(({ name }) => name === "write-prepare"));
+  } finally {
+    server.close();
+  }
 });
