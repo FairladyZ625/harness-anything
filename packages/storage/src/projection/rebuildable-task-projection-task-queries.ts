@@ -126,6 +126,7 @@ export function taskQueryApi(
   | "readRuntimeDispatchesByTaskExecution"
   | "readRuntimeDispatchesByAttemptGroup"
   | "readRuntimeDispatchesByDecision"
+  | "readRuntimeDispatchesByDecisions"
   | "readRuntimeDispatchPage"
   | "readRuntimeDispatchesByMember"
   | "readRuntimeSessionEvents"

@@ -245,6 +245,11 @@ export const REPOSITORY_READ_TABLES_SQL = `
       json_extract(event_json, '$.payload.reviewTarget.decisionId'), workspace_revision
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
       AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
+    CREATE INDEX IF NOT EXISTS event_index_decision_review_dispatch ON event_index(
+      json_extract(event_json, '$.payload.reviewTarget.decisionId'), workspace_revision
+    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'
+      AND json_extract(event_json, '$.payload.reviewTarget.kind') = 'decision';
     CREATE INDEX IF NOT EXISTS event_index_runtime_session ON event_index(
       json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1';
