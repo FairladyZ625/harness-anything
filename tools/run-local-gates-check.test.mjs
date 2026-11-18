@@ -1,6 +1,10 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { cpSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
+import { commitAll, makeRepo, writeRepoFile } from "./gates/test/helpers.mjs";
 import { selectLocalGateChecks, staticGateExclusion } from "./run-local-gates-check.mjs";
 
 const PR_JOBS = new Set(["boundaries", "package-policy", "supply-chain"]);
@@ -228,10 +232,37 @@ test("changed static plans pass the exact path set only to the durable authoriza
   manifest.gates.unshift(gate);
   const changedPaths = ["packages/kernel/src/with spaces.ts", "packages/daemon/src/a'$(never).ts"];
   const plan = selectLocalGateChecks(manifest, { changedPaths });
-  const command = plan.find((entry) => entry.id === gate.id).command;
-  const encoded = command.split(" --changed-files-base64 ")[1];
-  assert.match(encoded, /^[A-Za-z0-9+/=]+$/u);
-  assert.deepEqual(JSON.parse(Buffer.from(encoded, "base64").toString("utf8")), changedPaths);
+  const entry = plan.find((entry) => entry.id === gate.id);
+  assert.equal(entry.command, `${gate.command} --changed-files-stdin`);
+  assert.deepEqual(JSON.parse(entry.input), changedPaths);
   assert.equal(plan.find((entry) => entry.id === manifest.gates[1].id).command, manifest.gates[1].command);
   assert.equal(selectLocalGateChecks(manifest).find((entry) => entry.id === gate.id).command, gate.command);
+});
+
+test("changed static CLI sends a large exact scope through the shared process launcher", () => {
+  // dec_04A9211B073F29F0FC1E1CA573 CH3: local and CI entrypoints retain the same complete input.
+  const files = Array.from({ length: 3000 }, (_, i) => `packages/kernel/src/路径 & 'quote'/module-${i}.ts`).sort(),
+    manifest = makeManifest();
+  manifest.gates = [
+    { ...manifest.gates[0], id: "ontology-durable-action-authorization", command: "node tools/capture.mjs" },
+  ];
+  const { rootDir } = makeRepo({
+    "tools/gate-manifest.json": JSON.stringify(manifest),
+    "expected.json": JSON.stringify(files),
+    "tools/capture.mjs": `import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+assert.deepEqual(process.argv.slice(2), ["--changed-files-stdin"]);
+assert.deepEqual(JSON.parse(readFileSync(0, "utf8")), JSON.parse(readFileSync("expected.json", "utf8")));
+console.log("Complete static scope received");`,
+  });
+  for (const file of ["run-local-gates-check.mjs", "run-manifest-gates.mjs", "test-quarantine.mjs"])
+    cpSync(path.join(import.meta.dirname, file), path.join(rootDir, "tools", file));
+  commitAll(rootDir);
+  for (const file of files) writeRepoFile(rootDir, file, "export {};\n");
+  const result = spawnSync(process.execPath, ["tools/run-local-gates-check.mjs", "--changed", "HEAD"], {
+    cwd: rootDir,
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Complete static scope received/u);
 });

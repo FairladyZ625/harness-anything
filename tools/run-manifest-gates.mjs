@@ -224,7 +224,8 @@ export function buildManifestGatePlan(manifest, options) {
       Array.isArray(options.authorizationChangedPaths)
       ? {
           ...gate,
-          command: `${gate.command} --changed-files-base64 ${Buffer.from(JSON.stringify(options.authorizationChangedPaths)).toString("base64")}`,
+          command: `${gate.command} --changed-files-stdin`,
+          input: JSON.stringify(options.authorizationChangedPaths),
         }
       : gate;
   });
@@ -299,7 +300,7 @@ function dedupeCommands(gates) {
       continue;
     }
     seen.add(gate.command);
-    commands.push({ id: gate.id, command: gate.command });
+    commands.push({ id: gate.id, command: gate.command, ...(gate.input === undefined ? {} : { input: gate.input }) });
   }
   return commands;
 }
@@ -412,7 +413,7 @@ export function commandForPlatformShell(command, { platform = process.platform, 
   });
 }
 
-export function runCommand(label, command, failureHint = null, { cwd = repoRoot } = {}) {
+export function runCommand(label, command, failureHint = null, { cwd = repoRoot, input } = {}) {
   console.log(`\n▶ ${label}  (${command})`);
   const started = Date.now();
   command = commandForPlatformShell(command);
@@ -422,7 +423,8 @@ export function runCommand(label, command, failureHint = null, { cwd = repoRoot 
     // The runner has to start before it can report anything, so a hardcoded POSIX shell made
     // every Windows lane fail at "spawnSync /bin/sh ENOENT" with no gate output at all.
     shell: true,
-    stdio: "inherit",
+    input,
+    stdio: [input === undefined ? "inherit" : "pipe", "inherit", "inherit"],
   });
   const elapsedS = ((Date.now() - started) / 1000).toFixed(1);
   if (result.error) {
@@ -444,7 +446,12 @@ export function runCommand(label, command, failureHint = null, { cwd = repoRoot 
 // finishes. The cap keeps four chatty gates from growing the runner process without bound.
 const MAX_GATE_OUTPUT_CHARS = 16 * 1024 * 1024;
 
-export function runCommandAsync(label, command, failureHint = null, { cwd = repoRoot, githubGroups = false } = {}) {
+export function runCommandAsync(
+  label,
+  command,
+  failureHint = null,
+  { cwd = repoRoot, githubGroups = false, input } = {},
+) {
   return new Promise((resolve) => {
     const started = Date.now();
     command = commandForPlatformShell(command);
@@ -481,7 +488,7 @@ export function runCommandAsync(label, command, failureHint = null, { cwd = repo
         cwd,
         env: process.env,
         shell: true,
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
       });
     } catch (error) {
       finish({ ok: false, detail: `failed to launch: ${error.message}` });
@@ -502,12 +509,16 @@ export function runCommandAsync(label, command, failureHint = null, { cwd = repo
       else if (code !== 0) finish({ ok: false, detail: `exit ${code ?? "unknown"}` });
       else finish({ ok: true });
     });
+    if (input !== undefined) {
+      child.stdin.on("error", (error) => finish({ ok: false, detail: `stdin failed: ${error.message}` }));
+      child.stdin.end(input);
+    }
   });
 }
 
-const runManifestGate = (entry) => runCommand(entry.id, entry.command, entry.failureHint);
+const runManifestGate = (entry) => runCommand(entry.id, entry.command, entry.failureHint, { input: entry.input });
 const runManifestGateAsync = (entry, githubGroups = false) =>
-  runCommandAsync(entry.id, entry.command, entry.failureHint, { githubGroups });
+  runCommandAsync(entry.id, entry.command, entry.failureHint, { githubGroups, input: entry.input });
 
 /**
  * Run every gate in the plan and decide the aggregate verdict only at the end.

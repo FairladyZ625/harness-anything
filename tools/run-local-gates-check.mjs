@@ -32,7 +32,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { commandForPlatformShell } from "./run-manifest-gates.mjs";
+import { runCommand } from "./run-manifest-gates.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const manifestPath = path.join(repoRoot, "tools/gate-manifest.json");
@@ -79,12 +79,15 @@ export function selectLocalGateChecks(manifest, options = {}) {
     selected.push({
       id: gate.id,
       // Pass the exact selection input, including staged/unstaged/renamed files, to the
-      // authorization gate. Base64 is shell-neutral on Windows and POSIX, even for paths.
+      // authorization gate over stdin, without placing path data in the shell command.
       command:
         gate.command +
         (gate.id === "ontology-durable-action-authorization" && Array.isArray(changedPaths)
-          ? ` --changed-files-base64 ${Buffer.from(JSON.stringify(changedPaths)).toString("base64")}`
+          ? " --changed-files-stdin"
           : ""),
+      ...(gate.id === "ontology-durable-action-authorization" && Array.isArray(changedPaths)
+        ? { input: JSON.stringify(changedPaths) }
+        : {}),
       workflowJobs: gate.executionSurfaces?.rewriteCi?.pullRequestJobs ?? [],
     });
   }
@@ -123,29 +126,6 @@ function globToRegExp(glob) {
 
 function readJson(filePath) {
   return JSON.parse(readFileSync(filePath, "utf8"));
-}
-
-function runCommand(entry) {
-  console.log(`\n▶ ${entry.id}  (${entry.command})`);
-  const started = Date.now();
-  entry.command = commandForPlatformShell(entry.command);
-  const result = spawnSync(entry.command, {
-    cwd: repoRoot,
-    env: process.env,
-    shell: true,
-    stdio: "inherit",
-  });
-  const elapsedS = ((Date.now() - started) / 1000).toFixed(1);
-  if (result.error) {
-    console.error(`✖ ${entry.id} failed to launch: ${result.error.message}`);
-    return { ok: false, elapsedS };
-  }
-  if (result.status !== 0) {
-    console.error(`✖ ${entry.id} failed (exit ${result.status ?? "signal"}) after ${elapsedS}s`);
-    return { ok: false, elapsedS };
-  }
-  console.log(`✓ ${entry.id} (${elapsedS}s)`);
-  return { ok: true, elapsedS };
 }
 
 function printPlan(plan, changed) {
@@ -219,7 +199,7 @@ function main(argv) {
 
   const totalStart = Date.now();
   for (const entry of plan) {
-    if (!runCommand(entry).ok) {
+    if (!runCommand(entry.id, entry.command, null, { input: entry.input }).ok) {
       console.error(`\nLocal static gate check stopped at: ${entry.id}. Fix it, then re-run.`);
       process.exitCode = 1;
       return;

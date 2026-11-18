@@ -31,7 +31,8 @@ import { exitCodeFor } from "../ontology-gate-lib.mjs";
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 let ordinal = 0;
 function partitionedTest(name, run) {
-  if (testOrdinalInPartition(ordinal++, process.env.HARNESS_TEST_PARTITION, [1, 1, 2, 3, 4, 1, 2, 4])) test(name, run);
+  if (testOrdinalInPartition(ordinal++, process.env.HARNESS_TEST_PARTITION, [1, 1, 2, 3, 1, 4, 1, 2, 4]))
+    test(name, run);
 }
 
 function fixtureGraph(modules) {
@@ -203,20 +204,27 @@ function measuredGate(changedFiles) {
   const started = performance.now();
   const result = spawnSync(
     process.execPath,
-    [
-      "tools/gates/ontology-durable-action-authorization.mjs",
-      "--mode",
-      "ratchet",
-      "--changed-files-base64",
-      Buffer.from(JSON.stringify(changedFiles)).toString("base64"),
-    ],
-    { cwd: repoRoot, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
+    ["tools/gates/ontology-durable-action-authorization.mjs", "--mode", "ratchet", "--changed-files-stdin"],
+    { cwd: repoRoot, encoding: "utf8", input: JSON.stringify(changedFiles), maxBuffer: 16 * 1024 * 1024 },
   );
   assert.equal(result.status, 0, result.stderr + result.stdout);
   const count = /unproven authorization routes: 0\/(\d+)/u.exec(result.stdout);
   assert.ok(count, result.stdout);
   return { seconds: (performance.now() - started) / 1000, descriptors: Number(count[1]), stdout: result.stdout };
 }
+
+partitionedTest("stdin authorization scope rejects malformed or non-path input before auditing", () => {
+  // dec_04A9211B073F29F0FC1E1CA573 CH3: transport changes retain fail-closed input parsing.
+  for (const input of ["not-json", "{}", '["valid.ts", 1]']) {
+    const result = spawnSync(
+      process.execPath,
+      ["tools/gates/ontology-durable-action-authorization.mjs", "--changed-files-stdin"],
+      { cwd: repoRoot, encoding: "utf8", input },
+    );
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /JSON|array of paths/u);
+  }
+});
 
 partitionedTest("narrow test helper cut measures the CLI path without tracing unrelated descriptors", () => {
   const { stdout, ...measurement } = measuredGate(["tools/run-local-gates-check.test.mjs"]);
