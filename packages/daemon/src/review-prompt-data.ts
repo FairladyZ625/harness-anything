@@ -1,3 +1,6 @@
+const REVIEW_PROMPT_DATA_LABEL = /^[a-z][a-z0-9-]*-data$/u;
+const REVIEW_PROMPT_DATA_BLOCK = /<([a-z][a-z0-9-]*-data)>\n[^\n]*\n<\/\1>/gu;
+
 /** Repository text is data in a review mission. Keep its JSON on one physical line. */
 function encode(value: unknown): string {
   return JSON.stringify(value).replace(/[\p{Cc}\p{Cf}\u2028\u2029<>]/gu, (character) =>
@@ -9,7 +12,15 @@ function encode(value: unknown): string {
 }
 
 export function reviewPromptData(label: string, data: unknown): string {
+  if (!REVIEW_PROMPT_DATA_LABEL.test(label)) {
+    throw new RangeError(`Review prompt data label must match ${REVIEW_PROMPT_DATA_LABEL}: ${label}`);
+  }
   return `<${label}>\n${encode(data)}\n</${label}>`;
+}
+
+/** Strip untrusted repository-derived data blocks before scanning a mission for private ledger paths. */
+export function stripReviewPromptData(text: string): string {
+  return text.replace(REVIEW_PROMPT_DATA_BLOCK, "");
 }
 
 export function reviewDataPreview(value: string, limit: number): string {
