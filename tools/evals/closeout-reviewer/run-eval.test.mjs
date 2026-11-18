@@ -1,12 +1,19 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { once } from "node:events";
+import { watch } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import process from "node:process";
 import test from "node:test";
 import { reviewFindingCategories, reviewVerdicts } from "@harness-anything/kernel/internal/domain/review.ts";
 import {
   verifyFourStateCounts,
   loadEvalCases,
   runDryRun,
+  runLiveEval,
   scoreEvalResults,
   collectEvalCaseIssues,
 } from "./run-eval.mjs";
@@ -24,7 +31,7 @@ function perfectResponsesFor(cases) {
               findingId: `f-${index}`,
               blocking: true,
               category: item.expectedCategories[0],
-              text: `Detected ${item.defectClass}`,
+              text: item.expectedEvidence.map(([phrase]) => phrase).join(". "),
             },
           ]
         : item.bucket === "pre_existing"
@@ -53,6 +60,12 @@ test("golden dataset passes dry-run validation and aligns with kernel review voc
   assert.ok(dry.buckets.negative >= 5, "must include >= 5 clean negative cases");
   assert.ok(dry.buckets.pre_existing >= 2, "must include >= 2 pre_existing boundary cases");
   assert.deepEqual(dry.counts, { passed: 0, failed: 0, timedOut: 0, unexecuted: dry.totalCases });
+  const parsed = spawnSync("git", ["apply", "--numstat", "-"], {
+    input: doc.cases.map(({ diff }) => diff).join(""),
+    encoding: "utf8",
+  });
+  assert.equal(parsed.status, 0, parsed.stderr);
+  assert.equal(parsed.stdout.trim().split("\n").length, 24);
 
   for (const defectClass of [
     "fake-green-test",
@@ -87,6 +100,31 @@ test("schema validator rejects unknown categories, non-blocking-only positives, 
   const privateDir = [".harness", "-private"].join("");
   leakedPathDoc.cases[0].diff += `\n// leaked path: ${privateDir}/secret-notes.md\n`;
   assert.ok(collectEvalCaseIssues(leakedPathDoc).some((msg) => msg.includes("private path marker")));
+});
+
+test("dry-run rejects corrupted hunks, trailing garbage and non-diff text", async (context) => {
+  const {
+    schema,
+    cases: [entry],
+  } = loadEvalCases(casesPath);
+  const temp = await mkdtemp(path.join(os.tmpdir(), "review-eval-"));
+  context.after(() => rm(temp, { recursive: true, force: true }));
+  const invalidCasesPath = path.join(temp, "cases.json");
+
+  for (const diff of [
+    "not a diff\n",
+    entry.diff.replace(/@@ -(\d+),(\d+)/u, (_, line, count) => `@@ -${line},${Number(count) + 1}`),
+    entry.diff + "+extra hunk line\n",
+    entry.diff + "trailing garbage\n",
+  ]) {
+    await writeFile(invalidCasesPath, JSON.stringify({ schema, cases: [{ ...entry, diff }] }));
+    assert.throws(() => runDryRun(invalidCasesPath), /invalid unified diff/u);
+  }
+
+  assert.match(
+    collectEvalCaseIssues({ schema, cases: [{ ...entry, expectedEvidence: [["  "], ["404"]] }] }).join("\n"),
+    /positive case needs at least two non-empty evidence groups/u,
+  );
 });
 
 test("scorer computes 100% recall and 0% FPR on perfect responses, and drops recall or raises FPR on errors", () => {
@@ -140,6 +178,140 @@ test("scorer computes 100% recall and 0% FPR on perfect responses, and drops rec
   assert.equal(preReport.metrics.preExistingFalseBlockRate, 1 / preCount);
   assert.equal(preReport.metrics.falsePositiveRate, 1 / cleanCount);
 });
+
+test("recall requires a legal blocking finding with all evidence groups on the same finding", () => {
+  const [incident] = loadEvalCases(casesPath).cases;
+  const [response] = perfectResponsesFor([incident]);
+  const [finding] = response.findings;
+  const alternatives = [
+    { ...finding, text: "Unrelated naming concern" },
+    { ...finding, anchor: "test/static-broker.test.ts:2", text: "Rename the test." },
+    { ...finding, text: "The response is 404." },
+    { ...finding, text: "The policy has a 1404 error." },
+    { ...finding, blocking: false },
+    { ...finding, category: "style" },
+  ];
+  for (const candidate of alternatives) {
+    const report = scoreEvalResults([incident], [{ ...response, findings: [candidate] }]);
+    assert.equal(report.validResponses, 1);
+    assert.equal(report.metrics.recall, 0, JSON.stringify(candidate));
+  }
+  const split = scoreEvalResults(
+    [incident],
+    [{ ...response, findings: [alternatives[1], { ...alternatives[2], findingId: "second" }] }],
+  );
+  assert.equal(split.metrics.recall, 0);
+  const anchored = scoreEvalResults(
+    [incident],
+    [{ ...response, findings: [{ ...finding, anchor: "test/static-broker.test.ts:2", text: "Response is 404." }] }],
+  );
+  assert.equal(anchored.metrics.recall, 1);
+});
+
+test("malformed verdicts and findings are protocol errors on both positive and clean cases", () => {
+  const { cases } = loadEvalCases(casesPath);
+  const pair = [cases[0], cases.find(({ bucket }) => bucket === "negative")];
+  for (const [index, response] of perfectResponsesFor(pair).entries()) {
+    const finding = {
+      findingId: "f-1",
+      text: "static-broker.test.ts returns 404",
+      category: "correctness",
+      blocking: true,
+    };
+    for (const badResponse of [
+      { ...response, verdict: "dismissed" },
+      { ...response, status: "unknown" },
+      { ...response, findings: undefined },
+      { ...response, findings: "not an array" },
+      { ...response, findings: [null] },
+      { ...response, findings: [{ ...finding, findingId: " " }] },
+      { ...response, findings: [{ ...finding, text: "" }] },
+      { ...response, findings: [{ ...finding, category: undefined }] },
+      { ...response, findings: [{ ...finding, category: "unknown" }] },
+      { ...response, findings: [{ ...finding, blocking: "yes" }] },
+      { ...response, findings: [finding, finding] },
+    ]) {
+      const report = scoreEvalResults([pair[index]], [badResponse]);
+      assert.deepEqual(report.counts, { passed: 0, failed: 1, timedOut: 0, unexecuted: 0 });
+      assert.equal(report.adapterErrors, 1);
+      assert.equal(report.validResponses, 0);
+      assert.equal(report.metrics.recall, 0);
+      assert.equal(report.metrics.falsePositiveRate, null);
+      assert.match(report.outcomes[0].reason, /^invalid reviewer response:/u);
+    }
+  }
+});
+
+test("FPR counts only legal reviewer false blocks against the full fixture denominator", () => {
+  const { cases } = loadEvalCases(casesPath);
+  const clean = cases.filter(({ bucket }) => bucket !== "positive");
+  const responses = perfectResponsesFor(clean);
+  responses[0] = { ...responses[0], status: "errored", error: "command not found" };
+  responses[1] = { ...responses[1], verdict: "changes_requested", findings: [] };
+  responses[5] = { ...responses[5], status: "unavailable", error: "missing adapter" };
+  responses[6] = { ...responses[6], findings: [{ ...responses[6].findings[0], blocking: true }] };
+  const report = scoreEvalResults(clean, responses);
+  assert.deepEqual(report.counts, { passed: 3, failed: 3, timedOut: 0, unexecuted: 1 });
+  assert.equal(report.adapterErrors, 2);
+  assert.equal(report.validResponses, 5);
+  assert.equal(report.byBucket.pre_existing.adapterErrors, 1);
+  assert.equal(report.byBucket.pre_existing.validResponses, 1);
+  assert.equal(report.metrics.falsePositiveRate, 2 / 7);
+  assert.equal(report.metrics.preExistingFalseBlockRate, 1 / 2);
+
+  const withoutVerdicts = scoreEvalResults(
+    clean,
+    clean.map(({ id }) => ({ caseId: id, status: "errored" })),
+  );
+  assert.equal(withoutVerdicts.adapterErrors, 7);
+  assert.equal(withoutVerdicts.validResponses, 0);
+  assert.equal(withoutVerdicts.metrics.falsePositiveRate, null);
+  assert.equal(withoutVerdicts.metrics.preExistingFalseBlockRate, null);
+});
+
+test(
+  "live deadline freezes a case and kills a TERM-ignoring reviewer group",
+  {
+    skip: process.platform === "win32" ? "requires POSIX shell and process-group signals" : false,
+    timeout: 2000,
+  },
+  async (context) => {
+    const { schema, cases } = loadEvalCases(casesPath);
+    const negative = cases.find(({ bucket }) => bucket === "negative");
+    const temp = await mkdtemp(path.join(os.tmpdir(), "review-timeout-"));
+    context.after(() => rm(temp, { recursive: true, force: true }));
+    const fixture = path.join(temp, "cases.json");
+    await writeFile(fixture, JSON.stringify({ schema, cases: [negative] }));
+    const watcher = watch(temp).on("change", (event, file) => {
+      if (file === "ready") watcher.emit("ready");
+    });
+    context.after(() => watcher.close());
+    const ready = once(watcher, "ready");
+    const signal = context.mock.method(process, "kill");
+    context.mock.timers.enable({ apis: ["setTimeout"] });
+
+    const approval = JSON.stringify({ verdict: "approved", findings: [] });
+    const result = runLiveEval({
+      casesPath: fixture,
+      caseWaitMs: 1000,
+      reviewerCmd: `exec sh -c 'trap "" TERM; printf "%s" "$2"; : > "$1"; exec sleep 10' sh '${path.join(temp, "ready")}' '${approval}'`,
+    });
+    await ready;
+    context.mock.timers.tick(1000);
+    const [term] = signal.mock.calls;
+    assert.ok(term.arguments[0] < 0);
+    assert.equal(term.arguments[1], "SIGTERM");
+    context.mock.timers.runAll();
+
+    const report = await result;
+    const kill = signal.mock.calls.find(({ arguments: args }) => args[1] === "SIGKILL");
+    assert.equal(kill?.arguments[0], term.arguments[0]);
+    assert.equal(kill?.result, true);
+    assert.deepEqual(report.counts, { passed: 0, failed: 0, timedOut: 1, unexecuted: 0 });
+    assert.equal(report.validResponses, 0);
+    assert.equal(report.outcomes[0].verdict, null);
+  },
+);
 
 test("four-state accounting keeps timedOut and unexecuted in total denominator and rejects folding", () => {
   const doc = loadEvalCases(casesPath);
