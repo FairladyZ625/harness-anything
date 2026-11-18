@@ -2246,5 +2246,16 @@
   "views.settingsView.guiTerminalBrowserDescription": "本机终端中 HTTP(S) 链接的打开目标。",
   "views.settingsView.guiTerminalBrowserEffect": "终端链接立即使用选定的浏览器，只影响本机。",
   "views.settingsView.enum.guiTerminalBrowser.embedded": "内嵌浏览器",
-  "views.settingsView.enum.guiTerminalBrowser.system": "系统浏览器"
+  "views.settingsView.enum.guiTerminalBrowser.system": "系统浏览器",
+  "views.board.groupByPerson": "成员",
+  "views.board.groupByNode": "节点",
+  "views.board.groupByPersonTitle": "按成员分组",
+  "views.board.groupByNodeTitle": "按节点分组",
+  "views.board.unassignedPerson": "未归属成员",
+  "views.board.unassignedNode": "未归属节点",
+  "views.work.filterPerson": "按成员筛选工作",
+  "views.work.filterNode": "按节点筛选工作",
+  "views.work.allMembers": "全部成员",
+  "views.work.allNodes": "全部节点",
+  "views.work.meOption": "我 ({name})"
 }

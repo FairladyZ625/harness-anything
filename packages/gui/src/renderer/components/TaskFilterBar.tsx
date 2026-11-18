@@ -9,6 +9,14 @@ import {
   activeTaskFilterCount,
   type TaskFilters,
 } from "../model/taskFilters";
+import {
+  collectMemberOptions,
+  collectNodeOptions,
+  formatNodeDisplay,
+  personShortName,
+  type MemberOption,
+  type NodeOption,
+} from "../model/attribution.ts";
 import { t } from "../i18n/index.tsx";
 
 const CLOSEOUTS: (CloseoutReadiness | "all")[] = ["all", "ready", "missing", "incomplete", "failed", "passed"];
@@ -118,6 +126,11 @@ export function TaskFilterBar({
   favorites,
   coldTerminalCount,
   toolbarExtra,
+  currentPersonId = null,
+  knownMembers,
+  knownNodes,
+  nodeOwners,
+  peopleById,
 }: {
   tasks: readonly TaskRow[];
   filters: TaskFilters;
@@ -128,9 +141,36 @@ export function TaskFilterBar({
   coldTerminalCount?: number;
   /** 本行中段控件(看板的 列/泳道/列表 视图切换等);与筛选入口同行。 */
   toolbarExtra?: ReactNode;
+  currentPersonId?: string | null;
+  knownMembers?: readonly MemberOption[];
+  knownNodes?: readonly NodeOption[];
+  nodeOwners?: ReadonlyMap<string, string>;
+  peopleById?: ReadonlyMap<string, string>;
 }) {
   const [open, setOpen] = useState(false);
   const engines: (EngineId | "all")[] = ["all", ...new Set(tasks.map((task) => task.engine))];
+  const memberOptions = useMemo(() => {
+    const list = collectMemberOptions({ tasks, knownMembers, currentPersonId, peopleById });
+    if (filters.person !== "all" && !list.some((item) => item.personId === filters.person)) {
+      return [...list, { personId: filters.person, label: personShortName(filters.person, peopleById) }];
+    }
+    return list;
+  }, [tasks, knownMembers, currentPersonId, peopleById, filters.person]);
+  const nodeOptions = useMemo(() => {
+    const centerLabel = t("collaboration.centerNode");
+    const list = collectNodeOptions({ tasks, knownNodes, nodeOwners, peopleById, centerLabel });
+    if (filters.node !== "all" && !list.some((item) => item.nodeId === filters.node)) {
+      return [
+        ...list,
+        {
+          nodeId: filters.node,
+          ownerPersonId: nodeOwners?.get(filters.node) ?? null,
+          label: formatNodeDisplay(filters.node, nodeOwners?.get(filters.node), { centerLabel, peopleById }),
+        },
+      ];
+    }
+    return list;
+  }, [tasks, knownNodes, nodeOwners, peopleById, filters.node]);
   const activeCount = activeTaskFilterCount(filters);
   const favoriteCount = favorites ? tasks.filter((t) => favorites.has(t.taskId)).length : 0;
 
@@ -207,6 +247,42 @@ export function TaskFilterBar({
             values={FRESHNESS}
             onChange={(freshness) => patch({ freshness })}
           />
+          <label className="flex items-center gap-1.5 ui-body text-text-faint">
+            {t("components.taskFilterBar.person")}
+            <select
+              data-testid="board-filter-person"
+              aria-label={t("components.taskFilterBar.person")}
+              value={filters.person}
+              onChange={(event) => patch({ person: event.target.value })}
+              className="rounded-md border border-border bg-surface-raised px-2 py-1.5 ui-body text-text outline-none transition-colors duration-100 hover:border-border-strong focus:border-border-strong"
+            >
+              <option value="all">{t("components.taskFilterBar.all")}</option>
+              {memberOptions.map((member) => (
+                <option key={member.personId} value={member.personId}>
+                  {currentPersonId !== null && member.personId === currentPersonId
+                    ? t("components.taskFilterBar.me", { name: member.label })
+                    : member.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-1.5 ui-body text-text-faint">
+            {t("components.taskFilterBar.node")}
+            <select
+              data-testid="board-filter-node"
+              aria-label={t("components.taskFilterBar.node")}
+              value={filters.node}
+              onChange={(event) => patch({ node: event.target.value })}
+              className="rounded-md border border-border bg-surface-raised px-2 py-1.5 ui-body text-text outline-none transition-colors duration-100 hover:border-border-strong focus:border-border-strong"
+            >
+              <option value="all">{t("components.taskFilterBar.all")}</option>
+              {nodeOptions.map((node) => (
+                <option key={node.nodeId} value={node.nodeId}>
+                  {node.label}
+                </option>
+              ))}
+            </select>
+          </label>
 
           {typeof coldTerminalCount === "number" && coldTerminalCount > 0 && (
             <button

@@ -128,6 +128,11 @@ interface TaskRowFields {
   preset?: string;
   profile?: string;
   createdBy?: string;
+  /** Projection attribution fields (dec_88F9490EEC6B41FAC3EB572E22 CH1). */
+  createdByPersonId?: string | null;
+  activeOrLatestPersonId?: string | null;
+  originNodeId?: string | null;
+  activeOrLatestNodeId?: string | null;
   currentNode?: "implementation" | "review";
   iteration?: number;
   activeExecutionId?: string;

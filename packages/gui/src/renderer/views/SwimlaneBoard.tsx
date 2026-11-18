@@ -20,9 +20,17 @@ import { StatusTag, STATUS_TONE } from "../components/primitives/StatusTag.tsx";
 import { TitleText } from "../components/primitives/TitleText.tsx";
 import { RowTime } from "../components/primitives/DenseRow.tsx";
 import { sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
+import {
+  attributionBadgeOf,
+  formatNodeDisplay,
+  personShortName,
+  primaryTaskNodeId,
+  primaryTaskPersonId,
+} from "../model/attribution.ts";
+import { t } from "../i18n/index.tsx";
 
 /** 泳道分组维度;"root" = 按工作分组(一个根 task 加它的 parentTaskId 子树)。 */
-export type LaneGroupBy = "engine" | "root" | "productLine";
+export type LaneGroupBy = "engine" | "root" | "productLine" | "person" | "node";
 
 /** 泳道列宽默认值 = 原 GRID_COLS(180px 泳道标签 + N×230px 状态列);可调区间各自独立。 */
 const LANE_COLUMN_KEY = "lane";
@@ -43,18 +51,38 @@ type ActiveCell = { lane: string; status: SnapshotStatus };
 
 /** 把 groupBy 解析成每个 task 的分组 key 字符串。 */
 export const UNASSIGNED_PLT_LANE = "__unassigned_plt__";
+export const UNASSIGNED_PERSON_LANE = "__unassigned_person__";
+export const UNASSIGNED_NODE_LANE = "__unassigned_node__";
 
 function groupKeyOf(task: TaskRow, groupBy: LaneGroupBy): string {
   if (groupBy === "engine") return task.engine;
   if (groupBy === "productLine") return task.productLines?.[0] ?? UNASSIGNED_PLT_LANE;
+  if (groupBy === "person") return primaryTaskPersonId(task) ?? UNASSIGNED_PERSON_LANE;
+  if (groupBy === "node") return primaryTaskNodeId(task) ?? UNASSIGNED_NODE_LANE;
   // root(工作):用所属工作 workId(daemon 工作索引);不属于任何工作的 task 自成一道
   return task.workId ?? task.taskId;
 }
 
 /** 把分组 key 翻译成展示标签;root 用组内代表(workTitle,缺失退回代表自身标题)。 */
-function laneLabelOf(key: string, groupBy: LaneGroupBy, representative: TaskRow): string {
+function laneLabelOf(
+  key: string,
+  groupBy: LaneGroupBy,
+  representative: TaskRow,
+  nodeOwners?: ReadonlyMap<string, string>,
+  peopleById?: ReadonlyMap<string, string>,
+): string {
   if (groupBy === "root") return representative.workTitle ?? representative.title ?? key;
   if (groupBy === "productLine" && key === UNASSIGNED_PLT_LANE) return "未投影 PLT";
+  if (groupBy === "person") {
+    return key === UNASSIGNED_PERSON_LANE ? t("views.board.unassignedPerson") : personShortName(key, peopleById);
+  }
+  if (groupBy === "node") {
+    if (key === UNASSIGNED_NODE_LANE) return t("views.board.unassignedNode");
+    return formatNodeDisplay(key, nodeOwners?.get(key) ?? primaryTaskPersonId(representative), {
+      centerLabel: t("collaboration.centerNode"),
+      peopleById,
+    });
+  }
   return key;
 }
 
@@ -80,6 +108,8 @@ function buildSwimlaneModel(
   tasks: ReadonlyArray<TaskRow>,
   groupBy: LaneGroupBy,
   columns: readonly SnapshotStatus[],
+  nodeOwners?: ReadonlyMap<string, string>,
+  peopleById?: ReadonlyMap<string, string>,
 ): SwimlaneModel {
   const groups = new Map<string, TaskRow[]>();
   const labels = new Map<string, string>();
@@ -91,7 +121,7 @@ function buildSwimlaneModel(
       group = [];
       groups.set(key, group);
       // 代表 = 组内第一行(输入序),与旧实现的 tasks.find 首个命中同源。
-      labels.set(key, laneLabelOf(key, groupBy, task));
+      labels.set(key, laneLabelOf(key, groupBy, task, nodeOwners, peopleById));
     }
     group.push(task);
     const bucket = boardColumnOf(task);
@@ -124,15 +154,28 @@ const LaneCard = memo(function LaneCard({
   isFavorite,
   onToggleFavorite,
   onSetPin,
+  currentPersonId,
+  nodeOwners,
+  peopleById,
 }: {
   task: TaskRow;
   onSelect: (id: string) => void;
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
+  currentPersonId?: string | null;
+  nodeOwners?: ReadonlyMap<string, string>;
+  peopleById?: ReadonlyMap<string, string>;
 }) {
   const external = isExternal(task);
   const archived = task.visibility.archived;
+  const badge = attributionBadgeOf({
+    personId: primaryTaskPersonId(task),
+    nodeId: primaryTaskNodeId(task),
+    currentPersonId,
+    nodeOwners,
+    peopleById,
+  });
   return (
     <div
       onClick={() => onSelect(task.taskId)}
@@ -197,6 +240,15 @@ const LaneCard = memo(function LaneCard({
             className="text-text-faint hover:text-accent"
           />
         </span>
+        {badge !== null && (
+          <span
+            data-testid={`swimlane-attribution-badge-${task.taskId}`}
+            title={badge.title}
+            className="max-w-[140px] shrink-0 truncate rounded-full border border-border/70 bg-surface/60 px-1.5 py-0.5 font-mono ui-micro text-text-muted"
+          >
+            {badge.label}
+          </span>
+        )}
         <RowTime at={task.lastKnownAt} className="shrink-0 font-mono ui-micro text-text-faint" />
       </div>
     </div>
@@ -319,6 +371,9 @@ function DrilldownDrawer({
   onToggleFavorite,
   onSetPin,
   onClose,
+  currentPersonId,
+  nodeOwners,
+  peopleById,
 }: {
   active: ActiveCell;
   tasks: readonly TaskRow[];
@@ -328,6 +383,9 @@ function DrilldownDrawer({
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
   onClose: () => void;
+  currentPersonId?: string | null;
+  nodeOwners?: ReadonlyMap<string, string>;
+  peopleById?: ReadonlyMap<string, string>;
 }) {
   const sorted = sortByRecentThenPinAndFavoritesFirst(tasks, favorites).sort(
     (a, b) => Number(isTerminal(a)) - Number(isTerminal(b)),
@@ -350,6 +408,9 @@ function DrilldownDrawer({
             isFavorite={favorites.has(task.taskId)}
             onToggleFavorite={onToggleFavorite}
             onSetPin={onSetPin}
+            currentPersonId={currentPersonId}
+            nodeOwners={nodeOwners}
+            peopleById={peopleById}
           />
         ))}
       </div>
@@ -366,6 +427,9 @@ export function SwimlaneBoard({
   favorites,
   onToggleFavorite,
   onSetPin,
+  currentPersonId = null,
+  nodeOwners,
+  peopleById,
 }: {
   tasks: readonly TaskRow[];
   /** 可见状态列(= 看板筛选选中集,空选时由上层传全量);未选中的列连表头带格都不渲染。 */
@@ -376,6 +440,9 @@ export function SwimlaneBoard({
   favorites: ReadonlySet<string>;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
+  currentPersonId?: string | null;
+  nodeOwners?: ReadonlyMap<string, string>;
+  peopleById?: ReadonlyMap<string, string>;
 }) {
   const drillMatches = Boolean(drill && drill.groupBy === groupBy);
   const drillLane = drill?.lane;
@@ -390,7 +457,10 @@ export function SwimlaneBoard({
     }
   }, [drillMatches, drillLane, drillStatus]);
 
-  const model = useMemo(() => buildSwimlaneModel(tasks, groupBy, columns), [groupBy, tasks, columns]);
+  const model = useMemo(
+    () => buildSwimlaneModel(tasks, groupBy, columns, nodeOwners, peopleById),
+    [groupBy, tasks, columns, nodeOwners, peopleById],
+  );
   const lanes = model.lanes;
 
   // 泳道行 windowing(W10):基线 canonical 928 行全挂载、切到首行 4.8s;只挂
@@ -559,6 +629,9 @@ export function SwimlaneBoard({
           favorites={favorites}
           onToggleFavorite={onToggleFavorite}
           onSetPin={onSetPin}
+          currentPersonId={currentPersonId}
+          nodeOwners={nodeOwners}
+          peopleById={peopleById}
           onClose={() => setActiveCell(null)}
         />
       )}

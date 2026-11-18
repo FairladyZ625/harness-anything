@@ -11,11 +11,17 @@ interface Registrar {
   ) => void;
 }
 
-type Field = "text" | "names" | "seconds" | "optional-text" | "secret";
+type Field = "text" | "names" | "seconds" | "optional-text" | "optional-boolean" | "secret";
 
 /** The fields each operation carries to the daemon. Anything else the renderer sends is refused. */
 const operationFields: Readonly<Record<string, Readonly<Record<string, Field>>>> = {
   "node-list": {},
+  "node-unregister": {
+    nodeId: "text",
+    expectedVersion: "optional-text",
+    confirm: "optional-boolean",
+    force: "optional-boolean",
+  },
   "device-list": {},
   "device-rename": { nodeId: "text", displayName: "text", expectedVersion: "text" },
   "device-pause": { nodeId: "text", expectedVersion: "text" },
@@ -131,7 +137,7 @@ export function accessAdminParams(input: unknown, operationId: () => string): Js
     (key) => key !== "operation" && key !== "repoId" && !Object.hasOwn(fields, key),
   );
   if (unknown.length > 0) throw new Error(`Access administration ${operation} does not take ${unknown.join(", ")}.`);
-  const params: Record<string, string | number | readonly string[]> = { operation };
+  const params: Record<string, string | number | boolean | readonly string[]> = { operation };
   if (request.repoId !== undefined) {
     if (typeof request.repoId !== "string" || !/^[a-z][a-z0-9-]{0,62}$/u.test(request.repoId))
       throw new Error("Select a valid access administration target.");
@@ -144,16 +150,19 @@ export function accessAdminParams(input: unknown, operationId: () => string): Js
           ? typeof value === "string" && value.trim() !== ""
           : field === "optional-text"
             ? value === undefined || (typeof value === "string" && value.trim() !== "")
-            : field === "secret"
-              ? typeof value === "string" && value.length > 0
-              : field === "names"
-                ? Array.isArray(value) && value.every((item) => typeof item === "string")
-                : Number.isInteger(value);
+            : field === "optional-boolean"
+              ? value === undefined || typeof value === "boolean"
+              : field === "secret"
+                ? typeof value === "string" && value.length > 0
+                : field === "names"
+                  ? Array.isArray(value) && value.every((item) => typeof item === "string")
+                  : Number.isInteger(value);
     if (!valid) throw new Error(`Access administration ${operation} requires ${name}.`);
     if (value === undefined) continue;
     if (name === "decision" && value !== "approve" && value !== "reject") throw new Error("Choose approve or reject.");
-    params[name] = value as string | number | readonly string[];
+    params[name] = value as string | number | boolean | readonly string[];
   }
-  if (writes.has(operation)) params.operationId = operationId();
+  if (writes.has(operation) || (operation === "node-unregister" && request.confirm === true))
+    params.operationId = operationId();
   return params as JsonObject;
 }

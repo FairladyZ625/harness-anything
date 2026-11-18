@@ -420,5 +420,13 @@
   "components.taskJourney.executionCut": "Execution submission",
   "components.taskJourney.gate": "Completion gate",
   "components.taskJourney.lineage": "Work lineage",
-  "components.taskJourney.projectionUnknown": "Awaiting projection"
+  "components.taskJourney.projectionUnknown": "Awaiting projection",
+  "components.taskFilterBar.person": "member",
+  "components.taskFilterBar.node": "node",
+  "components.taskFilterBar.me": "Me ({name})",
+  "components.scopeLens.label": "Scope",
+  "components.scopeLens.all": "All members",
+  "components.scopeLens.me": "Me (mine only)",
+  "components.scopeLens.activeBanner": "Member scope: {name}",
+  "components.scopeLens.exit": "Exit scope"
 }

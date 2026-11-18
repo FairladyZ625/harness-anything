@@ -214,6 +214,8 @@ export function useSessionsWorkspace(
     readonly query: string;
     readonly status: readonly SessionStatus[];
     readonly taskId?: string;
+    readonly personId?: string | null;
+    readonly nodeId?: string | null;
   },
 ) {
   // 状态筛选进 query key:漏了它切筛选会命中旧结果的缓存,页面看起来没反应。
@@ -229,6 +231,8 @@ export function useSessionsWorkspace(
       list.query,
       statusKey,
       list.taskId ?? "",
+      list.personId ?? "",
+      list.nodeId ?? "",
     ],
     queryFn: () =>
       agentRuntimeClient.sessionGroups(repoId, {
@@ -236,6 +240,8 @@ export function useSessionsWorkspace(
         since: list.taskId === undefined ? list.since : "1970-01-01T00:00:00.000Z",
         ...(list.taskId === undefined ? (list.query === "" ? {} : { query: list.query }) : { query: list.taskId }),
         ...(list.status.length === 0 ? {} : { status: list.status }),
+        ...(list.personId ? { personId: list.personId } : {}),
+        ...(list.nodeId ? { nodeId: list.nodeId } : {}),
         limit: SESSION_GROUPS_PAGE_LIMIT,
       }),
     staleTime: 4_000,

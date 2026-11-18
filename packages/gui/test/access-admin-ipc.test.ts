@@ -7,7 +7,7 @@ import type { IpcMainInvokeEvent } from "electron";
 import { validateDaemonRpcCall } from "@harness-anything/daemon/protocol/validation";
 import { ACCESS_ADMIN_CHANNEL, type AccessAdminApi } from "@harness-anything/authorization-gui/access-admin-contract";
 import { accessAdminParams, registerAccessAdminIpc } from "../src/main/access-admin-ipc.ts";
-import { accessAdminPreloadApi } from "../src/preload/access-admin-preload.ts";
+import { accessAdminPreloadApi, fleetAdminFromAccess } from "../src/preload/access-admin-preload.ts";
 
 const event = { sender: { id: 7 }, senderFrame: { url: "file:///renderer/index.html" } } as IpcMainInvokeEvent,
   policy = {
@@ -455,4 +455,68 @@ test("member device creation uses the existing typed operation without person, g
   assert.deepEqual(params, { operation: "edge-join-create", joinMode: "member-device", repoIds: ["repo-a"] });
   assert.throws(() => accessAdminParams({ ...params, personId: "another-person" }, () => "unused"));
   assert.throws(() => accessAdminParams({ ...params, groupIds: ["admin"] }, () => "unused"));
+});
+
+test("node-unregister validates dryRun preview and confirmed two-step write", () => {
+  const preview = accessAdminParams({ operation: "node-unregister", nodeId: "edge-1" }, () => "unused");
+  assert.deepEqual(preview, { operation: "node-unregister", nodeId: "edge-1" });
+  assert.deepEqual(validateDaemonRpcCall({ method: "daemon.rbac.manage", params: preview }), []);
+
+  const confirmed = accessAdminParams(
+    {
+      operation: "node-unregister",
+      nodeId: "edge-1",
+      expectedVersion: "v3",
+      confirm: true,
+      force: true,
+    },
+    () => "unused",
+  );
+  assert.deepEqual(confirmed, {
+    operation: "node-unregister",
+    nodeId: "edge-1",
+    expectedVersion: "v3",
+    confirm: true,
+    force: true,
+    operationId: "unused",
+  });
+  assert.deepEqual(validateDaemonRpcCall({ method: "daemon.rbac.manage", params: confirmed }), []);
+
+  assert.throws(() => accessAdminParams({ operation: "node-unregister" }, () => "unused"), /requires nodeId/u);
+  assert.throws(
+    () => accessAdminParams({ operation: "node-unregister", nodeId: "edge-1", actor: "spoof" }, () => "unused"),
+    /does not take actor/u,
+  );
+  assert.throws(
+    () => accessAdminParams({ operation: "node-unregister", nodeId: "edge-1", confirm: "yes" }, () => "unused"),
+    /requires confirm/u,
+  );
+});
+
+test("fleetAdminFromAccess routes node-unregister through accessAdminPreloadApi", async () => {
+  const calls: Array<{ channel: string; request: unknown }> = [];
+  const api = accessAdminPreloadApi(async (channel, request) => {
+    calls.push({ channel, request });
+    return { status: "unregistered", nodeId: "edge-1" };
+  }, "repo-1");
+  const fleetAdmin = fleetAdminFromAccess(api);
+  const result = await fleetAdmin.unregisterNode({
+    nodeId: "edge-1",
+    expectedVersion: "v1",
+    confirm: true,
+  });
+  assert.deepEqual(result, { status: "unregistered", nodeId: "edge-1" });
+  assert.deepEqual(calls, [
+    {
+      channel: ACCESS_ADMIN_CHANNEL,
+      request: {
+        operation: "node-unregister",
+        nodeId: "edge-1",
+        expectedVersion: "v1",
+        confirm: true,
+        repoId: "repo-1",
+      },
+    },
+  ]);
+  assert.throws(() => fleetAdminFromAccess({} as AccessAdminApi), /requires an accessAdminPreloadApi instance/u);
 });

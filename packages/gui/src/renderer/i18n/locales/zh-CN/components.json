@@ -420,5 +420,13 @@
   "components.taskJourney.executionCut": "执行提交",
   "components.taskJourney.gate": "完成门禁",
   "components.taskJourney.lineage": "工作血缘",
-  "components.taskJourney.projectionUnknown": "待读面"
+  "components.taskJourney.projectionUnknown": "待读面",
+  "components.taskFilterBar.person": "成员",
+  "components.taskFilterBar.node": "节点",
+  "components.taskFilterBar.me": "我 ({name})",
+  "components.scopeLens.label": "视角",
+  "components.scopeLens.all": "全部成员",
+  "components.scopeLens.me": "我（只看自己）",
+  "components.scopeLens.activeBanner": "当前成员视角：{name}",
+  "components.scopeLens.exit": "退出视角"
 }

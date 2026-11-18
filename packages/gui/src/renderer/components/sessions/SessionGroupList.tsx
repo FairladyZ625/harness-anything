@@ -17,6 +17,7 @@ import {
   type SessionWorkGroup,
 } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
+import { attributionBadgeOf } from "../../model/attribution.ts";
 import { formatListTime, formatTime } from "../../model/time.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { catalogRailClass } from "../primitives/CatalogSplit.tsx";
@@ -84,6 +85,9 @@ export function SessionGroupList({
   sessionCacheTtlMs,
   attentionRefs,
   nowMs,
+  currentPersonId = null,
+  nodeOwners,
+  peopleById,
 }: {
   readonly groups: readonly SessionGroup[];
   readonly pending?: boolean;
@@ -113,6 +117,9 @@ export function SessionGroupList({
   readonly sessionCacheTtlMs?: ReadonlyMap<string, number | null>;
   readonly attentionRefs?: ReadonlySet<string>;
   readonly nowMs?: number;
+  readonly currentPersonId?: string | null;
+  readonly nodeOwners?: ReadonlyMap<string, string>;
+  readonly peopleById?: ReadonlyMap<string, string>;
 }) {
   const scrollRef = useRef<HTMLElement | null>(null);
   // 工作层把「工作头 + 已展开工作的任务组」摊平成同一份虚拟行;任务组仍是原来的
@@ -208,6 +215,9 @@ export function SessionGroupList({
                     sessionCacheTtlMs={sessionCacheTtlMs}
                     attentionRefs={attentionRefs}
                     nowMs={nowMs}
+                    currentPersonId={currentPersonId}
+                    nodeOwners={nodeOwners}
+                    peopleById={peopleById}
                   />
                 )}
               </div>
@@ -319,6 +329,9 @@ const GroupSection = memo(function GroupSection({
   sessionCacheTtlMs,
   attentionRefs,
   nowMs = Date.now(),
+  currentPersonId = null,
+  nodeOwners,
+  peopleById,
 }: {
   readonly group: SessionGroup;
   /** 工作层子行:缩进 + 连续细竖线,和工作头形成父子关系。 */
@@ -339,6 +352,9 @@ const GroupSection = memo(function GroupSection({
   readonly sessionCacheTtlMs?: ReadonlyMap<string, number | null>;
   readonly attentionRefs?: ReadonlySet<string>;
   readonly nowMs?: number;
+  readonly currentPersonId?: string | null;
+  readonly nodeOwners?: ReadonlyMap<string, string>;
+  readonly peopleById?: ReadonlyMap<string, string>;
 }) {
   const decisionGroup = group.kind === "decision" && group.decisionId !== undefined,
     unattributedGroup = group.kind === "unattributed",
@@ -360,12 +376,30 @@ const GroupSection = memo(function GroupSection({
       ? t(sessionUnattributedKey[group.key as AgentRuntimeUnattributedGroupKey] as never)
       : (decisionRows?.title ?? group.label);
   const groupNeedsYou = sessionGroupNeedsYou(group, attentionRefs ?? new Set());
+  const groupBadge = attributionBadgeOf({
+    personId: group.personId ?? null,
+    nodeId: group.nodeId ?? null,
+    currentPersonId,
+    nodeOwners,
+    peopleById,
+  });
   const headerBody = (
     <DenseRow
       index={expandable ? (open ? "▾" : "▸") : drill !== null ? "›" : undefined}
       tag={<SessionStatusTag status={group.latestStatus} needsYou={groupNeedsYou} />}
       title={<span className="font-semibold">{headerLabel}</span>}
       hoverTitle={group.kind === "unattributed" ? undefined : headerLabel}
+      action={
+        groupBadge === null ? undefined : (
+          <span
+            data-testid={`session-group-attribution-badge-${group.key}`}
+            title={groupBadge.title}
+            className="max-w-[140px] shrink-0 truncate rounded-full border border-border/70 bg-surface/60 px-1.5 py-0.5 font-mono ui-micro text-text-muted"
+          >
+            {groupBadge.label}
+          </span>
+        )
+      }
       reason={[
         group.kind === "day" ? undefined : group.latestRound?.agentName,
         t(group.roundCount === 1 ? "agentRuntime.sessionsRoundCountOne" : "agentRuntime.sessionsRoundCount", {
@@ -448,6 +482,9 @@ const GroupSection = memo(function GroupSection({
                 attentionRefs={attentionRefs}
                 nowMs={nowMs}
                 onSelectSession={onSelectSession}
+                currentPersonId={currentPersonId}
+                nodeOwners={nodeOwners}
+                peopleById={peopleById}
               />
             ))}
           {visibleOrphans
@@ -481,6 +518,9 @@ const GroupSection = memo(function GroupSection({
                     attentionRefs={attentionRefs}
                     nowMs={nowMs}
                     onSelectSession={onSelectSession}
+                    currentPersonId={currentPersonId}
+                    nodeOwners={nodeOwners}
+                    peopleById={peopleById}
                   />
                 ))}
               {visibleOrphans
@@ -568,6 +608,9 @@ function RoundRow({
   attentionRefs,
   nowMs = Date.now(),
   onSelectSession,
+  currentPersonId = null,
+  nodeOwners,
+  peopleById,
 }: {
   readonly row: SessionRound;
   readonly selected: boolean;
@@ -576,11 +619,21 @@ function RoundRow({
   readonly attentionRefs?: ReadonlySet<string>;
   readonly nowMs?: number;
   readonly onSelectSession: (runtimeSessionId: string) => void;
+  readonly currentPersonId?: string | null;
+  readonly nodeOwners?: ReadonlyMap<string, string>;
+  readonly peopleById?: ReadonlyMap<string, string>;
 }) {
   const meta = [row.agentName, row.classification, row.nextAction, row.delegation].filter(Boolean).join(" · ");
   const touch = sessionTouches?.get(row.runtimeSessionId) ?? null;
   const cacheTtl = settledCacheTtl(row.status, touch, sessionCacheTtlMs?.get(row.runtimeSessionId) ?? null, nowMs ?? 0);
   const needsYou = row.taskId !== null && (attentionRefs?.has(`task/${row.taskId}`) ?? false);
+  const badge = attributionBadgeOf({
+    personId: row.personId,
+    nodeId: row.nodeId,
+    currentPersonId,
+    nodeOwners,
+    peopleById,
+  });
 
   return (
     <button
@@ -604,6 +657,15 @@ function RoundRow({
         time={formatTime(row.startedAt, { style: "time" }) ?? row.startedAt}
         action={
           <div className="flex items-center gap-1.5" data-testid={`session-card-meters-${row.runtimeSessionId}`}>
+            {badge !== null && (
+              <span
+                data-testid={`session-attribution-badge-${row.runtimeSessionId}`}
+                title={badge.title}
+                className="max-w-[140px] shrink-0 truncate rounded-full border border-border/70 bg-surface/60 px-1.5 py-0.5 font-mono ui-micro text-text-muted"
+              >
+                {badge.label}
+              </span>
+            )}
             {cacheTtl != null && (
               <CacheTimer
                 state={cacheTtl.kind}
@@ -613,7 +675,7 @@ function RoundRow({
             )}
           </div>
         }
-        hoverTitle={[meta, row.runtimeSessionId].filter(Boolean).join(" · ")}
+        hoverTitle={[meta, badge?.title, row.runtimeSessionId].filter(Boolean).join(" · ")}
         selected={selected}
       />
     </button>

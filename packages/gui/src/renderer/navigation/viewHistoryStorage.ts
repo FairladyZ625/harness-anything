@@ -97,7 +97,7 @@ function isCanonicalFocusedRef(value: unknown): boolean {
  */
 function restoreTaskFilters(value: unknown): TaskFilters | null {
   if (!isRendererRecord(value)) return null;
-  const { query, engine, status, closeout, freshness, favoritesOnly, expandColdTerminal } = value;
+  const { query, engine, status, closeout, freshness, favoritesOnly, expandColdTerminal, person, node } = value;
   if (
     typeof query !== "string" ||
     typeof engine !== "string" ||
@@ -106,7 +106,9 @@ function restoreTaskFilters(value: unknown): TaskFilters | null {
     typeof closeout !== "string" ||
     typeof freshness !== "string" ||
     typeof favoritesOnly !== "boolean" ||
-    typeof expandColdTerminal !== "boolean"
+    typeof expandColdTerminal !== "boolean" ||
+    (person !== undefined && typeof person !== "string") ||
+    (node !== undefined && typeof node !== "string")
   )
     return null;
   return {
@@ -115,12 +117,14 @@ function restoreTaskFilters(value: unknown): TaskFilters | null {
     status,
     closeout,
     freshness,
+    person: person ?? "all",
+    node: node ?? "all",
     favoritesOnly,
     expandColdTerminal,
   } as TaskFilters;
 }
 
-const LANE_GROUP_BYS: ReadonlySet<unknown> = new Set<LaneGroupBy>(["root", "engine", "productLine"]);
+const LANE_GROUP_BYS: ReadonlySet<unknown> = new Set<LaneGroupBy>(["root", "engine", "productLine", "person", "node"]);
 
 /**
  * drill 还原:合法 → 原样;旧存储里按已删除的 `module` 维度下钻的 drill 丢成 null

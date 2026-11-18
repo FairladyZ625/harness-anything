@@ -63,6 +63,14 @@ import {
   type SessionStatusFilter,
 } from "../sessions-model.ts";
 import { NO_WORKS, type WorkIndex } from "../model/work-collections.ts";
+import {
+  collectMemberOptions,
+  collectNodeOptions,
+  formatNodeDisplay,
+  personShortName,
+  type MemberOption,
+  type NodeOption,
+} from "../model/attribution.ts";
 /**
  * 会话页(设计稿 §2–§5;标准 §2.5 v2 与 Agent 页同构:左列表、右常驻详情,不用抽屉):顶层两大段——单会话(默认,按 Task 分组)与小队编排
  * (一次 `ha squad run` 一个编排单元)。分组、范围与检索都在 daemon 侧完成
@@ -104,6 +112,15 @@ export interface SessionsViewProps {
   /** App 层常驻的工作索引(dec_5F7E74F1):「工作」层只归桶,不另起读。 */
   readonly works?: WorkIndex;
   readonly remoteEdge?: boolean;
+  /** 全局成员视角透镜（只读过滤，高于页内成员下拉）。 */
+  readonly scopePersonId?: string | null;
+  readonly currentPersonId?: string | null;
+  readonly nodeFilter?: string | null;
+  readonly onNodeFilterChange?: (nodeId: string | null) => void;
+  readonly knownMembers?: readonly MemberOption[];
+  readonly knownNodes?: readonly NodeOption[];
+  readonly nodeOwners?: ReadonlyMap<string, string>;
+  readonly peopleById?: ReadonlyMap<string, string>;
 }
 
 /** 页头插槽:计数结论与主动作由工作区实况派生,页面/面板各自决定要不要装。 */
@@ -126,6 +143,14 @@ export function SessionsView({
   onBack,
   works = NO_WORKS,
   remoteEdge = false,
+  scopePersonId = null,
+  currentPersonId = null,
+  nodeFilter: controlledNodeFilter,
+  onNodeFilterChange,
+  knownMembers,
+  knownNodes,
+  nodeOwners,
+  peopleById,
   renderHeader = renderSessionsPageHeader,
 }: SessionsViewProps & {
   /** 页面组合的页头渲染;工作台面板传空渲染(面板标签即标题)。 */
@@ -154,6 +179,38 @@ export function SessionsView({
   // 状态筛选收成四档(业主 2026-10-21 13:50):单选取值,内部状态词由 sessions-model 的
   // 唯一映射折算成 daemon 读参;旧的十词多选集不再上屏。
   const [statusFilter, setStatusFilter] = useState<SessionStatusFilter>("all");
+  const [personFilter, setPersonFilter] = useState<string>("all");
+  const [internalNodeFilter, setInternalNodeFilter] = useState<string>(() => controlledNodeFilter ?? "all");
+  const activeNodeFilter = controlledNodeFilter !== undefined ? (controlledNodeFilter ?? "all") : internalNodeFilter;
+  const handleNodeFilterChange = (next: string) => {
+    if (onNodeFilterChange) {
+      onNodeFilterChange(next === "all" ? null : next);
+      return;
+    }
+    setInternalNodeFilter(next);
+  };
+  const effectivePersonFilter = scopePersonId !== null ? scopePersonId : personFilter === "all" ? null : personFilter;
+  const effectiveNodeFilter = activeNodeFilter === "all" ? null : activeNodeFilter;
+  const memberOptions = useMemo(
+    () =>
+      collectMemberOptions({
+        knownMembers,
+        extraPersonIds: [scopePersonId],
+        currentPersonId,
+        peopleById,
+      }),
+    [knownMembers, scopePersonId, currentPersonId, peopleById],
+  );
+  const nodeOptions = useMemo(
+    () =>
+      collectNodeOptions({
+        knownNodes,
+        extraNodes: effectiveNodeFilter ? [{ nodeId: effectiveNodeFilter }] : undefined,
+        nodeOwners,
+        peopleById,
+      }),
+    [knownNodes, effectiveNodeFilter, nodeOwners, peopleById],
+  );
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [inspector, setInspector] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(new Set());
@@ -240,6 +297,8 @@ export function SessionsView({
     query: debouncedSearch,
     status,
     ...(scopedTaskId === undefined ? {} : { taskId: scopedTaskId }),
+    ...(effectivePersonFilter === null ? {} : { personId: effectivePersonFilter }),
+    ...(effectiveNodeFilter === null ? {} : { nodeId: effectiveNodeFilter }),
   });
   const groups = useMemo(() => workspace.groups.data?.groups ?? [], [workspace.groups.data]),
     totals = workspace.groups.data?.totals ?? { groups: 0, sessions: 0 },
@@ -307,6 +366,8 @@ export function SessionsView({
         range,
         debouncedSearch,
         statusKey,
+        effectivePersonFilter ?? "",
+        effectiveNodeFilter ?? "",
       ],
       queryFn: () =>
         agentRuntimeClient.sessionGroupMembers(repoId, {
@@ -315,6 +376,8 @@ export function SessionsView({
           since,
           ...(debouncedSearch === "" ? {} : { query: debouncedSearch }),
           ...(status.length === 0 ? {} : { status }),
+          ...(effectivePersonFilter === null ? {} : { personId: effectivePersonFilter }),
+          ...(effectiveNodeFilter === null ? {} : { nodeId: effectiveNodeFilter }),
         }),
       staleTime: 4_000,
     })),
@@ -358,7 +421,15 @@ export function SessionsView({
         });
         return;
       }
-      const rounds = sessionRounds(group.taskId, group.label, dispatches ?? []);
+      const allRounds = sessionRounds(group.taskId, group.label, dispatches ?? []);
+      const rounds =
+        effectivePersonFilter === null && effectiveNodeFilter === null
+          ? allRounds
+          : allRounds.filter(
+              (round) =>
+                (effectivePersonFilter === null || round.personId === effectivePersonFilter) &&
+                (effectiveNodeFilter === null || round.nodeId === effectiveNodeFilter),
+            );
       rows.set(group.key, {
         rounds,
         orphans: sessionOrphans(group.taskId, group.label, taskSessionsByTask.get(group.taskId) ?? [], rounds),
@@ -390,7 +461,15 @@ export function SessionsView({
       });
     });
     return rows;
-  }, [expandedTasks, roundsQueries, taskSessionsByTask, expandedUnattributed, unattributedQueries]);
+  }, [
+    expandedTasks,
+    roundsQueries,
+    taskSessionsByTask,
+    expandedUnattributed,
+    unattributedQueries,
+    effectivePersonFilter,
+    effectiveNodeFilter,
+  ]);
 
   // 钻入的轮次来自同一批派工行:按任务组分好即挂到组体,点开组头不再二次读。
   const drillRowsByGroup = useMemo(() => {
@@ -942,6 +1021,41 @@ export function SessionsView({
             }))}
           />
         )}
+        {segment === "sessions" && drill === null && (memberOptions.length > 0 || effectivePersonFilter !== null) && (
+          <select
+            data-testid="sessions-person-filter"
+            aria-label={t("agentRuntime.sessionsPersonFilter")}
+            disabled={scopePersonId !== null}
+            value={scopePersonId ?? personFilter}
+            onChange={(event) => setPersonFilter(event.target.value)}
+            className="rounded-xs border border-border bg-surface-raised px-2 py-1.5 ui-meta text-text outline-none hover:border-border-strong focus:border-border-strong disabled:opacity-60"
+          >
+            <option value="all">{t("views.work.allMembers")}</option>
+            {memberOptions.map((member) => (
+              <option key={member.personId} value={member.personId}>
+                {currentPersonId !== null && member.personId === currentPersonId
+                  ? t("components.taskFilterBar.me", { name: personShortName(member.personId, peopleById) })
+                  : member.label}
+              </option>
+            ))}
+          </select>
+        )}
+        {segment === "sessions" && drill === null && (nodeOptions.length > 0 || effectiveNodeFilter !== null) && (
+          <select
+            data-testid="sessions-node-filter"
+            aria-label={t("agentRuntime.sessionsNodeFilter")}
+            value={activeNodeFilter}
+            onChange={(event) => handleNodeFilterChange(event.target.value)}
+            className="rounded-xs border border-border bg-surface-raised px-2 py-1.5 ui-meta text-text outline-none hover:border-border-strong focus:border-border-strong"
+          >
+            <option value="all">{t("views.work.allNodes")}</option>
+            {nodeOptions.map((node) => (
+              <option key={node.nodeId} value={node.nodeId}>
+                {formatNodeDisplay(node.nodeId, node.ownerPersonId, { peopleById })}
+              </option>
+            ))}
+          </select>
+        )}
         {drill === null && (
           <input
             type="search"
@@ -1015,6 +1129,9 @@ export function SessionsView({
             sessionCacheTtlMs={sessionCacheTtlMs}
             attentionRefs={attentionRefs}
             nowMs={nowMs}
+            currentPersonId={currentPersonId}
+            nodeOwners={nodeOwners}
+            peopleById={peopleById}
           />
           <main
             data-testid="sessions-detail"

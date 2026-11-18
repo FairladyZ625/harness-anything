@@ -67,6 +67,8 @@ export interface AppLocation {
   drill: DrillState | null;
   /** 待办签发总池的当前 Tab(可寻址、刷新不丢);缺省 "decisions"(决策待裁域)。 */
   poolTab?: AttestationPoolTabId;
+  /** 从协作页节点抽屉跳入会话页时携带的节点过滤。 */
+  sessionNodeId?: string | null;
 }
 
 export interface ViewHistoryState {
@@ -111,7 +113,8 @@ export function locationsEqual(a: AppLocation, b: AppLocation): boolean {
     a.focusedEntityRef === b.focusedEntityRef &&
     JSON.stringify(a.taskFilters) === JSON.stringify(b.taskFilters) &&
     JSON.stringify(a.drill) === JSON.stringify(b.drill) &&
-    (a.poolTab ?? "decisions") === (b.poolTab ?? "decisions")
+    (a.poolTab ?? "decisions") === (b.poolTab ?? "decisions") &&
+    (a.sessionNodeId ?? null) === (b.sessionNodeId ?? null)
   );
 }
 

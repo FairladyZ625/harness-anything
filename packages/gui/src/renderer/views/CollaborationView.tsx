@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { t } from "../i18n/index.tsx";
 import type { FleetOverviewEvent, FleetOverviewNode, FleetOverviewRead } from "../../api/renderer-dto.ts";
+import type { FleetNodeUnregisterInput } from "../../api/fleet-admin-contract.ts";
 import { formatListTime } from "../model/time.ts";
 import { RepoModeBadge, type RepoMode } from "../components/RepoModeBadge.tsx";
 import { Empty } from "../components/primitives/Empty.tsx";
@@ -32,6 +33,11 @@ export function CollaborationView({
   onOpenTask,
   onNavigateEntity,
   now = new Date().toISOString(),
+  isAdmin = false,
+  peopleById,
+  onOpenNodeBoard,
+  onOpenNodeSessions,
+  onUnregisterNode,
 }: {
   readonly repoId: string;
   readonly mode: RepoMode;
@@ -41,6 +47,11 @@ export function CollaborationView({
   readonly onOpenTask: (taskId: string) => void;
   readonly onNavigateEntity: (ref: string) => void;
   readonly now?: string;
+  readonly isAdmin?: boolean;
+  readonly peopleById?: ReadonlyMap<string, string>;
+  readonly onOpenNodeBoard?: (nodeId: string) => void;
+  readonly onOpenNodeSessions?: (nodeId: string) => void;
+  readonly onUnregisterNode?: (input: FleetNodeUnregisterInput) => Promise<Record<string, unknown>>;
 }) {
   const shownOverview = overview,
     nodes = shownOverview?.nodes ?? [];
@@ -152,6 +163,7 @@ export function CollaborationView({
                   selectedNode={selectedNode}
                   onSelectNode={(nodeId) => setSelectedNode((current) => (current === nodeId ? null : nodeId))}
                   flashNodes={flashNodes}
+                  peopleById={peopleById}
                 />
               </div>
             </Section>
@@ -170,7 +182,7 @@ export function CollaborationView({
                   <option value="all">{t("collaboration.filterAll")}</option>
                   {nodes.map((node) => (
                     <option key={node.nodeId} value={node.nodeId}>
-                      {nodeLabelOf(node)}
+                      {nodeLabelOf(node, peopleById)}
                     </option>
                   ))}
                 </select>
@@ -186,6 +198,7 @@ export function CollaborationView({
                     now={now}
                     onOpenTask={onOpenTask}
                     onSelectNode={() => setSelectedNode(event.nodeId)}
+                    peopleById={peopleById}
                   />
                 ))}
                 {visibleEvents.length === 0 ? (
@@ -220,6 +233,11 @@ export function CollaborationView({
             onOpenTask={onOpenTask}
             onNavigateEntity={onNavigateEntity}
             onClose={() => setSelectedNode(null)}
+            isAdmin={isAdmin}
+            peopleById={peopleById}
+            onOpenNodeBoard={onOpenNodeBoard}
+            onOpenNodeSessions={onOpenNodeSessions}
+            onUnregisterNode={onUnregisterNode}
           />
         )}
       </Drawer>
@@ -258,12 +276,14 @@ function EventRow({
   now,
   onOpenTask,
   onSelectNode,
+  peopleById,
 }: {
   readonly event: FleetOverviewEvent;
   readonly nodes: readonly FleetOverviewNode[];
   readonly now: string;
   readonly onOpenTask: (taskId: string) => void;
   readonly onSelectNode: () => void;
+  readonly peopleById?: ReadonlyMap<string, string>;
 }) {
   const node = nodes.find((candidate) => candidate.nodeId === event.nodeId);
   return (
@@ -300,7 +320,7 @@ function EventRow({
       )}
       <span className="shrink-0 ui-micro text-text-faint" data-testid={`collaboration-event-node-${event.eventId}`}>
         {" "}
-        {node === undefined ? event.nodeId : nodeLabelOf(node)}
+        {node === undefined ? event.nodeId : nodeLabelOf(node, peopleById)}
       </span>
     </button>
   );

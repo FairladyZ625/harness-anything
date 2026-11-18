@@ -347,6 +347,8 @@ export type SessionRound = {
   readonly agentId: string | null;
   readonly agentName: string | null;
   readonly squadId: string | null;
+  readonly personId: string | null;
+  readonly nodeId: string | null;
   readonly instanceId: string;
   readonly taskId: string | null;
   readonly taskTitle: string | null;
@@ -415,6 +417,8 @@ export function sessionRounds(
     agentId: row.agentId ?? null,
     agentName: row.agentName ?? row.agentId ?? null,
     squadId: row.squadId ?? null,
+    personId: row.personId ?? null,
+    nodeId: row.nodeId ?? null,
     instanceId: row.instanceId,
     taskId: (row.taskId || null) ?? taskId,
     taskTitle: row.taskTitle ?? taskTitle,

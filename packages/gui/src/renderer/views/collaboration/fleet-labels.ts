@@ -48,6 +48,7 @@ const VALUE_LABELS: Readonly<Record<string, MessageKey>> = {
 /** notes 的 key 前缀(key=value 形态)→ 人话;整条声明串进 title。 */
 const NOTE_LABELS: Readonly<Record<string, MessageKey>> = {
   "events-attribution": "collaboration.note.eventsAttribution",
+  "events-attribution=event-source": "collaboration.note.eventsAttributionSource",
   "edge-online": "collaboration.note.edgeOnline",
   "sync-internals": "collaboration.note.syncInternals",
 };
@@ -69,7 +70,7 @@ export function reasonText(reason: string): string {
 }
 
 export function noteLabel(note: string): string {
-  const message = NOTE_LABELS[note.split("=", 1)[0] ?? ""];
+  const message = NOTE_LABELS[note] ?? NOTE_LABELS[note.split("=", 1)[0] ?? ""];
   // 未识别的 daemon 声明原样保留:静默丢弃比露出更不诚实。
   return message === undefined ? note : t(message);
 }

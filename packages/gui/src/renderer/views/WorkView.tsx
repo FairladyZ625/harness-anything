@@ -31,6 +31,16 @@ import { splitTitleFocus, TitleText } from "../components/primitives/TitleText.t
 import { entryTitle, metaLine, waitingReason } from "./workspace/entry-lines.tsx";
 import { formatListTime } from "../model/time.ts";
 import { formatTime } from "../model/time.ts";
+import {
+  collectMemberOptions,
+  collectNodeOptions,
+  formatNodeDisplay,
+  personShortName,
+  taskMatchesNode,
+  taskMatchesPerson,
+  type MemberOption,
+  type NodeOption,
+} from "../model/attribution.ts";
 
 /** 注意力条目 kind → 状态色档:等你/阻塞红,裁决/评审/停滞琥珀,待跟进琥珀,可归档灰。 */
 const ATTENTION_TONE: Record<string, StatusTone> = {
@@ -87,6 +97,12 @@ export function WorkView({
   daemonState,
   onRefreshLedger,
   agenda,
+  scopePersonId = null,
+  currentPersonId = null,
+  knownMembers,
+  knownNodes,
+  nodeOwners,
+  peopleById,
 }: {
   readonly tasks: readonly TaskRow[];
   readonly repoId: string;
@@ -101,19 +117,57 @@ export function WorkView({
   readonly onRefreshLedger: () => void;
   /** `repo.agenda.read` 同一条投影(App 已挂载);注意力条目按 workTaskId 归到各工作。 */
   readonly agenda: AgendaSuccess | undefined;
+  readonly scopePersonId?: string | null;
+  readonly currentPersonId?: string | null;
+  readonly knownMembers?: readonly MemberOption[];
+  readonly knownNodes?: readonly NodeOption[];
+  readonly nodeOwners?: ReadonlyMap<string, string>;
+  readonly peopleById?: ReadonlyMap<string, string>;
 }) {
   const [startWorkOpen, setStartWorkOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<WorkFilter>("all");
   const [sort, setSort] = useState<WorkSort>("attn");
+  const [personFilter, setPersonFilter] = useState<string>("all");
+  const [nodeFilter, setNodeFilter] = useState<string>("all");
   const collections = useMemo(() => collectWork(tasks), [tasks]);
   const attention = useMemo(() => attentionByWork(agenda?.attentionItems ?? []), [agenda]);
   const now = Date.now();
-  const entries: WorkEntry[] = collections.groups.map((group) => ({
-    group,
-    health: workHealth(group, attention.get(group.task.taskId), now),
-    stuck: attention.get(group.task.taskId)?.stuck ?? [],
-  }));
+  const effectivePerson = scopePersonId ?? (personFilter === "all" ? null : personFilter);
+  const memberOptions = useMemo(() => {
+    const list = collectMemberOptions({ tasks, knownMembers, currentPersonId, peopleById });
+    if (personFilter !== "all" && !list.some((item) => item.personId === personFilter)) {
+      return [...list, { personId: personFilter, label: personShortName(personFilter, peopleById) }];
+    }
+    return list;
+  }, [tasks, knownMembers, currentPersonId, peopleById, personFilter]);
+  const nodeOptions = useMemo(() => {
+    const centerLabel = t("collaboration.centerNode");
+    const list = collectNodeOptions({ tasks, knownNodes, nodeOwners, peopleById, centerLabel });
+    if (nodeFilter !== "all" && !list.some((item) => item.nodeId === nodeFilter)) {
+      return [
+        ...list,
+        {
+          nodeId: nodeFilter,
+          ownerPersonId: nodeOwners?.get(nodeFilter) ?? null,
+          label: formatNodeDisplay(nodeFilter, nodeOwners?.get(nodeFilter), { centerLabel, peopleById }),
+        },
+      ];
+    }
+    return list;
+  }, [tasks, knownNodes, nodeOwners, peopleById, nodeFilter]);
+  const entries: WorkEntry[] = collections.groups
+    .map((group) => ({
+      group,
+      health: workHealth(group, attention.get(group.task.taskId), now),
+      stuck: attention.get(group.task.taskId)?.stuck ?? [],
+    }))
+    .filter((entry) => {
+      const workTasks = [entry.group.task, ...entry.group.members];
+      if (effectivePerson !== null && !workTasks.some((task) => taskMatchesPerson(task, effectivePerson))) return false;
+      if (nodeFilter !== "all" && !workTasks.some((task) => taskMatchesNode(task, nodeFilter))) return false;
+      return true;
+    });
   const query = search.trim().toLocaleLowerCase();
   const matchesText = (task: TaskRow) => `${task.title} ${task.taskId}`.toLocaleLowerCase().includes(query);
   const searchHits = (entry: WorkEntry) =>
@@ -220,6 +274,38 @@ export function WorkView({
           <option value="attn">{t("views.work.sort.attn")}</option>
           <option value="activity">{t("views.work.sort.activity")}</option>
           <option value="progress">{t("views.work.sort.progress")}</option>
+        </select>
+        {scopePersonId === null && (
+          <select
+            data-testid="work-filter-person"
+            aria-label={t("views.work.filterPerson")}
+            value={personFilter}
+            onChange={(event) => setPersonFilter(event.target.value)}
+            className="rounded-xs glass-sub p-2 text-text outline-none focus:border-border-strong"
+          >
+            <option value="all">{t("views.work.allMembers")}</option>
+            {memberOptions.map((member) => (
+              <option key={member.personId} value={member.personId}>
+                {currentPersonId !== null && member.personId === currentPersonId
+                  ? t("views.work.meOption", { name: member.label })
+                  : member.label}
+              </option>
+            ))}
+          </select>
+        )}
+        <select
+          data-testid="work-filter-node"
+          aria-label={t("views.work.filterNode")}
+          value={nodeFilter}
+          onChange={(event) => setNodeFilter(event.target.value)}
+          className="rounded-xs glass-sub p-2 text-text outline-none focus:border-border-strong"
+        >
+          <option value="all">{t("views.work.allNodes")}</option>
+          {nodeOptions.map((node) => (
+            <option key={node.nodeId} value={node.nodeId}>
+              {node.label}
+            </option>
+          ))}
         </select>
       </div>
       <div data-testid="work-filter-chips">

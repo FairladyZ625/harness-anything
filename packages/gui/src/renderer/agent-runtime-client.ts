@@ -29,6 +29,8 @@ export type SessionGroupsQuery = {
   /** 精确归属过滤(G12 §4b):按派工行 agentId/squadId 精确匹配,不走子串。 */
   readonly agentId?: string;
   readonly squadId?: string;
+  readonly personId?: string;
+  readonly nodeId?: string;
   /** 状态维度筛选:成员级,与 groupBy/since/query 同一条读的入参,不是第二个读。 */
   readonly status?: readonly AgentRuntimeSessionGroupStatus[];
   readonly sessionIds?: readonly string[];
@@ -41,6 +43,8 @@ export type SessionGroupMembersQuery = {
   readonly query?: string;
   readonly agentId?: string;
   readonly squadId?: string;
+  readonly personId?: string;
+  readonly nodeId?: string;
   readonly status?: readonly AgentRuntimeSessionGroupStatus[];
   readonly limit?: number;
 };

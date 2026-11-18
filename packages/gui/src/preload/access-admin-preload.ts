@@ -3,6 +3,26 @@ import {
   type AccessAdminApi,
   type AccessAdminRequest,
 } from "@harness-anything/authorization-gui/access-admin-contract";
+import type { FleetAdminApi } from "../api/fleet-admin-contract.ts";
+
+const accessAdminAskRegistry = new WeakMap<
+  AccessAdminApi,
+  (request: Record<string, unknown>) => Promise<Record<string, unknown>>
+>();
+
+/**
+ * Exposes `node-unregister` through the existing `ACCESS_ADMIN_CHANNEL` bridge without widening
+ * the replaceable authorization UI's `AccessAdminApi` contract.
+ */
+export function fleetAdminFromAccess(access: AccessAdminApi): FleetAdminApi {
+  const send = accessAdminAskRegistry.get(access);
+  if (!send) {
+    throw new Error("Fleet admin bridge requires an accessAdminPreloadApi instance.");
+  }
+  return {
+    unregisterNode: (input) => send({ operation: "node-unregister", ...input }),
+  };
+}
 
 /**
  * 账号与访问控制页的 preload 面:每个方法是同一通道上的一条带类型请求,主进程收窄见
@@ -14,7 +34,7 @@ export function accessAdminPreloadApi(
 ): AccessAdminApi {
   const ask = (request: AccessAdminRequest) =>
     invoke(ACCESS_ADMIN_CHANNEL, { ...request, ...(repoId ? { repoId } : {}) }) as Promise<never>;
-  return {
+  const api: AccessAdminApi = {
     forRepository: (repoId) => accessAdminPreloadApi(invoke, repoId),
     nodes: () => ask({ operation: "node-list" }),
     devices: () => ask({ operation: "device-list" }),
@@ -53,4 +73,9 @@ export function accessAdminPreloadApi(
     edgeJoinList: () => ask({ operation: "edge-join-list" }),
     revokeEdgeJoin: (input) => ask({ operation: "edge-join-revoke", ...input }),
   };
+  accessAdminAskRegistry.set(
+    api,
+    ask as unknown as (request: Record<string, unknown>) => Promise<Record<string, unknown>>,
+  );
+  return api;
 }

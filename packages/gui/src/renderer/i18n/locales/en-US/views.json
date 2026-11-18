@@ -2246,5 +2246,16 @@
   "views.settingsView.guiTerminalBrowserDescription": "Browser used to open terminal HTTP(S) links on this machine.",
   "views.settingsView.guiTerminalBrowserEffect": "Terminal links open in the selected browser immediately on this machine only.",
   "views.settingsView.enum.guiTerminalBrowser.embedded": "Embedded browser",
-  "views.settingsView.enum.guiTerminalBrowser.system": "System browser"
+  "views.settingsView.enum.guiTerminalBrowser.system": "System browser",
+  "views.board.groupByPerson": "person",
+  "views.board.groupByNode": "node",
+  "views.board.groupByPersonTitle": "Group by member",
+  "views.board.groupByNodeTitle": "Group by node",
+  "views.board.unassignedPerson": "Unattributed member",
+  "views.board.unassignedNode": "Unattributed node",
+  "views.work.filterPerson": "Filter works by member",
+  "views.work.filterNode": "Filter works by node",
+  "views.work.allMembers": "All members",
+  "views.work.allNodes": "All nodes",
+  "views.work.meOption": "Me ({name})"
 }

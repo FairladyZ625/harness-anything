@@ -485,5 +485,22 @@
   "taskRework.agent": "Registered Agent ID (leave empty to arrange from this session)",
   "taskRework.submit": "I will arrange this round",
   "taskRework.empty": "There is no submitted cut to take over. Arrange it here after submission or return.",
-  "taskRework.submitting": "Recording this round’s arrangement…"
+  "taskRework.submitting": "Recording this round’s arrangement…",
+  "collaboration.note.eventsAttributionSource": "Events are attributed by canonical ledger write source (event.source).",
+  "collaboration.recentTasksTitle": "Recent tasks",
+  "collaboration.recentDispatchesTitle": "Recent dispatches",
+  "collaboration.recentEventsTitle": "Recent node events",
+  "collaboration.noRecentTasks": "No recent tasks.",
+  "collaboration.noRecentDispatches": "No recent dispatches.",
+  "collaboration.noRecentEvents": "No recent node events.",
+  "collaboration.openInBoard": "View tasks on board ↗",
+  "collaboration.openInSessions": "View dispatches in sessions ↗",
+  "collaboration.unregisterNode": "Unregister node",
+  "collaboration.unregisterPreviewing": "Checking node state…",
+  "collaboration.unregisterWarning": "Unregistering permanently revokes credentials for {label}, disconnects replication sessions, and removes replication slots. Existing leases and executions remain for recovery; rejoining requires ha edge join.",
+  "collaboration.unregisterBusy": "Node is online or owns active work; enable force to fence further writes.",
+  "collaboration.unregisterForce": "Force unregister (fence further writes while keeping active leases)",
+  "collaboration.unregisterConfirm": "Confirm unregister {label}",
+  "collaboration.unregisterCancel": "Cancel",
+  "collaboration.unregisterSucceeded": "Node {label} unregistered."
 }
