@@ -96,6 +96,10 @@ test("schema validator rejects unknown categories, non-blocking-only positives, 
   styleOnlyPositiveDoc.cases[0].expectedCategories = ["style"];
   assert.ok(collectEvalCaseIssues(styleOnlyPositiveDoc).some((msg) => msg.includes("style/diagnostic/cleanup")));
 
+  const ciOnlyPositiveDoc = structuredClone(doc);
+  ciOnlyPositiveDoc.cases[0].expectedCategories = ["ci-required"];
+  assert.ok(collectEvalCaseIssues(ciOnlyPositiveDoc).some((msg) => msg.includes("ci-required")));
+
   const leakedPathDoc = structuredClone(doc);
   const privateDir = [".harness", "-private"].join("");
   leakedPathDoc.cases[0].diff += `\n// leaked path: ${privateDir}/secret-notes.md\n`;
@@ -117,11 +121,16 @@ test("dry-run rejects corrupted hunks, trailing garbage and non-diff text", asyn
     entry.diff + "+extra hunk line\n",
     entry.diff + "trailing garbage\n",
     "diff --git a/reviewer-probe.txt b/reviewer-probe.txt\nnew file mode 100644\n--- /dev/null\n+++ b/reviewer-probe.txt\n@@ -1 +1 @@\n-old\n+new\n",
+    "diff --git a/reviewer-probe.txt b/reviewer-probe.txt\nnew file mode 100644\n--- /dev/null\n+++ b/reviewer-probe.txt\n@@ -0,0 +1 @@\n+one\n@@ -0,0 +3 @@\n+three\n",
     "diff --git a/reviewer-probe.txt b/reviewer-probe.txt\ndeleted file mode 100644\n--- a/reviewer-probe.txt\n+++ /dev/null\n@@ -1 +1 @@\n-old\n+new\n",
   ]) {
     await writeFile(invalidCasesPath, JSON.stringify({ schema, cases: [{ ...entry, diff }] }));
     assert.throws(() => runDryRun(invalidCasesPath), /invalid unified diff/u);
   }
+
+  const validZeroContextInsert =
+    "diff --git a/sample.txt b/sample.txt\n--- a/sample.txt\n+++ b/sample.txt\n@@ -2,0 +3 @@\n+three\n";
+  assert.deepEqual(collectEvalCaseIssues({ schema, cases: [{ ...entry, diff: validZeroContextInsert }] }), []);
 
   assert.match(
     collectEvalCaseIssues({ schema, cases: [{ ...entry, expectedEvidence: [["  "], ["404"], ["headers"]] }] }).join(
@@ -196,6 +205,11 @@ test("recall requires a legal blocking finding with all evidence groups on the s
       anchor: "test/static-broker.test.ts:7",
       text: "The 404 response body uses an inconsistent capitalization for its error message.",
     },
+    {
+      ...finding,
+      anchor: "test/static-broker.test.ts:7",
+      text: "The 404 response sets the wrong security headers. Change the header values on the error response.",
+    },
     { ...finding, text: "The policy has a 1404 error." },
     { ...finding, blocking: false },
     { ...finding, category: "style" },
@@ -231,6 +245,23 @@ test("recall requires a legal blocking finding with all evidence groups on the s
     ],
   );
   assert.equal(anchored.metrics.recall, 1);
+
+  const nonTemplateMechanism = scoreEvalResults(
+    [incident],
+    [
+      {
+        ...response,
+        findings: [
+          {
+            ...finding,
+            anchor: "test/static-broker.test.ts:7",
+            text: "This test only checks CSP. With missing dist the handler sends a not-found response and the assertion still passes. Assert that it actually serves the asset.",
+          },
+        ],
+      },
+    ],
+  );
+  assert.equal(nonTemplateMechanism.metrics.recall, 1);
 });
 
 test("malformed verdicts and findings are protocol errors on both positive and clean cases", () => {
@@ -260,6 +291,19 @@ test("malformed verdicts and findings are protocol errors on both positive and c
         ...response,
         verdict: "changes_requested",
         findings: [{ findingId: "ci", blocking: true, category: "ci-required", text: "CI is pending." }],
+      },
+      {
+        ...response,
+        verdict: "changes_requested",
+        findings: [
+          {
+            findingId: "behavior",
+            blocking: true,
+            category: "correctness",
+            text: "Spurious functional failure.",
+            reverify: "owner-verify",
+          },
+        ],
       },
       { ...response, verdict: "approved", findings: [finding] },
     ]) {

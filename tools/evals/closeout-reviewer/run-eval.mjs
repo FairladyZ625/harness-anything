@@ -19,6 +19,7 @@ import {
   reviewVerdicts,
   validateReviewFindings,
 } from "@harness-anything/kernel/internal/domain/review.ts";
+import { reviewFindingReverifyIssues } from "@harness-anything/kernel/internal/domain/review-reverify.ts";
 import { runReviewerCommand } from "./reviewer-command.mjs";
 import { unifiedDiffIssue } from "./unified-diff.mjs";
 
@@ -26,6 +27,7 @@ export const EVAL_CASES_SCHEMA = "closeout-reviewer-eval-cases/v1";
 export const EVAL_REPORT_SCHEMA = "closeout-reviewer-eval-report/v1";
 export const VALID_BUCKETS = Object.freeze(["positive", "negative", "pre_existing"]);
 export const NON_BLOCKING_ONLY_CATEGORIES = Object.freeze(["style", "diagnostic", "cleanup"]);
+const NON_REWORK_BLOCKING_CATEGORIES = new Set([...NON_BLOCKING_ONLY_CATEGORIES, "ci-required"]);
 
 const EVAL_VERDICTS = reviewVerdicts.filter((verdict) => verdict !== "dismissed");
 const MAX_TIMER_MS = 2 ** 31 - 1;
@@ -87,11 +89,11 @@ export function collectEvalCaseIssues(doc) {
           issues.push(`${label}: positive case must expect changes_requested`);
         }
         const hasBlockingCategory = entry.expectedCategories.some(
-          (category) => !NON_BLOCKING_ONLY_CATEGORIES.includes(category),
+          (category) => !NON_REWORK_BLOCKING_CATEGORIES.has(category),
         );
         if (!hasBlockingCategory) {
           issues.push(
-            `${label}: positive case must require at least one blocking category outside style/diagnostic/cleanup`,
+            `${label}: positive case must require at least one rework-capable blocking category outside style/diagnostic/cleanup/ci-required`,
           );
         }
       } else if (entry.bucket === "negative" || entry.bucket === "pre_existing") {
@@ -178,10 +180,12 @@ function reviewerProtocolIssue(response) {
   if (!EVAL_VERDICTS.includes(response.verdict)) return `invalid or missing verdict: ${String(response.verdict)}`;
   const [issue] = validateReviewFindings(response.findings);
   if (issue) return issue.message;
+  const [reverifyIssue] = reviewFindingReverifyIssues(response.findings);
+  if (reverifyIssue) return reverifyIssue.message;
   if (response.findings.some(({ category }) => category === undefined)) return "each finding requires a category";
   if (
     response.verdict === "changes_requested" &&
-    !response.findings.some((item) => item.blocking && !NON_BLOCKING_ONLY_CATEGORIES.includes(item.category))
+    !response.findings.some((item) => item.blocking && !NON_REWORK_BLOCKING_CATEGORIES.has(item.category))
   ) {
     return "changes_requested review requires a blocking finding outside style/diagnostic/cleanup";
   }

@@ -18,9 +18,9 @@
       },
       "diff": "diff --git a/src/http/static-broker.ts b/src/http/static-broker.ts\nindex af74e7a..ab72259 100644\n--- a/src/http/static-broker.ts\n+++ b/src/http/static-broker.ts\n@@ -1,7 +1,7 @@\n export function handleBrokerRequest(assetPackageRoot: string, req: Request, res: Response) {\n   res.setHeader(\"Content-Security-Policy\", \"default-src 'self'\");\n   res.setHeader(\"X-Content-Type-Options\", \"nosniff\");\n-  const target = path.join(assetPackageRoot, \"public\", \"index.html\");\n+  const target = path.join(assetPackageRoot, \"dist\", \"index.html\");\n   if (!existsSync(target)) {\n     res.statusCode = 404;\n     res.end(\"not found\");\ndiff --git a/test/static-broker.test.ts b/test/static-broker.test.ts\nindex 2496003..a4a4ccb 100644\n--- a/test/static-broker.test.ts\n+++ b/test/static-broker.test.ts\n@@ -2,4 +2,5 @@ test(\"static broker sets security headers\", async () => {\n   const workspaceRoot = createTempWorkspaceWithoutDist();\n   const res = await requestBroker(workspaceRoot, \"/\");\n   assert.equal(res.headers[\"content-security-policy\"], \"default-src 'self'\");\n+  assert.equal(res.headers[\"x-content-type-options\"], \"nosniff\");\n });\n",
       "expectedEvidence": [
-        ["static-broker", "security headers", "requestBroker"],
-        ["404", "missing dist", "without dist", "not set up dist"],
-        ["security headers", "headers", "content-security-policy", "nosniff", "200", "status"]
+        ["static-broker", "requestBroker", "handleBrokerRequest"],
+        ["404", "not-found", "not found", "missing dist", "without dist", "not set up dist"],
+        ["200", "assert status", "satisfies the test", "still passes", "serves the asset", "passes on 404", "before 404"]
       ]
     },
     {
@@ -236,7 +236,7 @@
         "summary": "Document --json output flag in status command help.",
         "acceptanceCriteria": "Help output and help-contract test match."
       },
-      "diff": "diff --git a/src/cli/help.ts b/src/cli/help.ts\nindex 5fbd2db..d4e6cf2 100644\n--- a/src/cli/help.ts\n+++ b/src/cli/help.ts\n@@ -1,4 +1,5 @@\n export const statusHelpLines = [\n   \"Usage: app status [--json]\",\n   \"Options:\",\n+  \"  --json   Emit machine-readable JSON status output\",\n ];\ndiff --git a/test/help-contract.test.ts b/test/help-contract.test.ts\nindex 4cc8f90..16cc4e3 100644\n--- a/test/help-contract.test.ts\n+++ b/test/help-contract.test.ts\n@@ -3,3 +3,7 @@ import { statusHelpLines } from \"../src/cli/help.ts\";\n test(\"status help has an options section\", () => {\n   assert.ok(statusHelpLines.includes(\"Options:\"));\n });\n+\n+test(\"status help documents --json\", () => {\n+  assert.ok(statusHelpLines.some((line) => line.includes(\"--json\")));\n+});\n"
+      "diff": "diff --git a/src/cli/help.ts b/src/cli/help.ts\nindex 5fbd2db..d4e6cf2 100644\n--- a/src/cli/help.ts\n+++ b/src/cli/help.ts\n@@ -1,4 +1,5 @@\n export const statusHelpLines = [\n   \"Usage: app status [--json]\",\n   \"Options:\",\n+  \"  --json   Emit machine-readable JSON status output\",\n ];\ndiff --git a/test/help-contract.test.ts b/test/help-contract.test.ts\nindex 4cc8f90..8d3d4a2 100644\n--- a/test/help-contract.test.ts\n+++ b/test/help-contract.test.ts\n@@ -3,3 +3,7 @@ import { statusHelpLines } from \"../src/cli/help.ts\";\n test(\"status help has an options section\", () => {\n   assert.ok(statusHelpLines.includes(\"Options:\"));\n });\n+\n+test(\"status help documents --json option description\", () => {\n+  assert.ok(statusHelpLines.includes(\"  --json   Emit machine-readable JSON status output\"));\n+});\n"
     },
     {
       "id": "preexisting-adjacent-style-debt",

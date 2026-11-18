@@ -21,6 +21,8 @@ export function unifiedDiffIssue(diff) {
     }
 
     let hunks = 0;
+    let prevOldEnd = -1;
+    let prevNewEnd = -1;
     while (line < lines.length && !lines[line].startsWith("diff --git ")) {
       const hunk = hunkHeader.exec(lines[line++]);
       if (!hunk) return `expected a hunk header at line ${line}`;
@@ -32,18 +34,31 @@ export function unifiedDiffIssue(diff) {
       const oldCount = Number(oldCountRaw);
       const newStart = Number(newStartRaw);
       const newCount = Number(newCountRaw);
-      if (isNewFile && (oldStart !== 0 || oldCount !== 0)) {
-        return `new file ${file} depends on old contents at line ${line}`;
+      if (isNewFile) {
+        if (hunks > 0) return `new file ${file} cannot contain multiple hunks at line ${line}`;
+        if (oldStart !== 0 || oldCount !== 0) return `new file ${file} depends on old contents at line ${line}`;
+        if (newCount === 0 ? newStart !== 0 : newStart !== 1) {
+          return `invalid new file hunk start for ${file} at line ${line}`;
+        }
+      } else if (isDeletedFile) {
+        if (hunks > 0) return `deleted file ${file} cannot contain multiple hunks at line ${line}`;
+        if (newStart !== 0 || newCount !== 0) return `deleted file ${file} still has contents at line ${line}`;
+        if (oldCount === 0 ? oldStart !== 0 : oldStart !== 1) {
+          return `invalid deleted file hunk start for ${file} at line ${line}`;
+        }
+      } else {
+        if (oldCount === 0 ? oldStart < 0 : oldStart <= 0) {
+          return `invalid old hunk start for ${file} at line ${line}`;
+        }
+        if (newCount === 0 ? newStart < 0 : newStart <= 0) {
+          return `invalid new hunk start for ${file} at line ${line}`;
+        }
+        if (hunks > 0 && (oldStart <= prevOldEnd || newStart <= prevNewEnd)) {
+          return `overlapping or out-of-order hunk for ${file} at line ${line}`;
+        }
       }
-      if (isDeletedFile && (newStart !== 0 || newCount !== 0)) {
-        return `deleted file ${file} still has contents at line ${line}`;
-      }
-      if (!isNewFile && (oldCount === 0 ? oldStart !== 0 : oldStart <= 0)) {
-        return `invalid old hunk start for ${file} at line ${line}`;
-      }
-      if (!isDeletedFile && (newCount === 0 ? newStart !== 0 : newStart <= 0)) {
-        return `invalid new hunk start for ${file} at line ${line}`;
-      }
+      prevOldEnd = oldCount === 0 ? oldStart : oldStart + oldCount - 1;
+      prevNewEnd = newCount === 0 ? newStart : newStart + newCount - 1;
       let removed = oldCount;
       let added = newCount;
       let changed = false;
