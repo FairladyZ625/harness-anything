@@ -12959,7 +12959,7 @@
         "port": "packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.spawn"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/task-return-dispatch.ts#dispatchContinuation.spawned:b47b8c859ed44d25e279d344244854b7",
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-return-dispatch.ts#dispatchContinuation.spawned:0945e48785ee4398118a84514b3a6fbf",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/repo-cell-types.ts#RepoCellContinuationWrite"

@@ -628,6 +628,16 @@
             "flags": "u"
           }
         ]
+      },
+      {
+        "id": "automatic-rework-unclaimed",
+        "symbol": "packages/kernel/src/domain/task-execution-arrangement.ts#automaticReworkIsUnclaimed",
+        "inputs": ["TaskLifecycleSnapshot"],
+        "output": "boolean",
+        "failureCodes": [],
+        "explain": "Automatic rework yields to an owner arrangement, an outstanding lease or an already started execution in the returned iteration; check again at dispatch admission.",
+        "consumers": ["packages/daemon/src/task-return-dispatch.ts"],
+        "sources": []
       }
     ],
     "contracts": [
@@ -4097,7 +4107,18 @@
     ]
   },
   "runtime-session": {
-    "judgments": [],
+    "judgments": [
+      {
+        "id": "task-writer-conflict",
+        "symbol": "packages/kernel/src/domain/dispatch-lifecycle.ts#taskWriterConflict",
+        "inputs": ["readonly DispatchLifecycleView[]", "taskId: string"],
+        "output": "writer conflict or null",
+        "failureCodes": ["runtime_task_writer_conflict"],
+        "explain": "At center dispatch admission a task has at most one implementation process without accepted stop proof, across all instances and nodes. Releasing the task lease does not release this process reservation.",
+        "consumers": ["packages/daemon/src/runtime-dispatch-admission.ts"],
+        "sources": []
+      }
+    ],
     "contracts": [
       {
         "id": "kernel/src/domain/agent-runtime.ts#RuntimeSessionEntityV1.validateAgentRuntimePayloadFields",

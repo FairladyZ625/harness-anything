@@ -118,3 +118,15 @@ export function clearExecutionArrangement(task: TaskV2): TaskV2 {
   const { executionArrangement: _arrangement, ...rest } = task;
   return rest;
 }
+
+/** Automatic return may claim only an unleased round that no executor has started. */
+export function automaticReworkIsUnclaimed(snapshot: TaskLifecycleSnapshot): boolean {
+  return (
+    snapshot.task?.status === "active" &&
+    currentExecutionArrangement(snapshot) === undefined &&
+    (snapshot.lease === null || snapshot.lease.phase === "released") &&
+    !snapshot.executions.some(
+      (execution) => execution.iteration === snapshot.task?.iteration && execution.state === "active",
+    )
+  );
+}

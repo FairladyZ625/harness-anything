@@ -117,6 +117,13 @@ test(
       (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_task_lease_required",
     );
     assert.equal(fixture.eventCount(), before);
+    await reject("source-not-stopped", "runtime_task_writer_conflict");
+    await runFleetRuntimeEventClient({
+      ...peer(),
+      opId: "source-exit-before-resume",
+      eventType: "runtime_session_exited",
+      payload: { runtimeSessionId: source.payload.runtimeSessionId },
+    });
     const attempts = await Promise.allSettled(
       ["resume-one", "resume-two"].map((key) =>
         runFleetRuntimeEventClient({ ...peer(), ...dispatch(key, source.payload.dispatchId) }),

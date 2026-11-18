@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { automaticReworkIsUnclaimed } from "../../src/domain/task-execution-arrangement.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { implementer, lifecycleFixture } from "../store/task-lifecycle-fixture.ts";
@@ -227,4 +228,21 @@ test("approval ends a reservation without changing the approved review or comple
   assert.equal(result.snapshot.reviews.at(-1)?.verdict, "approved");
   assert.equal(result.snapshot.task?.status, "in_review");
   assert.deepEqual(reduceTaskEvent(reserved, result.event), result.snapshot);
+});
+
+test("automatic rework yields to an owner arrangement, any outstanding lease, or an already started round", () => {
+  const { snapshot, command } = setup();
+  const emptyRound = {
+    ...snapshot,
+    task: { ...snapshot.task!, status: "active" as const },
+    lease: null,
+    executions: [],
+  };
+  assert.equal(automaticReworkIsUnclaimed(emptyRound), true);
+  assert.equal(automaticReworkIsUnclaimed(applyTransition(snapshot, command, proof).snapshot), false);
+  const started = lifecycleFixture({ complete: false })
+    .events.slice(0, 2)
+    .reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
+  assert.equal(automaticReworkIsUnclaimed(started), false);
+  assert.equal(automaticReworkIsUnclaimed({ ...started, lease: null }), false);
 });
