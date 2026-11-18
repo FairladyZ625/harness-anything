@@ -1459,7 +1459,7 @@
         "explain": "ListenerCertificateChainAndKeyPair: Validates PEM certificate chain ordering, SubjectAltName coverage, and private key public-key match before activation.",
         "sources": [
           {
-            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#validateCertificateChainAndKeyPair:f9499ab67d804f2ab41525c1f051261f",
+            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#validateCertificateChainAndKeyPair:df311dd2bd4254266516c13796eed7d8",
             "route": "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#validateCertificateChainAndKeyPair"
           }
         ]
