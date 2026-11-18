@@ -67,6 +67,50 @@ export async function executeAction(
   );
 }
 
+async function runSettledAction<T>(
+  cell: RepoCellOperationalContext,
+  settlementContext: string,
+  run: () => T | Promise<T>,
+): Promise<T> {
+  // Async Git/worktree publication runs outside the writer turn; settle pending revisions before
+  // actions that compare on-disk authored files against the SQLite projection.
+  await cell.store.settlePendingMaterialization?.(settlementContext);
+  return run();
+}
+
+function docSettlementContext(kind: string, source: RepoCellBinding["source"]): string | null {
+  if (kind === "doc-materialize") return "doc materialize";
+  if (kind === "doc-retire") return "doc retire";
+  if (kind === "doc-conflict-resolve" || kind === "doc-conflict-overwrite-center") return "doc conflict resolve";
+  if (kind === "doc-submit" && source === "local") return "doc submit";
+  return null;
+}
+
+function amendsTaskTitle(action: RepoTaskAction): boolean {
+  return (
+    action.kind === "task-amend" &&
+    Array.isArray(action.patches) &&
+    action.patches.some(
+      (patch) => patch !== null && typeof patch === "object" && "field" in patch && patch.field === "title",
+    )
+  );
+}
+
+function runRepoArtifactAdd(cell: RepoCellOperationalContext, action: RepoTaskAction, binding: RepoCellBinding) {
+  return runSettledAction(cell, "task artifact add", () =>
+    runArtifactAdd({
+      action,
+      binding,
+      workspaceId: cell.input.repoId,
+      rootDir: cell.rootDir,
+      store: cell.store,
+      projection: cell.projection,
+      now: cell.now,
+      killpoint: cell.input.killpoint,
+    }),
+  );
+}
+
 export function executeRepoAction(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
@@ -89,12 +133,8 @@ export function executeRepoAction(
         now: cell.now,
         killpoint: cell.input.killpoint,
       });
-    if (action.kind === "doc-materialize")
-      return (async () => {
-        await cell.store.settlePendingMaterialization?.("doc materialize");
-        return runDoc();
-      })();
-    return runDoc();
+    const settlementContext = docSettlementContext(action.kind, binding.source);
+    return settlementContext ? runSettledAction(cell, settlementContext, runDoc) : runDoc();
   }
   if (["runtime-handoff-export", "runtime-handoff-claim", "runtime-handoff-revoke"].includes(action.kind))
     return runRuntimeHandoffAction(cell, action, binding);
@@ -212,7 +252,7 @@ export function executeRepoAction(
     action.kind === "fact-rematerialize" ||
     action.kind === "task-rematerialize"
   )
-    return runEntityDocumentRematerialize(cell, action, binding);
+    return runSettledAction(cell, "entity rematerialize", () => runEntityDocumentRematerialize(cell, action, binding));
   if (action.kind === "distill-candidate") {
     const taskId = cell.requiredCellText(action.taskId, "taskId");
     if (!cell.projection.read(taskId).snapshot.task)
@@ -304,16 +344,7 @@ export function executeRepoAction(
             return cell.runTaskCommandWithDocs(catalogAction as TaskCommandWithDocsAction, catalogBinding);
           if (catalogAction.kind === "preset-upgrade") return cell.upgradePresetSnapshot(catalogAction, catalogBinding);
           if (catalogAction.kind === "task-artifact-add")
-            return runArtifactAdd({
-              action: catalogAction,
-              binding: catalogBinding,
-              workspaceId: cell.input.repoId,
-              rootDir: cell.rootDir,
-              store: cell.store,
-              projection: cell.projection,
-              now: cell.now,
-              killpoint: cell.input.killpoint,
-            });
+            return runRepoArtifactAdd(cell, catalogAction, catalogBinding);
           if (catalogAction.kind === "task-settle") return settleTask(cell, catalogAction, catalogBinding);
           if (catalogAction.kind === "task-progress-append") return cell.appendProgress(catalogAction, catalogBinding);
           if (catalogAction.kind === "task-annotate") return cell.annotateExecution(catalogAction, catalogBinding);
@@ -346,6 +377,8 @@ export function executeRepoAction(
               return cell.archiveTasks(catalogAction, catalogBinding);
             if (catalogAction.kind === "task-supersede" && typeof catalogAction.title === "string")
               return cell.supersedeWithNewTask(catalogAction, catalogBinding);
+            if (amendsTaskTitle(catalogAction))
+              return runSettledAction(cell, "task amend", () => cell.taskSurfaceWrite(catalogAction, catalogBinding));
             return cell.taskSurfaceWrite(catalogAction, catalogBinding);
           }
           return contract.execution?.implementation === "task-completion"
@@ -474,17 +507,7 @@ export function executeRepoAction(
       };
     });
   }
-  if (action.kind === "task-artifact-add")
-    return runArtifactAdd({
-      action,
-      binding,
-      workspaceId: cell.input.repoId,
-      rootDir: cell.rootDir,
-      store: cell.store,
-      projection: cell.projection,
-      now: cell.now,
-      killpoint: cell.input.killpoint,
-    });
+  if (action.kind === "task-artifact-add") return runRepoArtifactAdd(cell, action, binding);
   if (action.kind === "task-settle") return settleTask(cell, action, binding);
   if (
     Array.isArray(
@@ -546,16 +569,11 @@ async function runTaskEscalation(
     null,
     2,
   );
-  const artifact = runArtifactAdd({
-    action: { kind: "task-artifact-add", taskId, content: body, destination: `rulings/${dispatchId}.md` },
+  const artifact = await runRepoArtifactAdd(
+    cell,
+    { kind: "task-artifact-add", taskId, content: body, destination: `rulings/${dispatchId}.md` },
     binding,
-    workspaceId: cell.input.repoId,
-    rootDir: cell.rootDir,
-    store: cell.store,
-    projection: cell.projection,
-    now: cell.now,
-    killpoint: cell.input.killpoint,
-  });
+  );
   // A center-forwarded edge action cannot cancel through the center's local spawner: the runtime
   // owner is the edge node. The edge RPC route performs the owner-local cancel after this artifact
   // is durably accepted. Local dispatches still stop through their resident spawner here.
@@ -651,21 +669,16 @@ async function resolveTaskEscalation(
       null,
       2,
     );
-    artifact = runArtifactAdd({
-      action: {
+    artifact = await runRepoArtifactAdd(
+      cell,
+      {
         kind: "task-artifact-add",
         taskId,
         content: updated,
         destination: `rulings/${runtimeRulingResolutionPath(dispatchId).slice("artifacts/rulings/".length)}`,
       },
       binding,
-      workspaceId: cell.input.repoId,
-      rootDir: cell.rootDir,
-      store: cell.store,
-      projection: cell.projection,
-      now: cell.now,
-      killpoint: cell.input.killpoint,
-    });
+    );
     if (artifact.outcome !== "applied") return artifact;
   }
   const terminal = cell.projection
