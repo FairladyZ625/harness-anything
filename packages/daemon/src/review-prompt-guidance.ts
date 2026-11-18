@@ -5,7 +5,7 @@ import {
   type ReviewReverifyRoute,
   type TaskRiskTierAssessmentV1,
 } from "@harness-anything/kernel";
-import { reviewDataPreview, reviewPromptData } from "./review-prompt-data.ts";
+import { reviewDataPreview, reviewPromptData } from "./review-path-matching.ts";
 import { reviewSummaryReasonPrefix } from "./task-risk-tier.ts";
 
 /** Which round of review one mission is: a fresh cut review, or the continuation after a return. */

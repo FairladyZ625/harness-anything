@@ -12,7 +12,7 @@ import {
   privateLedgerReferences,
   resolvePrivateLedgerReads,
 } from "../src/private-ledger-paths.ts";
-import { reviewPromptData } from "../src/review-prompt-data.ts";
+import { reviewPromptData } from "../src/review-path-matching.ts";
 import { runWorktreeSetup, workerLedgerPath } from "../src/worktree-setup.ts";
 
 const planBody = "# Plan\n",

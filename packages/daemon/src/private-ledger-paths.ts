@@ -1,7 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
-import { stripReviewPromptData } from "./review-prompt-data.ts";
+import { stripReviewPromptData } from "./review-path-matching.ts";
 import { workerLedgerPath } from "./worktree-setup.ts";
 
 /**
