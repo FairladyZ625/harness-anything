@@ -1,5 +1,5 @@
 import { createHash, X509Certificate } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 import path from "node:path";
@@ -16,6 +16,140 @@ function selfSignedCertificatePaths(root: string): {
     certificateFile: path.join(directory, "self-signed.pem"),
     certificateKeyFile: path.join(directory, "self-signed.key"),
   };
+}
+
+function uploadedCertificatePaths(root: string): {
+  readonly certificateFile: string;
+  readonly certificateKeyFile: string;
+} {
+  const directory = path.join(root, "listener");
+  return {
+    certificateFile: path.join(directory, "listener.pem"),
+    certificateKeyFile: path.join(directory, "listener.key"),
+  };
+}
+
+export function isManagedListenerPath(root: string, filePath: string): boolean {
+  const listenerDirectory = path.resolve(root, "listener"),
+    relative = path.relative(listenerDirectory, path.resolve(filePath));
+  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+export function isManagedListenerPair(
+  root: string,
+  listener: Pick<ManagedRbacListener, "certificateFile" | "certificateKeyFile">,
+): boolean {
+  return (
+    isManagedListenerPath(root, listener.certificateFile) && isManagedListenerPath(root, listener.certificateKeyFile)
+  );
+}
+
+class ListenerKeyExposedError extends Error {
+  readonly code = "rbac_listener_key_exposed";
+}
+
+export function listenerMaterialProblem(
+  listener: Pick<ManagedRbacListener, "certificateFile" | "certificateKeyFile">,
+): "missing_certificate" | "exposed_key" | undefined {
+  if (!existsSync(listener.certificateFile) || !statSync(listener.certificateFile).isFile())
+    return "missing_certificate";
+  if (
+    !existsSync(listener.certificateKeyFile) ||
+    !statSync(listener.certificateKeyFile).isFile() ||
+    (statSync(listener.certificateKeyFile).mode & 0o077) !== 0
+  )
+    return "exposed_key";
+  return undefined;
+}
+
+export function requirePrivateKeyFile(file: string): void {
+  const mode = existsSync(file) && statSync(file).isFile() ? statSync(file).mode & 0o777 : undefined;
+  if (mode === undefined || (mode & 0o077) !== 0)
+    throw new ListenerKeyExposedError(
+      mode === undefined
+        ? "The listener's private key must be present and readable only by its owner (chmod 600)."
+        : "The listener's private key must be readable only by its owner (chmod 600).",
+    );
+}
+
+function writeManagedFileAtomically(file: string, content: Buffer, mode: number): void {
+  const temporary = `${file}.tmp`;
+  /* @gate-identity state-store/runtime-instance.authorization-configuration */ writeFileSync(temporary, content, {
+    mode,
+  });
+  chmodSync(temporary, mode);
+  /* @gate-identity state-store/runtime-instance.authorization-configuration */ renameSync(temporary, file);
+  chmodSync(file, mode);
+}
+
+export interface UploadedCertificateSnapshot {
+  readonly certificateBytes?: Buffer;
+  readonly keyBytes?: Buffer;
+}
+
+export function snapshotUploadedCertificate(root: string): UploadedCertificateSnapshot {
+  const { certificateFile, certificateKeyFile } = uploadedCertificatePaths(root);
+  return {
+    ...(existsSync(certificateFile) && statSync(certificateFile).isFile()
+      ? { certificateBytes: readFileSync(certificateFile) }
+      : {}),
+    ...(existsSync(certificateKeyFile) && statSync(certificateKeyFile).isFile()
+      ? { keyBytes: readFileSync(certificateKeyFile) }
+      : {}),
+  };
+}
+
+export function restoreUploadedCertificate(root: string, snapshot: UploadedCertificateSnapshot): void {
+  const { certificateFile, certificateKeyFile } = uploadedCertificatePaths(root);
+  if (snapshot.certificateBytes === undefined || snapshot.keyBytes === undefined) {
+    removeUploadedCertificate(root);
+    return;
+  }
+  const directory = path.dirname(certificateFile);
+  /* @gate-identity state-store/runtime-instance.authorization-configuration */ mkdirSync(directory, {
+    recursive: true,
+    mode: 0o700,
+  });
+  chmodSync(directory, 0o700);
+  writeManagedFileAtomically(certificateFile, snapshot.certificateBytes, 0o644);
+  writeManagedFileAtomically(certificateKeyFile, snapshot.keyBytes, 0o600);
+}
+
+export function installUploadedCertificate(
+  root: string,
+  sourceCertificateFile: string,
+  sourceKeyFile: string,
+  names: readonly string[],
+  validateCertificateNames: ManagedRbacHost["validateCertificateNames"],
+): { readonly certificateFile: string; readonly certificateKeyFile: string } {
+  if (!existsSync(sourceCertificateFile) || !statSync(sourceCertificateFile).isFile())
+    throw listenerError(
+      "A listener takes --hostname (as the certificate names it), --port, and absolute --certificate-file and --certificate-key-file paths. Pass none of them to serve loopback only.",
+    );
+  requirePrivateKeyFile(sourceKeyFile);
+  const certificateBytes = readFileSync(sourceCertificateFile);
+  validateCertificateNames(certificateBytes, names);
+  const keyBytes = readFileSync(sourceKeyFile);
+  const { certificateFile, certificateKeyFile } = uploadedCertificatePaths(root),
+    directory = path.dirname(certificateFile);
+  /* @gate-identity state-store/runtime-instance.authorization-configuration */ mkdirSync(directory, {
+    recursive: true,
+    mode: 0o700,
+  });
+  chmodSync(directory, 0o700);
+  writeManagedFileAtomically(certificateFile, certificateBytes, 0o644);
+  writeManagedFileAtomically(certificateKeyFile, keyBytes, 0o600);
+  return { certificateFile, certificateKeyFile };
+}
+
+export function removeUploadedCertificate(root: string): void {
+  const { certificateFile, certificateKeyFile } = uploadedCertificatePaths(root);
+  /* @gate-identity state-store/runtime-instance.authorization-configuration */ rmSync(certificateFile, {
+    force: true,
+  });
+  /* @gate-identity state-store/runtime-instance.authorization-configuration */ rmSync(certificateKeyFile, {
+    force: true,
+  });
 }
 
 function existingCertificateIsCurrent(

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import type { OidcLoginAuthority } from "@harness-anything/kernel";
@@ -26,7 +26,7 @@ export function oidcCenterSelections(userRoot: string) {
             ...(edge.servername ? { servername: edge.servername } : {}),
           }
         : null;
-    const identity =
+    const rawIdentity =
       identityOverride ??
       targetIdentity ??
       (config && typeof config === "object"
@@ -36,6 +36,23 @@ export function oidcCenterSelections(userRoot: string) {
               .map((field) => [field, (config as Record<string, unknown>)[field]]),
           )
         : config);
+    const listenerCertFile =
+      !identityOverride &&
+      !targetIdentity &&
+      config &&
+      typeof config === "object" &&
+      typeof (config as { readonly listener?: { readonly certificateFile?: unknown } }).listener?.certificateFile ===
+        "string"
+        ? (config as { readonly listener: { readonly certificateFile: string } }).listener.certificateFile
+        : undefined;
+    const identity =
+      listenerCertFile &&
+      existsSync(listenerCertFile) &&
+      statSync(listenerCertFile).isFile() &&
+      rawIdentity &&
+      typeof rawIdentity === "object"
+        ? { ...rawIdentity, listenerCertificatePem: readFileSync(listenerCertFile, "utf8") }
+        : rawIdentity;
     return createHash("sha256")
       .update(JSON.stringify([target ?? null, identity]))
       .digest("hex");

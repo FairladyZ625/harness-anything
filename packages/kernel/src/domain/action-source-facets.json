@@ -7377,6 +7377,24 @@
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
       },
       {
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#writeManagedFileAtomically:744c261d226069a180e2d7d9232b7174",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#removeUploadedCertificate:ac12d830c545cd907e370d3361022372",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#removeUploadedCertificate:87cfe26105936763d42fe2b456f7a3d9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
         "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-service.ts#ManagedRbacService:ae028b8bd08fbc7e6acba87282684343",
         "route": "daemon-local-state",
         "role": "technical-port",

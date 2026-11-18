@@ -1088,7 +1088,9 @@ export class OidcSessionService {
       ...(config.certificate ? { certificate: config.certificate } : {}),
       ...(config.servername ? { servername: config.servername } : {}),
       ...(config.listener ? { browserUrl: managedRbacListenerUrl(config.listener) } : {}),
-      ...(config.listener ? { certificate: readFileSync(config.listener.certificateFile, "utf8") } : {}),
+      ...(config.listener && existsSync(config.listener.certificateFile)
+        ? { certificate: readFileSync(config.listener.certificateFile, "utf8") }
+        : {}),
     };
   }
 

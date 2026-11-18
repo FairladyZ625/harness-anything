@@ -533,8 +533,21 @@ test("a listener carries HTTPS for edge nodes while Keycloak, PostgreSQL, and ma
   try {
     const set = await managed.service.run({ operation: "listener-set", ...listener, expectedVersion: loopbackVersion });
     assert.equal(set.ok, true);
-    const stored = { ...listener, address: listener.listenAddress, listenAddress: undefined };
-    assert.deepEqual(managed.config().listener, JSON.parse(JSON.stringify(stored)));
+    const managedDir = path.join(managed.root, "rbac", "listener"),
+      managedCert = path.join(managedDir, "listener.pem"),
+      managedKey = path.join(managedDir, "listener.key");
+    assert.equal(statSync(managedDir).mode & 0o777, 0o700);
+    assert.equal(statSync(managedCert).mode & 0o777, 0o644);
+    assert.equal(statSync(managedKey).mode & 0o777, 0o600);
+    assert.deepEqual(managed.config().listener, {
+      address: listener.listenAddress,
+      hostname: listener.hostname,
+      port: listener.port,
+      certificateFile: managedCert,
+      certificateKeyFile: managedKey,
+    });
+    assert.deepEqual(readFileSync(managedCert), readFileSync(managed.certificateFile));
+    assert.deepEqual(readFileSync(managedKey), readFileSync(managed.certificateKeyFile));
     assert.equal(managed.config().url, "http://127.0.0.1:1");
 
     const keycloak = managed.keycloakLaunches().at(-1)!;
@@ -547,8 +560,8 @@ test("a listener carries HTTPS for edge nodes while Keycloak, PostgreSQL, and ma
     ]);
     assert.equal(keycloak.env.KC_HTTP_HOST, "127.0.0.1");
     assert.equal(keycloak.env.KC_HTTP_MANAGEMENT_HOST, "127.0.0.1");
-    assert.equal(keycloak.env.KC_HTTPS_CERTIFICATE_FILE, managed.certificateFile);
-    assert.equal(keycloak.env.KC_HTTPS_CERTIFICATE_KEY_FILE, managed.certificateKeyFile);
+    assert.equal(keycloak.env.KC_HTTPS_CERTIFICATE_FILE, managedCert);
+    assert.equal(keycloak.env.KC_HTTPS_CERTIFICATE_KEY_FILE, managedKey);
     assert.deepEqual(managed.postgresLaunches()[0]!.args.slice(2), ["-h", "127.0.0.1", "-p", "2"]);
 
     // The listen address passes connections through to Keycloak's loopback HTTPS port untouched.
@@ -825,6 +838,10 @@ test("a private key others can read is refused when the listener is set and when
     await managed.service.run({ operation: "listener-set", ...listener, expectedVersion: await managed.version() });
     await managed.service.stop();
     chmodSync(managed.certificateKeyFile, 0o640);
+    await managed.service.start();
+    await managed.service.stop();
+    const managedKey = managed.config().listener.certificateKeyFile;
+    chmodSync(managedKey, 0o640);
     const launched = managed.keycloakLaunches().length;
     await assert.rejects(managed.service.run({ operation: "start" }), { code: "rbac_listener_key_exposed" });
     assert.equal(managed.keycloakLaunches().length, launched);
@@ -853,6 +870,82 @@ test("a listener Keycloak cannot start under is not kept", async () => {
     assert.equal(managed.configText(), before);
     assert.deepEqual(managed.keycloakLaunches().at(-1)!.args, keycloakArgsWithoutListener);
   } finally {
+    await managed.close();
+  }
+});
+
+test("a failed listener replacement restores the previous managed certificate and key bytes", async () => {
+  const managed = managedFixture(),
+    portA = await availablePort(),
+    externalDir = mkdtempSync(path.join(tmpdir(), "ha-rbac-rollback-cert-")),
+    certB = path.join(externalDir, "b.crt"),
+    keyB = path.join(externalDir, "b.key"),
+    managedCert = path.join(managed.root, "rbac", "listener", "listener.pem"),
+    managedKey = path.join(managed.root, "rbac", "listener", "listener.key");
+  try {
+    execFileSync(
+      "openssl",
+      [
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-keyout",
+        keyB,
+        "-out",
+        certB,
+        "-subj",
+        "/CN=b.example.test",
+        "-days",
+        "1",
+        "-addext",
+        "subjectAltName=DNS:b.example.test,IP:127.0.0.1",
+      ],
+      { stdio: "ignore" },
+    );
+    chmodSync(keyB, 0o600);
+    const first = await managed.service.run({
+      operation: "listener-set",
+      certificateMode: "domain",
+      listenAddress: "127.0.0.1",
+      hostname: "center.example.test",
+      port: portA,
+      certificateFile: managed.certificateFile,
+      certificateKeyFile: managed.certificateKeyFile,
+      expectedVersion: await managed.version(),
+    });
+    assert.equal(first.ok, true);
+    const originalCertBytes = readFileSync(managedCert),
+      originalKeyBytes = readFileSync(managedKey),
+      beforeConfig = managed.configText();
+
+    // Force the next Keycloak launch attempt to fail after listener ingestion.
+    const occupied = createServer();
+    const portB = await availablePort();
+    await new Promise<void>((resolve) => occupied.listen(portB, "127.0.0.1", resolve));
+    try {
+      await assert.rejects(
+        managed.service.run({
+          operation: "listener-set",
+          certificateMode: "domain",
+          listenAddress: "127.0.0.1",
+          hostname: "b.example.test",
+          port: portB,
+          certificateFile: certB,
+          certificateKeyFile: keyB,
+          expectedVersion: String(first.version),
+        }),
+        { code: "rbac_listener_unavailable" },
+      );
+    } finally {
+      await new Promise<void>((resolve) => occupied.close(() => resolve()));
+    }
+    assert.equal(managed.configText(), beforeConfig);
+    assert.deepEqual(readFileSync(managedCert), originalCertBytes);
+    assert.deepEqual(readFileSync(managedKey), originalKeyBytes);
+  } finally {
+    rmSync(externalDir, { recursive: true, force: true });
     await managed.close();
   }
 });
@@ -1031,6 +1124,123 @@ test("a failed single-user password migration leaves trust authentication and re
     assert.deepEqual(managed.postgresLaunches(), []);
     assert.deepEqual(managed.keycloakLaunches(), []);
   } finally {
+    await managed.close();
+  }
+});
+
+test("uploaded listener certificates survive deletion of the external source directory and clean up on mode switch", async () => {
+  const managed = managedFixture(),
+    externalDir = mkdtempSync(path.join(tmpdir(), "ha-rbac-external-cert-")),
+    externalCert = path.join(externalDir, "ext.crt"),
+    externalKey = path.join(externalDir, "ext.key"),
+    managedCert = path.join(managed.root, "rbac", "listener", "listener.pem"),
+    managedKey = path.join(managed.root, "rbac", "listener", "listener.key");
+  try {
+    writeFileSync(externalCert, readFileSync(managed.certificateFile));
+    writeFileSync(externalKey, readFileSync(managed.certificateKeyFile), { mode: 0o600 });
+    chmodSync(externalKey, 0o600);
+    const set = await managed.service.run({
+      operation: "listener-set",
+      certificateMode: "domain",
+      listenAddress: "127.0.0.1",
+      hostname: "center.example.test",
+      port: await availablePort(),
+      certificateFile: externalCert,
+      certificateKeyFile: externalKey,
+      expectedVersion: await managed.version(),
+    });
+    assert.equal(set.ok, true);
+    assert.equal(managed.config().listener.certificateFile, managedCert);
+    assert.equal(managed.config().listener.certificateKeyFile, managedKey);
+    // Deleting the external source directory must not affect subsequent stop/start cycles.
+    rmSync(externalDir, { recursive: true, force: true });
+    await managed.service.stop();
+    await managed.service.start();
+    assert.equal(managed.keycloakLaunches().at(-1)!.env.KC_HTTPS_CERTIFICATE_FILE, managedCert);
+    assert.equal(managed.keycloakLaunches().at(-1)!.env.KC_HTTPS_CERTIFICATE_KEY_FILE, managedKey);
+
+    // Switching to self-signed removes the no-longer-used uploaded listener files.
+    const selfSigned = await managed.service.run({
+      operation: "listener-set",
+      certificateMode: "self-signed",
+      listenAddress: "127.0.0.1",
+      hostname: "center.example.test",
+      port: await availablePort(),
+      expectedVersion: await managed.version(),
+    });
+    assert.equal(selfSigned.ok, true);
+    assert.equal(existsSync(managedCert), false);
+    assert.equal(existsSync(managedKey), false);
+
+    // Re-importing and switching back to loopback also cleans up the uploaded listener files.
+    const domainAgain = await managed.service.run({
+      operation: "listener-set",
+      certificateMode: "internal-ca",
+      listenAddress: "127.0.0.1",
+      hostname: "center.example.test",
+      port: await availablePort(),
+      certificateFile: managed.certificateFile,
+      certificateKeyFile: managed.certificateKeyFile,
+      expectedVersion: await managed.version(),
+    });
+    assert.equal(existsSync(managedCert), true);
+    assert.equal(existsSync(managedKey), true);
+    const loopback = await managed.service.run({
+      operation: "listener-set",
+      expectedVersion: String(domainAgain.version),
+    });
+    assert.equal(loopback.ok, true);
+    assert.equal(existsSync(managedCert), false);
+    assert.equal(existsSync(managedKey), false);
+  } finally {
+    rmSync(externalDir, { recursive: true, force: true });
+    await managed.close();
+  }
+});
+
+test("legacy external listener config migrates into rbac/listener on start unless the source key is exposed", async () => {
+  const managed = managedFixture(),
+    externalDir = mkdtempSync(path.join(tmpdir(), "ha-rbac-legacy-cert-")),
+    externalCert = path.join(externalDir, "legacy.crt"),
+    externalKey = path.join(externalDir, "legacy.key"),
+    configFile = path.join(managed.root, "rbac", "config.json"),
+    managedCert = path.join(managed.root, "rbac", "listener", "listener.pem"),
+    managedKey = path.join(managed.root, "rbac", "listener", "listener.key");
+  try {
+    writeFileSync(externalCert, readFileSync(managed.certificateFile));
+    writeFileSync(externalKey, readFileSync(managed.certificateKeyFile), { mode: 0o644 });
+    chmodSync(externalKey, 0o644);
+    const legacyConfig = {
+      ...managed.config(),
+      listener: {
+        address: "127.0.0.1",
+        hostname: "center.example.test",
+        port: await availablePort(),
+        certificateFile: externalCert,
+        certificateKeyFile: externalKey,
+      },
+    };
+    writeFileSync(configFile, `${JSON.stringify(legacyConfig, null, 2)}\n`);
+
+    // Exposed legacy private keys must be rejected before copying into managed storage.
+    await assert.rejects(managed.service.start(), { code: "rbac_listener_key_exposed" });
+    assert.equal(existsSync(managedCert), false);
+    assert.equal(existsSync(managedKey), false);
+
+    // Once compliant, start() migrates the files into <userRoot>/rbac/listener/ and updates config.json.
+    chmodSync(externalKey, 0o600);
+    await managed.service.start();
+    assert.equal(managed.config().listener.certificateFile, managedCert);
+    assert.equal(managed.config().listener.certificateKeyFile, managedKey);
+    assert.equal(statSync(managedCert).mode & 0o777, 0o644);
+    assert.equal(statSync(managedKey).mode & 0o777, 0o600);
+
+    rmSync(externalDir, { recursive: true, force: true });
+    await managed.service.stop();
+    await managed.service.start();
+    assert.equal(managed.keycloakLaunches().at(-1)!.env.KC_HTTPS_CERTIFICATE_FILE, managedCert);
+  } finally {
+    rmSync(externalDir, { recursive: true, force: true });
     await managed.close();
   }
 });

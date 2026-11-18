@@ -16,7 +16,7 @@ import {
 import { executionCredentialRejected, runtimeExecutionActor } from "./runtime-execution-credential.ts";
 /** @daemon-transport-authority Host composition and RepoCell ownership. */
 import path from "node:path";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { readDaemonStorageConfig, registerDaemonRepo } from "@harness-anything/storage";
 import {
   consumeKnownError,
@@ -1131,6 +1131,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     home,
     identityCenter: keycloakCenter,
     sessionPrincipal: async (auth, method, params) => {
+      if (
+        method === "daemon.rbac.manage" &&
+        (params.mode === "external" || ["listener", "listener-set"].includes(String(params.operation)))
+      )
+        return undefined;
       await ensureRbacResumed();
       if (
         isDaemonSocketOwner(auth) &&
@@ -1239,7 +1244,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             },
           );
         }
-        if (request.mode === "external" || request.mode === "managed")
+        if (request.mode === "external" || (request.mode === "managed" && request.operation !== "listener-set"))
           return oidc.configureAuthority(() => managedRbac.run(request), requireLoginTarget());
         if (request.repoId && !loginTarget)
           throw hostCodedError("repo_namespace_unknown", "Select a registered repository for login.");
@@ -1339,8 +1344,25 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             auth.executionPrincipal?.personId,
           );
         }
-        if (request.operation === "listener-set") {
-          return oidc.configureAuthority(() => managedRbac.run(request), requireLoginTarget());
+        if (
+          request.operation === "listener-set" &&
+          managedListenerProblem(input.userRoot) !== undefined &&
+          auth.unixSocketOwnerBoundary !== undefined &&
+          !isDaemonSocketOwner(auth)
+        )
+          throw hostCodedError(
+            "authentication_required",
+            "Only the local daemon socket owner can repair a broken listener configuration.",
+          );
+        if (
+          request.operation === "listener-set" &&
+          managedListenerProblem(input.userRoot) !== undefined &&
+          !(loginTarget && readFleetEdgeConfig(loginTarget)) &&
+          (isDaemonSocketOwner(auth) || auth.unixSocketOwnerBoundary === undefined)
+        ) {
+          // Broken managed listener certificates prevent the managed identity provider from starting; fall through to local socket-owner recovery.
+        } else if (request.operation === "listener-set") {
+          return oidc.configureAuthority(() => managedRbac.run(request), loginTarget);
         }
         return requireAuthorizedHostAction({
           kind: "rbac-bootstrap",
@@ -1632,6 +1654,29 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   function settleControl(pending: DaemonControlReceipt, ok: boolean, error?: unknown): void {
     return settleControlImpl(extracted, pending, ok, error);
   }
+}
+
+function managedListenerProblem(userRoot: string): "missing_certificate" | "exposed_key" | undefined {
+  const configFile = path.join(userRoot, "rbac", "config.json");
+  if (!existsSync(configFile)) return undefined;
+  const config = JSON.parse(readFileSync(configFile, "utf8")) as unknown;
+  if (!config || typeof config !== "object") return undefined;
+  const record = config as {
+    readonly mode?: unknown;
+    readonly listener?: { readonly certificateFile?: unknown; readonly certificateKeyFile?: unknown };
+  };
+  if (record.mode !== "managed" || !record.listener || typeof record.listener !== "object") return undefined;
+  const { certificateFile, certificateKeyFile } = record.listener;
+  if (typeof certificateFile !== "string" || !existsSync(certificateFile) || !statSync(certificateFile).isFile())
+    return "missing_certificate";
+  if (
+    typeof certificateKeyFile !== "string" ||
+    !existsSync(certificateKeyFile) ||
+    !statSync(certificateKeyFile).isFile() ||
+    (statSync(certificateKeyFile).mode & 0o077) !== 0
+  )
+    return "exposed_key";
+  return undefined;
 }
 
 function edgeJoinOriginUrls(value: unknown): Readonly<Record<string, string>> | undefined {

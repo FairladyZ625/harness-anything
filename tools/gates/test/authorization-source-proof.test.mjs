@@ -1807,8 +1807,8 @@ test("RBAC service callbacks cannot detach from their actual authority or become
   for (const [id, from, to] of [
     [
       "85833909ab835513f6a37d3d00ce0f77:2",
-      'if (request.operation === "listener-set") {\n          return oidc.configureAuthority(() => managedRbac.run(request), requireLoginTarget());',
-      'if (request.operation === "listener-set") {\n          return Promise.resolve().then(() => managedRbac.run(request));',
+      'else if (request.operation === "listener-set") {\n          return oidc.configureAuthority(() => managedRbac.run(request), loginTarget);',
+      'else if (request.operation === "listener-set") {\n          return Promise.resolve().then(() => managedRbac.run(request));',
     ],
     [
       "85833909ab835513f6a37d3d00ce0f77:3",

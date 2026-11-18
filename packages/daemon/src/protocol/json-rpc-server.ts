@@ -1088,6 +1088,8 @@ function sessionIndependentRbacOperation(method: string, params: JsonObject): bo
     "edge-join",
     "edge-join-progress",
     "health",
+    "listener",
+    "listener-set",
     "login",
     "login-begin",
     "login-complete",
