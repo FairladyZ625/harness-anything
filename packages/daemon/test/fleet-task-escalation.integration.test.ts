@@ -278,6 +278,15 @@ test(
     assert.equal(afterRefusal.snapshot.task?.status, "blocked");
     assert.equal(afterRefusal.escalationContext, null);
 
+    // Pin the edge's materialization policy before the answer exists so a background pull
+    // can advance its replica cut without exposing the resolution on disk.
+    const materialization = await edgeHost.run(
+      fixture.subject.repoId,
+      { kind: "settings-update", taskMaterializationPolicy: "none" },
+      localAuthFixture(),
+    );
+    assert.equal(materialization.outcome, "applied", JSON.stringify(materialization));
+
     // The worker RPC mutates its connection auth; the CEO uses a fresh local session.
     const resolved = await fixture.host.run(
       fixture.subject.repoId,
@@ -335,6 +344,7 @@ test(
       localAuthFixture(),
     );
     assert.equal(fresh.outcome, "applied", JSON.stringify(fresh));
+    assert.equal(existsSync(rulingPath), false, "the new dispatch receives the answer without a local resolution file");
     const prompt = launchedPrompts.at(-1)!;
     assert.ok(prompt.includes(question));
     assert.ok(prompt.includes("Keep the boundary."));
