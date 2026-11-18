@@ -23,6 +23,7 @@ export function createDurableFollowerPublisher(input: {
   let closed = false,
     scheduled: Promise<void> | null = null,
     inFlight = false,
+    inFlightRevision = 0,
     rerunRequested = false,
     retry: NodeJS.Timeout | null = null,
     retryDelay: number = initialRetryMs,
@@ -73,23 +74,22 @@ export function createDurableFollowerPublisher(input: {
     retry.unref();
     retryDelay = Math.min(retryDelay * 2, maximumRetryMs);
   };
-  const request = (onlyWhenPending = false): Promise<void> => {
+  const request = (): Promise<void> => {
     if (closed) return Promise.resolve();
     if (retry) {
       clearTimeout(retry);
       retry = null;
-      onlyWhenPending = false;
     }
     if (scheduled) {
-      if (inFlight && !onlyWhenPending) rerunRequested = true;
+      if (inFlight && input.revision() > inFlightRevision) rerunRequested = true;
       return scheduled;
     }
-    if (onlyWhenPending && input.revision() <= input.checkpoint()) return Promise.resolve();
     scheduled = new Promise((resolve) =>
       setImmediate(async () => {
         inFlight = true;
         try {
           do {
+            inFlightRevision = input.revision();
             rerunRequested = false;
             if (input.publishAsync) await publishAsync();
             else publish();

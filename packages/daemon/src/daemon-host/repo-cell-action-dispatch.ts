@@ -74,7 +74,9 @@ async function runSettledAction<T>(
 ): Promise<T> {
   // Async Git/worktree publication runs outside the writer turn; settle pending revisions before
   // actions that compare on-disk authored files against the SQLite projection.
-  await cell.store.settlePendingMaterialization?.(settlementContext);
+  const health = cell.store.materializationHealth?.();
+  if (!health || health.pendingWalEvents > 0 || health.state !== "ok")
+    await cell.store.settlePendingMaterialization?.(settlementContext);
   return perform();
 }
 

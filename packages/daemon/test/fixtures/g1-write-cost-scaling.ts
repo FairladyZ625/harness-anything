@@ -42,6 +42,7 @@ import {
   type WriterEpochFenceDescriptor,
 } from "@harness-anything/storage";
 import { openWriterSupervisor } from "../../src/daemon-host/writer-supervisor.ts";
+import type { RepoCellStatus } from "../../src/daemon-host/repo-cell-types.ts";
 import { openRepoCell } from "../../src/daemon-host/repo-cell-open.ts";
 import { openBootstrappedRepoCell } from "../repo-settings.fixture.ts";
 import { serveKeycloak } from "../keycloak.fixtures.ts";
@@ -413,6 +414,15 @@ interface RequestHandle {
   readonly supervisor: Awaited<ReturnType<typeof openWriterSupervisor>>;
   readonly worker: Worker;
   readonly probes: readonly MessagePort[];
+  readonly waitSettled: () => Promise<void>;
+}
+
+function isMaterializationSettled(status: RepoCellStatus): boolean {
+  return (
+    status.materialization !== null &&
+    status.materialization.pendingWalEvents === 0 &&
+    status.materialization.state === "ok"
+  );
 }
 
 async function openProbedSupervisor(
@@ -423,6 +433,7 @@ async function openProbedSupervisor(
 ): Promise<RequestHandle> {
   const probeUrl = new URL("./g1-writer-probe-import.mjs", import.meta.url).href;
   const probes: MessagePort[] = [];
+  const statusListeners = new Set<(status: RepoCellStatus) => void>();
   const instrument = (options: WorkerOptions): WorkerOptions => {
     const channel = new MessageChannel();
     probes.push(channel.port1);
@@ -443,11 +454,36 @@ async function openProbedSupervisor(
         return worker;
       },
       connectHost: probedOrchestrationHost(instrument),
+      onPublishedStatus: (published) => {
+        for (const listener of statusListeners) listener(published);
+      },
     },
   );
   if (!capturedWorker) throw new Error("G1 probed worker was not captured");
   if (probes.length !== 2) throw new Error("G1 must instrument both canonical Writer and orchestration host");
-  return { supervisor, worker: capturedWorker, probes };
+  const waitSettled = async (): Promise<void> => {
+    if (isMaterializationSettled(supervisor.status())) return;
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        statusListeners.delete(onStatus);
+        reject(new Error(`Timed out waiting for G1 follower settlement: ${JSON.stringify(supervisor.status())}`));
+      }, 10_000);
+      const onStatus = (published: RepoCellStatus) => {
+        if (published.materialization?.state === "failed") {
+          clearTimeout(timer);
+          statusListeners.delete(onStatus);
+          reject(new Error(`G1 follower settlement failed: ${published.materialization.lastError ?? "unknown"}`));
+          return;
+        }
+        if (!isMaterializationSettled(published)) return;
+        clearTimeout(timer);
+        statusListeners.delete(onStatus);
+        resolve();
+      };
+      statusListeners.add(onStatus);
+    });
+  };
+  return { supervisor, worker: capturedWorker, probes, waitSettled };
 }
 
 function probeControl(worker: MessagePort, command: "reset" | "snapshot"): Promise<Record<string, number> | void> {
@@ -481,9 +517,9 @@ function writerMeasure(handle: RequestHandle): Measure {
   return async (run) => {
     await Promise.all(handle.probes.map((probe) => probeControl(probe, "reset")));
     const result = await run();
-    // DM-2 runs host Git/worktree publication asynchronously after canonical commit acknowledgment,
-    // so settle pending publication before snapshotting the combined writer + host counters.
-    await handle.supervisor.request("settlePendingMaterialization", "g1 measure settle");
+    // DM-2 runs host Git/worktree publication asynchronously after canonical commit acknowledgment;
+    // wait passively for the in-flight status notification when a write leaves pending WAL events.
+    await handle.waitSettled();
     const snapshots = (await Promise.all(handle.probes.map((probe) => probeControl(probe, "snapshot")))) as Counters[];
     const counters = Object.fromEntries(
       G1_METRICS.map((metric) => [metric, snapshots.reduce((sum, value) => sum + value[metric], 0)]),

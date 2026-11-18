@@ -681,7 +681,7 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
     materialize: (request?: MaterializationRequest) => publisher.publish(request ?? {}),
     materializationHealth: publisher.health,
     settlePendingMaterialization: async (_context: string) => {
-      await publisher.request(true);
+      await publisher.request();
     },
     request: () => {
       void publisher.request();
