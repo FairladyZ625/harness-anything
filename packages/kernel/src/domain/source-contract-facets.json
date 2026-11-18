@@ -628,6 +628,16 @@
             "flags": "u"
           }
         ]
+      },
+      {
+        "id": "automatic-rework-unclaimed",
+        "symbol": "packages/kernel/src/domain/task-execution-arrangement.ts#automaticReworkIsUnclaimed",
+        "inputs": ["TaskLifecycleSnapshot"],
+        "output": "boolean",
+        "failureCodes": [],
+        "explain": "Automatic rework yields to an owner arrangement, an outstanding lease or an already started execution in the returned iteration; check again at dispatch admission.",
+        "consumers": ["packages/daemon/src/task-return-dispatch.ts"],
+        "sources": []
       }
     ],
     "contracts": [
@@ -2720,13 +2730,35 @@
         ]
       },
       {
-        "id": "tools/check-supply-chain.mjs#validatePackageLock",
-        "symbol": "tools/check-supply-chain.mjs#validatePackageLock",
-        "explain": "Checks lockfile version, workspace package entries, and release metadata needed by audit and SBOM tooling.",
+        "id": "tools/check-supply-chain.mjs#validateDevInstances",
+        "symbol": "tools/check-supply-chain.mjs#validateDevInstances",
+        "explain": "Requires all lockfile instances of a reviewed package to be dev-only and within the registered version ceiling.",
         "sources": [
           {
-            "candidateId": "judgment:tools:tools/check-supply-chain.mjs#validatePackageLock:846b7ad85981aa0863c7bd9b6c048465",
+            "candidateId": "judgment:tools:tools/check-supply-chain.mjs#validateDevInstances:93dd6a8d9d82358608c68c301c2fa192",
+            "route": "tools/check-supply-chain.mjs#validateDevInstances"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-supply-chain.mjs#validatePackageLock",
+        "symbol": "tools/check-supply-chain.mjs#validatePackageLock",
+        "explain": "Checks lockfile and release metadata and indexes every instance of the reviewed dev packages.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-supply-chain.mjs#validatePackageLock:50458162328ce377d3e21bfeda79c2a9",
             "route": "tools/check-supply-chain.mjs#validatePackageLock"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-supply-chain.mjs#validatePatchAvailability",
+        "symbol": "tools/check-supply-chain.mjs#validatePatchAvailability",
+        "explain": "Rejects a reviewed dev advisory when the registry publishes a stable version above its registered ceiling.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-supply-chain.mjs#validatePatchAvailability:19d0a4aea9031f85825b64ef5bc3e4c7",
+            "route": "tools/check-supply-chain.mjs#validatePatchAvailability"
           }
         ]
       },
@@ -4075,7 +4107,18 @@
     ]
   },
   "runtime-session": {
-    "judgments": [],
+    "judgments": [
+      {
+        "id": "task-writer-conflict",
+        "symbol": "packages/kernel/src/domain/dispatch-lifecycle.ts#taskWriterConflict",
+        "inputs": ["readonly DispatchLifecycleView[]", "taskId: string"],
+        "output": "writer conflict or null",
+        "failureCodes": ["runtime_task_writer_conflict"],
+        "explain": "At center dispatch admission a task has at most one implementation process without accepted stop proof, across all instances and nodes. Releasing the task lease does not release this process reservation.",
+        "consumers": ["packages/daemon/src/runtime-dispatch-admission.ts"],
+        "sources": []
+      }
+    ],
     "contracts": [
       {
         "id": "kernel/src/domain/agent-runtime.ts#RuntimeSessionEntityV1.validateAgentRuntimePayloadFields",

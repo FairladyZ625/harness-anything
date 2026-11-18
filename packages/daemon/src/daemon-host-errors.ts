@@ -8,6 +8,18 @@ import { type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { type RepoTaskAction } from "./repo-cell-types.ts";
 import { scrubSecretText } from "./secret-scrub.ts";
 
+/** Keep execution fences intact while telling CLI and GUI callers where to act. */
+export function formatRejectionExplanation(code: string, message: string): string {
+  return scrubSecretText(
+    code === "execution_scope_mismatch"
+      ? message +
+          " For owner actions such as annotate or rework, run the same command on the center machine " +
+          "in this repository's canonical checkout, using your personal session outside an agent runtime. " +
+          "For execution-owned actions, use the assigned node and execution shown by `ha task show <task-id>`."
+      : message,
+  );
+}
+
 export function rejectHostAction(
   action: RepoTaskAction,
   errorCode: string,
@@ -21,9 +33,7 @@ export function rejectHostAction(
     origin: "daemon",
     evidence: `rejection:${errorCode}`,
     diagnostic: diagnostic ?? { kind: "failure", code: errorCode },
-    // The same receipt field every other rejection path uses; a host-caught error keeps its message,
-    // minus any credential, because this path does not pass through `rejectionExplanation()`.
-    rejectionExplanation: scrubSecretText(explanation),
+    rejectionExplanation: formatRejectionExplanation(errorCode, explanation),
   };
 }
 

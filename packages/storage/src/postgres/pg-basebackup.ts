@@ -69,23 +69,35 @@ export async function prepareSqlBaseBackup(
       );
       // Only objects claimed by this repository's events belong to its archive.
       const claimed = [
-          ...new Set(
-            events.flatMap((row) =>
-              contentClaims(JSON.parse(row.eventJson) as PersistedCanonicalEventV1).map((claim) => claim.sha256),
-            ),
+        ...new Set(
+          events.flatMap((row) =>
+            contentClaims(JSON.parse(row.eventJson) as PersistedCanonicalEventV1).map((claim) => claim.sha256),
           ),
-        ],
-        objects = (
+        ),
+      ];
+      if (input.mode === "split") {
+        const objects = !claimed.length
+          ? []
+          : (
+              await client.query<{ sha256: string; size: string | number }>(
+                "SELECT sha256,octet_length(body)::bigint AS size FROM ha_content_blobs WHERE tenant_id=$1 AND project_id=$2 AND sha256=ANY($3::text[])",
+                [scope.tenantId, scope.projectId, claimed],
+              )
+            ).rows.map((row) => ({ sha256: row.sha256, size: Number(row.size) }));
+        writeFileDurably(path.join(payload, "objects.json"), JSON.stringify(objects));
+      } else {
+        const objects = (
           await client.query<{ sha256: string; body: Buffer }>(
             "SELECT sha256,body FROM ha_content_blobs WHERE tenant_id=$1 AND project_id=$2 AND sha256=ANY($3::text[])",
             [scope.tenantId, scope.projectId, claimed],
           )
         ).rows;
-      for (const object of objects)
-        writeFileDurably(
-          path.join(store, "objects", "sha256", object.sha256.slice(0, 2), object.sha256.slice(2)),
-          object.body,
-        );
+        for (const object of objects)
+          writeFileDurably(
+            path.join(store, "objects", "sha256", object.sha256.slice(0, 2), object.sha256.slice(2)),
+            object.body,
+          );
+      }
       return metadata;
     },
     scope,

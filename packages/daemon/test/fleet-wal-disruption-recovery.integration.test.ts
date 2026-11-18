@@ -89,32 +89,55 @@ async function cuttingRelay(
     sockets.add(upstream);
     downstream.on("error", () => undefined);
     upstream.on("error", () => undefined);
-    let tail = "",
+    let pending = Buffer.alloc(0),
       objectHeaderSeen = false,
       forwarded = 0;
-    // Line-framed relay in both directions; the cut point is a whole JSON line the center sent.
+    // Frame-aware relay (handles both newline-delimited JSON and 0x00 binary data frames);
+    // the cut point is the first payload frame after `replica.object` that the center sent.
     upstream.on("data", (chunk: Buffer) => {
-      tail += chunk.toString("latin1");
-      for (;;) {
-        const end = tail.indexOf("\n");
+      pending = pending.length === 0 ? chunk : Buffer.concat([pending, chunk]);
+      while (pending.length > 0) {
+        if (pending[0] === 0x00) {
+          if (pending.length < 13) break;
+          const length = pending.readUInt32BE(9);
+          const total = 13 + length;
+          if (pending.length < total) break;
+          const frameBytes = pending.subarray(0, total);
+          pending = pending.subarray(total);
+          if (objectHeaderSeen && !cutDone) {
+            cutDone = true;
+            forwarded += frameBytes.length;
+            if (!downstream.destroyed) downstream.write(frameBytes);
+            fired({ bytes: forwarded });
+            downstream.destroy();
+            upstream.destroy();
+            return;
+          }
+          if (downstream.destroyed) return;
+          forwarded += frameBytes.length;
+          downstream.write(frameBytes);
+          continue;
+        }
+        const end = pending.indexOf(0x0a);
         if (end < 0) break;
-        const line = tail.slice(0, end + 1);
-        tail = tail.slice(end + 1);
+        const frameBytes = pending.subarray(0, end + 1);
+        const line = frameBytes.toString("utf8");
+        pending = pending.subarray(end + 1);
         if (!objectHeaderSeen && line.includes('"type":"replica.object"')) {
           objectHeaderSeen = true;
         } else if (objectHeaderSeen && !cutDone && line.includes('"type":"replica.data"')) {
           // Deliver exactly one payload frame, then drop: the object is now partially received.
           cutDone = true;
-          forwarded += line.length;
-          if (!downstream.destroyed) downstream.write(line, "latin1");
+          forwarded += frameBytes.length;
+          if (!downstream.destroyed) downstream.write(frameBytes);
           fired({ bytes: forwarded });
           downstream.destroy();
           upstream.destroy();
           return;
         }
         if (downstream.destroyed) return;
-        forwarded += line.length;
-        downstream.write(line, "latin1");
+        forwarded += frameBytes.length;
+        downstream.write(frameBytes);
       }
     });
     let resumeTail = "";

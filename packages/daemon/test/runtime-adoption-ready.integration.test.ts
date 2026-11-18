@@ -229,7 +229,7 @@ if(args[0]==="-C" && args[1]===${JSON.stringify(path.join(rootDir, "runtime-head
             },
             other,
           ),
-          /active execution lease|lease.*held|lease.*owner/iu,
+          { code: "runtime_task_writer_conflict", message: new RegExp(`runtimeSessionId=${sessions[0]}`, "u") },
         );
         const after = await cell.run({ kind: "task-show", taskId }, binding);
         assert.equal((after as Record<string, unknown>).summary, (before as Record<string, unknown>).summary);

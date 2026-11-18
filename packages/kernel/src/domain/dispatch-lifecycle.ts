@@ -733,6 +733,28 @@ export function dispatchAdmissionRefusal(input: {
   return dispatchAdmissionBlocker(input.instance, input);
 }
 
+/** A task lease release does not prove that its writer stopped touching the checkout. */
+export function taskWriterConflict(
+  active: readonly DispatchLifecycleView[],
+  taskId: string,
+): { readonly code: string; readonly message: string } | null {
+  const held = active.find(
+    ({ attempt }) =>
+      attempt.task?.taskId === taskId &&
+      attempt.task.role === "implementer" &&
+      attempt.task.leaseVersion !== null &&
+      attempt.stopProof !== "proven_stopped",
+  );
+  return held
+    ? {
+        code: "runtime_task_writer_conflict",
+        message:
+          `Task ${taskId} already has writer runtimeSessionId=${held.attempt.runtimeSessionId} ` +
+          `(dispatchId=${held.attempt.dispatchId}); wait for its accepted stop before dispatching again.`,
+      }
+    : null;
+}
+
 export type DispatchLifecycleQuery =
   | { readonly by: "dispatch"; readonly dispatchIds: readonly string[] }
   | { readonly by: "session"; readonly runtimeSessionId: string }
