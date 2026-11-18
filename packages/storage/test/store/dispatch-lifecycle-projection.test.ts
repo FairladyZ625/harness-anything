@@ -125,6 +125,98 @@ test("the lifecycle read model folds accepted runtime events and equals every re
   });
 });
 
+test("a v7 lifecycle cache refolds owner abandonment without claiming a physical stop", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const store = makeTaskEventStore({ repoId: "dispatch-owner-abandonment", rootDir }),
+      projection = makeTaskProjection({ rootDir, eventStore: store }),
+      admitted = requested("abandoned-dispatch", "abandoned-session"),
+      running = started("abandoned-session"),
+      terminal = outcome("abandoned-session", "unknown");
+    assert.ok(terminal.type === "runtime_session_outcome_observed");
+    const events = [
+      admitted,
+      running,
+      { ...terminal, payload: { ...terminal.payload, reasonCode: "ruling_resolved" } },
+    ];
+    for (const [index, input] of events.entries()) {
+      const revision = index + 1;
+      const event = {
+        ...input,
+        eventId: `event-lifecycle-${revision}`,
+        opId: `op-lifecycle-${revision}`,
+        workspaceRevision: revision,
+      };
+      store.append({
+        event,
+        plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId),
+        blobs: runtimeEventContentClaims(event).map((claim) => ({ ...claim, body: "" })),
+      });
+      projection.apply(event);
+    }
+    const query = { by: "session" as const, runtimeSessionId: "abandoned-session" },
+      online = projection.readDispatchLifecycle(query),
+      projectionPath = projection.path;
+    assert.ok(online.status === "ready");
+    assert.equal(online.rows[0]?.groupPhase, "closed");
+    assert.equal(online.rows[0]?.attempt.stopProof, "unproven");
+    projection.close();
+    // Cache rows captured by folding these events with origin/main bc4c1891fe (model v7).
+    const db = new DatabaseSync(projectionPath);
+    db.exec(`
+      DELETE FROM dispatch_lifecycle_cursor;
+      INSERT INTO dispatch_lifecycle_cursor VALUES (1, 3, 7);
+      DELETE FROM dispatch_lifecycle_attempt;
+      INSERT INTO dispatch_lifecycle_attempt VALUES ('abandoned-session', 'abandoned-dispatch', 'abandoned-dispatch');
+      DELETE FROM dispatch_lifecycle_group;
+    `);
+    db.prepare(
+      `
+      INSERT INTO dispatch_lifecycle_group
+        (attempt_group_id, phase, current_instance_id, current_execution_id, current_task_id, revision, group_json)
+      VALUES ('abandoned-dispatch', 'closed', 'codex-fixture', NULL, NULL, 3, ?)
+    `,
+    ).run(
+      JSON.stringify({
+        attemptGroupId: "abandoned-dispatch",
+        phase: "closed",
+        currentDispatchId: "abandoned-dispatch",
+        attempts: [
+          {
+            dispatchId: "abandoned-dispatch",
+            runtimeSessionId: "abandoned-session",
+            instanceId: "codex-fixture",
+            kindId: "codex",
+            fence: { owner: "node:node-a", verified: true, token: 1, epoch: 1 },
+            reservation: {
+              reservationId: "codex-fixture/abandoned-dispatch",
+              instanceId: "codex-fixture",
+              owner: "node:node-a",
+            },
+            task: null,
+            workspaceRef: null,
+            phase: "closed",
+            process: "alive",
+            stopProof: "proven_stopped",
+            outcome: "unknown",
+            admittedRevision: 1,
+            eventIds: ["event-lifecycle-1", "event-lifecycle-2", "event-lifecycle-3"],
+          },
+        ],
+        successor: { admissible: true, dueAt: null },
+        ruling: null,
+        delivery: { status: "unregistered", targetRef: null, targetDigest: null, registeredRevision: null },
+        revision: 3,
+      }),
+    );
+    db.close();
+    const reopened = makeTaskProjection({ rootDir, eventStore: store, projectionPath });
+    assert.deepEqual(reopened.readDispatchLifecycle(query), online);
+    reopened.close();
+    await store.drain();
+  });
+});
+
 test("active pages are bounded and point reads cap their key count", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);

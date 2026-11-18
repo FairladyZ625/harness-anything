@@ -1,5 +1,5 @@
 // harness-test-tier: fast
-import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -8,7 +8,6 @@ import path from "node:path";
 import test from "node:test";
 import {
   authenticateRuntimeExecutionCredential,
-  authenticateRuntimeExecutionPrincipal,
   issueRuntimeExecutionCredential,
   runtimeExecutionLifetimeMs,
   runtimeExecutionActor,
@@ -32,31 +31,9 @@ import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/versio
 import { executeRepoAction } from "../src/daemon-host/repo-cell-action-dispatch.ts";
 import { bindVerifiedExecutorClaim } from "../src/daemon-host/repo-cell-authorization.ts";
 import { BuiltinPolicyAdapter } from "@harness-anything/authorization-builtin";
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
-const center = {
-  provider: new KeycloakPolicyAdapter({
-    url: "http://realm.invalid",
-    realm: "harness",
-    resourceServerClientId: "harness-center",
-  }),
-  url: "http://realm.invalid",
-  realm: "harness",
-  clientId: "harness-center",
-  accessToken: "center-token",
-};
-const principal = () => ({
-  personId: "person-worker",
-  repoId: "repo",
-  runtimeSessionId: "runtime-worker",
-  dispatchId: "dispatch-worker",
-  taskId: "task-worker",
-  executionId: "execution-worker",
-  role: "implementation" as const,
-  source: "local" as const,
-  expiresAt: new Date(Date.now() + runtimeExecutionLifetimeMs - 1000).toISOString(),
-});
+import { center, principal, executionLifecycle } from "./runtime-execution-credential.fixtures.ts";
 
 test("built-in execution credentials use the identity provider without a Keycloak request", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "builtin-execution-credential-"));
@@ -219,7 +196,11 @@ test("independent Keycloak client authenticates only its secret, expiry, and cur
       credential.slice(0, -1) + (credential.endsWith("A") ? "B" : "A"),
       realm.fetch,
     ),
-    { code: "execution_credential_rejected", message: "Execution credential authentication was rejected." },
+    {
+      code: "execution_credential_rejected",
+      message:
+        /Execution credential authentication was rejected for implementation dispatch dispatch-worker\..*HTTP 401/u,
+    },
   );
   const response = await realm.fetch(
       `${center.url}/admin/realms/harness/clients?clientId=harness-execution-${p.dispatchId}`,
@@ -235,7 +216,7 @@ test("independent Keycloak client authenticates only its secret, expiry, and cur
   });
   await assert.rejects(authenticateRuntimeExecutionCredential(center, credential, realm.fetch), {
     code: "execution_credential_rejected",
-    message: "Execution credential is expired.",
+    message: /Execution credential for implementation dispatch .* expired at .*20\d\d-/u,
   });
   await edit({ enabled: false, attributes: { harness_execution: JSON.stringify(p) } });
   await assert.rejects(verifyRuntimeExecutionPrincipal(center, p, realm.fetch), {
@@ -1203,45 +1184,3 @@ test("execution credentials keep validator sources inside the dispatched reposit
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
-
-test("a cold center token before runtime execution authentication is a retryable identity outage", async () => {
-  const cold = Object.assign(new Error("Keycloak could not be reached to acquire a center token."), {
-    code: "daemon_error",
-    cause: Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }),
-  });
-  await assert.rejects(
-    authenticateRuntimeExecutionPrincipal(async () => {
-      throw cold;
-    }, "harness-execution-dispatch-worker:secret"),
-    (error: Error & { readonly code?: string }) => {
-      assert.equal(error.code, "keycloak_unavailable");
-      assert.match(error.message, /authenticating the runtime execution credential/u);
-      assert.equal(error.cause, cold);
-      return true;
-    },
-  );
-});
-
-function executionLifecycle(
-  projection: { readRuntimeSession: (id: string) => any; readRuntimeDispatch: (id: string) => any },
-  query: any,
-) {
-  const session = projection.readRuntimeSession(query.runtimeSessionId);
-  if (!session) return { status: "ready", watermark: 0, sourceRevision: 0, rows: [], nextCursor: null };
-  const dispatch = projection.readRuntimeDispatch(query.runtimeSessionId),
-    options = {
-      source: dispatch?.source ?? "local",
-      instanceId: "fixture",
-      dispatchId: dispatch?.payload.dispatchId ?? "missing",
-    },
-    events = [
-      lifecycleEvent("R", query.runtimeSessionId, options),
-      lifecycleEvent("S", query.runtimeSessionId, options),
-    ];
-  if (session.liveness === "exited") events.push(lifecycleEvent("X", query.runtimeSessionId, options));
-  if (session.outcome !== null && session.outcome !== undefined) {
-    const event = lifecycleEvent("O", query.runtimeSessionId, options);
-    events.push({ ...event, payload: { ...event.payload, outcome: session.outcome } } as never);
-  }
-  return dispatchLifecycleReadOf(() => events)(query);
-}

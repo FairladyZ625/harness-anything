@@ -8,7 +8,13 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { RuntimeDaemonRoute, RuntimeCallbackRelay, TrustedScheduleRuntime } from "./runtime-spawn-types.ts";
-import type { AgentRuntimeEventV1, CanonicalEventStore, SessionIdentity } from "@harness-anything/kernel";
+import type {
+  AgentRuntimeEventV1,
+  CanonicalEventStore,
+  DispatchLifecycleView,
+  SessionIdentity,
+} from "@harness-anything/kernel";
+import type { DispatchTerminalOutcome } from "./dispatch-stream.ts";
 import type { FallbackSettlement } from "./runtime-spawn-fallback.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RuntimeAttemptOutcome } from "./runtime-fallback-contract.ts";
@@ -45,6 +51,13 @@ export interface RuntimeEventPublication<T extends RuntimeEventType> {
   readonly event?: RuntimeEventOf<T>;
   readonly publication?: ReturnType<CanonicalEventStore["append"]>;
   readonly receipt?: JsonObject;
+}
+
+export interface RuntimeTerminalReplay {
+  readonly terminal: DispatchTerminalOutcome;
+  readonly attempt: Pick<ActiveRuntime, "runtimeSessionId" | "dispatchId" | "schedule" | "binding">;
+  readonly previous: DispatchLifecycleView;
+  readonly opId: string;
 }
 
 /** Closed composition contract shared by the runtime spawner's extracted helpers. */
@@ -85,7 +98,11 @@ export interface RuntimeSpawnerContext {
   ) => string;
   readonly resultMediaType: "text/plain; charset=utf-8";
   readonly launchExitNotification: typeof launchExitNotification;
-  readonly publishExit: (active: ActiveRuntime, code: number | null, resumePublishedExit?: boolean) => Promise<void>;
+  readonly publishExit: (
+    active: ActiveRuntime | RuntimeTerminalReplay,
+    code: number | null,
+    resumePublishedExit?: boolean,
+  ) => Promise<void>;
   /** Stops a runtime whose provider-reported consumption passed its frozen token limit and
    * settles the terminal outcome; a no-op once cancellation or settlement owns the runtime. */
   readonly enforceSpendCap: (active: ActiveRuntime) => Promise<void>;

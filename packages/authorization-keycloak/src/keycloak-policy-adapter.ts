@@ -173,7 +173,11 @@ export class KeycloakPolicyAdapter
       this.#fetch,
     );
   }
-  readExecutionPrincipal(token: string, dispatchId: string): Promise<RuntimeExecutionPrincipal> {
+  readExecutionPrincipal(
+    token: string,
+    dispatchId: string,
+    options?: { readonly hostSettlement?: boolean },
+  ): Promise<RuntimeExecutionPrincipal> {
     return readRuntimeExecutionPrincipal(
       {
         ...this.#config,
@@ -182,6 +186,7 @@ export class KeycloakPolicyAdapter
         request: (path, init, allowNotFound) => this.#request(token, path, init, allowNotFound),
       },
       dispatchId,
+      options,
     );
   }
   readonly sessionLifetimeBounds = sessionLifetimeBounds;

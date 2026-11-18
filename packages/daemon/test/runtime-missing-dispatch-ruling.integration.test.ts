@@ -41,6 +41,7 @@ function fixture(t: test.TestContext) {
     payload: Record<string, unknown>;
     opId: string;
     actor: RuntimeBinding["actor"];
+    source: RuntimeBinding["source"];
     body?: string;
   }> = [];
   const terminationAttempts = { terminate: 0, terminateTree: 0 };
@@ -120,7 +121,7 @@ function fixture(t: test.TestContext) {
       author: RuntimeBinding,
       body?: string,
     ) => {
-      published.push({ type, payload, opId, actor: author.actor, body });
+      published.push({ type, payload, opId, actor: author.actor, source: author.source, body });
       if (type === "runtime_session_outcome_observed") session.outcome = payload.outcome as "unknown";
       if (payload.reasonCode === "ruling_resolved") rulingResolved = true;
     },
@@ -316,5 +317,59 @@ for (const mission of ["implement", "review"] as const) {
       admitted,
     );
     assert.deepEqual(preparedInstances, [healthyId, definition.instanceId]);
+  });
+}
+
+test("center owner explicitly rules on an unreachable edge dispatch without probing its remote PID", async (t) => {
+  const f = fixture(t);
+  f.owner.processGroupPid = process.pid;
+  const context = { ...f.context, input: { ...f.context.input, runtimeNode: undefined } };
+  const owner: RuntimeBinding = { actor: { principal: binding.actor.principal, executor: null }, source: "local" };
+  await assert.rejects(cancelRuntime(context, { runtimeSessionId }, owner), { code: "execution_scope_mismatch" });
+  const receipt = await cancelRuntime(
+    context,
+    { runtimeSessionId, ruling: "Edge unreachable; abandon explicitly." },
+    owner,
+  );
+  assert.equal(receipt.detail, "ruling_resolved");
+  assert.equal(f.published.length, 1);
+  assert.equal(f.published[0]!.payload.reasonCode, "ruling_resolved");
+  assert.deepEqual(f.published[0]!.actor, owner.actor);
+  assert.deepEqual(f.published[0]!.source, binding.source);
+  const result = JSON.parse(f.published[0]!.body!);
+  assert.equal(result.disposition, "abandoned_unproven");
+  assert.equal(result.processStop, "unproven");
+  assert.deepEqual(result.actor, owner.actor);
+});
+
+for (const condition of ["foreign-person", "worker-credential", "stream", "active-owner"] as const) {
+  test(`center ruling still refuses ${condition}`, async (t) => {
+    const f = fixture(t);
+    const context = { ...f.context, input: { ...f.context.input, runtimeNode: undefined } };
+    let owner = { actor: { principal: binding.actor.principal, executor: null }, source: "local" as const };
+    if (condition === "foreign-person")
+      owner = { ...owner, actor: { principal: { personId: "foreign" }, executor: null } };
+    if (condition === "worker-credential") Object.assign(owner, { executionPrincipal: { dispatchId } });
+    if (condition === "stream")
+      openDispatchStream(f.rootDir, {
+        dispatchId,
+        runtimeSessionId,
+        taskId: null,
+        executionId: null,
+        instanceId: definition.instanceId,
+        startedAt: now,
+        binding,
+      });
+    if (condition === "active-owner")
+      context.processes.set(runtimeSessionId, {
+        process: { terminate: () => assert.fail("must not terminate a local owner") },
+      } as never);
+    await assert.rejects(cancelRuntime(context, { runtimeSessionId, ruling: "Unreachable edge." }, owner), {
+      code:
+        condition === "active-owner" || condition === "stream"
+          ? "runtime_ruling_not_allowed"
+          : "execution_scope_mismatch",
+    });
+    assert.deepEqual(f.published, []);
   });
 }

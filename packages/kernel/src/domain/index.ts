@@ -478,6 +478,8 @@ export {
   dispatchLifecycleView,
   dispatchLifecycleSummary,
   dispatchLifecycleHasPendingWork,
+  isDispatchAttemptCancelled,
+  isDispatchAttemptExitedUnsettled,
   dispatchOwner,
   dispatchOwnerForNode,
   previewDispatchLifecycleOutcome,

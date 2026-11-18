@@ -477,6 +477,8 @@ export const daemonRuntimeContractPolicy = {
     "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-settlement.ts#publishExit:7c42a91ec838576fd2546774501fafdd",
     "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-settlement.ts#publishExit:f9594f016439097ccbfe3a344b460bae",
     "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-settlement.ts#publishTerminalOutcome:80ea9e816f5f69e7809596f7cdce93ce",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-settlement.ts#publishTerminalOutcome:875c7b5a049b69c6982951470bac0d5b",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-settlement.ts#publishTerminalOutcome:d4e0ecf1cdc74250c7c15025b23ba5e6",
     "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.spawnClaimAttempt.openStream:9813dfc42c357216e3adb310aeb4cb6f",
     "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.spawnClaimAttempt.tokenLimit:66890bd5b7122be93c828738ed022d2b",
     "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.spawnClaimAttempt:a012a97a2ce4cbac0087d11ec1d1e41e",

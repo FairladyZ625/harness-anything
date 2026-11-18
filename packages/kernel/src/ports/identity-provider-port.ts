@@ -135,7 +135,11 @@ export interface AuthorizationExecutionCredentialPort {
     adminAccessToken: string,
     credential: string,
   ) => Promise<RuntimeExecutionPrincipal>;
-  readonly readExecutionPrincipal: (adminAccessToken: string, dispatchId: string) => Promise<RuntimeExecutionPrincipal>;
+  readonly readExecutionPrincipal: (
+    adminAccessToken: string,
+    dispatchId: string,
+    options?: { readonly hostSettlement?: boolean },
+  ) => Promise<RuntimeExecutionPrincipal>;
 }
 
 /** Online identity capabilities, bound by the trusted process composition root. */
