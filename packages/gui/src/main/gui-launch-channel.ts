@@ -447,6 +447,7 @@ export interface ReadinessWindowPort {
   getNativeWindowHandle(): { readonly length: number };
   once(event: "ready-to-show" | "closed", listener: () => void): void;
   readonly webContents: {
+    isDestroyed?(): boolean;
     isCrashed?(): boolean;
     on(
       event: "did-fail-load",
@@ -491,13 +492,25 @@ export function bindWindowReadiness(
   backgroundTest: boolean,
 ): WindowReadinessTracker {
   const tracker = createWindowReadinessTracker();
+  void loadPromise.catch((error: unknown) => {
+    const detail = error instanceof Error ? error.message : typeof error === "string" ? error : "Load failed.";
+    tracker.markFailed(`Failed to load GUI document: ${detail}`);
+  });
+  if (win.isDestroyed()) {
+    tracker.markFailed("GUI window was destroyed before finishing startup.");
+    return tracker;
+  }
+  // Capture webContents before "closed" fires: Electron destroys the BrowserWindow before
+  // dispatching "closed", so reading win.webContents inside that listener throws
+  // TypeError("Object has been destroyed").
+  const webContents = win.webContents;
   const markReadyIfHealthy = (showDesktop: boolean) => {
-    if (win.isDestroyed()) {
+    if (win.isDestroyed() || webContents.isDestroyed?.()) {
       tracker.markFailed("GUI window was destroyed before showing.");
       return;
     }
     if (tracker.failure() !== null) return;
-    if (win.webContents.isCrashed?.()) {
+    if (webContents.isCrashed?.()) {
       tracker.markFailed("GUI renderer crashed before showing.");
       return;
     }
@@ -506,7 +519,7 @@ export function bindWindowReadiness(
   };
 
   if (backgroundTest) {
-    win.webContents.once("did-finish-load", () => markReadyIfHealthy(false));
+    webContents.once("did-finish-load", () => markReadyIfHealthy(false));
   } else {
     win.once("ready-to-show", () => markReadyIfHealthy(true));
   }
@@ -528,16 +541,14 @@ export function bindWindowReadiness(
     }
   };
 
-  win.webContents.on("did-fail-load", onDidFailLoad);
-  win.webContents.on("render-process-gone", onRenderProcessGone);
+  webContents.on("did-fail-load", onDidFailLoad);
+  webContents.on("render-process-gone", onRenderProcessGone);
   win.once("closed", () => {
-    win.webContents.off?.("did-fail-load", onDidFailLoad);
-    win.webContents.off?.("render-process-gone", onRenderProcessGone);
+    if (!webContents.isDestroyed?.()) {
+      webContents.off?.("did-fail-load", onDidFailLoad);
+      webContents.off?.("render-process-gone", onRenderProcessGone);
+    }
     tracker.markFailed("GUI window closed before finishing startup.");
-  });
-  void loadPromise.catch((error: unknown) => {
-    const detail = error instanceof Error ? error.message : typeof error === "string" ? error : "Load failed.";
-    tracker.markFailed(`Failed to load GUI document: ${detail}`);
   });
   return tracker;
 }
