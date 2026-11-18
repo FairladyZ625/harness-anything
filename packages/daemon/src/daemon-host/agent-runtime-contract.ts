@@ -7,6 +7,9 @@ import type * as OperationalStatus from "@harness-anything/kernel/internal/domai
 import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import {
   validDispatchLifecycleSummary,
+  validEffectivePermissionMode,
+  validPermissionModeSource,
+  validRequestedPermissionMode,
   validTaskDispatchRow,
 } from "./protocol/daemon-protocol-validate-relation-query.ts";
 import {
@@ -14,7 +17,12 @@ import {
   type AgentRuntimeUnattributedGroupKey,
 } from "./protocol/daemon-protocol-vocabulary.ts";
 import type { TaskDispatchRow } from "./protocol/task-dispatch-contract.ts";
-import type { DispatchLifecycleSummary } from "@harness-anything/kernel";
+import type {
+  DispatchLifecycleSummary,
+  EffectiveRuntimePermissionMode,
+  EffectiveRuntimePermissionModeSource,
+  RuntimeLaunchPermissionMode,
+} from "@harness-anything/kernel";
 import type { RuntimeCapabilitySupport } from "../runtime-engine/runtime-inventory-types.ts";
 import { isRuntimeMcpPolicy, runtimeWebSearchModes } from "../runtime-engine/runtime-inventory.ts";
 import {
@@ -192,6 +200,12 @@ export interface AgentRuntimeSessionDto {
   readonly liveness: RuntimeLiveness;
   /** @deprecated Previous display word; remove 2026-12-07. */
   readonly semanticState?: RuntimeSessionSemanticState;
+  /** Absent only on previous-version peers; remove optionality 2026-12-07. */
+  readonly effectivePermissionMode?: EffectiveRuntimePermissionMode;
+  /** Absent only on previous-version peers; remove optionality 2026-12-07. */
+  readonly requestedPermissionMode?: RuntimeLaunchPermissionMode | null;
+  /** Absent only on previous-version peers; remove optionality 2026-12-07. */
+  readonly permissionModeSource?: EffectiveRuntimePermissionModeSource;
   readonly attachCapability: "supported" | "unsupported";
   readonly streamCursor: string | null;
   readonly associations: readonly AgentRuntimeAssociationDto[];
@@ -609,7 +623,18 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
         "associations",
         "activity",
       ],
-      ["installationState", "installationError", "semanticState", "attemptChain", "metrics", "context", "lifecycle"],
+      [
+        "installationState",
+        "installationError",
+        "semanticState",
+        "attemptChain",
+        "metrics",
+        "context",
+        "lifecycle",
+        "effectivePermissionMode",
+        "requestedPermissionMode",
+        "permissionModeSource",
+      ],
     ) &&
     typeof value.runtimeSessionId === "string" &&
     (value.providerSessionId === null || typeof value.providerSessionId === "string") &&
@@ -630,6 +655,9 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
     (value.lifecycle === undefined || validDispatchLifecycleSummary(value.lifecycle)) &&
     liveness.includes(String(value.liveness)) &&
     (value.semanticState === undefined || semanticStates.includes(String(value.semanticState))) &&
+    (value.effectivePermissionMode === undefined || validEffectivePermissionMode(value.effectivePermissionMode)) &&
+    (value.requestedPermissionMode === undefined || validRequestedPermissionMode(value.requestedPermissionMode)) &&
+    (value.permissionModeSource === undefined || validPermissionModeSource(value.permissionModeSource)) &&
     attachCapabilities.includes(String(value.attachCapability)) &&
     (value.streamCursor === null || /^stream:\d+$/u.test(String(value.streamCursor))) &&
     Array.isArray(value.associations) &&

@@ -20,6 +20,7 @@ import {
   runtimeSessionIdFromActor,
   submissionDigest,
   type AuthorizationDecision,
+  type RuntimePermissionModeSource,
 } from "@harness-anything/kernel";
 import {
   agentRuntimeModelMatches,
@@ -928,6 +929,16 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       installation = prepared.installation,
       declaredKindId = runtimeKindForId(definition.kindId).kindId,
       launchedPermissionMode = runtimePermissionMode(effectivePermissionMode, declaredKindId),
+      requestedPermissionMode =
+        permissionMode === undefined ? null : (runtimePermissionMode(permissionMode, declaredKindId) ?? null),
+      permissionModeSource: RuntimePermissionModeSource =
+        permissionMode !== undefined
+          ? "dispatch"
+          : agent?.permissionMode !== undefined
+            ? "agent"
+            : (runtimeInstance?.permissionMode ?? undefined) !== undefined
+              ? "instance"
+              : "default",
       launchedMcpPolicy = runtimeSupportsMcpPolicy(declaredKindId)
         ? (effectiveMcpPolicy ?? definition.mcpPolicy ?? "disabled")
         : undefined;
@@ -1122,6 +1133,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             ...(squad ? { squadId: squad.squadId } : {}),
             cwd,
             ...(dispatchRole ? { role: dispatchRole } : {}),
+            ...(launchedPermissionMode !== undefined ? { launchedPermissionMode } : {}),
+            requestedPermissionMode,
+            permissionModeSource,
             ...(decisionReviewTarget ? { decisionReviewTarget } : {}),
             ...(reviewerBinding && (reviewTarget?.submission ?? remoteTask?.reviewerSubmission)
               ? { reviewerSubmission: (reviewTarget?.submission ?? remoteTask?.reviewerSubmission)! }

@@ -193,3 +193,29 @@ are reported individually; the first successful launch preparation starts the wo
 links its actual runtime session, whose dispatch snapshot records the instance, runtime kind, and model.
 Existing provider fault/quota continuations share the ordinary Agent run implementation. Historical
 canonical events remain intact; the existing projection rebuild removes retired pins from cached definitions.
+
+## Effective permission mode provenance on dispatch reads
+
+At dispatch admission, `runtime_dispatch_requested` snapshots the launch permission decision on its
+payload:
+
+- `launchedPermissionMode`: `"read-only" | "workspace-write" | "bypass"` (the effective mode passed to the runtime adapter)
+- `requestedPermissionMode`: `"read-only" | "workspace-write" | "bypass" | null` (the explicit dispatch permission mode, or `null` when not explicitly requested)
+- `permissionModeSource`: `"dispatch" | "agent" | "instance" | "default"` (resolution precedence: dispatch override > agent declaration > runtime instance > default)
+
+Because these fields are captured at admission, later edits to the agent declaration or runtime
+instance configuration never rewrite the permission evidence of existing dispatches. The kernel
+lifecycle summary (`DispatchLifecycleSummary`) and public read surfaces —
+`repo.agentRuntime.sessions.read` (on both top-level `session` and `attemptChain.attempts[]`) and
+`repo.task.dispatches` (`dispatches[]`) — expose:
+
+- `effectivePermissionMode`: `"read-only" | "workspace-write" | "bypass" | "unknown"`
+- `requestedPermissionMode`: `"read-only" | "workspace-write" | "bypass" | null`
+- `permissionModeSource`: `"dispatch" | "agent" | "instance" | "default" | "unknown"`
+
+Historical `runtime_dispatch_requested` events that lack `launchedPermissionMode` always project as
+`effectivePermissionMode: "unknown"`, `requestedPermissionMode: null`, and
+`permissionModeSource: "unknown"`; readers never infer permission mode from current mutable
+configurations. JSON-RPC clients that opt into the current lifecycle wire contract via
+`protocol.dispatchLifecycle.enable` (performed automatically by `JsonRpcLineClient`) receive these
+fields on every session and dispatch read.

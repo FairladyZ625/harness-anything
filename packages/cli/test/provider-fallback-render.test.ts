@@ -311,3 +311,31 @@ test("a spawn or instance receipt renders only the effective native-search tier"
   });
   assert.match(instance.text, /^web search: cached$/mu);
 });
+
+test("dispatch row and runtime status render effective permission mode and source", () => {
+  const rowText = renderDispatchRow({
+    dispatchId: "dispatch-perm",
+    status: "dispatched",
+    runtimeSessionId: "runtime-perm",
+    provider: { instance: "codex-a", model: "gpt-5" },
+    lifecycle: { groupPhase: "running" },
+    effectivePermissionMode: "read-only",
+    requestedPermissionMode: "read-only",
+    permissionModeSource: "dispatch",
+  });
+  assert.match(rowText, /\tpermission:read-only\tpermission-source:dispatch\t/u);
+
+  const statusText = renderRuntimeStatus({
+    session: {
+      runtimeSessionId: "runtime-perm",
+      instanceId: "codex-a",
+      providerSessionId: "thread-perm",
+      lifecycle: { groupPhase: "running" },
+      activity: { outcome: "running", resultRef: null },
+      effectivePermissionMode: "workspace-write",
+      requestedPermissionMode: null,
+      permissionModeSource: "default",
+    },
+  });
+  assert.match(statusText, /^permission: workspace-write \(source: default, requested: -\)$/mu);
+});

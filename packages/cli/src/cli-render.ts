@@ -138,6 +138,12 @@ export function renderDispatchRow(value: unknown): string {
     `provider:${renderDispatchProvider(row)}`,
     `classification:${String(row.classification ?? "-")}`,
     `lifecycle:${renderLifecyclePhase(row.lifecycle)}`,
+    ...(row.effectivePermissionMode === undefined
+      ? []
+      : [
+          `permission:${String(row.effectivePermissionMode)}`,
+          ...(row.permissionModeSource === undefined ? [] : [`permission-source:${String(row.permissionModeSource)}`]),
+        ]),
     `activity:${String(row.activityStatus ?? "-")}`,
     `worker:${String(row.agentId ?? "-")}`,
     `leader:${String(row.delegatedByAgentId ?? "-")}`,

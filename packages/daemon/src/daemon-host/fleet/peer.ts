@@ -676,7 +676,15 @@ export async function readFleetOperationalClient(
           lifecycle = dispatchLifecycleSummary(
             read.status === "pending" ? read : { ...read, rows: view ? [view] : [] },
           );
-        dispatches[offset + index] = { ...row, lifecycle, status: lifecycle.displayStatus };
+        dispatches[offset + index] = {
+          ...row,
+          effectivePermissionMode: row.effectivePermissionMode ?? lifecycle.effectivePermissionMode,
+          requestedPermissionMode:
+            row.requestedPermissionMode !== undefined ? row.requestedPermissionMode : lifecycle.requestedPermissionMode,
+          permissionModeSource: row.permissionModeSource ?? lifecycle.permissionModeSource,
+          lifecycle,
+          status: lifecycle.displayStatus,
+        };
       });
     }
     return {
