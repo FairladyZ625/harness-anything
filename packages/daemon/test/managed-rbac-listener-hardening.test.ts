@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { X509Certificate } from "node:crypto";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import {
@@ -854,7 +855,7 @@ test("uploaded certificate validation enforces chain dates, issuer CA basic cons
 
     const validSelfSigned = ca.issueSelfSigned("center.example.test", "v3_leaf", validStart, validEnd),
       rootCa = ca.issueSelfSigned("root-ca", "v3_root", validStart, validEnd),
-      intermediateCa = ca.issueSigned("int-ca", "int-ca", rootCa, "v3_intermediate", validStart, validEnd),
+      intermediateCa = ca.issueSigned("int-ca", "Intermediate CA", rootCa, "v3_intermediate", validStart, validEnd),
       leafFromInt = ca.issueSigned("leaf-int", "center.example.test", intermediateCa, "v3_leaf", validStart, validEnd),
       leafFromRoot = ca.issueSigned("leaf-root", "center.example.test", rootCa, "v3_leaf", validStart, validEnd),
       expiredLeaf = ca.issueSigned("leaf-expired", "center.example.test", rootCa, "v3_leaf", pastStart, pastEnd),
@@ -897,7 +898,14 @@ test("uploaded certificate validation enforces chain dates, issuer CA basic cons
 
     const nestedCa = ca.issueSigned("nested", "nested-ca", intermediateCa, "v3_intermediate", validStart, validEnd),
       nestedLeaf = ca.issueSigned("leaf-nested", "center.example.test", nestedCa, "v3_leaf", validStart, validEnd),
-      rolloverCa = ca.issueSigned("rollover", "int-ca", intermediateCa, "v3_intermediate", validStart, validEnd),
+      rolloverCa = ca.issueSigned(
+        "rollover",
+        " INTERMEDIATE  CA ",
+        intermediateCa,
+        "v3_intermediate",
+        validStart,
+        validEnd,
+      ),
       rolloverLeaf = ca.issueSigned(
         "leaf-rollover",
         "center.example.test",
@@ -920,7 +928,21 @@ test("uploaded certificate validation enforces chain dates, issuer CA basic cons
         rolloverCa.pem,
         intermediateCa.pem,
         rootCa.pem,
-      ]);
+      ]),
+      rolloverIssuers = writeChain("rollover-issuers", [rolloverCa.pem, intermediateCa.pem]),
+      rolloverCert = new X509Certificate(rolloverCa.pem);
+    assert.notEqual(rolloverCert.subject, rolloverCert.issuer);
+    assert.equal(rolloverCert.checkIssued(rolloverCert), false);
+    execFileSync("openssl", [
+      "verify",
+      "-purpose",
+      "sslserver",
+      "-CAfile",
+      rootCa.certFile,
+      "-untrusted",
+      rolloverIssuers,
+      rolloverLeaf.certFile,
+    ]);
 
     let version = await managed.version();
     for (const [label, certFile, keyFile, certificateMode] of [

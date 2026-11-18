@@ -7,7 +7,7 @@ import { runtimeInstanceUsesCredential } from "./runtime-hosting-credentials.ts"
 import { markDaemonOperationPhase } from "./daemon-operation.ts";
 import type { FleetDeviceLoginNotice, TaskReviewDispatchFailureV1 } from "@harness-anything/kernel";
 import { readHomeOverview } from "./home/home-overview-read.ts";
-import { readFleetCenterConfig } from "./fleet-center-config.ts";
+import { readFleetCenterCertificatePaths, readFleetCenterConfig } from "./fleet-center-config.ts";
 import {
   keycloakNodeRegistry,
   prepareFleetCenterAdmission,
@@ -985,6 +985,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   const managedRbac =
     input.managedRbac ??
     createIdentityManagement(input.userRoot, {
+      protectedListenerPaths: () => readFleetCenterCertificatePaths(input.userRoot),
       ...(input.recordLifecycle ? { recordLifecycle: input.recordLifecycle } : {}),
     });
   const hostContext: DaemonHostApiContext = {

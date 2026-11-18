@@ -1456,10 +1456,10 @@
       {
         "id": "tls-listener-certificate-validation",
         "symbol": "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#validateCertificateChainAndKeyPair",
-        "explain": "ListenerCertificateChainAndKeyPair: Validates the PEM chain and issuer path length constraints, SubjectAltName coverage, and private key public-key match before activation.",
+        "explain": "ListenerCertificateChainAndKeyPair: Validates the PEM chain and issuer path length constraints using normalized distinguished names, SubjectAltName coverage, and private key public-key match before activation.",
         "sources": [
           {
-            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#validateCertificateChainAndKeyPair:5ec412376cf3e045f47057f47a61ef51",
+            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#validateCertificateChainAndKeyPair:ef371efdaeb476e575b564881dd86b64",
             "route": "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#validateCertificateChainAndKeyPair"
           }
         ]

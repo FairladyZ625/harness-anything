@@ -27,6 +27,7 @@ import { openRepoCell } from "../src/repo-cell-open.ts";
 import {
   fleetCenterConfigPath,
   parseFleetCenterExternalUrl,
+  readFleetCenterCertificatePaths,
   readFleetCenterConfig,
   saveFleetCenterConfig,
 } from "../src/fleet-center-config.ts";
@@ -626,6 +627,7 @@ function createManagedRbacFixture(userRoot: string, fetchPort: typeof fetch) {
   );
   writeFileSync(path.join(rbacRoot, "center-client-secret"), "fixture-secret");
   return createIdentityManagement(userRoot, {
+    protectedListenerPaths: () => readFleetCenterCertificatePaths(userRoot),
     fetch: fetchPort,
     platform: process.platform === "win32" ? "win32" : process.platform === "darwin" ? "darwin" : "linux",
     arch: process.arch === "x64" ? "x64" : "arm64",
@@ -741,6 +743,8 @@ test(
       expectedVersion: String(l1.version),
     });
     assert.equal(l2.ok, true);
+    const unusedPair = managedRbac.loginListenerCertificate();
+    assert.ok(unusedPair);
     assert.equal(existsSync(centerConfig.certPath), true);
     assert.equal(existsSync(centerConfig.keyPath), true);
 
@@ -760,7 +764,7 @@ test(
       keyPath: aliasKeyPath,
     });
 
-    // Switch RBAC login listener to self-signed and then loopback; center's uploaded-<gen1> pair still survives.
+    // The direct alias keeps the first pair but lets the unreferenced second pair be pruned.
     const l3 = await managedRbac.run({
       operation: "listener-set",
       certificateMode: "self-signed",
@@ -771,13 +775,34 @@ test(
     });
     assert.equal(existsSync(aliasCertPath), true);
     assert.equal(existsSync(aliasKeyPath), true);
+    assert.equal(existsSync(unusedPair.certificateFile), false);
 
-    await managedRbac.run({
+    const selfSignedPair = managedRbac.loginListenerCertificate();
+    assert.ok(selfSignedPair);
+    const generationHop = path.join(path.dirname(selfSignedPair.certificateFile), "current"),
+      chainedAlias = path.join(f.root, "fleet-through-old-listener"),
+      persistedCertPath = path.join(chainedAlias, path.basename(centerConfig.certPath)),
+      persistedKeyPath = path.join(chainedAlias, path.basename(centerConfig.keyPath));
+    symlinkSync(path.dirname(centerConfig.certPath), generationHop, "junction");
+    symlinkSync(generationHop, chainedAlias, "junction");
+    saveFleetCenterConfig(f.userRoot, "center-rotation-preserve", {
+      ...centerConfig,
+      externalUrl: extUrl,
+      certPath: persistedCertPath,
+      keyPath: persistedKeyPath,
+    });
+    assert.equal(existsSync(persistedCertPath), true);
+    assert.equal(existsSync(persistedKeyPath), true);
+
+    const reset = await managedRbac.run({
       operation: "listener-set",
       expectedVersion: String(l3.version),
     });
+    assert.equal(reset.ok, true);
     assert.equal(existsSync(centerConfig.certPath), true);
     assert.equal(existsSync(centerConfig.keyPath), true);
+    assert.equal(existsSync(persistedCertPath), true);
+    assert.equal(existsSync(persistedKeyPath), true);
     await initial.host.close();
 
     // Cold daemon restart runs ManagedRbacService.start() and restores fleet center without errors.
@@ -787,9 +812,10 @@ test(
       recordsAfterRestart.some((r) => r.event === "fleet_center_restore_failed"),
       false,
     );
+    assert.equal(readFleetCenterConfig(f.userRoot, "center-rotation-preserve")?.certPath, persistedCertPath);
     const state = await restored.host.fleet.readCenterState(auth);
     assert.equal(state.running, true);
-    await handshake(Number(state.port), aliasCertPath);
+    await handshake(Number(state.port), persistedCertPath);
     await restored.host.close();
   },
 );

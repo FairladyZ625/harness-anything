@@ -85,7 +85,6 @@ export function createIdentitySession(userRoot: string, ports: Partial<OidcSessi
 }
 
 import { ManagedRbacService, type ManagedRbacPorts } from "@harness-anything/authorization-keycloak";
-import { readFleetCenterCertificatePaths } from "./fleet-center-config.ts";
 import { runProcessText, runProcessTextAsync, runProcessExitAsync } from "./process-port.ts";
 import { mapListenerBindError, validateCertificateNames } from "./tls-listener-admission.ts";
 import { managedRbacReceiptJournal } from "./access-admin-state.ts";
@@ -101,7 +100,6 @@ export function createIdentityManagement(userRoot: string, ports: Partial<Manage
     {
       readArtifactActionScopes: readArtifactActionScopes(userRoot),
       auditLegacyRoleMigration: (receipt) => journal.append(JSON.stringify(receipt)),
-      protectedListenerPaths: () => readFleetCenterCertificatePaths(userRoot),
       ...ports,
     },
   );
