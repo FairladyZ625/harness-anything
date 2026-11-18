@@ -5,6 +5,23 @@ const PREDICATE_TYPE = "software-coding/verification-receipt/v1";
 const ROOT_RECEIPT_PATTERN = /^(?:(?!artifacts\/)[^/]+\/)*artifacts\/verification-receipt\.json$/u;
 const REQUIRED_FIELDS = ["commitSha", "passed", "failed", "timedOut", "unexecuted", "total"];
 const COUNT_FIELDS = ["passed", "failed", "timedOut", "unexecuted", "total"];
+const MAX_DIAGNOSTIC_CHARS = 512;
+
+function describeValue(value) {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (Array.isArray(value)) return `array(length=${value.length})`;
+  if (typeof value === "object") return "object";
+  if (typeof value === "string") {
+    return value.length <= 64 ? JSON.stringify(value) : `string(length=${value.length})`;
+  }
+  const text = String(value);
+  return text.length <= 64 ? text : `${typeof value}(length=${text.length})`;
+}
+
+function truncateText(text, maxChars = MAX_DIAGNOSTIC_CHARS) {
+  return text.length <= maxChars ? text : `${text.slice(0, maxChars - 3)}...`;
+}
 
 function emit(result, subjects, predicate, diagnostic) {
   console.log(
@@ -18,7 +35,7 @@ function emit(result, subjects, predicate, diagnostic) {
             subjects,
             predicateType: PREDICATE_TYPE,
             predicate,
-            diagnostic,
+            diagnostic: truncateText(diagnostic),
           },
         },
       ],
@@ -41,7 +58,7 @@ let receipt;
 try {
   receipt = JSON.parse(readFileSync(receiptSubject.file, "utf8"));
 } catch (error) {
-  const detail = error instanceof Error ? error.message : String(error);
+  const detail = truncateText(error instanceof Error ? error.message : String(error), 160);
   emit("fail", subjects, {}, `Invalid JSON in artifacts/verification-receipt.json: ${detail}`);
   process.exit(0);
 }
@@ -49,11 +66,6 @@ try {
 if (receipt === null || typeof receipt !== "object" || Array.isArray(receipt)) {
   emit("fail", subjects, {}, "artifacts/verification-receipt.json must contain a JSON object.");
   process.exit(0);
-}
-
-const predicate = {};
-for (const field of REQUIRED_FIELDS) {
-  if (Object.hasOwn(receipt, field)) predicate[field] = receipt[field];
 }
 
 const errors = [];
@@ -66,11 +78,11 @@ if (witnessInput.code !== null) {
   const expectedSha = witnessInput.code?.commitSha;
   if (typeof receipt.commitSha !== "string" || receipt.commitSha !== expectedSha) {
     errors.push(
-      `Receipt commitSha (${JSON.stringify(receipt.commitSha ?? null)}) does not match frozen commitSha (${String(expectedSha)}).`,
+      `Receipt commitSha (${describeValue(receipt.commitSha)}) does not match frozen commitSha (${String(expectedSha)}).`,
     );
   }
 } else if (Object.hasOwn(receipt, "commitSha") && receipt.commitSha !== null) {
-  errors.push(`Artifact-only submission requires commitSha to be null (got ${JSON.stringify(receipt.commitSha)}).`);
+  errors.push(`Artifact-only submission requires commitSha to be null (got ${describeValue(receipt.commitSha)}).`);
 }
 
 let countsValid = true;
@@ -82,7 +94,7 @@ for (const field of COUNT_FIELDS) {
   const value = receipt[field];
   if (!Number.isSafeInteger(value) || value < 0) {
     countsValid = false;
-    errors.push(`Field "${field}" must be a non-negative safe integer (got ${JSON.stringify(value)}).`);
+    errors.push(`Field "${field}" must be a non-negative safe integer (got ${describeValue(value)}).`);
   }
 }
 
@@ -104,7 +116,15 @@ if (countsValid) {
 }
 
 if (errors.length > 0) {
-  emit("fail", subjects, predicate, errors.join(" "));
+  emit("fail", subjects, {}, errors.join(" "));
 } else {
+  const predicate = {
+    commitSha: receipt.commitSha,
+    passed: receipt.passed,
+    failed: receipt.failed,
+    timedOut: receipt.timedOut,
+    unexecuted: receipt.unexecuted,
+    total: receipt.total,
+  };
   emit("pass", subjects, predicate, "Verification receipt verified: commitSha and four-state counts match frozen cut.");
 }

@@ -132,8 +132,26 @@ test("standard-task verified profile blocks missing, stale, folded, and mismatch
         JSON.stringify({ submit: missingSubmit, gateRun: missingRun, complete: missingComplete }),
     );
 
-    // 2. Stale commitSha (oldSha !== currentSha), bound to this cut's submissionDigest and runId
+    // 1b. Syntax-corrupted non-JSON receipt: host binding JSON.parse settles availability=unavailable/result=null and blocks complete
     const receiptPath = path.join(artifactsDir, "verification-receipt.json");
+    writeFileSync(receiptPath, "{");
+    await applied({ kind: "doc-submit", taskId });
+    const malformedSubmit = await applied({ kind: "task-submit", taskId, executionId, amend: true });
+    const malformedCut = latestSubmittedCut();
+    const malformedRun = settledRunForCut(malformedCut.digest);
+    assert.equal(malformedRun?.state, "completed");
+    assert.equal(malformedRun?.availability, "unavailable");
+    assert.equal(malformedRun?.result, null);
+    assert.equal(witnessForCut(malformedCut.digest), undefined);
+    const malformedComplete = await cell.run({ kind: "task-complete", taskId, executionId }, owner);
+    assert.equal(malformedComplete.outcome, "op_rejected");
+    assert.equal(malformedComplete.code, "gate_witness_missing");
+    console.log(
+      "VERIFIED_MALFORMED_JSON=" +
+        JSON.stringify({ submit: malformedSubmit, gateRun: malformedRun, complete: malformedComplete }),
+    );
+
+    // 2. Stale commitSha (oldSha !== currentSha), bound to this cut's submissionDigest and runId
     writeFileSync(
       receiptPath,
       JSON.stringify({ commitSha: oldSha, passed: 12, failed: 0, timedOut: 0, unexecuted: 0, total: 12 }),
@@ -198,6 +216,40 @@ test("standard-task verified profile blocks missing, stale, folded, and mismatch
     assert.equal(sumComplete.outcome, "op_rejected");
     assert.equal(sumComplete.code, "gate_witness_missing");
     console.log("VERIFIED_SUM_MISMATCH=" + JSON.stringify({ submit: sumSubmit, complete: sumComplete }));
+
+    // 4b. Oversized wrong-type field (40KB array commitSha): bounded fail witness (<1KB) instead of result_oversize/unavailable
+    writeFileSync(
+      receiptPath,
+      JSON.stringify({
+        commitSha: ["x".repeat(40_000)],
+        passed: 12,
+        failed: 0,
+        timedOut: 0,
+        unexecuted: 0,
+        total: 12,
+      }),
+    );
+    await applied({ kind: "doc-submit", taskId });
+    const oversizedSubmit = await applied({ kind: "task-submit", taskId, executionId, amend: true });
+    const oversizedCut = latestSubmittedCut();
+    const oversizedWitness = witnessForCut(oversizedCut.digest);
+    assert.ok(oversizedWitness, "expected completion_gate_verified bound to oversized-field cut");
+    const oversizedRun = currentGateRun(oversizedWitness.payload.execution, "verification-receipt")!;
+    assert.equal(oversizedRun.submissionDigest, oversizedCut.digest);
+    assert.equal(oversizedRun.availability, "available");
+    assert.equal(oversizedRun.result, "fail");
+    assert.equal(oversizedWitness.payload.witness.provenance?.runId, oversizedRun.runId);
+    assert.equal(oversizedWitness.payload.witness.result, "fail");
+    assert.deepEqual(oversizedWitness.payload.witness.predicate, {});
+    assert.match(oversizedWitness.payload.witness.diagnostic, /array\(length=1\)/u);
+    assert.ok(
+      Buffer.byteLength(JSON.stringify(oversizedWitness.payload.witness)) <= 4096,
+      "expected bounded fail witness well below 64KiB cap",
+    );
+    const oversizedComplete = await cell.run({ kind: "task-complete", taskId, executionId }, owner);
+    assert.equal(oversizedComplete.outcome, "op_rejected");
+    assert.equal(oversizedComplete.code, "gate_witness_missing");
+    console.log("VERIFIED_OVERSIZED_FIELD=" + JSON.stringify({ submit: oversizedSubmit, complete: oversizedComplete }));
 
     // 5. 455+ frozen artifacts + earlier-sorting archive alias + valid root receipt -> ~600B pass & task complete succeeds
     const bulkDir = path.join(artifactsDir, "bulk");

@@ -222,6 +222,21 @@ test("verify-receipt script rejects missing, archive-only, malformed, and invali
       "fail",
     );
 
+    // 5. Oversized wrong-type field -> bounded fail witness (empty predicate, frame <= 1024B)
+    writeFileSync(
+      badFile,
+      JSON.stringify({ commitSha: ["x".repeat(40_000)], passed: 1, failed: 0, timedOut: 0, unexecuted: 0, total: 1 }),
+    );
+    const oversizedField = runScript({
+      schema: "witness-input/v1",
+      code: { commitSha, directory: "input/code" },
+      subjects: [{ path: "artifacts/verification-receipt.json", revision: 1, blobSha256, file: badFile }],
+    });
+    assert.equal(oversizedField.result, "fail");
+    assert.deepEqual(oversizedField.predicate, {});
+    assert.match(oversizedField.diagnostic, /array\(length=1\)/u);
+    assert.ok(Buffer.byteLength(JSON.stringify(oversizedField)) <= 1024);
+
     writeFileSync(
       badFile,
       JSON.stringify({ commitSha: null, passed: 3, failed: 0, timedOut: 0, unexecuted: 0, total: 3 }),

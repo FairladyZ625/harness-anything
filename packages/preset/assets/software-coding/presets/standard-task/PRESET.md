@@ -41,4 +41,5 @@ Requirements enforced by `standard-task/verify-receipt` and `software-coding/ver
 - All six fields are required;
 - `passed + failed + timedOut + unexecuted === total` and `total > 0`;
 - `failed === 0`, `timedOut === 0`, and `unexecuted === 0` (no folded timeouts/skipped tests);
-- For code submissions, `commitSha` must equal the frozen submission commit SHA.
+- For code submissions, `commitSha` must equal the frozen submission commit SHA;
+- Missing or syntax-corrupted non-JSON receipts settle as `unavailable` during host binding readout, while valid-JSON schema/type/SHA/count violations emit a bounded `fail` witness; both block `ha task complete`.
