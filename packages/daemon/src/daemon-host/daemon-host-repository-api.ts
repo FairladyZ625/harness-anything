@@ -1000,6 +1000,7 @@ export function createDaemonHostRepositoryApi(
       }
     },
     read: async (repoId, method, payload, auth) => {
+      const signal = auth.connectionSignal;
       const repositoryRead = repositoryReadDescriptor(method, payload);
       const edge =
         (method.startsWith("repo.") || (method === "observe.tail" && payload.kind === "events")) &&
@@ -1057,7 +1058,7 @@ export function createDaemonHostRepositoryApi(
         const cell = context.cells.get(repoId);
         if (cell && (method === "repo.gui.catalog.snapshot" || method === "repo.gui.catalog.preset.read")) {
           // Installed presets/adapters/files are node-local; defaults come from one authorized replica cut.
-          const settings = await cell.read("repo.settings.read", {}, binding),
+          const settings = await cell.read("repo.settings.read", {}, binding, signal),
             frame = settings as typeof settings & RepositoryReadFrame,
             catalog = openGuiCatalog({ repoId, rootDir: edge.canonicalRoot, readSettings: () => settings.settings }),
             result =
@@ -1083,11 +1084,12 @@ export function createDaemonHostRepositoryApi(
               payload,
               { userRoot: context.input.userRoot, daemonId: context.input.daemonId },
               binding,
+              signal,
             ),
           );
         if (!cell || !isRepoCellReadMethod(method))
           throw context.hostCodedError("replica_unavailable", `${method} has no edge replica query.`);
-        const read = await cell.read(method, payload, readBinding),
+        const read = await cell.read(method, payload, readBinding, signal),
           at = context.now(),
           stuck = method === "repo.agenda.read" ? context.runtimeRecoveryWatch.stuck(repoId, at) : [];
         // Runtime recovery is this node's own work, so its stuck runtimes join the agenda here.
@@ -1132,16 +1134,17 @@ export function createDaemonHostRepositoryApi(
           repoId,
           binding,
           now: new Date().toISOString(),
-          settings: (await cell.read("repo.settings.read", {}, binding)).settings,
-          page: (query) => cell.read("repo.tasks.list", query, binding),
+          settings: (await cell.read("repo.settings.read", {}, binding, signal)).settings,
+          page: (query) => cell.read("repo.tasks.list", query, binding, signal),
           readTask: async (taskId) =>
-            (await cell.read("repo.tasks.runtimeContext.read", { taskId }, binding)).snapshot.task,
+            (await cell.read("repo.tasks.runtimeContext.read", { taskId }, binding, signal)).snapshot.task,
           readAssignments: async () =>
             (
               await cell.read(
                 "repo.triadic.relationGraph",
                 { facet: "edges", relationType: "assigned-to", state: "active", limit: 500 },
                 binding,
+                signal,
               )
             ).edges,
         });
@@ -1150,7 +1153,8 @@ export function createDaemonHostRepositoryApi(
           repoId,
           `task/${String(payload.taskId)}`,
           binding,
-          async (taskId) => (await cell.read("repo.tasks.runtimeContext.read", { taskId }, binding)).snapshot.task,
+          async (taskId) =>
+            (await cell.read("repo.tasks.runtimeContext.read", { taskId }, binding, signal)).snapshot.task,
         );
       else if (method === "observe.tail")
         result = await cell.observeTail(
@@ -1160,6 +1164,7 @@ export function createDaemonHostRepositoryApi(
             daemonId: context.input.daemonId,
           },
           binding,
+          signal,
         );
       else if (method === "repo.gui.catalog.snapshot") result = await cell.catalog.snapshot();
       else if (method === "repo.gui.catalog.preset.read") {
@@ -1177,6 +1182,7 @@ export function createDaemonHostRepositoryApi(
               ?.mode ?? "local",
           cell,
           binding,
+          signal,
           fleetReplicas: (fleetStatus?.replicas ?? []).filter((replica) => replica.repoId === repoId),
           nodeSessions: fleetStatus?.nodeSessions ?? [],
           keycloakCenter: context.keycloakCenter,
@@ -1202,6 +1208,7 @@ export function createDaemonHostRepositoryApi(
             ? { ...payload, limit: payload.limit ?? 500 }
             : payload,
           readBinding,
+          signal,
         );
       }
       return parseDaemonGuiReadResult(method, result);

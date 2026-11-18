@@ -1,16 +1,20 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
+import { PassThrough } from "node:stream";
 import { Worker } from "node:worker_threads";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { openRepoCellProxy } from "../src/daemon-host/repo-cell-proxy.ts";
 import { openRepoReadClient, REPO_READ_WORKERS, REPO_READ_QUEUE_LIMIT } from "../src/daemon-host/repo-read-pool.ts";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { isJsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
+import { serveJsonRpcStream } from "../src/daemon-host/transport/json-rpc-stream.ts";
 import { initIngressRepo, rpc } from "./fixtures/runtime-ingress.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { registerBootstrappedDaemonRepo, openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
@@ -33,11 +37,12 @@ test(
     signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
     registerBootstrappedDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
     let workers = 0;
+    let onReadIssued: (() => void) | undefined;
     const host = await openDaemonHost({
       daemonId: "read-isolation",
       userRoot,
-      openCell: (input) =>
-        openRepoCellProxy(input, {
+      openCell: async (input) => {
+        const cell = await openRepoCellProxy(input, {
           createReadWorker: (_url, options) => {
             workers++;
             return new Worker(new URL("./fixtures/read-barrier-worker.ts", import.meta.url), {
@@ -45,7 +50,15 @@ test(
               workerData: { ...options.workerData, barrier: barrier.buffer },
             });
           },
-        }),
+        });
+        const read = cell.read;
+        const trackedRead: typeof read = (...args) => {
+          const result = read(...args);
+          onReadIssued?.();
+          return result;
+        };
+        return Object.assign(cell, { read: trackedRead });
+      },
     });
     const auth = { transportKind: "unix-socket" as const };
     const pending: Promise<unknown>[] = [];
@@ -93,40 +106,113 @@ test(
       const metrics = { statusP99: p99(status), helloP99: p99(hello), writeP99: p99(writes) };
       assert.ok(metrics.statusP99 < 1000 && metrics.helloP99 < 1000, JSON.stringify(metrics));
       t.diagnostic(JSON.stringify(metrics));
-      // Queue admission is tested through the same production pool, independent of transport auth.
-      const cell = await openRepoCellProxyForQueue();
-      try {
-        const reads = Array.from({ length: REPO_READ_QUEUE_LIMIT }, () => cell.read("repo.workspace.summary.read"));
-        pending.push(...reads);
-        await assert.rejects(
-          cell.read("repo.workspace.summary.read"),
-          (error: unknown) =>
-            (error as { code: string; data: { retryable: boolean } }).code === "read_overloaded" &&
-            (error as { data: { retryable: boolean } }).data.retryable,
-        );
-        const overloaded = await rpc(host, auth, "repo.workspace.summary.read", { repo: { repoId } });
-        assert.equal(overloaded.code, "read_overloaded");
-        assert.match(String(overloaded.rejectionExplanation), /retry/u);
-        assert.equal(workers, REPO_READ_WORKERS);
-      } finally {
-        Atomics.store(barrier, 0, 0);
-        Atomics.store(barrier, 2, 1);
-        Atomics.notify(barrier, 2);
-        await Promise.all(pending);
-        await cell.close();
-      }
+      await t.test("disconnect frees a full queue for a live client while every worker is still busy", async () => {
+        const overload = Promise.withResolvers<void>(),
+          input = new PassThrough(),
+          output = new PassThrough(),
+          hello = {
+            jsonrpc: "2.0" as const,
+            id: 0,
+            method: "protocol.hello",
+            params: { protocolVersion: currentDaemonProtocolVersion },
+          },
+          batch = Array.from({ length: REPO_READ_QUEUE_LIMIT + 1 }, (_, index) => ({
+            jsonrpc: "2.0" as const,
+            id: index + 1,
+            method: "repo.workspace.summary.read",
+            params: { repo: { repoId } },
+          }));
+        output.resume();
+        const connection = serveJsonRpcStream({
+          input,
+          output,
+          transportKind: "unix-socket",
+          authContext: auth,
+          createProtocolServer: (authContext, emit, connectionId, connectionSignal) =>
+            createJsonRpcProtocolServer({
+              host,
+              build: { commit: null },
+              authContext: { ...authContext, connectionSignal },
+              emit,
+              connectionId,
+              recordTraffic: ({ code }) => {
+                if (code === "read_overloaded") overload.resolve();
+              },
+            }),
+        });
+        const live = createJsonRpcProtocolServer({
+          host,
+          build: { commit: null },
+          authContext: auth,
+          emit: async () => undefined,
+        });
+        try {
+          input.write(JSON.stringify(hello) + "\n" + JSON.stringify(batch) + "\n");
+          await overload.promise;
+          const queueProbe = openRepoReadClient({
+            repoId: repoId as never,
+            rootDir: root as never,
+            ownerId: "queue-test",
+          });
+          try {
+            await assert.rejects(queueProbe.request("read", ["repo.workspace.summary.read", {}]), {
+              code: "read_overloaded",
+              data: { retryable: true },
+            });
+          } finally {
+            await queueProbe.close();
+          }
+          const disconnected = once(input, "close");
+          input.destroy();
+          await disconnected;
+          await live.handle(hello);
+          const issued = Promise.withResolvers<void>();
+          let remaining = batch.length;
+          onReadIssued = () => {
+            if (--remaining === 0) issued.resolve();
+          };
+          const results = live.handle(batch);
+          pending.push(results);
+          await issued.promise;
+          assert.equal(
+            Atomics.load(barrier, 1),
+            REPO_READ_WORKERS,
+            "all four workers are still in their original reads",
+          );
+          Atomics.store(barrier, 2, 1);
+          Atomics.notify(barrier, 2);
+          const responses = await results;
+          assert.ok(Array.isArray(responses));
+          const replies = responses.map((response) => {
+            assert.ok("result" in response && isJsonObject(response.result));
+            return response.result;
+          });
+          const admitted = replies.filter((reply) => reply.ok === true);
+          assert.equal(admitted.length, REPO_READ_QUEUE_LIMIT, "the live client can fill all newly free queue slots");
+          const refused = replies.filter((reply) => reply.code === "read_overloaded");
+          assert.equal(refused.length, 1);
+          assert.match(String(refused[0]!.rejectionExplanation), /retry/u);
+          assert.equal(
+            Atomics.load(barrier, 1),
+            REPO_READ_WORKERS + REPO_READ_QUEUE_LIMIT,
+            "abandoned reads never start",
+          );
+          assert.equal(workers, REPO_READ_WORKERS);
+          await Promise.all(pending);
+        } finally {
+          onReadIssued = undefined;
+          Atomics.store(barrier, 2, 1);
+          Atomics.notify(barrier, 2);
+          live.close();
+          await connection.close();
+        }
+      });
     } finally {
       Atomics.store(barrier, 2, 1);
       Atomics.notify(barrier, 2);
       await Promise.allSettled(pending);
       await host.close();
       rmSync(parent, { recursive: true, force: true });
-    }
-    async function openRepoCellProxyForQueue() {
-      // Reuse the already attached cell through the public openCell seam without a second writer.
-      const { openRepoReadClient } = await import("../src/daemon-host/repo-read-pool.ts");
-      const client = openRepoReadClient({ repoId: repoId as never, rootDir: root as never, ownerId: "queue-test" });
-      return { read: (method: string) => client.request("read", [method, {}]), close: client.close };
     }
   },
 );

@@ -427,6 +427,7 @@ export interface RepoCell {
     method: M,
     payload?: Readonly<Record<string, unknown>>,
     binding?: RepoCellBinding,
+    signal?: AbortSignal,
   ) => Promise<DaemonGuiReadResultMap[M]>;
   readonly readDispatchLifecycle: (
     query: import("@harness-anything/kernel").DispatchLifecycleQuery,
@@ -448,6 +449,7 @@ export interface RepoCell {
     payload: unknown,
     daemon: { readonly userRoot: string; readonly daemonId: string },
     binding?: RepoCellBinding,
+    signal?: AbortSignal,
   ) => Promise<ObserveTailResult>;
   readonly replica: ReplicaCutSource;
   readonly verifyReadiness: () => Promise<{
