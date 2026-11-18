@@ -124,6 +124,25 @@ function pathCode(value: string): string {
   return `${delimiter}${encoded}${delimiter}`;
 }
 
+// PR paths are a display projection; the frozen submission keeps the authoritative full lists.
+// Bound encoded UTF-16 characters too: 150 long paths can still exceed GitHub's 65,536 limit.
+const MAX_INLINE_CHANGED_FILES = 150,
+  MAX_INLINE_PATH_CHARACTERS = 16_000;
+
+function renderInlinePaths(paths: readonly string[], omittedDescription: string): readonly string[] {
+  const lines: string[] = [];
+  let characters = 0;
+  for (const filePath of paths.slice(0, MAX_INLINE_CHANGED_FILES)) {
+    const line = `  - ${pathCode(filePath)}`;
+    if (characters + line.length + 1 > MAX_INLINE_PATH_CHARACTERS) break;
+    lines.push(line);
+    characters += line.length + 1;
+  }
+  const remaining = paths.length - lines.length;
+  if (remaining > 0) lines.push(`  - ... (${remaining} more ${omittedDescription})`);
+  return paths.length ? lines : ["  - none"];
+}
+
 /** The single machine rendering of frozen delivery facts; the renderer and every publication use it. */
 export function renderSubmissionFacts(
   submission: SubmissionV1,
@@ -146,7 +165,7 @@ export function renderSubmissionFacts(
       `- Delivery commit: ${inlineCode(submission.commitSha)}`,
       "- Legacy submission facts: this historical cut predates frozen changedFiles and productionDelta.",
       "- Changed paths (stored delivery evidence):",
-      ...(files.length ? files.map((filePath) => `  - ${pathCode(filePath)}`) : ["  - none"]),
+      ...renderInlinePaths(files, `files in commit diff; total ${files.length} changed files`),
       "- Production delta: unavailable on this legacy cut.",
     ].join("\n");
   const delta = facts.productionDelta;
@@ -167,9 +186,15 @@ export function renderSubmissionFacts(
     deleted = delta.deleted as number,
     net = added - deleted,
     unclassified = delta.unclassified.length
-      ? ["- G33 unclassified production paths:", ...delta.unclassified.map((entry) => `  - ${pathCode(entry)}`)]
+      ? [
+          "- G33 unclassified production paths:",
+          ...renderInlinePaths(
+            delta.unclassified.length > MAX_INLINE_CHANGED_FILES ? [...delta.unclassified].sort() : delta.unclassified,
+            `unclassified paths; total ${delta.unclassified.length} unclassified paths`,
+          ),
+        ]
       : ["- G33 classification: complete."],
-    changed = files.length ? files.map((filePath) => `  - ${pathCode(filePath)}`) : ["  - none"];
+    changed = renderInlinePaths(files, `files in commit diff; total ${files.length} changed files`);
   return [
     "## Delivery Facts",
     `- Delivery commit: ${inlineCode(submission.commitSha)}`,

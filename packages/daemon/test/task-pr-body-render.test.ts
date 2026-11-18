@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import type { SubmissionV1, TaskProjectionQueries } from "@harness-anything/kernel";
+import { checkPrBody } from "../../../tools/check-pr-body.mjs";
 import { checkPrGovernance } from "../../../tools/check-pr-governance.mjs";
 import { publishTaskWorkerBranch } from "../src/runtime-task-publication.ts";
 import { taskPrBodyRenderer } from "../src/task-pr-body-render.ts";
@@ -44,7 +45,7 @@ Rendered from the frozen cut.
 
 ## Residual Risk
 
-- None.
+- GitHub CI remains the authority for platform coverage.
 
 ## 摘要
 
@@ -469,4 +470,37 @@ test("terminal settlement without the renderer keeps the legacy body (negative c
     false,
     "without the renderer the settlement body remains lint-red",
   );
+});
+
+test("the daemon publishes a bounded body for a 2000-file frozen cut and keeps all verification prose", async (context) => {
+  const { fixture, frozen } = publication(context, "pr-body-render-large"),
+    files = Array.from(
+      { length: 2000 },
+      (_, index) =>
+        `packages/kernel/refactor/${String(index).padStart(5, "0")}/component-with-a-long-name-for-the-cut.ts`,
+    ),
+    cut = { ...frozen, changedFiles: files },
+    before = structuredClone(cut),
+    renderBody = await taskPrBodyRenderer({
+      rootDir: fixture.canonical,
+      projection: projection(cut.commitSha!),
+      taskId,
+      submission: cut,
+    }),
+    posted: { body: string }[] = [];
+  assert.ok(renderBody);
+  captureCreate(context, posted);
+  const input = hostingInput(fixture, cut);
+  await publishTaskWorkerBranch({ ...input, pullRequest: { ...input.pullRequest, renderBody } });
+  assert.equal(posted.length, 1);
+  const body = posted[0]!.body;
+  assert.ok(body.length < 20000, `posted body has ${body.length} characters`);
+  assert.ok(body.includes(files[149]!));
+  assert.ok(!body.includes(files[150]!));
+  assert.match(body, /1850 more files in commit diff; total 2000 changed files/u);
+  assert.match(body, /Targeted test passed\./u);
+  assert.match(body, /定向测试通过。/u);
+  assert.deepEqual(cut, before);
+  const lint = checkPrBody(body, { prTemplate: template });
+  assert.equal(lint.ok, true, lint.issues.join("\n"));
 });
