@@ -67,6 +67,27 @@ export function openPgWriterEpoch(options: {
       }
     };
   };
+  const fenceForAsync = (lane: string): NonNullable<PersistentWriterEpoch["withFollowerFenceAsync"]> => {
+    let queue: Promise<void> = Promise.resolve();
+    return async (repoId, epoch, holder, operation) => {
+      const previous = queue;
+      let release!: () => void;
+      queue = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await previous;
+      try {
+        execute("begin", repoId, epoch, holder, undefined, lane);
+        try {
+          return await operation();
+        } finally {
+          execute("end", repoId, undefined, holderId, undefined, lane);
+        }
+      } finally {
+        release();
+      }
+    };
+  };
   const appendFence = fenceFor("append");
   return {
     acquire: (repoId, floor = 0) => {
@@ -81,6 +102,7 @@ export function openPgWriterEpoch(options: {
     assert: (repoId, epoch, holder = holderId) => appendFence(repoId, epoch, holder, () => undefined),
     withAppendFence: appendFence,
     withFollowerFence: fenceFor("follower"),
+    withFollowerFenceAsync: fenceForAsync(options.storage.backend === "postgres" ? "follower-async" : "follower"),
     close: () => {
       for (const reader of readers.values()) reader.close();
       readers.clear();

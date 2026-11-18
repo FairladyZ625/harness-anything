@@ -76,18 +76,26 @@ export function executeRepoAction(
   // doc sync has one writer: publishing a DocEventIntent. Its catalog binding (document/*) names the
   // stream for Policy and explanations, never a second compile path, so it stays ahead of the generic
   // catalog runtime below.
-  if (isDocAction(action.kind))
-    return runDocAction({
-      action,
-      binding,
-      workspaceId: cell.input.repoId,
-      rootDir: cell.rootDir,
-      store: cell.store,
-      projection: cell.projection,
-      nodeTaskMaterializationPolicy: cell.input.nodeTaskMaterializationPolicy,
-      now: cell.now,
-      killpoint: cell.input.killpoint,
-    });
+  if (isDocAction(action.kind)) {
+    const runDoc = () =>
+      runDocAction({
+        action,
+        binding,
+        workspaceId: cell.input.repoId,
+        rootDir: cell.rootDir,
+        store: cell.store,
+        projection: cell.projection,
+        nodeTaskMaterializationPolicy: cell.input.nodeTaskMaterializationPolicy,
+        now: cell.now,
+        killpoint: cell.input.killpoint,
+      });
+    if (action.kind === "doc-materialize")
+      return (async () => {
+        await cell.store.settlePendingMaterialization?.("doc materialize");
+        return runDoc();
+      })();
+    return runDoc();
+  }
   if (["runtime-handoff-export", "runtime-handoff-claim", "runtime-handoff-revoke"].includes(action.kind))
     return runRuntimeHandoffAction(cell, action, binding);
   if (

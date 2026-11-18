@@ -13,7 +13,11 @@ import type { HarnessLayout } from "@harness-anything/kernel/internal/layout/ind
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { decisionDirectoryFiles } from "./decision-directory-settlement.ts";
 import { ledgerAuthoredPath, ledgerGitPath, type LedgerGitLayout } from "./ledger-git-layout.ts";
-import { localGitObjectRefStore, localGitWorktreeSettlement } from "./local-version-control-system.ts";
+import {
+  localGitObjectRefStore,
+  localGitObjectRefStoreAsync,
+  localGitWorktreeSettlement,
+} from "./local-version-control-system.ts";
 import { openSqliteEventStore } from "./sqlite-event-store.ts";
 import {
   followerFiles,
@@ -141,6 +145,26 @@ export function settlementRows(
   });
 }
 
+export function listParentTreePaths(ledger: LedgerGitLayout, authoredRef: string, parent?: string): readonly string[] {
+  const commit = parent ?? localGitObjectRefStore.resolveCommit(ledger.rootDir, authoredRef);
+  return localGitObjectRefStore
+    .listTree(ledger.rootDir, commit, [ledgerGitPath(ledger, "").replace(/\/$/u, "") || "."])
+    .map(({ target }) => ledgerAuthoredPath(ledger, target));
+}
+
+export async function listParentTreePathsAsync(
+  ledger: LedgerGitLayout,
+  authoredRef: string,
+  parent?: string,
+): Promise<readonly string[]> {
+  const commit = parent ?? (await localGitObjectRefStoreAsync.resolveCommit(ledger.rootDir, authoredRef));
+  return (
+    await localGitObjectRefStoreAsync.listTree(ledger.rootDir, commit, [
+      ledgerGitPath(ledger, "").replace(/\/$/u, "") || ".",
+    ])
+  ).map(({ target }) => ledgerAuthoredPath(ledger, target));
+}
+
 /**
  * The closure file read every materialize mode shares — the whole-cut settling pass, its preview, and a
  * named-path restore — so each operator-facing selection classifies the same files the pass would settle.
@@ -155,136 +179,140 @@ export function closureFiles(
   skipUnchanged = false,
   reconcileNodePolicy = false,
   preserveExistingOnly = false,
+  precomputedParentPaths?: readonly string[],
 ): {
   readonly events: readonly CanonicalEventV1[];
   readonly files: readonly (PublicationWrite | PublicationDelete)[];
   readonly recoveredBaseline?: ReadonlyMap<string, string>;
 } {
-  const pending = from === 0 ? [] : readPendingEvents(context.sqlite, from);
-  // Creation owns a new planned package, included by both disk-enabled node policies.
-  // The append boundary already validates its claims; no prior terminal owner can be released.
-  if (
-    from > 0 &&
-    pending.length &&
-    pending.every(
-      (event) =>
-        (isTaskBootstrapEvent(event) || (isTaskEvent(event) && event.type === "task_created")) &&
-        taskIncludedByNodeMaterializationPolicy("in_flight", event.payload.task),
+  const currentLedger = context.ledger(),
+    needsTreePaths = (Boolean(context.readMaterializationDocuments) && from === 0) || skipUnchanged,
+    existingPaths =
+      precomputedParentPaths !== undefined
+        ? needsTreePaths
+          ? precomputedParentPaths
+          : []
+        : needsTreePaths
+          ? listParentTreePaths(currentLedger, context.authoredRef())
+          : [];
+  return context.sqlite.readSnapshot(() => {
+    const pending = from === 0 ? [] : readPendingEvents(context.sqlite, from, accepted.revision);
+    // Creation owns a new planned package, included by both disk-enabled node policies.
+    // The append boundary already validates its claims; no prior terminal owner can be released.
+    if (
+      from > 0 &&
+      pending.length &&
+      pending.every(
+        (event) =>
+          (isTaskBootstrapEvent(event) || (isTaskEvent(event) && event.type === "task_created")) &&
+          taskIncludedByNodeMaterializationPolicy("in_flight", event.payload.task),
+      )
     )
-  )
-    return {
-      events: pending,
-      files: followerFiles(
-        context.ledger(),
-        pending,
+      return {
+        events: pending,
+        files: followerFiles(
+          currentLedger,
+          pending,
+          context.readContent,
+          accepted,
+          context.sqlite.metadata().generation,
+        ),
+      };
+    const unchangedPaths = new Set(skipUnchanged ? existingPaths : []),
+      existingPathSet = new Set(existingPaths),
+      recoveredBaseline = new Map<string, string>(),
+      previouslyMaterializedManagedPaths =
+        context.readMaterializationDocuments && from === 0
+          ? existingPaths.filter(
+              (path) => projectionManagedPath(path) && context.sqlite.documentHead(path) !== undefined,
+            )
+          : [];
+    if (context.readMaterializationDocuments && from === 0) {
+      for (const logical of decisionDirectoryFiles(context.layout().decisionsRoot)) {
+        if (existingPathSet.has(logical)) continue;
+        const head = context.sqlite.documentHead(logical, true);
+        if (!head || head === "retired") continue;
+        const target = ledgerGitPath(currentLedger, logical),
+          node = localGitWorktreeSettlement.readNode(`${currentLedger.rootDir}/${target}`);
+        if (!node || node.mode !== "100644") continue;
+        const matches =
+          node.sha256 === head.sha256 ||
+          (logical.endsWith(".md") && sha256Text(node.body.replace(/\r\n?/gu, "\n")) === head.sha256);
+        if (!matches) continue;
+        previouslyMaterializedManagedPaths.push(logical);
+        recoveredBaseline.set(target, worktreeFingerprint(node));
+      }
+    }
+    const projectionDocuments = context.readMaterializationDocuments?.(
+      includePolicySkippedPaths,
+      from > 0 ? from : undefined,
+      accepted.revision,
+      previouslyMaterializedManagedPaths,
+      reconcileNodePolicy,
+    );
+    if (context.readMaterializationDocuments && projectionDocuments === null)
+      throw new TaskEventStoreError(
+        "publication_indeterminate",
+        "materialization projection has not reached the accepted cut",
+      );
+    if (projectionDocuments !== undefined && projectionDocuments !== null) {
+      const events = pending,
+        previousPaths = new Set(previouslyMaterializedManagedPaths),
+        indexed = new Map(
+          projectionDocuments
+            .filter((document) => !preserveExistingOnly || previousPaths.has(document.path))
+            .map((document) => [
+              document.path,
+              {
+                sha256: document.retired ? null : document.blobSha256,
+                size: document.retired ? null : document.size,
+                nodeKind: "file" as const,
+              },
+            ]),
+        ),
+        staleManagedHeads = previouslyMaterializedManagedPaths
+          .filter((path) => !indexed.has(path))
+          .map((path) => ({ path, sha256: null, size: null, nodeKind: null })),
+        heads = [
+          ...[...indexed].map(([path, value]) => ({
+            path,
+            ...value,
+            nodeKind: (() => {
+              const head = context.sqlite.documentHead(path);
+              return head && head !== "retired" ? head.nodeKind : ("file" as const);
+            })(),
+          })),
+          ...staleManagedHeads,
+          ...events
+            .flatMap((event) => canonicalDocumentRetirements(event))
+            .filter(({ path }) => !indexed.has(path))
+            .map(({ path }) => ({ path, sha256: null, size: null, nodeKind: null })),
+        ];
+      const files = followerFilesFromDocumentHeads(
+        currentLedger,
+        heads.filter((head) => head.sha256 === null || !unchangedPaths.has(head.path)),
         context.readContent,
         accepted,
         context.sqlite.metadata().generation,
-      ),
-    };
-  const currentLedger = context.ledger(),
-    existingPaths =
-      (context.readMaterializationDocuments && from === 0) || skipUnchanged
-        ? localGitObjectRefStore
-            .listTree(
-              currentLedger.rootDir,
-              localGitObjectRefStore.resolveCommit(currentLedger.rootDir, context.authoredRef()),
-              [ledgerGitPath(currentLedger, "").replace(/\/$/u, "") || "."],
-            )
-            .map(({ target }) => ledgerAuthoredPath(currentLedger, target))
-        : [],
-    unchangedPaths = new Set(skipUnchanged ? existingPaths : []),
-    existingPathSet = new Set(existingPaths),
-    recoveredBaseline = new Map<string, string>(),
-    previouslyMaterializedManagedPaths =
-      context.readMaterializationDocuments && from === 0
-        ? existingPaths.filter((path) => projectionManagedPath(path) && context.sqlite.documentHead(path) !== undefined)
-        : [];
-  if (context.readMaterializationDocuments && from === 0) {
-    for (const logical of decisionDirectoryFiles(context.layout().decisionsRoot)) {
-      if (existingPathSet.has(logical)) continue;
-      const head = context.sqlite.documentHead(logical, true);
-      if (!head || head === "retired") continue;
-      const target = ledgerGitPath(currentLedger, logical),
-        node = localGitWorktreeSettlement.readNode(`${currentLedger.rootDir}/${target}`);
-      if (!node || node.mode !== "100644") continue;
-      const matches =
-        node.sha256 === head.sha256 ||
-        (logical.endsWith(".md") && sha256Text(node.body.replace(/\r\n?/gu, "\n")) === head.sha256);
-      if (!matches) continue;
-      previouslyMaterializedManagedPaths.push(logical);
-      recoveredBaseline.set(target, worktreeFingerprint(node));
+      );
+      return { events: from === 0 ? bootstrapBaselineEvents(context, files) : events, files, recoveredBaseline };
     }
-  }
-  const projectionDocuments = context.readMaterializationDocuments?.(
-    includePolicySkippedPaths,
-    from > 0 ? from : undefined,
-    accepted.revision,
-    previouslyMaterializedManagedPaths,
-    reconcileNodePolicy,
-  );
-  if (context.readMaterializationDocuments && projectionDocuments === null)
-    throw new TaskEventStoreError(
-      "publication_indeterminate",
-      "materialization projection has not reached the accepted cut",
-    );
-  if (projectionDocuments !== undefined && projectionDocuments !== null) {
-    const events = pending,
-      previousPaths = new Set(previouslyMaterializedManagedPaths),
-      indexed = new Map(
-        projectionDocuments
-          .filter((document) => !preserveExistingOnly || previousPaths.has(document.path))
-          .map((document) => [
-            document.path,
-            {
-              sha256: document.retired ? null : document.blobSha256,
-              size: document.retired ? null : document.size,
-              nodeKind: "file" as const,
-            },
-          ]),
-      ),
-      staleManagedHeads = previouslyMaterializedManagedPaths
-        .filter((path) => !indexed.has(path))
-        .map((path) => ({ path, sha256: null, size: null, nodeKind: null })),
-      heads = [
-        ...[...indexed].map(([path, value]) => ({
-          path,
-          ...value,
-          nodeKind: (() => {
-            const head = context.sqlite.documentHead(path);
-            return head && head !== "retired" ? head.nodeKind : ("file" as const);
-          })(),
-        })),
-        ...staleManagedHeads,
-        ...events
-          .flatMap((event) => canonicalDocumentRetirements(event))
-          .filter(({ path }) => !indexed.has(path))
-          .map(({ path }) => ({ path, sha256: null, size: null, nodeKind: null })),
-      ];
-    const files = followerFilesFromDocumentHeads(
-      context.ledger(),
-      heads.filter((head) => head.sha256 === null || !unchangedPaths.has(head.path)),
-      context.readContent,
-      accepted,
-      context.sqlite.metadata().generation,
-    );
-    return { events: from === 0 ? bootstrapBaselineEvents(context, files) : events, files, recoveredBaseline };
-  }
-  if (from === 0) {
-    const files = followerFilesFromDocumentHeads(
-      context.ledger(),
-      context.sqlite.documentHeads().filter((head) => head.sha256 === null || !unchangedPaths.has(head.path)),
-      context.readContent,
-      accepted,
-      context.sqlite.metadata().generation,
-    );
-    return { events: bootstrapBaselineEvents(context, files), files };
-  }
-  const events = pending;
-  return {
-    events,
-    files: followerFiles(context.ledger(), events, context.readContent, accepted, context.sqlite.metadata().generation),
-  };
+    if (from === 0) {
+      const files = followerFilesFromDocumentHeads(
+        currentLedger,
+        context.sqlite.documentHeads().filter((head) => head.sha256 === null || !unchangedPaths.has(head.path)),
+        context.readContent,
+        accepted,
+        context.sqlite.metadata().generation,
+      );
+      return { events: bootstrapBaselineEvents(context, files), files };
+    }
+    const events = pending;
+    return {
+      events,
+      files: followerFiles(currentLedger, events, context.readContent, accepted, context.sqlite.metadata().generation),
+    };
+  });
 }
 
 /** Birth preimages are one indexed point per current Task, not a replay of its history. */
@@ -323,18 +351,26 @@ export function restoreRequestedDocuments(
   context: MaterializeStoreContext,
   logicals: readonly string[],
 ): MaterializationReceipt {
-  const accepted = context.cut(),
-    currentLedger = context.ledger(),
-    parent = localGitObjectRefStore.resolveCommit(currentLedger.rootDir, context.authoredRef());
-  if (accepted.revision === 0)
-    throw new TaskEventStoreError("invalid_store", "no accepted ledger cut exists to restore from");
-  // The named selection still reads the whole closure — the same start the whole-cut pass settles from —
-  // because any document in the cut may be named.
-  const canonical = new Map(
-      closureFiles(context, accepted, 0, logicals).files.flatMap((file) =>
-        "target" in file ? [[ledgerAuthoredPath(currentLedger, file.target), file] as const] : [],
-      ),
-    ),
+  const currentLedger = context.ledger(),
+    parent = localGitObjectRefStore.resolveCommit(currentLedger.rootDir, context.authoredRef()),
+    parentTreePaths = context.readMaterializationDocuments
+      ? listParentTreePaths(currentLedger, context.authoredRef(), parent)
+      : undefined,
+    { accepted, canonical } = context.sqlite.readSnapshot(() => {
+      const accepted = context.cut();
+      if (accepted.revision === 0)
+        throw new TaskEventStoreError("invalid_store", "no accepted ledger cut exists to restore from");
+      // The named selection still reads the whole closure — the same start the whole-cut pass settles from —
+      // because any document in the cut may be named.
+      return {
+        accepted,
+        canonical: new Map(
+          closureFiles(context, accepted, 0, logicals, false, false, false, parentTreePaths).files.flatMap((file) =>
+            "target" in file ? [[ledgerAuthoredPath(currentLedger, file.target), file] as const] : [],
+          ),
+        ),
+      };
+    }),
     restored = restoreCanonicalDocumentSelection({
       ledger: currentLedger,
       layout: context.layout(),

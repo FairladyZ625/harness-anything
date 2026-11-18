@@ -202,6 +202,8 @@ export interface SqliteEventStore {
     readonly revisionBound?: number;
     readonly limit: number;
   }) => readonly CanonicalEventV1[];
+  /** Runs multi-statement SQLite queries inside one frozen deferred WAL read transaction. */
+  readonly readSnapshot: <A>(run: () => A) => A;
   readonly close: () => void;
 }
 export interface GenerationTwoActivationV2 {

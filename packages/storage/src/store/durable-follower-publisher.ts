@@ -13,6 +13,7 @@ const initialRetryMs = storageReadPolicy.defaultValue.backoff.followerInitial,
 /** Serializes detached publication and retries from the publisher's durable checkpoint. */
 export function createDurableFollowerPublisher(input: {
   readonly publish: (request?: MaterializationRequest) => MaterializationReceipt;
+  readonly publishAsync?: (request?: MaterializationRequest) => Promise<MaterializationReceipt>;
   readonly withFence?: WriteFence;
   readonly revision: () => number;
   readonly checkpoint: () => number;
@@ -21,6 +22,8 @@ export function createDurableFollowerPublisher(input: {
 }) {
   let closed = false,
     scheduled: Promise<void> | null = null,
+    inFlight = false,
+    rerunRequested = false,
     retry: NodeJS.Timeout | null = null,
     retryDelay: number = initialRetryMs,
     lastError: string | undefined,
@@ -37,8 +40,10 @@ export function createDurableFollowerPublisher(input: {
       ...(lastError ? { reason: "deterministic_failure", lastError } : {}),
     };
   };
-  const publish = (request?: MaterializationRequest) => {
-    const receipt = input.publish(request);
+  const completePublish = (
+    receipt: MaterializationReceipt,
+    request?: MaterializationRequest,
+  ): MaterializationReceipt => {
     if (!request?.preview) {
       // A takeover after the last mutation (or on a no-op certified cut) must not report success.
       // Actual mutations fence themselves; no publication I/O runs in this final ownership check.
@@ -49,6 +54,14 @@ export function createDurableFollowerPublisher(input: {
       input.onHealthChange?.(health());
     }
     return receipt;
+  };
+  const publish = (request?: MaterializationRequest): MaterializationReceipt => {
+    const receipt = input.publish(request);
+    return completePublish(receipt, request);
+  };
+  const publishAsync = async (request?: MaterializationRequest): Promise<MaterializationReceipt> => {
+    const receipt = await (input.publishAsync ? input.publishAsync(request) : input.publish(request));
+    return completePublish(receipt, request);
   };
 
   const scheduleRetry = () => {
@@ -66,20 +79,30 @@ export function createDurableFollowerPublisher(input: {
       clearTimeout(retry);
       retry = null;
     }
-    if (scheduled) return scheduled;
+    if (scheduled) {
+      if (inFlight) rerunRequested = true;
+      return scheduled;
+    }
     scheduled = new Promise((resolve) =>
-      setImmediate(() => {
-        scheduled = null;
+      setImmediate(async () => {
+        inFlight = true;
         try {
-          publish();
+          do {
+            rerunRequested = false;
+            if (input.publishAsync) await publishAsync();
+            else publish();
+          } while (rerunRequested);
         } catch (error) {
           consumeKnownError(error);
           lastError = error instanceof Error ? error.message : String(error);
           input.onFailure?.(lastError);
           input.onHealthChange?.(health());
           scheduleRetry();
+        } finally {
+          inFlight = false;
+          scheduled = null;
+          resolve();
         }
-        resolve();
       }),
     );
     return scheduled;

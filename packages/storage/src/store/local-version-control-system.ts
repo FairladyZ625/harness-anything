@@ -1,6 +1,7 @@
 import {
   /* @gate-identity check-sync-subprocess/sync-subprocess-014 */
   execFileSync,
+  spawn,
 } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -349,6 +350,87 @@ function withStdinFile<T>(
     localRuntimeStateFileSystem.remove(temporaryPath);
   }
 }
+async function spawnGitBytesAsync(
+  repoRoot: string,
+  args: readonly string[],
+  input?: Uint8Array | Iterable<string | Uint8Array>,
+  stdinPrefix = ".ha-git-stdin-",
+): Promise<Buffer> {
+  localGitProcesses += 1;
+  const invocation = gitInvocation(repoRoot, args);
+  const spawnChild = (inputDescriptor?: number) =>
+    spawn(invocation.command, invocation.args, {
+      stdio: [inputDescriptor !== undefined ? inputDescriptor : "ignore", "pipe", "pipe"],
+      windowsHide: true,
+      ...(process.platform === "win32" ? { windowsVerbatimArguments: true } : {}),
+    });
+  // spawn() duplicates inherited file descriptors into the child synchronously, so closing and
+  // unlinking the spool inside withStdinFile after spawn returns preserves full stdin delivery.
+  const inputChunks = input === undefined ? undefined : input instanceof Uint8Array ? [input] : input;
+  const child = inputChunks
+    ? withStdinFile(repoRoot, stdinPrefix, inputChunks, (inputFd) => spawnChild(inputFd))
+    : spawnChild();
+  return await new Promise<Buffer>((resolve, reject) => {
+    const stdoutChunks: Buffer[] = [],
+      stderrChunks: Buffer[] = [];
+    let stdoutBytes = 0,
+      stderrBytes = 0,
+      settled = false;
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdoutBytes += chunk.byteLength;
+      if (stdoutBytes > gitMaxBuffer) {
+        child.kill("SIGKILL");
+        fail(
+          new VcsCommandError({
+            command: args[0] ?? "command",
+            cwd: repoRoot,
+            stderrSummary: "git output exceeded maxBuffer",
+          }),
+        );
+        return;
+      }
+      stdoutChunks.push(chunk);
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderrBytes += chunk.byteLength;
+      if (stderrBytes <= gitMaxBuffer) stderrChunks.push(chunk);
+    });
+    child.on("error", (error) => {
+      fail(
+        new VcsCommandError({
+          command: args[0] ?? "command",
+          cwd: repoRoot,
+          exitCode: commandErrorCode(error),
+          signal: commandErrorSignal(error),
+          stderrSummary: commandErrorSummary(error),
+        }),
+      );
+    });
+    child.on("close", (code, signal) => {
+      if (settled) return;
+      settled = true;
+      if (code === 0) {
+        resolve(Buffer.concat(stdoutChunks, stdoutBytes));
+        return;
+      }
+      const stderr = Buffer.concat(stderrChunks, stderrBytes);
+      reject(
+        new VcsCommandError({
+          command: args[0] ?? "command",
+          cwd: repoRoot,
+          exitCode: code ?? undefined,
+          signal: signal ?? undefined,
+          stderrSummary: commandErrorSummary({ stderr }),
+        }),
+      );
+    });
+  });
+}
 function treeTargetIsScoped(target: string, scopes: ReadonlySet<string>): boolean {
   if (scopes.has(".")) return true;
   if (scopes.has(target)) return true;
@@ -359,6 +441,229 @@ function treeTargetIsScoped(target: string, scopes: ReadonlySet<string>): boolea
   }
   return false;
 }
+type TreeEntry = {
+  readonly mode: "100644" | "120000";
+  readonly oid: string;
+  readonly size: number;
+  readonly target: string;
+};
+type BatchBlobEntry = { readonly target: string; readonly size: number; readonly oid: string };
+
+function catFileChunks(entries: readonly BatchBlobEntry[]): readonly (readonly BatchBlobEntry[])[] {
+  const chunks: BatchBlobEntry[][] = [];
+  let chunk: BatchBlobEntry[] = [],
+    chunkBytes = 0;
+  for (const entry of entries) {
+    if (chunk.length > 0 && (chunkBytes + entry.size > gitBatchChunkBytes || chunk.length >= gitBatchChunkEntries)) {
+      chunks.push(chunk);
+      chunk = [];
+      chunkBytes = 0;
+    }
+    chunk.push(entry);
+    chunkBytes += entry.size;
+  }
+  if (chunk.length > 0) chunks.push(chunk);
+  return chunks;
+}
+
+function applyCatFileBatchOutput(
+  commit: string,
+  chunk: readonly BatchBlobEntry[],
+  output: Buffer,
+  bytesByTarget: Map<string, Buffer>,
+): void {
+  let offset = 0;
+  for (const { target, oid } of chunk) {
+    const newline = output.indexOf(0x0a, offset);
+    if (newline < 0) throw new Error(`Git cat-file --batch output ended before ${target}`);
+    const header = output.subarray(offset, newline).toString("utf8"),
+      size = header.startsWith(`${oid} blob `) ? /^[0-9a-f]{40} blob ([0-9]+)$/u.exec(header)?.[1] : undefined;
+    if (size === undefined) throw new Error(`Git cat-file --batch could not read ${commit}:${target}: ${header}`);
+    const start = newline + 1,
+      end = start + Number(size);
+    bytesByTarget.set(target, Buffer.from(output.subarray(start, end)));
+    offset = end + 1;
+  }
+}
+
+function listTreeBatches(targets: readonly string[]): {
+  readonly scopes: ReadonlySet<string>;
+  readonly batches: readonly (readonly string[])[];
+} {
+  const scopes = new Set(targets);
+  if (scopes.size === 0) return { scopes, batches: [] };
+  const parents = new Set(
+      [...scopes].map((target) => {
+        const slash = target.lastIndexOf("/");
+        return slash < 0 ? target : target.slice(0, slash);
+      }),
+    ),
+    traversal = [...parents].filter((target) => {
+      for (let slash = target.lastIndexOf("/"); slash >= 0; slash = target.lastIndexOf("/", slash - 1))
+        if (parents.has(target.slice(0, slash))) return false;
+      return true;
+    }),
+    batches: string[][] = [];
+  let batch: string[] = [],
+    bytes = 0;
+  for (const target of traversal) {
+    const size = Buffer.byteLength(target) + 1;
+    if (batch.length > 0 && bytes + size > gitTreeArgumentBytes) {
+      batches.push(batch);
+      batch = [];
+      bytes = 0;
+    }
+    batch.push(target);
+    bytes += size;
+  }
+  if (batch.length > 0) batches.push(batch);
+  return { scopes, batches };
+}
+
+function appendListTreeOutput(output: Buffer, scopes: ReadonlySet<string>, entries: TreeEntry[]): void {
+  let offset = 0;
+  while (offset < output.length) {
+    const end = output.indexOf(0, offset);
+    if (end < 0) throw new Error("Git ls-tree output is not NUL terminated");
+    const record = output.subarray(offset, end).toString("utf8"),
+      tab = record.indexOf("\t"),
+      header = tab < 0 ? "" : record.slice(0, tab),
+      target = tab < 0 ? "" : record.slice(tab + 1),
+      [mode, type, oid, size] = header.trim().split(/\s+/u);
+    if (
+      treeTargetIsScoped(target, scopes) &&
+      (mode === "100644" || mode === "120000") &&
+      type === "blob" &&
+      /^[0-9a-f]{40}$/u.test(oid ?? "") &&
+      /^\d+$/u.test(size ?? "")
+    )
+      entries.push({ mode, oid: oid!, size: Number(size), target });
+    offset = end + 1;
+  }
+}
+
+export type UpdateIndexPayloads = { readonly indexInfo: Buffer; readonly skipPaths: Buffer | null };
+
+export function buildUpdateIndexPayloads(
+  files: readonly (
+    | {
+        readonly target: string;
+        readonly body: string | Uint8Array;
+        readonly mode?: "100644" | "120000";
+      }
+    | { readonly delete: string }
+  )[],
+  skipWorktree: boolean,
+): UpdateIndexPayloads {
+  const zero = "0".repeat(40),
+    indexInfo = Buffer.from(
+      files
+        .map((file) =>
+          "delete" in file
+            ? `0 ${zero}\t${file.delete}\0`
+            : `${file.mode ?? "100644"} ${gitBlobOidBytes(asBytes(file.body))}\t${file.target}\0`,
+        )
+        .join(""),
+    ),
+    skipPaths = skipWorktree
+      ? Buffer.from(files.map((file) => `${"delete" in file ? file.delete : file.target}\0`).join(""))
+      : null;
+  return { indexInfo, skipPaths };
+}
+
+export const localGitObjectRefStoreAsync = Object.freeze({
+  resolveCommit: async (repoRoot: string, revision: string): Promise<string> =>
+    (await spawnGitBytesAsync(repoRoot, ["rev-parse", revision])).toString("utf8").trim(),
+  readPath: async (repoRoot: string, commit: string, target: string): Promise<Buffer | null> => {
+    try {
+      return await spawnGitBytesAsync(repoRoot, ["show", `${commit}:${target}`]);
+    } catch (error) {
+      try {
+        if ((await spawnGitBytesAsync(repoRoot, ["ls-tree", "--name-only", "-z", commit, "--", target])).length === 0)
+          return null;
+      } catch (classificationError) {
+        consumeKnownError(classificationError);
+      }
+      throw error;
+    }
+  },
+  readPaths: async (
+    repoRoot: string,
+    commit: string,
+    entries: readonly BatchBlobEntry[],
+  ): Promise<ReadonlyMap<string, Buffer>> => {
+    const bytesByTarget = new Map<string, Buffer>();
+    for (const chunk of catFileChunks(entries)) {
+      const output = await spawnGitBytesAsync(
+        repoRoot,
+        ["cat-file", "--batch"],
+        [chunk.map(({ oid }) => `${oid}\n`).join("")],
+        ".ha-cat-file-batch-",
+      );
+      applyCatFileBatchOutput(commit, chunk, output, bytesByTarget);
+    }
+    return bytesByTarget;
+  },
+  listTree: async (repoRoot: string, commit: string, targets: readonly string[]): Promise<readonly TreeEntry[]> => {
+    const { scopes, batches } = listTreeBatches(targets),
+      entries: TreeEntry[] = [];
+    for (const batch of batches) {
+      const output = await spawnGitBytesAsync(repoRoot, ["ls-tree", "-r", "-l", "-z", commit, "--", ...batch]);
+      appendListTreeOutput(output, scopes, entries);
+    }
+    return entries;
+  },
+  importCommit: (repoRoot: string, input: Iterable<string | Uint8Array>): Promise<Buffer> =>
+    spawnGitBytesAsync(
+      repoRoot,
+      ["-c", "core.fsync=committed,reference", "-c", "core.fsyncMethod=fsync", "fast-import", "--quiet", "--force"],
+      input,
+      ".ha-fast-import-",
+    ),
+  updateRefs: async (repoRoot: string, input: string): Promise<void> => {
+    await spawnGitBytesAsync(
+      repoRoot,
+      ["-c", "core.fsync=reference", "-c", "core.fsyncMethod=fsync", "update-ref", "--stdin"],
+      Buffer.from(input),
+    );
+  },
+});
+
+export function runUpdateIndexPayloads(repoRoot: string, payloads: UpdateIndexPayloads): void {
+  localGitBytes(repoRoot, ["update-index", "-z", "--index-info"], payloads.indexInfo);
+  if (payloads.skipPaths)
+    localGitBytes(repoRoot, ["update-index", "--skip-worktree", "-z", "--stdin"], payloads.skipPaths);
+}
+
+export const localGitWorktreeSettlementAsync = Object.freeze({
+  indexedPaths: async (repoRoot: string, scopes: readonly string[]): Promise<readonly string[]> =>
+    scopes.length === 0
+      ? []
+      : (await spawnGitBytesAsync(repoRoot, ["ls-files", "-z", "--", ...scopes]))
+          .toString("utf8")
+          .split("\0")
+          .filter(Boolean),
+  index: async (
+    repoRoot: string,
+    files: readonly (
+      | {
+          readonly target: string;
+          readonly body: string | Uint8Array;
+          readonly mode?: "100644" | "120000";
+        }
+      | { readonly delete: string }
+    )[],
+    skipWorktree = false,
+  ): Promise<number> => {
+    if (files.length === 0) return 0;
+    const payloads = buildUpdateIndexPayloads(files, skipWorktree);
+    await spawnGitBytesAsync(repoRoot, ["update-index", "-z", "--index-info"], payloads.indexInfo);
+    if (payloads.skipPaths)
+      await spawnGitBytesAsync(repoRoot, ["update-index", "--skip-worktree", "-z", "--stdin"], payloads.skipPaths);
+    return 1;
+  },
+});
+
 export const localGitObjectRefStore = Object.freeze({
   processCount: () => localGitProcesses,
   commitTimestamp: (repoRoot: string, commit: string): string | null => {
@@ -458,11 +763,7 @@ export const localGitObjectRefStore = Object.freeze({
     }
     return compare();
   },
-  readPaths: (
-    repoRoot: string,
-    commit: string,
-    entries: readonly { readonly target: string; readonly size: number; readonly oid: string }[],
-  ): ReadonlyMap<string, Buffer> => {
+  readPaths: (repoRoot: string, commit: string, entries: readonly BatchBlobEntry[]): ReadonlyMap<string, Buffer> => {
     // One `cat-file --batch` per bounded chunk instead of one `git show` per path: the
     // canonical ledger holds ~10^5 event and content blobs, and per-path processes turned
     // a stopped-generation read into hours. Each blob is addressed by the id the caller's
@@ -470,38 +771,15 @@ export const localGitObjectRefStore = Object.freeze({
     // on the path and scan it entry by entry, so a directory of N files costs O(N) per
     // lookup and a whole-closure read turns quadratic.
     const bytesByTarget = new Map<string, Buffer>();
-    let chunk: { readonly target: string; readonly size: number; readonly oid: string }[] = [],
-      chunkBytes = 0;
-    const flush = () => {
-      if (chunk.length === 0) return;
+    for (const chunk of catFileChunks(entries)) {
       const output = withStdinFile(
         repoRoot,
         ".ha-cat-file-batch-",
         [chunk.map(({ oid }) => `${oid}\n`).join("")],
         (inputFd) => localGitBytes(repoRoot, ["cat-file", "--batch"], inputFd),
       );
-      let offset = 0;
-      for (const { target, oid } of chunk) {
-        const newline = output.indexOf(0x0a, offset);
-        if (newline < 0) throw new Error(`Git cat-file --batch output ended before ${target}`);
-        const header = output.subarray(offset, newline).toString("utf8"),
-          size = header.startsWith(`${oid} blob `) ? /^[0-9a-f]{40} blob ([0-9]+)$/u.exec(header)?.[1] : undefined;
-        if (size === undefined) throw new Error(`Git cat-file --batch could not read ${commit}:${target}: ${header}`);
-        const start = newline + 1,
-          end = start + Number(size);
-        bytesByTarget.set(target, Buffer.from(output.subarray(start, end)));
-        offset = end + 1;
-      }
-      chunk = [];
-      chunkBytes = 0;
-    };
-    for (const entry of entries) {
-      if (chunk.length > 0 && (chunkBytes + entry.size > gitBatchChunkBytes || chunk.length >= gitBatchChunkEntries))
-        flush();
-      chunk.push(entry);
-      chunkBytes += entry.size;
+      applyCatFileBatchOutput(commit, chunk, output, bytesByTarget);
     }
-    flush();
     return bytesByTarget;
   },
   /**
@@ -509,68 +787,17 @@ export const localGitObjectRefStore = Object.freeze({
    * exact modes for both files and directory prefixes without a process per target.
    * An empty scope list asks for nothing and spawns no process.
    */
-  listTree: (
-    repoRoot: string,
-    commit: string,
-    targets: readonly string[],
-  ): readonly {
-    readonly mode: "100644" | "120000";
-    readonly oid: string;
-    readonly size: number;
-    readonly target: string;
-  }[] => {
-    const scopes = new Set(targets);
-    if (scopes.size === 0) return [];
+  listTree: (repoRoot: string, commit: string, targets: readonly string[]): readonly TreeEntry[] => {
     // Read only the containing directories. Shared parents keep large target sets small;
     // the exact scope filter below preserves file/prefix semantics, including missing paths.
-    const parents = new Set(
-        [...scopes].map((target) => {
-          const slash = target.lastIndexOf("/");
-          return slash < 0 ? target : target.slice(0, slash);
-        }),
-      ),
-      traversal = [...parents].filter((target) => {
-        for (let slash = target.lastIndexOf("/"); slash >= 0; slash = target.lastIndexOf("/", slash - 1))
-          if (parents.has(target.slice(0, slash))) return false;
-        return true;
-      }),
-      entries: { mode: "100644" | "120000"; oid: string; size: number; target: string }[] = [];
     // ls-tree has no stdin path list. Bound argv bytes rather than imposing a target-count cap:
     // each authored path is valid on its own, but a publication may contain thousands of them.
-    let batch: string[] = [],
-      bytes = 0;
-    const flush = () => {
-      if (batch.length === 0) return;
+    const { scopes, batches } = listTreeBatches(targets),
+      entries: TreeEntry[] = [];
+    for (const batch of batches) {
       const output = localGitBytes(repoRoot, ["ls-tree", "-r", "-l", "-z", commit, "--", ...batch]);
-      let offset = 0;
-      while (offset < output.length) {
-        const end = output.indexOf(0, offset);
-        if (end < 0) throw new Error("Git ls-tree output is not NUL terminated");
-        const record = output.subarray(offset, end).toString("utf8"),
-          tab = record.indexOf("\t"),
-          header = tab < 0 ? "" : record.slice(0, tab),
-          target = tab < 0 ? "" : record.slice(tab + 1),
-          [mode, type, oid, size] = header.trim().split(/\s+/u);
-        if (
-          treeTargetIsScoped(target, scopes) &&
-          (mode === "100644" || mode === "120000") &&
-          type === "blob" &&
-          /^[0-9a-f]{40}$/u.test(oid ?? "") &&
-          /^\d+$/u.test(size ?? "")
-        )
-          entries.push({ mode, oid: oid!, size: Number(size), target });
-        offset = end + 1;
-      }
-      batch = [];
-      bytes = 0;
-    };
-    for (const target of traversal) {
-      const size = Buffer.byteLength(target) + 1;
-      if (bytes + size > gitTreeArgumentBytes) flush();
-      batch.push(target);
-      bytes += size;
+      appendListTreeOutput(output, scopes, entries);
     }
-    flush();
     return entries;
   },
   importCommit: (repoRoot: string, input: Iterable<string | Uint8Array>) =>
@@ -776,25 +1003,10 @@ export const localGitWorktreeSettlement = Object.freeze({
     withFence?: WriteFence,
   ): number => {
     if (files.length === 0) return 0;
-    const zero = "0".repeat(40),
-      indexInput = files
-        .map((file) =>
-          "delete" in file
-            ? `0 ${zero}\t${file.delete}\0`
-            : `${file.mode ?? "100644"} ${gitBlobOidBytes(asBytes(file.body))}\t${file.target}\0`,
-        )
-        .join("");
+    const payloads = buildUpdateIndexPayloads(files, skipWorktree);
     // The synchronous Git port joins the index write before releasing ownership. A timed
     // worker wait could release the fence while its update-index child was still running.
-    const publish = () => {
-      localGitBytes(repoRoot, ["update-index", "-z", "--index-info"], Buffer.from(indexInput));
-      if (skipWorktree)
-        localGitBytes(
-          repoRoot,
-          ["update-index", "--skip-worktree", "-z", "--stdin"],
-          Buffer.from(files.map((file) => `${"delete" in file ? file.delete : file.target}\0`).join("")),
-        );
-    };
+    const publish = () => runUpdateIndexPayloads(repoRoot, payloads);
     if (withFence) withFence(publish);
     else publish();
     return 1;

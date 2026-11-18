@@ -125,10 +125,45 @@ function openRepoEpochAuthority(options: {
   // authority; takeover/retirement acquire follower -> append before changing that row.
   // A crash therefore cannot leave two epoch copies disagreeing. WAL readers do not
   // reserve the canonical database's write lock while Git runs under the follower lock.
+  let followerAsyncQueue: Promise<void> = Promise.resolve();
   const withFollowerTransaction = <T>(operation: () => T): T => {
     ensureOpen();
     followerDatabase ??= openEpochDatabase(options.databasePath.replace(/\.sqlite$/u, ".follower.sqlite"));
     return withImmediateTransaction(operation, followerDatabase);
+  };
+  const withFollowerTransactionAsync = async <T>(operation: () => Promise<T>): Promise<T> => {
+    ensureOpen();
+    const previous = followerAsyncQueue;
+    let release!: () => void;
+    followerAsyncQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      ensureOpen();
+      const target = (followerDatabase ??= openEpochDatabase(
+        options.databasePath.replace(/\.sqlite$/u, ".follower.sqlite"),
+      ));
+      /* @gate-identity state-store/execution.source.storage.src.writer-epoch.sqlite-database */ target.exec(
+        "BEGIN IMMEDIATE",
+      );
+      try {
+        const result = await operation();
+        /* @gate-identity state-store/execution.source.storage.src.writer-epoch.sqlite-database */ target.exec(
+          "COMMIT",
+        );
+        return result;
+      } catch (error) {
+        if (target.isTransaction) {
+          /* @gate-identity state-store/execution.source.storage.src.writer-epoch.sqlite-database */ target.exec(
+            "ROLLBACK",
+          );
+        }
+        throw error;
+      }
+    } finally {
+      release();
+    }
   };
   const initialEpochFloor = options.initialEpochFloor;
   if (initialEpochFloor !== undefined) {
@@ -205,6 +240,16 @@ function openRepoEpochAuthority(options: {
       }),
     withFollowerFence: <T>(repoId: string, epoch: number, expectedHolderId: string, operation: () => T): T =>
       withFollowerTransaction(() => {
+        assertState(repoId, epoch, expectedHolderId);
+        return operation();
+      }),
+    withFollowerFenceAsync: <T>(
+      repoId: string,
+      epoch: number,
+      expectedHolderId: string,
+      operation: () => Promise<T>,
+    ): Promise<T> =>
+      withFollowerTransactionAsync(() => {
         assertState(repoId, epoch, expectedHolderId);
         return operation();
       }),
@@ -535,6 +580,12 @@ export function openPersistentWriterEpoch(options: {
       authorityFor(repoId).withAppendFence(repoId, epoch, expectedHolderId, operation),
     withFollowerFence: (repoId, epoch, expectedHolderId, operation) =>
       authorityFor(repoId).withFollowerFence(repoId, epoch, expectedHolderId, operation),
+    withFollowerFenceAsync: (repoId, epoch, expectedHolderId, operation) => {
+      const authority = authorityFor(repoId);
+      if (authority.withFollowerFenceAsync)
+        return authority.withFollowerFenceAsync(repoId, epoch, expectedHolderId, operation);
+      return Promise.reject(new WriterEpochError("writer_epoch_invalid", "Asynchronous follower fence unavailable"));
+    },
     close: () => {
       if (closed) return;
       closed = true;
@@ -581,6 +632,17 @@ export function withFollowerEpochFenceDescriptor<T>(descriptor: WriterEpochFence
     descriptor.holderId,
     operation,
   );
+}
+
+/** Asynchronous follower fence: releases the orchestration event loop while subprocesses run inside the lock. */
+export async function withFollowerEpochFenceDescriptorAsync<T>(
+  descriptor: WriterEpochFenceDescriptor,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const authority = descriptorAuthority(descriptor);
+  if (authority.withFollowerFenceAsync)
+    return await authority.withFollowerFenceAsync(descriptor.repoId, descriptor.epoch, descriptor.holderId, operation);
+  throw new WriterEpochError("writer_epoch_invalid", "Asynchronous follower fence unavailable");
 }
 
 export function assertWriterEpochFenceDescriptor(descriptor: WriterEpochFenceDescriptor): void {

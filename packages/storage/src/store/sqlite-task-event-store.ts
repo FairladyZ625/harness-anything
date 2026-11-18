@@ -67,7 +67,7 @@ export interface SqliteGitFollowerHandle {
   readonly materialize: CanonicalEventStore["materialize"];
   readonly materializationHealth: CanonicalEventStore["materializationHealth"];
   readonly settlePendingMaterialization: NonNullable<CanonicalEventStore["settlePendingMaterialization"]>;
-  readonly onAppend: (acceptedBaseline: ReadonlyMap<string, SqliteOutboxBaseline>) => void;
+  readonly onAppend: (acceptedBaseline: ReadonlyMap<string, SqliteOutboxBaseline>, revision?: number) => void;
   readonly request: () => void;
   readonly drain: () => Promise<void>;
 }
@@ -97,6 +97,8 @@ export interface SqliteTaskEventStoreOptions {
   readonly withAppendFence?: <T>(operation: () => T) => T;
   /** Host publication excludes epoch takeover independently of canonical append. */
   readonly withFollowerFence?: <T>(operation: () => T) => T;
+  /** Asynchronous follower fence for non-blocking background Git mutations. */
+  readonly withFollowerFenceAsync?: <T>(operation: () => Promise<T>) => Promise<T>;
   readonly onMaterializationHealthChange?: (health: MaterializationHealth) => void;
   readonly mutable?: boolean;
   readonly generation?: 1 | 2 | 3;
@@ -230,7 +232,9 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         });
     if (options.withAppendFence) options.withAppendFence(accept);
     else accept();
-    if (gitFollower && sqlite.revision() > revisionBeforeAcceptance) gitFollower.onAppend(acceptedBaseline);
+    const committedRevision = appended.at(-1)?.workspaceRevision ?? 0;
+    if (gitFollower && committedRevision > revisionBeforeAcceptance)
+      gitFollower.onAppend(acceptedBaseline, committedRevision);
     try {
       options.killpoint?.("after_store_commit");
       gitFollower?.request();
@@ -372,13 +376,16 @@ export function sqliteEventBatch(
   const start = cursor === null ? 0 : Number(cursor);
   if (!Number.isInteger(start) || start < 0 || !Number.isInteger(maxItems) || maxItems < 1)
     throw new TaskEventStoreError("invalid_store", "event batch cursor or size is invalid");
-  const selected = sqlite.eventsAfter(start, maxItems),
+  const { selected, sourceRevision } = sqlite.readSnapshot(() => ({
+      selected: sqlite.eventsAfter(start, maxItems),
+      sourceRevision: sqlite.revision(),
+    })),
     next = start + selected.length;
   return {
-    sourceRevision: sqlite.revision(),
+    sourceRevision,
     events: selected,
     cursor: selected.length ? String(next) : cursor,
-    done: next >= sqlite.revision(),
+    done: next >= sourceRevision,
     accessedItems: selected.length,
     prefetchContent: (replay) =>
       new Map(

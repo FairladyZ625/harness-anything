@@ -281,10 +281,24 @@ function openSqliteEventStoreInternal(
         "VALUES (?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now')))",
     );
 
+  let transactionDepth = 0,
+    activeReadOnlyTransaction = false;
   const transaction = <A>(run: () => A, readOnly = false): A => {
+    if (transactionDepth > 0) {
+      if (!readOnly && activeReadOnlyTransaction)
+        throw new Error("Cannot start an immediate write transaction inside a SQLite read snapshot");
+      transactionDepth += 1;
+      try {
+        return run();
+      } finally {
+        transactionDepth -= 1;
+      }
+    }
     /* @gate-identity state-store/task.source.storage.src.store.sqlite-event-store.sqlite-database */ db.exec(
       readOnly ? "BEGIN" : "BEGIN IMMEDIATE",
     );
+    transactionDepth = 1;
+    activeReadOnlyTransaction = readOnly;
     try {
       const result = run();
       /* @gate-identity state-store/task.source.storage.src.store.sqlite-event-store.sqlite-database */ db.exec(
@@ -302,6 +316,9 @@ function openSqliteEventStoreInternal(
         consumeKnownError(rollbackError);
       }
       throw error;
+    } finally {
+      transactionDepth = 0;
+      activeReadOnlyTransaction = false;
     }
   };
   // Expand/catch up declaration columns before event-query backfill can apply entity events.
@@ -691,6 +708,7 @@ function openSqliteEventStoreInternal(
         else if (settledPaths?.length)
           for (const target of settledPaths) query("DELETE FROM git_outbox_baseline WHERE logical_path=?", [target]);
       }),
+    readSnapshot: <A>(run: () => A): A => transaction(run, true),
     close: registerLedgerClose(databasePath, db),
   };
 }

@@ -848,7 +848,7 @@
         "role": "support"
       },
       {
-        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-task-event-publication.ts#legacyRetirements:65f371515cb7a37b21f5ea4ed81a88d2",
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-task-event-publication.ts#retirementsFromIndexedAndTree:65f371515cb7a37b21f5ea4ed81a88d2",
         "route": "repository-read",
         "role": "support"
       },
@@ -863,12 +863,27 @@
         "role": "support"
       },
       {
-        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-git-outbox-publisher.ts#attachSqliteGitFollower.publishFollower:d62f8d4b82b1ee00a9938f5f5c49ae49",
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-git-outbox-publisher.ts#attachSqliteGitFollower.settleFollowerWorktree:b6741bfe0f36cd4545557e2deb901005",
         "route": "repository-read",
         "role": "support"
       },
       {
-        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-git-outbox-publisher.ts#attachSqliteGitFollower.publishFollower:d62f8d4b82b1ee00a9938f5f5c49ae49:2",
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-git-outbox-publisher.ts#attachSqliteGitFollower.settleFollowerWorktree:cb21f5c8ff5c3bb7de6b43dd99fd67ba",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-git-outbox-publisher.ts#attachSqliteGitFollower.settleFollowerWorktree:cb21f5c8ff5c3bb7de6b43dd99fd67ba:2",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-git-outbox-publisher.ts#attachSqliteGitFollower.finishWorktreeSettlement:d62f8d4b82b1ee00a9938f5f5c49ae49",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-git-outbox-publisher.ts#attachSqliteGitFollower.finishWorktreeSettlement:d62f8d4b82b1ee00a9938f5f5c49ae49:2",
         "route": "repository-read",
         "role": "support"
       },
@@ -6093,6 +6108,18 @@
         "port": "packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.execute"
       },
       {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.fenceForAsync:209c507c4c0a2016528bdde74c1de99d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.fenceForAsync:61bbc79bada2def1bc99a2cf7b42def1",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.execute"
+      },
+      {
         "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.acquire:a5748b3d2d4f971d09927423099ec412",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -6453,6 +6480,12 @@
         "port": "packages/storage/src/store/durable-follower-publisher.ts#createDurableFollowerPublisher.input.publish"
       },
       {
+        "candidateId": "action:packages/storage:packages/storage/src/store/durable-follower-publisher.ts#createDurableFollowerPublisher.publishAsync.receipt:bb0ae6d00d531e8549225b70b0b08dd7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/durable-follower-publisher.ts#createDurableFollowerPublisher.input.publish"
+      },
+      {
         "candidateId": "action:packages/storage:packages/storage/src/store/durable-follower-publisher.ts#createDurableFollowerPublisher.request:386acfac256b11365f3a27a84cfcc8a9",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -6651,6 +6684,12 @@
         "port": "packages/kernel/src/local/local-layout-file-system.ts#localRuntimeStateFileSystem.remove"
       },
       {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-system.ts#spawnGitBytesAsync.spawnChild:10224d4d45e910be7b4c3051628f8167",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn"
+      },
+      {
         "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-system.ts#localGitWorktreeSettlement.visible.pending:a67d3018b01d054daa7aadbd8dc91d9d",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -6685,6 +6724,12 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-event-store.ts#openSqliteEventStoreInternal.transaction:973c6c969683351bc4fdb5c8534d57f0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/sqlite-event-store.ts#openSqliteEventStoreInternal.transaction.run"
       },
       {
         "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-event-store.ts#openSqliteEventStoreInternal.transaction.result:973c6c969683351bc4fdb5c8534d57f0",
@@ -13076,7 +13121,7 @@
         "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
       },
       {
-        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-git-outbox-publisher.ts#attachPgGitFollower.publishConfirmedFollower.requirePreviousPaths:250ce9f0b3f0ac046e6ed592a799bd39",
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-git-outbox-publisher.ts#attachPgGitFollower.prepareConfirmedFollower.requirePreviousPaths:250ce9f0b3f0ac046e6ed592a799bd39",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
