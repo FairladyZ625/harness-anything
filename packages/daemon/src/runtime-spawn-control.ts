@@ -5,7 +5,12 @@ import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-type
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import { adoptRuntimes, ownedByRuntimeSpawner, assertRuntimeRecoveryReady } from "./runtime-spawn-adoption.ts";
-import { appendRuntimeWorkerRecord, readDispatchStreamHeaders } from "./dispatch-stream.ts";
+import {
+  appendRuntimeWorkerRecord,
+  readDispatchStream,
+  readDispatchStreamHeaders,
+  readDispatchStreamSummary,
+} from "./dispatch-stream.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { probeProcessGroup, processGroupRecoveryHint } from "./runtime/process-group-reconciler.ts";
 import type { ActiveRuntime, RuntimeBinding, RuntimeDispatchOwnerEvidence } from "./runtime-spawn-types.ts";
@@ -50,10 +55,23 @@ export async function cancelRuntime(
           ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
           : readRuntimeDispatchOwnerEvidence(context.requiredRuntimeProjection(context.input), runtimeSessionId),
     ownerBinding = matchingHeader?.binding ?? canonicalDispatch,
+    crossNodeCenterRuling =
+      context.input.runtimeNode === undefined &&
+      ruling !== null &&
+      matchingHeader === undefined &&
+      binding.source === "local" &&
+      binding.actor.executor === null &&
+      !(binding as { readonly executionPrincipal?: unknown }).executionPrincipal &&
+      ownerBinding != null &&
+      typeof ownerBinding.source === "object" &&
+      ownerBinding.source !== null &&
+      ownerBinding.source.kind === "node" &&
+      ownerBinding.actor?.principal.personId === binding.actor.principal.personId,
     owned =
       ownerBinding?.actor?.principal.personId === binding.actor.principal.personId &&
-      ownedByRuntimeSpawner(ownerBinding, context.input.runtimeNode, matchingHeader) &&
-      (matchingHeader !== undefined || sameWriteSource(ownerBinding.source, binding.source));
+      (crossNodeCenterRuling ||
+        (ownedByRuntimeSpawner(ownerBinding, context.input.runtimeNode, matchingHeader) &&
+          (matchingHeader !== undefined || sameWriteSource(ownerBinding.source, binding.source))));
   const runtimeHandles = context.processes;
   let active = runtimeHandles.get(runtimeSessionId);
   // Owner authorization permits a mechanical stop even while the center is offline.
@@ -81,8 +99,10 @@ export async function cancelRuntime(
         active !== undefined ||
         context.exiting.has(runtimeSessionId) ||
         context.ownsModelSlot?.(runtimeSessionId) === true,
-      hasReadableDispatch = matchingHeader !== undefined,
-      hasRecordedProcessGroup = canonicalDispatch?.processGroupPid != null;
+      hasReadableDispatch =
+        matchingHeader !== undefined ||
+        headers.some((header) => header.dispatchId === canonicalDispatch?.payload.dispatchId),
+      hasRecordedProcessGroup = !crossNodeCenterRuling && canonicalDispatch?.processGroupPid != null;
     if (hasLocalOwner || hasReadableDispatch || hasRecordedProcessGroup)
       throw runtimeSpawnError(
         "runtime_ruling_not_allowed",
@@ -93,7 +113,6 @@ export async function cancelRuntime(
   // same fenced process-group observer below; absence never releases a reservation by itself.
   if (matchingHeader && !active && attempt?.policy.canAdoptProcess) {
     await adoptRuntimes(context, undefined, { runtimeSessionId, authorizationBinding: binding });
-    await assertRuntimeRecoveryReady(context, runtimeSessionId);
   }
   const currentLifecycle = await readDispatchLifecycle(context, { by: "session", runtimeSessionId });
   if (currentLifecycle.status !== "ready")
@@ -119,8 +138,9 @@ export async function cancelRuntime(
     await context.publishExit(active, null);
     return context.controlReceipt(opId, runtimeSessionId);
   }
-  if (attempt?.policy.attemptSettled || attempt?.attempt.stopProof === "proven_stopped") {
-    if (attempt.attempt.stopProof === "proven_stopped") context.dispatchState?.deactivate(runtimeSessionId);
+  const stopAlreadyProven = attempt?.attempt.stopProof === "proven_stopped";
+  if (stopAlreadyProven) context.dispatchState?.deactivate(runtimeSessionId);
+  if (attempt?.policy.attemptSettled) {
     return context.controlReceipt(opId, runtimeSessionId, "already-exited");
   }
   // Missing control transport does not prove the process tree stopped.
@@ -137,15 +157,19 @@ export async function cancelRuntime(
         (matchingHeader === undefined || ownerEvidence.payload.dispatchId === matchingHeader.dispatchId)
           ? ownerEvidence.processGroupPid
           : null;
+    // Remote edge PIDs cannot be probed against center's OS PID table during cross-node ruling.
     if (
-      probeProcessGroup({
-        pgid: processGroupPid ?? undefined,
-        ...(matchingHeader
-          ? { dispatch: { rootDir: context.input.rootDir, dispatchId: matchingHeader.dispatchId } }
-          : {}),
-      }) !== "proven_stopped"
+      !stopAlreadyProven &&
+      (crossNodeCenterRuling ||
+        probeProcessGroup({
+          pgid: processGroupPid ?? undefined,
+          ...(matchingHeader
+            ? { dispatch: { rootDir: context.input.rootDir, dispatchId: matchingHeader.dispatchId } }
+            : {}),
+        }) !== "proven_stopped")
     ) {
       if (ruling !== null) {
+        const rulingBinding = crossNodeCenterRuling ? { ...binding, source: ownerBinding.source } : binding;
         const resultBody = JSON.stringify({
             schema: "runtime-ruling-resolution/v1",
             runtimeSessionId,
@@ -177,11 +201,14 @@ export async function cancelRuntime(
             endedAt: context.input.now(),
           },
           `${opId}-ruling-resolved`,
-          binding,
+          rulingBinding,
           resultBody,
         );
         return context.controlReceipt(opId, runtimeSessionId, "ruling_resolved");
       }
+      // Preserve recovery failures while the stop is unproven; an observed stop above
+      // reaches owner cancellation without depending on successful recovery.
+      await assertRuntimeRecoveryReady(context, runtimeSessionId);
       throw runtimeSpawnError(
         "runtime_process_group_unproven",
         `Owner process group ${String(processGroupPid ?? "unknown")} could not be proven stopped.${processGroupRecoveryHint()}`,
@@ -195,24 +222,52 @@ export async function cancelRuntime(
           `[runtime-temp] ${instanceId}/${runtimeSessionId} could not be reclaimed after owner loss: ${failure.message}`,
         );
     }
+    binding = { ...binding, source: ownerBinding.source };
     const terminalBinding = {
       ...binding,
-      source: ownerBinding.source,
       actor: {
         principal: binding.actor.principal,
         executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
       },
     };
-    await context.publishRuntimeEvent(
-      "runtime_session_exited",
-      { runtimeSessionId },
-      `${opId}-exited`,
-      terminalBinding,
-    );
+    const persistedTerminal = matchingHeader
+      ? (readDispatchStream(context.input.rootDir, matchingHeader.dispatchId)?.terminalOutcome ??
+        readDispatchStreamSummary(context.input.rootDir, matchingHeader.dispatchId)?.terminalOutcome ??
+        null)
+      : null;
+    if (persistedTerminal) {
+      await context.publishExit(
+        {
+          terminal: persistedTerminal,
+          attempt: {
+            runtimeSessionId,
+            dispatchId: attempt.attempt.dispatchId,
+            schedule: matchingHeader?.schedule ?? null,
+            binding,
+          },
+          previous: attempt,
+          opId,
+        },
+        null,
+      );
+      return context.controlReceipt(
+        opId,
+        runtimeSessionId,
+        persistedTerminal.payload.outcome === "cancelled" ? "cancelled" : "already-exited",
+      );
+    }
+    if (!stopAlreadyProven) {
+      await context.publishRuntimeEvent(
+        "runtime_session_exited",
+        { runtimeSessionId },
+        `${opId}-exited`,
+        terminalBinding,
+      );
+    }
     await context.publishRuntimeEvent("runtime_session_cancelled", { runtimeSessionId }, `${opId}-cancelled`, binding);
     const resultBody = "Runtime session cancelled after its worker process was no longer available.",
       resultSha256 = createHash("sha256").update(resultBody).digest("hex");
-    await context.publishRuntimeEvent(
+    const outcomeEvent = await context.publishRuntimeEvent(
       "runtime_session_outcome_observed",
       {
         runtimeSessionId,
@@ -226,6 +281,7 @@ export async function cancelRuntime(
       terminalBinding,
       resultBody,
     );
+    if (outcomeEvent?.event) context.input.onRuntimeOutcome?.(outcomeEvent.event, matchingHeader?.schedule ?? null);
     await context.input.onAttemptTerminal?.({
       runtimeSessionId,
       dispatchId: attempt.attempt.dispatchId,

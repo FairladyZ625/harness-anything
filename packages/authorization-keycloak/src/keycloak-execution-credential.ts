@@ -188,7 +188,12 @@ export async function authenticateRuntimeExecutionCredential(
       signal: AbortSignal.timeout(10_000),
     },
   );
-  if (!response.ok) throw executionCredentialRejected("authentication");
+  if (!response.ok)
+    throw executionCredentialRejected("authentication", {
+      dispatchId: principal.dispatchId,
+      role: principal.role,
+      detail: `Keycloak client_credentials exchange returned HTTP ${response.status}; ask the owner/operator to check identity health or issue a new dispatch.`,
+    });
   // The token proves client authentication; scope comes from the authoritative client above.
   await response.arrayBuffer();
   return principal;
@@ -197,23 +202,58 @@ export async function authenticateRuntimeExecutionCredential(
 export async function readRuntimeExecutionPrincipal(
   center: ExecutionCenter,
   dispatchId: string,
+  options?: { readonly hostSettlement?: boolean },
 ): Promise<RuntimeExecutionPrincipal> {
   const clientId = `${clientPrefix}${dispatchId}`;
   const clients: unknown = await (
     await center.request(`/clients?clientId=${encodeURIComponent(clientId)}&max=2`)
   ).json();
-  if (!Array.isArray(clients) || clients.length !== 1) throw executionCredentialRejected("revoked");
+  if (!Array.isArray(clients) || clients.length !== 1) throw executionCredentialRejected("revoked", { dispatchId });
   const client = clients[0];
-  if (client.enabled !== true) throw executionCredentialRejected("revoked");
+  if (client.enabled !== true) {
+    let disabledRole: RuntimeExecutionPrincipal["role"] | undefined;
+    if (typeof client.attributes?.harness_execution === "string") {
+      try {
+        const parsed = JSON.parse(client.attributes.harness_execution) as unknown;
+        if (validPrincipal(parsed)) disabledRole = parsed.role;
+      } catch (parseError) {
+        throw executionCredentialRejected("revoked", {
+          dispatchId,
+          detail: `Client metadata was unreadable (${parseError instanceof Error ? parseError.message : String(parseError)}).`,
+        });
+      }
+    }
+    throw executionCredentialRejected("revoked", {
+      dispatchId,
+      ...(disabledRole ? { role: disabledRole } : {}),
+    });
+  }
   if (client.clientId !== clientId || typeof client.attributes?.harness_execution !== "string")
-    throw executionCredentialRejected();
+    throw executionCredentialRejected("scope", {
+      dispatchId,
+      detail: `Keycloak client metadata for dispatch ${dispatchId} is missing harness_execution attributes.`,
+    });
   const principal: unknown = JSON.parse(client.attributes.harness_execution);
   if (!validPrincipal(principal) || `${clientPrefix}${principal.dispatchId}` !== clientId)
-    throw executionCredentialRejected();
-  if (Date.parse(principal.expiresAt) <= Date.now()) throw executionCredentialRejected("expired");
+    throw executionCredentialRejected("scope", {
+      dispatchId,
+      detail: `Keycloak client metadata for dispatch ${dispatchId} is invalid or mismatched.`,
+    });
+  const expiresMs = Date.parse(principal.expiresAt);
+  if (!options?.hostSettlement && (!Number.isFinite(expiresMs) || expiresMs <= Date.now()))
+    throw executionCredentialRejected("expired", {
+      expiresAt: principal.expiresAt,
+      dispatchId: principal.dispatchId,
+      role: principal.role,
+    });
   if (typeof principal.source === "object" && principal.source.kind === "node") {
     const node = await center.provider.readNode(center.accessToken, principal.source.nodeId);
-    if (node?.personId !== principal.personId) throw executionCredentialRejected();
+    if (node?.personId !== principal.personId)
+      throw executionCredentialRejected("scope", {
+        dispatchId: principal.dispatchId,
+        role: principal.role,
+        detail: `Node ${principal.source.nodeId} ownership moved away from ${principal.personId} (current owner: ${node?.personId ?? "unassigned"}).`,
+      });
   }
   return principal;
 }

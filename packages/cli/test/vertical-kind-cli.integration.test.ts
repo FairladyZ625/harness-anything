@@ -531,7 +531,7 @@ function evidence(receipt: Record<string, unknown>): Record<string, unknown> {
 
 function monotonicClock(): () => string {
   let second = 0;
-  return () => `2026-10-28T00:00:${String(second++).padStart(2, "0")}.000Z`;
+  return () => new Date(Date.UTC(2026, 9, 28) + second++ * 1_000).toISOString();
 }
 
 function git(root: string, ...args: readonly string[]): string {

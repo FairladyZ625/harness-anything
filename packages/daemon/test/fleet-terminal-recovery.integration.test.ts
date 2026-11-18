@@ -332,3 +332,127 @@ for (const restart of [false, true])
       assert.equal(released.length, 1, "the matching execution lease is released once");
     },
   );
+
+test(
+  "edge sync / reconcile settles an exited task runtime after its 12h execution credential expired",
+  { timeout: 120_000 },
+  async (t) => {
+    const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
+    t.after(() => fixture.close());
+    const center = await fixture.center(),
+      workspaceRoot = path.join(fixture.root, "expired-edge"),
+      viewRoot = path.join(fixture.root, "expired-view");
+    mkdirSync(path.join(workspaceRoot, "harness"), { recursive: true });
+    writeFileSync(
+      path.join(workspaceRoot, "harness/harness.yaml"),
+      "schema: harness-anything/v1\nname: expired-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    );
+    const syncReplica = () =>
+      catchUpReplica({
+        readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+        port: center.port,
+        ca: fixture.cert,
+        nodeId: fixture.subject.nodeId,
+        credential: "machine-secret",
+        repoId: fixture.subject.repoId,
+        viewRoot,
+        diskQuotaBytes: replicaQuota,
+      });
+    await syncReplica();
+    const resident = startResidentReplicaSync({
+      hostname: "127.0.0.1",
+      port: center.port,
+      ca: fixture.cert,
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+      repoId: fixture.subject.repoId,
+      viewRoot,
+      diskQuotaBytes: replicaQuota,
+    });
+    fixture.track(resident.close);
+    applyFleetMirrorCut(viewRoot, fixture.subject.repoId, workspaceRoot, "pull");
+
+    let currentNow = Date.now();
+    t.mock.method(Date, "now", () => currentNow);
+
+    let terminal: (() => void) | undefined;
+    const createRuntime = () =>
+      openFleetEdgeRuntime({
+        readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
+        readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
+        controlBinding: () => fixture.owners.binding(fixture.subject.nodeId),
+        resolveLocation: () => ({
+          host: "127.0.0.1",
+          port: center.port,
+          caPath: fixture.certFile,
+          nodeId: fixture.subject.nodeId,
+          credential: "machine-secret",
+          repoId: fixture.subject.repoId,
+          viewRoot,
+          quotaBytes: replicaQuota,
+          workspaceRoot,
+          method: "repo.agentRuntime.spawn",
+          action: {},
+        }),
+        daemonGeneration: 1,
+        daemonRoute: {
+          userRoot: path.join(fixture.root, "expired-edge-user"),
+          daemonId: "expired-edge",
+          endpoint: path.join(fixture.root, "expired-edge.sock"),
+        },
+        ports: scheduleRuntimePorts(),
+        launch: () => {
+          let output: ((chunk: string) => void) | undefined;
+          return {
+            pid: 2_147_483_647,
+            onOutput: (listener) => {
+              output = listener;
+            },
+            onErrorOutput: () => undefined,
+            onExit: (listener) => {
+              terminal = () => {
+                output?.(`${JSON.stringify({ type: "turn.completed" })}\n`);
+                listener(0);
+              };
+            },
+            terminate: () => undefined,
+          };
+        },
+      });
+    let runtime = createRuntime();
+    fixture.track(() => runtime.close());
+    const launched = await runtime.run("repo.agentRuntime.spawn", {
+      taskId: fixture.subject.taskId,
+      runtimeInstanceId: settlementDefinition.instanceId,
+      cwd: { scope: "repo-root" },
+      prompt: "Finish before expiry, then settle after 12h expiry.",
+      dispatchKey: "expired-edge-reconcile",
+    });
+    assert.equal(launched.outcome, "applied", JSON.stringify(launched));
+    assert.ok(terminal);
+
+    // Cut connection while process exits, advance clock by 13 hours (past 12h credential TTL), then restart & sync.
+    await center.close();
+    terminal();
+    runtime.close();
+
+    currentNow += 13 * 60 * 60 * 1000;
+    await fixture.center(center.port);
+    await syncReplica();
+    runtime = createRuntime();
+    await runtime.reconcile();
+
+    const outcomes = () =>
+      makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo })
+        .read()
+        .events.filter(
+          (event) =>
+            event.type === "runtime_session_outcome_observed" &&
+            event.payload.runtimeSessionId === launched.runtimeSessionId,
+        )
+        .map((event) => event.payload);
+    await waitForDurableValue(() => (outcomes().length > 0 ? true : null));
+    assert.equal(outcomes().length, 1, "expired host settlement must settle the exited runtime once on reconcile/sync");
+  },
+);

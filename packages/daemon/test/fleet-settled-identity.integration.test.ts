@@ -61,7 +61,10 @@ test(
     const released = f.releaseTerminal();
     const { after, entered, receipt: archivedReceipt } = await archivedProbe;
     assert.equal(archivedReceipt.code, "authorization_denied", JSON.stringify(archivedReceipt));
-    assert.match(String(archivedReceipt.rejectionExplanation), /unknown or expired on this edge runtime/u);
+    assert.match(
+      String(archivedReceipt.rejectionExplanation),
+      /unknown or missing from local dispatch streams on this edge runtime/u,
+    );
     assert.ok(entered.sequence > released.sequence, "the consumer must enter after the held response is released");
     assert.equal(after.liveExists, false);
     assert.equal(after.archiveExists, true);
