@@ -29,7 +29,9 @@ export function makeRepoCellFleetBackup(
           deferReader: true,
         });
         try {
-          return await source.startBackup(request.directory, cell.projection.path, signal);
+          return await source.startBackup(request.directory, cell.projection.path, signal, {
+            mode: request.mode,
+          });
         } finally {
           source.close();
         }

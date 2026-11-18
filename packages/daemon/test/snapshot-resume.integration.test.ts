@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { openReplicationSlots, type BaseBackupMetadata, type ReplicationPosition } from "@harness-anything/storage";
 import {
+  REPLICATION_BINARY_CHUNK_BYTES,
   REPLICATION_CHUNK_BYTES,
   SNAPSHOT_RESUME_CAPABILITY,
   serializeReplicationFrame,
@@ -116,7 +117,7 @@ test("walsender and walreceiver resume interrupted snapshot transfer from persis
   const root = mkdtempSync(path.join(tmpdir(), "ha-snap-resume-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
-  const archive = makeTestArchive(path.join(root, "center-archive"), REPLICATION_CHUNK_BYTES * 3 + 1234);
+  const archive = makeTestArchive(path.join(root, "center-archive"), REPLICATION_BINARY_CHUNK_BYTES * 3 + 1234);
   const snapshotId = "snap-pinned-001";
   const stagingDir = path.join(root, "edge-staging");
   const slots = openReplicationSlots(path.join(root, "slots.sqlite"));
@@ -174,7 +175,7 @@ test("walsender and walreceiver resume interrupted snapshot transfer from persis
     send: (frame) => pair1.edgePeer.send(frame),
     receive: async (signal) => {
       const frame = await pair1.edgePeer.receive(signal);
-      if (frame.type === "replica.data") {
+      if (frame.type === "replica.data" || frame.type === "replica.data.bin") {
         edgeDataFrames1 += 1;
         if (edgeDataFrames1 === 2) {
           abort1.abort(new Error("simulated network drop"));
@@ -224,7 +225,7 @@ test("walsender and walreceiver resume interrupted snapshot transfer from persis
     },
     onCenterToEdge: (frame) => {
       if (frame.type === "replica.backup") backupFrame2 = frame;
-      if (frame.type === "replica.data") sentOffsets2.push(frame.offset);
+      if (frame.type === "replica.data" || frame.type === "replica.data.bin") sentOffsets2.push(frame.offset);
     },
   });
   const lease2 = slots.claim({ repoId: "repo-resume-test", nodeId: "edge-one" }, archive.metadata.position.history);
@@ -320,7 +321,7 @@ test("walsender falls back to offset 0 with new snapshotId when requested snapsh
   const pair = createInMemoryPeerPair({
     onCenterToEdge: (frame) => {
       if (frame.type === "replica.backup") backupFrame = frame;
-      if (frame.type === "replica.data") sentOffsets.push(frame.offset);
+      if (frame.type === "replica.data" || frame.type === "replica.data.bin") sentOffsets.push(frame.offset);
     },
   });
   const lease = slots.claim({ repoId: "repo-resume-test", nodeId: "edge-one" }, archive.metadata.position.history);
@@ -420,7 +421,9 @@ test(
     let dataFrames = 0;
     const wrappedPeer1: ReplicationPeer = {
       send: async (frame) => {
-        peer1.socket.write(serializeReplicationFrame(frame));
+        const outbound =
+          frame.type === "replica.start" ? { ...frame, capabilities: [SNAPSHOT_RESUME_CAPABILITY] } : frame;
+        peer1.socket.write(serializeReplicationFrame(outbound));
       },
       receive: async (receiveSignal) => {
         receiveSignal?.throwIfAborted();
@@ -471,7 +474,9 @@ test(
     });
     const wrappedPeer2: ReplicationPeer = {
       send: async (frame) => {
-        peer2.socket.write(serializeReplicationFrame(frame));
+        const outbound =
+          frame.type === "replica.start" ? { ...frame, capabilities: [SNAPSHOT_RESUME_CAPABILITY] } : frame;
+        peer2.socket.write(serializeReplicationFrame(outbound));
         if (frame.type === "replica.ack") {
           resolveAcked();
         }

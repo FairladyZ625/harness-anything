@@ -7,13 +7,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  BINARY_DATA_FRAME_TAG,
+  BINARY_DATA_HEADER_BYTES,
+  REPLICATION_BINARY_CHUNK_BYTES,
   REPLICATION_CHUNK_BYTES,
   REPLICATION_FRAME_BYTES,
   ReplicationDecoder,
+  SNAPSHOT_BINARY_WIRE_CAPABILITY,
+  SNAPSHOT_OBJECT_PACK_CAPABILITY,
   SNAPSHOT_RESUME_CAPABILITY,
   parseReplicationCommit,
   parseReplicationFrame,
   serializeReplicationFrame,
+  serializeReplicationWireFrame,
   type ReplicationFrame,
 } from "../src/fleet/protocol.ts";
 
@@ -414,4 +420,69 @@ test("snapshot-resume/v1 protocol extensions round-trip and preserve legacy back
   ]) {
     assert.throws(() => parseReplicationFrame(JSON.stringify(invalid)), undefined, JSON.stringify(invalid));
   }
+});
+
+test("snapshot-binary-wire/v1 and snapshot-object-pack/v1 round-trip mixed binary and JSON frames", () => {
+  const payload = Buffer.from("binary-snapshot-payload-\x00\xff\x7b", "latin1");
+  const binFrame: ReplicationFrame = { type: "replica.data.bin", offset: 1024 * 1024, data: payload };
+  const backupPack: ReplicationFrame = {
+    type: "replica.backup",
+    metadata,
+    size: 4096,
+    sha256: "b".repeat(64),
+    snapshotId: "snap-pack-1",
+    resumeOffset: 0,
+    objectsMode: "pack",
+    objectCount: 2,
+  };
+  const manifest: ReplicationFrame = {
+    type: "replica.objects.manifest",
+    entries: [
+      { sha256: "a".repeat(64), size: 12 },
+      { sha256: "c".repeat(64), size: 34 },
+    ],
+    done: true,
+  };
+  const want: ReplicationFrame = { type: "replica.objects.want", sha256s: ["c".repeat(64)] };
+  const packHeader: ReplicationFrame = { type: "replica.objects.pack", totalBytes: 72 + 34, count: 1 };
+  const packEnd: ReplicationFrame = { type: "replica.objects.pack.end" };
+
+  for (const jsonFrame of [backupPack, manifest, want, packHeader, packEnd]) {
+    assert.deepEqual(parseReplicationFrame(serializeReplicationFrame(jsonFrame).trimEnd()), jsonFrame);
+  }
+
+  const wireBin = serializeReplicationWireFrame(binFrame);
+  assert.ok(Buffer.isBuffer(wireBin));
+  assert.equal(wireBin[0], BINARY_DATA_FRAME_TAG);
+  assert.equal(wireBin.length, BINARY_DATA_HEADER_BYTES + payload.length);
+  assert.throws(() => serializeReplicationFrame(binFrame), /binary wire/u);
+
+  const combined = Buffer.concat([
+    Buffer.from(serializeReplicationFrame(backupPack)),
+    wireBin,
+    Buffer.from(serializeReplicationFrame(manifest)),
+  ]);
+  const decoder = new ReplicationDecoder();
+  const decoded: ReplicationFrame[] = [];
+  for (let i = 0; i < combined.length; i += 7) {
+    decoded.push(...decoder.push(combined.subarray(i, i + 7)));
+  }
+  decoder.finish();
+  assert.equal(decoded.length, 3);
+  assert.deepEqual(decoded[0], backupPack);
+  assert.equal(decoded[1]!.type, "replica.data.bin");
+  if (decoded[1]!.type === "replica.data.bin") {
+    assert.equal(decoded[1]!.offset, 1024 * 1024);
+    assert.deepEqual(Buffer.from(decoded[1]!.data), payload);
+  }
+  assert.deepEqual(decoded[2], manifest);
+
+  // Reject oversized or zero-length binary frames and invalid capability strings.
+  const badLen = Buffer.alloc(BINARY_DATA_HEADER_BYTES);
+  badLen[0] = BINARY_DATA_FRAME_TAG;
+  badLen.writeUInt32BE(REPLICATION_BINARY_CHUNK_BYTES + 1, 9);
+  assert.throws(() => new ReplicationDecoder().push(badLen), /invalid binary replication frame/u);
+  assert.equal(SNAPSHOT_BINARY_WIRE_CAPABILITY, "snapshot-binary-wire/v1");
+  assert.equal(SNAPSHOT_OBJECT_PACK_CAPABILITY, "snapshot-object-pack/v1");
+  assert.equal(SNAPSHOT_RESUME_CAPABILITY, "snapshot-resume/v1");
 });
