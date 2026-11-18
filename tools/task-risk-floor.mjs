@@ -83,9 +83,13 @@ function deliveryPathRole(filePath) {
     (!DOC_FILE.test(filePath) && TEST_SEGMENT.test(filePath))
   )
     return "test";
-  if (/\.(?:md|mdx|txt|json|ya?ml)$/iu.test(filePath)) return "other";
-  if (/^packages\/[^/]+\/src\//u.test(filePath) || /^tools\/[^/]+\.mjs$/u.test(filePath)) return "production";
-  return "other";
+  return isProductionPath(filePath) ? "production" : "other";
+}
+
+function isProductionPath(filePath) {
+  if (/\.(?:md|mdx|txt|json|ya?ml)$/iu.test(filePath) || /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)/u.test(filePath))
+    return false;
+  return /^packages\/[^/]+\/src\//u.test(filePath) || /^tools\/(?!.*\.test\.)[^/]+\.mjs$/u.test(filePath);
 }
 
 function formatOracleChangeReason(oracleChanges) {
