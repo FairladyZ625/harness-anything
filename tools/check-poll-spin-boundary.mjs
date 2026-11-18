@@ -4,11 +4,10 @@
  * Lanes. One ESLint rule (tools/gates/eslint-rules/no-poll-spin.js), one baseline file and one
  * exact-sync check cover production and test lanes:
  *   - production: packages/*\/src and tools/gates (dec_EF5F3820E81FB8A5266F1F3342 CH3);
- *   - integration tests: every `*.integration.test.{ts,tsx,mjs,js}` under packages/ and tools/
- *     (dec_25B3C380F6FB9D4D4A1E27921E CH1). A test joins the lane by its file name, the same name
- *     the integration tier and its CI shards select; helpers it imports are covered through the
- *     `poll-helper` kind at the call site.
- *   - all tests: `packages/**\/*.test.{ts,tsx,mjs,js}` and `tools/**\/*.test.{ts,mjs,js}`
+ *   - integration tests: files declaring `// harness-test-tier: integration` on their first line
+ *     (dec_25B3C380F6FB9D4D4A1E27921E CH1). The rule shares the test-tier manifest's header parser;
+ *     helpers are covered through the `poll-helper` kind at the call site.
+ *   - all tests: .test and .spec files under packages/ and tools/
  *     reject elapsed-wall-clock upper bounds (clock-speed), including fast/contract tests.
  *
  * Integration kinds (AST, reported as file#enclosing-symbol#kind):
@@ -35,7 +34,8 @@
  *
  * Fixtures. tools/gates/test/syntax-boundaries.test.mjs holds the positive fixtures (each kind is
  * reported, a new now()+N deadline loop fails the gate) and the negative ones (waitForArrival,
- * node:test timeout, fail-only watchdogs pass).
+ * node:test timeout, fail-only watchdogs pass). An explicit fixture root also accepts legacy,
+ * unmarked integration fixture names.
  */
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -57,8 +57,8 @@ const allowlistCeiling = 0;
 const enforceCeiling = rootArg === undefined && !update;
 // Production sources (dec_EF5F3820E81FB8A5266F1F3342 CH3) and all test tiers
 // (dec_25B3C380F6FB9D4D4A1E27921E CH1) share one rule, one baseline and one exact-sync ratchet; the
-// test lane adds speed assertions to every tier, and the integration-only wait kinds by filename.
-const testPatterns = ["packages/**/*.test.{ts,tsx,mjs,js}", "tools/**/*.test.{ts,mjs,js}"];
+// test lane adds speed assertions to every tier and integration-only wait kinds by tier header.
+const testPatterns = ["packages/**/*.{test,spec}.{ts,tsx,mjs,js}", "tools/**/*.{test,spec}.{ts,mjs,js}"];
 const lanes = [
   { patterns: ["packages/*/src/**/*.{ts,tsx,js,mjs}", "tools/gates/**/*.{js,mjs}"], tests: false },
   { patterns: testPatterns, tests: true },
@@ -75,7 +75,12 @@ for (const lane of lanes) {
         files: ["**/*.{js,mjs,ts,tsx}"],
         languageOptions: { parser: tsParser, parserOptions: { ecmaVersion: 2024, sourceType: "module" } },
         plugins: { ha: { rules: { "no-poll-spin": noPollSpin } } },
-        rules: { "ha/no-poll-spin": ["error", { baseline: [], root, tests: lane.tests }] },
+        rules: {
+          "ha/no-poll-spin": [
+            "error",
+            { baseline: [], root, tests: lane.tests, legacyFixtureNames: rootArg !== undefined },
+          ],
+        },
       },
     ],
   });
@@ -89,7 +94,7 @@ for (const lane of lanes) {
 }
 if (update) {
   const exceptions = [...keys].sort().map((key) =>
-    /\.test\./u.test(key)
+    /\.(?:test|spec)\./u.test(key)
       ? {
           key,
           event: "baseline-2026-11-08: test judges correctness by the wall clock",
