@@ -1,4 +1,14 @@
 import {
+  FLEET_RECENT_DISPATCH_LIMIT,
+  FLEET_RECENT_EVENT_LIMIT,
+  FLEET_RECENT_TASK_LIMIT,
+  fleetEventSummary,
+  type FleetNodeActivity,
+  type FleetRecentDispatch,
+  type FleetRecentTask,
+} from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
+import { assertEventSummaryReadIndexReady } from "./event-summary-read-index.ts";
+import {
   storageReadPolicy,
   validateStorageReadWindow,
 } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
@@ -22,6 +32,7 @@ import {
 import type { CanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import type {
   TaskProjectionQueries,
+  CanonicalEventSummary,
   RuntimeDispatchProjectionRow,
   RuntimeDispatchMemberSession,
 } from "@harness-anything/kernel";
@@ -225,6 +236,14 @@ export function repositoryEventQueries(
       withRead((db, cut) => {
         if (!validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.summaries, afterRevision))
           throw new Error("event summary page requires a non-negative revision and a limit from 1 to 2048");
+        if (fields === "fleet" || (typeof fields === "object" && "fleetNodeIds" in fields)) {
+          assertEventSummaryReadIndexReady(db);
+          return {
+            ...cut,
+            events: readFleetEventHeaders(db, afterRevision, limit),
+            ...(typeof fields === "object" ? { fleetActivity: readFleetNodeActivity(db, fields.fleetNodeIds) } : {}),
+          };
+        }
         if (typeof fields === "object") {
           const selected = [...new Set(fields.taskIds)].flatMap((taskId) =>
             queryRows(
@@ -619,5 +638,69 @@ export function readDocumentRows(
     // `null` only for a row a hand-written fixture inserted without one; every production write
     // model stores the policy the claim was written under.
     policyId: row.policy_id === null || row.policy_id === undefined ? null : String(row.policy_id),
+  }));
+}
+
+const fleetHeader = `json_object(
+ 'eventId',json_extract(row_json,'$.eventId'), 'schema',json_extract(row_json,'$.schema'),
+ 'type',event_type, 'occurredAt',occurred_at, 'workspaceRevision',workspace_revision,
+ 'taskId',COALESCE(json_extract(summary_json,'$.taskId'),json_extract(summary_json,'$.payload.taskId')),
+ 'source',witness_json->'$.source', 'nodeId',source_node_id,
+ 'actor',json_object('principal',json_object('personId',actor_person_id),'executor',json_object('id',actor_executor_id)),
+ 'payload',json_object('title',json_extract(summary_json,'$.payload.title'),
+   'statement',json_extract(summary_json,'$.payload.statement'),'text',json_extract(summary_json,'$.payload.text'))
+)`;
+
+function readFleetEventHeaders(db: DatabaseSync, after: number, limit: number): CanonicalEventSummary[] {
+  return queryRows<{ header: string }>(
+    db,
+    `SELECT ${fleetHeader} AS header FROM event_summary WHERE workspace_revision>?
+     ORDER BY workspace_revision LIMIT ?`,
+    after,
+    limit,
+  ).map(({ header }) => JSON.parse(header) as CanonicalEventSummary);
+}
+
+/** One batched read, with a top-N index probe per node and point joins after each limit. */
+function readFleetNodeActivity(db: DatabaseSync, nodeIds: readonly string[]): FleetNodeActivity[] {
+  return queryRows<{
+    node_id: string;
+    tasks: string;
+    dispatches: string;
+    events: string;
+  }>(
+    db,
+    `SELECT nodes.value AS node_id,
+    (SELECT json_group_array(json_object('taskId',a.task_id,
+       'title',json_extract(t.snapshot_json,'$.task.title'),
+       'coordinationStatus',COALESCE(t.status,'unknown'),'personId',a.person_id,'updatedAt',a.updated_at))
+     FROM (SELECT * FROM fleet_node_task WHERE node_id=nodes.value
+           ORDER BY updated_at DESC,task_id LIMIT ${FLEET_RECENT_TASK_LIMIT}) a
+     JOIN task_snapshot t ON t.task_id=a.task_id) AS tasks,
+    (SELECT json_group_array(json_object(
+       'dispatchId',json_extract(e.event_json,'$.payload.dispatchId'),
+       'runtimeSessionId',json_extract(e.event_json,'$.payload.runtimeSessionId'),
+       'taskId',a.activity_task_id,'taskTitle',json_extract(t.snapshot_json,'$.task.title'),
+       'agentId',json_extract(e.event_json,'$.payload.agentId'),
+       'agentLabel',COALESCE(json_extract(e.event_json,'$.payload.agentName'),json_extract(e.event_json,'$.payload.agentId')),
+       'personId',a.actor_person_id, 'status',COALESCE(json_extract(s.value_json,'$.outcome'),
+         CASE WHEN json_extract(s.value_json,'$.liveness') IN ('live','stale') THEN 'running' ELSE 'unknown' END),
+       'startedAt',a.dispatch_started_at))
+     FROM (SELECT workspace_revision,activity_task_id,actor_person_id,dispatch_started_at FROM event_summary
+           WHERE source_node_id=nodes.value AND event_type='runtime_dispatch_requested'
+           ORDER BY dispatch_started_at DESC,workspace_revision DESC LIMIT ${FLEET_RECENT_DISPATCH_LIMIT}) a
+     JOIN event_index e USING(workspace_revision)
+     LEFT JOIN task_snapshot t ON t.task_id=a.activity_task_id
+     LEFT JOIN runtime_session s ON s.runtime_session_id=json_extract(e.event_json,'$.payload.runtimeSessionId')) AS dispatches,
+    (SELECT json_group_array(json(header))
+     FROM (SELECT ${fleetHeader} AS header FROM event_summary WHERE source_node_id=nodes.value
+           ORDER BY workspace_revision DESC LIMIT ${FLEET_RECENT_EVENT_LIMIT})) AS events
+    FROM json_each(?) nodes`,
+    JSON.stringify(nodeIds),
+  ).map((row) => ({
+    nodeId: row.node_id,
+    recentTasks: JSON.parse(row.tasks) as FleetRecentTask[],
+    recentDispatches: JSON.parse(row.dispatches) as FleetRecentDispatch[],
+    recentEvents: (JSON.parse(row.events) as CanonicalEventSummary[]).map(fleetEventSummary),
   }));
 }

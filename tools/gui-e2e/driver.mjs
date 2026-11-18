@@ -2,10 +2,18 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import electronPath from "electron";
 import { _electron as electron } from "playwright-core";
 
-export async function startGuiDriver({ workspaceRoot, rootDir, env, runRoot, headless = true, mainPath, userDataDir }) {
+export async function startGuiDriver({
+  workspaceRoot,
+  rootDir,
+  env,
+  runRoot,
+  headless = true,
+  mainPath,
+  userDataDir,
+  rendererUrl,
+}) {
   const ownsProfile = userDataDir === undefined,
     profile = userDataDir ?? mkdtempSync(path.join(tmpdir(), "hg-profile-"));
   const consoleFailures = [];
@@ -19,11 +27,13 @@ export async function startGuiDriver({ workspaceRoot, rootDir, env, runRoot, hea
   // This driver always launches the GUI shell, so it must run Electron in its own mode.
   const launchEnv = { ...env, ELECTRON_DISABLE_SANDBOX: "1", HARNESS_GUI_ROOT: rootDir };
   delete launchEnv.ELECTRON_RUN_AS_NODE;
-  delete launchEnv.ELECTRON_RENDERER_URL;
+  if (rendererUrl === undefined) delete launchEnv.ELECTRON_RENDERER_URL;
+  else launchEnv.ELECTRON_RENDERER_URL = rendererUrl;
   let app;
   try {
+    // Let Playwright launch the installed Electron with its loader. An explicit binary path
+    // bypasses that loader, which holds app readiness until both CDP clients connect.
     app = await electron.launch({
-      executablePath: electronPath,
       args,
       cwd: workspaceRoot,
       env: launchEnv,
@@ -34,7 +44,8 @@ export async function startGuiDriver({ workspaceRoot, rootDir, env, runRoot, hea
       if (message.type() === "error") consoleFailures.push(message.text());
     });
     page.on("pageerror", (error) => consoleFailures.push(error.message));
-    await page.waitForLoadState("domcontentloaded");
+    if (rendererUrl === undefined) await page.waitForLoadState("domcontentloaded");
+    else await page.waitForURL(new URL(rendererUrl).href, { waitUntil: "domcontentloaded" });
     // 每次运行都是全新 profile,首次启动引导浮层(task_aba0fddb 起)必然弹出并拦截所有
     // 点击;e2e 验收的是各页面流程而非引导本身,落它的已完成标记后重载一次关掉。
     await page.evaluate(() => globalThis.localStorage.setItem("harness.desktop-first-run.done", "1"));

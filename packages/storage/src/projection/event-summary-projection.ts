@@ -26,6 +26,9 @@ export function projectEventSummary(db: DatabaseSync, event: PersistedCanonicalE
       occurredAt: event.occurredAt,
       actor: { personId: event.actor.principal.personId, executorId: event.actor.executor?.id ?? null },
       entityRefs: canonicalEventEntityRefs(event),
+      ...(event.schema === "agent-runtime-event/v1" && event.type === "runtime_dispatch_requested"
+        ? { dispatchStartedAt: event.payload.startedAt ?? event.occurredAt }
+        : {}),
     }),
   );
 }

@@ -1,3 +1,4 @@
+import type { FleetNodeActivity } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
 import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import path from "node:path";
 import type { DaemonRepoMode, TaskProjection } from "@harness-anything/kernel";
@@ -24,6 +25,11 @@ export { DAEMON_OBSERVE_TAIL_SCHEMA };
 export type { ObserveTailCursor, ObserveTailPayload, ObserveTailResult };
 
 const pageSize = 64;
+
+type EventTailPayload = Extract<ObserveTailPayload, { readonly kind: "events" }> & {
+  /** Host-only, after the overview's lease read has admitted the viewer. */
+  readonly fleetNodeIds?: readonly string[];
+};
 
 export async function readObserveTail(input: {
   readonly repoId: string;
@@ -90,7 +96,7 @@ export function readObserveEventTail(input: {
   readonly projection: TaskProjection;
   readonly payload: unknown;
 }): ObserveTailResult {
-  const payload = input.payload as Extract<ObserveTailPayload, { readonly kind: "events" }>;
+  const payload = input.payload as EventTailPayload;
   return buildObserveEventTail(input, payload, {
     schema: DAEMON_OBSERVE_TAIL_SCHEMA.id,
     ok: true,
@@ -108,7 +114,7 @@ function buildObserveEventTail(
     readonly mode: DaemonRepoMode;
     readonly projection: TaskProjection;
   },
-  payload: Extract<ObserveTailPayload, { readonly kind: "events" }>,
+  payload: EventTailPayload,
   base: {
     readonly schema: typeof DAEMON_OBSERVE_TAIL_SCHEMA.id;
     readonly ok: true;
@@ -121,10 +127,7 @@ function buildObserveEventTail(
   return { ...base, ...readEventTail(input.projection, payload) };
 }
 
-function readEventTail(
-  projection: TaskProjection,
-  payload: Extract<ObserveTailPayload, { readonly kind: "events" }>,
-): EventTailPage {
+function readEventTail(projection: TaskProjection, payload: EventTailPayload): EventTailPage {
   const requested = payload.cursor?.revision;
   if (payload.direction === "follow") {
     const after = requested!,
@@ -156,7 +159,11 @@ function readEventTail(
       `Canonical event cursor ${before} is ahead of source revision ${probe.sourceRevision}.`,
     );
   const after = Math.max(0, before - pageSize - 1),
-    page = projection.readEventSummaries(after, pageSize + 1, payload.fields),
+    page = projection.readEventSummaries(
+      after,
+      pageSize + 1,
+      payload.fleetNodeIds === undefined ? payload.fields : { fleetNodeIds: payload.fleetNodeIds },
+    ),
     eligible = page.events.filter((event) => event.workspaceRevision < before),
     selected = eligible.slice(-pageSize),
     firstRevision = selected.at(0)?.workspaceRevision ?? Math.max(0, before - 1),
@@ -164,6 +171,7 @@ function readEventTail(
   return {
     status: page.status,
     items: selected,
+    ...(page.fleetActivity === undefined ? {} : { fleetActivity: page.fleetActivity }),
     historyCursor: { kind: "events", revision: firstRevision },
     liveCursor: { kind: "events", revision: lastRevision },
     sourceCursor: { kind: "events", revision: page.sourceRevision },
@@ -264,7 +272,7 @@ function observeError(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });
 }
 
-type EventTailPage =
+type EventTailPage = { readonly fleetActivity?: readonly FleetNodeActivity[] } & (
   | Pick<
       Extract<ObserveTailResult, { readonly status: ProjectionStatus.ReadSetProjectionCut["status"] }>,
       "status" | "items" | "historyCursor" | "liveCursor" | "sourceCursor" | "done"
@@ -272,4 +280,5 @@ type EventTailPage =
   | Pick<
       Extract<ObserveTailResult, { readonly status: "gap" }>,
       "status" | "items" | "historyCursor" | "liveCursor" | "sourceCursor" | "done" | "gap"
-    >;
+    >
+);

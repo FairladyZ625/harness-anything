@@ -2262,7 +2262,7 @@
         "explain": "Tenant/project/policy/repository-scoped event index version witness in the caller transaction; refuses incomplete physical backfills.",
         "sources": [
           {
-            "candidateId": "judgment:packages/storage:packages/storage/src/pg/pg-event-read-index-migration.ts#assertPgEventReadIndexReady:4fd966b00b3cbec7565f99e4b91d3bed",
+            "candidateId": "judgment:packages/storage:packages/storage/src/pg/pg-event-read-index-migration.ts#assertPgEventReadIndexReady:97a25473c3714450a3b87ea3b43ae4fa",
             "route": "packages/storage/src/pg/pg-event-read-index-migration.ts#assertPgEventReadIndexReady"
           }
         ]
@@ -2317,7 +2317,7 @@
         "explain": "SQLite physical event-summary index existence and backfill-version witness in the serving database; preserves projection_pending.",
         "sources": [
           {
-            "candidateId": "judgment:packages/storage:packages/storage/src/projection/event-summary-read-index.ts#assertEventSummaryReadIndexReady:b0334e87b20b511331633335e91a8aad",
+            "candidateId": "judgment:packages/storage:packages/storage/src/projection/event-summary-read-index.ts#assertEventSummaryReadIndexReady:f7fdb808e7de6eab2567422eaaa67363",
             "route": "packages/storage/src/projection/event-summary-read-index.ts#assertEventSummaryReadIndexReady"
           }
         ]
@@ -3469,10 +3469,10 @@
       {
         "id": "daemon/src/fleet/fleet-overview-read.ts#validateFleetOverview",
         "symbol": "packages/daemon/src/fleet/fleet-overview-read.ts#validateFleetOverview",
-        "explain": "Daemon exit wire-response validator for `daemon.fleet-overview/v1` envelopes, center build stamps, replica link states and event summary arrays.",
+        "explain": "Daemon exit wire-response validator for `daemon.fleet-overview/v1` envelopes, center build stamps, replica link states and event summaries carrying canonical attribution.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/fleet/fleet-overview-read.ts#validateFleetOverview:241f7726cc2e858ee843159bb1875545",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/fleet/fleet-overview-read.ts#validateFleetOverview:c16c3fe50c4bfabc65dc211520a23b0b",
             "route": "packages/daemon/src/fleet/fleet-overview-read.ts#validateFleetOverview"
           }
         ]
@@ -3480,10 +3480,10 @@
       {
         "id": "daemon/src/fleet/fleet-overview-read.ts#validateNodeRow",
         "symbol": "packages/daemon/src/fleet/fleet-overview-read.ts#validateNodeRow",
-        "explain": "Daemon exit wire-response validator for `FleetNodeRow` entries in `daemon.fleet-overview/v1`, checking center/edge role, redacted lease shapes and replica progress fields.",
+        "explain": "Daemon exit wire-response validator for `FleetNodeRow` entries in `daemon.fleet-overview/v1`, checking center/edge role, matching lease and recent-activity redactions, activity bounds and replica progress fields.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/fleet/fleet-overview-read.ts#validateNodeRow:8307570223771bb447223790fbb75012",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/fleet/fleet-overview-read.ts#validateNodeRow:2700a18d39127295a46cce7cdc8fc1e2",
             "route": "packages/daemon/src/fleet/fleet-overview-read.ts#validateNodeRow"
           }
         ]
@@ -4269,7 +4269,7 @@
         "explain": "Closed JSON-RPC request parameter validator for `repo.runtime.sessionGroups` filter and pagination parameters.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateRuntimeSessionGroupsPayload:3661d8bb8ecd4bf62f19962c3cb70135",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateRuntimeSessionGroupsPayload:29ce8d5cecdd8a71115484b8d8b55e8d",
             "route": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateRuntimeSessionGroupsPayload"
           }
         ]

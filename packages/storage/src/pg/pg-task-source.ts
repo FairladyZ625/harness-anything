@@ -1,3 +1,4 @@
+import { taskAttribution } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
 import type * as ReadSet from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { assertPgTaskParentIndexReady } from "./pg-task-parent-index.ts";
@@ -19,7 +20,7 @@ import { checkedPageLimit } from "./pg-query-page.ts";
 import { pgRuntimeDispatchQueries, type PgRuntimeDispatchQueries } from "./pg-runtime-dispatch-queries.ts";
 import { pgDispatchLifecycleQueries, type PgDispatchLifecycleQueries } from "./pg-dispatch-lifecycle.ts";
 import type { Pool } from "pg";
-import { pgEventQueries, readCutInTransaction } from "./pg-event-queries.ts";
+import { pgEventQueries, pgTaskAttributionColumns, readCutInTransaction } from "./pg-event-queries.ts";
 import type {
   DecisionAgendaProjectionPageRead,
   DecisionProjectionListRead,
@@ -319,8 +320,9 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
         }
         const paged = query.limit !== undefined || query.cursor !== undefined,
           limit = paged ? checkedPageLimit(query.limit ?? 100) : null;
-        if (limit !== null) values.push(limit + 1);
-        const presentation = query.presentationStatus ? presentationStatusSql(4) : "task_status",
+        const limitParameter = limit === null ? null : values.push(limit + 1);
+        const repoParameter = values.push(repoId),
+          presentation = query.presentationStatus ? presentationStatusSql(4) : "task_status",
           result = await client.query<{
             task_id: string;
             package_path: string | null;
@@ -331,9 +333,12 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             created_at: string | null;
             completed_at: string | null;
             updated_at: string;
+            origin_node_id: string | null;
+            latest_node_id: string | null;
+            latest_person_id: string | null;
           }>(
-            `SELECT task_id, package_path, generation, workspace_revision::text, snapshot, created_at::text, completed_at::text, updated_at::text, ${presentation} AS presentation_status FROM ha_task_snapshots
-           WHERE ${where.join(" AND ")} ORDER BY ${query.pinnedFirst ? "task_pinned DESC, " : ""}task_id${limit === null ? "" : ` LIMIT $${values.length}`}`,
+            `SELECT task_id, package_path, generation, workspace_revision::text, snapshot, ${pgTaskAttributionColumns(repoParameter)}, created_at::text, completed_at::text, updated_at::text, ${presentation} AS presentation_status FROM ha_task_snapshots
+           WHERE ${where.join(" AND ")} ORDER BY ${query.pinnedFirst ? "task_pinned DESC, " : ""}task_id${limitParameter === null ? "" : ` LIMIT $${limitParameter}`}`,
             values,
           );
         const truncated = limit !== null && result.rows.length > limit,
@@ -352,6 +357,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             createdAt: row.created_at === null ? null : toIsoTimestamp(row.created_at),
             completedAt: row.completed_at === null ? null : toIsoTimestamp(row.completed_at),
             updatedAt: toIsoTimestamp(row.updated_at),
+            ...taskAttribution(hydrated[index]!, row.origin_node_id, row.latest_node_id, row.latest_person_id),
             snapshot: query.presentationStatus
               ? presentSnapshot(hydrated[index]!, row.presentation_status)
               : hydrated[index]!,

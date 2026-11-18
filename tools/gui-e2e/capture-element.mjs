@@ -309,7 +309,7 @@ export async function runElementCaptureSession(options, run) {
   const viteBin = path.join(workspaceRoot, "node_modules/vite/bin/vite.js");
   // preload 构建在被拍代码树里(主进程从该树的 dist-electron 读 preload);vite/electron
   // 本体走本仓 node_modules,基线临时树符号链接同一套即可(先例:scroll-fade 包复拍轮)。
-  execFileSync(process.execPath, [viteBin, "build", "--config", "vite.preload.config.ts"], {
+  execFileSync(process.execPath, [viteBin, "build", "--config", "vite.preload.config.ts", "--no-emptyOutDir"], {
     cwd: gui,
     stdio: "pipe",
   });
@@ -356,7 +356,8 @@ export default {...base, root:${JSON.stringify(gui)}, cacheDir:${JSON.stringify(
     driver = await startGuiDriver({
       workspaceRoot: codeTree,
       rootDir: codeTree,
-      env: { ...(options.env ?? process.env), ELECTRON_RENDERER_URL: base },
+      env: options.env ?? process.env,
+      rendererUrl: base,
       runRoot: temp,
       headless: true,
     });

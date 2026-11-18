@@ -419,25 +419,14 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       10000,
     );
     assert.equal(settingsVisible.wait?.state, "satisfied", JSON.stringify(settingsVisible));
-    let settingsCommit = "";
-    for (let attempt = 0; attempt < 50 && !settingsCommit; attempt += 1) {
-      settingsCommit = execFileSync(
-        "git",
-        [
-          "-C",
-          path.join(fixture.rootDir, "harness"),
-          "log",
-          "--all",
-          "-SdefaultPreset: docs-task",
-          "--format=%H",
-          "--",
-          "harness.yaml",
-        ],
-        { encoding: "utf8" },
-      ).trim();
-      if (!settingsCommit) await new Promise((resolve) => setTimeout(resolve, 100));
-    }
+    const settingsCommit = String(settingsVisible.commitSha);
     assert.match(settingsCommit, /^[0-9a-f]{40}$/u, "Settings update must become reachable in a daemon commit");
+    const committedSettings = execFileSync(
+      "git",
+      ["-C", path.join(fixture.rootDir, "harness"), "show", `${settingsCommit}:harness.yaml`],
+      { encoding: "utf8" },
+    );
+    assert.match(committedSettings, /defaultPreset: docs-task/u);
     const settingsAfter = parseDaemonGuiReadResult("repo.settings.read", await bridge.invoke("getSettings", scope));
     assert.equal(settingsAfter.settings.defaultPreset, "docs-task");
     assert.equal(settingsAfter.settings.locale, "zh-CN");
@@ -734,15 +723,15 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     assert.equal(progress.outcome, "applied");
     assert.equal(progress.commitSha, null);
     assert.equal(typeof progress.cut, "object");
-    let settledProgress = progress;
-    const publicationDeadline = performance.now() + 10_000;
-    while (settledProgress.commitSha === null && performance.now() < publicationDeadline) {
-      await new Promise((resolve) => setTimeout(resolve, 25));
-      settledProgress = parseDaemonGuiActionResponse(
-        "repo.receipt.show",
-        await bridge.invoke("showReceipt", { ...scope, opId: progress.opId }),
-      );
-    }
+    const settledProgress = parseDaemonGuiActionResponse(
+      "repo.receipt.show",
+      await bridge.invoke("showReceipt", {
+        ...scope,
+        opId: progress.opId,
+        waitFor: ["git_verified"],
+        timeoutMs: 30_000,
+      }),
+    );
     const commitSha = String(settledProgress.commitSha);
     assert.match(commitSha, /^[0-9a-f]{40}$/u);
     const artifactPath = `${fixture.packagePath}/artifacts/bridge.md`;

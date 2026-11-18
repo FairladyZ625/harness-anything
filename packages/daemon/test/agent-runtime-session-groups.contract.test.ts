@@ -93,6 +93,9 @@ test("session groups are contracted as a use-case projection with bounded daemon
   assert.notDeepEqual(call({ cursor: "not-in-v1" }), []);
   assert.notDeepEqual(call({ agentId: "" }), []);
   assert.notDeepEqual(call({ squadId: 7 }), []);
+  assert.deepEqual(call({ personId: "person_alice", nodeId: "node-edge-a" }), []);
+  assert.notDeepEqual(call({ personId: "" }), []);
+  assert.notDeepEqual(call({ nodeId: 7 }), []);
   // 状态筛选是同一条读的一个入参,不是第二个读:传输层收数组、拒非数组。
   assert.deepEqual(call({ groupBy: "task", status: ["failed", "lost"] }), []);
   assert.notDeepEqual(call({ status: "failed" }), []);
@@ -261,6 +264,26 @@ test("session groups filter members by exact agent/squad attribution, not substr
     directAgent.groups.map(({ key }) => key),
     ["task-c"],
   );
+});
+
+test("session member and node filters compose before calculating session group totals", () => {
+  const reads = makeAgentRuntimeReadModel({
+    projection: projectionFixture(),
+    store: {} as never,
+    readDispatches: () =>
+      dispatches.map((row, index) => ({
+        ...row,
+        personId: index === 1 ? "person_bob" : "person_alice",
+        nodeId: index === 2 ? "center" : "node-edge-a",
+      })),
+  });
+  const result = parseSessionGroupsProjection(reads.sessionGroups({ personId: "person_alice", nodeId: "node-edge-a" }));
+  assert.deepEqual(result.totals, { groups: 1, sessions: 1 });
+  assert.deepEqual(
+    result.groups.map(({ key, personId, nodeId }) => ({ key, personId, nodeId })),
+    [{ key: "task-a", personId: "person_alice", nodeId: "node-edge-a" }],
+  );
+  assert.deepEqual(reads.sessionGroups({ personId: "person_bob", nodeId: "center" }).groups, []);
 });
 
 test("session group results reject secret-bearing or identity-incoherent output", () => {

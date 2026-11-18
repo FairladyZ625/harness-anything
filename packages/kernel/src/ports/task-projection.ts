@@ -1,3 +1,4 @@
+import type { FleetNodeActivity } from "../domain/canonical-event-summary.ts";
 import type * as RuntimeDomain from "../domain/agent-runtime.ts";
 import type * as ReadSet from "../domain/task-read-set.ts";
 import type { ArtifactEntityState } from "../domain/artifact-entity-state.ts";
@@ -309,10 +310,11 @@ export interface TaskProjection {
     afterRevision: number,
     limit: number,
     /** Header-only projection for aggregate tails; omitted reads return the canonical summary. */
-    fields?: "fleet" | { readonly taskIds: readonly string[] },
+    fields?: "fleet" | { readonly taskIds: readonly string[] } | { readonly fleetNodeIds: readonly string[] },
   ) => {
     readonly status: ReadSet.ReadSetProjectionCut["status"];
     readonly events: readonly import("../domain/canonical-event-summary.ts").CanonicalEventSummary[];
+    readonly fleetActivity?: readonly FleetNodeActivity[];
     /** Present for the newest task-scoped window. */
     readonly hasMore?: boolean;
     readonly watermark: number;

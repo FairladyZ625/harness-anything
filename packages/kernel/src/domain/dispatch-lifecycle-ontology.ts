@@ -198,7 +198,7 @@ export const daemonRuntimeSessionPolicySources = [
     "{ attemptChain: true, context: true },",
   ],
   [
-    "policy:packages/daemon:packages/daemon/src/agent-runtime-read.ts#sessionGroupsQuery:a3384c1f39c688cb348429e371fd365d",
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-read.ts#sessionGroupsQuery:114905f6432233f8b0ca8a1b00093f97",
     "packages/daemon/src/agent-runtime-read.ts#sessionGroupsQuery",
     "if (",
   ],

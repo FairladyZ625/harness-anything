@@ -28,7 +28,7 @@ export function edgeReplicaDoctor(rootDir: string, repoId: string, now: () => nu
       throw Object.assign(new Error("Replica configuration is unavailable"), { code: "fleet_edge_config_invalid" });
     const viewRoot = path.resolve(rootDir, config.viewRoot),
       viewDir = path.join(viewRoot, "repos", repoId, "views", config.nodeId);
-    const view = locateFleetMirrorView(viewRoot, repoId, config.nodeId);
+    const view = locateFleetMirrorView(viewRoot, repoId, config.nodeId, { includeEntries: false });
     if (view) {
       replica.currentCut = { revision: view.revision, headDigest: view.headDigest };
       replica.authorizationShapeDigest = view.authorizationShapeDigest;

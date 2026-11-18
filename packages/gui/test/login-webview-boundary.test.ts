@@ -57,6 +57,59 @@ test("an edge listener can pin its delivered certificate without exposing a priv
     fingerprint256: leafFingerprint,
     proxyTarget: "https://127.0.0.1:56506/",
   });
+
+  const directWithTargetUrl = resolve(authorizationUrl, {
+    listener: {
+      hostname: "10.211.55.2",
+      port: 18544,
+      certificate: leaf,
+      targetUrl: "https://10.211.55.2:18544/",
+    },
+  });
+  assert.deepEqual(directWithTargetUrl, {
+    origin: "https://10.211.55.2:18544",
+    fingerprint256: leafFingerprint,
+  });
+  assert.equal(directWithTargetUrl?.proxyTarget, undefined);
+
+  const directWithoutTargetUrl = resolve(authorizationUrl, {
+    listener: {
+      hostname: "10.211.55.2",
+      port: 18544,
+      certificate: leaf,
+    },
+  });
+  assert.deepEqual(directWithoutTargetUrl, {
+    origin: "https://10.211.55.2:18544",
+    fingerprint256: leafFingerprint,
+  });
+  assert.equal(directWithoutTargetUrl?.proxyTarget, undefined);
+
+  assert.throws(
+    () =>
+      resolve(authorizationUrl, {
+        listener: {
+          hostname: "10.211.55.2",
+          port: 18544,
+          certificate: leaf,
+          targetUrl: "https://10.211.55.3:18544/",
+        },
+      }),
+    /The login listener proxy target must be a loopback HTTPS URL\./u,
+  );
+
+  assert.throws(
+    () =>
+      resolve(authorizationUrl, {
+        listener: {
+          hostname: "10.211.55.2",
+          port: 18544,
+          certificate: leaf,
+          targetUrl: "http://127.0.0.1:56506/",
+        },
+      }),
+    /The login listener proxy target must be a loopback HTTPS URL\./u,
+  );
 });
 
 test("any other origin, listener shape, or certificate file earns no trust", () => {

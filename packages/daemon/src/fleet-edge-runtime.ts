@@ -277,7 +277,7 @@ export function openFleetEdgeRuntime(input: {
   };
   const readSettings = () => {
     const { request } = context();
-    return withEdgeReadModel({ ...request, principalId: replicaOwner }, (projection) => ({
+    return withEdgeReadModel({ ...request, principalId: replicaOwner, includeEntries: false }, (projection) => ({
       ...readSettingsFacet(readFileSync(resolveHarnessLayout(request.workspaceRoot).configPath!, "utf8")),
       ...((projection.getEntity("settings", "repository")?.value as RepositorySettingsV1 | undefined) ?? {}),
     }));
@@ -288,7 +288,7 @@ export function openFleetEdgeRuntime(input: {
 
     if (replicaOwner === undefined) return null;
     return withEdgeReadModel(
-      { ...request, principalId: replicaOwner, includeEntries: true },
+      { ...request, principalId: replicaOwner, includeEntries: false },
       (projection) => projection.readDocument(logicalPath).document?.body ?? null,
     );
   };
@@ -334,7 +334,9 @@ export function openFleetEdgeRuntime(input: {
   }) => {
     const { request } = context();
 
-    const view = locateFleetMirrorView(request.viewRoot, request.repoId, request.nodeId);
+    const view = locateFleetMirrorView(request.viewRoot, request.repoId, request.nodeId, {
+      entriesPrefix: `tasks/${artifact.taskId}`,
+    });
     if (!view) return null;
     const packagePaths = fleetMirrorTaskPaths(view, artifact.taskId)
       .filter((logical) => logical.startsWith("tasks/") && logical.endsWith("/INDEX.md"))
@@ -423,7 +425,11 @@ export function openFleetEdgeRuntime(input: {
         ? review.report.path.slice(0, -reportSuffix.length)
         : null,
       packetPath = reportPackage ? `${reportPackage}/artifacts/reports/${review.dispatchId}.json` : null,
-      view = locateFleetMirrorView(request.viewRoot, request.repoId, request.nodeId),
+      view = locateFleetMirrorView(request.viewRoot, request.repoId, request.nodeId, {
+        entryPaths: [packetPath ?? "", `${reportPackage ?? ""}/artifacts/reports/${review.dispatchId}.md`].filter(
+          Boolean,
+        ),
+      }),
       reportClass = classifyTextualArtifactPath(review.report.path),
       packetClass = classifyTextualArtifactPath(review.packet.path);
     if (
@@ -989,6 +995,7 @@ export function openFleetEdgeRuntime(input: {
           repoId: request.repoId,
           nodeId: request.nodeId,
           principalId: binding.actor.principal.personId,
+          includeEntries: false,
         },
         (projection) =>
           resolveSquadDispatch({
@@ -1144,7 +1151,7 @@ export function openFleetEdgeRuntime(input: {
         ["schedule-list", "schedule-show", "schedule-runs", "schedule-reckon"].includes(String(action.kind))
       )
         return withEdgeReadModel(
-          { ...request, principalId: readBinding.actor.principal.personId },
+          { ...request, principalId: readBinding.actor.principal.personId, includeEntries: false },
           (projection, frame, view) =>
             ({
               ...readScheduleAction(
@@ -1557,7 +1564,9 @@ function mirroredAgentDeclaration(
   const logical = `agents/${agentId}.json`;
   if (
     entitySlug(agentId) &&
-    locateFleetMirrorView(request.viewRoot, request.repoId, request.nodeId)?.entries.has(logical)
+    locateFleetMirrorView(request.viewRoot, request.repoId, request.nodeId, { entryPaths: [logical] })?.entries.has(
+      logical,
+    )
   )
     return parseAgentDeclarationV1(
       JSON.parse(

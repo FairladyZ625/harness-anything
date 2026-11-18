@@ -191,6 +191,8 @@ export type ObserveTailPayload =
   | (ObserveTailRequestFor<"dispatch"> & { readonly dispatchId: string });
 
 type ObserveTailBase = {
+  /** In-process fleet activity request, unavailable on the public observe.tail payload. */
+  readonly fleetActivity?: readonly import("@harness-anything/kernel/internal/domain/canonical-event-summary.ts").FleetNodeActivity[];
   readonly schema: "daemon.observe-tail/v3";
   readonly ok: true;
   readonly repoId: string;

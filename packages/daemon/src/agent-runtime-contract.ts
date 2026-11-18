@@ -303,6 +303,9 @@ export interface AgentRuntimeSessionGroupRoundDto {
   readonly startedAt: string;
 }
 export interface AgentRuntimeSessionGroupDto {
+  /** Attribution of the latest round, when it has a dispatch. */
+  readonly personId?: string | null;
+  readonly nodeId?: string | null;
   readonly key: string;
   readonly kind: AgentRuntimeSessionGroupKind;
   readonly label: string;
@@ -857,7 +860,16 @@ function validSessionGroup(value: unknown): value is AgentRuntimeSessionGroupDto
       "latestRound",
     ];
   return (
-    hasAgentRuntimeContractFields(value, required, ["taskId", "decisionId", "squadId", "agentId", "day"]) &&
+    hasAgentRuntimeContractFields(value, required, [
+      "taskId",
+      "decisionId",
+      "squadId",
+      "agentId",
+      "day",
+      "personId",
+      "nodeId",
+    ]) &&
+    [value.personId, value.nodeId].every((id) => id === undefined || id === null || sessionGroupText(id)) &&
     [value.key, value.label].every(sessionGroupText) &&
     sessionGroupKinds.includes(value.kind as AgentRuntimeSessionGroupKind) &&
     validSessionGroupIdentity(value, identityFields) &&

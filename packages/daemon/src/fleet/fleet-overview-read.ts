@@ -1,3 +1,13 @@
+import {
+  FLEET_RECENT_DISPATCH_LIMIT,
+  FLEET_RECENT_TASK_LIMIT,
+  FLEET_RECENT_EVENT_LIMIT,
+  fleetEventSummary,
+  type FleetNodeActivity,
+  type FleetRecentTask,
+  type FleetRecentDispatch,
+} from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
+import { CENTER_NODE_ID, writeSourceNodeId } from "@harness-anything/kernel/internal/domain/write-source.ts";
 import type * as AccessStatus from "@harness-anything/kernel/internal/domain/access-status.ts";
 import type { FleetNodeSessionStatus } from "./node-session-status.ts";
 import type { FleetReplicaStatus } from "./center-types.ts";
@@ -21,8 +31,7 @@ import type { DaemonTaskSnapshotListResult } from "../protocol/daemon-protocol-g
  * - 通道/副本状态直接投影 `FleetTlsCenter.status().replicas`(centerRevision/ack/
  *   lag/delivery),保留 null;
  * - 在做什么 = 该节点当前租约的任务行 + 这些任务的 dispatch 行(daemon 既有读面);
- * - 事件 = canonical event 尾部只读投影,按任务**当前**租约归属节点——历史事件可能
- *   早于当前持有人,这一归属语义在结果里显式声明,不在 UI 里隐含;
+ * - 事件来源由 canonical envelope 与运行时会话投影提供。
  * - 在线来自中心复制 socket,build 来自认证 hello,最近失败来自中心 transport 最新行;
  *   edge 内部 watch/pull/退避没有安全来源,显式 unavailable,不由 ACK 或 runtime 推断。
  *
@@ -36,7 +45,7 @@ export type FleetFieldState =
   | { readonly kind: "unavailable"; readonly reason: string };
 
 /** 台账里中心的保留节点 id;真实 nodeId 来自 fleet admission,不会与之冲突。 */
-export const FLEET_CENTER_NODE_ID = "center";
+export const FLEET_CENTER_NODE_ID = CENTER_NODE_ID;
 
 export interface FleetCenterFact {
   readonly daemonId: string;
@@ -77,7 +86,10 @@ export interface FleetCanonicalEventFact {
   readonly occurredAt: string;
   readonly workspaceRevision: number;
   readonly taskId: string | null;
-  /** actor.executor.id(可能缺);用于派工→节点归属,匹配不上归中心。 */
+  readonly personId?: string | null;
+  readonly source?: unknown;
+  readonly nodeId?: string | null;
+  /** Fallback for indirect sources with no projected node. */
   readonly executorId: string | null;
   readonly title: string | null;
 }
@@ -96,6 +108,7 @@ export interface FleetOverviewInput {
   readonly nodeSessions: readonly FleetNodeSessionStatus[];
   readonly leaseReads: FleetLeaseReads;
   readonly events: readonly FleetCanonicalEventFact[];
+  readonly nodeActivity?: readonly FleetNodeActivity[];
   /** Keycloak 节点登记的 owner personId;查询失败按节点给 unavailable 原因。 */
   readonly nodeOwners: ReadonlyMap<string, FleetFieldState>;
   /** projection sourceRevision;读面拿不到时为 null(事件尾部仍带自己的 revision)。 */
@@ -118,13 +131,18 @@ export interface FleetTaskLeaseRow {
   readonly dispatchStatus: string | null;
 }
 
+type RedactableRows<T> = readonly T[] | { readonly redacted: string };
+
 export interface FleetNodeRow {
   readonly nodeId: string;
   readonly role: "center" | "edge";
   readonly owner: FleetFieldState;
   readonly build: FleetFieldState;
   readonly online: FleetFieldState;
-  readonly leases: readonly FleetTaskLeaseRow[] | { readonly redacted: string };
+  readonly leases: RedactableRows<FleetTaskLeaseRow>;
+  readonly recentTasks?: RedactableRows<FleetRecentTask>;
+  readonly recentDispatches?: RedactableRows<FleetRecentDispatch>;
+  readonly recentEvents?: RedactableRows<FleetEventRow>;
   readonly replica:
     | (Pick<
         FleetReplicaStatus,
@@ -167,6 +185,7 @@ export interface FleetEventRow {
   readonly taskId: string | null;
   readonly title: string | null;
   readonly nodeId: string;
+  readonly personId?: string | null;
 }
 
 export interface FleetOverviewResult {
@@ -261,10 +280,13 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
         dispatchByTask.set(dispatch.taskId, dispatch);
     }
 
+  const activityByNode = new Map(input.nodeActivity?.map((activity) => [activity.nodeId, activity]));
   const nodes: FleetNodeRow[] = [...nodeIds].sort(compareNodeIds).map((nodeId) => {
     const isCenter = nodeId === FLEET_CENTER_NODE_ID,
       replica = isCenter ? null : (replicaByNode.get(nodeId) ?? null),
-      session = sessionByNode.get(nodeId);
+      session = sessionByNode.get(nodeId),
+      activity = activityByNode.get(nodeId),
+      redaction = input.leaseReads.ok ? null : { redacted: input.leaseReads.code };
     return {
       nodeId,
       role: isCenter ? "center" : "edge",
@@ -292,6 +314,21 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
       leases: input.leaseReads.ok
         ? leaseRows(leasesByNode.get(nodeId) ?? [], dispatchByTask)
         : { redacted: input.leaseReads.code },
+      recentTasks: redaction ?? activity?.recentTasks.slice(0, FLEET_RECENT_TASK_LIMIT) ?? [],
+      recentDispatches: redaction ?? activity?.recentDispatches.slice(0, FLEET_RECENT_DISPATCH_LIMIT) ?? [],
+      recentEvents:
+        redaction ??
+        activity?.recentEvents.slice(0, FLEET_RECENT_EVENT_LIMIT).map((event) => ({
+          eventId: event.eventId,
+          type: event.type,
+          occurredAt: event.occurredAt,
+          workspaceRevision: event.workspaceRevision,
+          taskId: event.taskId,
+          title: event.title,
+          personId: event.personId,
+          nodeId,
+        })) ??
+        [],
       replica: replica === null ? null : projectReplica(replica),
       replicaReason: isCenter
         ? CENTER_REPLICA_REASON
@@ -354,7 +391,7 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
     ...(input.versionWarning === undefined ? {} : { versionWarning: input.versionWarning }),
     // notes 是稳定机器码(key=value),人话解释归 GUI i18n;daemon 不内嵌单语言文案。
     notes: [
-      "events-attribution=current-lease",
+      "events-attribution=event-source",
       "edge-online=center-replication-session",
       "sync-internals=center-sender-phase",
     ],
@@ -467,7 +504,8 @@ function fleetEventRows(
     workspaceRevision: event.workspaceRevision,
     taskId: event.taskId,
     title: event.title,
-    nodeId: nodeOf(event),
+    nodeId: writeSourceNodeId(event.source) ?? event.nodeId ?? nodeOf(event),
+    personId: event.personId ?? null,
   }));
 }
 
@@ -517,13 +555,7 @@ export function validateFleetOverview(value: unknown): readonly string[] {
         errors.push(`links[${index}].state must be a known link state`);
     }
   if (Array.isArray(row.events))
-    for (const [index, event] of row.events.entries()) {
-      const entry = event as Record<string, unknown>;
-      for (const field of ["eventId", "type", "occurredAt", "nodeId"] as const)
-        if (typeof entry[field] !== "string") errors.push(`events[${index}].${field} must be a string`);
-      if (typeof entry.workspaceRevision !== "number")
-        errors.push(`events[${index}].workspaceRevision must be a number`);
-    }
+    for (const [index, event] of row.events.entries()) errors.push(...fleetEventRowErrors(event, `events[${index}]`));
   return errors;
 }
 
@@ -547,6 +579,20 @@ function validateNodeRow(node: unknown, at: string): readonly string[] {
     typeof (row.leases as Record<string, unknown>).redacted !== "string"
   )
     errors.push(`${at}.leases must be an array or a redaction object`);
+  const redacted = fieldRecord(row.leases)?.redacted;
+  for (const [field, limit, check] of [
+    ["recentTasks", FLEET_RECENT_TASK_LIMIT, validateRecentTaskRow],
+    ["recentDispatches", FLEET_RECENT_DISPATCH_LIMIT, validateRecentDispatchRow],
+    ["recentEvents", FLEET_RECENT_EVENT_LIMIT, fleetEventRowErrors],
+  ] as const) {
+    const value = row[field];
+    if (value === undefined) continue;
+    if (typeof redacted === "string") {
+      if (fieldRecord(value)?.redacted !== redacted) errors.push(`${at}.${field} must match the lease redaction`);
+    } else if (!Array.isArray(value) || value.length > limit)
+      errors.push(`${at}.${field} must be an array of at most ${limit} rows`);
+    else for (const [index, entry] of value.entries()) errors.push(...check(entry, `${at}.${field}[${index}]`));
+  }
   const replica = row.replica;
   if (replica !== null) {
     if (replica === undefined || typeof replica !== "object" || Array.isArray(replica))
@@ -569,6 +615,50 @@ function validateNodeRow(node: unknown, at: string): readonly string[] {
         errors.push(`${at}.replica.syncFailure must be a failure object or null`);
     }
   }
+  return errors;
+}
+
+function fieldRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function fleetRowFieldErrors(
+  value: unknown,
+  at: string,
+  required: readonly string[],
+  nullable: readonly string[],
+): string[] {
+  const row = fieldRecord(value);
+  if (row === null) return [`${at} must be an object`];
+  return [
+    ...required.filter((field) => typeof row[field] !== "string").map((field) => `${at}.${field} must be a string`),
+    ...nullable
+      .filter((field) => row[field] !== null && typeof row[field] !== "string")
+      .map((field) => `${at}.${field} must be a string or null`),
+  ];
+}
+
+function validateRecentTaskRow(value: unknown, at: string): string[] {
+  return fleetRowFieldErrors(value, at, ["taskId", "coordinationStatus", "updatedAt"], ["title", "personId"]);
+}
+
+function validateRecentDispatchRow(value: unknown, at: string): string[] {
+  return fleetRowFieldErrors(
+    value,
+    at,
+    ["dispatchId", "runtimeSessionId", "status", "startedAt"],
+    ["taskId", "taskTitle", "agentId", "agentLabel", "personId"],
+  );
+}
+
+function fleetEventRowErrors(value: unknown, at: string): string[] {
+  const errors = fleetRowFieldErrors(value, at, ["eventId", "type", "occurredAt", "nodeId"], []),
+    row = fieldRecord(value);
+  if (row === null) return errors;
+  if (typeof row.workspaceRevision !== "number") errors.push(`${at}.workspaceRevision must be a number`);
+  if (row.personId != null && typeof row.personId !== "string") errors.push(`${at}.personId must be a string or null`);
   return errors;
 }
 
@@ -630,12 +720,7 @@ export async function readFleetOverviewFromHost(input: {
       for (const row of rows) {
         const lease = row.snapshot.lease;
         if (lease === null || lease === undefined) continue;
-        const nodeId =
-          lease.source === "local"
-            ? FLEET_CENTER_NODE_ID
-            : typeof lease.source === "object" && lease.source.kind === "node"
-              ? lease.source.nodeId
-              : null;
+        const nodeId = writeSourceNodeId(lease.source);
         leases.push({
           taskId: row.taskId,
           title: row.snapshot.task?.title ?? null,
@@ -674,33 +759,6 @@ export async function readFleetOverviewFromHost(input: {
       return { leases, dispatches };
     },
     leaseFactsResult = await authorizedOrThrow(leaseFacts);
-  const events = await input.cell.observeTail(
-    // Header-only projection: the overview renders event type/time/title, never the payload body.
-    { kind: "events", direction: "history", fields: "fleet" },
-    { daemonId: input.daemon.daemonId, userRoot: input.userRoot },
-  );
-  const eventFacts: FleetCanonicalEventFact[] = (events.status === "unavailable" ? [] : events.items).map((item) => {
-    const row = item as Record<string, unknown>,
-      payload = (row.payload ?? {}) as Record<string, unknown>,
-      actor = (row.actor ?? {}) as Record<string, unknown>,
-      executor = (actor.executor ?? {}) as Record<string, unknown>;
-    return {
-      eventId: String(row.eventId),
-      type: String(row.type),
-      occurredAt: String(row.occurredAt),
-      workspaceRevision: Number(row.workspaceRevision),
-      taskId: typeof row.taskId === "string" ? row.taskId : null,
-      executorId: typeof executor.id === "string" ? executor.id : null,
-      title:
-        typeof payload.title === "string"
-          ? payload.title
-          : typeof payload.statement === "string"
-            ? payload.statement
-            : typeof payload.text === "string"
-              ? payload.text
-              : null,
-    };
-  });
   const leaseNodes = new Set<string>(
     leaseFactsResult.ok
       ? leaseFactsResult.value.leases.flatMap((lease) => (lease.nodeId === null ? [] : [lease.nodeId]))
@@ -724,12 +782,33 @@ export async function readFleetOverviewFromHost(input: {
       };
     }
   };
-  for (const nodeId of new Set([
-    ...input.fleetReplicas.map((replica) => replica.nodeId),
-    ...leaseNodes,
-    ...input.nodeSessions.filter((session) => session.lastRepoId === input.repoId).map((session) => session.nodeId),
-  ]))
-    nodeOwners.set(nodeId, await ownerOf(nodeId));
+  const edgeNodeIds = new Set(
+    [
+      ...input.fleetReplicas.map((replica) => replica.nodeId),
+      ...leaseNodes,
+      ...input.nodeSessions.filter((session) => session.lastRepoId === input.repoId).map((session) => session.nodeId),
+    ].filter((nodeId) => nodeId !== FLEET_CENTER_NODE_ID),
+  );
+  for (const nodeId of edgeNodeIds) nodeOwners.set(nodeId, await ownerOf(nodeId));
+  const tail = await input.cell.observeTail(
+    {
+      kind: "events",
+      direction: "history",
+      fields: "fleet",
+      ...(leaseFactsResult.ok
+        ? {
+            fleetNodeIds: [FLEET_CENTER_NODE_ID, ...[...edgeNodeIds].filter((nodeId) => !retiredNodes.has(nodeId))],
+          }
+        : {}),
+    },
+    { daemonId: input.daemon.daemonId, userRoot: input.userRoot },
+    input.binding,
+  );
+  const eventFacts = (tail.status === "unavailable" ? [] : tail.items).slice(-EVENT_PAGE_LIMIT).map((item) => {
+    const row = item as Readonly<Record<string, unknown>>,
+      actor = row.actor as { readonly executor?: { readonly id?: string } } | undefined;
+    return { ...fleetEventSummary(row), executorId: actor?.executor?.id ?? null };
+  });
   return buildFleetOverview({
     repoId: input.repoId,
     mode: input.mode,
@@ -751,7 +830,8 @@ export async function readFleetOverviewFromHost(input: {
           ),
         }
       : { ok: false, code: leaseFactsResult.code },
-    events: eventFacts.slice(0, EVENT_PAGE_LIMIT),
+    events: eventFacts,
+    ...(tail.fleetActivity === undefined ? {} : { nodeActivity: tail.fleetActivity }),
     ...(input.versionWarning === undefined ? {} : { versionWarning: input.versionWarning }),
     nodeOwners,
     centerRevision: input.cell.statusCuts()?.ledgerRevision ?? null,
