@@ -99,7 +99,7 @@ pgliteIntegrationSuite("complete synchronous query parity", () => {
         const reader = makeTaskProjectionReader({ repoId, storage });
         try {
           reader.withSession((queries) => {
-            assertRuntimeQueryParity(queries, projection);
+            assertRuntimeQueryParity(queries, projection, edge.nodeId);
             assertTaskIndexQueryParity(queries, projection);
             assertRelationQueryParity(queries, projection);
             assertTaskEventQueryParity(queries, projection);
