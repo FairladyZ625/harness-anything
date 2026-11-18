@@ -8,8 +8,15 @@ const NON_POSITIVE_TIMEOUT_BOUNDARY_MS = 0;
 // packages/gui/test (recursively) and `npm run test:e2e` runs packages/gui/e2e/*.e2e.mjs
 // (top level only). A test-shaped file matching those names inside those roots is discovered
 // there; anywhere else the same name is silently skipped like any other misnamed test file.
+const guiVitestRoot = "packages/gui/test";
+const guiVitestFilePattern = /\.vitest\.tsx?$/u;
+
+export function isGuiVitestFile(file) {
+  return file.startsWith(`${guiVitestRoot}/`) && guiVitestFilePattern.test(file);
+}
+
 const alternateTestDiscovery = [
-  (file) => file.startsWith("packages/gui/test/") && /\.vitest\.tsx?$/u.test(file),
+  isGuiVitestFile,
   (file) => path.posix.dirname(file) === "packages/gui/e2e" && /\.e2e\.mjs$/u.test(file),
 ];
 const scannableFilePattern = /\.(?:cjs|cts|js|jsx|mjs|mts|ts|tsx)$/u;
@@ -28,6 +35,10 @@ const ignoredDirectoryNames = new Set([
   "coverage",
   ".git",
 ]);
+// Must match `tools/gui-test-runner-lib.mjs` (`collectGuiVitestFiles`) 1:1 so nested Vitest suites
+// such as `packages/gui/test/out/*.vitest.tsx` discovered by the GUI runner are never omitted by
+// `discoverGuiVitestFiles`, while Node test discovery keeps its full `ignoredDirectoryNames` set.
+export const guiVitestIgnoredDirectoryNames = new Set(["node_modules", "dist", "coverage"]);
 const markerPattern = /^\s*\/\/\s*harness-test-tier:\s*(\S+)\s*$/u;
 const timeoutMarkerPattern = /^\s*\/\/\s*harness-test-file-timeout:\s*(\S+)\s*$/u;
 
@@ -110,6 +121,20 @@ export function discoverTestFiles(repoRoot, roots = ["packages", "tools"]) {
   return files.sort();
 }
 
+export function discoverGuiVitestFiles(repoRoot, root = guiVitestRoot) {
+  const files = [];
+  walkScannableFiles(
+    path.join(repoRoot, root),
+    repoRoot,
+    (relativePath, name) => {
+      const matched = root === guiVitestRoot ? isGuiVitestFile(relativePath) : guiVitestFilePattern.test(name);
+      if (matched) files.push(relativePath);
+    },
+    guiVitestIgnoredDirectoryNames,
+  );
+  return files.sort();
+}
+
 export function discoverTestTierManifest(repoRoot, options = {}) {
   return deriveTestTierManifest(
     discoverTestFiles(repoRoot, options.roots),
@@ -131,19 +156,8 @@ function main() {
 }
 
 function walk(directory, repoRoot, files, misnamed) {
-  if (!existsSync(directory)) return;
-  for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
-    left.name.localeCompare(right.name),
-  )) {
-    if (entry.name.startsWith(".") || ignoredDirectoryNames.has(entry.name)) continue;
-    const entryPath = path.join(directory, entry.name);
-    if (entry.isDirectory()) {
-      walk(entryPath, repoRoot, files, misnamed);
-      continue;
-    }
-    if (!entry.isFile() || !scannableFilePattern.test(entry.name)) continue;
-    const relativePath = path.relative(repoRoot, entryPath).split(path.sep).join("/");
-    if (testFilePattern.test(entry.name)) {
+  walkScannableFiles(directory, repoRoot, (relativePath, name, entryPath) => {
+    if (testFilePattern.test(name)) {
       files.push(relativePath);
     } else if (
       !alternateTestDiscovery.some((discoveredElsewhere) => discoveredElsewhere(relativePath)) &&
@@ -151,6 +165,23 @@ function walk(directory, repoRoot, files, misnamed) {
     ) {
       misnamed.push(relativePath);
     }
+  });
+}
+
+function walkScannableFiles(directory, repoRoot, onFile, ignored = ignoredDirectoryNames) {
+  if (!existsSync(directory)) return;
+  for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
+    left.name.localeCompare(right.name),
+  )) {
+    if (entry.name.startsWith(".") || ignored.has(entry.name)) continue;
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      walkScannableFiles(entryPath, repoRoot, onFile, ignored);
+      continue;
+    }
+    if (!entry.isFile() || !scannableFilePattern.test(entry.name)) continue;
+    const relativePath = path.relative(repoRoot, entryPath).split(path.sep).join("/");
+    onFile(relativePath, entry.name, entryPath);
   }
 }
 
