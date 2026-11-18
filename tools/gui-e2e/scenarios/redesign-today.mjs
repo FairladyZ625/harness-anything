@@ -9,6 +9,7 @@ export default {
   id: "redesign-today",
   feature: "redesign-zone",
   lane: "isolated",
+  readOnly: true,
   description:
     "Redesign zone sidebar group (trial tag) opens the Today page answering three questions with empty-state honesty.",
   async run({ page, shot }) {

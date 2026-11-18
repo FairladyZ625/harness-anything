@@ -4,6 +4,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { parseGateWorkflow } from "../../gate-workflow-parser.mjs";
+import { selectGuiSmokeCommand } from "../../gui-e2e/run-smoke.mjs";
 import { parseManifestGateArgs, selectManifestGateIds } from "../../run-manifest-gates.mjs";
 import { discoverTestTierManifest, parseTestTierMarker } from "../../test-tier-manifest.mjs";
 
@@ -236,6 +237,42 @@ test("CH3 leaves the required PR evidence lanes intact and retires duplicate gat
     );
     assert.deepEqual(gate.githubContext.requiredContexts, ["quick-gates"], `${gate.id} required context`);
   }
+});
+
+function assertGuiBuildRunsSmoke(workflowMap, manifestData) {
+  const job = workflowMap.get("gui-build");
+  assert.ok(job?.isPullRequestJob, "gui-build must run on pull_request");
+  const xvfb = job.blockingRunCommands.indexOf("sudo apt-get update && sudo apt-get install -y xvfb");
+  const runner = job.blockingRunCommands.indexOf("node tools/run-manifest-gates.mjs --workflow-job gui-build");
+  assert.ok(xvfb >= 0 && runner > xvfb, "gui-build must install Xvfb before running its manifest gates");
+
+  const args = parseManifestGateArgs(["--workflow-job", "gui-build"]);
+  const prGates = selectManifestGateIds(manifestData, { ...args, eventName: "pull_request" });
+  const build = prGates.indexOf("gui-package-build");
+  assert.ok(build >= 0 && prGates.indexOf("gui-e2e-smoke") > build, "gui-build must select smoke after packaging");
+  assert.equal(manifestData.gates.find(({ id }) => id === "gui-e2e-smoke").command, "npm run test:gui:smoke");
+}
+
+test("gui-build runs test:gui:smoke under Xvfb on headless Linux", () => {
+  assertGuiBuildRunsSmoke(workflow, manifest);
+  const { scripts } = JSON.parse(readFileSync(path.join(rootDir, "package.json"), "utf8"));
+  assert.equal(scripts["test:gui:smoke"], "node tools/gui-e2e/run-smoke.mjs");
+  const command = selectGuiSmokeCommand({ platform: "linux", hasXvfbRun: true });
+  assert.equal(command.command, "xvfb-run");
+  assert.deepEqual(command.args, ["--auto-servernum", process.execPath, "tools/gui-e2e.mjs", "--smoke", "--no-build"]);
+
+  assert.throws(
+    () =>
+      assertGuiBuildRunsSmoke(workflow, {
+        ...manifest,
+        gates: manifest.gates.filter(({ id }) => id !== "gui-e2e-smoke"),
+      }),
+    /gui-build must select smoke after packaging/u,
+  );
+  assert.throws(() => {
+    const withoutXvfb = workflowText.replace(/(^  gui-build:\n[\s\S]*?apt-get install -y )xvfb\b/mu, "$1xauth");
+    assertGuiBuildRunsSmoke(parseGateWorkflow(withoutXvfb), manifest);
+  }, /gui-build must install Xvfb/u);
 });
 
 test("CH2 cuts the integration matrix to ten shards and rebalances from the measured run", () => {

@@ -18,6 +18,7 @@ export default {
   id: "overview-task-preview-lanes",
   feature: "overview",
   lane: "isolated",
+  readOnly: true,
   description: "A running task row opens its task; the task preview expands that task's lanes on demand.",
   async run({ page, shot, assertBackground }) {
     await nav(page, /^(?:总览|Overview)$/u, "overview-view");
@@ -46,12 +47,13 @@ export default {
     await preview.waitFor({ timeout: 20_000 });
     const laneToggle = page.getByTestId("task-preview-lanes-toggle");
     await laneToggle.waitFor({ timeout: 20_000 });
-    assert.equal(await laneToggle.getAttribute("aria-label"), "展开泳道");
+    assert.match((await laneToggle.getAttribute("aria-label")) ?? "", /^(?:展开泳道|Expand lanes)$/u);
     // 收起态只有入口,没有第二份时间线(§5.2 同一件东西只在一处展开)。
     assert.equal(await page.getByTestId("task-preview-lanes").count(), 0);
     await shot("03-task-preview-lanes-collapsed");
 
     await laneToggle.click();
+    assert.match((await laneToggle.getAttribute("aria-label")) ?? "", /^(?:收起泳道|Collapse lanes)$/u);
     await page.getByTestId("task-preview-lanes").waitFor({ timeout: 20_000 });
     await page.locator('[data-testid^="task-preview-lane-task-"]').first().waitFor({ timeout: 20_000 });
     const laneStatuses = await page.evaluate(() =>

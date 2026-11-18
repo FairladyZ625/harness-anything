@@ -4,6 +4,7 @@ export default {
   id: "cadence-view",
   feature: "governance-cadence",
   lane: "isolated",
+  readOnly: true,
   description:
     "Governance → Cadence & Pulse renders HUD, rhythm track and blockers from the observe.tail event window; " +
     "a rhythm row expands in place (stage funnel + micro event chain) and its detail link routes to task detail, " +

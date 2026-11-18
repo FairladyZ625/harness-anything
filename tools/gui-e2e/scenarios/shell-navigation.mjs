@@ -5,6 +5,7 @@ export default {
   id: "shell-navigation",
   feature: "shell-navigation",
   lane: "both",
+  readOnly: true,
   description: "Preload, projection, primary navigation, and history render without console errors.",
   async run({ page, app, shot }) {
     await bridgeReady(page);
@@ -12,7 +13,7 @@ export default {
     await nav(page, /^(?:工作|Work)$/u, "work-view");
     await page.getByTestId("work-view").getByRole("status").waitFor({ state: "hidden" });
     await shot("shell-work");
-    await page.getByRole("button", { name: /^(?:关系图|Graph)$/u }).click();
+    await page.getByRole("button", { name: /^(?:关系图|Relation Graph|Graph)$/u }).click();
     await page.getByTestId("territory-chip").or(page.getByTestId("triadic-graph-empty-state")).first().waitFor();
     await shot("shell-graph");
     const modes = page.getByTestId("entity-workspace-mode-bar");
@@ -25,6 +26,13 @@ export default {
     await modes.getByRole("button", { name: "领地", exact: true }).click();
     await nav(page, /^(?:看板|Board)$/u, "board-task-card");
     await nav(page, /^(?:会话|Sessions)$/u, "sessions-view");
+    await page.getByTestId("sessions-group-list").waitFor();
+    await page.getByTestId("sessions-group-task").click();
+    assert.equal(await page.getByTestId("sessions-group-task").getAttribute("aria-pressed"), "true");
+    await page.getByTestId("sessions-segment-squads").click();
+    await page.getByTestId("squad-run-list").waitFor();
+    await page.getByTestId("sessions-segment-sessions").click();
+    await page.getByTestId("sessions-group-list").waitFor();
     await nav(page, /^(?:Agent · 含 Squad|Agents · Squads)$/u, "agent-squad-view");
     const history = page.getByTestId("nav-history-bar");
     await history.getByRole("button", { name: /(?:后退|Back)/u }).click();
