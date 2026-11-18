@@ -502,5 +502,8 @@
   "collaboration.unregisterForce": "Force unregister (fence further writes while keeping active leases)",
   "collaboration.unregisterConfirm": "Confirm unregister {label}",
   "collaboration.unregisterCancel": "Cancel",
+  "collaboration.unregisterPreviewFailed": "Could not inspect node state: {error}",
+  "collaboration.unregisterRetryPreview": "Re-check state",
+  "collaboration.unregisterVersionConflict": "Node state changed before confirmation; re-check state before unregistering.",
   "collaboration.unregisterSucceeded": "Node {label} unregistered."
 }

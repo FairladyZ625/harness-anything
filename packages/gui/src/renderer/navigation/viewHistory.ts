@@ -69,6 +69,8 @@ export interface AppLocation {
   poolTab?: AttestationPoolTabId;
   /** 从协作页节点抽屉跳入会话页时携带的节点过滤。 */
   sessionNodeId?: string | null;
+  /** Node drawer session history jump explicitly opens with full history (`"all"`). */
+  sessionRange?: "24h" | "7d" | "30d" | "all" | null;
 }
 
 export interface ViewHistoryState {
@@ -114,7 +116,8 @@ export function locationsEqual(a: AppLocation, b: AppLocation): boolean {
     JSON.stringify(a.taskFilters) === JSON.stringify(b.taskFilters) &&
     JSON.stringify(a.drill) === JSON.stringify(b.drill) &&
     (a.poolTab ?? "decisions") === (b.poolTab ?? "decisions") &&
-    (a.sessionNodeId ?? null) === (b.sessionNodeId ?? null)
+    (a.sessionNodeId ?? null) === (b.sessionNodeId ?? null) &&
+    (a.sessionRange ?? null) === (b.sessionRange ?? null)
   );
 }
 

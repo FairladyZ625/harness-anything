@@ -583,10 +583,13 @@ export function agentLanesOf(input: {
   /** blocked 但无 awaits 问句时的兜底提示(视图层传 i18n 文案,模型保持纯)。 */
   readonly awaitingFallbackQuestion: string;
   readonly nowMs: number;
+  /** Optional member scope lens filter applied before selecting lane blocks and running task rows. */
+  readonly personId?: string | null;
 }): OverviewAgentLanes {
   const blockOf = new Map<string, AgentLaneBlockSource>();
   const runningSessionIds: string[] = [];
   if (input.groups.length === 0) return { lanes: [], handoffs: [], blockOf, runningSessionIds };
+  const filterPersonId = input.personId ?? null;
 
   const lanes: AgentLane[] = [];
   const dispatchRows: TaskDispatchProjectionRow[] = [];
@@ -599,7 +602,10 @@ export function agentLanesOf(input: {
     const tasks: AgentLaneTask[] = [];
     const labelOf = (taskId: string): string => page?.titleOf.get(taskId) ?? input.taskTitles.get(taskId) ?? taskId;
     if (page !== undefined) {
-      const rows = [...page.rows]
+      const rows = page.rows
+        // Filter member attribution before windowing/slicing so another member's round on the same
+        // task or agent never displaces or leaks into the active member lens.
+        .filter((row) => filterPersonId === null || row.personId === filterPersonId)
         // 战情总览只看当前窗口(6h):成员页会带出该 agent 更早的已收口轮次,收口块
         // 太老就不画(运行中/阻塞中的块无论起点都留,它们仍是「现在」)。
         .filter(
@@ -639,7 +645,7 @@ export function agentLanesOf(input: {
         if (running) runningSessionIds.push(row.runtimeSessionId);
         dispatchRows.push(row);
       }
-    } else if (group.latestRound !== null) {
+    } else if (group.latestRound !== null && (filterPersonId === null || group.personId === filterPersonId)) {
       // 活跃 agent 之外:组头 latestRound 给最近一块上下文(确定终点,不生长)。窗口外的
       // 已收口块不画——否则时间轴会被 19 天前的历史轮次撑开,不再是「现在」。
       const round = group.latestRound,

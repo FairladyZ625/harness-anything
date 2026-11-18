@@ -282,6 +282,7 @@ function AppShell() {
     rootDir: activeRepo?.canonicalRoot ?? undefined,
     tasks: projectTasks,
     fleetNodes: fleetOverview.overview?.nodes,
+    view,
   });
   // 总览紧凑协作入口的摘要(折算在 model/collaboration.ts;未选中仓没有仓库视角,不给入口)。
   const collaborationSummary = activeRepo === undefined ? null : collaborationSummaryOf(projectTasks);
@@ -880,7 +881,8 @@ function AppShell() {
                   overviewLoading={fleetOverview.loading}
                   onOpenTask={openTaskDetail}
                   onNavigateEntity={navigateToEntity}
-                  isAdmin={memberScope.isAdmin}
+                  canManageFleetNodes={memberScope.canManageFleetNodes}
+                  actorPersonId={memberScope.currentPersonId}
                   peopleById={memberScope.peopleById}
                   onOpenNodeBoard={(nodeId) =>
                     navigate({
@@ -900,13 +902,18 @@ function AppShell() {
                       focusedEntityRef: null,
                       drill: null,
                       sessionNodeId: nodeId,
+                      sessionRange: "all",
                     })
                   }
                   onUnregisterNode={async (input) => {
-                    const fleetAdmin = guiHostBridge()?.fleetAdmin;
-                    if (!fleetAdmin) {
+                    const base = guiHostBridge()?.fleetAdmin;
+                    if (!base) {
                       return { ok: false, code: "bridge_unavailable", message: "fleetAdmin bridge unavailable" };
                     }
+                    const fleetAdmin =
+                      activeRepoId && typeof base.forRepository === "function"
+                        ? base.forRepository(activeRepoId)
+                        : base;
                     const res = await fleetAdmin.unregisterNode(input);
                     if (res.ok === true && input.confirm === true) {
                       void queryClient.invalidateQueries({ queryKey: ["fleet-overview", projectId] });
@@ -1089,6 +1096,8 @@ function AppShell() {
                   currentPersonId={memberScope.currentPersonId}
                   nodeFilter={location.sessionNodeId ?? null}
                   onNodeFilterChange={(nodeId) => updateLocation({ sessionNodeId: nodeId })}
+                  sessionRange={location.sessionRange ?? null}
+                  onSessionRangeChange={(range) => updateLocation({ sessionRange: range })}
                   knownMembers={memberScope.memberOptions}
                   knownNodes={memberScope.nodeOptions}
                   nodeOwners={memberScope.nodeOwners}

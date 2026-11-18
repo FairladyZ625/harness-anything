@@ -10,6 +10,8 @@ import { t, type MessageKey } from "../i18n/index.tsx";
 import {
   attentionByWork,
   collectWork,
+  scopeWorkAttention,
+  scopeWorkGroup,
   workHealth,
   workTier,
   WORK_TIERS,
@@ -65,6 +67,8 @@ interface WorkEntry {
   readonly health: WorkHealth;
   /** 议程读面里本工作的阻塞/停滞条目;第二行报卡在哪个任务上。 */
   readonly stuck: readonly AgendaAttentionItem[];
+  readonly rootMatches: boolean;
+  readonly lineageTasks: readonly TaskRow[];
 }
 
 const DAY_MS = 86_400_000;
@@ -156,18 +160,62 @@ export function WorkView({
     }
     return list;
   }, [tasks, knownNodes, nodeOwners, peopleById, nodeFilter]);
-  const entries: WorkEntry[] = collections.groups
-    .map((group) => ({
-      group,
-      health: workHealth(group, attention.get(group.task.taskId), now),
-      stuck: attention.get(group.task.taskId)?.stuck ?? [],
-    }))
-    .filter((entry) => {
-      const workTasks = [entry.group.task, ...entry.group.members];
-      if (effectivePerson !== null && !workTasks.some((task) => taskMatchesPerson(task, effectivePerson))) return false;
-      if (nodeFilter !== "all" && !workTasks.some((task) => taskMatchesNode(task, nodeFilter))) return false;
-      return true;
+  const effectiveNode = nodeFilter === "all" ? null : nodeFilter;
+  const allParents = useMemo(
+    () => new Set(tasks.flatMap((task) => (task.parentTaskId ? [task.parentTaskId] : []))),
+    [tasks],
+  );
+  const taskById = useMemo(() => new Map(tasks.map((task) => [task.taskId, task] as const)), [tasks]);
+  const entries: WorkEntry[] = useMemo(() => {
+    const hasFilter = effectivePerson !== null || effectiveNode !== null;
+    const matchesAttribution = (task: TaskRow) =>
+      (effectivePerson === null || taskMatchesPerson(task, effectivePerson)) &&
+      (effectiveNode === null || taskMatchesNode(task, effectiveNode));
+    return collections.groups.flatMap<WorkEntry>((rawGroup) => {
+      if (!hasFilter) {
+        return [
+          {
+            group: rawGroup,
+            health: workHealth(rawGroup, attention.get(rawGroup.task.taskId), now),
+            stuck: attention.get(rawGroup.task.taskId)?.stuck ?? [],
+            rootMatches: true,
+            lineageTasks: tasks,
+          },
+        ];
+      }
+      const scoped = scopeWorkGroup(rawGroup, matchesAttribution, allParents);
+      if (!scoped) return [];
+      const matchingTaskIds = new Set<string>([
+        ...(scoped.rootMatches ? [rawGroup.task.taskId] : []),
+        ...scoped.group.members.map((member) => member.taskId),
+      ]);
+      const scopedAttention = scopeWorkAttention(
+        attention.get(rawGroup.task.taskId),
+        matchingTaskIds,
+        scoped.rootMatches,
+      );
+      const lineageIds = new Set<string>([
+        rawGroup.task.taskId,
+        ...scoped.group.members.map((member) => member.taskId),
+      ]);
+      for (const member of scoped.group.members) {
+        let cursor = member.parentTaskId ? taskById.get(member.parentTaskId) : undefined;
+        while (cursor && cursor.taskId !== rawGroup.task.taskId && !lineageIds.has(cursor.taskId)) {
+          lineageIds.add(cursor.taskId);
+          cursor = cursor.parentTaskId ? taskById.get(cursor.parentTaskId) : undefined;
+        }
+      }
+      return [
+        {
+          group: scoped.group,
+          health: workHealth(scoped.group, scopedAttention, now, { rootIncluded: scoped.rootMatches }),
+          stuck: scopedAttention?.stuck ?? [],
+          rootMatches: scoped.rootMatches,
+          lineageTasks: tasks.filter((task) => lineageIds.has(task.taskId)),
+        },
+      ];
     });
+  }, [allParents, attention, collections.groups, effectiveNode, effectivePerson, now, taskById, tasks]);
   const query = search.trim().toLocaleLowerCase();
   const matchesText = (task: TaskRow) => `${task.title} ${task.taskId}`.toLocaleLowerCase().includes(query);
   const searchHits = (entry: WorkEntry) =>
@@ -334,8 +382,10 @@ export function WorkView({
                   key={entry.group.task.taskId}
                   entry={entry}
                   size={SECTION_META[tier].size}
-                  tasks={tasks}
+                  tasks={entry.lineageTasks}
                   repoId={repoId}
+                  personId={effectivePerson}
+                  nodeId={effectiveNode}
                   titleOf={titleOf}
                   hits={searchHits(entry)}
                   ready={ready}
@@ -369,12 +419,13 @@ interface WorkReason {
  * 第一个处于阻塞状态的任务——已经报了「等你」时不重复同一条 awaits 边或同一个任务。
  */
 function workReasons(
-  { group, health, stuck }: WorkEntry,
+  { group, health, stuck, rootMatches }: WorkEntry,
   titleOf: (taskId: string) => string | undefined,
   now: number,
 ): readonly WorkReason[] {
   const reasons: WorkReason[] = [],
-    mine = health.mine[0];
+    mine = health.mine[0],
+    scopedTasks = rootMatches ? [group.task, ...group.members] : group.members;
   if (mine !== undefined)
     reasons.push({
       tone: ATTENTION_TONE[mine.kind] ?? "bad",
@@ -387,7 +438,7 @@ function workReasons(
   if (health.blocked) {
     const blockersOf = ({ blockers }: TaskRow) =>
         (blockers ?? []).filter(({ kind }) => mine === undefined || kind === "depends-on"),
-      blockedTask = [group.task, ...group.members].find((row) => blockersOf(row).length > 0),
+      blockedTask = scopedTasks.find((row) => blockersOf(row).length > 0),
       blockedTitle =
         stuck.find(({ kind, title }) => kind === "blocked" && title !== mine?.title)?.title ??
         group.members.find(({ canonicalStatus, title }) => canonicalStatus === "blocked" && title !== mine?.title)
@@ -432,6 +483,8 @@ function WorkCard({
   size,
   tasks,
   repoId,
+  personId,
+  nodeId,
   titleOf,
   hits,
   ready,
@@ -442,9 +495,11 @@ function WorkCard({
 }: {
   readonly entry: WorkEntry;
   readonly size: SummaryCardSize;
-  /** 全仓任务切面:血缘树从中筛本工作子孙。 */
+  /** 经归属收窄后的工作血缘任务切面。 */
   readonly tasks: readonly TaskRow[];
   readonly repoId: string;
+  readonly personId: string | null;
+  readonly nodeId: string | null;
   /** 卡住本工作的任务可能在工作之外,标题从全仓任务切面查。 */
   readonly titleOf: (taskId: string) => string | undefined;
   /** 搜索命中的后代任务,显示在所属卡片底部(样张 v1 的「↳ 命中行」)。 */
@@ -458,14 +513,14 @@ function WorkCard({
   readonly onOpenSession?: (runtimeSessionId: string) => void;
 }) {
   const [lineageOpen, setLineageOpen] = useState(false);
-  const { group } = entry,
+  const { group, rootMatches } = entry,
     { task, counts } = group,
     done = counts.done ?? 0,
     effective = group.leaves - (counts.cancelled ?? 0),
     lastActivity = formatTime(group.lastChangeAt, { style: "month-day-time" }) ?? group.lastChangeAt,
     { focus, supplement } = entryTitle(task.title),
     reasons = size === "large" ? workReasons(entry, titleOf, now) : [],
-    all = [task, ...group.members],
+    all = rootMatches ? [task, ...group.members] : group.members,
     // 第一个在跑的任务:与 `group.live` 同一判据。执行者的名字本页读不到,不写机器标识。
     runner = all.find(({ activeExecutionId }) => activeExecutionId !== undefined),
     // 最近有动静的任务:只报它的标题,不显示生命周期事件的机器摘要。
@@ -599,6 +654,8 @@ function WorkCard({
             rootTask={task}
             tasks={tasks}
             live={group.live > 0}
+            personId={personId}
+            nodeId={nodeId}
             onOpenTask={onOpenTask}
             onOpenSession={onOpenSession}
             testId={`work-lineage-tree-${task.taskId}`}

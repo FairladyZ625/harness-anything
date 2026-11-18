@@ -27,7 +27,11 @@ import { createGuiExecutionId } from "../../task-actions.ts";
 import { squadRunsClient } from "../../squad-run-client.ts";
 import {
   daemonSessionGroupBy,
+  filterDispatchesByAttribution,
+  filterRelatedSessionGroups,
+  hasSessionAttributionFilter,
   sessionDelegation,
+  type SessionAttributionFilter,
   type SessionGroupBy,
   type SessionStatus,
 } from "../../sessions-model.ts";
@@ -520,6 +524,7 @@ const RELATED_SESSIONS_WINDOW_MAX = 500;
 export function useRelatedDispatches(
   repoId: string,
   related: { readonly kind: "agent" | "squad"; readonly id: string } | null,
+  attribution?: SessionAttributionFilter | null,
 ) {
   const [windowRows, setWindowRows] = useState(RELATED_SESSIONS_PAGE);
   // 换选中者回到第一页:窗口是本选择的读取参数,不跨选择延续。
@@ -546,7 +551,9 @@ export function useRelatedDispatches(
     placeholderData: (previous, previousQuery) =>
       previousQuery?.queryKey[1] === repoId && previousQuery.queryKey[2] === relatedKey ? previous : undefined,
   });
-  const dispatchRows = read.data?.dispatches ?? [],
+  const rawDispatches = read.data?.dispatches ?? [],
+    attributionActive = hasSessionAttributionFilter(attribution),
+    dispatchRows = attributionActive ? filterDispatchesByAttribution(rawDispatches, attribution) : rawDispatches,
     relatedLabels = new Map((read.data?.taskLabels ?? []).map((label) => [label.taskId, label.title])),
     dockRows: readonly RuntimeDockRow[] = dispatchRows.map((row) => ({
       runtimeSessionId: row.runtimeSessionId,
@@ -565,15 +572,21 @@ export function useRelatedDispatches(
       dispatchId: row.dispatchId,
       delegation: sessionDelegation(row),
     })),
+    groups = attributionActive
+      ? filterRelatedSessionGroups(read.data?.groups ?? [], dispatchRows, attribution)
+      : (read.data?.groups ?? []),
+    totals = attributionActive
+      ? { groups: groups.length, sessions: new Set(dispatchRows.map((row) => row.runtimeSessionId)).size }
+      : (read.data?.totals ?? { groups: 0, sessions: 0 }),
     truncated = read.data?.truncated ?? false;
   return {
     dockRows,
     // 原始派工行留给会话页钻入:窗口内按任务组成轮次,不在视图里重发 task.dispatches。
     dispatchRows,
-    groups: read.data?.groups ?? [],
-    totals: read.data?.totals ?? { groups: 0, sessions: 0 },
+    groups,
+    totals,
     truncated,
-    hasMore: truncated && dispatchRows.length >= windowRows && windowRows < RELATED_SESSIONS_WINDOW_MAX,
+    hasMore: truncated && rawDispatches.length >= windowRows && windowRows < RELATED_SESSIONS_WINDOW_MAX,
     loadMore: () => setWindowRows((current) => Math.min(current + RELATED_SESSIONS_PAGE, RELATED_SESSIONS_WINDOW_MAX)),
     loadingMore: read.isFetching && read.data !== undefined,
     pending: read.isPending,

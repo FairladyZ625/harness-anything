@@ -518,5 +518,16 @@ test("fleetAdminFromAccess routes node-unregister through accessAdminPreloadApi"
       },
     },
   ]);
+  const scopedFleetAdmin = fleetAdmin.forRepository?.("server-b");
+  assert.ok(scopedFleetAdmin);
+  await scopedFleetAdmin.unregisterNode({ nodeId: "edge-2" });
+  assert.deepEqual(calls[1], {
+    channel: ACCESS_ADMIN_CHANNEL,
+    request: {
+      operation: "node-unregister",
+      nodeId: "edge-2",
+      repoId: "server-b",
+    },
+  });
   assert.throws(() => fleetAdminFromAccess({} as AccessAdminApi), /requires an accessAdminPreloadApi instance/u);
 });

@@ -78,7 +78,7 @@ function laneLabelOf(
   }
   if (groupBy === "node") {
     if (key === UNASSIGNED_NODE_LANE) return t("views.board.unassignedNode");
-    return formatNodeDisplay(key, nodeOwners?.get(key) ?? primaryTaskPersonId(representative), {
+    return formatNodeDisplay(key, nodeOwners?.get(key) ?? null, {
       centerLabel: t("collaboration.centerNode"),
       peopleById,
     });

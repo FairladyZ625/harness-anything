@@ -502,5 +502,8 @@
   "collaboration.unregisterForce": "强制注销（保留现有租约并阻断后续写入）",
   "collaboration.unregisterConfirm": "确认注销节点 {label}",
   "collaboration.unregisterCancel": "取消",
+  "collaboration.unregisterPreviewFailed": "检查节点状态失败：{error}",
+  "collaboration.unregisterRetryPreview": "重新检查",
+  "collaboration.unregisterVersionConflict": "确认期间节点状态已变化，请重新检查后再注销。",
   "collaboration.unregisterSucceeded": "节点 {label} 已注销。"
 }

@@ -21,6 +21,7 @@ export function fleetAdminFromAccess(access: AccessAdminApi): FleetAdminApi {
   }
   return {
     unregisterNode: (input) => send({ operation: "node-unregister", ...input }),
+    forRepository: (repoId) => fleetAdminFromAccess(access.forRepository(repoId)),
   };
 }
 

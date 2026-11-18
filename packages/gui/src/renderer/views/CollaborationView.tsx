@@ -33,7 +33,8 @@ export function CollaborationView({
   onOpenTask,
   onNavigateEntity,
   now = new Date().toISOString(),
-  isAdmin = false,
+  canManageFleetNodes = false,
+  actorPersonId = null,
   peopleById,
   onOpenNodeBoard,
   onOpenNodeSessions,
@@ -47,7 +48,8 @@ export function CollaborationView({
   readonly onOpenTask: (taskId: string) => void;
   readonly onNavigateEntity: (ref: string) => void;
   readonly now?: string;
-  readonly isAdmin?: boolean;
+  readonly canManageFleetNodes?: boolean;
+  readonly actorPersonId?: string | null;
   readonly peopleById?: ReadonlyMap<string, string>;
   readonly onOpenNodeBoard?: (nodeId: string) => void;
   readonly onOpenNodeSessions?: (nodeId: string) => void;
@@ -227,13 +229,16 @@ export function CollaborationView({
       >
         {selected === null ? null : (
           <NodeDetails
+            key={selected.nodeId}
+            repoId={repoId}
+            actorPersonId={actorPersonId}
             node={selected}
             overview={shownOverview!}
             now={now}
             onOpenTask={onOpenTask}
             onNavigateEntity={onNavigateEntity}
             onClose={() => setSelectedNode(null)}
-            isAdmin={isAdmin}
+            canManageFleetNodes={canManageFleetNodes}
             peopleById={peopleById}
             onOpenNodeBoard={onOpenNodeBoard}
             onOpenNodeSessions={onOpenNodeSessions}

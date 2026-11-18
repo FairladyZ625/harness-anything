@@ -17,7 +17,7 @@ import { useSettingsQuery } from "../settings-data.ts";
 import { useTaskWipQuery } from "../task-data.ts";
 import { useOverviewBriefsQuery } from "./overview/overview-briefs-data.ts";
 import { runtimeHealthAssessment, type RuntimeHealth } from "../model/runtime-health.ts";
-import type { TaskRow } from "../model/types.ts";
+import type { SnapshotStatus, TaskRow } from "../model/types.ts";
 import { taskMatchesPerson } from "../model/attribution.ts";
 import { runtimeModelShortLabel } from "../model/runtime-models.ts";
 import { t } from "../i18n/index.tsx";
@@ -135,16 +135,23 @@ export function OverviewView({
   const decisions = useMemo(() => {
     if (scopePersonId === null) return rawDecisions;
     return rawDecisions.filter((row) => {
-      if (row.workTaskId !== null && scopedTaskIds.has(row.workTaskId)) return true;
-      if (row.source?.kind === "awaits")
-        return (
-          row.source.row.personId === scopePersonId ||
-          (row.source.row.sourceRef.startsWith("task/") &&
-            scopedTaskIds.has(row.source.row.sourceRef.slice("task/".length)))
-        );
-      if (row.source?.kind === "ruling" || row.source?.kind === "rework" || row.source?.kind === "task")
+      if (row.source?.kind === "awaits") {
+        if (row.source.row.personId === scopePersonId) return true;
+        if (row.source.row.sourceRef.startsWith("task/")) {
+          return scopedTaskIds.has(row.source.row.sourceRef.slice("task/".length));
+        }
+        return row.workTaskId !== null && scopedTaskIds.has(row.workTaskId);
+      }
+      if (
+        row.source?.kind === "ruling" ||
+        row.source?.kind === "rework" ||
+        row.source?.kind === "task" ||
+        row.source?.kind === "adjudication"
+      ) {
         return scopedTaskIds.has(row.source.row.taskId);
-      if (row.source?.kind === "adjudication") return scopedTaskIds.has(row.source.row.taskId);
+      }
+      if (row.id.startsWith("task/")) return scopedTaskIds.has(row.id.slice("task/".length));
+      if (row.workTaskId !== null && scopedTaskIds.has(row.workTaskId)) return true;
       return false;
     });
   }, [rawDecisions, scopePersonId, scopedTaskIds]);
@@ -174,32 +181,6 @@ export function OverviewView({
       ? value
       : WATCHED_ACTIVITY_DAYS_DEFAULT;
   }, [settingsQuery.data]);
-  const rawWatched = useMemo(
-    () => watchedWorks(works, agenda, { days: activityDays, now }, runtimeQuery.data),
-    [works, agenda, activityDays, now, runtimeQuery.data],
-  );
-  const watched = useMemo(
-    () =>
-      scopePersonId === null
-        ? rawWatched
-        : rawWatched.filter(
-            (entry) => scopedTaskIds.has(entry.work.taskId) || entry.memberTaskIds.some((id) => scopedTaskIds.has(id)),
-          ),
-    [rawWatched, scopePersonId, scopedTaskIds],
-  );
-  const recentDays = useMemo(
-    () =>
-      recentDayGroups({
-        events: eventsQuery.data ?? [],
-        titles,
-        dateKeyOf: (iso) => dayKeyOf(iso),
-      }),
-    [eventsQuery.data, titles],
-  );
-  const recentByWork = useMemo(
-    () => new Map(watchedRecentPaths(recentDays, watched).map((path) => [path.workTaskId, path] as const)),
-    [recentDays, watched],
-  );
   // 「在跑的任务」的数据(2026-10-21 定案):泳道块模型(agentLanesOf)是唯一派生——
   // 总览的窄行名单与任务弹层/现场页的泳道是同一份块模型的两个视图;成员派工页同时给
   // 出模型短标签。nowMs 用数据时钟(读面前进才重算,时长相新不随秒针生长)。
@@ -208,7 +189,7 @@ export function OverviewView({
     [titles],
   );
   const awaitsOfTask = useMemo(() => awaitsByTask(agenda), [agenda]);
-  const agentGroupsQuery = useOverviewAgentGroups(repoId);
+  const agentGroupsQuery = useOverviewAgentGroups(repoId, scopePersonId);
   const activeAgents = useMemo(
     () => activeAgentIdsOf(agentGroupsQuery.data?.groups ?? [], awaitsOfTask),
     [agentGroupsQuery.data, awaitsOfTask],
@@ -224,8 +205,74 @@ export function OverviewView({
         awaits: awaitsOfTask,
         awaitingFallbackQuestion: t("views.overviewView.drillLanesAwaitingFallback"),
         nowMs: lanesNowMs,
+        personId: scopePersonId,
       }),
-    [agentGroupsQuery.data, memberPages, taskTitlesById, awaitsOfTask, lanesNowMs],
+    [agentGroupsQuery.data, memberPages, taskTitlesById, awaitsOfTask, lanesNowMs, scopePersonId],
+  );
+  const scopedRunningSessionIds = useMemo(() => new Set(lanesModel.runningSessionIds), [lanesModel.runningSessionIds]);
+  const scopedRuntimeData = useMemo(() => {
+    if (scopePersonId === null || runtimeQuery.data === undefined) return runtimeQuery.data;
+    const groupsLoaded = agentGroupsQuery.data !== undefined;
+    return {
+      ...runtimeQuery.data,
+      sessions: runtimeQuery.data.sessions.filter((session) => {
+        const holders = session.associations
+          .map((assoc) => assoc.holder?.personId ?? null)
+          .filter((id): id is string => id !== null);
+        if (holders.length > 0) return holders.includes(scopePersonId);
+        if (groupsLoaded) return scopedRunningSessionIds.has(session.runtimeSessionId);
+        return false;
+      }),
+    };
+  }, [scopePersonId, runtimeQuery.data, agentGroupsQuery.data, scopedRunningSessionIds]);
+  const rawWatched = useMemo(
+    () => watchedWorks(works, agenda, { days: activityDays, now }, scopedRuntimeData),
+    [works, agenda, activityDays, now, scopedRuntimeData],
+  );
+  const watched = useMemo(() => {
+    if (scopePersonId === null) return rawWatched;
+    const parents = new Set(tasks.flatMap((task) => (task.parentTaskId ? [task.parentTaskId] : [])));
+    const tasksById = new Map(tasks.map((task) => [task.taskId, task] as const));
+    return rawWatched.flatMap((entry) => {
+      const originalMembers = entry.memberTaskIds;
+      const scopedMembers = originalMembers.filter((id) => scopedTaskIds.has(id));
+      if (!scopedTaskIds.has(entry.work.taskId) && scopedMembers.length === 0) return [];
+      const hasLoadedTasksForWork = tasksById.has(entry.work.taskId) || originalMembers.some((id) => tasksById.has(id));
+      if (!hasLoadedTasksForWork || originalMembers.length === 0) {
+        return [{ ...entry, memberTaskIds: scopedMembers }];
+      }
+      const counts: Partial<Record<SnapshotStatus, number>> = {};
+      for (const id of scopedMembers) {
+        if (parents.has(id)) continue;
+        const row = tasksById.get(id);
+        if (!row) continue;
+        const status = (row.canonicalStatus ?? row.coordinationStatus ?? "unknown") as SnapshotStatus;
+        counts[status] = (counts[status] ?? 0) + 1;
+      }
+      return [{ ...entry, memberTaskIds: scopedMembers, work: { ...entry.work, counts } }];
+    });
+  }, [rawWatched, scopePersonId, scopedTaskIds, tasks]);
+  const scopedEvents = useMemo(() => {
+    const events = eventsQuery.data ?? [];
+    if (scopePersonId === null) return events;
+    return events.filter((event) =>
+      event.personId != null
+        ? event.personId === scopePersonId
+        : event.taskId !== null && scopedTaskIds.has(event.taskId),
+    );
+  }, [eventsQuery.data, scopePersonId, scopedTaskIds]);
+  const recentDays = useMemo(
+    () =>
+      recentDayGroups({
+        events: scopedEvents,
+        titles,
+        dateKeyOf: (iso) => dayKeyOf(iso),
+      }),
+    [scopedEvents, titles],
+  );
+  const recentByWork = useMemo(
+    () => new Map(watchedRecentPaths(recentDays, watched).map((path) => [path.workTaskId, path] as const)),
+    [recentDays, watched],
   );
   const modelOfBlock = useMemo(() => {
     // 模型短标签的收短点(runtimeModelShortLabel):候选清单只给第一个候选加 +N,
@@ -235,11 +282,7 @@ export function OverviewView({
       for (const row of page.rows) models.set(row.dispatchId, runtimeModelShortLabel(row.provider?.model));
     return models;
   }, [memberPages]);
-  const rawRunningRows = useMemo(() => runningTaskRows(lanesModel, modelOfBlock), [lanesModel, modelOfBlock]);
-  const runningRows = useMemo(
-    () => (scopePersonId === null ? rawRunningRows : rawRunningRows.filter((row) => scopedTaskIds.has(row.taskId))),
-    [rawRunningRows, scopePersonId, scopedTaskIds],
-  );
+  const runningRows = useMemo(() => runningTaskRows(lanesModel, modelOfBlock), [lanesModel, modelOfBlock]);
   const workMemberMap = useMemo(
     () => new Map((works?.works ?? []).map((work) => [work.taskId, work.memberTaskIds] as const)),
     [works],
@@ -328,7 +371,7 @@ export function OverviewView({
         {quietLine && (
           <span className="min-w-0 truncate font-mono ui-micro text-text-faint">
             {t("views.overviewView.topQuiet", {
-              agents: String(runRows(runtimeQuery.data, undefined).length),
+              agents: String(runRows(scopedRuntimeData, undefined).length),
               active: String(
                 scopePersonId === null
                   ? (workspaceSummary.tasks.byStatus.active ?? 0)
@@ -482,7 +525,7 @@ export function OverviewView({
                     <OverviewWorksBody
                       watched={watched}
                       activityDays={activityDays}
-                      handlersOf={(entry) => workHandlers(runtimeQuery.data, entry.work.taskId, entry.memberTaskIds)}
+                      handlersOf={(entry) => workHandlers(scopedRuntimeData, entry.work.taskId, entry.memberTaskIds)}
                       recentOf={(workTaskId) => recentByWork.get(workTaskId) ?? null}
                       deps={deps}
                     />

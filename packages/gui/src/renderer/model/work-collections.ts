@@ -124,15 +124,97 @@ export interface WorkHealth {
 
 const DAY_MS = 86_400_000;
 
+export interface ScopedWorkResult {
+  readonly group: WorkGroup;
+  readonly rootMatches: boolean;
+}
+
+/**
+ * Narrow a work group by a per-task predicate (e.g. member + node attribution).
+ * Keeps `group.task` strictly as a container when the root task itself does not match,
+ * and evaluates leaf status against the full task tree (`allParents`) so intermediate
+ * containers never inflate leaf counts.
+ */
+export function scopeWorkGroup(
+  group: WorkGroup,
+  matchesTask: (task: TaskRow) => boolean,
+  allParents: ReadonlySet<string>,
+): ScopedWorkResult | null {
+  const rootMatches = matchesTask(group.task);
+  const matchingMembers = group.members.filter(matchesTask);
+  if (!rootMatches && matchingMembers.length === 0) return null;
+
+  const counts: Record<string, number> = {};
+  let leaves = 0;
+  for (const member of matchingMembers) {
+    if (!allParents.has(member.taskId)) {
+      leaves += 1;
+      const status = member.canonicalStatus ?? "unknown";
+      counts[status] = (counts[status] ?? 0) + 1;
+    }
+  }
+
+  const participants = rootMatches ? [group.task, ...matchingMembers] : matchingMembers;
+  let activity: EventEntry | null = null;
+  let lastChangeAt = "";
+  let live = 0;
+  for (const task of participants) {
+    const taskActivity = latestActivity(task);
+    if (taskActivity && (!activity || taskActivity.at > activity.at)) activity = taskActivity;
+    if (task.lastKnownAt > lastChangeAt) lastChangeAt = task.lastKnownAt;
+    if (taskActivity && taskActivity.at > lastChangeAt) lastChangeAt = taskActivity.at;
+    if (task.activeExecutionId !== undefined) live += 1;
+  }
+
+  return {
+    rootMatches,
+    group: {
+      task: group.task,
+      descendants: matchingMembers.length,
+      leaves,
+      counts,
+      activity,
+      members: matchingMembers,
+      lastChangeAt: lastChangeAt || group.task.lastKnownAt,
+      live,
+    },
+  };
+}
+
+/** Narrow a work's agenda attention items to tasks surviving the current attribution filter. */
+export function scopeWorkAttention(
+  attention: WorkAttention | undefined,
+  matchingTaskIds: ReadonlySet<string>,
+  rootMatches: boolean,
+): WorkAttention | undefined {
+  if (!attention) return undefined;
+  const keepItem = (item: AgendaAttentionItem) =>
+    item.ref.startsWith("task/") ? matchingTaskIds.has(item.ref.slice("task/".length)) : rootMatches;
+  const mine = attention.mine.filter(keepItem);
+  const stuck = attention.stuck.filter(keepItem);
+  if (mine.length === 0 && stuck.length === 0) return undefined;
+  return {
+    mine,
+    stuck,
+    score: Math.max(...[...mine, ...stuck].map(({ attention: entry }) => entry.score)),
+  };
+}
+
 /** 一行健康摘要的判据(原型 v1/v4 的 works 区域):停滞看根 active 且 7 天没变化,或议程里有停滞条目。 */
-export function workHealth(group: WorkGroup, attention: WorkAttention | undefined, now: number): WorkHealth {
+export function workHealth(
+  group: WorkGroup,
+  attention: WorkAttention | undefined,
+  now: number,
+  options?: { readonly rootIncluded?: boolean },
+): WorkHealth {
+  const rootIncluded = options?.rootIncluded ?? true;
   const mine = attention?.mine ?? [];
   const blocked =
     (group.counts.blocked ?? 0) > 0 ||
-    group.task.canonicalStatus === "blocked" ||
+    (rootIncluded && group.task.canonicalStatus === "blocked") ||
     (attention?.stuck.some(({ kind }) => kind === "blocked") ?? false);
   const stale =
-    (group.task.canonicalStatus === "active" && Date.parse(group.lastChangeAt) < now - 7 * DAY_MS) ||
+    (rootIncluded && group.task.canonicalStatus === "active" && Date.parse(group.lastChangeAt) < now - 7 * DAY_MS) ||
     (attention?.stuck.some(({ kind }) => kind === "stalled") ?? false);
   const moving = Date.parse(group.lastChangeAt) >= now - DAY_MS || group.live > 0;
   const open =

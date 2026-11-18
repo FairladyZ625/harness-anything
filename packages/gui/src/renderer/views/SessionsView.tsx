@@ -41,12 +41,15 @@ import type { TaskDispatchProjectionRow } from "../../api/renderer-dto.ts";
 import {
   daemonSessionGroupBy,
   epochMsOf,
+  filterDispatchesByAttribution,
+  hasSessionAttributionFilter,
   isUnattributedGroupKey,
   needsYouRefs,
   settledCacheTtl,
   sessionGroupNeedsYou,
   sessionDecisionRefs,
   sessionOrphans,
+  sessionRoundMatchesAttribution,
   sessionRounds,
   sessionRoundsByTask,
   sessionStatusFilterKey,
@@ -54,6 +57,7 @@ import {
   sessionStatusesInBucket,
   sessionWorkGroups,
   sessionWorkKeyForTask,
+  type SessionAttributionFilter,
   type SessionDrillTarget,
   type SessionGroup,
   type SessionGroupBy,
@@ -83,7 +87,8 @@ import {
  * 空渲染——面板标签即标题,计数行不进面板。
  */
 type Segment = "sessions" | "squads";
-type Range = "24h" | "7d" | "30d" | "all";
+export type SessionRange = "24h" | "7d" | "30d" | "all";
+type Range = SessionRange;
 const RANGE_SPAN: Readonly<Record<Range, number>> = { "24h": 86_400, "7d": 7 * 86_400, "30d": 30 * 86_400, all: 0 };
 // 两段各自的默认读范围(G12 §2a):单会话段看「最近在干什么」用 24h;小队编排段
 // 的一次 `ha squad run` 是长生命周期单元,terminal run 只靠 latestActivityAt 过窗,
@@ -117,6 +122,8 @@ export interface SessionsViewProps {
   readonly currentPersonId?: string | null;
   readonly nodeFilter?: string | null;
   readonly onNodeFilterChange?: (nodeId: string | null) => void;
+  readonly sessionRange?: SessionRange | null;
+  readonly onSessionRangeChange?: (range: SessionRange) => void;
   readonly knownMembers?: readonly MemberOption[];
   readonly knownNodes?: readonly NodeOption[];
   readonly nodeOwners?: ReadonlyMap<string, string>;
@@ -147,6 +154,8 @@ export function SessionsView({
   currentPersonId = null,
   nodeFilter: controlledNodeFilter,
   onNodeFilterChange,
+  sessionRange: controlledSessionRange,
+  onSessionRangeChange,
   knownMembers,
   knownNodes,
   nodeOwners,
@@ -173,8 +182,14 @@ export function SessionsView({
     if (works.hasWorks) setGroupBy("work");
   }, [focusedEntityRef, works.ready, works.hasWorks]);
   const [rangeBySegment, setRangeBySegment] = useState<Readonly<Record<Segment, Range>>>(DEFAULT_RANGE);
-  const range = rangeBySegment[segment],
-    setRange = (value: Range) => setRangeBySegment((current) => ({ ...current, [segment]: value }));
+  const activeSessionRange = controlledSessionRange ?? rangeBySegment.sessions;
+  const range = segment === "sessions" ? activeSessionRange : rangeBySegment.squads,
+    setRange = (value: Range) => {
+      if (segment === "sessions" && onSessionRangeChange) {
+        onSessionRangeChange(value);
+      }
+      setRangeBySegment((current) => ({ ...current, [segment]: value }));
+    };
   const [search, setSearch] = useState("");
   // 状态筛选收成四档(业主 2026-10-21 13:50):单选取值,内部状态词由 sessions-model 的
   // 唯一映射折算成 daemon 读参;旧的十词多选集不再上屏。
@@ -191,6 +206,11 @@ export function SessionsView({
   };
   const effectivePersonFilter = scopePersonId !== null ? scopePersonId : personFilter === "all" ? null : personFilter;
   const effectiveNodeFilter = activeNodeFilter === "all" ? null : activeNodeFilter;
+  const attributionFilter = useMemo<SessionAttributionFilter>(
+    () => ({ personId: effectivePersonFilter, nodeId: effectiveNodeFilter }),
+    [effectivePersonFilter, effectiveNodeFilter],
+  );
+  const hasAttributionFilter = hasSessionAttributionFilter(attributionFilter);
   const memberOptions = useMemo(
     () =>
       collectMemberOptions({
@@ -282,7 +302,7 @@ export function SessionsView({
   );
 
   // 两段各自的读窗:单会话段与会话分组共用,小队编排段独立(见 DEFAULT_RANGE)。
-  const since = useMemo(() => rangeToSince(rangeBySegment.sessions), [rangeBySegment.sessions]),
+  const since = useMemo(() => rangeToSince(activeSessionRange), [activeSessionRange]),
     squadSince = useMemo(() => rangeToSince(rangeBySegment.squads), [rangeBySegment.squads]);
 
   const scopedTaskId =
@@ -305,7 +325,7 @@ export function SessionsView({
     truncated = workspace.groups.data?.truncated ?? false;
   // 钻入复用 Agent/Squad 页现役的 useRelatedDispatches(同一条 sessionGroups 精确
   // 过滤 + 同一批 task.dispatches),不写第三份同形读。
-  const related = useRelatedDispatches(repoId, drill);
+  const related = useRelatedDispatches(repoId, drill, attributionFilter);
   const runs = useMemo(() => workspace.squadRuns.data?.runs ?? [], [workspace.squadRuns.data]),
     runTotals = workspace.squadRuns.data?.totals ?? { runs: 0 };
 
@@ -422,17 +442,16 @@ export function SessionsView({
         return;
       }
       const allRounds = sessionRounds(group.taskId, group.label, dispatches ?? []);
-      const rounds =
-        effectivePersonFilter === null && effectiveNodeFilter === null
-          ? allRounds
-          : allRounds.filter(
-              (round) =>
-                (effectivePersonFilter === null || round.personId === effectivePersonFilter) &&
-                (effectiveNodeFilter === null || round.nodeId === effectiveNodeFilter),
-            );
+      const rounds = filterDispatchesByAttribution(allRounds, attributionFilter);
+      // Daemon sessionGroups excludes unattributed/orphan sessions whenever personId or nodeId
+      // filters are active; keeping task orphans empty under active attribution matches that
+      // boundary and prevents another member's filtered-out dispatch session from becoming an orphan.
+      const orphans = hasAttributionFilter
+        ? []
+        : sessionOrphans(group.taskId, group.label, taskSessionsByTask.get(group.taskId) ?? [], allRounds);
       rows.set(group.key, {
         rounds,
-        orphans: sessionOrphans(group.taskId, group.label, taskSessionsByTask.get(group.taskId) ?? [], rounds),
+        orphans,
         pending: false,
         error: null,
       });
@@ -452,10 +471,13 @@ export function SessionsView({
         });
         return;
       }
-      const rounds = sessionRounds(null, null, data?.dispatches ?? []);
+      const rounds = filterDispatchesByAttribution(
+        sessionRounds(null, null, data?.dispatches ?? []),
+        attributionFilter,
+      );
       rows.set(group.key, {
         rounds,
-        orphans: sessionOrphans(null, null, data?.sessions ?? [], rounds),
+        orphans: hasAttributionFilter ? [] : sessionOrphans(null, null, data?.sessions ?? [], rounds),
         pending: false,
         error: null,
       });
@@ -467,8 +489,8 @@ export function SessionsView({
     taskSessionsByTask,
     expandedUnattributed,
     unattributedQueries,
-    effectivePersonFilter,
-    effectiveNodeFilter,
+    attributionFilter,
+    hasAttributionFilter,
   ]);
 
   // 钻入的轮次来自同一批派工行:按任务组分好即挂到组体,点开组头不再二次读。
@@ -573,11 +595,43 @@ export function SessionsView({
   );
   const decisionGroupRows = useMemo(() => {
     const rows = new Map<string, DecisionGroupRows>();
+    const activeGroups = drill === null ? groups : related.groups;
     for (const decisionId of decisionGroupIds) {
       const decision = reviewedDecisions.find((row) => row.decisionId === decisionId);
+      const rawRounds = decision ? decisionReviewRounds(decision) : null;
+      let rounds = rawRounds;
+      if (rounds !== null && hasAttributionFilter) {
+        if (drill !== null) {
+          const allowedDispatchIds = new Set(related.dispatchRows.map((row) => row.dispatchId));
+          const allowedSessionIds = new Set(related.dispatchRows.map((row) => row.runtimeSessionId));
+          rounds = rounds.filter(
+            (round) =>
+              allowedDispatchIds.has(round.dispatch.dispatchId) ||
+              allowedSessionIds.has(round.dispatch.runtimeSessionId),
+          );
+        } else {
+          const group = activeGroups.find(
+            (candidate) => candidate.kind === "decision" && candidate.decisionId === decisionId,
+          );
+          const groupMatches =
+            group !== undefined &&
+            (effectivePersonFilter === null || group.personId === effectivePersonFilter) &&
+            (effectiveNodeFilter === null || group.nodeId === effectiveNodeFilter);
+          if (!groupMatches || group.latestRound == null) {
+            rounds = [];
+          } else {
+            const latest = group.latestRound;
+            rounds = rounds.filter(
+              (round) =>
+                (latest.dispatchId !== null && round.dispatch.dispatchId === latest.dispatchId) ||
+                round.dispatch.runtimeSessionId === latest.runtimeSessionId,
+            );
+          }
+        }
+      }
       rows.set(decisionId, {
         title: decision?.title ?? null,
-        rounds: decision ? decisionReviewRounds(decision) : null,
+        rounds,
         pending: decisionRowsQuery.isPending,
         error: decisionRowsQuery.isError
           ? decisionRowsQuery.error instanceof Error
@@ -590,19 +644,39 @@ export function SessionsView({
   }, [
     decisionGroupIds,
     reviewedDecisions,
+    hasAttributionFilter,
+    drill,
+    groups,
+    related.groups,
+    related.dispatchRows,
+    effectivePersonFilter,
+    effectiveNodeFilter,
     decisionRowsQuery.isPending,
     decisionRowsQuery.isError,
     decisionRowsQuery.error,
   ]);
   const selectedReviewRound = useMemo(() => {
     if (decisionFocus?.runtimeSessionId == null) return null;
+    if (hasAttributionFilter) {
+      return (
+        decisionGroupRows
+          .get(decisionFocus.decisionId)
+          ?.rounds?.find((round) => round.dispatch.runtimeSessionId === decisionFocus.runtimeSessionId) ?? null
+      );
+    }
     const decision = reviewedDecisions.find((row) => row.decisionId === decisionFocus.decisionId);
     return (
       (decision ? decisionReviewRounds(decision) : null)?.find(
         (round) => round.dispatch.runtimeSessionId === decisionFocus.runtimeSessionId,
       ) ?? null
     );
-  }, [decisionFocus?.decisionId, decisionFocus?.runtimeSessionId, reviewedDecisions]);
+  }, [
+    decisionFocus?.decisionId,
+    decisionFocus?.runtimeSessionId,
+    decisionGroupRows,
+    hasAttributionFilter,
+    reviewedDecisions,
+  ]);
 
   // 深链 session/<id> 始终先成为精确选择;存在性与 task binding 由同一个
   // repo.agentRuntime.sessions.read 判定,绝不因组尚未展开而改选首组 latestRound。
@@ -622,17 +696,57 @@ export function SessionsView({
     [groupBy, drill, sortedGroups, works],
   );
 
+  const groupMatchesFilter = (group: SessionGroup) =>
+    !hasAttributionFilter ||
+    ((effectivePersonFilter === null || group.personId === undefined || group.personId === effectivePersonFilter) &&
+      (effectiveNodeFilter === null || group.nodeId === undefined || group.nodeId === effectiveNodeFilter));
+  const focusedInVisibleList =
+    focusedSessionId !== null &&
+    (allRows.some((row) => row.runtimeSessionId === focusedSessionId) ||
+      sortedGroups.some(
+        (group) => group.latestRound?.runtimeSessionId === focusedSessionId && groupMatchesFilter(group),
+      ));
+  const focusedSessionCheckQuery = useQuery({
+    queryKey: runtimeQueryKeys.session(repoId, focusedSessionId ?? ""),
+    queryFn: () => agentRuntimeClient.session(repoId, focusedSessionId!),
+    enabled: drill === null && focusedSessionId !== null && hasAttributionFilter && !focusedInVisibleList,
+    staleTime: 4_000,
+  });
+  const focusedTaskId = focusedSessionCheckQuery.data?.session.associations[0]?.taskId ?? null;
+  const focusedDispatchCheckQuery = useQuery({
+    queryKey: runtimeQueryKeys.dispatches(repoId, focusedTaskId ?? ""),
+    queryFn: () => readAllTaskDispatches({ repoId, taskId: focusedTaskId! }),
+    enabled:
+      drill === null &&
+      focusedSessionId !== null &&
+      hasAttributionFilter &&
+      focusedTaskId !== null &&
+      !focusedInVisibleList,
+    staleTime: 4_000,
+  });
+  const focusedInAttributedDispatches =
+    focusedSessionId !== null &&
+    focusedTaskId !== null &&
+    filterDispatchesByAttribution(focusedDispatchCheckQuery.data?.dispatches ?? [], attributionFilter).some(
+      (row) => row.runtimeSessionId === focusedSessionId,
+    );
+
   const defaultSessionId =
-      sortedGroups.find((group) => group.latestRound !== null)?.latestRound?.runtimeSessionId ?? null,
+      sortedGroups.find((group) => group.latestRound !== null && groupMatchesFilter(group))?.latestRound
+        ?.runtimeSessionId ?? null,
     // 钻入后先落该执行者「最新需要关注的会话」;若当前深链会话不在其列,不让右侧停
     // 在别的执行者上。派工行按五级注意力排序(dockRows 与其同源同序)。
     drillDefaultSessionId =
       sortBySmartAttention(related.dispatchRows, dispatchRowSignal, nowMs)[0]?.runtimeSessionId ?? null,
     focusedSessionVisible =
       focusedSessionId !== null &&
-      (drill === null || related.dockRows.some((row) => row.runtimeSessionId === focusedSessionId)),
+      (drill !== null
+        ? related.dockRows.some((row) => row.runtimeSessionId === focusedSessionId)
+        : !hasAttributionFilter || focusedInVisibleList || focusedInAttributedDispatches),
+    decisionFocusVisible =
+      decisionFocus?.runtimeSessionId != null && (!hasAttributionFilter || selectedReviewRound !== null),
     selectedSessionId =
-      decisionFocus?.runtimeSessionId ??
+      (decisionFocusVisible ? decisionFocus!.runtimeSessionId : null) ??
       (focusedSessionVisible ? focusedSessionId : null) ??
       (drill === null ? defaultSessionId : drillDefaultSessionId);
 
@@ -701,6 +815,7 @@ export function SessionsView({
       appliedFocusRef.current = null;
       return;
     }
+    if (hasAttributionFilter && !focusedSessionVisible) return;
     // 钻入中点击会话只是选中右侧,不应把分组压回 Task、也不应把面包屑踢掉。
     if (drill !== null) {
       appliedFocusRef.current = focusedSessionId;
@@ -744,12 +859,11 @@ export function SessionsView({
   // 行的构造只走 sessionRounds 一处(与组展开行同源),不在这里另拼一份字段。
   const selectedFallbackRow = useMemo(() => {
     if (selectedRow !== null || selectedTaskId === null || selectedSessionId === null) return null;
+    const rows = filterDispatchesByAttribution(selectedDispatchRead.data?.dispatches ?? [], attributionFilter);
     return (
-      sessionRounds(selectedTaskId, null, selectedDispatchRead.data?.dispatches ?? []).find(
-        (round) => round.runtimeSessionId === selectedSessionId,
-      ) ?? null
+      sessionRounds(selectedTaskId, null, rows).find((round) => round.runtimeSessionId === selectedSessionId) ?? null
     );
-  }, [selectedRow, selectedTaskId, selectedSessionId, selectedDispatchRead.data]);
+  }, [attributionFilter, selectedRow, selectedTaskId, selectedSessionId, selectedDispatchRead.data]);
   // 详情一律读这一行:展开的组行优先,组收起时用同源补读的行,字段口径完全一致。
   const detailRow = selectedRow ?? selectedFallbackRow;
   const selectedSessionNeedsYou = useMemo(() => {

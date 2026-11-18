@@ -125,6 +125,7 @@ function restoreTaskFilters(value: unknown): TaskFilters | null {
 }
 
 const LANE_GROUP_BYS: ReadonlySet<unknown> = new Set<LaneGroupBy>(["root", "engine", "productLine", "person", "node"]);
+const SESSION_RANGES: ReadonlySet<unknown> = new Set(["24h", "7d", "30d", "all"]);
 
 /**
  * drill 还原:合法 → 原样;旧存储里按已删除的 `module` 维度下钻的 drill 丢成 null
@@ -150,6 +151,8 @@ function restoreAppLocation(value: unknown): AppLocation | null {
     return null;
   // poolTab 是后加字段:旧存储没有它照样可读,消费侧按 "decisions" 解释。
   if (value.poolTab !== undefined && !ATTESTATION_POOL_TABS.includes(value.poolTab as AttestationPoolTabId))
+    return null;
+  if (value.sessionRange !== undefined && value.sessionRange !== null && !SESSION_RANGES.has(value.sessionRange))
     return null;
   const taskFilters = restoreTaskFilters(value.taskFilters);
   const drill = restoreDrill(value.drill);

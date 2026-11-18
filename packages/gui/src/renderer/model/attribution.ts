@@ -157,20 +157,18 @@ export function collectNodeOptions(input: {
   const owners = new Map<string, string | null>();
   const add = (nodeId: string | null | undefined, ownerPersonId?: string | null) => {
     if (!nodeId) return;
+    const resolvedOwner = ownerPersonId ?? input.nodeOwners?.get(nodeId) ?? null;
     const cleanOwner =
-      ownerPersonId && ownerPersonId !== "not-in-registry" && ownerPersonId !== "daemon"
-        ? ownerPersonId
-        : (input.nodeOwners?.get(nodeId) ?? null);
+      resolvedOwner && resolvedOwner !== "not-in-registry" && resolvedOwner !== "daemon" ? resolvedOwner : null;
     if (!owners.has(nodeId) || (owners.get(nodeId) === null && cleanOwner !== null)) {
       owners.set(nodeId, cleanOwner);
     }
   };
   for (const node of input.knownNodes ?? []) add(node.nodeId, node.ownerPersonId);
   for (const task of input.tasks ?? []) {
-    const fallbackPerson = primaryTaskPersonId(task);
-    add(task.activeOrLatestNodeId, task.activeOrLatestPersonId ?? fallbackPerson);
-    add(task.originNodeId, task.createdByPersonId ?? fallbackPerson);
-    add(leaseNodeIdOf(task.leaseSource), task.leaseActor?.principal.personId ?? fallbackPerson);
+    add(task.activeOrLatestNodeId, null);
+    add(task.originNodeId, null);
+    add(leaseNodeIdOf(task.leaseSource), null);
   }
   for (const extra of input.extraNodes ?? []) add(extra.nodeId, extra.ownerPersonId);
   return [...owners.entries()]

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { t } from "../../i18n/index.tsx";
 import type { FleetFieldState, FleetOverviewNode, FleetOverviewRead } from "../../../api/renderer-dto.ts";
 import type { FleetNodeUnregisterInput } from "../../../api/fleet-admin-contract.ts";
@@ -32,35 +32,60 @@ export function nodeLabelOf(node: FleetOverviewNode, peopleById?: ReadonlyMap<st
 type UnregisterState =
   | { readonly step: "idle" }
   | { readonly step: "previewing" }
+  | { readonly step: "preview_error"; readonly error: string }
   | {
       readonly step: "confirming" | "submitting";
-      readonly expectedVersion: string | undefined;
+      readonly targetRepoId: string;
+      readonly targetActorPersonId: string | null;
+      readonly targetNodeId: string;
+      readonly expectedVersion: string;
       readonly busy: boolean;
       readonly force: boolean;
       readonly error: string | null;
     }
   | { readonly step: "done" };
 
+function failureFromReply(reply: Record<string, unknown>, fallback: string): { code?: string; message: string } | null {
+  if (reply.ok !== false && typeof reply.code !== "string") return null;
+  if (reply.ok === true) return null;
+  const code = typeof reply.code === "string" ? reply.code : undefined;
+  const message = (typeof reply.message === "string" && reply.message) || code || fallback;
+  return { code, message };
+}
+
+function failureFromError(error: unknown): { code?: string; message: string } {
+  const code =
+    error && typeof error === "object" && "code" in error && typeof (error as { code?: unknown }).code === "string"
+      ? (error as { code: string }).code
+      : undefined;
+  const message = error instanceof Error ? error.message : String(error);
+  return { code, message };
+}
+
 export function NodeDetails({
+  repoId = "",
+  actorPersonId = null,
   node,
   overview,
   now,
   onOpenTask,
   onNavigateEntity,
   onClose,
-  isAdmin = false,
+  canManageFleetNodes = false,
   peopleById,
   onOpenNodeBoard,
   onOpenNodeSessions,
   onUnregisterNode,
 }: {
+  readonly repoId?: string;
+  readonly actorPersonId?: string | null;
   readonly node: FleetOverviewNode;
   readonly overview: FleetOverviewRead;
   readonly now: string;
   readonly onOpenTask: (id: string) => void;
   readonly onNavigateEntity: (ref: string) => void;
   readonly onClose: () => void;
-  readonly isAdmin?: boolean;
+  readonly canManageFleetNodes?: boolean;
   readonly peopleById?: ReadonlyMap<string, string>;
   readonly onOpenNodeBoard?: (nodeId: string) => void;
   readonly onOpenNodeSessions?: (nodeId: string) => void;
@@ -69,39 +94,68 @@ export function NodeDetails({
   const assignments = node.leases;
   const label = nodeLabelOf(node, peopleById);
   const [unregisterState, setUnregisterState] = useState<UnregisterState>({ step: "idle" });
+  const contextKey = `${repoId}\0${actorPersonId ?? ""}\0${node.nodeId}`;
+  const contextRef = useRef(contextKey);
+  const opSeqRef = useRef(0);
+  contextRef.current = contextKey;
 
   useEffect(() => {
+    opSeqRef.current += 1;
     setUnregisterState({ step: "idle" });
-  }, [node.nodeId]);
+  }, [contextKey]);
+
+  useEffect(() => {
+    if (!canManageFleetNodes) {
+      opSeqRef.current += 1;
+      setUnregisterState({ step: "idle" });
+    }
+  }, [canManageFleetNodes]);
 
   const startUnregister = () => {
-    if (!onUnregisterNode) return;
+    if (!canManageFleetNodes || !onUnregisterNode || node.role !== "edge") return;
+    const requestContext = contextKey;
+    const targetRepoId = repoId;
+    const targetActorPersonId = actorPersonId;
+    const targetNodeId = node.nodeId;
+    const seq = ++opSeqRef.current;
     setUnregisterState({ step: "previewing" });
-    void onUnregisterNode({ nodeId: node.nodeId }).then(
+    void onUnregisterNode({ nodeId: targetNodeId }).then(
       (reply) => {
-        if (reply.ok === false) {
-          const message =
-            (typeof reply.message === "string" && reply.message) ||
-            (typeof reply.code === "string" && reply.code) ||
-            "unregister preview failed";
+        if (opSeqRef.current !== seq || contextRef.current !== requestContext) return;
+        const failure = failureFromReply(reply, "unregister preview failed");
+        if (failure) {
           setUnregisterState({
-            step: "confirming",
-            expectedVersion: undefined,
-            busy: reply.code === "edge_node_busy" || reply.code === "conflict",
-            force: false,
-            error: message,
+            step: "preview_error",
+            error: t("collaboration.unregisterPreviewFailed", { error: failure.message }),
           });
           return;
         }
-        const expectedVersion = typeof reply.expectedVersion === "string" ? reply.expectedVersion : undefined;
+        const expectedVersion = typeof reply.expectedVersion === "string" ? reply.expectedVersion.trim() : "";
+        if (!expectedVersion) {
+          setUnregisterState({
+            step: "preview_error",
+            error: t("collaboration.unregisterPreviewFailed", { error: "missing expectedVersion" }),
+          });
+          return;
+        }
+        const inFlightBusy =
+          typeof reply.inFlight === "number"
+            ? reply.inFlight > 0
+            : Array.isArray(reply.inFlight)
+              ? reply.inFlight.length > 0
+              : reply.inFlight === true;
         const busy =
           reply.online === true ||
+          inFlightBusy ||
           (Array.isArray(reply.leases) && reply.leases.length > 0) ||
           (typeof reply.leases === "number" && reply.leases > 0) ||
           (Array.isArray(reply.executions) && reply.executions.length > 0) ||
           (typeof reply.executions === "number" && reply.executions > 0);
         setUnregisterState({
           step: "confirming",
+          targetRepoId,
+          targetActorPersonId,
+          targetNodeId,
           expectedVersion,
           busy,
           force: false,
@@ -109,49 +163,64 @@ export function NodeDetails({
         });
       },
       (error: unknown) => {
+        if (opSeqRef.current !== seq || contextRef.current !== requestContext) return;
+        const failure = failureFromError(error);
         setUnregisterState({
-          step: "confirming",
-          expectedVersion: undefined,
-          busy: false,
-          force: false,
-          error: error instanceof Error ? error.message : String(error),
+          step: "preview_error",
+          error: t("collaboration.unregisterPreviewFailed", { error: failure.message }),
         });
       },
     );
   };
 
   const confirmUnregister = () => {
-    if (!onUnregisterNode || unregisterState.step !== "confirming") return;
+    if (!canManageFleetNodes || !onUnregisterNode || unregisterState.step !== "confirming") return;
     const current = unregisterState;
+    if (
+      current.targetNodeId !== node.nodeId ||
+      current.targetRepoId !== repoId ||
+      current.targetActorPersonId !== actorPersonId
+    ) {
+      opSeqRef.current += 1;
+      setUnregisterState({ step: "idle" });
+      return;
+    }
+    const requestContext = contextKey;
+    const seq = ++opSeqRef.current;
     setUnregisterState({ ...current, step: "submitting", error: null });
+    const handleConfirmFailure = (failure: { code?: string; message: string }) => {
+      if (failure.code === "version_conflict") {
+        setUnregisterState({
+          step: "preview_error",
+          error: t("collaboration.unregisterVersionConflict"),
+        });
+        return;
+      }
+      setUnregisterState({
+        ...current,
+        step: "confirming",
+        busy: current.busy || failure.code === "node_busy",
+        error: failure.message,
+      });
+    };
     void onUnregisterNode({
-      nodeId: node.nodeId,
+      nodeId: current.targetNodeId,
       expectedVersion: current.expectedVersion,
       confirm: true,
       ...(current.force ? { force: true } : {}),
     }).then(
       (reply) => {
-        if (reply.ok === false) {
-          const message =
-            (typeof reply.message === "string" && reply.message) ||
-            (typeof reply.code === "string" && reply.code) ||
-            "unregister failed";
-          setUnregisterState({
-            ...current,
-            step: "confirming",
-            busy: current.busy || reply.code === "edge_node_busy" || reply.code === "conflict",
-            error: message,
-          });
+        if (opSeqRef.current !== seq || contextRef.current !== requestContext) return;
+        const failure = failureFromReply(reply, "unregister failed");
+        if (failure) {
+          handleConfirmFailure(failure);
           return;
         }
         setUnregisterState({ step: "done" });
       },
       (error: unknown) => {
-        setUnregisterState({
-          ...current,
-          step: "confirming",
-          error: error instanceof Error ? error.message : String(error),
-        });
+        if (opSeqRef.current !== seq || contextRef.current !== requestContext) return;
+        handleConfirmFailure(failureFromError(error));
       },
     );
   };
@@ -175,7 +244,7 @@ export function NodeDetails({
           {t("collaboration.close")}
         </button>
       </header>
-      {(onOpenNodeBoard || onOpenNodeSessions || (isAdmin && node.role === "edge" && onUnregisterNode)) && (
+      {(onOpenNodeBoard || onOpenNodeSessions || (canManageFleetNodes && node.role === "edge" && onUnregisterNode)) && (
         <div className="flex flex-wrap items-center gap-2">
           {onOpenNodeBoard && (
             <button
@@ -197,7 +266,7 @@ export function NodeDetails({
               {t("collaboration.openInSessions")}
             </button>
           )}
-          {isAdmin && node.role === "edge" && onUnregisterNode && unregisterState.step === "idle" && (
+          {canManageFleetNodes && node.role === "edge" && onUnregisterNode && unregisterState.step === "idle" && (
             <button
               type="button"
               data-testid="collaboration-node-unregister"
@@ -216,6 +285,32 @@ export function NodeDetails({
         >
           {unregisterState.step === "previewing" ? (
             <p className="text-text-muted">{t("collaboration.unregisterPreviewing")}</p>
+          ) : unregisterState.step === "preview_error" ? (
+            <div className="flex flex-col gap-2">
+              <p role="alert" data-testid="collaboration-unregister-error" className="ui-micro text-status-blocked">
+                {unregisterState.error}
+              </p>
+              <div className="flex items-center gap-2 pt-1">
+                {canManageFleetNodes && node.role === "edge" && onUnregisterNode && (
+                  <button
+                    type="button"
+                    data-testid="collaboration-unregister-retry"
+                    onClick={() => void startUnregister()}
+                    className="rounded border border-border bg-surface px-2.5 py-1 ui-meta text-text hover:border-border-strong"
+                  >
+                    {t("collaboration.unregisterRetryPreview")}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  data-testid="collaboration-unregister-cancel"
+                  onClick={() => setUnregisterState({ step: "idle" })}
+                  className="rounded border border-border bg-surface px-2.5 py-1 ui-meta text-text-muted hover:text-text"
+                >
+                  {t("collaboration.unregisterCancel")}
+                </button>
+              </div>
+            </div>
           ) : unregisterState.step === "done" ? (
             <p role="status" data-testid="collaboration-unregister-succeeded" className="text-status-done">
               {t("collaboration.unregisterSucceeded", { label })}

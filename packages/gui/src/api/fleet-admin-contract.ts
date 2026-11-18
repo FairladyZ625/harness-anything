@@ -7,4 +7,5 @@ export interface FleetNodeUnregisterInput {
 
 export interface FleetAdminApi {
   readonly unregisterNode: (input: FleetNodeUnregisterInput) => Promise<Record<string, unknown>>;
+  readonly forRepository?: (repoId: string) => FleetAdminApi;
 }

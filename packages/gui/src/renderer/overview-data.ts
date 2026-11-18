@@ -64,7 +64,7 @@ export function useOverviewRuntime(repoId: string | null) {
  */
 
 /** ① 泳道集合:sessionGroups(groupBy=agent,6h 窗)。 */
-export function useOverviewAgentGroups(repoId: string | null) {
+export function useOverviewAgentGroups(repoId: string | null, personId: string | null = null) {
   // since 进 key:窗口锚点在挂载期固定,不随渲染漂移(每帧新 key 会变成持续重取)。
   const since = useMemo(
     () => new Date(Date.now() - AGENT_LANES_WINDOW_MS).toISOString(),
@@ -72,12 +72,19 @@ export function useOverviewAgentGroups(repoId: string | null) {
     [repoId],
   );
   const q = useQuery({
-    queryKey: [...runtimeQueryKeys.sessionGroupsAll(repoId ?? "unselected"), "agent", since, "overview-lanes"],
+    queryKey: [
+      ...runtimeQueryKeys.sessionGroupsAll(repoId ?? "unselected"),
+      "agent",
+      since,
+      personId ?? "",
+      "overview-lanes",
+    ],
     queryFn: () =>
       agentRuntimeClient.sessionGroups(repoId!, {
         groupBy: "agent",
         since,
         limit: guiInteractionPolicy.defaultValue.pageSizes.agentGroups,
+        ...(personId === null ? {} : { personId }),
       }),
     enabled: repoId !== null,
     staleTime: 4_000,

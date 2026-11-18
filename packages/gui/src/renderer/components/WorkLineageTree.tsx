@@ -18,6 +18,8 @@ export function WorkLineageTree({
   rootTask,
   tasks,
   live,
+  personId = null,
+  nodeId = null,
   onOpenTask,
   onOpenSession,
   testId,
@@ -29,6 +31,9 @@ export function WorkLineageTree({
   readonly tasks: readonly TaskRow[];
   /** 任务切面报告执行中(activeExecutionId)时保持轮询节拍。 */
   readonly live: boolean;
+  /** Optional attribution lens filters for dispatches rendered in the lineage tree. */
+  readonly personId?: string | null;
+  readonly nodeId?: string | null;
   /** 任务节点激活出口;缺省时任务节点不可激活。 */
   readonly onOpenTask?: (taskId: string) => void;
   /** 派工节点激活出口(会话转录);缺省时派工节点不可激活。 */
@@ -37,14 +42,22 @@ export function WorkLineageTree({
 }) {
   const taskIds = useMemo(() => lineageTaskIds(rootTask.taskId, tasks), [rootTask.taskId, tasks]);
   const idsKey = taskIds.join("\u0000");
+  const matchesAttribution = (row: { readonly personId?: string | null; readonly nodeId?: string | null }) =>
+    (personId === null || row.personId === personId) && (nodeId === null || row.nodeId === nodeId);
   const dispatches = useQuery({
     queryKey: ["dispatches", repoId, { batch: idsKey }],
     queryFn: () => readAllTaskDispatches({ repoId, taskIds }),
     staleTime: 4_000,
     refetchInterval: (query) =>
-      live || (query.state.data?.dispatches ?? []).some((row) => row.status === "running") ? 4_000 : false,
+      live || (query.state.data?.dispatches ?? []).some((row) => row.status === "running" && matchesAttribution(row))
+        ? 4_000
+        : false,
   });
-  const rows = useMemo(() => dispatches.data?.dispatches ?? [], [dispatches.data]);
+  const rows = useMemo(() => {
+    const raw = dispatches.data?.dispatches ?? [];
+    if (personId === null && nodeId === null) return raw;
+    return raw.filter((row) => matchesAttribution(row));
+  }, [dispatches.data, personId, nodeId]);
 
   const activate = useMemo(() => {
     if (onOpenTask === undefined && onOpenSession === undefined) return undefined;

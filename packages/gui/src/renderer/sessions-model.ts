@@ -499,3 +499,84 @@ export function sessionDecisionRefs(relations: readonly RelationEdge[], taskId: 
 export function shortRef(id: string, keep = 12): string {
   return id.length > keep ? `${id.slice(0, keep)}…` : id;
 }
+
+export interface SessionAttributionFilter {
+  readonly personId: string | null;
+  readonly nodeId: string | null;
+}
+
+export function hasSessionAttributionFilter(filter?: SessionAttributionFilter | null): boolean {
+  return filter != null && (filter.personId !== null || filter.nodeId !== null);
+}
+
+export function sessionRoundMatchesAttribution(
+  row: { readonly personId?: string | null; readonly nodeId?: string | null },
+  filter?: SessionAttributionFilter | null,
+): boolean {
+  if (!filter) return true;
+  return (
+    (filter.personId === null || row.personId === filter.personId) &&
+    (filter.nodeId === null || row.nodeId === filter.nodeId)
+  );
+}
+
+export function filterDispatchesByAttribution<
+  T extends { readonly personId?: string | null; readonly nodeId?: string | null },
+>(dispatches: readonly T[], filter?: SessionAttributionFilter | null): readonly T[] {
+  if (!hasSessionAttributionFilter(filter)) return dispatches;
+  return dispatches.filter((row) => sessionRoundMatchesAttribution(row, filter));
+}
+
+function dispatchMatchesSessionGroup(row: TaskDispatchProjectionRow, group: SessionGroup): boolean {
+  if (group.kind === "task") {
+    return group.taskId !== undefined && row.taskId === group.taskId;
+  }
+  if (group.kind === "decision") {
+    return (
+      group.decisionId !== undefined &&
+      row.reviewTarget?.kind === "decision" &&
+      row.reviewTarget.decisionId === group.decisionId
+    );
+  }
+  return !row.taskId && row.reviewTarget?.kind !== "decision";
+}
+
+/**
+ * Recompute Agent/Squad drill-down session groups strictly from attribution-filtered dispatches
+ * so mixed tasks drop another member's or node's running status, counts, and latest round.
+ */
+export function filterRelatedSessionGroups(
+  groups: readonly SessionGroup[],
+  filteredDispatches: readonly TaskDispatchProjectionRow[],
+  filter?: SessionAttributionFilter | null,
+): readonly SessionGroup[] {
+  if (!hasSessionAttributionFilter(filter)) return groups;
+  const narrowed: SessionGroup[] = [];
+  for (const group of groups) {
+    const matching = filteredDispatches
+      .filter((row) => dispatchMatchesSessionGroup(row, group))
+      .sort((left, right) => right.startedAt.localeCompare(left.startedAt));
+    const latest = matching[0];
+    if (!latest) continue;
+    narrowed.push({
+      ...group,
+      personId: latest.personId ?? null,
+      nodeId: latest.nodeId ?? null,
+      sessionCount: new Set(matching.map((row) => row.runtimeSessionId)).size,
+      runningCount: matching.filter((row) => row.status === "running").length,
+      latestStatus: latest.status,
+      latestActivityAt: latest.endedAt ?? latest.startedAt,
+      latestRound: {
+        runtimeSessionId: latest.runtimeSessionId,
+        dispatchId: latest.dispatchId,
+        agentName: latest.agentName ?? latest.agentId ?? null,
+        instanceId: latest.instanceId,
+        status: latest.status,
+        classification: latest.classification ?? null,
+        reason: latest.reason ?? null,
+        startedAt: latest.startedAt,
+      },
+    });
+  }
+  return narrowed;
+}
