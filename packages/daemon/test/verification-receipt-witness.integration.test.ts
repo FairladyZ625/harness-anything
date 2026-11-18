@@ -251,6 +251,45 @@ test("standard-task verified profile blocks missing, stale, folded, and mismatch
     assert.equal(oversizedComplete.code, "gate_witness_missing");
     console.log("VERIFIED_OVERSIZED_FIELD=" + JSON.stringify({ submit: oversizedSubmit, complete: oversizedComplete }));
 
+    // 4c. Bounded nested container settles available/fail (<1KiB), while 25000-deep container exceeding V8 stack settles unavailable/null; both block complete
+    const moderateNested = `${"[".repeat(32)}0${"]".repeat(32)}`;
+    writeFileSync(
+      receiptPath,
+      `{"commitSha":${moderateNested},"passed":12,"failed":0,"timedOut":0,"unexecuted":0,"total":12}`,
+    );
+    await applied({ kind: "doc-submit", taskId });
+    await applied({ kind: "task-submit", taskId, executionId, amend: true });
+    const moderateCut = latestSubmittedCut();
+    const moderateWitness = witnessForCut(moderateCut.digest);
+    assert.ok(moderateWitness, "expected completion_gate_verified bound to moderate nested cut");
+    const moderateRun = currentGateRun(moderateWitness.payload.execution, "verification-receipt")!;
+    assert.equal(moderateRun.availability, "available");
+    assert.equal(moderateRun.result, "fail");
+    assert.deepEqual(moderateWitness.payload.witness.predicate, {});
+    const moderateComplete = await cell.run({ kind: "task-complete", taskId, executionId }, owner);
+    assert.equal(moderateComplete.outcome, "op_rejected");
+    assert.equal(moderateComplete.code, "gate_witness_missing");
+
+    const deepArray = `${"[".repeat(25_000)}0${"]".repeat(25_000)}`;
+    writeFileSync(
+      receiptPath,
+      `{"commitSha":${deepArray},"passed":12,"failed":0,"timedOut":0,"unexecuted":0,"total":12}`,
+    );
+    await applied({ kind: "doc-submit", taskId });
+    const deepSubmit = await applied({ kind: "task-submit", taskId, executionId, amend: true });
+    const deepCut = latestSubmittedCut();
+    const deepRun = settledRunForCut(deepCut.digest);
+    assert.equal(deepRun?.state, "completed");
+    assert.equal(deepRun?.availability, "unavailable");
+    assert.equal(deepRun?.result, null);
+    assert.equal(witnessForCut(deepCut.digest), undefined);
+    const deepComplete = await cell.run({ kind: "task-complete", taskId, executionId }, owner);
+    assert.equal(deepComplete.outcome, "op_rejected");
+    assert.equal(deepComplete.code, "gate_witness_missing");
+    console.log(
+      "VERIFIED_DEEP_NESTED=" + JSON.stringify({ submit: deepSubmit, gateRun: deepRun, complete: deepComplete }),
+    );
+
     // 5. 455+ frozen artifacts + earlier-sorting archive alias + valid root receipt -> ~600B pass & task complete succeeds
     const bulkDir = path.join(artifactsDir, "bulk");
     mkdirSync(bulkDir, { recursive: true });

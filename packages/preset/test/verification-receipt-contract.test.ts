@@ -113,7 +113,13 @@ test("verify-receipt script rejects missing, archive-only, malformed, and invali
     };
     assert.equal(parsed.schema, "preset-script-result/v1");
     assert.equal(parsed.produces[0]?.capabilityId, "completion-witness");
-    return parsed.produces[0]!.payload;
+    if (parsed.produces[0]?.payload.result === "fail") {
+      assert.ok(
+        Buffer.byteLength(stdout, "utf8") < 1024,
+        `expected raw stdout fail frame < 1024B, got ${Buffer.byteLength(stdout, "utf8")}`,
+      );
+    }
+    return { payload: parsed.produces[0]!.payload, rawBytes: Buffer.byteLength(stdout, "utf8") };
   };
   try {
     // 1. Missing receipt -> script emits explicit fail
@@ -121,7 +127,7 @@ test("verify-receipt script rejects missing, archive-only, malformed, and invali
       schema: "witness-input/v1",
       code: { commitSha, directory: "input/code" },
       subjects: [],
-    });
+    }).payload;
     assert.equal(missing.result, "fail");
     assert.match(missing.diagnostic, /Missing required verification receipt artifact/u);
 
@@ -142,7 +148,7 @@ test("verify-receipt script rejects missing, archive-only, malformed, and invali
           file: archiveReceiptFile,
         },
       ],
-    });
+    }).payload;
     assert.equal(archiveOnly.result, "fail");
     assert.match(archiveOnly.diagnostic, /Missing required verification receipt artifact/u);
 
@@ -173,7 +179,7 @@ test("verify-receipt script rejects missing, archive-only, malformed, and invali
           file: rootReceiptFile,
         },
       ],
-    });
+    }).payload;
     assert.equal(rootPreferred.result, "pass");
     assert.equal(rootPreferred.predicate.passed, 8);
 
@@ -185,7 +191,7 @@ test("verify-receipt script rejects missing, archive-only, malformed, and invali
         schema: "witness-input/v1",
         code: { commitSha, directory: "input/code" },
         subjects: [{ path: "artifacts/verification-receipt.json", revision: 1, blobSha256, file: badFile }],
-      }).result,
+      }).payload.result,
       "fail",
     );
 
@@ -195,7 +201,7 @@ test("verify-receipt script rejects missing, archive-only, malformed, and invali
         schema: "witness-input/v1",
         code: { commitSha, directory: "input/code" },
         subjects: [{ path: "artifacts/verification-receipt.json", revision: 1, blobSha256, file: badFile }],
-      }).result,
+      }).payload.result,
       "fail",
     );
 
@@ -208,7 +214,7 @@ test("verify-receipt script rejects missing, archive-only, malformed, and invali
         schema: "witness-input/v1",
         code: { commitSha, directory: "input/code" },
         subjects: [{ path: "artifacts/verification-receipt.json", revision: 1, blobSha256, file: badFile }],
-      }).result,
+      }).payload.result,
       "fail",
     );
 
@@ -218,11 +224,11 @@ test("verify-receipt script rejects missing, archive-only, malformed, and invali
         schema: "witness-input/v1",
         code: { commitSha, directory: "input/code" },
         subjects: [{ path: "artifacts/verification-receipt.json", revision: 1, blobSha256, file: badFile }],
-      }).result,
+      }).payload.result,
       "fail",
     );
 
-    // 5. Oversized wrong-type field -> bounded fail witness (empty predicate, frame <= 1024B)
+    // 5. Oversized wrong-type field + 6 multi-byte escaped invalid fields -> raw stdout frame strictly < 1024B
     writeFileSync(
       badFile,
       JSON.stringify({ commitSha: ["x".repeat(40_000)], passed: 1, failed: 0, timedOut: 0, unexecuted: 0, total: 1 }),
@@ -232,10 +238,38 @@ test("verify-receipt script rejects missing, archive-only, malformed, and invali
       code: { commitSha, directory: "input/code" },
       subjects: [{ path: "artifacts/verification-receipt.json", revision: 1, blobSha256, file: badFile }],
     });
-    assert.equal(oversizedField.result, "fail");
-    assert.deepEqual(oversizedField.predicate, {});
-    assert.match(oversizedField.diagnostic, /array\(length=1\)/u);
-    assert.ok(Buffer.byteLength(JSON.stringify(oversizedField)) <= 1024);
+    assert.equal(oversizedField.payload.result, "fail");
+    assert.deepEqual(oversizedField.payload.predicate, {});
+    assert.match(oversizedField.payload.diagnostic, /array\(length=1\)/u);
+    assert.ok(oversizedField.rawBytes < 1024, `expected rawBytes < 1024, got ${oversizedField.rawBytes}`);
+
+    const nonAsciiEscaped = '测"\n\\\t🔥'.repeat(11);
+    writeFileSync(
+      badFile,
+      JSON.stringify({
+        commitSha: nonAsciiEscaped,
+        passed: nonAsciiEscaped,
+        failed: nonAsciiEscaped,
+        timedOut: nonAsciiEscaped,
+        unexecuted: nonAsciiEscaped,
+        total: nonAsciiEscaped,
+      }),
+    );
+    const multiByteFail = runScript({
+      schema: "witness-input/v1",
+      code: { commitSha, directory: "input/code" },
+      subjects: [
+        {
+          path: "tasks/task-verified-code-verified-coding-task/artifacts/verification-receipt.json",
+          revision: 35,
+          blobSha256,
+          file: badFile,
+        },
+      ],
+    });
+    assert.equal(multiByteFail.payload.result, "fail");
+    assert.deepEqual(multiByteFail.payload.predicate, {});
+    assert.ok(multiByteFail.rawBytes < 1024, `expected multi-byte rawBytes < 1024, got ${multiByteFail.rawBytes}`);
 
     writeFileSync(
       badFile,
@@ -246,7 +280,7 @@ test("verify-receipt script rejects missing, archive-only, malformed, and invali
         schema: "witness-input/v1",
         code: null,
         subjects: [{ path: "artifacts/verification-receipt.json", revision: 1, blobSha256, file: badFile }],
-      }).result,
+      }).payload.result,
       "pass",
     );
   } finally {

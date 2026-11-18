@@ -5,7 +5,7 @@ const PREDICATE_TYPE = "software-coding/verification-receipt/v1";
 const ROOT_RECEIPT_PATTERN = /^(?:(?!artifacts\/)[^/]+\/)*artifacts\/verification-receipt\.json$/u;
 const REQUIRED_FIELDS = ["commitSha", "passed", "failed", "timedOut", "unexecuted", "total"];
 const COUNT_FIELDS = ["passed", "failed", "timedOut", "unexecuted", "total"];
-const MAX_DIAGNOSTIC_CHARS = 512;
+const MAX_FAIL_FRAME_BYTES = 960;
 
 function describeValue(value) {
   if (value === null) return "null";
@@ -13,34 +13,49 @@ function describeValue(value) {
   if (Array.isArray(value)) return `array(length=${value.length})`;
   if (typeof value === "object") return "object";
   if (typeof value === "string") {
-    return value.length <= 64 ? JSON.stringify(value) : `string(length=${value.length})`;
+    return /^[0-9a-f]{40}$/u.test(value) ? JSON.stringify(value) : `string(length=${value.length})`;
   }
   const text = String(value);
-  return text.length <= 64 ? text : `${typeof value}(length=${text.length})`;
+  return text.length <= 32 ? text : `${typeof value}(length=${text.length})`;
 }
 
-function truncateText(text, maxChars = MAX_DIAGNOSTIC_CHARS) {
-  return text.length <= maxChars ? text : `${text.slice(0, maxChars - 3)}...`;
+function serializeFrame(result, subjects, predicate, diagnostic) {
+  return `${JSON.stringify({
+    schema: "preset-script-result/v1",
+    produces: [
+      {
+        capabilityId: "completion-witness",
+        payload: {
+          result,
+          subjects,
+          predicateType: PREDICATE_TYPE,
+          predicate,
+          diagnostic,
+        },
+      },
+    ],
+  })}\n`;
 }
 
 function emit(result, subjects, predicate, diagnostic) {
-  console.log(
-    JSON.stringify({
-      schema: "preset-script-result/v1",
-      produces: [
-        {
-          capabilityId: "completion-witness",
-          payload: {
-            result,
-            subjects,
-            predicateType: PREDICATE_TYPE,
-            predicate,
-            diagnostic: truncateText(diagnostic),
-          },
-        },
-      ],
-    }),
-  );
+  let boundedDiagnostic = diagnostic;
+  let frame = serializeFrame(result, subjects, predicate, boundedDiagnostic);
+  if (result === "fail" && Buffer.byteLength(frame, "utf8") > MAX_FAIL_FRAME_BYTES) {
+    let low = 0;
+    let high = boundedDiagnostic.length;
+    while (low < high) {
+      const mid = Math.ceil((low + high) / 2);
+      const candidate = `${boundedDiagnostic.slice(0, mid)}...`;
+      if (Buffer.byteLength(serializeFrame(result, subjects, predicate, candidate), "utf8") <= MAX_FAIL_FRAME_BYTES) {
+        low = mid;
+      } else {
+        high = mid - 1;
+      }
+    }
+    boundedDiagnostic = low > 0 ? `${boundedDiagnostic.slice(0, low)}...` : "Invalid verification receipt.";
+    frame = serializeFrame(result, subjects, predicate, boundedDiagnostic);
+  }
+  process.stdout.write(frame);
 }
 
 const presetInput = JSON.parse(process.env.HA_PRESET_INPUT ?? "{}");
@@ -58,7 +73,7 @@ let receipt;
 try {
   receipt = JSON.parse(readFileSync(receiptSubject.file, "utf8"));
 } catch (error) {
-  const detail = truncateText(error instanceof Error ? error.message : String(error), 160);
+  const detail = error instanceof Error ? error.message : String(error);
   emit("fail", subjects, {}, `Invalid JSON in artifacts/verification-receipt.json: ${detail}`);
   process.exit(0);
 }

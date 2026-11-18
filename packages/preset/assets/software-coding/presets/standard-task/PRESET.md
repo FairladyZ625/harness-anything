@@ -42,4 +42,4 @@ Requirements enforced by `standard-task/verify-receipt` and `software-coding/ver
 - `passed + failed + timedOut + unexecuted === total` and `total > 0`;
 - `failed === 0`, `timedOut === 0`, and `unexecuted === 0` (no folded timeouts/skipped tests);
 - For code submissions, `commitSha` must equal the frozen submission commit SHA;
-- Missing or syntax-corrupted non-JSON receipts settle as `unavailable` during host binding readout, while valid-JSON schema/type/SHA/count violations emit a bounded `fail` witness; both block `ha task complete`.
+- Missing, syntax-corrupted non-JSON, or extreme deep-nesting receipts exceeding V8 recursion depth settle as `unavailable` during host binding readout, while bounded-depth valid-JSON schema/type/SHA/count violations emit a `< 1024 B` UTF-8 `fail` witness; both block `ha task complete`.
