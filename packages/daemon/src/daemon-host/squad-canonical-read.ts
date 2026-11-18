@@ -1,5 +1,6 @@
 import { cellCriterionError } from "./repo-cell-errors.ts";
 import { dispatchLifecycleSummary, type CanonicalSquadRun, type TaskProjectionQueries } from "@harness-anything/kernel";
+import { writeSourceNodeId } from "@harness-anything/kernel/internal/domain/write-source.ts";
 import { activePhase, compareRunSummaries, listQuery, matchesRunQuery, runInActivityWindow } from "./squad-run-list.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type {
@@ -135,10 +136,17 @@ export function makeSquadCanonicalReader(input: {
     };
   }
   function list(payload: Readonly<Record<string, unknown>>): SquadRunsListResult {
-    const query = listQuery(payload),
+    const { personId, nodeId, ...listPayload } = payload,
+      query = listQuery(listPayload),
       rows = projection
         .readSquadRuns()
-        .map((row) => summary(row.state as unknown as CanonicalSquadRun))
+        .map((row) => row.state as unknown as CanonicalSquadRun)
+        .filter(
+          ({ owner }) =>
+            (personId === undefined || owner.personId === personId) &&
+            (nodeId === undefined || writeSourceNodeId(owner.source) === nodeId),
+        )
+        .map(summary)
         .filter((run) => activePhase(run.phase) || query.since === null || runInActivityWindow(run, query.since))
         .filter((run) => matchesRunQuery(run, query.tokens))
         .sort(compareRunSummaries);

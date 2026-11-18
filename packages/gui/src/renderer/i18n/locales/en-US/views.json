@@ -1237,6 +1237,7 @@
   "views.lineage.collapse": "Collapse lineage",
   "views.lineage.reading": "Reading lineage and costs…",
   "views.lineage.readError": "Lineage read failed: {message}",
+  "views.overviewView.memberDispatchesTruncated": "Older dispatches omitted",
   "views.lineage.truncated": "Older dispatch rounds are beyond the page limit and excluded from the totals",
   "views.lineage.sectionTitle": "Lineage & cost",
   "views.lineage.sectionNote": "Live status, duration and token cost of tasks, dispatch rounds and delegation chains; parents roll up their subtree",
@@ -2246,5 +2247,16 @@
   "views.settingsView.guiTerminalBrowserDescription": "Browser used to open terminal HTTP(S) links on this machine.",
   "views.settingsView.guiTerminalBrowserEffect": "Terminal links open in the selected browser immediately on this machine only.",
   "views.settingsView.enum.guiTerminalBrowser.embedded": "Embedded browser",
-  "views.settingsView.enum.guiTerminalBrowser.system": "System browser"
+  "views.settingsView.enum.guiTerminalBrowser.system": "System browser",
+  "views.board.groupByPerson": "person",
+  "views.board.groupByNode": "node",
+  "views.board.groupByPersonTitle": "Group by member",
+  "views.board.groupByNodeTitle": "Group by node",
+  "views.board.unassignedPerson": "Unattributed member",
+  "views.board.unassignedNode": "Unattributed node",
+  "views.work.filterPerson": "Filter works by member",
+  "views.work.filterNode": "Filter works by node",
+  "views.work.allMembers": "All members",
+  "views.work.allNodes": "All nodes",
+  "views.work.meOption": "Me ({name})"
 }

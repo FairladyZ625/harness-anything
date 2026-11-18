@@ -671,7 +671,12 @@ function readTaskDispatchesResult(value: unknown): TaskDispatchesRead {
     member =
       (typeof result?.agentId === "string") !== (typeof result?.squadId === "string") &&
       Array.isArray(result?.groups) &&
-      (result.groups as readonly unknown[]).every(isRendererRecord) &&
+      (result.groups as readonly unknown[]).every(
+        (group) =>
+          isRendererRecord(group) &&
+          (group.runtimeSessionIds === undefined ||
+            (Array.isArray(group.runtimeSessionIds) && group.runtimeSessionIds.every((id) => typeof id === "string"))),
+      ) &&
       Array.isArray(result?.taskLabels) &&
       (result.taskLabels as readonly unknown[]).every(
         (label) => isRendererRecord(label) && typeof (label as { readonly taskId?: unknown }).taskId === "string",

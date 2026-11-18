@@ -110,6 +110,8 @@ export async function serve(
   });
   let nodeId: string | null = null,
     accessToken: string | undefined,
+    retirementRequest: FleetFrameV1 | null = null,
+    retirementReply: Delivery | null = null,
     pumping = false;
   let onTransferTimeout: (transfer: {
     readonly correlationId: string;
@@ -121,6 +123,12 @@ export async function serve(
   let replicationMode = false,
     replicationStarted = false,
     sessionFailure = false;
+  const untrackSocket = (node: string) => {
+    const live = sessions.get(node);
+    if (!live) return;
+    live.delete(socket);
+    if (live.size === 0) sessions.delete(node);
+  };
   let replicationRepoId: string | null = null;
   const recordFailure = (error: unknown, fallback: string): void => {
     if (nodeId === null) return; // An unauthenticated hello cannot attribute facts to another node.
@@ -160,6 +168,12 @@ export async function serve(
       // bytesWritten includes queued writes; subtract the bytes still held by the writable.
       drainedBytes: () => socket.bytesWritten - socket.writableLength,
       requestRepos: new Map(),
+      retainRetirementReply: (request) => {
+        if (nodeId === null || replicationMode) return;
+        // Retirement still cuts all other connections. This command socket can deliver its receipt.
+        untrackSocket(nodeId);
+        retirementRequest = request;
+      },
       uploads: new Set(),
       keys: new Set(),
       offers: new Map(),
@@ -202,13 +216,15 @@ export async function serve(
         delivery?.beforeSend?.();
         if (socket.writableLength + bytes > FLEET_SESSION_SEND_WINDOW_BYTES)
           await untilAborted(() => once(socket, "drain", { signal }), signal);
+        if (retirementRequest && delivery !== retirementReply) return;
         const sent = socket.write(line);
         delivery?.onSent?.(bytes);
         if (!sent) await untilAborted(() => once(socket, "drain", { signal }), signal);
       }
     },
-    enqueue = (delivery: Delivery) =>
-      new Promise<void>((resolve, reject) => {
+    enqueue = (delivery: Delivery, request?: FleetFrameV1) => {
+      if (retirementRequest === request) retirementReply = delivery;
+      return new Promise<void>((resolve, reject) => {
         jobs.push({
           delivery,
           iterator: delivery.frames[Symbol.asyncIterator](),
@@ -216,7 +232,8 @@ export async function serve(
           reject,
         });
         void pump();
-      }),
+      });
+    },
     pump = async () => {
       if (pumping) return;
       pumping = true;
@@ -339,7 +356,7 @@ export async function serve(
   };
   socket.on("data", (chunk) => {
     // A cut session stops processing: lines still buffered on it never reach a handler.
-    if (socket.destroyed) return;
+    if (socket.destroyed || retirementRequest) return;
     try {
       for (const line of reader.push(chunk)) {
         let looksReplication = replicationMode;
@@ -531,13 +548,7 @@ export async function serve(
         const helloNodeId = frame.nodeId,
           live = sessions.get(helloNodeId) ?? new Set<TLSSocket>();
         sessions.set(helloNodeId, live.add(socket));
-        socket.once("close", () => {
-          const set = sessions.get(helloNodeId);
-          if (set) {
-            set.delete(socket);
-            if (set.size === 0) sessions.delete(helloNodeId);
-          }
-        });
+        socket.once("close", () => untrackSocket(helloNodeId));
         if (!(await options.authenticate(frame.nodeId, frame.credential, connectionSource)))
           throw new FleetFault("authentication_failed", "Machine credential was rejected.");
         if (socket.destroyed) return;
@@ -594,15 +605,18 @@ export async function serve(
           (progress) => enqueue(immediate(progress)),
           (error) => errorReply(error, frame),
         ),
+        frame,
       );
     } catch (error) {
       consumeKnownError(error);
-      await enqueue(errorReply(error, frame)).catch((deliveryError: unknown) => {
+      await enqueue(errorReply(error, frame), frame).catch((deliveryError: unknown) => {
         if (peerDisconnected(socket, deliveryError)) return;
         throw deliveryError;
       });
+    } finally {
+      window.requestRepos.delete(frame.messageId);
+      if (retirementRequest === frame) socket.end();
     }
-    window.requestRepos.delete(frame.messageId);
   };
 }
 

@@ -10,7 +10,6 @@ import {
   watchedWorks,
   workRows,
   runRows,
-  workHandlers,
 } from "../src/renderer/views/overview-model.ts";
 import type { AgentRuntimeOverviewResult, AgentRuntimeSessionGroupDto } from "@harness-anything/daemon/protocol";
 import type { TaskDispatchProjectionRow } from "../src/api/renderer-dto.ts";
@@ -612,8 +611,10 @@ describe("关注的工作处理者:模型元组不上屏(X2)", () => {
     expect(row!.who).not.toContain('"');
   });
 
-  it("workHandlers 透传同一短标签(关注工作的「处理者」直接消费它)", () => {
-    expect(workHandlers(runtime, "task_m1", [])).toEqual(["deepseek-harness · deepseek-official +2"]);
+  it("关注工作的处理者沿用相同的模型短标签", () => {
+    expect(
+      watchedWorks(WORKS, undefined, undefined, runtime).find(({ work }) => work.taskId === "task_w1")?.handlers,
+    ).toEqual(["deepseek-harness · deepseek-official +2"]);
   });
 
   it("普通模型名与缺失快照都不加戏:名字原样,快照缺失退化成 kindId", () => {

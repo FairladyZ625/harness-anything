@@ -1118,12 +1118,21 @@ export function makeTaskQueryReadModel(input: {
     return false;
   }
   function resolvePinnedEntity(row: ReturnType<TaskProjection["listPinnedEntities"]>[number]): AgendaPinnedEntityRow {
-    return { ref: row.entityRef, ...resolveEntitySummary(row.entityRef), pinnedAt: row.pinnedAt };
+    const entity = resolveEntitySummary(row.entityRef);
+    return {
+      ref: row.entityRef,
+      kind: entity.kind,
+      title: entity.title,
+      status: entity.status,
+      pinnedAt: row.pinnedAt,
+      personIds: entity.personIds ?? [row.pinnedBy],
+    };
   }
   function resolveEntitySummary(ref: string): {
     readonly kind: string;
     readonly title: string;
     readonly status: string;
+    readonly personIds?: readonly string[];
   } {
     const parsed = /^([^/]+)\/(.+)$/u.exec(ref),
       kind = parsed?.[1] ?? "entity",
@@ -1134,7 +1143,20 @@ export function makeTaskQueryReadModel(input: {
     }
     if (kind === "decision") {
       const decision = projection.readDecision(id, false).decision;
-      return { kind, title: decision?.title ?? id, status: decision?.state ?? "unknown" };
+      return {
+        kind,
+        title: decision?.title ?? id,
+        status: decision?.state ?? "unknown",
+        personIds:
+          decision === null
+            ? []
+            : [
+                ...new Set([
+                  decision.proposer.principal.personId,
+                  ...(decision.arbiter ? [decision.arbiter.principal.personId] : []),
+                ]),
+              ],
+      };
     }
     const entity = projection.getEntity(kind, id),
       value = entity?.value;

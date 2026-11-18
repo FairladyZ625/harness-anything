@@ -839,5 +839,10 @@
   "agentRuntime.selection_sticky": "Sticky reuse",
   "agentRuntime.selection_lru": "Least recently used",
   "agentRuntime.createAndSignIn": "Create & sign in",
-  "agentRuntime.details": "Details"
+  "agentRuntime.details": "Details",
+  "agentRuntime.sessionsPersonFilter": "Filter sessions by member",
+  "agentRuntime.sessionsNodeFilter": "Filter sessions by node",
+  "agentRuntime.sessionsAllMembers": "All members",
+  "agentRuntime.sessionsAllNodes": "All nodes",
+  "agentRuntime.sessionsMeOption": "Me ({name})"
 }

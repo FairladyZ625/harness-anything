@@ -567,14 +567,12 @@ const STAGE_ORDER: readonly SnapshotStatus[] = ["done", "active", "submitted", "
 export function OverviewWorksBody({
   watched,
   activityDays,
-  handlersOf,
   recentOf,
   deps,
 }: {
   readonly watched: readonly WatchedWork[];
   /** 近期窗口天数(设置项「关注的工作活动天数」);行内展示与列表口径一致。 */
   readonly activityDays: number;
-  readonly handlersOf: (entry: WatchedWork) => readonly string[];
   readonly recentOf: (workTaskId: string) => WorkRecentPath | null;
   readonly deps: OverviewBoardDeps;
 }) {
@@ -604,7 +602,7 @@ export function OverviewWorksBody({
         </div>
       )}
       {watched.map((entry) => {
-        const { work } = entry,
+        const { work, handlers, isRunning } = entry,
           effective =
             STAGE_ORDER.reduce((sum, status) => sum + (status === "done" ? 0 : (work.counts[status] ?? 0)), 0) +
             (work.counts.done ?? 0),
@@ -615,7 +613,6 @@ export function OverviewWorksBody({
             const count = work.counts[status] ?? 0;
             return count > 0 ? [`${STATUS_META[status].label} ${count}`] : [];
           }),
-          handlers = handlersOf(entry),
           recent = recentOf(work.taskId),
           // 悬停给完整明细(视觉基线 v2:主文字收束,原始信息悬停可见):子任务/未完成/最近。
           hoverTitle = [
@@ -671,7 +668,7 @@ export function OverviewWorksBody({
             ) : null,
           ].filter((part) => part !== null);
         return (
-          <div key={work.taskId} data-work-card={work.taskId} className={handlers.length > 0 ? "live-row" : undefined}>
+          <div key={work.taskId} data-work-card={work.taskId} className={isRunning ? "live-row" : undefined}>
             <DenseRow
               tag={<StatusTag status={work.status} />}
               title={work.title}
@@ -691,12 +688,16 @@ export function OverviewWorksBody({
                 </>
               }
               time={
-                <span
-                  title={formatTime(work.lastActivityAt, { style: "date-time", now: deps.now }) ?? work.lastActivityAt}
-                  className="whitespace-nowrap font-mono tabular-nums text-text-muted ui-meta"
-                >
-                  {formatRelative(work.lastActivityAt, { now: deps.now })}
-                </span>
+                work.lastActivityAt && (
+                  <span
+                    title={
+                      formatTime(work.lastActivityAt, { style: "date-time", now: deps.now }) ?? work.lastActivityAt
+                    }
+                    className="whitespace-nowrap font-mono tabular-nums text-text-muted ui-meta"
+                  >
+                    {formatRelative(work.lastActivityAt, { now: deps.now })}
+                  </span>
+                )
               }
               hoverTitle={hoverTitle}
               onClick={() => deps.onOpenTask(work.taskId)}

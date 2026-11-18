@@ -51,15 +51,18 @@ export function latestDispatchStartedAt(
   return startedAt;
 }
 
-function filteredSessionGroupMembers(input: {
-  readonly sessions: readonly RuntimeSession[];
-  readonly dispatches: readonly TaskDispatchRow[];
-  readonly dispatchEvents: readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
-  readonly dispatchStartedAt: ReadonlyMap<string, string>;
-  readonly taskLabels: ReadonlyMap<string, string>;
-  readonly entityLabel: (kind: "agent" | "squad", id: string) => string | null;
-  readonly query: AgentRuntimeSessionGroupsQuery;
-}): { readonly attributed: readonly TaskDispatchRow[]; readonly filtered: readonly GroupMember[] } {
+function filteredSessionGroupMembers(
+  input: {
+    readonly sessions: readonly RuntimeSession[];
+    readonly dispatches: readonly TaskDispatchRow[];
+    readonly dispatchEvents: readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
+    readonly dispatchStartedAt: ReadonlyMap<string, string>;
+    readonly taskLabels: ReadonlyMap<string, string>;
+    readonly entityLabel: (kind: "agent" | "squad", id: string) => string | null;
+    readonly query: AgentRuntimeSessionGroupsQuery;
+  },
+  includeBoundRounds = false,
+): { readonly attributed: readonly TaskDispatchRow[]; readonly filtered: readonly GroupMember[] } {
   // The latest matching dispatch supplies a session’s attribution in every grouping.
   const attributed =
       input.query.agentId === null &&
@@ -82,6 +85,7 @@ function filteredSessionGroupMembers(input: {
         dispatchBySession.get(session.runtimeSessionId) ?? null,
         input.dispatchStartedAt.get(session.runtimeSessionId) ?? session.lastObservedAt,
         input,
+        includeBoundRounds,
       ),
     ),
     filtered = members.filter(
@@ -107,8 +111,7 @@ export function buildAgentRuntimeSessionGroups(input: {
   };
 }): AgentRuntimeSessionGroupsResult {
   const { filtered } = filteredSessionGroupMembers(input),
-    accumulators = new Map<string, GroupAccumulator>();
-  for (const member of filtered) addMember(accumulators, member);
+    accumulators = accumulateGroups(filtered);
   const allGroups = [...accumulators.values()].map(finishGroup).sort(compareGroups),
     matchingSessions = new Set(filtered.map((member) => member.session.runtimeSessionId)),
     selected = allGroups.slice(0, input.query.limit);
@@ -122,6 +125,41 @@ export function buildAgentRuntimeSessionGroups(input: {
     watermark: input.cut.watermark,
     sourceRevision: input.cut.sourceRevision,
   };
+}
+
+/** A dispatch page has one row limit. Every canonical group reached by that window is visible. */
+export function buildAgentRuntimeMemberSessionGroups(input: Parameters<typeof buildAgentRuntimeSessionGroups>[0]) {
+  const { attributed, filtered } = filteredSessionGroupMembers(input, true);
+  type Rounds = { readonly count: number; readonly lastActivityAt: string };
+  const roundsBySession = new Map<string, Map<string | null, Rounds>>();
+  for (const row of attributed) {
+    const buckets = roundsBySession.get(row.runtimeSessionId) ?? new Map<string | null, Rounds>();
+    const decisionId = row.reviewTarget?.kind === "decision" ? row.reviewTarget.decisionId : null;
+    const prior = buckets.get(decisionId);
+    const at = row.endedAt ?? row.startedAt;
+    buckets.set(decisionId, {
+      count: (prior?.count ?? 0) + 1,
+      lastActivityAt: prior && compareRuntimeActivity(prior.lastActivityAt, at) > 0 ? prior.lastActivityAt : at,
+    });
+    roundsBySession.set(row.runtimeSessionId, buckets);
+  }
+  const scoped = input.query.personId != null || input.query.nodeId != null;
+  return [...accumulateGroups(filtered).values()]
+    .map((group) => {
+      const summary = finishGroup(group);
+      const runtimeSessionIds = [...group.members.keys()];
+      const decisionId = summary.decisionId ?? null;
+      const rounds = runtimeSessionIds.flatMap((id) => roundsBySession.get(id)?.get(decisionId) ?? []);
+      return {
+        ...summary,
+        runtimeSessionIds,
+        roundCount: rounds.reduce((count, bucket) => count + bucket.count, 0),
+        latestActivityAt: scoped
+          ? latestRuntimeActivityAt(rounds.map(({ lastActivityAt }) => lastActivityAt))
+          : summary.latestActivityAt,
+      };
+    })
+    .sort(compareGroups);
 }
 
 export function selectAgentRuntimeSessionGroupMembers(input: {
@@ -240,6 +278,7 @@ function membersForSession(
   dispatch: TaskDispatchRow | null,
   fallbackStartedAt: string,
   input: Omit<Parameters<typeof buildAgentRuntimeSessionGroups>[0], "cut">,
+  includeBoundRounds: boolean,
 ): readonly GroupMember[] {
   const startedAt = dispatch?.startedAt ?? fallbackStartedAt,
     status = sessionGroupStatus(session, dispatch),
@@ -280,7 +319,7 @@ function membersForSession(
           agentName,
           commonSearch,
         );
-      const taskDispatch = dispatch?.taskId === group.taskId ? dispatch : null;
+      const taskDispatch = includeBoundRounds || dispatch?.taskId === group.taskId ? dispatch : null;
       return member(
         {
           key: group.taskId,
@@ -389,6 +428,12 @@ function addMember(groups: Map<string, GroupAccumulator>, member: GroupMember): 
   if (!previous || compareMembers(member, previous) < 0) known.members.set(member.session.runtimeSessionId, member);
   if (member.dispatch !== null) known.rounds.set(member.dispatch.dispatchId, member);
   groups.set(member.identity.key, known);
+}
+
+function accumulateGroups(members: readonly GroupMember[]) {
+  const groups = new Map<string, GroupAccumulator>();
+  for (const member of members) addMember(groups, member);
+  return groups;
 }
 
 function finishGroup(group: GroupAccumulator): AgentRuntimeSessionGroupDto {

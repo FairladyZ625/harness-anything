@@ -1,6 +1,7 @@
 import {
   agentRuntimeInstallationState,
   agentRuntimeSessionGroupStatusWords,
+  agentRuntimeUnattributedGroupKeys,
   type AgentRuntimeEventsResult,
   type AgentRuntimeSessionDto,
   type AgentRuntimeSessionGroupDto,
@@ -10,9 +11,11 @@ import {
 } from "@harness-anything/daemon/protocol";
 import type { AgendaAwaitsRow } from "../api/renderer-dto.ts";
 import type { TaskDispatchProjectionRow } from "../api/renderer-dto.ts";
+import type { TaskDispatchMemberRead } from "./api-client.ts";
 import type { WorkIndex, WorkRef } from "./model/work-collections.ts";
 import type { RelationEdge } from "./model/types.ts";
 import { computePromptCacheTtlState, type PromptCacheTtlState } from "./model/smart-attention.ts";
+import { matchesAttribution, type AttributionScope } from "./model/attribution.ts";
 
 /**
  * 会话页的纯数据模型(设计稿 §2–§5):组、轮次行、孤儿会话行全部是 daemon 读面的
@@ -347,6 +350,8 @@ export type SessionRound = {
   readonly agentId: string | null;
   readonly agentName: string | null;
   readonly squadId: string | null;
+  readonly personId: string | null;
+  readonly nodeId: string | null;
   readonly instanceId: string;
   readonly taskId: string | null;
   readonly taskTitle: string | null;
@@ -415,9 +420,11 @@ export function sessionRounds(
     agentId: row.agentId ?? null,
     agentName: row.agentName ?? row.agentId ?? null,
     squadId: row.squadId ?? null,
+    personId: row.personId ?? null,
+    nodeId: row.nodeId ?? null,
     instanceId: row.instanceId,
-    taskId: (row.taskId || null) ?? taskId,
-    taskTitle: row.taskTitle ?? taskTitle,
+    taskId: taskId ?? (row.taskId || null),
+    taskTitle: row.taskId && row.taskId !== taskId && taskId !== null ? taskTitle : (row.taskTitle ?? taskTitle),
     startedAt: row.startedAt,
     endedAt: row.endedAt ?? null,
     status: row.status,
@@ -430,29 +437,37 @@ export function sessionRounds(
   }));
 }
 
-/** 钻入读面已批量取回该执行者的派工行:按任务组分好轮次,组头一展开即有行,不再二次读。 */
-export function sessionRoundsByTask(
-  groups: readonly SessionGroup[],
+export function indexSessionDispatches(
   dispatches: readonly TaskDispatchProjectionRow[],
-): ReadonlyMap<string, readonly SessionRound[]> {
-  const byTask = new Map<string, TaskDispatchProjectionRow[]>(),
-    unattributed: TaskDispatchProjectionRow[] = [];
+  groups: TaskDispatchMemberRead["groups"],
+): ReadonlyMap<string, readonly TaskDispatchProjectionRow[]> {
+  const bySession = new Map<string, Map<string | null, TaskDispatchProjectionRow[]>>();
+  const legacyKeys = new Set(groups.filter((group) => group.runtimeSessionIds === undefined).map(({ key }) => key));
+  const legacyRows = new Map<string, TaskDispatchProjectionRow[]>();
   for (const row of dispatches) {
-    if (!row.taskId) {
-      unattributed.push(row);
-      continue;
-    }
-    const rows = byTask.get(row.taskId);
-    if (rows === undefined) byTask.set(row.taskId, [row]);
-    else rows.push(row);
+    const decisionId = row.reviewTarget?.kind === "decision" ? row.reviewTarget.decisionId : null;
+    const buckets = bySession.get(row.runtimeSessionId) ?? new Map<string | null, TaskDispatchProjectionRow[]>();
+    const rows = buckets.get(decisionId);
+    if (rows) rows.push(row);
+    else buckets.set(decisionId, [row]);
+    bySession.set(row.runtimeSessionId, buckets);
+
+    // Previous centers omit membership on the wire. Keep their dispatch-based expansion.
+    if (legacyKeys.size === 0) continue;
+    const key = decisionId ?? (row.taskId || agentRuntimeUnattributedGroupKeys.noTask);
+    if (!legacyKeys.has(key)) continue;
+    const legacy = legacyRows.get(key);
+    if (legacy) legacy.push(row);
+    else legacyRows.set(key, [row]);
   }
-  const result = new Map<string, readonly SessionRound[]>();
-  for (const group of groups) {
-    if (group.taskId !== undefined)
-      result.set(group.taskId, sessionRounds(group.taskId, group.label, byTask.get(group.taskId) ?? []));
-    else if (group.kind === "unattributed") result.set(group.key, sessionRounds(null, null, unattributed));
-  }
-  return result;
+  return new Map(
+    groups.map((group) => [
+      group.key,
+      group.runtimeSessionIds?.flatMap((id) => bySession.get(id)?.get(group.decisionId ?? null) ?? []) ??
+        legacyRows.get(group.key) ??
+        [],
+    ]),
+  );
 }
 
 /** 派工台账没有记录的会话:组内「无派工记录」小节或 unattributed:no-dispatch 组的来源。 */
@@ -494,4 +509,18 @@ export function sessionDecisionRefs(relations: readonly RelationEdge[], taskId: 
 /** 短码展示:`task_1994…`。title 上已有完整 id 的场合(链接)不必再用。 */
 export function shortRef(id: string, keep = 12): string {
   return id.length > keep ? `${id.slice(0, keep)}…` : id;
+}
+
+export type SessionAttributionFilter = AttributionScope;
+
+export function hasSessionAttributionFilter(filter?: SessionAttributionFilter | null): boolean {
+  return filter != null && (filter.personId !== null || filter.nodeId !== null);
+}
+
+export function filterDispatchesByAttribution<
+  T extends { readonly personId?: string | null; readonly nodeId?: string | null },
+>(dispatches: readonly T[], filter?: SessionAttributionFilter | null): readonly T[] {
+  return filter && hasSessionAttributionFilter(filter)
+    ? dispatches.filter((row) => matchesAttribution(row, filter))
+    : dispatches;
 }

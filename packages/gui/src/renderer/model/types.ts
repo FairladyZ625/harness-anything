@@ -128,6 +128,11 @@ interface TaskRowFields {
   preset?: string;
   profile?: string;
   createdBy?: string;
+  /** Projection attribution fields (dec_88F9490EEC6B41FAC3EB572E22 CH1). */
+  createdByPersonId?: string | null;
+  activeOrLatestPersonId?: string | null;
+  originNodeId?: string | null;
+  activeOrLatestNodeId?: string | null;
   currentNode?: "implementation" | "review";
   iteration?: number;
   activeExecutionId?: string;
@@ -433,6 +438,8 @@ export interface Project {
 
 export interface EventEntry {
   readonly at: string;
+  readonly personId?: string | null;
+  readonly nodeId?: string | null;
   readonly projectId: string;
   readonly taskId: string;
   /** 事件种类(与工作概况「最近进展」同一 WorkStepKind 词表;标签/色调经 STEP_META 查)。 */

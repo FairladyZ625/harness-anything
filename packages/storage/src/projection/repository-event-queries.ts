@@ -115,22 +115,35 @@ const RUNTIME_DISPATCH_COUNT_BY_AGENT_SQL = [
 ].join(" ");
 // The member page answers "an executor's newest dispatches" in one index scan: newest first,
 // bounded by the caller's limit, so a detail-page first screen never pays for total history.
-const RUNTIME_DISPATCHES_BY_MEMBER_SQL = (member: "agentId" | "squadId") =>
-  [
-    RUNTIME_DISPATCHES_SQL.replace(
-      "ORDER BY workspace_revision",
-      `AND json_extract(event_json, '$.payload.${member}') = ? ORDER BY COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt')) DESC, json_extract(event_json, '$.payload.dispatchId') DESC LIMIT ?`,
-    ),
-  ].join(" ");
+const RUNTIME_DISPATCHES_BY_MEMBER_SQL = (member: "agentId" | "squadId", scope: string) =>
+  RUNTIME_DISPATCHES_SQL.replace("FROM event_index", "FROM event_index AS dispatch").replace(
+    "ORDER BY workspace_revision",
+    `AND json_extract(event_json, '$.payload.${member}') = ? ${scope}
+       ORDER BY COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt')) DESC, json_extract(event_json, '$.payload.dispatchId') DESC LIMIT ?`,
+  );
+const nodeIdSql = (column: string) => `CASE json_extract(${column}, '$.source')
+  WHEN 'local' THEN 'center'
+  ELSE CASE WHEN json_extract(${column}, '$.source.kind') IN ('node','assignment')
+    THEN NULLIF(json_extract(${column}, '$.source.nodeId'), '') END END`;
+// As in dispatchAttribution, a runtime-sourced request inherits the launch event's source.
+const memberDispatchNodeSql = `COALESCE(${nodeIdSql("dispatch.event_json")},
+  CASE WHEN substr(json_extract(dispatch.event_json,'$.source'),1,16)='runtime-session/' THEN (
+    SELECT ${nodeIdSql("launch.event_json")} FROM event_index launch
+    WHERE json_extract(launch.event_json,'$.schema')='agent-runtime-event/v1'
+      AND json_extract(launch.event_json,'$.type')='runtime_session_started'
+      AND json_extract(launch.event_json,'$.payload.runtimeSessionId')=substr(json_extract(dispatch.event_json,'$.source'),17)
+    ORDER BY launch.workspace_revision DESC LIMIT 1
+  ) END)`;
 // Full-history ingredients for the member's task-group totals: one row per session the member
 // dispatched, carrying its distinct bindings and the latest member dispatch's decision target.
 // The single grouping normalization lives in the daemon; this query only selects raw ingredients.
-const RUNTIME_DISPATCH_MEMBER_SESSIONS_SQL = (member: "agentId" | "squadId") => {
+const RUNTIME_DISPATCH_MEMBER_SESSIONS_SQL = (member: "agentId" | "squadId", scope: string) => {
   const session = "json_extract(event_json, '$.payload.runtimeSessionId')",
-    candidate = (after: boolean) => `SELECT workspace_revision FROM event_index
+    candidate = (after: boolean) => `SELECT workspace_revision FROM event_index AS dispatch
       WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
       AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'
       AND json_extract(event_json, '$.payload.${member}') = ? AND runtime_session_present=1
+      ${scope}
       ${after ? `AND ${session} > (SELECT ${session} FROM event_index WHERE workspace_revision=latest.revision)` : ""}
       ORDER BY ${session}, COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt')) DESC,
         json_extract(event_json, '$.payload.dispatchId') DESC LIMIT 1`;
@@ -496,7 +509,7 @@ export function repositoryEventQueries(
               : null,
         };
       }),
-    readRuntimeDispatchesByMember: ({ agentId, squadId, limit }) =>
+    readRuntimeDispatchesByMember: ({ agentId, squadId, personId, nodeId, limit }) =>
       withRead((db) => {
         if ((agentId === undefined) === (squadId === undefined))
           throw new Error("runtime dispatch member page requires exactly one of agentId or squadId");
@@ -504,8 +517,16 @@ export function repositoryEventQueries(
           throw new Error("runtime dispatch member page requires a limit from 1 to 500");
         assertRuntimeMemberIndexReady(db);
         const member: "agentId" | "squadId" = agentId === undefined ? "squadId" : "agentId",
-          value = agentId ?? squadId!,
-          raw = queryRows(db, RUNTIME_DISPATCHES_BY_MEMBER_SQL(member), value, limit + 1),
+          scope = [
+            personId === undefined ? "" : "AND json_extract(dispatch.event_json, '$.actor.principal.personId') = ?",
+            nodeId === undefined ? "" : `AND ${memberDispatchNodeSql} = ?`,
+          ].join(" "),
+          args = [
+            agentId ?? squadId!,
+            ...(personId === undefined ? [] : [personId]),
+            ...(nodeId === undefined ? [] : [nodeId]),
+          ],
+          raw = queryRows(db, RUNTIME_DISPATCHES_BY_MEMBER_SQL(member, scope), ...args, limit + 1),
           rows = raw
             .slice(0, limit)
             .map((row) => JSON.parse(String(row.event_json)))
@@ -514,7 +535,7 @@ export function repositoryEventQueries(
                 isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested",
             )
             .map(publicRuntimeDispatch),
-          sessions = queryRows(db, RUNTIME_DISPATCH_MEMBER_SESSIONS_SQL(member), value, value).map(
+          sessions = queryRows(db, RUNTIME_DISPATCH_MEMBER_SESSIONS_SQL(member, scope), ...args, ...args).map(
             (row): RuntimeDispatchMemberSession => ({
               runtimeSessionId: String(row.runtimeSessionId),
               taskIds: String(row.taskIds ?? "")

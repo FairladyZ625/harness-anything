@@ -2,7 +2,9 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { t } from "../../i18n/index.tsx";
 import type { FleetOverviewLink, FleetOverviewNode, FleetOverviewRead } from "../../../api/renderer-dto.ts";
 import { StatusTag } from "../../components/primitives/StatusTag.tsx";
+import { personShortName } from "../../model/attribution.ts";
 import { fieldText, reasonText } from "./fleet-labels.ts";
+import { nodeLabelOf } from "./NodeDetails.tsx";
 import { computeFleetLayout, curvePath, spinePath, type FleetNodePlacement } from "./fleet-topology-layout.ts";
 
 /**
@@ -53,6 +55,7 @@ export function FleetTopology({
   selectedNode,
   onSelectNode,
   flashNodes,
+  peopleById,
 }: {
   readonly nodes: readonly FleetOverviewNode[];
   readonly links: readonly FleetOverviewLink[];
@@ -61,6 +64,7 @@ export function FleetTopology({
   readonly selectedNode: string | null;
   readonly onSelectNode: (nodeId: string) => void;
   readonly flashNodes: ReadonlySet<string>;
+  readonly peopleById?: ReadonlyMap<string, string>;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
@@ -185,6 +189,7 @@ export function FleetTopology({
             flashed={flashNodes.has(node.nodeId)}
             onSelect={() => onSelectNode(node.nodeId)}
             onHover={(hovering) => setHoverNode(hovering ? node.nodeId : null)}
+            peopleById={peopleById}
           />
         ))}
       </div>
@@ -206,6 +211,7 @@ function TopologyNodeCard({
   flashed,
   onSelect,
   onHover,
+  peopleById,
 }: {
   readonly node: FleetOverviewNode;
   readonly placement: FleetNodePlacement | undefined;
@@ -220,6 +226,7 @@ function TopologyNodeCard({
   readonly flashed: boolean;
   readonly onSelect: () => void;
   readonly onHover: (hovering: boolean) => void;
+  readonly peopleById?: ReadonlyMap<string, string>;
 }) {
   if (placement === undefined) return null;
   const leases = Array.isArray(node.leases) ? node.leases : [];
@@ -256,10 +263,9 @@ function TopologyNodeCard({
       className={`fleet-node absolute flex flex-col gap-1.5 px-4 py-3 text-left ${stateClass}`}
     >
       <span className="flex items-center justify-between gap-2">
-        {/* 标题只留节点名:daemonId 是无标签裸值,短 id(如夹具的 "g")读作孤立
-            碎片;daemon 身份在详情抽屉里有完整带标签的展示(daemonId · version @ sha)。 */}
-        <span className="min-w-0 truncate font-semibold ui-body">
-          {node.role === "center" ? t("collaboration.centerNode") : node.nodeId}
+        {/* 标题只留可读节点名（<ownerShort> · <shortNodeCode>），完整 nodeId 进 title 悬停。 */}
+        <span className="min-w-0 truncate font-semibold ui-body" title={node.nodeId}>
+          {nodeLabelOf(node, peopleById)}
         </span>
         <StatusTag
           tone={executing > 0 ? "active" : "neutral"}
@@ -281,8 +287,14 @@ function TopologyNodeCard({
         </span>
       ) : (
         <span className="flex min-w-0 items-baseline justify-between gap-2 font-mono text-text-muted fleet-metric">
-          <span className="truncate" data-testid={`collaboration-node-owner-${node.nodeId}`}>
-            {fieldText(node.owner)}
+          <span
+            className="truncate"
+            data-testid={`collaboration-node-owner-${node.nodeId}`}
+            title={node.owner.kind === "value" ? node.owner.text : undefined}
+          >
+            {node.owner.kind === "value" && node.owner.text !== "not-in-registry"
+              ? personShortName(node.owner.text, peopleById)
+              : fieldText(node.owner)}
           </span>
           <span className="shrink-0">
             cut {node.replica === null ? "—" : `${node.replica.ackRevision ?? "—"}/${node.replica.centerRevision}`}

@@ -69,7 +69,7 @@ export async function appendRuntimeQueryFixtures(
       opId: `operation-${id}`,
       workspaceRevision: revision(),
       occurredAt: startedAt,
-      actor: { executor: null, principal: { personId: "person_runtime" } },
+      actor: { executor: null, principal: { personId: id === "runtime-query-c" ? "person_other" : "person_runtime" } },
       source,
       payload: {
         dispatchId: id,
@@ -241,6 +241,7 @@ function dispatchContract(
       | "readReplicaBasis"
     >
   >,
+  nodeId: string,
 ) {
   const all = queries.readRuntimeDispatchesByTaskIds(["task-parity"]),
     byId = queries.readRuntimeDispatchById("runtime-query-a");
@@ -261,6 +262,18 @@ function dispatchContract(
   );
   assert.equal(queries.countRuntimeDispatchesByAgent("parity-agent"), 3);
   assert.equal(queries.countRuntimeDispatchesByAgent("missing-agent"), 0);
+  const scope = { agentId: "parity-agent", personId: "person_runtime", nodeId, limit: 1 };
+  const memberPage = queries.readRuntimeDispatchesByMember(scope);
+  assert.deepEqual(
+    memberPage.rows.map(({ payload }) => payload.dispatchId),
+    ["runtime-query-b"],
+  );
+  assert.equal(memberPage.sessions.length, 1);
+  assert.equal(memberPage.truncated, true);
+  assert.deepEqual(
+    queries.readRuntimeDispatchesByMember({ ...scope, nodeId: nodeId === "center" ? "edge-missing" : "center" }),
+    { rows: [], sessions: [], truncated: false },
+  );
   for (const keyed of [
     queries.readRuntimeDispatchesByTaskIds(["task-parity"]),
     queries.readRuntimeDispatchEventsBySession("runtime-query-session"),
@@ -357,15 +370,19 @@ function dispatchContract(
     empty: queries.readRuntimeDispatchPage({ startedAtGte: "2027-01-01T00:00:00.000Z", limit: 1 }),
   };
 }
-export function assertRuntimeQueryParity(pg: PgTaskQueryMethods, sqlite: TaskProjectionQueries): void {
-  const postgres = dispatchContract(pg);
+export function assertRuntimeQueryParity(
+  pg: PgTaskQueryMethods,
+  sqlite: TaskProjectionQueries,
+  nodeId = "center",
+): void {
+  const postgres = dispatchContract(pg, nodeId);
   assert.deepEqual(
     postgres.decisionReviews,
     postgres.decisions.map(({ event }) => event),
   );
   assert.ok(postgres.decisionReviews.length > 0);
   assert.deepEqual(pg.readRuntimeDispatchesByDecisions([]), []);
-  assert.deepEqual(dispatchContract(sqlite), postgres);
+  assert.deepEqual(dispatchContract(sqlite, nodeId), postgres);
   const boundary = "2026-09-02T01:00:00.123Z";
   for (const query of [
     { observedAfter: boundary },

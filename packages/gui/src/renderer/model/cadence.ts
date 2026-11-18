@@ -84,6 +84,8 @@ export interface CadenceFeedEvent {
   readonly decisionId: string | null;
   /** canonical actor.executor.id; runtime-session:<id> 可与 activeSessions 精确关联。 */
   readonly executorId: string | null;
+  /** canonical actor.principal.personId; used to scope cadence feed in member lens. */
+  readonly personId?: string | null;
   /** 本事件声明写入的逻辑文档路径;只计窗口内真实 documentClaims。 */
   readonly touchedPaths: readonly string[];
   readonly gateId: string | null;
@@ -112,6 +114,7 @@ export function cadenceEventOf(item: unknown): CadenceFeedEvent {
     witness = recordOf(payload.witness),
     review = recordOf(payload.review),
     actor = recordOf(source?.actor),
+    principal = recordOf(actor?.principal),
     executor = recordOf(actor?.executor),
     type = stringOf(source?.type) ?? stringOf(source?.schema) ?? "event";
   const fallbackKey = stringOf(source?.workspaceRevision) ?? stringOf(source?.occurredAt) ?? "?";
@@ -125,6 +128,7 @@ export function cadenceEventOf(item: unknown): CadenceFeedEvent {
     factId: stringOf(source?.factId),
     decisionId: stringOf(source?.decisionId),
     executorId: stringOf(executor?.id),
+    personId: stringOf(principal?.personId),
     touchedPaths: Array.isArray(payload.documentClaims)
       ? payload.documentClaims.flatMap((claim) => {
           const path = stringOf(recordOf(claim)?.path);

@@ -74,6 +74,8 @@ function gotoLocation(navigate: (fields: Partial<AppLocation>) => void, view: Vi
     focusedEntityRef: null,
     selectedId: null,
     previewId: null,
+    sessionNodeId: null,
+    sessionRange: null,
     ...(view !== "board" ? { drill: null } : {}),
   });
 }

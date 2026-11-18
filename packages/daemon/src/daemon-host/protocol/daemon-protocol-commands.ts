@@ -409,6 +409,7 @@ export const accessAdminOperations = Object.freeze([
   "grant",
   "revoke",
   "grant-list",
+  "repository-members",
   "permission-request-create",
   "permission-request-list",
   "permission-request-decide",

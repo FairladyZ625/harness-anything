@@ -186,6 +186,8 @@ test("squad run list facet is registered and rejects malformed bounds", () => {
       since: "2026-08-25T00:00:00.000Z",
       query: "core running",
       limit: 50,
+      personId: "person-squad",
+      nodeId: "edge-a",
     }),
     [],
   );
@@ -616,6 +618,33 @@ test("a failed run's status summary carries the terminal error the command recei
   assert.match(summaryText, /^squad-run core-squad: failed — leader turn budget 1 exhausted/u);
   assert.match(summaryText, /ghost-worker/u);
   assert.match(summaryText, /dispatch_000000000000000000000001/u);
+});
+
+test("squad run lists apply owner person and source node before truncation", () => {
+  const { reader, rows } = canonicalFixture();
+  const original = rows[0]!;
+  rows.unshift(
+    {
+      ...original,
+      squadRunId: "squad_111111111111111111111111",
+      owner: { personId: original.owner.personId, source: { kind: "node", nodeId: "edge-a" } },
+      acceptedAt: "2026-08-27T00:00:00Z",
+    },
+    {
+      ...original,
+      squadRunId: "squad_222222222222222222222222",
+      owner: { personId: "person-other", source: "local" },
+      acceptedAt: "2026-08-28T00:00:00Z",
+    },
+  );
+  const selected = reader.list({ personId: original.owner.personId, nodeId: "center", limit: 1 });
+  assert.deepEqual(
+    selected.runs.map(({ squadRunId }) => squadRunId),
+    [original.squadRunId],
+  );
+  assert.deepEqual(selected.totals, { runs: 1 });
+  assert.equal(selected.truncated, false);
+  assert.equal(reader.list({ nodeId: "edge-missing" }).totals.runs, 0);
 });
 
 test("unknown run is explicit and public reads cannot reveal local control state", () => {

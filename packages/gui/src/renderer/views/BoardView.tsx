@@ -27,6 +27,13 @@ import { SwimlaneBoard, type LaneGroupBy } from "./SwimlaneBoard";
 import { TaskFilterBar } from "../components/TaskFilterBar";
 import type { TaskFilters } from "../model/taskFilters";
 import { partitionColdTerminalTasks, sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
+import {
+  attributionBadgeOf,
+  primaryTaskNodeId,
+  primaryTaskPersonId,
+  type MemberOption,
+  type NodeOption,
+} from "../model/attribution.ts";
 import { SegBar } from "../components/primitives/SegBar.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { TitleText } from "../components/primitives/TitleText.tsx";
@@ -83,6 +90,9 @@ const Card = memo(function Card({
   isFavorite,
   onToggleFavorite,
   onSetPin,
+  currentPersonId,
+  nodeOwners,
+  peopleById,
 }: {
   task: TaskRow;
   onSelect?: (id: string) => void;
@@ -92,12 +102,22 @@ const Card = memo(function Card({
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
+  currentPersonId?: string | null;
+  nodeOwners?: ReadonlyMap<string, string>;
+  peopleById?: ReadonlyMap<string, string>;
 }) {
   const external = isExternal(task);
   const archived = task.visibility.archived;
   const reason = cardReason(task);
   const tagStatus = task.canonicalStatus ?? task.coordinationStatus;
   const showStatusTag = column === undefined || tagStatus !== column;
+  const badge = attributionBadgeOf({
+    personId: primaryTaskPersonId(task),
+    nodeId: primaryTaskNodeId(task),
+    currentPersonId,
+    nodeOwners,
+    peopleById,
+  });
   return (
     <div
       data-testid="board-task-card"
@@ -155,6 +175,15 @@ const Card = memo(function Card({
       </p>
       <div className="mt-1.5 flex items-baseline gap-1.5">
         {reason !== undefined && <span className="min-w-0 truncate ui-meta text-text-faint">{reason}</span>}
+        {badge !== null && (
+          <span
+            data-testid={`task-attribution-badge-${task.taskId}`}
+            title={badge.title}
+            className="max-w-[150px] shrink-0 truncate rounded-full border border-border/70 bg-surface/60 px-1.5 py-0.5 font-mono ui-micro text-text-muted"
+          >
+            {badge.label}
+          </span>
+        )}
         <RowTime at={task.lastKnownAt} className="ml-auto shrink-0 font-mono ui-micro text-text-faint" />
       </div>
     </div>
@@ -182,6 +211,9 @@ const DraggableCard = memo(function DraggableCard({
   isFavorite,
   onToggleFavorite,
   onSetPin,
+  currentPersonId,
+  nodeOwners,
+  peopleById,
 }: {
   task: TaskRow;
   onSelect: (id: string) => void;
@@ -189,6 +221,9 @@ const DraggableCard = memo(function DraggableCard({
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
+  currentPersonId?: string | null;
+  nodeOwners?: ReadonlyMap<string, string>;
+  peopleById?: ReadonlyMap<string, string>;
 }) {
   if (!taskCan(task, "start")) {
     return (
@@ -210,6 +245,9 @@ const DraggableCard = memo(function DraggableCard({
           isFavorite={isFavorite}
           onToggleFavorite={onToggleFavorite}
           onSetPin={onSetPin}
+          currentPersonId={currentPersonId}
+          nodeOwners={nodeOwners}
+          peopleById={peopleById}
         />
       </div>
     );
@@ -222,6 +260,9 @@ const DraggableCard = memo(function DraggableCard({
       isFavorite={isFavorite}
       onToggleFavorite={onToggleFavorite}
       onSetPin={onSetPin}
+      currentPersonId={currentPersonId}
+      nodeOwners={nodeOwners}
+      peopleById={peopleById}
     />
   );
 });
@@ -233,6 +274,9 @@ function DndCard({
   isFavorite,
   onToggleFavorite,
   onSetPin,
+  currentPersonId,
+  nodeOwners,
+  peopleById,
 }: {
   task: TaskRow;
   onSelect: (id: string) => void;
@@ -240,6 +284,9 @@ function DndCard({
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
+  currentPersonId?: string | null;
+  nodeOwners?: ReadonlyMap<string, string>;
+  peopleById?: ReadonlyMap<string, string>;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.taskId });
   return (
@@ -251,6 +298,9 @@ function DndCard({
         isFavorite={isFavorite}
         onToggleFavorite={onToggleFavorite}
         onSetPin={onSetPin}
+        currentPersonId={currentPersonId}
+        nodeOwners={nodeOwners}
+        peopleById={peopleById}
       />
     </div>
   );
@@ -294,6 +344,9 @@ function Column({
   width,
   onResize,
   onReset,
+  currentPersonId,
+  nodeOwners,
+  peopleById,
 }: {
   status: SnapshotStatus;
   tasks: readonly TaskRow[];
@@ -308,6 +361,9 @@ function Column({
   width: number | undefined;
   onResize: (status: SnapshotStatus, px: number) => void;
   onReset: (status: SnapshotStatus) => void;
+  currentPersonId?: string | null;
+  nodeOwners?: ReadonlyMap<string, string>;
+  peopleById?: ReadonlyMap<string, string>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const meta = STATUS_META[status];
@@ -398,6 +454,9 @@ function Column({
                   isFavorite={favorites.has(ordered[item.index].taskId)}
                   onToggleFavorite={onToggleFavorite}
                   onSetPin={onSetPin}
+                  currentPersonId={currentPersonId}
+                  nodeOwners={nodeOwners}
+                  peopleById={peopleById}
                 />
               </div>
             ))}
@@ -418,6 +477,7 @@ export const BoardView = memo(function BoardView({
   wipSnapshot,
   filters,
   onFiltersChange,
+  personFilterLocked,
   onSelect,
   drill,
   favorites,
@@ -429,12 +489,18 @@ export const BoardView = memo(function BoardView({
   onSetPin,
   isolatedRows = 0,
   hydrating = false,
+  currentPersonId = null,
+  knownMembers,
+  knownNodes,
+  nodeOwners,
+  peopleById,
 }: {
   tasks: readonly TaskRow[];
   allTasks: TaskRow[];
   wipSnapshot?: TaskWipRead;
   filters: TaskFilters;
   onFiltersChange: (filters: TaskFilters) => void;
+  personFilterLocked?: boolean;
   onSelect: (id: string) => void;
   drill?: { lane: string; status: SnapshotStatus; groupBy: LaneGroupBy } | null;
   favorites: ReadonlySet<string>;
@@ -455,6 +521,11 @@ export const BoardView = memo(function BoardView({
    * 所以这与「投影落后」是两个独立事实——页头不能拿部分行集报「共 N」。
    */
   hydrating?: boolean;
+  currentPersonId?: string | null;
+  knownMembers?: readonly MemberOption[];
+  knownNodes?: readonly NodeOption[];
+  nodeOwners?: ReadonlyMap<string, string>;
+  peopleById?: ReadonlyMap<string, string>;
 }) {
   // coding preset 默认按工作分组(root = 工作的根 task)。drill 携带 groupBy 提示。
   const [layout, setLayout] = useState<BoardLayout>(drill ? "swimlane" : (initialLayout ?? "column"));
@@ -559,20 +630,32 @@ export const BoardView = memo(function BoardView({
         <span className="flex items-center gap-1.5">
           <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">分组维度</span>
           <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
-            {(["root", "engine", "productLine"] as const).map((d) => (
+            {(["root", "engine", "productLine", "person", "node"] as const).map((d) => (
               <button
                 key={d}
+                type="button"
+                data-testid={`board-groupby-${d}`}
                 onClick={() => setGroupBy(d)}
                 title={
                   d === "root"
                     ? "按工作分组(根任务及其子树)"
                     : d === "engine"
                       ? "按引擎分组"
-                      : "按 productLine(PLT)分组"
+                      : d === "productLine"
+                        ? "按 productLine(PLT)分组"
+                        : d === "person"
+                          ? t("views.board.groupByPersonTitle")
+                          : t("views.board.groupByNodeTitle")
                 }
                 className={`font-mono ${seg(groupBy === d)}`}
               >
-                {d === "root" ? "work" : d}
+                {d === "root"
+                  ? "work"
+                  : d === "person"
+                    ? t("views.board.groupByPerson")
+                    : d === "node"
+                      ? t("views.board.groupByNode")
+                      : d}
               </button>
             ))}
           </div>
@@ -652,10 +735,16 @@ export const BoardView = memo(function BoardView({
         tasks={allTasks}
         filters={filters}
         onChange={onFiltersChange}
+        personFilterLocked={personFilterLocked}
         contextLabel="看板"
         favorites={favorites}
         coldTerminalCount={coldPartition.collapsed.length}
         toolbarExtra={viewSwitch}
+        currentPersonId={currentPersonId}
+        knownMembers={knownMembers}
+        knownNodes={knownNodes}
+        nodeOwners={nodeOwners}
+        peopleById={peopleById}
       />
       {layout === "list" ? (
         <ListView
@@ -664,6 +753,9 @@ export const BoardView = memo(function BoardView({
           favorites={favorites}
           onToggleFavorite={onToggleFavorite}
           onSetPin={setPin}
+          currentPersonId={currentPersonId}
+          nodeOwners={nodeOwners}
+          peopleById={peopleById}
         />
       ) : layout === "swimlane" ? (
         <SwimlaneBoard
@@ -676,6 +768,9 @@ export const BoardView = memo(function BoardView({
           favorites={favorites}
           onToggleFavorite={onToggleFavorite}
           onSetPin={setPin}
+          currentPersonId={currentPersonId}
+          nodeOwners={nodeOwners}
+          peopleById={peopleById}
         />
       ) : (
         <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
@@ -694,6 +789,9 @@ export const BoardView = memo(function BoardView({
                 width={columnWidths.column[status]}
                 onResize={resizeColumn}
                 onReset={resetColumn}
+                currentPersonId={currentPersonId}
+                nodeOwners={nodeOwners}
+                peopleById={peopleById}
               />
             ))}
           </div>
@@ -705,6 +803,9 @@ export const BoardView = memo(function BoardView({
                   dragging
                   isFavorite={favorites.has(activeTask.taskId)}
                   onToggleFavorite={onToggleFavorite}
+                  currentPersonId={currentPersonId}
+                  nodeOwners={nodeOwners}
+                  peopleById={peopleById}
                 />
               </div>
             )}

@@ -6,6 +6,14 @@ import { readAllTaskDispatches } from "../task-dispatch-client.ts";
 import { t } from "../i18n/index.tsx";
 import type { TaskRow } from "../model/types.ts";
 
+function dispatchMatchesAttribution(
+  row: { readonly personId?: string | null; readonly nodeId?: string | null },
+  personId: string | null,
+  nodeId: string | null,
+): boolean {
+  return (personId === null || row.personId === personId) && (nodeId === null || row.nodeId === nodeId);
+}
+
 /**
  * 血缘与成本树(dec_C0AF8CBBFFECF71F4F34FB76F9 CH4/W3-T1):工作页工作卡与任务详情关系页
  * 共用的实时树。沿 `repo.task.dispatches` 游标拉齐根任务及全部子孙的派工轮,
@@ -18,6 +26,8 @@ export function WorkLineageTree({
   rootTask,
   tasks,
   live,
+  personId = null,
+  nodeId = null,
   onOpenTask,
   onOpenSession,
   testId,
@@ -29,6 +39,9 @@ export function WorkLineageTree({
   readonly tasks: readonly TaskRow[];
   /** 任务切面报告执行中(activeExecutionId)时保持轮询节拍。 */
   readonly live: boolean;
+  /** Optional attribution lens filters for dispatches rendered in the lineage tree. */
+  readonly personId?: string | null;
+  readonly nodeId?: string | null;
   /** 任务节点激活出口;缺省时任务节点不可激活。 */
   readonly onOpenTask?: (taskId: string) => void;
   /** 派工节点激活出口(会话转录);缺省时派工节点不可激活。 */
@@ -42,9 +55,18 @@ export function WorkLineageTree({
     queryFn: () => readAllTaskDispatches({ repoId, taskIds }),
     staleTime: 4_000,
     refetchInterval: (query) =>
-      live || (query.state.data?.dispatches ?? []).some((row) => row.status === "running") ? 4_000 : false,
+      live ||
+      (query.state.data?.dispatches ?? []).some(
+        (row) => row.status === "running" && dispatchMatchesAttribution(row, personId, nodeId),
+      )
+        ? 4_000
+        : false,
   });
-  const rows = useMemo(() => dispatches.data?.dispatches ?? [], [dispatches.data]);
+  const rows = useMemo(() => {
+    const raw = dispatches.data?.dispatches ?? [];
+    if (personId === null && nodeId === null) return raw;
+    return raw.filter((row) => dispatchMatchesAttribution(row, personId, nodeId));
+  }, [dispatches.data, personId, nodeId]);
 
   const activate = useMemo(() => {
     if (onOpenTask === undefined && onOpenSession === undefined) return undefined;

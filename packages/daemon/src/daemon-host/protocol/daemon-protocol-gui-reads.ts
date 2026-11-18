@@ -703,6 +703,8 @@ export const daemonGuiReadMethods = Object.freeze([
         cursor: "string?",
         agentId: "string?",
         squadId: "string?",
+        personId: "string?",
+        nodeId: "string?",
         advisorySurface: "string?",
       }),
     }),
@@ -855,7 +857,7 @@ export const daemonGuiReadMethods = Object.freeze([
     requiresRepo: true,
     params: shape({
       repo: shape({ repoId: "string" }),
-      payload: shape({ since: "string?", query: "string?", limit: "number?" }),
+      payload: shape({ since: "string?", query: "string?", limit: "number?", personId: "string?", nodeId: "string?" }),
     }),
     guiBridgeMethod: "listSquadRuns",
     httpMethod: "GET",

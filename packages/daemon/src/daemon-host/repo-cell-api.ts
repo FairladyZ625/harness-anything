@@ -71,7 +71,7 @@ import { readDeclaredEntityRows } from "./entity-rows-read.ts";
 import { readEntityContent, type EntityContentSource } from "./entity-content-read.ts";
 import { readEntityLocator } from "./entity-locator-read.ts";
 import { readAgentSkillsGui } from "./agent-skills.ts";
-import { readTaskDispatches } from "./dispatch-read.ts";
+import { dispatchAttribution, readTaskDispatches } from "./dispatch-read.ts";
 import { readTaskDeliveryDiff } from "./task-delivery-diff-read.ts";
 import {
   decisionFullListRows,
@@ -467,12 +467,22 @@ export function createRepoCellApi(
     "repo.agentRuntime.sessions.read": (payload) => context.runtimeReads.session(payload),
     "repo.agentRuntime.events.read": (payload) => context.runtimeReads.events(payload),
     ...agentRuntimeTokenUsageReadHandlers(context),
-    "repo.task.dispatches": (payload: Readonly<Record<string, unknown>>) =>
-      readTaskDispatches({
+    "repo.task.dispatches": (payload: Readonly<Record<string, unknown>>) => {
+      const selection = taskDispatchesPayloadFromCell(context, payload);
+      if (
+        (payload.personId !== undefined || payload.nodeId !== undefined) &&
+        selection.agentId === undefined &&
+        selection.squadId === undefined
+      )
+        throw context.cellCodedError("invalid_command", "Dispatch attribution filters require a member read.");
+      return readTaskDispatches({
         projection: context.projection,
         rootDir: context.rootDir,
-        ...taskDispatchesPayloadFromCell(context, payload),
-      }),
+        ...selection,
+        ...(payload.personId === undefined ? {} : { personId: context.requiredCellText(payload.personId, "personId") }),
+        ...(payload.nodeId === undefined ? {} : { nodeId: context.requiredCellText(payload.nodeId, "nodeId") }),
+      });
+    },
   } satisfies DaemonGuiReadHandlers;
   function decisionListFromPayload(payload: Readonly<Record<string, unknown>>): DaemonDecisionListResult {
     if (
@@ -506,16 +516,33 @@ export function createRepoCellApi(
           key: cacheKey,
           rows: projectDecisionReadiness({ rootDir: context.rootDir, commitSha, decisions: read.decisions }, source),
         };
+      const decisions = decisionFullListRows({
+        rootDir: context.rootDir,
+        projection: context.projection,
+        decisions: read.decisions,
+        readiness: readinessCache.rows,
+        requirement: context.settings.readRepository().decisionReviewRequirement,
+      });
+      const reviewedIds = decisions.flatMap(({ reviewDispatches, decisionId }) =>
+        reviewDispatches.length === 0 ? [] : [decisionId],
+      );
+      const dispatchEvents =
+        reviewedIds.length === 0 ? [] : context.projection.readRuntimeDispatchesByDecisions(reviewedIds);
+      const attributionById = new Map(
+        dispatchEvents.map(
+          (event) => [event.payload.dispatchId, dispatchAttribution(context.projection, event)] as const,
+        ),
+      );
       return {
         ok: true,
         ...(payload.projection === "full" ? { projection: "full" as const } : {}),
-        decisions: decisionFullListRows({
-          rootDir: context.rootDir,
-          projection: context.projection,
-          decisions: read.decisions,
-          readiness: readinessCache.rows,
-          requirement: context.settings.readRepository().decisionReviewRequirement,
-        }),
+        decisions: decisions.map((row) => ({
+          ...row,
+          reviewDispatches: row.reviewDispatches.map((dispatch) => ({
+            ...dispatch,
+            ...attributionById.get(dispatch.dispatchId),
+          })),
+        })),
         warnings: [],
       };
     }

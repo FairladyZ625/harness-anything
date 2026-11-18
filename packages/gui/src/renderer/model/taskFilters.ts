@@ -1,5 +1,6 @@
 import type { CloseoutReadiness, EngineId, Freshness, SnapshotStatus, TaskRow } from "./types";
 import { boardColumnOf, isTerminal } from "./types";
+import { taskMatchesNode, taskMatchesPerson } from "./attribution.ts";
 
 export interface TaskFilters {
   query: string;
@@ -11,6 +12,10 @@ export interface TaskFilters {
   status: SnapshotStatus[];
   closeout: CloseoutReadiness | "all";
   freshness: Freshness | "all";
+  /** 成员筛选("all" 或 personId). */
+  person: string | "all";
+  /** 节点筛选("all"、"center" 或边缘 nodeId). */
+  node: string | "all";
   /** 仅看收藏(GUI 本地偏好,不写台账) */
   favoritesOnly: boolean;
   /**
@@ -26,6 +31,8 @@ export const DEFAULT_TASK_FILTERS: TaskFilters = {
   status: [],
   closeout: "all",
   freshness: "all",
+  person: "all",
+  node: "all",
   favoritesOnly: false,
   expandColdTerminal: false,
 };
@@ -36,6 +43,8 @@ export const hasActiveTaskFilters = (filters: TaskFilters) =>
   filters.status.length > 0 ||
   filters.closeout !== "all" ||
   filters.freshness !== "all" ||
+  filters.person !== "all" ||
+  filters.node !== "all" ||
   filters.favoritesOnly ||
   filters.expandColdTerminal;
 
@@ -46,6 +55,8 @@ export const activeTaskFilterCount = (filters: TaskFilters): number =>
   Number(filters.status.length > 0) +
   Number(filters.closeout !== "all") +
   Number(filters.freshness !== "all") +
+  Number(filters.person !== "all") +
+  Number(filters.node !== "all") +
   Number(filters.favoritesOnly) +
   Number(filters.expandColdTerminal);
 
@@ -139,6 +150,8 @@ export function matchesTask(task: TaskRow, filters: TaskFilters, favorites?: Rea
   if (filters.status.length > 0 && !matchesBoardColumn(task, filters.status)) return false;
   if (filters.closeout !== "all" && task.closeoutReadiness !== filters.closeout) return false;
   if (filters.freshness !== "all" && task.freshness !== filters.freshness) return false;
+  if (filters.person !== "all" && !taskMatchesPerson(task, filters.person)) return false;
+  if (filters.node !== "all" && !taskMatchesNode(task, filters.node)) return false;
 
   return true;
 }
@@ -164,6 +177,8 @@ export const taskFilterSummary = (filters: TaskFilters): string[] => {
   if (filters.status.length > 0) parts.push(`status=${filters.status.join("|")}`);
   if (filters.closeout !== "all") parts.push(`closeout=${filters.closeout}`);
   if (filters.freshness !== "all") parts.push(`freshness=${filters.freshness}`);
+  if (filters.person !== "all") parts.push(`person=${filters.person}`);
+  if (filters.node !== "all") parts.push(`node=${filters.node}`);
   if (filters.favoritesOnly) parts.push("仅看收藏");
   if (filters.expandColdTerminal) parts.push("已显示冷终态");
   return parts;

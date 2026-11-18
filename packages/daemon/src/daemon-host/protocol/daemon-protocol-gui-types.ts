@@ -603,6 +603,8 @@ export type DaemonGuiReadPayloadMap = {
     readonly since?: string;
     readonly query?: string;
     readonly limit?: number;
+    readonly personId?: string;
+    readonly nodeId?: string;
   };
   readonly "repo.squad.run.read": {
     readonly squadRunId: string;
@@ -762,6 +764,8 @@ export interface DaemonDecisionSummaryRow {
 export interface DaemonDecisionReviewDispatchRow {
   readonly dispatchId: string;
   readonly runtimeSessionId: string;
+  readonly personId?: string | null;
+  readonly nodeId?: string | null;
   readonly status: Extract<DispatchLifecycleSummary["displayStatus"], "running" | "succeeded" | "failed" | "unknown">;
   readonly reviewContentDigest: string;
   readonly reportRef: string | null;
@@ -801,6 +805,9 @@ export type DaemonDecisionListResult =
  * member selector returns one executor's newest dispatches, bounded by the required limit. */
 export type DaemonTaskDispatchesPayload = {
   readonly advisorySurface?: DecisionReadSurface;
+  /** Member pages may narrow by canonical dispatch attribution before counting and limiting. */
+  readonly personId?: string;
+  readonly nodeId?: string;
   /** With taskIds: return only each task's newest dispatch (aggregate readers), never its history. */
   readonly latestOnly?: boolean;
 } & (
@@ -911,8 +918,11 @@ export type DaemonTaskDispatchesResult = DaemonTaskDispatchesResultBase &
         readonly agentId?: string;
         readonly squadId?: string;
         /** Task-group view of exactly the returned rows, newest first. */
-        readonly groups: readonly AgentRuntimeSessionGroupDto[];
-        /** Titles for the returned rows' task ids. */
+        readonly groups: readonly (AgentRuntimeSessionGroupDto & {
+          /** Optional on the previous center's wire format. Current centers supply canonical membership. */
+          readonly runtimeSessionIds?: readonly string[];
+        })[];
+        /** Titles for the returned rows' task ids and the sessions' task bindings. */
         readonly taskLabels: readonly { readonly taskId: string; readonly title: string }[];
         /** Full-history distinct task-group and session counts for the member. */
         readonly totals: { readonly groups: number; readonly sessions: number };
@@ -1134,6 +1144,7 @@ export interface AgendaPinnedEntityRow {
   readonly title: string;
   readonly status: string;
   readonly pinnedAt: string;
+  readonly personIds?: readonly string[];
 }
 
 export type DaemonAgendaResult = {

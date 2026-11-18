@@ -18,6 +18,7 @@ import { useTaskWipQuery } from "../task-data.ts";
 import { useOverviewBriefsQuery } from "./overview/overview-briefs-data.ts";
 import { runtimeHealthAssessment, type RuntimeHealth } from "../model/runtime-health.ts";
 import type { TaskRow } from "../model/types.ts";
+import { taskMatchesPerson } from "../model/attribution.ts";
 import { runtimeModelShortLabel } from "../model/runtime-models.ts";
 import { t } from "../i18n/index.tsx";
 import { dayKeyOf } from "../model/time.ts";
@@ -34,7 +35,6 @@ import {
   runningTaskRows,
   watchedRecentPaths,
   watchedWorks,
-  workHandlers,
   WATCHED_ACTIVITY_DAYS_DEFAULT,
 } from "./overview-model.ts";
 import {
@@ -75,6 +75,7 @@ export function OverviewView({
   onOpenPool,
   onUnpin,
   onUnpinEntity,
+  scopePersonId = null,
 }: {
   readonly repoId: string;
   readonly connectionId: string | null;
@@ -111,6 +112,7 @@ export function OverviewView({
   readonly onUnpin: (taskId: string) => void;
   /** 置顶区非任务实体的取消置顶(实体级 entity-unpin 写通道)。 */
   readonly onUnpinEntity: (entityRef: string) => void;
+  readonly scopePersonId?: string | null;
 }) {
   const [panel, setPanel] = useState<AwaitsPanelSubject | null>(null);
   const runtimeQuery = useOverviewRuntime(repoId);
@@ -122,13 +124,45 @@ export function OverviewView({
   const wipCounted = wipQuery.data?.counted ?? [];
   // 年龄随读面刷新重算:agenda/works/runtime 任一前进都给一帧新时钟,不立单独计时器。
   const now = useMemo(() => new Date().toISOString(), [agenda, works, runtimeQuery.data]);
+  const scopedTasks = useMemo(
+    () => (scopePersonId === null ? tasks : tasks.filter((task) => taskMatchesPerson(task, scopePersonId))),
+    [tasks, scopePersonId],
+  );
+  const scopedTaskIds = useMemo(() => new Set(scopedTasks.map((task) => task.taskId)), [scopedTasks]);
 
-  const decisions = useMemo(() => decisionRows(agenda), [agenda]);
+  const rawDecisions = useMemo(() => decisionRows(agenda), [agenda]);
+  const decisions = useMemo(() => {
+    if (scopePersonId === null) return rawDecisions;
+    return rawDecisions.filter((row) => {
+      if (row.source?.kind === "awaits") {
+        if (row.source.row.personId === scopePersonId) return true;
+        if (row.source.row.sourceRef.startsWith("task/")) {
+          return scopedTaskIds.has(row.source.row.sourceRef.slice("task/".length));
+        }
+        return row.workTaskId !== null && scopedTaskIds.has(row.workTaskId);
+      }
+      if (
+        row.source?.kind === "ruling" ||
+        row.source?.kind === "rework" ||
+        row.source?.kind === "task" ||
+        row.source?.kind === "adjudication"
+      ) {
+        return scopedTaskIds.has(row.source.row.taskId);
+      }
+      if (row.id.startsWith("task/")) return scopedTaskIds.has(row.id.slice("task/".length));
+      if (row.workTaskId !== null && scopedTaskIds.has(row.workTaskId)) return true;
+      return false;
+    });
+  }, [rawDecisions, scopePersonId, scopedTaskIds]);
   // 任务侧人签:与侧栏角标、待办签发总池同一条派生(model/attestation-pool.ts),不重推判据。
-  const signoffs = useMemo(() => attestationPendingRows(deriveAttestationLanes(tasks)), [tasks]);
-  const pinned = useMemo(() => pinnedTaskRows(agenda, works), [agenda, works]);
+  const signoffs = useMemo(() => attestationPendingRows(deriveAttestationLanes(scopedTasks)), [scopedTasks]);
+  const rawPinned = useMemo(() => pinnedTaskRows(agenda, works), [agenda, works]);
+  const pinned = useMemo(
+    () => (scopePersonId === null ? rawPinned : rawPinned.filter((row) => scopedTaskIds.has(row.taskId))),
+    [rawPinned, scopePersonId, scopedTaskIds],
+  );
   // 置顶的非任务实体(Decision、Schedule…):同一读面派生,行上走实体级解 pin 通道。
-  const pinnedOthers = useMemo(() => pinnedEntityRows(agenda), [agenda]);
+  const pinnedOthers = useMemo(() => pinnedEntityRows(agenda, scopePersonId), [agenda, scopePersonId]);
   // 关注的活动窗口:天数走设置项,读面落定前的 undefined 用声明默认,不猜。
   const settingsQuery = useSettingsQuery(repoId);
   const activityDays = useMemo(() => {
@@ -137,23 +171,6 @@ export function OverviewView({
       ? value
       : WATCHED_ACTIVITY_DAYS_DEFAULT;
   }, [settingsQuery.data]);
-  const watched = useMemo(
-    () => watchedWorks(works, agenda, { days: activityDays, now }, runtimeQuery.data),
-    [works, agenda, activityDays, now, runtimeQuery.data],
-  );
-  const recentDays = useMemo(
-    () =>
-      recentDayGroups({
-        events: eventsQuery.data ?? [],
-        titles,
-        dateKeyOf: (iso) => dayKeyOf(iso),
-      }),
-    [eventsQuery.data, titles],
-  );
-  const recentByWork = useMemo(
-    () => new Map(watchedRecentPaths(recentDays, watched).map((path) => [path.workTaskId, path] as const)),
-    [recentDays, watched],
-  );
   // 「在跑的任务」的数据(2026-10-21 定案):泳道块模型(agentLanesOf)是唯一派生——
   // 总览的窄行名单与任务弹层/现场页的泳道是同一份块模型的两个视图;成员派工页同时给
   // 出模型短标签。nowMs 用数据时钟(读面前进才重算,时长相新不随秒针生长)。
@@ -162,12 +179,13 @@ export function OverviewView({
     [titles],
   );
   const awaitsOfTask = useMemo(() => awaitsByTask(agenda), [agenda]);
-  const agentGroupsQuery = useOverviewAgentGroups(repoId);
+  const agentGroupsQuery = useOverviewAgentGroups(repoId, scopePersonId);
   const activeAgents = useMemo(
     () => activeAgentIdsOf(agentGroupsQuery.data?.groups ?? [], awaitsOfTask),
     [agentGroupsQuery.data, awaitsOfTask],
   );
-  const memberPages = useOverviewAgentMemberPages(repoId, activeAgents);
+  const memberPages = useOverviewAgentMemberPages(repoId, activeAgents, scopePersonId);
+  const dispatchesTruncated = [...memberPages.values()].some(({ truncated }) => truncated);
   const lanesNowMs = Date.parse(now);
   const lanesModel = useMemo(
     () =>
@@ -178,8 +196,58 @@ export function OverviewView({
         awaits: awaitsOfTask,
         awaitingFallbackQuestion: t("views.overviewView.drillLanesAwaitingFallback"),
         nowMs: lanesNowMs,
+        personId: scopePersonId,
       }),
-    [agentGroupsQuery.data, memberPages, taskTitlesById, awaitsOfTask, lanesNowMs],
+    [agentGroupsQuery.data, memberPages, taskTitlesById, awaitsOfTask, lanesNowMs, scopePersonId],
+  );
+  const scopedRunningSessionIds = useMemo(() => new Set(lanesModel.runningSessionIds), [lanesModel.runningSessionIds]);
+  const scopedRuntimeData = useMemo(() => {
+    if (scopePersonId === null || runtimeQuery.data === undefined) return runtimeQuery.data;
+    const groupsLoaded = agentGroupsQuery.data !== undefined;
+    return {
+      ...runtimeQuery.data,
+      sessions: runtimeQuery.data.sessions.filter((session) => {
+        const holders = session.associations
+          .map((assoc) => assoc.holder?.personId ?? null)
+          .filter((id): id is string => id !== null);
+        if (holders.length > 0) return holders.includes(scopePersonId);
+        if (groupsLoaded) return scopedRunningSessionIds.has(session.runtimeSessionId);
+        return false;
+      }),
+    };
+  }, [scopePersonId, runtimeQuery.data, agentGroupsQuery.data, scopedRunningSessionIds]);
+  const watched = useMemo(
+    () =>
+      watchedWorks(
+        works,
+        agenda,
+        { days: activityDays, now },
+        scopedRuntimeData,
+        scopePersonId === null ? undefined : { tasks, scope: { personId: scopePersonId, nodeId: null } },
+      ),
+    [works, agenda, activityDays, now, scopedRuntimeData, scopePersonId, tasks],
+  );
+  const scopedEvents = useMemo(() => {
+    const events = eventsQuery.data ?? [];
+    if (scopePersonId === null) return events;
+    return events.filter((event) =>
+      event.personId != null
+        ? event.personId === scopePersonId
+        : event.taskId !== null && scopedTaskIds.has(event.taskId),
+    );
+  }, [eventsQuery.data, scopePersonId, scopedTaskIds]);
+  const recentDays = useMemo(
+    () =>
+      recentDayGroups({
+        events: scopedEvents,
+        titles,
+        dateKeyOf: (iso) => dayKeyOf(iso),
+      }),
+    [scopedEvents, titles],
+  );
+  const recentByWork = useMemo(
+    () => new Map(watchedRecentPaths(recentDays, watched).map((path) => [path.workTaskId, path] as const)),
+    [recentDays, watched],
   );
   const modelOfBlock = useMemo(() => {
     // 模型短标签的收短点(runtimeModelShortLabel):候选清单只给第一个候选加 +N,
@@ -190,6 +258,19 @@ export function OverviewView({
     return models;
   }, [memberPages]);
   const runningRows = useMemo(() => runningTaskRows(lanesModel, modelOfBlock), [lanesModel, modelOfBlock]);
+  const workMemberMap = useMemo(
+    () => new Map((works?.works ?? []).map((work) => [work.taskId, work.memberTaskIds] as const)),
+    [works],
+  );
+  const visibleBriefs = useMemo(() => {
+    const allBriefs = briefsQuery.data?.briefs ?? [];
+    if (scopePersonId === null) return allBriefs;
+    return allBriefs.filter(
+      (brief) =>
+        scopedTaskIds.has(brief.taskId) ||
+        (workMemberMap.get(brief.taskId)?.some((id) => scopedTaskIds.has(id)) ?? false),
+    );
+  }, [briefsQuery.data?.briefs, scopePersonId, scopedTaskIds, workMemberMap]);
 
   const workTitleOf = useMemo(
     () => new Map((works?.works ?? []).map((work) => [work.taskId, work.title] as const)),
@@ -265,8 +346,12 @@ export function OverviewView({
         {quietLine && (
           <span className="min-w-0 truncate font-mono ui-micro text-text-faint">
             {t("views.overviewView.topQuiet", {
-              agents: String(runRows(runtimeQuery.data, undefined).length),
-              active: String(workspaceSummary.tasks.byStatus.active ?? 0),
+              agents: String(runRows(scopedRuntimeData, undefined).length),
+              active: String(
+                scopePersonId === null
+                  ? (workspaceSummary.tasks.byStatus.active ?? 0)
+                  : scopedTasks.filter((task) => task.coordinationStatus === "active").length,
+              ),
             })}
             {wipQuery.data !== undefined &&
               ` · ${t("views.overviewView.topWipSummary", {
@@ -332,6 +417,7 @@ export function OverviewView({
                     footer={
                       // 全量入口收在页脚:名单在区内滚动,入口保持可达(不随列表滚走)。
                       <>
+                        {dispatchesTruncated && <span>{t("views.overviewView.memberDispatchesTruncated")}</span>}
                         <button
                           type="button"
                           data-testid="overview-running-all-tasks"
@@ -415,7 +501,6 @@ export function OverviewView({
                     <OverviewWorksBody
                       watched={watched}
                       activityDays={activityDays}
-                      handlersOf={(entry) => workHandlers(runtimeQuery.data, entry.work.taskId, entry.memberTaskIds)}
                       recentOf={(workTaskId) => recentByWork.get(workTaskId) ?? null}
                       deps={deps}
                     />
@@ -434,16 +519,12 @@ export function OverviewView({
                     title={t("views.overviewView.regionBriefs")}
                     tag={
                       <span className="font-mono tabular-nums text-text-faint ui-meta">
-                        {briefsQuery.isPending
-                          ? "…"
-                          : briefsQuery.isError
-                            ? "—"
-                            : String(briefsQuery.data?.briefs.length ?? 0)}
+                        {briefsQuery.isPending ? "…" : briefsQuery.isError ? "—" : String(visibleBriefs.length)}
                       </span>
                     }
                   >
                     <OverviewBriefsBody
-                      briefs={briefsQuery.data?.briefs ?? []}
+                      briefs={visibleBriefs}
                       loading={briefsQuery.isPending}
                       error={briefsQuery.error instanceof Error ? briefsQuery.error.message : null}
                       deps={deps}
