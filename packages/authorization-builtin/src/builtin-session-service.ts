@@ -314,11 +314,16 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     this.#writes.current = Promise.allSettled([run]).then(() => undefined);
     return run;
   }
-  configureAuthority<T>(operation: () => Promise<T>, loginTarget?: string): Promise<T> {
+  configureAuthority<T>(
+    operation: () => Promise<T>,
+    loginTarget?: string,
+    options?: { readonly authorizeOwnerRecovery?: () => Promise<boolean> },
+  ): Promise<T> {
     const external = this.#externalSession();
-    if (external) return external.configureAuthority(operation, loginTarget);
+    if (external) return external.configureAuthority(operation, loginTarget, options);
     this.#assertLocalLoginTarget(loginTarget);
     return this.serialize(async () => {
+      if (options?.authorizeOwnerRecovery && (await options.authorizeOwnerRecovery())) return operation();
       if (this.#adapter.owner()) await this.requireAccessManagement(loginTarget, true);
       else ensureBuiltinConfig(this.#root);
       return operation();

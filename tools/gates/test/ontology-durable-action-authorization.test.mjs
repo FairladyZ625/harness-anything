@@ -1066,8 +1066,8 @@ partitionedTest("host migration and observation sources retain verified business
     "e4658bef15e769118f6f44bbdb3feb35",
     "bc516d54284b5c97aee57079bf7491bd",
     "85833909ab835513f6a37d3d00ce0f77",
+    "033286848d57f3b00203615ef676d2c8",
     "85833909ab835513f6a37d3d00ce0f77:2",
-    "85833909ab835513f6a37d3d00ce0f77:3",
     "97ac26b82a689aef98ce00ee87bc497b",
   ];
   const { selectedInputs, only } = selectedSourceWitnesses(witnesses);

@@ -1771,7 +1771,7 @@
         "role": "support"
       },
       {
-        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#listenerVersion:b35ec931c70422b5a0cc8cf086f4ea32",
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#listenerVersion:7414b39f76e09b04879793ccd45ef2e8",
         "route": "rbac-bootstrap",
         "role": "support"
       },
@@ -1951,12 +1951,12 @@
         "role": "effect"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.host.manageRbac:85833909ab835513f6a37d3d00ce0f77:2",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.host.manageRbac:033286848d57f3b00203615ef676d2c8",
         "route": "rbac-bootstrap",
         "role": "effect"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.host.manageRbac:85833909ab835513f6a37d3d00ce0f77:3",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.host.manageRbac:85833909ab835513f6a37d3d00ce0f77:2",
         "route": "rbac-bootstrap",
         "role": "effect"
       },
@@ -7064,7 +7064,7 @@
         "port": "packages/authorization-builtin/src/builtin-policy-adapter.ts#BuiltinPolicyAdapter.update"
       },
       {
-        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/builtin-rbac-service.ts#BuiltinIdentityManagement.result:13b3a37086b8afea20e3e144a93ddd72",
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/builtin-rbac-service.ts#BuiltinIdentityManagement.result:d518eeac5e269dd4ca95ba9be37f7c9b",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/kernel/src/ports/identity-management-port.ts#IdentityManagementPort.run"
@@ -7341,37 +7341,79 @@
         "port": "packages/authorization-keycloak-gui/src/TeamsTab.tsx#createTeamsTab.TeamsTab.mutate.write"
       },
       {
-        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#ensureSelfSignedCertificate:ac12d830c545cd907e370d3361022372",
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#ensureSelfSignedCertificate:bc2beec1d6649785429dd4daed2af06e",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
       },
       {
-        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#ensureSelfSignedCertificate:87cfe26105936763d42fe2b456f7a3d9",
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#ensureSelfSignedCertificate:0cc4038485d35bf82057035377606eb2",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
       },
       {
-        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#ensureSelfSignedCertificate:ac12d830c545cd907e370d3361022372:2",
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#ensureSelfSignedCertificate:bc2beec1d6649785429dd4daed2af06e:2",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
       },
       {
-        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#ensureSelfSignedCertificate:87cfe26105936763d42fe2b456f7a3d9:2",
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#ensureSelfSignedCertificate:0cc4038485d35bf82057035377606eb2:2",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
       },
       {
-        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#removeSelfSignedCertificate:ac12d830c545cd907e370d3361022372",
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#ensureSelfSignedCertificate:73928a4a1ca47a7e4d7a178459b23b56",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
       },
       {
-        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#removeSelfSignedCertificate:87cfe26105936763d42fe2b456f7a3d9",
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#removeSelfSignedCertificate:ef60d0ef290915df0a98b15a39105966",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#removeSelfSignedCertificate:ef60d0ef290915df0a98b15a39105966:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#writeManagedFileAtomically:744c261d226069a180e2d7d9232b7174",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#installUploadedCertificate:73928a4a1ca47a7e4d7a178459b23b56",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#pruneListenerCertificateVersions:85342d937c69c50925c99961efdf8ac4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#pruneListenerCertificateVersions:7003827499d2278e247bb33fb4c9f919",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#pruneListenerCertificateVersions:efe201387ee990593197a19a7ca4a9bf",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#pruneListenerCertificateVersions:efe201387ee990593197a19a7ca4a9bf:2",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
@@ -7396,6 +7438,12 @@
       },
       {
         "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-service.ts#ManagedRbacService:98662cb2611dfafad27c3cecb1c899bc",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-service.ts#ManagedRbacService.start:59d9e8239bfab1ea2eb320d872bd51c5",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
@@ -7627,6 +7675,12 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/kernel/src/ports/identity-session-contracts.ts#OidcSessionStorePort.write"
+      },
+      {
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-session-service.ts#OidcSessionService:b739e18f01cebd3f8bfdc094111ed43b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
       },
       {
         "candidateId": "action:packages/authorization-keycloak-gui:packages/authorization-keycloak-gui/src/PolicyGroupsTab.tsx#createPolicyGroupsTab.toggled:06f9e884b2ffae34fe22c027283eee85",

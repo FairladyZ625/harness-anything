@@ -11,7 +11,7 @@ import { runtimeInstanceUsesCredential } from "./runtime-hosting-credentials.ts"
 import { markDaemonOperationPhase } from "./daemon-operation.ts";
 import type { FleetDeviceLoginNotice, TaskReviewDispatchFailureV1 } from "@harness-anything/kernel";
 import { readHomeOverview } from "./home/home-overview-read.ts";
-import { readFleetCenterConfig } from "./fleet-center-config.ts";
+import { readFleetCenterCertificatePaths, readFleetCenterConfig } from "./fleet-center-config.ts";
 import {
   keycloakNodeRegistry,
   prepareFleetCenterAdmission,
@@ -146,8 +146,7 @@ import { createNodeRetirement } from "./fleet/node-retirement.ts";
 import { AccessAdminService } from "./access-admin-service.ts";
 
 import { accessAdminOperations } from "./protocol/daemon-protocol.contract.ts";
-import { createIdentityManagement } from "./authorization-provider.ts";
-import { createIdentitySession } from "./authorization-provider.ts";
+import { createIdentityManagement, createIdentitySession, managedListenerProblem } from "./authorization-provider.ts";
 
 import { openSkillEvalProduction } from "./skill-eval-production.ts";
 import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-sync.ts";
@@ -990,6 +989,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   const managedRbac =
     input.managedRbac ??
     createIdentityManagement(input.userRoot, {
+      protectedListenerPaths: () => readFleetCenterCertificatePaths(input.userRoot),
       ...(input.recordLifecycle ? { recordLifecycle: input.recordLifecycle } : {}),
     });
   const hostContext: DaemonHostApiContext = {
@@ -1157,6 +1157,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     unregisterFleetNode: (request, actor, assertSourceOpen, retainReply) =>
       accessAdmin.unregisterFleetNode(request, actor, assertSourceOpen, retainReply),
     sessionPrincipal: async (auth, method, params) => {
+      if (
+        method === "daemon.rbac.manage" &&
+        (params.mode === "external" || ["listener", "listener-set"].includes(String(params.operation)))
+      )
+        return undefined;
       await ensureRbacResumed();
       if (
         isDaemonSocketOwner(auth) &&
@@ -1270,7 +1275,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             },
           );
         }
-        if (request.mode === "external" || request.mode === "managed")
+        if (
+          request.mode === "external" ||
+          (request.mode === "managed" && request.operation !== "listener" && request.operation !== "listener-set")
+        )
           return oidc.configureAuthority(() => managedRbac.run(request), requireLoginTarget());
         if (request.repoId && !loginTarget)
           throw hostCodedError("repo_namespace_unknown", "Select a registered repository for login.");
@@ -1393,7 +1401,31 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           );
         }
         if (request.operation === "listener-set") {
-          return oidc.configureAuthority(() => managedRbac.run(request), requireLoginTarget());
+          let ownerRecovery = false;
+          return oidc.configureAuthority(() => managedRbac.run(request, ownerRecovery), loginTarget, {
+            authorizeOwnerRecovery: async () => {
+              const brokenListener =
+                managedListenerProblem(input.userRoot) !== undefined &&
+                !(loginTarget && readFleetEdgeConfig(loginTarget));
+              if (!brokenListener) return false;
+              if (!isDaemonSocketOwner(auth))
+                throw hostCodedError(
+                  "authentication_required",
+                  "Only the local daemon socket owner can repair a broken listener configuration.",
+                );
+              const binding = await localSystemActionBinding(input.userRoot, "rbac-bootstrap", auth, () =>
+                Promise.resolve(localDefaultBinding(auth)),
+              );
+              await requireAuthorizedHostAction({
+                kind: "rbac-bootstrap",
+                binding,
+                actionId: `rbac-bootstrap:${request.operation}`,
+                evaluatedAtCut: "daemon-rbac:current",
+              });
+              ownerRecovery = true;
+              return true;
+            },
+          });
         }
         return requireAuthorizedHostAction({
           kind: "rbac-bootstrap",

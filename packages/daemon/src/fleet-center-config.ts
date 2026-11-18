@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { localDaemonTargetKey } from "./client/local-daemon-target.ts";
 import { writeFileDurably } from "../../storage/src/durable-file.ts";
@@ -31,6 +31,17 @@ export function parseFleetCenterExternalUrl(value: string): string {
 export type FleetCenterConfig = Omit<Required<FleetCenterAdmissionRequest["payload"]>, "externalUrl"> &
   Pick<FleetCenterAdmissionRequest["payload"], "externalUrl">;
 
+let pendingCertificates: readonly { readonly root: string; readonly paths: readonly string[] }[] = [];
+
+/** Keep paths visible to RBAC pruning from selection through the synchronous center.json write. */
+export function retainFleetCenterCertificatePaths(userRoot: string, certPath: string, keyPath: string): () => void {
+  const reference = { root: realpathSync(userRoot), paths: [certPath, keyPath] };
+  pendingCertificates = [...pendingCertificates, reference];
+  return () => {
+    pendingCertificates = pendingCertificates.filter((pending) => pending !== reference);
+  };
+}
+
 export function fleetCenterConfigPath(userRoot: string, daemonId: string): string {
   return path.join(userRoot, "fleet", localDaemonTargetKey(userRoot, daemonId), "center.json");
 }
@@ -61,6 +72,39 @@ export function readFleetCenterConfig(userRoot: string, daemonId: string): Fleet
     quotaBytes: row.quotaBytes as number,
     ...(externalUrl ? { externalUrl } : {}),
   };
+}
+
+function parseFleetCenterCertificatePaths(
+  file: string,
+): { readonly ok: true; readonly paths: readonly string[] } | { readonly ok: false; readonly message: string } {
+  try {
+    const row = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+    if (!row || typeof row !== "object" || Array.isArray(row) || row.schema !== "fleet-center-config/v1") {
+      return { ok: true, paths: [] };
+    }
+    const found: string[] = [];
+    if (typeof row.certPath === "string" && path.isAbsolute(row.certPath)) found.push(row.certPath);
+    if (typeof row.keyPath === "string" && path.isAbsolute(row.keyPath)) found.push(row.keyPath);
+    return { ok: true, paths: found };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export function readFleetCenterCertificatePaths(userRoot: string): readonly string[] {
+  if (!existsSync(userRoot)) return [];
+  const root = realpathSync(userRoot),
+    fleetDirectory = path.join(root, "fleet"),
+    paths = pendingCertificates.filter((pending) => pending.root === root).flatMap((pending) => pending.paths);
+  if (!existsSync(fleetDirectory)) return paths;
+  for (const entry of readdirSync(fleetDirectory, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+    const file = path.join(fleetDirectory, entry.name, "center.json");
+    if (!existsSync(file)) continue;
+    const parsed = parseFleetCenterCertificatePaths(file);
+    if (parsed.ok) paths.push(...parsed.paths);
+  }
+  return paths;
 }
 
 export function saveFleetCenterConfig(userRoot: string, daemonId: string, config: FleetCenterConfig): void {

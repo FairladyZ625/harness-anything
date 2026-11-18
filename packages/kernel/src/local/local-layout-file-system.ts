@@ -3,6 +3,7 @@ import {
   closeSync,
   cpSync,
   existsSync,
+  fstatSync,
   fsyncSync,
   linkSync,
   lstatSync,
@@ -217,4 +218,22 @@ function syncDirectories(directories: readonly string[]): void {
 
 function isExclusiveCreateConflict(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST";
+}
+
+export function readRegularFileIfPresent(
+  filePath: string,
+): { readonly bytes: Buffer; readonly mode: number } | undefined {
+  const initialStat = statSync(filePath, { throwIfNoEntry: false });
+  if (!initialStat || !initialStat.isFile()) return undefined;
+  const descriptor =
+    /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
+    openSync(filePath, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+  try {
+    const stats = fstatSync(descriptor);
+    if (!stats.isFile()) return undefined;
+    return { bytes: readFileSync(descriptor), mode: stats.mode & 0o777 };
+  } finally {
+    /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
+    closeSync(descriptor);
+  }
 }

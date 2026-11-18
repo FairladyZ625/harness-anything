@@ -115,6 +115,16 @@ function parseEdgeJoin(
   );
 }
 
+const RBAC_STRING_FLAGS = (
+  "--operation --mode --url --realm --client-id --backup-dir --expected-version --operation-id " +
+  "--listen-address --hostname --certificate-file --certificate-key-file --certificate-mode " +
+  "--team-id --team-name --node-id --platform --person-id --group-id --resource --username --email --display-name"
+).split(" ");
+
+function camelCaseFlag(flag: string): string {
+  return flag.slice(2).replace(/-([a-z])/gu, (_, ch: string) => ch.toUpperCase());
+}
+
 function parseRbacBootstrap(
   args: readonly string[],
   rootDir: SafePath,
@@ -167,33 +177,17 @@ function parseRbacBootstrap(
       f.one.get("--join-mode") === "member-device"
         ? { rootDir }
         : {}),
-      ...(f.one.get("--operation") ? { operation: f.one.get("--operation") } : {}),
+      ...Object.fromEntries(
+        RBAC_STRING_FLAGS.flatMap((flag) => {
+          const value = f.one.get(flag);
+          return value ? [[camelCaseFlag(flag), value]] : [];
+        }),
+      ),
       ...(f.booleans.has("--confirm") ? { confirm: true } : {}),
       ...(f.booleans.has("--force") ? { force: true } : {}),
-      ...(f.one.get("--mode") ? { mode: f.one.get("--mode") } : {}),
-      ...(f.one.get("--url") ? { url: f.one.get("--url") } : {}),
-      ...(f.one.get("--realm") ? { realm: f.one.get("--realm") } : {}),
       ...(f.booleans.has("--client-secret-stdin") ? { clientSecretStdin: true } : {}),
-      ...(f.one.get("--client-id") ? { clientId: f.one.get("--client-id") } : {}),
-      ...(f.one.get("--backup-dir") ? { backupDir: f.one.get("--backup-dir") } : {}),
       ...(f.one.get("--seconds") ? { sessionLifetimeSeconds: Number(f.one.get("--seconds")) } : {}),
-      ...(f.one.get("--expected-version") ? { expectedVersion: f.one.get("--expected-version") } : {}),
-      ...(f.one.get("--operation-id") ? { operationId: f.one.get("--operation-id") } : {}),
-      ...(f.one.get("--listen-address") ? { listenAddress: f.one.get("--listen-address") } : {}),
-      ...(f.one.get("--hostname") ? { hostname: f.one.get("--hostname") } : {}),
       ...(f.one.get("--port") ? { port: Number(f.one.get("--port")) } : {}),
-      ...(f.one.get("--certificate-file") ? { certificateFile: f.one.get("--certificate-file") } : {}),
-      ...(f.one.get("--certificate-key-file") ? { certificateKeyFile: f.one.get("--certificate-key-file") } : {}),
-      ...(f.one.get("--team-id") ? { teamId: f.one.get("--team-id") } : {}),
-      ...(f.one.get("--team-name") ? { teamName: f.one.get("--team-name") } : {}),
-      ...(f.one.get("--node-id") ? { nodeId: f.one.get("--node-id") } : {}),
-      ...(f.one.get("--platform") ? { platform: f.one.get("--platform") } : {}),
-      ...(f.one.get("--person-id") ? { personId: f.one.get("--person-id") } : {}),
-      ...(f.one.get("--group-id") ? { groupId: f.one.get("--group-id") } : {}),
-      ...(f.one.get("--resource") ? { resource: f.one.get("--resource") } : {}),
-      ...(f.one.get("--username") ? { username: f.one.get("--username") } : {}),
-      ...(f.one.get("--email") ? { email: f.one.get("--email") } : {}),
-      ...(f.one.get("--display-name") ? { displayName: f.one.get("--display-name") } : {}),
       ...(f.one.get("--password-file") ? { passwordFile: path.resolve(f.one.get("--password-file")!) } : {}),
       // The daemon writes the file, so it is told where the caller's relative path points.
       ...(f.one.get("--credential-file") ? { credentialFile: path.resolve(f.one.get("--credential-file")!) } : {}),

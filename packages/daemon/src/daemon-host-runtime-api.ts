@@ -3,7 +3,12 @@ import { daemonRpcCommandTopology } from "./rpc-command-routing.ts";
 import { readFileSync } from "node:fs";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { createFleetReplicaAccessTokenReader } from "./fleet/replica-token.ts";
-import { parseFleetCenterExternalUrl, readFleetCenterConfig, saveFleetCenterConfig } from "./fleet-center-config.ts";
+import {
+  parseFleetCenterExternalUrl,
+  readFleetCenterConfig,
+  retainFleetCenterCertificatePaths,
+  saveFleetCenterConfig,
+} from "./fleet-center-config.ts";
 import { annotateHostingCredentialNotice } from "./hosting-credential-readiness.ts";
 import { requireExecutionActionScope } from "./runtime-execution-scope.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
@@ -400,24 +405,13 @@ export function createDaemonHostRuntimeApi(
             "A fleet center start is already in progress on this daemon; wait for its receipt before retrying.",
           );
         centerStarting = true;
+        let releaseCertificates: (() => void) | undefined;
         try {
           const rawRequest = payload as unknown as FleetCenterAdmissionRequest["payload"];
           if ((rawRequest.keyPath === undefined) !== (rawRequest.certPath === undefined))
             throw context.hostCodedError(
               "invalid_field",
               "Fleet TLS takes --key and --cert together; pass both, or neither to reuse the login service certificate.",
-            );
-          const loginListener = rawRequest.keyPath === undefined ? context.loginListenerCertificate() : null;
-          const certificate =
-            rawRequest.keyPath !== undefined
-              ? { keyPath: rawRequest.keyPath, certPath: rawRequest.certPath as string }
-              : loginListener !== null
-                ? { keyPath: loginListener.certificateKeyFile, certPath: loginListener.certificateFile }
-                : null;
-          if (certificate === null)
-            throw context.hostCodedError(
-              "rbac_listener_invalid",
-              "The start carried no certificate and the login service has no listener certificate to reuse; configure the login listener first, or pass --key and --cert.",
             );
           const authorityRepoId = rawRequest.repoId,
             authorityRepo = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
@@ -439,6 +433,18 @@ export function createDaemonHostRuntimeApi(
             actionId: `daemon-fleet-center-start:${authorityRepo.repoId}`,
             evaluatedAtCut: "fleet-center:current",
           });
+          const loginListener = rawRequest.keyPath === undefined ? context.loginListenerCertificate() : null;
+          const certificate =
+            rawRequest.keyPath !== undefined
+              ? { keyPath: rawRequest.keyPath, certPath: rawRequest.certPath as string }
+              : loginListener !== null
+                ? { keyPath: loginListener.certificateKeyFile, certPath: loginListener.certificateFile }
+                : null;
+          if (certificate === null)
+            throw context.hostCodedError(
+              "rbac_listener_invalid",
+              "The start carried no certificate and the login service has no listener certificate to reuse; configure the login listener first, or pass --key and --cert.",
+            );
           const externalUrl =
               rawRequest.externalUrl ??
               readFleetCenterConfig(context.input.userRoot, context.input.daemonId)?.externalUrl,
@@ -448,6 +454,11 @@ export function createDaemonHostRuntimeApi(
               certPath: certificate.certPath,
               ...(externalUrl === undefined ? {} : { externalUrl: parseFleetCenterExternalUrl(externalUrl) }),
             };
+          releaseCertificates = retainFleetCenterCertificatePaths(
+            context.input.userRoot,
+            request.certPath,
+            request.keyPath,
+          );
           const prepared = await prepareFleetCenterAdmission({
             host: context.host,
             buildDraining: context.input.buildDraining,
@@ -508,6 +519,8 @@ export function createDaemonHostRuntimeApi(
                 quotaBytes: request.quotaBytes,
                 stateRoot: path.resolve(started.stateRoot),
               });
+              releaseCertificates();
+              releaseCertificates = undefined;
             } catch (error) {
               await started.center.close();
               throw error;
@@ -547,6 +560,7 @@ export function createDaemonHostRuntimeApi(
             );
           }
         } finally {
+          releaseCertificates?.();
           centerStarting = false;
         }
       },

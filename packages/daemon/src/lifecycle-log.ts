@@ -49,6 +49,7 @@ export type DaemonLifecycleEvent =
   | "rbac_child_exited"
   | "rbac_restart_scheduled"
   | "rbac_restart"
+  | "rbac_listener_cleanup_failed"
   | "fleet_center_restore_failed";
 export interface DaemonLifecycleEntry {
   readonly event: DaemonLifecycleEvent;
