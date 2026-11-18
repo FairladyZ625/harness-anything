@@ -1,4 +1,11 @@
-import type { DispatchLifecycleSummary } from "@harness-anything/kernel";
+import {
+  validRuntimeLaunchPermissionMode,
+  validRuntimePermissionModeSource,
+  type DispatchLifecycleSummary,
+  type EffectiveRuntimePermissionMode,
+  type EffectiveRuntimePermissionModeSource,
+  type RuntimeLaunchPermissionMode,
+} from "@harness-anything/kernel";
 import {
   queryPayloadValidation,
   type QueryPayloadValidationIssue,
@@ -193,6 +200,18 @@ export function validateDaemonWorkspaceSummary(value: unknown): readonly string[
   return [];
 }
 
+export function validEffectivePermissionMode(value: unknown): value is EffectiveRuntimePermissionMode {
+  return value === "unknown" || validRuntimeLaunchPermissionMode(value);
+}
+
+export function validRequestedPermissionMode(value: unknown): value is RuntimeLaunchPermissionMode | null {
+  return value === null || validRuntimeLaunchPermissionMode(value);
+}
+
+export function validPermissionModeSource(value: unknown): value is EffectiveRuntimePermissionModeSource {
+  return value === "unknown" || validRuntimePermissionModeSource(value);
+}
+
 const dispatchAttemptRequired = [
     "dispatchId",
     "runtimeSessionId",
@@ -203,7 +222,16 @@ const dispatchAttemptRequired = [
     "fallbackState",
     "nextDispatchId",
   ] as const,
-  dispatchAttemptOptional = ["resume", "faultClass", "resetAt", "nextAction", "lifecycle"] as const;
+  dispatchAttemptOptional = [
+    "resume",
+    "faultClass",
+    "resetAt",
+    "nextAction",
+    "lifecycle",
+    "effectivePermissionMode",
+    "requestedPermissionMode",
+    "permissionModeSource",
+  ] as const;
 
 export function validTaskDispatchAttempt(value: unknown): value is TaskDispatchAttempt {
   return (
@@ -313,6 +341,9 @@ function validTaskDispatchAttemptValues(value: Record<string, unknown>): boolean
     (value.nextAction === undefined || dispatchText(value.nextAction)) &&
     // Previous-version decode only, removed 2026-12-07. Never drives business state.
     [null, "scheduled", "dispatched", "exhausted"].includes(value.fallbackState as never) &&
+    (value.effectivePermissionMode === undefined || validEffectivePermissionMode(value.effectivePermissionMode)) &&
+    (value.requestedPermissionMode === undefined || validRequestedPermissionMode(value.requestedPermissionMode)) &&
+    (value.permissionModeSource === undefined || validPermissionModeSource(value.permissionModeSource)) &&
     (value.lifecycle === undefined || validDispatchLifecycleSummary(value.lifecycle)) &&
     (value.nextDispatchId === null || dispatchText(value.nextDispatchId))
   );
@@ -468,6 +499,9 @@ export function validDispatchLifecycleSummary(value: unknown): value is Dispatch
     (value.attemptPhase === null || (dispatchAttemptPhaseWords as readonly unknown[]).includes(value.attemptPhase)) &&
     [null, "succeeded", "failed", "cancelled", "stopped", "unknown"].includes(value.outcome as never) &&
     (dispatchDisplayStatusWords as readonly unknown[]).includes(value.displayStatus) &&
+    (value.effectivePermissionMode === undefined || validEffectivePermissionMode(value.effectivePermissionMode)) &&
+    (value.requestedPermissionMode === undefined || validRequestedPermissionMode(value.requestedPermissionMode)) &&
+    (value.permissionModeSource === undefined || validPermissionModeSource(value.permissionModeSource)) &&
     (policy === null ||
       (isJsonObject(policy) &&
         [

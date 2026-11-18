@@ -2,11 +2,16 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import type { AgentRuntimeEventV1 } from "../../src/domain/agent-runtime.ts";
+import {
+  validateAgentRuntimePayload,
+  validateCurrentAgentRuntimeEvent,
+  type AgentRuntimeEventV1,
+} from "../../src/domain/agent-runtime.ts";
 import { terminalDomainStatuses } from "../../src/domain/lifecycle-status.ts";
 import { taskEventTypes } from "../../src/domain/task-lifecycle-event.ts";
 import { submissionDigest } from "../../src/domain/submission-digest.ts";
 import {
+  DISPATCH_LIFECYCLE_MODEL_VERSION,
   dispatchAdmissionBlocker,
   taskWriterConflict,
   dispatchAdmissionRefusal,
@@ -1017,4 +1022,80 @@ test("task writer admission spans instances and nodes and survives lease release
     { ...view.attempt.task!, leaseVersion: null },
   ])
     assert.equal(taskWriterConflict([{ ...view, attempt: { ...view.attempt, task } }], "task-writer"), null);
+});
+
+test("runtime_dispatch_requested permission metadata folds into attempts and summaries with unknown fallback for history", () => {
+  assert.ok(DISPATCH_LIFECYCLE_MODEL_VERSION >= 9);
+  const historicalIds = {
+    dispatchId: "dispatch-hist-perm",
+    runtimeSessionId: "session-hist-perm",
+    attemptGroupId: "group-hist-perm",
+  };
+  const historical = runtimeEvent({ t: "R" }, historicalIds);
+  assert.deepEqual(validateAgentRuntimePayload("runtime_dispatch_requested", historical.payload), []);
+  assert.deepEqual(validateCurrentAgentRuntimeEvent(historical), []);
+
+  const historicalStep = reduceDispatchLifecycle(null, historical);
+  assert.equal(historicalStep.kind, "applied");
+  if (historicalStep.kind !== "applied") return;
+  assert.equal(historicalStep.group.attempts[0]?.effectivePermissionMode, "unknown");
+  assert.equal(historicalStep.group.attempts[0]?.requestedPermissionMode, null);
+  assert.equal(historicalStep.group.attempts[0]?.permissionModeSource, "unknown");
+  const historicalSummary = dispatchLifecycleSummary({
+    status: "ready",
+    watermark: historicalStep.group.revision,
+    sourceRevision: historicalStep.group.revision,
+    rows: [dispatchLifecycleView(historicalStep.group)],
+    nextCursor: null,
+  });
+  assert.equal(historicalSummary.effectivePermissionMode, "unknown");
+  assert.equal(historicalSummary.requestedPermissionMode, null);
+  assert.equal(historicalSummary.permissionModeSource, "unknown");
+
+  for (const [launchedPermissionMode, requestedPermissionMode, permissionModeSource] of [
+    ["read-only", "read-only", "dispatch"],
+    ["workspace-write", null, "agent"],
+    ["bypass", null, "instance"],
+    ["bypass", null, "default"],
+  ] as const) {
+    const ids = {
+        dispatchId: `dispatch-${permissionModeSource}`,
+        runtimeSessionId: `session-${permissionModeSource}`,
+        attemptGroupId: `group-${permissionModeSource}`,
+      },
+      event = runtimeEvent({ t: "R" }, ids, {
+        dispatch: { launchedPermissionMode, requestedPermissionMode, permissionModeSource },
+      });
+    assert.deepEqual(validateAgentRuntimePayload("runtime_dispatch_requested", event.payload), []);
+    assert.deepEqual(validateCurrentAgentRuntimeEvent(event), []);
+    const step = reduceDispatchLifecycle(null, event);
+    assert.equal(step.kind, "applied");
+    if (step.kind !== "applied") return;
+    assert.equal(step.group.attempts[0]?.effectivePermissionMode, launchedPermissionMode);
+    assert.equal(step.group.attempts[0]?.requestedPermissionMode, requestedPermissionMode);
+    assert.equal(step.group.attempts[0]?.permissionModeSource, permissionModeSource);
+    const summary = dispatchLifecycleSummary({
+      status: "ready",
+      watermark: step.group.revision,
+      sourceRevision: step.group.revision,
+      rows: [dispatchLifecycleView(step.group)],
+      nextCursor: null,
+    });
+    assert.equal(summary.effectivePermissionMode, launchedPermissionMode);
+    assert.equal(summary.requestedPermissionMode, requestedPermissionMode);
+    assert.equal(summary.permissionModeSource, permissionModeSource);
+  }
+
+  for (const badField of [
+    { launchedPermissionMode: "unknown" },
+    { launchedPermissionMode: null },
+    { requestedPermissionMode: "unknown" },
+    { permissionModeSource: "unknown" },
+    { permissionModeSource: null },
+  ]) {
+    assert.notDeepEqual(
+      validateAgentRuntimePayload("runtime_dispatch_requested", { ...historical.payload, ...badField }),
+      [],
+    );
+  }
 });

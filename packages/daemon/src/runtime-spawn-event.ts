@@ -15,6 +15,9 @@ export function runtimeDispatchRequestedPayload(
     | "squadId"
     | "cwd"
     | "role"
+    | "launchedPermissionMode"
+    | "requestedPermissionMode"
+    | "permissionModeSource"
     | "reviewTarget"
   >,
   context: {
@@ -26,6 +29,9 @@ export function runtimeDispatchRequestedPayload(
     readonly squadId?: string;
     readonly cwd: string;
     readonly role?: string;
+    readonly launchedPermissionMode?: DispatchPayload["launchedPermissionMode"];
+    readonly requestedPermissionMode?: DispatchPayload["requestedPermissionMode"];
+    readonly permissionModeSource?: DispatchPayload["permissionModeSource"];
     readonly decisionReviewTarget?: DispatchPayload["reviewTarget"];
     readonly reviewerSubmission?: Parameters<typeof submissionDigest>[0];
   },
@@ -52,6 +58,11 @@ export function runtimeDispatchRequestedPayload(
     ...(context.squadId ? { squadId: context.squadId } : {}),
     cwd: context.cwd,
     ...(context.role ? { role: context.role } : {}),
+    ...(context.launchedPermissionMode !== undefined ? { launchedPermissionMode: context.launchedPermissionMode } : {}),
+    ...(context.requestedPermissionMode !== undefined
+      ? { requestedPermissionMode: context.requestedPermissionMode }
+      : {}),
+    ...(context.permissionModeSource !== undefined ? { permissionModeSource: context.permissionModeSource } : {}),
     ...(reviewTarget ? { reviewTarget } : {}),
   };
 }

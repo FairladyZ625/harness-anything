@@ -125,6 +125,11 @@ export function renderRuntimeStatus(value: JsonObject): string {
             `cancelled-by-executor: ${String(cancelExecutor?.id ?? "-")}`,
           ]
         : []),
+      ...(session.effectivePermissionMode !== undefined
+        ? [
+            `permission: ${String(session.effectivePermissionMode)} (source: ${String(session.permissionModeSource ?? "unknown")}, requested: ${String(session.requestedPermissionMode ?? "-")})`,
+          ]
+        : []),
       ...(attempts.length
         ? [
             `attempt-group: ${String(attemptChain?.attemptGroupId)}`,

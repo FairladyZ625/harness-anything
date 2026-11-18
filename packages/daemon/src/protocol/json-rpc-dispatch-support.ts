@@ -213,12 +213,18 @@ export function previousDispatchLifecycleReadResult<T>(method: string, result: T
     ].includes(method)
   )
     return result;
+  const hiddenKeys = new Set([
+    "lifecycle",
+    "effectivePermissionMode",
+    "requestedPermissionMode",
+    "permissionModeSource",
+  ]);
   const project = (value: unknown): unknown => {
     if (Array.isArray(value)) return value.map(project);
     if (value === null || typeof value !== "object") return value;
     return Object.fromEntries(
       Object.entries(value)
-        .filter(([key]) => key !== "lifecycle" || !("dispatchId" in value || "runtimeSessionId" in value))
+        .filter(([key]) => !hiddenKeys.has(key) || !("dispatchId" in value || "runtimeSessionId" in value))
         .map(([key, item]) => [key, project(item)]),
     );
   };
