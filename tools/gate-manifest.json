@@ -249,15 +249,18 @@
         "packages/**/src/**",
         "packages/**/*.test.*",
         "tools/**/*.test.*",
+        "packages/**/*.spec.*",
+        "tools/**/*.spec.*",
         "tools/gates/**",
         "tools/check-poll-spin-boundary.mjs",
+        "tools/test-tier-manifest.mjs",
         "tools/gate-allowlists/check-poll-spin-boundary.json"
       ],
       "authoritySource": ["dec_EF5F3820E81FB8A5266F1F3342#CH3", "dec_25B3C380F6FB9D4D4A1E27921E#CH1"],
       "consumerScope": [
         "polling and spin syntax in production package sources and gate scripts",
         "wall-clock deadlines, scheduled timers, self-written polls and the shared wall-clock poller in integration tests",
-        "elapsed wall-clock speed assertions in all packages/**/*.test.{ts,tsx,mjs,js} and tools/**/*.test.{ts,mjs,js}, including fast and contract tests; literal timing fixtures remain data"
+        "elapsed wall-clock speed assertions in all packages/**/*.{test,spec}.{ts,tsx,mjs,js} and tools/**/*.{test,spec}.{ts,mjs,js}, including fast and contract tests; literal timing fixtures remain data"
       ],
       "githubContext": {
         "requiredContexts": ["crlf-checkout"],

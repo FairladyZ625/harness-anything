@@ -54,6 +54,8 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
   #centerToken: string | undefined;
   #sessionGeneration = 0;
   #loginState: string | undefined;
+  #externalLoginPending = false;
+  #externalDevicePending = false;
   constructor(
     userRoot: string,
     readArtifactActionScopes?: () => Promise<readonly string[]>,
@@ -65,11 +67,17 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
   }
   async begin(redirectUri: string, loginTarget?: string): Promise<Record<string, unknown>> {
     const external = this.#externalSession(loginTarget);
-    if (external) return external.begin(redirectUri, loginTarget);
+    if (external) {
+      this.#externalLoginPending = false;
+      const receipt = await external.begin(redirectUri, loginTarget);
+      this.#externalLoginPending = true;
+      return receipt;
+    }
     this.#assertLocalLoginTarget(loginTarget);
     const url = new URL(redirectUri);
     if (url.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(url.hostname))
       return Promise.reject(coded("oidc_redirect_invalid", "OIDC callback must use a loopback HTTP address."));
+    this.#externalLoginPending = false;
     const state = opaqueToken("state");
     this.#loginState = state;
     this.#loginRedirectUri = redirectUri;
@@ -80,8 +88,19 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     };
   }
   async complete(code: string, state: string): Promise<Record<string, unknown>> {
-    const external = this.#externalSession();
-    if (external) return external.complete(code, state);
+    const external = this.#externalSession() ?? (this.#externalLoginPending ? this.#external : undefined);
+    if (external) {
+      return external.complete(code, state).then(
+        (settled) => {
+          this.#externalLoginPending = false;
+          return settled;
+        },
+        (error: unknown) => {
+          if ((error as { readonly code?: string })?.code !== "oidc_state_invalid") this.#externalLoginPending = false;
+          throw error;
+        },
+      );
+    }
     return this.serialize(async () => {
       if (!this.#loginState || state !== this.#loginState)
         throw coded("oidc_state_invalid", "Login callback state is missing, mismatched, or expired.");
@@ -104,9 +123,15 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     expiresAtLimit?: number,
   ): Promise<Record<string, unknown>> {
     const external = this.#externalSession(loginTarget);
-    if (external) return external.beginDevice(loginTarget, _authorityOverride, expiresAtLimit);
+    if (external) {
+      this.#externalDevicePending = false;
+      const receipt = await external.beginDevice(loginTarget, _authorityOverride, expiresAtLimit);
+      this.#externalDevicePending = true;
+      return receipt;
+    }
     if (_authorityOverride) throw identityPluginRequired();
     this.#assertLocalLoginTarget(loginTarget);
+    this.#externalDevicePending = false;
     const now = Date.now(),
       expiresAt = Math.min(now + 10 * 60_000, expiresAtLimit ?? Number.POSITIVE_INFINITY),
       userCode = randomCode(),
@@ -131,8 +156,19 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     return { ok: true, pending: true, approved: false, authorizationUrl };
   }
   async pollDevice(): Promise<Record<string, unknown>> {
-    const external = this.#externalSession();
-    if (external) return external.pollDevice();
+    const external = this.#externalSession() ?? (this.#externalDevicePending ? this.#external : undefined);
+    if (external) {
+      try {
+        const result = await external.pollDevice();
+        if (!result.pending) this.#externalDevicePending = false;
+        return result;
+      } catch (error) {
+        const code = (error as { readonly code?: string })?.code;
+        if (code === "oidc_device_missing" || code === "oidc_device_expired" || code === "oidc_device_rejected")
+          this.#externalDevicePending = false;
+        throw error;
+      }
+    }
     return this.serialize(async () => {
       const pending = this.#currentDeviceCode ? this.#pending.get(this.#currentDeviceCode) : undefined;
       if (!pending) throw coded("oidc_device_missing", "Start device login first.");

@@ -595,49 +595,49 @@ test(
   },
 );
 
-test("a backup worker that reports its result but never exits still settles, and is terminated", async () => {
-  // The incident shape: the worker finished every phase and posted its result, but a lingering
-  // handle kept the thread from ever exiting, so settlement that waited on `exit` never came.
-  const spawned: Worker[] = [];
-  let terminates = 0;
-  class LingeringBackupWorker extends Worker {
-    constructor(_url: string | URL, options: WorkerOptions) {
-      super(new URL("./schedule-backup-linger-worker.mjs", import.meta.url), options);
-      spawned.push(this);
+test(
+  "a backup worker that reports its result but never exits still settles, and is terminated",
+  { timeout: 30_000 },
+  async (t) => {
+    // The incident shape: the worker finished every phase and posted its result, but a lingering
+    // handle kept the thread from ever exiting, so settlement that waited on `exit` never came.
+    const spawned: Worker[] = [];
+    let terminates = 0;
+    class LingeringBackupWorker extends Worker {
+      constructor(_url: string | URL, options: WorkerOptions) {
+        super(new URL("./schedule-backup-linger-worker.mjs", import.meta.url), options);
+        spawned.push(this);
+      }
+      terminate(): Promise<number> {
+        terminates += 1;
+        return super.terminate();
+      }
     }
-    terminate(): Promise<number> {
-      terminates += 1;
-      return super.terminate();
-    }
-  }
-  let watchdog: NodeJS.Timeout | undefined;
-  const root = mkdtempSync(path.join(tmpdir(), "ha-schedule-backup-linger-"));
-  try {
-    const pending = finishLedgerBackup(
-      {
-        rootDir: root,
-        backupDir: path.join(root, scheduledLedgerBackupRoot, "ledger-backup-linger"),
-        backupRoot: path.join(root, scheduledLedgerBackupRoot),
-        now: new Date().toISOString(),
-        policy: defaultLedgerBackupRetention,
+    t.signal.addEventListener(
+      "abort",
+      () => {
+        for (const worker of spawned) void worker.terminate();
       },
-      async (work) => work(),
-      LingeringBackupWorker,
+      { once: true },
     );
-    const settled = await Promise.race([
-      pending,
-      new Promise<never>((_, reject) => {
-        watchdog = setTimeout(
-          () => reject(new Error("ledger backup settlement waited for the lingering worker's exit")),
-          5_000,
-        );
-      }),
-    ]);
-    assert.equal(settled.reusedSnapshot, true);
-    assert.equal(terminates, 1, "the lingering worker must be terminated once its result settled");
-  } finally {
-    clearTimeout(watchdog);
-    for (const worker of spawned) await worker.terminate();
-    rmSync(root, { recursive: true, force: true });
-  }
-});
+    const root = mkdtempSync(path.join(tmpdir(), "ha-schedule-backup-linger-"));
+    try {
+      const settled = await finishLedgerBackup(
+        {
+          rootDir: root,
+          backupDir: path.join(root, scheduledLedgerBackupRoot, "ledger-backup-linger"),
+          backupRoot: path.join(root, scheduledLedgerBackupRoot),
+          now: new Date().toISOString(),
+          policy: defaultLedgerBackupRetention,
+        },
+        async (work) => work(),
+        LingeringBackupWorker,
+      );
+      assert.equal(settled.reusedSnapshot, true);
+      assert.equal(terminates, 1, "the lingering worker must be terminated once its result settled");
+    } finally {
+      for (const worker of spawned) await worker.terminate();
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);

@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import {
   existsSync,
   mkdirSync,
@@ -16,6 +17,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { waitForArrival, watchFileArrival } from "./fixtures/event-arrival.ts";
 import { seedSettingsEvent } from "../packages/daemon/test/repo-settings.fixture.ts";
 import {
   copyLayout,
@@ -389,42 +391,6 @@ test("dist plan: a marker that disagrees with HEAD forces a rebuild; a current o
   assert.deepEqual(planDaemonDistSteps({ nodeModules: true, distEntry: true, head, marker: null }), [daemonBuild]);
 });
 
-/** Interruptible phase targeting: the fixture's .harness/wal carries many small files, so the
- *  snapshot's bulk-copy step is long enough that a signal sent once copy progress is visible
- *  always lands mid-copy (the exact phase a worker's Ctrl-C hits on a real multi-GB copy). */
-function runUntilWalCopying(source, signal) {
-  const baseline = new Set(readdirSync(tmpdir()));
-  const child = spawn(process.execPath, [script, "--source", source, "--attach-timeout-ms", "120000"], {
-    cwd: repoRoot,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  let stdout = "",
-    stderr = "";
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-  child.stdout.on("data", (chunk) => (stdout += chunk));
-  child.stderr.on("data", (chunk) => (stderr += chunk));
-  const deadline = Date.now() + 120_000;
-  let target = null;
-  while (Date.now() < deadline) {
-    for (const name of readdirSync(tmpdir())) {
-      if (baseline.has(name) || !name.startsWith("ha-oldcopy-")) continue;
-      const wal = path.join(tmpdir(), name, "ws", ".harness", "wal");
-      if (!existsSync(wal)) continue;
-      const copied = readdirSync(wal).length;
-      if (copied >= 2) {
-        target = path.join(tmpdir(), name);
-        break;
-      }
-    }
-    if (target) break;
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
-  }
-  assert.ok(target, "the command reached the wal copy phase");
-  child.kill(signal);
-  return { child, target, baseline, readOutput: () => ({ stdout, stderr }) };
-}
-
 test(
   "SIGTERM/SIGINT mid-copy: temp copy deleted, non-zero exit, no ok receipt",
   {
@@ -432,28 +398,103 @@ test(
       process.platform === "win32"
         ? "requires POSIX signal delivery semantics (kill -TERM/-INT reaches the registered handler); Windows termination bypasses handlers"
         : false,
+    timeout: 180_000,
   },
-  async () => {
+  async (t) => {
     const parent = mkdtempSync(path.join(tmpdir(), "ha-oldcopy-evidence-test-"));
     try {
       const source = createSourceFixture(parent);
-      mkdirSync(path.join(source, ".harness", "wal"), { recursive: true });
-      const payload = "x".repeat(32 * 1024);
-      for (let index = 0; index < 3000; index += 1)
-        writeFileSync(path.join(source, ".harness", "wal", `journal-${index}.jsonl`), payload, "utf8");
+      const wal = path.join(source, ".harness", "wal");
+      const bin = path.join(parent, "bin");
+      const ready = path.join(parent, "copy-started");
+      const release = path.join(parent, "copy-release");
+      mkdirSync(wal, { recursive: true });
+      mkdirSync(bin);
+      writeFileSync(path.join(wal, "journal.jsonl"), "copied before interruption\n");
+      execFileSync("mkfifo", [release]);
+      // Copy one WAL file, publish the destination atomically, and hold the copy child open
+      // until the command under test kills its process group.
+      writeFileSync(
+        path.join(bin, "cp"),
+        `#!/bin/sh
+set -eu
+from=""
+to=""
+for arg do
+  from="$to"
+  to="$arg"
+done
+if [ "$from" != "$OLD_COPY_TEST_WAL" ]; then
+  exec "$OLD_COPY_TEST_CP" "$@"
+fi
+mkdir -p "$to"
+"$OLD_COPY_TEST_CP" "$from/journal.jsonl" "$to/"
+printf '%s\n' "$to" > "$OLD_COPY_TEST_READY.tmp"
+mv "$OLD_COPY_TEST_READY.tmp" "$OLD_COPY_TEST_READY"
+read -r released < "$OLD_COPY_TEST_RELEASE"
+`,
+        { mode: 0o755 },
+      );
+      const env = {
+        ...process.env,
+        PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+        TMPDIR: parent,
+        OLD_COPY_TEST_CP: execFileSync("which", ["cp"], { encoding: "utf8" }).trim(),
+        OLD_COPY_TEST_WAL: wal,
+        OLD_COPY_TEST_READY: ready,
+        OLD_COPY_TEST_RELEASE: release,
+      };
       for (const [signal, expectedExit] of [
         ["SIGTERM", 143],
         ["SIGINT", 130],
       ]) {
-        const { child, target, baseline, readOutput } = runUntilWalCopying(source, signal);
-        const exit = await new Promise((resolve) => child.on("close", (code) => resolve(code)));
-        const { stdout, stderr } = readOutput();
-        assert.equal(exit, expectedExit, `${signal} exits ${expectedExit}: ${stdout}${stderr}`);
-        assert.ok(!stdout.includes('"ok": true'), "an interrupted run must not print an ok receipt");
-        assert.match(stderr, new RegExp(`interrupted by ${signal}`), "the interrupt note says what was cleaned");
-        assert.equal(existsSync(target), false, `${signal}: the temp copy is deleted`);
-        const leftovers = readdirSync(tmpdir()).filter((name) => !baseline.has(name) && name.startsWith("ha-oldcopy-"));
-        assert.deepEqual(leftovers, [], `${signal}: no ha-oldcopy-* residue in the system temp dir`);
+        const child = spawn(process.execPath, [script, "--source", source, "--attach-timeout-ms", "120000"], {
+          cwd: repoRoot,
+          env,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        const exited = once(child, "close");
+        const abort = () => child.kill("SIGTERM");
+        t.signal.addEventListener("abort", abort, { once: true });
+        let stdout = "",
+          stderr = "";
+        child.stdout.on("data", (chunk) => (stdout += chunk));
+        child.stderr.on("data", (chunk) => (stderr += chunk));
+        try {
+          const destination = await waitForArrival(
+            () => {
+              if (child.exitCode !== null || child.signalCode !== null)
+                assert.fail(`the command exited before the WAL copy started: ${stdout}${stderr}`);
+              return existsSync(ready) ? readFileSync(ready, "utf8").trim() : null;
+            },
+            (arrive) => {
+              const unwatch = watchFileArrival(ready)(arrive);
+              child.once("exit", arrive);
+              return () => {
+                child.off("exit", arrive);
+                unwatch();
+              };
+            },
+          );
+          const target = path.resolve(destination, "../../..");
+          assert.ok(existsSync(path.join(destination, "journal.jsonl")), "the command reached the WAL copy phase");
+          assert.equal(child.kill(signal), true, `${signal} delivered while the copy child is held open`);
+          const [exit] = await exited;
+          assert.equal(exit, expectedExit, `${signal} exits ${expectedExit}: ${stdout}${stderr}`);
+          assert.ok(!stdout.includes('"ok": true'), "an interrupted run must not print an ok receipt");
+          assert.match(stderr, new RegExp(`interrupted by ${signal}`), "the interrupt note says what was cleaned");
+          assert.equal(existsSync(target), false, `${signal}: the temp copy is deleted`);
+          assert.deepEqual(
+            readdirSync(parent).filter((name) => name.startsWith("ha-oldcopy-")),
+            [],
+            `${signal}: no ha-oldcopy-* residue in the fixture temp dir`,
+          );
+        } finally {
+          child.kill("SIGTERM");
+          await exited;
+          t.signal.removeEventListener("abort", abort);
+          rmSync(ready, { force: true });
+        }
       }
     } finally {
       rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });

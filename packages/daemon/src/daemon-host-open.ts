@@ -1252,9 +1252,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           throw hostCodedError("repo_namespace_unknown", "Select a registered repository for login.");
         if (request.operation === "listener" && loginTarget) {
           const edge = readFleetEdgeConfig(loginTarget);
-          if (edge?.loginUrl && edge.loginBrowserUrl && edge.loginCertificate) {
-            const browser = new URL(edge.loginBrowserUrl),
-              target = new URL(edge.loginUrl);
+          if (edge?.loginUrl && edge.loginCertificate) {
+            const target = new URL(edge.loginUrl),
+              browser = new URL(edge.loginBrowserUrl ?? edge.loginUrl);
             return {
               ok: true,
               command: "rbac-listener",
@@ -1263,7 +1263,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
                 hostname: browser.hostname,
                 port: Number(browser.port || 443),
                 certificate: edge.loginCertificate,
-                targetUrl: target.toString(),
+                ...(target.origin === browser.origin ? {} : { targetUrl: target.toString() }),
               },
               version: "fleet-edge-login",
             };

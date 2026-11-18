@@ -1117,8 +1117,9 @@ test("a bounded 1500-path body passes every gate in the real PR body workflow", 
       fileURLToPath(new URL("../../check-pr-body-workflow.mjs", import.meta.url)),
       "--body-file",
       bodyFile,
+      // This body describes synthetic paths. The dispatch branch can carry an unrelated protected cut.
       "--base",
-      "origin/main",
+      "HEAD",
     ],
     { cwd: fileURLToPath(new URL("../../../", import.meta.url)), encoding: "utf8" },
   );
