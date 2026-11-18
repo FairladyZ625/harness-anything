@@ -344,7 +344,8 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
     certified = { commit, revision: accepted.revision };
     follower = {
       git: { status: "verified", cut: accepted, commitSha: commit },
-      worktree: pendingFollower("worktree settlement has not verified the Git cut").worktree,
+      // Keep the last worktree cut usable while settlement of the newer Git cut is pending.
+      worktree: { ...follower.worktree, status: "pending", reason: "worktree settlement has not verified the Git cut" },
     };
   };
 
@@ -667,7 +668,7 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
           follower.git.status === "verified" && follower.git.cut?.revision === sqlite.revision()
             ? follower.git
             : pending.git,
-        worktree: pending.worktree,
+        worktree: { ...follower.worktree, status: "pending", reason },
       };
     },
   });

@@ -135,8 +135,10 @@ test("runtime doc sync writes a granted non-task surface with the execution leas
     },
     headDigest = `sha256:${"a".repeat(64)}`,
     cut = () => ({ repoId, revision, headDigest }),
+    worktree = { status: "verified", cut: cut(), commitSha: null },
     store = {
       currentCut: cut,
+      followerStatus: () => ({ git: worktree, worktree }),
       readHead: () => ({ revision }),
       ledgerMetadata: () => ({ generation: 1 }),
       readEvent: (opId: string) => (submittedEvent?.opId === opId ? submittedEvent : null),

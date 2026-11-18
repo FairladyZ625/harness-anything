@@ -541,15 +541,18 @@ test(
       originalPath = process.env.PATH ?? "",
       logical = "context/research/cut/index.html",
       authored = path.join(rootDir, "harness", logical),
+      covered = "context/research/cut/covered.html",
+      coveredFile = path.join(rootDir, "harness", covered),
       oldBody = "<p>Previously published</p>\n",
       newBody = "<p>New canonical replacement</p>\n",
       localEdit = "<p>Explicit edit after publication</p>\n",
       replaceQueued = Promise.withResolvers<void>(),
+      coveredQueued = Promise.withResolvers<void>(),
       submitQueued = Promise.withResolvers<void>(),
       releaseReplace = Promise.withResolvers<void>();
     mkdirSync(rootDir);
     initRepo(rootDir);
-    const { binDir, armFile, enteredFile, releaseFile } = pauseGitPublication(parent, rootDir, "fast-import");
+    const { binDir, armFile, enteredFile, releaseFile } = pauseGitPublication(parent, rootDir, "update-index");
     let cell: Awaited<ReturnType<typeof openRepoWriterCell>> | undefined;
     let lock: Awaited<ReturnType<typeof acquireWorkspaceLock>> | undefined;
     let reader: ReturnType<typeof makeTaskEventReader> | undefined;
@@ -570,7 +573,8 @@ test(
       assert.equal(writer.status().state, "attached", JSON.stringify(writer.status()));
       mkdirSync(path.dirname(authored), { recursive: true });
       writeFileSync(authored, oldBody);
-      const seeded = await writer.run(localSubmit, binding);
+      writeFileSync(coveredFile, oldBody);
+      const seeded = await writer.run({ kind: "doc-submit", paths: [logical, covered] }, binding);
       assert.equal(seeded.outcome, "applied", JSON.stringify(seeded));
       await waitForFixturePublication(writer, seeded.opId, binding);
 
@@ -611,19 +615,34 @@ test(
         replaceQueued.resolve,
       );
       await Promise.race([replaceQueued.promise, replacement.then((receipt) => assert.fail(JSON.stringify(receipt)))]);
+      writeFileSync(coveredFile, localEdit);
+      const submitCovered = withRepoCellWriteSlot(
+        async (work) => {
+          await waitForArrival(() => (existsSync(enteredFile) ? true : null), watchFileArrival(enteredFile));
+          return await work();
+        },
+        () => writer.run({ kind: "doc-submit", paths: [covered] }, binding, t.signal),
+        coveredQueued.resolve,
+      );
+      await Promise.race([
+        coveredQueued.promise,
+        submitCovered.then((receipt) => assert.fail(JSON.stringify(receipt))),
+      ]);
       const submit = withRepoCellWriteSlot(
         async (work) => await work(),
         () => writer.run(localSubmit, binding, t.signal),
         submitQueued.resolve,
       );
       await Promise.race([submitQueued.promise, submit.then((receipt) => assert.fail(JSON.stringify(receipt)))]);
-      assert.deepEqual(reader.currentCut(), base, "both commands queued before the replacement was accepted");
+      assert.deepEqual(reader.currentCut(), base, "both local submits queued before the replacement was accepted");
 
       writeFileSync(armFile, "armed");
       releaseReplace.resolve();
       const replaced = await replacement;
       assert.equal(replaced.status, "accepted_durable", JSON.stringify(replaced));
-      await waitForArrival(() => (existsSync(enteredFile) ? true : null), watchFileArrival(enteredFile));
+      const coveredEdit = await submitCovered;
+      assert.equal(coveredEdit.status, "accepted_durable", JSON.stringify(coveredEdit));
+      assert.equal((await writer.run({ kind: "doc-show", path: covered }, binding)).evidence, localEdit);
       assert.equal(readFileSync(authored, "utf8"), oldBody);
       const blocked = await submit;
       const duringPause = await writer.run({ kind: "doc-show", path: logical }, binding);
@@ -631,7 +650,7 @@ test(
       assert.equal(blocked.code, "materialization_failed", JSON.stringify(blocked));
       assert.match(blocked.rejectionExplanation ?? "", /retry/iu);
       assert.equal(reader.readEvent(blocked.opId), null);
-      assert.equal(reader.currentCut().revision, replaced.revision);
+      assert.equal(reader.currentCut().revision, coveredEdit.revision);
 
       const ordinary = await writer.run(decisionProposeAction("Write during stale doc submit"), binding, t.signal);
       assert.equal(reader.readCommandOutcome(ordinary.opId)?.status, "accepted_durable");
