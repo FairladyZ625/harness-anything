@@ -238,7 +238,7 @@ export class ManagedRbacService {
   async start(): Promise<void> {
     this.#stopping = false;
     this.#cancelRestart();
-    let config = this.#readConfig();
+    const config = this.#readConfig();
     if (config.mode === "external") return;
     if (!existsSync(managedExecutable(this.#root, "runtime/postgres/bin/postgres", this.#ports.platform)))
       throw managedRbacError("rbac_not_installed", "Run ha bootstrap before starting managed RBAC services.");
