@@ -714,3 +714,68 @@ test("GUI Vitest discovery and import graph match collectGuiVitestFiles under ne
   );
   assert.deepEqual(selected.nodeSelected, []);
 });
+
+test("resolved non-JS/TS static import targets (GUI JSON locales and CSS modules) seed reverse BFS on modify and delete while unimported assets stay ignored", (t) => {
+  const repoRoot = path.resolve(import.meta.dirname, "..");
+  for (const [assetPath, expectedTest] of [
+    [
+      "packages/gui/src/renderer/i18n/locales/en-US/components.json",
+      "packages/gui/test/decision-state-vocabulary.vitest.ts",
+    ],
+    ["packages/gui/src/renderer/components/primitives/Button.css", "packages/gui/test/button-feedback.vitest.tsx"],
+  ]) {
+    const selection = selectAffectedTests({
+      root: repoRoot,
+      changedFiles: [assetPath],
+    });
+    assert.deepEqual(selection.unmapped, []);
+    assert.deepEqual(selection.ignored, []);
+    assert.equal(
+      selection.nodeSelected.some(({ file }) => /\.vitest\.tsx?$/u.test(file)),
+      false,
+    );
+    assert.ok(
+      selection.vitestSelected.some(({ file, via }) => file === expectedTest && via === assetPath),
+      `expected ${expectedTest} via ${assetPath}, got ${JSON.stringify(selection.vitestSelected)}`,
+    );
+  }
+
+  const root = fixture(t, {
+    "packages/gui/src/renderer/Button.css": ".btn { color: red; }\n",
+    "packages/gui/src/renderer/locale.json": '{"ok":"Yes"}\n',
+    "packages/gui/src/renderer/unused.json": '{"unused":true}\n',
+    "packages/gui/src/renderer/Button.tsx":
+      'import "./Button.css";\nimport locale from "./locale.json";\nimport "./deleted.css";\nexport const label = locale.ok;\n',
+    "packages/gui/test/button.vitest.tsx":
+      'import { label } from "../src/renderer/Button.tsx";\nexport const tested = label;\n',
+  });
+
+  const modifiedCss = selectAffectedTests({
+    root,
+    changedFiles: ["packages/gui/src/renderer/Button.css"],
+  });
+  assert.deepEqual(modifiedCss.ignored, []);
+  assert.deepEqual(modifiedCss.vitestSelected, [
+    { file: "packages/gui/test/button.vitest.tsx", via: "packages/gui/src/renderer/Button.css", changed: false },
+  ]);
+
+  const deletedImportedCss = selectAffectedTests({
+    root,
+    changedFiles: ["packages/gui/src/renderer/deleted.css"],
+  });
+  assert.deepEqual(deletedImportedCss.ignored, []);
+  assert.deepEqual(deletedImportedCss.vitestSelected, [
+    { file: "packages/gui/test/button.vitest.tsx", via: "packages/gui/src/renderer/deleted.css", changed: false },
+  ]);
+
+  const unimportedAsset = selectAffectedTests({
+    root,
+    changedFiles: ["packages/gui/src/renderer/unused.json", "packages/gui/src/renderer/deleted-unused.json"],
+  });
+  assert.deepEqual(unimportedAsset.selected, []);
+  assert.deepEqual(unimportedAsset.vitestSelected, []);
+  assert.deepEqual(unimportedAsset.ignored, [
+    "packages/gui/src/renderer/unused.json",
+    "packages/gui/src/renderer/deleted-unused.json",
+  ]);
+});

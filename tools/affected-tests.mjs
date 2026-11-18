@@ -60,7 +60,8 @@ export function buildImportGraph(root, options = {}) {
       ? baseFiles
       : [...new Set([...baseFiles, ...options.extraFiles])].sort();
   const knownTargets = new Set(options.knownTargets ?? []);
-  const resolveImport = createSourceImportResolver(root, knownTargets);
+  const resolvableTargets = new Set([...knownTargets, ...(options.resolvableTargets ?? [])]);
+  const resolveImport = createSourceImportResolver(root, resolvableTargets);
   const reverse = new Map();
   // `imports` mirrors `reverse` for callers that rank tests by how closely their direct
   // imports resemble the tests that directly cover the changed files (see
@@ -294,6 +295,9 @@ export function selectAffectedTests(options) {
   const nodeTestSet = new Set(nodeTestFiles);
   const testSet = new Set([...nodeTestFiles, ...vitestFiles]);
   const sourceChanges = changedFiles.filter((file) => !testSet.has(file) && sourceFilePattern.test(file));
+  const deletedAssetChanges = changedFiles.filter(
+    (file) => !testSet.has(file) && !sourceFilePattern.test(file) && !existsSync(path.join(root, file)),
+  );
   const existingTests = [...testSet].filter((file) => existsSync(path.join(root, file)));
   const graph =
     options.graph ??
@@ -302,11 +306,13 @@ export function selectAffectedTests(options) {
       ((input) =>
         buildImportGraph(input.root, {
           knownTargets: input.knownTargets,
+          resolvableTargets: input.resolvableTargets,
           extraFiles: input.extraFiles,
         }))
     )({
       root,
       knownTargets: sourceChanges,
+      resolvableTargets: deletedAssetChanges,
       extraFiles: existingTests,
     });
   const seeds = [];
@@ -326,7 +332,7 @@ export function selectAffectedTests(options) {
       unmapped.push(file);
       continue;
     }
-    if (graph.nodes.has(file)) {
+    if (graph.nodes.has(file) || graph.reverse.has(file)) {
       seeds.push(file);
       continue;
     }
