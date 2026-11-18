@@ -687,7 +687,15 @@ export function validateDaemonGuiCommandReceipt(value: unknown): readonly string
   if (value.schema === "squad-control-result/v1") return validateSquadControlReceipt(value);
   const taskFields =
       value.command === "task-show" ? ["assignmentRevision"] : value.command === "task-rework" ? ["continuation"] : [],
-    allowed = ["schema", "ok", "command", ...writeReceiptFields, ...guiReceiptExtensions, ...taskFields],
+    allowed = [
+      "schema",
+      "ok",
+      "command",
+      ...writeReceiptFields,
+      ...guiReceiptExtensions,
+      ...taskFields,
+      ...(value.command === "runtime-spawn" ? ["steerSupported"] : []),
+    ],
     receipt = Object.fromEntries(
       writeReceiptFields.filter((field) => Object.hasOwn(value, field)).map((field) => [field, value[field]]),
     ) as JsonObject,
@@ -750,6 +758,8 @@ export function validateDaemonGuiCommandReceipt(value: unknown): readonly string
     errors.push(validationError(entityId, "continuation", value.continuation, "must name a declared receipt outcome"));
   if (Object.hasOwn(value, "handoffResumed") && typeof value.handoffResumed !== "boolean")
     errors.push(validationError(entityId, "handoffResumed", value.handoffResumed, "must be a boolean"));
+  if (Object.hasOwn(value, "steerSupported") && typeof value.steerSupported !== "boolean")
+    errors.push(validationError(entityId, "steerSupported", value.steerSupported, "must be a boolean"));
   return errors;
 }
 

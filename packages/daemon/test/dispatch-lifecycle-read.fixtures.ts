@@ -33,6 +33,7 @@ export function lifecycleReadFor(
     readonly runtimeSessionId: string;
     readonly dispatchId: string;
     readonly instanceId?: string;
+    readonly kindId?: string;
     readonly owner?: string;
     readonly deliveryRegistered?: boolean;
     readonly currentDispatchId?: string;
@@ -66,6 +67,7 @@ function lifecycleFixtureViews(entries: Parameters<typeof lifecycleReadFor>[0]):
         dispatchId: entry.dispatchId,
         runtimeSessionId: entry.runtimeSessionId,
         instanceId: entry.instanceId ?? "worker",
+        kindId: entry.kindId ?? "codex",
         fence: { owner, verified: true, token: 1, epoch: 1 },
         reservation: {
           reservationId: `reservation-${entry.dispatchId}`,
@@ -286,6 +288,7 @@ export function lifecycleEvent(
         ? {
             dispatchId: options.dispatchId ?? `dispatch-${runtimeSessionId}`,
             instanceId: options.instanceId,
+            kindId: "codex",
             ...(options.attemptGroupId === undefined ? {} : { attemptGroupId: options.attemptGroupId }),
             ...(options.taskId === undefined ? {} : { taskId: options.taskId }),
             ...(options.executionId === undefined ? {} : { executionId: options.executionId }),

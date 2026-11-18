@@ -20,6 +20,7 @@
  *   `awaiting_ruling` only after the stop is proven and that lease has been released.
  */
 import type { AgentRuntimeEventV1, RuntimeSession } from "./agent-runtime.ts";
+import { runtimeSteerSupported } from "./runtime-instance-scheduling.ts";
 import { isTerminalStatus } from "./lifecycle-status.ts";
 import type { TaskEventV1, TaskMutationEvent } from "./task-lifecycle-event.ts";
 import { submissionDigest } from "./submission-digest.ts";
@@ -117,6 +118,7 @@ export interface DispatchLifecycleAttempt {
   readonly dispatchId: string;
   readonly runtimeSessionId: string;
   readonly instanceId: string;
+  readonly kindId: string;
   readonly fence: DispatchOwnerFence;
   readonly reservation: DispatchCapacityReservation;
   readonly task: DispatchAttemptTask | null;
@@ -397,6 +399,7 @@ function admit(
       dispatchId: payload.dispatchId,
       runtimeSessionId: payload.runtimeSessionId,
       instanceId: payload.instanceId,
+      kindId: payload.kindId,
       fence: { owner: owner.owner, verified: owner.verified, token: revision, epoch: null },
       reservation: {
         reservationId: `${payload.instanceId}/${payload.dispatchId}`,
@@ -767,6 +770,7 @@ export interface DispatchLifecycleView {
     readonly successorAdmissible: boolean;
     readonly canResolveRuling: boolean;
     readonly canRecover: boolean;
+    readonly processAlive: boolean;
     readonly canSteer: boolean;
     readonly canAdoptProcess: boolean;
     readonly canHandoff: boolean;
@@ -792,7 +796,13 @@ export function dispatchLifecycleView(group: DispatchLifecycleGroup, dispatchId?
   const attempt =
       (dispatchId === undefined ? undefined : group.attempts.find((entry) => entry.dispatchId === dispatchId)) ??
       currentDispatchAttempt(group),
-    capacityDisposition = dispatchCapacityDisposition(attempt);
+    capacityDisposition = dispatchCapacityDisposition(attempt),
+    processAlive =
+      attempt.dispatchId === group.currentDispatchId &&
+      attempt.fence.verified &&
+      attempt.phase === "running" &&
+      attempt.process === "alive" &&
+      attempt.stopProof === "unproven";
   return {
     attemptGroupId: group.attemptGroupId,
     controlLeafDispatchId: group.currentDispatchId,
@@ -821,12 +831,8 @@ export function dispatchLifecycleView(group: DispatchLifecycleGroup, dispatchId?
             attempt.outcome !== "succeeded" &&
             attempt.outcome !== "unknown",
         ),
-      canSteer:
-        attempt.dispatchId === group.currentDispatchId &&
-        attempt.fence.verified &&
-        attempt.phase === "running" &&
-        attempt.process === "alive" &&
-        attempt.stopProof === "unproven",
+      processAlive,
+      canSteer: processAlive && runtimeSteerSupported(attempt.kindId),
       canAdoptProcess: attempt.fence.verified && attempt.phase !== "closed" && attempt.process !== "unobserved",
       canHandoff: group.phase === "closed" && attempt.phase === "closed" && rulingReady(attempt),
       canWrite: attempt.phase !== "closed" && attempt.phase !== "settling" && attempt.stopProof === "unproven",
@@ -869,7 +875,7 @@ export function dispatchGroupIsActive(group: DispatchLifecycleGroup): boolean {
 }
 
 /** Bump when the folded group shape changes: stored lifecycle state of another version is refolded. */
-export const DISPATCH_LIFECYCLE_MODEL_VERSION = 6;
+export const DISPATCH_LIFECYCLE_MODEL_VERSION = 7;
 
 export const DISPATCH_LIFECYCLE_PAGE_LIMIT = 100;
 
@@ -921,7 +927,7 @@ export function dispatchLifecycleSummary(read: DispatchLifecycleRead): DispatchL
           ? "blocked"
           : outcome === "stopped" && view?.delivery.status === "registered"
             ? "succeeded"
-            : (outcome ?? (view?.policy.canSteer ? "running" : "unknown")),
+            : (outcome ?? (view?.policy.processAlive ? "running" : "unknown")),
     policy: view?.policy ?? null,
   };
 }

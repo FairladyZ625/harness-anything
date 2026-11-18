@@ -1,3 +1,4 @@
+import { runtimeSteerSupported } from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
 import { readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts";
 import { makeSquadCanonicalReader } from "./squad-canonical-read.ts";
 import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
@@ -114,6 +115,10 @@ function inspectAgent(cell: RepoCellRuntimeContext, agentId: string): object {
     const hostAccess = resolveAgentHostAccess(agent.hostAccess);
     return {
       schema: "agent-inspection/v1",
+      runtimeCapabilities: agent.runtimes.map(({ type: kindId }) => ({
+        kindId,
+        steerSupported: runtimeSteerSupported(kindId),
+      })),
       // The delete/install guards compare against the declaration's own revision
       // (currentVersion: the last upsert event; agent_retired does not move it), so the
       // inspect read must state that number, not the row's lifecycle-advanced revision.
