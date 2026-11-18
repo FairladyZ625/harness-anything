@@ -1026,12 +1026,29 @@ test("task writer admission spans instances and nodes and survives lease release
 
 test("runtime_dispatch_requested permission metadata folds into attempts and summaries with unknown fallback for history", () => {
   assert.ok(DISPATCH_LIFECYCLE_MODEL_VERSION >= 9);
+  const fullDispatchBase = {
+    installationId: "inst-install-perm",
+    dispatchKey: "perm-dispatch-key",
+    definitionSnapshotRef: "artifact:runtime-definition/perm",
+    definitionSnapshot: {
+      schema: "agent-definition-snapshot/v1",
+      configVersion: 1,
+      instanceId: "instance-a",
+      installationId: "inst-install-perm",
+      kindId: "codex",
+      providerId: "openai",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      baseUrl: null,
+      authMode: "subscription",
+    },
+  };
   const historicalIds = {
     dispatchId: "dispatch-hist-perm",
     runtimeSessionId: "session-hist-perm",
     attemptGroupId: "group-hist-perm",
   };
-  const historical = runtimeEvent({ t: "R" }, historicalIds);
+  const historical = runtimeEvent({ t: "R" }, historicalIds, { dispatch: fullDispatchBase });
   assert.deepEqual(validateAgentRuntimePayload("runtime_dispatch_requested", historical.payload), []);
   assert.deepEqual(validateCurrentAgentRuntimeEvent(historical), []);
 
@@ -1064,7 +1081,7 @@ test("runtime_dispatch_requested permission metadata folds into attempts and sum
         attemptGroupId: `group-${permissionModeSource}`,
       },
       event = runtimeEvent({ t: "R" }, ids, {
-        dispatch: { launchedPermissionMode, requestedPermissionMode, permissionModeSource },
+        dispatch: { ...fullDispatchBase, launchedPermissionMode, requestedPermissionMode, permissionModeSource },
       });
     assert.deepEqual(validateAgentRuntimePayload("runtime_dispatch_requested", event.payload), []);
     assert.deepEqual(validateCurrentAgentRuntimeEvent(event), []);
