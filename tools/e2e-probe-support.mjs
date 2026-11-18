@@ -27,12 +27,11 @@ export function prepareE2EProbeGui(rootDir = repositoryRoot, env = process.env) 
   const guiRoot = path.join(rootDir, "packages", "gui"),
     vite = path.join(rootDir, "node_modules", "vite", "bin", "vite.js");
   if (!existsSync(vite)) throw probeError("gui_dependencies_missing", `Missing ${vite}; run npm install first.`);
-  // Keep this order in step with packages/gui `build`: the preload build owns cleaning
-  // dist-electron (emptyOutDir), so the main bundle the isolated lane launches must be
-  // rebuilt after it instead of surviving from whatever an earlier build left behind.
+  // Concurrent GUI tests share this checkout. Rebuild every entrypoint without
+  // clearing files another test may still be launching or serving.
   for (const config of ["vite.config.ts", "vite.preload.config.ts", "vite.main.config.ts"])
     try {
-      execFileSync(process.execPath, [vite, "build", "--config", config], {
+      execFileSync(process.execPath, [vite, "build", "--config", config, "--no-emptyOutDir"], {
         cwd: guiRoot,
         env,
         encoding: "utf8",
@@ -166,6 +165,8 @@ export async function recordE2EProbeFailure({
         "fix",
         "--risk-tier",
         "medium",
+        "--locale",
+        "en-US",
         "--urgency",
         "high",
         "--surface",
@@ -286,6 +287,12 @@ function probeFailureTaskPlan(journey, screenshotDestination, bundleName) {
     "## Verification",
     "",
     `Run the headless ${markdownCodeSpan(scenarioId)} scenario and every affected test file; require all assertions to pass.`,
+    "",
+    "## Recurrence Gate",
+    "",
+    `Reproduce the failed behavior at ${markdownCodeSpan(journey.failedStep ?? scenarioId)} in the named scenario.`,
+    "Keep the check in that scenario or extend its owning regression test when a smaller fixture exercises the same contract.",
+    "Show the check rejecting the original defect before the correction and passing after it. For a stale scenario, show that the corrected assertion still rejects a deliberately wrong result.",
     "",
   ].join("\n");
 }

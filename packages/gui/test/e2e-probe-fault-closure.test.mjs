@@ -89,6 +89,7 @@ test(
       failures.map(({ taskId }) => taskId),
       [first.taskId],
     );
+    assert.equal(failures[0].snapshot.task.status, "planned");
     assert.equal(artifacts.length, 1, "the first closure did not publish exactly one textual failure bundle");
     assert.equal(
       JSON.parse(readFileSync(path.join(fixture.rootDir, artifacts[0]), "utf8")).failureSignature,
