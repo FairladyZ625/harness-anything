@@ -431,7 +431,18 @@ export async function openWriterSupervisor(
           )
             releaseSessionToken(message.requestId);
           operation.cleanup();
-          if (typeof message.startedAtMs === "number" && typeof message.finishedAtMs === "number")
+          if (message.runtimeWriteTurns !== undefined) {
+            let preparedAtMs = message.startedAtMs;
+            for (const turn of message.runtimeWriteTurns) {
+              const end = turn.finishedAtMs ?? message.finishedAtMs ?? turn.queuedAtMs;
+              if (preparedAtMs !== undefined)
+                operation.operation?.phaseSpan("write-prepare", preparedAtMs, turn.queuedAtMs);
+              operation.operation?.phaseSpan("write-queue", turn.queuedAtMs, turn.startedAtMs ?? end);
+              if (turn.startedAtMs !== undefined)
+                operation.operation?.phaseSpan("write-execution", turn.startedAtMs, end);
+              preparedAtMs = end;
+            }
+          } else if (typeof message.startedAtMs === "number" && typeof message.finishedAtMs === "number")
             operation.operation?.phaseSpan(
               operation.phase,
               message.executionStartedAtMs ?? message.startedAtMs,

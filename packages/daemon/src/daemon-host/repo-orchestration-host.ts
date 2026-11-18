@@ -32,6 +32,7 @@ import {
   type RepoWriterStatusV1,
   type RepoWriterFleetBaseBackupTraceV1,
   type RuntimeProcessEventV1,
+  type RuntimeWriteTurnTiming,
   type SerializableRepoCellBindingV1,
   type SerializableKeycloakAuthorization,
 } from "./repo-writer-protocol.ts";
@@ -91,7 +92,7 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
         { readonly resolve: (value: unknown) => void; readonly reject: (error: Error) => void }
       >(),
       runtimeProcesses = new Map<string, RuntimeProcessListeners>(),
-      activeRequests = new Map<string, AbortController>(),
+      activeRequests = new Map<string, { abort: AbortController; runtimeWriteTurns?: RuntimeWriteTurnTiming[] }>(),
       pendingRequests = new Set<Promise<void>>(),
       activePresets = new Set<string>(),
       requestContext = new AsyncLocalStorage<string>(),
@@ -139,7 +140,7 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
         return;
       }
       if (isWriterCancel(message)) {
-        activeRequests.get(message.requestId)?.abort();
+        activeRequests.get(message.requestId)?.abort.abort();
         return;
       }
       if (isRuntimeProcessEvent(message)) {
@@ -402,39 +403,59 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
 
     async function runWriteTurn<T>(work: () => T | PromiseLike<T>): Promise<T> {
       const enclosingRequestId = requestContext.getStore(),
-        requestId = enclosingRequestId && activeRequests.has(enclosingRequestId) ? enclosingRequestId : undefined,
-        slot = (await asyncCapability("acquireWriteSlot", { requestId })) as NonNullable<
+        request = enclosingRequestId ? activeRequests.get(enclosingRequestId) : undefined,
+        requestId = request ? enclosingRequestId : undefined,
+        turn = request?.runtimeWriteTurns?.at(-1);
+      try {
+        const slot = (await asyncCapability("acquireWriteSlot", { requestId })) as NonNullable<
           RepoWriterRequestV1["writeRequest"]
         >;
-      try {
-        return await withStorageWriteRequest(
-          {
-            ...slot,
-            onOperation: (opId) => void syncCapability("writeOperation", { requestId, slotId: slot.id, opId }),
-          },
-          async () => await work(),
-        );
+        try {
+          return await withStorageWriteRequest(
+            {
+              ...slot,
+              onOperation: (opId) => void syncCapability("writeOperation", { requestId, slotId: slot.id, opId }),
+            },
+            async () => await work(),
+          );
+        } finally {
+          if (turn) turn.finishedAtMs = monotonicMs();
+          notify("releaseWriteSlot", { slotId: slot.id });
+        }
       } finally {
-        notify("releaseWriteSlot", { slotId: slot.id });
+        if (turn) turn.finishedAtMs ??= monotonicMs();
       }
     }
 
     function queueWriteTurn(): void {
-      const requestId = requestContext.getStore();
-      if (requestId && activeRequests.has(requestId)) notify("writeQueued", { requestId });
+      const requestId = requestContext.getStore(),
+        request = requestId ? activeRequests.get(requestId) : undefined;
+      if (!request) return;
+      request.runtimeWriteTurns?.push({ queuedAtMs: monotonicMs() });
+      notify("writeQueued", { requestId });
     }
 
     async function handleRequest(request: RepoWriterRequestV1): Promise<void> {
       const abort = new AbortController(),
-        startedAtMs = monotonicMs();
+        startedAtMs = monotonicMs(),
+        runtimeWriteTurns: RuntimeWriteTurnTiming[] | undefined =
+          request.method === "spawnRuntime" ||
+          request.method === "handoffRuntime" ||
+          request.method === "cancelRuntime" ||
+          request.method === "steerRuntime" ||
+          request.method === "runtimeIngress"
+            ? []
+            : undefined;
       let executionStartedAtMs: number | undefined;
       const markExecutionStart = (): void => {
-        executionStartedAtMs ??= monotonicMs();
+        const turn = runtimeWriteTurns?.at(-1);
+        if (turn) turn.startedAtMs = monotonicMs();
+        else executionStartedAtMs ??= monotonicMs();
       };
       // The single-write chain copies its live head into this object when the request appends,
       // before the request waits.
       const queueObservation = writeQueueObservationFor(request);
-      activeRequests.set(request.requestId, abort);
+      activeRequests.set(request.requestId, { abort, runtimeWriteTurns });
       if (!cell || draining) {
         activeRequests.delete(request.requestId);
         return postReceipt(
@@ -443,6 +464,9 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
           new Error("RepoWriterCell is unavailable"),
           startedAtMs,
           monotonicMs(),
+          undefined,
+          undefined,
+          runtimeWriteTurns,
         );
       }
       try {
@@ -515,22 +539,23 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
             break;
           }
           case "spawnRuntime":
-            value = await cell.spawnRuntime(request.payload as never, binding!, queueObservation);
+            value = await cell.spawnRuntime(request.payload as never, binding!, queueObservation, markExecutionStart);
             break;
           case "handoffRuntime":
-            value = await cell.handoffRuntime(request.payload as never, binding!, queueObservation);
+            value = await cell.handoffRuntime(request.payload as never, binding!, queueObservation, markExecutionStart);
             break;
           case "cancelRuntime":
-            value = await cell.cancelRuntime(request.payload as never, binding!, queueObservation);
+            value = await cell.cancelRuntime(request.payload as never, binding!, queueObservation, markExecutionStart);
             break;
           case "steerRuntime":
-            value = await cell.steerRuntime(request.payload as never, binding!, queueObservation);
+            value = await cell.steerRuntime(request.payload as never, binding!, queueObservation, markExecutionStart);
             break;
           case "runtimeIngress":
             value = await cell.runtimeIngress(
               (request.payload as { action: Parameters<typeof cell.runtimeIngress>[0] }).action,
               binding!,
               queueObservation,
+              markExecutionStart,
             );
             break;
           case "settlePendingMaterialization":
@@ -568,6 +593,7 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
           monotonicMs(),
           executionStartedAtMs,
           queueObservation?.head ?? undefined,
+          runtimeWriteTurns,
         );
       } catch (error) {
         consumeKnownError(error);
@@ -581,6 +607,7 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
           monotonicMs(),
           executionStartedAtMs,
           queueObservation?.head ?? undefined,
+          runtimeWriteTurns,
         );
       } finally {
         activeRequests.delete(request.requestId);
@@ -607,7 +634,7 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
         if (control.command === "recover") await cell?.verifyReadiness();
         if (control.command === "drain") {
           draining = true;
-          for (const request of activeRequests.values()) request.abort();
+          for (const request of activeRequests.values()) request.abort.abort();
           await Promise.all(pendingRequests);
           await cell?.settlePendingMaterialization("writer shutdown");
           await cell?.close();
@@ -794,6 +821,7 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
     finishedAtMs?: number,
     executionStartedAtMs?: number,
     queueHead?: RepoCellWriteQueueHead,
+    runtimeWriteTurns?: readonly RuntimeWriteTurnTiming[],
   ): void {
     parentPort!.postMessage({
       schema: "harness-repo-writer-receipt/v1",
@@ -805,6 +833,7 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
       ...(executionStartedAtMs === undefined ? {} : { executionStartedAtMs }),
       ...(finishedAtMs === undefined ? {} : { finishedAtMs }),
       ...(queueHead === undefined ? {} : { queueHead }),
+      ...(runtimeWriteTurns === undefined ? {} : { runtimeWriteTurns }),
     } satisfies RepoWriterReceiptV1);
   }
 

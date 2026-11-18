@@ -27,7 +27,6 @@ export const ObserveSlowOpsBoard = memo(function ObserveSlowOpsBoard({
   ];
   return (
     <div data-testid={testId} className="px-3 py-2">
-      <p className="font-mono ui-micro text-text-faint">{t("views.daemonObserve.durationScope")}</p>
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
         <span className="ui-meta font-semibold">{t("views.daemonObserve.slowTitle")}</span>
         {cards.map(([label, value]) => (

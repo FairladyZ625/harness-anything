@@ -7742,7 +7742,7 @@
         "port": "packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.spawn"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-api.ts#createRepoCellApi.handoffRuntime.command:5c9abcc81840f9b2117e6dc65d953da2",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-api.ts#createRepoCellApi.handoffRuntime.command:c9eba7fcb2d44311378e88ee62903e07",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/daemon-host/repo-cell-command-run.ts#makeRepoCellCommandRunner"
@@ -11596,7 +11596,7 @@
         "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/conn-log.ts#openDaemonConnLog.request:2d20da925a6a220e21d846e72cf1e359",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/conn-log.ts#openDaemonConnLog.request:193f46acc270786b194cb1c3a3a3a1fd",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/daemon-host/conn-log.ts#openDaemonConnLog.append"
@@ -12010,7 +12010,7 @@
         "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-orchestration-host.ts#connectRepoWriterHost.startRepoWriterWorker:056315cbd3f53337f7ef9942bba1922c",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-orchestration-host.ts#connectRepoWriterHost.startRepoWriterWorker:605bb29098a46f130ca382c17d278ea3",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/daemon-host/repo-orchestration-host.ts#connectRepoWriterHost.parentPort.on"
