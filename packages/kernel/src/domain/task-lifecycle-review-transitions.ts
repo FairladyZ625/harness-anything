@@ -85,15 +85,20 @@ function reviewIssues(
         "transport-bound execution review proof, content digest, and repository rework budget are required",
       ),
     );
+  const resolutionIssues = command.resolutions === undefined ? [] : validateReviewResolutions(command.resolutions);
   if (!Array.isArray(command.findings))
-    issues.push(lifecycleContractIssue("missing_field", "new Review records must include a findings array"));
-  else issues.push(...validateReviewFindings(command.findings), ...reviewFindingReverifyIssues(command.findings));
-  if (command.resolutions !== undefined) issues.push(...validateReviewResolutions(command.resolutions));
+    return [
+      ...issues,
+      lifecycleContractIssue("missing_field", "new Review records must include a findings array"),
+      ...resolutionIssues,
+    ];
+  const findingIssues = validateReviewFindings(command.findings);
+  if (findingIssues.length) return [...issues, ...findingIssues, ...resolutionIssues];
+  issues.push(...reviewFindingReverifyIssues(command.findings), ...resolutionIssues);
   // Entry filter (dec_6A77D43B8523823ABA1F5E4D3C CH2): style, diagnostic, and cleanup notes never
   // settle, so they cannot be the blocking finding a changes_requested verdict rests on.
   if (
     command.verdict === "changes_requested" &&
-    command.findings !== undefined &&
     !command.findings.some(
       (item) => item.blocking && !["style", "diagnostic", "cleanup"].includes(item.category ?? "correctness"),
     )
