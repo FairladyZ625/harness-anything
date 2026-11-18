@@ -154,6 +154,7 @@ test("G3 integration lane rejects wall-clock deadlines and scheduled product sta
   assert.deepEqual(kinds("test('x', async () => { setTimeout(() => child.send('stop'), 2000); });"), [
     "scheduled-timer",
   ]);
+  assert.deepEqual(kinds("setTimeout(() => child.send('stop'), 2000);", { tests: true }), []);
   // A delay helper only completes the wait; it schedules no product state.
   assert.deepEqual(kinds("const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));"), []);
   // A timer that resolves a sentinel the test compares is a correctness decision, not a watchdog,
@@ -385,6 +386,7 @@ test("G3 integration exact-sync: a new now()+N deadline loop fails and its waitF
   const root = fixture(t),
     file = path.join(root, "packages/example/test/flow.test.ts"),
     spec = path.join(root, "tools/flow.spec.mjs"),
+    legacy = path.join(root, "tools/legacy.integration.test.mjs"),
     contract = path.join(root, "packages/example/test/contract.integration.test.ts"),
     deadlineLoop =
       "test('flow', async () => {\n" +
@@ -398,13 +400,16 @@ test("G3 integration exact-sync: a new now()+N deadline loop fails and its waitF
   const contractOnly = run("tools/check-poll-spin-boundary.mjs", root);
   writeFileSync(file, "// harness-test-tier: integration\r\n" + deadlineLoop);
   writeFileSync(spec, "// harness-test-tier: integration\nsetInterval(() => child.send('probe'), 5);\n");
+  writeFileSync(legacy, "setInterval(() => child.send('legacy probe'), 5);\n");
   const rejected = run("tools/check-poll-spin-boundary.mjs", root);
   assert.notEqual(rejected.status, 0);
   assert.match(rejected.stderr, /unlisted: packages\/example\/test\/flow\.test\.ts#<module>#clock-deadline/u);
   assert.match(rejected.stderr, /unlisted: packages\/example\/test\/flow\.test\.ts#<module>#clock-loop/u);
   assert.match(rejected.stderr, /unlisted: tools\/flow\.spec\.mjs#<module>#scheduled-timer/u);
+  assert.match(rejected.stderr, /unlisted: tools\/legacy\.integration\.test\.mjs#<module>#scheduled-timer/u);
   assert.equal(contractOnly.status, 0, contractOnly.stderr);
   writeFileSync(spec, "// harness-test-tier: integration\nawait child.exited;\n");
+  writeFileSync(legacy, "await child.exited;\n");
   writeFileSync(
     file,
     "// harness-test-tier: integration\n" +

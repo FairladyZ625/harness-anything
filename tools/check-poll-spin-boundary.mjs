@@ -34,7 +34,8 @@
  *
  * Fixtures. tools/gates/test/syntax-boundaries.test.mjs holds the positive fixtures (each kind is
  * reported, a new now()+N deadline loop fails the gate) and the negative ones (waitForArrival,
- * node:test timeout, fail-only watchdogs pass).
+ * node:test timeout, fail-only watchdogs pass). An explicit fixture root also accepts legacy,
+ * unmarked integration fixture names.
  */
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -74,7 +75,12 @@ for (const lane of lanes) {
         files: ["**/*.{js,mjs,ts,tsx}"],
         languageOptions: { parser: tsParser, parserOptions: { ecmaVersion: 2024, sourceType: "module" } },
         plugins: { ha: { rules: { "no-poll-spin": noPollSpin } } },
-        rules: { "ha/no-poll-spin": ["error", { baseline: [], root, tests: lane.tests }] },
+        rules: {
+          "ha/no-poll-spin": [
+            "error",
+            { baseline: [], root, tests: lane.tests, legacyFixtureNames: rootArg !== undefined },
+          ],
+        },
       },
     ],
   });

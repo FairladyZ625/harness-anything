@@ -290,6 +290,7 @@ export default {
           root: { type: "string" },
           integration: { type: "boolean" },
           tests: { type: "boolean" },
+          legacyFixtureNames: { type: "boolean" },
         },
         additionalProperties: false,
       },
@@ -303,10 +304,16 @@ export default {
     const constants = new Map();
     const baseline = new Set(context.options[0]?.baseline ?? []);
     const cwd = context.options[0]?.root ?? context.getCwd?.() ?? process.cwd();
-    const tests = context.options[0]?.tests === true || context.options[0]?.integration === true;
+    const options = context.options[0];
+    const tests = options?.tests === true || options?.integration === true;
+    const tier = tests ? readTestTierHeader(context.sourceCode.text) : undefined;
     const integration =
-      context.options[0]?.integration === true ||
-      (tests && readTestTierHeader(context.sourceCode.text) === "integration");
+      options?.integration === true ||
+      tier === "integration" ||
+      (tests &&
+        tier === undefined &&
+        options?.legacyFixtureNames === true &&
+        /\.integration\.test\./u.test(context.filename));
     const pollHelpers = new Set();
     const report = (node, kind, symbol = enclosingFunction(node)) => {
       const key = `${normalized(context.filename, cwd)}#${symbol}#${kind}`;
