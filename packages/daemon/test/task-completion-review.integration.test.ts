@@ -386,6 +386,8 @@ test("automatic rework settles the submitting worker before launching its contin
           event.payload.runtimeSessionId !== source.payload.runtimeSessionId,
       );
     assert.ok(continuationIndex >= 0, "the review must dispatch the rework continuation");
+    const continuation = events[continuationIndex];
+    assert.ok(continuation?.type === "runtime_dispatch_requested");
     assert.ok(sourceOutcomeIndex >= 0, "the old worker must be settled before rework starts");
     assert.ok(continuationIndex > sourceOutcomeIndex, "the continuation must launch after old-worker settlement");
     assert.equal(
@@ -411,7 +413,10 @@ test("automatic rework settles the submitting worker before launching its contin
         },
         owner,
       ),
-      { code: "runtime_task_lease_required" },
+      {
+        code: "runtime_task_writer_conflict",
+        message: new RegExp(String(continuation.payload.runtimeSessionId), "u"),
+      },
     );
     assert.equal(
       f

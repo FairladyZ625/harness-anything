@@ -13,7 +13,7 @@ import {
   SettingsActionError,
   SettingsProjectionError,
 } from "@harness-anything/kernel/internal/domain/settings-action-contract";
-import { scrubSecretText } from "./secret-scrub.ts";
+import { formatRejectionExplanation } from "./daemon-host-errors.ts";
 
 export type CellActionCriterionFailure = EntityActionCriterionFailure;
 
@@ -110,7 +110,7 @@ export function cellErrorMessage(error: unknown): string {
  * removed here because this is the last boundary before the CLI, the GUI and an agent's prompt.
  */
 export function rejectionExplanation(error: unknown): string {
-  return scrubSecretText(cellErrorMessage(error));
+  return formatRejectionExplanation(cellErrorCode(error), cellErrorMessage(error));
 }
 
 export function publishGeneratedArtifact(input: {

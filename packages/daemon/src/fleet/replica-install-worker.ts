@@ -15,6 +15,7 @@ import {
   type BaseBackupMetadata,
 } from "@harness-anything/storage";
 import {
+  installStagedObjects,
   prepareStagingDirectory,
   publishStagingGeneration,
   readResumableStagingCheckpoint,
@@ -31,6 +32,7 @@ export interface ReplicaInstallWorkerInput {
   readonly sha256: string;
   readonly size: number;
   readonly quotaBytes: number;
+  readonly stagedObjectsDir?: string;
 }
 
 class NonResumableInstallError extends Error {}
@@ -180,6 +182,25 @@ async function runInstall(input: ReplicaInstallWorkerInput): Promise<void> {
         },
       });
       await pipeline(createReadStream(input.archive), unpack);
+      if (input.stagedObjectsDir) {
+        const targetObjectsDir = path.join(
+          temporary,
+          BASE_BACKUP_ARCHIVE_ROOT,
+          "store",
+          "generations",
+          String(input.metadata.ledgerGeneration),
+          "objects",
+          "sha256",
+        );
+        try {
+          installStagedObjects(input.stagedObjectsDir, targetObjectsDir, input.quotaBytes - expandedBytes);
+        } catch (error) {
+          if (error instanceof Error && error.message === "base backup exceeds disk quota") {
+            throw new NonResumableInstallError(error.message);
+          }
+          throw error;
+        }
+      }
       phase = "hydrating";
       writeCheckpoint(checkpointPath, input, phase);
     }

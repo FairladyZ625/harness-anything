@@ -8,13 +8,14 @@ export const dispatchLifecyclePolicies = [
     ownerRef: "runtime-session/run",
     unit: "provider slots / lifecycle capability",
     bounds:
-      "Positive safe-integer capacity (default 64); reserved/held occupy a slot until accepted stop proof; recovering owners fail closed. Only a verified current running leaf with a declared provider steering strategy can steer; process liveness and attach remain independent of steering support. CLI steering uses interrupt-resume, ACP steering uses cancel-reprompt in the same session, and agy/zcode have no steering strategy. Only closed stopped groups hand off; consent waits for group closure even after delivery registration; group closure releases workspace ownership.",
+      "Positive safe-integer capacity (default 64); reserved/held occupy a slot until accepted stop proof; recovering owners fail closed. Only a verified current running leaf with a declared provider steering strategy can steer; process liveness and attach remain independent of steering support. CLI steering uses interrupt-resume, ACP steering uses cancel-reprompt in the same session, and agy/zcode have no steering strategy. Only closed stopped groups hand off; consent waits for group closure even after delivery registration; group closure releases workspace ownership. A task admits only one implementation process until accepted stop proof, across instances and nodes, even after task lease release.",
     defaultValue: DEFAULT_DISPATCH_INSTANCE_CAPACITY,
     version: 3,
     scope: "center-accepted dispatch lifecycle",
     reason: "Consumers use the reducer policy; node observations do not grant capacity or authority.",
     fixtures: [
       "packages/kernel/test/contracts/dispatch-lifecycle.test.ts",
+      "packages/daemon/test/task-execution-arrangement.integration.test.ts",
       "packages/daemon/test/dispatch-lifecycle-consumers.integration.test.ts",
       "packages/daemon/test/runtime-steer-compare.test.ts",
       "packages/daemon/test/dispatch-read-lifecycle.test.ts",
@@ -22,6 +23,7 @@ export const dispatchLifecyclePolicies = [
       "packages/daemon/test/runtime-worker-acp.test.ts",
     ],
     sources: [
+      "policy:packages/daemon:packages/daemon/src/repo-cell-runtime-ingress.ts#appendAuxiliaryRuntimeIngress:bafde6c7428425b528f1814ff097ad5a",
       "policy:packages/daemon:packages/daemon/src/daemon-host-repository-api.ts#createDaemonHostRepositoryApi.readNodeAutoClaimCandidates:921904248fd7c6864080e58564307106",
       "policy:packages/daemon:packages/daemon/src/runtime-spawn-control.ts#enforceRuntimeSpendCap:75d51b45ad4eaca54efd2fc7ad7ee991",
       "policy:packages/daemon:packages/daemon/src/runtime-spawn-mission.ts#resolveRuntimeInstanceCandidates:c62f0c68b8807afea23f9471a77da597",

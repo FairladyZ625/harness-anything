@@ -1681,4 +1681,102 @@ export const nonStateIoDeclarations = Object.freeze([
     api: "rmSync",
     scope: "writeLegacyMigrationMarkerAtomic",
   },
+  {
+    id: "environment-io.1a2b3c4d5e6f7081",
+    path: "packages/daemon/src/fleet/walreceiver.ts",
+    category: "environment-io",
+    subtype: "replica-snapshot-staging",
+    reason:
+      "Creates ephemeral snapshot object staging directory before atomic generation installation; canonical state remains in the ledger. Signal: mkdir in tryReuseExistingObject.",
+    api: "mkdir",
+    scope: "tryReuseExistingObject",
+  },
+  {
+    id: "environment-io.2b3c4d5e6f708192",
+    path: "packages/daemon/src/fleet/walreceiver.ts",
+    category: "environment-io",
+    subtype: "replica-snapshot-staging",
+    reason:
+      "Hardlinks immutable content-addressed object from an existing local replica generation into ephemeral snapshot staging. Signal: link in tryReuseExistingObject.",
+    api: "link",
+    scope: "tryReuseExistingObject",
+  },
+  {
+    id: "environment-io.3c4d5e6f708192a3",
+    path: "packages/daemon/src/fleet/walreceiver.ts",
+    category: "environment-io",
+    subtype: "replica-snapshot-staging",
+    reason:
+      "Copies immutable content-addressed object from an existing local replica generation into ephemeral snapshot staging when hardlink is unavailable. Signal: copyFile in tryReuseExistingObject.",
+    api: "copyFile",
+    scope: "tryReuseExistingObject",
+  },
+  {
+    id: "environment-io.4d5e6f708192a3b4",
+    path: "packages/daemon/src/fleet/walreceiver.ts",
+    category: "environment-io",
+    subtype: "replica-snapshot-staging",
+    reason:
+      "Cleans up temporary pack object staging file on digest mismatch or transfer failure. Signal: rm in receivePackStream.",
+    api: "rm",
+    scope: "receivePackStream",
+  },
+  {
+    id: "environment-io.0e61dbc95383ec54",
+    path: "packages/daemon/src/fleet/walreceiver.ts",
+    category: "environment-io",
+    subtype: "replica-snapshot-staging",
+    reason:
+      "Cleans up temporary pack object staging file on digest mismatch in finalizeCurrentObject. Signal: rm in finalizeCurrentObject.",
+    api: "rm",
+    scope: "finalizeCurrentObject",
+  },
+  {
+    id: "environment-io.05c64932e0127603",
+    path: "packages/daemon/src/fleet/walreceiver.ts",
+    category: "environment-io",
+    subtype: "replica-snapshot-staging",
+    reason:
+      "Atomically promotes a digest-verified packed object into snapshot object staging. Signal: rename in finalizeCurrentObject.",
+    api: "rename",
+    scope: "finalizeCurrentObject",
+  },
+  {
+    id: "environment-io.6f708192a3b4c5d6",
+    path: "packages/daemon/src/fleet/walreceiver.ts",
+    category: "environment-io",
+    subtype: "replica-snapshot-staging",
+    reason: "Creates prefix directory for staged packed object before writing. Signal: mkdir in receivePackStream.",
+    api: "mkdir",
+    scope: "receivePackStream",
+  },
+  {
+    id: "environment-io.708192a3b4c5d6e7",
+    path: "packages/daemon/src/fleet/walreceiver.ts",
+    category: "environment-io",
+    subtype: "replica-snapshot-staging",
+    reason: "Opens temporary staging file for streaming packed object bytes. Signal: open in receivePackStream.",
+    api: "open",
+    scope: "receivePackStream",
+  },
+  {
+    id: "environment-io.8192a3b4c5d6e7f8",
+    path: "packages/daemon/src/fleet/walreceiver.ts",
+    category: "environment-io",
+    subtype: "replica-snapshot-staging",
+    reason:
+      "Creates ephemeral snapshot object staging directory before receiving object pack stream. Signal: mkdir in receiveSplitObjects.",
+    api: "mkdir",
+    scope: "receiveSplitObjects",
+  },
+  {
+    id: "environment-io.92a3b4c5d6e7f809",
+    path: "packages/daemon/src/fleet/walreceiver.ts",
+    category: "environment-io",
+    subtype: "replica-snapshot-staging",
+    reason:
+      "Removes temporary non-resumable snapshot object staging directory after install or failure. Signal: rm in runWalReceiver.",
+    api: "rm",
+    scope: "runWalReceiver",
+  },
 ]);

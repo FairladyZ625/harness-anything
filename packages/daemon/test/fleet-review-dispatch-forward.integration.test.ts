@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { actionDeclarations, effectivePolicyGroupScopes } from "@harness-anything/kernel";
+import { actionDeclarations, effectivePolicyGroupScopes, submissionDigest } from "@harness-anything/kernel";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { createIdentitySession } from "../src/authorization-provider.ts";
@@ -16,7 +16,7 @@ import { fleetNodeClaimFixture, localAuthFixture } from "./fleet-node-claim.fixt
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 test(
-  "remote-edge rework with an agent authorizes and records manual dispatch-review",
+  "remote-edge owner rework authorizes manual dispatch-review while refusing another implementation process",
   { timeout: 120_000 },
   async (t) => {
     const installation = {
@@ -165,11 +165,25 @@ test(
     const firstSubmit = await edge.command({ kind: "task-submit", taskId, executionId: firstExecution });
     assert.equal(firstSubmit.outcome, "applied", JSON.stringify(firstSubmit));
     await syncEdgeReplica();
+    const firstCut = makeTaskEventReader({ repoId: "lease-repo", rootDir: f.repo })
+      .read()
+      .events.findLast(
+        (event) => event.type === "execution_submitted" && event.payload.execution.executionId === firstExecution,
+      );
+    assert.ok(firstCut?.type === "execution_submitted" && firstCut.payload.execution.submission);
+    const reserved = await edge.command({
+      kind: "task-rework",
+      taskId,
+      takeover: true,
+      executionId: firstExecution,
+      submissionDigest: submissionDigest(firstCut.payload.execution.submission),
+      reason: "The owner requests another implementation pass.",
+    });
+    assert.equal(reserved.outcome, "applied", JSON.stringify(reserved));
     const returned = await edge.command({
       kind: "task-rework",
       taskId,
-      reason: "The owner requests another implementation pass.",
-      agentId: "edge-review-forward-worker",
+      reason: "Return the reserved cut for the owner's manual implementation.",
     });
     assert.equal(returned.outcome, "applied", JSON.stringify(returned));
     await syncEdgeReplica();
@@ -188,6 +202,21 @@ test(
       localAuthFixture(),
     );
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
+    const launchCount = launches.length;
+    await assert.rejects(
+      edge.host.spawnRuntime(
+        "lease-repo",
+        {
+          agentId: "edge-review-forward-worker",
+          taskId,
+          prompt: "This duplicate rework worker must not launch.",
+          dispatchKey: "edge-review-forward-duplicate-worker",
+        },
+        localAuthFixture(),
+      ),
+      { code: "runtime_task_writer_conflict", message: new RegExp(String(spawned.runtimeSessionId), "u") },
+    );
+    assert.equal(launches.length, launchCount);
     assert.ok(
       launches.some((launch) => launch.dispatchId === spawned.dispatchId),
       JSON.stringify(launches),

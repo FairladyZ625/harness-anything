@@ -142,3 +142,47 @@ test("task show prints the daemon-derived takeover cut and actual handoff phase"
   );
   assert.match(rendered.text, /execution arrangement: arrangement-1; handoff pending; round 2/u);
 });
+
+for (const [code, message] of [
+  [
+    "protocol_version_unsupported",
+    "Node edge-one build aaaa and center bbbb differ; run git pull --ff-only, then build CLI and daemon.",
+  ],
+  ["edge_default_branch_behind", "Edge default branch is behind center main; run git merge --ff-only origin/main."],
+  [
+    "human_confirmation_required",
+    "Personal Keycloak access token/session expired; run ha bootstrap --operation login.",
+  ],
+]) {
+  test(`review failure ${code} appears in task show and accepted submit/dispatch-review receipts`, () => {
+    for (const command of ["task-show", "task-submit", "task-dispatch-review"]) {
+      const rendered = renderCliReceipt({
+        ok: true,
+        command,
+        outcome: "applied",
+        summary: "accepted cut",
+        ...(command === "task-show"
+          ? {
+              evidence: JSON.stringify({
+                task: {
+                  status: "in_review",
+                  currentNode: "review",
+                  completionGateIds: [],
+                  reviewDispatchFailure: {
+                    executionId: "exe-current",
+                    dispatchKey: "review:cut",
+                    code,
+                    message,
+                    failedAt: "2026-11-17T00:00:00Z",
+                  },
+                },
+              }),
+            }
+          : { warnings: [`review dispatch failed: ${code}; ${message}`] }),
+      });
+      assert.ok(rendered.text.includes(code), rendered.text);
+      assert.ok(rendered.text.includes(message), rendered.text);
+      assert.doesNotMatch(rendered.text, /handler_failed/u);
+    }
+  });
+}

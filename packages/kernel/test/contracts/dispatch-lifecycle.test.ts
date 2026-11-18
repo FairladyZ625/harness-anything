@@ -8,6 +8,7 @@ import { taskEventTypes } from "../../src/domain/task-lifecycle-event.ts";
 import { submissionDigest } from "../../src/domain/submission-digest.ts";
 import {
   dispatchAdmissionBlocker,
+  taskWriterConflict,
   dispatchAdmissionRefusal,
   dispatchLifecycleAddress,
   dispatchLifecycleTaskEventTypes,
@@ -969,4 +970,36 @@ test("running, starting, and unproven settling attempts preserve stopProof and c
       "runtime_capacity_exhausted",
     );
   }
+});
+
+test("task writer admission spans instances and nodes and survives lease release until stop proof", () => {
+  const ids = { dispatchId: "writer", runtimeSessionId: "writer-session", attemptGroupId: "writer" };
+  const requested = runtimeEvent({ t: "R" }, ids, {
+    instanceId: "other-instance",
+    source: { kind: "node", nodeId: "other-node" },
+    dispatch: { taskId: "task-writer", executionId: "execution-writer", role: "worker" },
+  });
+  const step = reduceDispatchLifecycle(null, requested, { taskLease: { executionId: "execution-writer", version: 1 } });
+  assert.equal(step.kind, "applied");
+  if (step.kind !== "applied") return;
+  const view = dispatchLifecycleView(step.group);
+  assert.equal(taskWriterConflict([view], "task-writer")?.code, "runtime_task_writer_conflict");
+  assert.match(taskWriterConflict([view], "task-writer")!.message, /writer-session/u);
+  assert.equal(taskWriterConflict([view], "another-task"), null);
+  assert.equal(
+    taskWriterConflict(
+      [{ ...view, attempt: { ...view.attempt, task: { ...view.attempt.task!, leaseReleased: true } } }],
+      "task-writer",
+    )?.code,
+    "runtime_task_writer_conflict",
+  );
+  assert.equal(
+    taskWriterConflict([{ ...view, attempt: { ...view.attempt, stopProof: "proven_stopped" } }], "task-writer"),
+    null,
+  );
+  for (const task of [
+    { ...view.attempt.task!, role: "reviewer" as const },
+    { ...view.attempt.task!, leaseVersion: null },
+  ])
+    assert.equal(taskWriterConflict([{ ...view, attempt: { ...view.attempt, task } }], "task-writer"), null);
 });

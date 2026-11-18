@@ -207,9 +207,17 @@ npm run harness:check-supply-chain
 It runs both high-severity npm audit paths:
 
 ```bash
-npm audit --audit-level=high
-npm audit --omit=dev --audit-level=high
+npm audit --omit=dev --audit-level=high --json
+npm audit --audit-level=high --json
 ```
+
+Any production high or critical finding blocks the gate. For the full audit,
+each high or critical advisory must resolve to an exact, unexpired registration
+for a package whose lockfile instances are all development-only. A newer stable
+version in the npm registry blocks the gate and calls for an upgrade and removal
+of the registration. The gate annotates active registrations and temporarily
+unavailable npm checks. Authentication failures and invalid audit responses
+block the gate.
 
 It also validates CycloneDX SBOM output from:
 

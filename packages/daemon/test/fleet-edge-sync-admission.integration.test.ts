@@ -81,8 +81,8 @@ test("captured worker OOM error reaches the edge without a closed-schema rejecti
   const message = "Worker terminated due to reaching memory limit: JS heap out of memory";
   f.failOwnerLookup(Object.assign(new Error(message), { code: "ERR_WORKER_OUT_OF_MEMORY" }));
   await assert.rejects(sync(f, center.port, "oom-edge"), (error: unknown) => {
-    assert.equal((error as { code: string }).code, "handler_failed");
-    assert.equal((error as Error).message, `Center replica admission failed: handler_failed: ${message}`);
+    assert.equal((error as { code: string }).code, "ERR_WORKER_OUT_OF_MEMORY");
+    assert.equal((error as Error).message, `Center replica admission failed: ERR_WORKER_OUT_OF_MEMORY: ${message}`);
     return true;
   });
 });

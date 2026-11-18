@@ -147,7 +147,7 @@ export interface FleetTlsCenter {
     readonly uploads: FleetUploadWindow;
     readonly versionWarnings: readonly string[];
   };
-  readonly versionWarnings: () => readonly string[];
+  readonly versionWarnings: (repoId?: string) => readonly string[];
 }
 
 export interface FleetUploadWindow {

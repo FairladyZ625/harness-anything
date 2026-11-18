@@ -3,6 +3,7 @@ import { activeCutReviewDispatches } from "./review-dispatch-state.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import {
+  reviewDispatchFailureWarning,
   blockingOf,
   todoIsOpen,
   closeoutReadiness,
@@ -845,7 +846,7 @@ export function makeTaskQueryReadModel(input: {
                 since: row.submittedAt,
                 title:
                   `${row.title} — CEO: required review has no active dispatch` +
-                  (failure ? `; last attempt failed (${failure.code}): ${failure.message}` : "") +
+                  (failure ? `; ${reviewDispatchFailureWarning(failure)}` : "") +
                   `; run ha task dispatch-review ${row.taskId}.`,
               },
             ];
@@ -1015,24 +1016,22 @@ export function makeTaskQueryReadModel(input: {
         severity: "warning",
         message: "The agenda projection cache was rebuilt from canonical events.",
       })),
-      attentionItems = attentionOnly
-        ? []
-        : buildAttentionItems({
-            now: now().toISOString(),
-            awaitingYou,
-            answeredForYou,
-            awaitingRuling,
-            awaitingRework,
-            awaitingAdjudication,
-            awaitingDecision,
-            waitingOnOthers,
-            stalled,
-            auditFindings: reckoning.items,
-            unsubmittedDeliveries,
-            undispatchedReviews,
-            shapeSignals,
-            sourceRows: [active, blocked, planned, submitted, inReview].flatMap((page) => page?.rows ?? []),
-          }),
+      attentionItems = buildAttentionItems({
+        now: now().toISOString(),
+        awaitingYou,
+        answeredForYou,
+        awaitingRuling,
+        awaitingRework,
+        awaitingAdjudication,
+        awaitingDecision,
+        waitingOnOthers,
+        stalled,
+        auditFindings: reckoning.items,
+        unsubmittedDeliveries,
+        undispatchedReviews,
+        shapeSignals,
+        sourceRows: [active, blocked, planned, submitted, inReview].flatMap((page) => page?.rows ?? []),
+      }),
       regionWeights = attentionRegionWeights(attentionItems, {
         running: inFlight.length,
         review:
