@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { buildImportGraph, listImportGraphFiles, selectAffectedTests } from "./affected-tests.mjs";
+import { collectGuiVitestFiles } from "./gui-test-runner-lib.mjs";
+import { discoverGuiVitestFiles, discoverTestFiles, discoverTestTierManifest } from "./test-tier-manifest.mjs";
 
 function fixture(t, files) {
   const root = mkdtempSync(path.join(tmpdir(), "affected-tests-"));
@@ -540,4 +542,135 @@ test("non-normalized changed paths are rejected before selection", (t) => {
 
   assert.deepEqual(result.invalid, ["../outside.ts"]);
   assert.deepEqual(result.selected, []);
+});
+
+test("GUI Vitest suites are reached via reverse imports while Node test discovery stays pure", (t) => {
+  const root = fixture(t, {
+    "packages/gui/src/renderer/App.tsx": "export const App = () => null;\n",
+    "packages/gui/src/renderer/shell.tsx": 'import { App } from "./App.tsx";\nexport const Shell = App;\n',
+    "packages/gui/src/main/ipc.ts": "export const ipc = true;\n",
+    "packages/gui/test/app-direct.vitest.ts":
+      'import { App } from "../src/renderer/App.tsx";\nexport const tested = App;\n',
+    "packages/gui/test/nested/shell.vitest.tsx":
+      'import { Shell } from "../../src/renderer/shell.tsx";\nexport const tested = Shell;\n',
+    "packages/gui/test/unrelated.vitest.tsx": "export const tested = 1;\n",
+    "packages/gui/test/main-ipc.test.ts": fastTest(
+      'import { ipc } from "../src/main/ipc.ts";\nexport const tested = ipc;\n',
+    ),
+  });
+
+  // Node manifest discovery must stay pure (no .vitest.ts(x) files, no tier-marker error).
+  assert.deepEqual(discoverTestFiles(root), ["packages/gui/test/main-ipc.test.ts"]);
+  assert.deepEqual(discoverTestTierManifest(root), {
+    fast: ["packages/gui/test/main-ipc.test.ts"],
+    contract: [],
+    integration: [],
+  });
+  assert.deepEqual(discoverGuiVitestFiles(root), [
+    "packages/gui/test/app-direct.vitest.ts",
+    "packages/gui/test/nested/shell.vitest.tsx",
+    "packages/gui/test/unrelated.vitest.tsx",
+  ]);
+
+  const result = selectAffectedTests({
+    root,
+    changedFiles: ["packages/gui/src/renderer/App.tsx"],
+  });
+
+  assert.deepEqual(result.unmapped, []);
+  assert.equal(result.truncated, false);
+  assert.deepEqual(result.nodeSelected, []);
+  assert.deepEqual(result.vitestSelected, [
+    { file: "packages/gui/test/app-direct.vitest.ts", via: "packages/gui/src/renderer/App.tsx", changed: false },
+    { file: "packages/gui/test/nested/shell.vitest.tsx", via: "packages/gui/src/renderer/App.tsx", changed: false },
+  ]);
+  assert.deepEqual(result.selected, result.vitestSelected);
+
+  // Directly editing a discovered GUI Vitest file selects it instead of marking it unmapped.
+  const directEdit = selectAffectedTests({
+    root,
+    changedFiles: ["packages/gui/test/unrelated.vitest.tsx"],
+  });
+  assert.deepEqual(directEdit.unmapped, []);
+  assert.deepEqual(directEdit.changedTests, ["packages/gui/test/unrelated.vitest.tsx"]);
+  assert.deepEqual(directEdit.vitestSelected, [
+    { file: "packages/gui/test/unrelated.vitest.tsx", via: "packages/gui/test/unrelated.vitest.tsx", changed: true },
+  ]);
+  assert.deepEqual(directEdit.nodeSelected, []);
+});
+
+test("mixed Node and GUI changes keep Node and Vitest selections cleanly separated across caps", (t) => {
+  const files = {
+    "packages/shared/package.json": JSON.stringify({
+      name: "@harness-anything/shared-fixture",
+      exports: { ".": "./src/index.ts" },
+    }),
+    "packages/shared/src/index.ts": "export const shared = 1;\n",
+    "packages/gui/test/shared-view.vitest.tsx":
+      'import { shared } from "@harness-anything/shared-fixture";\nexport const view = shared;\n',
+  };
+  for (let index = 0; index < 5; index += 1) {
+    files[`packages/daemon/test/suite-${index}.integration.test.ts`] = integrationTest(
+      'import { shared } from "@harness-anything/shared-fixture";\nexport const value = shared;\n',
+    );
+  }
+  const root = fixture(t, files);
+  const result = selectAffectedTests({
+    root,
+    changedFiles: ["packages/shared/src/index.ts"],
+    ratio: 0.2,
+  });
+
+  assert.equal(result.integrationTotal, 5);
+  assert.equal(result.maxSelected, 1);
+  assert.equal(result.truncated, true);
+  assert.equal(result.deferredCount, 4);
+  assert.deepEqual(
+    result.nodeSelected.map(({ file }) => file),
+    ["packages/daemon/test/suite-0.integration.test.ts"],
+  );
+  assert.deepEqual(
+    result.vitestSelected.map(({ file }) => file),
+    ["packages/gui/test/shared-view.vitest.tsx"],
+  );
+  assert.deepEqual(
+    result.selected.map(({ file }) => file),
+    ["packages/daemon/test/suite-0.integration.test.ts", "packages/gui/test/shared-view.vitest.tsx"],
+  );
+  // Node test runner list must never receive .vitest.ts(x) files.
+  assert.equal(
+    result.nodeSelected.some(({ file }) => /\.vitest\.tsx?$/u.test(file)),
+    false,
+  );
+});
+
+test("repository App.tsx change selects real reverse-dependent GUI Vitest files without polluting Node tests", async () => {
+  const repoRoot = path.resolve(import.meta.dirname, "..");
+  assert.deepEqual(discoverGuiVitestFiles(repoRoot), await collectGuiVitestFiles(repoRoot));
+  assert.equal(
+    discoverTestFiles(repoRoot).some((file) => /\.vitest\.tsx?$/u.test(file)),
+    false,
+  );
+
+  const result = selectAffectedTests({
+    root: repoRoot,
+    changedFiles: ["packages/gui/src/renderer/App.tsx"],
+  });
+
+  assert.deepEqual(result.unmapped, []);
+  assert.equal(result.truncated, false);
+  assert.ok(result.vitestSelected.length > 0, "modifying App.tsx must select reverse-dependent Vitest suites");
+  assert.ok(
+    result.vitestSelected.some(({ file }) => file.endsWith(".vitest.tsx")),
+    "must include .vitest.tsx component suites importing App.tsx",
+  );
+  for (const entry of result.vitestSelected) {
+    assert.ok(entry.file.startsWith("packages/gui/test/"), entry.file);
+    assert.match(entry.file, /\.vitest\.tsx?$/u);
+    assert.equal(entry.via, "packages/gui/src/renderer/App.tsx");
+  }
+  assert.equal(
+    result.nodeSelected.some(({ file }) => /\.vitest\.tsx?$/u.test(file)),
+    false,
+  );
 });
