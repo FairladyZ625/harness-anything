@@ -774,15 +774,8 @@ export class OidcSessionService {
       if (options?.ownerRecovery === true) {
         // Verified local socket-owner recovery runs inside the OIDC write queue without touching the broken Keycloak first.
       } else if (options?.ownerRecovery === false) {
-        if (!this.configured()) throw coded("authentication_required", "Sign in with the selected center first.");
-        if (!this.#centers.read(loginTarget)) {
-          try {
-            await this.#centerIdentity(loginTarget);
-          } catch (error) {
-            consumeKnownError(error);
-            throw coded("authentication_required", "Sign in with the selected center first.");
-          }
-        }
+        if (!this.configured() || !this.#centers.read(loginTarget))
+          throw coded("authentication_required", "Sign in with the selected center first.");
         await this.requireAccessManagement(loginTarget, true);
       } else {
         const sessionStore = this.configured() ? (await this.#centerIdentity(loginTarget)).sessionStore : undefined;

@@ -277,7 +277,6 @@ export class ManagedRbacService {
         throw error;
       }
       pruneUploadedCertificateVersions(this.#root, nextListener, previousListener);
-      config = nextConfig;
     } else if (config.stopped) {
       this.#writeConfig({ ...config, stopped: false });
     }

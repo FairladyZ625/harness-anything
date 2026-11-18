@@ -1871,8 +1871,8 @@ test("a typed authority service must actually invoke the registered lifecycle ca
     graph = mutatedDaemonGraph(
       source,
       "packages/authorization-keycloak/src/oidc-session-service.ts",
-      "return operation();\n    });\n  }\n\n  async #bootstrapRequired",
-      "return undefined;\n    });\n  }\n\n  async #bootstrapRequired",
+      "const result = await operation(),",
+      "const result = undefined as unknown as T,",
     ),
     node = sourceWitnesses(graph, [source]).get(source.candidateId);
   assert.ok(node);

@@ -104,7 +104,10 @@ function readRegularFileWithStats(
 ): { readonly bytes: Buffer; readonly mode: number } {
   let fd: number;
   try {
-    fd = openSync(filePath, constants.O_RDONLY);
+    fd = /* @gate-identity state-store/runtime-instance.authorization-configuration */ openSync(
+      filePath,
+      constants.O_RDONLY,
+    );
   } catch {
     if (options.requireOwnerOnlyMode)
       throw new ListenerKeyExposedError(
@@ -129,7 +132,7 @@ function readRegularFileWithStats(
       throw new ListenerKeyExposedError("The listener's private key must be readable only by its owner (chmod 600).");
     return { bytes: readFileSync(fd), mode: stats.mode & 0o777 };
   } finally {
-    closeSync(fd);
+    /* @gate-identity state-store/runtime-instance.authorization-configuration */ closeSync(fd);
   }
 }
 
@@ -204,12 +207,7 @@ export function managedListenerProblem(
 ): ListenerMaterialProblem | undefined {
   const configFile = path.join(userRoot, "rbac", "config.json");
   if (!existsSync(configFile)) return undefined;
-  let config: unknown;
-  try {
-    config = JSON.parse(readFileSync(configFile, "utf8")) as unknown;
-  } catch {
-    return undefined;
-  }
+  const config = JSON.parse(readFileSync(configFile, "utf8")) as unknown;
   if (!config || typeof config !== "object") return undefined;
   const record = config as {
     readonly mode?: unknown;
@@ -257,13 +255,13 @@ export interface SelfSignedCertificateSnapshot {
 export function snapshotSelfSignedCertificate(root: string): SelfSignedCertificateSnapshot | undefined {
   const { certificateFile, certificateKeyFile } = selfSignedCertificatePaths(root);
   if (!existsSync(certificateFile) || !existsSync(certificateKeyFile)) return undefined;
-  try {
-    const certificateBytes = readRegularFileWithStats(certificateFile).bytes,
-      keyBytes = readRegularFileWithStats(certificateKeyFile, { requireOwnerOnlyMode: true }).bytes;
-    return { certificateBytes, keyBytes };
-  } catch {
-    return undefined;
-  }
+  const certStats = lstatSync(certificateFile),
+    keyStats = lstatSync(certificateKeyFile);
+  if (!certStats.isFile() || !keyStats.isFile() || (keyStats.mode & 0o077) !== 0) return undefined;
+  return {
+    certificateBytes: readFileSync(certificateFile),
+    keyBytes: readFileSync(certificateKeyFile),
+  };
 }
 
 export function restoreSelfSignedCertificate(root: string, snapshot: SelfSignedCertificateSnapshot): void {

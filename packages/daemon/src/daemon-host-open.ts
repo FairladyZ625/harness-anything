@@ -16,7 +16,7 @@ import {
 import { executionCredentialRejected, runtimeExecutionActor } from "./runtime-execution-credential.ts";
 /** @daemon-transport-authority Host composition and RepoCell ownership. */
 import path from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { readDaemonStorageConfig, registerDaemonRepo } from "@harness-anything/storage";
 import {
   consumeKnownError,
