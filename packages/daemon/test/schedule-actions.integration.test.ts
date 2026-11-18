@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
-import { makeTaskEventStore } from "@harness-anything/storage";
+import { makeTaskEventReader } from "@harness-anything/storage";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
@@ -431,7 +431,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
         afterDelete.schedules.some(({ scheduleId }) => scheduleId === "e2e-probe"),
         false,
       );
-      const retainedEvents = makeTaskEventStore({ repoId: "schedule-actions", rootDir: root })
+      const retainedEvents = makeTaskEventReader({ repoId: "schedule-actions", rootDir: root })
         .read()
         .events.filter((event) => event.schema === "schedule-event/v1" && event.entity.id === "e2e-probe");
       assert.equal(
