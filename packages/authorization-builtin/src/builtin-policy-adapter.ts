@@ -100,11 +100,20 @@ export class BuiltinPolicyAdapter
     if (!session?.executionPrincipal) throw executionCredentialRejected("authentication");
     return this.readExecutionPrincipal(token, session.executionPrincipal.dispatchId);
   }
-  async readExecutionPrincipal(token: string, dispatchId: string): Promise<RuntimeExecutionPrincipal> {
+  async readExecutionPrincipal(
+    token: string,
+    dispatchId: string,
+    options?: { readonly hostSettlement?: boolean },
+  ): Promise<RuntimeExecutionPrincipal> {
     this.#assertCenter(token);
     const session = readState(this.#root).sessions.find((entry) => entry.executionPrincipal?.dispatchId === dispatchId);
-    if (!session?.executionPrincipal) throw executionCredentialRejected("revoked");
-    if (session.expiresAt <= Date.now()) throw executionCredentialRejected("expired");
+    if (!session?.executionPrincipal) throw executionCredentialRejected("revoked", { dispatchId });
+    if (!options?.hostSettlement && session.expiresAt <= Date.now())
+      throw executionCredentialRejected("expired", {
+        expiresAt: session.executionPrincipal.expiresAt,
+        dispatchId: session.executionPrincipal.dispatchId,
+        role: session.executionPrincipal.role,
+      });
     return session.executionPrincipal;
   }
   readSessionLifetime(token: string): Promise<number> {

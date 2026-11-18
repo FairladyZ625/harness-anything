@@ -2,11 +2,13 @@ import {
   consumeKnownError,
   documentWorkspacePath,
   dispatchLifecycleSummary,
+  sameWriteSource,
   type AgentRuntimeEventV1,
   type CanonicalSquadRun,
   type DecisionReadSurface,
   type RuntimeSession,
   type TaskProjectionQueries,
+  type WriteSource,
   latestRuntimeActivityAt,
 } from "@harness-anything/kernel";
 import { readDecisionAnnotationsByDispatch } from "./decision-annotations.ts";
@@ -984,5 +986,28 @@ function isClassification(value: unknown): value is NonNullable<TaskDispatchRow[
     value === "needs_attention" ||
     value === "gate_red" ||
     value === "completed_without_final_text"
+  );
+}
+
+/** True when a still-open node-owned reviewer dispatch matches this review request for credential recovery. */
+export function canRecoverEdgeReviewerDispatch(input: {
+  readonly projection: Pick<TaskProjectionQueries, "readRuntimeDispatchById" | "readDispatchLifecycle">;
+  readonly dispatchId: string;
+  readonly taskId: string;
+  readonly executionId: string | null;
+  readonly source: WriteSource;
+  readonly personId: string;
+}): boolean {
+  const row = input.projection.readRuntimeDispatchById(input.dispatchId),
+    lifecycle = input.projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [input.dispatchId] });
+  return (
+    row !== null &&
+    row.event.payload.role === "reviewer" &&
+    row.event.payload.taskId === input.taskId &&
+    (input.executionId === null || row.event.payload.executionId === input.executionId) &&
+    sameWriteSource(row.event.source, input.source) &&
+    row.event.actor.principal.personId === input.personId &&
+    lifecycle.status === "ready" &&
+    Boolean(lifecycle.rows[0] && !lifecycle.rows[0].policy.attemptSettled)
   );
 }

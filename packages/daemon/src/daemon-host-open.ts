@@ -319,6 +319,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           execution.personId !== auth.nodePrincipal.personId)
       )
         throw executionCredentialRejected();
+      if (warming.has(execution.repoId)) throw hostCodedError("repo_warming", warmingMessage(execution.repoId));
       const cell = cells.get(execution.repoId);
       if (!cell || path.resolve(cell.status().rootDir) !== path.resolve(rootDir))
         throw hostCodedError(

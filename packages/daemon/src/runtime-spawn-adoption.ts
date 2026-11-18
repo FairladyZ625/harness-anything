@@ -285,9 +285,15 @@ async function restoreRuntime(
   if (!stream) return false;
   const processState = stream.process,
     processPid = processState?.pid ?? 0,
-    binding = authorizationBinding
-      ? { ...authorizationBinding, ...metadata.binding, authorizationDecision: undefined }
-      : metadata.binding,
+    metadataBinding = stripExecutionCredential(metadata.binding),
+    binding: RuntimeBinding = authorizationBinding
+      ? {
+          ...metadataBinding,
+          ...stripExecutionCredential(authorizationBinding),
+          source: metadata.binding.source,
+          authorizationDecision: undefined,
+        }
+      : { ...metadataBinding, authorizationDecision: undefined },
     livenessEvent = {
       type: "runtime_session_liveness_changed",
       payload: {
@@ -544,6 +550,12 @@ function adoptableMetadata(header: DispatchStreamHeader): {
     reasoningEffort: header.reasoningEffort,
     fast: header.fast ?? false,
   };
+}
+function stripExecutionCredential(binding: RuntimeBinding): Omit<RuntimeBinding, "authorizationDecision"> {
+  const copy = { ...binding } as Record<string, unknown>;
+  delete copy.executionPrincipal;
+  delete copy.authorizationDecision;
+  return copy as unknown as Omit<RuntimeBinding, "authorizationDecision">;
 }
 function isBinding(value: unknown): value is RuntimeBinding {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;

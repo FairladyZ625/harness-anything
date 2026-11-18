@@ -424,14 +424,17 @@ test(
       ...principal,
       expiresAt: new Date(Date.now() - 1000).toISOString(),
     });
+    // Worker business writes retain the TTL; runtime observation frames use the node's identity.
     await assert.rejects(
-      runFleetRuntimeEventClient({
+      runFleetTaskCommandClient({
         ...peer,
-        opId: "expired-terminal",
-        eventType: "runtime_session_exited",
-        payload: { runtimeSessionId: runtimeId, exitedAt: new Date().toISOString(), exitCode: 0 },
+        executionCredential: secret,
+        opId: "expired-worker-progress",
+        taskId,
+        action: { kind: "task-progress-append", taskId, text: "Expired worker must not write." },
+        waitMs: 0,
       }),
-      { code: "execution_credential_rejected" },
+      { code: "execution_credential_rejected", message: /expired at/u },
     );
     client.attributes.harness_execution = JSON.stringify(principal);
     // Reassigning the node voids the execution's authority at the center; reads stay local.

@@ -15,7 +15,7 @@
  *   the observed one is a stale epoch. A source the center cannot bind to an owner (an imported or
  *   direct write) is `verified: false`: the attempt is admitted as `settling`, keeps its capacity
  *   reservation and task lease, cannot be advanced by any event, and is never recoverable.
- * - capacity reservation: the provider slot on the instance, released only by an observed stop.
+ * - capacity reservation: the provider slot on the instance, released by an observed stop or explicit owner abandonment.
  * - task binding: the task lease version the attempt runs under; a pending ruling becomes
  *   `awaiting_ruling` only after the stop is proven and that lease has been released.
  */
@@ -36,7 +36,7 @@ export const dispatchGroupPhases = [
 ] as const;
 export const dispatchAttemptPhases = ["starting", "running", "settling", "closed"] as const;
 export const dispatchCapacityDispositions = ["busy", "recovering", "free"] as const;
-/** The attempt's provider slot: reserved at admission, held while the process may run, released by a proven stop. */
+/** The attempt's provider slot: reserved at admission, held while the process may run, released by a proven stop or explicit owner abandonment. */
 export const dispatchReservationStates = ["reserved", "held", "released"] as const;
 export const dispatchStopProofs = ["unproven", "proven_stopped"] as const;
 export const dispatchDeliveryStatuses = ["unregistered", "registered"] as const;
@@ -591,8 +591,13 @@ function advanceAttempt(
     case "runtime_session_exited":
       return { ...attempt, phase: "settling", process: "exited", stopProof: "proven_stopped" };
     case "runtime_session_outcome_observed":
-      // Historical owners publish the outcome only after their settlement finished with the process.
-      return { ...attempt, phase: "closed", stopProof: "proven_stopped", outcome: event.payload.outcome };
+      // An explicit abandonment closes the reservation without inventing a physical stop.
+      return {
+        ...attempt,
+        phase: "closed",
+        stopProof: isOwnerAbandonment(event) ? attempt.stopProof : "proven_stopped",
+        outcome: event.payload.outcome,
+      };
     default:
       return null;
   }
@@ -620,6 +625,15 @@ function isRulingResolution(
   );
 }
 
+function isOwnerAbandonment(input: DispatchLifecycleInput): boolean {
+  return (
+    input.type === "runtime_session_outcome_observed" &&
+    input.payload.reasonCode === "ruling_resolved" &&
+    input.payload.outcome === "unknown" &&
+    input.payload.exitCode === null
+  );
+}
+
 function groupPhase(
   group: Pick<DispatchLifecycleGroup, "ruling">,
   attempt: DispatchLifecycleAttempt,
@@ -640,7 +654,7 @@ function reservationState(attempt: DispatchLifecycleAttempt): DispatchReservatio
   return attempt.phase === "starting" ? "reserved" : "held";
 }
 
-/** The one capacity judgment: a provider slot is free once the owner proved the process stopped. */
+/** The one capacity judgment: a provider slot is free after an observed stop or explicit owner abandonment. */
 export function dispatchCapacityDisposition(attempt: DispatchLifecycleAttempt): DispatchCapacityDisposition {
   if (reservationState(attempt) === "released") return "free";
   return !attempt.fence.verified || attempt.process === "unknown" ? "recovering" : "busy";
@@ -657,7 +671,7 @@ export interface DispatchAdmissionBlocker {
  * Admission on one instance is refused while an attempt there holds its slot unresolved: this
  * owner cannot observe the process, or nobody verified the owner at all (that attempt fails closed
  * for every launcher). Every unreleased reservation also counts against the instance capacity,
- * including starting attempts and attempts on other nodes. Only an accepted stop frees a slot.
+ * including starting attempts and attempts on other nodes. An accepted stop or explicit owner abandonment frees a slot.
  */
 export function dispatchAdmissionBlocker(
   views: readonly DispatchLifecycleView[],
@@ -866,7 +880,14 @@ export function previewDispatchLifecycleOutcome(
     },
     event,
   );
-  return step.kind === "applied" ? { kind: step.kind, groupPhase: step.group.phase, ruling: step.group.ruling } : step;
+  return step.kind === "applied"
+    ? {
+        kind: step.kind,
+        groupPhase: step.group.phase,
+        ruling: step.group.ruling,
+        canSettle: view.attempt.stopProof === "proven_stopped" || isOwnerAbandonment(event),
+      }
+    : step;
 }
 
 /** Every group that is not closed belongs to the active index; storage pages it by group id. */
@@ -875,7 +896,7 @@ export function dispatchGroupIsActive(group: DispatchLifecycleGroup): boolean {
 }
 
 /** Bump when the folded group shape changes: stored lifecycle state of another version is refolded. */
-export const DISPATCH_LIFECYCLE_MODEL_VERSION = 7;
+export const DISPATCH_LIFECYCLE_MODEL_VERSION = 8;
 
 export const DISPATCH_LIFECYCLE_PAGE_LIMIT = 100;
 
@@ -938,4 +959,16 @@ export function dispatchLifecycleHasPendingWork(reads: readonly DispatchLifecycl
     (read) =>
       read.status === "pending" || read.rows.length === 0 || read.rows.some(({ policy }) => !policy.groupSettled),
   );
+}
+
+/** True when an attempt ended physically (`exited` or `proven_stopped`) while still lacking terminal outcome. */
+export function isDispatchAttemptExitedUnsettled(view: DispatchLifecycleView): boolean {
+  return (
+    view.attempt.outcome === null && (view.attempt.process === "exited" || view.attempt.stopProof === "proven_stopped")
+  );
+}
+
+/** True when the dispatch attempt closed with canonical cancellation outcome. */
+export function isDispatchAttemptCancelled(view: DispatchLifecycleView): boolean {
+  return view.attempt.outcome === "cancelled";
 }

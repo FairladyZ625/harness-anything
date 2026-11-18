@@ -51,6 +51,6 @@ export * from "./task-projection.ts";
 export * from "./version-control-system.ts";
 
 export { runtimeExecutionLifetimeMs, executionCredentialRejected } from "./runtime-execution-credential.ts";
-export type { RuntimeExecutionPrincipal } from "./runtime-execution-credential.ts";
+export type { ExecutionCredentialRejectionContext, RuntimeExecutionPrincipal } from "./runtime-execution-credential.ts";
 
 export type { EntityDeclarationState, EntityDeclarationReadQuery } from "./entity-declarations.ts";

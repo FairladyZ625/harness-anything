@@ -39,21 +39,51 @@ export function recordRuntimeExecutionPrincipal(
   });
 }
 
-export function readRuntimeExecutionPrincipal(
+export type RuntimeExecutionPrincipalInspection =
+  | { readonly kind: "valid"; readonly principal: PersistedRuntimeExecutionPrincipal }
+  | { readonly kind: "expired"; readonly principal: PersistedRuntimeExecutionPrincipal }
+  | { readonly kind: "unknown" };
+
+export function inspectRuntimeExecutionPrincipal(
   rootDir: string,
   credential: string,
   now = Date.now(),
-): PersistedRuntimeExecutionPrincipal | null {
+): RuntimeExecutionPrincipalInspection {
   const digest = executionCredentialDigest(credential);
   for (const header of readDispatchStreamHeaders(rootDir)) {
     const record = readDispatchStreamSummary(rootDir, header.dispatchId)?.records.find(
       (entry) => entry.kind === "execution_principal" && entry.grantFingerprint === digest,
     );
     if (!record) continue;
-    if (!isPersistedPrincipal(record) || Date.parse(record.expiresAt) <= now) return null;
-    return record;
+    if (!isPersistedPrincipal(record)) return { kind: "unknown" };
+    const expiresMs = Date.parse(record.expiresAt);
+    if (!Number.isFinite(expiresMs) || expiresMs <= now) return { kind: "expired", principal: record };
+    return { kind: "valid", principal: record };
+  }
+  return { kind: "unknown" };
+}
+
+export function findPersistedRuntimeExecutionPrincipal(
+  rootDir: string,
+  runtimeSessionId: string,
+  dispatchId: string,
+): PersistedRuntimeExecutionPrincipal | null {
+  const records = readDispatchStreamSummary(rootDir, dispatchId)?.records ?? [];
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    const record = records[index]!;
+    if (record.kind !== "execution_principal" || !isPersistedPrincipal(record)) continue;
+    if (record.runtimeSessionId === runtimeSessionId && record.dispatchId === dispatchId) return record;
   }
   return null;
+}
+
+export function readRuntimeExecutionPrincipal(
+  rootDir: string,
+  credential: string,
+  now = Date.now(),
+): PersistedRuntimeExecutionPrincipal | null {
+  const inspected = inspectRuntimeExecutionPrincipal(rootDir, credential, now);
+  return inspected.kind === "valid" ? inspected.principal : null;
 }
 
 function isPersistedPrincipal(

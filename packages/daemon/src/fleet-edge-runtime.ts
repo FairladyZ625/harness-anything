@@ -23,7 +23,11 @@ import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { readEdgeViewBlob, readEdgeRuntimeResult } from "./runtime-result-read.ts";
 import { runRuntimeHandoff } from "./runtime-handoff.ts";
 import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
-import { recordRuntimeExecutionPrincipal } from "./runtime-execution-principal-store.ts";
+import {
+  findPersistedRuntimeExecutionPrincipal,
+  recordRuntimeExecutionPrincipal,
+} from "./runtime-execution-principal-store.ts";
+import { executionCredentialRejected } from "./runtime-execution-credential.ts";
 import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, watch } from "node:fs";
 import path from "node:path";
@@ -383,14 +387,31 @@ export function openFleetEdgeRuntime(input: {
 
     discardExpiredExecutionCredentials();
     const execution = executionCredentials.get(review.runtimeSessionId);
-    if (!execution || Date.parse(execution.expiresAt) <= Date.now())
-      throw edgeRuntimeError(
-        "execution_credential_rejected",
-        "Center did not issue a live review recovery credential.",
-      );
+    const persisted = execution
+      ? null
+      : findPersistedRuntimeExecutionPrincipal(request.workspaceRoot, review.runtimeSessionId, review.dispatchId);
+    if (!execution) {
+      if (!persisted)
+        throw edgeRuntimeError(
+          "execution_credential_rejected",
+          "Center did not issue a live review recovery credential.",
+        );
+      const expiresMs = Date.parse(persisted.expiresAt);
+      if (!Number.isFinite(expiresMs) || expiresMs <= Date.now())
+        throw executionCredentialRejected("expired", {
+          expiresAt: persisted.expiresAt,
+          dispatchId: review.dispatchId,
+          role: "reviewer",
+        });
+      if (persisted.personId !== review.binding.actor.principal.personId)
+        throw edgeRuntimeError(
+          "execution_credential_rejected",
+          "Review recovery binding does not match the recorded principal.",
+        );
+    }
     if (
       review.binding.actor.executor?.id !== `runtime-session:${review.runtimeSessionId}` ||
-      review.binding.actor.principal.personId !== execution.personId ||
+      review.binding.actor.principal.personId !== (execution?.personId ?? persisted!.personId) ||
       typeof review.binding.source !== "object" ||
       review.binding.source.kind !== "node" ||
       review.binding.source.nodeId !== request.nodeId
@@ -456,7 +477,7 @@ export function openFleetEdgeRuntime(input: {
       taskCommand = () =>
         runFleetTaskCommandClient({
           ...writePeer,
-          executionCredential: execution.credential,
+          ...(execution ? { executionCredential: execution.credential } : {}),
           opId: recoveryOpId,
           repoId: request.repoId,
           taskId: review.taskId,

@@ -109,6 +109,7 @@ for (const alreadyProven of [true, false])
               runtimeSessionId,
               dispatchId: "handleless-dispatch",
               instanceId: "local-a",
+              attemptSettled: alreadyProven,
               process: alreadyProven ? "exited" : "unknown",
               stopProof: alreadyProven ? "proven_stopped" : "unproven",
             },
