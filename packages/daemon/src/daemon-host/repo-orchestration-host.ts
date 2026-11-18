@@ -584,7 +584,10 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
           }
         }
         // A drain that lands while this request is in flight closes the cell and posts "closed" itself.
-        if (cell) publishCellStatus("cut", (value as { readonly cut?: RepoWriterStatusV1["ledgerCut"] } | null)?.cut);
+        // Settlement already pushes updated follower health via onMaterializationHealthChange when publication runs;
+        // avoid re-polling projection/ledger cuts after idle settle requests.
+        if (cell && request.method !== "settlePendingMaterialization")
+          publishCellStatus("cut", (value as { readonly cut?: RepoWriterStatusV1["ledgerCut"] } | null)?.cut);
         postReceipt(
           request.requestId,
           value,

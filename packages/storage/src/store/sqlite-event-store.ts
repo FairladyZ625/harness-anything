@@ -281,7 +281,8 @@ function openSqliteEventStoreInternal(
         "VALUES (?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now')))",
     );
 
-  let transactionDepth = 0,
+  let hasOutbox = !options.readOnly,
+    transactionDepth = 0,
     activeReadOnlyTransaction = false;
   const transaction = <A>(run: () => A, readOnly = false): A => {
     if (transactionDepth > 0) {
@@ -655,8 +656,8 @@ function openSqliteEventStoreInternal(
     queryEvents: (input) => queryEvents(query, input),
     readEntityDeclarations: (input) => transaction(() => readSqliteEntityDeclarations(query, input), true),
     gitOutboxState: () => {
-      const hasOutbox =
-        query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='git_outbox' LIMIT 1").length > 0;
+      if (!hasOutbox)
+        hasOutbox = query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='git_outbox' LIMIT 1").length > 0;
       if (!hasOutbox) {
         const writer = readWriter(db, repoId);
         return {

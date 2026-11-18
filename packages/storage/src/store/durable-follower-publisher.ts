@@ -73,16 +73,18 @@ export function createDurableFollowerPublisher(input: {
     retry.unref();
     retryDelay = Math.min(retryDelay * 2, maximumRetryMs);
   };
-  const request = (): Promise<void> => {
+  const request = (onlyWhenPending = false): Promise<void> => {
     if (closed) return Promise.resolve();
     if (retry) {
       clearTimeout(retry);
       retry = null;
+      onlyWhenPending = false;
     }
     if (scheduled) {
-      if (inFlight) rerunRequested = true;
+      if (inFlight && !onlyWhenPending) rerunRequested = true;
       return scheduled;
     }
+    if (onlyWhenPending && input.revision() <= input.checkpoint()) return Promise.resolve();
     scheduled = new Promise((resolve) =>
       setImmediate(async () => {
         inFlight = true;

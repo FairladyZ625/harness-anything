@@ -658,7 +658,7 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
         ? Promise.resolve(restoreRequestedDocuments(materializeContext(), request.paths))
         : publishFollowerAsync(request !== undefined, request?.preview, request?.reconcileNodePolicy),
     revision: sqlite.revision,
-    checkpoint: () => follower.git.cut?.revision ?? 0,
+    checkpoint: () => Math.min(follower.git.cut?.revision ?? 0, follower.worktree.cut?.revision ?? 0),
     onHealthChange: options.onMaterializationHealthChange,
     onFailure: (reason) => {
       const pending = pendingFollower(reason);
@@ -681,7 +681,7 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
     materialize: (request?: MaterializationRequest) => publisher.publish(request ?? {}),
     materializationHealth: publisher.health,
     settlePendingMaterialization: async (_context: string) => {
-      await publisher.request();
+      await publisher.request(true);
     },
     request: () => {
       void publisher.request();

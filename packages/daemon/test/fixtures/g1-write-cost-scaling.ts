@@ -481,6 +481,9 @@ function writerMeasure(handle: RequestHandle): Measure {
   return async (run) => {
     await Promise.all(handle.probes.map((probe) => probeControl(probe, "reset")));
     const result = await run();
+    // DM-2 runs host Git/worktree publication asynchronously after canonical commit acknowledgment,
+    // so settle pending publication before snapshotting the combined writer + host counters.
+    await handle.supervisor.request("settlePendingMaterialization", "g1 measure settle");
     const snapshots = (await Promise.all(handle.probes.map((probe) => probeControl(probe, "snapshot")))) as Counters[];
     const counters = Object.fromEntries(
       G1_METRICS.map((metric) => [metric, snapshots.reduce((sum, value) => sum + value[metric], 0)]),
