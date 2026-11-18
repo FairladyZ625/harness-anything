@@ -1,10 +1,8 @@
-import {
-  validRuntimeLaunchPermissionMode,
-  validRuntimePermissionModeSource,
-  type DispatchLifecycleSummary,
-  type EffectiveRuntimePermissionMode,
-  type EffectiveRuntimePermissionModeSource,
-  type RuntimeLaunchPermissionMode,
+import type {
+  DispatchLifecycleSummary,
+  EffectiveRuntimePermissionMode,
+  EffectiveRuntimePermissionModeSource,
+  RuntimeLaunchPermissionMode,
 } from "@harness-anything/kernel";
 import {
   queryPayloadValidation,
@@ -200,16 +198,19 @@ export function validateDaemonWorkspaceSummary(value: unknown): readonly string[
   return [];
 }
 
+const runtimePermissionModeValues: readonly string[] = ["read-only", "workspace-write", "bypass"];
+const runtimePermissionSourceValues: readonly string[] = ["dispatch", "agent", "instance", "default"];
+
 export function validEffectivePermissionMode(value: unknown): value is EffectiveRuntimePermissionMode {
-  return value === "unknown" || validRuntimeLaunchPermissionMode(value);
+  return value === "unknown" || (typeof value === "string" && runtimePermissionModeValues.includes(value));
 }
 
 export function validRequestedPermissionMode(value: unknown): value is RuntimeLaunchPermissionMode | null {
-  return value === null || validRuntimeLaunchPermissionMode(value);
+  return value === null || (typeof value === "string" && runtimePermissionModeValues.includes(value));
 }
 
 export function validPermissionModeSource(value: unknown): value is EffectiveRuntimePermissionModeSource {
-  return value === "unknown" || validRuntimePermissionModeSource(value);
+  return value === "unknown" || (typeof value === "string" && runtimePermissionSourceValues.includes(value));
 }
 
 const dispatchAttemptRequired = [

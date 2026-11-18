@@ -10,8 +10,6 @@ export {
   runtimeSessionMissingOutcomeEvidence,
   sessionProvenance,
   unavailableSessionIdentity,
-  validRuntimeLaunchPermissionMode,
-  validRuntimePermissionModeSource,
 } from "./domain/agent-runtime.ts";
 export type {
   AgentDefinitionSnapshot,

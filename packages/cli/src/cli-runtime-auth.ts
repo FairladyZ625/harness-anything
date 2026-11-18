@@ -94,6 +94,13 @@ export async function runRuntimeAuthCommand(
   }
 }
 
+function renderSessionPermissionLines(session: Record<string, unknown>): readonly string[] {
+  if (session.effectivePermissionMode === undefined) return [];
+  const source = String(session.permissionModeSource ?? "unknown"),
+    requested = String(session.requestedPermissionMode ?? "-");
+  return [`permission: ${String(session.effectivePermissionMode)} (source: ${source}, requested: ${requested})`];
+}
+
 export function renderRuntimeStatus(value: JsonObject): string {
   if (value.session && typeof value.session === "object") {
     const session = value.session as Record<string, unknown>,
@@ -125,11 +132,7 @@ export function renderRuntimeStatus(value: JsonObject): string {
             `cancelled-by-executor: ${String(cancelExecutor?.id ?? "-")}`,
           ]
         : []),
-      ...(session.effectivePermissionMode !== undefined
-        ? [
-            `permission: ${String(session.effectivePermissionMode)} (source: ${String(session.permissionModeSource ?? "unknown")}, requested: ${String(session.requestedPermissionMode ?? "-")})`,
-          ]
-        : []),
+      ...renderSessionPermissionLines(session),
       ...(attempts.length
         ? [
             `attempt-group: ${String(attemptChain?.attemptGroupId)}`,
