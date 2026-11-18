@@ -78,7 +78,9 @@ export function createDaemonHostLifecycleApi(
           : base,
         fleetWarnings = [
           ...(context.fleetCenter?.versionWarnings() ?? []),
-          ...[...context.fleetVersionWarnings.values()].map((warning) => warning.message),
+          ...[...context.fleetVersionWarnings].map(
+            ([repoId, warning]) => `[repoId=${repoId} role=remote-edge] ${warning.message}`,
+          ),
         ],
         statusSummary = fleetWarnings.length
           ? `${summary}\nFleet version warning: ${fleetWarnings.join(" | ")} Run git pull --ff-only, then build CLI and daemon.`

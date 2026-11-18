@@ -5,7 +5,10 @@ import { spawn } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { createServer } from "node:tls";
+import { connect, createServer } from "node:tls";
+import { once } from "node:events";
+import { createInterface } from "node:readline";
+import { reviewDispatchDiagnostic } from "@harness-anything/application/internal/queries/review-dispatch-failure-read.ts";
 import { sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
@@ -46,6 +49,89 @@ test("Fleet sessions stay connected across build identities and return an upgrad
       .status()
       .versionWarnings.some((warning) => warning.includes("git pull --ff-only, then build CLI and daemon")),
   );
+  // Host status reads these warnings too; consulting host status here would recurse in a real host.
+  const status = t.mock.method(fixture.host, "status", () => {
+    assert.fail("version warnings must read repository associations without re-entering host status");
+  });
+  const warnings = center.versionWarnings();
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0]!, new RegExp(`node=${fixture.subject.nodeId} role=edge repoIds=unknown`, "u"));
+  assert.deepEqual(center.versionWarnings("unrelated-repository"), []);
+  status.mock.restore();
+});
+test("Fleet preserves structured dispatch and expired personal-token failures across build drift", async (t) => {
+  const fixture = await fleetFixture(t);
+  t.after(() => fixture.close());
+  let failure: Error = new Error("unexpected handler error");
+  Object.defineProperty(fixture.host, "read", {
+    value: async () => {
+      throw failure;
+    },
+  });
+  const center = await fixture.center(),
+    peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret", {
+      buildCommit: "0".repeat(40),
+    });
+  for (const [code, message] of [
+    ["edge_default_branch_behind", "Edge main is behind center; run git merge --ff-only origin/main."],
+    ["human_confirmation_required", "Personal Keycloak access token or session has expired; sign in again."],
+  ]) {
+    failure = Object.assign(new Error(message), { code });
+    const response = await peer.request({
+      schema: "fleet.operational.read/v1",
+      messageId: `failure-${code}`,
+      repoId: fixture.subject.repoId,
+      method: "repo.task.dispatches",
+      payload: { taskId: fixture.subject.taskId },
+    });
+    assert.equal(response.schema, "fleet.error/v1");
+    if (response.schema !== "fleet.error/v1") throw new Error(JSON.stringify(response));
+    assert.equal(response.code, code, JSON.stringify(response));
+    assert.equal(response.message, message);
+  }
+  failure = new Error("uncoded failure stays visible");
+  const unexpected = await peer.request({
+    schema: "fleet.operational.read/v1",
+    messageId: "uncoded-error",
+    repoId: fixture.subject.repoId,
+    method: "repo.task.dispatches",
+    payload: { taskId: fixture.subject.taskId },
+  });
+  assert.equal(unexpected.schema, "fleet.error/v1");
+  if (unexpected.schema !== "fleet.error/v1") throw new Error(JSON.stringify(unexpected));
+  assert.equal(unexpected.code, "handler_failed");
+  assert.equal(unexpected.message, failure.message);
+});
+test("incompatible Fleet hello rejects with the actual node and center builds and upgrade command", async (t) => {
+  const fixture = await fleetFixture(t);
+  t.after(() => fixture.close());
+  const center = await fixture.center(),
+    edgeBuild = "0".repeat(40),
+    socket = connect({ host: "127.0.0.1", port: center.port, ca: fixture.cert, servername: "localhost" });
+  fixture.track(() => socket.destroy());
+  await once(socket, "secureConnect");
+  const lines = createInterface({ input: socket });
+  t.after(() => lines.close());
+  const response = once(lines, "line");
+  socket.write(
+    serializeFleetFrame({
+      schema: "fleet.session.hello/v1",
+      messageId: "unsupported-protocol",
+      protocolVersion: { major: 2, minor: 0 },
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      buildCommit: edgeBuild,
+    }),
+  );
+  const [line] = await response,
+    frame = parseFleetFrame(line);
+  assert.equal(frame.schema, "fleet.error/v1");
+  if (frame.schema !== "fleet.error/v1") throw new Error(JSON.stringify(frame));
+  assert.equal(frame.code, "protocol_version_unsupported");
+  assert.ok(frame.message.includes(`node ${fixture.subject.nodeId} build=${edgeBuild}`), frame.message);
+  assert.ok(frame.message.includes(`center build=${daemonBuildStamp().commit ?? "unknown"}`), frame.message);
+  assert.match(frame.message, /git pull --ff-only, then build CLI and daemon on the node and center/u);
+  assert.deepEqual(reviewDispatchDiagnostic(frame), { code: frame.code, message: frame.message });
 });
 test("version metadata stays outside the closed dispatch read result", async (t) => {
   const fixture = await fleetFixture(t);

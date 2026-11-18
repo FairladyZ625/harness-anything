@@ -16165,11 +16165,6 @@
     "owner": "daemon",
     "sources": [
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.autoDispatchLoop.spawn:f9fd5e9ad310e7a439a9de00d8cd251e",
-        "route": "daemon-node-auto-claim",
-        "role": "support"
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.writeNodeReviewDispatchFailure:94d4ca6e115b9d41fd0bd72c6c06d677",
         "route": "daemon-node-auto-claim",
         "role": "support"

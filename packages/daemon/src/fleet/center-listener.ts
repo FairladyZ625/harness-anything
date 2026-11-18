@@ -1,4 +1,5 @@
 import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
+import { fleetVersionWarningMessages } from "@harness-anything/application/internal/queries/fleet-version-warning-read.ts";
 import { validDispatchLifecycleQuery } from "../runtime-dispatch-admission.ts";
 import { previousDispatchLifecycleReadResult } from "../protocol/json-rpc-dispatch-support.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -1894,11 +1895,20 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           connectedNodes,
         ),
         uploads: uploadWindow(state),
-        versionWarnings: [...versionWarnings.values()],
+        versionWarnings: readVersionWarnings(),
       };
     },
-    versionWarnings: () => [...versionWarnings.values()],
+    versionWarnings: readVersionWarnings,
   };
+
+  function readVersionWarnings(repoId?: string): readonly string[] {
+    return fleetVersionWarningMessages({
+      warnings: [...versionWarnings].map(([nodeId, message]) => ({ nodeId, message })),
+      sessions: nodeSessions.snapshot([], new Set()),
+      replicas: replicationSlots.list(),
+      ...(repoId === undefined ? {} : { repoId }),
+    });
+  }
 }
 
 function fleetErrorCode(error: unknown): string | null {
