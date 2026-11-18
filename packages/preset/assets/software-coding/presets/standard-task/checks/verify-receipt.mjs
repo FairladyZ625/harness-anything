@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 
 const PREDICATE_TYPE = "software-coding/verification-receipt/v1";
-const RECEIPT_SUFFIX = "/artifacts/verification-receipt.json";
+/** Match only package-root artifacts/verification-receipt.json so nested archive copies cannot shadow it. */
+const ROOT_RECEIPT_PATTERN = /^(?:(?!artifacts\/)[^/]+\/)*artifacts\/verification-receipt\.json$/u;
 const REQUIRED_FIELDS = ["commitSha", "passed", "failed", "timedOut", "unexecuted", "total"];
 const COUNT_FIELDS = ["passed", "failed", "timedOut", "unexecuted", "total"];
 
@@ -29,9 +30,7 @@ const presetInput = JSON.parse(process.env.HA_PRESET_INPUT ?? "{}");
 const witnessInput = JSON.parse(readFileSync(presetInput.witnessInput, "utf8"));
 const subjects = (witnessInput.subjects ?? []).map(({ file: _file, ...identity }) => identity);
 
-const receiptSubject = (witnessInput.subjects ?? []).find(
-  (item) => item.path === "artifacts/verification-receipt.json" || item.path.endsWith(RECEIPT_SUFFIX),
-);
+const receiptSubject = (witnessInput.subjects ?? []).find((item) => ROOT_RECEIPT_PATTERN.test(item.path));
 
 if (!receiptSubject) {
   emit("fail", subjects, {}, "Missing required verification receipt artifact: artifacts/verification-receipt.json.");

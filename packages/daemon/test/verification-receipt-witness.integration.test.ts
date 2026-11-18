@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { currentGateRun, isTaskEvent } from "@harness-anything/kernel";
+import { currentGateRun, isTaskEvent, submissionDigest } from "@harness-anything/kernel";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -53,6 +53,27 @@ test("standard-task verified profile blocks missing, stale, folded, and mismatch
       .read()
       .events.filter(isTaskEvent)
       .filter((e) => e.taskId === targetTaskId);
+  const seenCuts = new Set<string>();
+  const latestSubmittedCut = () => {
+    const submitted = events().findLast((e) => e.type === "execution_submitted");
+    assert.ok(submitted && submitted.payload.execution.submission, "expected execution_submitted event");
+    const digest = submissionDigest(submitted.payload.execution.submission);
+    assert.equal(seenCuts.has(digest), false, `expected distinct submission digest, saw ${digest} again`);
+    seenCuts.add(digest);
+    return { digest, submission: submitted.payload.execution.submission };
+  };
+  const witnessForCut = (cutDigest: string) =>
+    events().find(
+      (e) => e.type === "completion_gate_verified" && e.payload.witness.basis?.submissionDigest === cutDigest,
+    );
+  const settledRunForCut = (cutDigest: string) => {
+    const event = events().findLast(
+      (e) =>
+        (e.type === "gate_run_changed" || e.type === "completion_gate_verified") &&
+        currentGateRun(e.payload.execution, "verification-receipt")?.submissionDigest === cutDigest,
+    );
+    return event ? currentGateRun(event.payload.execution, "verification-receipt") : undefined;
+  };
 
   try {
     const created = await applied({
@@ -92,20 +113,26 @@ test("standard-task verified profile blocks missing, stale, folded, and mismatch
     );
     git(root, "update-ref", "refs/remotes/origin/main", currentSha);
 
-    // 1. Missing receipt: submit runs witness, records fail, complete rejects with gate_witness_missing
+    // 1. Missing receipt: host records availability=unavailable/result=null via witness_unavailable and blocks complete
     await applied({ kind: "doc-submit", taskId });
     const missingSubmit = await applied({ kind: "task-submit", taskId, executionId });
     await applied({ kind: "task-annotate", taskId, executionId, note: `merge_commit_sha:${currentSha}` }, owner);
-    assert.match(JSON.stringify(missingSubmit), /artifacts\/verification-receipt\.json/u);
-    const missingWitness = events().findLast((e) => e.type === "completion_gate_verified")!;
-    assert.equal(missingWitness.payload.witness.result, "fail");
-    assert.equal(currentGateRun(missingWitness.payload.execution, "verification-receipt")?.result, "fail");
+    const missingCut = latestSubmittedCut();
+    const missingRun = settledRunForCut(missingCut.digest);
+    assert.equal(missingRun?.state, "completed");
+    assert.equal(missingRun?.availability, "unavailable");
+    assert.equal(missingRun?.result, null);
+    assert.match(missingRun?.diagnostic ?? "", /absent from the frozen submission/u);
+    assert.equal(witnessForCut(missingCut.digest), undefined);
     const missingComplete = await cell.run({ kind: "task-complete", taskId, executionId }, owner);
     assert.equal(missingComplete.outcome, "op_rejected", JSON.stringify(missingComplete));
     assert.equal(missingComplete.code, "gate_witness_missing");
-    console.log("VERIFIED_MISSING_RECEIPT=" + JSON.stringify({ submit: missingSubmit, complete: missingComplete }));
+    console.log(
+      "VERIFIED_MISSING_RECEIPT=" +
+        JSON.stringify({ submit: missingSubmit, gateRun: missingRun, complete: missingComplete }),
+    );
 
-    // 2. Stale commitSha (oldSha !== currentSha)
+    // 2. Stale commitSha (oldSha !== currentSha), bound to this cut's submissionDigest and runId
     const receiptPath = path.join(artifactsDir, "verification-receipt.json");
     writeFileSync(
       receiptPath,
@@ -113,24 +140,38 @@ test("standard-task verified profile blocks missing, stale, folded, and mismatch
     );
     await applied({ kind: "doc-submit", taskId });
     const staleSubmit = await applied({ kind: "task-submit", taskId, executionId, amend: true });
-    assert.match(JSON.stringify(staleSubmit), /commitSha/u);
-    const staleWitness = events().findLast((e) => e.type === "completion_gate_verified")!;
+    const staleCut = latestSubmittedCut();
+    const staleWitness = witnessForCut(staleCut.digest);
+    assert.ok(staleWitness, "expected completion_gate_verified bound to stale cut");
+    const staleRun = currentGateRun(staleWitness.payload.execution, "verification-receipt")!;
+    assert.equal(staleRun.submissionDigest, staleCut.digest);
+    assert.equal(staleRun.availability, "available");
+    assert.equal(staleRun.result, "fail");
+    assert.equal(staleWitness.payload.witness.provenance?.runId, staleRun.runId);
     assert.equal(staleWitness.payload.witness.result, "fail");
+    assert.match(staleWitness.payload.witness.diagnostic, /does not match frozen commitSha/u);
     const staleComplete = await cell.run({ kind: "task-complete", taskId, executionId }, owner);
     assert.equal(staleComplete.outcome, "op_rejected");
     assert.equal(staleComplete.code, "gate_witness_missing");
     console.log("VERIFIED_STALE_SHA=" + JSON.stringify({ submit: staleSubmit, complete: staleComplete }));
 
-    // 3. Positive control: unexecuted: 2 folded into total: 12
+    // 3. Positive control: unexecuted: 2 folded into total: 12, bound to this cut's submissionDigest and runId
     writeFileSync(
       receiptPath,
       JSON.stringify({ passed: 10, failed: 0, timedOut: 0, unexecuted: 2, total: 12, commitSha: currentSha }),
     );
     await applied({ kind: "doc-submit", taskId });
     const unexecutedSubmit = await applied({ kind: "task-submit", taskId, executionId, amend: true });
-    const unexecutedWitness = events().findLast((e) => e.type === "completion_gate_verified")!;
+    const unexecutedCut = latestSubmittedCut();
+    const unexecutedWitness = witnessForCut(unexecutedCut.digest);
+    assert.ok(unexecutedWitness, "expected completion_gate_verified bound to unexecuted cut");
+    const unexecutedRun = currentGateRun(unexecutedWitness.payload.execution, "verification-receipt")!;
+    assert.equal(unexecutedRun.submissionDigest, unexecutedCut.digest);
+    assert.equal(unexecutedRun.availability, "available");
+    assert.equal(unexecutedRun.result, "fail");
+    assert.equal(unexecutedWitness.payload.witness.provenance?.runId, unexecutedRun.runId);
     assert.equal(unexecutedWitness.payload.witness.result, "fail");
-    assert.equal(currentGateRun(unexecutedWitness.payload.execution, "verification-receipt")?.result, "fail");
+    assert.match(unexecutedWitness.payload.witness.diagnostic, /Non-passing outcomes present: .*unexecuted=2/u);
     const unexecutedComplete = await cell.run({ kind: "task-complete", taskId, executionId }, owner);
     assert.equal(unexecutedComplete.outcome, "op_rejected");
     assert.equal(unexecutedComplete.code, "gate_witness_missing");
@@ -143,23 +184,68 @@ test("standard-task verified profile blocks missing, stale, folded, and mismatch
     );
     await applied({ kind: "doc-submit", taskId });
     const sumSubmit = await applied({ kind: "task-submit", taskId, executionId, amend: true });
-    const sumWitness = events().findLast((e) => e.type === "completion_gate_verified")!;
+    const sumCut = latestSubmittedCut();
+    const sumWitness = witnessForCut(sumCut.digest);
+    assert.ok(sumWitness, "expected completion_gate_verified bound to sum-mismatch cut");
+    const sumRun = currentGateRun(sumWitness.payload.execution, "verification-receipt")!;
+    assert.equal(sumRun.submissionDigest, sumCut.digest);
+    assert.equal(sumRun.availability, "available");
+    assert.equal(sumRun.result, "fail");
+    assert.equal(sumWitness.payload.witness.provenance?.runId, sumRun.runId);
     assert.equal(sumWitness.payload.witness.result, "fail");
+    assert.match(sumWitness.payload.witness.diagnostic, /Four-state count sum mismatch: .* = 10 !== total\(12\)/u);
     const sumComplete = await cell.run({ kind: "task-complete", taskId, executionId }, owner);
     assert.equal(sumComplete.outcome, "op_rejected");
     assert.equal(sumComplete.code, "gate_witness_missing");
     console.log("VERIFIED_SUM_MISMATCH=" + JSON.stringify({ submit: sumSubmit, complete: sumComplete }));
 
-    // 5. Valid receipt matching currentSha and all four-state invariants -> pass & task complete succeeds
+    // 5. 455+ frozen artifacts + earlier-sorting archive alias + valid root receipt -> ~600B pass & task complete succeeds
+    const bulkDir = path.join(artifactsDir, "bulk");
+    mkdirSync(bulkDir, { recursive: true });
+    for (let index = 0; index < 455; index += 1) {
+      writeFileSync(path.join(bulkDir, `item-${String(index).padStart(3, "0")}.txt`), `artifact-${index}\n`);
+    }
+    const archiveAliasDir = path.join(artifactsDir, "archive", "artifacts");
+    mkdirSync(archiveAliasDir, { recursive: true });
+    writeFileSync(
+      path.join(archiveAliasDir, "verification-receipt.json"),
+      JSON.stringify({ commitSha: oldSha, passed: 1, failed: 0, timedOut: 0, unexecuted: 4, total: 5 }),
+    );
     writeFileSync(
       receiptPath,
       JSON.stringify({ passed: 12, failed: 0, timedOut: 0, unexecuted: 0, total: 12, commitSha: currentSha }),
     );
     await applied({ kind: "doc-submit", taskId });
     await applied({ kind: "task-submit", taskId, executionId, amend: true });
-    const passWitness = events().findLast((e) => e.type === "completion_gate_verified")!;
+    const passCut = latestSubmittedCut();
+    assert.ok((passCut.submission.artifacts?.length ?? 0) >= 455, "expected 455+ frozen artifacts");
+    const passWitness = witnessForCut(passCut.digest);
+    assert.ok(passWitness, "expected completion_gate_verified bound to pass cut");
+    const passRun = currentGateRun(passWitness.payload.execution, "verification-receipt")!;
+    assert.equal(passRun.submissionDigest, passCut.digest);
+    assert.equal(passWitness.payload.witness.provenance?.runId, passRun.runId);
     assert.equal(passWitness.payload.witness.result, "pass");
-    assert.equal(currentGateRun(passWitness.payload.execution, "verification-receipt")?.result, "pass");
+    assert.equal(passRun.result, "pass");
+    assert.equal(passWitness.payload.witness.subjects.length, 1);
+    assert.equal(passWitness.payload.witness.subjects[0]!.path, `${packagePath}/artifacts/verification-receipt.json`);
+    const scriptFrameBytes = Buffer.byteLength(
+      JSON.stringify({
+        schema: "preset-script-result/v1",
+        produces: [
+          {
+            capabilityId: "completion-witness",
+            payload: {
+              result: passWitness.payload.witness.result,
+              subjects: passWitness.payload.witness.subjects,
+              predicateType: passWitness.payload.witness.predicateType,
+              predicate: passWitness.payload.witness.predicate,
+              diagnostic: passWitness.payload.witness.diagnostic,
+            },
+          },
+        ],
+      }) + "\n",
+    );
+    assert.ok(scriptFrameBytes <= 1024, `expected bounded witness frame <= 1024B, got ${scriptFrameBytes}`);
     assert.deepEqual(passWitness.payload.witness.predicate, {
       commitSha: currentSha,
       passed: 12,
@@ -172,7 +258,14 @@ test("standard-task verified profile blocks missing, stale, folded, and mismatch
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
     await waitForFixturePublication(cell, completed.opId, owner);
     assert.ok(events().findLast((e) => e.type === "task_completed"));
-    console.log("VERIFIED_PASS_COMPLETED=" + JSON.stringify(completed));
+    console.log(
+      "VERIFIED_PASS_COMPLETED=" +
+        JSON.stringify({
+          artifactCount: passCut.submission.artifacts?.length ?? 0,
+          scriptFrameBytes,
+          completed,
+        }),
+    );
 
     // 6. Baseline profile stays unaffected (no receipt required)
     const baselineTaskId = "task-baseline-code",

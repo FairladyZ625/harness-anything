@@ -47,7 +47,7 @@
       "verification-receipt": {
         "source": "software-coding/verification-receipt",
         "appliesTo": "submission",
-        "subjects": "all-artifacts",
+        "subjects": ["artifacts/verification-receipt.json"],
         "bindings": {
           "commitSha": { "artifact": "artifacts/verification-receipt.json", "pointer": "/commitSha" },
           "passed": { "artifact": "artifacts/verification-receipt.json", "pointer": "/passed" },
