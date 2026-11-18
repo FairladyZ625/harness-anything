@@ -1223,6 +1223,13 @@ export const agentProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         { field: "certificateKeyFile", pathKind: "cli-local", pathReader: "cli-local" },
       ),
+      cliInput(
+        "--certificate-mode",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", field: "certificateMode", enum: ["self-signed", "domain", "internal-ca"] },
+      ),
       cliInput("--team-id", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "teamId" }),
       cliInput("--team-name", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "teamName" }),
       cliInput("--node-id", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "nodeId" }),

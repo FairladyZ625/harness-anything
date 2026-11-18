@@ -5,6 +5,7 @@ import {
   KeycloakPolicyAdapter,
   keycloakLoginAttributes,
   keycloakLoginMappers,
+  managedListenerProblem as readManagedListenerProblem,
   type KeycloakPolicyAdapterConfig,
 } from "@harness-anything/authorization-keycloak";
 import {
@@ -86,6 +87,9 @@ import { ManagedRbacService, type ManagedRbacPorts } from "@harness-anything/aut
 import { runProcessText, runProcessTextAsync, runProcessExitAsync } from "./process-port.ts";
 import { mapListenerBindError, validateCertificateNames } from "./tls-listener-admission.ts";
 import { managedRbacReceiptJournal } from "./access-admin-state.ts";
+export function managedListenerProblem(userRoot: string) {
+  return readManagedListenerProblem(userRoot, validateCertificateNames);
+}
 export function createIdentityManagement(userRoot: string, ports: Partial<ManagedRbacPorts> = {}) {
   const mode = readProviderMode(userRoot);
   const journal = managedRbacReceiptJournal(userRoot);
