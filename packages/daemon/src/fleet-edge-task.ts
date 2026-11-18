@@ -315,7 +315,7 @@ export async function runFleetEdgeRepositoryRead(
     minCut = recentAppliedCuts.get(edgeReadStateKey(payload.viewRoot, payload.repoId, payload.nodeId));
   const readAtReplicaCut = async (): Promise<Record<string, unknown>> => {
     const receipt = await readLocal(),
-      view = locateFleetMirrorView(payload.viewRoot, payload.repoId, payload.nodeId);
+      view = locateFleetMirrorView(payload.viewRoot, payload.repoId, payload.nodeId, { includeEntries: false });
     return {
       schema: "command-receipt/v2",
       command: payload.action.kind,
@@ -390,7 +390,9 @@ export async function runFleetEdgeTask(
     // staged, unhandled divergence, its transitions stay blocked — the edge
     // refuses before any upload or center round-trip.
     if (!readOnly && workspaceRoot !== null && taskId !== null && action.kind !== "task-create") {
-      const view = locateFleetMirrorView(payload.viewRoot, payload.repoId, payload.nodeId);
+      const view = locateFleetMirrorView(payload.viewRoot, payload.repoId, payload.nodeId, {
+        entriesPrefix: `tasks/${taskId}`,
+      });
       const exactPackage = view === null ? null : fleetExactTaskPackagePath(view, workspaceRoot, taskId);
       const belongs = (conflictPath: string): boolean =>
         exactPackage === null
@@ -418,7 +420,9 @@ export async function runFleetEdgeTask(
         } as Record<string, unknown>;
     }
     if (action.kind === "doc-submit" && taskId !== null && workspaceRoot !== null) {
-      const view = locateFleetMirrorView(payload.viewRoot, payload.repoId, payload.nodeId);
+      const view = locateFleetMirrorView(payload.viewRoot, payload.repoId, payload.nodeId, {
+        entriesPrefix: `tasks/${taskId}`,
+      });
       const packagePath = view && fleetExactTaskPackagePath(view, workspaceRoot, taskId);
       if (!view || !packagePath) throw new FleetEdgeTaskError("mirror_missing", "Task package is not materialized.");
       if (action.all === true || (Array.isArray(action.paths) && action.paths.length > 0))
@@ -742,7 +746,9 @@ export async function runFleetEdgeTask(
     readonly acceptedWorktreeChanges: Parameters<typeof acceptEdgeWorktreeScanBases>[0];
   } | null> {
     if (taskId === null || workspaceRoot === null || action.kind === "task-create") return null;
-    const view = locateFleetMirrorView(payload.viewRoot, payload.repoId, payload.nodeId);
+    const view = locateFleetMirrorView(payload.viewRoot, payload.repoId, payload.nodeId, {
+      entriesPrefix: `tasks/${taskId}`,
+    });
     if (view === null) return null;
     const packagePath = fleetExactTaskPackagePath(view, workspaceRoot, taskId);
     if (packagePath === null) return null;
