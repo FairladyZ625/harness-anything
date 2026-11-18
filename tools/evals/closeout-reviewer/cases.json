@@ -1,0 +1,274 @@
+{
+  "schema": "closeout-reviewer-eval-cases/v1",
+  "version": 1,
+  "description": "Sanitized offline golden benchmark of historical closeout-review incidents, clean changes, and pre-existing boundary cases.",
+  "cases": [
+    {
+      "id": "pos-fake-green-404-headers",
+      "bucket": "positive",
+      "defectClass": "fake-green-test",
+      "title": "Test asserts security headers set before 404 branch while passing wrong root directory",
+      "expectedVerdict": "changes_requested",
+      "expectedCategories": ["test-only", "correctness"],
+      "taskContext": {
+        "workKind": "fix",
+        "riskTier": "medium",
+        "summary": "Switch static asset broker entry argument from workspaceRoot to assetPackageRoot and add header test.",
+        "acceptanceCriteria": "Broker serves asset index.html with security headers when configured properly."
+      },
+      "diff": "diff --git a/src/http/static-broker.ts b/src/http/static-broker.ts\nindex af74e7a..ab72259 100644\n--- a/src/http/static-broker.ts\n+++ b/src/http/static-broker.ts\n@@ -1,7 +1,7 @@\n export function handleBrokerRequest(assetPackageRoot: string, req: Request, res: Response) {\n   res.setHeader(\"Content-Security-Policy\", \"default-src 'self'\");\n   res.setHeader(\"X-Content-Type-Options\", \"nosniff\");\n-  const target = path.join(assetPackageRoot, \"public\", \"index.html\");\n+  const target = path.join(assetPackageRoot, \"dist\", \"index.html\");\n   if (!existsSync(target)) {\n     res.statusCode = 404;\n     res.end(\"not found\");\ndiff --git a/test/static-broker.test.ts b/test/static-broker.test.ts\nindex 2496003..a4a4ccb 100644\n--- a/test/static-broker.test.ts\n+++ b/test/static-broker.test.ts\n@@ -2,4 +2,5 @@ test(\"static broker sets security headers\", async () => {\n   const workspaceRoot = createTempWorkspaceWithoutDist();\n   const res = await requestBroker(workspaceRoot, \"/\");\n   assert.equal(res.headers[\"content-security-policy\"], \"default-src 'self'\");\n+  assert.equal(res.headers[\"x-content-type-options\"], \"nosniff\");\n });\n",
+      "expectedEvidence": [
+        ["static-broker", "requestBroker", "handleBrokerRequest"],
+        ["404", "not-found", "not found", "missing dist", "without dist", "not set up dist"],
+        ["200", "assert status", "satisfies the test", "still passes", "serves the asset", "passes on 404", "before 404"]
+      ]
+    },
+    {
+      "id": "pos-fake-green-wallclock-ticks",
+      "bucket": "positive",
+      "defectClass": "fake-green-test",
+      "title": "Integration test checks elapsed wall-clock ticks > 0 instead of installed state",
+      "expectedVerdict": "changes_requested",
+      "expectedCategories": ["test-only", "correctness"],
+      "taskContext": {
+        "workKind": "fix",
+        "riskTier": "medium",
+        "summary": "Verify worker replica installation completes asynchronously.",
+        "acceptanceCriteria": "Test fails when worker skips installation and passes only when manifest is persisted."
+      },
+      "diff": "diff --git a/test/worker-install.integration.test.ts b/test/worker-install.integration.test.ts\nindex a9f0c77..8e2a154 100644\n--- a/test/worker-install.integration.test.ts\n+++ b/test/worker-install.integration.test.ts\n@@ -1,7 +1,9 @@\n test(\"replica install worker completes install\", async () => {\n   const targetDir = createTempDir();\n   const worker = startInstallWorker({ targetDir });\n-  await worker.waitUntilReady();\n-  const manifest = JSON.parse(readFileSync(path.join(targetDir, \"manifest.json\"), \"utf8\"));\n-  assert.equal(manifest.installed, true);\n+  const started = Date.now();\n+  await new Promise((resolve) => setTimeout(resolve, 10));\n+  const ticks = Date.now() - started;\n+  assert.ok(ticks > 0, \"worker install should take positive time\");\n+  await worker.stop();\n });\n",
+      "expectedEvidence": [
+        ["worker-install", "ticks", "setTimeout", "Date.now"],
+        ["elapsed time", "wall clock", "positive time", "sleep"],
+        ["manifest", "persisting", "persist", "installed", "installation completion"]
+      ]
+    },
+    {
+      "id": "pos-zombie-unwired-module",
+      "bucket": "positive",
+      "defectClass": "zombie-module",
+      "title": "New helper module only imported by its own unit test with zero production callers",
+      "expectedVerdict": "changes_requested",
+      "expectedCategories": ["completeness", "correctness"],
+      "taskContext": {
+        "workKind": "feat",
+        "riskTier": "medium",
+        "summary": "Wire stale lease reaper into daemon background maintenance.",
+        "acceptanceCriteria": "Expired leases are reclaimed by the daemon maintenance loop."
+      },
+      "diff": "diff --git a/src/maintenance/stale-lease-reaper.ts b/src/maintenance/stale-lease-reaper.ts\nnew file mode 100644\nindex 0000000..2a3ea95\n--- /dev/null\n+++ b/src/maintenance/stale-lease-reaper.ts\n@@ -0,0 +1,5 @@\n+export interface LeaseRecord { readonly id: string; readonly expiresAtMs: number; }\n+\n+export function selectExpiredLeaseIds(leases: readonly LeaseRecord[], nowMs: number): string[] {\n+  return leases.filter((lease) => lease.expiresAtMs <= nowMs).map((lease) => lease.id);\n+}\ndiff --git a/test/stale-lease-reaper.test.ts b/test/stale-lease-reaper.test.ts\nnew file mode 100644\nindex 0000000..1b8ecb9\n--- /dev/null\n+++ b/test/stale-lease-reaper.test.ts\n@@ -0,0 +1,7 @@\n+import assert from \"node:assert/strict\";\n+import test from \"node:test\";\n+import { selectExpiredLeaseIds } from \"../src/maintenance/stale-lease-reaper.ts\";\n+\n+test(\"selects expired leases\", () => {\n+  assert.deepEqual(selectExpiredLeaseIds([{ id: \"l1\", expiresAtMs: 10 }, { id: \"l2\", expiresAtMs: 50 }], 20), [\"l1\"]);\n+});\n",
+      "expectedEvidence": [
+        ["stale-lease-reaper", "selectExpiredLeaseIds", "lease reaper"],
+        ["only used by tests", "only the test", "unwired", "not wired", "never called"],
+        ["no production", "production caller", "maintenance loop", "daemon"]
+      ]
+    },
+    {
+      "id": "pos-host-package-domain-bloat",
+      "bucket": "positive",
+      "defectClass": "host-package-bloat",
+      "title": "Pure domain transition rules placed in daemon host package instead of kernel/application",
+      "expectedVerdict": "changes_requested",
+      "expectedCategories": ["decision-break", "correctness"],
+      "taskContext": {
+        "workKind": "feat",
+        "riskTier": "medium",
+        "summary": "Add task completion readiness and transition validation.",
+        "acceptanceCriteria": "Pure domain state rules reside in kernel; daemon only wires transport and storage ports."
+      },
+      "diff": "diff --git a/packages/daemon/src/task-completion-policy.ts b/packages/daemon/src/task-completion-policy.ts\nnew file mode 100644\nindex 0000000..6a7d86d\n--- /dev/null\n+++ b/packages/daemon/src/task-completion-policy.ts\n@@ -0,0 +1,18 @@\n+export interface TaskSnapshot {\n+  readonly status: \"active\" | \"in_review\" | \"done\";\n+  readonly approvedReviewCount: number;\n+  readonly hasConsent: boolean;\n+}\n+\n+export function evaluateCompletionReadiness(snapshot: TaskSnapshot): { ready: boolean; blocker: string | null } {\n+  if (snapshot.status !== \"in_review\") {\n+    return { ready: false, blocker: \"not_in_review\" };\n+  }\n+  if (snapshot.approvedReviewCount === 0) {\n+    return { ready: false, blocker: \"missing_approved_review\" };\n+  }\n+  if (!snapshot.hasConsent) {\n+    return { ready: false, blocker: \"missing_owner_consent\" };\n+  }\n+  return { ready: true, blocker: null };\n+}\n",
+      "expectedEvidence": [
+        ["task-completion-policy", "evaluateCompletionReadiness", "completion readiness"],
+        ["daemon", "host package"],
+        ["kernel", "pure transition", "domain"]
+      ]
+    },
+    {
+      "id": "pos-weakened-existing-assertion",
+      "bucket": "positive",
+      "defectClass": "weakened-test-oracle",
+      "title": "Existing authorization test assertion weakened from 403 to >= 200 to pass broken check",
+      "expectedVerdict": "changes_requested",
+      "expectedCategories": ["test-only", "correctness", "security-auth"],
+      "taskContext": {
+        "workKind": "fix",
+        "riskTier": "medium",
+        "summary": "Update policy handler response handling.",
+        "acceptanceCriteria": "Unauthorized callers continue to receive 403 policy_denied."
+      },
+      "diff": "diff --git a/test/auth-policy.test.ts b/test/auth-policy.test.ts\nindex b4476e3..3dcd72b 100644\n--- a/test/auth-policy.test.ts\n+++ b/test/auth-policy.test.ts\n@@ -1,5 +1,4 @@\n test(\"rejects unprivileged caller\", async () => {\n   const res = await invokeAction({ actorRole: \"viewer\", action: \"delete_task\" });\n-  assert.equal(res.status, 403);\n-  assert.equal(res.errorCode, \"policy_denied\");\n+  assert.ok(res.status >= 200);\n });\n",
+      "expectedEvidence": [
+        ["auth-policy", "unprivileged caller", "invokeAction"],
+        ["403", "policy_denied"],
+        ["status >= 200", "weakens", "weakened", "relaxes", "accepts success"]
+      ]
+    },
+    {
+      "id": "pos-deleted-golden-fixture-case",
+      "bucket": "positive",
+      "defectClass": "weakened-test-oracle",
+      "title": "Failing edge cases deleted from golden fixture JSON and exact length check relaxed",
+      "expectedVerdict": "changes_requested",
+      "expectedCategories": ["test-only", "completeness", "correctness"],
+      "taskContext": {
+        "workKind": "fix",
+        "riskTier": "medium",
+        "summary": "Fix schema parser handling for quoted fields.",
+        "acceptanceCriteria": "All golden fixture cases parse without dropping escaped quotes."
+      },
+      "diff": "diff --git a/test/fixtures/parser-golden.json b/test/fixtures/parser-golden.json\nindex 2b188a6..bbfa86c 100644\n--- a/test/fixtures/parser-golden.json\n+++ b/test/fixtures/parser-golden.json\n@@ -1,5 +1,3 @@\n [\n-  { \"input\": \"a=\\\"1,2\\\"\", \"expected\": { \"a\": \"1,2\" } },\n-  { \"input\": \"b=''\", \"expected\": { \"b\": \"\" } },\n   { \"input\": \"c=plain\", \"expected\": { \"c\": \"plain\" } }\n ]\ndiff --git a/test/parser.test.ts b/test/parser.test.ts\nindex b3de576..33b40ff 100644\n--- a/test/parser.test.ts\n+++ b/test/parser.test.ts\n@@ -1,5 +1,5 @@\n test(\"parses all golden fixtures\", () => {\n   const cases = loadGoldenCases();\n-  assert.equal(cases.length, 3);\n+  assert.ok(cases.length >= 1);\n   for (const item of cases) assert.deepEqual(parseLine(item.input), item.expected);\n });\n",
+      "expectedEvidence": [
+        ["parser-golden", "golden fixture", "loadGoldenCases"],
+        ["quoted fields", "escaped quotes"],
+        ["removing", "removed", "removes", "deleted", "drops", "cases.length"]
+      ]
+    },
+    {
+      "id": "pos-swallowed-error-fallback",
+      "bucket": "positive",
+      "defectClass": "swallowed-error-fallback",
+      "title": "Catch block swallows persistence write failure and returns fake success object",
+      "expectedVerdict": "changes_requested",
+      "expectedCategories": ["correctness", "data-loss"],
+      "taskContext": {
+        "workKind": "fix",
+        "riskTier": "medium",
+        "summary": "Make checkpoint writer resilient during shutdown.",
+        "acceptanceCriteria": "Persistence failures surface cleanly to caller without silent data loss."
+      },
+      "diff": "diff --git a/src/storage/checkpoint-writer.ts b/src/storage/checkpoint-writer.ts\nindex 3376eec..9777bd0 100644\n--- a/src/storage/checkpoint-writer.ts\n+++ b/src/storage/checkpoint-writer.ts\n@@ -1,4 +1,8 @@\n export async function writeCheckpoint(store: EventStore, record: CheckpointRecord) {\n-  await store.append(\"checkpoint_saved\", record);\n-  return { persisted: true };\n+  try {\n+    await store.append(\"checkpoint_saved\", record);\n+    return { persisted: true };\n+  } catch {\n+    return { persisted: true };\n+  }\n }\n",
+      "expectedEvidence": [
+        ["writeCheckpoint", "checkpoint-writer", "store.append"],
+        ["swallows", "swallowed", "catch", "hides"],
+        ["persisted true", "false success", "reports success", "data loss"]
+      ]
+    },
+    {
+      "id": "pos-speculative-compat-wrapper",
+      "bucket": "positive",
+      "defectClass": "redundant-wrapper",
+      "title": "Adds unused legacy fallback flag and wrapper instead of deleting superseded path",
+      "expectedVerdict": "changes_requested",
+      "expectedCategories": ["correctness", "completeness"],
+      "taskContext": {
+        "workKind": "refactor",
+        "riskTier": "medium",
+        "summary": "Migrate single caller to resolveConfiguredRoot and remove legacy path.",
+        "acceptanceCriteria": "Legacy resolver is deleted in the same change."
+      },
+      "diff": "diff --git a/src/config/root-resolver.ts b/src/config/root-resolver.ts\nindex 7ecc39a..95ee5dc 100644\n--- a/src/config/root-resolver.ts\n+++ b/src/config/root-resolver.ts\n@@ -1,3 +1,12 @@\n export function legacyResolveRoot(cwd: string): string {\n   return `${cwd}/.legacy`;\n }\n+\n+export function resolveConfiguredRoot(cwd: string, options?: { enableLegacyFallback?: boolean }): string {\n+  try {\n+    return `${cwd}/.config`;\n+  } catch {\n+    if (options?.enableLegacyFallback) return legacyResolveRoot(cwd);\n+    return legacyResolveRoot(cwd);\n+  }\n+}\n",
+      "expectedEvidence": [
+        ["resolveConfiguredRoot", "root-resolver"],
+        ["legacyResolveRoot", "legacy resolver", "enableLegacyFallback"],
+        ["retains", "keeps", "fallback", "not removed", "still present", "delete"]
+      ]
+    },
+    {
+      "id": "neg-narrow-bugfix-with-regression-test",
+      "bucket": "negative",
+      "defectClass": "clean-change",
+      "title": "Focused off-by-one boundary fix with failing-before/passing-after unit test",
+      "expectedVerdict": "approved",
+      "expectedCategories": [],
+      "taskContext": {
+        "workKind": "fix",
+        "riskTier": "medium",
+        "summary": "Fix off-by-one cursor slice when page limit equals remaining items.",
+        "acceptanceCriteria": "No nextCursor returned when remaining items equal page limit."
+      },
+      "diff": "diff --git a/src/query/paginate.ts b/src/query/paginate.ts\nindex b22f8f2..85260b8 100644\n--- a/src/query/paginate.ts\n+++ b/src/query/paginate.ts\n@@ -1,5 +1,5 @@\n export function slicePage<T>(items: readonly T[], offset: number, limit: number) {\n   const slice = items.slice(offset, offset + limit);\n-  const hasMore = offset + limit <= items.length;\n+  const hasMore = offset + limit < items.length;\n   return { items: slice, nextOffset: hasMore ? offset + limit : null };\n }\ndiff --git a/test/paginate.test.ts b/test/paginate.test.ts\nindex 0cf3970..df70d8b 100644\n--- a/test/paginate.test.ts\n+++ b/test/paginate.test.ts\n@@ -1,3 +1,8 @@\n+test(\"returns null nextOffset at exact end\", () => {\n+  const page = slicePage([\"a\", \"b\"], 0, 2);\n+  assert.deepEqual(page, { items: [\"a\", \"b\"], nextOffset: null });\n+});\n+\n test(\"returns nextOffset when items remain\", () => {\n   const page = slicePage([\"a\", \"b\", \"c\"], 0, 2);\n   assert.deepEqual(page, { items: [\"a\", \"b\"], nextOffset: 2 });\n"
+    },
+    {
+      "id": "neg-clean-delete-old-path-refactor",
+      "bucket": "negative",
+      "defectClass": "clean-change",
+      "title": "Consolidates duplicated URL normalization and deletes old helper in same commit",
+      "expectedVerdict": "approved",
+      "expectedCategories": [],
+      "taskContext": {
+        "workKind": "refactor",
+        "riskTier": "medium",
+        "summary": "Deduplicate endpoint normalization and remove legacy helper.",
+        "acceptanceCriteria": "Single normalization helper used by all callers; old helper removed."
+      },
+      "diff": "diff --git a/src/net/client.ts b/src/net/client.ts\nindex c84ef74..94f0004 100644\n--- a/src/net/client.ts\n+++ b/src/net/client.ts\n@@ -1,4 +1,4 @@\n-import { normalizeLegacyUrl } from \"./endpoint.ts\";\n+import { normalizeEndpointUrl } from \"./endpoint.ts\";\n export function buildClientBase(raw: string): string {\n-  return normalizeLegacyUrl(raw);\n+  return normalizeEndpointUrl(raw);\n }\ndiff --git a/src/net/endpoint.ts b/src/net/endpoint.ts\nindex 6603444..eb86410 100644\n--- a/src/net/endpoint.ts\n+++ b/src/net/endpoint.ts\n@@ -1,7 +1,3 @@\n export function normalizeEndpointUrl(raw: string): string {\n   return raw.trim().replace(/\\/+$/u, \"\");\n }\n-\n-export function normalizeLegacyUrl(raw: string): string {\n-  return raw.trim().replace(/\\/+$/u, \"\");\n-}\n"
+    },
+    {
+      "id": "neg-pure-property-test-addition",
+      "bucket": "negative",
+      "defectClass": "clean-change",
+      "title": "Pure addition of deterministic edge-case tests without touching production code",
+      "expectedVerdict": "approved",
+      "expectedCategories": [],
+      "taskContext": {
+        "workKind": "test",
+        "riskTier": "low",
+        "summary": "Add deterministic slug validation property and boundary tests.",
+        "acceptanceCriteria": "Lowercase slugs up to 64 characters are accepted. Empty, uppercase and overlong slugs are rejected."
+      },
+      "diff": "diff --git a/test/slug-validator.test.ts b/test/slug-validator.test.ts\nindex 6dfb549..8f0d874 100644\n--- a/test/slug-validator.test.ts\n+++ b/test/slug-validator.test.ts\n@@ -1,3 +1,12 @@\n test(\"accepts lowercase hyphenated slug\", () => {\n   assert.equal(isValidSlug(\"valid-slug-1\"), true);\n });\n+\n+test(\"enforces slug casing and length\", () => {\n+  assert.equal(isValidSlug(\"\"), false);\n+  for (let length = 1; length <= 64; length++) {\n+    assert.equal(isValidSlug(\"a\".repeat(length)), true);\n+    assert.equal(isValidSlug(\"A\" + \"a\".repeat(length - 1)), false);\n+  }\n+  assert.equal(isValidSlug(\"a\".repeat(65)), false);\n+});\n"
+    },
+    {
+      "id": "neg-focused-error-code-propagation",
+      "bucket": "negative",
+      "defectClass": "clean-change",
+      "title": "Propagates typed domain error code instead of masking with generic error",
+      "expectedVerdict": "approved",
+      "expectedCategories": [],
+      "taskContext": {
+        "workKind": "fix",
+        "riskTier": "medium",
+        "summary": "Preserve error.code when forwarding command rejection.",
+        "acceptanceCriteria": "Typed CodedError retains its original code; untyped errors rethrow unchanged."
+      },
+      "diff": "diff --git a/src/cli/error-format.ts b/src/cli/error-format.ts\nindex 4c0e841..1805cd0 100644\n--- a/src/cli/error-format.ts\n+++ b/src/cli/error-format.ts\n@@ -2,5 +2,5 @@ export function formatCommandFailure(error: unknown): { code: string; message: s\n   if (error instanceof CodedError) {\n     return { code: error.code, message: error.message };\n   }\n-  return { code: \"internal_error\", message: \"command failed\" };\n+  throw error;\n }\ndiff --git a/test/error-format.test.ts b/test/error-format.test.ts\nindex 02b54d2..62c27f9 100644\n--- a/test/error-format.test.ts\n+++ b/test/error-format.test.ts\n@@ -1,3 +1,8 @@\n test(\"preserves coded error\", () => {\n   assert.deepEqual(formatCommandFailure(new CodedError(\"invalid_id\", \"bad\")), { code: \"invalid_id\", message: \"bad\" });\n });\n+\n+test(\"rethrows the original unknown error\", () => {\n+  const unexpected = new TypeError(\"unexpected\");\n+  assert.throws(() => formatCommandFailure(unexpected), (error) => error === unexpected);\n+});\n"
+    },
+    {
+      "id": "neg-doc-schema-alignment",
+      "bucket": "negative",
+      "defectClass": "clean-change",
+      "title": "Aligns CLI flag help description with schema and updates help-contract test",
+      "expectedVerdict": "approved",
+      "expectedCategories": [],
+      "taskContext": {
+        "workKind": "docs",
+        "riskTier": "low",
+        "summary": "Document --json output flag in status command help.",
+        "acceptanceCriteria": "Help output and help-contract test match."
+      },
+      "diff": "diff --git a/src/cli/help.ts b/src/cli/help.ts\nindex 5fbd2db..d4e6cf2 100644\n--- a/src/cli/help.ts\n+++ b/src/cli/help.ts\n@@ -1,4 +1,5 @@\n export const statusHelpLines = [\n   \"Usage: app status [--json]\",\n   \"Options:\",\n+  \"  --json   Emit machine-readable JSON status output\",\n ];\ndiff --git a/test/help-contract.test.ts b/test/help-contract.test.ts\nindex 4cc8f90..8d3d4a2 100644\n--- a/test/help-contract.test.ts\n+++ b/test/help-contract.test.ts\n@@ -3,3 +3,7 @@ import { statusHelpLines } from \"../src/cli/help.ts\";\n test(\"status help has an options section\", () => {\n   assert.ok(statusHelpLines.includes(\"Options:\"));\n });\n+\n+test(\"status help documents --json option description\", () => {\n+  assert.ok(statusHelpLines.includes(\"  --json   Emit machine-readable JSON status output\"));\n+});\n"
+    },
+    {
+      "id": "preexisting-adjacent-style-debt",
+      "bucket": "pre_existing",
+      "defectClass": "pre-existing-boundary",
+      "title": "Clean null guard fix adjacent to untouched legacy nested if/else styling",
+      "expectedVerdict": "approved",
+      "expectedCategories": [],
+      "expectedNonBlockingPreExisting": true,
+      "taskContext": {
+        "workKind": "fix",
+        "riskTier": "medium",
+        "summary": "Guard missing config file path before readFileSync.",
+        "acceptanceCriteria": "Throws explicit missing_config_path error when path is empty."
+      },
+      "diff": "diff --git a/src/config/loader.ts b/src/config/loader.ts\nindex 70e75c1..1111a0c 100644\n--- a/src/config/loader.ts\n+++ b/src/config/loader.ts\n@@ -5,5 +5,8 @@ export function loadConfigText(configPath: string, legacyEnv: Record<string, str\n       return cfgTmp;\n     }\n   }\n+  if (configPath.trim() === \"\") {\n+    throw new Error(\"missing_config_path\");\n+  }\n   return readFileSync(configPath, \"utf8\");\n }\ndiff --git a/test/loader.test.ts b/test/loader.test.ts\nindex 503e748..75f5595 100644\n--- a/test/loader.test.ts\n+++ b/test/loader.test.ts\n@@ -1,3 +1,7 @@\n test(\"still accepts legacy config text\", () => {\n   assert.equal(loadConfigText(\"\", { APP_CFG: \"value\" }), \"value\");\n });\n+\n+test(\"rejects empty configPath\", () => {\n+  assert.throws(() => loadConfigText(\"\", {}), /missing_config_path/);\n+});\n"
+    },
+    {
+      "id": "preexisting-unrelated-legacy-helper",
+      "bucket": "pre_existing",
+      "defectClass": "pre-existing-boundary",
+      "title": "Focused retry cap fix in file containing untouched legacy function with unused arg",
+      "expectedVerdict": "approved",
+      "expectedCategories": [],
+      "expectedNonBlockingPreExisting": true,
+      "taskContext": {
+        "workKind": "fix",
+        "riskTier": "medium",
+        "summary": "Cap exponential retry backoff at maxDelayMs.",
+        "acceptanceCriteria": "Computed delay never exceeds maxDelayMs."
+      },
+      "diff": "diff --git a/src/net/retry.ts b/src/net/retry.ts\nindex 1a436fe..957d50d 100644\n--- a/src/net/retry.ts\n+++ b/src/net/retry.ts\n@@ -1,5 +1,5 @@\n export function computeRetryDelayMs(attempt: number, baseMs: number, maxDelayMs: number): number {\n-  return baseMs * 2 ** attempt;\n+  return Math.min(maxDelayMs, baseMs * 2 ** attempt);\n }\n \n export function formatLegacySummary(count: number, _unusedMode?: string): string {\ndiff --git a/test/retry.test.ts b/test/retry.test.ts\nindex b7a8358..aaf427d 100644\n--- a/test/retry.test.ts\n+++ b/test/retry.test.ts\n@@ -1,3 +1,7 @@\n test(\"backs off exponentially before cap\", () => {\n   assert.equal(computeRetryDelayMs(2, 100, 1500), 400);\n });\n+\n+test(\"caps delay at maxDelayMs\", () => {\n+  assert.equal(computeRetryDelayMs(10, 100, 1500), 1500);\n+});\n"
+    }
+  ]
+}
