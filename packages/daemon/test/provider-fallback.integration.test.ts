@@ -1212,8 +1212,8 @@ for (const recovery of ["reconcile", "adoption", "timer"] as const) {
         closeBeforeAdmission = recovery === "timer",
         launches = 0;
       // CH1 prepares host Git facts before the writer queue. Observe that actual
-      // enqueue boundary rather than assuming the timer synchronously queues work.
-      const expectedQueued = recovery === "timer" ? 2 : 1;
+      // enqueue boundary. The timer case needs one callback each for closure, exhaustion and replay.
+      const expectedQueued = recovery === "timer" ? 3 : 1;
       let notifyQueued: () => void;
       const queued = new Promise<void>((resolve) => {
         notifyQueued = resolve;
@@ -1276,8 +1276,7 @@ for (const recovery of ["reconcile", "adoption", "timer"] as const) {
         return context;
       };
       const firstContext = openContext();
-      await firstContext.reconcileFallback(dispatchId);
-      if (recovery === "timer") await firstContext.reconcileFallback(dispatchId);
+      for (let index = 0; index < expectedQueued; index++) await firstContext.reconcileFallback(dispatchId);
       t.mock.timers.tick(0);
       await queued;
       assert.equal(queue.length, expectedQueued);
