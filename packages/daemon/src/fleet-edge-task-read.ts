@@ -50,7 +50,7 @@ export function withEdgeReadModel<T>(
     try {
       return reader.withSession((projection) => {
         const view = fleetMirrorViewAtProjection(viewDir, input.repoId, generation, projection, {
-            includeEntries: input.includeEntries ?? true,
+            includeEntries: input.includeEntries ?? false,
           }),
           fresh = edgeFreshness(view, generation.metadata.position.revision, input, now);
         return read(
@@ -109,7 +109,7 @@ export async function readEdgeRepository(
   pull: () => Promise<unknown>,
   readLocal: () => Promise<Record<string, unknown>>,
 ): Promise<Record<string, unknown>> {
-  if (!locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId)) {
+  if (!locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId, { includeEntries: false })) {
     await pull();
     return readLocal();
   }
@@ -117,11 +117,11 @@ export async function readEdgeRepository(
   return readLocal();
 }
 export function edgeReadModelPresent(input: EdgeTaskReadInput): boolean {
-  return locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId) !== null;
+  return locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId, { includeEntries: false }) !== null;
 }
 export function waitForMinimumCut(input: EdgeTaskReadInput): Promise<boolean> {
   if (!input.minCut) return Promise.resolve(true);
-  const view = locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId);
+  const view = locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId, { includeEntries: false });
   if (view && view.revision >= input.minCut.revision) return Promise.resolve(true);
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
@@ -130,7 +130,7 @@ export function waitForMinimumCut(input: EdgeTaskReadInput): Promise<boolean> {
     }, input.writeReadWaitMs ?? DEFAULT_WRITE_READ_WAIT_MS);
     const watcher = view
       ? watch(view.viewDir, () => {
-          const current = locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId);
+          const current = locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId, { includeEntries: false });
           if (current && current.revision >= input.minCut!.revision) {
             clearTimeout(timer);
             watcher.close();
