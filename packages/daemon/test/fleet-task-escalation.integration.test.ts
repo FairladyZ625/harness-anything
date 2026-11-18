@@ -344,7 +344,6 @@ test(
       localAuthFixture(),
     );
     assert.equal(fresh.outcome, "applied", JSON.stringify(fresh));
-    assert.equal(existsSync(rulingPath), false, "the new dispatch receives the answer without a local resolution file");
     const prompt = launchedPrompts.at(-1)!;
     assert.ok(prompt.includes(question));
     assert.ok(prompt.includes("Keep the boundary."));

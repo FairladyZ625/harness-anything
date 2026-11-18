@@ -544,9 +544,10 @@ test("settingsLastChanged uses the canonical projection cut without scanning the
       assert.equal(settingsLastChanged({ readSettingsEvent: () => null }), "initial");
     } finally {
       projection.close();
+      await store.drain();
     }
   } finally {
-    cell?.close();
+    await cell?.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -617,7 +618,7 @@ test("repo.settings.read carries the write-path singleton revision as the GUI op
     assert.equal(stale.outcome, "op_rejected");
     assert.equal(stale.code, "revision_conflict");
   } finally {
-    cell?.close();
+    await cell?.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
