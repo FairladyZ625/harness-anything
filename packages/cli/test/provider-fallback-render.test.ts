@@ -259,6 +259,7 @@ test("a dispatch receipt renders which runtime instance was chosen and why", () 
     opId: "op-selection",
     runtimeSessionId: "runtime_one",
     dispatchId: "dispatch_one",
+    steerSupported: false,
     runtimeSelection: {
       instanceId: "ds-bailian",
       basis: "exact-model",
@@ -269,6 +270,7 @@ test("a dispatch receipt renders which runtime instance was chosen and why", () 
     },
   });
   assert.equal(rendered.stream, "stdout");
+  assert.match(rendered.text, /^steerSupported: false$/mu);
   assert.match(
     rendered.text,
     /warning: runtime instance: ds-bailian \(exact-model\) — Instance ds-bailian \(deepseek-harness\) lists the declared model deepseek-v4\.1-flash verbatim/u,

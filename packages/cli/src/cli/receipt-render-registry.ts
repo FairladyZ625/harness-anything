@@ -108,6 +108,7 @@ export function renderCliReceipt(
     searchLine = runtimeWebSearchLine(receipt),
     mcpLine = runtimeMcpPolicyLine(receipt),
     extras = [
+      ...(typeof receipt.steerSupported === "boolean" ? [`steerSupported: ${String(receipt.steerSupported)}`] : []),
       ...(searchLine === null ? [] : [searchLine]),
       ...(mcpLine === null ? [] : [mcpLine]),
       ...warnings.map((warning) => `warning: ${warning}`),

@@ -37,7 +37,7 @@ export function renderEvidencePayload(payload: unknown): string {
         Array.isArray(value)
           ? value.length === 0
             ? ""
-            : `${key}:\n${renderEvidenceRows(value)}`
+            : `${key}:\n${renderEvidenceRows(value, record.schema === "agent-inspection/v1" && key === "runtimeCapabilities")}`
           : `${key}: ${renderEvidenceRows([value], true)}`,
       ),
       scalars,

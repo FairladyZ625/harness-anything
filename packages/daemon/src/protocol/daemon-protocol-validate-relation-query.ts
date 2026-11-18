@@ -486,6 +486,8 @@ export function validDispatchLifecycleSummary(value: unknown): value is Dispatch
         ].every((key) => typeof policy[key] === "boolean") &&
         (dispatchReservationStateWords as readonly unknown[]).includes(policy.capacity) &&
         (dispatchCapacityDispositionWords as readonly unknown[]).includes(policy.capacityDisposition) &&
+        // Previous-version peers omit this new liveness projection; absence grants no liveness.
+        (policy.processAlive === undefined || typeof policy.processAlive === "boolean") &&
         [null, "runtime_recovery_pending", "dispatch_owner_unverified", "runtime_capacity_exhausted"].includes(
           policy.blockerCode as never,
         )))

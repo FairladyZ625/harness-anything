@@ -1,3 +1,4 @@
+import { runtimeSteerSupported } from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
 import type { AgentRuntimeEventV1, CanonicalEventStore } from "@harness-anything/kernel";
 
 /** The durable receipt for a published dispatch, also used when an idempotent request is replayed. */
@@ -18,6 +19,7 @@ export function runtimeSpawnReceipt(
       opId: event.opId,
       runtimeSessionId,
       dispatchId,
+      steerSupported: event.type === "runtime_dispatch_requested" && runtimeSteerSupported(event.payload.kindId),
       revision,
       ...(webSearch === undefined ? {} : { webSearch }),
       ...(mcpPolicy === undefined ? {} : { mcpPolicy }),

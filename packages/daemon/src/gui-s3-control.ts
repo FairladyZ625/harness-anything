@@ -326,6 +326,7 @@ export function validateRuntimeSpawnReceipt(value: unknown): readonly string[] {
       // Which instance was chosen and which selection rule decided it; the CLI renders the
       // reason so a same-kind sibling skip is explainable from the receipt alone.
       runtimeSelection: "optional-object",
+      steerSupported: "optional-boolean",
       // Effective Codex native-search tier; a receipt-level fact, never account configuration.
       webSearch: "optional-string",
       // Effective host MCP inheritance policy resolved across dispatch > agent > instance.
