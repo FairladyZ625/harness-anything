@@ -14,7 +14,14 @@ import type { AgendaSuccess } from "../api-client.ts";
 import type { CadenceFeedEvent } from "../model/cadence.ts";
 import type { AttestationPoolLanes } from "../model/attestation-pool.ts";
 import { runtimeModelShortLabel } from "../model/runtime-models.ts";
-import type { SnapshotStatus } from "../model/types";
+import type { SnapshotStatus, TaskRow } from "../model/types";
+import {
+  taskExecutionMatches,
+  taskMatchesNode,
+  taskMatchesPerson,
+  type AttributionScope,
+} from "../model/attribution.ts";
+import { scopeWorkActivity } from "../model/work-collections.ts";
 import type { WorkDayGroup, WorkStepKind } from "../model/workspace-narrative.ts";
 import { workDayGroups } from "../model/workspace-narrative.ts";
 import type { AgentActivity } from "../components/agent-ui/AgentTree.tsx";
@@ -358,6 +365,8 @@ export function workRows(works: WorkIndexRead | undefined, agenda: AgendaSuccess
 export interface WatchedWork {
   readonly work: WorkRow;
   readonly source: "pinned" | "recent";
+  readonly handlers: readonly string[];
+  readonly isRunning: boolean;
   /** 该工作名下的任务(根除外;repo.works.index 的归属,不在 GUI 重推)。 */
   readonly memberTaskIds: readonly string[];
 }
@@ -370,6 +379,7 @@ export function watchedWorks(
   agenda: AgendaSuccess | undefined,
   activity?: { readonly days: number; readonly now: string },
   runtime?: AgentRuntimeOverviewResult | undefined,
+  scopedTasks?: { readonly tasks: readonly TaskRow[]; readonly scope: AttributionScope },
 ): readonly WatchedWork[] {
   const rows = workRows(works, agenda);
   const members = new Map((works?.works ?? []).map((work) => [work.taskId, work.memberTaskIds] as const));
@@ -380,26 +390,53 @@ export function watchedWorks(
       .map((entity) => entity.ref.replace(/^task\//u, "")),
   );
   const cutoff = activity === undefined ? null : Date.parse(activity.now) - Math.max(1, activity.days) * 86_400_000;
-  const runningOf = (taskId: string, memberTaskIds: readonly string[]): number =>
-    workHandlers(runtime, taskId, memberTaskIds).length > 0 ? 1 : 0;
-  const entryOf = (source: WatchedWork["source"]) => (work: WorkRow) => ({
-    work,
-    source,
-    memberTaskIds: members.get(work.taskId) ?? [],
+  const tasks = scopedTasks?.tasks ?? [];
+  const taskById = new Map(tasks.map((task) => [task.taskId, task]));
+  const parents = new Set(tasks.flatMap(({ parentTaskId }) => (parentTaskId ? [parentTaskId] : [])));
+  const scope = scopedTasks?.scope;
+  const runsByTask = new Map<string, RunRow[]>();
+  for (const run of runRows(runtime, undefined)) {
+    if (run.taskId === null) continue;
+    const task = taskById.get(run.taskId);
+    if (scope && (!task || !taskExecutionMatches(task, scope))) continue;
+    const runs = runsByTask.get(run.taskId);
+    if (runs) runs.push(run);
+    else runsByTask.set(run.taskId, [run]);
+  }
+
+  const watched = rows.flatMap((row): WatchedWork[] => {
+    const source = pinnedIds.has(row.taskId) ? "pinned" : "recent";
+    if (source === "recent" && TERMINAL_WORK.has(row.status)) return [];
+    const memberIds = members.get(row.taskId) ?? [];
+    const scoped =
+      scope &&
+      scopeWorkActivity(
+        taskById.get(row.taskId),
+        memberIds.flatMap((id) => taskById.get(id) ?? []),
+        (task) =>
+          (scope.personId === null || taskMatchesPerson(task, scope.personId)) &&
+          (scope.nodeId === null || taskMatchesNode(task, scope.nodeId)),
+        parents,
+        scope,
+      );
+    if (scoped === null) return [];
+    const work = scoped ? { ...row, counts: scoped.counts, lastActivityAt: scoped.lastChangeAt } : row;
+    const memberTaskIds = scoped?.members.map(({ taskId }) => taskId) ?? memberIds;
+    const participants = scoped?.rootMatches === false ? memberTaskIds : [row.taskId, ...memberTaskIds];
+    const handlers = [
+      ...new Set(
+        participants
+          .flatMap((id) => runsByTask.get(id) ?? [])
+          .sort((left, right) => right.lastObservedAt.localeCompare(left.lastObservedAt))
+          .map(({ who }) => who),
+      ),
+    ];
+    const isRunning = scoped ? scoped.live > 0 : handlers.length > 0;
+    if (source === "recent" && !isRunning && cutoff !== null && !(Date.parse(work.lastActivityAt) >= cutoff)) return [];
+    return [{ work, source, memberTaskIds, handlers, isRunning }];
   });
 
-  // 置顶的工作根一律列出,含已收尾的:pin 是业主的显式承诺,终态只影响排序,不隐藏。
-  const pinnedEntries = rows.filter((row) => pinnedIds.has(row.taskId)).map(entryOf("pinned"));
-  const recentEntries = rows
-    .filter((row) => {
-      if (pinnedIds.has(row.taskId) || TERMINAL_WORK.has(row.status)) return false;
-      const memberTasks = members.get(row.taskId) ?? [];
-      const isRunning = runningOf(row.taskId, memberTasks) > 0;
-      return isRunning || cutoff === null || Date.parse(row.lastActivityAt) >= cutoff;
-    })
-    .map(entryOf("recent"));
-
-  const watched = [...pinnedEntries, ...recentEntries].sort((left, right) => {
+  return watched.sort((left, right) => {
     // -1. 已收尾的置顶工作仍列出,但沉到非终态之后:它们不再需要注意力,只是仍被 pin 住。
     const leftTerminal = TERMINAL_WORK.has(left.work.status) ? 1 : 0;
     const rightTerminal = TERMINAL_WORK.has(right.work.status) ? 1 : 0;
@@ -412,8 +449,8 @@ export function watchedWorks(
     if (rightNeedsYou !== leftNeedsYou) return rightNeedsYou - leftNeedsYou;
 
     // 1. 活跃执行优先置顶 (live 会话处理者非空,挂脉冲波呼吸光条)
-    const leftRunning = runningOf(left.work.taskId, left.memberTaskIds);
-    const rightRunning = runningOf(right.work.taskId, right.memberTaskIds);
+    const leftRunning = Number(left.isRunning);
+    const rightRunning = Number(right.isRunning);
     if (rightRunning !== leftRunning) return rightRunning - leftRunning;
 
     // 2. 静止待命中,置顶优先于近期
@@ -440,26 +477,6 @@ export function watchedWorks(
       left.work.taskId.localeCompare(right.work.taskId)
     );
   });
-
-  return watched;
-}
-
-/**
- * 工作卡的处理者:该工作名下任务(含根)关联的 live 会话执行者去重(who = kind · model)。
- * 非空 = 活跃执行(呈现层挂呼吸光条);空 = 静止待命,安静排版,不输出消极文本。
- */
-export function workHandlers(
-  runtime: AgentRuntimeOverviewResult | undefined,
-  rootTaskId: string,
-  memberTaskIds: readonly string[],
-): readonly string[] {
-  const tasks = new Set([rootTaskId, ...memberTaskIds]);
-  const handlers: string[] = [];
-  for (const run of runRows(runtime, undefined)) {
-    if (run.taskId === null || !tasks.has(run.taskId) || handlers.includes(run.who)) continue;
-    handlers.push(run.who);
-  }
-  return handlers;
 }
 
 /** taskId → 议程注意力分(repo.tasks.wip 的行自己没有分数,从 attentionItems 的 task/ 引用取)。

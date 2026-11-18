@@ -28,8 +28,6 @@ import { squadRunsClient } from "../../squad-run-client.ts";
 import {
   daemonSessionGroupBy,
   filterDispatchesByAttribution,
-  filterRelatedSessionGroups,
-  hasSessionAttributionFilter,
   indexSessionDispatches,
   sessionDelegation,
   type SessionAttributionFilter,
@@ -556,14 +554,8 @@ export function useRelatedDispatches(
     () => filterDispatchesByAttribution(read.data?.dispatches ?? [], { personId, nodeId }),
     [read.data?.dispatches, personId, nodeId],
   );
-  const dispatchesByGroup = useMemo(() => indexSessionDispatches(dispatchRows), [dispatchRows]);
-  const groups = useMemo(
-    () =>
-      hasSessionAttributionFilter({ personId, nodeId })
-        ? filterRelatedSessionGroups(read.data?.groups ?? [], dispatchesByGroup)
-        : (read.data?.groups ?? []),
-    [dispatchesByGroup, read.data?.groups, personId, nodeId],
-  );
+  const groups = useMemo(() => read.data?.groups ?? [], [read.data?.groups]);
+  const dispatchesByGroup = useMemo(() => indexSessionDispatches(dispatchRows, groups), [dispatchRows, groups]);
   const relatedLabels = new Map((read.data?.taskLabels ?? []).map((label) => [label.taskId, label.title])),
     dockRows: readonly RuntimeDockRow[] = dispatchRows.map((row) => ({
       runtimeSessionId: row.runtimeSessionId,

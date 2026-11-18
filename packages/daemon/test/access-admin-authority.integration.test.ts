@@ -1,13 +1,203 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { createIdentitySession } from "../src/authorization-provider.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { keycloakUserRoot, serveKeycloak } from "./keycloak.fixtures.ts";
+import { keycloakRealm, keycloakSessionStore, keycloakUserRoot, serveKeycloak } from "./keycloak.fixtures.ts";
+import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
+import { fleetHostWriterOptions, fleetNodeOwners } from "./fleet-store.fixture.ts";
+import { git, initRepo } from "./fleet-runtime-recovery.fixtures.ts";
+import { listenFleetTls } from "../src/fleet/center.ts";
+import { writeFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
+import { oidcCenterSelections } from "../src/oidc-center-selection.ts";
+import { startDaemon, type RunningDaemon } from "../src/runtime.ts";
+import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
+
+test("registered edges read only their current repository's member directory without a local Keycloak center", async (t) => {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-edge-member-directory-"))),
+    userRoot = path.join(root, "center"),
+    edgeUserRoot = path.join(root, "edge"),
+    keyPath = path.join(root, "center.key"),
+    certPath = path.join(root, "center.crt"),
+    repoIds = ["repo-a", "repo-b"],
+    nodeId = "edge-node";
+  const owners = await fleetNodeOwners({ userRoot, owners: { [nodeId]: "repo-admin" }, repoIds, grantAll: false });
+  const open: {
+    host?: Awaited<ReturnType<typeof openDaemonHost>>;
+    listener?: Awaited<ReturnType<typeof listenFleetTls>>;
+    edge?: RunningDaemon;
+  } = {};
+  t.after(async () => {
+    await open.edge?.stop();
+    await open.listener?.close();
+    await open.host?.close();
+    await owners.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+  for (const repoId of repoIds) {
+    const canonicalRoot = path.join(root, `center-${repoId}`);
+    mkdirSync(path.join(canonicalRoot, "harness"), { recursive: true });
+    initRepo(canonicalRoot);
+    writeFileSync(
+      path.join(canonicalRoot, "harness/harness.yaml"),
+      "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings: {}\n",
+    );
+    git(canonicalRoot, "add", "harness");
+    git(canonicalRoot, "commit", "-qm", "seed");
+    registerBootstrappedDaemonRepo({ canonicalRoot, repoId, userRoot, createConvenienceLinks: false });
+  }
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      keyPath,
+      "-out",
+      certPath,
+      "-subj",
+      "/CN=localhost",
+      "-days",
+      "1",
+      "-addext",
+      "subjectAltName=DNS:localhost",
+    ],
+    { stdio: "ignore" },
+  );
+  const session = createIdentitySession(userRoot);
+  const host = await openDaemonHost({ userRoot, daemonId: "member-directory-center", oidc: session });
+  open.host = host;
+  await host.attachmentsSettled();
+
+  owners.keycloak.account("repo-member");
+  owners.keycloak.account("other-repo-member");
+  const { provider, accessToken } = await session.center();
+  await provider.syncBasePolicy(accessToken);
+  const groups = await provider.readPolicyGroups(accessToken);
+  for (const [groupId, resource, personId] of [
+    ["admin", "repo-a", "repo-admin"],
+    ["viewer", "repo-a", "repo-member"],
+    ["viewer", "repo-b", "repo-admin"],
+    ["contributor", "repo-b", "other-repo-member"],
+  ] as const) {
+    const userId = (await provider.findUserId(accessToken, personId))!;
+    await provider.writeGrant(
+      accessToken,
+      { groupId, resource, userIds: [userId] },
+      effectivePolicyGroupScopes(groups, groupId),
+    );
+  }
+  const listener = await listenFleetTls({
+    host,
+    stateRoot: path.join(root, "fleet"),
+    ...fleetHostWriterOptions(userRoot, repoIds),
+    key: readFileSync(keyPath),
+    cert: readFileSync(certPath),
+    authenticate: (node, credential) => node === nodeId && credential === "test-machine-credential",
+    nodeOwner: owners.nodeOwner,
+    verifyHuman: owners.verifyHuman,
+  });
+  open.listener = listener;
+  const issuer = `${owners.url}/realms/${keycloakRealm}`,
+    authority = { url: owners.url, realm: keycloakRealm, clientId: `harness-node-${nodeId}` },
+    edgeRoot = (repoId: string) => path.join(root, `edge-${repoId}`);
+  for (const repoId of repoIds) {
+    const canonicalRoot = edgeRoot(repoId);
+    mkdirSync(path.join(canonicalRoot, "harness"), { recursive: true });
+    initRepo(canonicalRoot);
+    writeFileSync(
+      path.join(canonicalRoot, "harness/harness.yaml"),
+      readFileSync(path.join(root, `center-${repoId}`, "harness/harness.yaml")),
+    );
+    writeFleetEdgeConfig(canonicalRoot, {
+      repoId,
+      nodeId,
+      host: "localhost",
+      port: listener.port,
+      caPath: certPath,
+      credential: "test-machine-credential",
+      quotaBytes: 1024,
+      viewRoot: path.join(root, `view-${repoId}`),
+    });
+    registerBootstrappedDaemonRepo({
+      canonicalRoot,
+      repoId,
+      mode: "remote-edge",
+      userRoot: edgeUserRoot,
+      createConvenienceLinks: false,
+    });
+    oidcCenterSelections(edgeUserRoot).write(canonicalRoot, { issuer, authority });
+  }
+  const edgeSession = createIdentitySession(edgeUserRoot);
+  function signIn(personId: string): void {
+    owners.keycloak.interactiveSession(personId, nodeId, owners.url);
+    keycloakSessionStore(edgeUserRoot, issuer, keycloakRealm).write(
+      JSON.stringify({
+        schema: "harness-oidc-session/v3",
+        issuer,
+        authority,
+        loginTarget: edgeRoot("repo-a"),
+        accessToken: `token-${personId}`,
+        subject: personId,
+        personId,
+        expiresAt: Date.now() + 3_600_000,
+        roles: [],
+      }),
+    );
+  }
+  signIn("repo-admin");
+  const running = await startDaemon({
+    userRoot: edgeUserRoot,
+    daemonId: "member-directory-edge",
+    buildSupersessionEnabled: false,
+  });
+  assert.ok("stop" in running);
+  open.edge = running;
+  const read = (repoId: string, rootDir?: string) =>
+    requestDaemonJsonRpcAt(
+      running.endpoint,
+      "daemon.rbac.manage",
+      { operation: "repository-members", repoId, ...(rootDir === undefined ? {} : { rootDir }) },
+      1000,
+      15_000,
+    );
+  assert.equal((await edgeSession.requireSession(edgeRoot("repo-a"))).personId, "repo-admin");
+  assert.equal(existsSync(path.join(edgeUserRoot, "rbac/config.json")), false);
+  assert.deepEqual(await read("repo-a"), {
+    ok: true,
+    personId: "repo-admin",
+    isRepoAdmin: true,
+    canManageFleetNodes: false,
+    members: [
+      { personId: "repo-admin", username: "repo-admin" },
+      { personId: "repo-member", username: "repo-member" },
+    ],
+  });
+  assert.deepEqual(await read("repo-b", edgeRoot("repo-a")), {
+    ok: true,
+    personId: "repo-admin",
+    isRepoAdmin: false,
+    canManageFleetNodes: false,
+    members: [],
+  });
+  signIn("repo-member");
+  assert.deepEqual(await read("repo-a"), {
+    ok: true,
+    personId: "repo-member",
+    isRepoAdmin: false,
+    canManageFleetNodes: false,
+    members: [],
+  });
+  assert.equal(existsSync(path.join(edgeUserRoot, "rbac/config.json")), false);
+});
 
 async function keycloakFixture(t: TestContext, fleetGrant = true) {
   const server = await serveKeycloak(),

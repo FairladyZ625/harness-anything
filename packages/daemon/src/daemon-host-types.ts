@@ -69,6 +69,10 @@ export interface DaemonHost {
   };
   readonly remoteProxy: RemoteProxyManager;
   readonly identityCenter: import("@harness-anything/kernel").IdentitySessionPort["center"];
+  readonly readRepositoryMembers: (
+    repoId: string,
+    auth: DaemonAuthenticationContext,
+  ) => Promise<Record<string, unknown>>;
   readonly sessionPrincipal: (
     auth: DaemonAuthenticationContext,
     method: string,

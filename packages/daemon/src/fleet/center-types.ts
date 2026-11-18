@@ -29,7 +29,8 @@ export interface FleetCenterOptions {
     | "readDispatchLifecycle"
     | "readNodeAutoClaimCandidates"
     | "readNodeAutoDispatchCandidates"
-  >;
+  > &
+    Partial<Pick<DaemonHost, "readRepositoryMembers">>;
   readonly stateRoot: string;
   readonly writerEpochStateRoot?: string;
   readonly writerEpochLease?: (repoId: string) => WriterEpochLease;

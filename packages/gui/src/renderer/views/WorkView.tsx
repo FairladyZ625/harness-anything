@@ -11,7 +11,7 @@ import {
   attentionByWork,
   collectWork,
   scopeWorkAttention,
-  scopeWorkGroup,
+  scopeWorkActivity,
   scopedWorkLineage,
   workHealth,
   workTier,
@@ -185,27 +185,25 @@ export function WorkView({
           },
         ];
       }
-      const scoped = scopeWorkGroup(rawGroup, matchesAttribution, allParents, {
+      const scoped = scopeWorkActivity(rawGroup.task, rawGroup.members, matchesAttribution, allParents, {
         personId: effectivePerson,
         nodeId: effectiveNode,
       });
       if (!scoped) return [];
+      const { rootMatches, ...activity } = scoped;
+      const group = { task: rawGroup.task, ...activity };
       const matchingTaskIds = new Set<string>([
-        ...(scoped.rootMatches ? [rawGroup.task.taskId] : []),
-        ...scoped.group.members.map((member) => member.taskId),
+        ...(rootMatches ? [group.task.taskId] : []),
+        ...group.members.map((member) => member.taskId),
       ]);
-      const scopedAttention = scopeWorkAttention(
-        attention.get(rawGroup.task.taskId),
-        matchingTaskIds,
-        scoped.rootMatches,
-      );
+      const scopedAttention = scopeWorkAttention(attention.get(rawGroup.task.taskId), matchingTaskIds, rootMatches);
       return [
         {
-          group: scoped.group,
-          health: workHealth(scoped.group, scopedAttention, now, { rootIncluded: scoped.rootMatches }),
+          group,
+          health: workHealth(group, scopedAttention, now, { rootIncluded: rootMatches }),
           stuck: scopedAttention?.stuck ?? [],
-          rootMatches: scoped.rootMatches,
-          lineageTasks: scopedWorkLineage(scoped.group, taskById),
+          rootMatches,
+          lineageTasks: scopedWorkLineage(group, taskById),
         },
       ];
     });

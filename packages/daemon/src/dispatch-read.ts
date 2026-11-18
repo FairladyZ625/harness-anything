@@ -17,7 +17,7 @@ import { readDispatchRuling } from "./runtime-ruling.ts";
 import { incidentActionFromRecord } from "./decision-incident-receipt.ts";
 import {
   agentRuntimeSessionGroupTotals,
-  buildAgentRuntimeSessionGroups,
+  buildAgentRuntimeMemberSessionGroups,
   latestDispatchStartedAt,
   latestEntityNames,
   runtimeTaskLabels,
@@ -275,13 +275,16 @@ function readMemberTaskDispatches(input: {
     ...(input.nodeId === undefined ? {} : { nodeId: input.nodeId }),
     limit: input.limit,
   });
-  const sessions = member.rows
-      .map((event) => input.projection.readRuntimeSession(event.payload.runtimeSessionId))
+  const sessions = [...new Set(member.rows.map((event) => event.payload.runtimeSessionId))]
+      .map((id) => input.projection.readRuntimeSession(id))
       .filter((session): session is RuntimeSession => session !== null),
     dispatches = readSessionGroupDispatches({ sessions, events: member.rows, projection: input.projection }),
     cut = input.projection.readCut(),
     taskLabels = runtimeTaskLabels(input.projection, [
-      ...new Set(dispatches.flatMap((row) => (row.taskId ? [row.taskId] : []))),
+      ...new Set([
+        ...sessions.flatMap(({ taskBindings }) => taskBindings.map(({ taskId }) => taskId)),
+        ...dispatches.flatMap((row) => (row.taskId ? [row.taskId] : [])),
+      ]),
     ]),
     entityNames = new Map<string, ReadonlyMap<string, string>>();
   const entityLabel = (kind: "agent" | "squad", id: string): string | null => {
@@ -293,7 +296,7 @@ function readMemberTaskDispatches(input: {
     }
     return names.get(id) ?? null;
   };
-  const groups = buildAgentRuntimeSessionGroups({
+  const groups = buildAgentRuntimeMemberSessionGroups({
     sessions,
     dispatches,
     dispatchEvents: member.rows,
@@ -306,6 +309,8 @@ function readMemberTaskDispatches(input: {
       tokens: [],
       agentId: null,
       squadId: null,
+      personId: input.personId,
+      nodeId: input.nodeId,
       status: [],
       sessionIds: [],
       limit: input.limit,
@@ -320,7 +325,7 @@ function readMemberTaskDispatches(input: {
     watermark: cut.watermark,
     sourceRevision: cut.sourceRevision,
     ...(input.agentId !== undefined ? { agentId: input.agentId } : { squadId: input.squadId! }),
-    groups: groups.groups,
+    groups,
     taskLabels: [...taskLabels.entries()].map(([taskId, title]) => ({ taskId, title })),
     totals: agentRuntimeSessionGroupTotals(member.sessions),
     truncated: member.truncated,

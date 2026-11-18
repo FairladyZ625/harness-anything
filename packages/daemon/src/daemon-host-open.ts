@@ -1103,6 +1103,16 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   const lifecycle = createDaemonHostLifecycleApi(hostContext);
   void ensureRbacResumed().catch(consumeKnownError);
   const edgeJoinProgress = createEdgeJoinProgressTap();
+  const readEdgeRepositoryMembers = (repoId: string, auth: DaemonAuthenticationContext) =>
+    forward({
+      userRoot: input.userRoot,
+      repoId,
+      intent: { kind: "operational-read", method: "repo.access.members.read", inputs: {} },
+      auth: { transportKind: auth.transportKind, connectionSignal: auth.connectionSignal },
+      oidc,
+      signal: closeController.signal,
+      runRuntime: (request, requestAuth) => host.fleet.edgeRuntime(request, requestAuth),
+    });
   const host: DaemonHost = {
     skillEvalRunner: skillEvalProduction.runner,
     skillEval: skillEvalProduction.service,
@@ -1131,6 +1141,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
     home,
     identityCenter: keycloakCenter,
+    readRepositoryMembers: async (repoId, auth) => {
+      if (!auth.oidcPrincipal || auth.executionPrincipal)
+        throw hostCodedError("authorization_denied", "The repository member directory requires a signed-in person.");
+      return accessAdmin.readRepositoryMembers(repoId, auth.oidcPrincipal);
+    },
     sessionPrincipal: async (auth, method, params) => {
       await ensureRbacResumed();
       if (
@@ -1249,6 +1264,17 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           return oidc.configureAuthority(() => managedRbac.run(request), requireLoginTarget());
         if (request.repoId && !loginTarget)
           throw hostCodedError("repo_namespace_unknown", "Select a registered repository for login.");
+        if (request.operation === "repository-members" && request.repoId) {
+          if (auth.executionPrincipal)
+            throw hostCodedError(
+              "authorization_denied",
+              "The repository member directory requires a signed-in person.",
+            );
+          // Fleet directory reads use the registered repository's center. Admin REST credentials
+          // stay at that center, where the bound human request is independently authorized.
+          const result = await readEdgeRepositoryMembers(request.repoId, auth);
+          if (result !== null) return result;
+        }
         if (request.operation === "listener" && loginTarget) {
           const edge = readFleetEdgeConfig(loginTarget);
           if (edge?.loginUrl && edge.loginCertificate) {

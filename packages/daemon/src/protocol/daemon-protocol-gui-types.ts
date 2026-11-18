@@ -918,8 +918,11 @@ export type DaemonTaskDispatchesResult = DaemonTaskDispatchesResultBase &
         readonly agentId?: string;
         readonly squadId?: string;
         /** Task-group view of exactly the returned rows, newest first. */
-        readonly groups: readonly AgentRuntimeSessionGroupDto[];
-        /** Titles for the returned rows' task ids. */
+        readonly groups: readonly (AgentRuntimeSessionGroupDto & {
+          /** Optional on the previous center's wire format. Current centers supply canonical membership. */
+          readonly runtimeSessionIds?: readonly string[];
+        })[];
+        /** Titles for the returned rows' task ids and the sessions' task bindings. */
         readonly taskLabels: readonly { readonly taskId: string; readonly title: string }[];
         /** Full-history distinct task-group and session counts for the member. */
         readonly totals: { readonly groups: number; readonly sessions: number };

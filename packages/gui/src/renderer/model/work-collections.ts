@@ -126,25 +126,23 @@ export interface WorkHealth {
 
 const DAY_MS = 86_400_000;
 
-export interface ScopedWorkResult {
-  readonly group: WorkGroup;
+interface ScopedWorkActivity extends Omit<WorkGroup, "task"> {
   readonly rootMatches: boolean;
 }
 
 /**
  * Narrow a work group by a per-task predicate (e.g. member + node attribution).
- * Keeps `group.task` strictly as a container when the root task itself does not match,
- * and evaluates leaf status against the full task tree (`allParents`) so intermediate
- * containers never inflate leaf counts.
+ * Evaluate activity and execution on matching tasks, and leaf status against the full task tree.
  */
-export function scopeWorkGroup(
-  group: WorkGroup,
+export function scopeWorkActivity(
+  root: TaskRow | undefined,
+  members: readonly TaskRow[],
   matchesTask: (task: TaskRow) => boolean,
   allParents: ReadonlySet<string>,
   scope: AttributionScope,
-): ScopedWorkResult | null {
-  const rootMatches = matchesTask(group.task);
-  const matchingMembers = group.members.filter(matchesTask);
+): ScopedWorkActivity | null {
+  const rootMatches = root !== undefined && matchesTask(root);
+  const matchingMembers = members.filter(matchesTask);
   if (!rootMatches && matchingMembers.length === 0) return null;
 
   const counts: Record<string, number> = {};
@@ -152,12 +150,12 @@ export function scopeWorkGroup(
   for (const member of matchingMembers) {
     if (!allParents.has(member.taskId)) {
       leaves += 1;
-      const status = member.canonicalStatus ?? "unknown";
+      const status = member.canonicalStatus ?? member.coordinationStatus;
       counts[status] = (counts[status] ?? 0) + 1;
     }
   }
 
-  const participants = rootMatches ? [group.task, ...matchingMembers] : matchingMembers;
+  const participants = rootMatches ? [root, ...matchingMembers] : matchingMembers;
   let activity: EventEntry | null = null;
   let lastChangeAt = "";
   let live = 0;
@@ -182,16 +180,13 @@ export function scopeWorkGroup(
 
   return {
     rootMatches,
-    group: {
-      task: group.task,
-      descendants: matchingMembers.length,
-      leaves,
-      counts,
-      activity,
-      members: matchingMembers,
-      lastChangeAt,
-      live,
-    },
+    descendants: matchingMembers.length,
+    leaves,
+    counts,
+    activity,
+    members: matchingMembers,
+    lastChangeAt,
+    live,
   };
 }
 

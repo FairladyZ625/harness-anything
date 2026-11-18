@@ -306,6 +306,7 @@ export type FleetFrameV1 =
           | "repo.agentRuntime.lifecycle.read"
           | "repo.agentRuntime.sessions.await"
           | "repo.task.dispatches"
+          | "repo.access.members.read"
           | "repo.fleet.overview.read"
           | "repo.policy.metadata.read"
           | "repo.tasks.autoClaimCandidates"
@@ -997,6 +998,7 @@ const schemas: Readonly<Record<string, Check>> = {
       "repo.agentRuntime.lifecycle.read",
       "repo.agentRuntime.sessions.await",
       "repo.task.dispatches",
+      "repo.access.members.read",
       "repo.fleet.overview.read",
       "repo.policy.metadata.read",
       "repo.tasks.autoClaimCandidates",

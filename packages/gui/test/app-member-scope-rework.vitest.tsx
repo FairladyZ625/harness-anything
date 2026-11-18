@@ -262,6 +262,7 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
       coordinationStatus: "active",
       createdByPersonId: "person_alice",
       activeOrLatestPersonId: "person_alice",
+      createdAt: recentAt,
       lastKnownAt: recentAt,
       updatedAt: recentAt,
     });
@@ -603,33 +604,33 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
     const capturedGroupQueries: Array<Record<string, unknown>> = [];
     vi.spyOn(agentRuntimeClient, "sessionGroups").mockImplementation(async (_repoId, query) => {
       capturedGroupQueries.push({ ...(query ?? {}) });
-      if (query?.groupBy === "agent") {
+      if (query?.groupBy === "agent" || query?.groupBy === "squad") {
+        const agent = query.groupBy === "agent";
+        const group = {
+          kind: query.groupBy,
+          key: agent ? "agent-a" : "squad-a",
+          ...(agent ? { agentId: "agent-a" } : { squadId: "squad-a" }),
+          label: agent ? "Agent A" : "Squad A",
+          personId: query?.personId ?? "person_bob",
+          nodeId: query?.nodeId ?? edgeB,
+          sessionCount: 1,
+          roundCount: 1,
+          runningCount: 0,
+          latestStatus: "succeeded" as const,
+          latestActivityAt: "2026-10-06T00:05:00.000Z",
+          latestRound: {
+            runtimeSessionId: query?.personId === "person_alice" ? "rt-alice" : "rt-bob",
+            dispatchId: query?.personId === "person_alice" ? "d-alice" : "d-bob",
+            agentName: "Agent A",
+            instanceId: "inst-1",
+            status: "succeeded" as const,
+            startedAt: "2026-10-06T00:05:00.000Z",
+          },
+        };
         return {
           ok: true,
           repoId: "repo-test",
-          groups: [
-            {
-              kind: "agent" as const,
-              key: "agent-a",
-              agentId: "agent-a",
-              label: "Agent A",
-              personId: query?.personId ?? "person_bob",
-              nodeId: query?.nodeId ?? edgeB,
-              sessionCount: 1,
-              roundCount: 1,
-              runningCount: 0,
-              latestStatus: "succeeded" as const,
-              latestActivityAt: "2026-10-06T00:05:00.000Z",
-              latestRound: {
-                runtimeSessionId: query?.personId === "person_alice" ? "rt-alice" : "rt-bob",
-                dispatchId: query?.personId === "person_alice" ? "d-alice" : "d-bob",
-                agentName: "Agent A",
-                instanceId: "inst-1",
-                status: "succeeded" as const,
-                startedAt: "2026-10-06T00:05:00.000Z",
-              },
-            },
-          ],
+          groups: agent ? [group, { ...group, key: "agent-multi", agentId: "agent-multi" }] : [group],
           totals: { groups: 1, sessions: 1 },
           truncated: false,
         } as never;
@@ -900,11 +901,12 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
     });
 
     // 1) Pre-select rt-bob under unfiltered scope, then apply scopePersonId=person_alice
+    const onSelectEntity = vi.fn();
     const sessionsProps = (scopePersonId: string | null, sessionRange: "24h" | "all" | null = null) => ({
       repoId: "repo-test",
       relations: [],
       focusedEntityRef: "session/rt-bob",
-      onSelectEntity: () => {},
+      onSelectEntity,
       onOpenTask: () => {},
       onBack: () => {},
       scopePersonId,
@@ -973,23 +975,97 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
     expect(squadList?.textContent).not.toContain("squad-bob");
     await click(view.container.querySelector('[data-testid="sessions-segment-sessions"]'));
 
-    // Agent drill-down narrows dispatches/groups to Alice only
     await click(view.container.querySelector('[data-testid="sessions-group-agent"]'));
     await flushMicroAndTimers();
     await click(view.container.querySelector('[data-testid="session-group-drill-agent-a"]'));
     await flushMicroAndTimers();
     expect(harnessClient.getTaskDispatches).toHaveBeenCalledWith(
-      expect.objectContaining({
-        agentId: "agent-a",
-        personId: "person_alice",
-        nodeId: edgeA,
-        limit: 50,
-      }),
+      expect.objectContaining({ agentId: "agent-a", personId: "person_alice", nodeId: edgeA, limit: 50 }),
     );
     await click(view.container.querySelector('[data-testid="session-group-toggle-t-mix"]'));
     await flushMicroAndTimers();
     expect(view.container.querySelector('[data-testid="rail-session-rt-alice"]')).toBeTruthy();
     expect(view.container.querySelector('[data-testid="rail-session-rt-bob"]')).toBeNull();
+    await click(view.container.querySelector('[data-testid="sessions-drill-back"]'));
+
+    // One scoped dispatch without payload.taskId belongs to both canonical session bindings.
+    const dispatch = {
+      dispatchId: "dispatch-multi",
+      runtimeSessionId: "session-multi",
+      taskId: "",
+      agentId: "agent-multi",
+      squadId: "squad-a",
+      agentName: "Agent A",
+      instanceId: "inst-1",
+      personId: "person_alice",
+      nodeId: edgeA,
+      status: "succeeded",
+      startedAt: "2026-10-06T00:05:00.000Z",
+      endedAt: "2026-10-06T00:06:00.000Z",
+    };
+    const originalDispatchRead = vi.mocked(harnessClient.getTaskDispatches).getMockImplementation()!;
+    vi.mocked(harnessClient.getTaskDispatches).mockImplementation((request) =>
+      request.agentId === undefined && request.squadId === undefined
+        ? originalDispatchRead(request)
+        : Promise.resolve({
+            ok: true,
+            status: "ready",
+            dispatches: [dispatch],
+            taskLabels: [],
+            groups: ["task-a", "task-b"].map((taskId) => ({
+              kind: "task",
+              key: taskId,
+              taskId,
+              label: taskId,
+              runtimeSessionIds: [dispatch.runtimeSessionId],
+              personId: dispatch.personId,
+              nodeId: dispatch.nodeId,
+              sessionCount: 1,
+              roundCount: 1,
+              runningCount: 0,
+              latestStatus: dispatch.status,
+              latestActivityAt: dispatch.endedAt,
+              latestRound: dispatch,
+            })),
+            totals: { groups: 2, sessions: 1 },
+            truncated: false,
+          } as never),
+    );
+    for (const [grouping, id] of [
+      ["agent", "agent-multi"],
+      ["squad", "squad-a"],
+    ] as const) {
+      await click(view.container.querySelector(`[data-testid="sessions-group-${grouping}"]`));
+      await flushMicroAndTimers();
+      await click(view.container.querySelector(`[data-testid="session-group-drill-${id}"]`));
+      await flushMicroAndTimers();
+      expect(harnessClient.getTaskDispatches).toHaveBeenCalledWith(
+        expect.objectContaining({
+          [`${grouping}Id`]: id,
+          personId: "person_alice",
+          nodeId: edgeA,
+          limit: 50,
+        }),
+      );
+      expect(view.container.querySelector('[data-testid="sessions-counts"]')?.textContent).toMatch(
+        /2 个任务组.*1 会话/u,
+      );
+      for (const taskId of ["task-a", "task-b"]) {
+        const group = view.container.querySelector(`[data-testid="session-group-${taskId}"]`);
+        const toggle = group?.querySelector(`[data-testid="session-group-toggle-${taskId}"]`);
+        expect(toggle).toBeTruthy();
+        if (toggle?.getAttribute("aria-expanded") !== "true") await click(toggle);
+        await flushMicroAndTimers();
+        onSelectEntity.mockClear();
+        await click(group?.querySelector('[data-testid="rail-session-session-multi"]'));
+        await flushMicroAndTimers();
+        expect(onSelectEntity).toHaveBeenCalledWith("session/session-multi");
+        expect(agentRuntimeClient.session).toHaveBeenCalledWith("repo-test", "session-multi");
+        await click(toggle);
+      }
+      expect(view.container.querySelector('[data-testid="rail-session-rt-bob"]')).toBeNull();
+      await click(view.container.querySelector('[data-testid="sessions-drill-back"]'));
+    }
 
     view.unmount();
 

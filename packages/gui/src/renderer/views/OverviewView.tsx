@@ -17,7 +17,7 @@ import { useSettingsQuery } from "../settings-data.ts";
 import { useTaskWipQuery } from "../task-data.ts";
 import { useOverviewBriefsQuery } from "./overview/overview-briefs-data.ts";
 import { runtimeHealthAssessment, type RuntimeHealth } from "../model/runtime-health.ts";
-import type { SnapshotStatus, TaskRow } from "../model/types.ts";
+import type { TaskRow } from "../model/types.ts";
 import { taskMatchesPerson } from "../model/attribution.ts";
 import { runtimeModelShortLabel } from "../model/runtime-models.ts";
 import { t } from "../i18n/index.tsx";
@@ -35,7 +35,6 @@ import {
   runningTaskRows,
   watchedRecentPaths,
   watchedWorks,
-  workHandlers,
   WATCHED_ACTIVITY_DAYS_DEFAULT,
 } from "./overview-model.ts";
 import {
@@ -217,33 +216,17 @@ export function OverviewView({
       }),
     };
   }, [scopePersonId, runtimeQuery.data, agentGroupsQuery.data, scopedRunningSessionIds]);
-  const rawWatched = useMemo(
-    () => watchedWorks(works, agenda, { days: activityDays, now }, scopedRuntimeData),
-    [works, agenda, activityDays, now, scopedRuntimeData],
+  const watched = useMemo(
+    () =>
+      watchedWorks(
+        works,
+        agenda,
+        { days: activityDays, now },
+        scopedRuntimeData,
+        scopePersonId === null ? undefined : { tasks, scope: { personId: scopePersonId, nodeId: null } },
+      ),
+    [works, agenda, activityDays, now, scopedRuntimeData, scopePersonId, tasks],
   );
-  const watched = useMemo(() => {
-    if (scopePersonId === null) return rawWatched;
-    const parents = new Set(tasks.flatMap((task) => (task.parentTaskId ? [task.parentTaskId] : [])));
-    const tasksById = new Map(tasks.map((task) => [task.taskId, task] as const));
-    return rawWatched.flatMap((entry) => {
-      const originalMembers = entry.memberTaskIds;
-      const scopedMembers = originalMembers.filter((id) => scopedTaskIds.has(id));
-      if (!scopedTaskIds.has(entry.work.taskId) && scopedMembers.length === 0) return [];
-      const hasLoadedTasksForWork = tasksById.has(entry.work.taskId) || originalMembers.some((id) => tasksById.has(id));
-      if (!hasLoadedTasksForWork || originalMembers.length === 0) {
-        return [{ ...entry, memberTaskIds: scopedMembers }];
-      }
-      const counts: Partial<Record<SnapshotStatus, number>> = {};
-      for (const id of scopedMembers) {
-        if (parents.has(id)) continue;
-        const row = tasksById.get(id);
-        if (!row) continue;
-        const status = (row.canonicalStatus ?? row.coordinationStatus ?? "unknown") as SnapshotStatus;
-        counts[status] = (counts[status] ?? 0) + 1;
-      }
-      return [{ ...entry, memberTaskIds: scopedMembers, work: { ...entry.work, counts } }];
-    });
-  }, [rawWatched, scopePersonId, scopedTaskIds, tasks]);
   const scopedEvents = useMemo(() => {
     const events = eventsQuery.data ?? [];
     if (scopePersonId === null) return events;
@@ -518,7 +501,6 @@ export function OverviewView({
                     <OverviewWorksBody
                       watched={watched}
                       activityDays={activityDays}
-                      handlersOf={(entry) => workHandlers(scopedRuntimeData, entry.work.taskId, entry.memberTaskIds)}
                       recentOf={(workTaskId) => recentByWork.get(workTaskId) ?? null}
                       deps={deps}
                     />

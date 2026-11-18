@@ -1631,13 +1631,19 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           "Runtime read repository must match the authenticated node request.",
         );
       const binding = {
-        ...(await auth(a)),
+        ...(await (frame.method === "repo.access.members.read" ? repoAdmission(a) : auth(a))),
         connectionSignal: connectionSignal ? AbortSignal.any([connectionSignal, closing.signal]) : closing.signal,
       };
       markDaemonOperationPhase("repository-admission");
       let result;
       try {
-        if (frame.method === "repo.agentRuntime.lifecycle.read") {
+        if (frame.method === "repo.access.members.read") {
+          if (Object.keys(frame.payload).length > 0)
+            throw new FleetFault("invalid_field", "The repository directory read takes no payload.");
+          if (!options.host.readRepositoryMembers)
+            throw new FleetFault("repository_members_unavailable", "The repository directory is unavailable.");
+          result = await options.host.readRepositoryMembers(a.repoId, binding);
+        } else if (frame.method === "repo.agentRuntime.lifecycle.read") {
           const query = frame.payload as unknown as import("@harness-anything/kernel").DispatchLifecycleQuery;
           if (!validDispatchLifecycleQuery(query))
             throw new FleetFault("invalid_field", "Invalid dispatch lifecycle query.");

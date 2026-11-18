@@ -11,6 +11,7 @@ import {
 } from "@harness-anything/daemon/protocol";
 import type { AgendaAwaitsRow } from "../api/renderer-dto.ts";
 import type { TaskDispatchProjectionRow } from "../api/renderer-dto.ts";
+import type { TaskDispatchMemberRead } from "./api-client.ts";
 import type { WorkIndex, WorkRef } from "./model/work-collections.ts";
 import type { RelationEdge } from "./model/types.ts";
 import { computePromptCacheTtlState, type PromptCacheTtlState } from "./model/smart-attention.ts";
@@ -422,8 +423,8 @@ export function sessionRounds(
     personId: row.personId ?? null,
     nodeId: row.nodeId ?? null,
     instanceId: row.instanceId,
-    taskId: (row.taskId || null) ?? taskId,
-    taskTitle: row.taskTitle ?? taskTitle,
+    taskId: taskId ?? (row.taskId || null),
+    taskTitle: row.taskId && row.taskId !== taskId && taskId !== null ? taskTitle : (row.taskTitle ?? taskTitle),
     startedAt: row.startedAt,
     endedAt: row.endedAt ?? null,
     status: row.status,
@@ -438,18 +439,35 @@ export function sessionRounds(
 
 export function indexSessionDispatches(
   dispatches: readonly TaskDispatchProjectionRow[],
+  groups: TaskDispatchMemberRead["groups"],
 ): ReadonlyMap<string, readonly TaskDispatchProjectionRow[]> {
-  const byGroup = new Map<string, TaskDispatchProjectionRow[]>();
+  const bySession = new Map<string, Map<string | null, TaskDispatchProjectionRow[]>>();
+  const legacyKeys = new Set(groups.filter((group) => group.runtimeSessionIds === undefined).map(({ key }) => key));
+  const legacyRows = new Map<string, TaskDispatchProjectionRow[]>();
   for (const row of dispatches) {
-    const key =
-      row.reviewTarget?.kind === "decision"
-        ? row.reviewTarget.decisionId
-        : row.taskId || agentRuntimeUnattributedGroupKeys.noTask;
-    const rows = byGroup.get(key);
-    if (rows === undefined) byGroup.set(key, [row]);
-    else rows.push(row);
+    const decisionId = row.reviewTarget?.kind === "decision" ? row.reviewTarget.decisionId : null;
+    const buckets = bySession.get(row.runtimeSessionId) ?? new Map<string | null, TaskDispatchProjectionRow[]>();
+    const rows = buckets.get(decisionId);
+    if (rows) rows.push(row);
+    else buckets.set(decisionId, [row]);
+    bySession.set(row.runtimeSessionId, buckets);
+
+    // Previous centers omit membership on the wire. Keep their dispatch-based expansion.
+    if (legacyKeys.size === 0) continue;
+    const key = decisionId ?? (row.taskId || agentRuntimeUnattributedGroupKeys.noTask);
+    if (!legacyKeys.has(key)) continue;
+    const legacy = legacyRows.get(key);
+    if (legacy) legacy.push(row);
+    else legacyRows.set(key, [row]);
   }
-  return byGroup;
+  return new Map(
+    groups.map((group) => [
+      group.key,
+      group.runtimeSessionIds?.flatMap((id) => bySession.get(id)?.get(group.decisionId ?? null) ?? []) ??
+        legacyRows.get(group.key) ??
+        [],
+    ]),
+  );
 }
 
 /** 派工台账没有记录的会话:组内「无派工记录」小节或 unattributed:no-dispatch 组的来源。 */
@@ -505,46 +523,4 @@ export function filterDispatchesByAttribution<
   return filter && hasSessionAttributionFilter(filter)
     ? dispatches.filter((row) => matchesAttribution(row, filter))
     : dispatches;
-}
-
-/**
- * Recompute Agent/Squad drill-down session groups strictly from attribution-filtered dispatches
- * so mixed tasks drop another member's or node's running status, counts, and latest round.
- */
-export function filterRelatedSessionGroups(
-  groups: readonly SessionGroup[],
-  dispatchesByGroup: ReadonlyMap<string, readonly TaskDispatchProjectionRow[]>,
-): readonly SessionGroup[] {
-  const narrowed: SessionGroup[] = [];
-  for (const group of groups) {
-    const matching = dispatchesByGroup.get(group.key);
-    if (!matching?.length) continue;
-    // The daemon's member page is newest first.
-    const latest = matching[0]!;
-    const sessions = new Map<string, TaskDispatchProjectionRow>();
-    for (const row of matching) {
-      if (!sessions.has(row.runtimeSessionId)) sessions.set(row.runtimeSessionId, row);
-    }
-    narrowed.push({
-      ...group,
-      personId: latest.personId ?? null,
-      nodeId: latest.nodeId ?? null,
-      sessionCount: sessions.size,
-      roundCount: matching.length,
-      runningCount: [...sessions.values()].filter((row) => row.status === "running").length,
-      latestStatus: latest.status,
-      latestActivityAt: latest.endedAt ?? latest.startedAt,
-      latestRound: {
-        runtimeSessionId: latest.runtimeSessionId,
-        dispatchId: latest.dispatchId,
-        agentName: latest.agentName ?? latest.agentId ?? null,
-        instanceId: latest.instanceId,
-        status: latest.status,
-        classification: latest.classification ?? null,
-        reason: latest.reason ?? null,
-        startedAt: latest.startedAt,
-      },
-    });
-  }
-  return narrowed;
 }

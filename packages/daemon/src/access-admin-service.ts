@@ -168,29 +168,32 @@ export class AccessAdminService {
     return this.#edgeJoinAdmin.close();
   }
 
+  async readRepositoryMembers(repoId: string, actor: { readonly personId: string; readonly accessToken: string }) {
+    const { provider, accessToken } = await this.#oidc.center();
+    const [repository, fleet] = await Promise.all([
+      provider.authorize({
+        userAccessToken: actor.accessToken,
+        action: "access-manage",
+        resource: { kind: "repository", repoId },
+      }),
+      provider.authorize({ userAccessToken: actor.accessToken, action: "access-manage", resource: { kind: "fleet" } }),
+    ]);
+    const isRepoAdmin = repository.outcome === "allowed";
+    return {
+      ok: true,
+      personId: actor.personId,
+      isRepoAdmin,
+      canManageFleetNodes: fleet.outcome === "allowed",
+      members: isRepoAdmin ? await repositoryMembers(provider, accessToken, repoId) : [],
+    };
+  }
+
   async run(request: AccessAdminRequest, requester?: string): Promise<Record<string, unknown>> {
     if (request.operation === "repository-members") {
       if (requester !== undefined)
         throw coded("authorization_denied", "The repository member directory requires a signed-in person.");
       const repoId = text(request.repoId, "repoId");
-      const actor = await this.#oidc.requireSession(request.rootDir);
-      const { adapter, token } = await this.#session();
-      const [repository, fleet] = await Promise.all([
-        adapter.authorize({
-          userAccessToken: actor.accessToken,
-          action: "access-manage",
-          resource: { kind: "repository", repoId },
-        }),
-        adapter.authorize({ userAccessToken: actor.accessToken, action: "access-manage", resource: { kind: "fleet" } }),
-      ]);
-      const isRepoAdmin = repository.outcome === "allowed";
-      return {
-        ok: true,
-        personId: actor.personId,
-        isRepoAdmin,
-        canManageFleetNodes: fleet.outcome === "allowed",
-        members: isRepoAdmin ? await repositoryMembers(adapter, token, repoId) : [],
-      };
+      return this.readRepositoryMembers(repoId, await this.#oidc.requireSession(request.rootDir));
     }
     if (request.operation === "permission-request-decide" && requester !== undefined)
       throw coded("human_confirmation_required", "An execution credential cannot decide permission requests.");
