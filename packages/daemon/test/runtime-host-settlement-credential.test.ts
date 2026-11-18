@@ -169,6 +169,39 @@ test("expired credentials block worker writes with exact reason while hostSettle
       }),
     );
   }
+  const abandonment = {
+    kind: "runtime-run",
+    executionRuntimeIngress: {
+      kind: "event",
+      type: "runtime_session_outcome_observed",
+      payload: {
+        runtimeSessionId: p.runtimeSessionId,
+        dispatchId: p.dispatchId,
+        outcome: "unknown",
+        exitCode: null,
+        reasonCode: "ruling_resolved",
+      },
+    },
+  };
+  const ownerAbandonment = {
+    action: abandonment,
+    binding: baseBinding,
+    projection: baseProjection,
+    now,
+    hostSettlement: true,
+  };
+  assert.doesNotThrow(() => requireCurrentExecutionScope(ownerAbandonment));
+  assert.throws(
+    () =>
+      requireCurrentExecutionScope({
+        ...ownerAbandonment,
+        binding: {
+          ...baseBinding,
+          actor: { ...actor, executor: { kind: "agent", id: `runtime-session:${p.runtimeSessionId}` } },
+        },
+      }),
+    { code: "execution_credential_rejected" },
+  );
   // Archive still requires the current submitted cut, even during host settlement.
   reviewDigest = submissionDigest({} as never);
   // Cancelled dispatch admits archive cleanup alongside negativeTerminal, while rejecting liveness updates.

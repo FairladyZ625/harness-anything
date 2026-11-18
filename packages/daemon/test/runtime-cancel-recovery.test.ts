@@ -10,6 +10,8 @@ import test from "node:test";
 import type { AgentRuntimeEventV1 } from "@harness-anything/kernel";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 import { cancelRuntime } from "../src/runtime-spawn-control.ts";
+import { publishExit } from "../src/runtime-spawn-settlement.ts";
+import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import { runtimeSpawnError } from "../src/runtime-spawn-errors.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 
@@ -346,151 +348,225 @@ test(
   },
 );
 
-test(
-  "cancelRuntime preserves persisted reviewer terminal outcome when outcome publication failed after runtime_session_exited",
-  { skip: process.platform === "win32" ? "requires POSIX process-group probe semantics" : false },
-  async () => {
-    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-cancel-persisted-reviewer-"));
-    try {
-      const dispatchId = "dispatch_949494949494949494949494",
-        runtimeSessionId = "runtime_949494949494949494949494",
-        events: AgentRuntimeEventV1[] = [
-          lifecycleEvent("R", runtimeSessionId, {
-            dispatchId,
-            instanceId: "instance-1",
-            source: "local",
-            role: "reviewer",
-          }),
-          lifecycleEvent("S", runtimeSessionId, { dispatchId, instanceId: "instance-1", source: "local" }),
-          lifecycleEvent("X", runtimeSessionId, { dispatchId, instanceId: "instance-1", source: "local" }),
-        ],
-        published: Array<{ type: string; payload: Record<string, unknown>; body?: string }> = [];
-      const stream = openDispatchStream(rootDir, {
-        dispatchId,
-        taskId: "task-review-1",
-        executionId: "exe-review-1",
-        runtimeSessionId,
-        instanceId: "instance-1",
-        startedAt: "2026-09-13T00:00:00.000Z",
-        dispatchOpId: "cancel-persisted-reviewer",
-        kindId: "codex",
-        permissionMode: "read-only",
-        binding,
-        cwd: rootDir,
-        prompt: "review task",
-        model: "gpt-5.6-sol",
-        reasoningEffort: null,
-        fast: false,
-      });
-      appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 2_147_483_647 });
-      appendRuntimeWorkerRecord(rootDir, dispatchId, {
-        kind: "process_exit",
-        occurredAt: "2026-11-02T00:00:05.000Z",
-        exitCode: 0,
-        signal: null,
-      });
-      const reviewerBody = "Reviewer verdict and report registered.",
-        reviewerSha = createHash("sha256").update(reviewerBody).digest("hex");
-      stream.appendTerminalOutcome(
-        {
-          payload: {
-            runtimeSessionId,
-            outcome: "succeeded",
-            exitCode: 0,
-            resultRef: `artifact:runtime-result/sha256/${reviewerSha}`,
-            result: {
-              sha256: reviewerSha,
-              size: Buffer.byteLength(reviewerBody),
-              mediaType: "text/plain; charset=utf-8",
-            },
-            dispatchId,
-            endedAt: "2026-11-02T00:00:06.000Z",
+for (const scheduled of [false, true])
+  test(
+    scheduled
+      ? "cancelRuntime restores a scheduled fallback after accepted exit and failed outcome without settling its occurrence"
+      : "cancelRuntime preserves the persisted reviewer outcome after accepted exit and failed outcome",
+    { skip: process.platform === "win32" ? "requires POSIX process-group probe semantics" : false },
+    async () => {
+      const rootDir = mkdtempSync(path.join(tmpdir(), "ha-cancel-persisted-reviewer-"));
+      try {
+        const schedule = scheduled
+            ? {
+                scheduleId: "schedule-one",
+                occurrenceId: "occurrence-one",
+                claimFence: "claim-one",
+                mode: "detect" as const,
+              }
+            : null,
+          fallbackSchedule = {
+            notBeforeAt: "2026-11-02T00:00:07.000Z",
+            nextProvider: { instance: "instance-next" },
           },
-          body: reviewerBody,
-          reason: "Worker completed the attempt successfully.",
-          processGroupPid: 2_147_483_647,
-        },
-        "2026-11-02T00:00:06.000Z",
-      );
-
-      const readDispatchLifecycle = dispatchLifecycleReadOf(() => events);
-      let outcomeObserved: string | null = null;
-      const context = {
-        input: {
-          rootDir,
-          repoId: "cancel-persisted-reviewer",
-          now: () => "2026-11-02T00:01:00.000Z",
-        },
-        requiredRuntimeProjection: () => ({
-          readRuntimeSession: () => ({
-            runtimeSessionId,
-            instanceId: "instance-1",
-            providerSessionId: null,
-            liveness: "exited",
-            outcome: outcomeObserved,
-          }),
-          readDispatchLifecycle,
-          readRuntimeSessions: () => [],
-          readRuntimeDispatch: () => ({
-            actor: binding.actor,
-            source: "local",
-            payload: { dispatchId, instanceId: "instance-1" },
-          }),
-          readRuntimeSessionEvents: () => [],
-          readRuntimeSessionEventsByType: () => [
-            { type: "runtime_session_liveness_changed", source: "local", payload: { processGroupPid: 2_147_483_647 } },
+          expectedOutcome = scheduled ? "failed" : "succeeded",
+          dispatchId = "dispatch_949494949494949494949494",
+          runtimeSessionId = "runtime_949494949494949494949494",
+          events: AgentRuntimeEventV1[] = [
+            lifecycleEvent("R", runtimeSessionId, {
+              dispatchId,
+              instanceId: "instance-1",
+              source: "local",
+              ...(scheduled ? {} : { role: "reviewer" as const }),
+            }),
+            lifecycleEvent("S", runtimeSessionId, { dispatchId, instanceId: "instance-1", source: "local" }),
+            lifecycleEvent("X", runtimeSessionId, { dispatchId, instanceId: "instance-1", source: "local" }),
           ],
-        }),
-        processes: new Map(),
-        exiting: new Set<string>(),
-        restoreDurableOutputRecords: async () => undefined,
-        reconcileFallback: () => undefined,
-        publishExit: async (active: { runtimeSessionId: string }) => {
-          context.processes.delete(active.runtimeSessionId);
-          throw runtimeSpawnError("runtime_recovery_failed", "simulated adoption publishExit failure");
-        },
-        publishRuntimeEvent: async (
-          type: string,
-          payload: Record<string, unknown>,
-          _opId: string,
-          _eventBinding: unknown,
-          body?: string,
-        ) => {
-          published.push({ type, payload, body });
-          if (type === "runtime_session_outcome_observed") {
-            outcomeObserved = String(payload.outcome);
-            events.push({
-              ...lifecycleEvent("O", runtimeSessionId, { dispatchId, instanceId: "instance-1", source: "local" }),
-              payload,
-            } as unknown as AgentRuntimeEventV1);
-          }
-          return {};
-        },
-        controlReceipt: (_opId: string, _runtimeSessionId: string, detail: string) => ({ detail }),
-        runtimeSpawnError,
-      };
+          published: Array<{ type: string; payload: Record<string, unknown>; body?: string }> = [];
+        const stream = openDispatchStream(rootDir, {
+          dispatchId,
+          taskId: scheduled ? null : "task-review-1",
+          executionId: scheduled ? null : "exe-review-1",
+          ...(schedule ? { schedule } : {}),
+          runtimeSessionId,
+          instanceId: "instance-1",
+          startedAt: "2026-09-13T00:00:00.000Z",
+          dispatchOpId: "cancel-persisted-reviewer",
+          kindId: "codex",
+          permissionMode: "read-only",
+          binding,
+          cwd: rootDir,
+          prompt: "review task",
+          model: "gpt-5.6-sol",
+          reasoningEffort: null,
+          fast: false,
+        });
+        appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 2_147_483_647 });
+        appendRuntimeWorkerRecord(rootDir, dispatchId, {
+          kind: "process_exit",
+          occurredAt: "2026-11-02T00:00:05.000Z",
+          exitCode: 0,
+          signal: null,
+        });
+        const body = scheduled
+            ? "Provider failed and the fallback was scheduled."
+            : "Reviewer verdict and report registered.",
+          resultSha = createHash("sha256").update(body).digest("hex");
+        stream.appendTerminalOutcome(
+          {
+            payload: {
+              runtimeSessionId,
+              outcome: expectedOutcome,
+              exitCode: scheduled ? 1 : 0,
+              ...(scheduled
+                ? {
+                    attempt: {
+                      classification: "provider_fault" as const,
+                      reason: body,
+                      fallbackState: "scheduled" as const,
+                      fallbackSchedule,
+                    },
+                  }
+                : {}),
+              resultRef: `artifact:runtime-result/sha256/${resultSha}`,
+              result: {
+                sha256: resultSha,
+                size: Buffer.byteLength(body),
+                mediaType: "text/plain; charset=utf-8",
+              },
+              dispatchId,
+              endedAt: "2026-11-02T00:00:06.000Z",
+            },
+            body: body,
+            reason: body,
+            processGroupPid: 2_147_483_647,
+          },
+          "2026-11-02T00:00:06.000Z",
+        );
 
-      const receipt = await cancelRuntime(context as never, { runtimeSessionId }, binding);
-      assert.equal(receipt.detail, "already-exited");
-      assert.deepEqual(
-        published.map((entry) => entry.type),
-        ["runtime_session_outcome_observed"],
-      );
-      assert.equal(published[0]!.payload.outcome, "succeeded");
-      assert.equal(published[0]!.payload.resultRef, `artifact:runtime-result/sha256/${reviewerSha}`);
-      assert.equal(published[0]!.body, reviewerBody);
+        const readDispatchLifecycle = dispatchLifecycleReadOf(() => events);
+        let outcomeObserved: string | null = null;
+        let failOutcomeSubmission = scheduled;
+        let activeClaim = schedule?.claimFence ?? null;
+        const reconciled: string[] = [];
+        const context = {
+          input: {
+            rootDir,
+            repoId: "cancel-persisted-reviewer",
+            now: () => "2026-11-02T00:01:00.000Z",
+            onAttemptTerminal: (terminal: { schedule: typeof schedule }) => {
+              if (terminal.schedule?.claimFence === activeClaim) activeClaim = null;
+            },
+          },
+          requiredRuntimeProjection: () => ({
+            readRuntimeSession: () => ({
+              runtimeSessionId,
+              instanceId: "instance-1",
+              providerSessionId: null,
+              liveness: "exited",
+              outcome: outcomeObserved,
+            }),
+            readDispatchLifecycle,
+            readRuntimeSessions: () => [],
+            readRuntimeDispatch: () => ({
+              actor: binding.actor,
+              source: "local",
+              payload: { dispatchId, instanceId: "instance-1" },
+            }),
+            readRuntimeSessionEvents: () => [],
+            readRuntimeSessionEventsByType: () => [
+              {
+                type: "runtime_session_liveness_changed",
+                source: "local",
+                payload: { processGroupPid: 2_147_483_647 },
+              },
+            ],
+          }),
+          processes: new Map(),
+          exiting: new Set<string>(),
+          restoreDurableOutputRecords: async () => undefined,
+          reconcileFallback: (id: string) => {
+            reconciled.push(id);
+          },
+          publishExit: async (active: Parameters<RuntimeSpawnerContext["publishExit"]>[0], code: number | null) => {
+            if ("terminal" in active) return publishExit(context as never, active, code);
+            context.processes.delete(active.runtimeSessionId);
+            throw runtimeSpawnError("runtime_recovery_failed", "simulated adoption publishExit failure");
+          },
+          publishRuntimeEvent: async (
+            type: string,
+            payload: Record<string, unknown>,
+            _opId: string,
+            _eventBinding: unknown,
+            body?: string,
+          ) => {
+            if (type === "runtime_session_outcome_observed" && failOutcomeSubmission)
+              throw runtimeSpawnError("runtime_recovery_failed", "simulated fallback outcome submission failure");
+            published.push({ type, payload, body });
+            if (type === "runtime_session_outcome_observed") {
+              outcomeObserved = String(payload.outcome);
+              events.push({
+                ...lifecycleEvent("O", runtimeSessionId, { dispatchId, instanceId: "instance-1", source: "local" }),
+                payload,
+              } as unknown as AgentRuntimeEventV1);
+            }
+            return {};
+          },
+          controlReceipt: (_opId: string, _runtimeSessionId: string, detail: string) => ({ detail }),
+          runtimeSpawnError,
+        };
 
-      const settled = readDispatchLifecycle({ by: "session", runtimeSessionId });
-      if (settled.status !== "ready") assert.fail("lifecycle must remain ready");
-      assert.equal(settled.rows[0]?.attempt.phase, "closed");
-      assert.equal(settled.rows[0]?.attempt.stopProof, "proven_stopped");
-      assert.equal(settled.rows[0]?.attempt.outcome, "succeeded");
+        if (scheduled) {
+          await assert.rejects(cancelRuntime(context as never, { runtimeSessionId }, binding), {
+            code: "runtime_recovery_failed",
+          });
+          const beforeReplay = readDispatchLifecycle({ by: "session", runtimeSessionId });
+          assert.ok(beforeReplay.status === "ready");
+          assert.equal(beforeReplay.rows[0]?.attempt.stopProof, "proven_stopped");
+          assert.equal(beforeReplay.rows[0]?.attempt.outcome, null);
+          assert.deepEqual(published, []);
+          failOutcomeSubmission = false;
+        }
 
-      const repeated = await cancelRuntime(context as never, { runtimeSessionId }, binding);
-      assert.equal(repeated.detail, "already-exited");
-      assert.equal(published.length, 1);
-    } finally {
-      rmSync(rootDir, { recursive: true, force: true });
-    }
-  },
-);
+        const receipt = await cancelRuntime(context as never, { runtimeSessionId }, binding);
+        assert.equal(receipt.detail, "already-exited");
+        assert.deepEqual(
+          published.map((entry) => entry.type),
+          ["runtime_session_outcome_observed"],
+        );
+        assert.equal(published[0]!.payload.outcome, expectedOutcome);
+        assert.equal(published[0]!.payload.resultRef, `artifact:runtime-result/sha256/${resultSha}`);
+        assert.equal(published[0]!.body, body);
+
+        const settled = readDispatchLifecycle({ by: "session", runtimeSessionId });
+        if (settled.status !== "ready") assert.fail("lifecycle must remain ready");
+        assert.equal(settled.rows[0]?.attempt.phase, "closed");
+        assert.equal(settled.rows[0]?.attempt.stopProof, "proven_stopped");
+        assert.equal(settled.rows[0]?.attempt.outcome, expectedOutcome);
+        if (schedule) {
+          assert.equal(settled.rows[0]?.groupPhase, "waiting_backoff");
+          assert.equal(activeClaim, schedule.claimFence, "the fallback still owns the scheduled occurrence");
+          assert.deepEqual(reconciled, [dispatchId]);
+          assert.deepEqual(settled.rows[0]?.successor.schedule, fallbackSchedule);
+          const nextDispatchId = "dispatch_959595959595959595959595";
+          events.push(
+            lifecycleEvent("R", "runtime_959595959595959595959595", {
+              dispatchId: nextDispatchId,
+              attemptGroupId: dispatchId,
+              instanceId: "instance-next",
+              source: "local",
+            }),
+          );
+          const continued = readDispatchLifecycle({ by: "group", attemptGroupId: dispatchId });
+          assert.ok(continued.status === "ready");
+          assert.equal(continued.rows[0]?.controlLeafDispatchId, nextDispatchId);
+        }
+
+        const repeated = await cancelRuntime(context as never, { runtimeSessionId }, binding);
+        assert.equal(repeated.detail, "already-exited");
+        assert.equal(published.length, 1);
+      } finally {
+        rmSync(rootDir, { recursive: true, force: true });
+      }
+    },
+  );

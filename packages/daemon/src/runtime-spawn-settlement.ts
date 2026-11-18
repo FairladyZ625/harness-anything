@@ -32,7 +32,7 @@ import {
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
 import { scheduleOutcomeFromRuntime } from "./schedule-runtime-outcome.ts";
-import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
+import type { RuntimeSpawnerContext, RuntimeTerminalReplay } from "./runtime-spawn-context.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { presetSnapshotReader, taskOutputShape } from "./task-worktree.ts";
 import { publishTaskWorkerBranch } from "./runtime-task-publication.ts";
@@ -51,10 +51,11 @@ export { runtimeSpawnReceipt } from "./runtime-spawn-receipt.ts";
 
 export async function publishExit(
   context: RuntimeSpawnerContext,
-  active: ActiveRuntime,
+  active: ActiveRuntime | RuntimeTerminalReplay,
   code: number | null,
   _resumePublishedExit = false,
 ): Promise<void> {
+  if ("terminal" in active) return publishTerminalOutcome(context, active.terminal, active);
   if (active.exitSettlement) return active.exitSettlement;
   if (context.exiting.has(active.runtimeSessionId)) return;
   let resolveSettlement!: () => void, rejectSettlement!: (error: unknown) => void;
@@ -113,27 +114,8 @@ export async function publishExit(
     ) {
       context.processes.delete(active.runtimeSessionId);
       active.process.release?.();
-      const previous = await dispatchLifecycleForTerminal(context, active),
-        lifecycle = await publishTerminalOutcome(context, active, terminalBinding, persistedTerminal);
-      if (!previous.policy.attemptSettled && lifecycle.groupPhase !== "waiting_backoff")
-        await context.input.onAttemptTerminal?.({
-          runtimeSessionId: active.runtimeSessionId,
-          dispatchId: active.dispatchId,
-          task: null,
-          schedule: active.schedule,
-          outcome: active.schedule
-            ? scheduleOutcomeFromRuntime(persistedTerminal.payload.outcome, persistedTerminal.body)
-            : persistedTerminal.payload.outcome === "succeeded"
-              ? "succeeded"
-              : "failed",
-          reason: persistedTerminal.payload.outcome === "succeeded" ? null : persistedTerminal.reason,
-          endedAt: persistedTerminal.payload.endedAt ?? context.input.now(),
-          ...(persistedTerminal.processGroupPid === undefined
-            ? {}
-            : { processGroupPid: persistedTerminal.processGroupPid }),
-          ...(persistedTerminal.payload.attempt?.classification === "awaiting_ruling" ? { waitingOnOwner: true } : {}),
-          binding: active.binding,
-        });
+      const previous = await dispatchLifecycleForTerminal(context, active.dispatchId);
+      await publishTerminalOutcome(context, persistedTerminal, { active, previous });
       context.input.remote?.releaseExecutionCredential?.(active.runtimeSessionId);
       return;
     }
@@ -722,7 +704,7 @@ export async function publishExit(
       ...(processGroupPid === undefined ? {} : { processGroupPid }),
     };
     active.stream.appendTerminalOutcome(terminalOutcome, endedAt);
-    await publishTerminalOutcome(context, active, terminalBinding, terminalOutcome, !evidencePending);
+    await publishTerminalOutcome(context, terminalOutcome, { active, archiveAllowed: !evidencePending });
     context.input.remote?.releaseExecutionCredential?.(active.runtimeSessionId);
   } catch (error) {
     preserveEvidence?.("runtime terminal settlement failed");
@@ -763,95 +745,128 @@ export async function runtimeProcessTreeStopped(
 
 async function dispatchLifecycleForTerminal(
   context: RuntimeSpawnerContext,
-  active: ActiveRuntime,
+  dispatchId: string,
 ): Promise<DispatchLifecycleView> {
-  const query = { by: "dispatch", dispatchIds: [active.dispatchId] } as const,
+  const query = { by: "dispatch", dispatchIds: [dispatchId] } as const,
     read = context.input.remote
       ? await context.input.remote.readDispatchLifecycle(query)
       : context.requiredRuntimeProjection(context.input).readDispatchLifecycle(query);
   if (read.status !== "ready")
-    throw context.runtimeSpawnError("runtime_event_missing", `Dispatch lifecycle ${active.dispatchId} is not ready.`);
-  const view = read.rows.find(({ attempt }) => attempt.dispatchId === active.dispatchId);
+    throw context.runtimeSpawnError("runtime_event_missing", `Dispatch lifecycle ${dispatchId} is not ready.`);
+  const view = read.rows.find(({ attempt }) => attempt.dispatchId === dispatchId);
   if (!view)
-    throw context.runtimeSpawnError("runtime_event_missing", `Dispatch lifecycle ${active.dispatchId} has no attempt.`);
+    throw context.runtimeSpawnError("runtime_event_missing", `Dispatch lifecycle ${dispatchId} has no attempt.`);
   return view;
 }
 
+type TerminalPublication =
+  | { readonly active: ActiveRuntime; readonly previous?: DispatchLifecycleView; readonly archiveAllowed?: boolean }
+  | RuntimeTerminalReplay;
+
 async function publishTerminalOutcome(
   context: RuntimeSpawnerContext,
-  active: ActiveRuntime,
-  terminalBinding: ActiveRuntime["binding"],
   terminal: DispatchTerminalOutcome,
-  archiveAllowed = true,
-): Promise<DispatchLifecycleView> {
-  const { payload, body } = terminal;
-  await context.publishRuntimeEvent(
-    "runtime_session_exited",
-    { runtimeSessionId: active.runtimeSessionId },
-    randomUUID(),
-    terminalBinding,
-  );
-  if (active.cancelRequested && active.cancelOpId?.endsWith(":escalation") !== true)
+  publication: TerminalPublication,
+): Promise<void> {
+  const attempt = "active" in publication ? publication.active : publication.attempt,
+    active = "active" in publication ? publication.active : null,
+    opId = "opId" in publication ? publication.opId : null,
+    { runtimeSessionId, dispatchId, schedule, binding } = attempt,
+    { payload, body } = terminal,
+    terminalBinding = runtimeSessionBinding(binding, runtimeSessionId),
+    cancelled = active
+      ? active.cancelRequested && active.cancelOpId?.endsWith(":escalation") !== true
+      : payload.outcome === "cancelled";
+  const stopAlreadyProven = "attempt" in publication && publication.previous.attempt.stopProof === "proven_stopped";
+  if (!stopAlreadyProven)
+    await context.publishRuntimeEvent(
+      "runtime_session_exited",
+      { runtimeSessionId },
+      opId ? `${opId}-exited` : randomUUID(),
+      terminalBinding,
+    );
+  if (cancelled)
     await context.publishRuntimeEvent(
       "runtime_session_cancelled",
-      { runtimeSessionId: active.runtimeSessionId },
-      active.cancelOpId ?? randomUUID(),
-      active.cancelBinding ?? active.binding,
+      { runtimeSessionId },
+      opId ? `${opId}-cancelled` : (active?.cancelOpId ?? randomUUID()),
+      active?.cancelBinding ?? binding,
     );
   const outcomeEvent = await context.publishRuntimeEvent(
     "runtime_session_outcome_observed",
     payload,
-    randomUUID(),
+    opId ? `${opId}-outcome` : randomUUID(),
     terminalBinding,
     body,
   );
-  if (outcomeEvent.event) context.input.onRuntimeOutcome?.(outcomeEvent.event, active.schedule);
-  const lifecycle = await dispatchLifecycleForTerminal(context, active);
-  if (lifecycle.policy.fallbackPending) await context.reconcileFallback(active.dispatchId);
-  if (
-    outcomeEvent.event &&
-    active.role === "reviewer" &&
-    active.task &&
-    payload.outcome === "failed" &&
-    (payload.attempt?.classification === "dispatch_stalled" ||
-      (payload.reasonCode === "review_result_missing" &&
-        (payload.attempt?.classification === "worker_stop" ||
-          payload.attempt?.classification === "completed_without_final_text")))
-  )
-    context.input.onStalledReviewer?.({
+  if (outcomeEvent.event) context.input.onRuntimeOutcome?.(outcomeEvent.event, schedule);
+  const lifecycle = await dispatchLifecycleForTerminal(context, dispatchId);
+  if (lifecycle.policy.fallbackPending) await context.reconcileFallback(dispatchId);
+  if ("active" in publication) {
+    const { active, archiveAllowed = true } = publication;
+    if (
+      outcomeEvent.event &&
+      active.role === "reviewer" &&
+      active.task &&
+      payload.outcome === "failed" &&
+      (payload.attempt?.classification === "dispatch_stalled" ||
+        (payload.reasonCode === "review_result_missing" &&
+          (payload.attempt?.classification === "worker_stop" ||
+            payload.attempt?.classification === "completed_without_final_text")))
+    )
+      context.input.onStalledReviewer?.({
+        dispatchId: active.dispatchId,
+        task: active.task,
+        binding: active.binding,
+      });
+    context.input.recordLifecycle?.({
+      event: "runtime_exit",
+      runtimeSessionId: active.runtimeSessionId,
       dispatchId: active.dispatchId,
-      task: active.task,
-      binding: active.binding,
+      pid: active.process.pid,
+      exitCode: active.lossExitCode ?? payload.exitCode,
+      signal: active.lossSignal,
+      outcome: active.lossReason ? "lost" : payload.outcome,
+      reason: active.lossReason ?? (payload.outcome === "succeeded" ? null : terminal.reason),
     });
-  context.input.recordLifecycle?.({
-    event: "runtime_exit",
-    runtimeSessionId: active.runtimeSessionId,
-    dispatchId: active.dispatchId,
-    pid: active.process.pid,
-    exitCode: active.lossExitCode ?? payload.exitCode,
-    signal: active.lossSignal,
-    outcome: active.lossReason ? "lost" : payload.outcome,
-    reason: active.lossReason ?? (payload.outcome === "succeeded" ? null : terminal.reason),
-  });
-  context.input.stream.publish(active.runtimeSessionId, { type: "exit", outcome: payload.outcome });
-  if (archiveAllowed) await releaseFallbackResources(context, lifecycle, active.role, active.cwd);
-  const onExitCommand = active.onExitCommand;
-  if (typeof onExitCommand === "string")
-    setImmediate(() =>
-      context.launchExitNotification({
-        command: onExitCommand,
-        cwd: active.cwd,
-        stream: active.stream,
-        payload: {
-          schema: "runtime-session-exited/v1" as const,
-          runtimeSessionId: active.runtimeSessionId,
-          outcome: payload.outcome,
-          exitCode: payload.exitCode,
-        },
-        now: context.input.now,
-      }),
-    );
-  return lifecycle;
+    context.input.stream.publish(active.runtimeSessionId, { type: "exit", outcome: payload.outcome });
+    if (archiveAllowed) await releaseFallbackResources(context, lifecycle, active.role, active.cwd);
+    const onExitCommand = active.onExitCommand;
+    if (typeof onExitCommand === "string")
+      setImmediate(() =>
+        context.launchExitNotification({
+          command: onExitCommand,
+          cwd: active.cwd,
+          stream: active.stream,
+          payload: {
+            schema: "runtime-session-exited/v1" as const,
+            runtimeSessionId: active.runtimeSessionId,
+            outcome: payload.outcome,
+            exitCode: payload.exitCode,
+          },
+          now: context.input.now,
+        }),
+      );
+  }
+  if (publication.previous && !publication.previous.policy.attemptSettled && lifecycle.groupPhase !== "waiting_backoff")
+    await context.input.onAttemptTerminal?.({
+      runtimeSessionId,
+      dispatchId,
+      task: null,
+      schedule,
+      outcome: schedule
+        ? scheduleOutcomeFromRuntime(payload.outcome, body)
+        : payload.outcome === "succeeded"
+          ? "succeeded"
+          : payload.outcome === "cancelled"
+            ? "cancelled"
+            : "failed",
+      reason: payload.outcome === "succeeded" ? null : terminal.reason,
+      endedAt: payload.endedAt ?? context.input.now(),
+      ...(terminal.processGroupPid === undefined ? {} : { processGroupPid: terminal.processGroupPid }),
+      ...(payload.attempt?.classification === "awaiting_ruling" ? { waitingOnOwner: true } : {}),
+      binding,
+    });
 }
 
 function unsubmittedDeliveryRecovery(

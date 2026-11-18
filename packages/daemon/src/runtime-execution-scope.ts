@@ -277,8 +277,18 @@ export function requireCurrentExecutionScope(input: {
   const livenessObservation = ingress?.type === "runtime_session_liveness_changed";
   const archiveIngress = ingress?.kind === "archive";
   const hostSettling = archiveIngress || terminal;
-  // A node may retire its own stale reviewer without restoring business access.
-  // Archive and successful outcomes still require the current submission cut.
+  // A node may retire its stale reviewer after physical exit. A personal owner may also
+  // abandon an unreachable dispatch through cancel's evidence gate. Public terminal ingress
+  // uses the runtime executor, so carrying a ruling-shaped payload cannot claim this authority.
+  const ownerAbandonment =
+    input.hostSettlement &&
+    input.binding.actor.executor === null &&
+    ingress?.type === "runtime_session_outcome_observed" &&
+    isJsonObject(ingress.payload) &&
+    ingress.payload.dispatchId === p.dispatchId &&
+    ingress.payload.outcome === "unknown" &&
+    ingress.payload.exitCode === null &&
+    ingress.payload.reasonCode === "ruling_resolved";
   const negativeTerminal =
     ingress?.type === "runtime_session_exited" ||
     (ingress?.type === "runtime_session_outcome_observed" &&
@@ -395,7 +405,7 @@ export function requireCurrentExecutionScope(input: {
       target.executionId === p.executionId &&
       execution?.submission !== null &&
       execution?.submission !== undefined &&
-      (negativeTerminal || target.digest === submissionDigest(execution.submission));
+      (negativeTerminal || ownerAbandonment || target.digest === submissionDigest(execution.submission));
     const decisionReview = target?.kind === "decision" && p.reviewDecisionId === target.decisionId;
     if (dispatch.payload.role !== "reviewer")
       throw executionCredentialRejected("scope", {

@@ -896,7 +896,7 @@ export function dispatchGroupIsActive(group: DispatchLifecycleGroup): boolean {
 }
 
 /** Bump when the folded group shape changes: stored lifecycle state of another version is refolded. */
-export const DISPATCH_LIFECYCLE_MODEL_VERSION = 7;
+export const DISPATCH_LIFECYCLE_MODEL_VERSION = 8;
 
 export const DISPATCH_LIFECYCLE_PAGE_LIMIT = 100;
 

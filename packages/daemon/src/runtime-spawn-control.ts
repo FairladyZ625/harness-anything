@@ -11,7 +11,6 @@ import {
   readDispatchStreamHeaders,
   readDispatchStreamSummary,
 } from "./dispatch-stream.ts";
-import { scheduleOutcomeFromRuntime } from "./schedule-runtime-outcome.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { probeProcessGroup, processGroupRecoveryHint } from "./runtime/process-group-reconciler.ts";
 import type { ActiveRuntime, RuntimeBinding, RuntimeDispatchOwnerEvidence } from "./runtime-spawn-types.ts";
@@ -61,6 +60,7 @@ export async function cancelRuntime(
       ruling !== null &&
       matchingHeader === undefined &&
       binding.source === "local" &&
+      binding.actor.executor === null &&
       !(binding as { readonly executionPrincipal?: unknown }).executionPrincipal &&
       ownerBinding != null &&
       typeof ownerBinding.source === "object" &&
@@ -235,55 +235,33 @@ export async function cancelRuntime(
         readDispatchStreamSummary(context.input.rootDir, matchingHeader.dispatchId)?.terminalOutcome ??
         null)
       : null;
+    if (persistedTerminal) {
+      await context.publishExit(
+        {
+          terminal: persistedTerminal,
+          attempt: {
+            runtimeSessionId,
+            dispatchId: attempt.attempt.dispatchId,
+            schedule: matchingHeader?.schedule ?? null,
+            binding,
+          },
+          previous: attempt,
+          opId,
+        },
+        null,
+      );
+      return context.controlReceipt(
+        opId,
+        runtimeSessionId,
+        persistedTerminal.payload.outcome === "cancelled" ? "cancelled" : "already-exited",
+      );
+    }
     if (!stopAlreadyProven) {
       await context.publishRuntimeEvent(
         "runtime_session_exited",
         { runtimeSessionId },
         `${opId}-exited`,
         terminalBinding,
-      );
-    }
-    if (persistedTerminal) {
-      if (persistedTerminal.payload.outcome === "cancelled") {
-        await context.publishRuntimeEvent(
-          "runtime_session_cancelled",
-          { runtimeSessionId },
-          `${opId}-cancelled`,
-          binding,
-        );
-      }
-      const outcomeEvent = await context.publishRuntimeEvent(
-        "runtime_session_outcome_observed",
-        persistedTerminal.payload,
-        `${opId}-outcome`,
-        terminalBinding,
-        persistedTerminal.body,
-      );
-      if (outcomeEvent?.event) context.input.onRuntimeOutcome?.(outcomeEvent.event, matchingHeader?.schedule ?? null);
-      await context.input.onAttemptTerminal?.({
-        runtimeSessionId,
-        dispatchId: attempt.attempt.dispatchId,
-        task: null,
-        schedule: matchingHeader?.schedule ?? null,
-        outcome: matchingHeader?.schedule
-          ? scheduleOutcomeFromRuntime(persistedTerminal.payload.outcome, persistedTerminal.body)
-          : persistedTerminal.payload.outcome === "succeeded"
-            ? "succeeded"
-            : persistedTerminal.payload.outcome === "cancelled"
-              ? "cancelled"
-              : "failed",
-        reason: persistedTerminal.payload.outcome === "succeeded" ? null : persistedTerminal.reason,
-        endedAt: persistedTerminal.payload.endedAt ?? context.input.now(),
-        ...(persistedTerminal.processGroupPid === undefined
-          ? {}
-          : { processGroupPid: persistedTerminal.processGroupPid }),
-        ...(persistedTerminal.payload.attempt?.classification === "awaiting_ruling" ? { waitingOnOwner: true } : {}),
-        binding: terminalBinding,
-      });
-      return context.controlReceipt(
-        opId,
-        runtimeSessionId,
-        persistedTerminal.payload.outcome === "cancelled" ? "cancelled" : "already-exited",
       );
     }
     await context.publishRuntimeEvent("runtime_session_cancelled", { runtimeSessionId }, `${opId}-cancelled`, binding);
