@@ -568,7 +568,13 @@ export function prepareTaskSurfaceWriteAt(
       if (target === `${current.packagePath}/task_plan.md` && read.document !== null) {
         const onDisk = readOnDiskBody(cell.rootDir, target),
           canonical = onDisk === null ? null : sha256Text(onDisk.replace(/\r\n?/gu, "\n"));
-        if (canonical === null || canonical !== read.document.blobSha256)
+        if (canonical !== read.document.blobSha256) {
+          const worktreeRevision = cell.store.followerStatus().worktree.cut?.revision ?? 0;
+          if (worktreeRevision < read.document.workspaceRevision)
+            throw cell.cellCodedError(
+              "materialization_failed",
+              `Task ${taskId} plan ${target} is awaiting worktree revision ${read.document.workspaceRevision}. Retry the amend after publication.`,
+            );
           throw cell.cellCodedError(
             "plan_local_modified",
             [
@@ -577,6 +583,7 @@ export function prepareTaskSurfaceWriteAt(
               "because a title amend rewrites the plan from the canonical body.",
             ].join(""),
           );
+        }
       }
       const repairBody =
         target === `${current.packagePath}/task-contract.json` && typeof action.repairTaskContractBody === "string"

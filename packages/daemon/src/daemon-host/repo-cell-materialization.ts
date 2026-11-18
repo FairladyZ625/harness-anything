@@ -6,20 +6,21 @@ import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import { presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
 
 /** The background request completes after an attempt. Disk readers need a covered revision. */
-export async function settleAuthoredMaterialization(
+export function settleAuthoredMaterialization(
   store: Pick<CanonicalEventStore, "materializationHealth" | "settlePendingMaterialization">,
   operation: string,
-): Promise<void> {
+): Promise<void> | null {
   const before = store.materializationHealth();
-  if (before.state === "ok" && before.pendingWalEvents === 0) return;
+  if (before.state === "ok" && before.pendingWalEvents === 0) return null;
   const target = before.lastCheckpointRevision + before.pendingWalEvents;
-  await store.settlePendingMaterialization?.(operation);
-  const after = store.materializationHealth();
-  if (after.state === "failed" || after.lastCheckpointRevision < target)
-    throw cellCodedError(
-      "materialization_failed",
-      `Cannot ${operation}: the authored worktree has not settled revision ${target} (checkpoint ${after.lastCheckpointRevision}). Retry after Git publication recovers.`,
-    );
+  return Promise.resolve(store.settlePendingMaterialization?.(operation)).then(() => {
+    const after = store.materializationHealth();
+    if (after.state === "failed" || after.lastCheckpointRevision < target)
+      throw cellCodedError(
+        "materialization_failed",
+        `Cannot ${operation}: the authored worktree has not settled revision ${target} (checkpoint ${after.lastCheckpointRevision}). Retry after Git publication recovers.`,
+      );
+  });
 }
 
 /** Recheck the actual directory and its document revision at use, including changes since preparation. */

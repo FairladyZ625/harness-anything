@@ -599,6 +599,12 @@ function contextFor(
       rootDir: "/repository",
       store: {
         readHead: () => ({ revision: 2 }),
+        materializationHealth: () => ({
+          state: "ok",
+          pendingWalEvents: 0,
+          lastCheckpointRevision: 2,
+          lastCheckpointAt: null,
+        }),
         readCommandOutcome: () => ({
           opId: "op-runtime-first-write",
           status: "accepted_durable",
@@ -666,7 +672,7 @@ function contextFor(
         },
         prepareWorktree: (payload: unknown) => {
           fixture.prepared.push(payload);
-          return Promise.resolve(null);
+          return Promise.resolve({ cwd: "/repository/.worktrees/runtime" });
         },
         spawn: (payload: unknown, verified: RepoCellBinding) => {
           fixture.spawned.push({ payload, actor: verified.actor });

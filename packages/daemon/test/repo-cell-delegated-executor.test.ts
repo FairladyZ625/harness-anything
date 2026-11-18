@@ -346,6 +346,7 @@ function contextFor(
           },
         }),
         readTaskCompletion: () => null,
+        readDocumentMetadata: () => ({ status: "ready", watermark: 3, sourceRevision: 3, document: null }),
         readRuntimeSession: () => session,
         currentLease: () => ownedLease,
         readCut: () => ({ status: "ready", watermark: 3, sourceRevision: 3 }),

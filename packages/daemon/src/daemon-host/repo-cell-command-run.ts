@@ -54,7 +54,7 @@ import {
   runtimeExecutionActor,
 } from "./runtime-execution-credential.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
-import { dispatchTaskReview } from "./task-review-dispatch.ts";
+import { dispatchTaskReview, prepareTaskReviewDispatch } from "./task-review-dispatch.ts";
 import { settleAuthoredMaterialization } from "./repo-cell-materialization.ts";
 
 const taskWritesWithProjectionSpecificNotFound = new Set(["task-annotate", "task-attest", "task-declare-executor"]);
@@ -538,7 +538,7 @@ export function makeRepoCellCommandRunner(
     };
     if (action.kind === "script-run")
       // The script reads the published commit, so it waits for every accepted write to be published first.
-      return settleAuthoredMaterialization(context.store, "run vertical script")
+      return Promise.resolve(settleAuthoredMaterialization(context.store, "run vertical script"))
         .then(() =>
           executeVerticalScriptAction({
             action,
@@ -577,23 +577,17 @@ export function makeRepoCellCommandRunner(
         );
       const claimRejected = claimAtPublication ? await bindExecutorClaim() : null;
       if (claimRejected) return claimRejected;
-      let decision = await authorizeAtCurrentCut()!;
+      const decision = await authorizeAtCurrentCut()!;
       if (decision.outcome === "denied")
         return withAuthorizationDecision(
           context.rejected(context.operationId(action, binding, context.input.repoId, 0), "authorization_denied"),
           decision,
         );
-      return dispatchTaskReview(
-        context.extracted,
-        action,
-        binding,
-        (apply) =>
-          enqueuePublication((atCut) => {
-            decision = atCut ?? decision;
-            return apply({ ...binding, authorizationDecision: decision });
-          }) as Promise<WriteReceiptDraft>,
-      ).then(
-        (receipt) => context.withHumanSummary(withAuthorizationDecision(receipt, decision)) as WriteReceipt,
+      return prepareTaskReviewDispatch(context.extracted, action, binding).then(
+        (prepared) =>
+          enqueuePublication((authorizationDecision) =>
+            dispatchTaskReview(context.extracted, action, { ...binding, authorizationDecision }, prepared),
+          ),
         (error: unknown) => failAction(context, action, binding, error, decision),
       );
     }
@@ -668,17 +662,30 @@ export function makeRepoCellCommandRunner(
       if (rerunDecision.outcome !== "allowed") return receipt;
       return await appendCompletionWarnings(receipt, { ...binding, authorizationDecision: rerunDecision });
     }
-    const materializationFailure = readsAuthoredWorktree(action, binding.source)
-      ? await settleAuthoredMaterialization(context.store, action.kind).then(
-          () => null,
-          (error: unknown) => ({ error }),
-        )
-      : null;
-    return enqueuePublication((authorizationDecision) => {
-      // Admission owns the error response even when an earlier disk preparation failed.
-      if (materializationFailure) throw materializationFailure.error;
-      return context.executeAction(action, authorizationDecision ? { ...binding, authorizationDecision } : binding);
-    });
+    const needsWorktree = readsAuthoredWorktree(action, binding.source, context.projection);
+    const publish = async () => {
+      const pending = needsWorktree ? settleAuthoredMaterialization(context.store, action.kind) : null,
+        failure = pending
+          ? await pending.then(
+              () => null,
+              (error: unknown) => ({ error }),
+            )
+          : null;
+      return enqueuePublication((authorizationDecision) => {
+        // Admission owns the error response even when an earlier disk preparation failed.
+        if (failure) throw failure.error;
+        return context.executeAction(action, authorizationDecision ? { ...binding, authorizationDecision } : binding);
+      });
+    };
+    const receipt = await publish();
+    // Rematerialization can reach the queue behind a write that changed its documents. A pending
+    // result for that cut contains no write, so settle it off queue and re-enter through admission.
+    return needsWorktree &&
+      receipt.outcome === "pending" &&
+      "code" in receipt &&
+      receipt.code === "materialization_failed"
+      ? publish()
+      : receipt;
   };
   const enqueueCommand = run;
   return async (

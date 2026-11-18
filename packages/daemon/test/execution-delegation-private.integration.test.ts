@@ -122,7 +122,7 @@ test("center private delegation survives restart and narrows online Keycloak per
   await cell.close();
   cell = await open();
   const delegated = await cell.run(amend, binding);
-  assert.equal(delegated.outcome, "applied");
+  assert.equal(delegated.outcome, "applied", JSON.stringify(delegated));
   assert.ok(delegated.authorizationDecision.bindingsUsed.some((proof) => proof.proof === "delegated-execution-token"));
   const forbidden = await cell.run({ ...amend, kind: "task-delete" }, binding);
   assert.equal(forbidden.code, "executor_binding_invalid");

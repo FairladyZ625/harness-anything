@@ -25,7 +25,11 @@ type QueuedPublication = ((
   readonly ingest?: (binding: RepoCellBinding) => void;
 };
 
-export function readsAuthoredWorktree(action: RepoTaskAction, source: RepoCellBinding["source"]): boolean {
+export function readsAuthoredWorktree(
+  action: RepoTaskAction,
+  source: RepoCellBinding["source"],
+  projection: RepoCellApiContext["projection"],
+): boolean {
   switch (action.kind) {
     case "doc-materialize":
     case "doc-retire":
@@ -40,13 +44,21 @@ export function readsAuthoredWorktree(action: RepoTaskAction, source: RepoCellBi
       return source === "local";
     case "task-artifact-add":
       return typeof action.source === "string";
-    case "task-amend":
-      return (
-        Array.isArray(action.patches) &&
-        action.patches.some(
+    case "task-amend": {
+      if (
+        action.dryRun === true ||
+        typeof action.taskId !== "string" ||
+        !Array.isArray(action.patches) ||
+        !action.patches.some(
           (patch) => patch !== null && typeof patch === "object" && "field" in patch && patch.field === "title",
         )
-      );
+      )
+        return false;
+      const { packagePath } = projection.read(action.taskId);
+      if (packagePath === null) return false;
+      const plan = `${packagePath}/task_plan.md`;
+      return Boolean(projection.readDocumentMetadata(plan).document ?? projection.readDocumentHistory?.(plan).document);
+    }
     default:
       return false;
   }

@@ -381,10 +381,11 @@ export async function measureEntityPins(rootDir, size, actionKind) {
 }
 
 export async function measureTaskReviewDispatchBatch(rootDir, size) {
-  const [{ dispatchTaskReview, reviewDispatchIds }, { completionSnapshot }] = await Promise.all([
-      load(rootDir, "packages/daemon/src/daemon-host/task-review-dispatch.ts"),
-      load(rootDir, "packages/kernel/test/domain/completion.fixtures.ts"),
-    ]),
+  const [{ dispatchTaskReview, prepareTaskReviewDispatch, reviewDispatchIds }, { completionSnapshot }] =
+      await Promise.all([
+        load(rootDir, "packages/daemon/src/daemon-host/task-review-dispatch.ts"),
+        load(rootDir, "packages/kernel/test/domain/completion.fixtures.ts"),
+      ]),
     ids = Array.from({ length: size }, (_, index) => `task-review-${index}`),
     events = new Map(),
     counts = {
@@ -528,13 +529,14 @@ export async function measureTaskReviewDispatchBatch(rootDir, size) {
         },
       },
     },
-    result = await dispatchTaskReview(cell, { kind: "task-dispatch-review", taskIds }, binding, async (apply) =>
-      apply(binding),
-    );
+    action = { kind: "task-dispatch-review", taskIds },
+    prepared = await prepareTaskReviewDispatch(cell, action, binding),
+    result = await dispatchTaskReview(cell, action, binding, prepared);
   counts.dispatchSteps = result.dispatches.length;
   assertTaskReviewDispatchMeasurement(result, size, counts.publications);
   assert.ok(counts.taskProjectionsRead >= size);
-  assert.equal(counts.leaseIntervalsRead, size);
+  // Read placement once during preparation and again at the publication cut for each task.
+  assert.equal(counts.leaseIntervalsRead, size * 2);
   return { size, counts };
 }
 

@@ -22,7 +22,7 @@ const result={result:"pass",subjects,predicateType:"research/version-pinned/v1",
 `;
 const output = `console.log(JSON.stringify({schema:"preset-script-result/v1",produces:[{capabilityId:"completion-witness",payload:result}]}));`;
 
-async function fixture(script: string, metadata: unknown, mixed = false) {
+async function fixture(script: string | ((root: string) => string), metadata: unknown, mixed = false) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-completion-matrix-")),
     ledger = path.join(root, "harness"),
     repoId = workspaceId("completion-matrix"),
@@ -60,7 +60,11 @@ async function fixture(script: string, metadata: unknown, mixed = false) {
   try {
     await applied({
       kind: "preset-install",
-      packageSource: researchPackage(root, script, mixed ? "repository-diff" : "task-package-artifact"),
+      packageSource: researchPackage(
+        root,
+        typeof script === "string" ? script : script(root),
+        mixed ? "repository-diff" : "task-package-artifact",
+      ),
     });
     const created = await applied({
         kind: "task-create",
@@ -211,12 +215,28 @@ test("mixed code and artifacts freeze both inputs; a new artifact cut invalidate
 for (const order of ["old-first", "new-first"] as const) {
   test(`amend and complete race with source execution: ${order} arrival retains one current run after cold replay`, async () => {
     const f = await fixture(
-      frame +
-        `await new Promise(resolve=>setTimeout(resolve,metadata.seed===42?${order === "old-first" ? 1000 : 3000}:${order === "old-first" ? 2000 : 0}));` +
+      (root) =>
+        frame +
+        `
+import { existsSync, watch } from "node:fs";
+import { join } from "node:path";
+const root = ${JSON.stringify(root)};
+const release = join(root, "witness-release-" + metadata.seed);
+await new Promise(resolve => {
+  const watcher = watch(root, check);
+  function check() {
+    if (!existsSync(release)) return;
+    watcher.close();
+    resolve();
+  }
+  check();
+});
+` +
         output,
       { seed: 42 },
     );
     const waiting: Promise<unknown>[] = [];
+    const release = (seed: number) => writeFileSync(path.join(f.root, `witness-release-${seed}`), "");
     const started = async (seed: number) => {
       const count = seed === 42 ? 1 : 2;
       await waitForDurableValue(() =>
@@ -247,11 +267,11 @@ for (const order of ["old-first", "new-first"] as const) {
       waiting.push(second);
       await started(43);
       if (order === "old-first") {
+        release(42);
         await first;
-        await second;
-      } else {
-        await second;
       }
+      release(43);
+      await second;
       const complete = await f.cell.run(
         { kind: "task-complete", taskId: f.taskId, executionId: f.executionId },
         f.owner,
@@ -259,6 +279,7 @@ for (const order of ["old-first", "new-first"] as const) {
       assert.equal(complete.outcome, "applied", JSON.stringify(complete));
       await waitForFixturePublication(f.cell, complete.opId, f.owner);
       if (order === "new-first") {
+        release(42);
         await first;
       }
       const witnesses = f.events().filter((event) => event.type === "completion_gate_verified");
@@ -294,6 +315,8 @@ for (const order of ["old-first", "new-first"] as const) {
         projection.close();
       }
     } finally {
+      release(42);
+      release(43);
       await Promise.allSettled(waiting);
       await f.close();
     }

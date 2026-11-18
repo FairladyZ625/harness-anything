@@ -719,6 +719,22 @@ type DispatchStep = {
   readonly reviewDispatchFailure?: TaskReviewDispatchFailureV1;
 };
 
+function readReviewAgent(cell: RepoCellOperationalContext, reviewerId: string) {
+  try {
+    return {
+      kind: "resolved" as const,
+      value: readAgentDeclarationResolution({
+        rootDir: cell.rootDir,
+        agentId: reviewerId,
+        entityStore: createEntityStore(cell.store),
+      }),
+    };
+  } catch (error) {
+    if (!isAgentDeclarationInvalid(error)) throw error;
+    return { kind: "invalid" as const, detail: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 function requireSubmittedReviewCut(
   cell: RepoCellOperationalContext,
   taskId: string,
@@ -1249,14 +1265,11 @@ export async function dispatchInReviewCutReview(
  * uses. A cut therefore holds one seat whichever path dispatched it, and a seat that was cancelled
  * or failed can be re-dispatched alone with `--agent <seat>` without inheriting another reviewer.
  */
-export async function dispatchTaskReview(
+export async function prepareTaskReviewDispatch(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,
-  writeAtCut: (
-    apply: (binding: RepoCellBinding) => Promise<WriteReceiptDraft> | WriteReceiptDraft,
-  ) => Promise<WriteReceiptDraft>,
-): Promise<WriteReceiptDraft> {
+) {
   const rawIds = Array.isArray(action.taskIds) ? action.taskIds : [],
     taskIds = rawIds.map((value) => String(value)).filter((value) => value.length > 0);
   if (taskIds.length === 0 || taskIds.length !== rawIds.length)
@@ -1275,7 +1288,7 @@ export async function dispatchTaskReview(
   const reviewerFromArgument =
       typeof action.agentId === "string" && action.agentId.length > 0 ? action.agentId : undefined,
     revision = cell.store.readHead()?.revision ?? 0,
-    steps: DispatchStep[] = [],
+    steps: (DispatchStep | PreparedTaskReview)[] = [],
     warnings: string[] = [];
   let materializationFailures = 0;
   for (const taskId of taskIds) {
@@ -1349,21 +1362,12 @@ export async function dispatchTaskReview(
       warnings.push(`Task ${taskId} review is pending: ${placement.reason}; no runtime dispatch was created.`);
       continue;
     }
-    let resolved;
-    try {
-      resolved = readAgentDeclarationResolution({
-        rootDir: cell.rootDir,
-        agentId: reviewerId,
-        entityStore: createEntityStore(cell.store),
-      });
-    } catch (error) {
-      // A reviewer whose stored declaration fails the current schema (the rewrite window) rejects
-      // the task with the reinstall command; the raw contract message never surfaces.
-      if (!isAgentDeclarationInvalid(error)) throw error;
-      consumeKnownError(error);
-      fail(error instanceof Error ? error.message : String(error), reviewerId, execution.executionId);
+    const agentResolution = readReviewAgent(cell, reviewerId);
+    if (agentResolution.kind === "invalid") {
+      fail(agentResolution.detail, reviewerId, execution.executionId);
       continue;
     }
+    const resolved = agentResolution.value;
     if (!resolved) {
       fail(
         `Reviewer ${reviewerId} is not bundled or installed. Install a repository override, or select an ` +
@@ -1437,14 +1441,8 @@ export async function dispatchTaskReview(
       });
       continue;
     }
-    const submitted = execution,
-      submissionOpId = cell.projection.readTaskSubmissionOperation(taskId, submitted.executionId);
-    const recheckCut = () => {
-      const current = requireSubmittedReviewCut(cell, taskId, submitted, submissionOpId);
-      if (!samePlacement(placement, taskExecutionPlacement(cell, taskId, current.executionId)))
-        throw cell.cellCodedError("execution_scope_mismatch", "Review placement changed. Retry the dispatch.");
-      return current;
-    };
+    const submissionOpId = cell.projection.readTaskSubmissionOperation(taskId, execution.executionId),
+      target = { taskId, execution, submissionOpId, reviewerId, placement };
     if (placement.kind === "node") {
       const intent: TaskReviewDispatchIntentV1 = {
         executionId: execution.executionId,
@@ -1454,45 +1452,11 @@ export async function dispatchTaskReview(
         ...(typeof action.effort === "string" ? { effort: action.effort as TaskReviewDispatchIntentV1["effort"] } : {}),
         ...(typeof action.fast === "boolean" ? { fast: action.fast } : {}),
       };
-      const intentReceipt = await writeAtCut((cutBinding) => {
-        recheckCut();
-        return cell.taskSurfaceWrite(
-          {
-            kind: "task-amend",
-            taskId,
-            patches: [
-              { field: "reviewDispatchIntent", value: JSON.stringify(intent) },
-              { field: "reviewDispatchFailure", value: "null" },
-            ],
-          },
-          cutBinding,
-        );
-      });
-      if (!["applied", "no_changes"].includes(String(intentReceipt.outcome))) {
-        fail(
-          `Task ${taskId} review intent could not be persisted on implementation node ${placement.nodeId}.`,
-          reviewerId,
-          execution.executionId,
-        );
-        continue;
-      }
       const failure =
         snapshot.task?.reviewDispatchFailure?.executionId === execution.executionId
           ? snapshot.task.reviewDispatchFailure
           : undefined;
-      steps.push({
-        taskId,
-        executionId: execution.executionId,
-        requiredNodeId: placement.nodeId,
-        agentId: reviewerId,
-        outcome: "pending",
-        ...(failure ? { reviewDispatchFailure: failure } : {}),
-      });
-      warnings.push(
-        failure?.executionId === execution.executionId
-          ? `Previous attempt: ${reviewDispatchFailureWarning(failure)}`
-          : `Task ${taskId} review is pending on implementation node ${placement.nodeId}.`,
-      );
+      steps.push({ ...target, kind: "node", nodeId: placement.nodeId, intent, failure });
       continue;
     }
     const seatPrompt = seat.source === "path" ? reviewPathSeatPrompt({ seat }) : null,
@@ -1525,85 +1489,184 @@ export async function dispatchTaskReview(
             gates: completionGateIds(snapshot.task!.completionGateIds, execution.submission),
             artifactRoot: reviewArtifactRoot(cell),
           }) + (seatPrompt === null ? "" : `\n${seatPrompt}`),
-      },
-      authorizeSpawn = (spawnBinding: RepoCellBinding) =>
-        evaluateRepoCellAction({
-          action: { kind: "runtime-spawn", ...payload },
-          repoId: cell.input.repoId,
-          binding: spawnBinding,
-          actionId: ids.dispatchOpId,
-          revision: cell.store.readHead()?.revision ?? 0,
-          now: cell.now(),
-          readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
-        });
+      };
+    const decision = await authorizeTaskReviewSpawn(cell, payload, binding, ids.dispatchOpId);
+    if (decision.outcome !== "allowed") {
+      fail(`authorization_denied: ${decision.nextActions.join(" ")}`, reviewerId, execution.executionId);
+      continue;
+    }
+    const checkout = await prepareReviewWorktree(cell, payload, execution.submission?.commitSha ?? null).then(
+      (worktree) => ({ kind: "ready" as const, worktree }),
+      (error: unknown) => ({ kind: "failed" as const, error }),
+    );
+    if (checkout.kind === "failed") {
+      const { error } = checkout,
+        code = runtimeErrorCode(error);
+      if (code === "materialization_failed") materializationFailures += 1;
+      fail(error instanceof Error ? error.message : String(error), reviewerId, execution.executionId);
+      continue;
+    }
+    steps.push({ ...target, kind: "local", payload, ids, worktree: checkout.worktree });
+  }
+  return { steps, warnings, revision, materializationFailures };
+}
+
+type PreparedTaskReview = {
+  readonly taskId: string;
+  readonly execution: ExecutionV1;
+  readonly submissionOpId: string | null;
+  readonly reviewerId: string;
+  readonly placement: ReturnType<typeof taskExecutionPlacement>;
+} & (
+  | {
+      readonly kind: "node";
+      readonly nodeId: string;
+      readonly intent: TaskReviewDispatchIntentV1;
+      readonly failure: TaskReviewDispatchFailureV1 | undefined;
+    }
+  | {
+      readonly kind: "local";
+      readonly payload: JsonObject & { readonly dispatchKey: string; readonly agentId: string };
+      readonly ids: ReturnType<typeof reviewDispatchIds>;
+      readonly worktree: Awaited<ReturnType<typeof prepareReviewWorktree>>;
+    }
+);
+
+function authorizeTaskReviewSpawn(
+  cell: RepoCellOperationalContext,
+  payload: JsonObject,
+  binding: RepoCellBinding,
+  dispatchOpId: string,
+) {
+  return evaluateRepoCellAction({
+    action: { kind: "runtime-spawn", ...payload },
+    repoId: cell.input.repoId,
+    binding,
+    actionId: dispatchOpId,
+    revision: cell.store.readHead()?.revision ?? 0,
+    now: cell.now(),
+    readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
+  });
+}
+
+/** Publish the prepared review batch at the authorized writer cut. */
+export async function dispatchTaskReview(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  prepared: Awaited<ReturnType<typeof prepareTaskReviewDispatch>>,
+): Promise<WriteReceiptDraft> {
+  const { revision } = prepared,
+    steps: DispatchStep[] = [],
+    warnings = [...prepared.warnings];
+  let { materializationFailures } = prepared;
+  for (const step of prepared.steps) {
+    if (!("execution" in step)) {
+      steps.push(step);
+      continue;
+    }
+    const { taskId, execution, submissionOpId, reviewerId, placement } = step,
+      { executionId } = execution;
     try {
-      const preparedDecision = await authorizeSpawn(binding);
-      if (preparedDecision.outcome !== "allowed")
-        throw cell.cellCodedError("authorization_denied", preparedDecision.nextActions.join(" "));
-      const worktree = await prepareReviewWorktree(cell, payload, execution.submission?.commitSha ?? null);
-      const receipt = await writeAtCut(async (cutBinding) => {
-        const current = recheckCut(),
-          holding =
-            cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ??
-            activeCutReviewDispatches(cell, taskId, current).at(-1)?.event;
-        if (holding) {
-          if (reviewerFromArgument !== undefined && holding.payload.agentId !== agent.id)
-            throw cell.cellCodedError(
-              "review_dispatch_failed",
-              `Task ${taskId}'s review seat was taken by ${holding.payload.agentId}. Retry after it finishes.`,
-            );
-          return { outcome: "no_changes", opId: holding.opId };
-        }
-        const authorizationDecision = await authorizeSpawn(cutBinding);
-        if (authorizationDecision.outcome !== "allowed")
-          throw cell.cellCodedError("authorization_denied", authorizationDecision.nextActions.join(" "));
-        if (worktree === null) requireTaskPackageMaterialization(cell, taskId);
-        const spawned = await cell.runtimeSpawner.spawn(payload, { ...cutBinding, authorizationDecision }, worktree),
-          selection = spawned.runtimeSelection;
-        if (selection !== null && typeof selection === "object" && !Array.isArray(selection)) {
-          const reason = "reason" in selection && typeof selection.reason === "string" ? selection.reason : undefined;
-          if (reason?.includes("resolves to")) {
-            const instanceId = "instanceId" in selection ? String(selection.instanceId) : "unknown",
-              basis = "basis" in selection && typeof selection.basis === "string" ? ` (${selection.basis})` : "";
-            warnings.push(`runtime instance: ${instanceId}${basis} — ${reason}`);
-          }
-        }
-        return { outcome: "applied", opId: typeof spawned.opId === "string" ? spawned.opId : ids.dispatchOpId };
-      });
-      if (receipt.outcome !== "applied" && receipt.outcome !== "no_changes")
-        throw cell.cellCodedError(
-          receipt.code ?? "review_dispatch_failed",
-          receipt.rejectionExplanation ?? `Review dispatch failed for ${taskId}.`,
+      const current = requireSubmittedReviewCut(cell, taskId, execution, submissionOpId);
+      if (!samePlacement(placement, taskExecutionPlacement(cell, taskId, executionId)))
+        throw cell.cellCodedError("execution_scope_mismatch", "Review placement changed. Retry the dispatch.");
+      if (step.kind === "node") {
+        const receipt = cell.taskSurfaceWrite(
+          {
+            kind: "task-amend",
+            taskId,
+            patches: [
+              { field: "reviewDispatchIntent", value: JSON.stringify(step.intent) },
+              { field: "reviewDispatchFailure", value: "null" },
+            ],
+          },
+          binding,
         );
-      // The spawner resolved the concrete instance; read it from the dispatch event this spawn
-      // just applied so the receipt names the agent and instance that will run the review.
-      const dispatched =
-        receipt.outcome === "applied"
-          ? cell.projection.readRuntimeDispatchByDispatchKey(key)?.event
-          : cell.projection
-              .readRuntimeDispatchesByTaskExecution(taskId, execution.executionId)
-              .find(({ event }) => event.opId === receipt.opId)?.event;
+        if (receipt.outcome !== "applied" && receipt.outcome !== "no_changes")
+          throw cell.cellCodedError(
+            "review_dispatch_failed",
+            `Task ${taskId} review intent could not be persisted on implementation node ${step.nodeId}.`,
+          );
+        steps.push({
+          taskId,
+          executionId,
+          requiredNodeId: step.nodeId,
+          agentId: reviewerId,
+          outcome: "pending",
+          ...(step.failure ? { reviewDispatchFailure: step.failure } : {}),
+        });
+        warnings.push(
+          step.failure
+            ? `Previous attempt: ${reviewDispatchFailureWarning(step.failure)}`
+            : `Task ${taskId} review is pending on implementation node ${step.nodeId}.`,
+        );
+        continue;
+      }
+      const { payload, ids, worktree } = step,
+        key = payload.dispatchKey,
+        holding =
+          cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ??
+          activeCutReviewDispatches(cell, taskId, current).at(-1)?.event;
+      if (holding) {
+        if (
+          typeof action.agentId === "string" &&
+          action.agentId.length > 0 &&
+          holding.payload.agentId !== payload.agentId
+        )
+          throw cell.cellCodedError(
+            "review_dispatch_failed",
+            `Task ${taskId}'s review seat was taken by ${holding.payload.agentId}. Retry after it finishes.`,
+          );
+        steps.push({
+          taskId,
+          executionId,
+          dispatchId: holding.payload.dispatchId,
+          runtimeSessionId: holding.payload.runtimeSessionId,
+          dispatchOpId: holding.opId,
+          ...(holding.payload.agentId ? { agentId: holding.payload.agentId } : {}),
+          instanceId: holding.payload.instanceId,
+          outcome: "already_dispatched",
+        });
+        continue;
+      }
+      const authorizationDecision = await authorizeTaskReviewSpawn(cell, payload, binding, ids.dispatchOpId);
+      if (authorizationDecision.outcome !== "allowed")
+        throw cell.cellCodedError("authorization_denied", authorizationDecision.nextActions.join(" "));
+      if (worktree === null) requireTaskPackageMaterialization(cell, taskId);
+      const spawned = await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision }, worktree),
+        selection = spawned.runtimeSelection;
+      if (selection !== null && typeof selection === "object" && !Array.isArray(selection)) {
+        const reason = "reason" in selection && typeof selection.reason === "string" ? selection.reason : undefined;
+        if (reason?.includes("resolves to")) {
+          const instanceId = "instanceId" in selection ? String(selection.instanceId) : "unknown",
+            basis = "basis" in selection && typeof selection.basis === "string" ? ` (${selection.basis})` : "";
+          warnings.push(`runtime instance: ${instanceId}${basis} — ${reason}`);
+        }
+      }
+      const dispatched = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event;
       steps.push({
         taskId,
-        executionId: execution.executionId,
-        dispatchId: dispatched?.payload.dispatchId ?? ids.dispatchId,
-        runtimeSessionId: dispatched?.payload.runtimeSessionId ?? ids.runtimeSessionId,
-        dispatchOpId: receipt.outcome === "applied" ? ids.dispatchOpId : receipt.opId,
-        agentId: dispatched?.payload.agentId ?? agent.id,
+        executionId,
+        dispatchId: ids.dispatchId,
+        runtimeSessionId: ids.runtimeSessionId,
+        dispatchOpId: ids.dispatchOpId,
+        agentId: payload.agentId,
         ...(dispatched === undefined ? {} : { instanceId: dispatched.payload.instanceId }),
-        outcome: receipt.outcome === "applied" ? "dispatched" : "already_dispatched",
+        outcome: "dispatched",
       });
     } catch (error) {
-      // One task's launch failure is reported on its own step; the batch continues for the rest.
       consumeKnownError(error);
-      const code = runtimeErrorCode(error);
+      const code = runtimeErrorCode(error),
+        detail = error instanceof Error ? error.message : String(error);
       if (code === "materialization_failed") materializationFailures += 1;
-      const detail = error instanceof Error ? error.message : String(error);
-      fail(
-        code === "authorization_denied" ? `authorization_denied: ${detail}` : detail,
-        reviewerId,
-        execution.executionId,
-      );
+      steps.push({
+        taskId,
+        executionId,
+        agentId: reviewerId,
+        outcome: "failed",
+        error: code === "authorization_denied" ? `authorization_denied: ${detail}` : detail,
+      });
     }
   }
   const dispatchedTasks = new Set(
@@ -1627,7 +1690,7 @@ export async function dispatchTaskReview(
       ? { rejectionExplanation: failed.map((step) => `${step.taskId}: ${step.error ?? ""}`).join("; ") }
       : {}),
     summary:
-      `dispatch-review: ${String(dispatchedTasks.size)} of ${String(taskIds.length)} task(s) have a review dispatch; ` +
+      `dispatch-review: ${String(dispatchedTasks.size)} of ${String(steps.length)} task(s) have a review dispatch; ` +
       `${String(pending.length)} are pending on their implementation node.`,
     dispatches: steps,
   } as WriteReceiptDraft;

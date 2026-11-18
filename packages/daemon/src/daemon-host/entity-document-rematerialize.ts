@@ -85,11 +85,12 @@ export function runEntityDocumentRematerialize(
     };
   if (existingOutcome !== null) return { outcome: "applied", ...base };
   const entityIds = resolveEntityIds(cell, entityKind, all, entityId),
+    materializedRevision = cell.store.followerStatus().worktree.cut?.revision ?? 0,
     linkResolver = decisionRelationLinkResolver(cell.projection),
     targets = entityIds.map((id) => {
       const entityRef = `${entityKind}/${id}`,
         updates = currentEntityDocumentUpdates(cell.projection, cell.rootDir, entityKind, id, linkResolver),
-        conflictPaths = worktreeConflictPaths(cell, updates),
+        { conflictPaths, awaitingMaterialization } = checkWorktree(cell, updates, materializedRevision),
         conflicts = new Set(conflictPaths),
         changed = updates.filter(
           (update) =>
@@ -106,9 +107,18 @@ export function runEntityDocumentRematerialize(
           changedPaths.has(target) || conflicts.has(target) ? [] : [target],
         ),
         conflictPaths,
+        awaitingMaterialization,
       };
-    }),
-    updates = targets.flatMap((target) => target.updates),
+    });
+  if (targets.some((target) => target.awaitingMaterialization))
+    return {
+      ...base,
+      outcome: "pending",
+      code: "materialization_failed",
+      rejectionExplanation:
+        "The authored worktree has not settled the current document revisions. Retry rematerialization.",
+    };
+  const updates = targets.flatMap((target) => target.updates),
     report = {
       ...evidenceBase,
       mode: action.dryRun === true ? "preview" : "apply",
@@ -118,7 +128,7 @@ export function runEntityDocumentRematerialize(
       changedCount: updates.length,
       unchangedCount: targets.reduce((count, target) => count + target.unchangedPaths.length, 0),
       conflictCount: targets.reduce((count, target) => count + target.conflictPaths.length, 0),
-      targets: targets.map(({ updates: _updates, ...target }) => ({
+      targets: targets.map(({ updates: _updates, awaitingMaterialization: _waiting, ...target }) => ({
         ...target,
         paths: target.paths.map((path) => documentWorkspacePath(cell.rootDir, path, cell.layout)),
         changedPaths: target.changedPaths.map((path) => documentWorkspacePath(cell.rootDir, path, cell.layout)),
@@ -185,20 +195,29 @@ export function runEntityDocumentRematerialize(
   };
 }
 
-function worktreeConflictPaths(
+function checkWorktree(
   cell: RepoCellOperationalContext,
   updates: readonly EntityDocumentUpdate[],
-): readonly string[] {
-  const authoredRoot = resolveHarnessLayout(cell.rootDir).authoredRoot;
-  return updates.flatMap((update) => {
+  materializedRevision: number,
+) {
+  const authoredRoot = resolveHarnessLayout(cell.rootDir).authoredRoot,
+    conflictPaths: string[] = [];
+  let awaitingMaterialization = false;
+  for (const update of updates) {
     const current = cell.projection.readDocument(update.path).document,
       absolute = path.join(authoredRoot, ...update.path.split("/"));
-    if (!current || !existsSync(absolute)) return [];
-    return new TextDecoder("utf-8", { fatal: true }).decode(readAuthoredDocumentBytes(authoredRoot, update.path)) ===
-      current.body
-      ? []
-      : [update.path];
-  });
+    if (!current) continue;
+    const exists = existsSync(absolute);
+    if (
+      exists &&
+      new TextDecoder("utf-8", { fatal: true }).decode(readAuthoredDocumentBytes(authoredRoot, update.path)) ===
+        current.body
+    )
+      continue;
+    if (current.workspaceRevision > materializedRevision) awaitingMaterialization = true;
+    else if (exists) conflictPaths.push(update.path);
+  }
+  return { conflictPaths, awaitingMaterialization };
 }
 
 function resolveEntityIds(
