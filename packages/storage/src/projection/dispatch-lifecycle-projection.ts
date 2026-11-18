@@ -5,6 +5,7 @@
 // nothing is written to the ledger. Reducer rejections of historical events are audit no-ops here:
 // the center writer refuses a rejected admission before it is appended (see the runtime ingress).
 import type { DatabaseSync } from "node:sqlite";
+import type { TaskProjectionQueries } from "@harness-anything/kernel";
 import {
   DISPATCH_LIFECYCLE_MODEL_VERSION,
   DISPATCH_LIFECYCLE_PAGE_LIMIT,
@@ -20,7 +21,6 @@ import {
   type DispatchLifecycleContext,
   type DispatchLifecycleGroup,
   type DispatchLifecycleInput,
-  type DispatchLifecycleQuery,
   type DispatchLifecycleRead,
   type DispatchLifecycleView,
   type DispatchTaskLease,
@@ -264,7 +264,7 @@ function writeGroup(db: DatabaseSync, group: DispatchLifecycleGroup): void {
 /** The storage half of `readDispatchLifecycle`: indexed point reads and a bounded active page. */
 export function readDispatchLifecycleRows(
   db: DatabaseSync,
-  query: DispatchLifecycleQuery,
+  query: Parameters<TaskProjectionQueries["readDispatchLifecycle"]>[0],
   cut: { readonly watermark: number; readonly sourceRevision: number },
 ): DispatchLifecycleRead {
   if (!lifecycleModelCurrent(db)) return { status: "pending", ...cut };
@@ -272,18 +272,20 @@ export function readDispatchLifecycleRows(
     const group = readGroup(db, query.attemptGroupId);
     return ready(cut, group ? [dispatchLifecycleView(group)] : [], null);
   }
-  if (query.by === "dispatch" || query.by === "session") {
-    const keys = query.by === "dispatch" ? query.dispatchIds : [query.runtimeSessionId];
-    if (keys.length > DISPATCH_LIFECYCLE_PAGE_LIMIT)
-      throw new Error(`dispatch lifecycle point reads accept at most ${DISPATCH_LIFECYCLE_PAGE_LIMIT} ids`);
-    const column = query.by === "dispatch" ? "dispatch_id" : "runtime_session_id",
+  if (query.by !== "active") {
+    const keys = query.by === "session" ? [query.runtimeSessionId] : query.dispatchIds;
+    if (query.by === "dispatch") {
+      if (keys.length > DISPATCH_LIFECYCLE_PAGE_LIMIT)
+        throw new Error(`dispatch lifecycle point reads accept at most ${DISPATCH_LIFECYCLE_PAGE_LIMIT} ids`);
+    }
+    const column = query.by === "session" ? "runtime_session_id" : "dispatch_id",
       rows = keys.length
         ? queryRows<{ dispatch_id: string; group_json: string }>(
             db,
             `SELECT a.dispatch_id, g.group_json FROM dispatch_lifecycle_attempt a
              JOIN dispatch_lifecycle_group g USING(attempt_group_id)
-             WHERE a.${column} IN (${keys.map(() => "?").join(",")})`,
-            ...keys,
+             WHERE a.${column} IN (SELECT value FROM json_each(?))`,
+            JSON.stringify(keys),
           )
         : [];
     return ready(

@@ -2,6 +2,7 @@ import path from "node:path";
 import {
   stableStringify,
   documentPath,
+  isDispatchAttemptCancelled,
   isSameExecution,
   submissionDigest,
   runtimeSessionActionIds,
@@ -231,9 +232,19 @@ export function requireCurrentExecutionScope(input: {
     "read" | "readRuntimeSession" | "readRuntimeDispatch" | "readDispatchLifecycle" | "currentLease"
   >;
   readonly now: string;
+  /** Admits owner/host physical exit & archive settlement after the 12h worker lease expires. */
+  readonly hostSettlement?: boolean;
 }): void {
   const p = input.binding.executionPrincipal;
   if (!p) return;
+  const expiresMs = Date.parse(p.expiresAt),
+    nowMs = Date.parse(input.now);
+  if (!input.hostSettlement && (!Number.isFinite(expiresMs) || expiresMs <= nowMs))
+    throw executionCredentialRejected("expired", {
+      expiresAt: p.expiresAt,
+      dispatchId: p.dispatchId,
+      role: p.role,
+    });
   // A read-only dispatch holds no task lease, so lease-coupled checks cannot apply; the writer
   // turn re-decides the same allowlist rule the request entry used — command-run rechecks
   // arrive for allowlisted query-only reads too, and those still pass.
@@ -263,14 +274,27 @@ export function requireCurrentExecutionScope(input: {
       throw executionCredentialRejected();
   } else requireExecutionActionScope(p, input.action);
   const terminal = ingress?.type === "runtime_session_exited" || ingress?.type === "runtime_session_outcome_observed";
-  const settling = ingress?.kind === "archive" || terminal;
-  // A node may retire its own stale reviewer without restoring business access.
-  // Archive and successful outcomes still require the current submission cut.
+  const livenessObservation = ingress?.type === "runtime_session_liveness_changed";
+  const archiveIngress = ingress?.kind === "archive";
+  const hostSettling = archiveIngress || terminal;
+  // A node may retire its stale reviewer after physical exit. A personal owner may also
+  // abandon an unreachable dispatch through cancel's evidence gate. Public terminal ingress
+  // uses the runtime executor, so carrying a ruling-shaped payload cannot claim this authority.
+  const ownerAbandonment =
+    input.hostSettlement &&
+    input.binding.actor.executor === null &&
+    ingress?.type === "runtime_session_outcome_observed" &&
+    isJsonObject(ingress.payload) &&
+    ingress.payload.dispatchId === p.dispatchId &&
+    ingress.payload.outcome === "unknown" &&
+    ingress.payload.exitCode === null &&
+    ingress.payload.reasonCode === "ruling_resolved";
   const negativeTerminal =
     ingress?.type === "runtime_session_exited" ||
     (ingress?.type === "runtime_session_outcome_observed" &&
       isJsonObject(ingress.payload) &&
       (ingress.payload.outcome === "failed" || ingress.payload.outcome === "cancelled"));
+  const cancelledSettlingIngress = negativeTerminal || archiveIngress;
   const [lifecycle] = readyDispatchLifecycle(
     input.projection.readDispatchLifecycle({ by: "session", runtimeSessionId: p.runtimeSessionId }),
     runtimeSpawnError,
@@ -300,36 +324,78 @@ export function requireCurrentExecutionScope(input: {
   // still need to publish a CI fix and amend that same cut. Keep this exception on the exact
   // task/execution and current submission; every other worker write remains lease-bound.
   const exitedPostSubmitWorkerWrite = postSubmitWorkerWrite && lifecycle?.policy.canPublish === true;
-  if (Date.parse(p.expiresAt) <= Date.parse(input.now)) throw executionCredentialRejected("expired");
+  if (!isSameExecution(actor, input.binding.actor)) {
+    const allowedIngressActor =
+      ingress &&
+      input.binding.actor.principal.personId === p.personId &&
+      (input.binding.actor.executor === null ||
+        isSameExecution(
+          {
+            principal: actor.principal,
+            executor: { kind: "agent", id: `runtime-session:${p.runtimeSessionId}` },
+          },
+          input.binding.actor,
+        ));
+    if (!allowedIngressActor)
+      throw executionCredentialRejected("scope", {
+        dispatchId: p.dispatchId,
+        role: p.role,
+        detail: `Actor ${input.binding.actor.principal.personId}/${input.binding.actor.executor?.id ?? "human"} does not match ${p.role} dispatch ${p.dispatchId}.`,
+      });
+  }
+  if (!session || !lifecycle)
+    throw executionCredentialRejected("scope", {
+      dispatchId: p.dispatchId,
+      role: p.role,
+      detail: `Runtime session ${p.runtimeSessionId} for ${p.role} dispatch ${p.dispatchId} has no active canonical session/lifecycle state.`,
+    });
   if (
-    (!isSameExecution(actor, input.binding.actor) &&
-      !(
-        ingress &&
-        input.binding.actor.principal.personId === p.personId &&
-        (input.binding.actor.executor === null ||
-          isSameExecution(
-            {
-              principal: actor.principal,
-              executor: { kind: "agent", id: `runtime-session:${p.runtimeSessionId}` },
-            },
-            input.binding.actor,
-          ))
-      )) ||
-    !session ||
-    !lifecycle ||
-    (!lifecycle.policy.canWrite && !settling && !exitedPostSubmitWorkerWrite) ||
-    (lifecycle.attempt.outcome === "cancelled" && !negativeTerminal) ||
+    !lifecycle.policy.canWrite &&
+    !hostSettling &&
+    !(livenessObservation && !lifecycle.policy.attemptSettled) &&
+    !exitedPostSubmitWorkerWrite
+  )
+    throw executionCredentialRejected("scope", {
+      dispatchId: p.dispatchId,
+      role: p.role,
+      detail:
+        `${p.role} dispatch ${p.dispatchId} is ${lifecycle.attempt.phase}` +
+        `${lifecycle.attempt.outcome ? ` (outcome: ${lifecycle.attempt.outcome})` : ""} and no longer holds write authority.`,
+    });
+  if (isDispatchAttemptCancelled(lifecycle) && !cancelledSettlingIngress)
+    throw executionCredentialRejected("scope", {
+      dispatchId: p.dispatchId,
+      role: p.role,
+      detail: `${p.role} dispatch ${p.dispatchId} has already been cancelled.`,
+    });
+  if (
     dispatch?.payload.dispatchId !== p.dispatchId ||
     dispatch.actor.principal.personId !== p.personId ||
     stableStringify(dispatch.source) !== stableStringify(p.source) ||
-    stableStringify(input.binding.source) !== stableStringify(p.source) ||
-    (p.role === "session"
-      ? dispatch.payload.taskId != null || dispatch.payload.role === "read-only" || dispatch.payload.role === "reviewer"
-      : !session.taskBindings.some((b) => b.taskId === p.taskId && b.executionId === p.executionId))
+    stableStringify(input.binding.source) !== stableStringify(p.source)
   )
-    throw executionCredentialRejected();
+    throw executionCredentialRejected("scope", {
+      dispatchId: p.dispatchId,
+      role: p.role,
+      detail: `Dispatch provenance for ${p.dispatchId} changed or no longer matches this credential.`,
+    });
+  if (
+    p.role === "session"
+      ? dispatch.payload.taskId != null || dispatch.payload.role === "read-only" || dispatch.payload.role === "reviewer"
+      : !session.taskBindings.some((b) => b.taskId === p.taskId && b.executionId === p.executionId)
+  )
+    throw executionCredentialRejected("scope", {
+      dispatchId: p.dispatchId,
+      role: p.role,
+      detail: `Session ${p.runtimeSessionId} is not bound to task ${String(p.taskId)} execution ${String(p.executionId)}.`,
+    });
   if (p.role === "session") return;
-  if (p.taskId === null || p.executionId === null) throw executionCredentialRejected();
+  if (p.taskId === null || p.executionId === null)
+    throw executionCredentialRejected("scope", {
+      dispatchId: p.dispatchId,
+      role: p.role,
+      detail: `Dispatch ${p.dispatchId} has no task/execution binding.`,
+    });
   if (p.role === "reviewer") {
     const target = dispatch.payload.reviewTarget,
       execution = input.projection.read(p.taskId).snapshot.executions.find((e) => e.executionId === p.executionId);
@@ -339,48 +405,82 @@ export function requireCurrentExecutionScope(input: {
       target.executionId === p.executionId &&
       execution?.submission !== null &&
       execution?.submission !== undefined &&
-      (negativeTerminal || target.digest === submissionDigest(execution.submission));
+      (negativeTerminal || ownerAbandonment || target.digest === submissionDigest(execution.submission));
     const decisionReview = target?.kind === "decision" && p.reviewDecisionId === target.decisionId;
-    if (dispatch.payload.role !== "reviewer") throw executionCredentialRejected();
+    if (dispatch.payload.role !== "reviewer")
+      throw executionCredentialRejected("scope", {
+        dispatchId: p.dispatchId,
+        role: p.role,
+        detail: `Dispatch ${p.dispatchId} is not a reviewer dispatch (actual role: ${String(dispatch.payload.role)}).`,
+      });
     if (input.action.kind === "task-review-execution") {
-      if (!taskReview) throw executionCredentialRejected();
+      if (!taskReview)
+        throw executionCredentialRejected("scope", {
+          dispatchId: p.dispatchId,
+          role: p.role,
+          detail:
+            execution?.submission == null
+              ? `Task ${p.taskId} execution ${p.executionId} has no active submitted cut to review.`
+              : `Submitted cut for task ${p.taskId} execution ${p.executionId} was amended/superseded after dispatch ${p.dispatchId}; stop and wait for a fresh review dispatch.`,
+        });
       const packagePath = input.projection.read(p.taskId).packagePath,
         reportPacket = `${packagePath}/artifacts/reports/${p.dispatchId}.json`,
-        reportMarkdown = `${packagePath}/artifacts/reports/${p.dispatchId}.md`;
+        expectedReportPath = `${packagePath}/artifacts/reports/${p.dispatchId}.md`,
+        expectedReviewId = `review-${p.dispatchId}`;
       const fromFile = String(input.action.fromFile ?? ""),
+        normalizedFromFile = fromFile.replace(/\\/gu, "/").replace(/^(?:\.\/)+/u, ""),
         // A reviewer may run in its own worktree and therefore name the canonical packet by
         // absolute path; the read boundary later proves containment.
         packetNamed =
-          fromFile.replace(/^harness\//u, "") === reportPacket ||
-          fromFile === reportPacket ||
-          (path.isAbsolute(fromFile) && fromFile.replace(/\\/gu, "/").endsWith(`/${reportPacket}`)),
-        carriedPaths = Array.isArray(input.action.docChanges)
-          ? input.action.docChanges.map((change) => (isJsonObject(change) ? change.path : null))
+          normalizedFromFile.replace(/^harness\//u, "") === reportPacket ||
+          normalizedFromFile === reportPacket ||
+          (path.isAbsolute(fromFile) && fromFile.replace(/\\/gu, "/").endsWith(`/${reportPacket}`));
+      const wrongReviewId = input.action.reviewId !== expectedReviewId,
+        docChanges = input.action.docChanges,
+        carriedPaths = Array.isArray(docChanges)
+          ? docChanges.map((change) => (isJsonObject(change) ? change.path : null))
           : null,
         carriedValid =
           carriedPaths !== null &&
           carriedPaths.length >= 1 &&
           carriedPaths.length <= 2 &&
           new Set(carriedPaths).size === carriedPaths.length &&
-          carriedPaths.includes(reportMarkdown) &&
-          carriedPaths.every((candidate) => candidate === reportMarkdown || candidate === reportPacket);
-      if (
-        input.action.reviewId !== `review-${p.dispatchId}` ||
-        (input.action.docChanges === undefined ? !packetNamed : !carriedValid)
-      ) {
-        const error = executionCredentialRejected();
-        error.message =
-          `Reviewer dispatch ${p.dispatchId} may register only its assigned review. Use ` +
-          `ha task review-execution ${p.taskId} --execution-id ${p.executionId} ` +
-          `--review-id review-${p.dispatchId} --from-file harness/${reportPacket}. ` +
-          "A carried review must contain this dispatch's Markdown report and may include its JSON packet.";
-        throw error;
+          carriedPaths.includes(expectedReportPath) &&
+          carriedPaths.every((candidate) => candidate === expectedReportPath || candidate === reportPacket),
+        wrongDocChanges = docChanges !== undefined && !carriedValid,
+        missingPacket = docChanges === undefined && !packetNamed;
+      if (wrongReviewId || wrongDocChanges || missingPacket) {
+        const mismatchDetail = wrongReviewId
+          ? `Expected --review-id ${expectedReviewId} (received ${String(input.action.reviewId ?? "<missing>")}). `
+          : wrongDocChanges
+            ? `Expected docChanges containing ${expectedReportPath} and optionally ${reportPacket} (received ${Array.isArray(docChanges) ? `${docChanges.length} entries` : String(docChanges)}). `
+            : fromFile
+              ? `Expected --from-file ${`harness/${reportPacket}`} (received ${fromFile}). `
+              : "--from-file is required (inline --json-input without --from-file is not allowed for scoped reviewer dispatches). ";
+        throw executionCredentialRejected("scope", {
+          dispatchId: p.dispatchId,
+          role: p.role,
+          overrideMessage:
+            `Reviewer dispatch ${p.dispatchId} may register only its assigned review. ${mismatchDetail}Use ` +
+            `ha task review-execution ${p.taskId} --execution-id ${p.executionId} ` +
+            `--review-id ${expectedReviewId} --from-file harness/${reportPacket}. ` +
+            "A carried review must contain this dispatch's Markdown report and may include its JSON packet.",
+        });
       }
-    } else if (ingress && !taskReview && !decisionReview) {
-      throw executionCredentialRejected();
+    } else if (ingress && !livenessObservation && !taskReview && !decisionReview) {
+      throw executionCredentialRejected("scope", {
+        dispatchId: p.dispatchId,
+        role: p.role,
+        detail: `Review target for dispatch ${p.dispatchId} was withdrawn or superseded.`,
+      });
     }
   } else {
-    if (dispatch.payload.role === "reviewer") throw executionCredentialRejected();
+    if (dispatch.payload.role === "reviewer")
+      throw executionCredentialRejected("scope", {
+        dispatchId: p.dispatchId,
+        role: p.role,
+        detail: `Dispatch ${p.dispatchId} is a reviewer dispatch and cannot authorize ${p.role} writes.`,
+      });
     return;
   }
 }

@@ -10778,12 +10778,6 @@
         "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/runtime.ts#startDaemon.createProtocolServer.executionPrincipal:60477ceb6aa0daab6ef9b627b03596ac",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/runtime.ts#startDaemon:d0d3b2a344a0c55e28a416c06a653f11",
         "route": "daemon-local-state",
         "role": "technical-port",

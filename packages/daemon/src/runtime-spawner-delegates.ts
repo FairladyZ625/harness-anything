@@ -1,5 +1,5 @@
 import type { AgentRuntimeEventV1, CanonicalEventStore, SessionIdentity } from "@harness-anything/kernel";
-import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
+import type { RuntimeSpawnerContext, RuntimeTerminalReplay } from "./runtime-spawn-context.ts";
 import type { ActiveRuntime } from "./runtime-spawn-types.ts";
 import {
   consumeProviderChunk,
@@ -37,7 +37,7 @@ export const markProtocolError = (context: RuntimeSpawnerContext, active: Active
   markProtocolErrorImpl(context, active);
 export const publishExit = (
   context: RuntimeSpawnerContext,
-  active: ActiveRuntime,
+  active: ActiveRuntime | RuntimeTerminalReplay,
   code: number | null,
   resumePublishedExit = false,
 ) => publishExitImpl(context, active, code, resumePublishedExit);

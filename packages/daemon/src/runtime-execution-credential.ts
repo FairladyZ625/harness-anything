@@ -55,9 +55,10 @@ export function readRuntimeExecutionPrincipal(
   center: RuntimeExecutionCredentialAuthority,
   dispatchId: string,
   fetchPort?: typeof fetch,
+  options?: { readonly hostSettlement?: boolean },
 ): Promise<RuntimeExecutionPrincipal> {
   return executionProvider(center, fetchPort)
-    .readExecutionPrincipal(center.accessToken, dispatchId)
+    .readExecutionPrincipal(center.accessToken, dispatchId, options)
     .catch(executionCredentialRecovery);
 }
 
@@ -66,11 +67,16 @@ function executionCredentialRecovery(error: unknown): never {
     error instanceof Error &&
     "code" in error &&
     error.code === "execution_credential_rejected" &&
-    error.message === executionCredentialRejected("revoked").message
-  )
+    (error as { readonly executionRejectionReason?: unknown }).executionRejectionReason === "revoked"
+  ) {
+    const role = (error as { readonly executionRejectionRole?: RuntimeExecutionPrincipal["role"] })
+      .executionRejectionRole;
     error.message +=
-      " If the task was submitted, its write lease has ended: ask the CEO to sync the remaining documents " +
-      "or return the task for rework. Do not retry document writes with this credential.";
+      role === "reviewer"
+        ? " The reviewer dispatch write lease has been revoked or cleared on the authority; do not retry registration with this credential—ask the task owner or operator to inspect dispatch status or issue a fresh review dispatch."
+        : " If the task was submitted, its write lease has ended: ask the CEO to sync the remaining documents " +
+          "or return the task for rework. Do not retry document writes with this credential.";
+  }
   throw error;
 }
 /** A queued publication must still match its provider's current execution identity. */

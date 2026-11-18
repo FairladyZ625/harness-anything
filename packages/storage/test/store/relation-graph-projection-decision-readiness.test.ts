@@ -103,6 +103,102 @@ test("Decision readiness batches canonical Git reads across the ledger", () => {
   );
 });
 
+test("Decision readiness preserves scope, sorted paths and Git log order with non-monotonic commit times", () => {
+  const commitSha = "a".repeat(40);
+  const first = "2026-08-02T00:00:00Z",
+    newest = "2026-08-05T00:00:00Z";
+  const files = ["lib-old/other", "packages/lib/z", "lib.ts", "lib/config/a", "lib/config/b", "lib-elsewhere/x"];
+  const lines = (file: string) =>
+    ["<<<<<<<", "=======", ">>>>>>>"].map((marker, index) => `${commitSha}:${file}:${index + 1}:${marker}`);
+  const source = {
+    run: (_rootDir: string, [command]: readonly string[]) => ({
+      ok: true,
+      stdout:
+        command === "ls-tree"
+          ? files.join("\n")
+          : command === "log"
+            ? `\x1e${first}\nlib/config/b\n\x1e${newest}\nlib/deleted\npackages/lib/z\nlib/config/a\nlib/config/b\nlib-elsewhere/x\nlib.ts`
+            : [
+                ...lines("lib/config/b"),
+                ...lines("packages/lib/z"),
+                ...lines("lib-elsewhere/x"),
+                "lib/config/a:7:<<<<<<<",
+              ].join("\n"),
+    }),
+  };
+  const decisions = [
+    ["lib", "./lib/config/", "packages\\lib", "lib.ts", "missing"],
+    ["lib/config/b"],
+    ["lib/deleted", "../lib"],
+    ["lib-old"],
+    ["lib/config/a", "missing"],
+    ["lib", "lib/config", "packages/lib"],
+  ].map((modules, index) => ({
+    decisionId: `dec_${index}`,
+    proposedAt: index === 3 ? first : index >= 4 ? "invalid" : newest,
+    appliesTo: { modules, productLines: [] },
+  }));
+  const result = projectDecisionReadiness({ rootDir: "/fixture", commitSha, decisions }, source);
+  assert.deepEqual(
+    result.map(({ appliesToDrift, conflictMarker }) => [
+      appliesToDrift.state,
+      appliesToDrift.paths,
+      appliesToDrift.lastCommitAt,
+      conflictMarker.state,
+      conflictMarker.paths,
+    ]),
+    [
+      [
+        "drift",
+        ["lib.ts", "lib/config/a", "lib/config/b", "packages/lib/z"],
+        first,
+        "conflict",
+        ["lib/config/b", "packages/lib/z"],
+      ],
+      ["drift", ["lib/config/b"], first, "conflict", ["lib/config/b"]],
+      ["unknown", [], null, "unknown", []],
+      ["clear", ["lib-old"], null, "clear", ["lib-old"]],
+      ["unknown", [], null, "unknown", []],
+      ["unknown", [], null, "conflict", ["lib/config/b", "packages/lib/z"]],
+    ],
+  );
+  assert.equal(result[2]?.appliesToDrift.summary, "Unresolved canonical applies_to module(s): lib/deleted, ../lib.");
+  assert.equal(result[4]?.conflictMarker.summary, "Unresolved canonical applies_to module(s): missing.");
+});
+
+test("Decision readiness projects 800 decisions and 60,000 history paths in under 100 ms CPU time", (t) => {
+  const moduleName = (index: number) => `packages/module-${index}`;
+  const files = Array.from({ length: 5_000 }, (_, index) => `${moduleName(index % 50)}/file-${index}.ts`);
+  const timestamp = "2026-08-05T00:00:00Z";
+  const log = Array.from({ length: 12 }, () => `\x1e${timestamp}\n${files.join("\n")}\n`).join("");
+  const decisions = Array.from({ length: 800 }, (_, index) => ({
+    decisionId: `dec_${index}`,
+    proposedAt: new Date(Date.parse(timestamp) - index * 1_000).toISOString(),
+    appliesTo: { modules: [moduleName(index % 50), moduleName((index + 1) % 50)], productLines: [] },
+  }));
+  const tree = files.join("\n");
+  const source = {
+    run: (_rootDir: string, [command]: readonly string[]) => ({
+      ok: true,
+      stdout: command === "ls-tree" ? tree : command === "log" ? log : "",
+    }),
+  };
+
+  const wallStart = performance.now(),
+    cpuStart = process.cpuUsage();
+  const readiness = projectDecisionReadiness({ rootDir: "/fixture", commitSha: "a".repeat(40), decisions }, source);
+  const cpu = process.cpuUsage(cpuStart),
+    cpuMs = (cpu.user + cpu.system) / 1_000;
+  t.diagnostic(
+    `readiness calculation: ${cpuMs.toFixed(2)} ms CPU, ${(performance.now() - wallStart).toFixed(2)} ms wall`,
+  );
+  assert.ok(cpuMs < 100, `readiness calculation used ${cpuMs.toFixed(2)} ms CPU (budget: 100 ms)`);
+  assert.equal(readiness.length, 800);
+  assert.ok(
+    readiness.every(({ appliesToDrift }) => appliesToDrift.state === "drift" && appliesToDrift.paths.length === 200),
+  );
+});
+
 test("Replay accepts a document today's renderer no longer reproduces, as long as its content hash matches the signed claim", () => {
   withTempStore((rootDir) => {
     const fixture = projectionFixture(rootDir),

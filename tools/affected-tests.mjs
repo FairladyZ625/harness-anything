@@ -2,7 +2,13 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
-import { discoverTestFiles, parseTestTierMarker } from "./test-tier-manifest.mjs";
+import {
+  discoverGuiVitestFiles,
+  discoverTestFiles,
+  guiVitestIgnoredDirectoryNames,
+  isGuiVitestFile,
+  parseTestTierMarker,
+} from "./test-tier-manifest.mjs";
 
 // Selecting the test files a change can reach is deliberately an over-approximation:
 // a selection that is too wide costs one dispatch, a selection that is too narrow sends
@@ -36,8 +42,10 @@ export function listImportGraphFiles(root, roots = defaultGraphRoots) {
 function walk(root, directory, files) {
   const absolute = path.join(root, directory);
   if (!existsSync(absolute)) return;
+  const inGuiTestTree = directory === "packages/gui/test" || directory.startsWith("packages/gui/test/");
+  const ignored = inGuiTestTree ? guiVitestIgnoredDirectoryNames : ignoredDirectoryNames;
   for (const entry of readdirSync(absolute, { withFileTypes: true })) {
-    if (entry.name.startsWith(".") || ignoredDirectoryNames.has(entry.name)) continue;
+    if (entry.name.startsWith(".") || ignored.has(entry.name)) continue;
     const relative = path.posix.join(directory, entry.name);
     if (entry.isDirectory()) walk(root, relative, files);
     else if (entry.isFile() && sourceFilePattern.test(entry.name)) files.push(relative);
@@ -46,9 +54,14 @@ function walk(root, directory, files) {
 
 export function buildImportGraph(root, options = {}) {
   const startedAt = Date.now();
-  const files = options.files ?? listImportGraphFiles(root);
+  const baseFiles = options.files ?? listImportGraphFiles(root);
+  const files =
+    options.extraFiles === undefined || options.extraFiles.length === 0
+      ? baseFiles
+      : [...new Set([...baseFiles, ...options.extraFiles])].sort();
   const knownTargets = new Set(options.knownTargets ?? []);
-  const resolveImport = createSourceImportResolver(root, knownTargets);
+  const resolvableTargets = new Set([...knownTargets, ...(options.resolvableTargets ?? [])]);
+  const resolveImport = createSourceImportResolver(root, resolvableTargets);
   const reverse = new Map();
   // `imports` mirrors `reverse` for callers that rank tests by how closely their direct
   // imports resemble the tests that directly cover the changed files (see
@@ -271,14 +284,36 @@ export function selectAffectedTests(options) {
     if (normalized === null) invalid.push(value);
     else changedFiles.push(normalized);
   }
-  const testFiles = options.testFiles ?? discoverTestFiles(root);
-  const testSet = new Set(testFiles);
+  const hasExplicitTestFiles = options.testFiles !== undefined;
+  const requestedNodeTests = options.testFiles ?? discoverTestFiles(root);
+  const requestedVitestTests = options.vitestFiles ?? (hasExplicitTestFiles ? [] : discoverGuiVitestFiles(root));
+  const vitestFiles = [
+    ...new Set([...requestedVitestTests, ...requestedNodeTests.filter((file) => isGuiVitestFile(file))]),
+  ].sort();
+  const vitestSet = new Set(vitestFiles);
+  const nodeTestFiles = requestedNodeTests.filter((file) => !vitestSet.has(file));
+  const nodeTestSet = new Set(nodeTestFiles);
+  const testSet = new Set([...nodeTestFiles, ...vitestFiles]);
   const sourceChanges = changedFiles.filter((file) => !testSet.has(file) && sourceFilePattern.test(file));
+  const deletedAssetChanges = changedFiles.filter(
+    (file) => !testSet.has(file) && !sourceFilePattern.test(file) && !existsSync(path.join(root, file)),
+  );
+  const existingTests = [...testSet].filter((file) => existsSync(path.join(root, file)));
   const graph =
     options.graph ??
-    (options.buildGraph ?? ((input) => buildImportGraph(input.root, { knownTargets: input.knownTargets })))({
+    (
+      options.buildGraph ??
+      ((input) =>
+        buildImportGraph(input.root, {
+          knownTargets: input.knownTargets,
+          resolvableTargets: input.resolvableTargets,
+          extraFiles: input.extraFiles,
+        }))
+    )({
       root,
       knownTargets: sourceChanges,
+      resolvableTargets: deletedAssetChanges,
+      extraFiles: existingTests,
     });
   const seeds = [];
   const direct = new Set();
@@ -291,13 +326,13 @@ export function selectAffectedTests(options) {
       continue;
     }
     if (testFilePattern.test(file) && existsSync(path.join(root, file))) {
-      // A test-shaped file the node manifest does not discover (for example a GUI Vitest
-      // file) cannot run through this selector. Naming it is better than reporting a
-      // smaller green selection.
+      // A test-shaped file outside both the Node manifest and GUI Vitest discovery (for example
+      // a misplaced .vitest.ts outside packages/gui/test/) cannot run through this selector.
+      // Naming it is better than reporting a smaller green selection.
       unmapped.push(file);
       continue;
     }
-    if (graph.nodes.has(file)) {
+    if (graph.nodes.has(file) || graph.reverse.has(file)) {
       seeds.push(file);
       continue;
     }
@@ -310,6 +345,8 @@ export function selectAffectedTests(options) {
       changedFiles,
       changedTests: [...direct].sort(),
       selected: [],
+      nodeSelected: [],
+      vitestSelected: [],
       deferred: [],
       rawSelected: 0,
       deferredCount: 0,
@@ -342,12 +379,12 @@ export function selectAffectedTests(options) {
     }
   }
   const testTiers = new Map();
-  for (const file of testFiles) {
+  for (const file of nodeTestFiles) {
     const firstLine = readFileSync(path.join(root, file), "utf8").split("\n", 1)[0];
     testTiers.set(file, parseTestTierMarker(firstLine, file));
   }
-  const reachable = [...origin.keys()]
-    .filter((file) => testSet.has(file))
+  const reachableNode = [...origin.keys()]
+    .filter((file) => nodeTestSet.has(file))
     .map((file) => ({
       file,
       via: origin.get(file),
@@ -355,33 +392,47 @@ export function selectAffectedTests(options) {
       distance: distance.get(file),
       tier: testTiers.get(file),
     }));
+  const vitestSelected = sortByPath(
+    [...origin.keys()]
+      .filter((file) => vitestSet.has(file))
+      .map((file) => ({
+        file,
+        via: origin.get(file),
+        changed: direct.has(file),
+      })),
+  );
   const integrationTotal = [...testTiers.values()].filter((tier) => tier === "integration").length;
   const maxSelected = Math.max(1, Math.ceil(integrationTotal * ratio));
-  const ranked = reachable.length > maxSelected ? capAffectedTests(reachable, graph) : sortByPath(reachable);
-  const selected = ranked.slice(0, maxSelected).map(({ file, via, changed }) => ({ file, via, changed }));
-  const deferred = ranked.slice(maxSelected).map(({ file, via, distance: deferredDistance }) => ({
+  const rankedNode =
+    reachableNode.length > maxSelected ? capAffectedTests(reachableNode, graph) : sortByPath(reachableNode);
+  const nodeSelected = rankedNode.slice(0, maxSelected).map(({ file, via, changed }) => ({ file, via, changed }));
+  const deferred = rankedNode.slice(maxSelected).map(({ file, via, distance: deferredDistance }) => ({
     file,
     via,
     distance: deferredDistance,
   }));
+  const selected = sortByPath([...nodeSelected, ...vitestSelected]);
+  const rawSelected = reachableNode.length + vitestSelected.length;
   return {
     base: options.base ?? "origin/main",
     changedFiles,
     changedTests: [...direct].sort(),
     selected,
+    nodeSelected,
+    vitestSelected,
     deferred,
-    rawSelected: reachable.length,
+    rawSelected,
     deferredCount: deferred.length,
     deferredReason:
       deferred.length === 0
         ? ""
         : buildDeferredReason({
             deferredCount: deferred.length,
-            rawSelected: reachable.length,
+            rawSelected: reachableNode.length,
             maxSelected,
             integrationTotal,
             ratio,
-            anchorCount: countAnchors(reachable),
+            anchorCount: countAnchors(reachableNode),
           }),
     truncated: deferred.length > 0,
     ignored,
