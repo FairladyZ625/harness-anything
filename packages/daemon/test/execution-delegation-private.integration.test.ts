@@ -121,6 +121,9 @@ test("center private delegation survives restart and narrows online Keycloak per
   assert.equal(existsSync(path.join(rootDir, "harness", "people.yaml")), false);
   await cell.close();
   cell = await open();
+  await cell.settlePendingMaterialization("private delegation restart");
+  const materialization = cell.status().materialization;
+  assert.equal(materialization?.state, "ok", JSON.stringify(materialization));
   const delegated = await cell.run(amend, binding);
   assert.equal(delegated.outcome, "applied", JSON.stringify(delegated));
   assert.ok(delegated.authorizationDecision.bindingsUsed.some((proof) => proof.proof === "delegated-execution-token"));

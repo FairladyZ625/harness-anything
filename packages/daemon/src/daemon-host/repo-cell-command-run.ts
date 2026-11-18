@@ -663,7 +663,7 @@ export function makeRepoCellCommandRunner(
       return await appendCompletionWarnings(receipt, { ...binding, authorizationDecision: rerunDecision });
     }
     const needsWorktree = readsAuthoredWorktree(action, binding.source, context.projection);
-    const publish = async () => {
+    const runAfterWorktreeReady = async () => {
       const pending = needsWorktree ? settleAuthoredMaterialization(context.store, action.kind) : null,
         failure = pending
           ? await pending.then(
@@ -677,14 +677,14 @@ export function makeRepoCellCommandRunner(
         return context.executeAction(action, authorizationDecision ? { ...binding, authorizationDecision } : binding);
       });
     };
-    const receipt = await publish();
+    const receipt = await runAfterWorktreeReady();
     // Rematerialization can reach the queue behind a write that changed its documents. A pending
     // result for that cut contains no write, so settle it off queue and re-enter through admission.
     return needsWorktree &&
       receipt.outcome === "pending" &&
       "code" in receipt &&
       receipt.code === "materialization_failed"
-      ? publish()
+      ? runAfterWorktreeReady()
       : receipt;
   };
   const enqueueCommand = run;

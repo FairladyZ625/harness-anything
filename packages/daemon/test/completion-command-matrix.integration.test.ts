@@ -1,12 +1,12 @@
 // harness-test-tier: integration
 import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
-import { currentGateRun, isTaskEvent } from "@harness-anything/kernel";
+import { currentGateRun, isTaskEvent, resolveHarnessLayout } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
@@ -22,7 +22,7 @@ const result={result:"pass",subjects,predicateType:"research/version-pinned/v1",
 `;
 const output = `console.log(JSON.stringify({schema:"preset-script-result/v1",produces:[{capabilityId:"completion-witness",payload:result}]}));`;
 
-async function fixture(script: string | ((root: string) => string), metadata: unknown, mixed = false) {
+async function fixture(script: string, metadata: unknown, mixed = false) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-completion-matrix-")),
     ledger = path.join(root, "harness"),
     repoId = workspaceId("completion-matrix"),
@@ -60,11 +60,7 @@ async function fixture(script: string | ((root: string) => string), metadata: un
   try {
     await applied({
       kind: "preset-install",
-      packageSource: researchPackage(
-        root,
-        typeof script === "string" ? script : script(root),
-        mixed ? "repository-diff" : "task-package-artifact",
-      ),
+      packageSource: researchPackage(root, script, mixed ? "repository-diff" : "task-package-artifact"),
     });
     const created = await applied({
         kind: "task-create",
@@ -215,17 +211,14 @@ test("mixed code and artifacts freeze both inputs; a new artifact cut invalidate
 for (const order of ["old-first", "new-first"] as const) {
   test(`amend and complete race with source execution: ${order} arrival retains one current run after cold replay`, async () => {
     const f = await fixture(
-      (root) =>
-        frame +
+      frame +
         `
-import { existsSync, watch } from "node:fs";
-import { join } from "node:path";
-const root = ${JSON.stringify(root)};
-const release = join(root, "witness-release-" + metadata.seed);
+import { existsSync, watch, writeFileSync } from "node:fs";
+writeFileSync("output/ready-" + metadata.seed, "");
 await new Promise(resolve => {
-  const watcher = watch(root, check);
+  const watcher = watch("output", check);
   function check() {
-    if (!existsSync(release)) return;
+    if (!existsSync("output/release")) return;
     watcher.close();
     resolve();
   }
@@ -235,8 +228,13 @@ await new Promise(resolve => {
         output,
       { seed: 42 },
     );
-    const waiting: Promise<unknown>[] = [];
-    const release = (seed: number) => writeFileSync(path.join(f.root, `witness-release-${seed}`), "");
+    const waiting: Promise<unknown>[] = [],
+      staging = path.join(resolveHarnessLayout(f.root).localRoot, "preset-runs", "staging"),
+      ready = new Map<number, string>();
+    const release = (seed: number) => {
+      const output = ready.get(seed);
+      if (output && existsSync(output)) writeFileSync(path.join(output, "release"), "");
+    };
     const started = async (seed: number) => {
       const count = seed === 42 ? 1 : 2;
       await waitForDurableValue(() =>
@@ -250,6 +248,15 @@ await new Promise(resolve => {
           )
           ? true
           : null,
+      );
+      ready.set(
+        seed,
+        await waitForDurableValue(() => {
+          const child = readdirSync(staging).find((entry) =>
+            existsSync(path.join(staging, entry, "output", `ready-${seed}`)),
+          );
+          return child === undefined ? null : path.join(staging, child, "output");
+        }),
       );
     };
     try {
