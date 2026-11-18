@@ -32,9 +32,10 @@ export function prepareE2EProbeGui(rootDir = repositoryRoot, env = process.env) 
   // Concurrent GUI tests share this checkout. Rebuild every entrypoint without
   // clearing files another test may still be launching or serving.
   try {
-    execFileSync(process.execPath, ["scripts/build.mjs", "--preserve-output"], {
+    execFileSync(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "build"], {
       cwd: guiRoot,
-      env,
+      env: { ...env, HARNESS_GUI_BUILD_PRESERVE_OUTPUT: "1" },
+      shell: process.platform === "win32",
       encoding: "utf8",
       stdio: "pipe",
       maxBuffer: 16 * 1024 * 1024,

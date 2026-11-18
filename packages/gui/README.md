@@ -85,7 +85,7 @@ After editing `packages/gui/**` or `tools/gui-e2e/**`, run the `< 2m` headless E
 
 ```bash
 npm run build -w @harness-anything/gui
-node tools/gui-e2e/run-smoke.mjs
+npm run test:gui:smoke
 ```
 
-`node tools/gui-e2e/run-smoke.mjs` wraps `node tools/gui-e2e.mjs --smoke --no-build` with `xvfb-run --auto-servernum` on headless Linux, reuses one hermetic isolated fixture daemon and hidden Electron instance across read-only smoke scenarios, and exports a Playwright `trace.zip` plus desensitized IPC trace alongside the failure screenshot when any scenario fails.
+The CI `gui-build` job uses the same command. On headless Linux the runner starts `node tools/gui-e2e.mjs --smoke --no-build` under `xvfb-run --auto-servernum`. Read-only smoke scenarios share an isolated daemon and a hidden Electron instance. Failed scenarios can record a screenshot, window state, Playwright trace, and sanitized IPC trace.

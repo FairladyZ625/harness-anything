@@ -1333,13 +1333,14 @@
     },
     {
       "id": "gui-e2e-smoke",
-      "command": "node tools/gui-e2e/run-smoke.mjs",
+      "command": "npm run test:gui:smoke",
       "category": "smoke",
       "tier": "pr-required",
       "tierReason": null,
       "authoritySource": [
         "tools/gui-e2e.mjs",
         "tools/gui-e2e/run-smoke.mjs",
+        "package.json:scripts.test:gui:smoke",
         "decision/dec_88CAA23DE4907261D7ECB107ED#CH1",
         ".github/workflows/rewrite-ci.yml:jobs.gui-build"
       ],
@@ -1384,7 +1385,11 @@
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": ["tools/gui-e2e/driver.test.mjs", "tools/gui-e2e/run-smoke.test.mjs"]
+        "evidence": [
+          "tools/gui-e2e/driver.test.mjs",
+          "tools/gui-e2e/run-smoke.test.mjs",
+          "tools/gates/test/rewrite-ci-pr-ci-slimming.test.mjs"
+        ]
       }
     },
     {
