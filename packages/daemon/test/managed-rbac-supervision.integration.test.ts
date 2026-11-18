@@ -1,7 +1,8 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -74,7 +75,28 @@ async function createManagedRoot() {
   mkdirSync(bin, { recursive: true });
   mkdirSync(data, { recursive: true });
   writeFileSync(path.join(bin, "postgres"), "fixture");
-  writeFileSync(listener.certificateKeyFile, "fixture", { mode: 0o600 });
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      listener.certificateKeyFile,
+      "-out",
+      listener.certificateFile,
+      "-subj",
+      "/CN=center.example.test",
+      "-days",
+      "1",
+      "-addext",
+      "subjectAltName=DNS:center.example.test,IP:127.0.0.1",
+    ],
+    { stdio: "ignore" },
+  );
+  chmodSync(listener.certificateKeyFile, 0o600);
   writeFileSync(
     path.join(root, "rbac", "config.json"),
     JSON.stringify({

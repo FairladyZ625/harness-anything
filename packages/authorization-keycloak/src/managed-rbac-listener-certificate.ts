@@ -1,11 +1,41 @@
-import { createHash, X509Certificate } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  randomBytes,
+  X509Certificate,
+  type KeyObject,
+} from "node:crypto";
+import {
+  chmodSync,
+  closeSync,
+  constants,
+  existsSync,
+  fstatSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 import path from "node:path";
 import type { ManagedRbacHost } from "./managed-host.ts";
 
 import type { CertificateMode, ManagedRbacListener, ManagedRbacRequest } from "@harness-anything/kernel";
+
+const pemCertificateBlock = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/gu;
+
+export type ListenerMaterialProblem = "missing_certificate" | "exposed_key" | "invalid_material";
+
+export class ListenerKeyExposedError extends Error {
+  readonly code = "rbac_listener_key_exposed";
+}
 
 function selfSignedCertificatePaths(root: string): {
   readonly certificateFile: string;
@@ -18,21 +48,45 @@ function selfSignedCertificatePaths(root: string): {
   };
 }
 
-function uploadedCertificatePaths(root: string): {
+function createUploadedCertificateVersionPaths(root: string): {
+  readonly directory: string;
   readonly certificateFile: string;
   readonly certificateKeyFile: string;
+  readonly generation: string;
 } {
-  const directory = path.join(root, "listener");
+  const generation = randomBytes(12).toString("hex"),
+    directory = path.join(root, "listener", `uploaded-${generation}`);
   return {
+    generation,
+    directory,
     certificateFile: path.join(directory, "listener.pem"),
     certificateKeyFile: path.join(directory, "listener.key"),
   };
 }
 
 export function isManagedListenerPath(root: string, filePath: string): boolean {
-  const listenerDirectory = path.resolve(root, "listener"),
-    relative = path.relative(listenerDirectory, path.resolve(filePath));
-  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+  const listenerDirectory = path.join(root, "listener");
+  if (!existsSync(listenerDirectory)) return false;
+  const rootStats = lstatSync(listenerDirectory);
+  if (rootStats.isSymbolicLink() || !rootStats.isDirectory()) return false;
+  const resolvedRoot = path.resolve(listenerDirectory),
+    resolvedTarget = path.resolve(filePath),
+    relative = path.relative(resolvedRoot, resolvedTarget);
+  if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) return false;
+  let current = resolvedRoot;
+  const segments = relative.split(path.sep);
+  for (let index = 0; index < segments.length; index += 1) {
+    current = path.join(current, segments[index]!);
+    if (!existsSync(current)) return false;
+    const stats = lstatSync(current);
+    if (stats.isSymbolicLink()) return false;
+    if (index < segments.length - 1 && !stats.isDirectory()) return false;
+    if (index === segments.length - 1 && !stats.isFile()) return false;
+  }
+  const realRoot = realpathSync(resolvedRoot),
+    realTarget = realpathSync(resolvedTarget),
+    realRelative = path.relative(realRoot, realTarget);
+  return realRelative !== "" && !realRelative.startsWith("..") && !path.isAbsolute(realRelative);
 }
 
 export function isManagedListenerPair(
@@ -44,32 +98,145 @@ export function isManagedListenerPair(
   );
 }
 
-class ListenerKeyExposedError extends Error {
-  readonly code = "rbac_listener_key_exposed";
+function readRegularFileWithStats(
+  filePath: string,
+  options: { readonly requireOwnerOnlyMode?: boolean } = {},
+): { readonly bytes: Buffer; readonly mode: number } {
+  let fd: number;
+  try {
+    fd = openSync(filePath, constants.O_RDONLY);
+  } catch {
+    if (options.requireOwnerOnlyMode)
+      throw new ListenerKeyExposedError(
+        "The listener's private key must be present and readable only by its owner (chmod 600).",
+      );
+    throw listenerError(
+      "A listener takes --hostname (as the certificate names it), --port, and absolute --certificate-file and --certificate-key-file paths. Pass none of them to serve loopback only.",
+    );
+  }
+  try {
+    const stats = fstatSync(fd);
+    if (!stats.isFile()) {
+      if (options.requireOwnerOnlyMode)
+        throw new ListenerKeyExposedError(
+          "The listener's private key must be present and readable only by its owner (chmod 600).",
+        );
+      throw listenerError(
+        "A listener takes --hostname (as the certificate names it), --port, and absolute --certificate-file and --certificate-key-file paths. Pass none of them to serve loopback only.",
+      );
+    }
+    if (options.requireOwnerOnlyMode && (stats.mode & 0o077) !== 0)
+      throw new ListenerKeyExposedError("The listener's private key must be readable only by its owner (chmod 600).");
+    return { bytes: readFileSync(fd), mode: stats.mode & 0o777 };
+  } finally {
+    closeSync(fd);
+  }
+}
+
+export function validateCertificateChainAndKeyPair(
+  certificateBytes: Buffer,
+  keyBytes: Buffer,
+  names?: readonly string[],
+  validateCertificateNames?: ManagedRbacHost["validateCertificateNames"],
+): void {
+  const certificateText = certificateBytes.toString("utf8"),
+    blocks = [...certificateText.matchAll(pemCertificateBlock)].map(([block]) => block),
+    remainder = certificateText.replace(pemCertificateBlock, "").trim();
+  if (blocks.length === 0 || remainder !== "")
+    throw listenerError("The listener certificate must contain valid PEM certificate blocks.");
+  let certificates: X509Certificate[];
+  try {
+    certificates = blocks.map((block) => new X509Certificate(block));
+  } catch {
+    throw listenerError("The listener certificate contains malformed X.509 PEM data.");
+  }
+  for (let index = 1; index < certificates.length; index += 1) {
+    const child = certificates[index - 1]!,
+      issuer = certificates[index]!;
+    if (!child.checkIssued(issuer) || !child.verify(issuer.publicKey))
+      throw listenerError("The listener certificate chain is invalid or out of order.");
+  }
+  if (names && validateCertificateNames) validateCertificateNames(certificateBytes, names);
+  let privateKey: KeyObject;
+  try {
+    privateKey = createPrivateKey(keyBytes);
+  } catch {
+    throw listenerError("The listener private key must be a valid unencrypted PEM private key.");
+  }
+  const certPublicKey = certificates[0]!.publicKey.export({ type: "spki", format: "der" }),
+    keyPublicKey = createPublicKey(privateKey).export({ type: "spki", format: "der" });
+  if (!certPublicKey.equals(keyPublicKey))
+    throw listenerError("The listener private key does not match the certificate.");
 }
 
 export function listenerMaterialProblem(
-  listener: Pick<ManagedRbacListener, "certificateFile" | "certificateKeyFile">,
-): "missing_certificate" | "exposed_key" | undefined {
-  if (!existsSync(listener.certificateFile) || !statSync(listener.certificateFile).isFile())
-    return "missing_certificate";
-  if (
-    !existsSync(listener.certificateKeyFile) ||
-    !statSync(listener.certificateKeyFile).isFile() ||
-    (statSync(listener.certificateKeyFile).mode & 0o077) !== 0
-  )
+  listener: Pick<ManagedRbacListener, "certificateFile" | "certificateKeyFile" | "address" | "hostname">,
+  validateCertificateNames?: ManagedRbacHost["validateCertificateNames"],
+): ListenerMaterialProblem | undefined {
+  let keyBytes: Buffer;
+  try {
+    keyBytes = readRegularFileWithStats(listener.certificateKeyFile, { requireOwnerOnlyMode: true }).bytes;
+  } catch {
     return "exposed_key";
+  }
+  let certificateBytes: Buffer;
+  try {
+    certificateBytes = readRegularFileWithStats(listener.certificateFile).bytes;
+  } catch {
+    return "missing_certificate";
+  }
+  try {
+    validateCertificateChainAndKeyPair(
+      certificateBytes,
+      keyBytes,
+      validateCertificateNames ? [listener.address, listener.hostname] : undefined,
+      validateCertificateNames,
+    );
+  } catch {
+    return "invalid_material";
+  }
   return undefined;
 }
 
+export function managedListenerProblem(
+  userRoot: string,
+  validateCertificateNames?: ManagedRbacHost["validateCertificateNames"],
+): ListenerMaterialProblem | undefined {
+  const configFile = path.join(userRoot, "rbac", "config.json");
+  if (!existsSync(configFile)) return undefined;
+  let config: unknown;
+  try {
+    config = JSON.parse(readFileSync(configFile, "utf8")) as unknown;
+  } catch {
+    return undefined;
+  }
+  if (!config || typeof config !== "object") return undefined;
+  const record = config as {
+    readonly mode?: unknown;
+    readonly listener?: {
+      readonly address?: unknown;
+      readonly hostname?: unknown;
+      readonly certificateFile?: unknown;
+      readonly certificateKeyFile?: unknown;
+    };
+  };
+  if (record.mode !== "managed" || !record.listener || typeof record.listener !== "object") return undefined;
+  const { address, hostname, certificateFile, certificateKeyFile } = record.listener;
+  if (typeof certificateKeyFile !== "string") return "exposed_key";
+  if (typeof certificateFile !== "string") return "missing_certificate";
+  return listenerMaterialProblem(
+    {
+      address: typeof address === "string" ? address : "",
+      hostname: typeof hostname === "string" ? hostname : "",
+      certificateFile,
+      certificateKeyFile,
+    },
+    typeof address === "string" && typeof hostname === "string" ? validateCertificateNames : undefined,
+  );
+}
+
 export function requirePrivateKeyFile(file: string): void {
-  const mode = existsSync(file) && statSync(file).isFile() ? statSync(file).mode & 0o777 : undefined;
-  if (mode === undefined || (mode & 0o077) !== 0)
-    throw new ListenerKeyExposedError(
-      mode === undefined
-        ? "The listener's private key must be present and readable only by its owner (chmod 600)."
-        : "The listener's private key must be readable only by its owner (chmod 600).",
-    );
+  readRegularFileWithStats(file, { requireOwnerOnlyMode: true });
 }
 
 function writeManagedFileAtomically(file: string, content: Buffer, mode: number): void {
@@ -82,30 +249,26 @@ function writeManagedFileAtomically(file: string, content: Buffer, mode: number)
   chmodSync(file, mode);
 }
 
-export interface UploadedCertificateSnapshot {
-  readonly certificateBytes?: Buffer;
-  readonly keyBytes?: Buffer;
+export interface SelfSignedCertificateSnapshot {
+  readonly certificateBytes: Buffer;
+  readonly keyBytes: Buffer;
 }
 
-export function snapshotUploadedCertificate(root: string): UploadedCertificateSnapshot {
-  const { certificateFile, certificateKeyFile } = uploadedCertificatePaths(root);
-  return {
-    ...(existsSync(certificateFile) && statSync(certificateFile).isFile()
-      ? { certificateBytes: readFileSync(certificateFile) }
-      : {}),
-    ...(existsSync(certificateKeyFile) && statSync(certificateKeyFile).isFile()
-      ? { keyBytes: readFileSync(certificateKeyFile) }
-      : {}),
-  };
-}
-
-export function restoreUploadedCertificate(root: string, snapshot: UploadedCertificateSnapshot): void {
-  const { certificateFile, certificateKeyFile } = uploadedCertificatePaths(root);
-  if (snapshot.certificateBytes === undefined || snapshot.keyBytes === undefined) {
-    removeUploadedCertificate(root);
-    return;
+export function snapshotSelfSignedCertificate(root: string): SelfSignedCertificateSnapshot | undefined {
+  const { certificateFile, certificateKeyFile } = selfSignedCertificatePaths(root);
+  if (!existsSync(certificateFile) || !existsSync(certificateKeyFile)) return undefined;
+  try {
+    const certificateBytes = readRegularFileWithStats(certificateFile).bytes,
+      keyBytes = readRegularFileWithStats(certificateKeyFile, { requireOwnerOnlyMode: true }).bytes;
+    return { certificateBytes, keyBytes };
+  } catch {
+    return undefined;
   }
-  const directory = path.dirname(certificateFile);
+}
+
+export function restoreSelfSignedCertificate(root: string, snapshot: SelfSignedCertificateSnapshot): void {
+  const { certificateFile, certificateKeyFile } = selfSignedCertificatePaths(root),
+    directory = path.dirname(certificateFile);
   /* @gate-identity state-store/runtime-instance.authorization-configuration */ mkdirSync(directory, {
     recursive: true,
     mode: 0o700,
@@ -121,35 +284,100 @@ export function installUploadedCertificate(
   sourceKeyFile: string,
   names: readonly string[],
   validateCertificateNames: ManagedRbacHost["validateCertificateNames"],
-): { readonly certificateFile: string; readonly certificateKeyFile: string } {
-  if (!existsSync(sourceCertificateFile) || !statSync(sourceCertificateFile).isFile())
-    throw listenerError(
-      "A listener takes --hostname (as the certificate names it), --port, and absolute --certificate-file and --certificate-key-file paths. Pass none of them to serve loopback only.",
-    );
-  requirePrivateKeyFile(sourceKeyFile);
-  const certificateBytes = readFileSync(sourceCertificateFile);
-  validateCertificateNames(certificateBytes, names);
-  const keyBytes = readFileSync(sourceKeyFile);
-  const { certificateFile, certificateKeyFile } = uploadedCertificatePaths(root),
-    directory = path.dirname(certificateFile);
+  onWriteStage?: (stage: "certificate" | "key") => void,
+): { readonly certificateFile: string; readonly certificateKeyFile: string; readonly generation: string } {
+  const certificateBytes = readRegularFileWithStats(sourceCertificateFile).bytes,
+    keyBytes = readRegularFileWithStats(sourceKeyFile, { requireOwnerOnlyMode: true }).bytes;
+  validateCertificateChainAndKeyPair(certificateBytes, keyBytes, names, validateCertificateNames);
+  const listenerDirectory = path.join(root, "listener"),
+    { directory, certificateFile, certificateKeyFile, generation } = createUploadedCertificateVersionPaths(root);
+  /* @gate-identity state-store/runtime-instance.authorization-configuration */ mkdirSync(listenerDirectory, {
+    recursive: true,
+    mode: 0o700,
+  });
+  chmodSync(listenerDirectory, 0o700);
   /* @gate-identity state-store/runtime-instance.authorization-configuration */ mkdirSync(directory, {
     recursive: true,
     mode: 0o700,
   });
   chmodSync(directory, 0o700);
-  writeManagedFileAtomically(certificateFile, certificateBytes, 0o644);
-  writeManagedFileAtomically(certificateKeyFile, keyBytes, 0o600);
-  return { certificateFile, certificateKeyFile };
+  try {
+    onWriteStage?.("certificate");
+    writeManagedFileAtomically(certificateFile, certificateBytes, 0o644);
+    onWriteStage?.("key");
+    writeManagedFileAtomically(certificateKeyFile, keyBytes, 0o600);
+  } catch (error) {
+    /* @gate-identity state-store/runtime-instance.authorization-configuration */ rmSync(directory, {
+      recursive: true,
+      force: true,
+    });
+    throw error;
+  }
+  return { certificateFile, certificateKeyFile, generation };
+}
+
+export function pruneUploadedCertificateVersions(
+  root: string,
+  activeListener?: Pick<ManagedRbacListener, "certificateFile" | "certificateKeyFile">,
+  previousListener?: Pick<ManagedRbacListener, "certificateFile" | "certificateKeyFile">,
+): void {
+  const listenerDirectory = path.join(root, "listener");
+  if (!existsSync(listenerDirectory)) return;
+  const resolvedListenerDirectory = path.resolve(listenerDirectory),
+    activeDirectory = activeListener ? path.dirname(path.resolve(activeListener.certificateFile)) : undefined,
+    activeFiles = new Set(
+      activeListener
+        ? [path.resolve(activeListener.certificateFile), path.resolve(activeListener.certificateKeyFile)]
+        : [],
+    );
+  for (const entry of readdirSync(listenerDirectory, { withFileTypes: true })) {
+    const entryPath = path.join(resolvedListenerDirectory, entry.name);
+    if (entry.name.startsWith("uploaded-") && entryPath !== activeDirectory) {
+      /* @gate-identity state-store/runtime-instance.authorization-configuration */ rmSync(entryPath, {
+        recursive: true,
+        force: true,
+      });
+    } else if ((entry.name === "listener.pem" || entry.name === "listener.key") && !activeFiles.has(entryPath)) {
+      /* @gate-identity state-store/runtime-instance.authorization-configuration */ rmSync(entryPath, {
+        force: true,
+      });
+    }
+  }
+  if (!previousListener) return;
+  const selfSigned = selfSignedCertificatePaths(root),
+    protectedFiles = new Set([
+      ...activeFiles,
+      path.resolve(selfSigned.certificateFile),
+      path.resolve(selfSigned.certificateKeyFile),
+    ]);
+  for (const candidate of [previousListener.certificateFile, previousListener.certificateKeyFile]) {
+    const resolvedCandidate = path.resolve(candidate),
+      relative = path.relative(resolvedListenerDirectory, resolvedCandidate);
+    if (
+      relative !== "" &&
+      !relative.startsWith("..") &&
+      !path.isAbsolute(relative) &&
+      !protectedFiles.has(resolvedCandidate) &&
+      existsSyncOrSymlink(resolvedCandidate)
+    ) {
+      /* @gate-identity state-store/runtime-instance.authorization-configuration */ rmSync(resolvedCandidate, {
+        force: true,
+      });
+    }
+  }
 }
 
 export function removeUploadedCertificate(root: string): void {
-  const { certificateFile, certificateKeyFile } = uploadedCertificatePaths(root);
-  /* @gate-identity state-store/runtime-instance.authorization-configuration */ rmSync(certificateFile, {
-    force: true,
-  });
-  /* @gate-identity state-store/runtime-instance.authorization-configuration */ rmSync(certificateKeyFile, {
-    force: true,
-  });
+  pruneUploadedCertificateVersions(root);
+}
+
+function existsSyncOrSymlink(filePath: string): boolean {
+  try {
+    lstatSync(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function existingCertificateIsCurrent(
@@ -157,16 +385,16 @@ function existingCertificateIsCurrent(
   names: readonly string[],
   validateCertificateNames: ManagedRbacHost["validateCertificateNames"],
 ): boolean {
-  const certificatePem = readFileSync(certificateFile),
-    certificate = new X509Certificate(certificatePem),
-    now = Date.now();
-  if (Date.parse(certificate.validFrom) > now || Date.parse(certificate.validTo) <= now) return false;
   try {
+    const certificatePem = readRegularFileWithStats(certificateFile).bytes,
+      certificate = new X509Certificate(certificatePem),
+      now = Date.now();
+    if (Date.parse(certificate.validFrom) > now || Date.parse(certificate.validTo) <= now) return false;
     validateCertificateNames(certificatePem, names);
     return true;
   } catch (error) {
     if (error instanceof Error && (error as { readonly code?: unknown }).code === "cert_san_mismatch") return false;
-    throw error;
+    return false;
   }
 }
 
@@ -184,18 +412,25 @@ export async function ensureSelfSignedCertificate(
 ): Promise<{ readonly certificateFile: string; readonly certificateKeyFile: string }> {
   const { certificateFile, certificateKeyFile } = selfSignedCertificatePaths(root),
     names = [address, hostname];
-  if (existsSync(certificateFile) && existsSync(certificateKeyFile)) {
-    if (existingCertificateIsCurrent(certificateFile, names, host.validateCertificateNames)) {
-      chmodSync(certificateKeyFile, 0o600);
-      return { certificateFile, certificateKeyFile };
-    }
+  if (
+    listenerMaterialProblem(
+      { certificateFile, certificateKeyFile, address, hostname },
+      host.validateCertificateNames,
+    ) === undefined &&
+    existingCertificateIsCurrent(certificateFile, names, host.validateCertificateNames)
+  ) {
+    chmodSync(certificateKeyFile, 0o600);
+    return { certificateFile, certificateKeyFile };
   }
-  /* @gate-identity non-state/environment-io.773f1f24462e0efd */ rmSync(certificateFile, { force: true });
-  /* @gate-identity non-state/environment-io.44f16540c48fcc72 */ rmSync(certificateKeyFile, { force: true });
+  const temporaryCert = `${certificateFile}.tmp`,
+    temporaryKey = `${certificateKeyFile}.tmp`;
+  /* @gate-identity non-state/environment-io.773f1f24462e0efd */ rmSync(temporaryCert, { force: true });
+  /* @gate-identity non-state/environment-io.44f16540c48fcc72 */ rmSync(temporaryKey, { force: true });
   /* @gate-identity non-state/environment-io.580e80f3650a0879 */ mkdirSync(path.dirname(certificateFile), {
     recursive: true,
     mode: 0o700,
   });
+  chmodSync(path.dirname(certificateFile), 0o700);
   const san = isIP(hostname) !== 0 ? `IP:${hostname}` : `DNS:${hostname}`;
   const addressSan = address === hostname ? "" : isIP(address) !== 0 ? `,IP:${address}` : `,DNS:${address}`;
   try {
@@ -206,9 +441,9 @@ export async function ensureSelfSignedCertificate(
       "rsa:2048",
       "-nodes",
       "-keyout",
-      certificateKeyFile,
+      temporaryKey,
       "-out",
-      certificateFile,
+      temporaryCert,
       "-subj",
       `/CN=${hostname}`,
       "-days",
@@ -216,13 +451,25 @@ export async function ensureSelfSignedCertificate(
       "-addext",
       `subjectAltName=${san}${addressSan}`,
     ]);
-    chmodSync(certificateKeyFile, 0o600);
+    chmodSync(temporaryKey, 0o600);
+    chmodSync(temporaryCert, 0o644);
+    const certBytes = readRegularFileWithStats(temporaryCert).bytes,
+      keyBytes = readRegularFileWithStats(temporaryKey, { requireOwnerOnlyMode: true }).bytes;
+    validateCertificateChainAndKeyPair(certBytes, keyBytes, names, host.validateCertificateNames);
+    /* @gate-identity state-store/runtime-instance.authorization-configuration */ renameSync(
+      temporaryCert,
+      certificateFile,
+    );
+    /* @gate-identity state-store/runtime-instance.authorization-configuration */ renameSync(
+      temporaryKey,
+      certificateKeyFile,
+    );
     chmodSync(certificateFile, 0o644);
-    host.validateCertificateNames(readFileSync(certificateFile), names);
+    chmodSync(certificateKeyFile, 0o600);
     return { certificateFile, certificateKeyFile };
   } catch (error) {
-    /* @gate-identity non-state/environment-io.778729626dd1b40c */ rmSync(certificateFile, { force: true });
-    /* @gate-identity non-state/environment-io.8f59e38af283edd1 */ rmSync(certificateKeyFile, { force: true });
+    /* @gate-identity non-state/environment-io.778729626dd1b40c */ rmSync(temporaryCert, { force: true });
+    /* @gate-identity non-state/environment-io.8f59e38af283edd1 */ rmSync(temporaryKey, { force: true });
     throw Object.assign(
       new Error(
         `Could not create the self-signed login certificate: ${error instanceof Error ? error.message : String(error)}`,
@@ -245,12 +492,17 @@ export function publicListener(listener: ManagedRbacListener): Omit<ManagedRbacL
   return safe;
 }
 
-export function listenerVersion(listener: ManagedRbacListener | undefined, certificateMode?: CertificateMode): string {
+export function listenerVersion(
+  listener: ManagedRbacListener | undefined,
+  certificateMode?: CertificateMode,
+  generation?: string,
+): string {
   return createHash("sha256")
     .update(
       JSON.stringify({
         listener: listener ?? null,
         certificateMode: certificateMode ?? (listener ? "domain" : "self-signed"),
+        ...(listener && generation ? { generation } : {}),
       }),
     )
     .digest("hex");

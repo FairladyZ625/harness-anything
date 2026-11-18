@@ -9,6 +9,7 @@ import path from "node:path";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { createIdentityManagement, createIdentitySession } from "../src/authorization-provider.ts";
+import { oidcCenterSelections } from "../src/oidc-center-selection.ts";
 import { managedRbacVersions } from "@harness-anything/authorization-keycloak/managed-rbac-service";
 import { daemonBuildStamp } from "../src/build-identity.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
@@ -319,7 +320,7 @@ test("local socket owner recovers a managed listener whose private key was delet
     assert.equal(listenerReply.result?.ok, true);
     const brokenVersion = String(listenerReply.result?.version);
 
-    // Remote fleet-tls and non-owner local sockets are still refused even in broken state.
+    // Remote fleet-tls, non-owner local sockets, and unix-socket callers missing owner boundary are all refused (RBAC-08).
     assert.throws(
       () =>
         host.manageRbac({ operation: "listener-set", expectedVersion: brokenVersion }, { transportKind: "fleet-tls" }),
@@ -334,8 +335,13 @@ test("local socket owner recovers a managed listener whose private key was delet
       ),
       { code: "authentication_required" },
     );
+    await assert.rejects(
+      host.manageRbac({ operation: "listener-set", expectedVersion: brokenVersion }, { transportKind: "unix-socket" }),
+      { code: "authentication_required" },
+    );
 
-    // Recover via self-signed over JSON-RPC from within the registered repository context (without rootDir too).
+    // Recover via self-signed over JSON-RPC from within the registered repository context (without rootDir too),
+    // and verify recovery runs on the OIDC write queue and synchronously binds the new authority before returning (RBAC-09).
     const recoveredPort = await freePort();
     const recoveredReply = (await rpc.handle({
       jsonrpc: "2.0",
@@ -357,19 +363,76 @@ test("local socket owner recovers a managed listener whose private key was delet
     assert.equal(recoveredReply.result?.ok, true);
     assert.equal(recoveredReply.result?.certificateMode, "self-signed");
     assert.equal((await host.manageRbac({ operation: "health" }, auth)).ready, true);
-
-    // Delete the new self-signed key too and verify loopback recovery also succeeds.
     const selfSignedConfig = JSON.parse(readFileSync(configFile, "utf8")) as {
-      listener: { certificateKeyFile: string };
+      listener: { certificateFile: string; certificateKeyFile: string };
     };
+    const selfSignedPem = readFileSync(selfSignedConfig.listener.certificateFile, "utf8");
+    assert.equal(
+      oidcCenterSelections(userRoot).read()?.authority.browserUrl,
+      `https://center.example.test:${recoveredPort}`,
+    );
+    assert.equal(
+      oidcCenterSelections(userRoot).read()?.authority.certificate,
+      selfSignedPem,
+      "recovered center selection carries the new listener certificate immediately",
+    );
+
+    // Corrupting the existing self-signed material (both files present with 0600 key) is also detected and repaired,
+    // even when RPC explicitly passes mode=managed (RBAC-07), and serializes with concurrent OIDC queue work (RBAC-09).
+    writeFileSync(selfSignedConfig.listener.certificateFile, "corrupted-pem\n");
+    writeFileSync(selfSignedConfig.listener.certificateKeyFile, "corrupted-key\n", { mode: 0o600 });
+    chmodSync(selfSignedConfig.listener.certificateKeyFile, 0o600);
+    const corruptedRead = (await rpc.handle({
+      jsonrpc: "2.0",
+      id: "read-corrupted-listener",
+      method: "daemon.rbac.manage",
+      params: { operation: "listener", mode: "managed", rootDir },
+    })) as { result?: { ok?: boolean; version?: string }; error?: unknown };
+    assert.equal(corruptedRead.error, undefined, JSON.stringify(corruptedRead));
+    assert.equal(corruptedRead.result?.ok, true);
+    const repairedPort = await freePort();
+    const repairPromise = host.manageRbac(
+      {
+        operation: "listener-set",
+        mode: "managed",
+        rootDir,
+        certificateMode: "self-signed",
+        listenAddress: "127.0.0.1",
+        hostname: "center.example.test",
+        port: repairedPort,
+        expectedVersion: String(corruptedRead.result?.version),
+      },
+      auth,
+    );
+    const queuedAfter = oidc.serialize(async () => {
+      // Because repairPromise enters OIDC's write queue synchronously before any await, queuedAfter cannot
+      // execute until repairPromise has generated the new certificate, updated config, and synced #centerIdentity.
+      const diskCert = readFileSync(selfSignedConfig.listener.certificateFile, "utf8");
+      assert.notEqual(diskCert, "corrupted-pem\n");
+      const authority = oidc.discovery("edge-node");
+      assert.equal(authority?.url, `https://center.example.test:${repairedPort}`);
+      const selection = oidcCenterSelections(userRoot).read(rootDir);
+      assert.equal(selection?.authority.browserUrl, `https://center.example.test:${repairedPort}`);
+      return { diskCert, authority, selection };
+    });
+    const [repairedReply, queuedState] = await Promise.all([repairPromise, queuedAfter]);
+    assert.equal(repairedReply.ok, true);
+    const repairedPem = readFileSync(selfSignedConfig.listener.certificateFile, "utf8");
+    assert.equal(queuedState.diskCert, repairedPem);
+    assert.equal(queuedState.authority?.certificate, repairedPem);
+    assert.equal(queuedState.selection?.authority.certificate, repairedPem);
+
+    // Delete the new self-signed key too and verify loopback recovery also succeeds and clears the listener binding.
     rmSync(selfSignedConfig.listener.certificateKeyFile, { force: true });
     const loopbackVersion = String((await host.manageRbac({ operation: "listener", rootDir }, auth)).version);
     const loopbackRecovered = await host.manageRbac(
-      { operation: "listener-set", expectedVersion: loopbackVersion },
+      { operation: "listener-set", rootDir, expectedVersion: loopbackVersion },
       auth,
     );
     assert.equal(loopbackRecovered.ok, true);
     assert.equal(loopbackRecovered.listener, null);
+    assert.equal(oidcCenterSelections(userRoot).read(rootDir)?.authority.certificate, undefined);
+    assert.equal(oidcCenterSelections(userRoot).read(rootDir)?.authority.url, "http://127.0.0.1:1");
     assert.equal((await host.manageRbac({ operation: "health" }, auth)).ready, true);
 
     // Once recovered and an administrator exists, non-broken listener-set enforces OIDC access-admin again.

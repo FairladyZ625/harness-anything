@@ -763,17 +763,41 @@ export class OidcSessionService {
   }
 
   /** D1: original-socket configuration is open until the first administrator exists. */
-  configureAuthority<T>(operation: () => Promise<T>, loginTarget?: string): Promise<T> {
+  configureAuthority<T>(
+    operation: () => Promise<T>,
+    loginTarget?: string,
+    options?: { readonly ownerRecovery?: boolean },
+  ): Promise<T> {
     return this.serialize(async () => {
-      const sessionStore = this.configured() ? (await this.#centerIdentity(loginTarget)).sessionStore : undefined;
-      if (
-        existsSync(path.join(this.#rbacRoot, "config.json")) &&
-        !(await this.#bootstrapRequired(await this.#centerToken()))
-      ) {
-        if (!sessionStore) throw coded("authentication_required", "Sign in with the selected center first.");
+      const configFile = path.join(this.#rbacRoot, "config.json"),
+        configBefore = existsSync(configFile) ? readFileSync(configFile, "utf8") : undefined;
+      if (options?.ownerRecovery === true) {
+        // Verified local socket-owner recovery runs inside the OIDC write queue without touching the broken Keycloak first.
+      } else if (options?.ownerRecovery === false) {
+        if (!this.configured()) throw coded("authentication_required", "Sign in with the selected center first.");
+        if (!this.#centers.read(loginTarget)) {
+          try {
+            await this.#centerIdentity(loginTarget);
+          } catch (error) {
+            consumeKnownError(error);
+            throw coded("authentication_required", "Sign in with the selected center first.");
+          }
+        }
         await this.requireAccessManagement(loginTarget, true);
+      } else {
+        const sessionStore = this.configured() ? (await this.#centerIdentity(loginTarget)).sessionStore : undefined;
+        if (existsSync(configFile) && !(await this.#bootstrapRequired(await this.#centerToken()))) {
+          if (!sessionStore) throw coded("authentication_required", "Sign in with the selected center first.");
+          await this.requireAccessManagement(loginTarget, true);
+        }
       }
-      return operation();
+      const result = await operation(),
+        configAfter = existsSync(configFile) ? readFileSync(configFile, "utf8") : undefined;
+      if (configAfter !== configBefore) {
+        this.#centerTokenCache = undefined;
+        if (this.configured()) await this.#centerIdentity(loginTarget, true);
+      }
+      return result;
     });
   }
 

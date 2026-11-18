@@ -1432,6 +1432,28 @@
         ]
       },
       {
+        "id": "tls-listener-managed-path",
+        "symbol": "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#isManagedListenerPath",
+        "explain": "ManagedListenerPath: Confirms a listener certificate or key path resides strictly within the managed listener directory without symlink traversal.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#isManagedListenerPath:4cfec21dabd47c58c254abf6ea6dcfc6",
+            "route": "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#isManagedListenerPath"
+          }
+        ]
+      },
+      {
+        "id": "tls-listener-certificate-validation",
+        "symbol": "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#validateCertificateChainAndKeyPair",
+        "explain": "ListenerCertificateChainAndKeyPair: Validates PEM certificate chain ordering, SubjectAltName coverage, and private key public-key match before activation.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#validateCertificateChainAndKeyPair:a3415ddca9a64d5fcd8d30afff85bcf9",
+            "route": "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#validateCertificateChainAndKeyPair"
+          }
+        ]
+      },
+      {
         "id": "cli/src/cli/gui-browser-broker.ts#BrowserGuiBroker.isBrowserGuiParentOrigin",
         "symbol": "packages/cli/src/cli/gui-browser-broker.ts#isBrowserGuiParentOrigin",
         "explain": "BrowserGuiBroker: Local broker origin and request authentication transport boundary.",

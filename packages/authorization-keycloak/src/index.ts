@@ -14,3 +14,4 @@ export { OidcSessionService } from "./oidc-session-service.ts";
 export { openDeviceConfirmationGateway, type DeviceConfirmationGateway } from "./oidc-device-confirmation-gateway.ts";
 
 export { ManagedRbacService, type ManagedRbacPorts } from "./managed-rbac-service.ts";
+export { managedListenerProblem } from "./managed-rbac-listener-certificate.ts";

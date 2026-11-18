@@ -62,7 +62,11 @@ export interface IdentitySessionPort {
    */
   serialize<T>(operation: () => Promise<T>): Promise<T>;
   /** D1: original-socket configuration is open until the first administrator exists. */
-  configureAuthority<T>(operation: () => Promise<T>, loginTarget?: string): Promise<T>;
+  configureAuthority<T>(
+    operation: () => Promise<T>,
+    loginTarget?: string,
+    options?: { readonly ownerRecovery?: boolean },
+  ): Promise<T>;
   center(rejectedAccessToken?: string): Promise<{
     readonly url: string;
     readonly realm: string;
