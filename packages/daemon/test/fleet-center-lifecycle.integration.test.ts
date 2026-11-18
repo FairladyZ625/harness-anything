@@ -1,12 +1,25 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, chmodSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  chmodSync,
+  writeFileSync,
+} from "node:fs";
+import { EventEmitter } from "node:events";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { connect } from "node:tls";
 import test, { type TestContext } from "node:test";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
+import { managedRbacVersions } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import { createIdentityManagement, createIdentitySession } from "../src/authorization-provider.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import type { DaemonHostOpenInput } from "../src/daemon-host-types.ts";
 import { openRepoCell } from "../src/repo-cell-open.ts";
@@ -16,20 +29,12 @@ import {
   readFleetCenterConfig,
 } from "../src/fleet-center-config.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
+import { fakeKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import type { DaemonLifecycleEntry } from "../src/lifecycle-log.ts";
 
-async function fixture(t: TestContext) {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-center-lifecycle-")),
-    userRoot = path.join(root, "user"),
-    repo = path.join(root, "repo"),
-    keyPath = path.join(root, "tls.key"),
-    certPath = path.join(root, "tls.crt"),
-    repoId = "center-lifecycle";
-  rosterRepo(repo, repoId);
-  registerBootstrappedDaemonRepo({ canonicalRoot: repo, repoId, userRoot, createConvenienceLinks: false });
-  signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
+function generateLocalhostCert(keyPath: string, certPath: string): void {
   execFileSync(
     "openssl",
     [
@@ -51,6 +56,19 @@ async function fixture(t: TestContext) {
     ],
     { stdio: "ignore" },
   );
+}
+
+async function fixture(t: TestContext) {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-center-lifecycle-")),
+    userRoot = path.join(root, "user"),
+    repo = path.join(root, "repo"),
+    keyPath = path.join(root, "tls.key"),
+    certPath = path.join(root, "tls.crt"),
+    repoId = "center-lifecycle";
+  rosterRepo(repo, repoId);
+  registerBootstrappedDaemonRepo({ canonicalRoot: repo, repoId, userRoot, createConvenienceLinks: false });
+  signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
+  generateLocalhostCert(keyPath, certPath);
   const hosts: Awaited<ReturnType<typeof openDaemonHost>>[] = [];
   t.after(async () => {
     for (const host of hosts) await host.close();
@@ -568,5 +586,284 @@ test(
     // A hello-less TLS peer must not hold the center close open. The test timeout is the hang guard;
     // the race against a resolving timer that used to encode the bound only decided by the wall clock.
     await host.close();
+  },
+);
+
+function createManagedRbacFixture(userRoot: string, fetchPort: typeof fetch) {
+  const rbacRoot = path.join(userRoot, "rbac"),
+    postgres = path.join(rbacRoot, "runtime", "postgres", "bin", "postgres"),
+    keycloak = path.join(rbacRoot, "runtime", "keycloak", "bin", "kc.sh"),
+    configFile = path.join(rbacRoot, "config.json"),
+    existing = existsSync(configFile) ? (JSON.parse(readFileSync(configFile, "utf8")) as Record<string, unknown>) : {};
+  mkdirSync(path.dirname(postgres), { recursive: true });
+  mkdirSync(path.dirname(keycloak), { recursive: true });
+  writeFileSync(postgres, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  writeFileSync(keycloak, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  writeFileSync(
+    configFile,
+    `${JSON.stringify(
+      {
+        ...existing,
+        schema: "harness-managed-rbac/v1",
+        mode: "managed",
+        url: typeof existing.url === "string" ? existing.url : "http://127.0.0.1:1",
+        realm: typeof existing.realm === "string" ? existing.realm : "harness",
+        clientId: typeof existing.clientId === "string" ? existing.clientId : "harness-center",
+        versions: managedRbacVersions,
+        postgresPort: 2,
+        managementPort: 3,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  writeFileSync(path.join(rbacRoot, "center-client-secret"), "fixture-secret");
+  return createIdentityManagement(userRoot, {
+    fetch: fetchPort,
+    platform: process.platform === "win32" ? "win32" : process.platform === "darwin" ? "darwin" : "linux",
+    arch: process.arch === "x64" ? "x64" : "arm64",
+    spawn: ((command: string) => {
+      const name = path.basename(command),
+        child = Object.assign(new EventEmitter(), {
+          stdout: new EventEmitter(),
+          kill: () => setImmediate(() => child.emit("exit", 0)),
+        });
+      setImmediate(() =>
+        name.startsWith("postgres")
+          ? child.stdout.emit("data", "database system is ready to accept connections")
+          : child.stdout.emit("data", "Keycloak 26 started in 1s"),
+      );
+      return child;
+    }) as unknown as typeof import("node:child_process").spawn,
+  });
+}
+
+async function managedRbacLifecycleFixture(t: TestContext) {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-center-rbac-lifecycle-")),
+    userRoot = path.join(root, "user"),
+    repo = path.join(root, "repo"),
+    keyPath = path.join(root, "tls.key"),
+    certPath = path.join(root, "tls.crt"),
+    repoId = "center-lifecycle",
+    keycloak = fakeKeycloak("http://127.0.0.1:1/realms/harness"),
+    writerToken = keycloak.account("writer"),
+    originalFetch = globalThis.fetch;
+  globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+    const url = input instanceof Request ? input.url : String(input);
+    return url.startsWith("http://127.0.0.1:1/") ? keycloak.fetch(input, init) : originalFetch(input, init);
+  }) as typeof fetch;
+  rosterRepo(repo, repoId);
+  registerBootstrappedDaemonRepo({ canonicalRoot: repo, repoId, userRoot, createConvenienceLinks: false });
+  generateLocalhostCert(keyPath, certPath);
+  keycloak.permit("writer", repoId, effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"));
+  createManagedRbacFixture(userRoot, keycloak.fetch);
+  signInAt(userRoot, "writer", ["access-admin"], writerToken);
+  const hosts: Awaited<ReturnType<typeof openDaemonHost>>[] = [];
+  t.after(async () => {
+    globalThis.fetch = originalFetch;
+    for (const host of hosts) await host.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+  const open = async (daemonId: string, records: DaemonLifecycleEntry[] = []) => {
+    const managedRbac = createManagedRbacFixture(userRoot, keycloak.fetch),
+      oidc = createIdentitySession(userRoot, { fetch: keycloak.fetch }),
+      host = await openDaemonHost({
+        daemonId,
+        userRoot,
+        oidc,
+        managedRbac,
+        runtimeDiscover: () => [],
+        recordLifecycle: (entry) => records.push(entry),
+      });
+    hosts.push(host);
+    return { host, managedRbac };
+  };
+  return {
+    root,
+    userRoot,
+    keyPath,
+    certPath,
+    open,
+    request: { port: 0, keyPath, certPath, repoId, quotaBytes: 1024 * 1024 },
+  };
+}
+
+test(
+  "login listener rotation and loopback reset preserve persisted fleet center certificates across cold restart (RBAC-12)",
+  { timeout: 300_000 },
+  async (t) => {
+    const f = await managedRbacLifecycleFixture(t),
+      altKeyPath = path.join(f.root, "alt.key"),
+      altCertPath = path.join(f.root, "alt.crt");
+    generateLocalhostCert(altKeyPath, altCertPath);
+    chmodSync(altKeyPath, 0o600);
+
+    const initial = await f.open("center-rotation-preserve"),
+      managedRbac = initial.managedRbac,
+      v0 = String((await managedRbac.run({ operation: "listener" })).version),
+      l1 = await managedRbac.run({
+        operation: "listener-set",
+        certificateMode: "domain",
+        listenAddress: "127.0.0.1",
+        hostname: "localhost",
+        port: await unusedPort(),
+        certificateFile: f.certPath,
+        certificateKeyFile: f.keyPath,
+        expectedVersion: v0,
+      });
+    assert.equal(l1.ok, true);
+
+    const started = await initial.host.fleet.startCenter(
+        { port: 0, repoId: f.request.repoId, quotaBytes: f.request.quotaBytes, bind: "127.0.0.1" },
+        auth,
+      ),
+      centerConfig = readFleetCenterConfig(f.userRoot, "center-rotation-preserve");
+    assert.ok(centerConfig);
+    assert.equal(path.basename(path.dirname(centerConfig.certPath)).startsWith("uploaded-"), true);
+    await handshake(Number(started.port), centerConfig.certPath);
+
+    // Rotate RBAC login listener to altCertPath/altKeyPath; fleet center's uploaded-<gen1> pair must survive.
+    const l2 = await managedRbac.run({
+      operation: "listener-set",
+      certificateMode: "domain",
+      listenAddress: "127.0.0.1",
+      hostname: "localhost",
+      port: await unusedPort(),
+      certificateFile: altCertPath,
+      certificateKeyFile: altKeyPath,
+      expectedVersion: String(l1.version),
+    });
+    assert.equal(l2.ok, true);
+    assert.equal(existsSync(centerConfig.certPath), true);
+    assert.equal(existsSync(centerConfig.keyPath), true);
+
+    const extUrl = `https://localhost:${started.port}`;
+    assert.equal(
+      (await initial.host.fleet.setCenterExternalAddress({ externalUrl: extUrl }, auth)).externalUrl,
+      extUrl,
+    );
+
+    // Switch RBAC login listener to self-signed and then loopback; center's uploaded-<gen1> pair still survives.
+    const l3 = await managedRbac.run({
+      operation: "listener-set",
+      certificateMode: "self-signed",
+      listenAddress: "127.0.0.1",
+      hostname: "localhost",
+      port: await unusedPort(),
+      expectedVersion: String(l2.version),
+    });
+    assert.equal(existsSync(centerConfig.certPath), true);
+    assert.equal(existsSync(centerConfig.keyPath), true);
+
+    await managedRbac.run({
+      operation: "listener-set",
+      expectedVersion: String(l3.version),
+    });
+    assert.equal(existsSync(centerConfig.certPath), true);
+    assert.equal(existsSync(centerConfig.keyPath), true);
+    await initial.host.close();
+
+    // Cold daemon restart runs ManagedRbacService.start() and restores fleet center without errors.
+    const recordsAfterRestart: DaemonLifecycleEntry[] = [],
+      restored = await f.open("center-rotation-preserve", recordsAfterRestart);
+    assert.equal(
+      recordsAfterRestart.some((r) => r.event === "fleet_center_restore_failed"),
+      false,
+    );
+    const state = await restored.host.fleet.readCenterState(auth);
+    assert.equal(state.running, true);
+    await handshake(Number(state.port), centerConfig.certPath);
+    await restored.host.close();
+  },
+);
+
+test(
+  "legacy flat self-signed listener files referenced by fleet center survive rotation and cold restart (RBAC-12)",
+  { timeout: 300_000 },
+  async (t) => {
+    const f = await managedRbacLifecycleFixture(t),
+      listenerDir = path.join(f.userRoot, "rbac", "listener"),
+      legacyCert = path.join(listenerDir, "self-signed.pem"),
+      legacyKey = path.join(listenerDir, "self-signed.key"),
+      altKeyPath = path.join(f.root, "alt2.key"),
+      altCertPath = path.join(f.root, "alt2.crt");
+    mkdirSync(listenerDir, { recursive: true, mode: 0o700 });
+    copyFileSync(f.certPath, legacyCert);
+    copyFileSync(f.keyPath, legacyKey);
+    chmodSync(legacyKey, 0o600);
+    generateLocalhostCert(altKeyPath, altCertPath);
+    chmodSync(altKeyPath, 0o600);
+    const legacyConfigFile = path.join(f.userRoot, "rbac", "config.json"),
+      existingLegacy = JSON.parse(readFileSync(legacyConfigFile, "utf8")) as Record<string, unknown>;
+    writeFileSync(
+      legacyConfigFile,
+      `${JSON.stringify(
+        {
+          ...existingLegacy,
+          certificateMode: "self-signed",
+          listener: {
+            address: "127.0.0.1",
+            hostname: "localhost",
+            port: await unusedPort(),
+            certificateFile: legacyCert,
+            certificateKeyFile: legacyKey,
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    const initial = await f.open("legacy-self-signed"),
+      managedRbac = initial.managedRbac,
+      started = await initial.host.fleet.startCenter(
+        { port: 0, repoId: f.request.repoId, quotaBytes: f.request.quotaBytes, bind: "127.0.0.1" },
+        auth,
+      );
+    assert.equal(readFleetCenterConfig(f.userRoot, "legacy-self-signed")?.certPath, legacyCert);
+    await handshake(Number(started.port), legacyCert);
+
+    const v0 = String((await managedRbac.run({ operation: "listener" })).version),
+      rotated = await managedRbac.run({
+        operation: "listener-set",
+        certificateMode: "domain",
+        listenAddress: "127.0.0.1",
+        hostname: "localhost",
+        port: await unusedPort(),
+        certificateFile: altCertPath,
+        certificateKeyFile: altKeyPath,
+        expectedVersion: v0,
+      });
+    assert.equal(existsSync(legacyCert), true);
+    assert.equal(existsSync(legacyKey), true);
+
+    const regenerated = await managedRbac.run({
+      operation: "listener-set",
+      certificateMode: "self-signed",
+      listenAddress: "127.0.0.1",
+      hostname: "localhost",
+      port: await unusedPort(),
+      expectedVersion: String(rotated.version),
+    });
+    assert.equal(existsSync(legacyCert), true);
+    assert.equal(existsSync(legacyKey), true);
+
+    await managedRbac.run({
+      operation: "listener-set",
+      expectedVersion: String(regenerated.version),
+    });
+    assert.equal(existsSync(legacyCert), true);
+    assert.equal(existsSync(legacyKey), true);
+    await initial.host.close();
+
+    const records: DaemonLifecycleEntry[] = [],
+      restored = await f.open("legacy-self-signed", records);
+    assert.equal(
+      records.some((r) => r.event === "fleet_center_restore_failed"),
+      false,
+    );
+    const restoredState = await restored.host.fleet.readCenterState(auth);
+    assert.equal(restoredState.running, true);
+    await handshake(Number(restoredState.port), legacyCert);
+    await restored.host.close();
   },
 );

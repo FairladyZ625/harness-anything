@@ -25,6 +25,7 @@ import {
 import type { IdentityAuthenticationContext } from "@harness-anything/kernel";
 import type { KeycloakSessionHost } from "./session-host.ts";
 import { keycloakConsoleUrl, managedRbacListenerUrl, managedRbacSessionStore } from "./managed-rbac-service.ts";
+import { readRegularListenerCertificateIfPresent } from "./managed-rbac-listener-certificate.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import { verifyFleetHuman, verifyFleetReplica } from "./oidc-fleet-principal.ts";
 import type { FleetDeviceLoginNotice } from "@harness-anything/kernel";
@@ -108,6 +109,7 @@ export class OidcSessionService {
   #sessionGeneration = 0;
   #device: PendingDeviceLogin | undefined;
   readonly #deviceRequests = new Map<string, DeviceLoginRequest>();
+  readonly #pendingAuthoritySyncTargets = new Set<string>();
   #writes: Promise<unknown> = Promise.resolve();
 
   constructor(userRoot: string, host: KeycloakSessionHost, ports: Partial<OidcSessionPorts> = {}) {
@@ -705,11 +707,14 @@ export class OidcSessionService {
     const config = this.#config(),
       url = config.listener ? managedRbacListenerUrl(config.listener) : config.url;
     if (new URL(url).protocol !== "https:") return null;
+    const listenerCertificate = config.listener
+      ? readRegularListenerCertificateIfPresent(config.listener.certificateFile)
+      : undefined;
     return {
       url,
       realm: config.realm,
       clientId: `harness-node-${nodeId}`,
-      ...(config.listener ? { certificate: readFileSync(config.listener.certificateFile, "utf8") } : {}),
+      ...(listenerCertificate !== undefined ? { certificate: listenerCertificate } : {}),
     };
   }
 
@@ -766,21 +771,15 @@ export class OidcSessionService {
   configureAuthority<T>(
     operation: () => Promise<T>,
     loginTarget?: string,
-    options?: { readonly ownerRecovery?: boolean },
+    options?: { readonly authorizeOwnerRecovery?: () => Promise<boolean> },
   ): Promise<T> {
     return this.serialize(async () => {
       const configFile = path.join(this.#rbacRoot, "config.json"),
         configBefore = existsSync(configFile) ? readFileSync(configFile, "utf8") : undefined;
-      if (options?.ownerRecovery === true)
+      if (options?.authorizeOwnerRecovery && (await options.authorizeOwnerRecovery()))
         return this.#finishAuthorityUpdate(operation, loginTarget, configFile, configBefore);
-      if (options?.ownerRecovery === false) {
-        if (!this.configured() || !this.#centers.read(loginTarget))
-          throw coded("authentication_required", "Sign in with the selected center first.");
-        await this.requireAccessManagement(loginTarget, true);
-        return this.#finishAuthorityUpdate(operation, loginTarget, configFile, configBefore);
-      }
-      const sessionStore = this.configured() ? (await this.#centerIdentity(loginTarget)).sessionStore : undefined;
       if (existsSync(configFile) && !(await this.#bootstrapRequired(await this.#centerToken()))) {
+        const sessionStore = this.configured() ? (await this.#centerIdentity(loginTarget)).sessionStore : undefined;
         if (!sessionStore) throw coded("authentication_required", "Sign in with the selected center first.");
         await this.requireAccessManagement(loginTarget, true);
       }
@@ -794,11 +793,34 @@ export class OidcSessionService {
     configFile: string,
     configBefore: string | undefined,
   ): Promise<T> {
+    const targetKey = loginTarget ?? "";
     const result = await operation(),
       configAfter = existsSync(configFile) ? readFileSync(configFile, "utf8") : undefined;
-    if (configAfter !== configBefore) {
+    if (configAfter !== configBefore || this.#pendingAuthoritySyncTargets.has(targetKey)) {
       this.#centerTokenCache = undefined;
-      if (this.configured()) await this.#centerIdentity(loginTarget, true);
+      if (this.configured()) {
+        try {
+          await this.#centerIdentity(loginTarget, true);
+        } catch (error) {
+          this.#pendingAuthoritySyncTargets.add(targetKey);
+          if (result !== null && typeof result === "object" && !Array.isArray(result)) {
+            const code =
+              typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+                ? error.code
+                : "oidc_authority_sync_pending";
+            return {
+              ...result,
+              authoritySync: {
+                ok: false,
+                pending: true,
+                code,
+                message: error instanceof Error ? error.message : String(error),
+              },
+            } as T;
+          }
+          throw error;
+        }
+      }
     }
     return result;
   }
@@ -1107,6 +1129,9 @@ export class OidcSessionService {
     const config = this.#config();
     if (!config.url || !config.realm)
       throw coded("oidc_center_required", "Select a repository connected to a center before signing in.");
+    const listenerCertificate = config.listener
+      ? readRegularListenerCertificateIfPresent(config.listener.certificateFile)
+      : undefined;
     return {
       url: config.url,
       realm: config.realm,
@@ -1114,9 +1139,7 @@ export class OidcSessionService {
       ...(config.certificate ? { certificate: config.certificate } : {}),
       ...(config.servername ? { servername: config.servername } : {}),
       ...(config.listener ? { browserUrl: managedRbacListenerUrl(config.listener) } : {}),
-      ...(config.listener && existsSync(config.listener.certificateFile)
-        ? { certificate: readFileSync(config.listener.certificateFile, "utf8") }
-        : {}),
+      ...(listenerCertificate !== undefined ? { certificate: listenerCertificate } : {}),
     };
   }
 
@@ -1129,11 +1152,14 @@ export class OidcSessionService {
     readonly issuer: string;
     readonly sessionStore: OidcSessionStorePort;
   }> {
-    const selected = resetSession ? undefined : this.#centers.read(target);
+    const targetKey = target ?? "",
+      mustSync = resetSession || this.#pendingAuthoritySyncTargets.has(targetKey),
+      selected = mustSync ? undefined : this.#centers.read(target);
     if (selected) return { ...selected, sessionStore: this.#sessionStore(selected.issuer, selected.authority.realm) };
-    const authority = authorityOverride ?? (await this.#loginAuthority(target, resetSession)),
+    const authority = authorityOverride ?? (await this.#loginAuthority(target, mustSync)),
       issuer = await this.#issuer(authority);
     this.#centers.write(target, { authority, issuer });
+    this.#pendingAuthoritySyncTargets.delete(targetKey);
     return { authority, issuer, sessionStore: this.#sessionStore(issuer, authority.realm) };
   }
 

@@ -328,7 +328,7 @@ function managedFixture(
   startsUnder: (env: NodeJS.ProcessEnv) => boolean = () => true,
   fetchPort: typeof fetch = (() => Promise.resolve(new Response("{}", { status: 200 }))) as typeof fetch,
   platform: "darwin" | "win32" = "darwin",
-  onListenerWriteStage?: (stage: "certificate" | "key" | "config") => void,
+  onListenerWriteStage?: (stage: "certificate" | "key" | "config" | "cleanup") => void,
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-listener-")),
     configFile = path.join(root, "rbac", "config.json"),
@@ -754,10 +754,7 @@ test("self-signed listener input validates hostname and port before generating a
         { code: "rbac_listener_invalid" },
       );
     }
-    assert.equal(
-      existsSync(path.join(path.dirname(managed.certificateFile), "rbac", "listener", "self-signed.pem")),
-      false,
-    );
+    assert.equal(existsSync(path.join(managed.root, "rbac", "listener")), false);
   } finally {
     await managed.close();
   }
@@ -811,6 +808,9 @@ test("self-signed certificates are reused while current and replaced when the ho
         port: await availablePort(),
         expectedVersion: String(first.version),
       });
+    assert.equal(path.basename(path.dirname(certificateFile)).startsWith("self-signed-"), true);
+    assert.equal(path.basename(certificateFile), "listener.pem");
+    assert.equal(managed.config().listener.certificateFile, certificateFile);
     assert.deepEqual(readFileSync(certificateFile), firstPem);
 
     const replaced = await managed.service.run({
@@ -821,7 +821,11 @@ test("self-signed certificates are reused while current and replaced when the ho
       port: await availablePort(),
       expectedVersion: String(reused.version),
     });
-    const replacedPem = readFileSync(certificateFile);
+    const replacedCertificateFile = managed.config().listener.certificateFile;
+    assert.notEqual(replacedCertificateFile, certificateFile);
+    assert.equal(path.basename(path.dirname(replacedCertificateFile)).startsWith("self-signed-"), true);
+    assert.equal(existsSync(certificateFile), false);
+    const replacedPem = readFileSync(replacedCertificateFile);
     assert.notDeepEqual(replacedPem, firstPem);
     assert.doesNotThrow(() => validateCertificateNames(replacedPem, ["127.0.0.1", "center-b.example.test"]));
     assert.equal(replaced.certificateMode, "self-signed");
@@ -832,8 +836,6 @@ test("self-signed certificates are reused while current and replaced when the ho
 
 test("switching from self-signed to an uploaded certificate removes generated material", async () => {
   const managed = managedFixture();
-  const selfSignedCertificate = path.join(path.dirname(managed.certificateFile), "rbac", "listener", "self-signed.pem");
-  const selfSignedKey = path.join(path.dirname(managed.certificateFile), "rbac", "listener", "self-signed.key");
   try {
     const selfSigned = await managed.service.run({
       operation: "listener-set",
@@ -843,8 +845,10 @@ test("switching from self-signed to an uploaded certificate removes generated ma
       port: await availablePort(),
       expectedVersion: await managed.version(),
     });
-    assert.equal(existsSync(selfSignedCertificate), true);
-    assert.equal(existsSync(selfSignedKey), true);
+    const generated = managed.config().listener as { certificateFile: string; certificateKeyFile: string };
+    assert.equal(path.basename(path.dirname(generated.certificateFile)).startsWith("self-signed-"), true);
+    assert.equal(existsSync(generated.certificateFile), true);
+    assert.equal(existsSync(generated.certificateKeyFile), true);
 
     await managed.service.run({
       operation: "listener-set",
@@ -856,8 +860,9 @@ test("switching from self-signed to an uploaded certificate removes generated ma
       certificateKeyFile: managed.certificateKeyFile,
       expectedVersion: String(selfSigned.version),
     });
-    assert.equal(existsSync(selfSignedCertificate), false);
-    assert.equal(existsSync(selfSignedKey), false);
+    assert.equal(existsSync(generated.certificateFile), false);
+    assert.equal(existsSync(generated.certificateKeyFile), false);
+    assert.equal(existsSync(path.dirname(generated.certificateFile)), false);
   } finally {
     await managed.close();
   }

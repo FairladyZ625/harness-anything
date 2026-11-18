@@ -8,30 +8,32 @@ import {
 } from "node:crypto";
 import {
   chmodSync,
-  closeSync,
-  constants,
   existsSync,
-  fstatSync,
   lstatSync,
   mkdirSync,
-  openSync,
   readdirSync,
   readFileSync,
   realpathSync,
   renameSync,
   rmSync,
+  type Stats,
   writeFileSync,
 } from "node:fs";
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 import path from "node:path";
+import { consumeKnownError } from "@harness-anything/kernel";
+import { readRegularFileIfPresent } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import type { ManagedRbacHost } from "./managed-host.ts";
 
 import type { CertificateMode, ManagedRbacListener, ManagedRbacRequest } from "@harness-anything/kernel";
 
 const pemCertificateBlock = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/gu;
+const tlsServerAuthEku = "1.3.6.1.5.5.7.3.1";
+const anyExtendedKeyUsage = "2.5.29.37.0";
 
 export type ListenerMaterialProblem = "missing_certificate" | "exposed_key" | "invalid_material";
+export type ListenerWriteStage = "certificate" | "key" | "config" | "cleanup";
 
 export class ListenerKeyExposedError extends Error {
   readonly code = "rbac_listener_key_exposed";
@@ -48,14 +50,17 @@ function selfSignedCertificatePaths(root: string): {
   };
 }
 
-function createUploadedCertificateVersionPaths(root: string): {
+function createListenerCertificateVersionPaths(
+  root: string,
+  prefix: "uploaded" | "self-signed",
+): {
   readonly directory: string;
   readonly certificateFile: string;
   readonly certificateKeyFile: string;
   readonly generation: string;
 } {
   const generation = randomBytes(12).toString("hex"),
-    directory = path.join(root, "listener", `uploaded-${generation}`);
+    directory = path.join(root, "listener", `${prefix}-${generation}`);
   return {
     generation,
     directory,
@@ -64,25 +69,74 @@ function createUploadedCertificateVersionPaths(root: string): {
   };
 }
 
-export function isManagedListenerPath(root: string, filePath: string): boolean {
+function lstatIfPresent(targetPath: string): Stats | undefined {
+  try {
+    return lstatSync(targetPath);
+  } catch (error) {
+    consumeKnownError(error);
+    return undefined;
+  }
+}
+
+function hasRealDirectory(directory: string): boolean {
+  const stats = lstatIfPresent(directory);
+  return Boolean(stats && !stats.isSymbolicLink() && stats.isDirectory());
+}
+
+function isContainedRealDirectory(baseDirectory: string, candidateDirectory: string): boolean {
+  if (!hasRealDirectory(baseDirectory)) return false;
+  const resolvedBase = path.resolve(baseDirectory),
+    resolvedCandidate = path.resolve(candidateDirectory),
+    relative = path.relative(resolvedBase, resolvedCandidate);
+  if (relative === "") return realpathSync(resolvedBase) === realpathSync(resolvedCandidate);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return false;
+  let current = resolvedBase;
+  for (const segment of relative.split(path.sep)) {
+    current = path.join(current, segment);
+    if (!hasRealDirectory(current)) return false;
+  }
+  const realBase = realpathSync(resolvedBase),
+    realCandidate = realpathSync(resolvedCandidate),
+    realRelative = path.relative(realBase, realCandidate);
+  return realRelative !== "" && !realRelative.startsWith("..") && !path.isAbsolute(realRelative);
+}
+
+function isRealManagedListenerRoot(root: string): boolean {
   const listenerDirectory = path.join(root, "listener");
-  if (!existsSync(listenerDirectory)) return false;
-  const rootStats = lstatSync(listenerDirectory);
-  if (rootStats.isSymbolicLink() || !rootStats.isDirectory()) return false;
-  const resolvedRoot = path.resolve(listenerDirectory),
+  return (
+    hasRealDirectory(root) &&
+    hasRealDirectory(listenerDirectory) &&
+    path.dirname(realpathSync(listenerDirectory)) === realpathSync(root)
+  );
+}
+
+function ensureManagedListenerDirectory(root: string): string {
+  const rootStats = lstatIfPresent(root);
+  if (rootStats && (rootStats.isSymbolicLink() || !rootStats.isDirectory()))
+    throw listenerError("Managed RBAC directory must not be a symbolic link.");
+  const listenerDirectory = path.join(root, "listener"),
+    listenerStats = lstatIfPresent(listenerDirectory);
+  if (listenerStats && (listenerStats.isSymbolicLink() || !listenerStats.isDirectory()))
+    throw listenerError("Managed listener directory must not be a symbolic link.");
+  /* @gate-identity state-store/runtime-instance.authorization-configuration */ mkdirSync(listenerDirectory, {
+    recursive: true,
+    mode: 0o700,
+  });
+  if (!isRealManagedListenerRoot(root)) throw listenerError("Managed listener directory must not be a symbolic link.");
+  chmodSync(listenerDirectory, 0o700);
+  return listenerDirectory;
+}
+
+export function isManagedListenerPath(root: string, filePath: string): boolean {
+  if (!isRealManagedListenerRoot(root)) return false;
+  const listenerDirectory = path.join(root, "listener"),
+    resolvedRoot = path.resolve(listenerDirectory),
     resolvedTarget = path.resolve(filePath),
     relative = path.relative(resolvedRoot, resolvedTarget);
   if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) return false;
-  let current = resolvedRoot;
-  const segments = relative.split(path.sep);
-  for (let index = 0; index < segments.length; index += 1) {
-    current = path.join(current, segments[index]!);
-    if (!existsSync(current)) return false;
-    const stats = lstatSync(current);
-    if (stats.isSymbolicLink()) return false;
-    if (index < segments.length - 1 && !stats.isDirectory()) return false;
-    if (index === segments.length - 1 && !stats.isFile()) return false;
-  }
+  if (!isContainedRealDirectory(resolvedRoot, path.dirname(resolvedTarget))) return false;
+  const targetStats = lstatIfPresent(resolvedTarget);
+  if (!targetStats || targetStats.isSymbolicLink() || !targetStats.isFile()) return false;
   const realRoot = realpathSync(resolvedRoot),
     realTarget = realpathSync(resolvedTarget),
     realRelative = path.relative(realRoot, realTarget);
@@ -102,13 +156,8 @@ function readRegularFileWithStats(
   filePath: string,
   options: { readonly requireOwnerOnlyMode?: boolean } = {},
 ): { readonly bytes: Buffer; readonly mode: number } {
-  let fd: number;
-  try {
-    fd = /* @gate-identity state-store/runtime-instance.authorization-configuration */ openSync(
-      filePath,
-      constants.O_RDONLY,
-    );
-  } catch {
+  const file = readRegularFileIfPresent(filePath);
+  if (!file) {
     if (options.requireOwnerOnlyMode)
       throw new ListenerKeyExposedError(
         "The listener's private key must be present and readable only by its owner (chmod 600).",
@@ -117,23 +166,13 @@ function readRegularFileWithStats(
       "A listener takes --hostname (as the certificate names it), --port, and absolute --certificate-file and --certificate-key-file paths. Pass none of them to serve loopback only.",
     );
   }
-  try {
-    const stats = fstatSync(fd);
-    if (!stats.isFile()) {
-      if (options.requireOwnerOnlyMode)
-        throw new ListenerKeyExposedError(
-          "The listener's private key must be present and readable only by its owner (chmod 600).",
-        );
-      throw listenerError(
-        "A listener takes --hostname (as the certificate names it), --port, and absolute --certificate-file and --certificate-key-file paths. Pass none of them to serve loopback only.",
-      );
-    }
-    if (options.requireOwnerOnlyMode && (stats.mode & 0o077) !== 0)
-      throw new ListenerKeyExposedError("The listener's private key must be readable only by its owner (chmod 600).");
-    return { bytes: readFileSync(fd), mode: stats.mode & 0o777 };
-  } finally {
-    /* @gate-identity state-store/runtime-instance.authorization-configuration */ closeSync(fd);
-  }
+  if (options.requireOwnerOnlyMode && (file.mode & 0o077) !== 0)
+    throw new ListenerKeyExposedError("The listener's private key must be readable only by its owner (chmod 600).");
+  return file;
+}
+
+export function readRegularListenerCertificateIfPresent(filePath: string): string | undefined {
+  return readRegularFileIfPresent(filePath)?.bytes.toString("utf8");
 }
 
 export function validateCertificateChainAndKeyPair(
@@ -141,6 +180,7 @@ export function validateCertificateChainAndKeyPair(
   keyBytes: Buffer,
   names?: readonly string[],
   validateCertificateNames?: ManagedRbacHost["validateCertificateNames"],
+  now = Date.now(),
 ): void {
   const certificateText = certificateBytes.toString("utf8"),
     blocks = [...certificateText.matchAll(pemCertificateBlock)].map(([block]) => block),
@@ -150,12 +190,31 @@ export function validateCertificateChainAndKeyPair(
   let certificates: X509Certificate[];
   try {
     certificates = blocks.map((block) => new X509Certificate(block));
-  } catch {
+  } catch (error) {
+    consumeKnownError(error);
     throw listenerError("The listener certificate contains malformed X.509 PEM data.");
   }
+  for (const certificate of certificates) {
+    const validFrom = certificate.validFromDate.getTime(),
+      validTo = certificate.validToDate.getTime();
+    if (!Number.isFinite(validFrom) || !Number.isFinite(validTo) || validFrom > now || validTo <= now)
+      throw listenerError("The listener certificate chain contains an expired or not-yet-valid certificate.");
+  }
+  const leaf = certificates[0]!;
+  if (
+    leaf.keyUsage &&
+    leaf.keyUsage.length > 0 &&
+    !leaf.keyUsage.includes(tlsServerAuthEku) &&
+    !leaf.keyUsage.includes(anyExtendedKeyUsage)
+  )
+    throw listenerError("The listener certificate extended key usage does not permit TLS server authentication.");
+  if (certificates.length === 1 && leaf.checkIssued(leaf) && !leaf.verify(leaf.publicKey))
+    throw listenerError("The self-signed listener certificate signature is invalid.");
   for (let index = 1; index < certificates.length; index += 1) {
     const child = certificates[index - 1]!,
       issuer = certificates[index]!;
+    if (!issuer.ca)
+      throw listenerError("The listener certificate chain contains an issuer without CA basic constraints.");
     if (!child.checkIssued(issuer) || !child.verify(issuer.publicKey))
       throw listenerError("The listener certificate chain is invalid or out of order.");
   }
@@ -163,10 +222,11 @@ export function validateCertificateChainAndKeyPair(
   let privateKey: KeyObject;
   try {
     privateKey = createPrivateKey(keyBytes);
-  } catch {
+  } catch (error) {
+    consumeKnownError(error);
     throw listenerError("The listener private key must be a valid unencrypted PEM private key.");
   }
-  const certPublicKey = certificates[0]!.publicKey.export({ type: "spki", format: "der" }),
+  const certPublicKey = leaf.publicKey.export({ type: "spki", format: "der" }),
     keyPublicKey = createPublicKey(privateKey).export({ type: "spki", format: "der" });
   if (!certPublicKey.equals(keyPublicKey))
     throw listenerError("The listener private key does not match the certificate.");
@@ -179,13 +239,15 @@ export function listenerMaterialProblem(
   let keyBytes: Buffer;
   try {
     keyBytes = readRegularFileWithStats(listener.certificateKeyFile, { requireOwnerOnlyMode: true }).bytes;
-  } catch {
+  } catch (error) {
+    consumeKnownError(error);
     return "exposed_key";
   }
   let certificateBytes: Buffer;
   try {
     certificateBytes = readRegularFileWithStats(listener.certificateFile).bytes;
-  } catch {
+  } catch (error) {
+    consumeKnownError(error);
     return "missing_certificate";
   }
   try {
@@ -195,7 +257,8 @@ export function listenerMaterialProblem(
       validateCertificateNames ? [listener.address, listener.hostname] : undefined,
       validateCertificateNames,
     );
-  } catch {
+  } catch (error) {
+    consumeKnownError(error);
     return "invalid_material";
   }
   return undefined;
@@ -233,10 +296,6 @@ export function managedListenerProblem(
   );
 }
 
-export function requirePrivateKeyFile(file: string): void {
-  readRegularFileWithStats(file, { requireOwnerOnlyMode: true });
-}
-
 function writeManagedFileAtomically(file: string, content: Buffer, mode: number): void {
   const temporary = `${file}.tmp`;
   /* @gate-identity state-store/runtime-instance.authorization-configuration */ writeFileSync(temporary, content, {
@@ -247,53 +306,22 @@ function writeManagedFileAtomically(file: string, content: Buffer, mode: number)
   chmodSync(file, mode);
 }
 
-export interface SelfSignedCertificateSnapshot {
-  readonly certificateBytes: Buffer;
-  readonly keyBytes: Buffer;
-}
-
-export function snapshotSelfSignedCertificate(root: string): SelfSignedCertificateSnapshot | undefined {
-  const { certificateFile, certificateKeyFile } = selfSignedCertificatePaths(root);
-  if (!existsSync(certificateFile) || !existsSync(certificateKeyFile)) return undefined;
-  const certStats = lstatSync(certificateFile),
-    keyStats = lstatSync(certificateKeyFile);
-  if (!certStats.isFile() || !keyStats.isFile() || (keyStats.mode & 0o077) !== 0) return undefined;
-  return {
-    certificateBytes: readFileSync(certificateFile),
-    keyBytes: readFileSync(certificateKeyFile),
-  };
-}
-
-export function restoreSelfSignedCertificate(root: string, snapshot: SelfSignedCertificateSnapshot): void {
-  const { certificateFile, certificateKeyFile } = selfSignedCertificatePaths(root),
-    directory = path.dirname(certificateFile);
-  /* @gate-identity state-store/runtime-instance.authorization-configuration */ mkdirSync(directory, {
-    recursive: true,
-    mode: 0o700,
-  });
-  chmodSync(directory, 0o700);
-  writeManagedFileAtomically(certificateFile, snapshot.certificateBytes, 0o644);
-  writeManagedFileAtomically(certificateKeyFile, snapshot.keyBytes, 0o600);
-}
-
 export function installUploadedCertificate(
   root: string,
   sourceCertificateFile: string,
   sourceKeyFile: string,
   names: readonly string[],
   validateCertificateNames: ManagedRbacHost["validateCertificateNames"],
-  onWriteStage?: (stage: "certificate" | "key") => void,
+  onWriteStage?: (stage: ListenerWriteStage) => void,
 ): { readonly certificateFile: string; readonly certificateKeyFile: string; readonly generation: string } {
   const certificateBytes = readRegularFileWithStats(sourceCertificateFile).bytes,
     keyBytes = readRegularFileWithStats(sourceKeyFile, { requireOwnerOnlyMode: true }).bytes;
   validateCertificateChainAndKeyPair(certificateBytes, keyBytes, names, validateCertificateNames);
-  const listenerDirectory = path.join(root, "listener"),
-    { directory, certificateFile, certificateKeyFile, generation } = createUploadedCertificateVersionPaths(root);
-  /* @gate-identity state-store/runtime-instance.authorization-configuration */ mkdirSync(listenerDirectory, {
-    recursive: true,
-    mode: 0o700,
-  });
-  chmodSync(listenerDirectory, 0o700);
+  ensureManagedListenerDirectory(root);
+  const { directory, certificateFile, certificateKeyFile, generation } = createListenerCertificateVersionPaths(
+    root,
+    "uploaded",
+  );
   /* @gate-identity state-store/runtime-instance.authorization-configuration */ mkdirSync(directory, {
     recursive: true,
     mode: 0o700,
@@ -314,85 +342,115 @@ export function installUploadedCertificate(
   return { certificateFile, certificateKeyFile, generation };
 }
 
-export function pruneUploadedCertificateVersions(
+function addProtectedManagedPaths(
+  realListenerDirectory: string,
+  filePaths: readonly string[],
+  protectedFiles: Set<string>,
+  protectedDirectories: Set<string>,
+): void {
+  for (const candidate of filePaths) {
+    const resolved = path.resolve(candidate);
+    protectedFiles.add(resolved);
+    const parent = path.dirname(resolved);
+    if (!isContainedRealDirectory(realListenerDirectory, parent)) continue;
+    const realParent = realpathSync(parent);
+    if (realParent !== realListenerDirectory) protectedDirectories.add(realParent);
+    const stats = lstatIfPresent(resolved);
+    if (stats && !stats.isSymbolicLink() && stats.isFile()) {
+      const real = realpathSync(resolved);
+      protectedFiles.add(real);
+      const realFileParent = path.dirname(real);
+      if (realFileParent !== realListenerDirectory) protectedDirectories.add(realFileParent);
+    }
+  }
+}
+
+function removeSelfSignedCertificate(root: string, protectedFiles: ReadonlySet<string> = new Set()): void {
+  const { certificateFile, certificateKeyFile } = selfSignedCertificatePaths(root),
+    listenerDirectory = path.join(root, "listener");
+  if (!isRealManagedListenerRoot(root)) return;
+  const realListenerDirectory = realpathSync(listenerDirectory);
+  for (const [index, target] of [certificateFile, certificateKeyFile].entries()) {
+    const resolved = path.resolve(target),
+      stats = lstatIfPresent(resolved);
+    if (!stats || protectedFiles.has(resolved)) continue;
+    if (!stats.isSymbolicLink() && stats.isFile()) {
+      const real = realpathSync(resolved);
+      if (path.dirname(real) !== realListenerDirectory || protectedFiles.has(real)) continue;
+    } else if (!stats.isSymbolicLink()) continue;
+    if (index === 0) /* @gate-identity non-state/environment-io.0437be7bf65098b0 */ rmSync(resolved, { force: true });
+    else /* @gate-identity non-state/environment-io.64dd2033f7d1c003 */ rmSync(resolved, { force: true });
+  }
+}
+
+export function pruneListenerCertificateVersions(
   root: string,
   activeListener?: Pick<ManagedRbacListener, "certificateFile" | "certificateKeyFile">,
   previousListener?: Pick<ManagedRbacListener, "certificateFile" | "certificateKeyFile">,
+  protectedExternalPaths: readonly string[] = [],
+  onWriteStage?: (stage: ListenerWriteStage) => void,
 ): void {
-  const listenerDirectory = path.join(root, "listener");
-  if (!existsSync(listenerDirectory)) return;
-  const resolvedListenerDirectory = path.resolve(listenerDirectory),
-    activeDirectory = activeListener ? path.dirname(path.resolve(activeListener.certificateFile)) : undefined,
-    activeFiles = new Set(
-      activeListener
-        ? [path.resolve(activeListener.certificateFile), path.resolve(activeListener.certificateKeyFile)]
-        : [],
-    );
+  if (!isRealManagedListenerRoot(root)) return;
+  const listenerDirectory = path.join(root, "listener"),
+    realListenerDirectory = realpathSync(listenerDirectory),
+    protectedFiles = new Set<string>(),
+    protectedDirectories = new Set<string>();
+  addProtectedManagedPaths(
+    realListenerDirectory,
+    [
+      ...(activeListener ? [activeListener.certificateFile, activeListener.certificateKeyFile] : []),
+      ...protectedExternalPaths,
+    ],
+    protectedFiles,
+    protectedDirectories,
+  );
+  onWriteStage?.("cleanup");
   for (const entry of readdirSync(listenerDirectory, { withFileTypes: true })) {
-    const entryPath = path.join(resolvedListenerDirectory, entry.name);
-    if (entry.name.startsWith("uploaded-") && entryPath !== activeDirectory) {
+    const entryPath = path.join(listenerDirectory, entry.name);
+    if (entry.name.startsWith("uploaded-") || entry.name.startsWith("self-signed-")) {
+      if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+      const realEntry = realpathSync(entryPath);
+      if (path.dirname(realEntry) !== realListenerDirectory || protectedDirectories.has(realEntry)) continue;
       /* @gate-identity state-store/runtime-instance.authorization-configuration */ rmSync(entryPath, {
         recursive: true,
         force: true,
       });
-    } else if ((entry.name === "listener.pem" || entry.name === "listener.key") && !activeFiles.has(entryPath)) {
+    } else if (entry.name === "listener.pem" || entry.name === "listener.key") {
+      if (!entry.isFile() || entry.isSymbolicLink()) continue;
+      const realEntry = realpathSync(entryPath);
+      if (path.dirname(realEntry) !== realListenerDirectory || protectedFiles.has(realEntry)) continue;
       /* @gate-identity state-store/runtime-instance.authorization-configuration */ rmSync(entryPath, {
         force: true,
       });
     }
   }
+  removeSelfSignedCertificate(root, protectedFiles);
   if (!previousListener) return;
-  const selfSigned = selfSignedCertificatePaths(root),
-    protectedFiles = new Set([
-      ...activeFiles,
-      path.resolve(selfSigned.certificateFile),
-      path.resolve(selfSigned.certificateKeyFile),
-    ]);
   for (const candidate of [previousListener.certificateFile, previousListener.certificateKeyFile]) {
     const resolvedCandidate = path.resolve(candidate),
-      relative = path.relative(resolvedListenerDirectory, resolvedCandidate);
+      parentDirectory = path.dirname(resolvedCandidate);
+    if (!isContainedRealDirectory(listenerDirectory, parentDirectory)) continue;
+    const stats = lstatIfPresent(resolvedCandidate);
+    if (!stats || protectedFiles.has(resolvedCandidate)) continue;
+    if (stats.isSymbolicLink()) {
+      /* @gate-identity state-store/runtime-instance.authorization-configuration */ rmSync(resolvedCandidate, {
+        force: true,
+      });
+      continue;
+    }
+    if (!stats.isFile()) continue;
+    const realCandidate = realpathSync(resolvedCandidate),
+      realRelative = path.relative(realListenerDirectory, realCandidate);
     if (
-      relative !== "" &&
-      !relative.startsWith("..") &&
-      !path.isAbsolute(relative) &&
-      !protectedFiles.has(resolvedCandidate) &&
-      existsSyncOrSymlink(resolvedCandidate)
+      realRelative !== "" &&
+      !realRelative.startsWith("..") &&
+      !path.isAbsolute(realRelative) &&
+      !protectedFiles.has(realCandidate)
     ) {
       /* @gate-identity state-store/runtime-instance.authorization-configuration */ rmSync(resolvedCandidate, {
         force: true,
       });
     }
-  }
-}
-
-export function removeUploadedCertificate(root: string): void {
-  pruneUploadedCertificateVersions(root);
-}
-
-function existsSyncOrSymlink(filePath: string): boolean {
-  try {
-    lstatSync(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function existingCertificateIsCurrent(
-  certificateFile: string,
-  names: readonly string[],
-  validateCertificateNames: ManagedRbacHost["validateCertificateNames"],
-): boolean {
-  try {
-    const certificatePem = readRegularFileWithStats(certificateFile).bytes,
-      certificate = new X509Certificate(certificatePem),
-      now = Date.now();
-    if (Date.parse(certificate.validFrom) > now || Date.parse(certificate.validTo) <= now) return false;
-    validateCertificateNames(certificatePem, names);
-    return true;
-  } catch (error) {
-    if (error instanceof Error && (error as { readonly code?: unknown }).code === "cert_san_mismatch") return false;
-    return false;
   }
 }
 
@@ -407,28 +465,46 @@ export async function ensureSelfSignedCertificate(
   hostname: string,
   address: string,
   host: ManagedRbacHost,
-): Promise<{ readonly certificateFile: string; readonly certificateKeyFile: string }> {
-  const { certificateFile, certificateKeyFile } = selfSignedCertificatePaths(root),
-    names = [address, hostname];
+  existing?: {
+    readonly listener?: Pick<ManagedRbacListener, "certificateFile" | "certificateKeyFile">;
+    readonly generation?: string;
+    readonly certificateMode?: CertificateMode;
+  },
+  onWriteStage?: (stage: ListenerWriteStage) => void,
+): Promise<{
+  readonly certificateFile: string;
+  readonly certificateKeyFile: string;
+  readonly generation?: string;
+  readonly stagedDirectory?: string;
+}> {
   if (
-    listenerMaterialProblem(
-      { certificateFile, certificateKeyFile, address, hostname },
-      host.validateCertificateNames,
-    ) === undefined &&
-    existingCertificateIsCurrent(certificateFile, names, host.validateCertificateNames)
+    existing?.certificateMode === "self-signed" &&
+    existing.listener &&
+    isManagedListenerPair(root, existing.listener) &&
+    listenerMaterialProblem({ ...existing.listener, address, hostname }, host.validateCertificateNames) === undefined
   ) {
-    chmodSync(certificateKeyFile, 0o600);
-    return { certificateFile, certificateKeyFile };
+    chmodSync(existing.listener.certificateKeyFile, 0o600);
+    return {
+      certificateFile: existing.listener.certificateFile,
+      certificateKeyFile: existing.listener.certificateKeyFile,
+      ...(existing.generation ? { generation: existing.generation } : {}),
+    };
   }
-  const temporaryCert = `${certificateFile}.tmp`,
-    temporaryKey = `${certificateKeyFile}.tmp`;
-  /* @gate-identity non-state/environment-io.773f1f24462e0efd */ rmSync(temporaryCert, { force: true });
-  /* @gate-identity non-state/environment-io.44f16540c48fcc72 */ rmSync(temporaryKey, { force: true });
+  ensureManagedListenerDirectory(root);
+  const { directory, certificateFile, certificateKeyFile, generation } = createListenerCertificateVersionPaths(
+      root,
+      "self-signed",
+    ),
+    temporaryCert = `${certificateFile}.tmp`,
+    temporaryKey = `${certificateKeyFile}.tmp`,
+    names = [address, hostname];
   /* @gate-identity non-state/environment-io.580e80f3650a0879 */ mkdirSync(path.dirname(certificateFile), {
     recursive: true,
     mode: 0o700,
   });
-  chmodSync(path.dirname(certificateFile), 0o700);
+  chmodSync(directory, 0o700);
+  /* @gate-identity non-state/environment-io.773f1f24462e0efd */ rmSync(temporaryCert, { force: true });
+  /* @gate-identity non-state/environment-io.44f16540c48fcc72 */ rmSync(temporaryKey, { force: true });
   const san = isIP(hostname) !== 0 ? `IP:${hostname}` : `DNS:${hostname}`;
   const addressSan = address === hostname ? "" : isIP(address) !== 0 ? `,IP:${address}` : `,DNS:${address}`;
   try {
@@ -454,20 +530,26 @@ export async function ensureSelfSignedCertificate(
     const certBytes = readRegularFileWithStats(temporaryCert).bytes,
       keyBytes = readRegularFileWithStats(temporaryKey, { requireOwnerOnlyMode: true }).bytes;
     validateCertificateChainAndKeyPair(certBytes, keyBytes, names, host.validateCertificateNames);
+    onWriteStage?.("certificate");
     /* @gate-identity state-store/runtime-instance.authorization-configuration */ renameSync(
       temporaryCert,
       certificateFile,
     );
+    onWriteStage?.("key");
     /* @gate-identity state-store/runtime-instance.authorization-configuration */ renameSync(
       temporaryKey,
       certificateKeyFile,
     );
     chmodSync(certificateFile, 0o644);
     chmodSync(certificateKeyFile, 0o600);
-    return { certificateFile, certificateKeyFile };
+    return { certificateFile, certificateKeyFile, generation, stagedDirectory: directory };
   } catch (error) {
     /* @gate-identity non-state/environment-io.778729626dd1b40c */ rmSync(temporaryCert, { force: true });
     /* @gate-identity non-state/environment-io.8f59e38af283edd1 */ rmSync(temporaryKey, { force: true });
+    /* @gate-identity state-store/runtime-instance.authorization-configuration */ rmSync(directory, {
+      recursive: true,
+      force: true,
+    });
     throw Object.assign(
       new Error(
         `Could not create the self-signed login certificate: ${error instanceof Error ? error.message : String(error)}`,
@@ -477,12 +559,6 @@ export async function ensureSelfSignedCertificate(
       },
     );
   }
-}
-
-export function removeSelfSignedCertificate(root: string): void {
-  const { certificateFile, certificateKeyFile } = selfSignedCertificatePaths(root);
-  /* @gate-identity non-state/environment-io.0437be7bf65098b0 */ rmSync(certificateFile, { force: true });
-  /* @gate-identity non-state/environment-io.64dd2033f7d1c003 */ rmSync(certificateKeyFile, { force: true });
 }
 
 export function publicListener(listener: ManagedRbacListener): Omit<ManagedRbacListener, "certificateKeyFile"> {

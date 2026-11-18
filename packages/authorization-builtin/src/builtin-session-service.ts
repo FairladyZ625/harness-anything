@@ -317,14 +317,14 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
   configureAuthority<T>(
     operation: () => Promise<T>,
     loginTarget?: string,
-    options?: { readonly ownerRecovery?: boolean },
+    options?: { readonly authorizeOwnerRecovery?: () => Promise<boolean> },
   ): Promise<T> {
     const external = this.#externalSession();
     if (external) return external.configureAuthority(operation, loginTarget, options);
     this.#assertLocalLoginTarget(loginTarget);
     return this.serialize(async () => {
-      if (this.#adapter.owner() || options?.ownerRecovery === false)
-        await this.requireAccessManagement(loginTarget, true);
+      if (options?.authorizeOwnerRecovery && (await options.authorizeOwnerRecovery())) return operation();
+      if (this.#adapter.owner()) await this.requireAccessManagement(loginTarget, true);
       else ensureBuiltinConfig(this.#root);
       return operation();
     });

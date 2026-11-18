@@ -229,10 +229,12 @@ test("local socket owner recovers a managed listener whose private key was delet
     if (url.pathname === "/realms/harness") return Response.json({ realm: "harness" }, { status: 200 });
     return keycloak.fetch(input, init);
   }) as typeof fetch;
+  const runtimePlatform = process.platform === "win32" ? "win32" : process.platform === "darwin" ? "darwin" : "linux",
+    runtimeArch = process.arch === "x64" ? "x64" : "arm64";
   const managedRbac = createIdentityManagement(userRoot, {
     fetch: fetchPort,
-    platform: "darwin",
-    arch: "arm64",
+    platform: runtimePlatform,
+    arch: runtimeArch,
     spawn: ((command: string) => {
       const name = path.basename(command),
         child = Object.assign(new EventEmitter(), {
@@ -407,23 +409,28 @@ test("local socket owner recovers a managed listener whose private key was delet
     const queuedAfter = oidc.serialize(async () => {
       // Because repairPromise enters OIDC's write queue synchronously before any await, queuedAfter cannot
       // execute until repairPromise has generated the new certificate, updated config, and synced #centerIdentity.
-      const diskCert = readFileSync(selfSignedConfig.listener.certificateFile, "utf8");
+      const repairedConfig = JSON.parse(readFileSync(configFile, "utf8")) as {
+        listener: { certificateFile: string; certificateKeyFile: string };
+      };
+      assert.notEqual(repairedConfig.listener.certificateFile, selfSignedConfig.listener.certificateFile);
+      assert.equal(existsSync(selfSignedConfig.listener.certificateFile), false);
+      const diskCert = readFileSync(repairedConfig.listener.certificateFile, "utf8");
       assert.notEqual(diskCert, "corrupted-pem\n");
       const authority = oidc.discovery("edge-node");
       assert.equal(authority?.url, `https://center.example.test:${repairedPort}`);
       const selection = oidcCenterSelections(userRoot).read(rootDir);
       assert.equal(selection?.authority.browserUrl, `https://center.example.test:${repairedPort}`);
-      return { diskCert, authority, selection };
+      return { diskCert, authority, selection, repairedConfig };
     });
     const [repairedReply, queuedState] = await Promise.all([repairPromise, queuedAfter]);
     assert.equal(repairedReply.ok, true);
-    const repairedPem = readFileSync(selfSignedConfig.listener.certificateFile, "utf8");
+    const repairedPem = readFileSync(queuedState.repairedConfig.listener.certificateFile, "utf8");
     assert.equal(queuedState.diskCert, repairedPem);
     assert.equal(queuedState.authority?.certificate, repairedPem);
     assert.equal(queuedState.selection?.authority.certificate, repairedPem);
 
     // Delete the new self-signed key too and verify loopback recovery also succeeds and clears the listener binding.
-    rmSync(selfSignedConfig.listener.certificateKeyFile, { force: true });
+    rmSync(queuedState.repairedConfig.listener.certificateKeyFile, { force: true });
     const loopbackVersion = String((await host.manageRbac({ operation: "listener", rootDir }, auth)).version);
     const loopbackRecovered = await host.manageRbac(
       { operation: "listener-set", rootDir, expectedVersion: loopbackVersion },
@@ -438,11 +445,488 @@ test("local socket owner recovers a managed listener whose private key was delet
     // Once recovered and an administrator exists, non-broken listener-set enforces OIDC access-admin again.
     keycloak.account("person-owner");
     keycloak.accessAdmin("person-owner");
-    assert.equal(existsSync(selfSignedConfig.listener.certificateKeyFile), false);
+    assert.equal(existsSync(queuedState.repairedConfig.listener.certificateKeyFile), false);
     await assert.rejects(
       host.manageRbac({ operation: "listener-set", expectedVersion: String(loopbackRecovered.version) }, auth),
       { code: "authentication_required" },
     );
+  } finally {
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("queued owner recovery re-checks listener health and OIDC access inside serialization (RBAC-14)", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-rbac-queue-toctou-")),
+    userRoot = path.join(parent, "user"),
+    rootDir = path.join(parent, "repo"),
+    sources = path.join(parent, "sources"),
+    rbacRoot = path.join(userRoot, "rbac"),
+    configFile = path.join(rbacRoot, "config.json"),
+    repoId = "queue-toctou";
+  rosterRepo(rootDir, repoId);
+  registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  mkdirSync(path.join(rbacRoot, "runtime", "postgres", "bin"), { recursive: true });
+  writeFileSync(path.join(rbacRoot, "runtime", "postgres", "bin", "postgres"), "");
+  mkdirSync(sources, { recursive: true });
+  const certA = path.join(sources, "a.crt"),
+    keyA = path.join(sources, "a.key");
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      keyA,
+      "-out",
+      certA,
+      "-subj",
+      "/CN=center.example.test",
+      "-days",
+      "1",
+      "-addext",
+      "subjectAltName=DNS:center.example.test,IP:127.0.0.1",
+    ],
+    { stdio: "ignore" },
+  );
+  chmodSync(keyA, 0o600);
+  writeFileSync(
+    configFile,
+    `${JSON.stringify(
+      {
+        schema: "harness-managed-rbac/v1",
+        mode: "managed",
+        url: "http://127.0.0.1:1",
+        realm: "harness",
+        clientId: "harness-center",
+        versions: managedRbacVersions,
+        postgresPort: 2,
+        managementPort: 3,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  writeFileSync(path.join(rbacRoot, "center-client-secret"), "fixture-secret");
+
+  const keycloak = fakeKeycloak("http://127.0.0.1:1/realms/harness");
+  keycloak.account("person-owner");
+  keycloak.accessAdmin("person-owner");
+  keycloak.account("person-member");
+  let session: string | undefined;
+
+  const fetchPort: typeof fetch = (async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/realms/harness") return Response.json({ realm: "harness" }, { status: 200 });
+    return keycloak.fetch(input, init);
+  }) as typeof fetch;
+
+  const runtimePlatform = process.platform === "win32" ? "win32" : process.platform === "darwin" ? "darwin" : "linux",
+    runtimeArch = process.arch === "x64" ? "x64" : "arm64";
+  const managedRbac = createIdentityManagement(userRoot, {
+    fetch: fetchPort,
+    platform: runtimePlatform,
+    arch: runtimeArch,
+    spawn: ((command: string) => {
+      const name = path.basename(command),
+        child = Object.assign(new EventEmitter(), {
+          stdout: new EventEmitter(),
+          kill: () => setImmediate(() => child.emit("exit", 0)),
+        });
+      setImmediate(() =>
+        name.startsWith("postgres")
+          ? child.stdout.emit("data", "database system is ready to accept connections")
+          : child.stdout.emit("data", "Keycloak 26 started in 1s"),
+      );
+      return child;
+    }) as unknown as typeof import("node:child_process").spawn,
+  });
+  const oidc = createIdentitySession(userRoot, {
+    fetch: fetchPort,
+    sessionStore: () => ({
+      read: () => session,
+      write: (value) => void (session = value),
+      delete: () => void (session = undefined),
+      retireBootstrap: () => undefined,
+    }),
+  });
+  await managedRbac.run({
+    operation: "listener-set",
+    certificateMode: "domain",
+    listenAddress: "127.0.0.1",
+    hostname: "center.example.test",
+    port: await freePort(),
+    certificateFile: certA,
+    certificateKeyFile: keyA,
+    expectedVersion: String((await managedRbac.run({ operation: "listener" })).version),
+  });
+  const managedConfig = JSON.parse(readFileSync(configFile, "utf8")) as {
+    listener: { certificateKeyFile: string };
+  };
+  const host = await openDaemonHost({
+    daemonId: "queue-toctou",
+    userRoot,
+    oidc,
+    managedRbac,
+    runtimeDiscover: () => [],
+  });
+  try {
+    await host.attachmentsSettled();
+    // Break key permissions so owner recovery appears eligible at enqueue time.
+    chmodSync(managedConfig.listener.certificateKeyFile, 0o644);
+    const brokenVersion = String((await host.manageRbac({ operation: "listener", rootDir }, auth)).version);
+
+    let releaseQueue!: () => void;
+    const blockingWork = oidc.serialize(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseQueue = resolve;
+        }),
+    );
+    const unauthenticatedQueued = host.manageRbac(
+      {
+        operation: "listener-set",
+        rootDir,
+        certificateMode: "self-signed",
+        listenAddress: "127.0.0.1",
+        hostname: "center.example.test",
+        port: await freePort(),
+        expectedVersion: brokenVersion,
+      },
+      auth,
+    );
+    // Repair key mode while the unauthenticated call waits behind blockingWork in OIDC's serializer.
+    chmodSync(managedConfig.listener.certificateKeyFile, 0o600);
+    releaseQueue();
+    await blockingWork;
+    await assert.rejects(unauthenticatedQueued, { code: "authentication_required" });
+
+    // Now test a queued signed-in non-admin whose listener becomes healthy before reaching the queue head.
+    chmodSync(managedConfig.listener.certificateKeyFile, 0o644);
+    session = JSON.stringify({
+      schema: "harness-oidc-session/v3",
+      issuer: "http://127.0.0.1:1/realms/harness",
+      accessToken: "token-person-member",
+      refreshToken: "token-person-member",
+      subject: "person-member",
+      personId: "person-member",
+      expiresAt: Date.now() + 3_600_000,
+      sessionExpiresAt: Date.now() + 3_600_000,
+      roles: ["access-admin"],
+    });
+    let releaseMemberQueue!: () => void;
+    const blockingMemberWork = oidc.serialize(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseMemberQueue = resolve;
+        }),
+    );
+    const memberQueued = host.manageRbac(
+      {
+        operation: "listener-set",
+        rootDir,
+        certificateMode: "self-signed",
+        listenAddress: "127.0.0.1",
+        hostname: "center.example.test",
+        port: await freePort(),
+        expectedVersion: brokenVersion,
+      },
+      auth,
+    );
+    chmodSync(managedConfig.listener.certificateKeyFile, 0o600);
+    releaseMemberQueue();
+    await blockingMemberWork;
+    await assert.rejects(memberQueued, { code: "authorization_denied" });
+  } finally {
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("post-commit authority sync failures defer cleanly without RPC error or memory/disk split-brain (RBAC-17)", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-rbac-pending-sync-")),
+    userRoot = path.join(parent, "user"),
+    rootDir = path.join(parent, "repo"),
+    rbacRoot = path.join(userRoot, "rbac"),
+    configFile = path.join(rbacRoot, "config.json"),
+    repoId = "pending-sync";
+  rosterRepo(rootDir, repoId);
+  registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  mkdirSync(path.join(rbacRoot, "runtime", "postgres", "bin"), { recursive: true });
+  writeFileSync(path.join(rbacRoot, "runtime", "postgres", "bin", "postgres"), "");
+  writeFileSync(
+    configFile,
+    `${JSON.stringify(
+      {
+        schema: "harness-managed-rbac/v1",
+        mode: "managed",
+        url: "http://127.0.0.1:1",
+        realm: "harness",
+        clientId: "harness-center",
+        versions: managedRbacVersions,
+        postgresPort: 2,
+        managementPort: 3,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  writeFileSync(path.join(rbacRoot, "center-client-secret"), "fixture-secret");
+
+  const keycloak = fakeKeycloak("http://127.0.0.1:1/realms/harness");
+  let failDiscovery = false;
+  const fetchPort: typeof fetch = (async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/realms/harness") return Response.json({ realm: "harness" }, { status: 200 });
+    if (failDiscovery && url.pathname.endsWith("/.well-known/openid-configuration"))
+      return new Response("unavailable", { status: 503 });
+    return keycloak.fetch(input, init);
+  }) as typeof fetch;
+
+  const runtimePlatform = process.platform === "win32" ? "win32" : process.platform === "darwin" ? "darwin" : "linux",
+    runtimeArch = process.arch === "x64" ? "x64" : "arm64";
+  const managedRbac = createIdentityManagement(userRoot, {
+    fetch: fetchPort,
+    platform: runtimePlatform,
+    arch: runtimeArch,
+    spawn: ((command: string) => {
+      const name = path.basename(command),
+        child = Object.assign(new EventEmitter(), {
+          stdout: new EventEmitter(),
+          kill: () => setImmediate(() => child.emit("exit", 0)),
+        });
+      setImmediate(() =>
+        name.startsWith("postgres")
+          ? child.stdout.emit("data", "database system is ready to accept connections")
+          : child.stdout.emit("data", "Keycloak 26 started in 1s"),
+      );
+      return child;
+    }) as unknown as typeof import("node:child_process").spawn,
+  });
+  const oidc = createIdentitySession(userRoot, { fetch: fetchPort });
+  const host = await openDaemonHost({
+    daemonId: "pending-sync",
+    userRoot,
+    oidc,
+    managedRbac,
+    runtimeDiscover: () => [],
+  });
+  const selectionsDir = path.join(rbacRoot, "oidc-centers");
+  try {
+    await host.attachmentsSettled();
+    // Seed initial loopback center selection before inducing post-commit discovery outage.
+    await oidc.status(rootDir);
+    const initialVersion = String((await host.manageRbac({ operation: "listener", rootDir }, auth)).version);
+    const port1 = await freePort();
+    failDiscovery = true;
+    const partial = (await host.manageRbac(
+      {
+        operation: "listener-set",
+        rootDir,
+        certificateMode: "self-signed",
+        listenAddress: "127.0.0.1",
+        hostname: "center-1.example.test",
+        port: port1,
+        expectedVersion: initialVersion,
+      },
+      auth,
+    )) as {
+      ok?: boolean;
+      version?: string;
+      authoritySync?: { ok?: boolean; pending?: boolean; code?: string };
+    };
+    assert.equal(partial.ok, true);
+    assert.equal(partial.authoritySync?.ok, false);
+    assert.equal(partial.authoritySync?.pending, true);
+    assert.equal(partial.authoritySync?.code, "oidc_discovery_unavailable");
+
+    // Listener config is already committed on disk; reusing the old expectedVersion must conflict.
+    const conflict = await host.manageRbac(
+      {
+        operation: "listener-set",
+        rootDir,
+        certificateMode: "self-signed",
+        listenAddress: "127.0.0.1",
+        hostname: "center-1.example.test",
+        port: port1,
+        expectedVersion: initialVersion,
+      },
+      auth,
+    );
+    assert.equal(conflict.ok, false);
+    assert.equal(conflict.code, "version_conflict");
+
+    // Once discovery recovers, follow-up OIDC sync persists the pending target cleanly.
+    failDiscovery = false;
+    await oidc.status(rootDir);
+    assert.equal(oidc.discovery("edge-node")?.url, `https://center-1.example.test:${port1}`);
+    assert.equal(
+      oidcCenterSelections(userRoot).read(rootDir)?.authority.browserUrl,
+      `https://center-1.example.test:${port1}`,
+    );
+
+    // Now test oidc-centers directory write failure: selection must NOT stick in memory if disk write fails.
+    if (process.platform !== "win32") {
+      chmodSync(selectionsDir, 0o500);
+      const port2 = await freePort();
+      const writeDeferred = (await host.manageRbac(
+        {
+          operation: "listener-set",
+          rootDir,
+          certificateMode: "self-signed",
+          listenAddress: "127.0.0.1",
+          hostname: "center-2.example.test",
+          port: port2,
+          expectedVersion: String(partial.version),
+        },
+        auth,
+      )) as {
+        ok?: boolean;
+        version?: string;
+        authoritySync?: { ok?: boolean; pending?: boolean };
+      };
+      assert.equal(writeDeferred.ok, true);
+      assert.equal(writeDeferred.authoritySync?.ok, false);
+      assert.equal(writeDeferred.authoritySync?.pending, true);
+      assert.equal(oidc.discovery("edge-node")?.url, `https://center-2.example.test:${port2}`);
+      assert.equal(oidcCenterSelections(userRoot).read(rootDir), undefined);
+      const selector = oidcCenterSelections(userRoot);
+      assert.throws(() =>
+        selector.write(rootDir, {
+          issuer: `https://center-2.example.test:${port2}/realms/harness`,
+          authority: { url: "http://127.0.0.1:1", realm: "harness", clientId: "harness-gui" },
+        }),
+      );
+      assert.equal(selector.read(rootDir), undefined);
+
+      chmodSync(selectionsDir, 0o700);
+      await oidc.status(rootDir);
+      assert.equal(oidc.discovery("edge-node")?.url, `https://center-2.example.test:${port2}`);
+      assert.equal(
+        oidcCenterSelections(userRoot).read(rootDir)?.authority.browserUrl,
+        `https://center-2.example.test:${port2}`,
+      );
+    }
+  } finally {
+    if (existsSync(selectionsDir) && process.platform !== "win32") chmodSync(selectionsDir, 0o700);
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("daemon host diagnoses and recovers a FIFO listener certificate without blocking (RBAC-18)", async () => {
+  if (process.platform === "win32") return;
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-rbac-fifo-host-")),
+    userRoot = path.join(parent, "user"),
+    rootDir = path.join(parent, "repo"),
+    rbacRoot = path.join(userRoot, "rbac"),
+    listenerDir = path.join(rbacRoot, "listener"),
+    fifoCert = path.join(listenerDir, "blocked.fifo"),
+    sources = path.join(parent, "sources"),
+    certFile = path.join(sources, "cert.crt"),
+    keyFile = path.join(sources, "cert.key"),
+    configFile = path.join(rbacRoot, "config.json"),
+    repoId = "fifo-recovery";
+  rosterRepo(rootDir, repoId);
+  registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  mkdirSync(path.join(rbacRoot, "runtime", "postgres", "bin"), { recursive: true });
+  writeFileSync(path.join(rbacRoot, "runtime", "postgres", "bin", "postgres"), "");
+  mkdirSync(listenerDir, { recursive: true, mode: 0o700 });
+  mkdirSync(sources, { recursive: true });
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      keyFile,
+      "-out",
+      certFile,
+      "-subj",
+      "/CN=center.example.test",
+      "-days",
+      "1",
+      "-addext",
+      "subjectAltName=DNS:center.example.test,IP:127.0.0.1",
+    ],
+    { stdio: "ignore" },
+  );
+  chmodSync(keyFile, 0o600);
+  execFileSync("mkfifo", [fifoCert]);
+  writeFileSync(
+    configFile,
+    `${JSON.stringify(
+      {
+        schema: "harness-managed-rbac/v1",
+        mode: "managed",
+        url: "http://127.0.0.1:1",
+        realm: "harness",
+        clientId: "harness-center",
+        versions: managedRbacVersions,
+        postgresPort: 2,
+        managementPort: 3,
+        listener: {
+          address: "127.0.0.1",
+          hostname: "center.example.test",
+          port: 8443,
+          certificateFile: fifoCert,
+          certificateKeyFile: keyFile,
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  writeFileSync(path.join(rbacRoot, "center-client-secret"), "fixture-secret");
+  const keycloak = fakeKeycloak("http://127.0.0.1:1/realms/harness"),
+    fetchPort: typeof fetch = (async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/realms/harness") return Response.json({ realm: "harness" }, { status: 200 });
+      return keycloak.fetch(input, init);
+    }) as typeof fetch,
+    managedRbac = createIdentityManagement(userRoot, {
+      fetch: fetchPort,
+      platform: process.platform === "win32" ? "win32" : process.platform === "darwin" ? "darwin" : "linux",
+      arch: process.arch === "x64" ? "x64" : "arm64",
+      spawn: ((command: string) => {
+        const name = path.basename(command),
+          child = Object.assign(new EventEmitter(), {
+            stdout: new EventEmitter(),
+            kill: () => setImmediate(() => child.emit("exit", 0)),
+          });
+        setImmediate(() =>
+          name.startsWith("postgres")
+            ? child.stdout.emit("data", "database system is ready to accept connections")
+            : child.stdout.emit("data", "Keycloak 26 started in 1s"),
+        );
+        return child;
+      }) as unknown as typeof import("node:child_process").spawn,
+    }),
+    oidc = createIdentitySession(userRoot, { fetch: fetchPort }),
+    host = await openDaemonHost({
+      daemonId: "fifo-recovery",
+      userRoot,
+      oidc,
+      managedRbac,
+      runtimeDiscover: () => [],
+    });
+  try {
+    await host.attachmentsSettled();
+    const diagnosed = await host.manageRbac({ operation: "listener", rootDir }, auth);
+    assert.equal(diagnosed.ok, true);
+    assert.equal(existsSync(fifoCert), true);
+    const recovered = await host.manageRbac(
+      { operation: "listener-set", rootDir, expectedVersion: String(diagnosed.version) },
+      auth,
+    );
+    assert.equal(recovered.ok, true);
+    assert.equal(recovered.listener, null);
   } finally {
     await host.close();
     rmSync(parent, { recursive: true, force: true });

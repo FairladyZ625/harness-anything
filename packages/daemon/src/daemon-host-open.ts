@@ -1347,20 +1347,29 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           );
         }
         if (request.operation === "listener-set") {
-          const brokenListener =
-              managedListenerProblem(input.userRoot) !== undefined &&
-              !(loginTarget && readFleetEdgeConfig(loginTarget)),
-            ownerRecovery = brokenListener && isDaemonSocketOwner(auth);
-          if (brokenListener && !ownerRecovery && auth.unixSocketOwnerBoundary !== undefined)
-            throw hostCodedError(
-              "authentication_required",
-              "Only the local daemon socket owner can repair a broken listener configuration.",
-            );
-          return oidc.configureAuthority(
-            () => managedRbac.run(request),
-            loginTarget,
-            brokenListener ? { ownerRecovery } : undefined,
-          );
+          return oidc.configureAuthority(() => managedRbac.run(request), loginTarget, {
+            authorizeOwnerRecovery: async () => {
+              const brokenListener =
+                managedListenerProblem(input.userRoot) !== undefined &&
+                !(loginTarget && readFleetEdgeConfig(loginTarget));
+              if (!brokenListener) return false;
+              if (!isDaemonSocketOwner(auth))
+                throw hostCodedError(
+                  "authentication_required",
+                  "Only the local daemon socket owner can repair a broken listener configuration.",
+                );
+              const binding = await localSystemActionBinding(input.userRoot, "rbac-bootstrap", auth, () =>
+                Promise.resolve(localDefaultBinding(auth)),
+              );
+              await requireAuthorizedHostAction({
+                kind: "rbac-bootstrap",
+                binding,
+                actionId: `rbac-bootstrap:${request.operation}`,
+                evaluatedAtCut: "daemon-rbac:current",
+              });
+              return true;
+            },
+          });
         }
         return requireAuthorizedHostAction({
           kind: "rbac-bootstrap",

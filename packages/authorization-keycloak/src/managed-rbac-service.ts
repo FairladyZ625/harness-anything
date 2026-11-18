@@ -42,13 +42,11 @@ import {
   ListenerKeyExposedError,
   listenerMaterialProblem,
   listenerVersion,
-  pruneUploadedCertificateVersions,
+  pruneListenerCertificateVersions,
   publicListener,
-  removeSelfSignedCertificate,
   requestedListener,
-  restoreSelfSignedCertificate,
-  snapshotSelfSignedCertificate,
   validateListenerInput,
+  type ListenerWriteStage,
 } from "./managed-rbac-listener-certificate.ts";
 import { stopManagedPostgresOrphan } from "./managed-postgres-orphan.ts";
 import { stopManagedKeycloakOrphan } from "./managed-keycloak-orphan.ts";
@@ -112,6 +110,10 @@ export type ManagedRbacLifecycleEvent =
       readonly service: ManagedChild;
       readonly ok: boolean;
       readonly error?: string;
+    }
+  | {
+      readonly event: "rbac_listener_cleanup_failed";
+      readonly error: string;
     };
 
 export interface ManagedRbacPorts {
@@ -124,7 +126,8 @@ export interface ManagedRbacPorts {
   readonly readArtifactActionScopes: () => Promise<readonly string[]>;
   readonly auditLegacyRoleMigration?: (receipt: KeycloakLegacyRoleMigrationReceipt) => void | Promise<void>;
   readonly recordLifecycle?: (event: ManagedRbacLifecycleEvent) => void;
-  readonly onListenerWriteStage?: (stage: "certificate" | "key" | "config") => void;
+  readonly onListenerWriteStage?: (stage: ListenerWriteStage) => void;
+  readonly protectedListenerPaths?: () => readonly string[];
 }
 
 export interface ManagedPostgresBinaries {
@@ -276,7 +279,21 @@ export class ManagedRbacService {
         );
         throw error;
       }
-      pruneUploadedCertificateVersions(this.#root, nextListener, previousListener);
+      try {
+        pruneListenerCertificateVersions(
+          this.#root,
+          nextListener,
+          previousListener,
+          this.#ports.protectedListenerPaths?.() ?? [],
+          this.#ports.onListenerWriteStage,
+        );
+      } catch (error) {
+        consumeKnownError(error);
+        this.#ports.recordLifecycle?.({
+          event: "rbac_listener_cleanup_failed",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     } else if (config.stopped) {
       this.#writeConfig({ ...config, stopped: false });
     }
@@ -475,34 +492,24 @@ export class ManagedRbacService {
     const plan = this.#resolveListenerPlan(request, config),
       previousListenerUsable =
         !config.listener || listenerMaterialProblem(config.listener, this.#host.validateCertificateNames) === undefined,
-      previousSelfSigned =
-        previousListenerUsable && config.certificateMode === "self-signed" && config.listener
-          ? snapshotSelfSignedCertificate(this.#root)
-          : undefined,
-      prepared = await this.#prepareListenerMaterial(request, plan),
+      prepared = await this.#prepareListenerMaterial(request, config, plan),
       { listener, listenerGeneration, stagedDirectory } = prepared,
       { listener: _replaced, listenerGeneration: _oldGeneration, certificateMode: _oldMode, ...loopback } = config;
+    const nextConfig: ManagedRbacConfig = listener
+      ? { ...loopback, listener, listenerGeneration, certificateMode: plan.certificateMode }
+      : { ...loopback, certificateMode: plan.certificateMode };
     let configCommitted = false;
-    const apply = async (next: ManagedRbacConfig, persist: boolean): Promise<void> => {
+    try {
       this.#stopping = true;
       await this.#stopChild("keycloak");
-      if (persist) {
-        this.#writeConfig(next);
-        configCommitted = true;
-      }
+      this.#writeConfig(nextConfig);
+      configCommitted = true;
       await this.start();
       await this.#waitUntilReady();
-    };
-    try {
-      await apply(
-        listener
-          ? { ...loopback, listener, listenerGeneration, certificateMode: plan.certificateMode }
-          : { ...loopback, certificateMode: plan.certificateMode },
-        true,
-      );
-      if (plan.kind !== "self-signed") removeSelfSignedCertificate(this.#root);
-      pruneUploadedCertificateVersions(this.#root, listener, config.listener);
     } catch (error) {
+      this.#stopping = true;
+      await this.#stopChild("keycloak").catch(consumeKnownError);
+      if (configCommitted) this.#writeConfig(config);
       if (stagedDirectory) {
         /* @gate-identity state-store/runtime-instance.authorization-configuration */ rmSync(stagedDirectory, {
           recursive: true,
@@ -510,12 +517,24 @@ export class ManagedRbacService {
         });
       }
       if (previousListenerUsable) {
-        if (previousSelfSigned) restoreSelfSignedCertificate(this.#root, previousSelfSigned);
-        await apply(config, configCommitted);
-      } else if (configCommitted) {
-        this.#writeConfig(config);
+        await this.start();
+        await this.#waitUntilReady();
       }
       throw this.#host.mapListenerBindError(error);
+    }
+    let cleanupWarning: string | undefined;
+    try {
+      pruneListenerCertificateVersions(
+        this.#root,
+        listener,
+        config.listener,
+        this.#ports.protectedListenerPaths?.() ?? [],
+        this.#ports.onListenerWriteStage,
+      );
+    } catch (error) {
+      consumeKnownError(error);
+      cleanupWarning = error instanceof Error ? error.message : String(error);
+      this.#ports.recordLifecycle?.({ event: "rbac_listener_cleanup_failed", error: cleanupWarning });
     }
     return {
       ok: true,
@@ -523,6 +542,7 @@ export class ManagedRbacService {
       listener: listener ? publicListener(listener) : null,
       certificateMode: plan.certificateMode,
       version: listenerVersion(listener, plan.certificateMode, listenerGeneration),
+      ...(cleanupWarning ? { cleanupWarning } : {}),
     };
   }
 
@@ -553,6 +573,7 @@ export class ManagedRbacService {
 
   async #prepareListenerMaterial(
     request: ManagedRbacRequest,
+    config: ManagedRbacConfig,
     plan: { readonly kind: "loopback" | "self-signed" | "uploaded"; readonly certificateMode: CertificateMode },
   ): Promise<{
     readonly listener: ManagedRbacListener | undefined;
@@ -566,18 +587,29 @@ export class ManagedRbacService {
         hostname = request.hostname ?? address,
         port = request.port ?? 8443,
         endpoint = validateListenerInput(address, hostname, port),
-        generated = await ensureSelfSignedCertificate(this.#root, endpoint.hostname, endpoint.address, this.#host);
+        generated = await ensureSelfSignedCertificate(
+          this.#root,
+          endpoint.hostname,
+          endpoint.address,
+          this.#host,
+          {
+            listener: config.listener,
+            generation: config.listenerGeneration,
+            certificateMode: config.certificateMode,
+          },
+          this.#ports.onListenerWriteStage,
+        );
       return {
         listener: {
           ...endpoint,
           certificateFile: generated.certificateFile,
           certificateKeyFile: generated.certificateKeyFile,
         },
-        listenerGeneration: randomBytes(12).toString("hex"),
-        stagedDirectory: undefined,
+        listenerGeneration: generated.generation ?? randomBytes(12).toString("hex"),
+        stagedDirectory: generated.stagedDirectory,
       };
     }
-    const requested = requestedListener({ ...request, certificateMode: plan.certificateMode });
+    const requested = requestedListener(request);
     if (!requested) return { listener: undefined, listenerGeneration: undefined, stagedDirectory: undefined };
     const installed = installUploadedCertificate(
       this.#root,

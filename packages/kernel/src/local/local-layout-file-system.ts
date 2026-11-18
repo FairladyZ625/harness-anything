@@ -3,6 +3,7 @@ import {
   closeSync,
   cpSync,
   existsSync,
+  fstatSync,
   fsyncSync,
   linkSync,
   lstatSync,
@@ -22,6 +23,7 @@ import {
   writeSync,
 } from "node:fs";
 import path from "node:path";
+import { consumeKnownError } from "../error-consumption.ts";
 import type { LayoutFileSystem } from "../layout/file-system.ts";
 
 export const localLayoutFileSystem: LayoutFileSystem = {
@@ -217,4 +219,26 @@ function syncDirectories(directories: readonly string[]): void {
 
 function isExclusiveCreateConflict(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST";
+}
+
+export function readRegularFileIfPresent(
+  filePath: string,
+): { readonly bytes: Buffer; readonly mode: number } | undefined {
+  let descriptor: number;
+  try {
+    descriptor =
+      /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
+      openSync(filePath, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+  } catch (error) {
+    consumeKnownError(error);
+    return undefined;
+  }
+  try {
+    const stats = fstatSync(descriptor);
+    if (!stats.isFile()) return undefined;
+    return { bytes: readFileSync(descriptor), mode: stats.mode & 0o777 };
+  } finally {
+    /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
+    closeSync(descriptor);
+  }
 }

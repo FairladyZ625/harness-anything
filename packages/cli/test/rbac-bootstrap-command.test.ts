@@ -418,6 +418,35 @@ test("ha bootstrap reads and sets the listener edge nodes sign in through", () =
     certificateFile: "/etc/harness/center.crt",
     certificateKeyFile: "/etc/harness/center.key",
   });
+  const implicitReachable = parseThinCommand(
+    [
+      "bootstrap",
+      "--operation",
+      "listener-set",
+      "--hostname",
+      "center.example.test",
+      "--port",
+      "8443",
+      "--certificate-file",
+      "/etc/harness/center.crt",
+      "--certificate-key-file",
+      "/etc/harness/center.key",
+      "--expected-version",
+      "version-1",
+    ],
+    "/repo",
+  );
+  assert.equal(implicitReachable.ok, true);
+  if (!implicitReachable.ok) return;
+  assert.deepEqual(implicitReachable.command.action, {
+    kind: "rbac-bootstrap",
+    operation: "listener-set",
+    expectedVersion: "version-1",
+    hostname: "center.example.test",
+    port: 8443,
+    certificateFile: "/etc/harness/center.crt",
+    certificateKeyFile: "/etc/harness/center.key",
+  });
   for (const certificateMode of ["self-signed", "domain", "internal-ca"] as const) {
     const withMode = parseThinCommand(
       [

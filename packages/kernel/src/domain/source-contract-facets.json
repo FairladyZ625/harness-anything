@@ -1437,8 +1437,19 @@
         "explain": "ManagedListenerPath: Confirms a listener certificate or key path resides strictly within the managed listener directory without symlink traversal.",
         "sources": [
           {
-            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#isManagedListenerPath:4cfec21dabd47c58c254abf6ea6dcfc6",
+            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#isManagedListenerPath:a52f4be5ba2d1977e1aa5480b8a1deb3",
             "route": "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#isManagedListenerPath"
+          }
+        ]
+      },
+      {
+        "id": "tls-listener-contained-real-directory",
+        "symbol": "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#isContainedRealDirectory",
+        "explain": "ContainedRealDirectory: Confirms a listener subdirectory chain resolves strictly inside its real base directory with no symbolic link segments.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#isContainedRealDirectory:b7b766e90cab86880cdc423cf584a1a5",
+            "route": "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#isContainedRealDirectory"
           }
         ]
       },
@@ -1448,7 +1459,7 @@
         "explain": "ListenerCertificateChainAndKeyPair: Validates PEM certificate chain ordering, SubjectAltName coverage, and private key public-key match before activation.",
         "sources": [
           {
-            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#validateCertificateChainAndKeyPair:a3415ddca9a64d5fcd8d30afff85bcf9",
+            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#validateCertificateChainAndKeyPair:f9499ab67d804f2ab41525c1f051261f",
             "route": "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#validateCertificateChainAndKeyPair"
           }
         ]

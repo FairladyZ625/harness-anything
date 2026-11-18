@@ -1807,7 +1807,7 @@ test("RBAC service callbacks cannot detach from their actual authority or become
   for (const [id, from, to] of [
     [
       "85833909ab835513f6a37d3d00ce0f77:2",
-      "return oidc.configureAuthority(\n            () => managedRbac.run(request),\n            loginTarget,\n            brokenListener ? { ownerRecovery } : undefined,\n          );",
+      'return oidc.configureAuthority(() => managedRbac.run(request), loginTarget, {\n            authorizeOwnerRecovery: async () => {\n              const brokenListener =\n                managedListenerProblem(input.userRoot) !== undefined &&\n                !(loginTarget && readFleetEdgeConfig(loginTarget));\n              if (!brokenListener) return false;\n              if (!isDaemonSocketOwner(auth))\n                throw hostCodedError(\n                  "authentication_required",\n                  "Only the local daemon socket owner can repair a broken listener configuration.",\n                );\n              const binding = await localSystemActionBinding(input.userRoot, "rbac-bootstrap", auth, () =>\n                Promise.resolve(localDefaultBinding(auth)),\n              );\n              await requireAuthorizedHostAction({\n                kind: "rbac-bootstrap",\n                binding,\n                actionId: `rbac-bootstrap:${request.operation}`,\n                evaluatedAtCut: "daemon-rbac:current",\n              });\n              return true;\n            },\n          });',
       "return Promise.resolve().then(() => managedRbac.run(request));",
     ],
     [

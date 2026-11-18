@@ -65,7 +65,7 @@ export interface IdentitySessionPort {
   configureAuthority<T>(
     operation: () => Promise<T>,
     loginTarget?: string,
-    options?: { readonly ownerRecovery?: boolean },
+    options?: { readonly authorizeOwnerRecovery?: () => Promise<boolean> },
   ): Promise<T>;
   center(rejectedAccessToken?: string): Promise<{
     readonly url: string;

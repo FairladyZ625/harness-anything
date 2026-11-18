@@ -1,5 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { consumeKnownError } from "@harness-anything/kernel";
 import { localDaemonTargetKey } from "./client/local-daemon-target.ts";
 import { writeFileDurably } from "../../storage/src/durable-file.ts";
 import type { FleetCenterAdmissionRequest } from "./fleet-center-admission.ts";
@@ -61,6 +62,26 @@ export function readFleetCenterConfig(userRoot: string, daemonId: string): Fleet
     quotaBytes: row.quotaBytes as number,
     ...(externalUrl ? { externalUrl } : {}),
   };
+}
+
+export function readFleetCenterCertificatePaths(userRoot: string): readonly string[] {
+  const fleetDirectory = path.join(userRoot, "fleet");
+  if (!existsSync(fleetDirectory)) return [];
+  const paths: string[] = [];
+  for (const entry of readdirSync(fleetDirectory, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+    const file = path.join(fleetDirectory, entry.name, "center.json");
+    if (!existsSync(file)) continue;
+    try {
+      const row = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+      if (!row || typeof row !== "object" || Array.isArray(row) || row.schema !== "fleet-center-config/v1") continue;
+      if (typeof row.certPath === "string" && path.isAbsolute(row.certPath)) paths.push(row.certPath);
+      if (typeof row.keyPath === "string" && path.isAbsolute(row.keyPath)) paths.push(row.keyPath);
+    } catch (error) {
+      consumeKnownError(error);
+    }
+  }
+  return paths;
 }
 
 export function saveFleetCenterConfig(userRoot: string, daemonId: string, config: FleetCenterConfig): void {

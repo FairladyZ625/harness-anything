@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { readRegularFileIfPresent } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import type { OidcLoginAuthority } from "@harness-anything/kernel";
 
@@ -45,13 +46,13 @@ export function oidcCenterSelections(userRoot: string) {
         "string"
         ? (config as { readonly listener: { readonly certificateFile: string } }).listener.certificateFile
         : undefined;
+    const listenerCertificatePem =
+      listenerCertFile && rawIdentity && typeof rawIdentity === "object"
+        ? readRegularFileIfPresent(listenerCertFile)?.bytes.toString("utf8")
+        : undefined;
     const identity =
-      listenerCertFile &&
-      existsSync(listenerCertFile) &&
-      statSync(listenerCertFile).isFile() &&
-      rawIdentity &&
-      typeof rawIdentity === "object"
-        ? { ...rawIdentity, listenerCertificatePem: readFileSync(listenerCertFile, "utf8") }
+      listenerCertificatePem !== undefined && rawIdentity && typeof rawIdentity === "object"
+        ? { ...rawIdentity, listenerCertificatePem }
         : rawIdentity;
     return createHash("sha256")
       .update(JSON.stringify([target ?? null, identity]))
@@ -72,7 +73,6 @@ export function oidcCenterSelections(userRoot: string) {
       const key = binding(target),
         { clientSecret: _secret, ...authority } = selection.authority,
         stored = { issuer: selection.issuer, authority };
-      memory.set(key, stored);
       /* @gate-identity state-store/runtime-instance.oidc-center-selection */ mkdirSync(directory, {
         recursive: true,
         mode: 0o700,
@@ -87,6 +87,7 @@ export function oidcCenterSelections(userRoot: string) {
         },
       );
       /* @gate-identity state-store/runtime-instance.oidc-center-selection */ renameSync(temporary, file);
+      memory.set(key, stored);
     },
   };
 }
