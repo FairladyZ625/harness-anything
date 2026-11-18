@@ -1,5 +1,6 @@
 import { mkdir, open, readdir, rename, rm, type FileHandle } from "node:fs/promises";
 import path from "node:path";
+import type { DaemonWriteTiming } from "./request-log.ts";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 
 // Connection- and request-level observability for the daemon transport surface. The 2026-08-20
@@ -25,7 +26,7 @@ export interface DaemonConnLogOptions {
 
 // Emitted by the protocol server per JSON-RPC request, hello included; conn is the monotonic
 // connection id handed out by connectionOpened.
-export interface DaemonTrafficLogEntry {
+export interface DaemonTrafficLogEntry extends DaemonWriteTiming {
   readonly conn: string;
   readonly transport: string;
   readonly method: string | null;
@@ -173,6 +174,9 @@ export function openDaemonConnLog(options: DaemonConnLogOptions): DaemonConnLog 
         nodeId: entry.nodeId ?? null,
         ...(entry.traceId ? { traceId: entry.traceId, spanId: entry.spanId ?? null } : {}),
         ...(entry.phases && entry.phases.length > 0 ? { phases: entry.phases } : {}),
+        ...(entry.queueMs === undefined ? {} : { queueMs: entry.queueMs }),
+        ...(entry.writeExecutionMs === undefined ? {} : { writeExecutionMs: entry.writeExecutionMs }),
+        ...(entry.queueHead === undefined ? {} : { queueHead: entry.queueHead }),
         ...(entry.traceId
           ? {
               otel: {

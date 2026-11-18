@@ -33,12 +33,17 @@ const smellText = (smell: ObserveSmellStat): string => {
   switch (smell.kind) {
     case "slow_write_request": {
       if (smell.queueMs == null)
-        return t("views.daemonObserve.smellSlowWrite", { method: smell.label, ms: String(Math.round(smell.value)) });
+        return t(
+          smell.writeExecutionMs === undefined
+            ? "views.daemonObserve.smellSlowWrite"
+            : "views.daemonObserve.smellSlowWriteExecution",
+          { method: smell.label, ms: String(Math.round(smell.value)) },
+        );
       const queued = {
         method: smell.label,
         ms: String(Math.round(smell.value)),
         queueMs: String(Math.round(smell.queueMs)),
-        executionMs: String(Math.round(Math.max(0, smell.value - smell.queueMs))),
+        executionMs: String(Math.round(smell.writeExecutionMs ?? Math.max(0, smell.value - smell.queueMs))),
       };
       return smell.queueHead == null
         ? t("views.daemonObserve.smellSlowWriteQueued", queued)

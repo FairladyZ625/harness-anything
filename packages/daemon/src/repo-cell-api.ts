@@ -723,7 +723,7 @@ export function createRepoCellApi(
     });
   Object.assign(context.extracted, { taskListQueryFromAction, queryRead, relationQueryFromAction });
   // The runtime publication turn verifies any executor claim before it authorizes and executes.
-  const spawnRuntime: RepoCell["spawnRuntime"] = async (payload, binding, queueObservation) => {
+  const spawnRuntime: RepoCell["spawnRuntime"] = async (payload, binding, queueObservation, onExecutionStart) => {
     const { executor: _claim, ...spawn } = payload;
     // A dry-run preview is a read projection: it must not enter the publication
     // turn, acquire a lease, or append a dispatch event.
@@ -743,9 +743,10 @@ export function createRepoCellApi(
       (authorizedBinding) =>
         context.runtimeSpawner.spawnTask(spawn, authorizedBinding, worktree, context.projection, progress),
       queueObservation,
+      onExecutionStart,
     );
   };
-  const handoffRuntime: RepoCell["handoffRuntime"] = (payload, binding, queueObservation) =>
+  const handoffRuntime: RepoCell["handoffRuntime"] = (payload, binding, queueObservation, onExecutionStart) =>
     runRuntimeHandoff({
       readDispatchLifecycle: (query) => context.projection.readDispatchLifecycle(query),
       rootDir: context.rootDir,
@@ -762,7 +763,7 @@ export function createRepoCellApi(
             { ...action, ...(candidate ? { candidate } : {}) } as RepoTaskAction,
             binding,
             undefined,
-            undefined,
+            onExecutionStart,
             queueObservation,
           )) as unknown as JsonObject;
         } finally {
@@ -781,10 +782,11 @@ export function createRepoCellApi(
           binding,
           (authorized) => context.runtimeSpawner.spawnHandoff(checkpoint, spawn, authorized, worktree, rollout),
           queueObservation,
+          onExecutionStart,
         );
       },
     });
-  const cancelRuntime: RepoCell["cancelRuntime"] = async (payload, binding, queueObservation) => {
+  const cancelRuntime: RepoCell["cancelRuntime"] = async (payload, binding, queueObservation, onExecutionStart) => {
     const { executor: _claim, ...cancel } = payload;
     return enqueueRuntimePublication(
       context,
@@ -793,9 +795,10 @@ export function createRepoCellApi(
       binding,
       (authorizedBinding) => context.runtimeSpawner.cancel(cancel, authorizedBinding),
       queueObservation,
+      onExecutionStart,
     );
   };
-  const steerRuntime: RepoCell["steerRuntime"] = async (payload, binding, queueObservation) =>
+  const steerRuntime: RepoCell["steerRuntime"] = async (payload, binding, queueObservation, onExecutionStart) =>
     enqueueRuntimePublication(
       context,
       "runtime-steer",
@@ -803,8 +806,9 @@ export function createRepoCellApi(
       binding,
       (authorizedBinding) => context.runtimeSpawner.steer(payload, authorizedBinding),
       queueObservation,
+      onExecutionStart,
     );
-  const runtimeIngress: RepoCell["runtimeIngress"] = (action, binding, queueObservation) => {
+  const runtimeIngress: RepoCell["runtimeIngress"] = (action, binding, queueObservation, onExecutionStart) => {
     const settlementRuntimeSessionId =
       action.kind === "archive"
         ? action.archive.runtimeSessionId
@@ -973,6 +977,7 @@ export function createRepoCellApi(
         }
       },
       queueObservation,
+      onExecutionStart,
     );
   };
   let builtinTail: Promise<void> = Promise.resolve();

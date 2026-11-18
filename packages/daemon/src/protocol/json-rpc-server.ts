@@ -5,12 +5,13 @@ import {
   observeDaemonRequest,
   updateDaemonOperation,
   type DaemonOperationObserver,
-  type DaemonOperationQueueHead,
+  type DaemonOperationPhaseSpan,
+  type DaemonOperationTrace,
 } from "../daemon-operation.ts";
 import { accessAdminOperations } from "./daemon-protocol.contract.ts";
 import { executionCredentialRejected } from "../runtime-execution-credential.ts";
 import type { DaemonHost } from "../daemon-host-types.ts";
-import { agentActorForLog, type DaemonRequestLogEntry } from "../request-log.ts";
+import { agentActorForLog, type DaemonRequestLogEntry, type DaemonWriteTiming } from "../request-log.ts";
 import type { DaemonTrafficLogEntry } from "../conn-log.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import {
@@ -675,6 +676,7 @@ export function createJsonRpcProtocolServer(options: {
       }
     }
     if (method === "repo.agentRuntime.spawn") {
+      markDaemonOperationPhase("write-prepare");
       const repo = params.repo.repoId;
       try {
         return reply(
@@ -689,6 +691,7 @@ export function createJsonRpcProtocolServer(options: {
       }
     }
     if (method === "repo.agentRuntime.cancel") {
+      markDaemonOperationPhase("write-prepare");
       const repo = params.repo.repoId;
       try {
         return reply(
@@ -703,6 +706,7 @@ export function createJsonRpcProtocolServer(options: {
       }
     }
     if (method === "repo.agentRuntime.steer") {
+      markDaemonOperationPhase("write-prepare");
       const repo = params.repo.repoId;
       try {
         return reply(
@@ -717,6 +721,7 @@ export function createJsonRpcProtocolServer(options: {
       }
     }
     if (method === "repo.agentRuntime.handoff") {
+      markDaemonOperationPhase("write-prepare");
       const repo = params.repo.repoId;
       try {
         return reply(
@@ -731,6 +736,7 @@ export function createJsonRpcProtocolServer(options: {
       }
     }
     if (method === "repo.agentRuntime.batch") {
+      markDaemonOperationPhase("write-prepare");
       const repo = params.repo.repoId;
       try {
         return reply(method, await options.host.batchRuntime(repo, params.payload, options.authContext));
@@ -964,8 +970,8 @@ export function createJsonRpcProtocolServer(options: {
     serviceMs: number,
   ): void {
     if (!options.recordRequest || !observed.repoId) return;
-    options.recordRequest(
-      daemonRequestLogEntry({
+    options.recordRequest({
+      ...daemonRequestLogEntry({
         method,
         repoId: observed.repoId,
         command: invokingCommand ?? observedCommand(method, observed.command),
@@ -976,9 +982,9 @@ export function createJsonRpcProtocolServer(options: {
         result,
         dispatchDelayMs,
         serviceMs,
-        ...writeQueueWait(serviceMs),
       }),
-    );
+      ...writeTiming(currentDaemonOperationTrace(), serviceMs),
+    });
   }
   // Attribute commands to the CLI declaration, resolved action, or sole owning CLI command.
   function observedCommand(method: string | null, actionCommand: string): string {
@@ -1003,7 +1009,8 @@ export function createJsonRpcProtocolServer(options: {
     eventLoopStallMs = 0,
   ): void {
     if (!options.recordTraffic) return;
-    const trace = currentDaemonOperationTrace();
+    const trace = currentDaemonOperationTrace(),
+      serviceMs = Math.max(0, repliedAt - handlerStartedAt);
     options.recordTraffic({
       conn: connectionId,
       transport: options.authContext.transportKind,
@@ -1025,8 +1032,9 @@ export function createJsonRpcProtocolServer(options: {
             spanId: trace.spanId,
             phases: trace.phases,
           }),
-      serviceMs: Math.max(0, repliedAt - handlerStartedAt),
-      durationMs: Math.max(0, repliedAt - handlerStartedAt),
+      ...writeTiming(trace, serviceMs),
+      serviceMs,
+      durationMs: serviceMs,
       ok,
       code,
       detail,
@@ -1037,24 +1045,32 @@ export function createJsonRpcProtocolServer(options: {
   }
 }
 
-// The same write-queue phase the connection log records, so request statistics can split a slow
-// write into queueing behind another write and its own execution. The writer receipt also reports
-// which write was at the head while this one waited; both come from the same operation trace.
-// Phases run on the monotonic clock and serviceMs on wall-clock milliseconds; clamp so the wait
-// never reads longer than the service time it is part of.
-function writeQueueWait(serviceMs: number): {
-  readonly queueMs?: number;
-  readonly queueHead?: DaemonOperationQueueHead;
-} {
-  const trace = currentDaemonOperationTrace();
+// Both logs use the same timing. Batch dispatches can queue in parallel, so count each
+// millisecond once and attribute overlaps with a write execution to execution.
+function writeTiming(trace: DaemonOperationTrace | null, serviceMs: number): DaemonWriteTiming {
   if (trace === null) return {};
-  const phase = trace.phases.find(({ name }) => name === "write-queue");
+  const queued = trace.phases.filter(({ name }) => name === "write-queue"),
+    executing = trace.phases.filter(({ name }) => name === "write-execution"),
+    hasPreparation = trace.phases.some(({ name }) => name === "write-prepare"),
+    writeExecutionMs = coveredPhaseMs(executing),
+    queueMs = coveredPhaseMs([...queued, ...executing]) - writeExecutionMs;
   return {
-    ...(phase === undefined
-      ? {}
-      : { queueMs: Math.min(serviceMs, Math.max(0, Math.round(phase.endedAtMs - phase.startedAtMs))) }),
+    ...(queued.length > 0 || hasPreparation
+      ? { queueMs: hasPreparation ? queueMs : Math.min(serviceMs, queueMs) }
+      : {}),
+    ...(executing.length > 0 || hasPreparation ? { writeExecutionMs } : {}),
     ...(trace.queueHead === undefined ? {} : { queueHead: trace.queueHead }),
   };
+}
+
+function coveredPhaseMs(phases: readonly DaemonOperationPhaseSpan[]): number {
+  let duration = 0,
+    end = 0;
+  for (const phase of phases.toSorted((a, b) => a.startedAtMs - b.startedAtMs)) {
+    duration += Math.max(0, phase.endedAtMs - Math.max(end, phase.startedAtMs));
+    end = Math.max(end, phase.endedAtMs);
+  }
+  return duration;
 }
 
 function encodeAndAttach(response: JsonRpcResponse): number {

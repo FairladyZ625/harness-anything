@@ -36,6 +36,7 @@ export function enqueueRuntimePublication(
   binding: RepoCellBinding,
   execute: (authorizedBinding: RepoCellBinding, revision: number) => JsonObject | Promise<JsonObject>,
   queueObservation?: RepoCellQueueObservation,
+  onExecutionStart?: () => void,
 ): Promise<JsonObject> {
   const command = commandDescriptorForAction(commandKind),
     admission = admitRepoMode(context.mode, command, binding.source);
@@ -44,6 +45,7 @@ export function enqueueRuntimePublication(
   const pending = chainRepoCellWrite(
     context.tail,
     async () => {
+      onExecutionStart?.();
       const rescueLatch = mayRescueInfrastructureLatch(context, commandKind, policyAction, binding);
       if (context.state !== "attached" && !rescueLatch) await context.attemptRecovery();
       const queuedAdmission = admitRepoMode(context.mode, command, binding.source);

@@ -2,13 +2,28 @@
 import { createAuthorizationProvider } from "../src/authorization-provider.ts";
 import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { open as openFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import type { DaemonHost } from "../src/daemon-host.ts";
-import { recordDaemonOperationQueueHead } from "../src/daemon-operation.ts";
+import { recordDaemonOperationQueueHead, type DaemonOperationPhaseSpan } from "../src/daemon-operation.ts";
+import { openDaemonConnLog } from "../src/conn-log.ts";
+import { openWriterSupervisor } from "../src/writer-supervisor.ts";
+import { fixtureFence, openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import { policyTestCenter, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { actor, git } from "./task-surface.fixtures.ts";
+import { watchFileArrival } from "../../../tools/fixtures/event-arrival.ts";
 import {
   daemonLifecycleLogPath,
   daemonStdioLogPath,
@@ -285,6 +300,142 @@ test("a write records its write-queue wait separately from execution; a read rec
   assert.equal("queueMs" in read, false);
   assert.equal("queueHead" in read, false);
 });
+
+test(
+  "runtime spawn logs time in the write queue separately from first worktree checkout",
+  { timeout: 45_000 },
+  async (t) => {
+    const rootDir = tempRoot(t),
+      repoId = "logged",
+      taskId = "task_spawn_write_timing",
+      fence = fixtureFence(repoId, rootDir, path.join(rootDir, "epochs"), undefined),
+      config = { repoId, rootDir, ownerId: "request-log-test", defaultWriterEpochFence: fence },
+      binding = withPolicyGroup({ actor, source: "local" as const, writerEpochFence: fence }, "admin");
+    git(rootDir, "init", "-q", "-b", "main");
+    git(rootDir, "config", "user.name", "Request Log Test");
+    git(rootDir, "config", "user.email", "request-log@example.invalid");
+    git(rootDir, "commit", "--allow-empty", "-qm", "base");
+    const seed = await openBootstrappedRepoCell(config);
+    try {
+      const created = await seed.run({ kind: "task-create", taskId, title: "Runtime queue timing" }, binding);
+      assert.equal(created.outcome, "applied", JSON.stringify(created));
+      await waitForFixturePublication(seed, created.opId, binding);
+    } finally {
+      await seed.close();
+    }
+
+    // Stop the real git worktree add while an unrelated write proves the queue is available.
+    const arrived = path.join(rootDir, "checkout-arrived"),
+      released = path.join(rootDir, "checkout-released"),
+      hooks = path.join(rootDir, ".git", "hooks");
+    writeFileSync(
+      path.join(hooks, "post-checkout"),
+      `#!/bin/sh
+exec "${process.execPath}" --input-type=module -e '
+  import fs from "node:fs";
+  const [arrived, released, directory] = process.argv.slice(1);
+  const watcher = fs.watch(directory, () => { if (fs.existsSync(released)) watcher.close(); });
+  fs.writeFileSync(arrived, "ready");
+  if (fs.existsSync(released)) watcher.close();
+' "${arrived}" "${released}" "${rootDir}"
+`,
+      { mode: 0o755 },
+    );
+    const supervisor = await openWriterSupervisor({ ...config, keycloakCenter: policyTestCenter }),
+      host = {
+        ...stubHost(rootDir),
+        spawnRuntime: (_repo: string, payload: Record<string, unknown>) =>
+          supervisor.request("spawnRuntime", payload, binding),
+      } as DaemonHost,
+      requestLog = openDaemonRequestLog({ resolveRootDir: () => rootDir }),
+      connLog = openDaemonConnLog({ userRoot: rootDir, daemonId: "request-log-test" }),
+      server = createJsonRpcProtocolServer({
+        host,
+        build: daemonBuildStamp(),
+        authContext: {
+          transportKind: "unix-socket",
+          unixSocketOwnerBoundary: { ownerUid: 501, source: "unix-socket-filesystem-owner-boundary" },
+        },
+        emit: async () => undefined,
+        operationObserver: { begin: () => ({ update: () => undefined, end: () => undefined }) },
+        recordTraffic: connLog.request,
+        recordRequest: requestLog.record,
+      });
+    let pending: ReturnType<typeof server.handle> | undefined;
+    try {
+      await handshake(server);
+      // Skip provider selection before checkout by asking to resume a missing dispatch.
+      // The worker will reject it at publication, where the execution phase must still be recorded.
+      pending = server.handle({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "repo.agentRuntime.spawn",
+        params: {
+          repo: { repoId },
+          payload: { taskId, dispatchId: "dispatch_0123456789abcdef01234567", dispatchKey: "trace-fixture" },
+        },
+      });
+      const checkout = Promise.withResolvers<void>(),
+        stopWatching = watchFileArrival(arrived)(() => {
+          if (existsSync(arrived)) checkout.resolve();
+        });
+      try {
+        if (existsSync(arrived)) checkout.resolve();
+        await Promise.race([
+          checkout.promise,
+          Promise.resolve(pending).then((reply) => assert.fail(`checkout did not begin: ${JSON.stringify(reply)}`)),
+        ]);
+      } finally {
+        stopWatching();
+      }
+      const checkoutAtMs = Number(process.hrtime.bigint() / 1_000_000n);
+      const receipt = await supervisor.request<{ outcome: string }>(
+        "run",
+        {
+          action: {
+            kind: "task-create",
+            taskId: "task_parallel_write_witness",
+            title: "Writer available during checkout",
+          },
+        },
+        binding,
+      );
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      const releaseAtMs = Number(process.hrtime.bigint() / 1_000_000n);
+      writeFileSync(released, "release");
+      await pending;
+      await Promise.all([requestLog.settle(), connLog.settle()]);
+
+      const repoRecord = readRecords(rootDir)[0]!,
+        logs = path.join(rootDir, "logs"),
+        connRecord = readFileSync(path.join(logs, readdirSync(logs)[0]!), "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line))
+          .find((record) => record.method === "repo.agentRuntime.spawn");
+      assert.ok(connRecord);
+      assert.equal(repoRecord.method, "repo.agentRuntime.spawn");
+      const phases: readonly DaemonOperationPhaseSpan[] = connRecord.phases,
+        prepare = phases.findLast(({ name }) => name === "write-prepare"),
+        queue = phases.find(({ name }) => name === "write-queue"),
+        execution = phases.find(({ name }) => name === "write-execution");
+      assert.ok(prepare && queue && execution, JSON.stringify(phases));
+      assert.ok(prepare.startedAtMs <= checkoutAtMs, JSON.stringify(connRecord.phases));
+      assert.ok(queue.startedAtMs >= releaseAtMs, JSON.stringify(connRecord.phases));
+      assert.equal(queue.endedAtMs, execution.startedAtMs);
+      assert.equal(repoRecord.queueMs, queue.endedAtMs - queue.startedAtMs);
+      assert.equal(repoRecord.writeExecutionMs, execution.endedAtMs - execution.startedAtMs);
+      assert.equal(connRecord.queueMs, repoRecord.queueMs);
+      assert.equal(connRecord.writeExecutionMs, repoRecord.writeExecutionMs);
+      assert.ok(repoRecord.writeExecutionMs! <= repoRecord.durationMs - (releaseAtMs - checkoutAtMs));
+    } finally {
+      writeFileSync(released, "release");
+      await pending;
+      server.close();
+      await Promise.all([supervisor.close(), requestLog.settle(), connLog.settle()]);
+    }
+  },
+);
 
 test("the declared agent executor is recorded so a request can be attributed to the agent that made it", async (t) => {
   const rootDir = tempRoot(t),
