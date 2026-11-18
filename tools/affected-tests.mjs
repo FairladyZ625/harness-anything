@@ -5,6 +5,7 @@ import ts from "typescript";
 import {
   discoverGuiVitestFiles,
   discoverTestFiles,
+  guiVitestIgnoredDirectoryNames,
   isGuiVitestFile,
   parseTestTierMarker,
 } from "./test-tier-manifest.mjs";
@@ -41,8 +42,10 @@ export function listImportGraphFiles(root, roots = defaultGraphRoots) {
 function walk(root, directory, files) {
   const absolute = path.join(root, directory);
   if (!existsSync(absolute)) return;
+  const inGuiTestTree = directory === "packages/gui/test" || directory.startsWith("packages/gui/test/");
+  const ignored = inGuiTestTree ? guiVitestIgnoredDirectoryNames : ignoredDirectoryNames;
   for (const entry of readdirSync(absolute, { withFileTypes: true })) {
-    if (entry.name.startsWith(".") || ignoredDirectoryNames.has(entry.name)) continue;
+    if (entry.name.startsWith(".") || ignored.has(entry.name)) continue;
     const relative = path.posix.join(directory, entry.name);
     if (entry.isDirectory()) walk(root, relative, files);
     else if (entry.isFile() && sourceFilePattern.test(entry.name)) files.push(relative);
@@ -51,7 +54,11 @@ function walk(root, directory, files) {
 
 export function buildImportGraph(root, options = {}) {
   const startedAt = Date.now();
-  const files = options.files ?? listImportGraphFiles(root);
+  const baseFiles = options.files ?? listImportGraphFiles(root);
+  const files =
+    options.extraFiles === undefined || options.extraFiles.length === 0
+      ? baseFiles
+      : [...new Set([...baseFiles, ...options.extraFiles])].sort();
   const knownTargets = new Set(options.knownTargets ?? []);
   const resolveImport = createSourceImportResolver(root, knownTargets);
   const reverse = new Map();
@@ -287,11 +294,20 @@ export function selectAffectedTests(options) {
   const nodeTestSet = new Set(nodeTestFiles);
   const testSet = new Set([...nodeTestFiles, ...vitestFiles]);
   const sourceChanges = changedFiles.filter((file) => !testSet.has(file) && sourceFilePattern.test(file));
+  const existingTests = [...testSet].filter((file) => existsSync(path.join(root, file)));
   const graph =
     options.graph ??
-    (options.buildGraph ?? ((input) => buildImportGraph(input.root, { knownTargets: input.knownTargets })))({
+    (
+      options.buildGraph ??
+      ((input) =>
+        buildImportGraph(input.root, {
+          knownTargets: input.knownTargets,
+          extraFiles: input.extraFiles,
+        }))
+    )({
       root,
       knownTargets: sourceChanges,
+      extraFiles: existingTests,
     });
   const seeds = [];
   const direct = new Set();

@@ -35,6 +35,10 @@ const ignoredDirectoryNames = new Set([
   "coverage",
   ".git",
 ]);
+// Must match `tools/gui-test-runner-lib.mjs` (`collectGuiVitestFiles`) 1:1 so nested Vitest suites
+// such as `packages/gui/test/out/*.vitest.tsx` discovered by the GUI runner are never omitted by
+// `discoverGuiVitestFiles`, while Node test discovery keeps its full `ignoredDirectoryNames` set.
+export const guiVitestIgnoredDirectoryNames = new Set(["node_modules", "dist", "coverage"]);
 const markerPattern = /^\s*\/\/\s*harness-test-tier:\s*(\S+)\s*$/u;
 const timeoutMarkerPattern = /^\s*\/\/\s*harness-test-file-timeout:\s*(\S+)\s*$/u;
 
@@ -119,10 +123,15 @@ export function discoverTestFiles(repoRoot, roots = ["packages", "tools"]) {
 
 export function discoverGuiVitestFiles(repoRoot, root = guiVitestRoot) {
   const files = [];
-  walkScannableFiles(path.join(repoRoot, root), repoRoot, (relativePath, name) => {
-    const matched = root === guiVitestRoot ? isGuiVitestFile(relativePath) : guiVitestFilePattern.test(name);
-    if (matched) files.push(relativePath);
-  });
+  walkScannableFiles(
+    path.join(repoRoot, root),
+    repoRoot,
+    (relativePath, name) => {
+      const matched = root === guiVitestRoot ? isGuiVitestFile(relativePath) : guiVitestFilePattern.test(name);
+      if (matched) files.push(relativePath);
+    },
+    guiVitestIgnoredDirectoryNames,
+  );
   return files.sort();
 }
 
@@ -159,15 +168,15 @@ function walk(directory, repoRoot, files, misnamed) {
   });
 }
 
-function walkScannableFiles(directory, repoRoot, onFile) {
+function walkScannableFiles(directory, repoRoot, onFile, ignored = ignoredDirectoryNames) {
   if (!existsSync(directory)) return;
   for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
     left.name.localeCompare(right.name),
   )) {
-    if (entry.name.startsWith(".") || ignoredDirectoryNames.has(entry.name)) continue;
+    if (entry.name.startsWith(".") || ignored.has(entry.name)) continue;
     const entryPath = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      walkScannableFiles(entryPath, repoRoot, onFile);
+      walkScannableFiles(entryPath, repoRoot, onFile, ignored);
       continue;
     }
     if (!entry.isFile() || !scannableFilePattern.test(entry.name)) continue;

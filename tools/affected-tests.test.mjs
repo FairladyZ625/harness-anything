@@ -674,3 +674,43 @@ test("repository App.tsx change selects real reverse-dependent GUI Vitest files 
     false,
   );
 });
+
+test("GUI Vitest discovery and import graph match collectGuiVitestFiles under nested out/app-node_modules/dist-electron subdirectories while preserving Node exclusions", async (t) => {
+  const root = fixture(t, {
+    "packages/gui/package.json": JSON.stringify({
+      name: "@harness-anything/gui-fixture",
+      exports: { ".": "./src/gadget.ts" },
+    }),
+    "packages/gui/src/gadget.ts": "export const gadget = 1;\n",
+    "packages/gui/test/out/gadget.vitest.tsx":
+      'import { gadget } from "../../src/gadget.ts";\nexport const view = gadget;\n',
+    "packages/gui/test/app-node_modules/nested.vitest.ts":
+      'import { gadget } from "../../src/gadget.ts";\nexport const extra = gadget;\n',
+    "packages/gui/test/dist/ignored.vitest.ts": 'import { gadget } from "../../src/gadget.ts";\n',
+    "packages/gui/test/coverage/ignored.vitest.ts": 'import { gadget } from "../../src/gadget.ts";\n',
+    "packages/gui/test/node_modules/ignored.vitest.ts": 'import { gadget } from "../../src/gadget.ts";\n',
+    "packages/daemon/out/ignored-node.test.ts": "// intentionally unlabelled build output under out/\n",
+    "packages/daemon/test/real.test.ts": fastTest("export const ok = 1;\n"),
+  });
+
+  const runnerList = await collectGuiVitestFiles(root);
+  const manifestVitestList = discoverGuiVitestFiles(root);
+  assert.deepEqual(manifestVitestList, runnerList);
+  assert.deepEqual(manifestVitestList, [
+    "packages/gui/test/app-node_modules/nested.vitest.ts",
+    "packages/gui/test/out/gadget.vitest.tsx",
+  ]);
+  // Node test discovery still ignores `out/`!
+  assert.deepEqual(discoverTestFiles(root), ["packages/daemon/test/real.test.ts"]);
+
+  const selected = selectAffectedTests({
+    root,
+    changedFiles: ["packages/gui/src/gadget.ts"],
+  });
+  assert.deepEqual(selected.unmapped, []);
+  assert.deepEqual(
+    selected.vitestSelected.map(({ file }) => file),
+    ["packages/gui/test/app-node_modules/nested.vitest.ts", "packages/gui/test/out/gadget.vitest.tsx"],
+  );
+  assert.deepEqual(selected.nodeSelected, []);
+});
