@@ -263,6 +263,21 @@ test("verify-receipt script rejects missing, archive-only, malformed, and invali
       assert.match(dupResult.payload.diagnostic, /Duplicate top-level key "failed"/u);
     }
 
+    // Exact mathematical integer encodings (1.0, 1e0) and deep unbound metadata pass cleanly
+    const deepMetadata = `${"[".repeat(4_000)}0${"]".repeat(4_000)}`;
+    writeFileSync(
+      badFile,
+      `{"commitSha":"${commitSha}","passed":1.0,"failed":0e0,"timedOut":0,"unexecuted":0,"total":1e0,"metadata":${deepMetadata}}`,
+    );
+    const exactEncodedPass = runScript({
+      schema: "witness-input/v1",
+      code: { commitSha, directory: "input/code" },
+      subjects: [{ path: "artifacts/verification-receipt.json", revision: 1, blobSha256, file: badFile }],
+    });
+    assert.equal(exactEncodedPass.payload.result, "pass", exactEncodedPass.payload.diagnostic);
+    assert.equal(exactEncodedPass.payload.predicate.passed, 1);
+    assert.equal(exactEncodedPass.payload.predicate.total, 1);
+
     // 5. Oversized wrong-type field + 6 multi-byte escaped invalid fields -> raw stdout frame strictly < 1024B
     writeFileSync(
       badFile,

@@ -1,158 +1,136 @@
 import { readFileSync } from "node:fs";
 
-const PREDICATE_TYPE = "software-coding/verification-receipt/v1";
-const ROOT_RECEIPT = /^(?:(?!artifacts\/)[^/]+\/)*artifacts\/verification-receipt\.json$/u;
-const FIELDS = ["commitSha", "passed", "failed", "timedOut", "unexecuted", "total"];
-const COUNTS = FIELDS.slice(1);
+const ROOT = /^(?:(?!artifacts\/)[^/]+\/)*artifacts\/verification-receipt\.json$/u;
+const KEYS = ["commitSha", "passed", "failed", "timedOut", "unexecuted", "total"];
 
-function describeValue(v) {
-  if (v === null || v === undefined) return String(v);
-  if (Array.isArray(v)) return `array(length=${v.length})`;
-  if (typeof v === "object") return "object";
-  if (typeof v === "string") return /^[0-9a-f]{40}$/u.test(v) ? JSON.stringify(v) : `string(length=${v.length})`;
-  const s = String(v);
-  return s.length <= 32 ? s : `${typeof v}(length=${s.length})`;
-}
+const desc = (v) =>
+  Array.isArray(v)
+    ? `array(length=${v.length})`
+    : v && typeof v === "object"
+      ? "object"
+      : typeof v === "string"
+        ? `len=${v.length}`
+        : String(v).slice(0, 32);
 
-function serializeFrame(result, subjects, predicate, diagnostic) {
-  return JSON.stringify({
-    schema: "preset-script-result/v1",
-    produces: [
-      {
-        capabilityId: "completion-witness",
-        payload: { result, subjects, predicateType: PREDICATE_TYPE, predicate, diagnostic },
-      },
-    ],
-  });
-}
-
-function emit(result, subjects, predicate, diagnostic) {
-  let msg = diagnostic;
-  let frame = serializeFrame(result, subjects, predicate, msg);
-  while (result === "fail" && Buffer.byteLength(frame, "utf8") + 1 > 960 && msg.length > 0) {
-    msg = msg.slice(0, Math.max(0, Math.floor(msg.length * 0.75) - 4));
-    frame = serializeFrame(result, subjects, predicate, msg ? `${msg}...` : "Invalid verification receipt.");
+function emit(result, subjects, predicate, msg) {
+  const frame = (d) =>
+    JSON.stringify({
+      schema: "preset-script-result/v1",
+      produces: [
+        {
+          capabilityId: "completion-witness",
+          payload: {
+            result,
+            subjects,
+            predicateType: "software-coding/verification-receipt/v1",
+            predicate,
+            diagnostic: d,
+          },
+        },
+      ],
+    });
+  let m = msg,
+    f = frame(m);
+  while (result === "fail" && Buffer.byteLength(f) > 959 && m) {
+    m = m.slice(0, Math.floor(m.length * 0.7));
+    f = frame(m ? `${m}...` : "Invalid.");
   }
-  console.log(frame);
+  console.log(f);
 }
 
-function scanTopLevelDuplicateKeys(raw) {
+function scanTop(raw) {
   const seen = new Set(),
-    dups = [];
-  let depth = 0,
-    strStart = -1,
-    escaped = false;
-  for (let i = 0; i < raw.length; i += 1) {
-    const ch = raw[i];
-    if (strStart >= 0) {
-      if (escaped) escaped = false;
-      else if (ch === "\\") escaped = true;
-      else if (ch === '"') {
-        const start = strStart;
-        strStart = -1;
-        if (depth === 1) {
+    dups = [],
+    tok = new Map();
+  for (let i = 0, d = 0, s = -1, esc = false; i < raw.length; i++) {
+    const c = raw[i];
+    if (s >= 0) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') {
+        if (d === 1) {
           let j = i + 1;
-          while (j < raw.length && /\s/u.test(raw[j])) j += 1;
+          while (/\s/u.test(raw[j] ?? "")) j++;
           if (raw[j] === ":") {
-            const k = JSON.parse(raw.slice(start, i + 1));
+            const k = JSON.parse(raw.slice(s, i + 1));
             if (seen.has(k) && !dups.includes(k)) dups.push(k);
             seen.add(k);
+            for (j++; /\s/u.test(raw[j] ?? ""); ) j++;
+            if (j < raw.length && !'{["'.includes(raw[j])) {
+              let e = j;
+              while (e < raw.length && !",}\r\n\t ".includes(raw[e])) e++;
+              tok.set(k, raw.slice(j, e));
+            }
           }
         }
+        s = -1;
       }
-    } else if (ch === '"') strStart = i;
-    else if (ch === "{" || ch === "[") depth += 1;
-    else if (ch === "}" || ch === "]") depth -= 1;
+    } else if (c === '"') s = i;
+    else if (c === "{" || c === "[") d++;
+    else if (c === "}" || c === "]") d--;
   }
-  return dups;
+  return { dups, tok };
 }
 
-const witness = JSON.parse(readFileSync(JSON.parse(process.env.HA_PRESET_INPUT ?? "{}").witnessInput, "utf8"));
-const subjects = (witness.subjects ?? []).map(({ file: _f, ...id }) => id);
-const subject = (witness.subjects ?? []).find((s) => ROOT_RECEIPT.test(s.path));
-if (!subject) {
-  emit("fail", subjects, {}, "Missing required verification receipt artifact: artifacts/verification-receipt.json.");
+function exactInt(v, src) {
+  if (!Number.isSafeInteger(v) || v < 0) return false;
+  if (typeof src !== "string") return true;
+  const m = /^(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/u.exec(src);
+  if (!m) return false;
+  let d = (m[1] + (m[2] ?? "")).replace(/^0+(?=\d)/u, ""),
+    e = Number(m[3] ?? 0) - (m[2]?.length ?? 0);
+  if (d === "0") return v === 0;
+  for (; d.endsWith("0"); e++) d = d.slice(0, -1);
+  return e >= 0 && e <= 16 && BigInt(d) * 10n ** BigInt(e) === BigInt(v);
+}
+
+const w = JSON.parse(readFileSync(JSON.parse(process.env.HA_PRESET_INPUT ?? "{}").witnessInput, "utf8"));
+const subjects = (w.subjects ?? []).map(({ file: _f, ...id }) => id);
+const sub = (w.subjects ?? []).find((x) => ROOT.test(x.path));
+if (!sub) {
+  emit("fail", subjects, {}, "Missing required verification receipt artifact.");
   process.exit(0);
 }
 
-const rawText = readFileSync(subject.file, "utf8");
-const sources = new WeakMap();
-let receipt;
+const raw = readFileSync(sub.file, "utf8");
+let r;
 try {
-  receipt = JSON.parse(rawText, function (k, v, ctx) {
-    if (this && typeof this === "object" && typeof ctx?.source === "string") {
-      if (!sources.has(this)) sources.set(this, new Map());
-      sources.get(this).set(k, ctx.source);
-    }
-    return v;
-  });
+  r = JSON.parse(raw);
 } catch (e) {
-  emit(
-    "fail",
-    subjects,
-    {},
-    `Invalid JSON in artifacts/verification-receipt.json: ${e instanceof Error ? e.message : String(e)}`,
-  );
+  emit("fail", subjects, {}, `Invalid JSON: ${e?.message ?? e}`);
+  process.exit(0);
+}
+if (!r || typeof r !== "object" || Array.isArray(r)) {
+  emit("fail", subjects, {}, "Not a JSON object.");
   process.exit(0);
 }
 
-if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) {
-  emit("fail", subjects, {}, "artifacts/verification-receipt.json must contain a JSON object.");
-  process.exit(0);
-}
+const { dups, tok } = scanTop(raw);
+const errs = dups.map((k) => `Duplicate top-level key "${k}".`);
+for (const k of KEYS) if (!Object.hasOwn(r, k)) errs.push(`Missing "${k}".`);
 
-const errors = scanTopLevelDuplicateKeys(rawText).map((k) => `Duplicate top-level key "${k}" is not allowed.`);
-for (const f of FIELDS) if (!Object.hasOwn(receipt, f)) errors.push(`Missing required field "${f}".`);
+if (w.code !== null) {
+  if (r.commitSha !== w.code?.commitSha) errs.push(`${desc(r.commitSha)} does not match frozen commitSha.`);
+} else if (Object.hasOwn(r, "commitSha") && r.commitSha !== null)
+  errs.push(`commitSha must be null (${desc(r.commitSha)}).`);
 
-if (witness.code !== null) {
-  const sha = witness.code?.commitSha;
-  if (typeof receipt.commitSha !== "string" || receipt.commitSha !== sha)
-    errors.push(
-      `Receipt commitSha (${describeValue(receipt.commitSha)}) does not match frozen commitSha (${String(sha)}).`,
-    );
-} else if (Object.hasOwn(receipt, "commitSha") && receipt.commitSha !== null) {
-  errors.push(`Artifact-only submission requires commitSha to be null (got ${describeValue(receipt.commitSha)}).`);
-}
-
-const rootSrc = sources.get(receipt);
-let countsOk = true;
-for (const f of COUNTS) {
-  if (!Object.hasOwn(receipt, f)) {
-    countsOk = false;
-    continue;
-  }
-  const v = receipt[f],
-    src = rootSrc?.get(f);
-  if (
-    !Number.isSafeInteger(v) ||
-    v < 0 ||
-    (typeof src === "string" && (!/^(?:0|[1-9]\d*)$/u.test(src) || String(v) !== src))
-  ) {
-    countsOk = false;
-    errors.push(
-      `Field "${f}" must be a non-negative safe integer (got ${typeof v === "number" && typeof src === "string" && src.length <= 32 ? src : describeValue(v)}).`,
-    );
+let ok = true;
+for (const k of KEYS.slice(1)) {
+  if (!Object.hasOwn(r, k)) ok = false;
+  else if (!exactInt(r[k], tok.get(k))) {
+    ok = false;
+    const t = tok.get(k);
+    errs.push(`Bad "${k}" (${t && t.length <= 32 ? t : desc(r[k])}).`);
   }
 }
 
-if (countsOk) {
-  if (receipt.total <= 0) errors.push(`Field "total" must be greater than 0 (got ${receipt.total}).`);
-  const sum = receipt.passed + receipt.failed + receipt.timedOut + receipt.unexecuted;
-  if (sum !== receipt.total)
-    errors.push(
-      `Four-state count sum mismatch: passed(${receipt.passed}) + failed(${receipt.failed}) + timedOut(${receipt.timedOut}) + unexecuted(${receipt.unexecuted}) = ${sum} !== total(${receipt.total}).`,
-    );
-  if (receipt.failed > 0 || receipt.timedOut > 0 || receipt.unexecuted > 0)
-    errors.push(
-      `Non-passing outcomes present: failed=${receipt.failed}, timedOut=${receipt.timedOut}, unexecuted=${receipt.unexecuted} (all must be 0).`,
-    );
+if (ok) {
+  if (r.total <= 0) errs.push("total <= 0.");
+  const s = r.passed + r.failed + r.timedOut + r.unexecuted;
+  if (s !== r.total) errs.push(`Four-state count sum mismatch: sum = ${s} !== total(${r.total}).`);
+  if (r.failed || r.timedOut || r.unexecuted)
+    errs.push(`Non-passing outcomes present: failed=${r.failed}, timedOut=${r.timedOut}, unexecuted=${r.unexecuted}.`);
 }
 
-if (errors.length > 0) emit("fail", subjects, {}, errors.join(" "));
-else
-  emit(
-    "pass",
-    subjects,
-    Object.fromEntries(FIELDS.map((f) => [f, receipt[f]])),
-    "Verification receipt verified: commitSha and four-state counts match frozen cut.",
-  );
+if (errs.length) emit("fail", subjects, {}, errs.join(" "));
+else emit("pass", subjects, Object.fromEntries(KEYS.map((k) => [k, r[k]])), "OK");

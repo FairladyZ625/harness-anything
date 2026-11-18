@@ -297,6 +297,28 @@ test("standard-task verified profile blocks missing, stale, folded, and mismatch
       assert.equal(precisionComplete.code, "gate_witness_missing");
     }
 
+    // 4e. Duplicate top-level key (including unicode-escaped key) settles available/fail with empty predicate and blocks complete
+    writeFileSync(
+      receiptPath,
+      `{"commitSha":"${currentSha}","passed":1,"failed":1,"\\u0066ailed":0,"timedOut":0,"unexecuted":0,"total":1}`,
+    );
+    await applied({ kind: "doc-submit", taskId });
+    await applied({ kind: "task-submit", taskId, executionId, amend: true });
+    const dupCut = latestSubmittedCut();
+    const dupWitness = witnessForCut(dupCut.digest);
+    assert.ok(dupWitness, "expected completion_gate_verified bound to duplicate-key cut");
+    const dupRun = currentGateRun(dupWitness.payload.execution, "verification-receipt")!;
+    assert.equal(dupRun.submissionDigest, dupCut.digest);
+    assert.equal(dupRun.availability, "available");
+    assert.equal(dupRun.result, "fail");
+    assert.equal(dupWitness.payload.witness.provenance?.runId, dupRun.runId);
+    assert.equal(dupWitness.payload.witness.result, "fail");
+    assert.deepEqual(dupWitness.payload.witness.predicate, {});
+    assert.match(dupWitness.payload.witness.diagnostic, /Duplicate top-level key "failed"/u);
+    const dupComplete = await cell.run({ kind: "task-complete", taskId, executionId }, owner);
+    assert.equal(dupComplete.outcome, "op_rejected");
+    assert.equal(dupComplete.code, "gate_witness_missing");
+
     const deepArray = `${"[".repeat(25_000)}0${"]".repeat(25_000)}`;
     writeFileSync(
       receiptPath,
