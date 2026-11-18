@@ -39,14 +39,16 @@
         "executable": "npm",
         "args": ["run", "test:gui", "--workspace", "@harness-anything/gui", "--"],
         "stripPrefix": "packages/gui/",
-        "selector": ["{file}"]
+        "selector": ["{file}"],
+        "batchable": true
       },
       {
         "match": { "prefix": "packages/gui/test/", "suffix": ".vitest.tsx" },
         "executable": "npm",
         "args": ["run", "test:gui", "--workspace", "@harness-anything/gui", "--"],
         "stripPrefix": "packages/gui/",
-        "selector": ["{file}"]
+        "selector": ["{file}"],
+        "batchable": true
       }
     ]
   },

@@ -67,6 +67,16 @@ const RUNTIME_DISPATCHES_BY_FIELD_SQL = (field: string) =>
     "ORDER BY workspace_revision",
     `AND json_extract(event_json, '$.payload.${field}') = ? ORDER BY workspace_revision`,
   );
+// Drive the join from the requested ids. A JSON-list IN predicate can make SQLite choose the
+// event-type index and read every dispatch instead of seeking by decision id.
+const DECISION_REVIEW_DISPATCHES_SQL = RUNTIME_DISPATCHES_SQL.replace(
+  "FROM event_index",
+  "FROM (SELECT DISTINCT value FROM json_each(?)) AS requested CROSS JOIN event_index",
+).replace(
+  "ORDER BY",
+  `AND json_extract(event_json, '$.payload.reviewTarget.kind') = 'decision'
+   AND json_extract(event_json, '$.payload.reviewTarget.decisionId') = requested.value ORDER BY`,
+);
 const RUNTIME_DISPATCHES_BY_TASK_EXECUTION_SQL = RUNTIME_DISPATCHES_SQL.replace(
   "ORDER BY workspace_revision",
   "AND json_extract(event_json, '$.payload.taskId') = ? AND json_extract(event_json, '$.payload.executionId') = ? ORDER BY workspace_revision",
@@ -196,6 +206,7 @@ export function repositoryEventQueries(
   | "readRuntimeDispatchesByTaskExecution"
   | "readRuntimeDispatchesByAttemptGroup"
   | "readRuntimeDispatchesByDecision"
+  | "readRuntimeDispatchesByDecisions"
   | "readRuntimeDispatchPage"
   | "readRuntimeDispatchesByMember"
   | "readRuntimeSessionEvents"
@@ -414,6 +425,17 @@ export function repositoryEventQueries(
           return projected ? [projected] : [];
         }),
       ),
+    readRuntimeDispatchesByDecisions: (decisionIds) =>
+      decisionIds.length === 0
+        ? []
+        : withRead((db) =>
+            queryRows(db, DECISION_REVIEW_DISPATCHES_SQL, JSON.stringify(decisionIds)).flatMap((row) => {
+              const event = JSON.parse(String(row.event_json));
+              return isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested"
+                ? [publicRuntimeDispatch(event)]
+                : [];
+            }),
+          ),
     readRuntimeDispatchPage: ({ taskIds, startedAtGte, cursor, limit: pageLimit }) =>
       withRead((db) => {
         if (!validateStorageReadWindow(pageLimit, storageReadPolicy.defaultValue.pageSizes.standard))

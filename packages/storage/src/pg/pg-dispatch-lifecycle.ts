@@ -6,6 +6,7 @@
 // version) carries an older `dispatch_lifecycle_version` in its meta row: reads are pending until
 // the backfill refolds it from the canonical events through the same reducer.
 import type { Pool, PoolClient } from "pg";
+import type { TaskProjectionQueries } from "@harness-anything/kernel";
 import {
   DISPATCH_LIFECYCLE_MODEL_VERSION,
   DISPATCH_LIFECYCLE_PAGE_LIMIT,
@@ -19,7 +20,6 @@ import {
   taskLeaseAfter,
   type DispatchLifecycleGroup,
   type DispatchLifecycleInput,
-  type DispatchLifecycleQuery,
   type DispatchLifecycleRead,
   type DispatchTaskLease,
 } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
@@ -195,7 +195,30 @@ export async function backfillPgDispatchLifecycle(
 }
 
 export interface PgDispatchLifecycleQueries {
-  readonly readDispatchLifecycle: (query: DispatchLifecycleQuery) => Promise<DispatchLifecycleRead>;
+  readonly readDispatchLifecycle: (
+    query: Parameters<TaskProjectionQueries["readDispatchLifecycle"]>[0],
+  ) => Promise<DispatchLifecycleRead>;
+}
+
+async function readDispatchPointRows(client: PoolClient, scope: PgProjectionScope, dispatchIds: readonly string[]) {
+  if (dispatchIds.length === 0) return [];
+  const readValues = async <Value>(model: string, ids: readonly string[]) => {
+    const result = await client.query<{ entity_id: string; value: string }>(
+      `SELECT entity_id, value FROM ha_projection_values
+       WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model=$4 AND owner_id=''
+         AND entity_id = ANY($5::text[]) AND (cardinality($6::text[])=0 OR readers && $6::text[])`,
+      [scope.tenantId, scope.projectId, scope.policyEpoch, model, ids, [...(scope.readers ?? [])]],
+    );
+    return new Map(result.rows.map(({ entity_id, value }) => [entity_id, JSON.parse(value) as Value]));
+  };
+  const groupIds = await readValues<string>(DISPATCH, dispatchIds);
+  if (groupIds.size === 0) return [];
+  const groups = await readValues<DispatchLifecycleGroup>(GROUP, [...new Set(groupIds.values())]);
+  return dispatchIds.flatMap((id) => {
+    const groupId = groupIds.get(id),
+      group = groupId === undefined ? undefined : groups.get(groupId);
+    return group ? [dispatchLifecycleView(group, id)] : [];
+  });
 }
 
 export function pgDispatchLifecycleQueries(options: {
@@ -214,34 +237,28 @@ export function pgDispatchLifecycleQueries(options: {
           if (cut.status !== "ready" || !(await lifecycleModelCurrent(client, scope)))
             return { status: "pending", watermark: cut.watermark, sourceRevision: cut.sourceRevision };
           const base = { status: "ready" as const, watermark: cut.watermark, sourceRevision: cut.sourceRevision };
-          if (query.by !== "active") {
-            const keys =
-              query.by === "group"
-                ? [{ groupId: query.attemptGroupId, dispatchId: undefined }]
-                : await Promise.all(
-                    (query.by === "dispatch" ? query.dispatchIds : [query.runtimeSessionId]).map(async (key) => ({
-                      groupId: await getPgProjectionValue<string>(
-                        client,
-                        scope,
-                        query.by === "dispatch" ? DISPATCH : SESSION,
-                        key,
-                      ),
-                      dispatchId: query.by === "dispatch" ? key : undefined,
-                    })),
-                  );
-            if (keys.length > DISPATCH_LIFECYCLE_PAGE_LIMIT)
+          if (query.by === "dispatch") {
+            if (query.dispatchIds.length > DISPATCH_LIFECYCLE_PAGE_LIMIT)
               throw new Error(`dispatch lifecycle point reads accept at most ${DISPATCH_LIFECYCLE_PAGE_LIMIT} ids`);
-            const rows = [];
-            for (const key of keys) {
-              if (key.groupId === null) continue;
-              const group = await getPgProjectionValue<DispatchLifecycleGroup>(client, scope, GROUP, key.groupId);
-              if (!group) continue;
-              const dispatchId =
-                query.by === "session"
-                  ? group.attempts.find((attempt) => attempt.runtimeSessionId === query.runtimeSessionId)?.dispatchId
-                  : key.dispatchId;
-              rows.push(dispatchLifecycleView(group, dispatchId));
-            }
+          }
+          if (query.by === "dispatch" || query.by === "dispatch-batch") {
+            const rows = await readDispatchPointRows(client, scope, query.dispatchIds);
+            return { ...base, rows, nextCursor: null };
+          }
+          if (query.by !== "active") {
+            const groupId =
+              query.by === "group"
+                ? query.attemptGroupId
+                : await getPgProjectionValue<string>(client, scope, SESSION, query.runtimeSessionId);
+            const group =
+              groupId === null
+                ? null
+                : await getPgProjectionValue<DispatchLifecycleGroup>(client, scope, GROUP, groupId);
+            const dispatchId =
+              query.by === "session"
+                ? group?.attempts.find((attempt) => attempt.runtimeSessionId === query.runtimeSessionId)?.dispatchId
+                : undefined;
+            const rows = group ? [dispatchLifecycleView(group, dispatchId)] : [];
             return { ...base, rows, nextCursor: null };
           }
           const limit = Math.min(Math.max(1, Math.trunc(query.limit)), DISPATCH_LIFECYCLE_PAGE_LIMIT),

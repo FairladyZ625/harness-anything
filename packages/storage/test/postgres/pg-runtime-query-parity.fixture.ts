@@ -232,6 +232,7 @@ function dispatchContract(
       | "readRuntimeDispatchesByTaskExecution"
       | "readRuntimeDispatchesByAttemptGroup"
       | "readRuntimeDispatchesByDecision"
+      | "readRuntimeDispatchesByDecisions"
       | "readRuntimeDispatchPage"
       | "readRuntimeDispatchesByMember"
       | "readRuntimeSessionEvents"
@@ -348,11 +349,23 @@ function dispatchContract(
     execution: queries.readRuntimeDispatchesByTaskExecution("task-parity", "execution-parity"),
     attempts: queries.readRuntimeDispatchesByAttemptGroup("runtime-query-attempts"),
     decisions: queries.readRuntimeDispatchesByDecision("dec_PG_PARITY"),
+    decisionReviews: queries.readRuntimeDispatchesByDecisions([
+      ...Array.from({ length: 1_001 }, (_, index) => `dec_missing_${index}`),
+      "dec_PG_PARITY",
+      "dec_PG_PARITY",
+    ]),
     empty: queries.readRuntimeDispatchPage({ startedAtGte: "2027-01-01T00:00:00.000Z", limit: 1 }),
   };
 }
 export function assertRuntimeQueryParity(pg: PgTaskQueryMethods, sqlite: TaskProjectionQueries): void {
-  assert.deepEqual(dispatchContract(pg), dispatchContract(sqlite));
+  const postgres = dispatchContract(pg);
+  assert.deepEqual(
+    postgres.decisionReviews,
+    postgres.decisions.map(({ event }) => event),
+  );
+  assert.ok(postgres.decisionReviews.length > 0);
+  assert.deepEqual(pg.readRuntimeDispatchesByDecisions([]), []);
+  assert.deepEqual(dispatchContract(sqlite), postgres);
   const boundary = "2026-09-02T01:00:00.123Z";
   for (const query of [
     { observedAfter: boundary },

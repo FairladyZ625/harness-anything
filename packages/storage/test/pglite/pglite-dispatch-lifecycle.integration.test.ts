@@ -154,6 +154,20 @@ pgliteIntegrationSuite("PGlite dispatch lifecycle", () => {
           by: "dispatch",
           dispatchIds: ["d-done", "d-cancel", "d-supersede", "d-retire", "d-replace"],
         });
+        assert.deepEqual(
+          second.projection.readDispatchLifecycle({
+            by: "dispatch-batch",
+            dispatchIds: [
+              ...Array.from({ length: 101 }, (_, index) => `missing-${index}`),
+              "d-done",
+              "d-cancel",
+              "d-supersede",
+              "d-retire",
+              "d-replace",
+            ],
+          }),
+          closed,
+        );
         assert.ok(closed.status === "ready");
         assert.deepEqual(
           closed.rows.map((row) => [row.attemptGroupId, row.groupPhase, row.ruling, row.successor.admissible]),

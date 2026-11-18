@@ -1,6 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
+import { stripReviewPromptData } from "./review-path-matching.ts";
 import { workerLedgerPath } from "./worktree-setup.ts";
 
 /**
@@ -56,7 +57,7 @@ export function dispatchLedgerReadTexts(input: {
 /** Every distinct `harness/…` reference in one text, in first-seen order, prose punctuation stripped. */
 export function privateLedgerReferences(text: string): readonly string[] {
   const references = new Set<string>();
-  for (const match of text.matchAll(LEDGER_REFERENCE)) {
+  for (const match of stripReviewPromptData(text).matchAll(LEDGER_REFERENCE)) {
     const reference = match[0].replace(/^[^h]/u, "").replace(TRAILING_PROSE, "");
     if (reference.length > "harness/".length) references.add(reference);
   }
