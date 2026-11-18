@@ -23,6 +23,7 @@ import { scheduleFallbackContinuation } from "../src/daemon-host/runtime-spawn-f
 import { runtimeSpawnError } from "../src/runtime-engine/runtime-spawn-errors.ts";
 import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
 import type { RuntimeAttemptTerminal } from "../src/daemon-host/runtime-spawn-types.ts";
+import { RuntimeBoundaryError } from "../src/daemon-host/runtime/model-slot-queue.ts";
 import { dispatchLifecycleReadOf } from "./dispatch-lifecycle-read.fixtures.ts";
 
 const binding = withPolicyGroup(
@@ -516,8 +517,9 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       // The successor is published only after its predecessor links to it, so no read may see both
       // rows with the predecessor still scheduled.
       if (rows.length === 2) assert.equal(rows[0]?.nextDispatchId, rows[1]?.dispatchId, JSON.stringify(rows));
-      return rows.length >= 2 && taskDispatchRowsSettled(rows) ? rows : null;
+      return rows.length > 0 && taskDispatchRowsSettled(rows) ? rows : null;
     });
+    assert.equal(restarted.length, 2, restarted.map(({ reason }) => reason).join("\n"));
     assertAttemptChain(restarted, ["provider-restart-first", "provider-restart-second"]);
     const successor = restarted[1]!;
     assert.ok(successor.exitCode === null || successor.exitCode === 0, JSON.stringify(successor));
@@ -1207,6 +1209,7 @@ for (const recovery of ["reconcile", "adoption", "timer"] as const) {
         publications: unknown[] = [],
         interrupted = new Error("publication interrupted before center acceptance");
       let rejectPublication = true,
+        closeBeforeAdmission = recovery === "timer",
         launches = 0;
       // CH1 prepares host Git facts before the writer queue. Observe that actual
       // enqueue boundary rather than assuming the timer synchronously queues work.
@@ -1261,6 +1264,10 @@ for (const recovery of ["reconcile", "adoption", "timer"] as const) {
               dispatchId: id,
               launch: async () => {
                 launches += 1;
+                if (closeBeforeAdmission) {
+                  closeBeforeAdmission = false;
+                  throw new RuntimeBoundaryError("RUNTIME_CLOSING", "runtime closed before slot admission", 503);
+                }
                 if (rejectPublication) throw new Error("successor admission refused");
                 return {};
               },
@@ -1274,10 +1281,18 @@ for (const recovery of ["reconcile", "adoption", "timer"] as const) {
       t.mock.timers.tick(0);
       await queued;
       assert.equal(queue.length, expectedQueued);
+      if (recovery === "timer") {
+        await queue.shift()!();
+        const closing = await cell.readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] });
+        assert.ok(closing.status === "ready" && closing.rows[0]?.policy.fallbackPending);
+        assert.deepEqual(readDispatchStream(root, dispatchId)?.terminalOutcome, stream.terminalOutcome);
+        assert.equal(publications.length, 0, "closing a model slot queue must preserve the scheduled continuation");
+      }
       await assert.rejects(queue.shift()!(), interrupted);
       const frozen = readDispatchStream(root, dispatchId)!.terminalOutcome!;
       assert.equal(frozen.payload.attempt?.fallbackState, "exhausted");
-      assert.equal(launches, 1);
+      const launchesBeforeReplay = recovery === "timer" ? 2 : 1;
+      assert.equal(launches, launchesBeforeReplay);
       assert.equal(notifications.length, 0);
       assert.equal(path.basename(path.dirname(dispatchStreamPath(root, dispatchId)!)), "dispatches");
       const stillPending = await cell.readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] });
@@ -1288,7 +1303,7 @@ for (const recovery of ["reconcile", "adoption", "timer"] as const) {
       else if (recovery === "adoption") assert.equal((await adoptRuntimes(restarted))[0]?.outcome, "settled");
       t.mock.timers.tick(0);
       while (queue.length) await queue.shift()!();
-      assert.equal(launches, 1, "restart must not attempt another successor, even when launch is available");
+      assert.equal(launches, launchesBeforeReplay, "restart must not attempt another successor after exhaustion");
       assert.deepEqual(publications[1], publications[0], "replay preserves payload, body and operation identity");
       assert.equal(frozen.payload.resultRef, stream.terminalOutcome.payload.resultRef);
       assert.equal(frozen.body, stream.terminalOutcome.body);

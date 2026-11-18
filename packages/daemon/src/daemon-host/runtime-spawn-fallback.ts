@@ -555,6 +555,8 @@ export async function scheduleFallbackContinuation(args: {
           );
         } catch (error) {
           consumeKnownError(error);
+          // Closing the local slot queue does not settle the accepted provider continuation.
+          if (runtimeErrorCode(error) === "RUNTIME_CLOSING") return;
           const reason = String(
               scrubProviderValue(`Provider fallback could not launch ${next.instance}: ${runtimeErrorMessage(error)}`),
             ).slice(0, 1024),
