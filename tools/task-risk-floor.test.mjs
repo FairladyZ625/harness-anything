@@ -118,8 +118,56 @@ test("oracle change reasons are bounded on massive test refactors", (t) => {
   );
   const result = assessRepositoryRisk(input(files), root);
   assert.equal(result.minimumTier, "medium");
-  assert.ok(result.reasons.length <= 26, `expected bounded reasons, got ${String(result.reasons.length)}`);
-  assert.match(result.reasons.at(-1) ?? "", /total 40/u);
+  assert.equal(result.reasons.length, 1);
+  assert.match(result.reasons[0], /total 40/u);
+  assert.match(result.reasons[0], /suite-4\.test\.ts/u);
+  assert.doesNotMatch(result.reasons[0], /suite-5\.test\.ts/u);
+  assert.match(result.reasons[0], /35 more/u);
+});
+
+test("testing documentation stays low and Markdown fixtures are protected", (t) => {
+  const root = fixture(t);
+  assert.equal(assessRepositoryRisk(input([sourceFile("packages/app/test/README.md", 1, 1)]), root).minimumTier, "low");
+  assert.equal(
+    assessRepositoryRisk(input([sourceFile("packages/app/test/fixtures/expected.md", 1, 1)]), root).minimumTier,
+    "medium",
+  );
+});
+
+test("new colocated tests are excluded from the production budget", (t) => {
+  const root = fixture(t);
+  assert.equal(
+    assessRepositoryRisk(input([sourceFile("packages/app/src/feature.test.ts", 41, 0, "added")]), root).minimumTier,
+    "low",
+  );
+  assert.equal(
+    assessRepositoryRisk(
+      input([
+        sourceFile("packages/app/src/feature.spec.ts", 2, 0, "added"),
+        sourceFile("packages/app/src/main.ts", 1, 1),
+      ]),
+      root,
+    ).minimumTier,
+    "low",
+  );
+});
+
+test("renames check both endpoints and copies leave the source intact", (t) => {
+  const root = fixture(t),
+    oldPath = "packages/app/test/fixtures/expected.json",
+    newPath = "packages/app/data/expected.json";
+  for (const [from, to] of [
+    [oldPath, newPath],
+    [newPath, oldPath],
+  ]) {
+    const renamed = assessRepositoryRisk(input([{ ...sourceFile(to, 0, 0, "renamed"), oldPath: from }]), root);
+    assert.equal(renamed.minimumTier, "medium");
+    assert.ok(renamed.reasons.some((reason) => reason.includes(`${from} -> ${to}`)));
+  }
+  assert.equal(
+    assessRepositoryRisk(input([{ ...sourceFile(newPath, 0, 0, "copied"), oldPath }]), root).minimumTier,
+    "low",
+  );
 });
 
 test("one localized production file stays low through 40 changed lines", (t) => {

@@ -398,19 +398,18 @@ async function readDeliveryRiskDiff(
     ]),
     statusTokens = statusText.split("\0").filter(Boolean),
     numstatTokens = numstatText.split("\0").filter(Boolean),
-    statuses = new Map<string, TaskRiskTierScriptInput["delivery"]["files"][number]["status"]>(),
+    statuses = new Map<string, Pick<TaskRiskTierScriptInput["delivery"]["files"][number], "status" | "oldPath">>(),
     counts = new Map<string, { additions: number; deletions: number; binary: boolean }>();
   for (let index = 0; index < statusTokens.length; ) {
     const code = statusTokens[index++]!,
       oldPath = statusTokens[index++]!;
     if (code.startsWith("R") || code.startsWith("C")) {
       const newPath = statusTokens[index++]!;
-      statuses.set(newPath, code.startsWith("R") ? "renamed" : "copied");
+      statuses.set(newPath, { status: code.startsWith("R") ? "renamed" : "copied", oldPath });
     } else {
-      statuses.set(
-        oldPath,
-        code === "A" ? "added" : code === "D" ? "deleted" : code === "T" ? "type-changed" : "modified",
-      );
+      statuses.set(oldPath, {
+        status: code === "A" ? "added" : code === "D" ? "deleted" : code === "T" ? "type-changed" : "modified",
+      });
     }
   }
   for (let index = 0; index < numstatTokens.length; ) {
@@ -435,9 +434,17 @@ async function readDeliveryRiskDiff(
   for (let offset = 0; offset < paths.length; offset += 4) {
     const batch = await Promise.all(
       paths.slice(offset, offset + 4).map(async (filePath) => {
+        const status = statuses.get(filePath)!;
         const patch = await runProcessTextAsync(
           "git",
-          ["diff", "--no-ext-diff", "--binary", "--find-renames", baseSha, headSha, "--", filePath],
+          [
+            "--literal-pathspecs",
+            "diff",
+            "--no-ext-diff",
+            "--binary",
+            ...gitArgs,
+            ...(status.oldPath ? [status.oldPath, filePath] : [filePath]),
+          ],
           rootDir,
           undefined,
           undefined,
@@ -446,7 +453,7 @@ async function readDeliveryRiskDiff(
         );
         return {
           path: filePath,
-          status: statuses.get(filePath)!,
+          ...status,
           ...(counts.get(filePath) ?? { additions: 0, deletions: 0, binary: false }),
           patch,
         };
