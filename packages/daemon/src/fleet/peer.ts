@@ -1112,6 +1112,25 @@ export async function createFleetMemberDeviceLink(options: FleetPeerOptions, rep
   }
 }
 
+export async function unregisterFleetNodeClient(
+  options: FleetPeerOptions,
+  request: Extract<FleetFrameV1, { schema: "fleet.node.unregister/v1" }>["request"],
+) {
+  const peer = await openPeer(options);
+  try {
+    const reply = await peer.request({
+      schema: "fleet.node.unregister/v1",
+      messageId: peer.messageId(),
+      repoId: options.repoId,
+      request,
+    });
+    if (reply.schema !== "fleet.node.unregister.result/v1") throw new Error("Node retirement result expected.");
+    return reply.result;
+  } finally {
+    peer.close();
+  }
+}
+
 export async function reportFleetDeviceLogin(
   options: Omit<FleetPeerOptions, "repoId">,
   notice: FleetDeviceLoginNotice,

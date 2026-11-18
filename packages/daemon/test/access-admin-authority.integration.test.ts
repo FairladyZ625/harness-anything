@@ -7,12 +7,12 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { createIdentitySession } from "../src/authorization-provider.ts";
+import { managedRbacReceiptJournal } from "../src/access-admin-state.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { keycloakRealm, keycloakSessionStore, keycloakUserRoot, serveKeycloak } from "./keycloak.fixtures.ts";
+import { keycloakRealm, keycloakSessionStore, keycloakUserRoot, serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
-import { fleetHostWriterOptions, fleetNodeOwners } from "./fleet-store.fixture.ts";
+import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { git, initRepo } from "./fleet-runtime-recovery.fixtures.ts";
-import { listenFleetTls } from "../src/fleet/center.ts";
 import { writeFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
 import { oidcCenterSelections } from "../src/oidc-center-selection.ts";
 import { startDaemon, type RunningDaemon } from "../src/runtime.ts";
@@ -29,12 +29,10 @@ test("registered edges read only their current repository's member directory wit
   const owners = await fleetNodeOwners({ userRoot, owners: { [nodeId]: "repo-admin" }, repoIds, grantAll: false });
   const open: {
     host?: Awaited<ReturnType<typeof openDaemonHost>>;
-    listener?: Awaited<ReturnType<typeof listenFleetTls>>;
     edge?: RunningDaemon;
   } = {};
   t.after(async () => {
     await open.edge?.stop();
-    await open.listener?.close();
     await open.host?.close();
     await owners.close();
     rmSync(root, { recursive: true, force: true });
@@ -68,7 +66,7 @@ test("registered edges read only their current repository's member directory wit
       "-days",
       "1",
       "-addext",
-      "subjectAltName=DNS:localhost",
+      "subjectAltName=DNS:localhost,IP:127.0.0.1",
     ],
     { stdio: "ignore" },
   );
@@ -95,17 +93,15 @@ test("registered edges read only their current repository's member directory wit
       effectivePolicyGroupScopes(groups, groupId),
     );
   }
-  const listener = await listenFleetTls({
-    host,
-    stateRoot: path.join(root, "fleet"),
-    ...fleetHostWriterOptions(userRoot, repoIds),
-    key: readFileSync(keyPath),
-    cert: readFileSync(certPath),
-    authenticate: (node, credential) => node === nodeId && credential === "test-machine-credential",
-    nodeOwner: owners.nodeOwner,
-    verifyHuman: owners.verifyHuman,
-  });
-  open.listener = listener;
+  owners.keycloak.account("center-operator");
+  owners.keycloak.permit("center-operator", "repo-a", ["daemon-fleet-center-start"]);
+  signInAt(userRoot, "center-operator");
+  const listener = await host.fleet.startCenter(
+    { port: 0, repoId: "repo-a", keyPath, certPath, quotaBytes: 64 * 1024 * 1024 },
+    { transportKind: "unix-socket" },
+  );
+  assert.equal(listener.outcome, "applied");
+  const machineCredential = owners.keycloak.node(nodeId, "repo-admin");
   const issuer = `${owners.url}/realms/${keycloakRealm}`,
     authority = { url: owners.url, realm: keycloakRealm, clientId: `harness-node-${nodeId}` },
     edgeRoot = (repoId: string) => path.join(root, `edge-${repoId}`);
@@ -121,9 +117,9 @@ test("registered edges read only their current repository's member directory wit
       repoId,
       nodeId,
       host: "localhost",
-      port: listener.port,
+      port: Number(listener.port),
       caPath: certPath,
-      credential: "test-machine-credential",
+      credential: machineCredential,
       quotaBytes: 1024,
       viewRoot: path.join(root, `view-${repoId}`),
     });
@@ -197,6 +193,104 @@ test("registered edges read only their current repository's member directory wit
     members: [],
   });
   assert.equal(existsSync(path.join(edgeUserRoot, "rbac/config.json")), false);
+
+  await t.test("Fleet retirement previews and confirms at the bound center", async () => {
+    const target = "retirement-target",
+      credential = owners.keycloak.node(target, "other-repo-member"),
+      adminPersonId = "fleet-admin";
+    owners.keycloak.account(adminPersonId);
+    const adminUserId = (await provider.findUserId(accessToken, adminPersonId))!;
+    for (const [groupId, resource] of [
+      ["admin", "@fleet"],
+      ["contributor", "repo-a"],
+    ] as const)
+      await provider.writeGrant(
+        accessToken,
+        { groupId, resource, userIds: [adminUserId] },
+        effectivePolicyGroupScopes(groups, groupId),
+      );
+    const unregister = (
+      params: { confirm?: boolean; expectedVersion?: string; operationId?: string; force?: boolean } = {},
+      repoId = "repo-a",
+      targetNodeId = target,
+    ) =>
+      requestDaemonJsonRpcAt(
+        running.endpoint,
+        "daemon.rbac.manage",
+        {
+          operation: "node-unregister",
+          repoId,
+          rootDir: path.join(root, "unregistered"),
+          nodeId: targetNodeId,
+          ...params,
+        },
+        1000,
+        15_000,
+      );
+    const journal = managedRbacReceiptJournal(userRoot);
+    signIn(adminPersonId);
+    assert.equal((await read("repo-a")).canManageFleetNodes, true);
+    const preview = await unregister();
+    assert.equal(preview.ok, true, JSON.stringify(preview));
+    assert.equal(preview.dryRun, true);
+    assert.equal(preview.nodeId, target);
+    assert.equal(preview.expectedVersion, "1");
+    assert.equal(await provider.authenticateNode(target, credential), true);
+    assert.deepEqual(journal.read(), []);
+
+    const confirmation = { confirm: true, expectedVersion: String(preview.expectedVersion) };
+    for (const personId of ["repo-member", "repo-admin"]) {
+      signIn(personId);
+      assert.equal((await unregister()).code, "authorization_denied");
+      assert.equal((await unregister(confirmation)).code, "authorization_denied");
+    }
+    assert.deepEqual(journal.read(), []);
+    signIn(adminPersonId);
+    assert.equal((await unregister({}, "repo-b")).code, "authorization_denied");
+    assert.equal((await unregister({}, "unknown-repo")).code, "repo_namespace_unknown");
+    assert.equal((await unregister({ confirm: true })).code, "access_request_invalid");
+    assert.deepEqual(journal.read(), []);
+    const conflict = await unregister({ ...confirmation, expectedVersion: "stale" });
+    assert.equal(conflict.code, "version_conflict");
+    assert.equal(conflict.currentVersion, preview.expectedVersion);
+    assert.equal(await provider.authenticateNode(target, credential), true);
+
+    const operationId = "edge-node-retirement";
+    const receipt = await unregister({ ...confirmation, operationId });
+    assert.equal(receipt.ok, true, JSON.stringify(receipt));
+    assert.equal(receipt.actor, adminPersonId);
+    assert.equal(receipt.operationId, operationId);
+    assert.equal(receipt.outcome, "applied");
+    assert.equal((await provider.readNode(accessToken, target))?.state, "removed");
+    assert.equal((await provider.readNode(accessToken, nodeId))?.state, "active");
+    assert.equal(await provider.authenticateNode(target, credential), false);
+    assert.equal((await unregister({ ...confirmation, operationId })).code, "access_operation_settled");
+    assert.deepEqual(
+      journal
+        .read()
+        .map((line) => JSON.parse(line))
+        .filter((row) => row.operationId === operationId)
+        .map(({ actor, phase }) => ({ actor, phase })),
+      [
+        { actor: adminPersonId, phase: "intent" },
+        { actor: adminPersonId, phase: "settled" },
+      ],
+    );
+    assert.deepEqual(managedRbacReceiptJournal(edgeUserRoot).read(), []);
+
+    const selfPreview = await unregister({}, "repo-a", nodeId);
+    assert.equal(selfPreview.online, true);
+    const selfConfirm = { confirm: true, expectedVersion: String(selfPreview.expectedVersion) };
+    assert.equal((await unregister(selfConfirm, "repo-a", nodeId)).code, "node_busy");
+    const selfReceipt = await unregister(
+      { ...selfConfirm, force: true, operationId: "retire-sending-node" },
+      "repo-a",
+      nodeId,
+    );
+    assert.equal(selfReceipt.outcome, "applied", JSON.stringify(selfReceipt));
+    assert.equal((await provider.readNode(accessToken, nodeId))?.state, "removed");
+    assert.equal(await provider.authenticateNode(nodeId, machineCredential), false);
+  });
 });
 
 async function keycloakFixture(t: TestContext, fleetGrant = true) {

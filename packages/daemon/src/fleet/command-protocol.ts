@@ -87,6 +87,20 @@ export type FleetFrameV1 =
   | Msg<"fleet.edge.link.create/v1", { repoId: string; repoIds: readonly string[] }>
   | Msg<"fleet.edge.link.created/v1", { inReplyTo: string; result: import("./edge-join.ts").EdgeJoinCreated }>
   | Msg<
+      "fleet.node.unregister/v1",
+      {
+        repoId: string;
+        request: Readonly<{
+          nodeId: string;
+          confirm?: boolean;
+          force?: boolean;
+          operationId?: string;
+          expectedVersion?: string;
+        }>;
+      }
+    >
+  | Msg<"fleet.node.unregister.result/v1", { inReplyTo: string; result: Readonly<Record<string, unknown>> }>
+  | Msg<
       "fleet.edge.join/v1",
       {
         joinId: string;
@@ -771,6 +785,14 @@ const schemas: Readonly<Record<string, Check>> = {
   // accessToken is validated separately below and deliberately excluded from the
   // closed-schema payload so the secret never enters generic shape validation.
   "fleet.edge.link.create/v1": shape({ ...common, repoId: id, repoIds: array(id) }),
+  "fleet.node.unregister/v1": shape({
+    ...common,
+    repoId: id,
+    request: optionalShape({ nodeId: id, confirm: boolean, force: boolean, operationId: text, expectedVersion: text }, [
+      "nodeId",
+    ]),
+  }),
+  "fleet.node.unregister.result/v1": shape({ ...reply, result: record }),
   "fleet.edge.link.created/v1": shape({
     ...reply,
     result: shape({

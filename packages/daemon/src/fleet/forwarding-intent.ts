@@ -28,7 +28,16 @@ export type OperationalReadForwardingIntent = Readonly<{
   inputs: Readonly<Record<string, unknown>>;
 }>;
 
-export type ForwardingIntent = CommandForwardingIntent | RuntimeForwardingIntent | OperationalReadForwardingIntent;
+type NodeUnregisterForwardingIntent = Readonly<{
+  kind: "node-unregister";
+  inputs: Partial<Extract<FleetFrameV1, { schema: "fleet.node.unregister/v1" }>["request"]>;
+}>;
+
+export type ForwardingIntent =
+  | CommandForwardingIntent
+  | RuntimeForwardingIntent
+  | OperationalReadForwardingIntent
+  | NodeUnregisterForwardingIntent;
 
 export function forwardingIntentForAction(
   method: string,

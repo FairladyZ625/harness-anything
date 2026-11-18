@@ -10,6 +10,8 @@ import { getExecutableEntityAction, readDaemonRegistry, type IdentitySessionPort
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import type { FleetPeerOptions } from "./peer.ts";
+import { unregisterFleetNodeClient } from "./peer.ts";
+import { text } from "../access-admin-utils.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { readFleetEdgeConfig } from "../client/fleet-edge-config.ts";
@@ -75,6 +77,19 @@ export async function forward(input: {
     return bound.localSessionAccessToken ? bound.localSessionAccessToken() : bound.oidcPrincipal?.accessToken;
   };
   signal?.throwIfAborted();
+  if (input.intent.kind === "node-unregister") {
+    const { writePeer } = runtimeForwardingContext(config, readAccessToken);
+    return raceLifetime(
+      unregisterFleetNodeClient(
+        { ...writePeer, signal },
+        {
+          ...input.intent.inputs,
+          nodeId: text(input.intent.inputs.nodeId, "nodeId"),
+        },
+      ),
+      signal,
+    );
+  }
   if (input.intent.kind === "operational-read") {
     const { runtimeReadPeer } = runtimeForwardingContext(config, readAccessToken);
     return raceLifetime(

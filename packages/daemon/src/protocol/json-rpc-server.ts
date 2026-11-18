@@ -1113,6 +1113,7 @@ function sessionIndependentRbacOperation(method: string, params: JsonObject): bo
     "login-complete",
     "login-poll",
     "logout",
+    "node-unregister",
     "repository-members",
     "session",
   ].includes(String(params.operation));

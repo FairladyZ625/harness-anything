@@ -28,6 +28,24 @@ const cut = {
 const ledgerCut = { repoId: "repo", revision: cut.revision, headDigest: cut.headDigest } as const;
 const blob = { sha256: "c".repeat(64), size: 3, mediaType: "text/markdown" } as const;
 
+test("Fleet node retirement carries only the target and confirmation fields", () => {
+  const frame = {
+    schema: "fleet.node.unregister/v1",
+    messageId: "retire-node",
+    repoId: "repo-a",
+    request: { nodeId: "edge-a" },
+  };
+  const confirm = { ...frame, request: { ...frame.request, confirm: true, expectedVersion: "1", force: true } };
+  assert.deepEqual(parseFleetFrame(serializeFleetFrame(frame)), frame);
+  assert.deepEqual(parseFleetFrame(serializeFleetFrame(confirm)), confirm);
+  for (const unexpected of [{ actor: "admin" }, { operation: "grant" }, { executionCredential: "test" }])
+    assert.throws(
+      () => parseFleetFrame({ ...frame, request: { ...frame.request, ...unexpected } }),
+      FleetContractError,
+    );
+  assert.throws(() => parseFleetFrame({ ...frame, executionCredential: "test" }), FleetContractError);
+});
+
 test("large logical frames use ordered digest-checked envelopes and reassemble atomically", async () => {
   const frame = {
       schema: "fleet.operational.read.result/v1" as const,

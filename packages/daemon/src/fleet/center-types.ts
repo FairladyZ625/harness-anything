@@ -30,7 +30,7 @@ export interface FleetCenterOptions {
     | "readNodeAutoClaimCandidates"
     | "readNodeAutoDispatchCandidates"
   > &
-    Partial<Pick<DaemonHost, "readRepositoryMembers">>;
+    Partial<Pick<DaemonHost, "readRepositoryMembers" | "unregisterFleetNode">>;
   readonly stateRoot: string;
   readonly writerEpochStateRoot?: string;
   readonly writerEpochLease?: (repoId: string) => WriterEpochLease;
@@ -171,6 +171,7 @@ export type SessionWindow = {
   readonly holderId: string;
   readonly drainedBytes: () => number;
   readonly requestRepos: Map<string, string>;
+  readonly retainRetirementReply: (request: FleetFrameV1) => void;
   readonly uploads: Set<string>;
   readonly keys: Set<string>;
   readonly offers: Map<

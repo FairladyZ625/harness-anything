@@ -2,7 +2,11 @@ import { reviewDispatchDiagnostic } from "@harness-anything/application/internal
 import type { DaemonHostOpenInput } from "./daemon-host-types.ts";
 import { createFleetMemberDeviceLink } from "./fleet/peer.ts";
 import { forward, resolveRuntimeLocation, type RuntimeForwardingRequest } from "./fleet/forwarding-port.ts";
-import { forwardingIntentForAction, runtimeForwardingIntent } from "./fleet/forwarding-intent.ts";
+import {
+  forwardingIntentForAction,
+  runtimeForwardingIntent,
+  type ForwardingIntent,
+} from "./fleet/forwarding-intent.ts";
 import { runtimeInstanceUsesCredential } from "./runtime-hosting-credentials.ts";
 import { markDaemonOperationPhase } from "./daemon-operation.ts";
 import type { FleetDeviceLoginNotice, TaskReviewDispatchFailureV1 } from "@harness-anything/kernel";
@@ -1103,11 +1107,15 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   const lifecycle = createDaemonHostLifecycleApi(hostContext);
   void ensureRbacResumed().catch(consumeKnownError);
   const edgeJoinProgress = createEdgeJoinProgressTap();
-  const readEdgeRepositoryMembers = (repoId: string, auth: DaemonAuthenticationContext) =>
+  const forwardEdgeAccessAdmin = (
+    repoId: string,
+    intent: Extract<ForwardingIntent, { kind: "operational-read" | "node-unregister" }>,
+    auth: DaemonAuthenticationContext,
+  ) =>
     forward({
       userRoot: input.userRoot,
       repoId,
-      intent: { kind: "operational-read", method: "repo.access.members.read", inputs: {} },
+      intent,
       auth: { transportKind: auth.transportKind, connectionSignal: auth.connectionSignal },
       oidc,
       signal: closeController.signal,
@@ -1146,6 +1154,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         throw hostCodedError("authorization_denied", "The repository member directory requires a signed-in person.");
       return accessAdmin.readRepositoryMembers(repoId, auth.oidcPrincipal);
     },
+    unregisterFleetNode: (request, actor, assertSourceOpen, retainReply) =>
+      accessAdmin.unregisterFleetNode(request, actor, assertSourceOpen, retainReply),
     sessionPrincipal: async (auth, method, params) => {
       await ensureRbacResumed();
       if (
@@ -1204,18 +1214,18 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         if (request.operation === "edge-join-progress") {
           return { ok: true, command: "edge-join", ...edgeJoinProgress.read() };
         }
-        const registeredRoot = () =>
+        const usesRegisteredAuthority =
+            request.operation === "repository-members" ||
+            (request.operation === "node-unregister" && request.repoId !== undefined),
+          registeredRoot = () =>
             request.repoId
               ? (readDaemonRegistry({ userRoot: input.userRoot }).repos.find(
-                  (repo) =>
-                    repo.repoId === request.repoId &&
-                    (request.operation !== "repository-members" || repo.state === "enabled"),
+                  (repo) => repo.repoId === request.repoId && (!usesRegisteredAuthority || repo.state === "enabled"),
                 )?.canonicalRoot ?? undefined)
               : undefined,
-          loginTarget =
-            request.operation === "repository-members"
-              ? registeredRoot()
-              : (request.rootDir ?? request.workspaceRoot ?? registeredRoot()),
+          loginTarget = usesRegisteredAuthority
+            ? registeredRoot()
+            : (request.rootDir ?? request.workspaceRoot ?? registeredRoot()),
           requireLoginTarget = () => {
             if (!loginTarget)
               throw hostCodedError("oidc_center_required", "Select a repository root to choose its identity center.");
@@ -1264,15 +1274,26 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           return oidc.configureAuthority(() => managedRbac.run(request), requireLoginTarget());
         if (request.repoId && !loginTarget)
           throw hostCodedError("repo_namespace_unknown", "Select a registered repository for login.");
-        if (request.operation === "repository-members" && request.repoId) {
-          if (auth.executionPrincipal)
-            throw hostCodedError(
-              "authorization_denied",
-              "The repository member directory requires a signed-in person.",
-            );
-          // Fleet directory reads use the registered repository's center. Admin REST credentials
-          // stay at that center, where the bound human request is independently authorized.
-          const result = await readEdgeRepositoryMembers(request.repoId, auth);
+        if (usesRegisteredAuthority && request.repoId) {
+          if (auth.executionPrincipal || auth.executionCredential)
+            throw hostCodedError("authorization_denied", "This access operation requires a signed-in person.");
+          const { nodeId, confirm, expectedVersion, force, operationId } = request;
+          const result = await forwardEdgeAccessAdmin(
+            request.repoId,
+            request.operation === "node-unregister"
+              ? {
+                  kind: "node-unregister",
+                  inputs: {
+                    nodeId,
+                    confirm: confirm === true,
+                    force: force === true,
+                    ...(expectedVersion ? { expectedVersion } : {}),
+                    ...(operationId ? { operationId } : {}),
+                  },
+                }
+              : { kind: "operational-read", method: "repo.access.members.read", inputs: {} },
+            auth,
+          );
           if (result !== null) return result;
         }
         if (request.operation === "listener" && loginTarget) {

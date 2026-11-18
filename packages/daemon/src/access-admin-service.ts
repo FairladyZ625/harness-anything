@@ -73,6 +73,11 @@ interface Session {
   readonly realmAdmin: { readonly url: string; readonly realm: string; readonly accessToken: string };
 }
 
+interface MutationAdmission {
+  readonly session: () => Promise<Session>;
+  readonly retainReply?: () => void;
+}
+
 const resourceServerClientId = "harness-center",
   receiptListLimit = daemonProtocolFleetPolicy.defaultValue.access.receiptListLimit;
 
@@ -188,6 +193,29 @@ export class AccessAdminService {
     };
   }
 
+  unregisterFleetNode(
+    request: AccessAdminRequest,
+    actor: { readonly personId: string; readonly accessToken: string },
+    assertSourceOpen: () => void,
+    retainReply?: () => void,
+  ) {
+    return this.#unregisterNode(request, actor.personId, {
+      retainReply,
+      session: async () => {
+        assertSourceOpen();
+        const session = await this.#session(),
+          decision = await session.adapter.authorize({
+            userAccessToken: actor.accessToken,
+            action: "access-manage",
+            resource: { kind: "fleet" },
+          });
+        if (decision.outcome !== "allowed")
+          throw coded("authorization_denied", "Access management requires an access-manage grant on @fleet.");
+        return session;
+      },
+    });
+  }
+
   async run(request: AccessAdminRequest, requester?: string): Promise<Record<string, unknown>> {
     if (request.operation === "repository-members") {
       if (requester !== undefined)
@@ -255,9 +283,7 @@ export class AccessAdminService {
       case "node-register":
         return this.#mutate(request, actor, (session) => this.#planNodeRegistration(session, request));
       case "node-unregister":
-        return this.#mutate(request, actor, (session) =>
-          planNodeRetirement(session, request, this.#ports.nodeRetirement!),
-        );
+        return this.#unregisterNode(request, actor);
       case "edge-join-create":
         return this.#oidc.serialize(() => this.#edgeJoinAdmin.create(request, actor, actorSession.accessToken));
       case "edge-join-status":
@@ -629,10 +655,20 @@ export class AccessAdminService {
     return [...byOperation.values()].reverse();
   }
 
+  #unregisterNode(request: AccessAdminRequest, actor: string, admission?: MutationAdmission) {
+    return this.#mutate(
+      { ...request, operation: "node-unregister" },
+      actor,
+      (session) => planNodeRetirement(session, request, this.#ports.nodeRetirement!),
+      admission,
+    );
+  }
+
   #mutate(
     request: AccessAdminRequest,
     actor: string,
     plan: (session: Session) => Promise<Plan | Conflict>,
+    admission?: MutationAdmission,
   ): Promise<Record<string, unknown>> {
     // An operationId is the journal key for retries and reconciliation, not an input the caller must
     // invent: generate one when omitted and return it in the receipt like an explicitly supplied id.
@@ -640,11 +676,12 @@ export class AccessAdminService {
       operationId = suppliedOperationId ? suppliedOperationId : randomUUID(),
       operation = request.operation!;
     return this.#oidc.serialize(async () => {
+      const admittedSession = await admission?.session();
       const recorded = this.#records(operationId);
       if (recorded.some((record) => record.phase === "settled"))
         throw coded("access_operation_settled", `Operation ${operationId} already settled; use a new operationId.`);
       if (recorded.length > 0) throw unsettled(operationId);
-      const session = await this.#session(),
+      const session = admittedSession ?? (await this.#session()),
         planned = await plan(session),
         base = { schema: "harness-access-receipt/v1", operationId, operation, actor, authority: session.authority };
       if (!("conflict" in planned) && planned.preview && request.confirm !== true)
@@ -687,6 +724,7 @@ ${JSON.stringify(planned.preview, null, 2)}`,
         }
         if (removed) await this.#ports.nodeRetirement!.drain(removed);
         const issued = await planned.apply();
+        if (removed) admission?.retainReply?.();
         return {
           ...this.#settle(
             { ...base, expect: planned.expect, ...(planned.preview ? { retirement: planned.preview } : {}) },

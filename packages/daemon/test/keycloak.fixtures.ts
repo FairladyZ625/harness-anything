@@ -284,7 +284,10 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
         url,
       );
     }
-    const nodeClient = [...nodeClients.values()].find((client) => route.startsWith(`/clients/${client.id}`));
+    const nodeClient = [...nodeClients.values()].find(({ id }) => {
+      const clientPath = `/clients/${id}`;
+      return route === clientPath || route.startsWith(`${clientPath}/`);
+    });
     if (nodeClient) {
       if (route.endsWith("/service-account-user") && method === "GET")
         return json({

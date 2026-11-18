@@ -1607,6 +1607,27 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         });
       });
     }
+    if (frame.schema === "fleet.node.unregister/v1") {
+      const { oidcPrincipal } = await repoAdmission(await nodeContext(nodeId, frame.repoId, frame.accessToken));
+      if (!oidcPrincipal) throw new FleetFault("authentication_required", "Sign in before retiring a node.");
+      if (!options.host.unregisterFleetNode)
+        throw new FleetFault("node_retirement_unavailable", "Node retirement is unavailable.");
+      const result = await options.host.unregisterFleetNode(
+        frame.request,
+        oidcPrincipal,
+        () => {
+          connectionSignal.throwIfAborted();
+          nodeAdmission.assertOpen(nodeId);
+        },
+        frame.request.nodeId === nodeId ? () => window.retainRetirementReply(frame) : undefined,
+      );
+      return immediate({
+        schema: "fleet.node.unregister.result/v1",
+        messageId: mid(frame.messageId, "node-retirement"),
+        inReplyTo: frame.messageId,
+        result,
+      });
+    }
     if (frame.schema === "fleet.edge.link.create/v1") {
       const principal = await repoAdmission(await nodeContext(nodeId, frame.repoId, frame.accessToken));
       if (!options.createMemberEdgeJoin || !principal.oidcPrincipal)
@@ -1749,7 +1770,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   );
   const observedHandle = AsyncLocalStorage.bind((...args: Parameters<Parameters<typeof serve>[2]>) => {
     const [nodeId, frame, window, clientGone, signal, progress, errorReply] = args,
-      runHandle = () => nodeAdmission.run(nodeId, () => handle(nodeId, frame, window, clientGone, signal, progress)),
+      // The identity writer serializes retirement independently of repository writer drains.
+      runHandle = () =>
+        frame.schema === "fleet.node.unregister/v1"
+          ? handle(nodeId, frame, window, clientGone, signal, progress)
+          : nodeAdmission.run(nodeId, () => handle(nodeId, frame, window, clientGone, signal, progress)),
       scope = beginDaemonOperation({
         method: "method" in frame ? String(frame.method) : frame.schema,
         repoId: "repoId" in frame ? String(frame.repoId) : null,
