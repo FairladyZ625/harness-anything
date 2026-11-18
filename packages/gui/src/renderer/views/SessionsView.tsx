@@ -49,7 +49,6 @@ import {
   sessionGroupNeedsYou,
   sessionDecisionRefs,
   sessionOrphans,
-  sessionRoundMatchesAttribution,
   sessionRounds,
   sessionRoundsByTask,
   sessionStatusFilterKey,
@@ -843,7 +842,15 @@ export function SessionsView({
         ? current
         : { runtimeSessionId: focusedSessionId, taskId: taskIds[0]! },
     );
-  }, [drill, focusedSessionId, groups, selectedSession.data, workspace.groups.data]);
+  }, [
+    drill,
+    focusedSessionId,
+    focusedSessionVisible,
+    groups,
+    hasAttributionFilter,
+    selectedSession.data,
+    workspace.groups.data,
+  ]);
   const selectedRow =
     selectedSessionId === null ? null : (allRows.find((row) => row.runtimeSessionId === selectedSessionId) ?? null);
   const selectedTaskId = selectedRow?.taskId ?? selectedSession.data?.session.associations[0]?.taskId ?? null;

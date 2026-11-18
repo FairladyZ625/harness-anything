@@ -6,6 +6,14 @@ import { readAllTaskDispatches } from "../task-dispatch-client.ts";
 import { t } from "../i18n/index.tsx";
 import type { TaskRow } from "../model/types.ts";
 
+function dispatchMatchesAttribution(
+  row: { readonly personId?: string | null; readonly nodeId?: string | null },
+  personId: string | null,
+  nodeId: string | null,
+): boolean {
+  return (personId === null || row.personId === personId) && (nodeId === null || row.nodeId === nodeId);
+}
+
 /**
  * 血缘与成本树(dec_C0AF8CBBFFECF71F4F34FB76F9 CH4/W3-T1):工作页工作卡与任务详情关系页
  * 共用的实时树。沿 `repo.task.dispatches` 游标拉齐根任务及全部子孙的派工轮,
@@ -42,21 +50,22 @@ export function WorkLineageTree({
 }) {
   const taskIds = useMemo(() => lineageTaskIds(rootTask.taskId, tasks), [rootTask.taskId, tasks]);
   const idsKey = taskIds.join("\u0000");
-  const matchesAttribution = (row: { readonly personId?: string | null; readonly nodeId?: string | null }) =>
-    (personId === null || row.personId === personId) && (nodeId === null || row.nodeId === nodeId);
   const dispatches = useQuery({
     queryKey: ["dispatches", repoId, { batch: idsKey }],
     queryFn: () => readAllTaskDispatches({ repoId, taskIds }),
     staleTime: 4_000,
     refetchInterval: (query) =>
-      live || (query.state.data?.dispatches ?? []).some((row) => row.status === "running" && matchesAttribution(row))
+      live ||
+      (query.state.data?.dispatches ?? []).some(
+        (row) => row.status === "running" && dispatchMatchesAttribution(row, personId, nodeId),
+      )
         ? 4_000
         : false,
   });
   const rows = useMemo(() => {
     const raw = dispatches.data?.dispatches ?? [];
     if (personId === null && nodeId === null) return raw;
-    return raw.filter((row) => matchesAttribution(row));
+    return raw.filter((row) => dispatchMatchesAttribution(row, personId, nodeId));
   }, [dispatches.data, personId, nodeId]);
 
   const activate = useMemo(() => {
