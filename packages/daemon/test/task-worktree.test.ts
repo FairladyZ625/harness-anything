@@ -16,6 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
+import { waitForDurableCondition } from "../../../tools/fixtures/event-arrival.ts";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { deriveTaskWorktreeBinding, type TaskV2, type WriteReceiptDraft } from "@harness-anything/kernel";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
@@ -461,7 +462,7 @@ test("the Settings step timeout reaches the checkout: a raised section value out
 
 test(
   "a run step stopped at the timeout takes the processes it started with it",
-  { skip: process.platform === "win32" ? "POSIX process groups" : false },
+  { skip: process.platform === "win32" ? "POSIX process groups" : false, timeout: 30_000 },
   async (t) => {
     const fixture = repositoryFixture(t);
     try {
@@ -472,15 +473,22 @@ test(
           cwd: checkout!.cwd,
           taskId,
           // Like `npm ci`: the shell waits on a process it started, which would keep writing the worktree.
-          steps: [`run: sleep 30 & echo $! > ${pidFile}; wait`],
+          steps: [
+            `run: node -e "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0)" & echo $! > ${pidFile}; wait`,
+          ],
           stepTimeoutMs: 300,
         });
       assert.equal(result.ok, false);
       const pid = Number(readFileSync(pidFile, "utf8"));
-      for (const deadline = Date.now() + 5_000; alive(pid); ) {
-        assert.ok(Date.now() < deadline, `the step's child ${pid} outlived the refused step`);
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
+      assert.ok(Number.isSafeInteger(pid) && pid > 0, "the step must have started a child");
+      t.signal.addEventListener(
+        "abort",
+        () => {
+          if (alive(pid)) process.kill(pid, "SIGKILL");
+        },
+        { once: true },
+      );
+      await waitForDurableCondition(() => !alive(pid));
     } finally {
       rmSync(fixture.base, { recursive: true, force: true });
     }

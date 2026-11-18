@@ -3,6 +3,7 @@ import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { once } from "node:events";
 import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -16,7 +17,17 @@ import {
 } from "@harness-anything/daemon/internal/client/daemon-autostart";
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { daemonProcessAlive, daemonSingletonLockPath } from "@harness-anything/daemon/internal/daemon-singleton";
-import { openDaemonLifecycleLog } from "@harness-anything/daemon/internal/lifecycle-log";
+import {
+  daemonLifecycleLogPath,
+  openDaemonLifecycleLog,
+  readDaemonLifecycleGeneration,
+} from "@harness-anything/daemon/internal/lifecycle-log";
+import {
+  waitForArrival,
+  waitForDurableCondition,
+  waitForDurableValue,
+  watchFileArrival,
+} from "../../../tools/fixtures/event-arrival.ts";
 import { daemonPidPath, readDaemonPid } from "@harness-anything/daemon/internal/runtime";
 import { buildProjectionOracle } from "../../daemon/test/migration-import.fixtures.ts";
 import { registerBootstrappedDaemonRepo, seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
@@ -37,8 +48,7 @@ for (const resource of ["singleton-race", "singleton-import"])
   });
 
 const cli = path.resolve("packages/cli/src/index.ts"),
-  repoRoot = path.resolve("."),
-  drainMs = 8_000;
+  repoRoot = path.resolve(".");
 
 // #1565: on Windows nothing delivers SIGTERM -- process.kill terminates unconditionally and the
 // daemon's shutdown never runs, so its pid file outlives it. `daemon stop` waited on that file and
@@ -51,7 +61,7 @@ test("#1565: a daemon whose shutdown never ran still yields a successful stop re
     const pid = readDaemonPid(fixture.userRoot, "default");
     assert.ok(pid, "the resident daemon must have published a pid");
     process.kill(pid as number, "SIGKILL");
-    await waitForProcessExit(pid as number, 5_000);
+    await waitForExit(pid);
     assert.equal(
       existsSync(daemonPidPath(fixture.userRoot, "default")),
       true,
@@ -100,21 +110,25 @@ test("two concurrent daemon serves yield exactly one resident daemon and one def
       "applied",
     );
     assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "stop"]).ok, true);
-    waitForDaemonDown(fixture.userRoot);
+    await waitForDaemonDown(fixture.userRoot);
 
     const first = spawnServe(fixture.userRoot),
       second = spawnServe(fixture.userRoot);
     try {
-      const deferred = await firstDeferral([first, second]),
-        survivorPid = await residentPid(fixture.userRoot);
+      const deferral = await Promise.race([first, second].map(async (child) => ({ child, ...(await closeOf(child)) }))),
+        deferred = parseReceipt(deferral.child),
+        survivorPid = await waitForArrival(
+          () => readDaemonPid(fixture.userRoot, "default"),
+          watchFileArrival(daemonPidPath(fixture.userRoot, "default")),
+        );
       assert.equal(deferred.ok, true, JSON.stringify(deferred));
       assert.equal(deferred.outcome, "deferred");
       assert.equal(deferred.incumbent?.pid, survivorPid, "the deferral receipt must point at the serving incumbent");
-      assert.equal((await firstExit([first, second])).code, 0, "the yielding serve must exit 0");
+      assert.equal(deferral.code, 0, "the yielding serve must exit 0");
       // One holder owns both surfaces: the socket answers and the workspace writer lock is not rejected.
       assert.equal(run(fixture.root, fixture.userRoot, ["task", "list"]).outcome, "applied");
       assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "stop"]).ok, true);
-      waitForDaemonDown(fixture.userRoot);
+      await waitForDaemonDown(fixture.userRoot);
       assert.equal(
         existsSync(daemonSingletonLockPath(fixture.userRoot, "default")),
         false,
@@ -143,6 +157,7 @@ test("platform stop after migration acceptance preserves the complete import and
       [cli, "--root", fixture.root, "--json", "migrate", "import", "--source", legacyRoot],
       { encoding: "utf8", env: cliEnv(fixture.root, fixture.userRoot) },
     );
+    childClosures.set(migration, watchClose(migration));
     let migrationOutput = "";
     migration.stdout.on("data", (chunk) => {
       migrationOutput += String(chunk);
@@ -159,7 +174,7 @@ test("platform stop after migration acceptance preserves the complete import and
         "Windows must request cooperative cleanup instead of terminating past it",
       );
     else process.kill(pid, "SIGTERM");
-    await waitForProcessExit(pid, 20_000);
+    await waitForExit(pid);
     const migrationResult = await closeOf(migration);
     assert.equal(migrationResult.code, 0, migrationOutput);
     const receipt = JSON.parse(migrationOutput) as { status: string; opId: string };
@@ -348,7 +363,11 @@ test("a drain longer than the stop budget is reported as draining, not as a time
   try {
     const stop = runCli(fixture, ["daemon", "stop", "--json"]);
     // Keep the observed receipt: a later independent status may already see the daemon's exit.
-    const stopping = await waitForStoppingObservation(fixture),
+    await waitForArrival(
+      () => (existsSync(fixture.drainStarted) ? true : null),
+      watchFileArrival(fixture.drainStarted),
+    );
+    const stopping = await runCli(fixture, ["daemon", "status", "--json"]),
       inWindow = await snapshot(fixture);
     const stopped = JSON.parse((await stop).stdout) as Record<string, unknown>;
 
@@ -420,13 +439,16 @@ test("daemon_stopping waits for the replacement generation and resends exactly o
       { ok: false, code: "daemon_stopping" },
       { ok: true, outcome: "applied" },
     ],
-    request = async () => receipts.shift()!;
+    request = async () => {
+      if (receipts.length === 2) {
+        writeFileSync(pidPath, "222\n");
+        server.listen(socketPath);
+        await once(server, "listening");
+      }
+      return receipts.shift()!;
+    };
   mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
   writeFileSync(pidPath, "111\n");
-  const replace = setTimeout(() => {
-    writeFileSync(pidPath, "222\n");
-    server.listen(socketPath);
-  }, 20);
   try {
     const result = await withAutostart(request, unusedLaunch, socketPath, {
       autostart: true,
@@ -444,13 +466,12 @@ test("daemon_stopping waits for the replacement generation and resends exactly o
     });
     assert.equal(receipts.length, 0, "the original request is resent exactly once");
   } finally {
-    clearTimeout(replace);
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     rmSync(parent, { recursive: true, force: true });
   }
 });
 
-test("a daemon handoff that keeps recording attach progress is waited out past the restart budget", async () => {
+test("a daemon handoff that keeps recording attach progress is waited out past the restart budget", async (t) => {
   // #4045/#4047: the successor daemon reported "repo 5/23: canonical" while attaching, but the
   // restart path disabled the progress extension and gave up at the quiet budget. The quiet budget
   // still bounds a silent daemon; a progressing one keeps the existing extension ceiling.
@@ -477,12 +498,24 @@ test("a daemon handoff that keeps recording attach progress is waited out past t
     args: ["serve-entry.mjs", "serve", "--user-root", parent, "--daemon-id", daemonId],
     env: {},
   });
-  // The successor generation publishes its pid quickly, then keeps attaching; its socket binds after
-  // the quiet budget (restartBudgetMs − probe reserve = 1450ms), which is the observed cold attach.
-  const successor = setTimeout(() => writeFileSync(pidPath, "222\n"), 60);
-  const bind = setTimeout(() => server.listen(socketPath), 1_600);
+  // Advance the test clock beyond the quiet budget only after autostart sees attach progress.
+  t.mock.timers.enable({ apis: ["Date"] });
+  let progressed = false;
+  const writeStderr = process.stderr.write.bind(process.stderr);
+  t.mock.method(process.stderr, "write", (line: string) => {
+    if (!progressed && line.includes("repo 5/23: canonical")) {
+      progressed = true;
+      t.mock.timers.setTime(Date.now() + 1_600);
+      server.listen(socketPath);
+    }
+    return writeStderr(line);
+  });
+  const request = async () => {
+    if (receipts.length === 2) writeFileSync(pidPath, "222\n");
+    return receipts.shift()!;
+  };
   try {
-    const result = await withAutostart(async () => receipts.shift()!, launch, socketPath, {
+    const result = await withAutostart(request, launch, socketPath, {
       autostart: true,
       env: {},
       invokingRoot: process.cwd(),
@@ -493,9 +526,8 @@ test("a daemon handoff that keeps recording attach progress is waited out past t
     });
     assert.equal(result.outcome, "applied");
     assert.equal((result.daemonRestart as { retries: number }).retries, 1);
+    assert.equal(progressed, true);
   } finally {
-    clearTimeout(successor);
-    clearTimeout(bind);
     await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(parent, { recursive: true, force: true });
   }
@@ -610,37 +642,20 @@ test("daemon lifecycle commands preserve daemon_stopping without waiting or rese
 });
 
 const serveOutput = new WeakMap<ChildProcess, string>();
+const childClosures = new WeakMap<ChildProcess, ReturnType<typeof watchClose>>();
 function spawnServe(userRoot: string): ChildProcess {
   const child = spawn(
     process.execPath,
     [daemonServeEntry(), "serve", "--user-root", userRoot, "--daemon-id", "default", "--json"],
     { env: cliEnv(userRoot, userRoot) },
   );
+  childClosures.set(child, watchClose(child));
   serveOutput.set(child, "");
   for (const stream of [child.stdout, child.stderr])
     stream?.on("data", (chunk: Buffer) =>
       serveOutput.set(child, `${serveOutput.get(child) ?? ""}${chunk.toString("utf8")}`),
     );
   return child;
-}
-async function firstDeferral(
-  children: readonly ChildProcess[],
-): Promise<{ readonly ok?: boolean; readonly outcome?: string; readonly incumbent?: { readonly pid?: number } }> {
-  const deadline = Date.now() + 30_000;
-  while (Date.now() < deadline) {
-    for (const child of children) if (child.exitCode === 0) return parseReceipt(child);
-    await delay(50);
-  }
-  throw new Error("neither serve deferred within 30s");
-}
-async function firstExit(children: readonly ChildProcess[]): Promise<{ readonly code: number | null }> {
-  const deadline = Date.now() + 30_000;
-  while (Date.now() < deadline) {
-    const exited = children.find((child) => child.exitCode !== null);
-    if (exited) return { code: exited.exitCode };
-    await delay(50);
-  }
-  throw new Error("no serve exited within 30s");
 }
 function parseReceipt(child: ChildProcess): {
   readonly ok?: boolean;
@@ -652,21 +667,13 @@ function parseReceipt(child: ChildProcess): {
     ? (JSON.parse(line) as Record<string, unknown> as { ok?: boolean; outcome?: string; incumbent?: { pid?: number } })
     : {};
 }
-async function residentPid(userRoot: string): Promise<number> {
-  for (let attempt = 0; attempt < 300; attempt += 1) {
-    const pid = readDaemonPid(userRoot, "default");
-    if (pid !== null) return pid;
-    await delay(50);
-  }
-  throw new Error("no resident daemon pid appeared");
-}
 async function waitForImportAcceptance(root: string): Promise<string> {
   const reader = makeTaskEventReader({ rootDir: root, repoId: "singleton-import" });
   // The reader holds the generation's SQLite files open. POSIX lets the fixture tree be unlinked
   // anyway; Windows refuses to remove a directory whose files are still open, so the handle is
   // released before the test's cleanup runs.
   try {
-    for (let attempt = 0; attempt < 12_000; attempt += 1) {
+    return await waitForDurableValue(() => {
       const migrated = reader.read().events.filter((event) => event.type === "entity_migrated");
       if (migrated.length > 0) {
         assert.equal(migrated.filter((event) => event.payload.entity.kind === "task").length, 150);
@@ -682,33 +689,20 @@ async function waitForImportAcceptance(root: string): Promise<string> {
         );
         return terminal.opId;
       }
-      await delay(5);
-    }
-    throw new Error("migration command interval was not accepted");
+      return null;
+    });
   } finally {
     await reader.drain();
   }
 }
 
-async function waitForProcessExit(pid: number, boundMs: number): Promise<void> {
-  for (const deadline = Date.now() + boundMs; Date.now() < deadline; ) {
-    try {
-      process.kill(pid, 0);
-    } catch {
-      return;
-    }
-    await delay(50);
-  }
-  throw new Error(`process ${pid} did not exit within ${boundMs}ms`);
-}
-function closeOf(
+function watchClose(
   child: ChildProcess,
 ): Promise<{ readonly code: number | null; readonly signal: NodeJS.Signals | null }> {
-  return new Promise((resolve) => {
-    if (child.exitCode !== null || child.signalCode !== null)
-      resolve({ code: child.exitCode, signal: child.signalCode });
-    else child.once("close", (code, signal) => resolve({ code, signal }));
-  });
+  return new Promise((resolve) => child.once("close", (code, signal) => resolve({ code, signal })));
+}
+function closeOf(child: ChildProcess) {
+  return childClosures.get(child) ?? watchClose(child);
 }
 function reap(child: ChildProcess): void {
   void closeOf(child).then(
@@ -835,19 +829,15 @@ function cleanup(parent: string): void {
     }
   }
 }
-function waitForDaemonDown(userRoot: string): void {
-  const socketPath = localUserDaemonEndpoint(userRoot, "default");
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    if (readDaemonPid(userRoot, "default") === null && !existsSync(socketPath)) return;
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
-  }
-  throw new Error("previous daemon did not drain before the next probe");
+function waitForDaemonDown(userRoot: string): Promise<void> {
+  return waitForDurableCondition(
+    async () =>
+      readDaemonPid(userRoot, "default") === null &&
+      !(await socketAccepting(localUserDaemonEndpoint(userRoot, "default"))),
+  );
 }
 function git(root: string, ...args: string[]): number {
   return Number(execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim());
-}
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 interface StopFixture {
@@ -918,9 +908,10 @@ child.unref();
       timeout: 10_000,
     });
   assert.equal(launched.status, 0, launched.stderr);
-  const daemonPid = await waitForPidFile(pidPath, socketPath),
+  const daemonPid = await waitForPidFile(pidPath),
     workerPid = await waitForPidFile(workerPidPath),
     coupledPid = await waitForPidFile(coupledPidPath);
+  await waitForDurableCondition(() => socketAccepting(socketPath));
   return { parent, userRoot, daemonId, daemonPid, workerPid, coupledPid, streamPath };
 }
 
@@ -947,19 +938,8 @@ async function spawnLegacyDaemon(daemonId: string): Promise<StopFixture> {
     timeout: 10_000,
   });
   assert.equal(launched.status, 0, launched.stderr);
-  const daemonPid = await new Promise<number>((resolve, reject) => {
-    const deadline = Date.now() + 10_000;
-    const poll = async () => {
-      const pid = readDaemonPid(userRoot, daemonId);
-      if (pid !== null && (await socketAccepting(socketPath))) resolve(pid);
-      else if (Date.now() > deadline) reject(new Error("legacy daemon never became socket-ready"));
-      else
-        setTimeout(() => {
-          void poll();
-        }, 20);
-    };
-    void poll();
-  });
+  const daemonPid = await waitForPidFile(daemonPidPath(userRoot, daemonId));
+  await waitForDurableCondition(() => socketAccepting(socketPath));
   return { parent, userRoot, daemonId, daemonPid };
 }
 // A daemon speaking the pre-daemon.stop wire: hello answers without a build stamp, everything
@@ -987,9 +967,8 @@ const server = net.createServer((socket) => {
     }
   });
 });
-// Keep the real daemon's pid-before-bind gap wide enough that the fixture helper must prove socket
-// readiness instead of mistaking process bookkeeping for a server that can already answer.
-setTimeout(() => server.listen(socketPath), 2_000);
+// Writing the pid file and listening are distinct lifecycle events.
+server.listen(socketPath);
 // A real serve() releases its pid file and endpoint as its last cooperative acts; the stub must
 // do the same on TERM or the CLI waits out its budget on an exited-but-unreaped child.
 process.on("SIGTERM", () => { if (mode === "wedge") return; server.close(); try { unlinkSync(socketPath); } catch {} try { unlinkSync(pidPath); } catch {} process.exit(0); });
@@ -1035,31 +1014,20 @@ async function alive(pid: number): Promise<boolean> {
     }
   });
 }
-async function waitForExit(pid: number): Promise<void> {
-  for (let attempt = 0; attempt < 600; attempt += 1) {
-    if (!(await alive(pid))) return;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error(`process ${pid} did not exit`);
+function waitForExit(pid: number): Promise<void> {
+  return waitForDurableCondition(async () => !(await alive(pid)));
 }
-async function waitForPidFile(target: string, socketPath?: string): Promise<number> {
-  const deadline = Date.now() + 10_000;
-  for (;;) {
+function waitForPidFile(target: string): Promise<number> {
+  return waitForArrival(() => {
     const pid = existsSync(target) ? Number(readFileSync(target, "utf8")) : 0;
-    if (Number.isInteger(pid) && pid > 0 && (!socketPath || (await socketAccepting(socketPath)))) return pid;
-    if (Date.now() >= deadline) throw new Error(`process pid never appeared in ${target}`);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  }, watchFileArrival(target));
 }
 function textCount(target: string, pattern: string): number {
   return readFileSync(target, "utf8").split(pattern).length - 1;
 }
 async function waitForTextCount(target: string, pattern: string, count: number): Promise<void> {
-  const deadline = Date.now() + 10_000;
-  while (textCount(target, pattern) < count) {
-    if (Date.now() >= deadline) throw new Error(`${target} never contained ${count} occurrences of ${pattern}`);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
+  await waitForArrival(() => (textCount(target, pattern) >= count ? true : null), watchFileArrival(target));
 }
 async function stopCleanup(fixture: StopFixture): Promise<void> {
   try {
@@ -1080,6 +1048,7 @@ interface DrainFixture {
   readonly daemonId: string;
   readonly daemonPid: number;
   readonly releaseDrain: () => void;
+  readonly drainStarted: string;
 }
 
 function launchSpec(userRoot: string, daemonId: string): DaemonLaunchSpec {
@@ -1095,29 +1064,16 @@ function launchSpec(userRoot: string, daemonId: string): DaemonLaunchSpec {
 // file and the singleton lock are released by the production shutdown path.
 const DRAINING_DAEMON = `import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { existsSync, watch } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 const [repoRoot, userRoot, daemonId, releasePath] = process.argv.slice(2);
 const load = (rel) => import(pathToFileURL(path.join(repoRoot, rel)).href);
 const { startDaemon } = await load("packages/daemon/src/runtime.ts");
 const { openBootstrappedRepoCell } = await load("packages/daemon/test/repo-settings.fixture.ts");
-const waitForRelease = (target) => {
-  if (!target || existsSync(target)) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const watcher = watch(path.dirname(target), (_eventType, filename) => {
-      if (String(filename) === path.basename(target) && existsSync(target)) {
-        watcher.close();
-        resolve();
-      }
-    });
-    watcher.on("error", (error) => {
-      watcher.close();
-      reject(error);
-    });
-    if (existsSync(target)) {
-      watcher.close();
-      resolve();
-    }
-  });
+const { waitForArrival, watchFileArrival } = await load("tools/fixtures/event-arrival.ts");
+const waitForRelease = async () => {
+  if (!releasePath) return;
+  writeFileSync(releasePath + ".started", "closing");
+  await waitForArrival(() => existsSync(releasePath) ? true : null, watchFileArrival(releasePath));
 };
 let stopping = null, daemon;
 const requestStop = () => {
@@ -1135,7 +1091,7 @@ daemon = await startDaemon({
     const closeCell = cell.close.bind(cell);
     return Object.assign(Object.create(cell), {
       close: async () => {
-        await waitForRelease(releasePath);
+        await waitForRelease();
         await closeCell();
       },
     });
@@ -1182,34 +1138,36 @@ async function spawnDrainingDaemon(daemonId: string, holdDrain: boolean): Promis
       timeout: 30_000,
     });
   assert.equal(launched.status, 0, launched.stderr);
-  const deadline = Date.now() + 60_000;
-  let fixture: Omit<DrainFixture, "releaseDrain">;
-  for (;;) {
-    const pid = readDaemonPid(userRoot, daemonId);
-    if (pid !== null && (await socketAccepting(endpoint))) {
-      fixture = { parent, rootDir, userRoot, daemonId, daemonPid: pid };
-      break;
-    }
-    if (Date.now() > deadline) throw new Error(`fixture daemon ${daemonId} never became socket-ready`);
-    await delay(50);
-  }
-  // The drain these fixtures measure is the cell close, so the repository must be attached first.
-  while (!(await attached(fixture))) {
-    if (Date.now() > deadline) throw new Error(`fixture daemon ${daemonId} never attached its repository`);
-    await delay(100);
-  }
+  // The drain fixture exercises cell close, so wait for the daemon's attach event.
+  const daemonPid = await waitForPidFile(daemonPidPath(userRoot, daemonId));
+  await waitForArrival(
+    () => {
+      const generation = readDaemonLifecycleGeneration(userRoot, daemonId);
+      const attachment = generation.find(
+        (row) =>
+          row.repoId === daemonId &&
+          ["repo_attach_completed", "repo_attach_failed", "repo_attach_timed_out"].includes(row.event),
+      );
+      if (!attachment) return null;
+      assert.equal(attachment.event, "repo_attach_completed", JSON.stringify(attachment));
+      return true;
+    },
+    watchFileArrival(daemonLifecycleLogPath(userRoot, daemonId)),
+  );
+  const probe = await runCli({ parent, rootDir, userRoot, daemonId, daemonPid }, ["daemon", "status", "--json"]);
+  const receipt = JSON.parse(probe.stdout) as { readonly repos?: readonly { readonly state?: string }[] };
+  assert.equal(receipt.repos?.[0]?.state, "attached", probe.stdout);
   return {
-    ...fixture,
+    parent,
+    rootDir,
+    userRoot,
+    daemonId,
+    daemonPid,
+    drainStarted: `${releasePath}.started`,
     releaseDrain: () => {
       if (releasePath) writeFileSync(releasePath, "release\n", "utf8");
     },
   };
-}
-
-async function attached(fixture: Omit<DrainFixture, "releaseDrain">): Promise<boolean> {
-  const probe = await runCli(fixture, ["daemon", "status", "--json"]);
-  const receipt = JSON.parse(probe.stdout) as { readonly repos?: readonly { readonly state?: string }[] };
-  return receipt.repos?.[0]?.state === "attached";
 }
 
 async function snapshot(
@@ -1224,29 +1182,9 @@ async function snapshot(
   };
 }
 
-// Before the stop request lands the daemon still serves normally, so the fixture waits for the first
-// lifecycle observation rather than assuming a freshly spawned `daemon stop` has already reached it.
-async function waitForStoppingObservation(fixture: DrainFixture): Promise<CliRun> {
-  const deadline = Date.now() + drainMs;
-  for (;;) {
-    // A normal repository command intentionally waits for a replacement generation during
-    // daemon_stopping. Probe through the daemon lifecycle surface instead: lifecycle commands
-    // must report the active drain immediately and must never trigger restart-window recovery.
-    const run = await runCli(fixture, ["daemon", "status", "--json"]),
-      receipt = JSON.parse(run.stdout) as { readonly summary?: string };
-    if (/Stopping: draining/u.test(receipt.summary ?? "")) return run;
-    if (Date.now() > deadline) throw new Error(`daemon ${fixture.daemonId} never reported its drain: ${run.stdout}`);
-    await delay(50);
-  }
-}
 async function waitForRelease(fixture: DrainFixture): Promise<void> {
-  const deadline = Date.now() + drainMs + 20_000;
-  for (;;) {
-    const state = await snapshot(fixture);
-    if (!state.socketAccepting && state.pidFilePid === null && state.lockPid === null && !state.alive) return;
-    if (Date.now() > deadline) throw new Error(`daemon ${fixture.daemonId} never released: ${JSON.stringify(state)}`);
-    await delay(50);
-  }
+  await waitForExit(fixture.daemonPid);
+  assert.deepEqual(await snapshot(fixture), { socketAccepting: false, pidFilePid: null, lockPid: null, alive: false });
 }
 
 interface CliRun {
@@ -1257,7 +1195,11 @@ interface CliRun {
 
 // Workspace commands take their target from the environment, control commands from flags; both must
 // run without this process's own harness environment, which would otherwise refuse an autostart.
-function runCli(fixture: DrainFixture, args: readonly string[], target: "flags" | "env" = "flags"): Promise<CliRun> {
+function runCli(
+  fixture: Omit<DrainFixture, "drainStarted" | "releaseDrain">,
+  args: readonly string[],
+  target: "flags" | "env" = "flags",
+): Promise<CliRun> {
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const key of Object.keys(env)) if (key.startsWith("HARNESS_")) delete env[key];
   if (target === "env")

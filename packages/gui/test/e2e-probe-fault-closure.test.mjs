@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, globSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { waitForArrival, watchFileArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/client";
 import {
   recordE2EProbeFailure,
@@ -65,15 +66,16 @@ test(
       rows = await taskRows(fixture),
       failures = rows.filter((row) => row.snapshot.task?.title === `E2E probe failure [${journey.failureSignature}]`),
       artifacts = globSync("harness/tasks/**/artifacts/e2e-probe/failure.json", { cwd: fixture.rootDir });
-    // Fact receipts are durable at write time, but the markdown projection file is emitted
-    // asynchronously after the receipt returns; poll briefly instead of racing it.
-    const signatureFacts = async () =>
-        globSync("harness/facts/F-*.md", { cwd: fixture.rootDir })
+    // Fact receipts are durable before their Markdown projections reach the workspace.
+    const factCount = await waitForArrival(
+      () => {
+        const count = globSync("harness/facts/F-*.md", { cwd: fixture.rootDir })
           .map((file) => readFileSync(path.join(fixture.rootDir, file), "utf8"))
-          .filter((body) => body.includes(journey.failureSignature)),
-      factDeadline = Date.now() + 10_000;
-    while (Date.now() < factDeadline && (await signatureFacts()).length < 2)
-      await new Promise((resolve) => setTimeout(resolve, 200));
+          .filter((body) => body.includes(journey.failureSignature)).length;
+        return count >= 2 ? count : null;
+      },
+      watchFileArrival(path.join(fixture.rootDir, "harness/facts")),
+    );
 
     assert.equal(first.outcome, "failed");
     assert.equal(first.deduplicated, false);
@@ -82,7 +84,7 @@ test(
     assert.equal(second.deduplicated, true);
     assert.equal(second.taskId, first.taskId);
     assert.equal(second.factRecorded, true, JSON.stringify(second));
-    assert.equal((await signatureFacts()).length, 2, "create and dedupe closures must each record a first-triage fact");
+    assert.equal(factCount, 2, "create and dedupe closures must each record a first-triage fact");
     assert.deepEqual(
       failures.map(({ taskId }) => taskId),
       [first.taskId],

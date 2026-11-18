@@ -1,4 +1,5 @@
 import path from "node:path";
+import { readTestTierHeader } from "../../test-tier-manifest.mjs";
 
 function normalized(filename, cwd) {
   return (path.isAbsolute(filename) ? path.relative(cwd, filename) : filename).replaceAll("\\", "/");
@@ -304,7 +305,8 @@ export default {
     const cwd = context.options[0]?.root ?? context.getCwd?.() ?? process.cwd();
     const tests = context.options[0]?.tests === true || context.options[0]?.integration === true;
     const integration =
-      context.options[0]?.integration === true || (tests && /\.integration\.test\./u.test(context.filename));
+      context.options[0]?.integration === true ||
+      (tests && readTestTierHeader(context.sourceCode.text) === "integration");
     const pollHelpers = new Set();
     const report = (node, kind, symbol = enclosingFunction(node)) => {
       const key = `${normalized(context.filename, cwd)}#${symbol}#${kind}`;
