@@ -157,9 +157,14 @@ npm run harness:check-supply-chain
 它会运行两条 high-severity npm audit 路径：
 
 ```bash
-npm audit --audit-level=high
-npm audit --omit=dev --audit-level=high
+npm audit --omit=dev --audit-level=high --json
+npm audit --audit-level=high --json
 ```
+
+生产审计发现任何 high 或 critical 漏洞都会阻断。全量审计要求逐一核对高危根因，
+精确匹配仍在有效期内的通告登记，并确认锁文件中的所有同包实例都是纯开发依赖。
+npm registry 出现更高的稳定版本即阻断，要求升级依赖并移除登记。门禁会标注仍
+生效的登记和暂时不可用的 npm 检查。鉴权失败或无效审计响应会阻断。
 
 它也会校验 CycloneDX SBOM 输出：
 

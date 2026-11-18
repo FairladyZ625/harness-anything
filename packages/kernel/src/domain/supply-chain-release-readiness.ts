@@ -1,6 +1,7 @@
 import type { ReleaseBoundaryContract } from "./runtime-release-readiness.ts";
 import { supplyChainReadinessStatusWords, type SupplyChainReadinessStatus } from "./operational-status.ts";
 import type { OntologyPolicyDeclaration, OntologyJudgmentDeclaration } from "./ontology-source.ts";
+import { normalizePersistedTimestamp } from "./timestamp.ts";
 export type { SupplyChainReadinessStatus } from "./operational-status.ts";
 
 export interface AuditCommandContract {
@@ -8,6 +9,15 @@ export interface AuditCommandContract {
   readonly command: string;
   readonly auditLevel: "high";
   readonly requiredInDefaultCheck: true;
+}
+
+interface ReviewedUnpatchedDevAdvisory {
+  readonly packageName: string;
+  readonly ghsaId: string;
+  readonly maxUnpatchedVersion: string;
+  readonly reviewedAt: string;
+  readonly expiresAt: string;
+  readonly rationale: string;
 }
 
 export interface SbomContract {
@@ -95,6 +105,7 @@ export interface SupplyChainReleaseReadinessPolicy {
     "packages/gui/package.json",
   ];
   readonly auditCommands: readonly [AuditCommandContract, AuditCommandContract];
+  readonly reviewedUnpatchedDevAdvisories: readonly ReviewedUnpatchedDevAdvisory[];
   readonly sbom: SbomContract;
   readonly osv: OsvContract;
   readonly npmPublishDryRun: NpmPublishDryRunContract;
@@ -143,16 +154,26 @@ export const supplyChainReleasePolicy = {
     ],
     auditCommands: [
       {
-        name: "npm-audit-all",
-        command: "npm audit --audit-level=high",
+        name: "npm-audit-production",
+        command: "npm audit --omit=dev --audit-level=high --json",
         auditLevel: "high",
         requiredInDefaultCheck: true,
       },
       {
-        name: "npm-audit-production",
-        command: "npm audit --omit=dev --audit-level=high",
+        name: "npm-audit-all",
+        command: "npm audit --audit-level=high --json",
         auditLevel: "high",
         requiredInDefaultCheck: true,
+      },
+    ],
+    reviewedUnpatchedDevAdvisories: [
+      {
+        packageName: "picomatch",
+        ghsaId: "GHSA-fc5q-39xc-vjpf",
+        maxUnpatchedVersion: "4.0.7",
+        reviewedAt: "2026-11-18T01:04:11.526Z",
+        expiresAt: "2026-12-17T00:00:00.000Z",
+        rationale: "Reviewed under dec_BCA5A4DEE5D184BE8F3B14E800.",
       },
     ],
     sbom: {
@@ -338,6 +359,7 @@ export const supplyChainReleasePolicy = {
     "policy:packages/kernel:packages/kernel/src/domain/supply-chain-release-readiness.ts#supplyChainReleasePolicy.defaultValue.releaseBoundary.npmReleaseClaimed:223928c622f8bbc1fca0f3b0f206910f",
     "policy:packages/kernel:packages/kernel/src/domain/supply-chain-release-readiness.ts#supplyChainReleasePolicy.defaultValue.releaseBoundary.releaseArtifactsPublished:acf9c0aca60c6cb9f9ffa5fa5c3ea91b",
     "policy:packages/kernel:packages/kernel/src/domain/supply-chain-release-readiness.ts#supplyChainReleasePolicy.defaultValue.releaseBoundary:c237aff9ee0760d31901440244ef7cb0",
+    "policy:packages/kernel:packages/kernel/src/domain/supply-chain-release-readiness.ts#compareSupplyChainVersions:c1bc92d378e910249d05d2e06156c1b9",
     "policy:packages/kernel:packages/kernel/src/domain/supply-chain-release-readiness.ts#validateSupplyChainReleaseReadiness:7570eeb0f85cc69afe859cde6b58096e",
     "policy:packages/kernel:packages/kernel/src/domain/supply-chain-release-readiness.ts#validateSupplyChainReleaseReadiness:289587dd09266e3fe92f5b4a70a9d8aa",
     "policy:packages/kernel:packages/kernel/src/domain/supply-chain-release-readiness.ts#validateSupplyChainReleaseReadiness:40d6cd74474573b4694d65a79c533d5e",
@@ -346,8 +368,56 @@ export const supplyChainReleasePolicy = {
 export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPolicy =
   supplyChainReleasePolicy.defaultValue;
 
+// SemVer 2.0.0 precedence ignores build metadata and compares numeric identifiers without rounding.
+export function parseSupplyChainVersion(value: unknown) {
+  if (typeof value !== "string") return undefined;
+  const match =
+    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u.exec(
+      value,
+    );
+  if (!match) return undefined;
+  const prerelease = match[4]?.split(".") ?? [];
+  if (prerelease.some((identifier) => /^0\d+$/u.test(identifier))) return undefined;
+  return { core: match.slice(1, 4), prerelease };
+}
+
+export function compareSupplyChainVersions(
+  left: NonNullable<ReturnType<typeof parseSupplyChainVersion>>,
+  right: NonNullable<ReturnType<typeof parseSupplyChainVersion>>,
+): number {
+  const coreOrder = compareVersionIdentifiers(left.core, right.core);
+  if (coreOrder !== 0) return coreOrder;
+  if (left.prerelease.length === 0 || right.prerelease.length === 0) {
+    return Number(right.prerelease.length !== 0) - Number(left.prerelease.length !== 0);
+  }
+  return compareVersionIdentifiers(left.prerelease, right.prerelease);
+}
+
+function compareVersionIdentifiers(left: string[], right: string[]): number {
+  for (const [index, first] of left.entries()) {
+    const second = right[index];
+    if (second === undefined) return 1;
+    if (first === second) continue;
+    const firstNumeric = /^\d+$/u.test(first);
+    const secondNumeric = /^\d+$/u.test(second);
+    if (firstNumeric !== secondNumeric) return firstNumeric ? -1 : 1;
+    if (firstNumeric && first.length !== second.length) return first.length - second.length;
+    return first < second ? -1 : 1;
+  }
+  return left.length - right.length;
+}
+
+function validReviewWindow(reviewedAt: string, expiresAt: string): boolean {
+  const start = normalizePersistedTimestamp(reviewedAt);
+  const end = normalizePersistedTimestamp(expiresAt);
+  if (start === null || end === null) return false;
+  const duration = Date.parse(end) - Date.parse(start);
+  return duration > 0 && duration <= 30 * 24 * 60 * 60 * 1000;
+}
+
 export function validateSupplyChainReleaseReadiness(
   policy: SupplyChainReleaseReadinessPolicy,
+  now: number,
 ): SupplyChainReleaseReadinessValidationResult {
   const expected = supplyChainReleasePolicy.defaultValue;
   const errors: SupplyChainReleaseReadinessValidationError[] = [];
@@ -367,13 +437,53 @@ export function validateSupplyChainReleaseReadiness(
   if (
     policy.auditCommands.length !== expected.auditCommands.length ||
     expected.auditCommands.some(
-      (required) => !policy.auditCommands.some((command) => command.command === required.command),
+      (required) =>
+        !policy.auditCommands.some(
+          (command) =>
+            command.name === required.name &&
+            command.command === required.command &&
+            command.auditLevel === required.auditLevel &&
+            command.requiredInDefaultCheck === required.requiredInDefaultCheck,
+        ),
     )
   ) {
     errors.push({
       code: "invalid_audit_contract",
       message: "Supply-chain readiness must include full and production-only high-severity npm audit gates.",
     });
+  }
+
+  const registrations = Array.isArray(policy.reviewedUnpatchedDevAdvisories)
+    ? policy.reviewedUnpatchedDevAdvisories
+    : undefined;
+  if (registrations === undefined) {
+    errors.push({
+      code: "invalid_audit_contract",
+      message: "Supply-chain audit policy must declare its reviewed unpatched dev advisories.",
+    });
+  }
+  for (const advisory of registrations ?? []) {
+    if (
+      typeof advisory?.packageName !== "string" ||
+      !/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u.test(advisory.packageName) ||
+      typeof advisory.ghsaId !== "string" ||
+      !/^GHSA-(?:[a-z0-9]{4}-){2}[a-z0-9]{4}$/u.test(advisory.ghsaId) ||
+      !parseSupplyChainVersion(advisory.maxUnpatchedVersion) ||
+      !validReviewWindow(advisory.reviewedAt, advisory.expiresAt) ||
+      typeof advisory.rationale !== "string" ||
+      !advisory.rationale.trim()
+    ) {
+      errors.push({
+        code: "invalid_audit_contract",
+        message:
+          "Reviewed unpatched dev advisories need a package, GHSA, SemVer ceiling, reason, and review window of at most 30 days.",
+      });
+    } else if (now > Date.parse(advisory.expiresAt)) {
+      errors.push({
+        code: "invalid_audit_contract",
+        message: `Reviewed unpatched dev advisory ${advisory.ghsaId} for ${advisory.packageName} expired at ${advisory.expiresAt}.`,
+      });
+    }
   }
 
   if (
@@ -472,7 +582,7 @@ export function validateSupplyChainReleaseReadiness(
 export const supplyChainReleasePolicyJudgment = {
   id: "validateSupplyChainReleaseReadiness",
   symbol: "packages/kernel/src/domain/supply-chain-release-readiness.ts#validateSupplyChainReleaseReadiness",
-  inputs: ["SupplyChainReleaseReadinessPolicy"],
+  inputs: ["SupplyChainReleaseReadinessPolicy", "current time (epoch milliseconds)"],
   output: "validation result with ordered errors",
   failureCodes: [
     "missing_workspace_package",
@@ -490,7 +600,7 @@ export const supplyChainReleasePolicyJudgment = {
   sources: [
     {
       candidateId:
-        "judgment:packages/kernel:packages/kernel/src/domain/supply-chain-release-readiness.ts#validateSupplyChainReleaseReadiness:788ba63487699aa2e9670ab5bded485e",
+        "judgment:packages/kernel:packages/kernel/src/domain/supply-chain-release-readiness.ts#validateSupplyChainReleaseReadiness:8581fc33fac9690d7ef05b4df1c19a53",
       route: "supply-chain-release-readiness",
     },
   ],
