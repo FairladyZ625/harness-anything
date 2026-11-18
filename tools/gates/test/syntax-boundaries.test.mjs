@@ -154,6 +154,7 @@ test("G3 integration lane rejects wall-clock deadlines and scheduled product sta
   assert.deepEqual(kinds("test('x', async () => { setTimeout(() => child.send('stop'), 2000); });"), [
     "scheduled-timer",
   ]);
+  assert.deepEqual(kinds("setTimeout(() => child.send('stop'), 2000);", { tests: true }), []);
   // A delay helper only completes the wait; it schedules no product state.
   assert.deepEqual(kinds("const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));"), []);
   // A timer that resolves a sentinel the test compares is a correctness decision, not a watchdog,
@@ -383,26 +384,36 @@ test("G3 poll-spin allowlist ceiling equals the current exception count", () => 
 
 test("G3 integration exact-sync: a new now()+N deadline loop fails and its waitForArrival rewrite passes", (t) => {
   const root = fixture(t),
-    file = path.join(root, "packages/example/test/flow.integration.test.ts");
+    file = path.join(root, "packages/example/test/flow.test.ts"),
+    spec = path.join(root, "tools/flow.spec.mjs"),
+    legacy = path.join(root, "tools/legacy.integration.test.mjs"),
+    contract = path.join(root, "packages/example/test/contract.integration.test.ts"),
+    deadlineLoop =
+      "test('flow', async () => {\n" +
+      "  const deadline = Date.now() + 10_000;\n" +
+      "  while (!(await child.ready()) && Date.now() < deadline) await delay(20);\n" +
+      "});\n";
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(path.join(root, "packages/example/src/clean.ts"), "export const clean = true;\n");
   assert.equal(run("tools/check-poll-spin-boundary.mjs", root, "--update").status, 0);
-  writeFileSync(
-    file,
-    "test('flow', async () => {\n" +
-      "  const deadline = Date.now() + 10_000;\n" +
-      "  while (!(await child.ready()) && Date.now() < deadline) await delay(20);\n" +
-      "});\n",
-  );
+  writeFileSync(contract, "// harness-test-tier: contract\n" + deadlineLoop);
+  const contractOnly = run("tools/check-poll-spin-boundary.mjs", root);
+  writeFileSync(file, "// harness-test-tier: integration\r\n" + deadlineLoop);
+  writeFileSync(spec, "// harness-test-tier: integration\nsetInterval(() => child.send('probe'), 5);\n");
+  writeFileSync(legacy, "setInterval(() => child.send('legacy probe'), 5);\n");
   const rejected = run("tools/check-poll-spin-boundary.mjs", root);
   assert.notEqual(rejected.status, 0);
-  assert.match(
-    rejected.stderr,
-    /unlisted: packages\/example\/test\/flow\.integration\.test\.ts#<module>#clock-deadline/u,
-  );
+  assert.match(rejected.stderr, /unlisted: packages\/example\/test\/flow\.test\.ts#<module>#clock-deadline/u);
+  assert.match(rejected.stderr, /unlisted: packages\/example\/test\/flow\.test\.ts#<module>#clock-loop/u);
+  assert.match(rejected.stderr, /unlisted: tools\/flow\.spec\.mjs#<module>#scheduled-timer/u);
+  assert.match(rejected.stderr, /unlisted: tools\/legacy\.integration\.test\.mjs#<module>#scheduled-timer/u);
+  assert.equal(contractOnly.status, 0, contractOnly.stderr);
+  writeFileSync(spec, "// harness-test-tier: integration\nawait child.exited;\n");
+  writeFileSync(legacy, "await child.exited;\n");
   writeFileSync(
     file,
-    "import { waitForArrival } from '../../../tools/fixtures/event-arrival.ts';\n" +
+    "// harness-test-tier: integration\n" +
+      "import { waitForArrival } from '../../../tools/fixtures/event-arrival.ts';\n" +
       "test('flow', async () => {\n" +
       "  await waitForArrival(() => (child.readyNow() ? true : null), (arrive) => child.onMessage(arrive));\n" +
       "});\n",
@@ -435,7 +446,12 @@ test("G3 exact-sync scans fast/contract tests in both roots and all supported ex
 
 test("G3 changed-path selection includes fast and contract test consumers", () => {
   const manifest = JSON.parse(readFileSync(path.join(repoRoot, "tools/gate-manifest.json"), "utf8"));
-  for (const file of ["tools/analyze-module-closure.test.mjs", "packages/example/test/contract.test.tsx"]) {
+  for (const file of [
+    "tools/analyze-module-closure.test.mjs",
+    "packages/example/test/contract.test.tsx",
+    "tools/flow.spec.mjs",
+    "tools/test-tier-manifest.mjs",
+  ]) {
     const options = { ...parseManifestGateArgs(["--changed", "origin/main"]), changedPaths: [file] };
     assert.ok(
       buildManifestGatePlan(manifest, options).some(({ id }) => id === "check-poll-spin-boundary"),

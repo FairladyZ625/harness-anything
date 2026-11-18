@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { waitForArrival, watchFileArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { parseVerticalScriptResult } from "@harness-anything/kernel";
 import {
@@ -197,7 +198,7 @@ test("RepoCell runs only declared vertical scripts and dry-run publishes the sam
   }
 });
 
-test("same-repo writes advance while a vertical script is running", async (context) => {
+test("same-repo writes advance while a vertical script is running", { timeout: 30_000 }, async (context) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-vertical-write-progress-")),
     blocker = path.join(rootDir, "vertical-script.block"),
     started = `${blocker}.started`,
@@ -214,6 +215,7 @@ test("same-repo writes advance while a vertical script is running", async (conte
     } as const,
     store = () => makeTaskEventReader({ repoId: "vertical-write-progress", rootDir });
   const writes: Promise<unknown>[] = [];
+  context.signal.addEventListener("abort", () => rmSync(blocker, { force: true }), { once: true });
   try {
     writeFileSync(blocker, "blocked\n", "utf8");
     process.env.HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE = blocker;
@@ -226,7 +228,6 @@ test("same-repo writes advance while a vertical script is running", async (conte
     writes.push(head);
     await waitForPath(started);
     const beforeRevision = store().readHead()?.revision ?? 0,
-      startedAt = Date.now(),
       write = cell.run(
         {
           kind: "task-create",
@@ -236,15 +237,8 @@ test("same-repo writes advance while a vertical script is running", async (conte
         binding,
       );
     writes.push(write);
-    const beforeRelease = await Promise.race([
-      write.then((receipt) => ({ state: "settled" as const, receipt })),
-      delay(5_000, { state: "pending" as const, receipt: null }),
-    ]);
-    context.diagnostic(
-      `same-repo write while vertical child is blocked: ${JSON.stringify({ state: beforeRelease.state, elapsedMs: Date.now() - startedAt, revision: store().readHead()?.revision ?? 0 })}`,
-    );
-    assert.equal(beforeRelease.state, "settled", "the write must return before the vertical child is released");
-    assert.equal(beforeRelease.receipt?.outcome, "applied", JSON.stringify(beforeRelease.receipt));
+    const beforeRelease = await write;
+    assert.equal(beforeRelease.outcome, "applied", JSON.stringify(beforeRelease));
     assert.equal(
       store().readHead()?.revision,
       beforeRevision + 1,
@@ -341,14 +335,7 @@ function git(rootDir: string, ...args: string[]): string {
   }).trim();
 }
 async function waitForPath(target: string): Promise<void> {
-  const deadline = Date.now() + 5_000;
-  while (!existsSync(target)) {
-    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${target}`);
-    await delay(10, undefined);
-  }
-}
-function delay<T>(milliseconds: number, value: T): Promise<T> {
-  return new Promise((resolve) => setTimeout(() => resolve(value), milliseconds));
+  await waitForArrival(() => (existsSync(target) ? true : null), watchFileArrival(target));
 }
 
 // Reads a live child's environment from the operating system rather than from this process, so the

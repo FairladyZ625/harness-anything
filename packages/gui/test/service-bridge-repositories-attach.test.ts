@@ -125,74 +125,78 @@ test("GUI bridge switches between two enabled RepoCells without leaking task row
   }
 });
 
-test("daemon runtime stream reconnects after transport loss from the last delivered cursor and accepts restart gap", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-runtime-reconnect-")),
-    socketPath = localUserDaemonEndpoint(parent, "runtime-reconnect"),
-    attempts: string[] = [],
-    values: unknown[] = [];
-  let resolveGap!: () => void;
-  const gapSeen = new Promise<void>((resolve) => {
-      resolveGap = resolve;
-    }),
-    server = net.createServer((socket) => {
-      let input = "";
-      socket.on("data", (chunk) => {
-        input += chunk.toString();
-        for (;;) {
-          const newline = input.indexOf("\n");
-          if (newline < 0) return;
-          const line = input.slice(0, newline);
-          input = input.slice(newline + 1);
-          const request = JSON.parse(line) as {
-            id: number;
-            method: string;
-            params: { payload?: { afterCursor?: string } };
-          };
-          if (request.method === "protocol.hello") {
-            socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: fixtureDaemonHello() })}\n`);
-            continue;
+test(
+  "daemon runtime stream reconnects after transport loss from the last delivered cursor and accepts restart gap",
+  { timeout: 30_000 },
+  async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-runtime-reconnect-")),
+      socketPath = localUserDaemonEndpoint(parent, "runtime-reconnect"),
+      attempts: string[] = [],
+      values: unknown[] = [];
+    let resolveGap!: () => void;
+    const gapSeen = new Promise<void>((resolve) => {
+        resolveGap = resolve;
+      }),
+      server = net.createServer((socket) => {
+        let input = "";
+        socket.on("data", (chunk) => {
+          input += chunk.toString();
+          for (;;) {
+            const newline = input.indexOf("\n");
+            if (newline < 0) return;
+            const line = input.slice(0, newline);
+            input = input.slice(newline + 1);
+            const request = JSON.parse(line) as {
+              id: number;
+              method: string;
+              params: { payload?: { afterCursor?: string } };
+            };
+            if (request.method === "protocol.hello") {
+              socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: fixtureDaemonHello() })}\n`);
+              continue;
+            }
+            attempts.push(request.params.payload?.afterCursor ?? "missing");
+            if (attempts.length === 1) {
+              socket.write(
+                `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true, status: "attached", runtimeSessionId: "runtime-reconnect", cursor: "stream:0", events: [] } })}\n${JSON.stringify({ jsonrpc: "2.0", method: "repo.agentRuntime.attach.frame", params: { schema: "agent-runtime-attach-event/v1", type: "heartbeat", runtimeSessionId: "runtime-reconnect", cursor: "stream:1", occurredAt: "2026-08-13T00:00:00.000Z" } })}\n`,
+                // The first connection drops after sending a heartbeat. The next connection
+                // represents a restarted stream authority that cannot replay the old cursor.
+                () => socket.destroy(),
+              );
+            } else {
+              socket.write(
+                `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true, status: "gap", runtimeSessionId: "runtime-reconnect", cursor: "stream:0", events: [{ schema: "agent-runtime-attach-event/v1", type: "gap", runtimeSessionId: "runtime-reconnect", cursor: "stream:0", occurredAt: "2026-08-13T00:00:01.000Z", required: "snapshot" }] } })}\n`,
+              );
+            }
           }
-          attempts.push(request.params.payload?.afterCursor ?? "missing");
-          if (attempts.length === 1) {
-            socket.write(
-              `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true, status: "attached", runtimeSessionId: "runtime-reconnect", cursor: "stream:0", events: [] } })}\n${JSON.stringify({ jsonrpc: "2.0", method: "repo.agentRuntime.attach.frame", params: { schema: "agent-runtime-attach-event/v1", type: "heartbeat", runtimeSessionId: "runtime-reconnect", cursor: "stream:1", occurredAt: "2026-08-13T00:00:00.000Z" } })}\n`,
-              () => {
-                socket.destroy();
-                server.close(() => setTimeout(() => server.listen(socketPath), 120));
-              },
-            );
-          } else {
-            socket.write(
-              `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true, status: "gap", runtimeSessionId: "runtime-reconnect", cursor: "stream:0", events: [{ schema: "agent-runtime-attach-event/v1", type: "gap", runtimeSessionId: "runtime-reconnect", cursor: "stream:0", occurredAt: "2026-08-13T00:00:01.000Z", required: "snapshot" }] } })}\n`,
-            );
-          }
-        }
+        });
       });
-    });
-  try {
-    mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
-    server.listen(socketPath);
-    await once(server, "listening");
-    const detach = await streamAgentRuntimeAt({
-      socketPath,
-      repoId: "runtime-reconnect",
-      payload: {
-        runtimeSessionId: "runtime-reconnect",
-        afterCursor: "stream:0",
-      },
-      onValue: (value) => {
-        values.push(value);
-        if ("ok" in value && value.ok && value.status === "gap") resolveGap();
-      },
-      timeoutMs: 1_000,
-    });
-    await gapSeen;
-    assert.deepEqual(attempts, ["stream:0", "stream:1"]);
-    assert.equal((values.at(-1) as { status?: string }).status, "gap");
-    detach();
-  } finally {
-    server.close();
-    await once(server, "close");
-    rmSync(parent, { recursive: true, force: true });
-  }
-});
+    let detach: (() => void) | undefined;
+    try {
+      mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
+      server.listen(socketPath);
+      await once(server, "listening");
+      detach = await streamAgentRuntimeAt({
+        socketPath,
+        repoId: "runtime-reconnect",
+        payload: {
+          runtimeSessionId: "runtime-reconnect",
+          afterCursor: "stream:0",
+        },
+        onValue: (value) => {
+          values.push(value);
+          if ("ok" in value && value.ok && value.status === "gap") resolveGap();
+        },
+        timeoutMs: 1_000,
+      });
+      await gapSeen;
+      assert.deepEqual(attempts, ["stream:0", "stream:1"]);
+      assert.equal((values.at(-1) as { status?: string }).status, "gap");
+    } finally {
+      detach?.();
+      server.close();
+      await once(server, "close");
+      rmSync(parent, { recursive: true, force: true });
+    }
+  },
+);
