@@ -37,14 +37,18 @@ export function resolveLoginListenerTrust(input: {
   const origin = `https://${hostname.toLowerCase()}:${port}`;
   if (new URL(input.authorizationUrl).origin !== origin) return null;
   // A configured certificate that cannot be read or parsed fails the sign-in with its own error.
+  const fingerprint256 = certificateFingerprint256(
+    typeof certificate === "string" ? certificate : input.readCertificateFile(certificateFile as string),
+  );
+  const targetUrl = (listener as Record<string, unknown>).targetUrl;
+  const proxyTarget =
+    targetUrl === undefined || (typeof targetUrl === "string" && new URL(targetUrl).origin === origin)
+      ? undefined
+      : validateProxyTarget(targetUrl);
   return {
     origin,
-    fingerprint256: certificateFingerprint256(
-      typeof certificate === "string" ? certificate : input.readCertificateFile(certificateFile as string),
-    ),
-    ...((listener as Record<string, unknown>).targetUrl === undefined
-      ? {}
-      : { proxyTarget: validateProxyTarget((listener as Record<string, unknown>).targetUrl) }),
+    fingerprint256,
+    ...(proxyTarget === undefined ? {} : { proxyTarget }),
   };
 }
 

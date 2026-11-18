@@ -481,7 +481,7 @@ export class OidcSessionService {
 
   /** Read the selected edge's public authority, independently of this daemon's signed-in session. */
   async bindingHealth(loginTarget: string): Promise<Record<string, unknown>> {
-    const authority = await this.#loginAuthority(loginTarget, true),
+    const authority = await this.#loginAuthority(loginTarget, false),
       response = await this.#fetchAuthority(
         authority,
         `${authority.url}/realms/${encodeURIComponent(authority.realm)}`,
