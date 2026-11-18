@@ -952,3 +952,47 @@ test("nodeReviewDispatchCandidate emits avoidVendor on first review, round affin
   assert.equal(overriddenByModel?.payload.preferredRuntimeInstanceId, undefined);
   assert.equal(overriddenByModel?.payload.avoidVendor, undefined);
 });
+
+test("reviewDispatchPrompt surfaces bounded risk-tier assessment reasons when present", () => {
+  const reasons = Array.from(
+      { length: 12 },
+      (_, index) =>
+        `repository-risk-floor: existing test or fixture modified (+0/-2): packages/app/test/t${index}.test.ts`,
+    ),
+    execution = {
+      executionId: "exe_risk_reasons",
+      iteration: 1,
+      deliveryBaseline: { kind: "commit", commitSha: "b".repeat(40) },
+      submission: {
+        commitSha: "a".repeat(40),
+        deliverables: [],
+        outputs: [],
+        verificationNotes: [],
+        knownGaps: [],
+        residualRisks: [],
+        completionContract: { gates: [], closeoutGates: { review: true, consent: true, factDisposition: false } },
+        artifacts: [],
+        riskTierAssessment: {
+          schema: "task-risk-tier-assessment/v1",
+          declaredTier: "low",
+          effectiveTier: "medium",
+          deliveryBaseSha: "b".repeat(40),
+          deliveryHeadSha: "a".repeat(40),
+          matchedPathReviewers: [],
+          reasons,
+        },
+      },
+    } as unknown as ExecutionV1;
+  const prompt = reviewDispatchPrompt({
+    taskId: "task_risk_reasons",
+    packagePath: "tasks/task-risk-reasons",
+    dispatchId: "dispatch_riskreasons00001",
+    execution,
+    gates: [],
+  });
+  assert.match(prompt, /Frozen risk-tier assessment \(low -> medium\):/u);
+  assert.match(prompt, /packages\/app\/test\/t0\.test\.ts/u);
+  assert.match(prompt, /packages\/app\/test\/t9\.test\.ts/u);
+  assert.doesNotMatch(prompt, /packages\/app\/test\/t10\.test\.ts/u);
+  assert.match(prompt, /2 more reason\(s\) in submission\.riskTierAssessment\.reasons/u);
+});

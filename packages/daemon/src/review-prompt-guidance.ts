@@ -3,6 +3,7 @@ import {
   ownerVerifiableFindingCategories,
   reviewFindingCategories,
   type ReviewReverifyRoute,
+  type TaskRiskTierAssessmentV1,
 } from "@harness-anything/kernel";
 
 /** Which round of review one mission is: a fresh cut review, or the continuation after a return. */
@@ -63,5 +64,27 @@ export function scopedReReviewPrompt(route: Extract<ReviewReverifyRoute, { reado
     ...items.map((item) => `- ${item}`),
     "Report each as fixed or still blocking. Do not raise new non-blocking findings. A new finding that breaks a " +
       "current invariant or the production path is blocking; state why the previous round could not see it.",
+  ].join("\n");
+}
+
+const MAX_PROMPT_RISK_REASONS = 10;
+
+/**
+ * Expose frozen risk-tier assessment reasons directly in the reviewer prompt (bounded to avoid
+ * prompt bloat) so escalated cuts — such as modified or deleted existing tests or fixtures — are
+ * immediately visible to the reviewer.
+ */
+export function riskAssessmentGuidancePrompt(assessment: TaskRiskTierAssessmentV1 | undefined): string | null {
+  if (!assessment || assessment.reasons.length === 0) return null;
+  const shown = assessment.reasons.slice(0, MAX_PROMPT_RISK_REASONS),
+    omitted = assessment.reasons.length - shown.length,
+    tier =
+      assessment.declaredTier === assessment.effectiveTier
+        ? assessment.effectiveTier
+        : `${assessment.declaredTier} -> ${assessment.effectiveTier}`;
+  return [
+    `Frozen risk-tier assessment (${tier}):`,
+    ...shown.map((reason) => `- ${reason}`),
+    ...(omitted > 0 ? [`- ... (${String(omitted)} more reason(s) in submission.riskTierAssessment.reasons)`] : []),
   ].join("\n");
 }
