@@ -3,6 +3,7 @@ import {
   publicRuntimeInstallation,
   runtimeSessionMissingOutcomeEvidence,
   dispatchLifecycleSummary,
+  dispatchPermissionEvidence,
   DISPATCH_LIFECYCLE_PAGE_LIMIT,
   type AgentDefinitionSnapshot,
   type AgentRuntimeEventV1,
@@ -92,6 +93,18 @@ export function makeAgentRuntimeReadModel(input: {
       lifecycle = dispatchLifecycleSummary(
         input.projection.readDispatchLifecycle({ by: "session", runtimeSessionId: session.runtimeSessionId }),
       ),
+      eventPermission = dispatchPermissionEvidence(_dispatch?.payload),
+      permissions = {
+        effectivePermissionMode:
+          lifecycle.effectivePermissionMode !== "unknown"
+            ? lifecycle.effectivePermissionMode
+            : eventPermission.effectivePermissionMode,
+        requestedPermissionMode: lifecycle.requestedPermissionMode ?? eventPermission.requestedPermissionMode,
+        permissionModeSource:
+          lifecycle.permissionModeSource !== "unknown"
+            ? lifecycle.permissionModeSource
+            : eventPermission.permissionModeSource,
+      },
       providerUnreachable = lifecycle.policy?.processAlive ? (session.providerUnreachable ?? null) : null,
       outcome = input.projection
         .readRuntimeSessionEventsByType(session.runtimeSessionId, ["runtime_session_outcome_observed"])
@@ -134,6 +147,7 @@ export function makeAgentRuntimeReadModel(input: {
         lifecycle.displayStatus === "lost"
           ? "unavailable"
           : lifecycle.displayStatus,
+      ...permissions,
       attachCapability: "unsupported",
       streamCursor: null,
       associations: session.taskBindings.map((binding) => {

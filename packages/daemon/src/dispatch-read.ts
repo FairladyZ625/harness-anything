@@ -2,10 +2,12 @@ import {
   consumeKnownError,
   documentWorkspacePath,
   dispatchLifecycleSummary,
+  dispatchPermissionEvidence,
   sameWriteSource,
   type AgentRuntimeEventV1,
   type CanonicalSquadRun,
   type DecisionReadSurface,
+  type DispatchLifecycleSummary,
   type RuntimeSession,
   type TaskProjectionQueries,
   type WriteSource,
@@ -590,6 +592,7 @@ function shallowSessionGroupRow(
     reason: null,
     fallbackState: null,
     lifecycle,
+    ...rowPermissionEvidence(lifecycle, payload),
     nextDispatchId: lifecycle.nextDispatchId,
     ...(payload.agentId ? { agentId: payload.agentId, agentName: payload.agentName ?? payload.agentId } : {}),
     ...(payload.squadId ? { squadId: payload.squadId } : {}),
@@ -654,6 +657,24 @@ export function readTaskDispatchRow(
     options.rootDir,
     annotations.get(event.payload.dispatchId) ?? [],
   );
+}
+
+function rowPermissionEvidence(
+  lifecycle: DispatchLifecycleSummary,
+  payload: DispatchEvent["payload"],
+): Pick<TaskDispatchRow, "effectivePermissionMode" | "requestedPermissionMode" | "permissionModeSource"> {
+  const eventPermission = dispatchPermissionEvidence(payload);
+  return {
+    effectivePermissionMode:
+      lifecycle.effectivePermissionMode !== "unknown"
+        ? lifecycle.effectivePermissionMode
+        : eventPermission.effectivePermissionMode,
+    requestedPermissionMode: lifecycle.requestedPermissionMode ?? eventPermission.requestedPermissionMode,
+    permissionModeSource:
+      lifecycle.permissionModeSource !== "unknown"
+        ? lifecycle.permissionModeSource
+        : eventPermission.permissionModeSource,
+  };
 }
 
 export function dispatchAttribution(
@@ -852,6 +873,7 @@ function canonicalDispatchRow(
     // Previous-version wire field, removed 2026-12-07; it carries no lifecycle judgment.
     fallbackState: null,
     lifecycle,
+    ...rowPermissionEvidence(lifecycle, payload),
     nextDispatchId: lifecycle.nextDispatchId,
     ...(metrics ? { metrics: { ...metrics, compacted: null } } : {}),
     ...(payload.agentId ? { agentId: payload.agentId, agentName: payload.agentName ?? payload.agentId } : {}),

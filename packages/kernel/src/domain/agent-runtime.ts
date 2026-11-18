@@ -84,6 +84,12 @@ export interface SessionIdentityResolver {
 }
 export type RuntimeWebSearchMode = "disabled" | "cached" | "live";
 export type RuntimeMcpPolicy = "disabled" | "inherit";
+export const runtimeLaunchPermissionModes = ["read-only", "workspace-write", "bypass"] as const;
+export type RuntimeLaunchPermissionMode = (typeof runtimeLaunchPermissionModes)[number];
+export const runtimePermissionModeSources = ["dispatch", "agent", "instance", "default"] as const;
+export type RuntimePermissionModeSource = (typeof runtimePermissionModeSources)[number];
+export type EffectiveRuntimePermissionMode = RuntimeLaunchPermissionMode | "unknown";
+export type EffectiveRuntimePermissionModeSource = RuntimePermissionModeSource | "unknown";
 export interface AgentDefinitionSnapshot {
   readonly schema: "agent-definition-snapshot/v1";
   readonly configVersion: 1;
@@ -396,6 +402,9 @@ interface RuntimePayloads {
     readonly squadRun?: SquadDispatchContext;
     readonly cwd?: string;
     readonly role?: string;
+    readonly launchedPermissionMode?: RuntimeLaunchPermissionMode;
+    readonly requestedPermissionMode?: RuntimeLaunchPermissionMode | null;
+    readonly permissionModeSource?: RuntimePermissionModeSource;
     readonly reviewTarget?: {
       readonly kind: "decision" | "task";
       readonly decisionId?: string;
@@ -602,6 +611,9 @@ function validateAgentRuntimePayloadFields(
                 "squadRun",
                 "cwd",
                 "role",
+                "launchedPermissionMode",
+                "requestedPermissionMode",
+                "permissionModeSource",
                 "reviewTarget",
               ]
             : [];
@@ -651,6 +663,15 @@ function validateAgentRuntimePayloadFields(
       (value.acceptedCommit !== undefined && !/^[a-f0-9]{40}$/u.test(String(value.acceptedCommit))))
   )
     return ["runtime handoff metadata is invalid"];
+  if (
+    type === "runtime_dispatch_requested" &&
+    ((value.launchedPermissionMode !== undefined && !validRuntimeLaunchPermissionMode(value.launchedPermissionMode)) ||
+      (value.requestedPermissionMode !== undefined &&
+        value.requestedPermissionMode !== null &&
+        !validRuntimeLaunchPermissionMode(value.requestedPermissionMode)) ||
+      (value.permissionModeSource !== undefined && !validRuntimePermissionModeSource(value.permissionModeSource)))
+  )
+    return ["runtime dispatch permission metadata is invalid"];
   if (
     type === "runtime_session_started" &&
     (!validRef(value.definitionSnapshotRef) ||
@@ -1122,6 +1143,12 @@ function validResult(ref: unknown, value: unknown, allowUnknownFields: boolean):
     value.mediaType === "text/plain; charset=utf-8" &&
     ref === `artifact:runtime-result/sha256/${value.sha256}`
   );
+}
+export function validRuntimeLaunchPermissionMode(value: unknown): value is RuntimeLaunchPermissionMode {
+  return typeof value === "string" && (runtimeLaunchPermissionModes as readonly string[]).includes(value);
+}
+export function validRuntimePermissionModeSource(value: unknown): value is RuntimePermissionModeSource {
+  return typeof value === "string" && (runtimePermissionModeSources as readonly string[]).includes(value);
 }
 function validRef(value: unknown): boolean {
   return typeof value === "string" && /^(?:artifact|file|provider):[^\r\n]{1,512}$/u.test(value);

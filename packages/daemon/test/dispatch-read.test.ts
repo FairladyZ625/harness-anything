@@ -33,6 +33,10 @@ import {
   validateDaemonRpcCall,
   validateDaemonTaskDispatches,
 } from "../src/protocol/daemon-protocol.contract.ts";
+import {
+  validDispatchLifecycleSummary,
+  validTaskDispatchAttempt,
+} from "../src/protocol/daemon-protocol-validate-relation-query.ts";
 
 const dispatchId = "dispatch_a1b2c3d4e5f60718293a4b5c",
   runtimeSessionId = "runtime-1",
@@ -1301,4 +1305,69 @@ test("a guard escalation is needs_attention rather than a fabricated awaiting-ru
   assert.notEqual(row.classification, "awaiting_ruling");
   assert.equal(row.reason, reason);
   assert.deepEqual(validateDaemonTaskDispatches(result), []);
+});
+
+test("dispatch rows and attempt chains expose effective permission mode and reject invalid enum values", () => {
+  const historical = readTaskDispatches({ projection: fixture(session("live", null)).projection, taskId });
+  assert.deepEqual(validateDaemonTaskDispatches(historical), []);
+  assert.equal(historical.dispatches[0]?.effectivePermissionMode, "unknown");
+  assert.equal(historical.dispatches[0]?.requestedPermissionMode, null);
+  assert.equal(historical.dispatches[0]?.permissionModeSource, "unknown");
+
+  const attemptProjection = fixture(session("live", null)).projection;
+  const dispatchWithPermission = {
+    schema: "agent-runtime-event/v1",
+    type: "runtime_dispatch_requested",
+    occurredAt: "2026-08-23T00:00:00.000Z",
+    payload: {
+      dispatchId,
+      runtimeSessionId,
+      taskId,
+      executionId: "execution-1",
+      instanceId: "instance-1",
+      agentId: "terra",
+      definitionSnapshotRef: "artifact:runtime-definition/test",
+      attemptGroupId: dispatchId,
+      attemptIndex: 0,
+      launchedPermissionMode: "read-only",
+      requestedPermissionMode: "read-only",
+      permissionModeSource: "dispatch",
+    },
+  } as unknown as Dispatch;
+  const permissionProjection = {
+    ...attemptProjection,
+    readRuntimeDispatchesByTaskIds: () => [dispatchWithPermission],
+    readRuntimeDispatchesBySession: () => [{ event: dispatchWithPermission }],
+    readRuntimeDispatchesByAttemptGroup: () => [{ event: dispatchWithPermission }],
+  } as unknown as TaskProjection;
+
+  const dispatches = readTaskDispatches({ projection: permissionProjection, taskId });
+  assert.deepEqual(validateDaemonTaskDispatches(dispatches), []);
+  assert.equal(dispatches.dispatches[0]?.effectivePermissionMode, "read-only");
+  assert.equal(dispatches.dispatches[0]?.requestedPermissionMode, "read-only");
+  assert.equal(dispatches.dispatches[0]?.permissionModeSource, "dispatch");
+
+  const chain = readRuntimeAttemptChain(runtimeSessionId, permissionProjection)!;
+  assert.equal(chain.attempts[0]?.effectivePermissionMode, "read-only");
+  assert.equal(chain.attempts[0]?.requestedPermissionMode, "read-only");
+  assert.equal(chain.attempts[0]?.permissionModeSource, "dispatch");
+  assert.equal(validTaskDispatchAttempt(chain.attempts[0]), true);
+  assert.equal(validDispatchLifecycleSummary(chain.attempts[0]?.lifecycle), true);
+
+  const row = dispatches.dispatches[0]!;
+  assert.equal(validTaskDispatchRow({ ...row, effectivePermissionMode: "invalid" }), false);
+  assert.equal(validTaskDispatchRow({ ...row, requestedPermissionMode: "unknown" }), false);
+  assert.equal(validTaskDispatchRow({ ...row, permissionModeSource: "env" }), false);
+  assert.equal(validTaskDispatchAttempt({ ...chain.attempts[0], effectivePermissionMode: "invalid" }), false);
+  assert.equal(validTaskDispatchAttempt({ ...chain.attempts[0], requestedPermissionMode: "unknown" }), false);
+  assert.equal(validTaskDispatchAttempt({ ...chain.attempts[0], permissionModeSource: "env" }), false);
+  assert.equal(
+    validDispatchLifecycleSummary({ ...chain.attempts[0]?.lifecycle, effectivePermissionMode: "invalid" }),
+    false,
+  );
+  assert.equal(
+    validDispatchLifecycleSummary({ ...chain.attempts[0]?.lifecycle, requestedPermissionMode: "unknown" }),
+    false,
+  );
+  assert.equal(validDispatchLifecycleSummary({ ...chain.attempts[0]?.lifecycle, permissionModeSource: "env" }), false);
 });
