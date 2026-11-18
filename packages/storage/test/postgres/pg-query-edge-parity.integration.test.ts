@@ -238,6 +238,8 @@ test("PG query edge inputs retain the SQLite contract", async (t) => {
           scope.tenantId,
         ]);
         await pool.query("UPDATE ha_repo_heads SET revision=4097 WHERE tenant_id=$1", [scope.tenantId]);
+        // The attribution columns seek canonical events. Supply the same ledger cut on both engines.
+        await seedEventHistory(events);
         const pg = createPgTaskQueryReader({ connectionString, scope, repoId });
         const contract = (queries: TaskProjectionQueries) => {
           const list = queries.list(),

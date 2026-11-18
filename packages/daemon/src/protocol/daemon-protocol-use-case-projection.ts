@@ -55,6 +55,8 @@ export interface DaemonUseCaseProjectionPayload {
   readonly groupBy?: "task" | "squad" | "agent" | "day";
   readonly agentId?: string;
   readonly squadId?: string;
+  readonly personId?: string;
+  readonly nodeId?: string;
   readonly since?: string;
   readonly query?: string;
   /** Session status words the group read narrows to; the daemon owns the vocabulary. */

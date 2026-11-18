@@ -477,7 +477,14 @@ export function isolateDaemonTaskSnapshotRows<T>(values: readonly T[]): {
  * completedAt precedent in isTaskSnapshotProjectionRow); a row without it validates, a row with
  * a bad value is isolated. The daemon's own producer always emits it.
  */
+const attributionFields = [
+  "createdByPersonId",
+  "activeOrLatestPersonId",
+  "originNodeId",
+  "activeOrLatestNodeId",
+] as const;
 const taskSnapshotListRowFields = [
+  ...attributionFields,
   "taskId",
   "packagePath",
   "generation",
@@ -503,7 +510,8 @@ const taskSnapshotListRowFields = [
 ] as const;
 
 const requiredRowFields: readonly string[] = taskSnapshotListRowFields.filter(
-  (field) => field !== "deliveryStage" && field !== "assignmentRevision",
+  (field) =>
+    field !== "deliveryStage" && field !== "assignmentRevision" && !attributionFields.some((id) => id === field),
 );
 
 function taskSnapshotRowErrors(value: unknown, index: number): readonly DaemonTaskSnapshotInvalidRow[] {
@@ -531,6 +539,7 @@ function taskSnapshotRowErrors(value: unknown, index: number): readonly DaemonTa
   if (value.createdAt !== null && !nonEmpty(value.createdAt)) errors.push(error("createdAt"));
   if (value.completedAt !== null && !nonEmpty(value.completedAt)) errors.push(error("completedAt"));
   if (!nonEmpty(value.updatedAt)) errors.push(error("updatedAt"));
+  for (const field of attributionFields) if (value[field] != null && !nonEmpty(value[field])) errors.push(error(field));
   if (!statusWord([...taskStatusWords, "unknown"], value.coordinationStatus)) errors.push(error("coordinationStatus"));
   if (!snapshot(value.snapshot, value.snapshotAvailability))
     errors.push(...snapshotFailurePaths(value.snapshot, value.snapshotAvailability).map(error));

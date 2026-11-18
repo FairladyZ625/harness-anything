@@ -10,7 +10,9 @@ import {
   assertEventSummaryReadIndexReady,
   backfillEventSummaryReadIndex,
   ensureEventSummaryReadIndexColumns,
+  taskAttributionRows,
 } from "../../src/projection/event-summary-read-index.ts";
+import { repositoryEventQueries } from "../../src/projection/repository-event-queries.ts";
 import { readEventList } from "../../src/projection/event-list-query.ts";
 
 const OLD_EVENT_SUMMARY = `
@@ -56,8 +58,8 @@ test("existing event summaries expand in place and answer the indexed filters", 
         }))
         .map((value) => ({ ...value })),
       [
-        { workspace_revision: 1, event_type: "entity_upserted", read_index_version: 1 },
-        { workspace_revision: 2, event_type: "task_created", read_index_version: 1 },
+        { workspace_revision: 1, event_type: "entity_upserted", read_index_version: 2 },
+        { workspace_revision: 2, event_type: "task_created", read_index_version: 2 },
       ],
     );
     assert.deepEqual(
@@ -95,7 +97,7 @@ test("a pre-expansion writer row is filled by the trigger instead of staying pen
           )
           .get() as object),
       },
-      { event_type: "task_created", actor_person_id: "person-a", read_index_version: 1 },
+      { event_type: "task_created", actor_person_id: "person-a", read_index_version: 2 },
     );
     assert.deepEqual(
       readEventList(db, { entity: "task/task_late", limit: 10 }).rows.map(({ revision }) => revision),
@@ -173,7 +175,7 @@ test("an interrupted backfill resumes from the remaining pending rows without lo
     assert.equal(readEventList(db, { limit: 200 }).rows.length, 130);
     assert.equal(
       (
-        db.prepare("SELECT count(*) AS pending FROM event_summary WHERE read_index_version < 1").get() as {
+        db.prepare("SELECT count(*) AS pending FROM event_summary WHERE read_index_version < 2").get() as {
           pending: number;
         }
       ).pending,
@@ -223,7 +225,7 @@ test("backfill counts the pending set once, not once per batch", () => {
     assert.equal(countExecutions, 1);
     assert.equal(
       (
-        db.prepare("SELECT count(*) AS pending FROM event_summary WHERE read_index_version < 1").get() as {
+        db.prepare("SELECT count(*) AS pending FROM event_summary WHERE read_index_version < 2").get() as {
           pending: number;
         }
       ).pending,
@@ -261,5 +263,100 @@ test("a read-only connection fails closed during backfill and sees the complete 
     reader?.close();
     writer?.close();
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("fleet backfill and incremental writes keep unique, bounded node activity outside the global tail", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    const edge = "node-edge-a",
+      personId = "person_alice",
+      nodeSource = { kind: "node", nodeId: edge },
+      at = (revision: number) => new Date(Date.UTC(2026, 10, 18, 0, 0, revision)).toISOString(),
+      actor = { principal: { personId } },
+      rowAt = (revision: number, type: string, taskId: string) =>
+        JSON.stringify({
+          ...JSON.parse(row(revision, type, [`task/${taskId}`], personId)),
+          occurredAt: at(revision),
+        });
+    db.exec(OLD_EVENT_SUMMARY);
+    db.prepare("INSERT INTO event_summary VALUES (1, ?, ?, ?)").run(
+      JSON.stringify({ taskId: "task_old" }),
+      JSON.stringify({ source: nodeSource, actor }),
+      rowAt(1, "task_created", "task_old"),
+    );
+    createProjectionTables(db);
+    const queries = repositoryEventQueries((read) =>
+        read(db, { status: "ready", watermark: 108, sourceRevision: 108 }),
+      ),
+      old = queries.readEventSummaries(0, 1, "fleet").events[0]!;
+    assert.equal(old.nodeId, edge);
+    assert.equal(old.actor?.principal?.personId, personId);
+    assert.deepEqual(old.source, nodeSource);
+    const insertTask = db.prepare(
+        "INSERT INTO task_snapshot(task_id,workspace_revision,snapshot_json,status,updated_at) VALUES(?, ?, ?, 'done', ?)",
+      ),
+      insertSummary = db.prepare(
+        "INSERT INTO event_summary(workspace_revision,summary_json,witness_json,row_json) VALUES(?, ?, ?, ?)",
+      ),
+      insert = (revision: number, type: string, taskId: string, source: unknown) =>
+        insertSummary.run(
+          revision,
+          JSON.stringify({ taskId }),
+          JSON.stringify({ source, actor }),
+          rowAt(revision, type, taskId),
+        );
+    for (let revision = 2; revision <= 25; revision++) {
+      const taskId = `task_${revision}`;
+      insertTask.run(taskId, revision, JSON.stringify({ task: { title: taskId, pinned: false } }), at(revision));
+      insert(revision, "task_created", taskId, nodeSource);
+    }
+    db.prepare(
+      "INSERT INTO runtime_session(runtime_session_id,workspace_revision,value_json,execution_node_id) VALUES('runtime_edge',25,?,?)",
+    ).run(JSON.stringify({ outcome: "succeeded" }), edge);
+    for (let revision = 26; revision <= 37; revision++) {
+      insert(revision, "runtime_dispatch_requested", "task_25", "runtime-session/runtime_edge");
+      db.prepare("INSERT INTO event_index(op_id,workspace_revision,task_id,event_json) VALUES(?, ?, ?, ?)").run(
+        `op-${revision}`,
+        revision,
+        "task_25",
+        JSON.stringify({
+          payload: {
+            dispatchId: `dispatch_${revision}`,
+            runtimeSessionId: "runtime_edge",
+          },
+        }),
+      );
+    }
+    for (let revision = 38; revision <= 108; revision++) insert(revision, "task_completed", "task_center", "local");
+    const page = queries.readEventSummaries(58, 50, { fleetNodeIds: [edge] });
+    assert.ok(page.events.every(({ nodeId }) => nodeId === "center"));
+    const recent = page.fleetActivity?.[0];
+    assert.equal(recent?.recentTasks.length, 10);
+    assert.equal(recent?.recentTasks[0]?.taskId, "task_25");
+    assert.equal(recent?.recentTasks[0]?.updatedAt, at(37));
+    assert.equal(recent?.recentDispatches.length, 10);
+    assert.equal(recent?.recentDispatches[0]?.dispatchId, "dispatch_37");
+    assert.equal(recent?.recentDispatches[0]?.status, "succeeded");
+    assert.equal(recent?.recentEvents.length, 20);
+    assert.equal(recent?.recentEvents[0]?.workspaceRevision, 37);
+    assert.ok(recent?.recentEvents.every((event) => event.nodeId === edge && event.personId === personId));
+    insertSummary.run(
+      109,
+      JSON.stringify({ taskId: "task_25" }),
+      JSON.stringify({ source: "local" }),
+      JSON.stringify({ ...JSON.parse(rowAt(109, "task_completed", "task_25")), actor: {} }),
+    );
+    assert.deepEqual(
+      { ...taskAttributionRows(db, ["task_25"]).get("task_25") },
+      {
+        task_id: "task_25",
+        origin_node_id: edge,
+        latest_node_id: "center",
+        latest_person_id: personId,
+      },
+    );
+  } finally {
+    db.close();
   }
 });

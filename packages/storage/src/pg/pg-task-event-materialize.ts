@@ -50,7 +50,7 @@ import {
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import {
   PG_PROJECTION_SCHEMA_VERSION,
-  PG_PROJECTION_TABLES,
+  PG_REBUILDABLE_PROJECTION_TABLES,
   assertPgProjectionSchemaVersion,
 } from "./pg-projection-schema.ts";
 import { slugifyTaskTitle } from "@harness-anything/kernel/internal/layout/index.ts";
@@ -250,7 +250,7 @@ export async function rebuildPgProjection(
   input: PgProjectionRebuildInput,
 ): Promise<PgProjectionMaterializationReceipt> {
   const scopeValues = [scope.tenantId, scope.projectId, scope.policyEpoch];
-  for (const table of PG_PROJECTION_TABLES)
+  for (const table of PG_REBUILDABLE_PROJECTION_TABLES)
     await client.query(
       `DELETE FROM ${table} WHERE tenant_id = $1 AND project_id = $2 AND policy_epoch = $3`,
       scopeValues,
