@@ -184,6 +184,19 @@ export function decisionReviewDispatchKey(decisionId: string, digest: string): s
   return `decision-review:${decisionId}:${digest}`;
 }
 
+/**
+ * Async Git/worktree publication runs outside the writer turn; settle pending revisions before
+ * actions that compare on-disk authored files against SQLite or spawn into an authored directory.
+ */
+export async function settlePendingMaterializationIfNeeded(
+  store: Pick<RepoCellOperationalContext["store"], "materializationHealth" | "settlePendingMaterialization">,
+  settlementContext: string,
+): Promise<void> {
+  const health = store.materializationHealth?.();
+  if (!health || health.pendingWalEvents > 0 || health.state !== "ok")
+    await store.settlePendingMaterialization?.(settlementContext);
+}
+
 export async function dispatchDecisionReview(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
@@ -962,6 +975,7 @@ export async function spawnCutReviewDispatch(
     };
   try {
     const worktree = await cell.runtimeSpawner.prepareWorktree(payload, submission.commitSha);
+    if (worktree === null) await settlePendingMaterializationIfNeeded(cell.store, "task review dispatch");
     await enqueuePublication(payload, async (authorizationDecision) =>
       cell.runtimeSpawner.spawn(payload, { ...input.binding, authorizationDecision }, worktree),
     );
@@ -1506,6 +1520,7 @@ export async function dispatchTaskReview(
     try {
       // Already inside the center queue. Only launch admission is awaited; provider completion is not.
       const worktree = await cell.runtimeSpawner.prepareWorktree(payload, execution.submission?.commitSha ?? null);
+      if (worktree === null) await settlePendingMaterializationIfNeeded(cell.store, "task dispatch review");
       const spawned = await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision }, worktree),
         selection = spawned.runtimeSelection;
       if (selection !== null && typeof selection === "object" && !Array.isArray(selection)) {

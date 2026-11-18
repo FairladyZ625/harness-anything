@@ -33,7 +33,11 @@ import { type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo
 import { selectExecutorDeclaration, taskLineageExecutorCandidates } from "./dispatch-read.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
 import { taskShowFromProjection } from "./repo-cell-completion.ts";
-import { dispatchDecisionReview, dispatchTaskReview } from "./task-review-dispatch.ts";
+import {
+  dispatchDecisionReview,
+  dispatchTaskReview,
+  settlePendingMaterializationIfNeeded,
+} from "./task-review-dispatch.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import { runFactAction } from "./repo-cell-fact-action.ts";
 import { deriveActionResult } from "@harness-anything/application/internal/commands/entity-action-catalog-executor.ts";
@@ -72,11 +76,7 @@ async function runSettledAction<T>(
   settlementContext: string,
   perform: () => T | Promise<T>,
 ): Promise<T> {
-  // Async Git/worktree publication runs outside the writer turn; settle pending revisions before
-  // actions that compare on-disk authored files against the SQLite projection.
-  const health = cell.store.materializationHealth?.();
-  if (!health || health.pendingWalEvents > 0 || health.state !== "ok")
-    await cell.store.settlePendingMaterialization?.(settlementContext);
+  await settlePendingMaterializationIfNeeded(cell.store, settlementContext);
   return perform();
 }
 
@@ -248,7 +248,8 @@ export function executeRepoAction(
   if (action.kind === "graph") return cell.graphView(action, binding);
   if (action.kind === "task-review") return cell.reviewTask(action, binding);
   if (action.kind === "task-dispatch-review") return dispatchTaskReview(cell, action, binding);
-  if (action.kind === "decision-dispatch-review") return dispatchDecisionReview(cell, action, binding);
+  if (action.kind === "decision-dispatch-review")
+    return runSettledAction(cell, "decision dispatch review", () => dispatchDecisionReview(cell, action, binding));
   if (
     action.kind === "decision-rematerialize" ||
     action.kind === "fact-rematerialize" ||
