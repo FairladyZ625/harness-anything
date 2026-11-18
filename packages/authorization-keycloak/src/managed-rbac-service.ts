@@ -172,9 +172,9 @@ export class ManagedRbacService {
   }
 
   /** Lifecycle operations run one at a time: a start asked for while the daemon is still resuming waits for it. */
-  run(request: ManagedRbacRequest): Promise<Record<string, unknown>> {
+  run(request: ManagedRbacRequest, ownerRecovery = false): Promise<Record<string, unknown>> {
     if (request.mode !== "external" && request.operation === "health") return this.health();
-    const run = this.#lifecycle.then(() => this.#run(request));
+    const run = this.#lifecycle.then(() => this.#run(request, ownerRecovery));
     this.#lifecycle = run.catch(consumeKnownError);
     return run;
   }
@@ -201,7 +201,7 @@ export class ManagedRbacService {
       : null;
   }
 
-  async #run(request: ManagedRbacRequest): Promise<Record<string, unknown>> {
+  async #run(request: ManagedRbacRequest, ownerRecovery: boolean): Promise<Record<string, unknown>> {
     const operation = request.operation ?? "bootstrap";
     if (request.mode === "external") return this.#configureExternal(request);
     if (operation === "stop") {
@@ -220,7 +220,7 @@ export class ManagedRbacService {
         version: listenerVersion(listener, config.certificateMode, config.listenerGeneration),
       };
     }
-    if (operation === "listener-set") return this.#setListener(request);
+    if (operation === "listener-set") return this.#setListener(request, ownerRecovery);
     if (operation === "backup") return this.#backup(request);
     if (operation === "restore") return this.#restore(request);
     const started = Date.now();
@@ -459,7 +459,7 @@ export class ManagedRbacService {
    * The listener's hostname becomes the token issuer, so a session signed in under the previous
    * issuer is refused at its next renewal and signs in again.
    */
-  async #setListener(request: ManagedRbacRequest): Promise<Record<string, unknown>> {
+  async #setListener(request: ManagedRbacRequest, ownerRecovery: boolean): Promise<Record<string, unknown>> {
     if (
       request.certificateMode !== undefined &&
       !["self-signed", "domain", "internal-ca"].includes(request.certificateMode)
@@ -475,9 +475,18 @@ export class ManagedRbacService {
       );
     if (expectedVersion !== currentVersion)
       return { ok: false, code: "version_conflict", command: "rbac-listener-set", expectedVersion, currentVersion };
+    const previousListenerIsUsable = () =>
+      !config.listener || listenerMaterialProblem(config.listener, this.#host.validateCertificateNames) === undefined;
+    let previousListenerUsable = previousListenerIsUsable();
+    const requireRecoveryEligibility = () => {
+      if (ownerRecovery && previousListenerUsable)
+        throw managedRbacError(
+          "authorization_denied",
+          "The listener is healthy. Sign in with access management to change it.",
+        );
+    };
+    requireRecoveryEligibility();
     const plan = this.#resolveListenerPlan(request, config),
-      previousListenerUsable =
-        !config.listener || listenerMaterialProblem(config.listener, this.#host.validateCertificateNames) === undefined,
       prepared = await this.#prepareListenerMaterial(request, config, plan),
       { listener, listenerGeneration, stagedDirectory } = prepared,
       { listener: _replaced, listenerGeneration: _oldGeneration, certificateMode: _oldMode, ...loopback } = config;
@@ -488,6 +497,10 @@ export class ManagedRbacService {
     try {
       this.#stopping = true;
       await this.#stopChild("keycloak");
+      if (ownerRecovery) {
+        previousListenerUsable = previousListenerIsUsable();
+        requireRecoveryEligibility();
+      }
       this.#writeConfig(nextConfig);
       configCommitted = true;
       await this.start();
@@ -496,12 +509,7 @@ export class ManagedRbacService {
       this.#stopping = true;
       await this.#stopChild("keycloak").catch(consumeKnownError);
       if (configCommitted) this.#writeConfig(config);
-      if (stagedDirectory) {
-        /* @gate-identity state-store/runtime-instance.authorization-configuration */ rmSync(stagedDirectory, {
-          recursive: true,
-          force: true,
-        });
-      }
+      if (stagedDirectory) this.#pruneListenerVersions(config.listener, undefined);
       if (previousListenerUsable) {
         await this.start();
         await this.#waitUntilReady();
@@ -1416,8 +1424,8 @@ export class ManagedRbacService {
       `${JSON.stringify(config, null, 2)}\n`,
       { mode: 0o600 },
     );
+    chmodSync(temporary, 0o600);
     /* @gate-identity state-store/runtime-instance.authorization-configuration */ renameSync(temporary, file);
-    chmodSync(file, 0o600);
   }
 }
 

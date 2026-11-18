@@ -1694,8 +1694,8 @@ test("forwarding and local RBAC facades require their typed, registered service 
       "rbac-bootstrap",
       [
         "85833909ab835513f6a37d3d00ce0f77",
+        "033286848d57f3b00203615ef676d2c8",
         "85833909ab835513f6a37d3d00ce0f77:2",
-        "85833909ab835513f6a37d3d00ce0f77:3",
         "97ac26b82a689aef98ce00ee87bc497b",
       ],
     ],
@@ -1806,12 +1806,12 @@ test("RBAC service callbacks cannot detach from their actual authority or become
     file = "packages/daemon/src/daemon-host-open.ts";
   for (const [id, from, to] of [
     [
-      "85833909ab835513f6a37d3d00ce0f77:2",
-      'return oidc.configureAuthority(() => managedRbac.run(request), loginTarget, {\n            authorizeOwnerRecovery: async () => {\n              const brokenListener =\n                managedListenerProblem(input.userRoot) !== undefined &&\n                !(loginTarget && readFleetEdgeConfig(loginTarget));\n              if (!brokenListener) return false;\n              if (!isDaemonSocketOwner(auth))\n                throw hostCodedError(\n                  "authentication_required",\n                  "Only the local daemon socket owner can repair a broken listener configuration.",\n                );\n              const binding = await localSystemActionBinding(input.userRoot, "rbac-bootstrap", auth, () =>\n                Promise.resolve(localDefaultBinding(auth)),\n              );\n              await requireAuthorizedHostAction({\n                kind: "rbac-bootstrap",\n                binding,\n                actionId: `rbac-bootstrap:${request.operation}`,\n                evaluatedAtCut: "daemon-rbac:current",\n              });\n              return true;\n            },\n          });',
-      "return Promise.resolve().then(() => managedRbac.run(request));",
+      "033286848d57f3b00203615ef676d2c8",
+      "return oidc.configureAuthority(() => managedRbac.run(request, ownerRecovery), loginTarget, {",
+      "return ((operation, ..._ignored) => Promise.resolve().then(operation))(() => managedRbac.run(request, ownerRecovery), loginTarget, {",
     ],
     [
-      "85833909ab835513f6a37d3d00ce0f77:3",
+      "85833909ab835513f6a37d3d00ce0f77:2",
       'return requireAuthorizedHostAction({\n          kind: "rbac-bootstrap",',
       'return requireAuthorizedHostAction({\n          kind: "task-delete",\n          reason: "rbac-bootstrap",',
     ],
@@ -1835,7 +1835,7 @@ test("RBAC service callbacks cannot detach from their actual authority or become
 test("RBAC evidence uses the effective top-level authorization kind", async () => {
   const inputs = await baselineAuthorizationInputs(),
     action = inputs.constants.actionDeclarations.find((entry) => entry.kind === "rbac-bootstrap"),
-    source = action.ontology.sources.find((entry) => entry.candidateId.endsWith(":85833909ab835513f6a37d3d00ce0f77:3")),
+    source = action.ontology.sources.find((entry) => entry.candidateId.endsWith(":85833909ab835513f6a37d3d00ce0f77:2")),
     file = "packages/daemon/src/daemon-host-open.ts",
     route = { id: action.kind, kind: action.kind, ok: true },
     mutations = [

@@ -456,7 +456,7 @@ test("local socket owner recovers a managed listener whose private key was delet
   }
 });
 
-test("queued owner recovery re-checks listener health and OIDC access inside serialization (RBAC-14)", async () => {
+test("listener recovery rechecks authorization after both queues (RBAC-14)", { timeout: 90_000 }, async (t) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-rbac-queue-toctou-")),
     userRoot = path.join(parent, "user"),
     rootDir = path.join(parent, "repo"),
@@ -516,11 +516,14 @@ test("queued owner recovery re-checks listener health and OIDC access inside ser
   keycloak.account("person-owner");
   keycloak.accessAdmin("person-owner");
   keycloak.account("person-member");
-  let session: string | undefined;
+  let session: string | undefined, waitForManagedReadiness: (() => Promise<void>) | undefined;
 
   const fetchPort: typeof fetch = (async (input, init) => {
     const url = new URL(String(input));
-    if (url.pathname === "/realms/harness") return Response.json({ realm: "harness" }, { status: 200 });
+    if (url.pathname === "/realms/harness") {
+      await waitForManagedReadiness?.();
+      return Response.json({ realm: "harness" }, { status: 200 });
+    }
     return keycloak.fetch(input, init);
   }) as typeof fetch;
 
@@ -640,6 +643,57 @@ test("queued owner recovery re-checks listener health and OIDC access inside ser
     releaseMemberQueue();
     await blockingMemberWork;
     await assert.rejects(memberQueued, { code: "authorization_denied" });
+
+    // The same non-admin can enter owner recovery while the key is missing. Hold a real
+    // managed start in its readiness probe so that the lifecycle queue still owns the write.
+    const probeEntered = Promise.withResolvers<void>(),
+      releaseProbe = Promise.withResolvers<void>(),
+      reachedLifecycle = Promise.withResolvers<void>(),
+      previousKey = readFileSync(managedConfig.listener.certificateKeyFile),
+      configBefore = readFileSync(configFile, "utf8"),
+      recoveryPort = await freePort();
+    waitForManagedReadiness = () => {
+      probeEntered.resolve();
+      return releaseProbe.promise;
+    };
+    const blockingStart = managedRbac.run({ operation: "start" });
+    const originalRun = managedRbac.run.bind(managedRbac);
+    t.mock.method(managedRbac, "run", (...args: Parameters<typeof managedRbac.run>) => {
+      const queued = originalRun(...args);
+      if (args[0].operation === "listener-set") reachedLifecycle.resolve();
+      return queued;
+    });
+    try {
+      await Promise.race([
+        probeEntered.promise,
+        blockingStart.then(() => assert.fail("managed start finished without entering readiness")),
+      ]);
+      rmSync(managedConfig.listener.certificateKeyFile);
+      const recovery = host.manageRbac(
+        {
+          operation: "listener-set",
+          rootDir,
+          certificateMode: "self-signed",
+          listenAddress: "127.0.0.1",
+          hostname: "center.example.test",
+          port: recoveryPort,
+          expectedVersion: brokenVersion,
+        },
+        auth,
+      );
+      await Promise.race([
+        reachedLifecycle.promise,
+        recovery.then(() => assert.fail("recovery has not entered the lifecycle queue")),
+      ]);
+      writeFileSync(managedConfig.listener.certificateKeyFile, previousKey, { mode: 0o600 });
+      releaseProbe.resolve();
+      await assert.rejects(recovery, { code: "authorization_denied" });
+      assert.equal(readFileSync(configFile, "utf8"), configBefore);
+      assert.equal(await blockingStart.then((result) => result.ready), true);
+    } finally {
+      releaseProbe.resolve();
+      await Promise.allSettled([blockingStart]);
+    }
   } finally {
     await host.close();
     rmSync(parent, { recursive: true, force: true });

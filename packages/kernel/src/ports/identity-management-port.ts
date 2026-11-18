@@ -85,7 +85,8 @@ export interface ManagedRbacListener {
 }
 
 export interface IdentityManagementPort {
-  run(request: ManagedRbacRequest): Promise<Record<string, unknown>>;
+  /** Owner recovery is granted by the local host and must still be eligible at listener publication. */
+  run(request: ManagedRbacRequest, ownerRecovery?: boolean): Promise<Record<string, unknown>>;
   resume(): Promise<void>;
   loginListenerCertificate(): { readonly certificateFile: string; readonly certificateKeyFile: string } | null;
   start(): Promise<void>;

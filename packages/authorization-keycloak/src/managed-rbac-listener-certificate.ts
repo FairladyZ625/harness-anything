@@ -16,6 +16,7 @@ import {
   realpathSync,
   renameSync,
   rmSync,
+  statSync,
   type Stats,
   writeFileSync,
 } from "node:fs";
@@ -30,6 +31,7 @@ import type { CertificateMode, ManagedRbacListener, ManagedRbacRequest } from "@
 const pemCertificateBlock = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/gu;
 const tlsServerAuthEku = "1.3.6.1.5.5.7.3.1";
 const anyExtendedKeyUsage = "2.5.29.37.0";
+const basicConstraintsOid = Buffer.from([0x55, 0x1d, 0x13]); // 2.5.29.19
 
 export type ListenerMaterialProblem = "missing_certificate" | "exposed_key" | "invalid_material";
 export type ListenerWriteStage = "certificate" | "key" | "config" | "cleanup";
@@ -169,6 +171,50 @@ export function readRegularListenerCertificateIfPresent(filePath: string): strin
   return readRegularFileIfPresent(filePath)?.bytes.toString("utf8");
 }
 
+function* derElements(bytes: Buffer): Generator<{ readonly tag: number; readonly value: Buffer }> {
+  let offset = 0;
+  while (offset < bytes.length) {
+    const tag = bytes[offset++]!,
+      firstLength = bytes[offset++];
+    if (firstLength === undefined) throw listenerError("The listener certificate contains malformed X.509 DER.");
+    let length = firstLength;
+    if (firstLength >= 0x80) {
+      const width = firstLength & 0x7f;
+      if (width === 0 || width > 4 || offset + width > bytes.length)
+        throw listenerError("The listener certificate contains malformed X.509 DER.");
+      length = bytes.readUIntBE(offset, width);
+      offset += width;
+    }
+    const end = offset + length;
+    if (end > bytes.length) throw listenerError("The listener certificate contains malformed X.509 DER.");
+    yield { tag, value: bytes.subarray(offset, end) };
+    offset = end;
+  }
+}
+
+function issuerPathLength(issuer: X509Certificate): bigint | undefined {
+  // Node exposes the parsed CA flag, but the optional integer is only available in DER.
+  // RFC 5280 Certificate → TBSCertificate → [3] Extensions → BasicConstraints.
+  const [certificate] = derElements(issuer.raw),
+    [tbs] = derElements(certificate!.value),
+    extensions = [...derElements(tbs!.value)].find(({ tag }) => tag === 0xa3);
+  if (!extensions) return undefined;
+  const [sequence] = derElements(extensions.value);
+  for (const extension of derElements(sequence!.value)) {
+    const [oid, criticalOrValue, value] = derElements(extension.value);
+    if (oid?.tag !== 0x06 || !oid.value.equals(basicConstraintsOid)) continue;
+    const encoded = criticalOrValue?.tag === 0x01 ? value : criticalOrValue;
+    if (encoded?.tag !== 0x04) throw listenerError("The listener certificate contains malformed CA basic constraints.");
+    const [constraints] = derElements(encoded.value);
+    if (constraints?.tag !== 0x30)
+      throw listenerError("The listener certificate contains malformed CA basic constraints.");
+    // The caller checked issuer.ca. OpenSSL already decoded CA:TRUE and a nonnegative path length.
+    const [, limit] = derElements(constraints.value);
+    return limit ? BigInt(`0x${limit.value.toString("hex")}`) : undefined;
+  }
+  return undefined;
+}
+
 export function validateCertificateChainAndKeyPair(
   certificateBytes: Buffer,
   keyBytes: Buffer,
@@ -203,6 +249,7 @@ export function validateCertificateChainAndKeyPair(
     throw listenerError("The listener certificate extended key usage does not permit TLS server authentication.");
   if (certificates.length === 1 && leaf.checkIssued(leaf) && !leaf.verify(leaf.publicKey))
     throw listenerError("The self-signed listener certificate signature is invalid.");
+  let intermediateDepth = 0;
   for (let index = 1; index < certificates.length; index += 1) {
     const child = certificates[index - 1]!,
       issuer = certificates[index]!;
@@ -210,6 +257,10 @@ export function validateCertificateChainAndKeyPair(
       throw listenerError("The listener certificate chain contains an issuer without CA basic constraints.");
     if (!child.checkIssued(issuer) || !child.verify(issuer.publicKey))
       throw listenerError("The listener certificate chain is invalid or out of order.");
+    const pathLength = issuerPathLength(issuer);
+    if (pathLength !== undefined && intermediateDepth > pathLength)
+      throw listenerError("The listener certificate chain exceeds a CA path length constraint.");
+    if (issuer.subject !== issuer.issuer) intermediateDepth += 1;
   }
   if (names && validateCertificateNames) validateCertificateNames(certificateBytes, names);
   let privateKey: KeyObject;
@@ -292,7 +343,6 @@ function writeManagedFileAtomically(file: string, content: Buffer, mode: number)
   });
   chmodSync(temporary, mode);
   /* @gate-identity state-store/runtime-instance.authorization-configuration */ renameSync(temporary, file);
-  chmodSync(file, mode);
 }
 
 export function installUploadedCertificate(
@@ -337,19 +387,25 @@ function addProtectedManagedPaths(
   protectedFiles: Set<string>,
   protectedDirectories: Set<string>,
 ): void {
+  const protectDirectory = (directory: string) => {
+    const relative = path.relative(realListenerDirectory, directory);
+    if (relative === "" || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+      return;
+    // Pruning removes a generation recursively, including any nested referenced file.
+    protectedDirectories.add(path.join(realListenerDirectory, relative.split(path.sep)[0]!));
+  };
   for (const candidate of filePaths) {
     const resolved = path.resolve(candidate);
-    protectedFiles.add(resolved);
     const parent = path.dirname(resolved);
-    if (!isContainedRealDirectory(realListenerDirectory, parent)) continue;
-    const realParent = realpathSync(parent);
-    if (realParent !== realListenerDirectory) protectedDirectories.add(realParent);
-    const stats = lstatIfPresent(resolved);
-    if (stats && !stats.isSymbolicLink() && stats.isFile()) {
+    if (statSync(parent, { throwIfNoEntry: false })) {
+      const realParent = realpathSync(parent);
+      protectedFiles.add(path.join(realParent, path.basename(resolved)));
+      protectDirectory(realParent);
+    }
+    if (statSync(resolved, { throwIfNoEntry: false })) {
       const real = realpathSync(resolved);
       protectedFiles.add(real);
-      const realFileParent = path.dirname(real);
-      if (realFileParent !== realListenerDirectory) protectedDirectories.add(realFileParent);
+      protectDirectory(path.dirname(real));
     }
   }
 }
@@ -362,7 +418,7 @@ function removeSelfSignedCertificate(root: string, protectedFiles: ReadonlySet<s
   for (const [index, target] of [certificateFile, certificateKeyFile].entries()) {
     const resolved = path.resolve(target),
       stats = lstatIfPresent(resolved);
-    if (!stats || protectedFiles.has(resolved)) continue;
+    if (!stats || protectedFiles.has(path.join(realListenerDirectory, path.basename(resolved)))) continue;
     if (!stats.isSymbolicLink() && stats.isFile()) {
       const real = realpathSync(resolved);
       if (path.dirname(real) !== realListenerDirectory || protectedFiles.has(real)) continue;
@@ -384,15 +440,16 @@ export function pruneListenerCertificateVersions(
     realListenerDirectory = realpathSync(listenerDirectory),
     protectedFiles = new Set<string>(),
     protectedDirectories = new Set<string>();
-  addProtectedManagedPaths(
-    realListenerDirectory,
-    [
-      ...(activeListener ? [activeListener.certificateFile, activeListener.certificateKeyFile] : []),
-      ...protectedExternalPaths,
-    ],
-    protectedFiles,
-    protectedDirectories,
-  );
+  // Keep the active generation even when the persisted paths use an aliased userRoot.
+  if (activeListener) {
+    addProtectedManagedPaths(
+      realListenerDirectory,
+      [activeListener.certificateFile, activeListener.certificateKeyFile],
+      protectedFiles,
+      protectedDirectories,
+    );
+  }
+  addProtectedManagedPaths(realListenerDirectory, protectedExternalPaths, protectedFiles, protectedDirectories);
   onWriteStage?.("cleanup");
   for (const entry of readdirSync(listenerDirectory, { withFileTypes: true })) {
     const entryPath = path.join(listenerDirectory, entry.name);
@@ -420,7 +477,8 @@ export function pruneListenerCertificateVersions(
       parentDirectory = path.dirname(resolvedCandidate);
     if (!isContainedRealDirectory(listenerDirectory, parentDirectory)) continue;
     const stats = lstatIfPresent(resolvedCandidate);
-    if (!stats || protectedFiles.has(resolvedCandidate)) continue;
+    if (!stats || protectedFiles.has(path.join(realpathSync(parentDirectory), path.basename(resolvedCandidate))))
+      continue;
     if (stats.isSymbolicLink()) {
       /* @gate-identity state-store/runtime-instance.authorization-configuration */ rmSync(resolvedCandidate, {
         force: true,
@@ -529,8 +587,6 @@ export async function ensureSelfSignedCertificate(
       temporaryKey,
       certificateKeyFile,
     );
-    chmodSync(certificateFile, 0o644);
-    chmodSync(certificateKeyFile, 0o600);
     return { certificateFile, certificateKeyFile, generation, stagedDirectory: directory };
   } catch (error) {
     /* @gate-identity non-state/environment-io.778729626dd1b40c */ rmSync(temporaryCert, { force: true });

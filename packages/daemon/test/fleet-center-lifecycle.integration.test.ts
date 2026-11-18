@@ -9,13 +9,14 @@ import {
   readFileSync,
   rmSync,
   chmodSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { EventEmitter } from "node:events";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { connect } from "node:tls";
+import { connect, Server as TlsServer } from "node:tls";
 import test, { type TestContext } from "node:test";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { managedRbacVersions } from "@harness-anything/authorization-keycloak/managed-rbac-service";
@@ -27,6 +28,7 @@ import {
   fleetCenterConfigPath,
   parseFleetCenterExternalUrl,
   readFleetCenterConfig,
+  saveFleetCenterConfig,
 } from "../src/fleet-center-config.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { fakeKeycloak, signInAt } from "./keycloak.fixtures.ts";
@@ -124,13 +126,18 @@ test(
   { timeout: 300_000 },
   async (t) => {
     const f = await fixture(t),
-      first = await f.open("a/b"),
-      a = await first.fleet.startCenter({ ...f.request, stateRoot: path.join(f.root, "a") }, auth),
+      first = await f.open("a/b");
+    await first.attachmentsSettled();
+    const a = await first.fleet.startCenter({ ...f.request, stateRoot: path.join(f.root, "a") }, auth),
       otherPort = await unusedPort();
     // Both identities share one canonical repository, whose writer belongs to only one host at a time.
     await first.close();
-    const second = await f.open("a?b"),
-      b = await second.fleet.startCenter({ ...f.request, port: otherPort, stateRoot: path.join(f.root, "b") }, auth),
+    const second = await f.open("a?b");
+    await second.attachmentsSettled();
+    const b = await second.fleet.startCenter(
+        { ...f.request, port: otherPort, stateRoot: path.join(f.root, "b") },
+        auth,
+      ),
       aFile = fleetCenterConfigPath(f.userRoot, "a/b"),
       bFile = fleetCenterConfigPath(f.userRoot, "a?b");
     assert.notEqual(aFile, bFile);
@@ -742,6 +749,16 @@ test(
       (await initial.host.fleet.setCenterExternalAddress({ externalUrl: extUrl }, auth)).externalUrl,
       extUrl,
     );
+    const alias = path.join(f.root, "fleet-certificate-alias"),
+      aliasCertPath = path.join(alias, path.basename(centerConfig.certPath)),
+      aliasKeyPath = path.join(alias, path.basename(centerConfig.keyPath));
+    symlinkSync(path.dirname(centerConfig.certPath), alias, "junction");
+    saveFleetCenterConfig(f.userRoot, "center-rotation-preserve", {
+      ...centerConfig,
+      externalUrl: extUrl,
+      certPath: aliasCertPath,
+      keyPath: aliasKeyPath,
+    });
 
     // Switch RBAC login listener to self-signed and then loopback; center's uploaded-<gen1> pair still survives.
     const l3 = await managedRbac.run({
@@ -752,8 +769,8 @@ test(
       port: await unusedPort(),
       expectedVersion: String(l2.version),
     });
-    assert.equal(existsSync(centerConfig.certPath), true);
-    assert.equal(existsSync(centerConfig.keyPath), true);
+    assert.equal(existsSync(aliasCertPath), true);
+    assert.equal(existsSync(aliasKeyPath), true);
 
     await managedRbac.run({
       operation: "listener-set",
@@ -772,7 +789,76 @@ test(
     );
     const state = await restored.host.fleet.readCenterState(auth);
     assert.equal(state.running, true);
-    await handshake(Number(state.port), centerConfig.certPath);
+    await handshake(Number(state.port), aliasCertPath);
+    await restored.host.close();
+  },
+);
+
+test(
+  "an in-flight Fleet start protects its login certificates until a cold start can read center.json (RBAC-12)",
+  { timeout: 90_000 },
+  async (t) => {
+    const f = await managedRbacLifecycleFixture(t),
+      daemonId = "center-in-flight",
+      { host, managedRbac } = await f.open(daemonId);
+    await host.attachmentsSettled();
+    const installed = await managedRbac.run({
+      operation: "listener-set",
+      certificateMode: "domain",
+      listenAddress: "127.0.0.1",
+      hostname: "localhost",
+      port: await unusedPort(),
+      certificateFile: f.certPath,
+      certificateKeyFile: f.keyPath,
+      expectedVersion: String((await managedRbac.run({ operation: "listener" })).version),
+    });
+    const pair = managedRbac.loginListenerCertificate();
+    assert.ok(pair);
+    const listening = Promise.withResolvers<void>(),
+      publish = Promise.withResolvers<void>();
+    const listen: (this: TlsServer, port: number, bind: string, callback: () => void) => TlsServer =
+      TlsServer.prototype.listen;
+    const mockListen = t.mock.method(
+      TlsServer.prototype,
+      "listen",
+      function (this: TlsServer, port: number, bind: string, callback: () => void) {
+        return listen.call(this, port, bind, () => {
+          listening.resolve();
+          void publish.promise.then(callback);
+        });
+      },
+    );
+    const starting = host.fleet.startCenter(
+      { port: 0, repoId: f.request.repoId, quotaBytes: f.request.quotaBytes },
+      auth,
+    );
+    try {
+      await Promise.race([
+        listening.promise,
+        starting.then(() => assert.fail("Fleet start finished before its listening barrier")),
+      ]);
+      assert.equal(readFleetCenterConfig(f.userRoot, daemonId), null);
+      const reset = await managedRbac.run({ operation: "listener-set", expectedVersion: String(installed.version) });
+      assert.equal(reset.ok, true);
+      assert.equal(reset.listener, null);
+      assert.equal(existsSync(pair.certificateFile), true);
+      assert.equal(existsSync(pair.certificateKeyFile), true);
+    } finally {
+      mockListen.mock.restore();
+      publish.resolve();
+      await Promise.allSettled([starting]);
+    }
+    const started = await starting;
+    assert.equal(readFleetCenterConfig(f.userRoot, daemonId)?.certPath, pair.certificateFile);
+    assert.equal(readFleetCenterConfig(f.userRoot, daemonId)?.keyPath, pair.certificateKeyFile);
+    await host.close();
+    const records: DaemonLifecycleEntry[] = [],
+      restored = await f.open(daemonId, records);
+    assert.equal(
+      records.some((entry) => entry.event === "fleet_center_restore_failed"),
+      false,
+    );
+    await handshake(Number(started.port), pair.certificateFile);
     await restored.host.close();
   },
 );

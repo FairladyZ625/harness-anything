@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { localDaemonTargetKey } from "./client/local-daemon-target.ts";
 import { writeFileDurably } from "../../storage/src/durable-file.ts";
@@ -30,6 +30,17 @@ export function parseFleetCenterExternalUrl(value: string): string {
 
 export type FleetCenterConfig = Omit<Required<FleetCenterAdmissionRequest["payload"]>, "externalUrl"> &
   Pick<FleetCenterAdmissionRequest["payload"], "externalUrl">;
+
+let pendingCertificates: readonly { readonly root: string; readonly paths: readonly string[] }[] = [];
+
+/** Keep paths visible to RBAC pruning from selection through the synchronous center.json write. */
+export function retainFleetCenterCertificatePaths(userRoot: string, certPath: string, keyPath: string): () => void {
+  const reference = { root: realpathSync(userRoot), paths: [certPath, keyPath] };
+  pendingCertificates = [...pendingCertificates, reference];
+  return () => {
+    pendingCertificates = pendingCertificates.filter((pending) => pending !== reference);
+  };
+}
 
 export function fleetCenterConfigPath(userRoot: string, daemonId: string): string {
   return path.join(userRoot, "fleet", localDaemonTargetKey(userRoot, daemonId), "center.json");
@@ -81,9 +92,11 @@ function parseFleetCenterCertificatePaths(
 }
 
 export function readFleetCenterCertificatePaths(userRoot: string): readonly string[] {
-  const fleetDirectory = path.join(userRoot, "fleet");
-  if (!existsSync(fleetDirectory)) return [];
-  const paths: string[] = [];
+  if (!existsSync(userRoot)) return [];
+  const root = realpathSync(userRoot),
+    fleetDirectory = path.join(root, "fleet"),
+    paths = pendingCertificates.filter((pending) => pending.root === root).flatMap((pending) => pending.paths);
+  if (!existsSync(fleetDirectory)) return paths;
   for (const entry of readdirSync(fleetDirectory, { withFileTypes: true })) {
     if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
     const file = path.join(fleetDirectory, entry.name, "center.json");

@@ -1348,7 +1348,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           );
         }
         if (request.operation === "listener-set") {
-          return oidc.configureAuthority(() => managedRbac.run(request), loginTarget, {
+          let ownerRecovery = false;
+          return oidc.configureAuthority(() => managedRbac.run(request, ownerRecovery), loginTarget, {
             authorizeOwnerRecovery: async () => {
               const brokenListener =
                 managedListenerProblem(input.userRoot) !== undefined &&
@@ -1368,6 +1369,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
                 actionId: `rbac-bootstrap:${request.operation}`,
                 evaluatedAtCut: "daemon-rbac:current",
               });
+              ownerRecovery = true;
               return true;
             },
           });

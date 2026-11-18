@@ -21,8 +21,8 @@ export class BuiltinIdentityManagement implements IdentityManagementPort {
     this.#root = userRoot;
     this.#external = external;
   }
-  run(request: ManagedRbacRequest = {}): Promise<Record<string, unknown>> {
-    const run = this.#lifecycle.then(() => this.#run(request));
+  run(request: ManagedRbacRequest = {}, ownerRecovery = false): Promise<Record<string, unknown>> {
+    const run = this.#lifecycle.then(() => this.#run(request, ownerRecovery));
     this.#lifecycle = Promise.allSettled([run]).then(() => undefined);
     return run;
   }
@@ -44,10 +44,10 @@ export class BuiltinIdentityManagement implements IdentityManagementPort {
       ? Promise.resolve(this.#health())
       : this.#external.health();
   }
-  async #run(request: ManagedRbacRequest): Promise<Record<string, unknown>> {
+  async #run(request: ManagedRbacRequest, ownerRecovery: boolean): Promise<Record<string, unknown>> {
     if (request.mode === "external" || request.mode === "managed") {
       if (this.#external) {
-        const result = await this.#external.run(request);
+        const result = await this.#external.run(request, ownerRecovery);
         return { ...result, restartRequired: true };
       }
       throw identityPluginRequired();

@@ -2,18 +2,22 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
+import fs from "node:fs";
 import {
   chmodSync,
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { createServer } from "node:net";
 import { networkInterfaces, tmpdir } from "node:os";
 import path from "node:path";
@@ -28,6 +32,7 @@ import { createIdentityManagement } from "../src/authorization-provider.ts";
 import { validateCertificateNames } from "../src/tls-listener-admission.ts";
 
 interface HardeningFixtureOptions {
+  readonly userRoot?: string;
   readonly fetch?: typeof fetch;
   readonly onListenerWriteStage?: (stage: ListenerWriteStage) => void;
   readonly recordLifecycle?: (event: Record<string, unknown>) => void;
@@ -83,7 +88,7 @@ function generateCertWithSan(
 }
 
 function createHardeningFixture(options: HardeningFixtureOptions = {}) {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-hardening-")),
+  const root = options.userRoot ?? mkdtempSync(path.join(tmpdir(), "ha-rbac-hardening-")),
     rbac = path.join(root, "rbac"),
     postgres = path.join(rbac, "runtime", "postgres", "bin", "postgres"),
     keycloak = path.join(rbac, "runtime", "keycloak", "bin", "kc.sh"),
@@ -204,7 +209,7 @@ function createOpensslCaWorkspace(baseDir: string) {
       "[v3_intermediate]",
       "subjectKeyIdentifier = hash",
       "authorityKeyIdentifier = keyid:always,issuer",
-      "basicConstraints = critical,CA:TRUE",
+      "basicConstraints = critical,CA:TRUE,pathlen:0",
       "keyUsage = critical,keyCertSign,cRLSign",
       "[v3_not_ca]",
       "subjectKeyIdentifier = hash",
@@ -614,6 +619,152 @@ test("failed replacement from a broken previous listener kills the newly spawned
   }
 });
 
+test("listener config stays usable across failures at the atomic publish boundary (RBAC-13)", async (t) => {
+  const managed = createHardeningFixture();
+  const temporary = `${managed.configFile}.tmp`,
+    originalChmod = fs.chmodSync,
+    chmod = t.mock.method(fs, "chmodSync", (file, mode) => {
+      if (file === failAt) throw new Error("injected config chmod failure");
+      originalChmod(file, mode);
+    });
+  let failAt = temporary;
+  syncBuiltinESMExports();
+  try {
+    const before = managed.configText(),
+      change = {
+        operation: "listener-set",
+        certificateMode: "self-signed",
+        listenAddress: "127.0.0.1",
+        hostname: "center.example.test",
+        port: await availablePort(),
+        expectedVersion: await managed.version(),
+      } as const;
+    await assert.rejects(managed.service.run(change), /injected config chmod failure/u);
+    assert.equal(managed.configText(), before);
+    assert.deepEqual(readdirSync(path.join(managed.rbac, "listener")), []);
+    assert.equal(await managed.version(), change.expectedVersion);
+
+    // A metadata fault targeting the published name must be unreachable after rename.
+    failAt = managed.configFile;
+    const result = await managed.service.run(change);
+    assert.equal(result.ok, true);
+    assert.equal(await managed.version(), result.version);
+    const listener = managed.config().listener;
+    assert.equal(existsSync(listener.certificateFile), true);
+    assert.equal(existsSync(listener.certificateKeyFile), true);
+    await managed.service.stop();
+    await managed.service.start();
+    assert.equal((await managed.service.health()).ready, true);
+    assert.equal(managed.keycloakLaunches().at(-1)?.env.KC_HTTPS_CERTIFICATE_FILE, listener.certificateFile);
+  } finally {
+    chmod.mock.restore();
+    syncBuiltinESMExports();
+    await managed.close();
+  }
+});
+
+test("legacy listener migration publishes an intact pair without post-rename chmod (RBAC-13)", async (t) => {
+  const managed = createHardeningFixture(),
+    sources = mkdtempSync(path.join(tmpdir(), "ha-rbac-legacy-commit-")),
+    originalChmod = fs.chmodSync,
+    chmod = t.mock.method(fs, "chmodSync", (file, mode) => {
+      if (file === managed.configFile) throw new Error("injected published config chmod failure");
+      originalChmod(file, mode);
+    });
+  syncBuiltinESMExports();
+  try {
+    const source = generateCertWithSan(
+      sources,
+      "legacy",
+      "center.example.test",
+      "DNS:center.example.test,IP:127.0.0.1",
+    );
+    managed.writeConfig({
+      ...managed.config(),
+      listener: {
+        address: "127.0.0.1",
+        hostname: "center.example.test",
+        port: await availablePort(),
+        certificateFile: source.certFile,
+        certificateKeyFile: source.keyFile,
+      },
+    });
+    await managed.service.start();
+    const listener = managed.config().listener;
+    assert.notEqual(listener.certificateFile, source.certFile);
+    assert.deepEqual(readFileSync(listener.certificateFile), readFileSync(source.certFile));
+    assert.deepEqual(readFileSync(listener.certificateKeyFile), readFileSync(source.keyFile));
+    rmSync(sources, { recursive: true, force: true });
+    await managed.service.stop();
+    await managed.service.start();
+    assert.equal((await managed.service.health()).ready, true);
+  } finally {
+    chmod.mock.restore();
+    syncBuiltinESMExports();
+    rmSync(sources, { recursive: true, force: true });
+    await managed.close();
+  }
+});
+
+test("listener upload and self-signed rotation survive a symlinked userRoot parent and cold starts (RBAC-19)", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-rbac-user-root-alias-")),
+    realParent = path.join(parent, "actual"),
+    alias = path.join(parent, "alias");
+  mkdirSync(realParent);
+  symlinkSync(realParent, alias, "junction");
+  const managed = createHardeningFixture({ userRoot: path.join(alias, "user") });
+  try {
+    assert.notEqual(managed.root, realpathSync(managed.root));
+    const endpoint = {
+        operation: "listener-set",
+        listenAddress: "127.0.0.1",
+        port: await availablePort(),
+      } as const,
+      source = generateCertWithSan(parent, "upload", "upload.example.test", "DNS:upload.example.test,IP:127.0.0.1");
+    const upload = await managed.service.run({
+      ...endpoint,
+      hostname: "upload.example.test",
+      certificateMode: "domain",
+      certificateFile: source.certFile,
+      certificateKeyFile: source.keyFile,
+      expectedVersion: await managed.version(),
+    });
+    assert.equal(upload.ok, true);
+    const uploaded = managed.config().listener;
+    assert.deepEqual(readFileSync(uploaded.certificateFile), readFileSync(source.certFile));
+    assert.deepEqual(readFileSync(uploaded.certificateKeyFile), readFileSync(source.keyFile));
+    await managed.service.stop();
+    await managed.service.start();
+    assert.equal(managed.keycloakLaunches().at(-1)?.env.KC_HTTPS_CERTIFICATE_FILE, uploaded.certificateFile);
+
+    let version = String(upload.version),
+      previous = uploaded;
+    for (const hostname of ["signed.example.test", "rotated.example.test"]) {
+      const result = await managed.service.run({
+        ...endpoint,
+        certificateMode: "self-signed",
+        hostname,
+        expectedVersion: version,
+      });
+      assert.equal(result.ok, true);
+      version = String(result.version);
+      const active = managed.config().listener;
+      assert.equal(existsSync(active.certificateFile), true);
+      assert.equal(existsSync(active.certificateKeyFile), true);
+      assert.equal(existsSync(previous.certificateFile), false);
+      assert.equal(existsSync(previous.certificateKeyFile), false);
+      await managed.service.stop();
+      await managed.service.start();
+      assert.equal((await managed.service.health()).ready, true);
+      assert.equal(managed.keycloakLaunches().at(-1)?.env.KC_HTTPS_CERTIFICATE_FILE, active.certificateFile);
+      previous = active;
+    }
+  } finally {
+    await managed.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("omitting certificateMode and listenAddress binds firstReachableAddress while explicit domain mode binds 0.0.0.0 (RBAC-15)", async () => {
   const managed = createHardeningFixture(),
     sources = mkdtempSync(path.join(tmpdir(), "ha-rbac-bind-")),
@@ -744,6 +895,17 @@ test("uploaded certificate validation enforces chain dates, issuer CA basic cons
         validEnd,
       );
 
+    const nestedCa = ca.issueSigned("nested", "nested-ca", intermediateCa, "v3_intermediate", validStart, validEnd),
+      nestedLeaf = ca.issueSigned("leaf-nested", "center.example.test", nestedCa, "v3_leaf", validStart, validEnd),
+      rolloverCa = ca.issueSigned("rollover", "int-ca", intermediateCa, "v3_intermediate", validStart, validEnd),
+      rolloverLeaf = ca.issueSigned(
+        "leaf-rollover",
+        "center.example.test",
+        rolloverCa,
+        "v3_leaf",
+        validStart,
+        validEnd,
+      );
     const writeChain = (name: string, pems: readonly string[]) => {
       const file = path.join(caDir, `${name}.pem`);
       writeFileSync(file, pems.join(""));
@@ -752,7 +914,13 @@ test("uploaded certificate validation enforces chain dates, issuer CA basic cons
 
     const fullIntBundle = writeChain("bundle-full-int", [leafFromInt.pem, intermediateCa.pem, rootCa.pem]),
       publicPartialBundle = writeChain("bundle-leaf-int", [leafFromInt.pem, intermediateCa.pem]),
-      rootBundle = writeChain("bundle-leaf-root", [leafFromRoot.pem, rootCa.pem]);
+      rootBundle = writeChain("bundle-leaf-root", [leafFromRoot.pem, rootCa.pem]),
+      rolloverBundle = writeChain("bundle-rollover", [
+        rolloverLeaf.pem,
+        rolloverCa.pem,
+        intermediateCa.pem,
+        rootCa.pem,
+      ]);
 
     let version = await managed.version();
     for (const [label, certFile, keyFile, certificateMode] of [
@@ -760,6 +928,7 @@ test("uploaded certificate validation enforces chain dates, issuer CA basic cons
       ["leaf+intermediate+root", fullIntBundle, leafFromInt.keyFile, "internal-ca"],
       ["leaf+root", rootBundle, leafFromRoot.keyFile, "internal-ca"],
       ["leaf+intermediate", publicPartialBundle, leafFromInt.keyFile, "domain"],
+      ["self-issued CA rollover", rolloverBundle, rolloverLeaf.keyFile, "internal-ca"],
     ] as const) {
       const reply = await managed.service.run({
         operation: "listener-set",
@@ -794,6 +963,16 @@ test("uploaded certificate validation enforces chain dates, issuer CA basic cons
         leafFromNonCa.keyFile,
       ],
       ["leaf without serverAuth EKU", clientAuthLeaf.certFile, clientAuthLeaf.keyFile],
+      [
+        "pathLenConstraint=0 with a non-self-issued intermediate",
+        writeChain("bad-path-len", [nestedLeaf.pem, nestedCa.pem, intermediateCa.pem, rootCa.pem]),
+        nestedLeaf.keyFile,
+      ],
+      [
+        "root omitted from that same over-depth chain",
+        writeChain("bad-path-len-partial", [nestedLeaf.pem, nestedCa.pem, intermediateCa.pem]),
+        nestedLeaf.keyFile,
+      ],
     ];
     for (const [label, certFile, keyFile] of badChains) {
       await assert.rejects(
