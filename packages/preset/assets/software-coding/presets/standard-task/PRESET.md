@@ -1,6 +1,6 @@
 ---
 schema: preset-document/v1
-description: Standard planning, facts, and closeout scaffold for general software work.
+description: Create the standard planning, facts, and closeout scaffold for general software work.
 whenToUse: Ordinary implementation, refactoring, docs, or test work when no narrower preset fits.
 ---
 

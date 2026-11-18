@@ -221,6 +221,7 @@ test("verify-receipt script rejects missing, archive-only, malformed, and invali
     for (const [rawFailed, rawTotal, expectedToken] of [
       ["0", "1.0000000000000001", "1.0000000000000001"],
       ["1e-324", "1", "1e-324"],
+      ["-1e-324", "1", "-1e-324"],
     ]) {
       writeFileSync(
         badFile,
@@ -263,11 +264,11 @@ test("verify-receipt script rejects missing, archive-only, malformed, and invali
       assert.match(dupResult.payload.diagnostic, /Duplicate top-level key "failed"/u);
     }
 
-    // Exact mathematical integer encodings (1.0, 1e0) and deep unbound metadata pass cleanly
+    // Exact mathematical integer encodings (1.0, 1e0, -0, -0.0, -0e5) and deep unbound metadata pass cleanly
     const deepMetadata = `${"[".repeat(4_000)}0${"]".repeat(4_000)}`;
     writeFileSync(
       badFile,
-      `{"commitSha":"${commitSha}","passed":1.0,"failed":0e0,"timedOut":0,"unexecuted":0,"total":1e0,"metadata":${deepMetadata}}`,
+      `{"commitSha":"${commitSha}","passed":1.0,"failed":-0.0,"timedOut":-0,"unexecuted":-0e5,"total":1e0,"metadata":${deepMetadata}}`,
     );
     const exactEncodedPass = runScript({
       schema: "witness-input/v1",

@@ -75,11 +75,12 @@ function scanTop(raw) {
 function exactInt(v, src) {
   if (!Number.isSafeInteger(v) || v < 0) return false;
   if (typeof src !== "string") return true;
-  const m = /^(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/u.exec(src);
+  const m = /^([+-]?)(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/u.exec(src);
   if (!m) return false;
-  let d = (m[1] + (m[2] ?? "")).replace(/^0+(?=\d)/u, ""),
-    e = Number(m[3] ?? 0) - (m[2]?.length ?? 0);
+  let d = (m[2] + (m[3] ?? "")).replace(/^0+(?=\d)/u, ""),
+    e = Number(m[4] ?? 0) - (m[3]?.length ?? 0);
   if (d === "0") return v === 0;
+  if (m[1] === "-") return false;
   for (; d.endsWith("0"); e++) d = d.slice(0, -1);
   return e >= 0 && e <= 16 && BigInt(d) * 10n ** BigInt(e) === BigInt(v);
 }
