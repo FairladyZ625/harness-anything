@@ -218,6 +218,7 @@ export function validTaskDispatchRow(value: unknown): value is TaskDispatchRow {
     isJsonObject(value) &&
     [value.dispatchId, value.runtimeSessionId, value.instanceId, value.attemptGroupId].every(dispatchText) &&
     typeof value.taskId === "string" &&
+    [value.personId, value.nodeId].every((id) => id === undefined || dispatchNullableText(id)) &&
     typeof value.executionId === "string" &&
     validTaskDispatchAttemptValues(value) &&
     (value.taskTitle === undefined || dispatchText(value.taskTitle)) &&
@@ -486,6 +487,8 @@ export function validDispatchLifecycleSummary(value: unknown): value is Dispatch
         ].every((key) => typeof policy[key] === "boolean") &&
         (dispatchReservationStateWords as readonly unknown[]).includes(policy.capacity) &&
         (dispatchCapacityDispositionWords as readonly unknown[]).includes(policy.capacityDisposition) &&
+        // Previous-version peers omit this new liveness projection; absence grants no liveness.
+        (policy.processAlive === undefined || typeof policy.processAlive === "boolean") &&
         [null, "runtime_recovery_pending", "dispatch_owner_unverified", "runtime_capacity_exhausted"].includes(
           policy.blockerCode as never,
         )))

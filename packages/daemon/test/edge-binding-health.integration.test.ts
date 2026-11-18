@@ -195,6 +195,8 @@ test("edge binding health reads the selected login authority through fleet disco
     ...binding,
     required: false,
   });
+  assert.deepEqual(revokedDevices, ["node-one"], "health and bootstrap-status must not revoke active device sessions");
+  assert.equal((await oidc.requireSession(path.join(root, "node-one"))).personId, "ordinary-person");
   assert.equal((await request({ operation: "session-lifetime", repoId: "node-one" })).code, "authorization_denied");
   session = undefined;
   assert.equal((await request({ operation: "session" })).code, "oidc_center_required");

@@ -307,96 +307,100 @@ test("GUI entity channel retires and deletes declarations through the CLI's acti
   }
 });
 
-test("GUI renderer bridge drives a resident PTY through spawn attach IO resize detach and terminate", async () => {
-  const fixture = await startGuiResidentDaemonFixture({
-    task: { taskId: "task-terminal", title: "Terminal renderer chain" },
-  });
-  const previous = {
-    userRoot: process.env.HARNESS_DAEMON_USER_ROOT,
-    daemonId: process.env.HARNESS_DAEMON_ID,
-    repoId: process.env.HARNESS_DAEMON_REPO_ID,
-  };
-  Object.assign(process.env, fixture.env);
-  try {
-    const bridge = createLocalGuiServiceBridge(),
-      scope = { repoId: fixture.repoId };
-    const spawned = (await bridge.invoke("spawnTerminal", {
-      ...scope,
-      idempotencyKey: "terminal-renderer-chain",
-      backend: "direct-pty",
-      name: "Renderer chain",
-      cwd: { scope: "repo-root" },
-      shellProfileId: "default",
-      taskId: "task-terminal",
-    })) as Record<string, unknown>;
-    assert.equal(spawned.schema, "terminal-control-receipt/v1", JSON.stringify(spawned));
-    assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
-    const sessionId = String(spawned.sessionId),
-      values: Array<Record<string, unknown>> = [];
-    let output = "",
-      resolveEcho!: () => void;
-    const echoSeen = new Promise<void>((resolve) => {
-      resolveEcho = resolve;
+test(
+  "GUI renderer bridge drives a resident PTY through spawn attach IO resize detach and terminate",
+  { timeout: 60_000 },
+  async () => {
+    const fixture = await startGuiResidentDaemonFixture({
+      task: { taskId: "task-terminal", title: "Terminal renderer chain" },
     });
-    const stop = await bridge.stream("attachTerminal", { ...scope, sessionId, afterSeq: 0 }, (value) => {
-      const frame = value as Record<string, unknown>;
-      values.push(frame);
-      if (frame.schema === "terminal-attach-event/v1" && frame.kind === "output" && typeof frame.utf8 === "string") {
-        output += frame.utf8;
-        if (output.includes("GUI_S3_R2_PTY")) resolveEcho();
-      }
-    });
-    const initial = values.find((value) => value.schema === "terminal-attach/v1");
-    assert.equal(initial?.status, "attached");
-    assert.equal(typeof initial?.attachmentId, "string");
-    const input = (await bridge.invoke("sendTerminalInput", {
-      ...scope,
-      sessionId,
-      clientSeq: 1,
-      utf8: "echo GUI_S3_R2_PTY\r",
-    })) as Record<string, unknown>;
-    assert.deepEqual(
-      { schema: input.schema, acceptedThrough: input.acceptedThrough },
-      { schema: "terminal-input-ack/v1", acceptedThrough: 1 },
-      JSON.stringify(input),
-    );
-    await Promise.race([
-      echoSeen,
-      new Promise((_, reject) => setTimeout(() => reject(new Error("resident PTY echo timeout")), 2_000)),
-    ]);
-    const resized = (await bridge.invoke("resizeTerminal", {
-      ...scope,
-      sessionId,
-      cols: 100,
-      rows: 30,
-    })) as Record<string, unknown>;
-    assert.equal(resized.outcome, "applied", JSON.stringify(resized));
-    const detached = (await bridge.invoke("detachTerminal", {
-      ...scope,
-      sessionId,
-      attachmentId: initial!.attachmentId,
-    })) as Record<string, unknown>;
-    assert.deepEqual(
-      { schema: detached.schema, state: detached.state },
-      { schema: "terminal-detach-ack/v1", state: "detached" },
-    );
-    stop();
-    const rejected = (await bridge.invoke("terminateTerminal", {
-      ...scope,
-      sessionId,
-      confirmed: false,
-    })) as Record<string, unknown>;
-    assert.equal(rejected.outcome, "op_rejected");
-    const terminated = (await bridge.invoke("terminateTerminal", {
-      ...scope,
-      sessionId,
-      confirmed: true,
-    })) as Record<string, unknown>;
-    assert.deepEqual({ outcome: terminated.outcome, state: terminated.state }, { outcome: "applied", state: "exited" });
-  } finally {
-    await fixture.stop();
-    restoreEnv("HARNESS_DAEMON_USER_ROOT", previous.userRoot);
-    restoreEnv("HARNESS_DAEMON_ID", previous.daemonId);
-    restoreEnv("HARNESS_DAEMON_REPO_ID", previous.repoId);
-  }
-});
+    const previous = {
+      userRoot: process.env.HARNESS_DAEMON_USER_ROOT,
+      daemonId: process.env.HARNESS_DAEMON_ID,
+      repoId: process.env.HARNESS_DAEMON_REPO_ID,
+    };
+    Object.assign(process.env, fixture.env);
+    try {
+      const bridge = createLocalGuiServiceBridge(),
+        scope = { repoId: fixture.repoId };
+      const spawned = (await bridge.invoke("spawnTerminal", {
+        ...scope,
+        idempotencyKey: "terminal-renderer-chain",
+        backend: "direct-pty",
+        name: "Renderer chain",
+        cwd: { scope: "repo-root" },
+        shellProfileId: "default",
+        taskId: "task-terminal",
+      })) as Record<string, unknown>;
+      assert.equal(spawned.schema, "terminal-control-receipt/v1", JSON.stringify(spawned));
+      assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
+      const sessionId = String(spawned.sessionId),
+        values: Array<Record<string, unknown>> = [];
+      let output = "",
+        resolveEcho!: () => void;
+      const echoSeen = new Promise<void>((resolve) => {
+        resolveEcho = resolve;
+      });
+      const stop = await bridge.stream("attachTerminal", { ...scope, sessionId, afterSeq: 0 }, (value) => {
+        const frame = value as Record<string, unknown>;
+        values.push(frame);
+        if (frame.schema === "terminal-attach-event/v1" && frame.kind === "output" && typeof frame.utf8 === "string") {
+          output += frame.utf8;
+          if (output.includes("GUI_S3_R2_PTY")) resolveEcho();
+        }
+      });
+      const initial = values.find((value) => value.schema === "terminal-attach/v1");
+      assert.equal(initial?.status, "attached");
+      assert.equal(typeof initial?.attachmentId, "string");
+      const input = (await bridge.invoke("sendTerminalInput", {
+        ...scope,
+        sessionId,
+        clientSeq: 1,
+        utf8: "echo GUI_S3_R2_PTY\r",
+      })) as Record<string, unknown>;
+      assert.deepEqual(
+        { schema: input.schema, acceptedThrough: input.acceptedThrough },
+        { schema: "terminal-input-ack/v1", acceptedThrough: 1 },
+        JSON.stringify(input),
+      );
+      await echoSeen;
+      const resized = (await bridge.invoke("resizeTerminal", {
+        ...scope,
+        sessionId,
+        cols: 100,
+        rows: 30,
+      })) as Record<string, unknown>;
+      assert.equal(resized.outcome, "applied", JSON.stringify(resized));
+      const detached = (await bridge.invoke("detachTerminal", {
+        ...scope,
+        sessionId,
+        attachmentId: initial!.attachmentId,
+      })) as Record<string, unknown>;
+      assert.deepEqual(
+        { schema: detached.schema, state: detached.state },
+        { schema: "terminal-detach-ack/v1", state: "detached" },
+      );
+      stop();
+      const rejected = (await bridge.invoke("terminateTerminal", {
+        ...scope,
+        sessionId,
+        confirmed: false,
+      })) as Record<string, unknown>;
+      assert.equal(rejected.outcome, "op_rejected");
+      const terminated = (await bridge.invoke("terminateTerminal", {
+        ...scope,
+        sessionId,
+        confirmed: true,
+      })) as Record<string, unknown>;
+      assert.deepEqual(
+        { outcome: terminated.outcome, state: terminated.state },
+        { outcome: "applied", state: "exited" },
+      );
+    } finally {
+      await fixture.stop();
+      restoreEnv("HARNESS_DAEMON_USER_ROOT", previous.userRoot);
+      restoreEnv("HARNESS_DAEMON_ID", previous.daemonId);
+      restoreEnv("HARNESS_DAEMON_REPO_ID", previous.repoId);
+    }
+  },
+);

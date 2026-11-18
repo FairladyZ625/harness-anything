@@ -222,6 +222,7 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
     });
     assert.deepEqual(JSON.parse(String(inspectedAgent.evidence)), {
       schema: "agent-inspection/v1",
+      runtimeCapabilities: declaration.runtimes.map(({ type: kindId }) => ({ kindId, steerSupported: true })),
       workspaceRevision: updated.revision,
       hostAccess: "operator",
       hostAccessSource: "default",

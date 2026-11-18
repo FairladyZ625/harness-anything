@@ -58,6 +58,10 @@ pgliteIntegrationSuite("PGlite dispatch lifecycle", () => {
         for (const event of history()) append(first.store, event);
         online = snapshot(first.projection);
         assert.ok(online.active.status === "ready");
+        const agy = online.active.rows.find(({ attempt }) => attempt.dispatchId === "dispatch-a2")!;
+        assert.equal(agy.attempt.kindId, "agy");
+        assert.equal(agy.policy.processAlive, true);
+        assert.equal(agy.policy.canSteer, false);
         assert.deepEqual(
           online.active.rows.map((row) => [row.attemptGroupId, row.attempt.dispatchId, row.policy.capacityDisposition]),
           [

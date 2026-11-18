@@ -95,6 +95,7 @@ export function makeRepoReadRuntime(
   const edgeReplicaRead = <T>(
     binding: RepoCellBinding | undefined,
     read: (projection: TaskProjectionQueries, frame: RepositoryReadFrame, view: FleetMirrorView) => T,
+    options?: { readonly includeEntries?: boolean },
   ): T => {
     if (closed) throw cellCodedError("repo_unavailable", "RepoCell is closed.");
     const config = edgeConfig();
@@ -105,6 +106,7 @@ export function makeRepoReadRuntime(
         repoId: input.repoId,
         nodeId: config.nodeId,
         principalId: binding?.actor.principal.personId,
+        includeEntries: options?.includeEntries ?? false,
         ...(config.maxAgeMs === undefined ? {} : { maxAgeMs: config.maxAgeMs }),
         ...(config.maxLagRevisions === undefined ? {} : { maxLagRevisions: config.maxLagRevisions }),
       },
@@ -124,19 +126,23 @@ export function makeRepoReadRuntime(
     );
   };
   const edgeReplicaRun = (action: RepoTaskAction, binding: RepoCellBinding) =>
-    edgeReplicaRead(binding, (projection, frame, view) => {
-      const stamp = (receipt: WriteReceiptDraft): WriteReceiptDraft => ({
-        ...receipt,
-        cut: { repoId: input.repoId, ...frame.cut, opId: receipt.opId },
-        freshness: frame.freshness,
-        ...(frame.warning === null ? {} : { warnings: [...(receipt.warnings ?? []), frame.warning] }),
-      });
-      if (action.kind === "doc-status" || action.kind === "doc-dry-run")
-        return readRuntime(projection).actionContext.withHumanSummary(
-          stamp(readEdgeDocWorkspace(input.rootDir, view, projection, action)),
-        ) as Awaited<ReturnType<RepoCell["run"]>>;
-      return executeReadAtCut(projection, action, binding, stamp);
-    });
+    edgeReplicaRead(
+      binding,
+      (projection, frame, view) => {
+        const stamp = (receipt: WriteReceiptDraft): WriteReceiptDraft => ({
+          ...receipt,
+          cut: { repoId: input.repoId, ...frame.cut, opId: receipt.opId },
+          freshness: frame.freshness,
+          ...(frame.warning === null ? {} : { warnings: [...(receipt.warnings ?? []), frame.warning] }),
+        });
+        if (action.kind === "doc-status" || action.kind === "doc-dry-run")
+          return readRuntime(projection).actionContext.withHumanSummary(
+            stamp(readEdgeDocWorkspace(input.rootDir, view, projection, action)),
+          ) as Awaited<ReturnType<RepoCell["run"]>>;
+        return executeReadAtCut(projection, action, binding, stamp);
+      },
+      { includeEntries: action.kind === "doc-status" || action.kind === "doc-dry-run" },
+    );
   const query = <T>(read: (projection: TaskProjectionQueries) => T): T => {
     if (closed) throw cellCodedError("repo_unavailable", "RepoCell reader is closed.");
     return reader.withSession(read);

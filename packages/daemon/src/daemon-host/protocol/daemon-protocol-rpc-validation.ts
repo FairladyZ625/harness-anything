@@ -215,6 +215,8 @@ function validateRuntimeSessionGroupsPayload(value: unknown): string[] {
     (value.since !== undefined && !Number.isFinite(Date.parse(String(value.since)))) ||
     (value.agentId !== undefined && !nonEmpty(value.agentId)) ||
     (value.squadId !== undefined && !nonEmpty(value.squadId)) ||
+    (value.personId !== undefined && !nonEmpty(value.personId)) ||
+    (value.nodeId !== undefined && !nonEmpty(value.nodeId)) ||
     (value.limit !== undefined &&
       (!integer(value.limit) ||
         Number(value.limit) < 1 ||

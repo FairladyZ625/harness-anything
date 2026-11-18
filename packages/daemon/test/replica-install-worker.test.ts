@@ -15,6 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { threadId, Worker } from "node:worker_threads";
 import * as tar from "tar";
 import {
   activateEmptyCanonicalGeneration,
@@ -28,7 +29,6 @@ import {
   installReplicaGeneration,
   readReplicaGeneration,
   replicaGenerationReaders,
-  type ReplicaInstallProgress,
   type ReplicaStagingCheckpoint,
 } from "../src/fleet-sync/fleet/replica-generation.ts";
 
@@ -66,30 +66,43 @@ test("installReplicaGeneration executes off the main thread without stalling the
   const archive = await buildSampleBackup(root);
   const replicaRoot = path.join(root, "replica");
 
-  let ticks = 0;
-  const timer = setInterval(() => {
-    ticks += 1;
-  }, 5);
+  // Observe each progress callback while Node delivers its real Worker message.
   const phases: string[] = [];
-  try {
-    const installed = await installReplicaGeneration({
-      root: replicaRoot,
-      archive: archive.file,
-      metadata: archive.metadata,
-      sha256: archive.sha256,
-      size: archive.size,
-      quotaBytes: 32 * 1024 * 1024,
-      onProgress: (progress: ReplicaInstallProgress) => {
-        phases.push(progress.phase);
-      },
-    });
-    assert.ok(ticks > 0, `expected main-thread timer ticks during worker install, got ${ticks}`);
-    assert.deepEqual(phases, ["unpacking", "hydrating", "flushing", "ready"]);
-    assert.deepEqual(readReplicaGeneration(replicaRoot), installed);
-    assert.equal(existsSync(path.join(installed.rootDir, "extract.checkpoint.json")), false);
-  } finally {
-    clearInterval(timer);
+  const progressThreads: Array<number | undefined> = [];
+  const emit = Worker.prototype.emit;
+  let deliveringThread: number | undefined;
+  t.mock.method(Worker.prototype, "emit", function (this: Worker, event: string | symbol, ...args: unknown[]) {
+    if (event !== "message" || (args[0] as { kind?: string } | undefined)?.kind !== "progress")
+      return emit.call(this, event, ...args);
+    deliveringThread = this.threadId;
+    try {
+      return emit.call(this, event, ...args);
+    } finally {
+      deliveringThread = undefined;
+    }
+  });
+
+  const installed = await installReplicaGeneration({
+    root: replicaRoot,
+    archive: archive.file,
+    metadata: archive.metadata,
+    sha256: archive.sha256,
+    size: archive.size,
+    quotaBytes: 32 * 1024 * 1024,
+    onProgress: ({ phase }) => {
+      phases.push(phase);
+      progressThreads.push(deliveringThread);
+    },
+  });
+  assert.deepEqual(phases, ["unpacking", "hydrating", "flushing", "ready"]);
+  for (const [index, installThread] of progressThreads.entries()) {
+    assert.ok(
+      installThread !== undefined && installThread > 0 && installThread !== threadId,
+      `expected ${phases[index]} progress from a worker thread, got ${installThread}`,
+    );
   }
+  assert.deepEqual(readReplicaGeneration(replicaRoot), installed);
+  assert.equal(existsSync(path.join(installed.rootDir, "extract.checkpoint.json")), false);
 });
 
 test("resumable staging preserves valid <sha256>.staging across discardStaging and skips existing immutable objects", async (t) => {

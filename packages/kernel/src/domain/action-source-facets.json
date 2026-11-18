@@ -13742,7 +13742,7 @@
         "port": "tools/perf/baseline-fixture.mjs#invoke"
       },
       {
-        "candidateId": "action:tools:tools/e2e-probe-support.mjs#recordE2EProbeFailure:e7b9cabacadb028311c9f1fdd19cb614",
+        "candidateId": "action:tools:tools/e2e-probe-support.mjs#recordE2EProbeFailure:1bd54ef4fb7f00440beafd4b0df95861",
         "route": "task-create",
         "role": "client",
         "port": "tools/e2e-probe-support.mjs#runCliJson"

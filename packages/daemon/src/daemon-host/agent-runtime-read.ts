@@ -41,13 +41,13 @@ import { readRuntimeSessionContextOccupancy } from "./context-occupancy.ts";
 import { runtimeSessionSettlement } from "./runtime-settlement.ts";
 import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
 
-/** Attach is an interactive stream: both writer and query entry points consume canSteer.
+/** Attach is an interactive stream: both writer and query entry points consume processAlive.
  * Installation support is transport inventory, never an alternative process/lifecycle judgment. */
 export function readRuntimeCanAttach(projection: TaskProjectionQueries, session: RuntimeSession): boolean {
   const read = projection.readDispatchLifecycle({ by: "session", runtimeSessionId: session.runtimeSessionId });
   return (
     read.status === "ready" &&
-    read.rows.some(({ policy }) => policy.canSteer) &&
+    read.rows.some(({ policy }) => policy.processAlive) &&
     Boolean(projection.readRuntimeInstallation(session.installationId)?.effectiveCapabilities.includes("attach"))
   );
 }
@@ -92,7 +92,7 @@ export function makeAgentRuntimeReadModel(input: {
       lifecycle = dispatchLifecycleSummary(
         input.projection.readDispatchLifecycle({ by: "session", runtimeSessionId: session.runtimeSessionId }),
       ),
-      providerUnreachable = lifecycle.policy?.canSteer ? (session.providerUnreachable ?? null) : null,
+      providerUnreachable = lifecycle.policy?.processAlive ? (session.providerUnreachable ?? null) : null,
       outcome = input.projection
         .readRuntimeSessionEventsByType(session.runtimeSessionId, ["runtime_session_outcome_observed"])
         .findLast(
@@ -468,6 +468,8 @@ function sessionGroupsQuery(payload: Readonly<Record<string, unknown>>): {
   readonly tokens: readonly string[];
   readonly agentId: string | null;
   readonly squadId: string | null;
+  readonly personId: string | null;
+  readonly nodeId: string | null;
   readonly status: readonly AgentRuntimeSessionGroupStatus[];
   readonly sessionIds: readonly string[];
   /** Read only sessions whose canonical outcome is still unset; aggregate "in flight" readers. */
@@ -480,6 +482,8 @@ function sessionGroupsQuery(payload: Readonly<Record<string, unknown>>): {
     query = payload.query,
     agentId = payload.agentId,
     squadId = payload.squadId,
+    personId = payload.personId,
+    nodeId = payload.nodeId,
     status = payload.status,
     sessionIds = payload.sessionIds,
     unsettledOnly = payload.unsettledOnly,
@@ -487,15 +491,27 @@ function sessionGroupsQuery(payload: Readonly<Record<string, unknown>>): {
   if (
     keys.some(
       (key) =>
-        !["groupBy", "since", "query", "agentId", "squadId", "status", "sessionIds", "unsettledOnly", "limit"].includes(
-          key,
-        ),
+        ![
+          "groupBy",
+          "since",
+          "query",
+          "agentId",
+          "squadId",
+          "personId",
+          "nodeId",
+          "status",
+          "sessionIds",
+          "unsettledOnly",
+          "limit",
+        ].includes(key),
     ) ||
     (groupBy !== undefined && !["task", "squad", "agent", "day"].includes(String(groupBy))) ||
     (since !== undefined && (typeof since !== "string" || !Number.isFinite(Date.parse(since)))) ||
     (query !== undefined && typeof query !== "string") ||
     (agentId !== undefined && (typeof agentId !== "string" || !agentId)) ||
     (squadId !== undefined && (typeof squadId !== "string" || !squadId)) ||
+    (personId !== undefined && (typeof personId !== "string" || !personId)) ||
+    (nodeId !== undefined && (typeof nodeId !== "string" || !nodeId)) ||
     (status !== undefined && !isSessionGroupStatusSelection(status)) ||
     (sessionIds !== undefined &&
       (!Array.isArray(sessionIds) || sessionIds.some((id) => typeof id !== "string" || !id))) ||
@@ -504,7 +520,7 @@ function sessionGroupsQuery(payload: Readonly<Record<string, unknown>>): {
   )
     throw coded(
       "invalid_request",
-      "Agent runtime session groups accept groupBy, ISO since, text query, exact agent/squad ids, " +
+      "Agent runtime session groups accept groupBy, ISO since, text query, exact agent/squad/person/node ids, " +
         "unsettledOnly, status among " +
         `${agentRuntimeSessionGroupStatusWords.join(", ")}, and limit 1..1000.`,
     );
@@ -514,6 +530,8 @@ function sessionGroupsQuery(payload: Readonly<Record<string, unknown>>): {
     tokens: typeof query === "string" ? query.toLocaleLowerCase().trim().split(/\s+/u).filter(Boolean) : [],
     agentId: typeof agentId === "string" ? agentId : null,
     squadId: typeof squadId === "string" ? squadId : null,
+    personId: typeof personId === "string" ? personId : null,
+    nodeId: typeof nodeId === "string" ? nodeId : null,
     status: status === undefined ? [] : (status as readonly AgentRuntimeSessionGroupStatus[]),
     sessionIds: sessionIds === undefined ? [] : [...new Set(sessionIds as readonly string[])],
     unsettledOnly: unsettledOnly === true,

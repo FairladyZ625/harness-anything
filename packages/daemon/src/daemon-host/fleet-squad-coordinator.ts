@@ -34,7 +34,13 @@ export function makeFleetSquadCoordinator(input: {
   const query = <T>(read: (projection: TaskProjection) => T): T => {
     const request = input.request;
     return withEdgeReadModel(
-      { viewRoot: request.viewRoot, repoId: request.repoId, nodeId: request.nodeId, principalId },
+      {
+        viewRoot: request.viewRoot,
+        repoId: request.repoId,
+        nodeId: request.nodeId,
+        principalId,
+        includeEntries: false,
+      },
       (projection) => read(projection as TaskProjection),
     );
   };

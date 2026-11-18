@@ -21,8 +21,8 @@ import {
   postgresScopeRlsStatements,
 } from "../postgres/scope-schema.ts";
 
-/** Tables owned by the PG projection adapter. The canonical event ledger remains A2's schema. */
-export const PG_PROJECTION_TABLES = Object.freeze([
+/** Tables populated by projection replay over the canonical event stream. */
+export const PG_REBUILDABLE_PROJECTION_TABLES = Object.freeze([
   "ha_task_snapshots",
   "ha_decisions",
   "ha_decision_read_status",
@@ -45,11 +45,17 @@ export const PG_PROJECTION_TABLES = Object.freeze([
   ...PG_RELATION_CYCLE_TABLES,
 ] as const);
 
+/** Include event-maintained read indexes in the projection's grants and scope policies. */
+export const PG_PROJECTION_TABLES = Object.freeze([
+  ...PG_REBUILDABLE_PROJECTION_TABLES,
+  "ha_fleet_node_tasks",
+] as const);
+
 /** Read/digest tables compared with the other backend. The current-set projection is derived
  * from ha_projection_values and is maintained by triggers, so it is not part of the replay audit
  * even though it shares the projection's RLS and grants. */
 export const PG_PROJECTION_AUDIT_TABLES = Object.freeze(
-  PG_PROJECTION_TABLES.filter(
+  PG_REBUILDABLE_PROJECTION_TABLES.filter(
     (table) =>
       table !== "ha_runtime_unsettled" &&
       table !== "ha_event_summary_state" &&
@@ -100,7 +106,7 @@ export async function ensurePgProjectionSchema(
       await client.query(statement.replace("CREATE INDEX IF NOT EXISTS", "CREATE INDEX CONCURRENTLY IF NOT EXISTS"));
     } else await client.query(statement);
   }
-  for (const table of PG_PROJECTION_TABLES) {
+  for (const table of PG_REBUILDABLE_PROJECTION_TABLES) {
     for (const statement of postgresScopeRlsStatements(table, { ifNotExists: true })) {
       await client.query(statement);
     }
@@ -305,7 +311,7 @@ export function projectionDdl(): readonly string[] {
     ...decisionReadStatusDdl(),
     `CREATE INDEX IF NOT EXISTS ha_document_heads_search_owner ON ha_document_heads
       (tenant_id,project_id,policy_epoch,path,repo_id)`,
-    ...PG_PROJECTION_TABLES.map(
+    ...PG_REBUILDABLE_PROJECTION_TABLES.map(
       (table) => `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS readers text[] NOT NULL DEFAULT '{}'`,
     ),
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS raw_lease jsonb",
@@ -327,7 +333,7 @@ export function projectionDdl(): readonly string[] {
     ...taskParentIndexDdl(),
     "CREATE INDEX IF NOT EXISTS ha_task_snapshots_status_updated_v2 ON ha_task_snapshots (tenant_id,project_id,policy_epoch,task_status,updated_at DESC,task_id)",
     "DROP INDEX IF EXISTS ha_task_snapshots_status_updated",
-    ...PG_PROJECTION_TABLES.map(
+    ...PG_REBUILDABLE_PROJECTION_TABLES.map(
       (table) => `CREATE INDEX IF NOT EXISTS ${table}_readers_gin ON ${table} USING gin (readers)`,
     ),
     "CREATE INDEX IF NOT EXISTS ha_decisions_value_gin ON ha_decisions USING gin (value)",

@@ -17,7 +17,7 @@ export function readCanonicalRuntimeResult(store: Pick<CanonicalEventStore, "rea
 
 /** The edge mirrors the center's ledger, so it answers exactly as the center does at its applied position. */
 export function readEdgeRuntimeResult(viewRoot: string, repoId: string, nodeId: string, ref: string): string {
-  const view = locateFleetMirrorView(viewRoot, repoId, nodeId);
+  const view = locateFleetMirrorView(viewRoot, repoId, nodeId, { includeEntries: false });
   if (!view) throw Object.assign(new Error("Replica generation is unavailable."), { code: "replica_unavailable" });
   return readCanonicalRuntimeResult({ readContentBlob: (sha256) => edgeObject(view, sha256) }, ref);
 }

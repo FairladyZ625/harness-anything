@@ -33,6 +33,10 @@ const timeoutMarkerPattern = /^\s*\/\/\s*harness-test-file-timeout:\s*(\S+)\s*$/
 
 export const testTierNames = Object.freeze(["fast", "contract", "integration"]);
 
+export function readTestTierHeader(source) {
+  return markerPattern.exec(source.split(/\r?\n/u, 1)[0])?.[1];
+}
+
 export function parseTestTierMarker(source, file = "test file") {
   const lines = source.split(/\r?\n/u);
   const markerLines = lines
@@ -49,8 +53,7 @@ export function parseTestTierMarker(source, file = "test file") {
     throw new Error(`test tier marker must be the first line: ${file}`);
   }
 
-  const match = markerLines[0].line.match(markerPattern);
-  const tier = match?.[1];
+  const tier = readTestTierHeader(source);
   if (tier === undefined || !testTierNames.includes(tier)) {
     throw new Error(
       `invalid test tier marker: ${file}: ${markerLines[0].line.trim()}; expected ${testTierNames.join(", ")}`,

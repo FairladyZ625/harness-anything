@@ -26,6 +26,11 @@ type Dispatch = Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_
 
 const edgeInstances = [
   {
+    kindId: "agy",
+    instanceId: "agy-li",
+    toolFrame: { event: "step_update", step_update: { step_type: "tool", state: "RUNNING" } },
+  },
+  {
     kindId: "deepseek-harness",
     instanceId: "ds-bailian",
     toolFrame: { type: "acp.update", update: { sessionUpdate: "tool_call" } },
@@ -109,6 +114,7 @@ function centerProjection(
         runtimeSessionId,
         dispatchId,
         process: "alive",
+        kindId: session.kindId,
         outcome: session.outcome,
         attemptSettled: session.outcome !== null,
       },

@@ -376,6 +376,8 @@ export const daemonUseCaseProjectionPayloadShape = shape({
   groupBy: optionalEnum(["task", "squad", "agent", "day"]),
   agentId: "string?",
   squadId: "string?",
+  personId: "string?",
+  nodeId: "string?",
   since: "string?",
   query: "string?",
   status: "array?",

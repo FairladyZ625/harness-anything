@@ -7,6 +7,22 @@ export type WriteSource =
   | { readonly kind: "node"; readonly nodeId: string }
   | { readonly kind: "watch_session"; readonly sessionId: string; readonly path: string; readonly fingerprint: string };
 
+export const CENTER_NODE_ID = "center";
+
+/** Accepts historical source shapes read from persisted envelopes. */
+export function writeSourceNodeId(source: unknown): string | null {
+  if (source === "local") return CENTER_NODE_ID;
+  return isRecord(source) && (source.kind === "node" || source.kind === "assignment") && isNonEmptyString(source.nodeId)
+    ? source.nodeId
+    : null;
+}
+
+export function writeSourceRuntimeSessionId(source: unknown): string | null {
+  return typeof source === "string" && source.startsWith("runtime-session/")
+    ? source.slice("runtime-session/".length) || null
+    : null;
+}
+
 export function hasContractFields(
   value: Readonly<Record<string, unknown>>,
   fields: readonly string[],

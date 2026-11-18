@@ -21,7 +21,7 @@ test(
     t.after(runtime.close);
     prepareE2EProbeGui(workspaceRoot, runtime.env);
     // The isolated lane and smoke:gui:headless launch the bundled main entry, not the TS source.
-    // prepareE2EProbeGui must therefore produce it (the preload build wipes dist-electron first).
+    // prepareE2EProbeGui must therefore produce it on a clean checkout.
     const mainPath = path.join(workspaceRoot, "packages/gui/dist-electron/electron-main.js");
     assert.equal(existsSync(mainPath), true, `prepareE2EProbeGui must build ${mainPath}`);
     const { startGuiDriver } = await import("./driver.mjs");

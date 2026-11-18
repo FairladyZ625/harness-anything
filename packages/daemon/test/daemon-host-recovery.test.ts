@@ -19,6 +19,7 @@ import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { readDaemonRegistry, taskLifecycleWritePlan } from "@harness-anything/kernel";
 import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel/internal/domain/receipt-domain-registry";
@@ -965,7 +966,10 @@ test("registry mode is authoritative before refresh and refresh replaces a drift
     assert.equal(denied.code, "fleet_edge_config_invalid");
     const refresh = await host.requestControl({ kind: "refresh", authorityRepoId: "mode-refresh" }, auth);
     assert.equal(refresh.outcome, "pending");
-    const settled = await waitControl(host, refresh.operationId);
+    const settled = await waitForDurableValue(() => {
+      const receipt = host.controlReceipt(refresh.operationId, auth);
+      return receipt.phase === "settled" || receipt.phase === "failed" ? receipt : null;
+    });
     assert.equal(settled.phase, "settled");
     const status = host.status().repos[0]!;
     assert.equal(status.mode, "remote-edge");
@@ -1213,16 +1217,6 @@ function systemRow(host: Awaited<ReturnType<typeof openDaemonHost>>, repoId: str
   assert.ok(row, `gui-system-status must list ${repoId}`);
   return row;
 }
-async function waitControl(host: Awaited<ReturnType<typeof openDaemonHost>>, operationId: string) {
-  const deadline = Date.now() + 5_000;
-  while (Date.now() < deadline) {
-    const receipt = host.controlReceipt(operationId, auth);
-    if (receipt.phase === "settled" || receipt.phase === "failed") return receipt;
-    await new Promise<void>((resolve) => setTimeout(resolve, 10));
-  }
-  assert.fail(`control ${operationId} did not settle`);
-}
-
 async function waitForRepoMaterialization(
   host: Awaited<ReturnType<typeof openDaemonHost>>,
   repoId: string,

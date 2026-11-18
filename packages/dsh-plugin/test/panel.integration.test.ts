@@ -1,21 +1,32 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
-import { chromium } from "playwright-core";
+import { _electron as electron, chromium } from "playwright-core";
 import { build } from "vite";
 import { BROKER_ROUTE, createBrokerManager } from "../src/broker.ts";
 
 const require = createRequire(import.meta.url);
 
 test("open here asks once for the default view, keeps the board alive, and shares the Host process with open beside session", async (t) => {
+  const chromiumPath = chromium.executablePath(),
+    hasChromium = existsSync(chromiumPath),
+    linuxChrome = "/opt/google/chrome/chrome",
+    useElectron = !hasChromium && process.platform === "linux" && !existsSync(linuxChrome);
+  const electronMarker = new URL("../../../node_modules/electron/path.txt", import.meta.url);
+  if (useElectron && (!process.env.DISPLAY || !existsSync(electronMarker))) {
+    t.skip(
+      `requires Google Chrome binary at ${linuxChrome}, Playwright Chromium, or installed Electron with a DISPLAY`,
+    );
+    return;
+  }
   const scratch = mkdtempSync(path.join(tmpdir(), "ha-dsh-panel-"));
-  const resources: { browser?: Awaited<ReturnType<typeof chromium.launch>> } = {};
+  const resources: { browser?: Awaited<ReturnType<typeof chromium.launch | typeof electron.launch>> } = {};
   let origin = "";
   let fail = false;
   let launches = 0;
@@ -98,9 +109,49 @@ test("open here asks once for the default view, keeps the board alive, and share
   const address = server.address();
   assert.ok(address && typeof address !== "string");
   origin = `http://127.0.0.1:${address.port}`;
-  // CI runners and developer Macs ship system Chrome; Playwright downloads no browser here.
-  resources.browser = await chromium.launch({ channel: "chrome", headless: true });
-  const page = await resources.browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const viewport = { width: 1280, height: 900 };
+  let page;
+  if (useElectron) {
+    const main = path.join(scratch, "main.cjs"),
+      profile = path.join(scratch, "profile"),
+      env = { ...process.env };
+    delete env.ELECTRON_RUN_AS_NODE;
+    writeFileSync(
+      main,
+      `const { app, BrowserWindow } = require("electron");
+app.whenReady().then(() => {
+  const window = new BrowserWindow({
+    ...${JSON.stringify(viewport)},
+    show: false,
+    useContentSize: true,
+    webPreferences: {
+      backgroundThrottling: false, offscreen: true,
+      nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true,
+    },
+  });
+  return window.loadURL("about:blank");
+});`,
+    );
+    const app = await electron.launch({
+      args: [main, `--user-data-dir=${profile}`, "--headless", "--disable-gpu", "--disable-dev-shm-usage"],
+      env,
+    });
+    resources.browser = app;
+    page = await app.firstWindow();
+    assert.equal(
+      await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows().every((window) => !window.isVisible() && !window.isFocused()),
+      ),
+      true,
+    );
+  } else {
+    const browser = await chromium.launch({
+      ...(hasChromium ? { executablePath: chromiumPath } : { channel: "chrome" }),
+      headless: true,
+    });
+    resources.browser = browser;
+    page = await browser.newPage({ viewport });
+  }
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(origin);
