@@ -4,13 +4,13 @@ type Attempt<T> = { readonly ok: true; readonly value: T } | { readonly ok: fals
 
 /** The callers declare retryable outcomes and a bounded delay, and own the operation identity. */
 export async function runDaemonRetry<T>(options: {
-  readonly request: () => Promise<T>;
+  readonly run: () => Promise<T>;
   readonly retryDelay: (settled: Attempt<T>, attempt: number) => number | null;
   readonly signal?: AbortSignal;
 }): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     options.signal?.throwIfAborted();
-    const settled = await raceLifetime(options.request(), options.signal).then(
+    const settled = await raceLifetime(options.run(), options.signal).then(
       (value) => ({ ok: true as const, value }),
       (error: unknown) => ({ ok: false as const, error }),
     );

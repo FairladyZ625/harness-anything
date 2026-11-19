@@ -90,7 +90,7 @@ export async function runFleetEdgeRetry<T>(options: {
 }): Promise<T> {
   const deadline = Date.now() + options.timeoutMs;
   return runDaemonRetry({
-    request: options.write,
+    run: options.write,
     ...(options.signal ? { signal: options.signal } : {}),
     retryDelay: (settled, attempt) => {
       const remaining = deadline - Date.now();

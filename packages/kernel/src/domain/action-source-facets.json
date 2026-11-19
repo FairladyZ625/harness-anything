@@ -8866,10 +8866,10 @@
         "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-write.ts#runFleetEdgeRetry.settled:1c0a02758de939f5289f895772bacb2b",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-retry.ts#runDaemonRetry.settled:5d87109cdca7162abdb222376ff6db6a",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "packages/daemon/src/daemon-host/fleet-edge-write.ts#runFleetEdgeRetry.options.write"
+        "port": "packages/daemon/src/daemon-host/daemon-retry.ts#runDaemonRetry.options.run"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-write.ts#runFleetEdgeWrite.receipt:1c0a02758de939f5289f895772bacb2b",

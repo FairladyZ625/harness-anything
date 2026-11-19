@@ -38,7 +38,7 @@ const interruptedRequests = new Set([
 
 export function retryLocalDaemonWrite(request: () => Promise<JsonObject>): Promise<JsonObject> {
   return runDaemonRetry({
-    request,
+    run: request,
     retryDelay(settled, attempt) {
       const transient = settled.ok
         ? settled.value.ok === false && transientReceipts.has(resultErrorCode(settled.value) ?? "")
@@ -60,7 +60,7 @@ export function retryLocalRepoWarming(
   const { warmingAttempts, warmingPollMs } = cliOperationalPolicy.defaultValue.daemon;
   let first = true;
   return runDaemonRetry({
-    request: () => (first ? Promise.resolve(initial) : read()),
+    run: () => (first ? Promise.resolve(initial) : read()),
     retryDelay(settled, attempt) {
       if (!settled.ok || !isWarming(settled.value) || attempt >= warmingAttempts) return null;
       first = false;
