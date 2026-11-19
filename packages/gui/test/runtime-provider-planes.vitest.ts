@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: contract
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -475,15 +476,26 @@ describe("provider planes (2026-08-20 adjudication)", () => {
         showRuntimeInstance = async (payload: { readonly instanceId: string }) =>
           store.command({ kind: "runtime-instance-show", ...payload } as never);
       vi.stubGlobal("window", {
-        harness: {
-          listRuntimeInstances: unavailable,
-          showRuntimeInstance,
-          createRuntimeInstance,
-          updateRuntimeInstance: unavailable,
-          deleteRuntimeInstance: unavailable,
-          signInRuntimeInstance: unavailable,
-          signOutRuntimeInstance: unavailable,
-        },
+        harness: mockRpcBridge(
+          {
+            listRuntimeInstances: unavailable,
+            showRuntimeInstance,
+            createRuntimeInstance,
+            updateRuntimeInstance: unavailable,
+            deleteRuntimeInstance: unavailable,
+            signInRuntimeInstance: unavailable,
+            signOutRuntimeInstance: unavailable,
+          },
+          {
+            "daemon.runtimeInstance.create": "createRuntimeInstance",
+            "daemon.runtimeInstance.list": "listRuntimeInstances",
+            "daemon.runtimeInstance.show": "showRuntimeInstance",
+            "daemon.runtimeInstance.update": "updateRuntimeInstance",
+            "daemon.runtimeInstance.delete": "deleteRuntimeInstance",
+            "repo.runtimeInstance.auth.login": "signInRuntimeInstance",
+            "repo.runtimeInstance.auth.logout": "signOutRuntimeInstance",
+          },
+        ),
       });
       const receipt = await runtimeInstanceClient.create(
           buildRuntimeInstanceCreatePayload(blank, detected.installationId, detected),
@@ -703,17 +715,28 @@ describe("runtime capability flows declaration -> install -> daemon state -> GUI
         const store = openRuntimeInstanceStore({ userRoot, discover: () => [detected] }),
           unavailable = async () => ({});
         vi.stubGlobal("window", {
-          harness: {
-            listRuntimeInstances: unavailable,
-            showRuntimeInstance: async (payload: { readonly instanceId: string }) =>
-              store.command({ kind: "runtime-instance-show", ...payload } as never),
-            createRuntimeInstance: async (payload: Record<string, unknown>) =>
-              store.command({ kind: "runtime-instance-create", ...payload } as never),
-            updateRuntimeInstance: unavailable,
-            deleteRuntimeInstance: unavailable,
-            signInRuntimeInstance: unavailable,
-            signOutRuntimeInstance: unavailable,
-          },
+          harness: mockRpcBridge(
+            {
+              listRuntimeInstances: unavailable,
+              showRuntimeInstance: async (payload: { readonly instanceId: string }) =>
+                store.command({ kind: "runtime-instance-show", ...payload } as never),
+              createRuntimeInstance: async (payload: Record<string, unknown>) =>
+                store.command({ kind: "runtime-instance-create", ...payload } as never),
+              updateRuntimeInstance: unavailable,
+              deleteRuntimeInstance: unavailable,
+              signInRuntimeInstance: unavailable,
+              signOutRuntimeInstance: unavailable,
+            },
+            {
+              "daemon.runtimeInstance.create": "createRuntimeInstance",
+              "daemon.runtimeInstance.list": "listRuntimeInstances",
+              "daemon.runtimeInstance.show": "showRuntimeInstance",
+              "daemon.runtimeInstance.update": "updateRuntimeInstance",
+              "daemon.runtimeInstance.delete": "deleteRuntimeInstance",
+              "repo.runtimeInstance.auth.login": "signInRuntimeInstance",
+              "repo.runtimeInstance.auth.logout": "signOutRuntimeInstance",
+            },
+          ),
         });
         // Install: the create form is shaped by the declaration of the chosen kind.
         const created = applyRuntimeKind(

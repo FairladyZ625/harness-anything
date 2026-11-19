@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: integration
 import { squadObservationFixture } from "./squad-run-fixtures.ts";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -28,7 +29,12 @@ describe("squad run read client", () => {
       watermark: 1,
       sourceRevision: 1,
     }));
-    vi.stubGlobal("window", { harness: { listSquadRuns, readSquadRun: vi.fn() } });
+    vi.stubGlobal("window", {
+      harness: mockRpcBridge(
+        { listSquadRuns, readSquadRun: vi.fn() },
+        { "repo.squad.runs.list": "listSquadRuns", "repo.squad.run.read": "readSquadRun" },
+      ),
+    });
     const listed = await squadRunsClient.list("repo-a", { since: "2026-08-26T00:00:00.000Z", query: "ontology" });
     expect(listed.runs).toHaveLength(1);
     expect(listSquadRuns).toHaveBeenCalledWith({
@@ -37,7 +43,10 @@ describe("squad run read client", () => {
       query: "ontology",
     });
     vi.stubGlobal("window", {
-      harness: { listSquadRuns: vi.fn(async () => ({ ok: true, runs: "no" })), readSquadRun: vi.fn() },
+      harness: mockRpcBridge(
+        { listSquadRuns: vi.fn(async () => ({ ok: true, runs: "no" })), readSquadRun: vi.fn() },
+        { "repo.squad.runs.list": "listSquadRuns", "repo.squad.run.read": "readSquadRun" },
+      ),
     });
     await expect(squadRunsClient.list("repo-a")).rejects.toThrow(/invalid result/u);
   });
@@ -96,11 +105,21 @@ describe("squad run read client", () => {
       sourceRevision: 1,
     };
     const readSquadRun = vi.fn(async () => detail);
-    vi.stubGlobal("window", { harness: { listSquadRuns: vi.fn(), readSquadRun } });
+    vi.stubGlobal("window", {
+      harness: mockRpcBridge(
+        { listSquadRuns: vi.fn(), readSquadRun },
+        { "repo.squad.runs.list": "listSquadRuns", "repo.squad.run.read": "readSquadRun" },
+      ),
+    });
     const read = await squadRunsClient.read("repo-a", squadRunId);
     expect(read.run.leaderTurns[0]?.decision).toEqual({ kind: "plan", dispatchCount: 2 });
     expect(readSquadRun).toHaveBeenCalledWith({ repoId: "repo-a", squadRunId });
-    vi.stubGlobal("window", { harness: { listSquadRuns: vi.fn(), readSquadRun: vi.fn(async () => ({ ok: true })) } });
+    vi.stubGlobal("window", {
+      harness: mockRpcBridge(
+        { listSquadRuns: vi.fn(), readSquadRun: vi.fn(async () => ({ ok: true })) },
+        { "repo.squad.runs.list": "listSquadRuns", "repo.squad.run.read": "readSquadRun" },
+      ),
+    });
     await expect(squadRunsClient.read("repo-a", squadRunId)).rejects.toThrow(/invalid result/u);
   });
 });

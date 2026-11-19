@@ -13,7 +13,7 @@ import {
   validateDaemonRpcCall,
   workspaceId,
 } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
 import { serveKeycloak } from "./keycloak.fixtures.ts";
@@ -111,7 +111,7 @@ test("typed Entity Action read preserves one cut for 1..500 refs and has no writ
       false,
     );
     assert.deepEqual(one.subjects[0]!.actions[0]!.authorizationDecision?.actor, actor);
-    assert.doesNotThrow(() => parseDaemonGuiReadResult(method, fiveHundred));
+    assert.doesNotThrow(() => parseDaemonReadResult(method, fiveHundred));
 
     const failures = await cell.read(
       method,

@@ -12,8 +12,13 @@ import {
 import type { ScheduleDefinitionInput } from "../src/renderer/schedules-client.ts";
 import type { ScheduleGuiOptionsDto, ScheduleGuiRowDto } from "@harness-anything/daemon/protocol";
 import { validateDaemonRpcCall } from "@harness-anything/daemon/protocol/validation";
-import { assertPreloadPayload } from "../src/preload/allowlist.ts";
+import { assertRendererRpc } from "../src/preload/allowlist.ts";
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+
+function assertPreloadPayload(method: Parameters<typeof scopedRpcParams>[0], payload: object) {
+  return assertRendererRpc(method, scopedRpcParams(method, payload));
+}
 
 beforeAll(() => setActiveLocale("en-US"));
 afterEach(() => vi.restoreAllMocks());

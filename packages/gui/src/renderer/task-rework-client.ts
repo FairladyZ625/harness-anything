@@ -24,7 +24,7 @@ export const taskReworkClient = {
   /** The CLI's task-show read owns the eligible cuts and the persisted handoff state. */
   async read(repoId: string, taskId: string): Promise<TaskReworkRead> {
     const request = { repoId, taskId },
-      receipt = readGuiActionResult(await invoke("repo.task.show", request, "showTask"));
+      receipt = readGuiActionResult(await invoke("repo.task.show", request));
     if (!receipt.ok || typeof receipt.evidence !== "string")
       throw daemonBridgeError(receipt, "Task execution arrangement read failed.");
     const data = JSON.parse(receipt.evidence) as TaskReworkRead;
@@ -42,6 +42,6 @@ export const taskReworkClient = {
   },
   async rework(repoId: string, taskId: string, input: TaskReworkInput): Promise<GuiActionResult> {
     const request = { repoId, taskId, takeover: true, ...input };
-    return readGuiActionResult(await invoke("repo.task.rework", request, "reworkTask"));
+    return readGuiActionResult(await invoke("repo.task.rework", request));
   },
 };

@@ -1,14 +1,30 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer, request } from "node:http";
+import { createServer as createSocketServer } from "node:net";
+import { createInterface } from "node:readline";
+import { once } from "node:events";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { chromium } from "playwright-core";
 import { startBrowserGuiBroker } from "../src/cli/gui-browser-broker.ts";
+import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
+import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
+import { makeAgentRuntimeStreamHub } from "../../daemon/test/fixtures/runtime-stream.ts";
+import type { RuntimeSession } from "@harness-anything/kernel";
 import {
   daemonId,
   environment,
@@ -18,6 +34,154 @@ import {
   seedSettingsEvent,
   startDaemon,
 } from "./release-cli-acceptance.fixture.ts";
+
+// dec_89D06D7360CBEC09795F7B12EC/CH3: a real browser reads the socket hub through the authenticated
+// loopback broker, and aborting the fetch tears down the underlying subscriber.
+test("headless Chromium receives the hub snapshot and releases its socket on abort", { timeout: 120_000 }, async () => {
+  const parent = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-browser-sse-"))),
+    userRoot = path.join(parent, "user"),
+    repoId = "browser-stream",
+    method = "repo.agentRuntime.attach",
+    sessionId = "runtime-browser",
+    socketPath = localUserDaemonEndpoint(userRoot, daemonId),
+    hub = makeAgentRuntimeStreamHub({
+      repoId,
+      readSession: () => ({ runtimeSessionId: sessionId }) as RuntimeSession,
+      canAttach: () => true,
+    }),
+    released = Promise.withResolvers<void>();
+  const server = createSocketServer((socket) => {
+    const controller = new AbortController();
+    const lines = createInterface({ input: socket });
+    socket.once("close", () => {
+      controller.abort();
+      lines.close();
+      released.resolve();
+    });
+    lines.on("line", (line) => {
+      const packet = JSON.parse(line);
+      if (packet.method === "protocol.hello") {
+        socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: packet.id, result: fixtureDaemonHello() })}\n`);
+        return;
+      }
+      assert.equal(packet.method, method);
+      assert.equal(packet.params.repo.repoId, repoId);
+      void hub.attach(sessionId, packet.params.payload.afterCursor, controller.signal).then((subscription) => {
+        socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: packet.id, result: subscription.initial })}\n`);
+        const next = hub.publish(sessionId, { type: "heartbeat" });
+        socket.write(`${JSON.stringify({ jsonrpc: "2.0", method: `${method}.frame`, params: next })}\n`);
+      });
+    });
+  });
+  const previousUserRoot = process.env.HARNESS_DAEMON_USER_ROOT,
+    previousDaemonId = process.env.HARNESS_DAEMON_ID;
+  let broker: Awaited<ReturnType<typeof startBrowserGuiBroker>> | undefined;
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    mkdirSync(userRoot);
+    mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
+    mkdirSync(path.join(parent, "dist"));
+    writeFileSync(path.join(parent, "dist/index.html"), "<!doctype html><title>Stream</title>");
+    writeFileSync(
+      path.join(userRoot, "registry.json"),
+      JSON.stringify({
+        schema: "harness-daemon-registry/v2",
+        connections: [{ id: "local", kind: "local", displayName: "This device", state: "enabled" }],
+        repos: [
+          {
+            repoId,
+            canonicalRoot: parent,
+            displayName: "Browser Stream",
+            authoredBranch: "main",
+            mode: "local",
+            connectionId: "local",
+            state: "enabled",
+            registeredAt: "2026-11-19T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    process.env.HARNESS_DAEMON_USER_ROOT = userRoot;
+    process.env.HARNESS_DAEMON_ID = daemonId;
+    server.listen(socketPath);
+    await once(server, "listening");
+    const first = hub.publish(sessionId, { type: "activity", activity: "message", content: "snapshot activity" });
+    for (let seq = 0; seq < 32; seq++) hub.publish(sessionId, { type: "heartbeat" });
+    broker = await startBrowserGuiBroker(parent, parent);
+    browser = await chromium.launch({
+      executablePath: chromiumExecutable(parent),
+      headless: true,
+      args: ["--no-sandbox"],
+    });
+    const page = await browser.newPage();
+    const url = new URL(broker.url),
+      token = new URLSearchParams(url.hash.slice(1)).get("access_token")!;
+    const body = JSON.stringify({
+      method,
+      params: { repo: { repoId }, payload: { runtimeSessionId: sessionId, afterCursor: first.cursor } },
+    });
+    assert.equal(
+      (await call(url, "/stream", { method: "POST", body, token, origin: "https://example.test" })).status,
+      403,
+    );
+    assert.equal((await call(url, "/stream", { method: "POST", body, origin: url.origin })).status, 403);
+    assert.equal(
+      (
+        await call(url, "/stream", {
+          method: "POST",
+          body: body.replace(method, "repo.task.run"),
+          token,
+          origin: url.origin,
+        })
+      ).status,
+      400,
+    );
+    await page.goto(url.origin);
+    const frames = await page.evaluate(
+      async ({ body, token }) => {
+        const controller = new AbortController();
+        const response = await fetch("/stream", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body,
+          signal: controller.signal,
+        });
+        if (response.status !== 200 || response.headers.get("content-type") !== "text/event-stream")
+          throw new Error(`Unexpected stream response: ${response.status}`);
+        try {
+          const reader = response.body!.getReader(),
+            decoder = new TextDecoder();
+          let pending = "";
+          for (;;) {
+            const chunk = await reader.read();
+            if (chunk.done) throw new Error("Socket ended before the snapshot and its first increment.");
+            pending += decoder.decode(chunk.value, { stream: true });
+            const completed = pending.split("\n\n").slice(0, -1);
+            if (completed.length >= 2) return completed.map((frame) => JSON.parse(frame.slice(6)));
+          }
+        } finally {
+          controller.abort();
+        }
+      },
+      { body, token },
+    );
+    assert.equal(frames[0].status, "gap");
+    assert.equal(frames[0].events[0].snapshot.activity.content, "snapshot activity");
+    assert.equal(frames[0].events[0].snapshotSeq, 33);
+    assert.equal(frames[1].cursor.seq, 34);
+    await released.promise;
+  } finally {
+    await browser?.close();
+    await broker?.close();
+    if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()));
+    hub.close();
+    if (previousUserRoot === undefined) delete process.env.HARNESS_DAEMON_USER_ROOT;
+    else process.env.HARNESS_DAEMON_USER_ROOT = previousUserRoot;
+    if (previousDaemonId === undefined) delete process.env.HARNESS_DAEMON_ID;
+    else process.env.HARNESS_DAEMON_ID = previousDaemonId;
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
 
 test("browser GUI broker opens on exact loopback and rejects cross-origin RPC", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-browser-broker-")),

@@ -129,7 +129,7 @@ export function createDaemonHostRuntimeApi(
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
       await context.binding(cell.status().rootDir, auth);
-      return cell.attach(runtimeSessionId, afterCursor);
+      return cell.attach(runtimeSessionId, afterCursor, auth.connectionSignal);
     },
     spawnRuntime: async (repoId, payload, auth) => {
       const edgeReceipt = await runRemoteEdgeRuntime(repoId, "repo.agentRuntime.spawn", payload, auth);

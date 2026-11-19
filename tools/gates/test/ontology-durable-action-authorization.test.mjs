@@ -544,7 +544,7 @@ test("an undeclared native effect route cannot bypass descriptor ownership", asy
   writeRepoFile(
     root,
     "packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts",
-    `export const daemonProtocolCommands = []; export const daemonGuiActionMethods = [];`,
+    `export const daemonProtocolCommands = []; export const daemonActionRoutes = [];`,
   );
   writeRepoFile(
     root,
@@ -566,7 +566,7 @@ test("a source cannot borrow another action's authorization route", async (t) =>
   writeRepoFile(
     root,
     "packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts",
-    `export const daemonProtocolCommands = [{id:'task-start',method:'repo.task.run',commandClass:'repo-write'}]; export const daemonGuiActionMethods = [];`,
+    `export const daemonProtocolCommands = [{id:'task-start',method:'repo.task.run',commandClass:'repo-write'}]; export const daemonActionRoutes = [];`,
   );
   writeRepoFile(
     root,

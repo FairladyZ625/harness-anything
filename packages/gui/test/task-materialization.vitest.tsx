@@ -24,7 +24,7 @@ async function mount(available: boolean | null, locale: "en-US" | "zh-CN" = "zh-
   let materialized = false;
   let attempts = 0;
   const request = vi.fn(async (method: string) => {
-    if (method === "showTask")
+    if (method === "repo.task.show")
       return {
         schema: "command-receipt/v2",
         ok: true,
@@ -37,7 +37,7 @@ async function mount(available: boolean | null, locale: "en-US" | "zh-CN" = "zh-
           materializationState: materialized ? "materialized" : "skipped_by_node_policy",
         }),
       };
-    if (method === "explainEntityActions")
+    if (method === "repo.entity.actions.explain")
       return {
         schema: "entity-action-explanation/v1",
         subjects: [
@@ -48,7 +48,7 @@ async function mount(available: boolean | null, locale: "en-US" | "zh-CN" = "zh-
           },
         ],
       };
-    if (method === "materializeTask") {
+    if (method === "repo.task.materialize") {
       materialized = pending;
       attempts++;
       return {
@@ -93,7 +93,7 @@ describe("Task materialization consumes authoritative availability", () => {
     const { button, request } = await mount(available);
     expect(button.disabled).toBe(true);
     await act(async () => button.click());
-    expect(request.mock.calls.filter(([method]) => method === "materializeTask")).toEqual([]);
+    expect(request.mock.calls.filter(([method]) => method === "repo.task.materialize")).toEqual([]);
   });
   it.each(["zh-CN", "en-US"] as const)(
     "sends the declared host-local action and exposes the locale (%s)",
@@ -104,7 +104,10 @@ describe("Task materialization consumes authoritative availability", () => {
       });
       expect(container.textContent).toContain(locale === "zh-CN" ? "物化到本地" : "Materialize locally");
       await act(async () => button.click());
-      expect(request).toHaveBeenCalledWith("materializeTask", { repoId: "materialize-test", taskId: "task_history" });
+      expect(request).toHaveBeenCalledWith("repo.task.materialize", {
+        repo: { repoId: "materialize-test" },
+        payload: { taskId: "task_history" },
+      });
     },
   );
   it("shows server refusal after availability was allowed", async () => {
@@ -137,6 +140,6 @@ describe("Task materialization consumes authoritative availability", () => {
     await act(async () => {
       await vi.waitFor(() => expect(container.querySelector("button")).toBeNull());
     });
-    expect(request.mock.calls.filter(([method]) => method === "materializeTask")).toHaveLength(2);
+    expect(request.mock.calls.filter(([method]) => method === "repo.task.materialize")).toHaveLength(2);
   });
 });

@@ -1,7 +1,8 @@
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
-import { daemonGuiStreamFacets } from "@harness-anything/daemon/protocol";
-import { assertPreloadPayload, preloadAllowlist } from "../preload/allowlist.ts";
-import type { GuiServiceBridge } from "../api/service-bridge.ts";
+import { interactiveRpcDescriptor } from "@harness-anything/daemon/protocol";
+import { assertRendererRpc, RPC_CHANNEL } from "../preload/allowlist.ts";
+import { isMainProcessRecord } from "./value-validation.ts";
+import type { GuiServiceBridge } from "./local-composition-root.ts";
 import { assertTrustedIpcSender } from "./ipc-trust.ts";
 export { assertTrustedIpcSender } from "./ipc-trust.ts";
 import type { IpcWebContentsTrustPolicy } from "./security-policy.ts";
@@ -18,27 +19,14 @@ export function registerHarnessIpcHandlers(
   bridge: GuiServiceBridge,
   trustPolicy: IpcWebContentsTrustPolicy,
 ): void {
-  assertUniqueHarnessIpcChannels(preloadAllowlist);
-  for (const method of preloadAllowlist) {
-    if (daemonGuiStreamFacets.some(({ guiBridgeMethod }) => guiBridgeMethod === method)) continue;
-    registrar.handle(`harness:${method}`, async (event, payload) => {
-      assertTrustedIpcSender(event, trustPolicy);
-      assertPreloadPayload(method, payload);
-      return bridge.invoke(method, payload);
-    });
-  }
+  registrar.handle(RPC_CHANNEL, async (event, value) => {
+    assertTrustedIpcSender(event, trustPolicy);
+    if (!isMainProcessRecord(value) || typeof value.method !== "string" || !isMainProcessRecord(value.params))
+      throw new Error("Invalid renderer RPC envelope.");
+    assertRendererRpc(value.method, value.params);
+    return bridge.invoke(value.method, value.params as Parameters<GuiServiceBridge["invoke"]>[1]);
+  });
   registerAgentRuntimeIpc(registrar, bridge, trustPolicy);
-}
-export function assertUniqueHarnessIpcChannels(methods: ReadonlyArray<string>): true {
-  const channels = new Set<string>();
-  for (const method of methods) {
-    const channel = `harness:${method}`;
-    if (channels.has(channel)) {
-      throw new Error(`Duplicate Harness IPC handler channel: ${channel}`);
-    }
-    channels.add(channel);
-  }
-  return true;
 }
 
 const MAX_IPC_TRACE_ENTRIES = 200;
@@ -67,6 +55,7 @@ const SENSITIVE_IPC_KEY_PATTERN = /key|secret|token|password|credential|auth|coo
 interface IpcTraceEntry {
   readonly seq: number;
   readonly channel: string;
+  readonly method?: string;
   readonly startedAt: string;
   readonly durationMs: number;
   readonly result: "ok" | "ipc_failure" | "error";
@@ -126,7 +115,17 @@ export function withIpcDomainErrors(registrar: HarnessIpcRegistrar): HarnessIpcR
       registrar.handle(channel, async (event, payload) => {
         const startedMs = traceEnabled ? Date.now() : 0;
         const startedAt = traceEnabled ? new Date(startedMs).toISOString() : "";
-        const payloadSummary = traceEnabled ? sanitizeIpcPayloadSummary(payload) : null;
+        const envelope = traceEnabled && channel === RPC_CHANNEL && isMainProcessRecord(payload) ? payload : null;
+        const method =
+          typeof envelope?.method === "string" ? interactiveRpcDescriptor(envelope.method)?.method : undefined;
+        const params = envelope?.params;
+        const tracePayload = isMainProcessRecord(params)
+          ? {
+              ...(isMainProcessRecord(params.payload) ? params.payload : {}),
+              ...(isMainProcessRecord(params.repo) ? params.repo : {}),
+            }
+          : payload;
+        const payloadSummary = traceEnabled ? sanitizeIpcPayloadSummary(tracePayload) : null;
         try {
           const reply = await listener(event, payload);
           if (traceEnabled) {
@@ -136,6 +135,7 @@ export function withIpcDomainErrors(registrar: HarnessIpcRegistrar): HarnessIpcR
             pushTrace({
               seq: ++seq,
               channel,
+              ...(method === undefined ? {} : { method }),
               startedAt,
               durationMs: Date.now() - startedMs,
               result: replyFailure ? "ipc_failure" : "ok",
@@ -150,6 +150,7 @@ export function withIpcDomainErrors(registrar: HarnessIpcRegistrar): HarnessIpcR
             pushTrace({
               seq: ++seq,
               channel,
+              ...(method === undefined ? {} : { method }),
               startedAt,
               durationMs: Date.now() - startedMs,
               result: isDomainError ? "ipc_failure" : "error",

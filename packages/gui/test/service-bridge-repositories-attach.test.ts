@@ -1,4 +1,6 @@
 // harness-test-tier: integration
+import { emptyRuntimeSnapshot, runtimeCursor } from "../../daemon/test/fixtures/runtime-stream.ts";
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
@@ -10,7 +12,7 @@ import path from "node:path";
 import test from "node:test";
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/client";
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/client";
-import { parseDaemonGuiReadResult } from "@harness-anything/daemon/client";
+import { parseDaemonReadResult } from "@harness-anything/daemon/client";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
 import { streamAgentRuntimeAt } from "@harness-anything/daemon/client";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
@@ -70,30 +72,39 @@ test("GUI bridge switches between two enabled RepoCells without leaking task row
     assert.equal(created.ok, true, JSON.stringify(created));
     const bridge = createLocalGuiServiceBridge();
     const [repoA, repoB] = await Promise.all([
-      bridge.invoke("getTasks", { repoId: fixture.repoId }),
-      bridge.invoke("getTasks", { repoId: repoBId }),
+      bridge.invoke("repo.tasks.list", scopedRpcParams("repo.tasks.list", { repoId: fixture.repoId })),
+      bridge.invoke("repo.tasks.list", scopedRpcParams("repo.tasks.list", { repoId: repoBId })),
     ]);
     assert.deepEqual(
-      parseDaemonGuiReadResult("repo.tasks.list", repoA).rows.map(({ taskId }) => taskId),
+      parseDaemonReadResult("repo.tasks.list", repoA).rows.map(({ taskId }) => taskId),
       ["task-gui-smoke", "task-repo-a"],
     );
     assert.deepEqual(
-      parseDaemonGuiReadResult("repo.tasks.list", repoB).rows.map(({ taskId }) => taskId),
+      parseDaemonReadResult("repo.tasks.list", repoB).rows.map(({ taskId }) => taskId),
       ["task-repo-b"],
     );
     const [graphA, graphB, catalogA, catalogB] = await Promise.all([
-      bridge.invoke("getRelationGraph", { repoId: fixture.repoId }),
-      bridge.invoke("getRelationGraph", { repoId: repoBId }),
-      bridge.invoke("getCatalogSnapshot", { repoId: fixture.repoId }),
-      bridge.invoke("getCatalogSnapshot", { repoId: repoBId }),
+      bridge.invoke(
+        "repo.triadic.relationGraph",
+        scopedRpcParams("repo.triadic.relationGraph", { repoId: fixture.repoId }),
+      ),
+      bridge.invoke("repo.triadic.relationGraph", scopedRpcParams("repo.triadic.relationGraph", { repoId: repoBId })),
+      bridge.invoke(
+        "repo.gui.catalog.snapshot",
+        scopedRpcParams("repo.gui.catalog.snapshot", { repoId: fixture.repoId }),
+      ),
+      bridge.invoke("repo.gui.catalog.snapshot", scopedRpcParams("repo.gui.catalog.snapshot", { repoId: repoBId })),
     ]);
-    assert.equal(parseDaemonGuiReadResult("repo.triadic.relationGraph", graphA).edges.length > 0, true);
-    assert.equal(parseDaemonGuiReadResult("repo.triadic.relationGraph", graphB).edges.length, 0);
+    assert.equal(parseDaemonReadResult("repo.triadic.relationGraph", graphA).edges.length > 0, true);
+    assert.equal(parseDaemonReadResult("repo.triadic.relationGraph", graphB).edges.length, 0);
     assert.deepEqual(
       [(catalogA as { repoId: string }).repoId, (catalogB as { repoId: string }).repoId],
       [fixture.repoId, repoBId],
     );
-    const system = parseDaemonGuiReadResult("daemon.gui.system.read", await bridge.invoke("getSystemStatus", null));
+    const system = parseDaemonReadResult(
+      "daemon.gui.system.read",
+      await bridge.invoke("daemon.gui.system.read", scopedRpcParams("daemon.gui.system.read", {})),
+    );
     assert.deepEqual(
       system.repos.map((repo) => [repo.repoId, repo.registrationState, repo.cellState]),
       [
@@ -103,17 +114,20 @@ test("GUI bridge switches between two enabled RepoCells without leaking task row
     );
     const unbound = await requestDaemonJsonRpcAt(fixture.endpoint, "daemon.repo.unbind", { repoId: repoBId }, 1_000);
     assert.equal(unbound.ok, true, JSON.stringify(unbound));
-    const afterUnbind = parseDaemonGuiReadResult(
+    const afterUnbind = parseDaemonReadResult(
       "daemon.gui.system.read",
-      await bridge.invoke("getSystemStatus", null),
+      await bridge.invoke("daemon.gui.system.read", scopedRpcParams("daemon.gui.system.read", {})),
     );
     assert.equal(
       afterUnbind.repos.find((repo) => repo.repoId === repoBId),
       undefined,
     );
-    const denied = (await bridge.invoke("getTasks", {
-      repoId: repoBId,
-    })) as Failure;
+    const denied = (await bridge.invoke(
+      "repo.tasks.list",
+      scopedRpcParams("repo.tasks.list", {
+        repoId: repoBId,
+      }),
+    )) as Failure;
     assert.equal(denied.ok, false);
     assert.equal(denied.error.code, "workspace_not_registered");
     assert.match(denied.error.hint ?? "", /ha daemon repo register/u);
@@ -131,7 +145,7 @@ test(
   async () => {
     const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-runtime-reconnect-")),
       socketPath = localUserDaemonEndpoint(parent, "runtime-reconnect"),
-      attempts: string[] = [],
+      attempts: unknown[] = [],
       values: unknown[] = [];
     let resolveGap!: () => void;
     const gapSeen = new Promise<void>((resolve) => {
@@ -149,7 +163,7 @@ test(
             const request = JSON.parse(line) as {
               id: number;
               method: string;
-              params: { payload?: { afterCursor?: string } };
+              params: { payload?: { afterCursor?: ReturnType<typeof runtimeCursor> } };
             };
             if (request.method === "protocol.hello") {
               socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: fixtureDaemonHello() })}\n`);
@@ -158,14 +172,14 @@ test(
             attempts.push(request.params.payload?.afterCursor ?? "missing");
             if (attempts.length === 1) {
               socket.write(
-                `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true, status: "attached", runtimeSessionId: "runtime-reconnect", cursor: "stream:0", events: [] } })}\n${JSON.stringify({ jsonrpc: "2.0", method: "repo.agentRuntime.attach.frame", params: { schema: "agent-runtime-attach-event/v1", type: "heartbeat", runtimeSessionId: "runtime-reconnect", cursor: "stream:1", occurredAt: "2026-08-13T00:00:00.000Z" } })}\n`,
+                `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true, status: "attached", runtimeSessionId: "runtime-reconnect", cursor: runtimeCursor("runtime-reconnect", 0), events: [] } })}\n${JSON.stringify({ jsonrpc: "2.0", method: "repo.agentRuntime.attach.frame", params: { schema: "agent-runtime-attach-event/v2", type: "heartbeat", runtimeSessionId: "runtime-reconnect", cursor: runtimeCursor("runtime-reconnect", 1), occurredAt: "2026-08-13T00:00:00.000Z" } })}\n`,
                 // The first connection drops after sending a heartbeat. The next connection
                 // represents a restarted stream authority that cannot replay the old cursor.
                 () => socket.destroy(),
               );
             } else {
               socket.write(
-                `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true, status: "gap", runtimeSessionId: "runtime-reconnect", cursor: "stream:0", events: [{ schema: "agent-runtime-attach-event/v1", type: "gap", runtimeSessionId: "runtime-reconnect", cursor: "stream:0", occurredAt: "2026-08-13T00:00:01.000Z", required: "snapshot" }] } })}\n`,
+                `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true, status: "gap", runtimeSessionId: "runtime-reconnect", cursor: runtimeCursor("runtime-reconnect", 0, "fresh-epoch"), events: [{ schema: "agent-runtime-attach-event/v2", type: "gap", runtimeSessionId: "runtime-reconnect", cursor: runtimeCursor("runtime-reconnect", 0, "fresh-epoch"), occurredAt: "2026-08-13T00:00:01.000Z", snapshotSeq: 0, snapshot: emptyRuntimeSnapshot }] } })}\n`,
               );
             }
           }
@@ -181,7 +195,6 @@ test(
         repoId: "runtime-reconnect",
         payload: {
           runtimeSessionId: "runtime-reconnect",
-          afterCursor: "stream:0",
         },
         onValue: (value) => {
           values.push(value);
@@ -190,7 +203,7 @@ test(
         timeoutMs: 1_000,
       });
       await gapSeen;
-      assert.deepEqual(attempts, ["stream:0", "stream:1"]);
+      assert.deepEqual(attempts, ["missing", runtimeCursor("runtime-reconnect", 1)]);
       assert.equal((values.at(-1) as { status?: string }).status, "gap");
     } finally {
       detach?.();

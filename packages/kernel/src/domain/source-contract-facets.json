@@ -11,13 +11,9 @@
           "requirement: DecisionReviewRequirement"
         ],
         "output": "void",
-        "failureCodes": [
-          "invalid_transition"
-        ],
+        "failureCodes": ["invalid_transition"],
         "explain": "Accept only a current, valid review or the existing repository policy route; preserve every error, criterion attribution and next action.",
-        "consumers": [
-          "packages/kernel/src/domain/decision-event-document.ts"
-        ],
+        "consumers": ["packages/kernel/src/domain/decision-event-document.ts"],
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/decision-event-document.ts#assertDecisionAcceptReview:3d71f566914de78a94e1e7126e17e7af",
@@ -28,19 +24,11 @@
       {
         "id": "assertDecisionReviewMutation",
         "symbol": "packages/kernel/src/domain/decision-event-document.ts#assertDecisionReviewMutation",
-        "inputs": [
-          "current: DecisionDocumentState",
-          "documentBody: string",
-          "event: DecisionEventDraftV1"
-        ],
+        "inputs": ["current: DecisionDocumentState", "documentBody: string", "event: DecisionEventDraftV1"],
         "output": "void",
-        "failureCodes": [
-          "invalid_transition"
-        ],
+        "failureCodes": ["invalid_transition"],
         "explain": "Admit review responses/overrides only for the current Decision content and known review findings.",
-        "consumers": [
-          "packages/kernel/src/domain/decision-event-document.ts"
-        ],
+        "consumers": ["packages/kernel/src/domain/decision-event-document.ts"],
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/decision-event-document.ts#assertDecisionReviewMutation:9346179e0b966c5899679bd7edf4deb9",
@@ -51,14 +39,9 @@
       {
         "id": "assertDecisionJudgmentConsent",
         "symbol": "packages/kernel/src/domain/decision-event-document.ts#assertDecisionJudgmentConsent",
-        "inputs": [
-          "current: DecisionDocumentState",
-          "event: DecisionEventV1"
-        ],
+        "inputs": ["current: DecisionDocumentState", "event: DecisionEventV1"],
         "output": "void",
-        "failureCodes": [
-          "invalid_transition"
-        ],
+        "failureCodes": ["invalid_transition"],
         "explain": "Bind Decision judgment consent to the accepted state/content and approved actor.",
         "consumers": [],
         "sources": [
@@ -71,14 +54,9 @@
       {
         "id": "assertDecisionContentPin",
         "symbol": "packages/kernel/src/domain/decision-event-document.ts#assertDecisionContentPin",
-        "inputs": [
-          "current: DecisionDocumentState",
-          "event: DecisionEventV1"
-        ],
+        "inputs": ["current: DecisionDocumentState", "event: DecisionEventV1"],
         "output": "void",
-        "failureCodes": [
-          "invalid_transition"
-        ],
+        "failureCodes": ["invalid_transition"],
         "explain": "Require a content pin matching the reduced Decision content.",
         "consumers": [],
         "sources": [
@@ -91,18 +69,11 @@
       {
         "id": "assertDecisionEvidenceFloor",
         "symbol": "packages/kernel/src/domain/decision-event-document.ts#assertDecisionEvidenceFloor",
-        "inputs": [
-          "current: DecisionDocumentState | null",
-          "event: DecisionEventDraftV1 | DecisionEventV1"
-        ],
+        "inputs": ["current: DecisionDocumentState | null", "event: DecisionEventDraftV1 | DecisionEventV1"],
         "output": "void",
-        "failureCodes": [
-          "invalid_transition"
-        ],
+        "failureCodes": ["invalid_transition"],
         "explain": "Require the existing Decision evidence floor before acceptance.",
-        "consumers": [
-          "packages/kernel/src/domain/decision-event-document.ts"
-        ],
+        "consumers": ["packages/kernel/src/domain/decision-event-document.ts"],
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/decision-event-document.ts#assertDecisionEvidenceFloor:4594035e1a324c79d8a62ef27f9914ec",
@@ -114,11 +85,7 @@
         "id": "decisionAcceptReviewReadiness",
         "symbol": "packages/kernel/src/domain/decision-event-document.ts#decisionAcceptReviewReadiness",
         "declaration": "function",
-        "inputs": [
-          "current: DecisionDocumentState",
-          "documentBody: string",
-          "requirement: DecisionReviewRequirement"
-        ],
+        "inputs": ["current: DecisionDocumentState", "documentBody: string", "requirement: DecisionReviewRequirement"],
         "output": "DecisionAcceptReviewReadiness",
         "failureCodes": [],
         "explain": "Canonical decisionAcceptReviewReadiness; existing unique kernel definition and result semantics are preserved.",
@@ -135,13 +102,9 @@
           "independence: ReviewIndependence"
         ],
         "output": "void",
-        "failureCodes": [
-          "actor_unauthorized"
-        ],
+        "failureCodes": ["actor_unauthorized"],
         "explain": "Enforce Decision reviewer independence from both the original proposer and every recorded amendment author under the repository reviewIndependence setting.",
-        "consumers": [
-          "packages/application/src/commands/entity-action-catalog-executor.ts"
-        ],
+        "consumers": ["packages/application/src/commands/entity-action-catalog-executor.ts"],
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/decision-event-document.ts#assertDecisionReviewerIndependent:a3be2e008f69cb263d361803e7ff6e19",
@@ -331,15 +294,11 @@
       {
         "id": "currentWorkerEscalations",
         "symbol": "packages/kernel/src/domain/worker-escalation-context.ts#currentWorkerEscalations",
-        "inputs": [
-          "records: readonly WorkerEscalationContext[]"
-        ],
+        "inputs": ["records: readonly WorkerEscalationContext[]"],
         "output": "readonly WorkerEscalationContext[]",
         "failureCodes": [],
         "explain": "Keep all resolved questions; the greatest ledger revision replaces an earlier answer only for the same trimmed question.",
-        "consumers": [
-          "packages/application/src/queries/task-escalation-context.ts"
-        ],
+        "consumers": ["packages/application/src/queries/task-escalation-context.ts"],
         "sources": []
       },
       {
@@ -364,14 +323,9 @@
       {
         "id": "retireCompletionGeneration/validate",
         "symbol": "packages/kernel/src/domain/task-completion-generation-retirement.ts#retireCompletionGeneration.validate",
-        "inputs": [
-          "snapshot",
-          "raw"
-        ],
+        "inputs": ["snapshot", "raw"],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": [
-          "invalid_transition"
-        ],
+        "failureCodes": ["invalid_transition"],
         "explain": "Canonical retireCompletionGeneration.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -384,17 +338,9 @@
       {
         "id": "create/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#create.validate",
-        "inputs": [
-          "snapshot",
-          "raw",
-          "rawProof"
-        ],
+        "inputs": ["snapshot", "raw", "rawProof"],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": [
-          "invalid_transition",
-          "invalid_schema",
-          "invalid_proof"
-        ],
+        "failureCodes": ["invalid_transition", "invalid_schema", "invalid_proof"],
         "explain": "Canonical create.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -407,16 +353,9 @@
       {
         "id": "start/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#start.validate",
-        "inputs": [
-          "snapshot",
-          "raw",
-          "rawProof"
-        ],
+        "inputs": ["snapshot", "raw", "rawProof"],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": [
-          "invalid_proof",
-          "invalid_transition"
-        ],
+        "failureCodes": ["invalid_proof", "invalid_transition"],
         "explain": "Canonical start.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -429,14 +368,9 @@
       {
         "id": "block/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#block.validate",
-        "inputs": [
-          "snapshot",
-          "raw"
-        ],
+        "inputs": ["snapshot", "raw"],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": [
-          "invalid_transition"
-        ],
+        "failureCodes": ["invalid_transition"],
         "explain": "Canonical block.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -449,15 +383,9 @@
       {
         "id": "reinstate/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#reinstate.validate",
-        "inputs": [
-          "snapshot",
-          "raw"
-        ],
+        "inputs": ["snapshot", "raw"],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": [
-          "invalid_transition",
-          "missing_field"
-        ],
+        "failureCodes": ["invalid_transition", "missing_field"],
         "explain": "Canonical reinstate.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -470,15 +398,9 @@
       {
         "id": "returnToPlanned/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#returnToPlanned.validate",
-        "inputs": [
-          "snapshot",
-          "raw"
-        ],
+        "inputs": ["snapshot", "raw"],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": [
-          "invalid_transition",
-          "missing_field"
-        ],
+        "failureCodes": ["invalid_transition", "missing_field"],
         "explain": "Canonical returnToPlanned.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -491,14 +413,9 @@
       {
         "id": "unblock/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#unblock.validate",
-        "inputs": [
-          "snapshot",
-          "raw"
-        ],
+        "inputs": ["snapshot", "raw"],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": [
-          "invalid_transition"
-        ],
+        "failureCodes": ["invalid_transition"],
         "explain": "Canonical unblock.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -511,16 +428,9 @@
       {
         "id": "cancel/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#cancel.validate",
-        "inputs": [
-          "snapshot",
-          "raw"
-        ],
+        "inputs": ["snapshot", "raw"],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": [
-          "invalid_transition",
-          "missing_field",
-          "force_reason_required"
-        ],
+        "failureCodes": ["invalid_transition", "missing_field", "force_reason_required"],
         "explain": "Canonical cancel.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -533,17 +443,9 @@
       {
         "id": "submit/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#submit.validate",
-        "inputs": [
-          "snapshot",
-          "raw",
-          "rawProof"
-        ],
+        "inputs": ["snapshot", "raw", "rawProof"],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": [
-          "invalid_proof",
-          "invalid_transition",
-          "invalid_submission"
-        ],
+        "failureCodes": ["invalid_proof", "invalid_transition", "invalid_submission"],
         "explain": "Canonical submit.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -556,17 +458,9 @@
       {
         "id": "rework/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#rework.validate",
-        "inputs": [
-          "snapshot",
-          "raw",
-          "rawProof"
-        ],
+        "inputs": ["snapshot", "raw", "rawProof"],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": [
-          "invalid_transition",
-          "missing_field",
-          "invalid_proof"
-        ],
+        "failureCodes": ["invalid_transition", "missing_field", "invalid_proof"],
         "explain": "Canonical rework.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -579,16 +473,9 @@
       {
         "id": "consent/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-review-transitions.ts#consent.validate",
-        "inputs": [
-          "snapshot",
-          "raw",
-          "rawProof"
-        ],
+        "inputs": ["snapshot", "raw", "rawProof"],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": [
-          "invalid_transition",
-          "invalid_proof"
-        ],
+        "failureCodes": ["invalid_transition", "invalid_proof"],
         "explain": "Canonical consent.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -601,17 +488,9 @@
       {
         "id": "complete/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-review-transitions.ts#complete.validate",
-        "inputs": [
-          "snapshot",
-          "raw",
-          "rawProof"
-        ],
+        "inputs": ["snapshot", "raw", "rawProof"],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": [
-          "invalid_schema",
-          "invalid_transition",
-          "invalid_proof"
-        ],
+        "failureCodes": ["invalid_schema", "invalid_transition", "invalid_proof"],
         "explain": "Canonical complete.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -624,15 +503,9 @@
       {
         "id": "releaseRuntimeLease/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-runtime-lease-transition.ts#releaseRuntimeLease.validate",
-        "inputs": [
-          "snapshot",
-          "raw"
-        ],
+        "inputs": ["snapshot", "raw"],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": [
-          "invalid_transition",
-          "missing_field"
-        ],
+        "failureCodes": ["invalid_transition", "missing_field"],
         "explain": "Canonical releaseRuntimeLease.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -645,9 +518,7 @@
       {
         "id": "isTaskRiskTierAssessmentNonDecreasing",
         "symbol": "packages/kernel/src/domain/task-risk-tier-assessment.ts#isTaskRiskTierAssessmentNonDecreasing",
-        "inputs": [
-          "value: unknown"
-        ],
+        "inputs": ["value: unknown"],
         "output": "boolean",
         "failureCodes": [],
         "explain": "Canonical non-decreasing task risk-tier comparison.",
@@ -679,10 +550,7 @@
         "id": "startability",
         "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#canStartExecution",
         "declaration": "function",
-        "inputs": [
-          "snapshot: TaskLifecycleSnapshot",
-          "executionId: string"
-        ],
+        "inputs": ["snapshot: TaskLifecycleSnapshot", "executionId: string"],
         "output": "boolean",
         "failureCodes": [],
         "explain": "Canonical startability; existing unique kernel definition and result semantics are preserved.",
@@ -692,15 +560,9 @@
       {
         "id": "validateTransition",
         "symbol": "packages/kernel/src/domain/task-lifecycle-replay.ts#validateTransition",
-        "inputs": [
-          "snapshot: TaskLifecycleSnapshot",
-          "command: C extends TaskLifecycleCommand",
-          "proof: ProofFor<C>"
-        ],
+        "inputs": ["snapshot: TaskLifecycleSnapshot", "command: C extends TaskLifecycleCommand", "proof: ProofFor<C>"],
         "output": "readonly ContractValidationIssue[]",
-        "failureCodes": [
-          "invalid_transition"
-        ],
+        "failureCodes": ["invalid_transition"],
         "explain": "Delegate current task snapshot and command eligibility to the sole TASK_LIFECYCLE_TRANSITIONS registry, including its no-match rejection.",
         "consumers": [],
         "sources": [
@@ -714,10 +576,7 @@
         "id": "isSubmittedExecutionCutOpen",
         "symbol": "packages/kernel/src/domain/task-bound-runtime-authority.ts#isSubmittedExecutionCutOpen",
         "declaration": "function",
-        "inputs": [
-          "snapshot: TaskLifecycleSnapshot",
-          "executionId: string"
-        ],
+        "inputs": ["snapshot: TaskLifecycleSnapshot", "executionId: string"],
         "output": "boolean",
         "failureCodes": [],
         "explain": "Judge whether the named Execution is currently the active submitted cut on a Task in review/submitted state at the review workflow node.",
@@ -1223,57 +1082,57 @@
         ]
       },
       {
-        "id": "daemon/src/protocol/gui-result-validation.ts#validateTaskRuntimeContextRead",
-        "symbol": "packages/daemon/src/daemon-host/protocol/gui-result-validation.ts#validateTaskRuntimeContextRead",
+        "id": "daemon/src/protocol/daemon-result-validation.ts#validateTaskRuntimeContextRead",
+        "symbol": "packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateTaskRuntimeContextRead",
         "explain": "Wire-response validator for `repo.task.runtimeContext` execution lease, worktree path and read-set context DTOs.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/gui-result-validation.ts#validateTaskRuntimeContextRead:44af7fd538cf9f87d23fadcf8907853a",
-            "route": "packages/daemon/src/daemon-host/protocol/gui-result-validation.ts#validateTaskRuntimeContextRead"
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateTaskRuntimeContextRead:44af7fd538cf9f87d23fadcf8907853a",
+            "route": "packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateTaskRuntimeContextRead"
           }
         ]
       },
       {
-        "id": "daemon/src/protocol/gui-result-validation.ts#validateDaemonWorkspaceScope",
-        "symbol": "packages/daemon/src/daemon-host/protocol/gui-result-validation.ts#validateDaemonWorkspaceScope",
+        "id": "daemon/src/protocol/daemon-result-validation.ts#validateDaemonWorkspaceScope",
+        "symbol": "packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateDaemonWorkspaceScope",
         "explain": "Wire-response validator for `repo.workspace.scope` active work/task scope resolution DTOs.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/gui-result-validation.ts#validateDaemonWorkspaceScope:903f2cfd05c0becf14bdc76194a763b0",
-            "route": "packages/daemon/src/daemon-host/protocol/gui-result-validation.ts#validateDaemonWorkspaceScope"
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateDaemonWorkspaceScope:903f2cfd05c0becf14bdc76194a763b0",
+            "route": "packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateDaemonWorkspaceScope"
           }
         ]
       },
       {
-        "id": "daemon/src/protocol/gui-result-validation.ts#validateDaemonWorkIndex",
-        "symbol": "packages/daemon/src/daemon-host/protocol/gui-result-validation.ts#validateDaemonWorkIndex",
+        "id": "daemon/src/protocol/daemon-result-validation.ts#validateDaemonWorkIndex",
+        "symbol": "packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateDaemonWorkIndex",
         "explain": "Wire-response validator for `repo.work.index` work-container list and rollup summary envelopes.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/gui-result-validation.ts#validateDaemonWorkIndex:c7fd326c2b2ac40ae1ae054202deb663",
-            "route": "packages/daemon/src/daemon-host/protocol/gui-result-validation.ts#validateDaemonWorkIndex"
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateDaemonWorkIndex:c7fd326c2b2ac40ae1ae054202deb663",
+            "route": "packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateDaemonWorkIndex"
           }
         ]
       },
       {
-        "id": "daemon/src/protocol/gui-result-validation.ts#validateDaemonWorkBriefs",
-        "symbol": "packages/daemon/src/daemon-host/protocol/gui-result-validation.ts#validateDaemonWorkBriefs",
+        "id": "daemon/src/protocol/daemon-result-validation.ts#validateDaemonWorkBriefs",
+        "symbol": "packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateDaemonWorkBriefs",
         "explain": "Wire-response validator for `repo.work.briefs` work-container brief cards and child progress counters.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/gui-result-validation.ts#validateDaemonWorkBriefs:4326860fc05ff624a6ed9baaea854208",
-            "route": "packages/daemon/src/daemon-host/protocol/gui-result-validation.ts#validateDaemonWorkBriefs"
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateDaemonWorkBriefs:4326860fc05ff624a6ed9baaea854208",
+            "route": "packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateDaemonWorkBriefs"
           }
         ]
       },
       {
-        "id": "daemon/src/protocol/gui-result-validation.ts#validateDaemonTaskWip",
-        "symbol": "packages/daemon/src/daemon-host/protocol/gui-result-validation.ts#validateDaemonTaskWip",
+        "id": "daemon/src/protocol/daemon-result-validation.ts#validateDaemonTaskWip",
+        "symbol": "packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateDaemonTaskWip",
         "explain": "Wire-response validator for `repo.task.wip` worktree dirty-file and branch ahead/behind status DTOs.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/gui-result-validation.ts#validateDaemonTaskWip:95074cce0edfb0376de4f4ace29abf5b",
-            "route": "packages/daemon/src/daemon-host/protocol/gui-result-validation.ts#validateDaemonTaskWip"
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateDaemonTaskWip:95074cce0edfb0376de4f4ace29abf5b",
+            "route": "packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateDaemonTaskWip"
           }
         ]
       },
@@ -1394,22 +1253,11 @@
       {
         "id": "assertTransitionDocumentReady",
         "symbol": "packages/kernel/src/domain/transition-document-readiness.ts#assertTransitionDocumentReady",
-        "inputs": [
-          "kind: TransitionDocumentKind",
-          "body: string",
-          "contract?: MarkdownDocumentContract"
-        ],
+        "inputs": ["kind: TransitionDocumentKind", "body: string", "contract?: MarkdownDocumentContract"],
         "output": "void",
-        "failureCodes": [
-          "plan_placeholder",
-          "body_placeholder",
-          "instructions_placeholder",
-          "roster_placeholder"
-        ],
+        "failureCodes": ["plan_placeholder", "body_placeholder", "instructions_placeholder", "roster_placeholder"],
         "explain": "Apply canonical transition document readiness and its original failure explanation.",
-        "consumers": [
-          "packages/kernel/src/domain/decision-event-document.ts"
-        ],
+        "consumers": ["packages/kernel/src/domain/decision-event-document.ts"],
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/transition-document-readiness.ts#assertTransitionDocumentReady:aed4a8f5db9c5bab10cb89e4ce82eee6",
@@ -1421,16 +1269,11 @@
         "id": "queryPayloadValidation",
         "symbol": "packages/kernel/src/domain/query-payload-validation.ts#queryPayloadValidation",
         "declaration": "function",
-        "inputs": [
-          "kind: QueryPayloadKind",
-          "value: unknown"
-        ],
+        "inputs": ["kind: QueryPayloadKind", "value: unknown"],
         "output": "readonly QueryPayloadValidationIssue[]",
         "failureCodes": [],
         "explain": "Canonical query-facet validation for task-list and relation-graph reads (status vocabulary, non-negative integer changedAfterRevision, ordered UTC time window, 1..500 limit, non-empty cursor); protocol wrappers keep only selector routing, field closure, and wire error mapping.",
-        "consumers": [
-          "packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-relation-query.ts"
-        ],
+        "consumers": ["packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-relation-query.ts"],
         "sources": [],
         "consumerRules": [
           {
@@ -1455,15 +1298,9 @@
       {
         "id": "currentWriterAdmission",
         "symbol": "packages/kernel/src/domain/write-chain.contract.ts#assertCurrentWriter",
-        "inputs": [
-          "active: WriterGeneration",
-          "token: WriterGenerationToken",
-          "workspaceId: string"
-        ],
+        "inputs": ["active: WriterGeneration", "token: WriterGenerationToken", "workspaceId: string"],
         "output": "void",
-        "failureCodes": [
-          "writer_rejected"
-        ],
+        "failureCodes": ["writer_rejected"],
         "explain": "Admit only the active workspace, generation and owner; preserve the writer fence error and call order.",
         "consumers": [
           "packages/daemon/src/daemon-host/repo-bootstrap.ts",
@@ -1491,9 +1328,7 @@
         "id": "receiptAcceptance",
         "symbol": "packages/kernel/src/domain/receipt-acceptance.ts#validateReceiptAcceptance",
         "declaration": "function",
-        "inputs": [
-          "value: Readonly<Record<string, unknown>>"
-        ],
+        "inputs": ["value: Readonly<Record<string, unknown>>"],
         "output": "readonly string[]",
         "failureCodes": [],
         "explain": "Certify command-receipt/v2 SQLite acceptance intervals, determinate settled_no_write outcomes, verified facet cuts, and wait satisfaction invariants from one kernel authority.",
@@ -2631,17 +2466,6 @@
         ]
       },
       {
-        "id": "gui/src/main/ipc-handlers.ts#assertUniqueHarnessIpcChannels",
-        "symbol": "packages/gui/src/main/ipc-handlers.ts#assertUniqueHarnessIpcChannels",
-        "explain": "Electron main-process IPC channel registration guard rejecting duplicate harness:<method> handlers at startup.",
-        "sources": [
-          {
-            "candidateId": "judgment:packages/gui:packages/gui/src/main/ipc-handlers.ts#assertUniqueHarnessIpcChannels:85560ad3e428ebeff0316c70b2387b1f",
-            "route": "packages/gui/src/main/ipc-handlers.ts#assertUniqueHarnessIpcChannels"
-          }
-        ]
-      },
-      {
         "id": "gui/src/main/ipc-trust.ts#assertTrustedIpcSender",
         "symbol": "packages/gui/src/main/ipc-trust.ts#assertTrustedIpcSender",
         "explain": "Electron main-process IPC sender WebContents trust boundary delegating per-message origin and frame checks to evaluateIpcSender.",
@@ -2709,12 +2533,12 @@
       },
       {
         "id": "gui/src/preload/allowlist.ts#assertPreloadPayload",
-        "symbol": "packages/gui/src/preload/allowlist.ts#assertPreloadPayload",
+        "symbol": "packages/gui/src/preload/allowlist.ts#assertRendererRpc",
         "explain": "Preload contextBridge method allowlist, secret-key hygiene and IPC transport envelope guard; query and projection selectors delegate to daemon protocol validators and kernel vocabularies.",
         "sources": [
           {
-            "candidateId": "judgment:packages/gui:packages/gui/src/preload/allowlist.ts#assertPreloadPayload:e714c39ceb4d1a698c7d8780465340be",
-            "route": "packages/gui/src/preload/allowlist.ts#assertPreloadPayload"
+            "candidateId": "judgment:packages/gui:packages/gui/src/preload/allowlist.ts#assertRendererRpc:e0e27a708de8ce6cc993f18d73aa3d31",
+            "route": "packages/gui/src/preload/allowlist.ts#assertRendererRpc"
           }
         ]
       },
@@ -3830,79 +3654,79 @@
         ]
       },
       {
-        "id": "daemon/src/protocol/agent-entity-gui-contract.ts#validateAgentSkillCatalog",
-        "symbol": "packages/daemon/src/daemon-host/protocol/agent-entity-gui-contract.ts#validateAgentSkillCatalog",
+        "id": "daemon/src/protocol/agent-entity-contract.ts#validateAgentSkillCatalog",
+        "symbol": "packages/daemon/src/daemon-host/protocol/agent-entity-contract.ts#validateAgentSkillCatalog",
         "explain": "Thin-protocol wire-response validator for `repo.agents.skills` skill catalog envelopes without importing the kernel barrel.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/agent-entity-gui-contract.ts#validateAgentSkillCatalog:c8952cf905385d23698d954f77fae3af",
-            "route": "packages/daemon/src/daemon-host/protocol/agent-entity-gui-contract.ts#validateAgentSkillCatalog"
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/agent-entity-contract.ts#validateAgentSkillCatalog:c8952cf905385d23698d954f77fae3af",
+            "route": "packages/daemon/src/daemon-host/protocol/agent-entity-contract.ts#validateAgentSkillCatalog"
           }
         ]
       },
       {
-        "id": "daemon/src/protocol/agent-entity-gui-contract.ts#validateAgentHistory",
-        "symbol": "packages/daemon/src/daemon-host/protocol/agent-entity-gui-contract.ts#validateAgentHistory",
+        "id": "daemon/src/protocol/agent-entity-contract.ts#validateAgentHistory",
+        "symbol": "packages/daemon/src/daemon-host/protocol/agent-entity-contract.ts#validateAgentHistory",
         "explain": "Thin-protocol wire-response validator for `repo.agents.history` agent revision history DTOs.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/agent-entity-gui-contract.ts#validateAgentHistory:a7669440c8927bf2961fb83e3f011854",
-            "route": "packages/daemon/src/daemon-host/protocol/agent-entity-gui-contract.ts#validateAgentHistory"
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/agent-entity-contract.ts#validateAgentHistory:a7669440c8927bf2961fb83e3f011854",
+            "route": "packages/daemon/src/daemon-host/protocol/agent-entity-contract.ts#validateAgentHistory"
           }
         ]
       },
       {
-        "id": "daemon/src/protocol/agent-entity-gui-contract.ts#validateAgentVersion",
-        "symbol": "packages/daemon/src/daemon-host/protocol/agent-entity-gui-contract.ts#validateAgentVersion",
+        "id": "daemon/src/protocol/agent-entity-contract.ts#validateAgentVersion",
+        "symbol": "packages/daemon/src/daemon-host/protocol/agent-entity-contract.ts#validateAgentVersion",
         "explain": "Thin-protocol wire-response validator for `repo.agents.version` pinned agent declaration snapshot DTOs.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/agent-entity-gui-contract.ts#validateAgentVersion:f971795d3e93746a09cf3364503e5f3a",
-            "route": "packages/daemon/src/daemon-host/protocol/agent-entity-gui-contract.ts#validateAgentVersion"
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/agent-entity-contract.ts#validateAgentVersion:f971795d3e93746a09cf3364503e5f3a",
+            "route": "packages/daemon/src/daemon-host/protocol/agent-entity-contract.ts#validateAgentVersion"
           }
         ]
       },
       {
-        "id": "daemon/src/protocol/daemon-protocol-gui-types.ts#validateShape",
-        "symbol": "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-types.ts#validateShape",
+        "id": "daemon/src/protocol/daemon-protocol-results.ts#validateShape",
+        "symbol": "packages/daemon/src/daemon-host/protocol/daemon-protocol-results.ts#validateShape",
         "explain": "Generic JSON-RPC protocol schema-descriptor validator checking required keys, closed field sets and primitive field types for declared wire frames.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-types.ts#validateShape:7e60241439577922c08f81812dd0a0f7",
-            "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-types.ts#validateShape"
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-results.ts#validateShape:7e60241439577922c08f81812dd0a0f7",
+            "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-results.ts#validateShape"
           }
         ]
       },
       {
-        "id": "daemon/src/protocol/daemon-protocol-gui-types.ts#validateObserveTailPayload",
-        "symbol": "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-types.ts#validateObserveTailPayload",
+        "id": "daemon/src/protocol/daemon-protocol-results.ts#validateObserveTailPayload",
+        "symbol": "packages/daemon/src/daemon-host/protocol/daemon-protocol-results.ts#validateObserveTailPayload",
         "explain": "JSON-RPC request parameter validator for `observe.tail` stream kind, direction, limit, field projection and cursor inputs.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-types.ts#validateObserveTailPayload:c915311c3d0efa655b852d8e65065771",
-            "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-types.ts#validateObserveTailPayload"
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-results.ts#validateObserveTailPayload:c915311c3d0efa655b852d8e65065771",
+            "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-results.ts#validateObserveTailPayload"
           }
         ]
       },
       {
-        "id": "daemon/src/protocol/daemon-protocol-gui-types.ts#validateObserveTailResult",
-        "symbol": "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-types.ts#validateObserveTailResult",
+        "id": "daemon/src/protocol/daemon-protocol-results.ts#validateObserveTailResult",
+        "symbol": "packages/daemon/src/daemon-host/protocol/daemon-protocol-results.ts#validateObserveTailResult",
         "explain": "Wire-response validator for `observe.tail` event/log page envelopes, availability states and next-cursor tokens.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-types.ts#validateObserveTailResult:871750abee6bd0addd102373b25d6f0a",
-            "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-types.ts#validateObserveTailResult"
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-results.ts#validateObserveTailResult:871750abee6bd0addd102373b25d6f0a",
+            "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-results.ts#validateObserveTailResult"
           }
         ]
       },
       {
-        "id": "daemon/src/protocol/daemon-protocol-gui-types.ts#validateObserveTailCursor",
-        "symbol": "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-types.ts#validateObserveTailCursor",
+        "id": "daemon/src/protocol/daemon-protocol-results.ts#validateObserveTailCursor",
+        "symbol": "packages/daemon/src/daemon-host/protocol/daemon-protocol-results.ts#validateObserveTailCursor",
         "explain": "Wire-shape guard for `observe.tail` keyset pagination cursor objects.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-types.ts#validateObserveTailCursor:96f34b1827c597fde81eafaa85d7819f",
-            "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-types.ts#validateObserveTailCursor"
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-results.ts#validateObserveTailCursor:96f34b1827c597fde81eafaa85d7819f",
+            "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-results.ts#validateObserveTailCursor"
           }
         ]
       },
@@ -3934,7 +3758,7 @@
         "explain": "Top-level JSON-RPC 2.0 request envelope validator enforcing registered method names, secret-key hygiene and per-method parameter schemas.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateDaemonRpcCall:fd8f357b2154ffcd4bc602edb40a3112",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateDaemonRpcCall:e4d6bdf787fc93628cd93baa55abb032",
             "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateDaemonRpcCall"
           }
         ]
@@ -3962,13 +3786,13 @@
         ]
       },
       {
-        "id": "daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateGuiActionPayload",
-        "symbol": "packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateGuiActionPayload",
+        "id": "daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateNamedActionPayload",
+        "symbol": "packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateNamedActionPayload",
         "explain": "Closed JSON-RPC request envelope validator for `repo.gui.action` command dispatch requests before handing inputs to kernel/application command handlers.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateGuiActionPayload:d2282338a5a342bce07412211a71022f",
-            "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateGuiActionPayload"
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateNamedActionPayload:8cd55ddbffab5772b41dfe9174f72910",
+            "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateNamedActionPayload"
           }
         ]
       },
@@ -4022,7 +3846,7 @@
         "explain": "Wire-response validator for `command-receipt/v2` GUI mutation receipts across entity commands, checking cut fidelity and optional boolean steerSupported only on runtime-spawn, and delegating committed acceptance intervals to kernel `validateReceiptAcceptance`.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-results.ts#validateDaemonGuiCommandReceipt:998f4707c79d8e840c9f9c156237f36a",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-results.ts#validateDaemonGuiCommandReceipt:f15d42df92b75769b38573f40f063042",
             "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-results.ts#validateDaemonGuiCommandReceipt"
           }
         ]
@@ -4606,23 +4430,23 @@
       },
       {
         "id": "daemon/src/agent-runtime-stream.ts#validateAgentRuntimeAttach",
-        "symbol": "packages/daemon/src/daemon-host/agent-runtime-stream.ts#validateAgentRuntimeAttach",
-        "explain": "Interactive attach handshake DTO validator for `agent-runtime.attach/v1` stream descriptors.",
+        "symbol": "packages/daemon/src/daemon-host/protocol/stream-contract.ts#validateAgentRuntimeAttach",
+        "explain": "Attachment receipt validates the scoped head and ordered recovery frames.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-stream.ts#validateAgentRuntimeAttach:7a768c32bb288e5f8d29a373ca0bf4f4",
-            "route": "packages/daemon/src/daemon-host/agent-runtime-stream.ts#validateAgentRuntimeAttach"
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/stream-contract.ts#validateAgentRuntimeAttach:321d3d115af730f67e5059199b028cce",
+            "route": "packages/daemon/src/daemon-host/protocol/stream-contract.ts#validateAgentRuntimeAttach"
           }
         ]
       },
       {
         "id": "daemon/src/agent-runtime-stream.ts#validateAgentRuntimeAttachEvent",
-        "symbol": "packages/daemon/src/daemon-host/agent-runtime-stream.ts#validateAgentRuntimeAttachEvent",
-        "explain": "Live runtime stream frame validator for `agent-runtime.attach-event/v1` stdout/stderr/lifecycle notifications.",
+        "symbol": "packages/daemon/src/daemon-host/protocol/stream-contract.ts#validateAgentRuntimeAttachEvent",
+        "explain": "Native runtime frame validates the scoped cursor and gap snapshot at its sequence.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-stream.ts#validateAgentRuntimeAttachEvent:390b85a4af21db768713279f66fa03b1",
-            "route": "packages/daemon/src/daemon-host/agent-runtime-stream.ts#validateAgentRuntimeAttachEvent"
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/stream-contract.ts#validateAgentRuntimeAttachEvent:d1ed87d3f0dc48235ddea84dbd6535c3",
+            "route": "packages/daemon/src/daemon-host/protocol/stream-contract.ts#validateAgentRuntimeAttachEvent"
           }
         ]
       },
@@ -4853,10 +4677,7 @@
       {
         "id": "decideAuthoredDocument",
         "symbol": "packages/kernel/src/domain/authored-document.ts#decideAuthoredDocument",
-        "inputs": [
-          "state: AuthoredDocumentState | null",
-          "command: AuthoredDocumentCommand"
-        ],
+        "inputs": ["state: AuthoredDocumentState | null", "command: AuthoredDocumentCommand"],
         "output": "AuthoredDocumentDecision",
         "failureCodes": [],
         "explain": "Canonical authored-document acceptance based on the accepted document cut and schema.",
@@ -4871,10 +4692,7 @@
       {
         "id": "decideDocWriteInternal",
         "symbol": "packages/kernel/src/domain/doc-sync-writer.ts#decideDocWriteInternal",
-        "inputs": [
-          "input: DocWriteDecisionInput",
-          "requireAuthorization: boolean"
-        ],
+        "inputs": ["input: DocWriteDecisionInput", "requireAuthorization: boolean"],
         "output": "DocWriteDecision",
         "failureCodes": [],
         "explain": "Canonical document write judgment using authored-document truth and declared write ownership.",
@@ -4890,11 +4708,7 @@
         "id": "authoredDocumentReadiness",
         "symbol": "packages/kernel/src/domain/transition-document-readiness.ts#assessAuthoredDocumentReadiness",
         "declaration": "function",
-        "inputs": [
-          "kind: TransitionDocumentKind",
-          "body: string | null",
-          "contract?: MarkdownDocumentContract"
-        ],
+        "inputs": ["kind: TransitionDocumentKind", "body: string | null", "contract?: MarkdownDocumentContract"],
         "output": "AuthoredDocumentReadiness",
         "failureCodes": [],
         "explain": "Canonical authoredDocumentReadiness; existing unique kernel definition and result semantics are preserved.",
@@ -4905,11 +4719,7 @@
         "id": "transitionDocumentReadiness",
         "symbol": "packages/kernel/src/domain/transition-document-readiness.ts#assessTransitionDocument",
         "declaration": "function",
-        "inputs": [
-          "kind: TransitionDocumentKind",
-          "body: string",
-          "contract?: MarkdownDocumentContract"
-        ],
+        "inputs": ["kind: TransitionDocumentKind", "body: string", "contract?: MarkdownDocumentContract"],
         "output": "TransitionDocumentReadiness",
         "failureCodes": [],
         "explain": "Canonical transitionDocumentReadiness; existing unique kernel definition and result semantics are preserved.",
@@ -4920,9 +4730,7 @@
         "id": "closeoutBilingualDelivery",
         "symbol": "packages/kernel/src/domain/transition-document-readiness.ts#missingChineseCloseoutSections",
         "declaration": "function",
-        "inputs": [
-          "closeout: string"
-        ],
+        "inputs": ["closeout: string"],
         "output": "readonly string[]",
         "failureCodes": [],
         "explain": "Canonical closeoutBilingualDelivery; existing unique kernel definition and result semantics are preserved.",
@@ -5086,13 +4894,13 @@
         ]
       },
       {
-        "id": "daemon/src/protocol/artifacts-gui-contract.ts#validateArtifactsList",
-        "symbol": "packages/daemon/src/daemon-host/protocol/artifacts-gui-contract.ts#validateArtifactsList",
+        "id": "daemon/src/protocol/artifacts-contract.ts#validateArtifactsList",
+        "symbol": "packages/daemon/src/daemon-host/protocol/artifacts-contract.ts#validateArtifactsList",
         "explain": "Thin-protocol wire-response validator for `repo.artifacts.list` envelopes, artifact rows and cursor pagination without importing the kernel barrel; Artifact locator rules stay in kernel/application.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/artifacts-gui-contract.ts#validateArtifactsList:731156e8f7290086421340784e03733e",
-            "route": "packages/daemon/src/daemon-host/protocol/artifacts-gui-contract.ts#validateArtifactsList"
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/artifacts-contract.ts#validateArtifactsList:731156e8f7290086421340784e03733e",
+            "route": "packages/daemon/src/daemon-host/protocol/artifacts-contract.ts#validateArtifactsList"
           }
         ]
       },
@@ -5633,9 +5441,7 @@
         "output": "boolean",
         "failureCodes": [],
         "explain": "Resolve relation-kind triple qualification solely against the supplied canonical direction registry.",
-        "consumers": [
-          "packages/kernel/src/domain/relation-event.ts"
-        ],
+        "consumers": ["packages/kernel/src/domain/relation-event.ts"],
         "sources": []
       },
       {
@@ -5650,25 +5456,17 @@
         "output": "boolean",
         "failureCodes": [],
         "explain": "Resolve writable relation record/strength qualification against the same canonical direction registry.",
-        "consumers": [
-          "packages/kernel/src/domain/entity-relation.ts"
-        ],
+        "consumers": ["packages/kernel/src/domain/entity-relation.ts"],
         "sources": []
       },
       {
         "id": "assertGovernedRelationRecord",
         "symbol": "packages/kernel/src/domain/entity-relation.ts#assertGovernedRelationRecord",
-        "inputs": [
-          "record: EntityRelationRecord",
-          "witness: unknown",
-          "allowUnknownFields = false"
-        ],
+        "inputs": ["record: EntityRelationRecord", "witness: unknown", "allowUnknownFields = false"],
         "output": "void",
         "failureCodes": [],
         "explain": "Judge persisted governed relation endpoints against their witnessed registry, not today's registry.",
-        "consumers": [
-          "packages/kernel/src/domain/relation-event.ts"
-        ],
+        "consumers": ["packages/kernel/src/domain/relation-event.ts"],
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-relation.ts#assertGovernedRelationRecord:79ccc7dd4ebbdf9ffcf46e340c4930f7",
@@ -5679,11 +5477,7 @@
       {
         "id": "validateGovernedSemantics",
         "symbol": "packages/kernel/src/domain/governed-relation-direction.ts#validateGovernedSemantics",
-        "inputs": [
-          "declaration: ArtifactRelationDefinition",
-          "sourceKind: string",
-          "targetKind: string"
-        ],
+        "inputs": ["declaration: ArtifactRelationDefinition", "sourceKind: string", "targetKind: string"],
         "output": "void",
         "failureCodes": [],
         "explain": "Judge governed artifact relation semantics against accepted canonical declarations.",
@@ -5698,10 +5492,7 @@
       {
         "id": "validateDecisionPin",
         "symbol": "packages/kernel/src/domain/governed-relation-direction.ts#validateDecisionPin",
-        "inputs": [
-          "declaration: ArtifactRelationDefinition",
-          "authority: GovernedRelationCompilationAuthority"
-        ],
+        "inputs": ["declaration: ArtifactRelationDefinition", "authority: GovernedRelationCompilationAuthority"],
         "output": "void",
         "failureCodes": [],
         "explain": "Judge governing Decision pin qualification at relation compilation.",
@@ -5728,9 +5519,7 @@
           "relation_awaits_request_invalid"
         ],
         "explain": "Admit only declared canonical writable relation triples, directed acyclic edges and well-formed awaits requests.",
-        "consumers": [
-          "packages/kernel/src/domain/relation-event.ts"
-        ],
+        "consumers": ["packages/kernel/src/domain/relation-event.ts"],
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/relation-event.ts#assertRelationAdmission:61d5b78ef4c56613e3f0b03d1d072740",
@@ -5751,9 +5540,7 @@
         "output": "boolean",
         "failureCodes": [],
         "explain": "One writable triple/optional record-strength judgment for both public relation qualification ports; canonical lookup remains O(1), composed registries retain short-circuit O(n).",
-        "consumers": [
-          "packages/kernel/src/domain/entity-relation.ts"
-        ],
+        "consumers": ["packages/kernel/src/domain/entity-relation.ts"],
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-relation.ts#isAllowedRelation:4d693b0ff272687e214c67b14d6eddb0",
@@ -5881,10 +5668,7 @@
         "id": "factLiveness",
         "symbol": "packages/kernel/src/domain/fact-liveness.ts#factLiveness",
         "declaration": "function",
-        "inputs": [
-          "fact: FactLivenessInput",
-          "relations: readonly FactLivenessRelation[]"
-        ],
+        "inputs": ["fact: FactLivenessInput", "relations: readonly FactLivenessRelation[]"],
         "output": "FactLiveness",
         "failureCodes": [],
         "explain": "Canonical factLiveness; existing unique kernel definition and result semantics are preserved.",
@@ -5988,15 +5772,11 @@
       {
         "id": "assertAcyclicPolicyGroups",
         "symbol": "packages/kernel/src/domain/policy-groups.ts#assertAcyclicPolicyGroups",
-        "inputs": [
-          "groups: readonly PolicyGroup[]"
-        ],
+        "inputs": ["groups: readonly PolicyGroup[]"],
         "output": "void",
         "failureCodes": [],
         "explain": "Reject duplicate, missing or cyclic policy group inheritance in one kernel traversal.",
-        "consumers": [
-          "packages/kernel/src/domain/policy-groups.ts"
-        ],
+        "consumers": ["packages/kernel/src/domain/policy-groups.ts"],
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/policy-groups.ts#assertAcyclicPolicyGroups:950068fa3730bc4012238359f987c6c3",
@@ -6007,10 +5787,7 @@
       {
         "id": "validatePolicyGroupScopes",
         "symbol": "packages/kernel/src/domain/policy-groups.ts#validatePolicyGroupScopes",
-        "inputs": [
-          "groups: readonly PolicyGroup[]",
-          "known: (scope: string) => boolean"
-        ],
+        "inputs": ["groups: readonly PolicyGroup[]", "known: (scope: string) => boolean"],
         "output": "string | null",
         "failureCodes": [],
         "explain": "Judge group graph and first unknown scope once; providers supply only their inventory and error wording.",
@@ -6138,24 +5915,24 @@
         ]
       },
       {
-        "id": "daemon/src/protocol/gui-result-validation.ts#validateDaemonSettingsRead",
-        "symbol": "packages/daemon/src/daemon-host/protocol/gui-result-validation.ts#validateDaemonSettingsRead",
+        "id": "daemon/src/protocol/daemon-result-validation.ts#validateDaemonSettingsRead",
+        "symbol": "packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateDaemonSettingsRead",
         "explain": "Daemon GUI wire-response validator for `daemon.settings-read/v1` envelopes and optimistic-concurrency revision tokens; `SettingsV1` schema and policy bounds stay in kernel.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/gui-result-validation.ts#validateDaemonSettingsRead:0b5136d2937e60cb2aa4dbf6ee21e05a",
-            "route": "packages/daemon/src/daemon-host/protocol/gui-result-validation.ts#validateDaemonSettingsRead"
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateDaemonSettingsRead:0b5136d2937e60cb2aa4dbf6ee21e05a",
+            "route": "packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateDaemonSettingsRead"
           }
         ]
       },
       {
-        "id": "daemon/src/protocol/gui-result-validation.ts#validateDaemonSettingsReadForClient",
-        "symbol": "packages/daemon/src/daemon-host/protocol/gui-result-validation.ts#validateDaemonSettingsReadForClient",
+        "id": "daemon/src/protocol/daemon-result-validation.ts#validateDaemonSettingsReadForClient",
+        "symbol": "packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateDaemonSettingsReadForClient",
         "explain": "Client-facing wire-response validator for redacted `daemon.settings-read/v1` envelopes ensuring credential values are absent on wire reads.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/gui-result-validation.ts#validateDaemonSettingsReadForClient:9932ba754067707122cc903f2c29cc5e",
-            "route": "packages/daemon/src/daemon-host/protocol/gui-result-validation.ts#validateDaemonSettingsReadForClient"
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateDaemonSettingsReadForClient:9932ba754067707122cc903f2c29cc5e",
+            "route": "packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateDaemonSettingsReadForClient"
           }
         ]
       },
@@ -6221,9 +5998,7 @@
         "output": "boolean",
         "failureCodes": [],
         "explain": "Judge whether a submitted Execution has at least one approved Review on its current submission cut and no undisposed changes_requested Review.",
-        "consumers": [
-          "packages/daemon/src/daemon-host/task-query-read.ts"
-        ],
+        "consumers": ["packages/daemon/src/daemon-host/task-query-read.ts"],
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/review.ts#hasApprovedReviewForExecution:cbfb71d22e6c307bc5aaddc13c9f7f21",
@@ -6412,13 +6187,13 @@
         ]
       },
       {
-        "id": "daemon/src/protocol/schedules-gui-contract.ts#validateSchedulesList",
-        "symbol": "packages/daemon/src/daemon-host/protocol/schedules-gui-contract.ts#validateSchedulesList",
+        "id": "daemon/src/protocol/schedules-contract.ts#validateSchedulesList",
+        "symbol": "packages/daemon/src/daemon-host/protocol/schedules-contract.ts#validateSchedulesList",
         "explain": "Thin-protocol wire-response validator for `repo.schedules.list` schedule rows without importing the kernel barrel; `ScheduleV1` definition validation stays in kernel.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/schedules-gui-contract.ts#validateSchedulesList:cdf2ef740e860e7a68f735666355c3c8",
-            "route": "packages/daemon/src/daemon-host/protocol/schedules-gui-contract.ts#validateSchedulesList"
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/schedules-contract.ts#validateSchedulesList:cdf2ef740e860e7a68f735666355c3c8",
+            "route": "packages/daemon/src/daemon-host/protocol/schedules-contract.ts#validateSchedulesList"
           }
         ]
       }

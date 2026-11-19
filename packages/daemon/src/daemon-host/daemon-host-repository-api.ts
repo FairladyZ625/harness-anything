@@ -45,7 +45,7 @@ import {
   type DaemonGuiReadResultMap,
   type DaemonGuiRpcReadMethod,
 } from "./protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResult } from "./protocol/gui-result-validation.ts";
+import { parseDaemonReadResult } from "./protocol/daemon-result-validation.ts";
 import { withLocalDispatchStreamEvidence } from "./dispatch-activity-read.ts";
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
 import { seedBuiltinSchedules } from "./schedule-builtin-executor.ts";
@@ -1019,7 +1019,7 @@ export function createDaemonHostRepositoryApi(
           method === "repo.policy.metadata.read"
         ) {
           try {
-            const result = parseDaemonGuiReadResult(
+            const result = parseDaemonReadResult(
               method,
               await forward({
                 userRoot: context.input.userRoot,
@@ -1064,7 +1064,7 @@ export function createDaemonHostRepositoryApi(
               method === "repo.gui.catalog.snapshot"
                 ? await catalog.snapshot()
                 : await catalog.preset(payload as never);
-          return parseDaemonGuiReadResult(method, {
+          return parseDaemonReadResult(method, {
             ...result,
             cut: frame.cut,
             freshness: frame.freshness,
@@ -1077,7 +1077,7 @@ export function createDaemonHostRepositoryApi(
             "Live Fleet topology is an operation of the center transport host; this edge has no local center session or delivery ledger.",
           );
         if (cell && method === "observe.tail")
-          return parseDaemonGuiReadResult(
+          return parseDaemonReadResult(
             method,
             await cell.observeTail(
               payload,
@@ -1091,7 +1091,7 @@ export function createDaemonHostRepositoryApi(
           at = context.now(),
           stuck = method === "repo.agenda.read" ? context.runtimeRecoveryWatch.stuck(repoId, at) : [];
         // Runtime recovery is this node's own work, so its stuck runtimes join the agenda here.
-        return parseDaemonGuiReadResult(
+        return parseDaemonReadResult(
           method,
           stuck.length && "summary" in read
             ? { ...read, summary: `${renderStuckRuntimeRecoveries(stuck, at)}\n\n${String(read.summary)}` }
@@ -1204,7 +1204,7 @@ export function createDaemonHostRepositoryApi(
           readBinding,
         );
       }
-      return parseDaemonGuiReadResult(method, result);
+      return parseDaemonReadResult(method, result);
     },
   };
 }

@@ -1,3 +1,5 @@
+import type { ActionExecutionClass } from "@harness-anything/kernel/internal/domain/action-declaration.ts";
+import { actionExecutionClasses } from "@harness-anything/kernel/internal/domain/action-execution-class.generated.ts";
 import type {
   DispatchAttemptOutcome,
   DispatchLifecycleSummary,
@@ -56,13 +58,61 @@ import type {
 } from "./daemon-protocol-use-case-projection.ts";
 import type { AgentRuntimeAttachResult } from "../agent-runtime-stream.ts";
 import type { SquadRunReadResult, SquadRunsListResult } from "../squad-run-contract.ts";
-import type { ArtifactsListResult } from "./artifacts-gui-contract.ts";
+import type { ArtifactsListResult } from "./artifacts-contract.ts";
 import type { DaemonTaskRuntimeContextResult } from "./daemon-protocol-runtime-context.ts";
-import type { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
+import type { daemonActionRoutes } from "./daemon-protocol-action-routes.ts";
 import { taskStatusWords } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, unknownFieldViolation, type JsonObject } from "./json-rpc-types.ts";
 import type { AgendaAttentionItem, AgendaRegionWeights } from "./daemon-protocol-agenda-attention.ts";
 export type { AgendaAttentionItem, AgendaRegionWeights } from "./daemon-protocol-agenda-attention.ts";
+
+export type RuntimeStreamCursor = {
+  readonly repoId: string;
+  readonly streamKind: string;
+  readonly streamEpoch: string;
+  readonly seq: number;
+};
+
+export function isRuntimeStreamCursor(value: unknown): value is RuntimeStreamCursor {
+  return (
+    isJsonObject(value) &&
+    Object.keys(value).length === 4 &&
+    ["repoId", "streamKind", "streamEpoch", "seq"].every((field) => Object.hasOwn(value, field)) &&
+    [value.repoId, value.streamKind, value.streamEpoch].every(
+      (field) => typeof field === "string" && field.length > 0 && field.length <= 96,
+    ) &&
+    typeof value.seq === "number" &&
+    Number.isSafeInteger(value.seq) &&
+    value.seq >= 0
+  );
+}
+
+export function declaredActionClass(kind: string): ActionExecutionClass | undefined {
+  return Object.hasOwn(actionExecutionClasses, kind) ? actionExecutionClasses[kind] : undefined;
+}
+
+/** The payload codec is transport-owned. Write classification comes from the action declaration. */
+export function actionRpc<const Id extends string, const Method extends string, const Kind extends string>(
+  id: Id,
+  method: Method,
+  actionKind: Kind,
+  payload: RpcShape,
+  options: { readonly read?: true; readonly defaults?: Readonly<Record<string, unknown>> } = {},
+) {
+  const declared = declaredActionClass(actionKind);
+  if ((options.read && declared !== undefined && declared !== "repo-read") || (!options.read && !declared))
+    throw new Error(`RPC ${method} has no matching action declaration for ${actionKind}.`);
+  return {
+    id,
+    method,
+    actionKind,
+    phase: "W5-GUI-S3",
+    requiresRepo: true as const,
+    params: shape({ repo: shape({ repoId: "string" }), payload }),
+    commandClass: options.read ? ("repo-read" as const) : declared!,
+    ...(options.defaults === undefined ? {} : { actionDefaults: options.defaults }),
+  };
+}
 
 type TaskProjectionListRow = ReturnType<TaskProjection["list"]>["rows"][number];
 type TaskProjectionWarning = ReturnType<TaskProjection["list"]>["warnings"][number];
@@ -1209,7 +1259,7 @@ export type DaemonGuiActionResult = JsonObject & {
   readonly guidance?: import("@harness-anything/kernel").WriteReceipt["guidance"];
 };
 
-export type DaemonGuiActionMethod = (typeof daemonGuiActionMethods)[number]["method"];
+export type DaemonGuiActionMethod = (typeof daemonActionRoutes)[number]["method"];
 
 export type DaemonStreamResultMap = {
   readonly "repo.agentRuntime.attach": AgentRuntimeAttachResult;
@@ -1221,7 +1271,7 @@ export type DaemonStreamMethod = keyof DaemonStreamResultMap;
 export type DaemonStreamPayloadMap = {
   readonly "repo.agentRuntime.attach": {
     readonly runtimeSessionId: string;
-    readonly afterCursor: string;
+    readonly afterCursor?: import("./stream-contract.ts").RuntimeStreamCursor;
   };
   readonly "repo.terminal.attach": {
     readonly sessionId: string;

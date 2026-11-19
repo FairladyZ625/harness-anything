@@ -20,7 +20,7 @@ import {
   wipSnapshotEntries,
   type TaskQueryCell,
 } from "../src/daemon-host/repo-cell-task-query.ts";
-import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import { blockingOf, submissionDigest } from "@harness-anything/kernel";
 import { makeTaskQueryReadModel } from "../src/daemon-host/task-query-read.ts";
 import { taskListQueryFromPayload } from "@harness-anything/application/queries";
@@ -1660,14 +1660,14 @@ test("the real WIP producer output passes the protocol validator, with or withou
   const noRoots = wipOf([protocolTaskRow("task_leaf", [], { status: "submitted" })]);
   assert.deepEqual(noRoots.roots, []);
   assert.equal(noRoots.counted[0]?.status, "submitted");
-  assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.wip", noRoots), noRoots);
+  assert.deepEqual(parseDaemonReadResult("repo.tasks.wip", noRoots), noRoots);
 
   const withRoots = wipOf([
     protocolTaskRow("task_leaf", [], { status: "active" }),
     protocolTaskRow("task_work", [], { status: "blocked", taskClass: "work" }),
   ]);
   assert.deepEqual(withRoots.roots, [{ taskId: "task_work", reason: "declared", directChildCount: 2, threshold: 3 }]);
-  assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.wip", withRoots), withRoots);
+  assert.deepEqual(parseDaemonReadResult("repo.tasks.wip", withRoots), withRoots);
 
   const extended = {
     ...withRoots,
@@ -1675,12 +1675,12 @@ test("the real WIP producer output passes the protocol validator, with or withou
     counted: withRoots.counted.map((row) => ({ ...row, annotation: "newer-daemon" })),
     roots: [{ ...withRoots.roots[0]!, diagnostic: { deferred: 1 } }],
   };
-  assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.wip", extended), extended);
+  assert.deepEqual(parseDaemonReadResult("repo.tasks.wip", extended), extended);
 
   const { threshold: _threshold, ...missingField } = extended;
-  assert.throws(() => parseDaemonGuiReadResult("repo.tasks.wip", missingField), /task WIP fields/u);
+  assert.throws(() => parseDaemonReadResult("repo.tasks.wip", missingField), /task WIP fields/u);
   const missingRowField = { ...withRoots, roots: [{ taskId: "task_work", reason: "declared" }] };
-  assert.throws(() => parseDaemonGuiReadResult("repo.tasks.wip", missingRowField), /task WIP snapshot/u);
+  assert.throws(() => parseDaemonReadResult("repo.tasks.wip", missingRowField), /task WIP snapshot/u);
 });
 
 test("relation graph validator accepts the canonical cut and rejects invented fields", () => {

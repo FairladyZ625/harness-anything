@@ -10,6 +10,8 @@ const cliFiles = listWorktreeFiles(root, ["packages/cli/src"]).filter(
 );
 const workspacePackages = readWorkspacePackages();
 const pureKernelProtocolLeaves = [
+  // dec_89D06D7360CBEC09795F7B12EC/CH3: checked data-only projection, with no runtime domain imports.
+  "packages/kernel/src/domain/action-execution-class.generated.ts",
   // dec_7E44897ECDCAEF2B92EC66A260/CH1: shared defaults, with no runtime imports.
   "packages/kernel/src/domain/cli-operational-policy.ts",
   "packages/kernel/src/domain/contract-validation.ts",
@@ -45,11 +47,11 @@ const allowedStaticGraph = new Set([
   "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-task-surface.ts",
   "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-task.ts",
   "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-todo.ts",
-  "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-todo.ts",
-  "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-actions.ts",
-  "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-actions-entity.ts",
-  "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-reads.ts",
-  "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-types.ts",
+  "packages/daemon/src/daemon-host/protocol/todo-action-routes.ts",
+  "packages/daemon/src/daemon-host/protocol/daemon-protocol-action-routes.ts",
+  "packages/daemon/src/daemon-host/protocol/entity-action-routes.ts",
+  "packages/daemon/src/daemon-host/protocol/daemon-protocol-read-routes.ts",
+  "packages/daemon/src/daemon-host/protocol/daemon-protocol-results.ts",
   "packages/daemon/src/daemon-host/protocol/daemon-protocol-identifiers.ts",
   "packages/daemon/src/daemon-host/protocol/daemon-protocol-observe-tail-read.ts",
   "packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts",
@@ -184,11 +186,11 @@ function checkDaemonTransportImportGraph() {
     "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-task.ts",
     "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-todo.ts",
     ...pureKernelProtocolLeaves,
-    "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-todo.ts",
-    "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-actions.ts",
-    "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-actions-entity.ts",
-    "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-reads.ts",
-    "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-types.ts",
+    "packages/daemon/src/daemon-host/protocol/todo-action-routes.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-action-routes.ts",
+    "packages/daemon/src/daemon-host/protocol/entity-action-routes.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-read-routes.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-results.ts",
     "packages/daemon/src/daemon-host/protocol/daemon-protocol-identifiers.ts",
     "packages/daemon/src/daemon-host/protocol/daemon-protocol-observe-tail-read.ts",
     "packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts",

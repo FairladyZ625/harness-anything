@@ -1,10 +1,9 @@
 import type * as DomainStatus from "../api/renderer-dto.ts";
 import type { TerminalControlReceipt, TerminalSessionRow } from "@harness-anything/daemon/protocol";
-import type { DaemonStreamPayloadMap } from "@harness-anything/daemon/protocol";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import type { TerminalStreamFrame } from "./terminal-model.ts";
 import { invoke } from "./api-client-invoke.ts";
-import { guiHostBridge } from "./gui-transport.ts";
+import { guiTransport } from "./gui-transport.ts";
 
 export interface TerminalSessionList {
   readonly schema: "terminal-session-list/v1";
@@ -19,7 +18,7 @@ export interface TerminalAttachInitial {
   readonly sessionId: string;
   readonly attachmentId: string;
   readonly daemonGeneration: number;
-  readonly status: DomainStatus.TerminalAttachStatus;
+  readonly status: DomainStatus.StreamAttachStatus;
   readonly replayFromSeq: number;
   readonly outputSeq: number;
 }
@@ -32,39 +31,29 @@ export interface TerminalSpawnInput {
   readonly taskId?: string;
 }
 
-type RepoScope = { readonly repoId: string };
-type TerminalStreamBridge = {
-  readonly attachTerminal: (
-    payload: DaemonStreamPayloadMap["repo.terminal.attach"] & RepoScope,
-    onValue: (value: unknown) => void,
-  ) => () => void;
-};
-
-const streamBridge = (): TerminalStreamBridge => {
-  const value = guiHostBridge() as unknown as Partial<TerminalStreamBridge> | undefined;
-  if (!value || typeof value.attachTerminal !== "function") throw new Error("Terminal contract bridge is unavailable.");
-  return value as TerminalStreamBridge;
-};
-
 export const terminalQueryKeys = { sessions: (repoId: string) => ["terminal", repoId, "sessions"] as const };
 export const terminalClient = {
   list: async (repoId: string): Promise<TerminalSessionList> =>
-    sessionList(await invoke("repo.terminal.sessions.list", { repoId }, "listTerminalSessions")),
+    sessionList(await invoke("repo.terminal.sessions.list", { repoId })),
   spawn: async (repoId: string, input: TerminalSpawnInput): Promise<TerminalControlReceipt> =>
-    control(await invoke("repo.terminal.spawn", { repoId, ...input }, "spawnTerminal")),
+    control(await invoke("repo.terminal.spawn", { repoId, ...input })),
   attach: (
     repoId: string,
     sessionId: string,
     afterSeq: number,
     onValue: (value: TerminalAttachInitial | TerminalStreamFrame) => void,
+    onError: (error: unknown) => void,
   ): (() => void) =>
-    streamBridge().attachTerminal({ repoId, sessionId, afterSeq }, (value) => onValue(attachValue(value))),
+    guiTransport().subscribe(
+      "repo.terminal.attach",
+      { repo: { repoId }, payload: { sessionId, afterSeq } },
+      (value) => onValue(attachValue(value)),
+      onError,
+    ),
   input: async (repoId: string, sessionId: string, clientSeq: number, utf8: string): Promise<number> => {
-    const result: unknown = await invoke(
-      "repo.terminal.input",
-      { repoId, sessionId, clientSeq, utf8 } as { readonly repoId: string } & object,
-      "sendTerminalInput",
-    );
+    const result: unknown = await invoke("repo.terminal.input", { repoId, sessionId, clientSeq, utf8 } as {
+      readonly repoId: string;
+    } & object);
     if (
       !isRendererRecord(result) ||
       result.schema !== "terminal-input-ack/v1" ||
@@ -76,18 +65,12 @@ export const terminalClient = {
   },
   resize: async (repoId: string, sessionId: string, cols: number, rows: number): Promise<TerminalControlReceipt> =>
     control(
-      await invoke(
-        "repo.terminal.resize",
-        { repoId, sessionId, cols, rows } as { readonly repoId: string } & object,
-        "resizeTerminal",
-      ),
+      await invoke("repo.terminal.resize", { repoId, sessionId, cols, rows } as { readonly repoId: string } & object),
     ),
   detach: async (repoId: string, sessionId: string, attachmentId: string): Promise<unknown> => {
-    const result: unknown = await invoke(
-      "repo.terminal.detach",
-      { repoId, sessionId, attachmentId } as { readonly repoId: string } & object,
-      "detachTerminal",
-    );
+    const result: unknown = await invoke("repo.terminal.detach", { repoId, sessionId, attachmentId } as {
+      readonly repoId: string;
+    } & object);
     if (
       !isRendererRecord(result) ||
       result.schema !== "terminal-detach-ack/v1" ||
@@ -99,11 +82,7 @@ export const terminalClient = {
   },
   terminate: async (repoId: string, sessionId: string, confirmed: true): Promise<TerminalControlReceipt> =>
     control(
-      await invoke(
-        "repo.terminal.terminate",
-        { repoId, sessionId, confirmed } as { readonly repoId: string } & object,
-        "terminateTerminal",
-      ),
+      await invoke("repo.terminal.terminate", { repoId, sessionId, confirmed } as { readonly repoId: string } & object),
     ),
 };
 

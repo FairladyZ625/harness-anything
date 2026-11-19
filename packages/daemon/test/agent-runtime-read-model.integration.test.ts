@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { runtimeCursor } from "./fixtures/runtime-stream.ts";
 import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
@@ -23,17 +24,14 @@ import { makeAgentRuntimeStreamHub } from "../src/daemon-host/agent-runtime-stre
 import { readFleetRuntimeSessionsPaged } from "../src/daemon-host/fleet-edge-runtime.ts";
 import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 import {
-  daemonGuiReadMethods,
+  daemonReadRoutes,
   daemonStreamFacets,
   jsonRpcMethodContracts,
   validateDaemonRpcCall,
   validateDaemonTaskDispatches,
 } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
-import {
-  parseDaemonGuiReadResult,
-  parseDaemonStreamEvent,
-  parseDaemonStreamResult,
-} from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
+import { parseDaemonStreamEvent, parseDaemonStreamResult } from "../src/daemon-host/protocol/stream-contract.ts";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
@@ -55,9 +53,9 @@ const actor = { principal: { personId: "person-runtime" }, executor: null } as c
 test("runtime read facets expose safe overview/session/events through the shared contract registry", () =>
   withRuntime(({ store, projection, events }) => {
     const reads = makeAgentRuntimeReadModel({ store, projection }),
-      overview = parseDaemonGuiReadResult("repo.agentRuntime.overview", reads.overview({}));
+      overview = parseDaemonReadResult("repo.agentRuntime.overview", reads.overview({}));
     assert.deepEqual(
-      daemonGuiReadMethods.filter(({ phase }) => phase === "Runtime-B").map(({ method }) => method),
+      daemonReadRoutes.filter(({ phase }) => phase === "Runtime-B").map(({ method }) => method),
       [
         "repo.agentRuntime.overview",
         "repo.agentRuntime.sessions.read",
@@ -321,14 +319,14 @@ test("one stream parser validates agent-runtime and terminal facets by method", 
       ok: true,
       status: "attached",
       runtimeSessionId: "runtime-shared-parser",
-      cursor: "stream:0",
+      cursor: runtimeCursor("runtime-test", 0),
       events: [],
     },
     agentEvent = {
-      schema: "agent-runtime-attach-event/v1",
+      schema: "agent-runtime-attach-event/v2",
       type: "heartbeat",
       runtimeSessionId: "runtime-shared-parser",
-      cursor: "stream:1",
+      cursor: runtimeCursor("runtime-test", 1),
       occurredAt: "2026-08-27T00:00:00.000Z",
     },
     terminalInitial = {
@@ -494,41 +492,36 @@ test("fleet runtime pagination rejects malformed pages and repeated cursors", ()
 
 test("attach catches up from cursor, gaps require snapshot, and unsupported is typed", async () =>
   withRuntime(async ({ stream, session }) => {
-    for (let index = 0; index < 3; index += 1)
+    const first = stream.publish(session.runtimeSessionId, { type: "heartbeat" });
+    for (let index = 0; index < 2; index += 1)
       stream.publish(session.runtimeSessionId, {
         type: "activity",
-        activity: index === 2 ? "message" : "thinking",
+        activity: index === 1 ? "message" : "thinking",
         content: `content-${index}`,
       });
-    const resumed = await stream.attach(session.runtimeSessionId, "stream:1");
+    const resumed = await stream.attach(session.runtimeSessionId, first.cursor);
     assert.equal(resumed.initial.ok && resumed.initial.status, "attached");
-    assert.deepEqual(resumed.initial.ok && resumed.initial.events.map(({ cursor }) => cursor), [
-      "stream:2",
-      "stream:3",
-    ]);
+    assert.deepEqual(resumed.initial.ok && resumed.initial.events.map(({ cursor }) => cursor.seq), [2, 3]);
     resumed.detach();
     for (let index = 0; index < 35; index += 1) stream.publish(session.runtimeSessionId, { type: "heartbeat" });
-    const gap = await stream.attach(session.runtimeSessionId, "stream:0");
+    const gap = await stream.attach(session.runtimeSessionId, first.cursor);
     assert.equal(gap.initial.ok && gap.initial.status, "gap");
-    assert.deepEqual(gap.initial.ok && gap.initial.events[0], {
-      schema: "agent-runtime-attach-event/v1",
-      type: "gap",
-      runtimeSessionId: "runtime-session",
-      cursor: "stream:38",
-      occurredAt: "2026-08-13T00:00:00.000Z",
-      required: "snapshot",
-    });
+    const gapFrame = gap.initial.ok && gap.initial.events[0];
+    assert.ok(gapFrame && gapFrame.type === "gap");
+    assert.equal(gapFrame.snapshotSeq, 38);
+    assert.equal(gapFrame.snapshot.activity?.activity, "message");
     gap.detach();
     const restarted = await makeAgentRuntimeStreamHub({
+      repoId: "runtime-test",
       readSession: () => session,
       canAttach: ({ attachable }) => attachable,
       now: () => new Date("2026-08-13T00:00:00.000Z"),
-    }).attach(session.runtimeSessionId, "stream:38");
+    }).attach(session.runtimeSessionId, gapFrame.cursor);
     assert.equal(restarted.initial.ok && restarted.initial.status, "gap");
     assert.equal(restarted.initial.ok && restarted.initial.events[0]?.type, "gap");
     restarted.detach();
     session.attachable = false;
-    const unsupported = (await stream.attach(session.runtimeSessionId, "stream:38")).initial;
+    const unsupported = (await stream.attach(session.runtimeSessionId, gapFrame.cursor)).initial;
     assert.deepEqual(unsupported, {
       ok: false,
       code: "unsupported",
@@ -537,10 +530,11 @@ test("attach catches up from cursor, gaps require snapshot, and unsupported is t
     });
     session.attachable = true;
     const capabilityMissing = (
-      await makeAgentRuntimeStreamHub({ readSession: () => session, canAttach: () => false }).attach(
-        session.runtimeSessionId,
-        "stream:0",
-      )
+      await makeAgentRuntimeStreamHub({
+        repoId: "runtime-test",
+        readSession: () => session,
+        canAttach: () => false,
+      }).attach(session.runtimeSessionId)
     ).initial;
     assert.equal(capabilityMissing.ok, false);
     assert.equal(!capabilityMissing.ok && capabilityMissing.code, "unsupported");
@@ -548,7 +542,7 @@ test("attach catches up from cursor, gaps require snapshot, and unsupported is t
 
 test("slow subscribers gap without blocking daemon writer requests, and detach does not alter the native session", async () =>
   withRuntime(async ({ stream, session }) => {
-    const slow = await stream.attach(session.runtimeSessionId, "stream:0"),
+    const slow = await stream.attach(session.runtimeSessionId),
       before = structuredClone(session);
     for (let index = 0; index < 2_000; index += 1) stream.publish(session.runtimeSessionId, { type: "heartbeat" });
     assert.equal((await slow.next())?.type, "gap");
@@ -557,8 +551,11 @@ test("slow subscribers gap without blocking daemon writer requests, and detach d
     assert.deepEqual(session, before);
     let writes = 0;
     const host = {
-      attach: async (_repoId: string, runtimeSessionId: string, afterCursor: string) =>
-        stream.attach(runtimeSessionId, afterCursor),
+      attach: async (
+        _repoId: string,
+        runtimeSessionId: string,
+        afterCursor: import("../src/daemon-host/protocol/stream-contract.ts").RuntimeStreamCursor | undefined,
+      ) => stream.attach(runtimeSessionId, afterCursor),
       run: async () => {
         writes += 1;
         return { outcome: "applied", opId: "writer-op" };
@@ -592,7 +589,7 @@ test("slow subscribers gap without blocking daemon writer requests, and detach d
       method: "repo.agentRuntime.attach",
       params: {
         repo: { repoId: "runtime-test" },
-        payload: { runtimeSessionId: session.runtimeSessionId, afterCursor: "stream:2000" },
+        payload: { runtimeSessionId: session.runtimeSessionId, afterCursor: runtimeCursor("runtime-test", 2000) },
       },
     });
     stream.publish(session.runtimeSessionId, { type: "heartbeat" });
@@ -900,6 +897,7 @@ function fixture(rootDir: string) {
   const session = projection.readRuntimeSession("runtime-session") as RuntimeSession & { attachable: boolean },
     fixedNow = new Date("2026-08-13T00:00:00.000Z"),
     stream = makeAgentRuntimeStreamHub({
+      repoId: "runtime-test",
       readSession: () => session,
       canAttach: ({ attachable }) => attachable,
       now: () => fixedNow,
@@ -1127,6 +1125,7 @@ test("provider output publication does not scale full projection reads with line
   };
   let fullProjectionReads = 0;
   const stream = makeAgentRuntimeStreamHub({
+    repoId: "runtime-test",
     readSession: (runtimeSessionId) => {
       fullProjectionReads += 1;
       projection.list();
@@ -1168,7 +1167,7 @@ test("provider output publication does not scale full projection reads with line
       );
 
     assert.equal(fullProjectionReads, 0);
-    const attached = await stream.attach(session.runtimeSessionId, "stream:1000");
+    const attached = await stream.attach(session.runtimeSessionId);
     assert.equal(attached.initial.ok, true);
     attached.detach();
     await stream.issueWitnessToken(session.runtimeSessionId, {
@@ -1356,6 +1355,7 @@ function withMissingInstallationRuntime(
       projection.apply(event);
     }
     const stream = makeAgentRuntimeStreamHub({
+      repoId: "runtime-test",
       readSession: (runtimeSessionId) => projection!.readRuntimeSession(runtimeSessionId),
       canAttach: () => true,
     });

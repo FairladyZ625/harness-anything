@@ -1,4 +1,4 @@
-import type { DaemonGuiReadResultMap } from "@harness-anything/daemon/internal/protocol/daemon-protocol-gui-types";
+import type { DaemonGuiReadResultMap } from "@harness-anything/daemon/internal/protocol/daemon-protocol-results";
 import { renderCliGuidance } from "./guidance-plane.ts";
 
 export type EntityActionExplanationRenderInput = DaemonGuiReadResultMap["repo.entity.actions.explain"];

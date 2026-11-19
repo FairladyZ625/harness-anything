@@ -1,10 +1,11 @@
 // harness-test-tier: integration
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
 import { readCatalogPreset } from "../src/renderer/api-client-catalog.ts";
 import { startWorkPlan } from "../src/renderer/start-work-flow.ts";
-import { parseDaemonGuiReadResult, requestDaemonJsonRpcAt } from "@harness-anything/daemon/client";
+import { parseDaemonReadResult, requestDaemonJsonRpcAt } from "@harness-anything/daemon/client";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
 import { restoreEnv } from "./service-bridge.fixtures.ts";
 
@@ -46,7 +47,10 @@ test(
 
     await context.test("selected preset provides the plan scaffold used by the GUI", async () => {
       const detail = readCatalogPreset(
-          await bridge.invoke("getCatalogPreset", { repoId: fixture.repoId, presetId: "standard-task" }),
+          await bridge.invoke(
+            "repo.gui.catalog.preset.read",
+            scopedRpcParams("repo.gui.catalog.preset.read", { repoId: fixture.repoId, presetId: "standard-task" }),
+          ),
         ),
         scaffold = detail.resolved.documents.find(({ slot }) => slot === "task.plan");
       assert.ok(scaffold, "the selected preset must provide a task.plan scaffold");
@@ -74,7 +78,10 @@ test(
     const createPayload = payload;
 
     await context.test("authorized creation returns the canonical task receipt", async () => {
-      const receipt = (await bridge.invoke("createTask", createPayload)) as Record<string, unknown>;
+      const receipt = (await bridge.invoke(
+        "repo.task.create",
+        scopedRpcParams("repo.task.create", createPayload),
+      )) as Record<string, unknown>;
       assert.equal(receipt.schema, "command-receipt/v2", JSON.stringify(receipt));
       assert.equal(receipt.ok, true, JSON.stringify(receipt));
       assert.equal(receipt.command, "task-create", JSON.stringify(receipt));
@@ -86,11 +93,14 @@ test(
 
     await context.test("revoked Action grant returns authorization_denied", async () => {
       fixture.keycloak.revoke("person-gui", fixture.repoId, ["task-create"]);
-      const denied = (await bridge.invoke("createTask", {
-        ...createPayload,
-        title: "Denied from the GUI bridge",
-        idempotencyKey: "gui-bridge-task-create-negative",
-      })) as Record<string, unknown>;
+      const denied = (await bridge.invoke(
+        "repo.task.create",
+        scopedRpcParams("repo.task.create", {
+          ...createPayload,
+          title: "Denied from the GUI bridge",
+          idempotencyKey: "gui-bridge-task-create-negative",
+        }),
+      )) as Record<string, unknown>;
       assert.equal(denied.schema, "command-receipt/v2", JSON.stringify(denied));
       assert.equal(denied.ok, false, JSON.stringify(denied));
       assert.equal(denied.outcome, "op_rejected", JSON.stringify(denied));
@@ -98,7 +108,10 @@ test(
     });
 
     await context.test("authorized system read matches the repo rows used by ha daemon status", async () => {
-      const system = parseDaemonGuiReadResult("daemon.gui.system.read", await bridge.invoke("getSystemStatus", null)),
+      const system = parseDaemonReadResult(
+          "daemon.gui.system.read",
+          await bridge.invoke("daemon.gui.system.read", scopedRpcParams("daemon.gui.system.read", {})),
+        ),
         cliStatus = await requestDaemonJsonRpcAt(
           fixture.endpoint,
           "daemon.status",

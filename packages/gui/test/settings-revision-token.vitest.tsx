@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 // 设置修订令牌的 mutation 层契约(task_abfd845f39b26fc9da3d8ca9e9):GUI 用 settings read
@@ -55,21 +56,24 @@ async function mountProbe(): Promise<{ readonly container: HTMLElement; readonly
   const nextReceiptRevision = 12;
   Object.defineProperty(window, "harness", {
     configurable: true,
-    value: {
-      updateSettings: vi.fn(async (payload: Record<string, unknown>) => {
-        submitted.push(payload);
-        return {
-          schema: "command-receipt/v2",
-          ok: true,
-          command: "settings-update",
-          outcome: "applied",
-          opId: String(payload.idempotencyKey),
-          revision: nextReceiptRevision,
-        };
-      }),
-      // 重读窗口保持打开:invalidate 触发的 refetch 永不落地,令牌只能来自回执顶新。
-      getSettings: () => new Promise(() => undefined),
-    },
+    value: mockRpcBridge(
+      {
+        updateSettings: vi.fn(async (payload: Record<string, unknown>) => {
+          submitted.push(payload);
+          return {
+            schema: "command-receipt/v2",
+            ok: true,
+            command: "settings-update",
+            outcome: "applied",
+            opId: String(payload.idempotencyKey),
+            revision: nextReceiptRevision,
+          };
+        }),
+        // 重读窗口保持打开:invalidate 触发的 refetch 永不落地,令牌只能来自回执顶新。
+        getSettings: () => new Promise(() => undefined),
+      },
+      { "repo.settings.read": "getSettings", "repo.settings.update": "updateSettings" },
+    ),
   });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   client.setQueryData(settingsQueryKeys.read(REPO_ID), SEEDED_READ);

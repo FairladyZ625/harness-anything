@@ -107,7 +107,7 @@ export async function rpcAttach(
     method: "repo.agentRuntime.attach",
     params: {
       repo: { repoId },
-      payload: { runtimeSessionId, afterCursor: "stream:0" },
+      payload: { runtimeSessionId },
     },
   });
   assert.ok(response && !Array.isArray(response) && "result" in response);

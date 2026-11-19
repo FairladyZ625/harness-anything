@@ -1,11 +1,6 @@
-import { daemonGuiInvokeFacets, daemonGuiStreamFacets, decisionStateWords } from "@harness-anything/daemon/protocol";
-import { admitUseCaseProjectionSelector } from "@harness-anything/daemon/protocol";
-import { isUtcTimestamp } from "@harness-anything/daemon/protocol";
-import { validateDaemonQueryPayload } from "@harness-anything/daemon/protocol";
-import { validateTaskDispatchesPayload } from "@harness-anything/daemon/protocol/validation";
-import { relationStates } from "@harness-anything/kernel/browser";
-import { containsSecretLikeKey } from "../api/entity-payload-hygiene.ts";
 import {
+  interactiveRpcDescriptor,
+  streamRpcDescriptor,
   isRuntimeKindId,
   isRuntimeMcpPolicy,
   runtimeKindForId,
@@ -13,31 +8,27 @@ import {
   runtimeSubscriptionMultiAccountIsolation,
   validRuntimeInstanceTier,
 } from "@harness-anything/daemon/protocol";
+import { validateDaemonRpcCall } from "@harness-anything/daemon/protocol/validation";
+import { containsSecretLikeKey } from "../api/entity-payload-hygiene.ts";
+
 export const HARNESS_PRELOAD_API = "harness";
-export type PreloadApiMethod =
-  | (typeof daemonGuiInvokeFacets)[number]["guiBridgeMethod"]
-  | (typeof daemonGuiStreamFacets)[number]["guiBridgeMethod"];
-const daemonGuiFacets: ReadonlyArray<{
-  readonly guiBridgeMethod: PreloadApiMethod;
-  readonly requiresRepo?: boolean;
-  readonly inputSchemaId?: string;
-}> = [...daemonGuiInvokeFacets, ...daemonGuiStreamFacets];
-function payloadFieldNames(guiBridgeMethod: string): readonly string[] {
-  const entry = daemonGuiInvokeFacets.find((facet) => facet.guiBridgeMethod === guiBridgeMethod) as
-    | { readonly params?: { readonly fields?: Readonly<Record<string, unknown>> } }
-    | undefined;
-  const payload = entry?.params?.fields?.payload as { readonly fields?: Readonly<Record<string, unknown>> } | undefined;
-  return payload?.fields ? Object.keys(payload.fields) : [];
-}
-const runtimeInstanceUpdateFields = payloadFieldNames("updateRuntimeInstance");
-// The codex kind declaration owns the tier vocabulary; the preload restates only the values the
-// daemon already declares, so a new tier cannot be admitted on one side and refused on the other.
+export const RPC_CHANNEL = "harness:rpc";
+export const STREAM_OPEN_CHANNEL = "harness:stream:open";
+export const STREAM_CLOSE_CHANNEL = "harness:stream:close";
+export const streamFrameChannel = (id: string) => `harness:stream:frame:${id}`;
+export const preloadApiCapabilities = Object.freeze({
+  stream: { status: "available" },
+  terminal: { status: "available" },
+  nativeFiles: { status: "available" },
+  writes: { status: "available" },
+});
+
+const update = interactiveRpcDescriptor("daemon.runtimeInstance.update")?.params.fields;
+const runtimeInstanceUpdateFields =
+  update && "payload" in update && typeof update.payload === "object" && "fields" in update.payload
+    ? Object.keys(update.payload.fields)
+    : [];
 const codexWebSearchChoices = runtimeKindForId("codex").configuration.choices?.webSearch ?? [];
-const instanceTargetMethods: ReadonlySet<PreloadApiMethod> = new Set(
-  daemonGuiInvokeFacets
-    .filter((facet) => facet.method.startsWith("daemon.runtimeInstance."))
-    .map((facet) => facet.guiBridgeMethod),
-);
 const runtimeInstanceCreateFields = [
   "instanceId",
   "name",
@@ -56,183 +47,78 @@ const runtimeInstanceCreateFields = [
   "authMode",
   "apiKey",
 ] as const;
-type PreloadFacet = {
-  readonly guiBridgeMethod: string;
-  readonly requiresRepo?: boolean;
-  readonly inputSchemaId?: string;
-};
-export function deriveRepoScopedMethods(facets: readonly PreloadFacet[]): ReadonlySet<string> {
-  return new Set(facets.filter(({ requiresRepo }) => requiresRepo).map(({ guiBridgeMethod }) => guiBridgeMethod));
-}
-export function deriveEmptyRepoMethods(facets: readonly PreloadFacet[]): ReadonlySet<string> {
-  return new Set(
-    facets
-      .filter(({ requiresRepo, inputSchemaId }) => requiresRepo && inputSchemaId === "gui.empty/v1")
-      .map(({ guiBridgeMethod }) => guiBridgeMethod),
-  );
-}
-export function deriveQueryRepoMethods(facets: readonly PreloadFacet[]): ReadonlySet<string> {
-  return new Set(
-    facets
-      .filter(
-        ({ requiresRepo, inputSchemaId }) =>
-          requiresRepo &&
-          (inputSchemaId === "gui.task-query/v1" ||
-            inputSchemaId === "gui.relation-query/v1" ||
-            inputSchemaId === "gui.agenda-query/v1"),
-      )
-      .map(({ guiBridgeMethod }) => guiBridgeMethod),
-  );
-}
-const repoScopedMethods: ReadonlySet<string> = deriveRepoScopedMethods(daemonGuiFacets);
-const emptyRepoMethods: ReadonlySet<string> = deriveEmptyRepoMethods(daemonGuiFacets);
-const queryRepoMethods: ReadonlySet<string> = deriveQueryRepoMethods(daemonGuiFacets);
-export interface PreloadApiCapability {
-  readonly method: PreloadApiMethod;
-  readonly status: "shipped";
-}
-export const allowedPreloadApi = Object.freeze(
-  Object.fromEntries(daemonGuiFacets.map(({ guiBridgeMethod }) => [guiBridgeMethod, guiBridgeMethod])),
-) as { readonly [Method in PreloadApiMethod]: Method };
-export const preloadApiCapabilities = Object.freeze(
-  Object.fromEntries(
-    daemonGuiFacets.map(({ guiBridgeMethod }) => [
-      guiBridgeMethod,
-      { method: guiBridgeMethod, status: "shipped" as const },
-    ]),
-  ),
-) as Record<PreloadApiMethod, PreloadApiCapability>;
-export const preloadAllowlist = Object.freeze(Object.values(allowedPreloadApi)) as ReadonlyArray<PreloadApiMethod>;
-export function isAllowedPreloadApiMethod(method: string): method is PreloadApiMethod {
-  return preloadAllowlist.includes(method as PreloadApiMethod);
-}
-export function assertPreloadPayload(method: string, payload: unknown): true {
-  if (!isAllowedPreloadApiMethod(method)) throw new Error(`Preload method is not allowed: ${method}`);
-  if (payload !== null && (typeof payload !== "object" || Array.isArray(payload))) {
-    throw new Error("Preload payload must be an object or null.");
-  }
+
+/** The Electron boundary admits a subset of the daemon contract and enforces local credential hygiene. */
+export function assertRendererRpc(method: string, params: unknown, stream = false): true {
+  const descriptor = stream ? streamRpcDescriptor(method) : interactiveRpcDescriptor(method);
+  if (!descriptor) throw new Error(`Renderer RPC method is not allowed: ${method}`);
+  if (!isPreloadPayloadRecord(params) || !closed(params, ["repo", "payload"]))
+    throw new Error(`Renderer ${method} params are invalid.`);
   if (
-    containsSecretLikeKey(
-      payload,
-      ["createRuntimeInstance", "updateRuntimeInstance", "createDecisionProvider", "updateDecisionProvider"].includes(
-        method,
-      ),
-    )
+    params.repo !== undefined &&
+    (!isPreloadPayloadRecord(params.repo) ||
+      !exactStrings(params.repo, ["repoId"]) ||
+      !/^[a-z][a-z0-9-]{0,62}$/u.test(String(params.repo.repoId)))
   )
-    throw new Error("Preload payload contains a forbidden secret-like key.");
+    throw new Error(`Renderer ${method} params require an exact repoId.`);
+  const payload = params.payload;
+  const canSetApiKey = [
+    "daemon.runtimeInstance.create",
+    "daemon.runtimeInstance.update",
+    "daemon.provider.create",
+    "daemon.provider.update",
+  ].includes(method);
+  if (containsSecretLikeKey(payload, canSetApiKey))
+    throw new Error("Renderer params contain a forbidden secret-like key.");
+  const errors = validateDaemonRpcCall({ method, params });
+  if (errors.length) throw new Error(`Renderer ${method} params are invalid: ${errors.join("; ")}`);
   if (
-    instanceTargetMethods.has(method as PreloadApiMethod) &&
-    isPreloadPayloadRecord(payload) &&
-    Object.hasOwn(payload, "repoId")
-  ) {
-    if (typeof payload.repoId !== "string" || !/^[a-z][a-z0-9-]{0,62}$/u.test(payload.repoId))
-      throw new Error(`Preload ${method} payload requires an exact repoId.`);
-    const { repoId: _repoId, ...instancePayload } = payload;
-    payload = instancePayload;
-  }
-  if (repoScopedMethods.has(method as PreloadApiMethod)) {
-    if (
-      !isPreloadPayloadRecord(payload) ||
-      typeof payload.repoId !== "string" ||
-      !/^[a-z][a-z0-9-]{0,62}$/u.test(payload.repoId)
-    ) {
-      throw new Error(`Preload ${method} payload requires an exact repoId.`);
-    }
-    if (emptyRepoMethods.has(method) && Object.keys(payload).some((key) => key !== "repoId"))
-      throw new Error(`Preload ${method} fields are not allowed.`);
-    if (method === "getRelationGraph") {
-      // Every relation-graph selector (legacy page, facet, entity page, neighborhood) is admitted
-      // by the daemon's own query validator, which owns the vocabularies and rejects unknown
-      // fields. Restating any of that list here is what broke the paged edges read: the renderer
-      // paged with limit/cursor and the hand-copied list still forbade them, so the request never
-      // reached the daemon.
-      const { repoId: _repoId, ...selector } = payload;
-      const errors = validateDaemonQueryPayload("repo.triadic.relationGraph", selector);
-      if (errors.length > 0) throw new Error(`Preload ${method} query facets are invalid: ${errors[0]}`);
-    } else if (queryRepoMethods.has(method as PreloadApiMethod)) {
-      const fields =
-        method === "getAgenda"
-          ? ["repoId", "limit", "cursor"]
-          : method === "getTasks"
-            ? ["repoId", "status", "changedAfterRevision", "updatedAfter", "updatedBefore", "limit", "cursor"]
-            : ["repoId", "status", "updatedAfter", "updatedBefore", "limit", "cursor"];
-      if (!closed(payload, fields)) throw new Error(`Preload ${method} fields are not allowed.`);
-      if (!validQueryPayload(method, payload)) throw new Error(`Preload ${method} query facets are invalid.`);
-    }
-    // The use-case projection selector is admitted by the same function the daemon request
-    // validator and the repo-cell handler call, so preload closure cannot drift from the daemon's.
-    // Before this, each facet vocabulary was restated per layer and adding a selector to only one
-    // of them failed asymmetrically instead of fail-closed.
-    if (method === "readUseCaseProjection") {
-      const { repoId: _repoId, ...selector } = payload;
-      const admitted = admitUseCaseProjectionSelector(selector);
-      if (typeof admitted === "string") throw new Error(`Preload ${method} request is invalid: ${admitted}`);
-    }
-    if (method === "getDecisions" && !validDecisionListPayload(payload))
-      throw new Error("Preload getDecisions request is invalid.");
-    if (method === "getTaskDispatches" && !validTaskDispatchesPayload(payload))
-      throw new Error("Preload getTaskDispatches request is invalid.");
-    // Pin carries only the target identity: the pinned-only amend patch is pinned in the
-    // daemon contract's actionDefaults, so the renderer cannot widen this into a
-    // general amend through the preload boundary. Entity unpin names the ref the same
-    // way; the local-EntityRef and existence checks stay in the daemon write boundary.
-    if (
-      (["pinTask", "unpinTask", "materializeTask"].includes(method) && !exactStrings(payload, ["repoId", "taskId"])) ||
-      (method === "unpinEntity" && !exactStrings(payload, ["repoId", "entityRef"]))
-    )
-      throw new Error(`Preload ${method} request is invalid.`);
-  } else if (isPreloadPayloadRecord(payload) && Object.hasOwn(payload, "repoId")) {
-    throw new Error(`Preload ${method} payload: repoId is not allowed.`);
-  }
-  if (method === "getSystemStatus" && isPreloadPayloadRecord(payload) && Object.keys(payload).length > 0)
-    throw new Error("Preload getSystemStatus fields are not allowed.");
-  if (
-    method === "listRuntimeInstances" &&
+    method === "daemon.runtimeInstance.list" &&
     (!isPreloadPayloadRecord(payload) || !closed(payload, ["all"]) || payload.all !== true)
   )
     throw new Error("Runtime instance list request is invalid.");
-  if (method === "showRuntimeInstance" && !validRuntimeInstanceShow(payload))
+  if (method === "daemon.runtimeInstance.show" && !validRuntimeInstanceShow(payload))
     throw new Error("Preload showRuntimeInstance request is invalid.");
-  if (method === "deleteRuntimeInstance" && !exactStrings(payload, ["instanceId"]))
+  if (method === "daemon.runtimeInstance.delete" && !exactStrings(payload, ["instanceId"]))
     throw new Error("Preload deleteRuntimeInstance request is invalid.");
-  if (method === "updateRuntimeInstance" && !validRuntimeInstanceUpdate(payload))
+  if (method === "daemon.runtimeInstance.update" && !validRuntimeInstanceUpdate(payload))
     throw new Error("Preload updateRuntimeInstance request is invalid.");
   if (
-    ["signInRuntimeInstance", "signOutRuntimeInstance"].includes(method) &&
-    !exactStrings(payload, ["repoId", "instanceId", "idempotencyKey"])
+    ["repo.runtimeInstance.auth.login", "repo.runtimeInstance.auth.logout"].includes(method) &&
+    !exactStrings(payload, ["instanceId", "idempotencyKey"])
   )
     throw new Error(`Preload ${method} request is invalid.`);
   // Schedule actions carry only their closed declaration or retry-stable claim fields;
   // the renderer cannot smuggle transport or runtime controls into the daemon action.
   if (
-    ["createSchedule", "updateSchedule"].includes(method) &&
-    !validScheduleDefinitionMutation(payload, method === "updateSchedule")
+    ["repo.schedule.create", "repo.schedule.update"].includes(method) &&
+    !validScheduleDefinitionMutation(payload, method === "repo.schedule.update")
   )
     throw new Error(`Preload ${method} request is invalid.`);
-  if (method === "deleteSchedule" && !validScheduleDelete(payload))
+  if (method === "repo.schedule.delete" && !validScheduleDelete(payload))
     throw new Error("Preload deleteSchedule request is invalid.");
   if (
-    ["enableSchedule", "disableSchedule", "runScheduleNow"].includes(method) &&
-    !exactStrings(payload, ["repoId", "scheduleId", "idempotencyKey"])
+    ["repo.schedule.enable", "repo.schedule.disable", "repo.schedule.runNow"].includes(method) &&
+    !exactStrings(payload, ["scheduleId", "idempotencyKey"])
   )
     throw new Error(`Preload ${method} request is invalid.`);
-  if (method === "createRuntimeInstance") {
+  if (method === "daemon.runtimeInstance.create") {
     const problem = runtimeInstanceCreateProblem(payload);
     if (problem !== undefined) throw new Error(`Runtime instance create request is invalid: ${problem}`);
   }
-  if (["createDecisionProvider", "updateDecisionProvider"].includes(method)) {
+  if (["daemon.provider.create", "daemon.provider.update"].includes(method)) {
     const fields =
-        method === "createDecisionProvider"
+        method === "daemon.provider.create"
           ? ["type", "providerId", "name", "model", "baseUrl", "apiKey", "credentialRef", "enabled"]
           : ["providerId", "name", "model", "baseUrl", "apiKey", "credentialRef", "enabled"],
       record = isPreloadPayloadRecord(payload) ? payload : null;
     if (!record || !closed(record, fields)) throw new Error(`Preload ${method} request has unexpected fields.`);
-    if (method === "createDecisionProvider" && record.type !== "decisions")
+    if (method === "daemon.provider.create" && record.type !== "decisions")
       throw new Error("Only Decisions API providers can be created here.");
     if (typeof record.providerId !== "string" || record.providerId.trim() === "")
       throw new Error(`Preload ${method} requires a providerId.`);
     if (
-      method === "createDecisionProvider" &&
+      method === "daemon.provider.create" &&
       ["name", "model"].some((field) => typeof record[field] !== "string" || !(record[field] as string).trim())
     )
       throw new Error("Preload createDecisionProvider requires a name and model.");
@@ -396,7 +282,6 @@ function validRuntimeInstanceShow(value: unknown): boolean {
 }
 function validScheduleDefinitionMutation(value: unknown, nullableOptionals: boolean): boolean {
   const fields = [
-    "repoId",
     "scheduleId",
     "name",
     "mode",
@@ -429,8 +314,8 @@ function validScheduleDefinitionMutation(value: unknown, nullableOptionals: bool
   // A create is agent-shaped and complete; an update may be partial — a built-in edit sends
   // name, trigger, and retention only, never agent target fields.
   const requiredText = nullableOptionals
-    ? ["repoId", "scheduleId", "idempotencyKey"]
-    : ["repoId", "scheduleId", "name", "agentId", "mission", "idempotencyKey"];
+    ? ["scheduleId", "idempotencyKey"]
+    : ["scheduleId", "name", "agentId", "mission", "idempotencyKey"];
   if (
     !triggerOk ||
     !requiredText.every((field) => typeof value[field] === "string" && String(value[field]).trim().length > 0) ||
@@ -459,10 +344,8 @@ function validScheduleDefinitionMutation(value: unknown, nullableOptionals: bool
 function validScheduleDelete(value: unknown): boolean {
   return (
     isPreloadPayloadRecord(value) &&
-    closed(value, ["repoId", "scheduleId", "reason", "idempotencyKey"]) &&
-    [value.repoId, value.scheduleId, value.idempotencyKey].every(
-      (field) => typeof field === "string" && field.trim().length > 0,
-    ) &&
+    closed(value, ["scheduleId", "reason", "idempotencyKey"]) &&
+    [value.scheduleId, value.idempotencyKey].every((field) => typeof field === "string" && field.trim().length > 0) &&
     (value.reason === undefined || (typeof value.reason === "string" && value.reason.trim().length > 0))
   );
 }
@@ -475,49 +358,6 @@ function exactStrings(value: unknown, fields: readonly string[]): boolean {
 }
 function closed(value: Record<string, unknown>, fields: readonly string[]): boolean {
   return Object.keys(value).every((key) => fields.includes(key));
-}
-// The wide task reads accept exactly the optional narrow/paged facets the daemon
-// validates; unknown keys were already rejected above, so this constrains the values.
-function validQueryPayload(method: string, value: Record<string, unknown>): boolean {
-  const after = value.updatedAfter,
-    before = value.updatedBefore,
-    changedAfterRevision = value.changedAfterRevision,
-    states =
-      method === "getTasks"
-        ? ["planned", "active", "submitted", "blocked", "in_review", "done", "cancelled"]
-        : relationStates,
-    common =
-      (value.limit === undefined ||
-        (Number.isSafeInteger(value.limit) && Number(value.limit) >= 1 && Number(value.limit) <= 500)) &&
-      (value.cursor === undefined || (typeof value.cursor === "string" && value.cursor.length > 0));
-  return method === "getAgenda"
-    ? common
-    : common &&
-        (method !== "getTasks" ||
-          changedAfterRevision === undefined ||
-          (Number.isSafeInteger(changedAfterRevision) && Number(changedAfterRevision) >= 0)) &&
-        (value.status === undefined ||
-          (typeof value.status === "string" && (states as readonly string[]).includes(value.status))) &&
-        [after, before].every((item) => item === undefined || isUtcTimestamp(item)) &&
-        !(typeof after === "string" && typeof before === "string" && after > before);
-}
-/** Selectors exist only on the edge facet, and `state` there shares the edge-state vocabulary. */
-/** `repo.decisions.list` carries one selector: the summary projection the mounted chrome reads. */
-function validDecisionListPayload(value: Record<string, unknown>): boolean {
-  if (!closed(value, ["repoId", "projection", "state"])) return false;
-  return (
-    (value.projection === undefined || ["summary", "full"].includes(String(value.projection))) &&
-    (value.state === undefined ||
-      (typeof value.state === "string" && (decisionStateWords as readonly string[]).includes(value.state)))
-  );
-}
-/** The preload closure only adds the transport key; the accepted task/batch/member shapes come
- * from the daemon's own request validator, so the two boundaries cannot drift apart. */
-function validTaskDispatchesPayload(value: Record<string, unknown>): boolean {
-  if (!closed(value, ["repoId", "taskId", "taskIds", "limit", "cursor", "agentId", "squadId", "advisorySurface"]))
-    return false;
-  const { repoId: _repoId, ...payload } = value;
-  return validateTaskDispatchesPayload(payload).length === 0;
 }
 function isPreloadPayloadRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);

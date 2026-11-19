@@ -2,7 +2,7 @@ import { canonicalResourceAncestors, evaluateKeycloakPerson } from "./repo-cell-
 import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 import type { TaskV2 } from "@harness-anything/kernel";
-import type { TaskAssignmentDirectory } from "./protocol/daemon-protocol-gui-types.ts";
+import type { TaskAssignmentDirectory } from "./protocol/daemon-protocol-results.ts";
 
 /** Directory selection is shared by every assignment Action; the task GUI still consumes the legacy DTO shape. */
 export async function readEntityAssignmentDirectory(

@@ -317,6 +317,7 @@ test("owner adoption checks dead PID before publishing live and preserves live c
         readDispatchLifecycle,
       } as never,
       hub = makeAgentRuntimeStreamHub({
+        repoId: "runtime-adoption",
         readSession: () => projection.readRuntimeSession(runtimeSessionId),
         canAttach: () => {
           const lifecycle = readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] });
@@ -391,7 +392,7 @@ test("owner adoption checks dead PID before publishing live and preserves live c
       assert.equal(recovery[0]?.outcome, "failed");
       assert.match(String(recovery[0]?.error), /center unavailable/u);
       assert.equal(published.includes(`runtime_session_liveness_changed:${alive ? "live" : "unknown"}`), true);
-      assert.equal((await hub.attach(runtimeSessionId, "stream:0")).initial.ok, false);
+      assert.equal((await hub.attach(runtimeSessionId)).initial.ok, false);
       assert.equal(
         readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] }).status === "ready" &&
           readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] }).rows[0]?.policy.capacityDisposition !==

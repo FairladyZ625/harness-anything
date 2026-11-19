@@ -126,7 +126,7 @@ export interface DaemonHost {
   readonly attach: (
     repoId: string,
     runtimeSessionId: string,
-    afterCursor: string,
+    afterCursor: import("./protocol/stream-contract.ts").RuntimeStreamCursor | undefined,
     auth: DaemonAuthenticationContext,
   ) => Promise<AgentRuntimeAttachSubscription>;
   readonly spawnRuntime: (

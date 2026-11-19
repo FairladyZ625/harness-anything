@@ -734,7 +734,7 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
         if (input.credentialSource === "instance" || subscriptionCreationNeedsLogin(input, probed))
           authReceipt = await channel.run(
             t("agentRuntime.opSignIn"),
-            () => runtimeInstanceClient.auth(repoId, input.instanceId, "login"),
+            () => runtimeInstanceClient.login(repoId, input.instanceId),
             false,
           );
       }
@@ -760,12 +760,8 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
       channel.run(t("agentRuntime.opAuthChecked"), () => runtimeInstanceClient.probe(instanceId, repoId)),
     authInstance: (instanceId: string, action: "login" | "logout"): Promise<TerminalControlReceipt | null> =>
       action === "logout"
-        ? channel.run(
-            t("agentRuntime.opSignOut"),
-            () => runtimeInstanceClient.auth(repoId, instanceId, "logout"),
-            false,
-          )
-        : channel.run(t("agentRuntime.opSignIn"), () => runtimeInstanceClient.auth(repoId, instanceId, "login"), false),
+        ? channel.run(t("agentRuntime.opSignOut"), () => runtimeInstanceClient.logout(repoId, instanceId), false)
+        : channel.run(t("agentRuntime.opSignIn"), () => runtimeInstanceClient.login(repoId, instanceId), false),
     selfTest,
   };
 }

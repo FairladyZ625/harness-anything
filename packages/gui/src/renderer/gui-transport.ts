@@ -2,7 +2,7 @@ import type { ExternalUrlApi } from "../api/external-url-contract.ts";
 import type { ProjectDirectoryApi } from "../api/project-directory-contract.ts";
 import type { ProjectWindowApi } from "../api/project-window-contract.ts";
 import type { AppCommandApi } from "../api/app-command-contract.ts";
-import type { DaemonRpcMethodMap, DaemonRpcResult } from "@harness-anything/daemon/protocol";
+import type { DaemonRpcMethodMap, DaemonRpcResult, DaemonStreamMethod } from "@harness-anything/daemon/protocol";
 import type { FirstRunApi } from "../api/first-run-contract.ts";
 import type { ArtifactOpenApi } from "../api/artifact-open-contract.ts";
 import type { ConnectionAdminApi, RepoAdminApi } from "../api/connection-admin-contract.ts";
@@ -17,8 +17,13 @@ import { loadBrowserGuiTransport } from "../browser/browser-gui-transport.ts";
 
 type GuiMethod = keyof DaemonRpcMethodMap;
 type GuiBridge = {
-  readonly [method: string]: unknown;
-  readonly request?: (method: string, payload: unknown) => Promise<unknown>;
+  readonly request?: (method: string, params: unknown) => Promise<unknown>;
+  readonly subscribe?: (
+    method: DaemonStreamMethod,
+    params: unknown,
+    onValue: (value: unknown) => void,
+    onError: (error: unknown) => void,
+  ) => () => void;
   readonly capabilities?: Readonly<Record<string, { readonly status: string; readonly reason?: string }>>;
   readonly firstRun?: FirstRunApi;
   readonly artifacts?: ArtifactOpenApi;
@@ -46,20 +51,38 @@ export interface GuiTransport {
   request<Method extends GuiMethod>(
     method: Method,
     params: DaemonRpcMethodMap[Method]["params"],
-    electronMethod?: string,
   ): Promise<DaemonRpcResult<Method>>;
+  subscribe<Method extends DaemonStreamMethod>(
+    method: Method,
+    params: DaemonRpcMethodMap[Method]["params"],
+    onValue: (value: unknown) => void,
+    onError: (error: unknown) => void,
+  ): () => void;
   capabilities(): Readonly<Record<string, { readonly status: string; readonly reason?: string }>>;
 }
 export function createElectronGuiTransport(bridge: GuiBridge): GuiTransport {
   return {
-    request: (method, params, electronMethod) => {
-      if (!electronMethod) throw new Error(`Electron bridge method is unavailable for ${method}`);
-      const payload = flattenParams(params);
-      if (Object.hasOwn(bridge, "request") && bridge.request)
-        return bridge.request(electronMethod, payload) as Promise<DaemonRpcResult<typeof method>>;
-      const legacy = bridge[electronMethod];
-      if (typeof legacy !== "function") throw new Error(`Harness bridge is unavailable for ${method}.`);
-      return legacy(payload) as Promise<DaemonRpcResult<typeof method>>;
+    request: (method, params) => {
+      if (!bridge.request) throw new Error(`Harness RPC is unavailable for ${method}.`);
+      return bridge.request(method, params) as Promise<DaemonRpcResult<typeof method>>;
+    },
+    subscribe: (method, params, onValue, onError) => {
+      if (!bridge.subscribe) throw new Error(`Harness streaming is unavailable for ${method}.`);
+      const controller = new AbortController(),
+        signal = controller.signal;
+      const stop = bridge.subscribe(
+        method,
+        params,
+        (value) => {
+          if (signal.aborted) return;
+          if (value && typeof value === "object" && "code" in value && value.code === "daemon_stream_lost") {
+            onError(Object.assign(new Error(String("hint" in value ? value.hint : value.code)), { code: value.code }));
+          } else onValue(value);
+        },
+        onError,
+      );
+      signal.addEventListener("abort", stop, { once: true });
+      return () => controller.abort();
     },
     capabilities: () => bridge.capabilities ?? {},
   };
@@ -75,13 +98,4 @@ export function guiHostBridge(): GuiBridge | undefined {
 }
 export function resetGuiTransportForTest(): void {
   transport = undefined;
-}
-function flattenParams(value: unknown): unknown {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
-  const params = value as Record<string, unknown>;
-  if (!params.repo || typeof params.repo !== "object" || Array.isArray(params.repo)) return params.payload ?? params;
-  return {
-    repoId: (params.repo as Record<string, unknown>).repoId,
-    ...(params.payload && typeof params.payload === "object" ? params.payload : {}),
-  };
 }

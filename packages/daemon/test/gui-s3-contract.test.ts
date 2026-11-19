@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
-  parseDaemonGuiReadResponse,
-  parseDaemonGuiReadResult,
-} from "../src/daemon-host/protocol/gui-result-validation.ts";
+  parseDaemonReadResponse,
+  parseDaemonReadResult,
+} from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import {
   validateAgentDispatchPreview,
   validateCatalogPreset,
@@ -49,9 +49,9 @@ test("daemon Settings reads use the exact canonical Settings shape", () => {
     revision: 7,
     lastChanged: "initial",
   };
-  assert.equal(parseDaemonGuiReadResult("repo.settings.read", valid), valid);
+  assert.equal(parseDaemonReadResult("repo.settings.read", valid), valid);
   assert.throws(() =>
-    parseDaemonGuiReadResult("repo.settings.read", {
+    parseDaemonReadResult("repo.settings.read", {
       schema: "daemon.settings-read/v1",
       decisionPoints: [],
       ok: true,
@@ -63,7 +63,7 @@ test("daemon Settings reads use the exact canonical Settings shape", () => {
   );
   // The retired walFlush group is no longer part of the Settings shape a read may carry.
   assert.throws(() =>
-    parseDaemonGuiReadResult("repo.settings.read", {
+    parseDaemonReadResult("repo.settings.read", {
       ...valid,
       settings: { ...settings, walFlush: { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 3_600_000 } },
     }),
@@ -103,10 +103,10 @@ test("client inbound tolerates additive settings fields while the daemon exit st
       lastChanged: "initial",
     };
   assert.throws(
-    () => parseDaemonGuiReadResult("repo.settings.read", newer),
+    () => parseDaemonReadResult("repo.settings.read", newer),
     "the daemon exit keeps the exact canonical Settings shape",
   );
-  const parsed = parseDaemonGuiReadResponse("repo.settings.read", newer);
+  const parsed = parseDaemonReadResponse("repo.settings.read", newer);
   assert.equal(parsed.ok, true);
   assert.equal(
     Object.hasOwn((parsed as { readonly values: Record<string, unknown> }).values, "daemonAddedActionValue"),
@@ -128,18 +128,18 @@ test("runtime task context v3 requires tier policy and rejects the retired v2 sh
     continuationContext: null,
     snapshot: {},
   };
-  assert.equal(parseDaemonGuiReadResult("repo.tasks.runtimeContext.read", result), result);
+  assert.equal(parseDaemonReadResult("repo.tasks.runtimeContext.read", result), result);
   const withRuling = { ...result, escalationContext: "Question: boundary?\nAnswer: keep it" };
-  assert.equal(parseDaemonGuiReadResult("repo.tasks.runtimeContext.read", withRuling), withRuling);
-  assert.throws(() => parseDaemonGuiReadResult("repo.tasks.runtimeContext.read", { ...result, escalationContext: 42 }));
+  assert.equal(parseDaemonReadResult("repo.tasks.runtimeContext.read", withRuling), withRuling);
+  assert.throws(() => parseDaemonReadResult("repo.tasks.runtimeContext.read", { ...result, escalationContext: 42 }));
 
   assert.throws(() =>
-    parseDaemonGuiReadResult("repo.tasks.runtimeContext.read", { ...result, schema: "task-runtime-context-read/v2" }),
+    parseDaemonReadResult("repo.tasks.runtimeContext.read", { ...result, schema: "task-runtime-context-read/v2" }),
   );
   const { riskTier: _riskTier, ...missingTier } = result;
-  assert.throws(() => parseDaemonGuiReadResult("repo.tasks.runtimeContext.read", missingTier));
+  assert.throws(() => parseDaemonReadResult("repo.tasks.runtimeContext.read", missingTier));
   const { riskTierFlowVersion: _flowVersion, ...missingFlowVersion } = result;
-  assert.throws(() => parseDaemonGuiReadResult("repo.tasks.runtimeContext.read", missingFlowVersion));
+  assert.throws(() => parseDaemonReadResult("repo.tasks.runtimeContext.read", missingFlowVersion));
 });
 
 test("GUI S3 contracts reject unknown and secret-like fields recursively", () => {

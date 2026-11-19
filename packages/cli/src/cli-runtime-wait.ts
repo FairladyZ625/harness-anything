@@ -404,6 +404,10 @@ export function renderRuntimeFrames(value: unknown, write: (text: string) => voi
     for (const event of record.events) renderRuntimeFrames(event, write);
     return;
   }
+  if (record.type === "gap") {
+    write(`[stream] resumed from snapshot at sequence ${String(record.snapshotSeq)}\n`);
+    return;
+  }
   if (record.type === "activity" && typeof record.content === "string")
     write(`[${String(record.activity)}] ${record.content}\n`);
 }

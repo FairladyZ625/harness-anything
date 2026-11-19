@@ -310,48 +310,48 @@ export type {
 
 export const harnessClient = {
   async getHomeOverview(): Promise<DaemonHomeOverviewResult> {
-    return (await invoke("daemon.gui.home.read", {}, "getHomeOverview")) as DaemonHomeOverviewResult;
+    return (await invoke("daemon.gui.home.read", {})) as DaemonHomeOverviewResult;
   },
   async getSystemStatus(): Promise<SystemStatusSuccess> {
-    return readSystemStatus(await invoke("daemon.gui.system.read", {}, "getSystemStatus"));
+    return readSystemStatus(await invoke("daemon.gui.system.read", {}));
   },
   async requestDaemonControl(payload: {
     readonly kind: "refresh" | "restart";
     readonly authorityRepoId: string;
     readonly reason?: string;
   }): Promise<DaemonControlReceipt> {
-    return readDaemonControlReceipt(await invoke("daemon.gui.control.request", payload, "requestDaemonControl"));
+    return readDaemonControlReceipt(await invoke("daemon.gui.control.request", payload));
   },
   async getDaemonControlReceipt(payload: { readonly operationId: string }): Promise<DaemonControlReceipt> {
-    return readDaemonControlReceipt(await invoke("daemon.gui.control.receipt", payload, "getDaemonControlReceipt"));
+    return readDaemonControlReceipt(await invoke("daemon.gui.control.receipt", payload));
   },
   async tailObservability(payload: ObserveTailRequest): Promise<ObserveTailRead> {
-    return readObserveTailResult(await invoke("observe.tail", payload, "tailObservability"));
+    return readObserveTailResult(await invoke("observe.tail", payload));
   },
   async getTaskAssignmentDirectory(payload: RepoScope & { readonly taskId: string }): Promise<TaskAssignmentDirectory> {
-    const result = await invoke("repo.tasks.assignmentDirectory", payload, "getTaskAssignmentDirectory");
+    const result = await invoke("repo.tasks.assignmentDirectory", payload);
     if (result.schema !== "task-assignment-directory/v1")
       throw new Error(localErrorHint(result, "Task assignment directory unavailable."));
     return result;
   },
   async getTasks(payload: RepoScope & TaskQueryFacets): Promise<TaskListSuccess> {
-    return readTaskListResult(await invoke("repo.tasks.list", payload, "getTasks"));
+    return readTaskListResult(await invoke("repo.tasks.list", payload));
   },
   /** `repo.task.create` shares the CLI task-create Action and center-forward write receipt. */
   async archiveTasks(
     payload: RepoScope & { readonly taskIds: readonly string[]; readonly reason: string },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.task.archive", payload, "archiveTasks"));
+    return readGuiActionResult(await invoke("repo.task.archive", payload));
   },
   async dismissRuntimeIncident(
     payload: RepoScope & { readonly dispatchId: string; readonly reason: string },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.agentRuntime.incidentDismiss", payload, "dismissRuntimeIncident"));
+    return readGuiActionResult(await invoke("repo.agentRuntime.incidentDismiss", payload));
   },
   async resolveTaskEscalation(
     payload: RepoScope & { readonly taskId: string; readonly dispatchId: string; readonly answer: string },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.task.escalationResolve", payload, "resolveTaskEscalation"));
+    return readGuiActionResult(await invoke("repo.task.escalationResolve", payload));
   },
   async createTask(
     payload: RepoScope & {
@@ -367,49 +367,49 @@ export const harnessClient = {
       readonly plan: string;
     },
   ): Promise<TaskCreateGuiReceipt> {
-    const result = readGuiActionResult(await invoke("repo.task.create", payload, "createTask"));
+    const result = readGuiActionResult(await invoke("repo.task.create", payload));
     if (result.ok && (typeof result.taskId !== "string" || typeof result.packagePath !== "string"))
       throw new Error("Task create receipt omitted taskId or packagePath.");
     return result as TaskCreateGuiReceipt;
   },
   async getTaskWip(payload: RepoScope): Promise<TaskWipRead> {
-    return readTaskWipResult(await invoke("repo.tasks.wip", payload, "getTaskWip"));
+    return readTaskWipResult(await invoke("repo.tasks.wip", payload));
   },
   async getWorkIndex(payload: RepoScope): Promise<WorkIndexRead> {
-    const result = await invoke("repo.works.index", payload, "getWorkIndex");
+    const result = await invoke("repo.works.index", payload);
     if (!result || result.schema !== "daemon.work-index/v1" || result.ok !== true || !Array.isArray(result.works))
       throw new Error(localErrorHint(result, "Work index bridge returned an invalid result."));
     return result;
   },
   async getWorkTopology(payload: RepoScope & { readonly workRootTaskId: string }): Promise<WorkTopologyRead> {
-    const result = await invoke("repo.work.topology.read", payload, "getWorkTopology");
+    const result = await invoke("repo.work.topology.read", payload);
     if (validateDaemonWorkTopology(result).length)
       throw new Error(localErrorHint(result, "Work topology bridge returned an invalid result."));
     return result as WorkTopologyRead;
   },
   /** `repo.works.briefs.read`:每工作根的状态桶、分句与抽屉行,daemon 侧唯一推导。 */
   async getWorkBriefs(payload: RepoScope): Promise<WorkBriefsRead> {
-    const result = await invoke("repo.works.briefs.read", payload, "getWorkBriefs");
+    const result = await invoke("repo.works.briefs.read", payload);
     if (!result || result.schema !== "daemon.work-briefs/v1" || result.ok !== true || !Array.isArray(result.briefs))
       throw new Error(localErrorHint(result, "Work briefs bridge returned an invalid result."));
     return result;
   },
   async getAgenda(payload: RepoScope & { readonly limit?: number; readonly cursor?: string }): Promise<AgendaSuccess> {
-    return readAgendaResult(await invoke("repo.agenda.read", payload, "getAgenda"));
+    return readAgendaResult(await invoke("repo.agenda.read", payload));
   },
   async getSettings(payload: RepoScope): Promise<SettingsSuccess> {
-    return readSettingsResult(await invoke("repo.settings.read", payload, "getSettings"));
+    return readSettingsResult(await invoke("repo.settings.read", payload));
   },
   async updateSettings(payload: SettingsUpdateInput): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.settings.update", payload, "updateSettings"));
+    return readGuiActionResult(await invoke("repo.settings.update", payload));
   },
   async getWorkspaceSummary(payload: RepoScope): Promise<WorkspaceSummarySuccess> {
-    return readWorkspaceSummaryResult(await invoke("repo.workspace.summary.read", payload, "getWorkspaceSummary"));
+    return readWorkspaceSummaryResult(await invoke("repo.workspace.summary.read", payload));
   },
   async getWorkspaceScope(
     payload: RepoScope & { readonly rootTaskId: string; readonly limit?: number; readonly cursor?: string },
   ): Promise<WorkspaceScopeRead> {
-    const result = await invoke("repo.workspace.scope.read", payload, "getWorkspaceScope");
+    const result = await invoke("repo.workspace.scope.read", payload);
     if (!result || result.schema !== "daemon.workspace-scope/v1" || result.ok !== true)
       throw new Error(localErrorHint(result, "Workspace scope bridge returned an invalid result."));
     return result;
@@ -417,44 +417,38 @@ export const harnessClient = {
   async getTaskDocument(
     payload: RepoScope & { readonly taskId: string; readonly path: string },
   ): Promise<TaskDocumentProjectionRead> {
-    return readTaskDocumentResult(await invoke("repo.tasks.document.read", payload, "getTaskDocument"));
+    return readTaskDocumentResult(await invoke("repo.tasks.document.read", payload));
   },
   async getTaskCompletion(payload: RepoScope & { readonly taskId: string }): Promise<TaskCompletionRead> {
-    const result = await invoke("repo.tasks.completion.read", payload, "getTaskCompletion");
+    const result = await invoke("repo.tasks.completion.read", payload);
     if (validateDaemonTaskCompletion(result).length)
       throw new Error(localErrorHint(result, "Task completion bridge returned an invalid result."));
     return result as TaskCompletionRead;
   },
   async getTaskDocuments(payload: RepoScope & { readonly taskId: string }): Promise<TaskDocumentListProjectionRead> {
-    return readTaskDocumentListResult(await invoke("repo.tasks.documents.list", payload, "getTaskDocuments"));
+    return readTaskDocumentListResult(await invoke("repo.tasks.documents.list", payload));
   },
   async getTaskDeliveryDiff(payload: RepoScope & { readonly taskId: string }): Promise<TaskDeliveryDiffRead> {
-    return readTaskDeliveryDiffResult(await invoke("repo.tasks.deliveryDiff.read", payload, "getTaskDeliveryDiff"));
+    return readTaskDeliveryDiffResult(await invoke("repo.tasks.deliveryDiff.read", payload));
   },
   async getTaskDispatches(payload: RepoScope & DaemonTaskDispatchesPayload): Promise<TaskDispatchesRead> {
     return readTaskDispatchesResult(
-      await invoke(
-        "repo.task.dispatches",
-        { ...payload, advisorySurface: payload.advisorySurface ?? "gui.dispatch" },
-        "getTaskDispatches",
-      ),
+      await invoke("repo.task.dispatches", { ...payload, advisorySurface: payload.advisorySurface ?? "gui.dispatch" }),
     );
   },
   async getRelationGraph(payload: RepoScope & RelationQueryFacets): Promise<RelationGraphSuccess> {
-    return readRelationGraphResult(await invoke("repo.triadic.relationGraph", payload, "getRelationGraph"));
+    return readRelationGraphResult(await invoke("repo.triadic.relationGraph", payload));
   },
   async getRelationFacts(payload: RepoScope & RelationFactFacetQuery): Promise<RelationFactFacetSuccess> {
-    return readRelationFactFacetResult(await invoke("repo.triadic.relationGraph", payload, "getRelationGraph"));
+    return readRelationFactFacetResult(await invoke("repo.triadic.relationGraph", payload));
   },
   async getDecisions(
     payload: RepoScope & { readonly state?: Exclude<DecisionState, "unknown"> },
   ): Promise<DecisionListSuccess> {
-    return readDecisionListResult(await invoke("repo.decisions.list", payload, "getDecisions"));
+    return readDecisionListResult(await invoke("repo.decisions.list", payload));
   },
   async getDecisionSummaries(payload: RepoScope): Promise<DecisionSummaryListSuccess> {
-    return readDecisionSummaryListResult(
-      await invoke("repo.decisions.list", { ...payload, projection: "summary" }, "getDecisions"),
-    );
+    return readDecisionSummaryListResult(await invoke("repo.decisions.list", { ...payload, projection: "summary" }));
   },
   async listDecisionControls(
     payload: RepoScope & {
@@ -464,15 +458,15 @@ export const harnessClient = {
       readonly productLine?: string;
     },
   ): Promise<DecisionControlListSuccess> {
-    return readDecisionControlList(await invoke("repo.decision.list", payload, "listDecisions"));
+    return readDecisionControlList(await invoke("repo.decision.list", payload));
   },
   async showDecision(
     payload: RepoScope & { readonly decisionId: string; readonly includeBody?: boolean },
   ): Promise<DecisionShowSuccess> {
-    return readDecisionShowResult(await invoke("repo.decision.show", payload, "showDecision"));
+    return readDecisionShowResult(await invoke("repo.decision.show", payload));
   },
   async proposeDecision(payload: RepoScope & DecisionProposalInput): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.decision.propose", payload, "proposeDecision"));
+    return readGuiActionResult(await invoke("repo.decision.propose", payload));
   },
   async acceptDecision(
     payload: RepoScope & {
@@ -482,7 +476,7 @@ export const harnessClient = {
       readonly expectedDigest?: string;
     },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.decision.accept", payload, "acceptDecision"));
+    return readGuiActionResult(await invoke("repo.decision.accept", payload));
   },
   /** 提案人逐条回应评审意见:与 `ha decision respond-review` 同一动作;回应不解除打回。 */
   async respondDecisionReview(
@@ -497,7 +491,7 @@ export const harnessClient = {
       }>;
     },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.decision.respondReview", payload, "respondDecisionReview"));
+    return readGuiActionResult(await invoke("repo.decision.respondReview", payload));
   },
   /** 业主具名处置当前切面的打回:与 `ha decision override-review` 同一动作,裁决资格由中心判定。 */
   async overrideDecisionReview(
@@ -508,32 +502,32 @@ export const harnessClient = {
       readonly reason: string;
     },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.decision.overrideReview", payload, "overrideDecisionReview"));
+    return readGuiActionResult(await invoke("repo.decision.overrideReview", payload));
   },
   /** 为当前内容切面派一次只读独立评审:同切面重复点击由中心返回既有派工。 */
   async dispatchDecisionReview(
     payload: RepoScope & { readonly decisionId: string; readonly expectedDigest: string },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.decision.dispatchReview", payload, "dispatchDecisionReview"));
+    return readGuiActionResult(await invoke("repo.decision.dispatchReview", payload));
   },
   /** 中心文档正文(`ha doc show` 同一读):评审报告按 reportRef 读取,不读本机同名文件。 */
   async showDocument(payload: RepoScope & { readonly path: string }): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.doc.show", payload, "showDocument"));
+    return readGuiActionResult(await invoke("repo.doc.show", payload));
   },
   async rejectDecision(
     payload: RepoScope & { readonly decisionId: string; readonly reason: string },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.decision.reject", payload, "rejectDecision"));
+    return readGuiActionResult(await invoke("repo.decision.reject", payload));
   },
   async deferDecision(
     payload: RepoScope & { readonly decisionId: string; readonly reason: string },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.decision.defer", payload, "deferDecision"));
+    return readGuiActionResult(await invoke("repo.decision.defer", payload));
   },
   async startTask(
     payload: RepoScope & { readonly taskId: string; readonly executionId: string },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.task.start", payload, "startTask"));
+    return readGuiActionResult(await invoke("repo.task.start", payload));
   },
   async appendTaskProgress(
     payload: RepoScope & {
@@ -544,7 +538,7 @@ export const harnessClient = {
       readonly baseDocumentSha256?: string | null;
     },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.task.progress.append", payload, "appendTaskProgress"));
+    return readGuiActionResult(await invoke("repo.task.progress.append", payload));
   },
   async submitTask(
     payload: RepoScope & {
@@ -553,19 +547,19 @@ export const harnessClient = {
       readonly amend?: boolean;
     },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.task.submit", payload, "submitTask"));
+    return readGuiActionResult(await invoke("repo.task.submit", payload));
   },
   /** 收口销账的唯一 GUI 写通道:纯机械动作;评审裁决与同意是各自的显式动作。 */
   async completeTask(
     payload: RepoScope & { readonly taskId: string; readonly executionId?: string },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.task.complete", payload, "completeTask"));
+    return readGuiActionResult(await invoke("repo.task.complete", payload));
   },
   /** CEO 终审批准:与 `ha task review-consent` 同一条 daemon 动作。 */
   async consentReview(
     payload: RepoScope & { readonly taskId: string; readonly executionId: string; readonly reviewId: string },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.task.consent", payload, "consentReview"));
+    return readGuiActionResult(await invoke("repo.task.consent", payload));
   },
   /** 台账 pin 的唯一 GUI 写通道:daemon 侧就是 `ha task pin` 的 pinned-only amend。 */
   async assignTask(
@@ -578,27 +572,27 @@ export const harnessClient = {
       readonly expiresAt?: string;
     },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.task.assign", payload, "assignTask"));
+    return readGuiActionResult(await invoke("repo.task.assign", payload));
   },
   async unassignTask(
     payload: RepoScope & { readonly taskId: string; readonly expectedVersion: number },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.task.unassign", payload, "unassignTask"));
+    return readGuiActionResult(await invoke("repo.task.unassign", payload));
   },
   async pinTask(payload: RepoScope & { readonly taskId: string }): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.task.pin", payload, "pinTask"));
+    return readGuiActionResult(await invoke("repo.task.pin", payload));
   },
   async unpinTask(payload: RepoScope & { readonly taskId: string }): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.task.unpin", payload, "unpinTask"));
+    return readGuiActionResult(await invoke("repo.task.unpin", payload));
   },
   async unpinEntity(payload: RepoScope & { readonly entityRef: string }): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.entity.unpin", payload, "unpinEntity"));
+    return readGuiActionResult(await invoke("repo.entity.unpin", payload));
   },
   /** 答复 awaits 的唯一 GUI 写通道:与 `ha relation unrelate` 同一条 relation-unrelate 动作,答复即 retire 理由。 */
   async retireRelation(
     payload: RepoScope & { readonly relationId: string; readonly reason: string; readonly expectedVersion: number },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.relation.unrelate", payload, "retireRelation"));
+    return readGuiActionResult(await invoke("repo.relation.unrelate", payload));
   },
   /**
    * Gate 签发的唯一 GUI 写通道:正式 facet `repo.task.attest`(bridge `taskAttest`),
@@ -623,22 +617,22 @@ export const harnessClient = {
       mode === "override"
         ? { repoId, taskId, gateId, result: "pass" as const, mode, ...(rationale ? { rationale } : {}) }
         : { repoId, taskId, gateId, result: "pass" as const, ...(note ? { note } : {}) };
-    return readGuiActionResult(await invoke("repo.task.attest", request, "taskAttest"));
+    return readGuiActionResult(await invoke("repo.task.attest", request));
   },
   /** 只读的 canonical receipt 查询,不是重放。 */
   async showReceipt(payload: RepoScope & { readonly opId: string }): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.receipt.show", payload, "showReceipt"));
+    return readGuiActionResult(await invoke("repo.receipt.show", payload));
   },
   async getCatalogSnapshot(payload: RepoScope): Promise<CatalogSnapshotSuccess> {
-    return readCatalogSnapshot(await invoke("repo.gui.catalog.snapshot", payload, "getCatalogSnapshot"));
+    return readCatalogSnapshot(await invoke("repo.gui.catalog.snapshot", payload));
   },
   async getCatalogPreset(
     payload: RepoScope & { readonly presetId: string; readonly profileId?: string; readonly locale?: string },
   ): Promise<CatalogPresetSuccess> {
-    return readCatalogPreset(await invoke("repo.gui.catalog.preset.read", payload, "getCatalogPreset"));
+    return readCatalogPreset(await invoke("repo.gui.catalog.preset.read", payload));
   },
   async rereadCatalog(payload: RepoScope): Promise<CatalogRereadReceipt> {
-    return readCatalogRereadReceipt(await invoke("repo.gui.catalog.reread", payload, "rereadCatalog"));
+    return readCatalogRereadReceipt(await invoke("repo.gui.catalog.reread", payload));
   },
 };
 

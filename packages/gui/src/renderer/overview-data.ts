@@ -8,7 +8,6 @@ import { agentRuntimeClient, pollSessionEventsOnce, runtimeQueryKeys } from "./a
 import { cadenceEventOf, type CadenceFeedEvent } from "./model/cadence.ts";
 import { observeTailRequest } from "./daemon-observe-model.ts";
 import { AGENT_LANES_ACTIVE_AGENTS, AGENT_LANES_MEMBER_PAGE, AGENT_LANES_WINDOW_MS } from "./views/overview-model.ts";
-import { QUERY_PACING_MS } from "./query-pacing.ts";
 import { sessionEventTimeline } from "./sessions-model.ts";
 import type { TaskDispatchProjectionRow } from "../api/renderer-dto.ts";
 
@@ -176,9 +175,6 @@ export function useOverviewSessionTouches(
       queryKey: runtimeQueryKeys.events(repoId, runtimeSessionId),
       queryFn: () => pollSessionEventsOnce(queryClient, repoId, runtimeSessionId),
       staleTime: 4_000,
-      // 缓存触达/状态推进发生在派工流里,不一定推台账 cut:挂载期低频自持节拍(与
-      // tokenUsage 同档),离开总览即停。
-      refetchInterval: QUERY_PACING_MS.tokenUsage,
     })),
   });
   return useMemo(() => {

@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: integration
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -132,8 +133,21 @@ describe("terminal renderer control", () => {
         state: "running",
         error: null,
       },
-      request = vi.fn(async () => receipt);
-    vi.stubGlobal("window", { harness: { request, attachTerminal: vi.fn() } });
+      request = vi.fn(async (_method: string, _params: object) => receipt);
+    vi.stubGlobal("window", {
+      harness: mockRpcBridge(
+        { request, attachTerminal: vi.fn() },
+        {
+          "repo.terminal.sessions.list": "listTerminalSessions",
+          "repo.terminal.spawn": "spawnTerminal",
+          "repo.terminal.input": "sendTerminalInput",
+          "repo.terminal.resize": "resizeTerminal",
+          "repo.terminal.detach": "detachTerminal",
+          "repo.terminal.terminate": "terminateTerminal",
+          "repo.terminal.attach": "attachTerminal",
+        },
+      ),
+    });
     await terminalClient.spawn("repo-a", {
       idempotencyKey: "terminal-gui-a",
       backend: "tmux",
@@ -142,29 +156,31 @@ describe("terminal renderer control", () => {
       shellProfileId: "zsh",
       taskId: "TASK-9",
     });
-    expect(request).toHaveBeenCalledWith("spawnTerminal", {
-      repoId: "repo-a",
-      idempotencyKey: "terminal-gui-a",
-      backend: "tmux",
-      name: "Build",
-      cwd: { scope: "repo-relative", path: "packages/gui" },
-      shellProfileId: "zsh",
-      taskId: "TASK-9",
+    expect(request).toHaveBeenCalledWith("repo.terminal.spawn", {
+      repo: { repoId: "repo-a" },
+      payload: {
+        idempotencyKey: "terminal-gui-a",
+        backend: "tmux",
+        name: "Build",
+        cwd: { scope: "repo-relative", path: "packages/gui" },
+        shellProfileId: "zsh",
+        taskId: "TASK-9",
+      },
     });
     expect(JSON.stringify(request.mock.calls[0]?.[1])).not.toMatch(/secret|token|password|env/iu);
   });
 
   it("routes every terminal method through the generic request transport", async () => {
     const receipts: Record<string, unknown> = {
-        listTerminalSessions: {
+        "repo.terminal.sessions.list": {
           schema: "terminal-session-list/v1",
           ok: true,
           repoId: "repo-a",
           daemonGeneration: 7,
           sessions: [],
         },
-        sendTerminalInput: { schema: "terminal-input-ack/v1", ok: true, acceptedThrough: 4 },
-        detachTerminal: { schema: "terminal-detach-ack/v1", ok: true, state: "detached" },
+        "repo.terminal.input": { schema: "terminal-input-ack/v1", ok: true, acceptedThrough: 4 },
+        "repo.terminal.detach": { schema: "terminal-detach-ack/v1", ok: true, state: "detached" },
       },
       controlReceipt = {
         schema: "terminal-control-receipt/v1",
@@ -176,19 +192,44 @@ describe("terminal renderer control", () => {
         state: "running",
         error: null,
       },
-      request = vi.fn(async (method: string) => receipts[method] ?? controlReceipt);
-    vi.stubGlobal("window", { harness: { request, attachTerminal: vi.fn() } });
+      request = vi.fn(async (method: string, _params: object) => receipts[method] ?? controlReceipt);
+    vi.stubGlobal("window", {
+      harness: mockRpcBridge(
+        { request, attachTerminal: vi.fn() },
+        {
+          "repo.terminal.sessions.list": "listTerminalSessions",
+          "repo.terminal.spawn": "spawnTerminal",
+          "repo.terminal.input": "sendTerminalInput",
+          "repo.terminal.resize": "resizeTerminal",
+          "repo.terminal.detach": "detachTerminal",
+          "repo.terminal.terminate": "terminateTerminal",
+          "repo.terminal.attach": "attachTerminal",
+        },
+      ),
+    });
     await terminalClient.list("repo-a");
     await terminalClient.input("repo-a", "terminal-a", 4, "ls\n");
     await terminalClient.resize("repo-a", "terminal-a", 120, 40);
     await terminalClient.detach("repo-a", "terminal-a", "attach-a");
     await terminalClient.terminate("repo-a", "terminal-a", true);
     expect(request.mock.calls.map(([method, payload]) => [method, payload])).toEqual([
-      ["listTerminalSessions", { repoId: "repo-a" }],
-      ["sendTerminalInput", { repoId: "repo-a", sessionId: "terminal-a", clientSeq: 4, utf8: "ls\n" }],
-      ["resizeTerminal", { repoId: "repo-a", sessionId: "terminal-a", cols: 120, rows: 40 }],
-      ["detachTerminal", { repoId: "repo-a", sessionId: "terminal-a", attachmentId: "attach-a" }],
-      ["terminateTerminal", { repoId: "repo-a", sessionId: "terminal-a", confirmed: true }],
+      ["repo.terminal.sessions.list", { repo: { repoId: "repo-a" } }],
+      [
+        "repo.terminal.input",
+        { repo: { repoId: "repo-a" }, payload: { sessionId: "terminal-a", clientSeq: 4, utf8: "ls\n" } },
+      ],
+      [
+        "repo.terminal.resize",
+        { repo: { repoId: "repo-a" }, payload: { sessionId: "terminal-a", cols: 120, rows: 40 } },
+      ],
+      [
+        "repo.terminal.detach",
+        { repo: { repoId: "repo-a" }, payload: { sessionId: "terminal-a", attachmentId: "attach-a" } },
+      ],
+      [
+        "repo.terminal.terminate",
+        { repo: { repoId: "repo-a" }, payload: { sessionId: "terminal-a", confirmed: true } },
+      ],
     ]);
   });
 

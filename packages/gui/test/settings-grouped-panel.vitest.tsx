@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 // 设置页仓库面板的分组呈现:分组与逐项解释从 daemon catalog snapshot 的呈现元数据
@@ -152,36 +153,39 @@ async function mountView(values: Record<string, unknown> = {}): Promise<HTMLElem
     }));
   Object.defineProperty(window, "harness", {
     configurable: true,
-    value: {
-      updateSettings,
-      getSettings: async () => ({
-        schema: "daemon.settings-read/v1",
-        ok: true,
-        settings: SETTINGS,
-        values: merged,
-        revision: 1,
-        lastChanged: "initial",
-        decisionPoints: [
-          {
-            pointId: "dispatch-stop-reason",
-            bindingDigest: "b".repeat(64),
-            bindingKey: "dispatch-stop-reason@bbbbbbbbbbbb",
-            on: "dispatch.settled",
-            revision: "1",
-            question: {
-              version: "pilot2-choice-v2",
-              type: "choice",
-              prompt: "Classify the settlement",
-              options: [],
-              criteria: {},
+    value: mockRpcBridge(
+      {
+        updateSettings,
+        getSettings: async () => ({
+          schema: "daemon.settings-read/v1",
+          ok: true,
+          settings: SETTINGS,
+          values: merged,
+          revision: 1,
+          lastChanged: "initial",
+          decisionPoints: [
+            {
+              pointId: "dispatch-stop-reason",
+              bindingDigest: "b".repeat(64),
+              bindingKey: "dispatch-stop-reason@bbbbbbbbbbbb",
+              on: "dispatch.settled",
+              revision: "1",
+              question: {
+                version: "pilot2-choice-v2",
+                type: "choice",
+                prompt: "Classify the settlement",
+                options: [],
+                criteria: {},
+              },
+              when: { outcome: ["stopped"] },
+              input: [{ field: "report.body", maxLength: 2000, redactionRevision: "report-summary-v1" }],
+              projectionSample: "report: Synthetic report [LOCAL_PATH]",
             },
-            when: { outcome: ["stopped"] },
-            input: [{ field: "report.body", maxLength: 2000, redactionRevision: "report-summary-v1" }],
-            projectionSample: "report: Synthetic report [LOCAL_PATH]",
-          },
-        ],
-      }),
-    },
+          ],
+        }),
+      },
+      { "repo.settings.read": "getSettings", "repo.settings.update": "updateSettings" },
+    ),
   });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   client.setQueryData(settingsQueryKeys.read(REPO_ID), {

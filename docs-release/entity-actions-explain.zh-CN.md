@@ -133,6 +133,6 @@ object explain 当前覆盖 `task`、`person` 和 `squad`。artifact kind 可在
 [`entity-action-explanation.ts`](../packages/kernel/src/domain/entity-action-explanation.ts)、
 [`task-action-explanation-read.ts`](../packages/daemon/src/daemon-host/task-action-explanation-read.ts)
 和协议描述符
-[`daemon-protocol-gui-reads.ts`](../packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-reads.ts)。
+[`daemon-protocol-read-routes.ts`](../packages/daemon/src/daemon-host/protocol/daemon-protocol-read-routes.ts)。
 合同测试为
 [`entity-action-explain-contract.integration.test.ts`](../packages/daemon/test/entity-action-explain-contract.integration.test.ts)。

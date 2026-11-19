@@ -11,7 +11,7 @@ import {
 import { canonicalResourceAncestors, evaluateKeycloakPerson } from "./repo-cell-authorization.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
-import type { TaskClaimableResult } from "./protocol/daemon-protocol-gui-types.ts";
+import type { TaskClaimableResult } from "./protocol/daemon-protocol-results.ts";
 
 /** A fresh eligibility hint. Starting still re-evaluates permission, assignment and the canonical lease. */
 export async function readClaimableTasks(input: {

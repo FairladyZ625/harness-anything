@@ -3,7 +3,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { RelationGraphSuccess } from "../src/renderer/api-client.ts";
 import { readCompleteRelationGraph, readEntityRelationGraph } from "../src/renderer/triadic-data.ts";
-import { assertPreloadPayload } from "../src/preload/allowlist.ts";
+import { assertRendererRpc } from "../src/preload/allowlist.ts";
 import {
   parseDaemonRpcParams,
   validateDaemonRelationGraph,
@@ -39,14 +39,15 @@ describe("关系图按界限读取", () => {
     const calls: { repoId: string; limit: number; cursor?: string }[] = [];
     vi.stubGlobal("window", {
       harness: {
-        request: async (method: string, payload: { repoId: string; limit: number; cursor?: string }) => {
-          expect(method).toBe("getRelationGraph");
-          assertPreloadPayload(method, payload);
-          const { repoId, ...query } = payload;
-          expect(parseDaemonRpcParams("repo.triadic.relationGraph", { repo: { repoId }, payload: query }).ok).toBe(
-            true,
-          );
-          calls.push(payload);
+        request: async (
+          method: string,
+          params: { repo: { repoId: string }; payload: { limit: number; cursor?: string } },
+        ) => {
+          expect(method).toBe("repo.triadic.relationGraph");
+          assertRendererRpc(method, params);
+          expect(parseDaemonRpcParams(method, params).ok).toBe(true);
+          const { repo, payload: query } = params;
+          calls.push({ ...repo, ...query });
           const offset = Number(query.cursor ?? 0),
             end = Math.min(offset + query.limit, 27_837),
             result = {

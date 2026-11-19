@@ -96,8 +96,8 @@ export type TranscriptTurnStatus = (typeof transcriptTurnStatusWords)[number];
 export const startWorkPreconditionStateWords = ["ok", "blocked", "unknown"] as const;
 export type StartWorkPreconditionState = (typeof startWorkPreconditionStateWords)[number];
 
-export const terminalAttachStatusWords = ["attached", "gap"] as const;
-export type TerminalAttachStatus = (typeof terminalAttachStatusWords)[number];
+export const streamAttachStatusWords = ["attached", "gap"] as const;
+export type StreamAttachStatus = (typeof streamAttachStatusWords)[number];
 
 export const terminalTabStateWords = ["running", "exited", "unknown"] as const;
 export type TerminalTabState = (typeof terminalTabStateWords)[number];

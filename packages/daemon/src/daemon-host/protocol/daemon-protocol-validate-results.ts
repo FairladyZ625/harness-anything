@@ -1,7 +1,7 @@
 import { validateReceiptAcceptance } from "@harness-anything/kernel/internal/domain/receipt-acceptance.ts";
 import type { SquadControlResult } from "../squad-control-result.ts";
-import { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
-import { validateObserveTailResult, type DaemonProtocolErrorResult } from "./daemon-protocol-gui-types.ts";
+import { daemonActionRoutes } from "./daemon-protocol-action-routes.ts";
+import { validateObserveTailResult, type DaemonProtocolErrorResult } from "./daemon-protocol-results.ts";
 import { DaemonProtocolContractError } from "./json-rpc-types.ts";
 import {
   DAEMON_DOCUMENT_READ_SCHEMA,
@@ -709,7 +709,7 @@ export function validateDaemonGuiCommandReceipt(value: unknown): readonly string
   else if (value.ok !== ok) errors.push(validationError(entityId, "ok", value.ok, `must be ${ok}`));
   else if (!nonEmpty(value.command))
     errors.push(validationError(entityId, "command", value.command, "must be a non-empty string"));
-  else if (!daemonGuiActionMethods.some(({ actionKind }) => actionKind === value.command))
+  else if (!daemonActionRoutes.some(({ actionKind }) => actionKind === value.command))
     errors.push(validationError(entityId, "command", value.command, "must name a declared GUI action"));
   else errors.push(...writeReceipt(receipt));
   if (

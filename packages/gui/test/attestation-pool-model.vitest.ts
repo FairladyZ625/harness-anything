@@ -329,16 +329,14 @@ describe("taskAttest protocol wiring", () => {
     });
   });
 
-  it("omits mode and empty note for a bare approve and rides the registered taskAttest bridge method", async () => {
+  it("omits mode and empty note for a bare approve through the registered action", async () => {
     const request = vi.fn(async (_method: unknown, _payload: unknown) => appliedReceipt);
     vi.stubGlobal("window", { harness: { request } });
     await harnessClient.taskAttest({ repoId: "repo-a", taskId: "task-1", gateId: "ux-signoff", mode: "approve" });
-    expect(request.mock.calls[0]![0]).toBe("taskAttest");
+    expect(request.mock.calls[0]![0]).toBe("repo.task.attest");
     expect(request.mock.calls[0]![1]).toEqual({
-      repoId: "repo-a",
-      taskId: "task-1",
-      gateId: "ux-signoff",
-      result: "pass",
+      repo: { repoId: "repo-a" },
+      payload: { taskId: "task-1", gateId: "ux-signoff", result: "pass" },
     });
   });
 });

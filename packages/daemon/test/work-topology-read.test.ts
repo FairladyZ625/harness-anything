@@ -4,9 +4,9 @@ import assert from "node:assert/strict";
 import type { TaskIndexProjectionRow, TaskRelationProjectionRow, TaskProjection } from "@harness-anything/kernel";
 import { workTopologyFromProjection } from "@harness-anything/application/queries";
 import {
-  parseDaemonGuiReadResult,
+  parseDaemonReadResult,
   validateDaemonWorkTopology,
-} from "../src/daemon-host/protocol/gui-result-validation.ts";
+} from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import { daemonGuiReadSchemas } from "../src/daemon-host/protocol/daemon-protocol-schema-registry.ts";
 import { validateDaemonRpcCall } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 
@@ -155,7 +155,7 @@ test("reads the full subtree and direct dependency boundary from one cut; derive
   assert.deepEqual(read.criticalPath, ["member", "root"]);
   assert.equal(read.members.find(({ taskId }) => taskId === "root")?.topologyState, "in-flight");
   assert.deepEqual(validateDaemonWorkTopology(read), []);
-  assert.deepEqual(parseDaemonGuiReadResult("repo.work.topology.read", read), read);
+  assert.deepEqual(parseDaemonReadResult("repo.work.topology.read", read), read);
 });
 
 test("marks a work partial when a bounded read crosses projection cuts", () => {
@@ -221,7 +221,7 @@ test("invalid work topology result shape fails protocol validation", () => {
     members: [{ taskId: 1 }],
   };
   assert.notDeepEqual(validateDaemonWorkTopology(invalid), []);
-  assert.throws(() => parseDaemonGuiReadResult("repo.work.topology.read", invalid), /work-topology/u);
+  assert.throws(() => parseDaemonReadResult("repo.work.topology.read", invalid), /work-topology/u);
 });
 
 test("topology read protocol registers its result contract and validates only the root id payload", () => {

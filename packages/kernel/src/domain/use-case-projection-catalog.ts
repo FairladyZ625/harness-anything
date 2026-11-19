@@ -10,7 +10,7 @@ import type { RelationType } from "./entity-relation.ts";
  *
  * CH2 is the negative criterion this file is written against: an entry declares only what is
  * projected and who consumes it. Transport truth — method, path, commandClass, auth, lease — stays
- * solely in the daemon's `daemonGuiReadMethods`, and `useCaseProjectionEntryKeys` below is asserted
+ * solely in the daemon's `daemonReadRoutes`, and `useCaseProjectionEntryKeys` below is asserted
  * by contract test so a transport dimension cannot be added here without turning that test red.
  *
  * `entityKinds` is the only input a definition spells out. Relation types are never hand-listed:

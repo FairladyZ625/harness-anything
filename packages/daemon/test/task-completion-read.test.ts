@@ -9,7 +9,7 @@ import {
 } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { readTaskCompletion } from "../src/daemon-host/task-completion-read.ts";
-import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import { readyCut } from "./task-query-read.fixtures.ts";
 
 test("single-task completion read carries the canonical next and validates its read cut", () => {
@@ -73,10 +73,10 @@ test("single-task completion read carries the canonical next and validates its r
     canonical.blocker === null ? null : { code: canonical.blocker.code, gate: canonical.blocker.gate },
   );
   assert.equal(result.completionNext?.action, `ha task start ${taskId}`);
-  assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.completion.read", result), result);
+  assert.deepEqual(parseDaemonReadResult("repo.tasks.completion.read", result), result);
   assert.throws(
     () =>
-      parseDaemonGuiReadResult("repo.tasks.completion.read", {
+      parseDaemonReadResult("repo.tasks.completion.read", {
         ...result,
         completionNext: { ...result.completionNext, readCut: { revision: "wrong" } },
       }),
@@ -84,19 +84,19 @@ test("single-task completion read carries the canonical next and validates its r
   );
   assert.throws(
     () =>
-      parseDaemonGuiReadResult("repo.tasks.completion.read", {
+      parseDaemonReadResult("repo.tasks.completion.read", {
         ...result,
         completionBlocker: { code: "review_pending" },
       }),
     /completionBlocker/,
   );
   assert.throws(
-    () => parseDaemonGuiReadResult("repo.tasks.completion.read", { ...result, completionNext: null }),
+    () => parseDaemonReadResult("repo.tasks.completion.read", { ...result, completionNext: null }),
     /completionBlocker/,
   );
-  assert.throws(() => parseDaemonGuiReadResult("repo.tasks.completion.read", { ok: true, taskId }));
+  assert.throws(() => parseDaemonReadResult("repo.tasks.completion.read", { ok: true, taskId }));
   assert.deepEqual(
-    parseDaemonGuiReadResult("repo.tasks.completion.read", {
+    parseDaemonReadResult("repo.tasks.completion.read", {
       ok: true,
       taskId,
       completionNext: null,
@@ -106,10 +106,10 @@ test("single-task completion read carries the canonical next and validates its r
     { ok: true, taskId, completionNext: null, completionBlocker: null, factRetirement: null },
   );
   const legacy = { ok: true, taskId, completionNext: null, completionBlocker: null };
-  assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.completion.read", legacy), legacy);
+  assert.deepEqual(parseDaemonReadResult("repo.tasks.completion.read", legacy), legacy);
   assert.throws(
     () =>
-      parseDaemonGuiReadResult("repo.tasks.completion.read", {
+      parseDaemonReadResult("repo.tasks.completion.read", {
         ...legacy,
         factRetirement: { undischarged: [{ factRef: 1 }] },
       }),
@@ -158,5 +158,5 @@ test("a ready submitted low-risk cut exposes ha task complete instead of a null 
   assert.equal(result.completionBlocker, null);
   assert.equal(result.completionNext?.action, `ha task complete ${taskId}`);
   assert.match(result.completionNext?.reason ?? "", /lifted independent review and consent/u);
-  assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.completion.read", result), result);
+  assert.deepEqual(parseDaemonReadResult("repo.tasks.completion.read", result), result);
 });

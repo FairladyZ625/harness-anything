@@ -905,7 +905,7 @@ test("a successful steer receipt survives the GUI write exit instead of reportin
       },
       receipt = await steerRuntime(context as never, { dispatchId, prompt: "Also cover the timeout." }, binding),
       // `repo.agentRuntime.steer` answers through its own RPC branch: the receipt goes straight to
-      // parseDaemonGuiActionResult, with no makeDaemonCommandReceipt to recompute `ok`. That is why
+      // parseDaemonActionResult, with no makeDaemonCommandReceipt to recompute `ok`. That is why
       // the reported failure shows actual=true — the acceptance step had already turned the outcome
       // indeterminate while `ok` stayed true. A store without a command outcome is production's
       // state: a steer appends to the dispatch stream and never to the ledger.

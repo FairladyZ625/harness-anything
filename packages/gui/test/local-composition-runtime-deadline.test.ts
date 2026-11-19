@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -158,7 +159,9 @@ test("a raised local gui.requestTimeoutMs governs the default read deadline, not
   t.mock.timers.enable({ apis: ["setTimeout"] });
   // Repository-scoped reads use the selected repo's settings file, so the deadline is read
   // from the repository the request names rather than from a process-startup root.
-  const pending = Promise.resolve(createLocalGuiServiceBridge().invoke("getTasks", { repoId: daemonId }));
+  const pending = Promise.resolve(
+    createLocalGuiServiceBridge().invoke("repo.tasks.list", scopedRpcParams("repo.tasks.list", { repoId: daemonId })),
+  );
   await arrived;
   // The old built-in 30s deadline passes without settling the request.
   t.mock.timers.tick(30_000);

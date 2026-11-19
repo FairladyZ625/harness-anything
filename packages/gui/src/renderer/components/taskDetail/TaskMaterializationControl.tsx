@@ -23,7 +23,7 @@ export function TaskMaterializationControl({ repoId, taskId }: { readonly repoId
     materialize = useMutation({
       mutationFn: async () => {
         const request = { repoId, taskId },
-          receipt = readGuiActionResult(await invoke("repo.task.materialize", request, "materializeTask"));
+          receipt = readGuiActionResult(await invoke("repo.task.materialize", request));
         if (!receipt.ok) throw new Error(localErrorHint(receipt, "Task materialization failed."));
         return receipt;
       },
@@ -34,17 +34,13 @@ export function TaskMaterializationControl({ repoId, taskId }: { readonly repoId
     availability = useQuery({
       queryKey: ["entity-actions", repoId, taskId],
       queryFn: async () => {
-        const result = await invoke(
-          "repo.entity.actions.explain",
-          {
-            repoId,
-            schema: "entity-action-explain-request/v1",
-            mode: "object",
-            entityKind: null,
-            refs: [`task/${taskId}`],
-          },
-          "explainEntityActions",
-        );
+        const result = await invoke("repo.entity.actions.explain", {
+          repoId,
+          schema: "entity-action-explain-request/v1",
+          mode: "object",
+          entityKind: null,
+          refs: [`task/${taskId}`],
+        });
         if (!("subjects" in result)) throw daemonBridgeError(result, "Task action availability failed.");
         return result;
       },

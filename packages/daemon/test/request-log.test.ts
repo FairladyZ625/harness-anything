@@ -32,7 +32,7 @@ import {
 } from "../src/daemon-host/lifecycle-log.ts";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
-import { observeTailKinds } from "../src/daemon-host/protocol/daemon-protocol-gui-types.ts";
+import { observeTailKinds } from "../src/daemon-host/protocol/daemon-protocol-results.ts";
 import {
   daemonRequestLogPath,
   openDaemonRequestLog,

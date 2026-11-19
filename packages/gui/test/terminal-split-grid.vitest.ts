@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -95,7 +96,15 @@ function stubBridge(initial: readonly Row[]) {
     detachTerminal: vi.fn(async () => ({ schema: "terminal-detach-ack/v1", ok: true, state: "detached" })),
     terminateTerminal: vi.fn(async () => controlReceipt("s-restore")),
   };
-  (window as unknown as Record<string, unknown>).harness = bridge;
+  (window as unknown as Record<string, unknown>).harness = mockRpcBridge(bridge, {
+    "repo.terminal.sessions.list": "listTerminalSessions",
+    "repo.terminal.spawn": "spawnTerminal",
+    "repo.terminal.input": "sendTerminalInput",
+    "repo.terminal.resize": "resizeTerminal",
+    "repo.terminal.detach": "detachTerminal",
+    "repo.terminal.terminate": "terminateTerminal",
+    "repo.terminal.attach": "attachTerminal",
+  });
   return { bridge, stops };
 }
 function controlReceipt(sessionId: string): Row {

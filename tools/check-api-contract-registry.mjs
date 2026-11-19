@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
@@ -31,7 +31,6 @@ const expectedMethods = Object.freeze([
   { method: "daemon.connection.probe", requiresRepo: false },
   { method: "repo.task.run", requiresRepo: true },
   { method: "repo.task.witness.run", requiresRepo: true },
-  { method: "repo.agentRuntime.steer", requiresRepo: true },
   { method: "repo.task.read", requiresRepo: true },
 ]);
 // The fleet channel is part of the same closed RPC surface: every daemon-side
@@ -59,7 +58,7 @@ const transportAuthorityMarker = "@daemon-transport-authority";
 export function evaluateApiContractRegistry(root = process.cwd()) {
   const violations = [];
   const registryPath = "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts";
-  const runtimeActionsPath = "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-actions.ts";
+  const runtimeActionsPath = "packages/daemon/src/daemon-host/protocol/daemon-protocol-action-routes.ts";
   const serverPath = "packages/daemon/src/daemon-host/protocol/json-rpc-server.ts";
   const hostPath = "packages/daemon/src/daemon-host/daemon-host.ts";
   const authPath = "packages/daemon/src/daemon-host/transport/auth-context.ts";
@@ -86,28 +85,26 @@ export function evaluateApiContractRegistry(root = process.cwd()) {
       violations.push(`${registryPath}: retired GUI/API capability authority must not feed the W3 daemon protocol`);
     }
   }
-  if (runtimeActions) {
-    // W3-T1(dec_C0AF8CBBFFECF71F4F34FB76F9 CH2/CH4)恢复 steer 的 GUI facet:AgentSteering
-    // 的运行中追加指令必须走统一 runtime 写通道。这里把 2026-10-14 的「steer 不进 GUI 面」
-    // 反转为「恰好一个 steer facet + 对应 bridge method」,防止重复注册或无回执的平行通道。
-    const steerGuiFacets = [...runtimeActions.matchAll(/guiS3Action\(\s*"agentRuntime\.steer"/gu)].length;
-    if (steerGuiFacets !== 1)
-      violations.push(
-        `${runtimeActionsPath}: runtime steer must be registered exactly once as a GUI facet; found ${steerGuiFacets}`,
-      );
-    if (steerGuiFacets === 1 && !runtimeActions.includes('"steerAgentRuntime"'))
-      violations.push(`${runtimeActionsPath}: runtime steer GUI facet must carry the steerAgentRuntime bridge method`);
-  }
-  if (registry) {
-    const steerEntries = [...registry.matchAll(/method:\s*"repo\.agentRuntime\.steer"/gu)].length;
-    if (steerEntries !== 1)
-      violations.push(
-        `${registryPath}: repo.agentRuntime.steer must have exactly one registered method; found ${steerEntries}`,
-      );
-    const hasOwnerTarget =
-      registry.includes('runtimeSessionId: "string?"') && registry.includes('dispatchId: "string?"');
-    if (!hasOwnerTarget || !registry.includes('prompt: "string"'))
-      violations.push(`${registryPath}: runtime steer contract must bind one owner target and a prompt`);
+  // dec_89D06D7360CBEC09795F7B12EC/CH3: runtime steer has one contracted codec for every client.
+  if (runtimeActions && registry) {
+    const steer = [
+      ...runtimeActions.matchAll(
+        /actionRpc\(\s*"agentRuntime\.steer"\s*,\s*"repo\.agentRuntime\.steer"[\s\S]*?shape\(\{([^}]+)\}/gu,
+      ),
+    ];
+    const duplicate = /method:\s*"repo\.agentRuntime\.steer"/u.test(registry);
+    if (steer.length !== 1 || duplicate)
+      violations.push(`${runtimeActionsPath}: repo.agentRuntime.steer must have exactly one registered method`);
+    if (
+      !steer[0] ||
+      !['runtimeSessionId: "string?"', 'dispatchId: "string?"', 'prompt: "string"'].every((field) =>
+        steer[0][1].includes(field),
+      )
+    )
+      violations.push(`${runtimeActionsPath}: runtime steer contract must bind one owner target and a prompt`);
+    const directory = path.dirname(registryPath);
+    const shadows = readdirSync(path.join(root, directory)).filter((name) => /gui/iu.test(name));
+    for (const name of shadows) violations.push(`${directory}/${name}: retired GUI protocol shadow is present`);
   }
   if (server) {
     for (const token of [
@@ -471,8 +468,38 @@ function read(root, relativePath, violations) {
   return readFileSync(absolute, "utf8");
 }
 
-function main() {
+export const actionExecutionProjectionPath = "packages/kernel/src/domain/action-execution-class.generated.ts";
+
+export function renderActionExecutionProjection(declarations, artifactKinds) {
+  const classes = new Map(declarations.map(({ kind, executionClass }) => [kind, executionClass]));
+  for (const kind of artifactKinds) classes.set(kind, "repo-write");
+  return [
+    "// Generated from Kernel ActionDeclaration by renderActionExecutionProjection.",
+    'import type { ActionExecutionClass } from "./action-declaration.ts";',
+    "",
+    "export const actionExecutionClasses: Readonly<Record<string, ActionExecutionClass>> = Object.freeze(",
+    "  Object.fromEntries<ActionExecutionClass>([",
+    ...[...classes.keys()].sort().map((kind) => `    [${JSON.stringify(kind)}, ${JSON.stringify(classes.get(kind))}],`),
+    "  ]),",
+    ");",
+    "",
+  ].join("\n");
+}
+
+export function actionExecutionProjectionDrift(content, declarations, artifactKinds) {
+  return content === renderActionExecutionProjection(declarations, artifactKinds)
+    ? []
+    : [`${actionExecutionProjectionPath}: generated execution classes differ from Kernel ActionDeclaration`];
+}
+
+async function main() {
   const violations = evaluateApiContractRegistry();
+  // dec_89D06D7360CBEC09795F7B12EC/CH3. The thin CLI imports this checked projection without loading the action domain.
+  const { actionDeclarations, artifactActionIngressKinds } = await import(
+    "../packages/kernel/src/domain/action-declaration.ts"
+  );
+  const projection = read(process.cwd(), actionExecutionProjectionPath, violations);
+  violations.push(...actionExecutionProjectionDrift(projection, actionDeclarations, artifactActionIngressKinds));
   if (violations.length > 0) {
     console.error("API contract registry check failed:");
     for (const violation of violations) console.error(`- ${violation}`);
@@ -482,4 +509,4 @@ function main() {
       "API contract registry check passed: the exact W3 daemon RPC catalog is transport-bound and capability-fallback free.",
     );
 }
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) main();
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) await main();

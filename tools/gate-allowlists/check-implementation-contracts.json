@@ -339,9 +339,9 @@
         "reason": "GUI bridge must expose a governed preload API surface."
       },
       {
-        "value": "allowedPreloadApi",
-        "ref": "ADR-0022#D6",
-        "reason": "GUI bridge must expose a governed preload allowlist."
+        "value": "assertRendererRpc",
+        "ref": "dec_89D06D7360CBEC09795F7B12EC/CH3",
+        "reason": "The generic IPC channel must admit renderer calls through the canonical protocol before forwarding."
       },
       {
         "value": "sanitizeMarkdownHtml",
@@ -354,9 +354,9 @@
         "reason": "GUI main process must register governed IPC handlers."
       },
       {
-        "value": "createGuiServiceBridge",
-        "ref": "ADR-0022#D6",
-        "reason": "GUI renderer must reach application services through a bridge."
+        "value": "createLocalGuiServiceBridge",
+        "ref": "dec_89D06D7360CBEC09795F7B12EC/CH3",
+        "reason": "Electron composition forwards the canonical RPC route through the daemon client."
       },
       {
         "value": "shellPanelPolicy",

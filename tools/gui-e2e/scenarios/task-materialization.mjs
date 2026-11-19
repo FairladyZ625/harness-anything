@@ -21,7 +21,7 @@ export default {
     await policy.selectOption("none");
     await page.getByTestId("settings-repository-save").click();
     await page.waitForFunction(async (repoId) => {
-      const read = await globalThis.window.harness.request("getSettings", { repoId });
+      const read = await globalThis.window.harness.request("repo.settings.read", { repo: { repoId } });
       return read.settings?.nodeTaskMaterializationPolicy === "none";
     }, fixture.repoId);
     await policy.scrollIntoViewIfNeeded();

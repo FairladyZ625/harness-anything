@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
@@ -46,19 +47,27 @@ const task: TaskRow = {
 
 async function selectedTab(initialTab?: "closeout" | "dispatch") {
   vi.stubGlobal("window", {
-    harness: {
-      getTaskDocuments: vi.fn(async () => ({ ok: true, status: "ready", taskId: task.taskId, documents: [] })),
-      getTaskDocument: vi.fn(),
-      showTask: vi.fn(async () => ({
-        schema: "command-receipt/v2",
-        ok: true,
-        command: "task-show",
-        outcome: "applied",
-        opId: "read:task-rework",
-        evidence: JSON.stringify({ reworkTargets: [], task: {} }),
-      })),
-      getTaskCompletion: vi.fn(async () => ({ ok: true, status: "ready", completionBlocker: null })),
-    },
+    harness: mockRpcBridge(
+      {
+        getTaskDocuments: vi.fn(async () => ({ ok: true, status: "ready", taskId: task.taskId, documents: [] })),
+        getTaskDocument: vi.fn(),
+        showTask: vi.fn(async () => ({
+          schema: "command-receipt/v2",
+          ok: true,
+          command: "task-show",
+          outcome: "applied",
+          opId: "read:task-rework",
+          evidence: JSON.stringify({ reworkTargets: [], task: {} }),
+        })),
+        getTaskCompletion: vi.fn(async () => ({ ok: true, status: "ready", completionBlocker: null })),
+      },
+      {
+        "repo.tasks.document.read": "getTaskDocument",
+        "repo.tasks.completion.read": "getTaskCompletion",
+        "repo.tasks.documents.list": "getTaskDocuments",
+        "repo.task.show": "showTask",
+      },
+    ),
     // 概况的 Region 是 motion 布局节点,挂载时在 window 上听 resize;document/localStorage
     // 留给真实 happy-dom(区域停靠树构造与偏好落盘要用)。
     document,

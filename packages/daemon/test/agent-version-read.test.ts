@@ -20,8 +20,8 @@ import {
   readAgentVersion,
   summarizeAgentDeclaration,
 } from "../src/daemon-host/agent-version-read.ts";
-import { validateAgentHistory, validateAgentVersion } from "../src/daemon-host/protocol/agent-entity-gui-contract.ts";
-import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { validateAgentHistory, validateAgentVersion } from "../src/daemon-host/protocol/agent-entity-contract.ts";
+import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import { appendLegacyAgentDeclaration, initRepo } from "./agent-entities.fixtures.ts";
 
 /**
@@ -126,7 +126,7 @@ test("history lists every version newest-first with the body digest the content 
       ],
     );
     assert.deepEqual(validateAgentHistory(history), []);
-    assert.doesNotThrow(() => parseDaemonGuiReadResult("repo.agent.history.read", history));
+    assert.doesNotThrow(() => parseDaemonReadResult("repo.agent.history.read", history));
   } finally {
     dispose(f);
   }
@@ -282,7 +282,7 @@ test("one version read returns the retained body and its difference to the live 
     assert.equal(read.current.revision, f.revisions.at(-1));
     assert.equal(read.declaration.instructions, "v1 body");
     assert.deepEqual(validateAgentVersion(read), []);
-    assert.doesNotThrow(() => parseDaemonGuiReadResult("repo.agent.version.read", read));
+    assert.doesNotThrow(() => parseDaemonReadResult("repo.agent.version.read", read));
     const instructions = read.fields.find((field) => field.field === "instructions");
     assert.ok(instructions && "lines" in instructions);
     assert.deepEqual(

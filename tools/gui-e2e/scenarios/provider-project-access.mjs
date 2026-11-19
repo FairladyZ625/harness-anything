@@ -74,18 +74,16 @@ export default {
           bridge = createLocalGuiServiceBridge();
         globalThis.__providerSettingsState = "conflict";
         globalThis.__providerSettingsWrites = 0;
-        for (const method of ["getSettings", "updateSettings"]) {
-          ipcMain.removeHandler(`harness:${method}`);
-          ipcMain.handle(`harness:${method}`, async (_event, payload) => {
-            if (method === "getSettings" && globalThis.__providerSettingsState === "read-error")
-              return { ok: false, error: { code: "invalid_result", hint: "Settings runtime field is unknown." } };
-            if (method === "updateSettings") {
-              globalThis.__providerSettingsWrites += 1;
-              return bridge.invoke(method, { ...payload, expectedVersion: 0 });
-            }
-            return bridge.invoke(method, payload);
-          });
-        }
+        ipcMain.removeHandler("harness:rpc");
+        ipcMain.handle("harness:rpc", async (_event, { method, params }) => {
+          if (method === "repo.settings.read" && globalThis.__providerSettingsState === "read-error")
+            return { ok: false, error: { code: "invalid_result", hint: "Settings runtime field is unknown." } };
+          if (method === "repo.settings.update") {
+            globalThis.__providerSettingsWrites += 1;
+            return bridge.invoke(method, { ...params, payload: { ...params.payload, expectedVersion: 0 } });
+          }
+          return bridge.invoke(method, params);
+        });
       },
       fileURLToPath(new URL("../../../packages/gui/src/main/local-composition-root.ts", import.meta.url)),
     );

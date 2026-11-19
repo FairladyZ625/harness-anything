@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -38,7 +39,10 @@ test("a client-side contract rejection is not reported as a daemon request failu
   process.env.HARNESS_DAEMON_USER_ROOT = parent;
   process.env.HARNESS_DAEMON_ID = "contract-attribution";
   try {
-    const result = (await createLocalGuiServiceBridge().invoke("getSystemStatus", {})) as {
+    const result = (await createLocalGuiServiceBridge().invoke(
+      "daemon.gui.system.read",
+      scopedRpcParams("daemon.gui.system.read", {}),
+    )) as {
       readonly ok: boolean;
       readonly error: { readonly code: string; readonly hint: string };
     };

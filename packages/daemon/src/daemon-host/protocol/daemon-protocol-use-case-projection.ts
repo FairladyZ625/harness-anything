@@ -13,8 +13,8 @@ import {
   useCaseProjectionFacets,
   useCaseProjectionSchemaId,
   type UseCaseProjectionFacet,
-} from "./daemon-protocol-gui-types.ts";
-import { validateSchedulesList } from "./schedules-gui-contract.ts";
+} from "./daemon-protocol-results.ts";
+import { validateSchedulesList } from "./schedules-contract.ts";
 
 /**
  * Result-side validation for the use-case projection envelope. This half is deliberately *not* on

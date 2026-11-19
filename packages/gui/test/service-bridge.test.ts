@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import type { WriterEpochFenceDescriptor } from "@harness-anything/daemon/client";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -14,11 +15,11 @@ import {
   deriveUseCaseProjectionInputs,
 } from "@harness-anything/kernel";
 import { makeTaskEventStore } from "@harness-anything/storage";
-import { daemonGuiReadMethods, type DaemonGuiRpcReadMethod } from "@harness-anything/daemon/client";
+import { daemonReadRoutes, type DaemonGuiRpcReadMethod } from "@harness-anything/daemon/client";
 import {
-  parseDaemonGuiActionResponse,
-  parseDaemonGuiReadResponse,
-  parseDaemonGuiReadResult,
+  parseDaemonActionResponse,
+  parseDaemonReadResponse,
+  parseDaemonReadResult,
 } from "@harness-anything/daemon/client";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
 import { reportInvalidTaskSnapshotRows } from "../src/main/local-composition-root.ts";
@@ -110,13 +111,16 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     const bridge = createLocalGuiServiceBridge(),
       executionId = "execution-gui-bridge",
       scope = { repoId: fixture.repoId };
-    const started = parseDaemonGuiActionResponse(
+    const started = parseDaemonActionResponse(
       "repo.task.start",
-      await bridge.invoke("startTask", {
-        ...scope,
-        taskId: "task-gui-smoke",
-        executionId,
-      }),
+      await bridge.invoke(
+        "repo.task.start",
+        scopedRpcParams("repo.task.start", {
+          ...scope,
+          taskId: "task-gui-smoke",
+          executionId,
+        }),
+      ),
     );
     assert.equal(started.ok, true, JSON.stringify(started));
     assert.equal(started.outcome, "applied");
@@ -148,15 +152,24 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     );
     assert.equal(synced.ok, true, JSON.stringify(synced));
     writeFileSync(authored, "# Uncommitted filesystem edit\n");
-    const control = (await bridge.invoke("requestDaemonControl", {
-      kind: "restart",
-      authorityRepoId: fixture.repoId,
-    })) as { operationId: string };
-    const catalog = (await bridge.invoke("getCatalogSnapshot", scope)) as {
+    const control = (await bridge.invoke(
+      "daemon.gui.control.request",
+      scopedRpcParams("daemon.gui.control.request", {
+        kind: "restart",
+        authorityRepoId: fixture.repoId,
+      }),
+    )) as { operationId: string };
+    const catalog = (await bridge.invoke(
+      "repo.gui.catalog.snapshot",
+      scopedRpcParams("repo.gui.catalog.snapshot", scope),
+    )) as {
       defaults: { presetId: string };
     };
     // R6:手动重读是「读最新」,不带 CAS 期望值(GUI 不再回传 catalogDigest)。
-    const reread = (await bridge.invoke("rereadCatalog", scope)) as {
+    const reread = (await bridge.invoke(
+      "repo.gui.catalog.reread",
+      scopedRpcParams("repo.gui.catalog.reread", scope),
+    )) as {
       schema: string;
       ok: boolean;
       operationId: string;
@@ -168,7 +181,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     );
     assert.match(reread.operationId, /^catalog-/u);
     const results = new Map<DaemonGuiRpcReadMethod, unknown>();
-    for (const contract of daemonGuiReadMethods) {
+    for (const contract of daemonReadRoutes) {
       const payload =
         contract.id === "gui.system.read"
           ? null
@@ -242,11 +255,11 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
           : contract.id === "agent.version.read"
             ? { ...payload, revision: seededAgentRevision }
             : payload;
-      const result = await bridge.invoke(contract.guiBridgeMethod, readPayload);
+      const result = await bridge.invoke(contract.method, scopedRpcParams(contract.method, readPayload));
       const parsed =
         contract.id === "gui.control.receipt"
-          ? parseDaemonGuiReadResult(contract.method, result)
-          : parseDaemonGuiReadResponse(contract.method, result);
+          ? parseDaemonReadResult(contract.method, result)
+          : parseDaemonReadResponse(contract.method, result);
       if (contract.id === "gui.control.receipt")
         assert.equal(parsed.schema, "daemon-control-receipt/v1", contract.method);
       else if (contract.id === "entity.actions.explain")
@@ -256,7 +269,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       else if (contract.id === "vertical.declaration.read")
         assert.equal(parsed.schema, "repository-vertical-declaration-read/v1", contract.method);
       else if (contract.method === "repo.tasks.assignmentDirectory")
-        assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.assignmentDirectory", result), {
+        assert.deepEqual(parseDaemonReadResult("repo.tasks.assignmentDirectory", result), {
           schema: "task-assignment-directory/v1",
           people: [{ personId: "person-gui", username: "person-gui" }],
           nodes: [],
@@ -272,12 +285,12 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     }
     assert.deepEqual(
       [...results.keys()],
-      daemonGuiReadMethods.map(({ method }) => method),
+      daemonReadRoutes.map(({ method }) => method),
     );
     // The three declared-entity reads must answer with real content, not just a valid envelope:
     // the kind universe reaches the GUI from the registry, and a locator resolves to file bytes.
-    const kinds = parseDaemonGuiReadResult("repo.entity.kinds.read", results.get("repo.entity.kinds.read"));
-    const vertical = parseDaemonGuiReadResult(
+    const kinds = parseDaemonReadResult("repo.entity.kinds.read", results.get("repo.entity.kinds.read"));
+    const vertical = parseDaemonReadResult(
       "repo.vertical.declaration.read",
       results.get("repo.vertical.declaration.read"),
     );
@@ -301,13 +314,13 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       kinds.kinds.some(({ kind, origin }) => kind === "task" && origin === "builtin"),
       "builtin kinds share the one catalog with declared kinds",
     );
-    const entityRows = parseDaemonGuiReadResult("repo.entity.rows.read", results.get("repo.entity.rows.read"));
+    const entityRows = parseDaemonReadResult("repo.entity.rows.read", results.get("repo.entity.rows.read"));
     assert.deepEqual(
       entityRows.rows.filter(({ kind }) => !kinds.kinds.some((row) => row.kind === kind)),
       [],
       "every entity row names a registered kind",
     );
-    const locator = parseDaemonGuiReadResult("repo.entity.locator.read", results.get("repo.entity.locator.read"));
+    const locator = parseDaemonReadResult("repo.entity.locator.read", results.get("repo.entity.locator.read"));
     assert.deepEqual(
       { outcome: locator.outcome, content: locator.content },
       { outcome: "file", content: "# Uncommitted filesystem edit\n" },
@@ -315,7 +328,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     // The read sweep captured both authored and canonical views while they differed.
     // Restore the submitted bytes before testing a later Settings worktree publication.
     assert.equal(
-      parseDaemonGuiReadResult("repo.tasks.document.read", results.get("repo.tasks.document.read")).body,
+      parseDaemonReadResult("repo.tasks.document.read", results.get("repo.tasks.document.read")).body,
       documentBody,
     );
     writeFileSync(authored, documentBody);
@@ -326,15 +339,18 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       ["schedule-run-history", { scheduleId: "schedule-gui-smoke" }],
       ["runtime-session-groups", {}],
     ] as const) {
-      const envelope = parseDaemonGuiReadResponse(
+      const envelope = parseDaemonReadResponse(
         "repo.projection.read",
-        await bridge.invoke("readUseCaseProjection", { ...scope, name, ...selector }),
+        await bridge.invoke(
+          "repo.projection.read",
+          scopedRpcParams("repo.projection.read", { ...scope, name, ...selector }),
+        ),
       );
       assert.equal(envelope.ok, true, `${name}: ${JSON.stringify(envelope)}`);
       assert.equal(envelope.name, name);
       assert.deepEqual(envelope.inputs, deriveUseCaseProjectionInputs(name), `${name} inputs are registry-derived`);
     }
-    const settingsBefore = parseDaemonGuiReadResult("repo.settings.read", results.get("repo.settings.read"));
+    const settingsBefore = parseDaemonReadResult("repo.settings.read", results.get("repo.settings.read"));
     // F-1D3A0A64: init records the empty machine inventory as this project's exact list.
     assert.deepEqual(settingsBefore.settings, {
       // Provider scheduling fields project their repository-owned defaults.
@@ -390,14 +406,17 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       dispatchArchive: { retentionDays: 60, retentionBytes: 0 },
       gui: { connectTimeoutMs: 2_000, requestTimeoutMs: 30_000, terminalBrowser: "embedded" },
     });
-    const settingsUpdated = parseDaemonGuiActionResponse(
+    const settingsUpdated = parseDaemonActionResponse(
       "repo.settings.update",
-      await bridge.invoke("updateSettings", {
-        ...scope,
-        defaultPreset: "docs-task",
-        locale: "zh-CN",
-        idempotencyKey: "gui-settings-update-1",
-      }),
+      await bridge.invoke(
+        "repo.settings.update",
+        scopedRpcParams("repo.settings.update", {
+          ...scope,
+          defaultPreset: "docs-task",
+          locale: "zh-CN",
+          idempotencyKey: "gui-settings-update-1",
+        }),
+      ),
     );
     assert.equal(settingsUpdated.ok, true, JSON.stringify(settingsUpdated));
     assert.equal(settingsUpdated.outcome, "applied");
@@ -427,7 +446,10 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       { encoding: "utf8" },
     );
     assert.match(committedSettings, /defaultPreset: docs-task/u);
-    const settingsAfter = parseDaemonGuiReadResult("repo.settings.read", await bridge.invoke("getSettings", scope));
+    const settingsAfter = parseDaemonReadResult(
+      "repo.settings.read",
+      await bridge.invoke("repo.settings.read", scopedRpcParams("repo.settings.read", scope)),
+    );
     assert.equal(settingsAfter.settings.defaultPreset, "docs-task");
     assert.equal(settingsAfter.settings.locale, "zh-CN");
     const harnessYaml = readFileSync(path.join(fixture.rootDir, "harness/harness.yaml"), "utf8");
@@ -440,7 +462,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       gui: { connectTimeoutMs: 2000, requestTimeoutMs: 30000, terminalBrowser: "embedded" },
     });
     assert.match(harnessYaml, /wipLimit: 30/u);
-    const observability = parseDaemonGuiReadResult("observe.tail", results.get("observe.tail"));
+    const observability = parseDaemonReadResult("observe.tail", results.get("observe.tail"));
     assert.equal(observability.schema, "daemon.observe-tail/v3");
     assert.equal(observability.repoId, fixture.repoId);
     assert.equal(observability.kind, "events");
@@ -456,7 +478,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     assert.ok(
       presetDetail.resolved.documents.every((document) => ["text/markdown", "text/plain"].includes(document.mediaType)),
     );
-    const agentCatalog = parseDaemonGuiReadResult("repo.agent.entities.list", results.get("repo.agent.entities.list"));
+    const agentCatalog = parseDaemonReadResult("repo.agent.entities.list", results.get("repo.agent.entities.list"));
     assert.equal(agentCatalog.ok, true);
     assert.deepEqual(
       agentCatalog.agents.map(({ id }) => id),
@@ -474,7 +496,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
         layer: "user",
       },
     );
-    const agentDetail = parseDaemonGuiReadResult("repo.agent.entity.read", results.get("repo.agent.entity.read"));
+    const agentDetail = parseDaemonReadResult("repo.agent.entity.read", results.get("repo.agent.entity.read"));
     assert.equal(agentDetail.ok, true);
     assert.deepEqual(
       agentDetail.agent && {
@@ -484,13 +506,13 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       },
       { id: "terra", role: "worker", instructions: "Review precisely." },
     );
-    const squadCatalog = parseDaemonGuiReadResult("repo.squad.entities.list", results.get("repo.squad.entities.list"));
+    const squadCatalog = parseDaemonReadResult("repo.squad.entities.list", results.get("repo.squad.entities.list"));
     assert.equal(squadCatalog.ok, true);
     assert.deepEqual(
       squadCatalog.squads.map(({ id }) => id),
       ["core-squad"],
     );
-    const squadDetail = parseDaemonGuiReadResult("repo.squad.entity.read", results.get("repo.squad.entity.read"));
+    const squadDetail = parseDaemonReadResult("repo.squad.entity.read", results.get("repo.squad.entity.read"));
     assert.equal(squadDetail.ok, true);
     assert.deepEqual(
       squadDetail.squad && {
@@ -503,7 +525,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     // G12 §2c:repo.squad.run.read 把 `ha squad status` 的编排流转(leader 轮次 →
     // worker 派工链)对 GUI 开放;这里断言种子状态真实过桥,且无台账的 worker
     // 尝试以 null 呈现而非伪造。
-    const squadRun = parseDaemonGuiReadResult("repo.squad.run.read", results.get("repo.squad.run.read"));
+    const squadRun = parseDaemonReadResult("repo.squad.run.read", results.get("repo.squad.run.read"));
     assert.equal(squadRun.ok, true);
     assert.equal(squadRun.run.phase, "converged");
     assert.equal(squadRun.run.mission, "Resident GUI squad run");
@@ -522,12 +544,12 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       [{ attemptId: "worker-1", workerId: "terra", leaderTurnId: "leader-1", status: null, startedAt: null }],
     );
     assert.equal(typeof squadRun.run.leaderTurns[0]?.startedAt, "string");
-    const squadRunList = parseDaemonGuiReadResult("repo.squad.runs.list", results.get("repo.squad.runs.list"));
+    const squadRunList = parseDaemonReadResult("repo.squad.runs.list", results.get("repo.squad.runs.list"));
     assert.deepEqual(
       squadRunList.runs.map(({ squadRunId, phase }) => ({ squadRunId, phase })),
       [{ squadRunId: seededSquadRun, phase: "converged" }],
     );
-    const tasks = parseDaemonGuiReadResult("repo.tasks.list", results.get("repo.tasks.list"));
+    const tasks = parseDaemonReadResult("repo.tasks.list", results.get("repo.tasks.list"));
     assert.deepEqual(
       tasks.rows.map(({ taskId }) => taskId),
       ["task-gui-smoke"],
@@ -535,7 +557,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     assert.equal(tasks.rows[0]?.snapshot.task?.title, "Resident GUI task");
     assert.equal(tasks.rows[0]?.snapshot.task?.status, "active");
     assert.equal(tasks.rows[0]?.snapshot.lease?.executionId, executionId);
-    const summary = parseDaemonGuiReadResult("repo.workspace.summary.read", results.get("repo.workspace.summary.read"));
+    const summary = parseDaemonReadResult("repo.workspace.summary.read", results.get("repo.workspace.summary.read"));
     assert.deepEqual(
       {
         total: summary.tasks.total,
@@ -545,7 +567,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       { total: tasks.rows.length, active: 1, inbox: 1 },
     );
     assert.deepEqual(summary.decisions.groups.find(({ id }) => id === "proposed")?.decisionIds, ["dec_gui_smoke"]);
-    const agenda = parseDaemonGuiReadResult("repo.agenda.read", results.get("repo.agenda.read"));
+    const agenda = parseDaemonReadResult("repo.agenda.read", results.get("repo.agenda.read"));
     assert.deepEqual(
       agenda.inFlight.map(({ taskId }) => taskId),
       ["task-gui-smoke"],
@@ -561,7 +583,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       false,
     );
     assert.equal(tasks.rows[0]?.placement.origin, "native");
-    const graph = parseDaemonGuiReadResult("repo.triadic.relationGraph", results.get("repo.triadic.relationGraph"));
+    const graph = parseDaemonReadResult("repo.triadic.relationGraph", results.get("repo.triadic.relationGraph"));
     assert.deepEqual(
       graph.edges
         .map(({ sourceRef, targetRef, relationType }) => ({ sourceRef, targetRef, relationType }))
@@ -585,44 +607,50 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     assert.equal(graph.factAnchors.length, 1);
     assert.equal(graph.facts.length, 1);
     assert.equal(graph.facts[0]?.statement, "The GUI renderer received event-backed triadic rows.");
-    const decisions = parseDaemonGuiReadResult("repo.decisions.list", results.get("repo.decisions.list"));
+    const decisions = parseDaemonReadResult("repo.decisions.list", results.get("repo.decisions.list"));
     assert.deepEqual(
       decisions.decisions.map(({ decisionId }) => decisionId),
       ["dec_gui_smoke"],
     );
-    const controlled = parseDaemonGuiActionResponse("repo.decision.list", await bridge.invoke("listDecisions", scope));
+    const controlled = parseDaemonActionResponse(
+      "repo.decision.list",
+      await bridge.invoke("repo.decision.list", scopedRpcParams("repo.decision.list", scope)),
+    );
     assert.equal(controlled.ok, true);
     assert.match(String(controlled.evidence), /dec_gui_smoke/u);
-    const proposed = parseDaemonGuiActionResponse(
+    const proposed = parseDaemonActionResponse(
       "repo.decision.propose",
-      await bridge.invoke("proposeDecision", {
-        ...scope,
-        title: "Exercise the GUI proposal bridge",
-        question: "Can proposal and judgment settle through the resident daemon?",
-        riskTier: "medium",
-        urgency: "high",
-        vertical: "software/coding",
-        preset: "architecture-decision",
-        decisionClass: "ordinary",
-        appliesTo: { modules: ["gui"], productLines: ["harness"] },
-        chosen: [
-          {
-            id: "CH1",
-            text: "Use typed GUI facets",
-            rationale: "They preserve the canonical packet",
-          },
-        ],
-        rejected: [
-          {
-            id: "RJ1",
-            text: "Use optimistic history",
-            whyNot: "It is not canonical",
-          },
-        ],
-        body: "## 背景\nResident bridge test.\n\n## 权衡\nTyped receipts over local optimism.\n\n## 结论\nUse daemon facets.\n",
-        claims: [],
-        fulfillments: [],
-      }),
+      await bridge.invoke(
+        "repo.decision.propose",
+        scopedRpcParams("repo.decision.propose", {
+          ...scope,
+          title: "Exercise the GUI proposal bridge",
+          question: "Can proposal and judgment settle through the resident daemon?",
+          riskTier: "medium",
+          urgency: "high",
+          vertical: "software/coding",
+          preset: "architecture-decision",
+          decisionClass: "ordinary",
+          appliesTo: { modules: ["gui"], productLines: ["harness"] },
+          chosen: [
+            {
+              id: "CH1",
+              text: "Use typed GUI facets",
+              rationale: "They preserve the canonical packet",
+            },
+          ],
+          rejected: [
+            {
+              id: "RJ1",
+              text: "Use optimistic history",
+              whyNot: "It is not canonical",
+            },
+          ],
+          body: "## 背景\nResident bridge test.\n\n## 权衡\nTyped receipts over local optimism.\n\n## 结论\nUse daemon facets.\n",
+          claims: [],
+          fulfillments: [],
+        }),
+      ),
     );
     assert.equal(proposed.ok, true, JSON.stringify(proposed));
     assert.equal(proposed.outcome, "applied");
@@ -642,14 +670,17 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       proposed.guidance?.find(({ kind }) => kind === "pin-agenda"),
       { kind: "pin-agenda", args: { entityKind: "decision", entityId: proposedEvidence.decisionId } },
     );
-    const accepted = parseDaemonGuiActionResponse(
+    const accepted = parseDaemonActionResponse(
       "repo.decision.accept",
-      await bridge.invoke("acceptDecision", {
-        ...scope,
-        decisionId: proposedEvidence.decisionId,
-        rationale: "Independent resident-daemon acceptance.",
-        judgmentOnlyRationale: "No load-bearing claim was declared; explicit human judgment is recorded.",
-      }),
+      await bridge.invoke(
+        "repo.decision.accept",
+        scopedRpcParams("repo.decision.accept", {
+          ...scope,
+          decisionId: proposedEvidence.decisionId,
+          rationale: "Independent resident-daemon acceptance.",
+          judgmentOnlyRationale: "No load-bearing claim was declared; explicit human judgment is recorded.",
+        }),
+      ),
     );
     assert.equal(accepted.ok, true, JSON.stringify(accepted));
     assert.equal(accepted.outcome, "applied");
@@ -669,68 +700,80 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       10000,
     );
     assert.equal((settled.wait as { state: string }).state, "satisfied", JSON.stringify(settled));
-    const acceptedReceipt = parseDaemonGuiActionResponse(
+    const acceptedReceipt = parseDaemonActionResponse(
       "repo.receipt.show",
-      await bridge.invoke("showReceipt", { ...scope, opId: accepted.opId }),
+      await bridge.invoke("repo.receipt.show", scopedRpcParams("repo.receipt.show", { ...scope, opId: accepted.opId })),
     );
     assert.equal(acceptedReceipt.outcome, "applied");
     assert.equal(acceptedReceipt.consentId, accepted.consentId);
     assert.equal(acceptedReceipt.worktreeVisible, true);
-    const shown = parseDaemonGuiActionResponse(
+    const shown = parseDaemonActionResponse(
       "repo.decision.show",
-      await bridge.invoke("showDecision", {
-        ...scope,
-        decisionId: proposedEvidence.decisionId,
-        includeBody: true,
-      }),
+      await bridge.invoke(
+        "repo.decision.show",
+        scopedRpcParams("repo.decision.show", {
+          ...scope,
+          decisionId: proposedEvidence.decisionId,
+          includeBody: true,
+        }),
+      ),
     );
     assert.equal(shown.ok, true);
     assert.match(String(shown.evidence), new RegExp(String(accepted.consentId), "u"));
-    const afterJudgment = parseDaemonGuiReadResult("repo.decisions.list", await bridge.invoke("getDecisions", scope));
+    const afterJudgment = parseDaemonReadResult(
+      "repo.decisions.list",
+      await bridge.invoke("repo.decisions.list", scopedRpcParams("repo.decisions.list", scope)),
+    );
     const canonicalDecision = afterJudgment.decisions.find(
       (decision) => decision.decisionId === proposedEvidence.decisionId,
     );
     assert.equal(canonicalDecision?.state, "in_effect");
     assert.equal(canonicalDecision?.judgmentConsents[0]?.consentId, accepted.consentId);
-    const document = parseDaemonGuiReadResult("repo.tasks.document.read", results.get("repo.tasks.document.read"));
+    const document = parseDaemonReadResult("repo.tasks.document.read", results.get("repo.tasks.document.read"));
     assert.equal(document.body, documentBody);
     assert.equal(document.path, "notes.md");
     assert.equal(document.status, "ready");
-    const documents = parseDaemonGuiReadResult("repo.tasks.documents.list", results.get("repo.tasks.documents.list"));
+    const documents = parseDaemonReadResult("repo.tasks.documents.list", results.get("repo.tasks.documents.list"));
     assert.equal(documents.status, "ready");
     assert.ok(
       documents.documents.some((row) => row.path === "notes.md"),
       JSON.stringify(documents.documents),
     );
-    const progress = parseDaemonGuiActionResponse(
+    const progress = parseDaemonActionResponse(
       "repo.task.progress.append",
-      await bridge.invoke("appendTaskProgress", {
-        ...scope,
-        taskId: "task-gui-smoke",
-        executionId,
-        text: "Renderer sent typed progress.",
-        evidence: [
-          {
-            type: "test",
-            path: "packages/gui/test/service-bridge.test.ts",
-            summary: "resident daemon bridge",
-          },
-        ],
-        baseDocumentSha256: null,
-      }),
+      await bridge.invoke(
+        "repo.task.progress.append",
+        scopedRpcParams("repo.task.progress.append", {
+          ...scope,
+          taskId: "task-gui-smoke",
+          executionId,
+          text: "Renderer sent typed progress.",
+          evidence: [
+            {
+              type: "test",
+              path: "packages/gui/test/service-bridge.test.ts",
+              summary: "resident daemon bridge",
+            },
+          ],
+          baseDocumentSha256: null,
+        }),
+      ),
     );
     assert.equal(progress.ok, true, JSON.stringify(progress));
     assert.equal(progress.outcome, "applied");
     assert.equal(progress.commitSha, null);
     assert.equal(typeof progress.cut, "object");
-    const settledProgress = parseDaemonGuiActionResponse(
+    const settledProgress = parseDaemonActionResponse(
       "repo.receipt.show",
-      await bridge.invoke("showReceipt", {
-        ...scope,
-        opId: progress.opId,
-        waitFor: ["git_verified"],
-        timeoutMs: 30_000,
-      }),
+      await bridge.invoke(
+        "repo.receipt.show",
+        scopedRpcParams("repo.receipt.show", {
+          ...scope,
+          opId: progress.opId,
+          waitFor: ["git_verified"],
+          timeoutMs: 30_000,
+        }),
+      ),
     );
     const commitSha = String(settledProgress.commitSha);
     assert.match(commitSha, /^[0-9a-f]{40}$/u);
@@ -750,31 +793,40 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       1_000,
     );
     assert.equal(artifactReceipt.ok, true, JSON.stringify(artifactReceipt));
-    const artifactCut = parseDaemonGuiActionResponse(
+    const artifactCut = parseDaemonActionResponse(
       "repo.receipt.show",
-      await bridge.invoke("showReceipt", {
-        ...scope,
-        opId: artifactReceipt.opId,
-        waitFor: ["git_verified", "worktree_visible"],
-        timeoutMs: 5000,
-      }),
+      await bridge.invoke(
+        "repo.receipt.show",
+        scopedRpcParams("repo.receipt.show", {
+          ...scope,
+          opId: artifactReceipt.opId,
+          waitFor: ["git_verified", "worktree_visible"],
+          timeoutMs: 5000,
+        }),
+      ),
     );
     assert.match(String(artifactCut.commitSha), /^[0-9a-f]{40}$/u);
     writeFileSync(
       path.join(fixture.rootDir, "harness", String(fixture.packagePath), "closeout.md"),
       `# Closeout\n\n## Summary\n\nGUI bridge evidence delivered as artifact:${artifactPath}@${artifactReceipt.revision}\n\n## Verification\n\nResident daemon reads and typed progress passed.\n\n## Residual Risk\n\n已知缺口: Electron E2E unverified.\nManual desktop verification pending.\n\n## Same Mechanism Elsewhere\n\nCLI and GUI share canonical task submission.\n`,
     );
-    const submitted = parseDaemonGuiActionResponse(
+    const submitted = parseDaemonActionResponse(
       "repo.task.submit",
-      await bridge.invoke("submitTask", {
-        ...scope,
-        taskId: "task-gui-smoke",
-        executionId,
-      }),
+      await bridge.invoke(
+        "repo.task.submit",
+        scopedRpcParams("repo.task.submit", {
+          ...scope,
+          taskId: "task-gui-smoke",
+          executionId,
+        }),
+      ),
     );
     assert.equal(submitted.ok, true, JSON.stringify(submitted));
     assert.equal(submitted.outcome, "applied");
-    const afterSubmit = parseDaemonGuiReadResult("repo.tasks.list", await bridge.invoke("getTasks", scope));
+    const afterSubmit = parseDaemonReadResult(
+      "repo.tasks.list",
+      await bridge.invoke("repo.tasks.list", scopedRpcParams("repo.tasks.list", scope)),
+    );
     assert.equal(afterSubmit.rows[0]?.snapshot.task?.status, "submitted");
     assert.equal(afterSubmit.rows[0]?.snapshot.lease, null);
     const evidence = afterSubmit.rows[0]?.executionEvidence.find((item) => item.executionId === executionId);
@@ -837,9 +889,12 @@ test("local GUI bridge fails closed without explicit daemon registration and nev
   const previous = process.env.HARNESS_DAEMON_USER_ROOT;
   process.env.HARNESS_DAEMON_USER_ROOT = userRoot;
   try {
-    const result = (await createLocalGuiServiceBridge().invoke("getTasks", {
-      repoId: "missing-repo",
-    })) as Failure;
+    const result = (await createLocalGuiServiceBridge().invoke(
+      "repo.tasks.list",
+      scopedRpcParams("repo.tasks.list", {
+        repoId: "missing-repo",
+      }),
+    )) as Failure;
     assert.equal(result.ok, false);
     assert.equal(result.error.code, "workspace_not_registered");
     assert.match(result.error.hint ?? "", /ha daemon repo register/u);

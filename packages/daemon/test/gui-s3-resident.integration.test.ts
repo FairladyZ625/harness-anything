@@ -9,7 +9,7 @@ import net from "node:net";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { streamDaemonFacetAt } from "../../gui/src/main/agent-runtime-stream-client.ts";
+import { streamDaemonFacetAt } from "../src/daemon-host/client/local-json-rpc-stream.ts";
 import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
 import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";

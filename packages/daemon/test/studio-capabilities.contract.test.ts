@@ -6,7 +6,7 @@ import {
   commandClassForAction,
   parseDaemonRpcParams,
 } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import { repositoryReadDescriptor } from "../src/daemon-host/repository-read-contract.ts";
 import { parseFleetFrame } from "../src/daemon-host/fleet/command-protocol.ts";
 
@@ -46,10 +46,10 @@ test("registration input cannot claim creator, status, runtime, policy, or diges
 
 test("read result contracts reject fabricated policy and malformed signal receipts", () => {
   assert.throws(() =>
-    parseDaemonGuiReadResult("repo.policy.metadata.read", { ok: true, roles: [], actions: [], cells: {} }),
+    parseDaemonReadResult("repo.policy.metadata.read", { ok: true, roles: [], actions: [], cells: {} }),
   );
   assert.throws(() =>
-    parseDaemonGuiReadResult("repo.reckoning.signals.read", { ok: true, schema: "reckoning-signals/v1", signals: [] }),
+    parseDaemonReadResult("repo.reckoning.signals.read", { ok: true, schema: "reckoning-signals/v1", signals: [] }),
   );
 });
 

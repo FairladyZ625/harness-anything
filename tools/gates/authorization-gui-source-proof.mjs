@@ -5,7 +5,10 @@ import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { allDaemonProtocolMethods } from "../../packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts";
-import { daemonGuiStreamFacets } from "../../packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts";
+import {
+  daemonStreamFacets,
+  interactiveRpcMethods,
+} from "../../packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { isFunctionNode, unwrap } from "./authorization-flow-graph.mjs";
 import { resolvedGuiMainForwarding } from "./authorization-gui-main-source-proof.mjs";
 
@@ -196,7 +199,8 @@ function resolveGuiRpcMethod(graph, method, payloadExpr, env, descriptors) {
       if (descriptors.some((d) => d.id === id)) return { actionKind: id, route: id, isRead: false };
     }
   }
-  const guiDesc = descriptors.find((d) => d.method === method && d.guiBridgeMethod);
+  const interactive = interactiveRpcMethods.find((facet) => facet.method === method);
+  const guiDesc = interactive ? descriptors.find((d) => d.method === method && d.id === interactive.id) : undefined;
   const matching = guiDesc ? [guiDesc] : descriptors.filter((d) => d.method === method);
   if (matching.length > 0) {
     const chosen = matching[0];
@@ -237,6 +241,11 @@ function resolveGuiPreloadIpcLeaf(graph, callExpr, portKey, env) {
   const payloadArg = callExpr.arguments[1];
   const chIdent = chArg && ts.isIdentifier(chArg) ? chArg.text : null;
   if (chIdent && GUI_LOCAL_IPC_CHANNELS.has(chIdent)) return { localOnly: true };
+  if (chIdent === "STREAM_CLOSE_CHANNEL") return { localOnly: true };
+  // dec_89D06D7360CBEC09795F7B12EC/CH3. Stream admission is read-only. The unary channel carries writes.
+  if (chIdent === "STREAM_OPEN_CHANNEL")
+    return { binding: { actionKind: "repository-read", route: "repository-read", isRead: true }, reachesDaemon: true };
+  if (chIdent === "RPC_CHANNEL") return { reachesDaemon: true };
   if (chIdent && GUI_DIRECT_IPC_CHANNELS.has(chIdent))
     return { binding: GUI_DIRECT_IPC_CHANNELS.get(chIdent), reachesDaemon: true };
   if (chIdent === "CENTER_SETTINGS_CHANNEL") {
@@ -361,11 +370,10 @@ function resolveGuiBridgeMethodCall(graph, callExpr, env, descriptors) {
   if (!targetExpr || !ts.isCallExpression(targetExpr)) return null;
   const bridgeDecl = graph.callDeclaration(targetExpr) ?? resolveGuiExprFn(graph, targetExpr.expression);
   if (!bridgeDecl || !guiClientSource(graph, bridgeDecl)) return null;
-  const proto =
-    descriptors.find((d) => d.guiBridgeMethod === methodName) ??
-    allDaemonProtocolMethods.find((m) => m.guiBridgeMethod === methodName);
-  if (!proto) return null;
-  return resolveGuiRpcMethod(graph, proto.method, callExpr.arguments[0], env, descriptors);
+  if (methodName !== "subscribe") return null;
+  const method = evalGuiString(graph, callExpr.arguments[0], env);
+  if (!streamMethods.has(method)) return null;
+  return resolveGuiRpcMethod(graph, method, callExpr.arguments[1], env, descriptors);
 }
 
 function findGuiObjectPropertyFn(graph, objExpr, propName) {
@@ -525,7 +533,7 @@ function walkGuiCallbackExpr(ctx, expr, env, depth) {
   }
 }
 
-const GUI_STREAM_DISPOSER_METHODS = new Set(daemonGuiStreamFacets.map((f) => f.guiBridgeMethod));
+const streamMethods = new Set(daemonStreamFacets.map((f) => f.method));
 
 function streamDisposerCall(graph, expr, seen = new Set()) {
   const u = unwrap(expr);
@@ -542,12 +550,15 @@ function streamDisposerCall(graph, expr, seen = new Set()) {
   if (
     callee &&
     ts.isPropertyAccessExpression(callee) &&
-    GUI_STREAM_DISPOSER_METHODS.has(callee.name.text) &&
+    callee.name.text === "subscribe" &&
+    u.arguments[0] &&
+    ts.isStringLiteralLike(u.arguments[0]) &&
+    streamMethods.has(u.arguments[0].text) &&
     ts.isCallExpression(unwrap(callee.expression))
   ) {
     const bridgeDecl =
       graph.callDeclaration(unwrap(callee.expression)) ?? resolveGuiExprFn(graph, unwrap(callee.expression).expression);
-    if (bridgeDecl && guiClientSource(graph, bridgeDecl)) return u;
+    if (bridgeDecl && graph.fileOf(bridgeDecl) === "packages/gui/src/renderer/gui-transport.ts") return u;
   }
   const fn = resolveGuiExprFn(graph, callee);
   const rets = fn ? returnExpressions(fn) : [];
@@ -1210,7 +1221,10 @@ function findGuiDirectCallbackSink(text, filePath) {
 
 export function guiCallbackCallerFiles(rootDir, seedFiles) {
   if (seedFiles.length === 0) return [];
-  const includeMain = seedFiles.some((f) => f.startsWith("packages/gui/src/main/")),
+  const seeds = seedFiles.includes("packages/gui/src/preload/electron-preload.ts")
+      ? [...seedFiles, "packages/gui/src/main/electron-main.ts"]
+      : seedFiles,
+    includeMain = seeds.some((f) => f.startsWith("packages/gui/src/main/")),
     allFiles = listGuiClientTreeFiles(rootDir, includeMain),
     fileSet = new Set(allFiles),
     texts = new Map(),
@@ -1238,7 +1252,7 @@ export function guiCallbackCallerFiles(rootDir, seedFiles) {
     }
     forward.set(file, deps);
   }
-  const forwardClosure = new Set(seedFiles.filter((f) => fileSet.has(f))),
+  const forwardClosure = new Set(seeds.filter((f) => fileSet.has(f))),
     fwdQueue = [...forwardClosure];
   while (fwdQueue.length > 0) {
     for (const dep of forward.get(fwdQueue.pop()) ?? []) {

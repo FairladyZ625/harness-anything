@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 import { beforeAll, afterEach, describe, expect, it, vi } from "vitest";
@@ -558,7 +559,20 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
       rejectionExplanation: "Schedule heartbeat-probe does not exist.",
       error: { code: "entity_not_found" },
     });
-    Object.assign(window, { harness: { updateSchedule } });
+    Object.assign(window, {
+      harness: mockRpcBridge(
+        { updateSchedule },
+        {
+          "repo.projection.read": "readUseCaseProjection",
+          "repo.schedule.create": "createSchedule",
+          "repo.schedule.update": "updateSchedule",
+          "repo.schedule.delete": "deleteSchedule",
+          "repo.schedule.enable": "enableSchedule",
+          "repo.schedule.disable": "disableSchedule",
+          "repo.schedule.runNow": "runScheduleNow",
+        },
+      ),
+    });
     try {
       const container = await renderSurface(
         createElement(ScheduleWorkspace, {
@@ -773,7 +787,17 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
       disableSchedule: vi.fn(),
       runScheduleNow: vi.fn(),
     };
-    vi.stubGlobal("window", { harness });
+    vi.stubGlobal("window", {
+      harness: mockRpcBridge(harness, {
+        "repo.projection.read": "readUseCaseProjection",
+        "repo.schedule.create": "createSchedule",
+        "repo.schedule.update": "updateSchedule",
+        "repo.schedule.delete": "deleteSchedule",
+        "repo.schedule.enable": "enableSchedule",
+        "repo.schedule.disable": "disableSchedule",
+        "repo.schedule.runNow": "runScheduleNow",
+      }),
+    });
     const result = await schedulesClient.list("repo-a");
     expect(result.schedules[0]?.scheduleId).toBe("heartbeat-probe");
     expect(harness.readUseCaseProjection).toHaveBeenCalledWith({ repoId: "repo-a", name: "schedule-plane" });

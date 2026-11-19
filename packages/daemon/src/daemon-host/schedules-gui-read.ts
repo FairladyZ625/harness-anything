@@ -26,8 +26,8 @@ import type {
   ScheduleGuiRowDto,
   ScheduleGuiTriggerDto,
   SchedulesListResult,
-} from "./protocol/schedules-gui-contract.ts";
-import { isAvailableScheduleGuiAgentOption } from "./protocol/schedules-gui-contract.ts";
+} from "./protocol/schedules-contract.ts";
+import { isAvailableScheduleGuiAgentOption } from "./protocol/schedules-contract.ts";
 import { defaultLedgerBackupRetention } from "./schedule-builtin-executor.ts";
 import {
   emptyScheduleHealthRollup,

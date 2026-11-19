@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: fast
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -1579,12 +1580,33 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
 
       Object.defineProperty(window, "harness", {
         configurable: true,
-        value: new Proxy(bridge, {
-          get(target, prop: string) {
-            if (prop in target) return target[prop];
-            return async () => ({ ok: true });
+        value: mockRpcBridge(
+          new Proxy(bridge, {
+            get(target, prop: string) {
+              if (prop in target) return target[prop];
+              return async () => ({ ok: true });
+            },
+          }),
+          {
+            "daemon.gui.system.read": "getSystemStatus",
+            "observe.tail": "tailObservability",
+            "repo.settings.read": "getSettings",
+            "repo.tasks.list": "getTasks",
+            "repo.tasks.wip": "getTaskWip",
+            "repo.works.index": "getWorkIndex",
+            "repo.works.briefs.read": "getWorkBriefs",
+            "repo.projection.read": "readUseCaseProjection",
+            "repo.entity.actions.explain": "explainEntityActions",
+            "repo.workspace.summary.read": "getWorkspaceSummary",
+            "repo.agenda.read": "getAgenda",
+            "repo.triadic.relationGraph": "getRelationGraph",
+            "repo.decisions.list": "getDecisions",
+            "repo.agentRuntime.overview": "getAgentRuntimeOverview",
+            "repo.task.dispatches": "getTaskDispatches",
+            "repo.gui.catalog.snapshot": "getCatalogSnapshot",
+            "repo.fleet.overview.read": "getFleetOverview",
           },
-        }),
+        ),
       });
       return renderDom(createElement(App));
     };

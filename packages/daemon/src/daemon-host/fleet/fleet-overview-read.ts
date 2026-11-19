@@ -17,7 +17,7 @@ import type { RepoCell, RepoCellBinding } from "../repo-cell-types.ts";
 import { taskStatusWords } from "../protocol/daemon-protocol-vocabulary.ts";
 import { daemonBuildStamp } from "../build-identity.ts";
 import type { KeycloakCenterAuthority } from "../transport/auth-context.ts";
-import type { DaemonTaskSnapshotListResult } from "../protocol/daemon-protocol-gui-types.ts";
+import type { DaemonTaskSnapshotListResult } from "../protocol/daemon-protocol-results.ts";
 
 /**
  * 协作页舰队拓扑的只读聚合(task_8ce646d94):一次 typed read 回答「舰队有哪些节点、
@@ -509,7 +509,7 @@ function fleetEventRows(
   }));
 }
 
-/** Daemon-side exit check for the fleet overview read (parseDaemonGuiReadResult). */
+/** Daemon-side exit check for the fleet overview read (parseDaemonReadResult). */
 export function validateFleetOverview(value: unknown): readonly string[] {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return ["fleet overview must be an object"];
   const errors: string[] = [],

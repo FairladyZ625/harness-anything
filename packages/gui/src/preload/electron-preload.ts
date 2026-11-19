@@ -18,16 +18,16 @@ import {
 } from "../api/update-contract.ts";
 import {
   HARNESS_PRELOAD_API,
-  assertPreloadPayload,
+  RPC_CHANNEL,
+  STREAM_OPEN_CHANNEL,
+  STREAM_CLOSE_CHANNEL,
+  streamFrameChannel,
   preloadApiCapabilities,
-  preloadAllowlist,
-  type PreloadApiMethod,
 } from "./allowlist.ts";
-import { agentRuntimePreloadApi } from "./agent-runtime-preload.ts";
+import type { DaemonStreamMethod } from "@harness-anything/daemon/protocol";
 import { accessAdminPreloadApi, fleetAdminFromAccess } from "./access-admin-preload.ts";
 import { centerSettingsPreloadApi } from "./center-settings-preload.ts";
 import { edgeJoinEntryPreloadApi } from "./edge-join-entry-preload.ts";
-import { daemonGuiActionMethods, daemonGuiStreamFacets } from "@harness-anything/daemon/protocol";
 import {
   FIRST_RUN_BOOTSTRAP_CHANNEL,
   FIRST_RUN_CHOOSE_CHANNEL,
@@ -71,10 +71,6 @@ import {
   type ConnectionAdminApi,
   type RepoAdminApi,
 } from "../api/connection-admin-contract.ts";
-const streamMethods: ReadonlySet<string> = new Set(daemonGuiStreamFacets.map(({ guiBridgeMethod }) => guiBridgeMethod));
-const actionMethods: ReadonlySet<string> = new Set(
-  daemonGuiActionMethods.map(({ guiBridgeMethod }) => guiBridgeMethod),
-);
 const electronInvokeErrorPrefix = /^Error invoking remote method '[^']+': Error: /u;
 
 async function invoke<T>(channel: string, payload: unknown): Promise<T> {
@@ -95,25 +91,37 @@ async function invoke<T>(channel: string, payload: unknown): Promise<T> {
   }
 }
 
-const exposedApi = Object.fromEntries(
-  preloadAllowlist
-    .filter((method) => !streamMethods.has(method) && !actionMethods.has(method))
-    .map((method) => [
-      method,
-      (payload: unknown = null) => {
-        assertPreloadPayload(method, payload);
-        return invoke(`harness:${method}`, payload);
-      },
-    ]),
-) as Record<PreloadApiMethod, (payload?: unknown) => Promise<unknown>>;
+let nextSubscription = 0;
 const accessApi = accessAdminPreloadApi(invoke);
 const exposedHarnessApi = {
-  request: (method: string, payload: unknown = null) => {
-    assertPreloadPayload(method, payload);
-    return invoke(`harness:${method}`, payload);
+  request: (method: string, params: unknown) => invoke(RPC_CHANNEL, { method, params }),
+  subscribe: (
+    method: DaemonStreamMethod,
+    params: unknown,
+    receive: (value: unknown) => void,
+    onError: (error: unknown) => void,
+  ) => {
+    if (typeof receive !== "function" || typeof onError !== "function")
+      throw new Error("Stream handlers are required.");
+    const subscriptionId = `renderer-${++nextSubscription}`,
+      channel = streamFrameChannel(subscriptionId),
+      listener = (_event: Electron.IpcRendererEvent, value: unknown) => receive(value);
+    ipcRenderer.on(channel, listener);
+    let closed = false;
+    function stop() {
+      if (closed) return;
+      closed = true;
+      ipcRenderer.removeListener(channel, listener);
+      void invoke(STREAM_CLOSE_CHANNEL, { subscriptionId }).catch(reportCollaborationResponse);
+    }
+    void invoke(STREAM_OPEN_CHANNEL, { method, params, subscriptionId }).catch((error: unknown) => {
+      if (!closed) {
+        stop();
+        onError(error);
+      }
+    });
+    return stop;
   },
-  ...exposedApi,
-  ...agentRuntimePreloadApi(ipcRenderer),
   firstRun: {
     desktopStatus: () => invoke(DESKTOP_FIRST_RUN_STATUS_CHANNEL, null),
     desktopSetup: () => invoke(DESKTOP_FIRST_RUN_SETUP_CHANNEL, null),

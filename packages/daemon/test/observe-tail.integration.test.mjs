@@ -12,7 +12,7 @@ import { openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { daemonStdioLogPath, openDaemonLifecycleLog } from "../src/daemon-host/lifecycle-log.ts";
 import { readObserveTail } from "../src/daemon-host/observe-tail.ts";
 import { createDaemonHostRepositoryApi } from "../src/daemon-host/daemon-host-repository-api.ts";
-import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import { validateDaemonRpcCall } from "../src/daemon-host/protocol/daemon-protocol-rpc-validation.ts";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { daemonRequestLogPath, openDaemonRequestLog } from "../src/daemon-host/request-log.ts";
@@ -162,7 +162,7 @@ test("observe.tail exposes the 3x3 mode matrix and advances only when the source
     assertAvailable(edgeEvents, "remote-edge", "events");
     assert.equal(edgeEvents.cut.revision, edgeCut.revision);
     assert.throws(
-      () => parseDaemonGuiReadResult("observe.tail", { ...edgeEvents, freshness: null }),
+      () => parseDaemonReadResult("observe.tail", { ...edgeEvents, freshness: null }),
       /complete replica cut/,
     );
     assertAvailable(
@@ -257,7 +257,7 @@ test("observe.tail follows a conn-log file identity across rotation and reports 
     assert.equal(afterRetention.status, "gap");
     assert.equal(afterRetention.gap.reason, "cursor-file-not-retained");
     assert.equal(afterRetention.gap.requestedFileId, beforeRetention.liveCursor.fileId);
-    assert.doesNotThrow(() => parseDaemonGuiReadResult("observe.tail", afterRetention));
+    assert.doesNotThrow(() => parseDaemonReadResult("observe.tail", afterRetention));
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -615,7 +615,7 @@ function assertAvailable(result, mode, kind) {
   assert.equal(result.mode, mode);
   assert.equal(result.kind, kind);
   assert.ok(result.status === "ready" || result.status === "pending", JSON.stringify(result));
-  assert.doesNotThrow(() => parseDaemonGuiReadResult("observe.tail", result));
+  assert.doesNotThrow(() => parseDaemonReadResult("observe.tail", result));
 }
 
 function assertUnavailable(result, mode, kind, reason, centerRevision) {
@@ -624,7 +624,7 @@ function assertUnavailable(result, mode, kind, reason, centerRevision) {
   assert.equal(result.status, "unavailable");
   assert.equal(result.unavailable.reason, reason);
   assert.equal(result.unavailable.centerRevision, centerRevision);
-  assert.doesNotThrow(() => parseDaemonGuiReadResult("observe.tail", result));
+  assert.doesNotThrow(() => parseDaemonReadResult("observe.tail", result));
 }
 
 test("observe.tail respects scan budget on large JSONL files and pages backward safely", async () => {

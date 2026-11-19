@@ -24,7 +24,7 @@ import {
 import {
   actionForDaemonMethod,
   commandClassForAction,
-  daemonGuiActionMethods,
+  daemonActionRoutes,
   daemonProtocolCommands,
   parseDaemonRpcParams,
 } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
@@ -591,7 +591,7 @@ async function measuredGateSetNullKinds(commit: string): Promise<readonly string
 // Fragment from json-rpc-command-descriptors.test.ts.
 test("non-read protocol, Policy, receipt, residency, and entity catalogs close over Action declarations", async () => {
   const protocol = new Map(
-      [...daemonProtocolCommands, ...daemonGuiActionMethods]
+      [...daemonProtocolCommands, ...daemonActionRoutes]
         .filter(({ commandClass }) => commandClass !== "repo-read")
         .map((descriptor) => [descriptor.actionKind ?? descriptor.id, descriptor]),
     ),
@@ -905,7 +905,7 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
       ({ executionClass, residency }) =>
         residency.scope !== "canonical" && executionClass !== "repo-read" && executionClass !== "admin",
     ),
-    localDescriptors = [...daemonProtocolCommands, ...daemonGuiActionMethods],
+    localDescriptors = [...daemonProtocolCommands, ...daemonActionRoutes],
     writerSources = walkTypeScriptFiles(REPO_ROOT, "packages/daemon/src").filter(
       (file) =>
         !file.startsWith("packages/daemon/src/daemon-host/protocol/") &&
@@ -933,7 +933,7 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   }
   // Canonical GUI writes carry committed acceptance. Materialization and incident dismissal
   // settle host state (dec_9C43012EBB2754D7112F618F0D); control uses dedicated host receipts.
-  for (const { method, actionKind } of daemonGuiActionMethods.filter(
+  for (const { method, actionKind } of daemonActionRoutes.filter(
     ({ method }) => method !== "daemon.gui.control.request" && !method.startsWith("repo.terminal."),
   )) {
     const declaration = actionDeclarations.find((candidate) => candidate.kind === actionKind);
@@ -945,7 +945,7 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   }
   assert.equal(actionDeclarations.find(({ kind }) => kind === "daemon-control-request")?.receiptSettlement, "none");
   assert.equal(
-    daemonGuiActionMethods.find(({ method }) => method === "daemon.gui.control.request")?.outputSchemaId,
+    daemonActionRoutes.find(({ method }) => method === "daemon.gui.control.request")?.outputSchemaId,
     "daemon-control-receipt/v1",
   );
   for (const [method, actionKind, outputSchemaId] of [
@@ -955,10 +955,7 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
     ["repo.terminal.terminate", "terminal-terminate", "terminal-control-receipt/v1"],
   ] as const) {
     assert.equal(actionDeclarations.find(({ kind }) => kind === actionKind)?.receiptSettlement, "none", method);
-    assert.equal(
-      daemonGuiActionMethods.find((candidate) => candidate.method === method)?.outputSchemaId,
-      outputSchemaId,
-    );
+    assert.equal(daemonActionRoutes.find((candidate) => candidate.method === method)?.outputSchemaId, outputSchemaId);
   }
 });
 

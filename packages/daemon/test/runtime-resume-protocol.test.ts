@@ -7,7 +7,7 @@ import test from "node:test";
 import type { RuntimeDispatchProjectionRow } from "@harness-anything/kernel";
 import { archiveDispatchStream, openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import {
-  daemonGuiActionMethods,
+  daemonActionRoutes,
   daemonMethodPayloadFields,
   parseDaemonRpcParams,
 } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
@@ -244,7 +244,7 @@ test("resolveRuntimeResume derives its wire allowlist from the protocol contract
 
 test("runtime control handlers and duplicate protocol registrations align with daemonMethodPayloadFields", async () => {
   const controlSteer = daemonProtocolMethods.find((entry) => entry.method === "repo.agentRuntime.steer");
-  const guiSteer = daemonGuiActionMethods.find((entry) => entry.method === "repo.agentRuntime.steer");
+  const guiSteer = daemonActionRoutes.find((entry) => entry.method === "repo.agentRuntime.steer");
   assert.ok(controlSteer && guiSteer);
   assert.deepEqual(
     Object.keys((controlSteer.params.fields.payload as { fields: Record<string, unknown> }).fields),

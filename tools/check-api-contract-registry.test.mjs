@@ -1,36 +1,55 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { evaluateApiContractRegistry } from "./check-api-contract-registry.mjs";
+import {
+  actionExecutionProjectionDrift,
+  evaluateApiContractRegistry,
+  renderActionExecutionProjection,
+} from "./check-api-contract-registry.mjs";
+
+test("dec_89D06D7360CBEC09795F7B12EC: the thin execution projection rejects class drift", () => {
+  const declarations = [{ kind: "task-review", executionClass: "arbiter" }];
+  const projection = renderActionExecutionProjection(declarations, ["entity-archive"]);
+  assert.deepEqual(actionExecutionProjectionDrift(projection, declarations, ["entity-archive"]), []);
+  assert.match(
+    actionExecutionProjectionDrift(projection.replace('"arbiter"', '"repo-write"'), declarations, [
+      "entity-archive",
+    ]).join("\n"),
+    /differ from Kernel ActionDeclaration/u,
+  );
+});
+
+// dec_89D06D7360CBEC09795F7B12EC/CH3: inject both former ways to create the shadow route.
+test("the canonical steer codec rejects a missing owner, a second route and a GUI shadow", () =>
+  withFixture((root) => {
+    const file = path.join(root, "packages/daemon/src/daemon-host/protocol/daemon-protocol-action-routes.ts");
+    const source = validRuntimeActions();
+    writeFileSync(file, source.replace('dispatchId: "string?"', 'ignored: "string?"'));
+    assert.match(evaluateApiContractRegistry(root).join("\n"), /runtime steer contract must bind one owner target/u);
+    writeFileSync(file, source + source);
+    assert.match(evaluateApiContractRegistry(root).join("\n"), /exactly one registered method/u);
+    writeFileSync(file, source);
+    const registry = path.join(path.dirname(file), "daemon-protocol-commands.ts");
+    const commands = readFileSync(registry, "utf8");
+    writeFileSync(
+      registry,
+      commands.replace(
+        '{ method: "repo.task.read"',
+        '{ method: "repo.agentRuntime.steer", requiresRepo: true },\n  { method: "repo.task.read"',
+      ),
+    );
+    assert.match(evaluateApiContractRegistry(root).join("\n"), /exactly one registered method/u);
+    writeFileSync(registry, commands);
+    writeFileSync(path.join(path.dirname(file), "daemon-protocol-gui-shadow.ts"), "export const shadow = true;");
+    assert.match(evaluateApiContractRegistry(root).join("\n"), /retired GUI protocol shadow/u);
+  }));
 
 test("W3 API registry accepts the exact transport-bound daemon catalog", () =>
   withFixture((root) => {
     assert.deepEqual(evaluateApiContractRegistry(root), []);
-  }));
-
-test("W3 API registry contracts one owner-targeted steer method through exactly one GUI facet", () =>
-  withFixture((root) => {
-    const file = path.join(root, "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts");
-    assert.deepEqual(evaluateApiContractRegistry(root), []);
-    writeFileSync(file, validRegistry().replace('dispatchId: "string?", ', ""));
-    assert.match(evaluateApiContractRegistry(root).join("\\n"), /runtime steer contract must bind one owner target/u);
-    writeFileSync(
-      file,
-      validRegistry().replace(
-        '  { method: "repo.agentRuntime.steer", requiresRepo: true, id: "repo.agentRuntime.steer", phase: "Runtime-B", params: shape({ repo: shape({ repoId: "string" }), payload: shape({ runtimeSessionId: "string?", dispatchId: "string?", prompt: "string" }) }) },',
-        '  { method: "repo.agentRuntime.steer", requiresRepo: true, id: "repo.agentRuntime.steer", phase: "Runtime-B", params: shape({ repo: shape({ repoId: "string" }), payload: shape({ runtimeSessionId: "string?", dispatchId: "string?", prompt: "string" }) }) },\\n  { method: "repo.agentRuntime.steer", requiresRepo: true },',
-      ),
-    );
-    assert.match(evaluateApiContractRegistry(root).join("\\n"), /exactly one registered method/u);
-    // W3-T1: 一个 facet 合法,重复注册才违规(旧「steer 不得进 GUI 面」已由 decision 反转)。
-    writeFileSync(
-      path.join(root, "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-actions.ts"),
-      `${validRuntimeActions()}${validRuntimeActions()}`,
-    );
-    assert.match(evaluateApiContractRegistry(root).join("\\n"), /must be registered exactly once/u);
   }));
 
 test("W3 API registry rejects an unregistered compatibility method", () =>
@@ -205,7 +224,7 @@ function withFixture(run) {
       }),
     );
     write(root, "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts", validRegistry());
-    write(root, "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-actions.ts", validRuntimeActions());
+    write(root, "packages/daemon/src/daemon-host/protocol/daemon-protocol-action-routes.ts", validRuntimeActions());
     write(root, "packages/daemon/src/daemon-host/protocol/json-rpc-server.ts", validServer());
     write(
       root,
@@ -237,10 +256,10 @@ function write(root, relative, body) {
   writeFileSync(file, body);
 }
 function validRuntimeActions() {
-  return `export const daemonGuiActionMethods = Object.freeze([\n  guiS3Action(\n    "agentRuntime.steer",\n    "repo.agentRuntime.steer",\n    "runtime-steer",\n    shape({ runtimeSessionId: "string?", dispatchId: "string?", prompt: "string" }),\n    "steerAgentRuntime",\n    "/api/agent-runtime/sessions/:id/steer",\n    "repo-write",\n    "command-receipt/v2",\n  ),\n]);\n`;
+  return `export const daemonActionRoutes = Object.freeze([\n  actionRpc(\n    "agentRuntime.steer",\n    "repo.agentRuntime.steer",\n    "runtime-steer",\n    shape({ runtimeSessionId: "string?", dispatchId: "string?", prompt: "string" }),\n  ),\n]);\n`;
 }
 function validRegistrySource() {
-  return `export const daemonProtocolMethods = Object.freeze([\n  { method: "protocol.hello", requiresRepo: false },\n  { method: "protocol.dispatchLifecycle.enable", requiresRepo: false },\n  { method: "daemon.status", requiresRepo: false },\n  { method: "daemon.skillEval.version.register", requiresRepo: false },\n  { method: "daemon.skillEval.case.add", requiresRepo: false },\n  { method: "daemon.skillEval.cases.list", requiresRepo: false },\n  { method: "daemon.skillEval.run", requiresRepo: false },\n  { method: "daemon.stop", requiresRepo: false },\n  { method: "daemon.repo.bootstrap", requiresRepo: false },\n  { method: "daemon.rbac.manage", requiresRepo: false },\n  { method: "daemon.runtimeInstance.hostingCredential.set", requiresRepo: false },\n  { method: "daemon.runtimeInstance.hostingCredential.unset", requiresRepo: false },\n  { method: "daemon.repo.register", requiresRepo: false },\n  { method: "daemon.repo.update", requiresRepo: false },\n  { method: "daemon.repo.backup", requiresRepo: false },\n  { method: "daemon.repo.restoreDrill", requiresRepo: false },\n  { method: "daemon.repo.unbind", requiresRepo: false },\n  { method: "daemon.repo.purge", requiresRepo: false },\n  { method: "daemon.connection.register", requiresRepo: false },\n  { method: "daemon.connection.update", requiresRepo: false },\n  { method: "daemon.connection.unregister", requiresRepo: false },\n  { method: "daemon.connection.probe", requiresRepo: false },\n  { method: "repo.task.run", requiresRepo: true },\n  { method: "repo.task.witness.run", requiresRepo: true },\n  { method: "repo.agentRuntime.steer", requiresRepo: true, id: "repo.agentRuntime.steer", phase: "Runtime-B", params: shape({ repo: shape({ repoId: "string" }), payload: shape({ runtimeSessionId: "string?", dispatchId: "string?", prompt: "string" }) }) },\n  { method: "repo.task.read", requiresRepo: true }\n]);\nexport const fleetProtocolMethods = Object.freeze([\n  { id: "daemon.fleet.center.start", phase: "Fleet-Wiring", method: "daemon.fleet.center.start", requiresRepo: false, params: shape({ payload: shape({ port: "number" }) }) },
+  return `export const daemonProtocolMethods = Object.freeze([\n  { method: "protocol.hello", requiresRepo: false },\n  { method: "protocol.dispatchLifecycle.enable", requiresRepo: false },\n  { method: "daemon.status", requiresRepo: false },\n  { method: "daemon.skillEval.version.register", requiresRepo: false },\n  { method: "daemon.skillEval.case.add", requiresRepo: false },\n  { method: "daemon.skillEval.cases.list", requiresRepo: false },\n  { method: "daemon.skillEval.run", requiresRepo: false },\n  { method: "daemon.stop", requiresRepo: false },\n  { method: "daemon.repo.bootstrap", requiresRepo: false },\n  { method: "daemon.rbac.manage", requiresRepo: false },\n  { method: "daemon.runtimeInstance.hostingCredential.set", requiresRepo: false },\n  { method: "daemon.runtimeInstance.hostingCredential.unset", requiresRepo: false },\n  { method: "daemon.repo.register", requiresRepo: false },\n  { method: "daemon.repo.update", requiresRepo: false },\n  { method: "daemon.repo.backup", requiresRepo: false },\n  { method: "daemon.repo.restoreDrill", requiresRepo: false },\n  { method: "daemon.repo.unbind", requiresRepo: false },\n  { method: "daemon.repo.purge", requiresRepo: false },\n  { method: "daemon.connection.register", requiresRepo: false },\n  { method: "daemon.connection.update", requiresRepo: false },\n  { method: "daemon.connection.unregister", requiresRepo: false },\n  { method: "daemon.connection.probe", requiresRepo: false },\n  { method: "repo.task.run", requiresRepo: true },\n  { method: "repo.task.witness.run", requiresRepo: true },\n  { method: "repo.task.read", requiresRepo: true }\n]);\nexport const fleetProtocolMethods = Object.freeze([\n  { id: "daemon.fleet.center.start", phase: "Fleet-Wiring", method: "daemon.fleet.center.start", requiresRepo: false, params: shape({ payload: shape({ port: "number" }) }) },
   { id: "daemon.fleet.center.read", phase: "Fleet-Wiring", method: "daemon.fleet.center.read", requiresRepo: false, params: shape({ payload: shape({}) }) },\n  { id: "daemon.fleet.center.external-address.read", phase: "Fleet-Wiring", method: "daemon.fleet.center.external-address.read", requiresRepo: false, params: shape({ payload: shape({}) }) },\n  { id: "daemon.fleet.center.external-address.set", phase: "Fleet-Wiring", method: "daemon.fleet.center.external-address.set", requiresRepo: false, params: shape({ payload: shape({ externalUrl: "string" }) }) },\n  { id: "daemon.fleet.edge.sync", phase: "Fleet-Wiring", method: "daemon.fleet.edge.sync", requiresRepo: false, params: shape({ payload: shape({ host: "string" }) }) }\n]);\n`;
 }
 function validRegistry() {

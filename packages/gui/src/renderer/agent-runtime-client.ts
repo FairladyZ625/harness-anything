@@ -15,9 +15,12 @@ import type {
 } from "@harness-anything/daemon/protocol";
 import type { DaemonGuiReadPayloadMap } from "@harness-anything/daemon/protocol";
 import type { QueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import { readUseCaseProjection } from "./use-case-projection-client.ts";
 import { invoke } from "./api-client-invoke.ts";
+import { guiTransport } from "./gui-transport.ts";
 import { sessionEventTimeline, type SessionEventTimeline } from "./sessions-model.ts";
 
 type RepoScope = { readonly repoId: string };
@@ -63,6 +66,7 @@ export const runtimeQueryKeys = {
   sessionAll: (repoId: string) => ["runtime-session", repoId] as const,
   session: (repoId: string, runtimeSessionId: string) => ["runtime-session", repoId, runtimeSessionId] as const,
   /** 一个会话一条增量事件流键:所有视图共享,增量合并只写这一处。 */
+  eventsAll: (repoId: string) => ["runtime-session-events", repoId] as const,
   events: (repoId: string, runtimeSessionId: string) => ["runtime-session-events", repoId, runtimeSessionId] as const,
   sessionGroupsAll: (repoId: string) => ["session-groups", repoId] as const,
   squadRunsAll: (repoId: string) => ["squad-runs", repoId] as const,
@@ -86,15 +90,11 @@ export const agentRuntimeClient = {
   ): Promise<AgentRuntimeOverviewResult> => {
     const readPage = async (facets: { readonly limit?: number; readonly cursor?: string }) =>
       checked(
-        await invoke(
-          "repo.agentRuntime.overview",
-          {
-            repoId,
-            ...(taskId ? { taskId } : {}),
-            ...facets,
-          } as DaemonGuiReadPayloadMap["repo.agentRuntime.overview"] & RepoScope,
-          "getAgentRuntimeOverview",
-        ),
+        await invoke("repo.agentRuntime.overview", {
+          repoId,
+          ...(taskId ? { taskId } : {}),
+          ...facets,
+        } as DaemonGuiReadPayloadMap["repo.agentRuntime.overview"] & RepoScope),
         "installations",
       ) as AgentRuntimeOverviewResult;
     if (page !== undefined) return readPage(page);
@@ -114,14 +114,10 @@ export const agentRuntimeClient = {
     ) as AgentRuntimeSessionGroupMembersResult,
   session: async (repoId: string, runtimeSessionId: string): Promise<AgentRuntimeSessionResult> =>
     checked(
-      await invoke(
-        "repo.agentRuntime.sessions.read",
-        {
-          repoId,
-          runtimeSessionId,
-        } as DaemonGuiReadPayloadMap["repo.agentRuntime.sessions.read"] & RepoScope,
-        "getAgentRuntimeSession",
-      ),
+      await invoke("repo.agentRuntime.sessions.read", {
+        repoId,
+        runtimeSessionId,
+      } as DaemonGuiReadPayloadMap["repo.agentRuntime.sessions.read"] & RepoScope),
       "session",
     ) as AgentRuntimeSessionResult,
   events: async (
@@ -130,15 +126,11 @@ export const agentRuntimeClient = {
     afterCursor = "lifecycle:0",
   ): Promise<AgentRuntimeEventsResult> =>
     checked(
-      await invoke(
-        "repo.agentRuntime.events.read",
-        {
-          repoId,
-          runtimeSessionId,
-          afterCursor,
-        } as DaemonGuiReadPayloadMap["repo.agentRuntime.events.read"] & RepoScope,
-        "getAgentRuntimeEvents",
-      ),
+      await invoke("repo.agentRuntime.events.read", {
+        repoId,
+        runtimeSessionId,
+        afterCursor,
+      } as DaemonGuiReadPayloadMap["repo.agentRuntime.events.read"] & RepoScope),
       "events",
     ) as AgentRuntimeEventsResult,
   tokenUsage: async (
@@ -146,14 +138,10 @@ export const agentRuntimeClient = {
     range: AgentRuntimeTokenUsageRange = "today",
   ): Promise<AgentRuntimeTokenUsageResult> =>
     checked(
-      await invoke(
-        "repo.agentRuntime.tokenUsage",
-        {
-          repoId,
-          range,
-        } as DaemonGuiReadPayloadMap["repo.agentRuntime.tokenUsage"] & RepoScope,
-        "getAgentRuntimeTokenUsage",
-      ),
+      await invoke("repo.agentRuntime.tokenUsage", {
+        repoId,
+        range,
+      } as DaemonGuiReadPayloadMap["repo.agentRuntime.tokenUsage"] & RepoScope),
       "agents",
     ) as AgentRuntimeTokenUsageResult,
   tokenUsageDetail: async (
@@ -162,15 +150,11 @@ export const agentRuntimeClient = {
     range: AgentRuntimeTokenUsageRange = "today",
   ): Promise<AgentRuntimeTokenUsageDetailResult> =>
     checked(
-      await invoke(
-        "repo.agentRuntime.tokenUsageDetail",
-        {
-          repoId,
-          range,
-          ...(member.kind === "agent" ? { agentId: member.agentId } : { squadId: member.squadId }),
-        } as DaemonGuiReadPayloadMap["repo.agentRuntime.tokenUsageDetail"] & RepoScope,
-        "getAgentRuntimeTokenUsageDetail",
-      ),
+      await invoke("repo.agentRuntime.tokenUsageDetail", {
+        repoId,
+        range,
+        ...(member.kind === "agent" ? { agentId: member.agentId } : { squadId: member.squadId }),
+      } as DaemonGuiReadPayloadMap["repo.agentRuntime.tokenUsageDetail"] & RepoScope),
       "sessions",
     ) as AgentRuntimeTokenUsageDetailResult,
 };
@@ -204,11 +188,26 @@ function checkedSessionGroupMembers(value: unknown): Record<string, unknown> {
   return value;
 }
 
-// ---- 响应式增量事件流(dec_C0AF8CBBFFECF71F4F34FB76F9/CH3) ----
-// daemon 读面没有推送通道,「响应式」落地为:按游标只取新事件,纯合并写回 React Query
-// 缓存,并就地补丁依赖该会话的读缓存——不 invalidate 整表,列表不整表重刷、不跳动。
-// 本文件不自建定时器:重复节拍由消费方的 useQuery refetchInterval 持有(仓库既有口径,
-// 见 agent-runtime-renderer 的 no-polling-path 门),queryFn 直接用 pollSessionEventsOnce。
+/** Live provider frames wake the indexed lifecycle read. Canonical cuts also wake this cache. */
+export function useSessionEventWakeup(repoId: string, runtimeSessionId: string | null) {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!runtimeSessionId) return;
+    const transport = guiTransport();
+    if (transport.capabilities().stream?.status !== "available") return;
+    const queryKey = runtimeQueryKeys.events(repoId, runtimeSessionId);
+    return transport.subscribe(
+      "repo.agentRuntime.attach",
+      { repo: { repoId }, payload: { runtimeSessionId } },
+      (value) => {
+        if (!isRendererRecord(value) || value.ok === false) return;
+        if (value.type || (Array.isArray(value.events) && value.events.length > 0))
+          void queryClient.invalidateQueries({ queryKey, exact: true }, { cancelRefetch: false });
+      },
+      (error) => console.warn("Runtime event stream lost", error),
+    );
+  }, [repoId, queryClient, runtimeSessionId]);
+}
 
 /** cursor 的序数部分(lifecycle:<workspaceRevision>),用于事件排序与去重。 */
 function lifecycleRevision(cursor: string): number {

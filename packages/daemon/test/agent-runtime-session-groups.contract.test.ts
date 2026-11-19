@@ -13,17 +13,17 @@ import {
 } from "../src/daemon-host/agent-runtime-contract.ts";
 import { makeAgentRuntimeReadModel } from "../src/daemon-host/agent-runtime-read.ts";
 import {
-  daemonGuiReadMethods,
+  daemonReadRoutes,
   validateDaemonRpcCall,
   type TaskDispatchRow,
 } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import { deriveUseCaseProjectionInputs } from "@harness-anything/kernel";
 import type { AgentRuntimeSessionGroupsResult } from "../src/daemon-host/agent-runtime-contract.ts";
 
 /** Parse a session-groups read the way the GUI now receives it: inside the projection envelope. */
 function parseSessionGroupsProjection(projection: AgentRuntimeSessionGroupsResult): AgentRuntimeSessionGroupsResult {
-  const envelope = parseDaemonGuiReadResult("repo.projection.read", {
+  const envelope = parseDaemonReadResult("repo.projection.read", {
     schema: "daemon.use-case-projection/v1",
     ok: true,
     name: "runtime-session-groups",
@@ -38,7 +38,7 @@ function parseSessionGroupsProjection(projection: AgentRuntimeSessionGroupsResul
 function parseSessionGroupMembersProjection(
   projection: AgentRuntimeSessionGroupMembersResult,
 ): AgentRuntimeSessionGroupMembersResult {
-  const envelope = parseDaemonGuiReadResult("repo.projection.read", {
+  const envelope = parseDaemonReadResult("repo.projection.read", {
     schema: "daemon.use-case-projection/v1",
     ok: true,
     name: "runtime-session-groups",
@@ -55,23 +55,19 @@ test("session groups are contracted as a use-case projection with bounded daemon
   // bounded-filter contract below is unchanged, which is the point — CH4 moves the boundary, not
   // the field names.
   assert.equal(
-    daemonGuiReadMethods.some(({ method }) => method === "repo.agentRuntime.sessionGroups"),
+    daemonReadRoutes.some(({ method }) => method === "repo.agentRuntime.sessionGroups"),
     false,
     "repo.agentRuntime.sessionGroups must no longer be a read method",
   );
-  const facet = daemonGuiReadMethods.find(({ method }) => method === "repo.projection.read");
+  const facet = daemonReadRoutes.find(({ method }) => method === "repo.projection.read");
   assert.deepEqual(
     facet && {
       phase: facet.phase,
       method: facet.method,
-      serviceMethod: facet.serviceMethod,
-      outputSchemaId: facet.outputSchemaId,
     },
     {
       phase: "PLT-Ontology-4.1",
       method: "repo.projection.read",
-      serviceMethod: "readUseCaseProjection",
-      outputSchemaId: "daemon.use-case-projection/v1",
     },
   );
   const call = (payload: Readonly<Record<string, unknown>>) =>

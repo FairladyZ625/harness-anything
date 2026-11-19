@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 import { act } from "react";
@@ -61,7 +62,10 @@ async function mount(
 ) {
   const show = vi.fn(async () => receipt({ evidence: JSON.stringify(data) }));
   vi.stubGlobal("window", {
-    harness: { showTask: show, reworkTask: rework },
+    harness: mockRpcBridge(
+      { showTask: show, reworkTask: rework },
+      { "repo.task.show": "showTask", "repo.task.rework": "reworkTask" },
+    ),
     document,
     localStorage: window.localStorage,
     addEventListener: () => undefined,

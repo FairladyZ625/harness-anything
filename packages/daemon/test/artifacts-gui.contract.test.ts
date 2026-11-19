@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ArtifactTimelineQuery, ArtifactTimelineRead, ArtifactTimelineRow } from "@harness-anything/kernel";
-import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { daemonReadRoutes, validateDaemonRpcCall } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import { daemonGuiReadSchemas } from "../src/daemon-host/protocol/daemon-protocol-schema-registry.ts";
 import { DAEMON_ARTIFACTS_LIST_SCHEMA } from "../src/daemon-host/protocol/daemon-protocol-schema-ids.ts";
 import { readArtifactsGui, type ArtifactsProjectionReads } from "../src/daemon-host/artifacts-gui-read.ts";
@@ -11,7 +11,7 @@ import {
   serializeArtifactsList,
   validateArtifactsList,
   type ArtifactsListResult,
-} from "../src/daemon-host/protocol/artifacts-gui-contract.ts";
+} from "../src/daemon-host/protocol/artifacts-contract.ts";
 
 const row = (overrides: Partial<ArtifactTimelineRow> = {}): ArtifactTimelineRow => ({
   packageDir: "task_reported-slug",
@@ -51,10 +51,8 @@ function projectionStub(
 }
 
 test("the artifacts list read facet is registered, payload-closed, and defaults to html", () => {
-  const facet = daemonGuiReadMethods.find(({ method }) => method === "repo.artifacts.list");
+  const facet = daemonReadRoutes.find(({ method }) => method === "repo.artifacts.list");
   assert.ok(facet, "repo.artifacts.list must be registered");
-  assert.equal(facet.guiBridgeMethod, "listArtifacts");
-  assert.equal(facet.outputSchemaId, DAEMON_ARTIFACTS_LIST_SCHEMA.id);
   assert.deepEqual(
     validateDaemonRpcCall({
       method: "repo.artifacts.list",
@@ -96,7 +94,7 @@ test("the read renders the projection page as a ledger-time artifact row", () =>
   const projection = projectionStub(() => ({ rows: [row()], counts: { html: 2, md: 1, raw: 1 } }));
   const result = readArtifactsGui({ projection, input: { repoId: "artifacts-gui" } }, {});
   assert.deepEqual(validateArtifactsList(result), []);
-  assert.equal(parseDaemonGuiReadResult("repo.artifacts.list", result), result);
+  assert.equal(parseDaemonReadResult("repo.artifacts.list", result), result);
   assert.equal(result.kind, "html");
   assert.deepEqual(result.counts, { html: 2, md: 1, raw: 1 });
   assert.deepEqual(result.artifacts, [

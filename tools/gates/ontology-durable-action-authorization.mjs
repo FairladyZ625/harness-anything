@@ -274,7 +274,7 @@ export async function loadAuthorizationInputs(rootDir) {
   );
   constants.actionDeclarations = actionDeclarations;
   constants.entityKindContracts = entityKinds?.entityKindContracts ?? [];
-  const descriptors = [...contract.daemonProtocolCommands, ...contract.daemonGuiActionMethods].map((row) => ({
+  const descriptors = [...contract.daemonProtocolCommands, ...contract.daemonActionRoutes].map((row) => ({
     ...row,
   }));
   // Native process effects share an entry declared by their local authority action. They are

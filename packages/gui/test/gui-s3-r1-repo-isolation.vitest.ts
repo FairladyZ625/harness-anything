@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: fast
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
@@ -128,7 +129,10 @@ describe("GUI S3 R1 repository isolation", () => {
         },
       }),
     );
-    Object.defineProperty(window, "harness", { configurable: true, value: { getTasks } });
+    Object.defineProperty(window, "harness", {
+      configurable: true,
+      value: mockRpcBridge({ getTasks }, { "repo.tasks.list": "getTasks" }),
+    });
 
     const first = await taskListQuery("repo-a").queryFn();
     expect(getTasks).toHaveBeenCalledTimes(2);
@@ -185,7 +189,10 @@ describe("GUI S3 R1 repository isolation", () => {
         nextCursor: payload.cursor ? null : "task-page-2",
       },
     }));
-    Object.defineProperty(window, "harness", { configurable: true, value: { getTasks } });
+    Object.defineProperty(window, "harness", {
+      configurable: true,
+      value: mockRpcBridge({ getTasks }, { "repo.tasks.list": "getTasks" }),
+    });
 
     const first = await taskListQuery("repo-a").queryFn();
     const joined = await readTaskList("repo-a", first);
@@ -205,7 +212,10 @@ describe("GUI S3 R1 repository isolation", () => {
       warnings: [],
       page: { limit: TASK_LIST_PAGE_LIMIT, cursor: null, nextCursor: null },
     }));
-    Object.defineProperty(window, "harness", { configurable: true, value: { getTasks } });
+    Object.defineProperty(window, "harness", {
+      configurable: true,
+      value: mockRpcBridge({ getTasks }, { "repo.tasks.list": "getTasks" }),
+    });
     const cachedRows = [
       { taskId: "task-cached", updatedAt: "2026-08-21T23:58:00.000Z" },
       { taskId: "task_cached", updatedAt: "2026-08-21T23:59:00.000Z" },
@@ -253,7 +263,10 @@ describe("GUI S3 R1 repository isolation", () => {
         page: { limit: TASK_LIST_PAGE_LIMIT, cursor: null, nextCursor: null },
       }),
     );
-    Object.defineProperty(window, "harness", { configurable: true, value: { getTasks } });
+    Object.defineProperty(window, "harness", {
+      configurable: true,
+      value: mockRpcBridge({ getTasks }, { "repo.tasks.list": "getTasks" }),
+    });
 
     const result = await readTaskList("repo-a", {
       ok: true,

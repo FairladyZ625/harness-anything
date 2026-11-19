@@ -14,7 +14,7 @@ import {
   type FleetOverviewInput,
 } from "../src/daemon-host/fleet/fleet-overview-read.ts";
 import type { FleetReplicaStatus } from "../src/daemon-host/fleet/center-types.ts";
-import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 
 const CENTER = { daemonId: "default", startedAt: "2026-10-01T00:00:00.000Z", version: "0.0.0", commitSha: "bd2251a" };
 
@@ -145,7 +145,7 @@ test("the overview joins daemon facts: center node from daemon identity, edges f
       ["macos-user", "unsynced"],
     ],
   );
-  assert.equal(parseDaemonGuiReadResult("repo.fleet.overview.read", result), result);
+  assert.equal(parseDaemonReadResult("repo.fleet.overview.read", result), result);
 });
 
 test("the node-level replica is the view the node last acknowledged, never a frozen retired view", () => {
@@ -329,7 +329,7 @@ test("authorization failures become redacted lease blocks; other failures propag
   );
   const edge = result.nodes.find((node) => node.nodeId === "cc90-ubuntu")!;
   assert.deepEqual(edge.leases, { redacted: "authorization_denied" });
-  assert.equal(parseDaemonGuiReadResult("repo.fleet.overview.read", result), result);
+  assert.equal(parseDaemonReadResult("repo.fleet.overview.read", result), result);
 });
 
 test("the validator accepts a real overview and rejects each pinned negative fixture", () => {
@@ -722,7 +722,7 @@ test("a completed edge task keeps its event provenance after releasing its lease
   assert.equal(Array.isArray(node.recentDispatches) && node.recentDispatches[0]?.dispatchId, "dispatch_edge");
   assert.equal(Array.isArray(node.recentEvents) && node.recentEvents.length, 20);
   assert.equal(Array.isArray(node.recentEvents) && node.recentEvents[0]?.eventId, "older-edge-event-0");
-  assert.equal(parseDaemonGuiReadResult("repo.fleet.overview.read", result), result);
+  assert.equal(parseDaemonReadResult("repo.fleet.overview.read", result), result);
   const restricted = (await overview(true)).nodes.find(({ nodeId }) => nodeId === edge)!;
   for (const value of [restricted.recentTasks, restricted.recentDispatches, restricted.recentEvents])
     assert.deepEqual(value, { redacted: "authorization_denied" });

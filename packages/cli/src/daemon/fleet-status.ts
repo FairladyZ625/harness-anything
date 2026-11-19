@@ -1,6 +1,6 @@
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 import { resolveLocalDaemonTarget } from "@harness-anything/daemon/internal/client/local-daemon-target";
-import type { DaemonGuiReadResultMap } from "@harness-anything/daemon/internal/protocol/daemon-protocol-gui-types";
+import type { DaemonGuiReadResultMap } from "@harness-anything/daemon/internal/protocol/daemon-protocol-results";
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 import { daemonOption } from "./control-support.ts";
 

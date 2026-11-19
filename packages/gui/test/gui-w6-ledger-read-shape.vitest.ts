@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: fast
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
@@ -121,7 +122,10 @@ function installFakeLedger(
       };
     },
   );
-  Object.defineProperty(window, "harness", { configurable: true, value: { getTasks } });
+  Object.defineProperty(window, "harness", {
+    configurable: true,
+    value: mockRpcBridge({ getTasks }, { "repo.tasks.list": "getTasks" }),
+  });
   return {
     calls,
     state,
@@ -382,7 +386,10 @@ describe("首屏活跃切片:状态下推 + 首屏合并", () => {
         page: { limit: TASK_LIST_PAGE_LIMIT, cursor: null, nextCursor: null },
       };
     });
-    Object.defineProperty(window, "harness", { configurable: true, value: { getTasks } });
+    Object.defineProperty(window, "harness", {
+      configurable: true,
+      value: mockRpcBridge({ getTasks }, { "repo.tasks.list": "getTasks" }),
+    });
     return { calls, rows };
   }
 

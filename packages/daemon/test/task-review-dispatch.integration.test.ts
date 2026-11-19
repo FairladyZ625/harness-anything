@@ -32,11 +32,11 @@ import {
   taskId,
 } from "./task-completion-review.fixture.ts";
 import { makeDaemonCommandReceipt } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiActionResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { parseDaemonActionResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 
 // The JSON-RPC exit for repo.decision.dispatchReview: the cell receipt wrapped and re-validated.
 const overGuiWire = (receipt: object) =>
-  parseDaemonGuiActionResult(
+  parseDaemonActionResult(
     "repo.decision.dispatchReview",
     makeDaemonCommandReceipt("decision-dispatch-review", receipt),
   );

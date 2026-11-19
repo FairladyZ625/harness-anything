@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { describe, expect, it } from "vitest";
 import { addLocalMainControls } from "../src/main/local-main-controls.ts";
 
@@ -18,7 +19,10 @@ describe("Electron main daemon lifecycle boundary", () => {
         },
       });
     await expect(
-      bridge.invoke("requestDaemonControl", { kind: "restart", authorityRepoId: "repo-a" }),
+      bridge.invoke(
+        "daemon.gui.control.request",
+        scopedRpcParams("daemon.gui.control.request", { kind: "restart", authorityRepoId: "repo-a" }),
+      ),
     ).resolves.toMatchObject({ error: { code: "supervisor_required" } });
     expect(calls).toEqual([
       {

@@ -1,11 +1,11 @@
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import type { DaemonRequestLogEntry } from "../request-log.ts";
 import { daemonProtocolError } from "./daemon-protocol-validate-results.ts";
-import type { DaemonProtocolErrorResult } from "./daemon-protocol-gui-types.ts";
+import type { DaemonProtocolErrorResult } from "./daemon-protocol-results.ts";
 import { errorMessageWithCause } from "../error-cause.ts";
 import {
-  isDaemonGuiActionMethod,
-  isDaemonGuiReadMethod,
+  isDaemonActionRoute,
+  isDaemonReadRoute,
   isDaemonStreamMethod,
   type DaemonGuiActionMethod,
   type DaemonGuiRpcReadMethod,
@@ -19,7 +19,7 @@ type DaemonRpcCallFor<Method extends DaemonRpcMethod> = Extract<DaemonRpcCall, {
 type RuntimeInstanceMethod = Extract<DaemonRpcMethod, `daemon.runtimeInstance.${string}`>;
 type ProviderMethod = Extract<DaemonRpcMethod, `daemon.provider.${string}`>;
 type RuntimeInstanceAuthMethod = Extract<DaemonRpcMethod, `repo.runtimeInstance.auth.${string}`>;
-type RepoGuiReadMethod = Exclude<
+type RepositoryReadMethod = Exclude<
   DaemonGuiRpcReadMethod,
   "daemon.gui.system.read" | "daemon.gui.home.read" | "daemon.gui.control.receipt"
 >;
@@ -46,9 +46,9 @@ export function isRuntimeInstanceAuthCall(call: DaemonRpcCall): call is DaemonRp
 export function isDaemonStreamCall(call: DaemonRpcCall): call is DaemonRpcCallFor<DaemonStreamMethod> {
   return isDaemonStreamMethod(call.method);
 }
-export function isRepoGuiReadCall(call: DaemonRpcCall): call is DaemonRpcCallFor<RepoGuiReadMethod> {
+export function isRepositoryReadCall(call: DaemonRpcCall): call is DaemonRpcCallFor<RepositoryReadMethod> {
   return (
-    isDaemonGuiReadMethod(call.method) &&
+    isDaemonReadRoute(call.method) &&
     call.method !== "daemon.gui.system.read" &&
     call.method !== "daemon.gui.home.read" &&
     call.method !== "daemon.gui.control.receipt"
@@ -57,7 +57,7 @@ export function isRepoGuiReadCall(call: DaemonRpcCall): call is DaemonRpcCallFor
 export function isTerminalActionCall(call: DaemonRpcCall): call is DaemonRpcCallFor<TerminalActionMethod> {
   return (
     call.method === "repo.gui.catalog.reread" ||
-    (isDaemonGuiActionMethod(call.method) && call.method.startsWith("repo.terminal."))
+    (isDaemonActionRoute(call.method) && call.method.startsWith("repo.terminal."))
   );
 }
 export function repoIdFromParams(params: JsonObject): string {

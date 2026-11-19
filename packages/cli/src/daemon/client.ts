@@ -559,7 +559,7 @@ export async function streamRuntimeThroughDaemon(
   return streamAgentRuntimeAt({
     socketPath: target.socketPath,
     repoId: target.repoId,
-    payload: { runtimeSessionId, afterCursor: "stream:0" },
+    payload: { runtimeSessionId },
     onValue,
     timeoutMs: cliOperationalPolicy.defaultValue.daemon.streamTimeoutMs,
     invokingCommand: command.id,

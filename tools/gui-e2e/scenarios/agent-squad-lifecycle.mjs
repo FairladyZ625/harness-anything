@@ -49,10 +49,11 @@ export default {
       candidates = '["deepseek-account","deepseek-flash"]';
     const seeded = await page.evaluate(
       async ([repoIdValue, candidatesValue]) => {
-        const request = (method, payload) => globalThis.harness.request(method, { repoId: repoIdValue, ...payload });
+        const request = (method, payload) =>
+          globalThis.harness.request(method, { repo: { repoId: repoIdValue }, payload });
         const receipts = [];
         receipts.push(
-          await request("saveAgent", {
+          await request("repo.agent.entity.write", {
             declaration: {
               schema: "agent-declaration/v1",
               id: "deepseek-reviewer",
@@ -64,7 +65,7 @@ export default {
           }),
         );
         receipts.push(
-          await request("saveAgent", {
+          await request("repo.agent.entity.write", {
             declaration: {
               schema: "agent-declaration/v1",
               id: "terra",
@@ -75,7 +76,7 @@ export default {
           }),
         );
         receipts.push(
-          await request("saveAgent", {
+          await request("repo.agent.entity.write", {
             declaration: {
               schema: "agent-declaration/v1",
               id: "luna",
@@ -86,14 +87,14 @@ export default {
           }),
         );
         receipts.push(
-          await request("retireAgent", {
+          await request("repo.agent.entity.retire", {
             agentId: "luna",
             reason: "Superseded by terra.",
             successor: "terra",
           }),
         );
         receipts.push(
-          await request("saveSquad", {
+          await request("repo.squad.entity.write", {
             declaration: {
               schema: "squad-declaration/v1",
               id: "core-squad",

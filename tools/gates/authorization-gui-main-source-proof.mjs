@@ -1,15 +1,15 @@
 // GUI main forwards business authority (dec_7E44897ECDCAEF2B92EC66A260/CH1).
 import ts from "typescript";
 import {
-  daemonGuiInvokeFacets,
+  interactiveRpcMethods,
   daemonProtocolCommands,
 } from "../../packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { unwrap } from "./authorization-flow-graph.mjs";
 
 const main = "packages/gui/src/main/";
-const api = "packages/gui/src/api/service-bridge.ts";
-const bridgePort = `${api}#GuiServiceBridge.invoke`;
 const composition = `${main}local-composition-root.ts`;
+const bridgePort = `${composition}#GuiServiceBridge.invoke`;
+const preload = "packages/gui/src/preload/electron-preload.ts";
 const compact = (node) => node?.getText().replace(/\s+/gu, "");
 const failed = () => ({
   bindings: [],
@@ -38,34 +38,47 @@ const returns = (node, value) =>
 
 // Check finite route selection and the actual composition, not just an interface's spelling.
 function provenMultiplexer(graph) {
-  const bridge = fn(graph, api, "createGuiServiceBridgeForDaemon");
-  const invoke = descendants(bridge, (n) => ts.isPropertyAssignment(n) && n.name.getText() === "invoke")[0]
+  // dec_89D06D7360CBEC09795F7B12EC/CH3: the raw method is checked before forwarding.
+  const create = fn(graph, composition, "createLocalGuiServiceBridge");
+  const invoke = descendants(create, (n) => ts.isPropertyAssignment(n) && n.name.getText() === "invoke")[0]
     ?.initializer;
-  const lookup = calls(variable(graph, api, "route"), "routeByGuiMethod.get")[0];
-  const guard = invoke?.body?.statements?.find((n) => ts.isIfStatement(n) && compact(n.expression) === "!route");
-  const facetsImport = graph.modules.get(api)?.imports.get("daemonGuiInvokeFacets");
+  const lookup = calls(variable(graph, composition, "descriptor"), "interactiveRpcDescriptor")[0];
+  const guard = invoke?.body?.statements?.find((n) => ts.isIfStatement(n) && compact(n.expression) === "!descriptor");
+  const facetsImport = graph.modules.get(composition)?.imports.get("interactiveRpcDescriptor");
   if (
     !lookup ||
     compact(lookup.arguments[0]) !== "method" ||
     !guard ||
-    !returns(guard.thenStatement, 'failure("method_not_allowed",`UnsupportedGUIservicemethod:${method}`)') ||
-    !returns(invoke?.body, "request(route,payload)") ||
+    !compact(guard.thenStatement).startsWith('returnfailure(method,"UnsupportedinteractiveRPC"') ||
+    !returns(invoke?.body, "request(descriptor,params)") ||
     facetsImport?.from !== "@harness-anything/daemon/protocol" ||
-    facetsImport.exported !== "daemonGuiInvokeFacets" ||
-    compact(variable(graph, api, "shippedRoutes")?.initializer) !==
-      'daemonGuiInvokeFacets.map((facet)=>({guiBridgeMethod:facet.guiBridgeMethod,rpcMethod:facet.method,requiresRepo:facet.requiresRepo,...("commandClass"infacet?{commandClass:facet.commandClass}:{}),...("inputSchemaId"infacet?{inputSchemaId:facet.inputSchemaId}:{}),}))' ||
-    compact(variable(graph, api, "routeByGuiMethod")?.initializer) !==
-      "newMap(shippedRoutes.map((route)=>[route.guiBridgeMethod,route]),)"
+    facetsImport.exported !== "interactiveRpcDescriptor"
   )
     return false;
 
-  const create = calls(fn(graph, composition, "createLocalGuiServiceBridge"), "createGuiServiceBridgeForDaemon")[0];
-  if (!create || compact(create.arguments[0]) !== "(route,payload)=>request(route,payload)") return false;
+  const handler = fn(graph, `${main}ipc-handlers.ts`, "registerHarnessIpcHandlers");
+  const listener = calls(handler, "registrar.handle").find((call) => compact(call.arguments[0]) === "RPC_CHANNEL")
+    ?.arguments[1];
+  const statements = listener?.body?.statements ?? [];
+  const trusted = statements.findIndex(
+    (stmt) =>
+      ts.isExpressionStatement(stmt) && compact(stmt.expression) === "assertTrustedIpcSender(event,trustPolicy)",
+  );
+  const admitted = statements.findIndex(
+    (stmt) =>
+      ts.isExpressionStatement(stmt) && compact(stmt.expression) === "assertRendererRpc(value.method,value.params)",
+  );
+  const forward = statements.findIndex(
+    (stmt) => ts.isReturnStatement(stmt) && calls(stmt, "bridge.invoke").length === 1,
+  );
+  if (trusted < 0 || trusted >= admitted || admitted >= forward) return false;
+
   const request = fn(graph, composition, "request");
   const rpc = calls(request, "daemon.requestLocalDaemonJsonRpcForTarget");
   if (
     rpc.length !== 1 ||
-    compact(rpc[0].arguments[1]) !== "route.rpcMethod" ||
+    compact(rpc[0].arguments[1]) !== "route.method" ||
+    compact(rpc[0].arguments[2]) !== "params" ||
     !returns(request, "parse(awaitinvoke())")
   )
     return false;
@@ -83,7 +96,8 @@ function provenMultiplexer(graph) {
 
 export function resolvedGuiMainForwarding(graph, node, port, descriptors, resolveRpc) {
   const file = graph.fileOf(node);
-  if (!file.startsWith(main)) return null;
+  const preloadRpc = file === preload && port === `${preload}#invoke` && compact(node.arguments[0]) === "RPC_CHANNEL";
+  if (!file.startsWith(main) && !preloadRpc) return null;
   const declaration = graph.callDeclaration(node);
   const body = declaration && unwrap(declaration.body);
   if (file === composition && port === `${composition}#bootstrapLocalRepository.invoke`) {
@@ -103,37 +117,44 @@ export function resolvedGuiMainForwarding(graph, node, port, descriptors, resolv
   const ipc = file === `${main}ipc-handlers.ts` && port === bridgePort;
   const controls = file === `${main}local-main-controls.ts` && port === bridgePort;
   const request = file === composition && port === `${composition}#request.invoke`;
-  if (!ipc && !controls && !request) {
-    // Native desktop callbacks may contain forwarding too. An opaque bridge/RPC remains
-    // a remote transport even outside the four current multiplexers.
+  if (!ipc && !controls && !request && !preloadRpc) {
+    // An opaque daemon bridge remains a remote transport inside native desktop callbacks.
     const bridge = port === bridgePort;
     const rpc = port === `${composition}#DaemonClient.requestLocalDaemonJsonRpcForTarget`;
     if (!bridge && !rpc) return null;
     const method = unwrap(node.arguments[bridge ? 0 : 1]);
-    const facet =
-      method && ts.isStringLiteralLike(method) && bridge
-        ? daemonGuiInvokeFacets.find((f) => f.guiBridgeMethod === method.text)
-        : null;
+    const admitted = !bridge || interactiveRpcMethods.some((facet) => facet.method === method?.text);
     const binding =
-      method &&
-      ts.isStringLiteralLike(method) &&
-      resolveRpc(bridge ? facet?.method : method.text, node.arguments[bridge ? 1 : 2]);
+      method && ts.isStringLiteralLike(method) && admitted && resolveRpc(method.text, node.arguments[bridge ? 1 : 2]);
     return binding
       ? { bindings: [binding], reachesDaemonTransport: true, viaCallbackParam: false, hasUnprovenCallback: false }
       : failed();
   }
   if (!provenMultiplexer(graph)) return failed();
+  if (preloadRpc) {
+    // dec_89D06D7360CBEC09795F7B12EC/CH3: prove the preload channel forwards the same guarded route set.
+    const nativeCalls = calls(declaration, "ipcRenderer.invoke");
+    if (
+      compact(node) !== "invoke(RPC_CHANNEL,{method,params})" ||
+      nativeCalls.length !== 1 ||
+      compact(nativeCalls[0]) !== "ipcRenderer.invoke(channel,payload)" ||
+      graph.modules.get(preload)?.imports.get("ipcRenderer")?.from !== "electron" ||
+      graph.modules.get(preload)?.imports.get("RPC_CHANNEL")?.from !== "./allowlist.ts" ||
+      graph.modules.get(`${main}ipc-handlers.ts`)?.imports.get("RPC_CHANNEL")?.from !== "../preload/allowlist.ts"
+    )
+      return failed();
+  }
   if (
-    (ipc && compact(node) !== "bridge.invoke(method,payload)") ||
+    (ipc && (compact(node.arguments[0]) !== "value.method" || compact(unwrap(node.arguments[1])) !== "value.params")) ||
     (controls && compact(node) !== "input.bridge.invoke(method,payload)")
   )
     return failed();
-  const bindings = daemonGuiInvokeFacets.map((facet) => resolveRpc(facet.method));
+  const bindings = interactiveRpcMethods.map((facet) => resolveRpc(facet.method));
   if (bindings.some((binding) => !binding)) return failed();
   // One RPC can dispatch several operations, such as handoff export/claim/revoke.
   // Require every variant, rather than borrowing the GUI facade's default operation.
   for (const descriptor of daemonProtocolCommands.filter(
-    (d) => d.commandClass !== "repo-read" && daemonGuiInvokeFacets.some((facet) => facet.method === d.method),
+    (d) => d.commandClass !== "repo-read" && interactiveRpcMethods.some((facet) => facet.method === d.method),
   )) {
     if (
       !descriptors.some(

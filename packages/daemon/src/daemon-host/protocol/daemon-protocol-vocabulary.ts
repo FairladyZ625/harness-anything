@@ -16,7 +16,7 @@ import type {
   taskPhaseSteps,
 } from "@harness-anything/kernel";
 import type { CanonicalMaterializationState } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
-import type { TaskDeliveryStage } from "./daemon-protocol-gui-types.ts";
+import type { TaskDeliveryStage } from "./daemon-protocol-results.ts";
 
 export const AGENDA_PIN_CRITERIA = "blocking an active work or awaiting owner decision; otherwise leave unpinned";
 

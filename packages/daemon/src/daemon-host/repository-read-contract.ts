@@ -1,7 +1,7 @@
-import { daemonGuiReadMethods } from "./protocol/daemon-protocol-gui-reads.ts";
+import { daemonReadRoutes } from "./protocol/daemon-protocol-read-routes.ts";
 import { daemonRepositoryReadMethods } from "./protocol/daemon-protocol-commands.ts";
 
-const repositoryReads = [...daemonGuiReadMethods, ...daemonRepositoryReadMethods];
+const repositoryReads = [...daemonReadRoutes, ...daemonRepositoryReadMethods];
 
 /** The GUI declaration identifies the repository-read authorization scope. */
 export function repositoryReadDescriptor(method: string, payload?: unknown) {

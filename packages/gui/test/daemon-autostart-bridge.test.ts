@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { signInPolicyTestUser } from "../../daemon/test/keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -50,9 +51,12 @@ test("GUI bridge is attach-only even when its first request finds no daemon", as
       true,
     );
     await daemon.stop();
-    const failure = (await createLocalGuiServiceBridge().invoke("getTasks", {
-      repoId: "gui-first-attach",
-    })) as Failure;
+    const failure = (await createLocalGuiServiceBridge().invoke(
+      "repo.tasks.list",
+      scopedRpcParams("repo.tasks.list", {
+        repoId: "gui-first-attach",
+      }),
+    )) as Failure;
     assert.equal(failure.ok, false);
     assert.equal(failure.error?.code, "daemon_unavailable");
     assert.equal(readDaemonPid(userRoot, daemonId), null, "a first GUI request must not spawn a daemon");
@@ -96,10 +100,17 @@ test("GUI bridge reuses a resident daemon and does not respawn it after an expli
     const bridge = createLocalGuiServiceBridge(),
       beforePid = readDaemonPid(userRoot, daemonId);
     assert.ok(beforePid);
-    assert.equal((await bridge.invoke("getTasks", { repoId: "gui-resident-attach" })).ok, true);
+    assert.equal(
+      (await bridge.invoke("repo.tasks.list", scopedRpcParams("repo.tasks.list", { repoId: "gui-resident-attach" })))
+        .ok,
+      true,
+    );
     assert.equal(readDaemonPid(userRoot, daemonId), beforePid, "attaching must not replace the resident generation");
     await daemon.stop();
-    const stopped = (await bridge.invoke("getTasks", { repoId: "gui-resident-attach" })) as Failure;
+    const stopped = (await bridge.invoke(
+      "repo.tasks.list",
+      scopedRpcParams("repo.tasks.list", { repoId: "gui-resident-attach" }),
+    )) as Failure;
     assert.equal(stopped.ok, false);
     assert.equal(stopped.error?.code, "daemon_unavailable");
     assert.equal(readDaemonPid(userRoot, daemonId), null, "a stopped daemon must remain stopped while the GUI is open");

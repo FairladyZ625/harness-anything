@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { assertDaemonHello, daemonHelloParams } from "../src/daemon-host/client/daemon-hello.ts";
-import { shape, validateShape } from "../src/daemon-host/protocol/daemon-protocol-gui-types.ts";
+import { shape, validateShape } from "../src/daemon-host/protocol/daemon-protocol-results.ts";
 import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
 
@@ -67,7 +67,7 @@ test("a daemon rejection keeps its own code instead of becoming a version mismat
 test("lifecycle reads require an advertised connection opt-in; previous peers keep their closed DTO", async () => {
   const { makeAgentRuntimeReadModel } = await import("../src/daemon-host/agent-runtime-read.ts"),
     { createJsonRpcProtocolServer } = await import("../src/daemon-host/protocol/json-rpc-server.ts"),
-    { parseDaemonGuiReadResponse } = await import("../src/daemon-host/protocol/gui-result-validation.ts");
+    { parseDaemonReadResponse } = await import("../src/daemon-host/protocol/daemon-result-validation.ts");
   const session = {
     runtimeSessionId: "runtime-test",
     providerSessionId: null,
@@ -132,11 +132,11 @@ test("lifecycle reads require an advertised connection opt-in; previous peers ke
     "context",
   ]);
   assert.ok(Object.keys(previous.session as JsonObject).every((key) => previousFields.has(key)));
-  assert.doesNotThrow(() => parseDaemonGuiReadResponse("repo.agentRuntime.sessions.read", previous));
+  assert.doesNotThrow(() => parseDaemonReadResponse("repo.agentRuntime.sessions.read", previous));
   await call("protocol.dispatchLifecycle.enable");
   const next = await call("repo.agentRuntime.sessions.read", params);
   assert.deepEqual((next.session as JsonObject).lifecycle, current.session.lifecycle);
-  assert.doesNotThrow(() => parseDaemonGuiReadResponse("repo.agentRuntime.sessions.read", next));
+  assert.doesNotThrow(() => parseDaemonReadResponse("repo.agentRuntime.sessions.read", next));
   const { PassThrough, Writable } = await import("node:stream"),
     { JsonRpcLineClient } = await import("../src/daemon-host/client/local-json-rpc-client.ts"),
     input = new PassThrough();

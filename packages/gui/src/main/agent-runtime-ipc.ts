@@ -1,68 +1,65 @@
-import type { IpcMainEvent } from "electron";
-import { daemonGuiStreamFacets, type DaemonStreamPayloadMap } from "@harness-anything/daemon/protocol";
-import type { GuiServiceBridge } from "../api/service-bridge.ts";
-import { assertPreloadPayload } from "../preload/allowlist.ts";
+import { streamRpcDescriptor, type DaemonStreamPayloadMap } from "@harness-anything/daemon/protocol";
+import type { GuiServiceBridge } from "./local-composition-root.ts";
+import {
+  assertRendererRpc,
+  STREAM_CLOSE_CHANNEL,
+  STREAM_OPEN_CHANNEL,
+  streamFrameChannel,
+} from "../preload/allowlist.ts";
 import { assertTrustedIpcSender } from "./ipc-trust.ts";
 import type { IpcWebContentsTrustPolicy } from "./security-policy.ts";
 import { isMainProcessRecord } from "./value-validation.ts";
-export interface AgentRuntimeIpcRegistrar {
-  readonly on: (channel: string, listener: (event: IpcMainEvent, payload: unknown) => void) => void;
-}
-type GuiStreamMethod = (typeof daemonGuiStreamFacets)[number]["method"];
+import type { HarnessIpcRegistrar } from "./ipc-handlers.ts";
+
 export function registerAgentRuntimeIpc(
-  registrar: AgentRuntimeIpcRegistrar,
+  registrar: HarnessIpcRegistrar,
   bridge: GuiServiceBridge,
   trustPolicy: IpcWebContentsTrustPolicy,
 ): void {
-  const active = new Map<string, Promise<() => void>>();
-  for (const facet of daemonGuiStreamFacets) {
-    const openChannel = `harness:${facet.guiBridgeMethod}`,
-      detachChannel = `${openChannel}:detach`;
-    registrar.on(openChannel, (event, value) => {
-      assertTrustedIpcSender(event, trustPolicy);
-      const envelope = checkedEnvelope(value),
-        key = `${event.sender.id}:${facet.guiBridgeMethod}:${envelope.subscriptionId}`,
-        frameChannel = `${openChannel}:frame:${envelope.subscriptionId}`;
-      assertPreloadPayload(facet.guiBridgeMethod, envelope.payload);
-      const pending = bridge.stream(facet.guiBridgeMethod, envelope.payload, (frame) =>
-        event.sender.send(frameChannel, frame),
+  const active = new Map<string, () => void>();
+  registrar.handle(STREAM_OPEN_CHANNEL, async (event, value) => {
+    assertTrustedIpcSender(event, trustPolicy);
+    const id = subscriptionId(value),
+      method =
+        isMainProcessRecord(value) && typeof value.method === "string" ? streamRpcDescriptor(value.method) : undefined;
+    if (!method || !isMainProcessRecord(value)) throw new Error("Unknown renderer stream.");
+    assertRendererRpc(method.method, value.params, true);
+    const key = `${event.sender.id}:${id}`;
+    if (active.has(key)) throw new Error("Stream subscription already exists.");
+    const controller = new AbortController();
+    const detach = () => {
+      controller.abort();
+      active.delete(key);
+      event.sender.off("destroyed", detach);
+    };
+    active.set(key, detach);
+    event.sender.once("destroyed", detach);
+    try {
+      await bridge.stream(
+        method.method,
+        value.params as { repo: { repoId: string }; payload: DaemonStreamPayloadMap[typeof method.method] },
+        (frame) => {
+          if (!controller.signal.aborted) event.sender.send(streamFrameChannel(id), frame);
+        },
+        controller.signal,
       );
-      active.set(key, pending);
-      event.sender.once("destroyed", () => {
-        void detach(key);
-      });
-      void pending.catch((error) => {
-        event.sender.send(frameChannel, {
-          ok: false,
-          code: "daemon_stream_error",
-          hint: error instanceof Error ? error.message : String(error),
-        });
-        active.delete(key);
-      });
-    });
-    registrar.on(detachChannel, (event, value) => {
-      assertTrustedIpcSender(event, trustPolicy);
-      const subscriptionId = checkedSubscription(value);
-      void detach(`${event.sender.id}:${facet.guiBridgeMethod}:${subscriptionId}`);
-    });
-  }
-  async function detach(key: string): Promise<void> {
-    const pending = active.get(key);
-    if (!pending) return;
-    active.delete(key);
-    (await pending)();
-  }
+    } catch (error) {
+      detach();
+      throw error;
+    }
+  });
+  registrar.handle(STREAM_CLOSE_CHANNEL, async (event, value) => {
+    assertTrustedIpcSender(event, trustPolicy);
+    active.get(`${event.sender.id}:${subscriptionId(value)}`)?.();
+  });
 }
-function checkedEnvelope(value: unknown): {
-  readonly subscriptionId: string;
-  readonly payload: DaemonStreamPayloadMap[GuiStreamMethod];
-} {
-  if (!isMainProcessRecord(value) || typeof value.subscriptionId !== "string" || !isMainProcessRecord(value.payload))
-    throw new Error("Stream envelope is invalid.");
-  return value as { subscriptionId: string; payload: DaemonStreamPayloadMap[GuiStreamMethod] };
-}
-function checkedSubscription(value: unknown): string {
-  if (!isMainProcessRecord(value) || typeof value.subscriptionId !== "string")
-    throw new Error("Agent runtime subscription id is required.");
+
+function subscriptionId(value: unknown): string {
+  if (
+    !isMainProcessRecord(value) ||
+    typeof value.subscriptionId !== "string" ||
+    !/^renderer-[1-9][0-9]{0,15}$/u.test(value.subscriptionId)
+  )
+    throw new Error("A valid stream subscription id is required.");
   return value.subscriptionId;
 }

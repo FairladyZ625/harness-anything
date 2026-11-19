@@ -2,11 +2,6 @@ import { validateHomeOverviewResult } from "../home/home-overview-validation.ts"
 import { repositoryReadData, validateRepositoryReadFrame } from "./repository-read-frame.ts";
 import { validateTaskClaimableResult, validateTaskAssignmentDirectory } from "./daemon-protocol-validate-entities.ts";
 import {
-  validateAgentRuntimeAttach,
-  validateAgentRuntimeAttachEvent,
-  type AgentRuntimeAttachEvent,
-} from "../agent-runtime-stream.ts";
-import {
   validateAgentRuntimeEvents,
   validateAgentRuntimeOverview,
   validateAgentRuntimeSession,
@@ -30,21 +25,21 @@ import {
   validateAgentVersion,
   validateSquadEntityCatalog,
   validateSquadEntityDetail,
-} from "./agent-entity-gui-contract.ts";
-import { validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
+} from "./agent-entity-contract.ts";
+import { validateObserveTailResult } from "./daemon-protocol-results.ts";
 import { validateDaemonTaskCompletion } from "./daemon-protocol-task-completion.ts";
 import { validateDaemonTaskDeliveryDiff } from "./daemon-protocol-task-delivery-diff.ts";
 import { validateDaemonWorkTopology } from "./daemon-protocol-work-topology.ts";
 export { validateDaemonWorkTopology } from "./daemon-protocol-work-topology.ts";
 import { validateDaemonTaskSnapshotListServed } from "./daemon-protocol-validate-task.ts";
 import { validationError } from "./daemon-protocol-validate-entities.ts";
-import { validateArtifactsList } from "./artifacts-gui-contract.ts";
+import { validateArtifactsList } from "./artifacts-contract.ts";
 import { validateDaemonUseCaseProjection } from "./daemon-protocol-use-case-projection.ts";
 import { validateEntityRowList } from "../entity-rows-read.ts";
 import { validateAgentRuntimeTokenUsage, validateAgentRuntimeTokenUsageDetail } from "../agent-runtime-token-usage.ts";
 import { validateEntityContentRead } from "../entity-content-read.ts";
 import { validateEntityLocatorRead } from "../entity-locator-read.ts";
-import { isJsonObject } from "./json-rpc-types.ts";
+import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
 import { validateSquadRunRead, validateSquadRunsList } from "../squad-run-contract.ts";
 import { validateFleetOverview } from "../fleet/fleet-overview-read.ts";
 import {
@@ -55,8 +50,6 @@ import {
   validateDaemonControlReceipt,
   validateRuntimeSpawnReceipt,
   validateSystemStatus,
-  validateTerminalAttach,
-  validateTerminalAttachEvent,
   validateTerminalControlReceipt,
   validateTerminalDetachAck,
   validateTerminalInputAck,
@@ -78,10 +71,17 @@ import {
   type DaemonGuiActionResult,
   type DaemonGuiReadResultMap,
   type DaemonGuiRpcReadMethod,
-  type DaemonStreamMethod,
-  type DaemonStreamResultMap,
   type DaemonProtocolErrorResult,
 } from "./daemon-protocol.contract.ts";
+import { isDaemonActionRoute, isDaemonReadRoute } from "./daemon-protocol-rpc-validation.ts";
+
+export function parseClientRpcResponse(method: string, result: JsonObject): JsonObject {
+  if (isDaemonActionRoute(method)) return parseDaemonActionResponse(method, result) as JsonObject;
+  if (method === "daemon.gui.control.receipt") return parseDaemonReadResult(method, result) as unknown as JsonObject;
+  if (isDaemonReadRoute(method) && Object.hasOwn(resultValidators, method))
+    return parseDaemonReadResponse(method, result) as unknown as JsonObject;
+  return result;
+}
 type ResultValidator = (value: unknown) => readonly string[];
 const settingsReadFields = ["schema", "ok", "settings", "values", "revision", "lastChanged", "decisionPoints"] as const;
 // Action values this client declares; a newer daemon may add one this GUI does not know.
@@ -436,7 +436,7 @@ export function validateDaemonTaskWip(value: unknown): readonly string[] {
     ? []
     : [validationError("task-wip", "result", value, "must be a valid task WIP snapshot")];
 }
-export function parseDaemonGuiReadResult<M extends DaemonGuiRpcReadMethod>(
+export function parseDaemonReadResult<M extends DaemonGuiRpcReadMethod>(
   method: M,
   value: unknown,
 ): DaemonGuiReadResultMap[M] {
@@ -453,7 +453,7 @@ function settingsReadWithoutUndeclaredActionValues(value: unknown): unknown {
   const values = Object.fromEntries(Object.entries(data.values).filter(([field]) => settingsActionFields.has(field)));
   return Object.keys(values).length === Object.keys(data.values).length ? value : { ...value, values };
 }
-export function parseDaemonGuiReadResponse<M extends DaemonGuiRpcReadMethod>(
+export function parseDaemonReadResponse<M extends DaemonGuiRpcReadMethod>(
   method: M,
   value: unknown,
 ): DaemonGuiReadResultMap[M] | DaemonProtocolErrorResult {
@@ -512,7 +512,7 @@ function previousDocumentReadResult(value: unknown): unknown {
   }
   return normalized;
 }
-export function parseDaemonGuiActionResult(method: DaemonGuiActionMethod, value: unknown): DaemonGuiActionResult {
+export function parseDaemonActionResult(method: DaemonGuiActionMethod, value: unknown): DaemonGuiActionResult {
   const errors =
     method === "daemon.gui.control.request"
       ? validateDaemonControlReceipt(value)
@@ -532,7 +532,7 @@ export function parseDaemonGuiActionResult(method: DaemonGuiActionMethod, value:
   if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
   return value as DaemonGuiActionResult;
 }
-export function parseDaemonGuiActionResponse(
+export function parseDaemonActionResponse(
   method: DaemonGuiActionMethod,
   value: unknown,
 ): DaemonGuiActionResult | DaemonProtocolErrorResult {
@@ -541,26 +541,8 @@ export function parseDaemonGuiActionResponse(
       throw new DaemonProtocolContractError("invalid_result", validateDaemonProtocolError(value).join("; "));
     return value;
   }
-  return parseDaemonGuiActionResult(method, value);
+  return parseDaemonActionResult(method, value);
 }
 function isDaemonProtocolErrorResult(value: unknown): value is DaemonProtocolErrorResult {
   return validateDaemonProtocolError(value).length === 0;
-}
-export function parseDaemonStreamResult<M extends DaemonStreamMethod>(
-  method: M,
-  value: unknown,
-): DaemonStreamResultMap[M] {
-  const errors =
-    method === "repo.agentRuntime.attach" ? validateAgentRuntimeAttach(value) : validateTerminalAttach(value);
-  if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
-  return value as DaemonStreamResultMap[M];
-}
-export function parseDaemonStreamEvent(
-  method: DaemonStreamMethod,
-  value: unknown,
-): AgentRuntimeAttachEvent | import("./json-rpc-types.ts").JsonObject {
-  const errors =
-    method === "repo.agentRuntime.attach" ? validateAgentRuntimeAttachEvent(value) : validateTerminalAttachEvent(value);
-  if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
-  return value as AgentRuntimeAttachEvent | import("./json-rpc-types.ts").JsonObject;
 }

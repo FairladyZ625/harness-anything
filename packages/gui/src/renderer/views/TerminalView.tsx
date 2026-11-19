@@ -232,24 +232,30 @@ export function TerminalView({
       });
       setError(null);
       try {
-        const stop = terminalClient.attach(repoId, row.sessionId, afterSeq, (value) => {
-          if (!isInitial(value) && value.kind === "exit" && !exitedSessions.current.has(row.sessionId)) {
-            exitedSessions.current.add(row.sessionId);
-            onSessionExitRef.current?.(row.sessionId);
-          }
-          setTabs((current) =>
-            current.map((tab) => {
-              if (tab.sessionId !== row.sessionId) return tab;
-              if (!isInitial(value)) return reduceTerminalStream(tab, value);
-              return {
-                ...tab,
-                daemonGeneration: value.daemonGeneration,
-                attachmentId: value.attachmentId,
-                notice: value.status === "gap" ? t("terminal.view.replayGap") : tab.notice,
-              };
-            }),
-          );
-        });
+        const stop = terminalClient.attach(
+          repoId,
+          row.sessionId,
+          afterSeq,
+          (value) => {
+            if (!isInitial(value) && value.kind === "exit" && !exitedSessions.current.has(row.sessionId)) {
+              exitedSessions.current.add(row.sessionId);
+              onSessionExitRef.current?.(row.sessionId);
+            }
+            setTabs((current) =>
+              current.map((tab) => {
+                if (tab.sessionId !== row.sessionId) return tab;
+                if (!isInitial(value)) return reduceTerminalStream(tab, value);
+                return {
+                  ...tab,
+                  daemonGeneration: value.daemonGeneration,
+                  attachmentId: value.attachmentId,
+                  notice: value.status === "gap" ? t("terminal.view.replayGap") : tab.notice,
+                };
+              }),
+            );
+          },
+          (cause) => setError(message(cause)),
+        );
         stops.current.set(row.sessionId, stop);
       } catch (cause) {
         consumeKnownError(cause);

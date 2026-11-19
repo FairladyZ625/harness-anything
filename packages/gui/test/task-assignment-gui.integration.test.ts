@@ -1,11 +1,12 @@
 // harness-test-tier: integration
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { signInAt } from "../../daemon/test/keycloak.fixtures.ts";
 import { AccessAdminService } from "../../daemon/src/daemon-host/access-admin-service.ts";
 import { createIdentitySession } from "../../daemon/src/daemon-host/authorization-provider.ts";
-import { parseDaemonGuiActionResponse, parseDaemonGuiReadResult } from "@harness-anything/daemon/client";
+import { parseDaemonActionResponse, parseDaemonReadResult } from "@harness-anything/daemon/client";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
 import { restoreEnv } from "./service-bridge.fixtures.ts";
@@ -28,9 +29,9 @@ test("GUI assignment carries the read version and preserves assignment through a
     const bridge = createLocalGuiServiceBridge(),
       scope = { repoId: fixture.repoId, taskId: "task-gui-assignment" },
       read = async () => {
-        const row = parseDaemonGuiReadResult(
+        const row = parseDaemonReadResult(
           "repo.tasks.list",
-          await bridge.invoke("getTasks", { repoId: fixture.repoId }),
+          await bridge.invoke("repo.tasks.list", scopedRpcParams("repo.tasks.list", { repoId: fixture.repoId })),
         ).rows.find((row) => row.taskId === scope.taskId)!;
         return { ...row.snapshot, assignmentRevision: row.assignmentRevision };
       };
@@ -46,9 +47,9 @@ test("GUI assignment carries the read version and preserves assignment through a
     );
     signInAt(fixture.userRoot, "person-gui", []);
     fixture.keycloak.node("node-assignment", "person-gui");
-    const recipients = parseDaemonGuiReadResult(
+    const recipients = parseDaemonReadResult(
       "repo.tasks.assignmentDirectory",
-      await bridge.invoke("getTaskAssignmentDirectory", scope),
+      await bridge.invoke("repo.tasks.assignmentDirectory", scopedRpcParams("repo.tasks.assignmentDirectory", scope)),
     );
     assert.deepEqual(recipients.nodes, [{ nodeId: "node-assignment", personId: "person-gui" }]);
     assert.ok(recipients.people.some((person) => person.personId === "person-gui"));
@@ -59,24 +60,33 @@ test("GUI assignment carries the read version and preserves assignment through a
       /access-manage/,
     );
     fixture.keycloak.revoke("person-gui", fixture.repoId, ["task-assign"]);
-    const deniedDirectory = await bridge.invoke("getTaskAssignmentDirectory", scope);
+    const deniedDirectory = await bridge.invoke(
+      "repo.tasks.assignmentDirectory",
+      scopedRpcParams("repo.tasks.assignmentDirectory", scope),
+    );
     assert.match(JSON.stringify(deniedDirectory), /authorization_denied/);
     assert.equal("people" in deniedDirectory, false);
     fixture.keycloak.permit("person-gui", fixture.repoId, ["task-assign"]);
     const before = await read(),
       personId = before.task!.createdBy.principal.personId;
-    const assigned = parseDaemonGuiActionResponse(
+    const assigned = parseDaemonActionResponse(
       "repo.task.assign",
-      await bridge.invoke("assignTask", { ...scope, expectedVersion: before.assignmentRevision, personId }),
+      await bridge.invoke(
+        "repo.task.assign",
+        scopedRpcParams("repo.task.assign", { ...scope, expectedVersion: before.assignmentRevision, personId }),
+      ),
     );
     assert.equal(assigned.outcome, "applied", JSON.stringify(assigned));
     const after = await read();
     assert.deepEqual(after.task!.assignment?.assignee, { kind: "person", personId });
     assert.ok(Date.parse(after.task!.assignment!.expiresAt) > Date.now() + 23 * 3600000);
     fixture.keycloak.revoke("person-gui", fixture.repoId, ["task-unassign"]);
-    const deniedRemoval = parseDaemonGuiActionResponse(
+    const deniedRemoval = parseDaemonActionResponse(
       "repo.task.unassign",
-      await bridge.invoke("unassignTask", { ...scope, expectedVersion: after.assignmentRevision }),
+      await bridge.invoke(
+        "repo.task.unassign",
+        scopedRpcParams("repo.task.unassign", { ...scope, expectedVersion: after.assignmentRevision }),
+      ),
     );
     assert.equal(deniedRemoval.outcome, "op_rejected");
     assert.equal(deniedRemoval.code, "authorization_denied");
@@ -84,34 +94,49 @@ test("GUI assignment carries the read version and preserves assignment through a
     assert.equal((await read()).revision, after.revision);
     assert.deepEqual((await read()).task!.assignment, after.task!.assignment);
     fixture.keycloak.permit("person-gui", fixture.repoId, ["task-unassign"]);
-    const stale = parseDaemonGuiActionResponse(
+    const stale = parseDaemonActionResponse(
       "repo.task.unassign",
-      await bridge.invoke("unassignTask", { ...scope, expectedVersion: before.assignmentRevision }),
+      await bridge.invoke(
+        "repo.task.unassign",
+        scopedRpcParams("repo.task.unassign", { ...scope, expectedVersion: before.assignmentRevision }),
+      ),
     );
     assert.equal(stale.ok, false);
     assert.deepEqual((await read()).task!.assignment, after.task!.assignment);
-    const removed = parseDaemonGuiActionResponse(
+    const removed = parseDaemonActionResponse(
       "repo.task.unassign",
-      await bridge.invoke("unassignTask", { ...scope, expectedVersion: after.assignmentRevision }),
+      await bridge.invoke(
+        "repo.task.unassign",
+        scopedRpcParams("repo.task.unassign", { ...scope, expectedVersion: after.assignmentRevision }),
+      ),
     );
     assert.equal(removed.outcome, "applied", JSON.stringify(removed));
     assert.equal((await read()).task!.assignment, null);
     const explicit = "2099-01-01T00:00:00.000Z";
-    await bridge.invoke("assignTask", {
-      ...scope,
-      expectedVersion: (await read()).assignmentRevision,
-      personId,
-      expiresAt: explicit,
-    });
+    await bridge.invoke(
+      "repo.task.assign",
+      scopedRpcParams("repo.task.assign", {
+        ...scope,
+        expectedVersion: (await read()).assignmentRevision,
+        personId,
+        expiresAt: explicit,
+      }),
+    );
     assert.equal((await read()).task!.assignment!.expiresAt, explicit);
-    const started = parseDaemonGuiActionResponse(
+    const started = parseDaemonActionResponse(
       "repo.task.start",
-      await bridge.invoke("startTask", { ...scope, executionId: "execution-gui-assignment" }),
+      await bridge.invoke(
+        "repo.task.start",
+        scopedRpcParams("repo.task.start", { ...scope, executionId: "execution-gui-assignment" }),
+      ),
     );
     assert.equal(started.outcome, "applied", JSON.stringify(started));
-    const held = parseDaemonGuiActionResponse(
+    const held = parseDaemonActionResponse(
       "repo.task.unassign",
-      await bridge.invoke("unassignTask", { ...scope, expectedVersion: (await read()).assignmentRevision }),
+      await bridge.invoke(
+        "repo.task.unassign",
+        scopedRpcParams("repo.task.unassign", { ...scope, expectedVersion: (await read()).assignmentRevision }),
+      ),
     );
     assert.equal(held.ok, false);
     assert.equal((await read()).task!.assignment!.expiresAt, explicit);

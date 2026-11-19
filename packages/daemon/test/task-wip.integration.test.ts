@@ -29,7 +29,7 @@ import {
   TASK_WIP_LIMIT_ENV,
 } from "../src/daemon-host/task-wip-settings.ts";
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 
 const actor: ActorIdentity = { principal: { personId: "person-wip" }, executor: null } as const;
 type Cell = Awaited<ReturnType<typeof openRepoCell>>;
@@ -673,7 +673,7 @@ test("the served WIP snapshot passes the same protocol validator the GUI client 
     );
     const noRoots = await cell.read("repo.tasks.wip");
     assert.deepEqual(noRoots.roots, []);
-    assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.wip", noRoots), noRoots);
+    assert.deepEqual(parseDaemonReadResult("repo.tasks.wip", noRoots), noRoots);
     // A declared root (work container) and a derived root (three children, never executed).
     await createReadyTask(cell, rootDir, "task_WORK", "Work container", { taskClass: "work" });
     assert.equal(
@@ -710,7 +710,7 @@ test("the served WIP snapshot passes the same protocol validator the GUI client 
         { taskId: "task_WORK", reason: "declared", directChildCount: 0, threshold: 3 },
       ],
     );
-    assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.wip", withRoots), withRoots);
+    assert.deepEqual(parseDaemonReadResult("repo.tasks.wip", withRoots), withRoots);
     // Contrast 3 — forward-compat: self-describing extension fields pass at every level. A newer
     // daemon's extras are ignored by the client instead of bouncing as invalid_result.
     const extended = {
@@ -719,15 +719,15 @@ test("the served WIP snapshot passes the same protocol validator the GUI client 
       counted: withRoots.counted.map((row) => ({ ...row, annotation: "newer-daemon" })),
       roots: withRoots.roots.map((row) => ({ ...row, diagnostic: { deferred: 1 } })),
     };
-    assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.wip", extended), extended);
+    assert.deepEqual(parseDaemonReadResult("repo.tasks.wip", extended), extended);
     // Contrast 4 — fail closed: a missing required field is still refused, extra keys or not.
     const { threshold: _threshold, ...missingField } = extended;
-    assert.throws(() => parseDaemonGuiReadResult("repo.tasks.wip", missingField), /task WIP fields/u);
+    assert.throws(() => parseDaemonReadResult("repo.tasks.wip", missingField), /task WIP fields/u);
     const missingRowField = {
       ...withRoots,
       roots: [{ taskId: "task_DERIVED", reason: "derived", directChildCount: 3 }],
     };
-    assert.throws(() => parseDaemonGuiReadResult("repo.tasks.wip", missingRowField), /task WIP snapshot/u);
+    assert.throws(() => parseDaemonReadResult("repo.tasks.wip", missingRowField), /task WIP snapshot/u);
     // Contrast 5 — an invalid required value is refused even when the row carries every required
     // key plus an arbitrary fifth field: validity is the field contract, never the key count.
     const [producedRoot] = withRoots.roots;
@@ -741,7 +741,7 @@ test("the served WIP snapshot passes the same protocol validator the GUI client 
       const padded = { ...invalid, diagnostic: { deferred: 1 } };
       assert.equal(Object.keys(padded).length, Object.keys(producedRoot).length + 1);
       assert.throws(
-        () => parseDaemonGuiReadResult("repo.tasks.wip", { ...withRoots, roots: [padded] }),
+        () => parseDaemonReadResult("repo.tasks.wip", { ...withRoots, roots: [padded] }),
         /task WIP snapshot/u,
       );
     }

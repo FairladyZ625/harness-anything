@@ -1,6 +1,6 @@
 import type { TaskWorktreeBindingV1 } from "@harness-anything/kernel";
 import type { Snapshot } from "../repo-cell-types.ts";
-import type { TaskWorkspaceView } from "./daemon-protocol-gui-types.ts";
+import type { TaskWorkspaceView } from "./daemon-protocol-results.ts";
 import type { RuntimeContinuationSeed } from "../runtime-continuation-context.ts";
 
 export type DaemonTaskRuntimeContextResult = {

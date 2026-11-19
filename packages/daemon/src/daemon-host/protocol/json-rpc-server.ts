@@ -20,22 +20,23 @@ import {
   commandIdForDaemonMethod,
   daemonProtocolError,
   invalidParamsReceipt,
-  isDaemonGuiOnlyActionMethod,
+  isNamedActionRoute,
   jsonRpcMethodContracts,
   makeDaemonCommandReceipt,
   parseDaemonRpcParams,
   type DaemonBuildDrainStatus,
   type DaemonRpcMethod,
   type DaemonRpcResult,
+  type DaemonStreamMethod,
 } from "./daemon-protocol.contract.ts";
-import { daemonStreamFacetByMethod } from "./daemon-protocol-gui-actions.ts";
+import { daemonStreamFacetByMethod } from "./daemon-protocol-action-routes.ts";
 import {
   previousDispatchLifecycleReadResult,
   declaredExecutorOrNull,
   daemonRequestLogEntry,
   isDaemonParkedWaitMethod,
   isDaemonStreamCall,
-  isRepoGuiReadCall,
+  isRepositoryReadCall,
   isRuntimeInstanceAuthCall,
   isRuntimeInstanceCall,
   isProviderCall,
@@ -51,17 +52,13 @@ import {
   rpcServerErrorCode,
   type DaemonRepoPayloadCall,
 } from "./json-rpc-dispatch-support.ts";
-import {
-  parseDaemonGuiActionResult,
-  parseDaemonGuiReadResult,
-  parseDaemonStreamResult,
-} from "./gui-result-validation.ts";
+import { parseDaemonActionResult, parseDaemonReadResult } from "./daemon-result-validation.ts";
+import { parseDaemonStreamResult } from "./stream-contract.ts";
 import { isJsonObject, type JsonObject, type JsonRpcRequest, type JsonRpcResponse } from "./json-rpc-types.ts";
 import { daemonHelloMismatch } from "../client/daemon-hello.ts";
 import { consumeKnownError } from "@harness-anything/kernel";
 import type { DaemonBuildObserver, DaemonBuildStamp } from "../build-identity.ts";
 import { diagnosticForError } from "../receipt-guidance.ts";
-import { remoteProxyEventMethod } from "../remote-proxy.ts";
 import { daemonBuildStaleNotice, withDaemonDrainSummary } from "../daemon-build-drain.ts";
 import { quoteAgentRuntimeBudget } from "../runtime/cloud-dispatch-relay.ts";
 import { isSkillEvalCall, dispatchSkillEvalCall } from "./skill-eval-rpc.ts";
@@ -148,6 +145,8 @@ export function createJsonRpcProtocolServer(options: {
     readonly detach: () => void;
   };
   const subscriptions = new Set<Subscription>();
+  let openingStream = false;
+  let streamServerClosed = false;
   // Abandonment hooks for parked waits: called when this server closes, so a parked reply never
   // holds the shutdown drain window open.
   const parkedWaitAborts = new Set<() => void>();
@@ -373,10 +372,9 @@ export function createJsonRpcProtocolServer(options: {
           );
         }
         if (isDaemonStreamCall(call)) {
-          const subscription = await remoteProxy.stream(remoteRepoId, call.method, call.params.payload);
-          subscriptions.add(subscription);
-          setImmediate(() => pump(subscription, remoteProxyEventMethod(call.method)));
-          return reply(call.method, subscription.initial);
+          return await openStream(call.method, () =>
+            remoteProxy.stream(remoteRepoId, call.method, call.params.payload, options.authContext.connectionSignal),
+          );
         }
         const result = await remoteProxy.request(remoteRepoId, method, params);
         return reply(method, result as DaemonRpcResult<typeof method>);
@@ -599,7 +597,7 @@ export function createJsonRpcProtocolServer(options: {
     if (method === "daemon.gui.system.read") {
       try {
         markDaemonOperationPhase("projection-read");
-        return reply(method, parseDaemonGuiReadResult(method, options.host.system(options.authContext)));
+        return reply(method, parseDaemonReadResult(method, options.host.system(options.authContext)));
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }
@@ -607,7 +605,7 @@ export function createJsonRpcProtocolServer(options: {
     if (method === "daemon.gui.home.read") {
       try {
         markDaemonOperationPhase("projection-read");
-        return reply(method, parseDaemonGuiReadResult(method, await options.host.home(options.authContext)));
+        return reply(method, parseDaemonReadResult(method, await options.host.home(options.authContext)));
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }
@@ -616,10 +614,7 @@ export function createJsonRpcProtocolServer(options: {
       try {
         return reply(
           method,
-          parseDaemonGuiReadResult(
-            method,
-            options.host.controlReceipt(params.payload.operationId, options.authContext),
-          ),
+          parseDaemonReadResult(method, options.host.controlReceipt(params.payload.operationId, options.authContext)),
         );
       } catch (error) {
         return reply(method, protocolFailure(method, error));
@@ -629,7 +624,7 @@ export function createJsonRpcProtocolServer(options: {
       try {
         return reply(
           method,
-          parseDaemonGuiActionResult(method, await options.host.requestControl(params.payload, options.authContext)),
+          parseDaemonActionResult(method, await options.host.requestControl(params.payload, options.authContext)),
         );
       } catch (error) {
         return reply(method, protocolFailure(method, error));
@@ -639,32 +634,21 @@ export function createJsonRpcProtocolServer(options: {
       const { method, params } = call,
         repo = params.repo.repoId;
       try {
-        const subscription: Subscription =
-            method === "repo.agentRuntime.attach"
-              ? await options.host.attach(
-                  repo,
-                  params.payload.runtimeSessionId,
-                  params.payload.afterCursor,
-                  options.authContext,
-                )
-              : await options.host.terminalAttach(
-                  repo,
-                  params.payload.sessionId,
-                  params.payload.afterSeq,
-                  options.authContext,
-                ),
-          initial = parseDaemonStreamResult(method, subscription.initial);
-        if (initial.ok) {
-          subscriptions.add(subscription);
-          const eventMethod = daemonStreamFacetByMethod.get(method)!.eventMethod;
-          setImmediate(() => pump(subscription, eventMethod));
-        }
-        return reply(method, initial);
+        return await openStream(method, () =>
+          method === "repo.agentRuntime.attach"
+            ? options.host.attach(
+                repo,
+                params.payload.runtimeSessionId,
+                params.payload.afterCursor,
+                options.authContext,
+              )
+            : options.host.terminalAttach(repo, params.payload.sessionId, params.payload.afterSeq, options.authContext),
+        );
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }
     }
-    if (isRepoGuiReadCall(call)) {
+    if (isRepositoryReadCall(call)) {
       const { method, params } = call,
         repo = params.repo.repoId;
       try {
@@ -685,10 +669,7 @@ export function createJsonRpcProtocolServer(options: {
       try {
         return reply(
           method,
-          parseDaemonGuiActionResult(
-            method,
-            await options.host.spawnRuntime(repo, params.payload, options.authContext),
-          ),
+          parseDaemonActionResult(method, await options.host.spawnRuntime(repo, params.payload, options.authContext)),
         );
       } catch (error) {
         return reply(method, protocolFailure(method, error));
@@ -700,10 +681,7 @@ export function createJsonRpcProtocolServer(options: {
       try {
         return reply(
           method,
-          parseDaemonGuiActionResult(
-            method,
-            await options.host.cancelRuntime(repo, params.payload, options.authContext),
-          ),
+          parseDaemonActionResult(method, await options.host.cancelRuntime(repo, params.payload, options.authContext)),
         );
       } catch (error) {
         return reply(method, protocolFailure(method, error));
@@ -715,10 +693,7 @@ export function createJsonRpcProtocolServer(options: {
       try {
         return reply(
           method,
-          parseDaemonGuiActionResult(
-            method,
-            await options.host.steerRuntime(repo, params.payload, options.authContext),
-          ),
+          parseDaemonActionResult(method, await options.host.steerRuntime(repo, params.payload, options.authContext)),
         );
       } catch (error) {
         return reply(method, protocolFailure(method, error));
@@ -730,10 +705,7 @@ export function createJsonRpcProtocolServer(options: {
       try {
         return reply(
           method,
-          parseDaemonGuiActionResult(
-            method,
-            await options.host.handoffRuntime(repo, params.payload, options.authContext),
-          ),
+          parseDaemonActionResult(method, await options.host.handoffRuntime(repo, params.payload, options.authContext)),
         );
       } catch (error) {
         return reply(method, protocolFailure(method, error));
@@ -773,7 +745,7 @@ export function createJsonRpcProtocolServer(options: {
       try {
         return reply(
           method,
-          parseDaemonGuiActionResult(
+          parseDaemonActionResult(
             method,
             await options.host.terminalAction(repo, method, params.payload, options.authContext),
           ),
@@ -826,7 +798,7 @@ export function createJsonRpcProtocolServer(options: {
       const result = makeDaemonCommandReceipt(action.kind, receipt);
       return reply(
         commandMethod,
-        isDaemonGuiOnlyActionMethod(commandMethod) ? parseDaemonGuiActionResult(commandMethod, result) : result,
+        isNamedActionRoute(commandMethod) ? parseDaemonActionResult(commandMethod, result) : result,
       );
     } catch (error) {
       return reply(
@@ -840,6 +812,30 @@ export function createJsonRpcProtocolServer(options: {
           error,
         ),
       );
+    }
+    async function openStream(
+      method: DaemonStreamMethod,
+      open: () => Promise<Subscription>,
+    ): Promise<JsonRpcResponse | undefined> {
+      if (openingStream || subscriptions.size > 0)
+        return reply(method, daemonProtocolError(method, "stream_already_open", "Use one connection per stream."));
+      openingStream = true;
+      let subscription: Subscription | undefined;
+      let handedOff = false;
+      try {
+        subscription = await open();
+        const initial = parseDaemonStreamResult(method, subscription.initial);
+        if (initial.ok && !streamServerClosed && !options.authContext.connectionSignal?.aborted) {
+          const active = subscription;
+          subscriptions.add(active);
+          setImmediate(() => void pump(active, daemonStreamFacetByMethod.get(method)!.eventMethod));
+          handedOff = true;
+        }
+        return reply(method, initial);
+      } finally {
+        openingStream = false;
+        if (!handedOff) subscription?.detach();
+      }
     }
   };
   const one = async (
@@ -941,6 +937,7 @@ export function createJsonRpcProtocolServer(options: {
       return responses;
     },
     close: () => {
+      streamServerClosed = true;
       options.authContext.connectionSignal?.removeEventListener("abort", releaseHello);
       releaseHello();
       for (const subscription of subscriptions) subscription.detach();
@@ -953,11 +950,19 @@ export function createJsonRpcProtocolServer(options: {
     },
   };
   async function pump(subscription: Subscription, eventMethod: string): Promise<void> {
+    const signal = options.authContext.connectionSignal;
     try {
       for (;;) {
-        const event = await subscription.next();
-        if (!event) break;
-        await options.emit(eventMethod, event);
+        const next = await subscription.next().then(
+          (event) => (event ? { event } : { end: {} }),
+          (error: unknown) => ({ event: undefined, end: { code: rpcServerErrorCode(error) } }),
+        );
+        if (streamServerClosed || signal?.aborted) return;
+        if (next.event) await options.emit(eventMethod, next.event);
+        else {
+          await options.emit(`${eventMethod}.end`, next.end);
+          return;
+        }
       }
     } finally {
       subscription.detach();

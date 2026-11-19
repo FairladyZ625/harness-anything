@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -344,7 +345,10 @@ test("real CLI stdin and GUI registry IPC bridge replace through the same isolat
   try {
     const gui = createLocalGuiServiceBridge();
     const { kind: _kind, ...payload } = create("claude");
-    const created = (await gui.invoke("createRuntimeInstance", payload)) as Record<string, unknown>;
+    const created = (await gui.invoke(
+      "daemon.runtimeInstance.create",
+      scopedRpcParams("daemon.runtimeInstance.create", payload),
+    )) as Record<string, unknown>;
     assert.equal(created.ok, true, JSON.stringify(created));
     const cliArgs = [
       path.resolve("packages/cli/src/index.ts"),
@@ -379,10 +383,10 @@ test("real CLI stdin and GUI registry IPC bridge replace through the same isolat
     const receipt = JSON.parse(output);
     assert.equal(receipt.credentialChanged, true);
     assert.doesNotMatch(output, /fixture-provider-key-[abc]/u);
-    const updated = (await gui.invoke("updateRuntimeInstance", { instanceId: "claude", apiKey: keyC })) as Record<
-      string,
-      unknown
-    >;
+    const updated = (await gui.invoke(
+      "daemon.runtimeInstance.update",
+      scopedRpcParams("daemon.runtimeInstance.update", { instanceId: "claude", apiKey: keyC }),
+    )) as Record<string, unknown>;
     assert.equal(updated.ok, true, JSON.stringify(updated));
     assert.doesNotMatch(JSON.stringify(updated), /fixture-provider-key-[abc]/u);
     const metadata = JSON.parse(readFileSync(path.join(f.userRoot, "runtime-instances.json"), "utf8"));

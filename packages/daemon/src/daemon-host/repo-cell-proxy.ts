@@ -183,6 +183,7 @@ export async function openRepoCellProxy(
   const readSession = (runtimeSessionId: string) =>
     query<import("@harness-anything/kernel").RuntimeSession | null>("readSession", [runtimeSessionId]);
   const runtime = makeAgentRuntimeStreamHub({
+    repoId: input.repoId,
     readSession,
     canAttach: (session) => query<boolean>("canAttach", [session]),
     ...(input.now ? { now: () => new Date(input.now!()) } : {}),
@@ -342,10 +343,10 @@ export async function openRepoCellProxy(
         throw cellCodedError("repo_unavailable", "RepoCell L2 projection is not ready.");
       return { cellState: "attached", l2State: "ready" } as const;
     },
-    attach: async (runtimeSessionId, afterCursor) => {
+    attach: async (runtimeSessionId, afterCursor, signal) => {
       const status = supervisor.status();
       if (!writerAttached(status)) throw cellCodedError("repo_unavailable", latched());
-      return runtime.attach(runtimeSessionId, afterCursor);
+      return runtime.attach(runtimeSessionId, afterCursor, signal);
     },
     awaitRuntimeOutcome: async (runtimeSessionId) => {
       for (;;) {

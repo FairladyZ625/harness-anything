@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 // Settings → 仓库:字段面由 settings 动作契约派生(catalog snapshot 的 settingsFields,与 kernel
@@ -222,19 +223,27 @@ async function mountView(
   }));
   Object.defineProperty(window, "harness", {
     configurable: true,
-    value: {
-      updateSettings,
-      getSettings: async () => ({
-        schema: "daemon.settings-read/v1",
-        decisionPoints: [],
-        ok: true,
-        settings: SETTINGS,
-        values,
-        revision: 1,
-        lastChanged: "initial",
-      }),
-      ...(options.catalogBridge ? { getCatalogSnapshot: options.catalogBridge } : {}),
-    },
+    value: mockRpcBridge(
+      {
+        updateSettings,
+        getSettings: async () => ({
+          schema: "daemon.settings-read/v1",
+          decisionPoints: [],
+          ok: true,
+          settings: SETTINGS,
+          values,
+          revision: 1,
+          lastChanged: "initial",
+        }),
+        ...(options.catalogBridge ? { getCatalogSnapshot: options.catalogBridge } : {}),
+      },
+      {
+        "repo.settings.read": "getSettings",
+        "repo.agent.entities.list": "listAgents",
+        "repo.gui.catalog.snapshot": "getCatalogSnapshot",
+        "repo.settings.update": "updateSettings",
+      },
+    ),
   });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   client.setQueryData(settingsQueryKeys.read(REPO_ID), {

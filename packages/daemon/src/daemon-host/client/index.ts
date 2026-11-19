@@ -21,21 +21,22 @@ export { streamAgentRuntimeAt, streamDaemonFacetAt } from "./local-json-rpc-stre
 export { createJsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
 export { createUnixSocketTransportServer } from "../transport/unix-socket.ts";
 export {
-  daemonGuiActionMethods,
-  daemonGuiInvokeFacets,
-  daemonGuiReadMethods,
-  daemonGuiStreamFacets,
+  daemonActionRoutes,
+  interactiveRpcMethods,
+  daemonReadRoutes,
   jsonRpcMethodContracts,
 } from "../protocol/daemon-protocol.contract.ts";
 export type { DaemonGuiRpcReadMethod } from "../protocol/daemon-protocol.contract.ts";
 export {
-  parseDaemonGuiActionResponse,
-  parseDaemonGuiReadResponse,
-  parseDaemonGuiReadResult,
-} from "../protocol/gui-result-validation.ts";
+  parseClientRpcResponse,
+  parseDaemonActionResponse,
+  parseDaemonReadResponse,
+  parseDaemonReadResult,
+} from "../protocol/daemon-result-validation.ts";
 export {
-  isDaemonGuiActionMethod,
-  isDaemonGuiReadMethod,
+  isDaemonActionRoute,
+  isDaemonReadRoute,
   validateDaemonRpcCall,
 } from "../protocol/daemon-protocol-rpc-validation.ts";
 export { daemonProtocolError } from "../protocol/daemon-protocol-validate-results.ts";
+export { daemonClientFailureCode } from "../protocol/client-rpc.ts";

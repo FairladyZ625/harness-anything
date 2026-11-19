@@ -2,23 +2,22 @@
 import { parseAgentDeclarationV1 } from "@harness-anything/kernel/internal/domain/agent-squad-schema.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  daemonGuiActionMethods,
-  daemonGuiInvokeFacets,
-  daemonGuiStreamFacets,
-  validateDaemonRpcCall,
-} from "@harness-anything/daemon/client";
-import {
-  HARNESS_PRELOAD_API,
-  assertPreloadPayload,
-  isAllowedPreloadApiMethod,
-  preloadAllowlist,
-} from "../src/index.ts";
-import { deriveEmptyRepoMethods, deriveRepoScopedMethods } from "../src/preload/allowlist.ts";
+import { daemonActionRoutes, interactiveRpcMethods, validateDaemonRpcCall } from "@harness-anything/daemon/client";
+import { HARNESS_PRELOAD_API, assertRendererRpc } from "../src/index.ts";
+import { interactiveRpcDescriptor, scopedRpcParams } from "@harness-anything/daemon/protocol";
 import {
   buildRuntimeInstanceCreatePayload,
   type CreateInstanceFormState,
 } from "../src/renderer/runtime-instance-form.ts";
+
+function assertPreloadPayload(method: string, input: unknown): true {
+  const descriptor = interactiveRpcDescriptor(method);
+  if (!descriptor || Array.isArray(input) || (input !== null && typeof input !== "object"))
+    return assertRendererRpc(method, input);
+  return assertRendererRpc(descriptor.method, scopedRpcParams(descriptor.method, input ?? {}));
+}
+const preloadAllowlist: readonly string[] = interactiveRpcMethods.map(({ method }) => method);
+const isAllowedPreloadApiMethod = (method: string) => interactiveRpcDescriptor(method) !== undefined;
 
 const runtimeCreateForm: CreateInstanceFormState = {
   instanceId: "claude-one",
@@ -40,32 +39,31 @@ const runtimeCreateForm: CreateInstanceFormState = {
 
 // harness-contract: gui.preload-allowlist
 test("preload exposes only the approved API methods", () => {
-  const approved = [...daemonGuiInvokeFacets, ...daemonGuiStreamFacets].map(({ guiBridgeMethod }) => guiBridgeMethod);
   assert.equal(HARNESS_PRELOAD_API, "harness");
-  assert.deepEqual(preloadAllowlist, approved);
-  assert.equal(isAllowedPreloadApiMethod("getTasks"), true);
+  assert.equal(new Set(preloadAllowlist).size, preloadAllowlist.length);
+  assert.equal(isAllowedPreloadApiMethod("repo.tasks.list"), true);
   assert.equal(isAllowedPreloadApiMethod("getTaskDetail"), false);
-  assert.equal(isAllowedPreloadApiMethod("showTask"), true);
-  assert.equal(isAllowedPreloadApiMethod("reworkTask"), true);
-  assert.equal(isAllowedPreloadApiMethod("materializeTask"), true);
-  assert.equal(assertPreloadPayload("materializeTask", { repoId: "repo-a", taskId: "task-a" }), true);
-  assert.throws(() => assertPreloadPayload("materializeTask", { repoId: "repo-a" }), /invalid/u);
+  assert.equal(isAllowedPreloadApiMethod("repo.task.show"), true);
+  assert.equal(isAllowedPreloadApiMethod("repo.task.rework"), true);
+  assert.equal(isAllowedPreloadApiMethod("repo.task.materialize"), true);
+  assert.equal(assertPreloadPayload("repo.task.materialize", { repoId: "repo-a", taskId: "task-a" }), true);
+  assert.throws(() => assertPreloadPayload("repo.task.materialize", { repoId: "repo-a" }), /invalid/u);
   assert.throws(
-    () => assertPreloadPayload("materializeTask", { repoId: "repo-a", taskId: "task-a", all: true }),
+    () => assertPreloadPayload("repo.task.materialize", { repoId: "repo-a", taskId: "task-a", all: true }),
     /invalid/u,
   );
   assert.throws(() => assertPreloadPayload("readFile", {}), /not allowed/u);
-  assert.throws(() => assertPreloadPayload("getTasks", []), /object or null/u);
-  assert.throws(() => assertPreloadPayload("getTasks", null), /repoId/u);
-  assert.throws(() => assertPreloadPayload("getTasks", {}), /repoId/u);
-  assert.throws(() => assertPreloadPayload("getTasks", { repoId: "" }), /repoId/u);
-  assert.equal(assertPreloadPayload("getTasks", { repoId: "repo-a" }), true);
-  assert.equal(assertPreloadPayload("getDecisions", { repoId: "repo-a", state: "proposed" }), true);
-  assert.equal(assertPreloadPayload("getDecisions", { repoId: "repo-a", state: "outcome_retired" }), true);
-  assert.throws(() => assertPreloadPayload("getDecisions", { repoId: "repo-a", state: "unknown" }), /invalid/u);
-  assert.equal(assertPreloadPayload("getSettings", { repoId: "repo-a" }), true);
+  assert.throws(() => assertPreloadPayload("repo.tasks.list", []), /invalid/u);
+  assert.throws(() => assertPreloadPayload("repo.tasks.list", null), /repoId/u);
+  assert.throws(() => assertPreloadPayload("repo.tasks.list", {}), /repoId/u);
+  assert.throws(() => assertPreloadPayload("repo.tasks.list", { repoId: "" }), /repoId/u);
+  assert.equal(assertPreloadPayload("repo.tasks.list", { repoId: "repo-a" }), true);
+  assert.equal(assertPreloadPayload("repo.decisions.list", { repoId: "repo-a", state: "proposed" }), true);
+  assert.equal(assertPreloadPayload("repo.decisions.list", { repoId: "repo-a", state: "outcome_retired" }), true);
+  assert.throws(() => assertPreloadPayload("repo.decisions.list", { repoId: "repo-a", state: "unknown" }), /invalid/u);
+  assert.equal(assertPreloadPayload("repo.settings.read", { repoId: "repo-a" }), true);
   assert.equal(
-    assertPreloadPayload("updateSettings", {
+    assertPreloadPayload("repo.settings.update", {
       repoId: "repo-a",
       defaultPreset: "strict-task",
       locale: "zh-CN",
@@ -74,7 +72,10 @@ test("preload exposes only the approved API methods", () => {
     }),
     true,
   );
-  assert.equal(assertPreloadPayload("updateSettings", { repoId: "repo-a", idempotencyKey: "settings-1" }), true);
+  assert.throws(
+    () => assertPreloadPayload("repo.settings.update", { repoId: "repo-a", idempotencyKey: "settings-1" }),
+    /invalid/u,
+  );
   assert.deepEqual(
     validateDaemonRpcCall({
       method: "repo.settings.update",
@@ -86,11 +87,16 @@ test("preload exposes only the approved API methods", () => {
     ["settings update is invalid"],
   );
   assert.equal(
-    assertPreloadPayload("getTasks", { repoId: "repo-a", status: "active", changedAfterRevision: 42, limit: 50 }),
+    assertPreloadPayload("repo.tasks.list", {
+      repoId: "repo-a",
+      status: "active",
+      changedAfterRevision: 42,
+      limit: 50,
+    }),
     true,
   );
   assert.equal(
-    assertPreloadPayload("getRelationGraph", {
+    assertPreloadPayload("repo.triadic.relationGraph", {
       repoId: "repo-a",
       updatedAfter: "2026-08-01T00:00:00.000Z",
       cursor: "eAo",
@@ -101,7 +107,7 @@ test("preload exposes only the approved API methods", () => {
   // with the facet exactly as the daemon's own validator admits it, and the daemon's closure still
   // rejects legacy list fields or a page window on a facet that has none.
   assert.equal(
-    assertPreloadPayload("getRelationGraph", {
+    assertPreloadPayload("repo.triadic.relationGraph", {
       repoId: "repo-a",
       facet: "edges",
       state: "active",
@@ -111,38 +117,43 @@ test("preload exposes only the approved API methods", () => {
     true,
   );
   assert.throws(
-    () => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", facet: "edges", status: "active" }),
-    /query facets are invalid/u,
+    () => assertPreloadPayload("repo.triadic.relationGraph", { repoId: "repo-a", facet: "edges", status: "active" }),
+    /params are invalid/u,
   );
   assert.throws(
-    () => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", facet: "coverageRows", limit: 5 }),
-    /query facets are invalid/u,
+    () => assertPreloadPayload("repo.triadic.relationGraph", { repoId: "repo-a", facet: "coverageRows", limit: 5 }),
+    /params are invalid/u,
   );
   assert.throws(
-    () => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", facet: "edges", limit: 0 }),
-    /query facets are invalid/u,
+    () => assertPreloadPayload("repo.triadic.relationGraph", { repoId: "repo-a", facet: "edges", limit: 0 }),
+    /params are invalid/u,
   );
   // Slice A: the entity page selector travels through the same daemon validator — no hand-copied
   // field table in preload. `entity` with a page window is valid; `hops` stays neighborhood-only.
   assert.equal(
-    assertPreloadPayload("getRelationGraph", { repoId: "repo-a", entity: "decision/dec_1", limit: 500 }),
+    assertPreloadPayload("repo.triadic.relationGraph", { repoId: "repo-a", entity: "decision/dec_1", limit: 500 }),
     true,
   );
   assert.throws(
-    () => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", entity: "decision/dec_1", facet: "edges" }),
-    /query facets are invalid/u,
+    () =>
+      assertPreloadPayload("repo.triadic.relationGraph", {
+        repoId: "repo-a",
+        entity: "decision/dec_1",
+        facet: "edges",
+      }),
+    /params are invalid/u,
   );
   assert.throws(
-    () => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", entity: "" }),
-    /query facets are invalid/u,
+    () => assertPreloadPayload("repo.triadic.relationGraph", { repoId: "repo-a", entity: "" }),
+    /params are invalid/u,
   );
   assert.throws(
-    () => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", entity: "decision/dec_1", hops: {} }),
-    /query facets are invalid/u,
+    () => assertPreloadPayload("repo.triadic.relationGraph", { repoId: "repo-a", entity: "decision/dec_1", hops: {} }),
+    /params are invalid/u,
   );
-  assert.equal(assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", taskId: "task-a" }), true);
+  assert.equal(assertPreloadPayload("repo.task.dispatches", { repoId: "repo-a", taskId: "task-a" }), true);
   assert.equal(
-    assertPreloadPayload("getTaskDispatches", {
+    assertPreloadPayload("repo.task.dispatches", {
       repoId: "repo-a",
       taskId: "task-a",
       advisorySurface: "gui.dispatch",
@@ -150,7 +161,7 @@ test("preload exposes only the approved API methods", () => {
     true,
   );
   assert.equal(
-    assertPreloadPayload("getTaskDispatches", {
+    assertPreloadPayload("repo.task.dispatches", {
       repoId: "repo-a",
       taskId: "task-a",
       advisorySurface: "agenda",
@@ -158,25 +169,25 @@ test("preload exposes only the approved API methods", () => {
     true,
   );
   assert.equal(
-    assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", taskIds: ["task-a", "task-b"], limit: 2 }),
+    assertPreloadPayload("repo.task.dispatches", { repoId: "repo-a", taskIds: ["task-a", "task-b"], limit: 2 }),
     true,
   );
   assert.throws(
-    () => assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", taskId: "task-a", taskIds: ["task-b"] }),
+    () => assertPreloadPayload("repo.task.dispatches", { repoId: "repo-a", taskId: "task-a", taskIds: ["task-b"] }),
     /invalid/u,
   );
   assert.throws(
-    () => assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", taskIds: ["task-a", "task-a"] }),
+    () => assertPreloadPayload("repo.task.dispatches", { repoId: "repo-a", taskIds: ["task-a", "task-a"] }),
     /invalid/u,
   );
   // The member read is the GUI's recent-sessions path: one executor plus the window size, no
   // task list. The preload must admit the same shape the daemon validates, or the read dies at
   // the renderer→preload boundary before it ever reaches the daemon.
-  assert.equal(assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", agentId: "agent-a", limit: 50 }), true);
-  assert.equal(assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", squadId: "squad-a", limit: 50 }), true);
+  assert.equal(assertPreloadPayload("repo.task.dispatches", { repoId: "repo-a", agentId: "agent-a", limit: 50 }), true);
+  assert.equal(assertPreloadPayload("repo.task.dispatches", { repoId: "repo-a", squadId: "squad-a", limit: 50 }), true);
   assert.throws(
     () =>
-      assertPreloadPayload("getTaskDispatches", {
+      assertPreloadPayload("repo.task.dispatches", {
         repoId: "repo-a",
         agentId: "agent-a",
         squadId: "squad-a",
@@ -184,62 +195,74 @@ test("preload exposes only the approved API methods", () => {
       }),
     /invalid/u,
   );
-  assert.throws(() => assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", agentId: "agent-a" }), /invalid/u);
-  assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", limit: 0 }), /query facets are invalid/u);
   assert.throws(
-    () => assertPreloadPayload("getTasks", { repoId: "repo-a", changedAfterRevision: -1 }),
-    /query facets are invalid/u,
+    () => assertPreloadPayload("repo.task.dispatches", { repoId: "repo-a", agentId: "agent-a" }),
+    /invalid/u,
+  );
+  assert.throws(() => assertPreloadPayload("repo.tasks.list", { repoId: "repo-a", limit: 0 }), /params are invalid/u);
+  assert.throws(
+    () => assertPreloadPayload("repo.tasks.list", { repoId: "repo-a", changedAfterRevision: -1 }),
+    /params are invalid/u,
   );
   assert.throws(
-    () => assertPreloadPayload("getTasks", { repoId: "repo-a", changedAfterRevision: 1.5 }),
-    /query facets are invalid/u,
+    () => assertPreloadPayload("repo.tasks.list", { repoId: "repo-a", changedAfterRevision: 1.5 }),
+    /params are invalid/u,
   );
   assert.throws(
-    () => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", changedAfterRevision: 42 }),
-    /query facets are invalid/u,
+    () => assertPreloadPayload("repo.triadic.relationGraph", { repoId: "repo-a", changedAfterRevision: 42 }),
+    /params are invalid/u,
   );
   assert.throws(
-    () => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", updatedBefore: "not-a-date" }),
-    /query facets are invalid/u,
+    () => assertPreloadPayload("repo.triadic.relationGraph", { repoId: "repo-a", updatedBefore: "not-a-date" }),
+    /params are invalid/u,
   );
   assert.throws(
-    () => assertPreloadPayload("getTasks", { repoId: "repo-a", status: "edge_retired" }),
-    /query facets are invalid/u,
+    () => assertPreloadPayload("repo.tasks.list", { repoId: "repo-a", status: "edge_retired" }),
+    /params are invalid/u,
   );
   assert.throws(
-    () => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", status: "blocked" }),
-    /query facets are invalid/u,
+    () => assertPreloadPayload("repo.triadic.relationGraph", { repoId: "repo-a", status: "blocked" }),
+    /params are invalid/u,
   );
-  assert.equal(assertPreloadPayload("listRuntimeInstances", { all: true }), true);
-  assert.equal(assertPreloadPayload("showRuntimeInstance", { instanceId: "codex-review", probe: true }), true);
-  assert.throws(() => assertPreloadPayload("listRuntimeInstances", null), /invalid/u);
+  assert.equal(assertPreloadPayload("daemon.runtimeInstance.list", { all: true }), true);
+  assert.equal(assertPreloadPayload("daemon.runtimeInstance.show", { instanceId: "codex-review", probe: true }), true);
+  assert.throws(() => assertPreloadPayload("daemon.runtimeInstance.list", null), /invalid/u);
   assert.equal(isAllowedPreloadApiMethod("reauthRuntimeInstance"), false);
-  assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "codex-review", enabled: false }), true);
   assert.equal(
-    assertPreloadPayload("updateRuntimeInstance", { instanceId: "codex-review", permissionMode: "read-only" }),
+    assertPreloadPayload("daemon.runtimeInstance.update", { instanceId: "codex-review", enabled: false }),
     true,
   );
   assert.equal(
-    assertPreloadPayload("updateRuntimeInstance", { instanceId: "claude-review", isolationState: "enforced" }),
+    assertPreloadPayload("daemon.runtimeInstance.update", { instanceId: "codex-review", permissionMode: "read-only" }),
     true,
   );
-  assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "claude-review", effort: "xhigh" }), true);
-  assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "claude-review", effort: "" }), true);
+  assert.equal(
+    assertPreloadPayload("daemon.runtimeInstance.update", { instanceId: "claude-review", isolationState: "enforced" }),
+    true,
+  );
+  assert.equal(
+    assertPreloadPayload("daemon.runtimeInstance.update", { instanceId: "claude-review", effort: "xhigh" }),
+    true,
+  );
+  assert.equal(
+    assertPreloadPayload("daemon.runtimeInstance.update", { instanceId: "claude-review", effort: "" }),
+    true,
+  );
   assert.throws(
-    () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "claude-review", effort: 5 }),
+    () => assertPreloadPayload("daemon.runtimeInstance.update", { instanceId: "claude-review", effort: 5 }),
     /invalid/u,
   );
   assert.throws(
     () =>
-      assertPreloadPayload("updateRuntimeInstance", {
+      assertPreloadPayload("daemon.runtimeInstance.update", {
         instanceId: "codex-review",
         enabled: false,
         authMode: "api-key",
       }),
     /invalid/u,
   );
-  assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", staleRepoId: "repo-b" }), /not allowed/u);
-  assert.throws(() => assertPreloadPayload("getSystemStatus", { repoId: "repo-a" }), /not allowed/u);
+  assert.throws(() => assertPreloadPayload("repo.tasks.list", { repoId: "repo-a", staleRepoId: "repo-b" }), /invalid/u);
+  assert.throws(() => assertPreloadPayload("daemon.gui.system.read", { repoId: "repo-a" }), /invalid/u);
   // 62 explicit actions plus the complete declaration read are the 63 editing-facing facets
   // task adjudication (owner triage/verdict) and the owner's review consent joined as named
   // facets alongside complete; retireRelation answers an awaits ask in place
@@ -251,10 +274,7 @@ test("preload exposes only the approved API methods", () => {
   // (dec_C0AF8CBBFFECF71F4F34FB76F9 CH2/CH4 — supersedes the 2026-10-14 no-consumer removal);
   // unpinEntity is the overview pinned region's entity-level unpin
   // (task_9ba495de: same entity-unpin write path as `ha unpin <ref>`).
-  const editingFacets = [
-    ...daemonGuiActionMethods.map(({ guiBridgeMethod }) => guiBridgeMethod),
-    "readVerticalDeclaration",
-  ];
+  const editingFacets = [...daemonActionRoutes.map(({ method }) => method), "repo.vertical.declaration.read"];
   // S8 CH2: assignTask and unassignTask.
   // dec_DBF9CCB96B1A7D35A3214615E1 CH2/CH6: one dispatcher for export/claim/revoke.
   // dec_E369B8616F50A6208B293997E7/CH5 (W2-2) deletes the task.adjudicate facet with the command.
@@ -262,23 +282,23 @@ test("preload exposes only the approved API methods", () => {
   // dec_9C43012EBB2754D7112F618F0D CH2/CH3 and dec_13B7B846B56BFA192533011B91 CH1:
   // three closed aliases for existing canonical actions; generic repo.task.run stays forbidden.
   assert.equal(editingFacets.length, 69);
-  assert.equal(preloadAllowlist.includes("readVerticalDeclaration"), true);
+  assert.equal(preloadAllowlist.includes("repo.vertical.declaration.read"), true);
   // entity.update / entity.archive / entity.delete plus vertical kind upsert / publish-schema / retire
   // are explicit GUI facets. Todo contributes eight GUI actions from the repository todo task.
   // The same single handoff dispatcher accounts for the approved 68 actions / 69 editing facets.
-  assert.equal(daemonGuiActionMethods.length, 68);
-  assert.equal(daemonGuiActionMethods.find(({ method }) => method === "repo.task.create")?.actionKind, "task-create");
+  assert.equal(daemonActionRoutes.length, 68);
+  assert.equal(daemonActionRoutes.find(({ method }) => method === "repo.task.create")?.actionKind, "task-create");
   assert.equal(
-    daemonGuiActionMethods.some(({ method }) => method === "repo.entity.delete"),
+    daemonActionRoutes.some(({ method }) => method === "repo.entity.delete"),
     true,
   );
   assert.equal(
-    daemonGuiActionMethods.some(({ method }) => method === "repo.task.run"),
+    daemonActionRoutes.some(({ method }) => method === "repo.task.run"),
     false,
   );
   // pinTask/unpinTask 是台账 pin 的 GUI 写通道,但不是通用 amend:payload 只收
   // repoId+taskId,pinned-only patch 由 daemon 契约的 actionDefaults 钉死。
-  for (const method of ["pinTask", "unpinTask"]) {
+  for (const method of ["repo.task.pin", "repo.task.unpin"]) {
     assert.equal(assertPreloadPayload(method, { repoId: "repo-a", taskId: "task-a" }), true);
     assert.throws(() => assertPreloadPayload(method, { repoId: "repo-a" }), /invalid/u);
     assert.throws(() => assertPreloadPayload(method, { repoId: "repo-a", taskId: "task-a", patches: [] }), /invalid/u);
@@ -286,13 +306,14 @@ test("preload exposes only the approved API methods", () => {
   }
   // unpinEntity 是置顶区非任务实体的解 pin 通道(task_9ba495de):payload 只收 repoId+
   // entityRef,与 `ha unpin <ref>` 同一条 entity-unpin 动作,ref 合法性由 daemon 写边界判。
-  assert.equal(assertPreloadPayload("unpinEntity", { repoId: "repo-a", entityRef: "decision/dec_1" }), true);
-  assert.throws(() => assertPreloadPayload("unpinEntity", { repoId: "repo-a", entityRef: "" }), /invalid/u);
+  assert.equal(assertPreloadPayload("repo.entity.unpin", { repoId: "repo-a", entityRef: "decision/dec_1" }), true);
+  assert.throws(() => assertPreloadPayload("repo.entity.unpin", { repoId: "repo-a", entityRef: "" }), /invalid/u);
   assert.throws(
-    () => assertPreloadPayload("unpinEntity", { repoId: "repo-a", entityRef: "decision/dec_1", taskId: "task-a" }),
+    () =>
+      assertPreloadPayload("repo.entity.unpin", { repoId: "repo-a", entityRef: "decision/dec_1", taskId: "task-a" }),
     /invalid/u,
   );
-  assert.throws(() => assertPreloadPayload("unpinEntity", { entityRef: "decision/dec_1" }), /repoId/u);
+  assert.throws(() => assertPreloadPayload("repo.entity.unpin", { entityRef: "decision/dec_1" }), /repoId/u);
   // retireRelation 是答复 awaits 的 GUI 写通道(`ha relation unrelate` 同一动作):payload 闭集由
   // daemon RPC 形状把守,多余字段(如改写 rationale)在 RPC 校验层就被拒。
   assert.deepEqual(
@@ -312,55 +333,53 @@ test("preload exposes only the approved API methods", () => {
     }),
     [],
   );
-  // completeTask 是收口销账的 GUI 写通道:payload 只镜像 fleet 契约的 task-complete
-  // 载荷(taskId/executionId/consent),不加任何 GUI 侧业务判定。
-  assert.equal(assertPreloadPayload("completeTask", { repoId: "repo-a", taskId: "task-a", consent: true }), true);
-  assert.equal(assertPreloadPayload("completeTask", { repoId: "repo-a", taskId: "task-a" }), true);
+  // dec_89D06D7360CBEC09795F7B12EC: 收口与同意沿用各自的动作契约。
+  assert.throws(
+    () => assertPreloadPayload("repo.task.complete", { repoId: "repo-a", taskId: "task-a", consent: true }),
+    /unknown field "consent"/u,
+  );
+  assert.equal(assertPreloadPayload("repo.task.complete", { repoId: "repo-a", taskId: "task-a" }), true);
   // taskAttest 是 Gate 签注/特批的 GUI 写通道,与 `ha task attest` 同一个 task-attest 动作;
   // mode/rationale 与人类 principal 的准入只在 daemon handler 判定。
-  assert.equal(preloadAllowlist.includes("taskAttest"), true);
+  assert.equal(preloadAllowlist.includes("repo.task.attest"), true);
+  assert.equal(daemonActionRoutes.find(({ method }) => method === "repo.task.attest")?.actionKind, "task-attest");
   assert.equal(
-    daemonGuiActionMethods.find(({ guiBridgeMethod }) => guiBridgeMethod === "taskAttest")?.actionKind,
-    "task-attest",
-  );
-  assert.equal(
-    daemonGuiActionMethods.some(({ method }) => method === "repo.agentRuntime.cancel"),
+    daemonActionRoutes.some(({ method }) => method === "repo.agentRuntime.cancel"),
     true,
   );
   assert.equal(
-    daemonGuiActionMethods.some(({ method }) => method === "repo.agent.entity.write"),
+    daemonActionRoutes.some(({ method }) => method === "repo.agent.entity.write"),
     true,
   );
   assert.equal(
-    daemonGuiActionMethods.some(({ method }) => method === "repo.squad.entity.write"),
+    daemonActionRoutes.some(({ method }) => method === "repo.squad.entity.write"),
     true,
   );
   assert.equal(preloadAllowlist.includes("daemon.agentRuntime.credentials.bind" as never), false);
-  assert.equal(preloadAllowlist.includes("startTask"), true);
-  assert.equal(preloadAllowlist.includes("showReceipt"), true);
-  assert.equal(preloadAllowlist.includes("getSettings"), true);
-  assert.equal(preloadAllowlist.includes("updateSettings"), true);
+  assert.equal(preloadAllowlist.includes("repo.task.start"), true);
+  assert.equal(preloadAllowlist.includes("repo.receipt.show"), true);
+  assert.equal(preloadAllowlist.includes("repo.settings.read"), true);
+  assert.equal(preloadAllowlist.includes("repo.settings.update"), true);
 });
 
-test("repo and empty scopes are derived when a GUI contract grows", () => {
-  const facets = [
-    { guiBridgeMethod: "futureRepoRead", requiresRepo: true, inputSchemaId: "gui.empty/v1" },
-    { guiBridgeMethod: "futureRepoReadWithInput", requiresRepo: true, inputSchemaId: "gui.future/v1" },
-  ];
-  assert.equal(deriveRepoScopedMethods(facets).has("futureRepoRead"), true);
-  assert.equal(deriveRepoScopedMethods(facets).has("futureRepoReadWithInput"), true);
-  assert.equal(deriveEmptyRepoMethods(facets).has("futureRepoRead"), true);
-  assert.equal(deriveEmptyRepoMethods(facets).has("futureRepoReadWithInput"), false);
+test("dec_89D06D7360CBEC09795F7B12EC: repository scopes close both the envelope and its payload", () => {
+  assert.deepEqual(scopedRpcParams("repo.settings.read", { repoId: "repo-a" }), { repo: { repoId: "repo-a" } });
+  assert.throws(() => assertRendererRpc("repo.settings.read", { repo: { repoId: "repo-a" }, payload: {} }), /invalid/u);
+  assert.throws(
+    () =>
+      assertRendererRpc("repo.task.run", { repo: { repoId: "repo-a" }, payload: { action: { kind: "task-archive" } } }),
+    /not allowed/u,
+  );
 });
 
 // Schedule actions (S4) take exactly the retry-stable claim trio; the schedule read is now the
 // `schedule-plane` use-case projection, admitted at the preload by the very function the daemon
 // request validator and repo-cell handler call, so extra fields never survive the boundary.
 test("schedule read and action payloads stay closed at the preload boundary", () => {
-  assert.equal(assertPreloadPayload("readUseCaseProjection", { repoId: "repo-a", name: "schedule-plane" }), true);
+  assert.equal(assertPreloadPayload("repo.projection.read", { repoId: "repo-a", name: "schedule-plane" }), true);
   assert.throws(
     () =>
-      assertPreloadPayload("readUseCaseProjection", {
+      assertPreloadPayload("repo.projection.read", {
         repoId: "repo-a",
         name: "schedule-plane",
         scheduleId: "heartbeat-probe",
@@ -369,7 +388,7 @@ test("schedule read and action payloads stay closed at the preload boundary", ()
   );
   // The run-history projection does take a scheduleId — the closure is per projection, not global.
   assert.equal(
-    assertPreloadPayload("readUseCaseProjection", {
+    assertPreloadPayload("repo.projection.read", {
       repoId: "repo-a",
       name: "schedule-run-history",
       scheduleId: "heartbeat-probe",
@@ -377,10 +396,10 @@ test("schedule read and action payloads stay closed at the preload boundary", ()
     true,
   );
   assert.throws(
-    () => assertPreloadPayload("readUseCaseProjection", { repoId: "repo-a", name: "repo.schedules.list" }),
-    /name is unknown/u,
+    () => assertPreloadPayload("repo.projection.read", { repoId: "repo-a", name: "repo.schedules.list" }),
+    /name must be one of/u,
   );
-  for (const method of ["enableSchedule", "disableSchedule", "runScheduleNow"]) {
+  for (const method of ["repo.schedule.enable", "repo.schedule.disable", "repo.schedule.runNow"]) {
     assert.equal(
       assertPreloadPayload(method, { repoId: "repo-a", scheduleId: "heartbeat-probe", idempotencyKey: "retry-1" }),
       true,
@@ -412,18 +431,18 @@ test("schedule read and action payloads stay closed at the preload boundary", ()
     idempotencyKey: "retry-1",
   };
   for (const retired of [{ runtimeInstanceId: "retired" }, { model: "retired" }])
-    for (const method of ["createSchedule", "updateSchedule"])
+    for (const method of ["repo.schedule.create", "repo.schedule.update"])
       assert.throws(() => assertPreloadPayload(method, { ...definition, ...retired }), /invalid/u);
   const { everyMs: _everyMs, ...cronDefinition } = definition;
-  assert.equal(assertPreloadPayload("createSchedule", definition), true);
-  assert.equal(assertPreloadPayload("updateSchedule", { ...definition, reasoningEffort: null }), true);
+  assert.equal(assertPreloadPayload("repo.schedule.create", definition), true);
+  assert.equal(assertPreloadPayload("repo.schedule.update", { ...definition, reasoningEffort: null }), true);
   // Cron payloads carry cronExpression + a non-empty timezone instead of everyMs.
   assert.equal(
-    assertPreloadPayload("createSchedule", { ...cronDefinition, cronExpression: "30 2 * * *", timezone: "UTC" }),
+    assertPreloadPayload("repo.schedule.create", { ...cronDefinition, cronExpression: "30 2 * * *", timezone: "UTC" }),
     true,
   );
   assert.equal(
-    assertPreloadPayload("updateSchedule", {
+    assertPreloadPayload("repo.schedule.update", {
       ...cronDefinition,
       cronExpression: "30 2 * * 1,3",
       timezone: "Asia/Shanghai",
@@ -433,26 +452,28 @@ test("schedule read and action payloads stay closed at the preload boundary", ()
   );
   // The trigger stays exactly-one: interval+cron together, or cron without a timezone, is refused.
   assert.throws(
-    () => assertPreloadPayload("createSchedule", { ...definition, cronExpression: "30 2 * * *", timezone: "UTC" }),
+    () =>
+      assertPreloadPayload("repo.schedule.create", { ...definition, cronExpression: "30 2 * * *", timezone: "UTC" }),
     /invalid/u,
   );
   assert.throws(
-    () => assertPreloadPayload("createSchedule", { ...cronDefinition, cronExpression: "30 2 * * *" }),
+    () => assertPreloadPayload("repo.schedule.create", { ...cronDefinition, cronExpression: "30 2 * * *" }),
     /invalid/u,
   );
   assert.throws(
-    () => assertPreloadPayload("createSchedule", { ...cronDefinition, cronExpression: "30 2 * * *", timezone: " " }),
+    () =>
+      assertPreloadPayload("repo.schedule.create", { ...cronDefinition, cronExpression: "30 2 * * *", timezone: " " }),
     /invalid/u,
   );
   // mode is required on create, optional on a partial update, and limited to the daemon
   // vocabulary wherever it appears.
   const { mode: _mode, ...withoutMode } = definition;
-  assert.throws(() => assertPreloadPayload("createSchedule", withoutMode), /invalid/u);
-  assert.equal(assertPreloadPayload("updateSchedule", withoutMode), true);
-  assert.throws(() => assertPreloadPayload("updateSchedule", { ...definition, mode: "observe" }), /invalid/u);
+  assert.throws(() => assertPreloadPayload("repo.schedule.create", withoutMode), /invalid/u);
+  assert.equal(assertPreloadPayload("repo.schedule.update", withoutMode), true);
+  assert.throws(() => assertPreloadPayload("repo.schedule.update", { ...definition, mode: "observe" }), /invalid/u);
   // A built-in edit sends name, trigger, and retention parameters only — no agent target.
   assert.equal(
-    assertPreloadPayload("updateSchedule", {
+    assertPreloadPayload("repo.schedule.update", {
       repoId: "repo-a",
       scheduleId: "builtin-ledger-backup",
       name: "Ledger backup",
@@ -465,11 +486,11 @@ test("schedule read and action payloads stay closed at the preload boundary", ()
     true,
   );
   // Retention parameters are update-only and bounded; create stays agent-shaped.
-  assert.throws(() => assertPreloadPayload("createSchedule", { ...definition, keepDays: 5 }), /invalid/u);
-  assert.throws(() => assertPreloadPayload("updateSchedule", { ...definition, keepDays: 0 }), /invalid/u);
-  assert.throws(() => assertPreloadPayload("updateSchedule", { ...definition, keepMonthly: "yes" }), /invalid/u);
+  assert.throws(() => assertPreloadPayload("repo.schedule.create", { ...definition, keepDays: 5 }), /invalid/u);
+  assert.throws(() => assertPreloadPayload("repo.schedule.update", { ...definition, keepDays: 0 }), /invalid/u);
+  assert.throws(() => assertPreloadPayload("repo.schedule.update", { ...definition, keepMonthly: "yes" }), /invalid/u);
   assert.equal(
-    assertPreloadPayload("deleteSchedule", {
+    assertPreloadPayload("repo.schedule.delete", {
       repoId: "repo-a",
       scheduleId: "heartbeat-probe",
       reason: "retired",
@@ -477,10 +498,13 @@ test("schedule read and action payloads stay closed at the preload boundary", ()
     }),
     true,
   );
-  assert.throws(() => assertPreloadPayload("createSchedule", { ...definition, everyMs: 30_000 }), /invalid/u);
-  assert.throws(() => assertPreloadPayload("updateSchedule", { ...definition, mission: "", extra: true }), /invalid/u);
+  assert.throws(() => assertPreloadPayload("repo.schedule.create", { ...definition, everyMs: 30_000 }), /invalid/u);
   assert.throws(
-    () => assertPreloadPayload("deleteSchedule", { repoId: "repo-a", scheduleId: "heartbeat-probe" }),
+    () => assertPreloadPayload("repo.schedule.update", { ...definition, mission: "", extra: true }),
+    /invalid/u,
+  );
+  assert.throws(
+    () => assertPreloadPayload("repo.schedule.delete", { repoId: "repo-a", scheduleId: "heartbeat-probe" }),
     /invalid/u,
   );
 });
@@ -490,11 +514,14 @@ test("schedule read and action payloads stay closed at the preload boundary", ()
 // stay closed to repoId only. Replayed against the real contract facets, not
 // synthetic ones, so a derivation regression cannot hide behind a fixture.
 test("Agent and Squad detail payload paths stay open on the real contract", () => {
-  assert.equal(assertPreloadPayload("showAgent", { repoId: "repo-a", agentId: "fable" }), true);
-  assert.equal(assertPreloadPayload("showSquad", { repoId: "repo-a", squadId: "core-squad" }), true);
-  assert.equal(assertPreloadPayload("listAgents", { repoId: "repo-a" }), true);
-  assert.equal(assertPreloadPayload("listSquads", { repoId: "repo-a" }), true);
-  assert.throws(() => assertPreloadPayload("listAgents", { repoId: "repo-a", agentId: "fable" }), /not allowed/u);
+  assert.equal(assertPreloadPayload("repo.agent.entity.read", { repoId: "repo-a", agentId: "fable" }), true);
+  assert.equal(assertPreloadPayload("repo.squad.entity.read", { repoId: "repo-a", squadId: "core-squad" }), true);
+  assert.equal(assertPreloadPayload("repo.agent.entities.list", { repoId: "repo-a" }), true);
+  assert.equal(assertPreloadPayload("repo.squad.entities.list", { repoId: "repo-a" }), true);
+  assert.throws(
+    () => assertPreloadPayload("repo.agent.entities.list", { repoId: "repo-a", agentId: "fable" }),
+    /invalid/u,
+  );
 });
 
 test("Agent and Squad writes stay on the daemon allowlist and reject secret-shaped declaration keys", () => {
@@ -520,10 +547,14 @@ test("Agent and Squad writes stay on the daemon allowlist and reject secret-shap
       roster: "# Blue\n",
     },
   };
-  assert.equal(assertPreloadPayload("saveAgent", agent), true);
-  assert.equal(assertPreloadPayload("saveSquad", squad), true);
+  assert.equal(assertPreloadPayload("repo.agent.entity.write", agent), true);
+  assert.equal(assertPreloadPayload("repo.squad.entity.write", squad), true);
   assert.throws(
-    () => assertPreloadPayload("saveAgent", { ...agent, declaration: { ...agent.declaration, apiKey: "no" } }),
+    () =>
+      assertPreloadPayload("repo.agent.entity.write", {
+        ...agent,
+        declaration: { ...agent.declaration, apiKey: "no" },
+      }),
     /secret-like key/u,
   );
 });
@@ -541,37 +572,49 @@ test("only newly typed top-level create/update API keys cross preload", () => {
     apiKey: "sk-typed-by-user",
     ...overrides,
   });
-  assert.equal(assertPreloadPayload("createRuntimeInstance", create()), true);
-  assert.equal(assertPreloadPayload("createRuntimeInstance", create({ repoId: "server-a" })), true);
+  assert.equal(assertPreloadPayload("daemon.runtimeInstance.create", create()), true);
+  assert.equal(assertPreloadPayload("daemon.runtimeInstance.create", create({ repoId: "server-a" })), true);
   assert.equal(
-    assertPreloadPayload("updateRuntimeInstance", {
+    assertPreloadPayload("daemon.runtimeInstance.update", {
       repoId: "server-b",
       instanceId: "codex-sidecar",
       apiKey: "new-key",
     }),
     true,
   );
-  assert.equal(assertPreloadPayload("listRuntimeInstances", { repoId: "server-b", all: true }), true);
+  assert.equal(assertPreloadPayload("daemon.runtimeInstance.list", { repoId: "server-b", all: true }), true);
   assert.throws(
-    () => assertPreloadPayload("updateRuntimeInstance", { repoId: "", instanceId: "codex-sidecar", apiKey: "new-key" }),
+    () =>
+      assertPreloadPayload("daemon.runtimeInstance.update", {
+        repoId: "",
+        instanceId: "codex-sidecar",
+        apiKey: "new-key",
+      }),
     /repoId/u,
   );
   assert.throws(
-    () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "codex-sidecar", nested: { apiKey: "nested" } }),
+    () =>
+      assertPreloadPayload("daemon.runtimeInstance.update", {
+        instanceId: "codex-sidecar",
+        nested: { apiKey: "nested" },
+      }),
     /secret-like/u,
   );
-  assert.throws(() => assertPreloadPayload("createRuntimeInstance", create({ authMode: "subscription" })), /invalid/u);
-  assert.throws(() => assertPreloadPayload("createRuntimeInstance", create({ apiKey: "  " })), /invalid/u);
   assert.throws(
-    () => assertPreloadPayload("createRuntimeInstance", create({ codex: { apiKey: "nested-forbidden" } })),
+    () => assertPreloadPayload("daemon.runtimeInstance.create", create({ authMode: "subscription" })),
+    /invalid/u,
+  );
+  assert.throws(() => assertPreloadPayload("daemon.runtimeInstance.create", create({ apiKey: "  " })), /invalid/u);
+  assert.throws(
+    () => assertPreloadPayload("daemon.runtimeInstance.create", create({ codex: { apiKey: "nested-forbidden" } })),
     /secret-like key/u,
   );
   assert.throws(
-    () => assertPreloadPayload("showRuntimeInstance", { instanceId: "codex-sidecar", apiKey: "wrong-method" }),
+    () => assertPreloadPayload("daemon.runtimeInstance.show", { instanceId: "codex-sidecar", apiKey: "wrong-method" }),
     /secret-like key/u,
   );
   assert.throws(
-    () => assertPreloadPayload("spawnAgentRuntime", { repoId: "repo-a", nested: { apiKey: "wrong-path" } }),
+    () => assertPreloadPayload("repo.agentRuntime.spawn", { repoId: "repo-a", nested: { apiKey: "wrong-path" } }),
     /secret-like key/u,
   );
 });
@@ -604,7 +647,7 @@ test("preload accepts the renderer's codex create payload", () => {
     "permissionMode",
     "providerId",
   ]);
-  assert.equal(assertPreloadPayload("createRuntimeInstance", payload), true);
+  assert.equal(assertPreloadPayload("daemon.runtimeInstance.create", payload), true);
 });
 
 test("preload accepts the renderer's detected model default", () => {
@@ -623,9 +666,9 @@ test("preload accepts the renderer's detected model default", () => {
     { models: ["gpt-5.6-sol", "gpt-5.6-terra"], defaultModel: "gpt-5.6-sol" },
   );
   assert.equal(payload.defaultModel, "gpt-5.6-sol");
-  assert.equal(assertPreloadPayload("createRuntimeInstance", payload), true);
+  assert.equal(assertPreloadPayload("daemon.runtimeInstance.create", payload), true);
   assert.throws(
-    () => assertPreloadPayload("createRuntimeInstance", { ...payload, defaultModel: "typed-by-hand" }),
+    () => assertPreloadPayload("daemon.runtimeInstance.create", { ...payload, defaultModel: "typed-by-hand" }),
     /defaultModel.*listed models/u,
   );
 });
@@ -644,14 +687,14 @@ test("preload accepts the renderer's claude create payload", () => {
     "permissionMode",
     "providerId",
   ]);
-  assert.equal(assertPreloadPayload("createRuntimeInstance", payload), true);
+  assert.equal(assertPreloadPayload("daemon.runtimeInstance.create", payload), true);
   // The claude plane's effort enum reaches the daemon through the same create payload.
   const withEffort = buildRuntimeInstanceCreatePayload(
     { ...runtimeCreateForm, reasoningEffort: "high" },
     "claude-install",
   );
   assert.deepEqual((withEffort as { readonly claude: Record<string, unknown> }).claude, { effort: "high" });
-  assert.equal(assertPreloadPayload("createRuntimeInstance", withEffort), true);
+  assert.equal(assertPreloadPayload("daemon.runtimeInstance.create", withEffort), true);
 });
 
 test("preload accepts the renderer's agy create payload", () => {
@@ -679,13 +722,13 @@ test("preload accepts the renderer's agy create payload", () => {
     "name",
     "providerId",
   ]);
-  assert.equal(assertPreloadPayload("createRuntimeInstance", payload), true);
+  assert.equal(assertPreloadPayload("daemon.runtimeInstance.create", payload), true);
 });
 
 test("runtime create rejection names an unknown field and the allowed expectation", () => {
   const payload = buildRuntimeInstanceCreatePayload(runtimeCreateForm, "claude-install");
   assert.throws(
-    () => assertPreloadPayload("createRuntimeInstance", { ...payload, unexpectedField: true }),
+    () => assertPreloadPayload("daemon.runtimeInstance.create", { ...payload, unexpectedField: true }),
     /unexpectedField.*expected only/u,
   );
 });
@@ -694,7 +737,7 @@ test("runtime create rejection names invalid models and the expected shape", () 
   const payload = buildRuntimeInstanceCreatePayload(runtimeCreateForm, "claude-install");
   // dec_DA1602487428A58E8B446ECE38/CH2 adds only the disabled independent bootstrap exception.
   assert.throws(
-    () => assertPreloadPayload("createRuntimeInstance", { ...payload, models: [] }),
+    () => assertPreloadPayload("daemon.runtimeInstance.create", { ...payload, models: [] }),
     /models.*non-blank strings.*disabled independent subscription/u,
   );
 });
@@ -702,7 +745,7 @@ test("runtime create rejection names invalid models and the expected shape", () 
 test("runtime create rejection names invalid permission mode and its enum", () => {
   const payload = buildRuntimeInstanceCreatePayload(runtimeCreateForm, "claude-install");
   assert.throws(
-    () => assertPreloadPayload("createRuntimeInstance", { ...payload, permissionMode: "admin" }),
+    () => assertPreloadPayload("daemon.runtimeInstance.create", { ...payload, permissionMode: "admin" }),
     /permissionMode.*bypass, workspace-write, or read-only/u,
   );
 });
@@ -710,7 +753,7 @@ test("runtime create rejection names invalid permission mode and its enum", () =
 test("runtime create rejection names invalid isolation state and its enum", () => {
   const payload = buildRuntimeInstanceCreatePayload(runtimeCreateForm, "claude-install");
   assert.throws(
-    () => assertPreloadPayload("createRuntimeInstance", { ...payload, isolationState: "disabled" }),
+    () => assertPreloadPayload("daemon.runtimeInstance.create", { ...payload, isolationState: "disabled" }),
     /isolationState.*enforced or operator-environment/u,
   );
 });
@@ -720,7 +763,7 @@ test("runtime create rejection names invalid isolation state and its enum", () =
 // declared eight, so name/installationId/models/defaultModel were unreachable from the GUI
 // even though the daemon accepted them.
 test("runtime update accepts exactly the fields the registry declares", () => {
-  const entry = daemonGuiInvokeFacets.find((facet) => facet.guiBridgeMethod === "updateRuntimeInstance") as {
+  const entry = interactiveRpcMethods.find((facet) => facet.method === "daemon.runtimeInstance.update") as {
     readonly params: { readonly fields: { readonly payload: { readonly fields: Readonly<Record<string, unknown>> } } };
   };
   const declared = Object.keys(entry.params.fields.payload.fields);
@@ -750,8 +793,8 @@ test("runtime update accepts exactly the fields the registry declares", () => {
         ? { tier: 2 }
         : field === "models"
           ? { models: ["model-a"] }
-          : field === "enabled"
-            ? { enabled: true }
+          : field === "enabled" || field === "clearFreeze"
+            ? { [field]: true }
             : field === "fast"
               ? { fast: true }
               : field === "permissionMode"
@@ -766,7 +809,7 @@ test("runtime update accepts exactly the fields the registry declares", () => {
                         ? { webSearch: "disabled" }
                         : { [field]: "value" };
     assert.equal(
-      assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", ...sample }),
+      assertPreloadPayload("daemon.runtimeInstance.update", { instanceId: "instance-a", ...sample }),
       true,
       `registry declares ${field} but preload rejected it`,
     );
@@ -775,9 +818,12 @@ test("runtime update accepts exactly the fields the registry declares", () => {
 
 test("runtime create and update validate credential source values", () => {
   const payload = buildRuntimeInstanceCreatePayload(runtimeCreateForm, "claude-install");
-  assert.equal(assertPreloadPayload("createRuntimeInstance", { ...payload, credentialSource: "operator" }), true);
   assert.equal(
-    assertPreloadPayload("createRuntimeInstance", {
+    assertPreloadPayload("daemon.runtimeInstance.create", { ...payload, credentialSource: "operator" }),
+    true,
+  );
+  assert.equal(
+    assertPreloadPayload("daemon.runtimeInstance.create", {
       ...payload,
       credentialSource: "instance",
       isolationState: "enforced",
@@ -785,48 +831,52 @@ test("runtime create and update validate credential source values", () => {
     true,
   );
   assert.throws(
-    () => assertPreloadPayload("createRuntimeInstance", { ...payload, credentialSource: "shared" }),
-    /credentialSource.*operator or instance/u,
+    () => assertPreloadPayload("daemon.runtimeInstance.create", { ...payload, credentialSource: "shared" }),
+    /credentialSource.*operator, instance/u,
   );
   assert.equal(
-    assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", credentialSource: "instance" }),
+    assertPreloadPayload("daemon.runtimeInstance.update", { instanceId: "instance-a", credentialSource: "instance" }),
     true,
   );
   assert.throws(
-    () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", credentialSource: "shared" }),
+    () =>
+      assertPreloadPayload("daemon.runtimeInstance.update", { instanceId: "instance-a", credentialSource: "shared" }),
     /invalid/u,
   );
 });
 
 test("runtime update still rejects empty values, empty model lists, and secret-like keys", () => {
   assert.throws(
-    () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", name: "" }),
+    () => assertPreloadPayload("daemon.runtimeInstance.update", { instanceId: "instance-a", name: "" }),
     /invalid/u,
   );
   assert.throws(
-    () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", models: [] }),
+    () => assertPreloadPayload("daemon.runtimeInstance.update", { instanceId: "instance-a", models: [] }),
     /invalid/u,
   );
   assert.throws(
-    () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", models: [1] }),
+    () => assertPreloadPayload("daemon.runtimeInstance.update", { instanceId: "instance-a", models: [1] }),
     /invalid/u,
   );
-  assert.throws(() => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a" }), /invalid/u);
+  assert.throws(() => assertPreloadPayload("daemon.runtimeInstance.update", { instanceId: "instance-a" }), /invalid/u);
   assert.throws(
-    () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", apiKey: "  " }),
+    () => assertPreloadPayload("daemon.runtimeInstance.update", { instanceId: "instance-a", apiKey: "  " }),
     /invalid/u,
   );
   for (const webSearch of ["disabled", "cached", "live"])
-    assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", webSearch }), true);
-  assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", webSearch: "" }), true);
+    assert.equal(assertPreloadPayload("daemon.runtimeInstance.update", { instanceId: "instance-a", webSearch }), true);
+  assert.equal(
+    assertPreloadPayload("daemon.runtimeInstance.update", { instanceId: "instance-a", webSearch: "" }),
+    true,
+  );
   assert.throws(
-    () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", webSearch: "live-ish" }),
+    () => assertPreloadPayload("daemon.runtimeInstance.update", { instanceId: "instance-a", webSearch: "live-ish" }),
     /invalid/u,
   );
   for (const mcpPolicy of ["disabled", "inherit", ""])
-    assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", mcpPolicy }), true);
+    assert.equal(assertPreloadPayload("daemon.runtimeInstance.update", { instanceId: "instance-a", mcpPolicy }), true);
   assert.throws(
-    () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", mcpPolicy: "all" }),
+    () => assertPreloadPayload("daemon.runtimeInstance.update", { instanceId: "instance-a", mcpPolicy: "all" }),
     /invalid/u,
   );
   const codexCreate = buildRuntimeInstanceCreatePayload(
@@ -834,10 +884,10 @@ test("runtime update still rejects empty values, empty model lists, and secret-l
     "codex-install",
   );
   assert.equal(codexCreate.mcpPolicy, "inherit");
-  assert.equal(assertPreloadPayload("createRuntimeInstance", codexCreate), true);
+  assert.equal(assertPreloadPayload("daemon.runtimeInstance.create", codexCreate), true);
   assert.throws(
     () =>
-      assertPreloadPayload("createRuntimeInstance", {
+      assertPreloadPayload("daemon.runtimeInstance.create", {
         ...codexCreate,
         kindId: "agy",
         agy: {},
@@ -850,14 +900,14 @@ test("runtime update still rejects empty values, empty model lists, and secret-l
   // under every spelling — the value-type line from the dispatch scrubber has no traffic here.
   for (const key of ["token", "access_token", "id_token"])
     assert.throws(
-      () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", [key]: "opaque" }),
+      () => assertPreloadPayload("daemon.runtimeInstance.update", { instanceId: "instance-a", [key]: "opaque" }),
       /secret-like/u,
     );
 });
 
 test("Decisions Provider credentials cross preload only as a top-level API key", () => {
   assert.equal(
-    assertPreloadPayload("createDecisionProvider", {
+    assertPreloadPayload("daemon.provider.create", {
       type: "decisions",
       providerId: "decision-a",
       name: "Decision A",
@@ -868,12 +918,12 @@ test("Decisions Provider credentials cross preload only as a top-level API key",
     true,
   );
   assert.equal(
-    assertPreloadPayload("updateDecisionProvider", { providerId: "decision-a", name: "Updated", apiKey: "new-key" }),
+    assertPreloadPayload("daemon.provider.update", { providerId: "decision-a", name: "Updated", apiKey: "new-key" }),
     true,
   );
   assert.throws(
     () =>
-      assertPreloadPayload("createDecisionProvider", {
+      assertPreloadPayload("daemon.provider.create", {
         type: "llm",
         providerId: "decision-a",
         name: "A",
@@ -884,7 +934,7 @@ test("Decisions Provider credentials cross preload only as a top-level API key",
   );
   assert.throws(
     () =>
-      assertPreloadPayload("createDecisionProvider", {
+      assertPreloadPayload("daemon.provider.create", {
         type: "decisions",
         providerId: "decision-a",
         name: "Decision A",
@@ -895,14 +945,14 @@ test("Decisions Provider credentials cross preload only as a top-level API key",
   );
   assert.throws(
     () =>
-      assertPreloadPayload("createDecisionProvider", {
+      assertPreloadPayload("daemon.provider.create", {
         type: "decisions",
         providerId: "decision-a",
         name: "Decision A",
         model: "openai/model-a",
         unexpected: true,
       }),
-    /unexpected fields/u,
+    /unknown field "unexpected"/u,
   );
 });
 
@@ -917,7 +967,7 @@ test("multi-account tier bounds and read-only account catalog are enforced at pr
     credentialSource: "instance",
     isolationState: "enforced",
   };
-  assert.equal(assertPreloadPayload("createRuntimeInstance", bootstrap), true);
+  assert.equal(assertPreloadPayload("daemon.runtimeInstance.create", bootstrap), true);
   for (const invalid of [
     { enabled: true },
     { enabled: "false" },
@@ -925,22 +975,25 @@ test("multi-account tier bounds and read-only account catalog are enforced at pr
     { authMode: "api-key", apiKey: "test-key" },
     { defaultModel: "invented-model" },
   ])
-    assert.throws(() => assertPreloadPayload("createRuntimeInstance", { ...bootstrap, ...invalid }));
+    assert.throws(() => assertPreloadPayload("daemon.runtimeInstance.create", { ...bootstrap, ...invalid }));
   for (const tier of [1, 9]) {
-    assert.equal(assertPreloadPayload("createRuntimeInstance", { ...payload, tier }), true);
-    assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", tier }), true);
+    assert.equal(assertPreloadPayload("daemon.runtimeInstance.create", { ...payload, tier }), true);
+    assert.equal(assertPreloadPayload("daemon.runtimeInstance.update", { instanceId: "instance-a", tier }), true);
   }
   for (const tier of [0, 10, 1.5, "2", null]) {
-    assert.throws(() => assertPreloadPayload("createRuntimeInstance", { ...payload, tier }), /tier/u);
-    assert.throws(() => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", tier }), /invalid/u);
+    assert.throws(() => assertPreloadPayload("daemon.runtimeInstance.create", { ...payload, tier }), /tier/u);
+    assert.throws(
+      () => assertPreloadPayload("daemon.runtimeInstance.update", { instanceId: "instance-a", tier }),
+      /invalid/u,
+    );
   }
   assert.throws(
-    () => assertPreloadPayload("createRuntimeInstance", { ...payload, availableModels: ["other"] }),
+    () => assertPreloadPayload("daemon.runtimeInstance.create", { ...payload, availableModels: ["other"] }),
     /availableModels/u,
   );
   assert.throws(
     () =>
-      assertPreloadPayload("createRuntimeInstance", {
+      assertPreloadPayload("daemon.runtimeInstance.create", {
         ...payload,
         kindId: "cursor",
         claude: undefined,
@@ -952,7 +1005,7 @@ test("multi-account tier bounds and read-only account catalog are enforced at pr
   );
   for (const selectionStrategy of ["sticky", "lru"]) {
     assert.equal(
-      assertPreloadPayload("saveAgent", {
+      assertPreloadPayload("repo.agent.entity.write", {
         repoId: "demo",
         declaration: {
           schema: "agent-declaration/v1",
@@ -971,7 +1024,7 @@ test("multi-account tier bounds and read-only account catalog are enforced at pr
 });
 
 test("account action payloads and selection strategies fail closed", () => {
-  for (const method of ["signInRuntimeInstance", "signOutRuntimeInstance"]) {
+  for (const method of ["repo.runtimeInstance.auth.login", "repo.runtimeInstance.auth.logout"]) {
     assert.equal(
       assertPreloadPayload(method, { repoId: "demo", instanceId: "agy-pro", idempotencyKey: "login-1" }),
       true,
@@ -988,8 +1041,11 @@ test("account action payloads and selection strategies fail closed", () => {
       /invalid/u,
     );
   }
-  assert.equal(assertPreloadPayload("showRuntimeInstance", { instanceId: "agy-pro", probe: true }), true);
-  assert.throws(() => assertPreloadPayload("showRuntimeInstance", { instanceId: "agy-pro", probe: "yes" }), /invalid/u);
+  assert.equal(assertPreloadPayload("daemon.runtimeInstance.show", { instanceId: "agy-pro", probe: true }), true);
+  assert.throws(
+    () => assertPreloadPayload("daemon.runtimeInstance.show", { instanceId: "agy-pro", probe: "yes" }),
+    /invalid/u,
+  );
   assert.throws(
     // The declaration write boundary owns strategy validation; preload only transports this authored facet.
     () =>
@@ -1009,14 +1065,14 @@ test("account action payloads and selection strategies fail closed", () => {
 // Explicit negative controls for the three Decision-authorized agenda aliases.
 test("agenda write aliases retain closed preload payloads", () => {
   for (const [method, payload] of [
-    ["archiveTasks", { taskIds: ["task-a", "task-b"], reason: "Received" }],
-    ["dismissRuntimeIncident", { dispatchId: "dispatch-a", reason: "Handled" }],
-    ["resolveTaskEscalation", { taskId: "task-a", dispatchId: "dispatch-a", answer: "Proceed" }],
+    ["repo.task.archive", { taskIds: ["task-a", "task-b"], reason: "Received" }],
+    ["repo.agentRuntime.incidentDismiss", { dispatchId: "dispatch-a", reason: "Handled" }],
+    ["repo.task.escalationResolve", { taskId: "task-a", dispatchId: "dispatch-a", answer: "Proceed" }],
   ] as const) {
     assert.equal(isAllowedPreloadApiMethod(method), true);
     assert.equal(assertPreloadPayload(method, { repoId: "repo-a", ...payload }), true);
     // Preload owns method/repository admission; the canonical RPC schema owns payload closure.
-    const facet = daemonGuiInvokeFacets.find((entry) => entry.guiBridgeMethod === method)!;
+    const facet = interactiveRpcMethods.find((entry) => entry.method === method)!;
     assert.notDeepEqual(
       validateDaemonRpcCall({
         method: facet.method,

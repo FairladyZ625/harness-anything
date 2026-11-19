@@ -11,7 +11,7 @@ import { createInterface } from "node:readline";
 import { reviewDispatchDiagnostic } from "@harness-anything/application/internal/queries/review-dispatch-failure-read.ts";
 import { sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
-import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import { digestId } from "../src/daemon-host/fleet/center-transport.ts";
 import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import {
@@ -150,7 +150,7 @@ test("version metadata stays outside the closed dispatch read result", async (t)
   assert.equal(response.schema, "fleet.operational.read.result/v1");
   if (response.schema !== "fleet.operational.read.result/v1") return;
   assert.match(response.versionWarning ?? "", /build differs/u);
-  assert.doesNotThrow(() => parseDaemonGuiReadResult("repo.task.dispatches", response.result));
+  assert.doesNotThrow(() => parseDaemonReadResult("repo.task.dispatches", response.result));
   assert.equal(Object.hasOwn(response.result, "versionWarning"), false);
 });
 test("previous Fleet edges retain closed dispatch rows; current edges join bounded central lifecycle batches", async (t) => {

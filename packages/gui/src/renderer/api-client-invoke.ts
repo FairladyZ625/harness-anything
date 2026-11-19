@@ -1,18 +1,14 @@
 import {
-  daemonGuiInvokeFacets,
-  daemonGuiReadMethods,
+  daemonReadRoutes,
+  scopedRpcParams,
+  type InteractiveRpcDescriptor,
   type DaemonRpcMethodMap,
   type DaemonRpcResult,
 } from "@harness-anything/daemon/protocol";
 import { guiTransport } from "./gui-transport.ts";
 import { repositoryReadFailure } from "./repository-read-frame.ts";
 
-type GuiInvokeFacet = (typeof daemonGuiInvokeFacets)[number];
-type GuiRpcMethod = GuiInvokeFacet["method"] & keyof DaemonRpcMethodMap;
-type GuiBridgeMethodFor<Method extends GuiRpcMethod> = Extract<
-  GuiInvokeFacet,
-  { readonly method: Method }
->["guiBridgeMethod"];
+type GuiRpcMethod = InteractiveRpcDescriptor["method"] & keyof DaemonRpcMethodMap;
 type GuiInput<Value> =
   Value extends ReadonlyArray<infer Item>
     ? ReadonlyArray<GuiInput<Item>>
@@ -21,46 +17,23 @@ type GuiInput<Value> =
         ? object
         : { readonly [Key in keyof Value]: GuiInput<Value[Key]> }
       : Value;
-type GuiBridgeParams<Method extends GuiRpcMethod> = DaemonRpcMethodMap[Method]["params"] extends {
-  readonly repo: { readonly repoId: infer RepoId };
-  readonly payload: infer Payload extends object;
-}
-  ? { readonly repoId: RepoId } & GuiInput<Payload>
-  : DaemonRpcMethodMap[Method]["params"] extends {
-        readonly repo: { readonly repoId: infer RepoId };
-      }
-    ? { readonly repoId: RepoId }
-    : DaemonRpcMethodMap[Method]["params"] extends { readonly payload: infer Payload extends object }
-      ? GuiInput<Payload>
-      : GuiInput<DaemonRpcMethodMap[Method]["params"]>;
+type InputRepo<Params> = Params extends { readonly repo: { readonly repoId: infer RepoId } }
+  ? { readonly repoId: RepoId }
+  : "repo" extends keyof Params
+    ? { readonly repoId?: string }
+    : object;
+type ClientInput<Params> = InputRepo<Params> &
+  (Params extends { readonly payload: infer Payload extends object }
+    ? GuiInput<Payload>
+    : Omit<GuiInput<Params>, "repo">);
 
-// The envelope follows the protocol facet declaration, not the caller's field count: the daemon
-// validates params against these same shapes and rejects a declared-but-absent `payload` key
-// ("params.payload must be an object"), so a declared payload is always sent — as {} when the
-// caller passed no fields — and a payload-only method's fields are wrapped, never flattened.
-const invokeFacetFields = new Map(
-  daemonGuiInvokeFacets.map((facet) => [facet.method, new Set(Object.keys(facet.params.fields))]),
-);
-const readMethods = new Set<string>(daemonGuiReadMethods.map(({ method }) => method));
+const readMethods = new Set<string>(daemonReadRoutes.map(({ method }) => method));
 
 export async function invoke<Method extends keyof DaemonRpcMethodMap>(
   method: Method & GuiRpcMethod,
-  params: GuiBridgeParams<Method & GuiRpcMethod>,
-  bridgeMethod: GuiBridgeMethodFor<Method & GuiRpcMethod>,
+  params: ClientInput<DaemonRpcMethodMap[Method & GuiRpcMethod]["params"]>,
 ): Promise<DaemonRpcResult<Method>> {
-  const fields = invokeFacetFields.get(method);
-  if (!fields) throw new Error(`RPC method is not a GUI invoke facet: ${String(method)}.`);
-  const { repoId, ...payload } = params as { readonly repoId?: string; readonly [key: string]: unknown };
-  const wireParams = (
-    fields.has("repo") && fields.has("payload")
-      ? { repo: { repoId }, payload }
-      : fields.has("repo")
-        ? { repo: { repoId } }
-        : fields.has("payload")
-          ? { payload: params }
-          : params
-  ) as DaemonRpcMethodMap[Method]["params"];
-  const result = await guiTransport().request(method, wireParams, bridgeMethod);
+  const result = await guiTransport().request(method, scopedRpcParams(method, params));
   const failure = readMethods.has(method) ? repositoryReadFailure(result) : null;
   if (failure) {
     // The read is authoritative for its operation: tell the identity surfaces to re-read the

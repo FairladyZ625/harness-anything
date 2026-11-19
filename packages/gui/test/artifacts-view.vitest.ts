@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 import { beforeAll, afterEach, describe, expect, it, vi } from "vitest";
@@ -148,7 +149,12 @@ function stubDocumentBridge(body: string, kind: "html" | "committed" = "html"): 
     watermark: 12,
     sourceRevision: 12,
   }));
-  vi.stubGlobal("window", { harness: { getTaskDocument } });
+  vi.stubGlobal("window", {
+    harness: mockRpcBridge(
+      { getTaskDocument },
+      { "repo.tasks.document.read": "getTaskDocument", "repo.artifacts.list": "listArtifacts" },
+    ),
+  });
   return getTaskDocument;
 }
 
@@ -171,7 +177,12 @@ function stubBinaryDocumentBridge(): ReturnType<typeof vi.fn> {
     watermark: 12,
     sourceRevision: 12,
   }));
-  vi.stubGlobal("window", { harness: { getTaskDocument } });
+  vi.stubGlobal("window", {
+    harness: mockRpcBridge(
+      { getTaskDocument },
+      { "repo.tasks.document.read": "getTaskDocument", "repo.artifacts.list": "listArtifacts" },
+    ),
+  });
   return getTaskDocument;
 }
 
@@ -317,7 +328,12 @@ describe("artifacts timeline — list, preview, and task jump", () => {
   it("asks the preload artifacts channel to open the selected artifact in the system viewer", async () => {
     stubDocumentBridge("<h1>Weathering</h1>");
     const openExternal = vi.fn(async () => ({ ok: true, openedPath: "/repo/harness/tasks/p/a.html", error: null }));
-    vi.stubGlobal("window", { harness: { getTaskDocument: async () => ({ ok: true }), artifacts: { openExternal } } });
+    vi.stubGlobal("window", {
+      harness: mockRpcBridge(
+        { getTaskDocument: async () => ({ ok: true }), artifacts: { openExternal } },
+        { "repo.tasks.document.read": "getTaskDocument", "repo.artifacts.list": "listArtifacts" },
+      ),
+    });
     const container = await renderSurface(
       createElement(ArtifactsWorkspace, {
         repoId: "repo-a",
@@ -343,7 +359,12 @@ describe("artifacts timeline — list, preview, and task jump", () => {
     const openExternal = vi.fn(async () => {
       throw new Error("Artifact path escapes the repository harness directory.");
     });
-    vi.stubGlobal("window", { harness: { getTaskDocument: async () => ({ ok: true }), artifacts: { openExternal } } });
+    vi.stubGlobal("window", {
+      harness: mockRpcBridge(
+        { getTaskDocument: async () => ({ ok: true }), artifacts: { openExternal } },
+        { "repo.tasks.document.read": "getTaskDocument", "repo.artifacts.list": "listArtifacts" },
+      ),
+    });
     const container = await renderSurface(
       createElement(ArtifactsWorkspace, {
         repoId: "repo-a",
@@ -567,7 +588,12 @@ describe("artifacts client pagination", () => {
       page: { limit: 100, cursor: "second", nextCursor: null },
     });
     const listArtifacts = vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(last);
-    vi.stubGlobal("window", { harness: { listArtifacts } });
+    vi.stubGlobal("window", {
+      harness: mockRpcBridge(
+        { listArtifacts },
+        { "repo.tasks.document.read": "getTaskDocument", "repo.artifacts.list": "listArtifacts" },
+      ),
+    });
     try {
       const result = await artifactsClient.list("repo-a", "html");
       expect(result.artifacts.map(({ path }) => path)).toEqual([
@@ -586,7 +612,12 @@ describe("artifacts client pagination", () => {
   it("rejects repeated cursors and a later-page failure without returning a partial collection", async () => {
     const first = dto({ page: { limit: 100, cursor: null, nextCursor: "same" } });
     const listArtifacts = vi.fn().mockResolvedValue(first);
-    vi.stubGlobal("window", { harness: { listArtifacts } });
+    vi.stubGlobal("window", {
+      harness: mockRpcBridge(
+        { listArtifacts },
+        { "repo.tasks.document.read": "getTaskDocument", "repo.artifacts.list": "listArtifacts" },
+      ),
+    });
     try {
       await expect(artifactsClient.list("repo-a", "html")).rejects.toThrow(/cursor did not advance/);
       expect(listArtifacts).toHaveBeenCalledTimes(2);

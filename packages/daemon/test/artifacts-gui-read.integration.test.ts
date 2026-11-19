@@ -8,8 +8,8 @@ import path from "node:path";
 import test from "node:test";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import type { RepoCellBinding } from "../src/daemon-host/repo-cell.ts";
-import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
-import type { ArtifactsListResult } from "../src/daemon-host/protocol/artifacts-gui-contract.ts";
+import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
+import type { ArtifactsListResult } from "../src/daemon-host/protocol/artifacts-contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
@@ -76,7 +76,7 @@ test("repo.artifacts.list joins the ledger timeline across task packages", { tim
     writeFileSync(path.join(packageDir, "docs", "not-an-artifact.html"), "<p>no</p>\n");
 
     const list = async (payload: Readonly<Record<string, unknown>> = {}): Promise<ArtifactsListResult> =>
-      parseDaemonGuiReadResult("repo.artifacts.list", await cell.read("repo.artifacts.list", payload));
+      parseDaemonReadResult("repo.artifacts.list", await cell.read("repo.artifacts.list", payload));
 
     const html = await list();
     assert.equal(html.ok, true);

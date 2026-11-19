@@ -10,8 +10,8 @@ import {
   daemonProtocolCommands,
   daemonRepositoryReadMethods,
 } from "./protocol/daemon-protocol-commands.ts";
-import { daemonGuiReadMethods } from "./protocol/daemon-protocol-gui-reads.ts";
-import { daemonGuiActionMethods, daemonStreamFacets } from "./protocol/daemon-protocol-gui-actions.ts";
+import { daemonReadRoutes } from "./protocol/daemon-protocol-read-routes.ts";
+import { daemonActionRoutes, daemonStreamFacets } from "./protocol/daemon-protocol-action-routes.ts";
 import { daemonRepoModeWords } from "./protocol/daemon-protocol-vocabulary.ts";
 
 type RpcDeclaration = {
@@ -55,7 +55,7 @@ const hostMethodTopology: ReadonlyMap<string, CommandTopology> = new Map([
 // Read authorization admission is recorded here; replica/center/runtime read residency remains
 // owned by the existing read port. A new method cannot opt in merely by claiming repo-read.
 const readMethods = new Set<string>(
-  [...daemonGuiReadMethods, ...daemonRepositoryReadMethods, ...daemonGuiActionMethods, ...daemonStreamFacets]
+  [...daemonReadRoutes, ...daemonRepositoryReadMethods, ...daemonActionRoutes, ...daemonStreamFacets]
     .filter((method) => "commandClass" in method && method.commandClass === "repo-read")
     .map((method) => method.method),
 );

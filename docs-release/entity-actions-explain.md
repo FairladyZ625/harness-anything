@@ -196,6 +196,6 @@ The canonical declarations are
 [`entity-action-explanation.ts`](../packages/kernel/src/domain/entity-action-explanation.ts),
 [`task-action-explanation-read.ts`](../packages/daemon/src/daemon-host/task-action-explanation-read.ts),
 and the protocol descriptor in
-[`daemon-protocol-gui-reads.ts`](../packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-reads.ts).
+[`daemon-protocol-read-routes.ts`](../packages/daemon/src/daemon-host/protocol/daemon-protocol-read-routes.ts).
 The contract test is
 [`entity-action-explain-contract.integration.test.ts`](../packages/daemon/test/entity-action-explain-contract.integration.test.ts).

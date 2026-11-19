@@ -23,8 +23,8 @@ import {
   validateAgentRuntimeTokenUsage,
   validateAgentRuntimeTokenUsageDetail,
 } from "../src/daemon-host/agent-runtime-token-usage.ts";
-import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { daemonReadRoutes, validateDaemonRpcCall } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 
 const NOW = "2026-09-14T12:00:00.000Z",
   CUT = { status: "ready" as const, watermark: 7, sourceRevision: 7 };
@@ -590,9 +590,8 @@ test("validateAgentRuntimeTokenUsage accepts the aggregate and rejects corrupted
 });
 
 test("repo.agentRuntime.tokenUsage and tokenUsageDetail are registered through the GUI read directory", () => {
-  const facet = daemonGuiReadMethods.find(({ method }) => method === "repo.agentRuntime.tokenUsage");
+  const facet = daemonReadRoutes.find(({ method }) => method === "repo.agentRuntime.tokenUsage");
   assert.ok(facet, "repo.agentRuntime.tokenUsage must be in the GUI read directory");
-  assert.equal(facet.inputSchemaId, "gui.agent-runtime-token-usage/v1");
   assert.equal(facet.requiresRepo, true);
   assert.deepEqual(
     validateDaemonRpcCall({
@@ -615,7 +614,7 @@ test("repo.agentRuntime.tokenUsage and tokenUsageDetail are registered through t
     }),
     ["params.payload.range must be one of today, 7d, 30d"],
   );
-  const detailFacet = daemonGuiReadMethods.find(({ method }) => method === "repo.agentRuntime.tokenUsageDetail");
+  const detailFacet = daemonReadRoutes.find(({ method }) => method === "repo.agentRuntime.tokenUsageDetail");
   assert.ok(detailFacet, "repo.agentRuntime.tokenUsageDetail must be in the GUI read directory");
   assert.equal(detailFacet.inputSchemaId, "gui.agent-runtime-token-usage-detail/v1");
   assert.deepEqual(
@@ -645,9 +644,9 @@ test("repo.agentRuntime.tokenUsage and tokenUsageDetail are registered through t
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-token-usage-rpc-"));
   try {
     seedToday(rootDir);
-    const parsed = parseDaemonGuiReadResult("repo.agentRuntime.tokenUsage", read(rootDir));
+    const parsed = parseDaemonReadResult("repo.agentRuntime.tokenUsage", read(rootDir));
     assert.equal(parsed.ok, true);
-    const parsedDetail = parseDaemonGuiReadResult(
+    const parsedDetail = parseDaemonReadResult(
       "repo.agentRuntime.tokenUsageDetail",
       readAgentRuntimeTokenUsageDetail({
         rootDir,
@@ -1129,7 +1128,7 @@ test("validateAgentRuntimeTokenUsage rejects analysis groups outside their shape
     for (const [label, patch] of corrupted)
       assert.deepEqual(validateAgentRuntimeTokenUsage({ ...result, ...patch }), invalid, label);
     assert.deepEqual(
-      parseDaemonGuiReadResult("repo.agentRuntime.tokenUsage", result).ok,
+      parseDaemonReadResult("repo.agentRuntime.tokenUsage", result).ok,
       true,
       "the unmodified aggregate passes the GUI read result gate",
     );

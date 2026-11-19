@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { renderDaemonFleetStatus, runDaemonFleetStatus } from "../src/daemon/fleet-status.ts";
 import { emit } from "../src/index.ts";
-import type { DaemonGuiReadResultMap } from "@harness-anything/daemon/internal/protocol/daemon-protocol-gui-types";
+import type { DaemonGuiReadResultMap } from "@harness-anything/daemon/internal/protocol/daemon-protocol-results";
 
 type FleetOverview = DaemonGuiReadResultMap["repo.fleet.overview.read"];
 

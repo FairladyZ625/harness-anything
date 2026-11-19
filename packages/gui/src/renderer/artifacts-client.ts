@@ -2,26 +2,11 @@ import { guiInteractionPolicy } from "../api/renderer-dto.ts";
 import type { ArtifactGuiKind, ArtifactsListResult } from "@harness-anything/daemon/protocol";
 import { drainCursorPages } from "./paginated-read.ts";
 import { isRendererRecord, rendererReadError } from "./result-validation.ts";
-import { guiHostBridge } from "./gui-transport.ts";
+import { invoke } from "./api-client-invoke.ts";
 
 // Renderer client for the artifacts timeline: paged `repo.artifacts.list` reads return
 // the complete joined DTO — file inventory, task attribution and the time source are
 // daemon facts; this file never scans, recomputes times, or re-derives kinds.
-type ArtifactsBridge = {
-  readonly listArtifacts: (payload: {
-    repoId: string;
-    kind?: ArtifactGuiKind;
-    limit?: number;
-    cursor?: string;
-  }) => Promise<unknown>;
-};
-
-const bridge = (): ArtifactsBridge => {
-  const value = guiHostBridge() as unknown as Partial<ArtifactsBridge> | undefined;
-  if (!value?.listArtifacts) throw new Error("Artifacts bridge is unavailable.");
-  return value as ArtifactsBridge;
-};
-
 /** `repo.artifacts.list` 读面的 query key(产物页与总览速览架共用同一缓存,唯一定义点)。 */
 export const artifactsQueryKeys = {
   list: (repoId: string, kind: ArtifactGuiKind) => ["artifacts", repoId, kind] as const,
@@ -30,7 +15,7 @@ export const artifactsQueryKeys = {
 export const artifactsClient = {
   list: async (repoId: string, kind: ArtifactGuiKind): Promise<ArtifactsListResult> => {
     const pages = await drainCursorPages(async (facets) => {
-      const value = await bridge().listArtifacts({
+      const value = await invoke("repo.artifacts.list", {
         repoId,
         kind,
         limit: guiInteractionPolicy.defaultValue.pageSizes.artifacts,

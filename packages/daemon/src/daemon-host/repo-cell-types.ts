@@ -25,7 +25,7 @@ import type {
   assertCurrentWriter,
 } from "@harness-anything/kernel";
 import type { PresetRunReceiptV1, createPresetProcessService } from "@harness-anything/preset";
-import type { AgentRuntimeAttachSubscription, AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
+import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import type { RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import type { FleetRuntimeDispatchContext } from "./fleet/command-protocol.ts";
 import type { openGuiCatalog } from "./gui-catalog.ts";
@@ -454,7 +454,7 @@ export interface RepoCell {
     readonly cellState: "attached";
     readonly l2State: "ready";
   }>;
-  readonly attach: (runtimeSessionId: string, afterCursor: string) => Promise<AgentRuntimeAttachSubscription>;
+  readonly attach: AgentRuntimeStreamHub["attach"];
   readonly runtime: Pick<AgentRuntimeStreamHub, "publish" | "issueWitnessToken" | "bindWitness">;
   readonly status: () => RepoCellStatus;
   readonly statusCuts: () => Pick<RepoCellStatus, "projectionWatermark" | "ledgerRevision"> | null;

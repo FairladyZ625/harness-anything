@@ -3,6 +3,12 @@
     "owner": "task",
     "sources": [
       {
+        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.request:5d7bad4f2f80d8897aafe61227bc1f93",
+        "route": "task.submit",
+        "role": "client",
+        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-submit.ts#finalizeCloseoutSubmission:9b41d05f65de8d9e3c9872c2007b849d",
         "route": "task-submit",
         "role": "support"
@@ -141,16 +147,16 @@
         "role": "support"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.submitTask:b033a0ee2396af58ed4a783d2b5c2b35",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.submitTask:562941f2783facc8a8efaa42bb4a24ec",
         "route": "task.submit",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/main/ipc-handlers.ts#registerHarnessIpcHandlers:5962930d2276bc85a0442ce47be53e01",
+        "candidateId": "action:packages/gui:packages/gui/src/main/ipc-handlers.ts#registerHarnessIpcHandlers:8d968c98b3311868904460e08e65e6e6",
         "route": "task.submit",
         "role": "client",
-        "port": "packages/gui/src/api/service-bridge.ts#GuiServiceBridge.invoke"
+        "port": "packages/gui/src/main/local-composition-root.ts#GuiServiceBridge.invoke"
       },
       {
         "candidateId": "action:packages/gui:packages/gui/src/main/local-composition-root.ts#request:38ae245f20c60c7081c99b35ffcecf6d",
@@ -162,7 +168,7 @@
         "candidateId": "action:packages/gui:packages/gui/src/main/local-main-controls.ts#addLocalMainControls.invoke.result:b26c933742e8f0b55938b6d6a48bd009",
         "route": "task.submit",
         "role": "client",
-        "port": "packages/gui/src/api/service-bridge.ts#GuiServiceBridge.invoke"
+        "port": "packages/gui/src/main/local-composition-root.ts#GuiServiceBridge.invoke"
       }
     ]
   },
@@ -212,7 +218,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.saveAgent:f4724355c960d7726d7da77b5fcae8e8",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.saveAgent:6b00ca9b4954e49f41ff75cae6110854",
         "route": "agent.entity.write",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -262,7 +268,7 @@
     "owner": "repository",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/taskDetail/TaskMaterializationControl.tsx#TaskMaterializationControl.availability.queryFn.result:f97ef35e052e77a11f385f5807ca5aa7",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/taskDetail/TaskMaterializationControl.tsx#TaskMaterializationControl.availability.queryFn.result:fd25bf1f62410d214372417624d9e015",
         "route": "repository-read",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -1112,18 +1118,6 @@
         "port": "node_modules/electron/electron.d.ts#Electron.IpcRenderer.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedApi:20e2602cac98e0bc1b0b2fc7fab98831",
-        "route": "repository-read",
-        "role": "client",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.request:20e2602cac98e0bc1b0b2fc7fab98831",
-        "route": "repository-read",
-        "role": "client",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
         "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.connections.status:39e45501d15a27a2cfe3e47f471a060c",
         "route": "daemon-status",
         "role": "client",
@@ -1154,211 +1148,211 @@
         "port": "packages/gui/src/preload/electron-preload.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-runtime-client.ts#agentRuntimeClient.overview.readPage:90b5e55c2d1d80aa794d2e3cd9d86bb2",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-runtime-client.ts#agentRuntimeClient.overview.readPage:c8758d70191f4398b24c301a8546385a",
         "route": "runtime-status",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-runtime-client.ts#agentRuntimeClient.session:3cb70830404db29f8084187724f669d8",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-runtime-client.ts#agentRuntimeClient.session:e34e6e8cd171afe8cb9bdbbbd875bb85",
         "route": "agentRuntime.sessions.read",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-runtime-client.ts#agentRuntimeClient.events:f3c5fddf849f0d95ac9e643e05d0e137",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-runtime-client.ts#agentRuntimeClient.events:d61e8948687f030af2fd51a8a0cfc6b7",
         "route": "agentRuntime.events.read",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-runtime-client.ts#agentRuntimeClient.tokenUsage:28ec0e1050457574498a121387396f1b",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-runtime-client.ts#agentRuntimeClient.tokenUsage:a7de768f950d7fdea2f2c02d6b38a4cc",
         "route": "agentRuntime.tokenUsage",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-runtime-client.ts#agentRuntimeClient.tokenUsageDetail:193885f835a098645bd8498f15fc3ccf",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-runtime-client.ts#agentRuntimeClient.tokenUsageDetail:05df3b77fc82111df12e167dc8ff67d4",
         "route": "agentRuntime.tokenUsageDetail",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getHomeOverview:2faaae1657200d2935d516a7c1873815",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getHomeOverview:4f2fcb3f1659c30f8ad68093eab30b97",
         "route": "gui.home.read",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getSystemStatus:a485696e1cbc7a06e41cf8e8c713debc",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getSystemStatus:a843c35aa0559e835561d848a23c94af",
         "route": "gui.system.read",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getDaemonControlReceipt:41250b8770c69b3b34d3619d6aebec22",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getDaemonControlReceipt:3eeda733394cc5754a1f37163bf992d2",
         "route": "gui.control.receipt",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.tailObservability:9d065f26e23ef2c868dbd30dbda883f0",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.tailObservability:2224a895f517c0daacc6c870d4d86a7d",
         "route": "observe.tail",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTaskAssignmentDirectory.result:4ea0f705f3dcecf3abc1554ab62a9a18",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTaskAssignmentDirectory.result:bba41192969c268eaf18ed379391bf2d",
         "route": "tasks.assignmentDirectory",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTasks:16362be549efd070ab5b92a3087872d2",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTasks:9bb8ae6af7a8c236e3b69db66ce6b40d",
         "route": "tasks.list",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTaskWip:902ccb48212ca1b1f616cc32505120a7",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTaskWip:89317bfc1b969b3128440962f243224e",
         "route": "tasks.wip",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getWorkIndex.result:7670610fd8e281536ceb8b1bd7cf5bac",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getWorkIndex.result:c96a392fb6cd9a7c377d4249793e11a3",
         "route": "works.index",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getWorkTopology.result:cd284a6dfc0f140733a47407d975937f",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getWorkTopology.result:4d3f1d293de0ab0a1e7c877da69b0f7f",
         "route": "work.topology.read",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getWorkBriefs.result:4330811c82f30b9db0dfd47ffc6b7671",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getWorkBriefs.result:215b676a1c19f9745b4a74954f96f6cb",
         "route": "works.briefs.read",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getAgenda:ab82ed002c736f9207e6793737aaa9cc",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getAgenda:246866fa9df25e4f65719ac22c5b9abf",
         "route": "agenda",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getSettings:6ef2f469c7ad3930012ac1018940f597",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getSettings:5e9de5f5760dd2a71da35460db58fdd1",
         "route": "settings.read",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getWorkspaceSummary:a5ed96161ee5a1493be311a78dda2db3",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getWorkspaceSummary:2b0c5c25786aeb70c040d41cf77bf8eb",
         "route": "workspace.summary.read",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getWorkspaceScope.result:42a610ad27c31ff406d08db4c9a5d0b8",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getWorkspaceScope.result:66cb79362991f8f43239b955a753e52e",
         "route": "workspace.scope.read",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTaskDocument:f87205ecc035cb7073ee32a246771fee",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTaskDocument:df75f49dd1bc4465ecac747885b14ec7",
         "route": "tasks.document.read",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTaskCompletion.result:f435e14a4801d13f816f4e4cb0b1390f",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTaskCompletion.result:26d0be25740639d8ca8e3f34439f8169",
         "route": "tasks.completion.read",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTaskDocuments:cdf5076417610018771ceb4689a5d8a4",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTaskDocuments:f0af461a9b961e7a9255cac105699f0e",
         "route": "tasks.documents.list",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTaskDeliveryDiff:86fcb58f455e95f3231539a3112ea510",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTaskDeliveryDiff:bdba9aea0cf78b29464d0d5003568959",
         "route": "tasks.deliveryDiff.read",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTaskDispatches:8c5b79c8b6646692456047815961230a",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTaskDispatches:747d61c066188be6c982b15c007fe282",
         "route": "task-dispatches",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getRelationGraph:c18877fe899c2857473f7f32eeba22f9",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getRelationGraph:3674826425c9d2a34c8343219f26f58e",
         "route": "triadic.relationGraph",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getRelationFacts:c18877fe899c2857473f7f32eeba22f9",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getRelationFacts:3674826425c9d2a34c8343219f26f58e",
         "route": "triadic.relationGraph",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getDecisions:8df8e11157f6b32b143292623ef5c51c",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getDecisions:a7b5ad9f90fdcca1d1ffe85df3e0a456",
         "route": "decisions.list",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getDecisionSummaries:30c6e8d3c8e07cf349a22b59b7883dd1",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getDecisionSummaries:e33f81cc1a78e33761910e0c47a6174a",
         "route": "decisions.list",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.listDecisionControls:31ec9a940ed5bf8c956bb5ec11418a0e",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.listDecisionControls:f2b637c0c71748776afe3827e49a9127",
         "route": "decision.list",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.showDecision:5173d69c1683356a671be2e617d2af3e",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.showDecision:b030192760ea13a642d8a9a39322a268",
         "route": "decision.show",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.showDocument:3f9483da625fbf4bffeed02e5c917e0f",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.showDocument:a84f17a5ac55b3871ab1a44361600f23",
         "route": "doc.show",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.showReceipt:f71770499e4cd1aa87c3c4579831f9ff",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.showReceipt:cfb38abe3b279d84629dd9284ff3e737",
         "route": "receipt.show",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getCatalogSnapshot:ca430d16c2fa623b5f231375340079ed",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getCatalogSnapshot:8e5da3112416284a4995a99a13e447ed",
         "route": "gui.catalog.snapshot",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getCatalogPreset:486fc8276a95e9cf0ff3a90af48cc44e",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getCatalogPreset:6553d7c3a0a34afde353d7a7963658b1",
         "route": "gui.catalog.preset.read",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.rereadCatalog:fb96d4a9dda534f850ac8e10669509bc",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.rereadCatalog:0b7a597bab54caf43aadc7cc820c5244",
         "route": "gui.catalog.reread",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -1376,55 +1370,55 @@
         "port": "packages/gui/src/renderer/components/observe/DaemonTailPane.tsx#useObserveTail.run"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.showReceipt:40d479cda832cdaa9de9dec5e0ff9301",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.showReceipt:cc73b770022827cc999d214f53dacea8",
         "route": "receipt.show",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/squad-run-client.ts#squadRunsClient.list.value:261bf58cb6f41aff10a998a578f2eb19",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/squad-run-client.ts#squadRunsClient.list.value:be6d4f544322ab3dd35727c17ece12f2",
         "route": "squad.runs.list",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/squad-run-client.ts#squadRunsClient.read.value:44f35bfa5eaa65b25772e4ed8f327104",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/squad-run-client.ts#squadRunsClient.read.value:004e96474558717a73e0a5f18b4529dc",
         "route": "squad.run.read",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/task-rework-client.ts#taskReworkClient.read.receipt:8b48c71b700e09f5b439cbffd6541aa4",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/task-rework-client.ts#taskReworkClient.read.receipt:10dfa1d7bb73d4ca969533b32814d762",
         "route": "task.show",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/terminal-client.ts#terminalClient.list:5739a4395a132a41b098a29e540e028a",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/terminal-client.ts#terminalClient.list:2aa355afc91822f6e944ec940c16d59e",
         "route": "terminal.sessions.list",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/terminal-client.ts#terminalClient.detach.result:4e5c4b7a34bfcc82a66fef106054ff6e",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/terminal-client.ts#terminalClient.detach.result:6c0f3109dbfb744a7ea6daa695404878",
         "route": "terminal.detach",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.list.receipt:a652b6d16482ee1193b8a907c2eb0a3a",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.list.receipt:314002e02917596bf58c0ef48ba743e4",
         "route": "todo.list",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.show:31495ffb310e26cc20369ef26b523d19",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.show:c8280b7b171bfb494d3a866ca9d164b6",
         "route": "todo.show",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/use-case-projection-client.ts#readUseCaseProjection.value:caaa5a232fea35759385b56824e8b340",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/use-case-projection-client.ts#readUseCaseProjection.value:16860bcbea9af46c9507b8965e7b5e4a",
         "route": "projection.read",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -1494,6 +1488,90 @@
         "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-worker.ts#startWorker.guardCommit:59b20254c7f3a1c9537f68181a25c8a2",
         "route": "repository-read",
         "role": "support"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.subscribe:559d60a325770a2e927dd464f5facc20",
+        "route": "repository-read",
+        "role": "client",
+        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.listAgents:24fa3480e89140cc952a12edb41d7e55",
+        "route": "agent.entities.list",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.listAgentSkills:afe218a66b0c70bed9c7186e89338215",
+        "route": "agent.skills.list",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.listSquads:c3e340e99c5b4004f9d7b91d0028ab4c",
+        "route": "squad.entities.list",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.showAgent:b78499fd31422c3cfc1941ad10c064f7",
+        "route": "agent.entity.read",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.showSquad:f52b3d260cd72c389874ead8e41d51e8",
+        "route": "squad.entity.read",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.readAgentHistory:26684059d26cbe5259e8abef6259d965",
+        "route": "agent.history.read",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.readAgentVersion:79bf75cf3f4c621131a5bc01192c4bc9",
+        "route": "agent.version.read",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/artifacts-client.ts#artifactsClient.list.pages.value:18c09979afdcd6f26efb3b18516f503b",
+        "route": "artifacts.list",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/entity-content-client.ts#readEntityOwnedContent.value:339d2faa132f4855018a782e594325cf",
+        "route": "entity.content.read",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/entity-kind-catalog-client.ts#readEntityKindCatalog.value:c579f21f4383bce8915a958799eddda5",
+        "route": "entity.kinds.read",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/entity-kind-catalog-client.ts#readGovernedEntityRows.result:eb8940c867e354819aeaffa6ad56f959",
+        "route": "entity.rows.read",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/entity-locator-client.ts#readEntityLocatorContent.value:e7d3f232520fb3e2fb5b96cb65545ec5",
+        "route": "entity.locator.read",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/vertical-kind-client.ts#readVerticalDeclaration.value:1e8c0bd75638028d5690333330dbed89",
+        "route": "vertical.declaration.read",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ],
     "concurrency": {
@@ -2284,7 +2362,7 @@
         "role": "support"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.retireAgent:b052c063c4b52ea0ce195f372ca4f9ed",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.retireAgent:c8e993e8ccef02a2623431dc8a8d069d",
         "route": "agent.entity.retire",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -2326,7 +2404,7 @@
         "role": "support"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/vertical-kind-client.ts#upsertVerticalKind:690552b85216ff610415b79ada9ee644",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/vertical-kind-client.ts#upsertVerticalKind:32818455362894ab723618d0561a612b",
         "route": "vertical.kind.upsert",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -2574,7 +2652,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/schedules-client.ts#schedulesClient.create:36ad0386e520e41ba1f5566bd060ea08",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/schedules-client.ts#schedulesClient.create:2f54b11e951b6e049b115a6334e0bdbc",
         "route": "schedule.create",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -3103,6 +3181,17 @@
         "candidateId": "action:packages/cli:packages/cli/src/daemon/with-autostart.ts#withAutostart.started.onProgress:efdbc745903dcf40976a2441397af36d:2",
         "route": "cli:ha",
         "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli-runtime-wait.ts#renderRuntimeFrames:6e02fac36637667fd4f8638778c23e49",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli/gui-browser-broker.ts#relayStream.onValue:51becbd7d45040bffc760bb869783ba1",
+        "route": "cli-local-effects",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/stream.d.ts#stream.Stream.Writable.write"
       }
     ],
     "technical": true
@@ -8627,18 +8716,6 @@
         "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/client/local-json-rpc-stream.ts#streamDaemonFacetAt.connect:cb52387eaaf36739efee7b149678f52c",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/client/local-json-rpc-stream.ts#streamDaemonFacetAt.connect:8286e706e2fd581c41a191ee39c23f84",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/client/terminal-relay.ts#relayDaemonTerminal.detach.onValue:cfd34017cf0ca8082443986a2c118b7d",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -9755,7 +9832,7 @@
         "port": "packages/daemon/src/daemon-host/daemon-host-types.ts#DaemonHost.skillEval.run"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/remote-proxy.ts#openRemoteProxyManager.stream.closeQueue:6cf6de8d6396a06af8210f066de75892",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/remote-proxy.ts#openRemoteProxyManager.stream.detach:6cf6de8d6396a06af8210f066de75892",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
@@ -12986,11 +13063,6 @@
         "port": "packages/daemon/src/daemon-host/runtime-spawn-types.ts#RuntimeProcess.terminate"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/main/agent-runtime-ipc.ts#registerAgentRuntimeIpc:a1c8b9028d9e0fa7e105b6ec7d48abff",
-        "route": "daemon-local-state",
-        "role": "support"
-      },
-      {
         "candidateId": "action:packages/gui:packages/gui/src/main/agent-runtime-ipc.ts#registerAgentRuntimeIpc.detach:a1c8b9028d9e0fa7e105b6ec7d48abff",
         "route": "daemon-local-state",
         "role": "support"
@@ -13026,11 +13098,6 @@
       },
       {
         "candidateId": "action:packages/gui:packages/gui/src/main/electron-main.ts#createTrustedMainWindow:c8c90eee688f472bb00f6d49c8787ae7",
-        "route": "daemon-local-state",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/main/local-composition-root.ts#request:c608ebc31eb68140235e75ba222ae194",
         "route": "daemon-local-state",
         "role": "support"
       },
@@ -13377,6 +13444,40 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/gui/src/preload/electron-preload.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/client/local-json-rpc-stream.ts#readDaemonStreamAt.send:4cf2d249ce36f040d6553436c1a4e4db",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/remote-proxy.ts#openRemoteProxyManager.stream.detach:dafe37a7091355262d1401194b58cbcd",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/stream/web.d.ts#stream/web.ReadableStreamGenericReader.cancel"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/remote-proxy.ts#openRemoteProxyManager.stream.onValue:5500208054c0eaf22be28bc4ab3fe48b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/stream/web.d.ts#stream/web.WritableStreamDefaultWriter.write"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/local-composition-root.ts#createLocalGuiServiceBridge.invoke:6500f6101abe7e29f271ec9dd7f5c776",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/gui-transport.ts#createElectronGuiTransport.subscribe.stop:ac666f490aa67385287e71e49b6cb43f",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.subscribe.stop:bff20b8538da1f087e4caff4f575e285",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
       }
     ],
     "technical": true
@@ -13491,7 +13592,7 @@
     "owner": "document",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/taskDetail/TaskMaterializationControl.tsx#TaskMaterializationControl.materialize.mutationFn.receipt:f34d53abf0f68551819e035cc88a16d1",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/taskDetail/TaskMaterializationControl.tsx#TaskMaterializationControl.materialize.mutationFn.receipt:b23dc48a19d86d81cbc39d9486867938",
         "route": "task.materialize",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -13700,7 +13801,7 @@
         "port": "packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.cancel"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.cancel:d86b4e6c164cc66f728770798ea80b0d",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.cancel:4e95c330444cbd7fb8e0970306c18f06",
         "route": "agentRuntime.cancel",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -13743,7 +13844,7 @@
         "role": "support"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.taskAttest:87d24f18be60ea6f0dc3e655258803ac",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.taskAttest:dec50fe7872893e19a8165167e79861c",
         "route": "task.attest",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -13786,7 +13887,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.updateSettings:5b93e91aa5680d5e59a8241e364474c6",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.updateSettings:dfa2a789c69122a6ba79b4f37e89dc5a",
         "route": "settings.update",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -13865,14 +13966,14 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.createTask.result:226442d811323218e698ba12798e6150",
-        "route": "task.create",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.createTask.result:69e621245018b563c82e5c74a10d6220",
+        "route": "repo.task.create",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
         "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#AgendaOutboxActions:a67d3018b01d054daa7aadbd8dc91d9d",
-        "route": "task.create",
+        "route": "repo.task.create",
         "role": "client",
         "port": "packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#AgendaOutboxActions.create"
       }
@@ -13930,7 +14031,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.appendTaskProgress:2d740341b7cfb2fb3402c512f02ec64e",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.appendTaskProgress:a5133b0edda6c79f843a08ef6c1eaaf0",
         "route": "task.progress.append",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -13964,7 +14065,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.startTask:a53872fd55711d489cea1f87ba416219",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.startTask:4f52487a7ce6aeb12f9c2e9796954562",
         "route": "task.start",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -14147,7 +14248,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.pinTask:6149bd0a55a417f0daffb9ed2929ee58",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.pinTask:a21817ef154f2ac6cd28c572b4972be1",
         "route": "task.pin",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -14169,13 +14270,13 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.unpinTask:640c0ef12ebb1d1e31469ab9497d18c9",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.unpinTask:cee883b44e27d368e948c5924dfac278",
         "route": "task.unpin",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.unpinEntity:668c6c78d10fc1d8a11ee849415799f4",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.unpinEntity:dc51fb66af0786c729c9aab624460ae1",
         "route": "entity.unpin",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -14192,7 +14293,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.consentReview:be076fb945e489eca9c0fe766e2549a3",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.consentReview:6d52c08a1b8f242ad20628353e09c3cd",
         "route": "task.consent",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -14209,7 +14310,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.completeTask:f873e3ecd2a3dca145c526a351b3e5a0",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.completeTask:0f4e2de8b47d1649ac9d42f955d492d7",
         "route": "task.complete",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -14237,7 +14338,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.archiveTasks:2eddfc2808cf1fa08b4232baf1ce1863",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.archiveTasks:f5b50c9725244f57cef3d166b2dc9823",
         "route": "task.archive",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -14401,7 +14502,7 @@
         "role": "support"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.proposeDecision:7d2b68817ed7f105f40ee76c81d89ac2",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.proposeDecision:ad6181c981046877124382868eda70a7",
         "route": "decision.propose",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -14462,7 +14563,7 @@
         "role": "support"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.acceptDecision:ac89a327e96b6244918ed43699c6ecc5",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.acceptDecision:f8f25d3d5c5ca806739d173ff8e03725",
         "route": "decision.accept",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -14501,7 +14602,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.deferDecision:808a326d4c951cae6456786e3611a971",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.deferDecision:90bd5c8021178640677f5ab346db1529",
         "route": "decision.defer",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -14518,7 +14619,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.rejectDecision:bdf41ffd7136a9afa2660d4892024739",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.rejectDecision:744cc47bb4602c39e6bbf26929170c6d",
         "route": "decision.reject",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -14573,7 +14674,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.retireRelation:16a85e86c5917d11e6ce1d150f2e2cf5",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.retireRelation:ffafbf023000b8dde23f708157f44179",
         "route": "relation.unrelate",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -14601,7 +14702,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/entity-locator-client.ts#importEntity:2200cf48a7d78169c2436196c4aa300d",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/entity-locator-client.ts#importEntity:f2be252afed3609ef43cb514ae513f95",
         "route": "entity.import",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -14618,7 +14719,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/entity-locator-client.ts#updateEntity:e5ed661e6961354848d01cf1fdec1bf0",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/entity-locator-client.ts#updateEntity:43c4d97618655bf59e06a0ccd6c8ab1f",
         "route": "entity.update",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -14635,7 +14736,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/entity-locator-client.ts#archiveEntity:93698e974134b5af63348836df80d255",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/entity-locator-client.ts#archiveEntity:1a733af9651f1d8c9b6c7a4402da6da1",
         "route": "entity.archive",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -14652,7 +14753,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/entity-locator-client.ts#deleteEntity:864817a2911c8c5a39f35c6f6b579de4",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/entity-locator-client.ts#deleteEntity:b98fb74cc91840701ec8287a51f26a68",
         "route": "entity.delete",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -14669,7 +14770,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.saveSquad:effb1871345ebc7bf8e7070e1e31f729",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.saveSquad:96c9b6d27c0d361e7a814c05b6677f4c",
         "route": "squad.entity.write",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -14702,6 +14803,12 @@
         "route": "runtime-instance-create",
         "role": "client",
         "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.run"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-instance-client.ts#runtimeInstanceClient.create:54a06aab87f271cbdc2902285edec641",
+        "route": "runtime-instance-create",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   },
@@ -14735,6 +14842,12 @@
         "route": "runtime-instance-list",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-instance-client.ts#runtimeInstanceClient.list:5a8611dafcf24d5d14bd19bda3ea16cd",
+        "route": "runtime-instance-list",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   },
@@ -14780,6 +14893,18 @@
         "route": "runtime-instance-show",
         "role": "client",
         "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.run"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-instance-client.ts#runtimeInstanceClient.show:7c72242ec9b60a934ea7e21513cc507f",
+        "route": "runtime-instance-show",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-instance-client.ts#runtimeInstanceClient.probe:f855735cbbb01549b1ed3a2f76fa6d6d",
+        "route": "runtime-instance-show",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   },
@@ -14842,6 +14967,12 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-instance-store.ts#openRuntimeInstanceStore.command.finish:6abe1ab0c1daa80d7a228ec790aa7dc5",
         "route": "runtime-instance-update",
         "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-instance-client.ts#runtimeInstanceClient.update:2dc299cbe607e82e7f0c962443888037",
+        "route": "runtime-instance-update",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   },
@@ -14855,7 +14986,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/schedules-client.ts#schedulesClient.update:e735249f6a0b5ff15f4cff1a46d28261",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/schedules-client.ts#schedulesClient.update:9ffc269451cd7f1db3279260a7ce2162",
         "route": "schedule.update",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -14878,7 +15009,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/schedules-client.ts#schedulesClient.disable:7d2f5e01124c51a611709954edf0203b",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/schedules-client.ts#schedulesClient.disable:8e5052cbafab1e9f85b0016b9eb91d8b",
         "route": "schedule.disable",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -14895,7 +15026,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/schedules-client.ts#schedulesClient.delete:2649ce28782db549be81196ad9b2ca95",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/schedules-client.ts#schedulesClient.delete:7b6632146e427f36fd5bb72bf8ec1329",
         "route": "schedule.delete",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -14928,6 +15059,12 @@
         "route": "runtime-instance-delete",
         "role": "client",
         "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.run"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-instance-client.ts#runtimeInstanceClient.delete:585826a14684fe4422056fc9793530d4",
+        "route": "runtime-instance-delete",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   },
@@ -14941,7 +15078,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.deleteAgent:6e187eac6e0edd6b467c5898fff89793",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.deleteAgent:a2709bc74a61d8682422968ef0dd5c9d",
         "route": "agent.entity.delete",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -14964,7 +15101,7 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.deleteSquad:3e6668f87e696b3a3197ac702ce66371",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.deleteSquad:214d53ccd420cfa8947aea1a7ef8075e",
         "route": "squad.entity.delete",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -15048,7 +15185,7 @@
         "port": "packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/fleet-client.ts#fleetClient.overview.result:6557bf9d98801443bd81881c93a17496",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/fleet-client.ts#fleetClient.overview.result:d3a89ca8a31fe180be9ee60839bb2956",
         "route": "fleet.overview.read",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -15297,7 +15434,7 @@
     "owner": "daemon",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.requestDaemonControl:e51cc3c1eb50c7fc4816647e9acb1416",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.requestDaemonControl:d2924f9178ca1cc5910c5eb9cfa0508a",
         "route": "gui.control.request",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -15330,7 +15467,7 @@
     "owner": "decision",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.respondDecisionReview:d172ec62f9f114f6c77d58824d0ca785",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.respondDecisionReview:936edd002522bf5539e59c32c3b7d0c1",
         "route": "decision.respondReview",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -15359,7 +15496,7 @@
     "owner": "decision",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.overrideDecisionReview:da2f27839fe03a5b58011ca493eb43e4",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.overrideDecisionReview:f354948bc970762e78ab2f82fec99c04",
         "route": "decision.overrideReview",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -15376,7 +15513,7 @@
     "owner": "decision",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.dispatchDecisionReview:e21aaf4d0cf8018a14375be7519f4828",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.dispatchDecisionReview:5cdc355cf03208515fcaf143a8c14748",
         "route": "decision.dispatchReview",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -15404,7 +15541,7 @@
     "owner": "task",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.assignTask:29d360205efe04207eac2b551d480318",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.assignTask:69d87e009b84394adcb24ce1551cff91",
         "route": "task.assign",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -15415,7 +15552,7 @@
     "owner": "task",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.unassignTask:4f335ccc75c88e18fef69d794ab6fa9b",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.unassignTask:6dcd762c034b071f58baae1b7c5e0a30",
         "route": "task.unassign",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -15498,7 +15635,7 @@
         "port": "packages/gui/src/renderer/components/runtime/RuntimeHandoff.tsx#RuntimeHandoff.run"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.handoff:3051d1d61efdabc273baf47961eb5604",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.handoff:042d13ccac16f15169d4304f6c0236bb",
         "route": "agentRuntime.handoff",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -15567,13 +15704,13 @@
         "port": "packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.spawn"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.spawn:d7b0f67f2de04e5c8cd965e68839a046",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.spawn:e236e2a9802831b8a48e447cc3c3c6ef",
         "route": "agentRuntime.spawn",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.preview:0b7bfc684d4b7796908f07cef762cf0e",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.preview:ef8de2355dd4cdb06f1aecb166cf3c97",
         "route": "agentRuntime.spawn",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -15684,16 +15821,22 @@
     "owner": "runtime-instance",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useProviderWorkspace.createInstance:9784b612b405465e54010f3f78b6c644",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useProviderWorkspace.createInstance:98d146693f482b17103ee01b6e019e8a",
         "route": "runtime-instance-login",
         "role": "client",
         "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.run"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useProviderWorkspace.authInstance:79fb577fc003405ed27496f9c44defa2",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useProviderWorkspace.authInstance:0332ac763947e47b067e5fdfd6497f1a",
         "route": "runtime-instance-login",
         "role": "client",
         "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.run"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-instance-client.ts#runtimeInstanceClient.login:8876aeb79006d911c9594a9f5754aeb9",
+        "route": "runtime-instance-login",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ],
     "execution": {
@@ -15723,10 +15866,16 @@
     "owner": "runtime-instance",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useProviderWorkspace.authInstance:309fef4ddbc47433202cf62ea917a22f",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useProviderWorkspace.authInstance:0ffe2df8fcc8d99b16fe77fba637c47a",
         "route": "runtime-instance-logout",
         "role": "client",
         "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.run"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-instance-client.ts#runtimeInstanceClient.logout:ba34193dc94f31f2caeae0ab372f187f",
+        "route": "runtime-instance-logout",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ],
     "execution": {
@@ -15760,6 +15909,12 @@
         "route": "provider-create",
         "role": "client",
         "port": "packages/gui/src/renderer/decision-provider-client.ts#decisionProviderClient.create"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-provider-client.ts#decisionProviderClient.create:536780a432af671a3c2b22c07ea4493e",
+        "route": "provider-create",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ],
     "execution": {
@@ -15793,6 +15948,12 @@
         "route": "provider-update",
         "role": "client",
         "port": "packages/gui/src/renderer/decision-provider-client.ts#decisionProviderClient.update"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-provider-client.ts#decisionProviderClient.update:704dc77d6cb453d4d6b67cf01f255ee2",
+        "route": "provider-update",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ],
     "execution": {
@@ -15831,6 +15992,12 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#removeUnusedCredential:73f922d30e1da1a76b9b773eb21131be",
         "route": "provider-delete",
         "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-provider-client.ts#decisionProviderClient.delete.result:5cfbc61dc5cbe8488a2deb1492c7e2c3",
+        "route": "provider-delete",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ],
     "execution": {
@@ -15860,7 +16027,7 @@
     "owner": "runtime-session",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.steer:22dc45de7226b9ef2a2b1220e6c58ae0",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.steer:1520ef825afc204af347bd172eb210c9",
         "route": "agentRuntime.steer",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -15893,7 +16060,7 @@
     "owner": "schedule",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/schedules-client.ts#schedulesClient.enable:c419fe5fb47489b732923c312c010ced",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/schedules-client.ts#schedulesClient.enable:74c3dcef6277b240a5993fdf47b4103e",
         "route": "schedule.enable",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -15904,7 +16071,7 @@
     "owner": "schedule",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/schedules-client.ts#schedulesClient.runNow:e26e6cea76aaf59da17a57a34e23d3d9",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/schedules-client.ts#schedulesClient.runNow:7090434777288a5ded1c7f21bdf9a9df",
         "route": "schedule.runNow",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -15920,7 +16087,7 @@
     "owner": "task",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/task-rework-client.ts#taskReworkClient.rework:7599564f6d6b3ef8ee0c4c16598c5ee4",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/task-rework-client.ts#taskReworkClient.rework:ad4f761fbea7d2582ee9bb8ab0b2758f",
         "route": "task.rework",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -15931,7 +16098,7 @@
     "owner": "terminal",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/terminal-client.ts#terminalClient.spawn:f3891121a758014e36cb99f016e34356",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/terminal-client.ts#terminalClient.spawn:200347f5430abb7d4a48e3d65cc16a5a",
         "route": "terminal.spawn",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -15981,7 +16148,7 @@
     "owner": "terminal",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/terminal-client.ts#terminalClient.input.result:75a680d4c58359d94c681a4ffb88c9fc",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/terminal-client.ts#terminalClient.input.result:27906f8540256e97d7a63cdd140313b6",
         "route": "terminal.input",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -16014,7 +16181,7 @@
     "owner": "terminal",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/terminal-client.ts#terminalClient.resize:2b100f5a9f7570c3be4b1505779d1486",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/terminal-client.ts#terminalClient.resize:5591cd3670f5c5c64ad49ea7097eae08",
         "route": "terminal.resize",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -16047,7 +16214,7 @@
     "owner": "terminal",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/terminal-client.ts#terminalClient.terminate:f891a693dad7bc575c836d86fca937ed",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/terminal-client.ts#terminalClient.terminate:c30f144f1e3d0eb9dc63b6955c1b85aa",
         "route": "terminal.terminate",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -16097,7 +16264,7 @@
     "owner": "todo",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.add:63a88b979221c84a8d09e737293969b6",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.add:913c36730c22715a869786581f638123",
         "route": "todo.add",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -16119,7 +16286,7 @@
     "owner": "todo",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.done:9e17bb6c6856d3552782ceff9cd957c6",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.done:086e1713f3c4ea60d51eefa683a3fcd2",
         "route": "todo.done",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -16136,7 +16303,7 @@
     "owner": "todo",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.reopen:18b193529ae0e9d6ec68c8432be52f2b",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.reopen:788b29398a5ed99a1338643a6652f533",
         "route": "todo.reopen",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -16147,7 +16314,7 @@
     "owner": "todo",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.archive:582c5bb41bd30f3f39bf2dd7eb3a14e1",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.archive:b284ceb921cb40825746c8f61acad24f",
         "route": "todo.archive",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -16164,7 +16331,7 @@
     "owner": "todo",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.relate:8973b32ac541a1b730ceeed3b4a8dc22",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.relate:b09ae0f2040f5526b27c635d8270763d",
         "route": "todo.relate",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -16181,7 +16348,7 @@
     "owner": "todo",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.promote:e97fb17563ac1debcc704278d4bd30a7",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.promote:1cc855f95a3188e1cf8aff8f3b4c0fa0",
         "route": "todo.promote",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -16198,7 +16365,7 @@
     "owner": "vertical",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/vertical-kind-client.ts#publishVerticalKindSchema:e6eec1513918cacd9ecbb64cf6aeeae3",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/vertical-kind-client.ts#publishVerticalKindSchema:de8bd3882a249de23e4426aaed1713aa",
         "route": "vertical.kind.publishSchema",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -16209,7 +16376,7 @@
     "owner": "vertical",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/vertical-kind-client.ts#retireVerticalKind:0da007533baf6a36fc08a4767730f4b2",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/vertical-kind-client.ts#retireVerticalKind:4087be98141c5550124e134d6ea361f6",
         "route": "vertical.kind.retire",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -16587,7 +16754,7 @@
     "owner": "runtime-session",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.dismissRuntimeIncident:b3e4dd455b4ad070643c64e5a40fa3de",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.dismissRuntimeIncident:5b85b7cacb80a636421a02dab6837d0e",
         "route": "agentRuntime.incidentDismiss",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -16626,7 +16793,7 @@
     "owner": "task",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.resolveTaskEscalation:77e27a2d6473080aa9945402a8bfc70f",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.resolveTaskEscalation:443934736f98614b7123d293cbc23046",
         "route": "task.escalationResolve",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -16638,5 +16805,104 @@
         "port": "packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#AgendaRuntimeActions.submit"
       }
     ]
+  },
+  "provider-list": {
+    "owner": "provider",
+    "sources": [
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-provider-client.ts#decisionProviderClient.list.result:2d6b00ee0f926beca1d76fbf744e34da",
+        "route": "provider-list",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      }
+    ],
+    "execution": {
+      "ingress": "provider-list",
+      "read": false
+    },
+    "concurrency": {
+      "expectedVersion": {
+        "authority": "not-applicable"
+      },
+      "leasePolicy": {
+        "authority": "daemon-host"
+      },
+      "occurrenceClaim": {
+        "authority": "not-applicable"
+      },
+      "idempotency": {
+        "authority": "caller-owned"
+      },
+      "artifactOwnership": {
+        "owner": "host-local",
+        "refTemplate": "daemon-host"
+      }
+    }
+  },
+  "provider-show": {
+    "owner": "provider",
+    "sources": [
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-provider-client.ts#decisionProviderClient.show:237a179aa1e78164f2f96a90cfcd0bb6",
+        "route": "provider-show",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      }
+    ],
+    "execution": {
+      "ingress": "provider-show",
+      "read": false
+    },
+    "concurrency": {
+      "expectedVersion": {
+        "authority": "not-applicable"
+      },
+      "leasePolicy": {
+        "authority": "daemon-host"
+      },
+      "occurrenceClaim": {
+        "authority": "not-applicable"
+      },
+      "idempotency": {
+        "authority": "caller-owned"
+      },
+      "artifactOwnership": {
+        "owner": "host-local",
+        "refTemplate": "daemon-host"
+      }
+    }
+  },
+  "provider-probe": {
+    "owner": "provider",
+    "sources": [
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-provider-client.ts#decisionProviderClient.probe:3e1d40ed07f1b3179d000639c795935d",
+        "route": "provider-probe",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      }
+    ],
+    "execution": {
+      "ingress": "provider-probe",
+      "read": false
+    },
+    "concurrency": {
+      "expectedVersion": {
+        "authority": "not-applicable"
+      },
+      "leasePolicy": {
+        "authority": "daemon-host"
+      },
+      "occurrenceClaim": {
+        "authority": "not-applicable"
+      },
+      "idempotency": {
+        "authority": "caller-owned"
+      },
+      "artifactOwnership": {
+        "owner": "host-local",
+        "refTemplate": "daemon-host"
+      }
+    }
   }
 }

@@ -1,6 +1,6 @@
 import { isRendererRecord, rendererReadError } from "./result-validation.ts";
 import type { GovernedEntityRow } from "./graph/governedEntities.ts";
-import { guiHostBridge } from "./gui-transport.ts";
+import { invoke } from "./api-client-invoke.ts";
 
 /**
  * GUI 里**唯一**的实体 kind 来源(task_0df76ed3fb 设计页 §1)。
@@ -70,18 +70,8 @@ export interface EntityKindCatalog {
   readonly kinds: readonly EntityKindRow[];
 }
 
-type EntityKindBridge = {
-  readonly readEntityKinds: (payload: { readonly repoId: string }) => Promise<unknown>;
-};
-
-const bridge = (): EntityKindBridge => {
-  const value = guiHostBridge() as unknown as Partial<EntityKindBridge> | undefined;
-  if (!value?.readEntityKinds) throw new Error("Entity kind catalog bridge is unavailable.");
-  return value as EntityKindBridge;
-};
-
 export async function readEntityKindCatalog(repoId: string): Promise<EntityKindCatalog> {
-  const value = await bridge().readEntityKinds({ repoId });
+  const value = await invoke("repo.entity.kinds.read", { repoId });
   if (!isRendererRecord(value) || value.schema !== "entity-kind-catalog/v1" || !Array.isArray(value.kinds))
     throw rendererReadError(value, "Entity kind catalog bridge returned an invalid result.");
   return value as unknown as EntityKindCatalog;
@@ -124,15 +114,9 @@ export interface EntityRowListResult {
   readonly rows: readonly GovernedEntityRow[];
 }
 
-type EntityRowBridge = {
-  readonly readEntityRows: (payload: { readonly repoId: string }) => Promise<unknown>;
-};
-
 /** 声明实体的行读面。内建 kind 各有自己的读,这条只服务 vertical 声明出来的 kind。 */
 export async function readGovernedEntityRows(repoId: string): Promise<readonly GovernedEntityRow[]> {
-  const value = guiHostBridge() as unknown as Partial<EntityRowBridge> | undefined;
-  if (!value?.readEntityRows) throw new Error("Entity row bridge is unavailable.");
-  const result = await value.readEntityRows({ repoId });
+  const result = await invoke("repo.entity.rows.read", { repoId });
   if (!isRendererRecord(result) || result.schema !== "entity-row-list/v1" || !Array.isArray(result.rows))
     throw rendererReadError(result, "Entity row bridge returned an invalid result.");
   return result.rows as readonly GovernedEntityRow[];

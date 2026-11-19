@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { signInPolicyTestUser } from "../../daemon/test/keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -38,17 +39,26 @@ test("GUI worktree stays attach-only when absent then reuses a canonical residen
     writeFileSync(path.join(worktree, ".git"), "gitdir: ../../.git/worktrees/feature\n", "utf8");
     writeFileSync(path.join(rootDir, ".git", "worktrees", "feature", "commondir"), "../..\n", "utf8");
 
-    const canonical = await createLocalGuiServiceBridge().invoke("getTasks", { repoId: "gui-host-root" });
+    const canonical = await createLocalGuiServiceBridge().invoke(
+      "repo.tasks.list",
+      scopedRpcParams("repo.tasks.list", { repoId: "gui-host-root" }),
+    );
     assert.equal(canonical.ok, true, JSON.stringify(canonical));
     const canonicalPid = readDaemonPid(userRoot, daemonId);
     assert.ok(canonicalPid, "the operator-started canonical resident must be reachable");
-    const reused = await createLocalGuiServiceBridge().invoke("getTasks", { repoId: "gui-host-root" });
+    const reused = await createLocalGuiServiceBridge().invoke(
+      "repo.tasks.list",
+      scopedRpcParams("repo.tasks.list", { repoId: "gui-host-root" }),
+    );
     assert.equal(reused.ok, true, JSON.stringify(reused));
     assert.equal(readDaemonPid(userRoot, daemonId), canonicalPid, "the worktree must reuse the canonical resident");
     await daemon.stop();
-    const refusal = (await createLocalGuiServiceBridge().invoke("getTasks", {
-      repoId: "gui-host-root",
-    })) as Failure;
+    const refusal = (await createLocalGuiServiceBridge().invoke(
+      "repo.tasks.list",
+      scopedRpcParams("repo.tasks.list", {
+        repoId: "gui-host-root",
+      }),
+    )) as Failure;
     assert.equal(refusal.error?.code, "daemon_unavailable", JSON.stringify(refusal));
     assert.equal(readDaemonPid(userRoot, daemonId), null, "the worktree must not claim the daemon slot");
     context.diagnostic(

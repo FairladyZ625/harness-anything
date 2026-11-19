@@ -13,14 +13,10 @@ export const squadRunsClient = {
     repoId: string,
     query: DaemonGuiReadPayloadMap["repo.squad.runs.list"] = {},
   ): Promise<SquadRunsListResult> => {
-    const value = await invoke(
-      "repo.squad.runs.list",
-      {
-        repoId,
-        ...query,
-      } as DaemonGuiReadPayloadMap["repo.squad.runs.list"] & RepoScope,
-      "listSquadRuns",
-    );
+    const value = await invoke("repo.squad.runs.list", {
+      repoId,
+      ...query,
+    } as DaemonGuiReadPayloadMap["repo.squad.runs.list"] & RepoScope);
     if (
       !isRendererRecord(value) ||
       value.ok !== true ||
@@ -32,14 +28,10 @@ export const squadRunsClient = {
     return value as SquadRunsListResult;
   },
   read: async (repoId: string, squadRunId: string): Promise<SquadRunReadResult> => {
-    const value = await invoke(
-      "repo.squad.run.read",
-      {
-        repoId,
-        squadRunId,
-      } as DaemonGuiReadPayloadMap["repo.squad.run.read"] & RepoScope,
-      "readSquadRun",
-    );
+    const value = await invoke("repo.squad.run.read", {
+      repoId,
+      squadRunId,
+    } as DaemonGuiReadPayloadMap["repo.squad.run.read"] & RepoScope);
     if (!isRendererRecord(value) || value.ok !== true || !isRendererRecord(value.run))
       throw new Error(rendererErrorHint(value, "Squad run read bridge returned an invalid result."));
     return value as SquadRunReadResult;

@@ -5,14 +5,14 @@ import { deriveUseCaseProjectionInputs, type UseCaseProjectionName } from "@harn
 import {
   admitUseCaseProjectionSelector,
   useCaseProjectionFacets,
-} from "../src/daemon-host/protocol/daemon-protocol-gui-types.ts";
+} from "../src/daemon-host/protocol/daemon-protocol-results.ts";
 import {
   rowDeliveredUseCaseProjections,
   useCaseProjectionFacetWords,
   useCaseProjectionNameWords,
 } from "../src/daemon-host/protocol/daemon-protocol-vocabulary.ts";
 import { daemonUseCaseProjectionPayloadShape } from "../src/daemon-host/protocol/daemon-protocol-schema-ids.ts";
-import { daemonGuiReadMethods } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { daemonReadRoutes } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { validateDaemonUseCaseProjection } from "../src/daemon-host/protocol/daemon-protocol-use-case-projection.ts";
 
 test("the transport name mirror equals the kernel catalog", () => {
@@ -48,13 +48,13 @@ test("the transport name mirror equals the kernel catalog", () => {
 test("the unified read declares exactly the catalog names in its param shape", () => {
   const nameRule = daemonUseCaseProjectionPayloadShape.fields.name as { readonly values: readonly string[] };
   assert.deepEqual([...nameRule.values], [...useCaseProjectionNameWords]);
-  const read = daemonGuiReadMethods.find(({ method }) => method === "repo.projection.read");
+  const read = daemonReadRoutes.find(({ method }) => method === "repo.projection.read");
   assert.ok(read, "repo.projection.read must be registered");
   assert.equal(read.outputSchemaId, "daemon.use-case-projection/v1");
   // Every catalog entry must be reachable through this one transport row — no second read may
   // carry a projection, which is what keeps CH2's "one combination table" condition true.
   assert.equal(
-    daemonGuiReadMethods.filter(({ outputSchemaId }) => outputSchemaId === "daemon.use-case-projection/v1").length,
+    daemonReadRoutes.filter(({ outputSchemaId }) => outputSchemaId === "daemon.use-case-projection/v1").length,
     1,
   );
 });
@@ -63,7 +63,7 @@ test("the folded per-store reads are gone and the net read count fell", () => {
   const folded = ["repo.schedules.list", "repo.schedules.runs", "repo.agentRuntime.sessionGroups"];
   for (const method of folded)
     assert.equal(
-      daemonGuiReadMethods.some((read) => read.method === method),
+      daemonReadRoutes.some((read) => read.method === method),
       false,
       `${method} must be replaced by a use-case projection`,
     );
@@ -97,7 +97,7 @@ test("the folded per-store reads are gone and the net read count fell", () => {
   // task_5a539f6a90516ad68f0a19966b adds the two Agent declaration version reads (history and a
   // single retained body); both answer off the existing ledger, so they add facets but no storage.
   assert.equal(
-    daemonGuiReadMethods.length,
+    daemonReadRoutes.length,
     48,
     "31 array entries minus 3 folded plus 1 unified plus 3 entity reads plus 1 vertical " +
       "declaration read plus 1 artifact read plus 1 task WIP read plus 1 single-task completion read " +

@@ -22,7 +22,7 @@ import {
 } from "@harness-anything/kernel";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { runProcessExitAsync, runProcessTextAsync } from "./process-port.ts";
-import type { TaskWorkspaceView } from "./protocol/daemon-protocol-gui-types.ts";
+import type { TaskWorkspaceView } from "./protocol/daemon-protocol-results.ts";
 import {
   abortInterruptedWorktreeOperation,
   addManagedWorktree,

@@ -57,12 +57,14 @@ const task = {
 const dispatchRead = (rows: readonly TaskDispatchProjectionRow[]) => ({
   ok: true,
   status: "ready" as const,
-  taskId: "task-x",
+  taskIds: ["task-x"],
+  unavailableTaskIds: [],
   dispatches: rows,
   outcome: "unknown" as const,
   exitCode: 0,
   watermark: 1,
   sourceRevision: 1,
+  page: { limit: 100, cursor: null, nextCursor: null },
 });
 const eventsRead = (occurredAt: string) => ({
   ok: true,
@@ -83,6 +85,7 @@ vi.mock("../src/renderer/agent-runtime-client.ts", async (importOriginal) => {
 });
 
 const mounted: { readonly root: Root; readonly client: QueryClient }[] = [];
+const subscribe = vi.fn((_method: string, _params: unknown, _receive: (value: unknown) => void) => () => undefined);
 
 async function mountPanel() {
   const container = document.createElement("div"),
@@ -110,6 +113,8 @@ beforeEach(() => {
   vi.mocked(runtimeCommandClient.spawn).mockReset();
   getTaskDispatches.mockReset();
   pollSessionEventsOnce.mockReset();
+  subscribe.mockClear();
+  vi.stubGlobal("harness", { subscribe, capabilities: { stream: { status: "available" } } });
 });
 
 afterEach(async () => {
@@ -120,6 +125,7 @@ afterEach(async () => {
     }
   });
   document.body.replaceChildren();
+  vi.unstubAllGlobals();
 });
 
 const byTestId = (container: HTMLElement, testId: string) => {
@@ -172,8 +178,7 @@ describe("TaskExecutionPanel", () => {
 
   it("steers the running session through the runtime channel and absorbs the note when the session advances", async () => {
     getTaskDispatches.mockResolvedValue(dispatchRead([dispatch({ agentName: "GLM W3" })]));
-    // 会话在 steer 送达之后又推进了一条生命周期事件 → 纸条吸收。
-    pollSessionEventsOnce.mockResolvedValue(eventsRead("2099-01-01T00:00:00.000Z"));
+    pollSessionEventsOnce.mockResolvedValue(eventsRead("2026-08-23T10:30:00.000Z"));
     vi.mocked(runtimeCommandClient.steer).mockResolvedValue({
       schema: "command-receipt/v2",
       ok: true,
@@ -198,7 +203,13 @@ describe("TaskExecutionPanel", () => {
         expected: { taskId: "task-x", executionId: "execution-x", dispatchId: "dispatch-run" },
       }),
     );
-    // 会话推进后纸条滑入对应轮次步骤卡(absorbed),不再留在队列。
+    // dec_89D06D7360CBEC09795F7B12EC/CH3: the live event wakes the indexed read.
+    await vi.waitFor(() => expect(subscribe).toHaveBeenCalled());
+    const receive = subscribe.mock.calls.at(-1)![2];
+    pollSessionEventsOnce.mockResolvedValue(eventsRead("2099-01-01T00:00:00.000Z"));
+    await act(async () => {
+      receive({ type: "heartbeat" });
+    });
     await vi.waitFor(() =>
       expect(byTestId(container, "task-execution-plan-step-dispatch-run").textContent).toContain(
         "先补上回归测试再继续",

@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
@@ -34,12 +35,15 @@ describe("daemon startup state machine", () => {
   it("preserves the bridge error code for retry classification", async () => {
     Object.defineProperty(window, "harness", {
       configurable: true,
-      value: {
-        getSystemStatus: async () => ({
-          ok: false,
-          error: { code: "daemon_stopping", hint: "The daemon is draining." },
-        }),
-      },
+      value: mockRpcBridge(
+        {
+          getSystemStatus: async () => ({
+            ok: false,
+            error: { code: "daemon_stopping", hint: "The daemon is draining." },
+          }),
+        },
+        { "daemon.gui.system.read": "getSystemStatus" },
+      ),
     });
     await expect(harnessClient.getSystemStatus()).rejects.toMatchObject({ code: "daemon_stopping" });
     Reflect.deleteProperty(window, "harness");

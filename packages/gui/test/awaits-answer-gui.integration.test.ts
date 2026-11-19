@@ -1,7 +1,8 @@
 // harness-test-tier: integration
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseDaemonGuiActionResponse, parseDaemonGuiReadResult } from "@harness-anything/daemon/client";
+import { parseDaemonActionResponse, parseDaemonReadResult } from "@harness-anything/daemon/client";
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
@@ -49,32 +50,42 @@ test("GUI answers an awaits ask through the resident daemon write path", async (
     assert.equal(related.ok, true, JSON.stringify(related));
     const bridge = createLocalGuiServiceBridge(),
       scope = { repoId: fixture.repoId },
-      agenda = async () => parseDaemonGuiReadResult("repo.agenda.read", await bridge.invoke("getAgenda", scope));
+      agenda = async () =>
+        parseDaemonReadResult(
+          "repo.agenda.read",
+          await bridge.invoke("repo.agenda.read", scopedRpcParams("repo.agenda.read", scope)),
+        );
     const asked = await agenda(),
       row = asked.awaitingYou.find((candidate) => candidate.sourceRef === "task/task-gui-awaits");
     assert.ok(row, JSON.stringify(asked.awaitingYou));
     assert.equal(row.askKind, "acceptance");
 
-    const stale = parseDaemonGuiActionResponse(
+    const stale = parseDaemonActionResponse(
       "repo.relation.unrelate",
-      await bridge.invoke("retireRelation", {
-        ...scope,
-        relationId: row.relationId,
-        reason: "通过",
-        expectedVersion: row.relationRevision - 1,
-      }),
+      await bridge.invoke(
+        "repo.relation.unrelate",
+        scopedRpcParams("repo.relation.unrelate", {
+          ...scope,
+          relationId: row.relationId,
+          reason: "通过",
+          expectedVersion: row.relationRevision - 1,
+        }),
+      ),
     );
     assert.equal(stale.ok, false, JSON.stringify(stale));
     assert.equal((stale as { code?: string }).code, "revision_conflict", JSON.stringify(stale));
 
-    const answered = parseDaemonGuiActionResponse(
+    const answered = parseDaemonActionResponse(
       "repo.relation.unrelate",
-      await bridge.invoke("retireRelation", {
-        ...scope,
-        relationId: row.relationId,
-        reason: "不通过:按钮错位",
-        expectedVersion: row.relationRevision,
-      }),
+      await bridge.invoke(
+        "repo.relation.unrelate",
+        scopedRpcParams("repo.relation.unrelate", {
+          ...scope,
+          relationId: row.relationId,
+          reason: "不通过:按钮错位",
+          expectedVersion: row.relationRevision,
+        }),
+      ),
     );
     assert.equal(answered.ok, true, JSON.stringify(answered));
     const after = await agenda();

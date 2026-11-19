@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { addLocalMainControls } from "../src/main/local-main-controls.ts";
 
@@ -76,7 +77,10 @@ describe("local main controls runtime-instance boundary", () => {
       },
       target,
     });
-    const result = await bridge.invoke("requestDaemonControl", { kind: "restart", authorityRepoId: "repo-a" });
+    const result = await bridge.invoke(
+      "daemon.gui.control.request",
+      scopedRpcParams("daemon.gui.control.request", { kind: "restart", authorityRepoId: "repo-a" }),
+    );
     expect(result).toMatchObject({ ok: false, error: { code: "supervisor_required" } });
     expect(forwarded).toEqual([
       {
@@ -95,7 +99,12 @@ describe("local main controls runtime-instance boundary", () => {
       },
       target,
     });
-    await expect(bridge.invoke("getDaemonControlReceipt", { operationId: "daemon-operation" })).resolves.toEqual({
+    await expect(
+      bridge.invoke(
+        "daemon.gui.control.receipt",
+        scopedRpcParams("daemon.gui.control.receipt", { operationId: "daemon-operation" }),
+      ),
+    ).resolves.toEqual({
       method: "getDaemonControlReceipt",
       payload: { operationId: "daemon-operation" },
       source: "daemon",
@@ -105,7 +114,7 @@ describe("local main controls runtime-instance boundary", () => {
   it("forwards the newly entered key to the selected daemon without a GUI vault write", async () => {
     const bridge = controls();
     const payload = { instanceId: "codex-sidecar", apiKey: "fixture-input", repoId: "server-b" };
-    await bridge.invoke("updateRuntimeInstance", payload);
+    await bridge.invoke("daemon.runtimeInstance.update", scopedRpcParams("daemon.runtimeInstance.update", payload));
     expect(invokes).toEqual([{ method: "updateRuntimeInstance", payload }]);
     expect(rawRequests).toEqual([]);
   });
@@ -125,7 +134,9 @@ describe("local main controls runtime-instance boundary", () => {
       target,
       guiBuild: () => ({ commit: "gui-build" }),
     });
-    await expect(bridge.invoke("getSystemStatus", {})).resolves.toMatchObject({
+    await expect(
+      bridge.invoke("daemon.gui.system.read", scopedRpcParams("daemon.gui.system.read", {})),
+    ).resolves.toMatchObject({
       daemon: { daemonId: "daemon-a", build: { commitSha: "daemon-build" } },
       guiBuild: { commit: "gui-build" },
     });
@@ -147,7 +158,9 @@ describe("local main controls runtime-instance boundary", () => {
       target,
       guiBuild: () => ({ commit: "gui-build" }),
     });
-    await expect(bridge.invoke("getSystemStatus", {})).resolves.toMatchObject({
+    await expect(
+      bridge.invoke("daemon.gui.system.read", scopedRpcParams("daemon.gui.system.read", {})),
+    ).resolves.toMatchObject({
       guiBuild: { commit: "daemon-reported" },
     });
   });
