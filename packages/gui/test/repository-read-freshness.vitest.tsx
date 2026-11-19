@@ -79,10 +79,9 @@ it("retains cuts through task parsing and named projection unwrapping, and rejec
     code: "replica_unavailable",
     message: "This cut cannot answer this query.",
   });
-  vi.stubGlobal("harness", { listArtifacts: vi.fn(async () => result) });
   await expect(artifactsClient.list("edge", "all")).rejects.toMatchObject({
     code: "replica_unavailable",
-    message: "replica_unavailable: This cut cannot answer this query.",
+    message: "This cut cannot answer this query.",
   });
 });
 

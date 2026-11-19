@@ -242,13 +242,15 @@ test("resolveRuntimeResume derives its wire allowlist from the protocol contract
   );
 });
 
-test("runtime control handlers and duplicate protocol registrations align with daemonMethodPayloadFields", async () => {
-  const controlSteer = daemonProtocolMethods.find((entry) => entry.method === "repo.agentRuntime.steer");
-  const guiSteer = daemonActionRoutes.find((entry) => entry.method === "repo.agentRuntime.steer");
-  assert.ok(controlSteer && guiSteer);
+// dec_89D06D7360CBEC09795F7B12EC/CH3: the two former steering registrations now resolve one codec.
+test("runtime control handlers and the single steering registration align with daemonMethodPayloadFields", async () => {
+  const steeringRoutes = [...daemonProtocolMethods, ...daemonActionRoutes].filter(
+    ({ method }) => method === "repo.agentRuntime.steer",
+  );
+  assert.equal(steeringRoutes.length, 1);
   assert.deepEqual(
-    Object.keys((controlSteer.params.fields.payload as { fields: Record<string, unknown> }).fields),
-    Object.keys((guiSteer.params.fields.payload as { fields: Record<string, unknown> }).fields),
+    Object.keys((steeringRoutes[0].params.fields.payload as { fields: Record<string, unknown> }).fields),
+    daemonMethodPayloadFields("repo.agentRuntime.steer"),
   );
   assert.ok(daemonMethodPayloadFields("repo.agentRuntime.spawn").includes("executor"));
   assert.ok(daemonMethodPayloadFields("repo.agentRuntime.spawn").includes("recovery"));

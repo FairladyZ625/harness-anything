@@ -26,8 +26,8 @@ describe("Electron main daemon lifecycle boundary", () => {
     ).resolves.toMatchObject({ error: { code: "supervisor_required" } });
     expect(calls).toEqual([
       {
-        method: "requestDaemonControl",
-        payload: { kind: "restart", authorityRepoId: "repo-a" },
+        method: "daemon.gui.control.request",
+        payload: { payload: { kind: "restart", authorityRepoId: "repo-a" } },
       },
     ]);
   });

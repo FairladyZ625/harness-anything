@@ -8,6 +8,11 @@ import { daemonReadRoutes } from "./daemon-protocol-read-routes.ts";
 import { todoActionRoutes } from "./todo-action-routes.ts";
 import { entityDeclarationRoutes, entityImportRoutes } from "./entity-action-routes.ts";
 import { taskCompletionRoutes, taskReworkRoutes } from "./entity-action-routes.ts";
+import {
+  DAEMON_CONTROL_RECEIPT_SCHEMA,
+  TERMINAL_CONTROL_RECEIPT_SCHEMA,
+  TERMINAL_INPUT_ACK_SCHEMA,
+} from "./daemon-protocol-schema-ids.ts";
 
 const settingsUpdateRpcFields = Object.fromEntries(
   generatedSettingsFieldProtocolProjection.actionInputs.map((field) => [field.field, settingsActionRpcRule(field)]),
@@ -62,6 +67,7 @@ export const daemonActionRoutes = Object.freeze([
       }),
     }),
     commandClass: "admin",
+    outputSchemaId: DAEMON_CONTROL_RECEIPT_SCHEMA.id,
   },
   { ...taskCreate, method: "repo.task.create", actionKind: "task-create" },
   ...taskReworkRoutes,
@@ -343,18 +349,21 @@ export const daemonActionRoutes = Object.freeze([
       shellProfileId: "string?",
       taskId: "string?",
     }),
+    { outputSchemaId: TERMINAL_CONTROL_RECEIPT_SCHEMA.id },
   ),
   actionRpc(
     "terminal.input",
     "repo.terminal.input",
     "terminal-input",
     shape({ sessionId: "string", clientSeq: "number", utf8: "string" }),
+    { outputSchemaId: TERMINAL_INPUT_ACK_SCHEMA.id },
   ),
   actionRpc(
     "terminal.resize",
     "repo.terminal.resize",
     "terminal-resize",
     shape({ sessionId: "string", cols: "number", rows: "number" }),
+    { outputSchemaId: TERMINAL_CONTROL_RECEIPT_SCHEMA.id },
   ),
   actionRpc(
     "terminal.detach",
@@ -368,6 +377,7 @@ export const daemonActionRoutes = Object.freeze([
     "repo.terminal.terminate",
     "terminal-terminate",
     shape({ sessionId: "string", confirmed: "boolean?" }),
+    { outputSchemaId: TERMINAL_CONTROL_RECEIPT_SCHEMA.id },
   ),
 ] as const);
 export const daemonStreamFacets = Object.freeze([

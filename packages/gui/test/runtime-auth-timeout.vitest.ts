@@ -8,6 +8,7 @@ import { createInterface } from "node:readline";
 import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import { writeDaemonRegistryRepo } from "@harness-anything/kernel/daemon-registry";
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/client";
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { createLocalGuiServiceBridge } from "../src/main/local-composition-root.ts";
 
 const previous = {
@@ -26,20 +27,21 @@ afterEach(() => {
 });
 
 it.each([
-  { method: "signInRuntimeInstance", rpcMethod: "repo.runtimeInstance.auth.login", elapsed: 2_500, deadline: 20_000 },
-  { method: "signOutRuntimeInstance", rpcMethod: "repo.runtimeInstance.auth.logout", elapsed: 2_500, deadline: 20_000 },
-  { method: "showRuntimeInstance", rpcMethod: "daemon.runtimeInstance.show", elapsed: 122_500, deadline: 140_000 },
-])(
-  "$method permits its bounded process work and retains a finite deadline",
-  async ({ method, rpcMethod, elapsed, deadline }) => {
+  { rpcMethod: "repo.runtimeInstance.auth.login", elapsed: 2_500, deadline: 20_000 },
+  { rpcMethod: "repo.runtimeInstance.auth.logout", elapsed: 2_500, deadline: 20_000 },
+  { rpcMethod: "daemon.runtimeInstance.show", elapsed: 122_500, deadline: 140_000 },
+] as const)(
+  "$rpcMethod permits its bounded process work and retains a finite deadline",
+  async ({ rpcMethod, elapsed, deadline }) => {
     const userRoot = mkdtempSync(path.join(tmpdir(), "gui-auth-deadline-"));
     const daemonId = "auth-deadline",
       endpoint = localUserDaemonEndpoint(userRoot, daemonId);
-    const payload = {
+    const probe = rpcMethod === "daemon.runtimeInstance.show";
+    const params = scopedRpcParams(rpcMethod, {
       repoId: "fixture-auth-repo",
       instanceId: "fixture-auth-instance",
-      ...(method === "showRuntimeInstance" ? { probe: true } : {}),
-    };
+      ...(probe ? { probe: true } : { idempotencyKey: "fixture-auth-deadline" }),
+    });
     let arrived!: () => void, reply!: (error?: boolean) => void;
     let requests = 0;
     let received = new Promise<void>((resolve) => {
@@ -66,7 +68,7 @@ it.each([
               );
             else
               respond(
-                method === "showRuntimeInstance"
+                probe
                   ? { ok: true, instance: { instanceId: "fixture-auth-instance" } }
                   : { schema: "terminal-control-receipt/v1", ok: true, outcome: "applied", sessionId: "term_auth_1" },
               );
@@ -92,7 +94,7 @@ it.each([
       delete process.env.HARNESS_DAEMON_ENDPOINT;
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
       const bridge = createLocalGuiServiceBridge();
-      const pending = bridge.invoke(method, payload);
+      const pending = bridge.invoke(rpcMethod, params);
       await Promise.race([
         received,
         Promise.resolve(pending).then((receipt) => {
@@ -102,14 +104,14 @@ it.each([
       vi.advanceTimersByTime(elapsed);
       reply();
       expect(await pending).toMatchObject(
-        method === "showRuntimeInstance"
+        probe
           ? { ok: true, instance: { instanceId: "fixture-auth-instance" } }
           : { ok: true, outcome: "applied", sessionId: "term_auth_1" },
       );
       received = new Promise<void>((resolve) => {
         arrived = resolve;
       });
-      const timedOut = bridge.invoke(method, payload);
+      const timedOut = bridge.invoke(rpcMethod, params);
       await Promise.race([
         received,
         Promise.resolve(timedOut).then((receipt) => {
@@ -121,11 +123,11 @@ it.each([
         ok: false,
         error: { code: "daemon_response_timeout", hint: expect.stringContaining(`within ${deadline / 1_000}s`) },
       });
-      if (method === "showRuntimeInstance") {
+      if (probe) {
         received = new Promise<void>((resolve) => {
           arrived = resolve;
         });
-        const failed = bridge.invoke(method, payload);
+        const failed = bridge.invoke(rpcMethod, params);
         await received;
         vi.advanceTimersByTime(25_000);
         reply(true);
@@ -134,7 +136,7 @@ it.each([
           error: { code: "json_rpc_-32001", hint: expect.stringContaining("fixture probe failed") },
         });
       }
-      expect(requests).toBe(method === "showRuntimeInstance" ? 3 : 2);
+      expect(requests).toBe(probe ? 3 : 2);
     } finally {
       vi.useRealTimers();
       for (const socket of sockets) socket.destroy();

@@ -805,7 +805,7 @@ describe("agent runtime renderer", () => {
     expect(assertPreloadPayload("repo.agent.skills.list", { repoId: "repo-a" })).toBe(true);
     expect(assertPreloadPayload("repo.squad.entities.list", { repoId: "repo-a" })).toBe(true);
     expect(() => assertPreloadPayload("repo.agent.entities.list", { repoId: "repo-a", agentId: "fable" })).toThrow(
-      /not allowed/u,
+      /params are invalid/u,
     );
   });
   it("keeps the masked API key visible and disables it when the call path has no API mode", () => {

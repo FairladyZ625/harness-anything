@@ -1,7 +1,7 @@
 import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: integration
 // @vitest-environment happy-dom
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, createElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -250,6 +250,8 @@ beforeAll(() => {
   setActiveLocale("en-US");
 });
 
+beforeEach(() => vi.stubGlobal("harness", {}));
+
 afterEach(async () => {
   await act(async () => {
     for (const { root, client } of mounted.splice(0)) {
@@ -261,6 +263,7 @@ afterEach(async () => {
   window.sessionStorage.clear();
   window.localStorage.clear();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("runtime entry split (W6 IA)", () => {

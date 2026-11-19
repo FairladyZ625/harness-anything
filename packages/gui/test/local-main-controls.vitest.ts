@@ -84,8 +84,8 @@ describe("local main controls runtime-instance boundary", () => {
     expect(result).toMatchObject({ ok: false, error: { code: "supervisor_required" } });
     expect(forwarded).toEqual([
       {
-        method: "requestDaemonControl",
-        payload: { kind: "restart", authorityRepoId: "repo-a" },
+        method: "daemon.gui.control.request",
+        payload: { payload: { kind: "restart", authorityRepoId: "repo-a" } },
       },
     ]);
     expect(target).not.toHaveBeenCalled();
@@ -105,8 +105,8 @@ describe("local main controls runtime-instance boundary", () => {
         scopedRpcParams("daemon.gui.control.receipt", { operationId: "daemon-operation" }),
       ),
     ).resolves.toEqual({
-      method: "getDaemonControlReceipt",
-      payload: { operationId: "daemon-operation" },
+      method: "daemon.gui.control.receipt",
+      payload: { payload: { operationId: "daemon-operation" } },
       source: "daemon",
     });
   });
@@ -114,8 +114,9 @@ describe("local main controls runtime-instance boundary", () => {
   it("forwards the newly entered key to the selected daemon without a GUI vault write", async () => {
     const bridge = controls();
     const payload = { instanceId: "codex-sidecar", apiKey: "fixture-input", repoId: "server-b" };
-    await bridge.invoke("daemon.runtimeInstance.update", scopedRpcParams("daemon.runtimeInstance.update", payload));
-    expect(invokes).toEqual([{ method: "updateRuntimeInstance", payload }]);
+    const params = scopedRpcParams("daemon.runtimeInstance.update", payload);
+    await bridge.invoke("daemon.runtimeInstance.update", params);
+    expect(invokes).toEqual([{ method: "daemon.runtimeInstance.update", payload: params }]);
     expect(rawRequests).toEqual([]);
   });
 

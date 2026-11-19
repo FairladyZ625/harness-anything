@@ -33,9 +33,7 @@ function register(bridge: GuiServiceBridge) {
   return handlers;
 }
 
-// harness-contract: gui.ipc-preload-alignment
 // dec_89D06D7360CBEC09795F7B12EC/CH3: one RPC envelope across transports; IPC independently checks the sender.
-// dec_89D06D7360CBEC09795F7B12EC/CH3 closes admission before dispatch.
 // harness-contract: gui.ipc-preload-alignment
 test("main admits the canonical envelope on one unary channel", async () => {
   const handlers = register({

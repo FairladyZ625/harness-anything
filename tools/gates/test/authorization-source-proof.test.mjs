@@ -356,6 +356,7 @@ test("storage technical ports require the actual typed declaration, not a matchi
   const { technicalPortEvidence } = await import("../authorization-source-proof.mjs");
   const action = {
     kind: "storage-io",
+    residency: { scope: "host-local" },
     ontology: { technical: true, authority: "local-process" },
     receiptSettlement: "none",
   };
@@ -409,6 +410,7 @@ test("a package-script technical port proves a root tools/ effect but never a pa
   const port = "node_modules/@types/node/fs.d.ts#fs.writeFileSync";
   const action = {
     kind: "package-assets-build",
+    residency: { scope: "host-local" },
     ontology: { technical: true, authority: "package-script" },
     receiptSettlement: "none",
   };
@@ -492,6 +494,7 @@ test("tools client entries bind business actions with transport + command proof 
   const installAction = { kind: "agent-install", executionClass: "repo-write", ontology: {} };
   const buildAction = {
     kind: "package-assets-build",
+    residency: { scope: "host-local" },
     ontology: { owner: "distribution", technical: true, authority: "package-script" },
     receiptSettlement: "none",
   };
@@ -652,6 +655,7 @@ test("fleet schema RPC writes and indirect/computed CLI wrappers bind business a
   const factRecordAction = { kind: "fact-record", executionClass: "repo-write", ontology: {} };
   const buildAction = {
     kind: "package-assets-build",
+    residency: { scope: "host-local" },
     ontology: { owner: "distribution", technical: true, authority: "package-script" },
     receiptSettlement: "none",
   };
@@ -750,6 +754,7 @@ test("command-table wrapper loops cannot stay in package-assets-build while spli
   ];
   const buildAction = {
     kind: "package-assets-build",
+    residency: { scope: "host-local" },
     ontology: { owner: "distribution", technical: true, authority: "package-script" },
     receiptSettlement: "none",
   };
@@ -882,6 +887,7 @@ test("GUI renderer/preload client calls bind their business action and fail clos
   const accessAction = { kind: "access-manage", executionClass: "admin", ontology: {} };
   const localStateAction = {
     kind: "daemon-local-state",
+    residency: { scope: "host-local" },
     ontology: { owner: "daemon", technical: true, authority: "local-process" },
     receiptSettlement: "none",
   };
@@ -1097,6 +1103,7 @@ test("GUI higher-order callback parameters resolve multiplexed business routes a
   ];
   const localStateAction = {
     kind: "daemon-local-state",
+    residency: { scope: "host-local" },
     ontology: { owner: "daemon", technical: true, authority: "local-process" },
     receiptSettlement: "none",
   };
@@ -1341,6 +1348,7 @@ test("GUI source-proof resolves omitted optional callbacks, concrete class metho
   const todoAddAction = { kind: "todo-add", executionClass: "repo-write", ontology: {} };
   const localStateAction = {
     kind: "daemon-local-state",
+    residency: { scope: "host-local" },
     ontology: { owner: "daemon", technical: true, authority: "local-process" },
     receiptSettlement: "none",
   };

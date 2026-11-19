@@ -183,8 +183,8 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     const results = new Map<DaemonGuiRpcReadMethod, unknown>();
     for (const contract of daemonReadRoutes) {
       const payload =
-        contract.id === "gui.system.read"
-          ? null
+        !contract.requiresRepo && !Object.hasOwn(contract.params.fields, "payload")
+          ? {}
           : contract.id === "gui.control.receipt"
             ? { operationId: control.operationId }
             : contract.id === "observe.tail"

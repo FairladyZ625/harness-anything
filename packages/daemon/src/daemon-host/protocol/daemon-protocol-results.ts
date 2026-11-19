@@ -97,7 +97,11 @@ export function actionRpc<const Id extends string, const Method extends string, 
   method: Method,
   actionKind: Kind,
   payload: RpcShape,
-  options: { readonly read?: true; readonly defaults?: Readonly<Record<string, unknown>> } = {},
+  options: {
+    readonly read?: true;
+    readonly defaults?: Readonly<Record<string, unknown>>;
+    readonly outputSchemaId?: string;
+  } = {},
 ) {
   const declared = declaredActionClass(actionKind);
   if ((options.read && declared !== undefined && declared !== "repo-read") || (!options.read && !declared))
@@ -111,6 +115,7 @@ export function actionRpc<const Id extends string, const Method extends string, 
     params: shape({ repo: shape({ repoId: "string" }), payload }),
     commandClass: options.read ? ("repo-read" as const) : declared!,
     ...(options.defaults === undefined ? {} : { actionDefaults: options.defaults }),
+    ...(options.outputSchemaId === undefined ? {} : { outputSchemaId: options.outputSchemaId }),
   };
 }
 

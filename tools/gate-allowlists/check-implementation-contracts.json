@@ -340,8 +340,8 @@
       },
       {
         "value": "assertRendererRpc",
-        "ref": "dec_89D06D7360CBEC09795F7B12EC/CH3",
-        "reason": "The generic IPC channel must admit renderer calls through the canonical protocol before forwarding."
+        "ref": "ADR-0022#D6",
+        "reason": "The generic IPC channel admits renderer calls through the canonical protocol required by dec_89D06D7360CBEC09795F7B12EC/CH3."
       },
       {
         "value": "sanitizeMarkdownHtml",
@@ -355,8 +355,8 @@
       },
       {
         "value": "createLocalGuiServiceBridge",
-        "ref": "dec_89D06D7360CBEC09795F7B12EC/CH3",
-        "reason": "Electron composition forwards the canonical RPC route through the daemon client."
+        "ref": "ADR-0022#D6",
+        "reason": "Electron forwards the canonical RPC route through the daemon client under dec_89D06D7360CBEC09795F7B12EC/CH3."
       },
       {
         "value": "shellPanelPolicy",
