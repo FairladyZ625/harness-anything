@@ -87,7 +87,7 @@ export function drainCursorPagesSync<Page extends { readonly page: CursorPageRec
   }
 }
 
-export interface TaskIndexProjectionRow {
+export interface TaskIndexProjectionRow extends Partial<TaskAttribution> {
   readonly supersededBy: string | null;
   readonly taskId: string;
   readonly title: string;
@@ -120,6 +120,8 @@ export interface ArtifactTimelineCursor {
 export interface ArtifactTimelineQuery {
   readonly kind: ArtifactTimelineKind;
   readonly limit: number;
+  readonly actorPersonId?: string;
+  readonly nodeId?: string;
   /** Exclusive keyset boundary: (occurredAt DESC, relative ASC, packageDir ASC). */
   readonly after?: ArtifactTimelineCursor;
 }

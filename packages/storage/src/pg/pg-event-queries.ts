@@ -201,6 +201,9 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
         if (query.actor !== undefined)
           add((parameter) => `event.actor_refs @> ARRAY[$${parameter}]::text[]`, query.actor);
         if (query.entity !== undefined) add((parameter) => `ref.entity_ref = $${parameter}`, query.entity);
+        if (query.actorPersonId !== undefined)
+          add((parameter) => `event.actor_person_id = $${parameter}`, query.actorPersonId);
+        if (query.nodeId !== undefined) add((parameter) => `event.fleet_node_id = $${parameter}`, query.nodeId);
         values.push(query.limit + 1);
         // A scalar ref/revision range drives entity pages, including bare-id suffixes. Return
         // only the stored descriptor: submission event_json can contain an entire artifact set.
@@ -267,6 +270,8 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
                  AND canonical_task_id = $6
                  AND (cardinality($5::text[]) = 0 OR readers && $5::text[])
                  AND revision > $7 AND revision <= $8
+                 AND ($10::text IS NULL OR actor_person_id=$10)
+                 AND ($11::text IS NULL OR fleet_node_id=$11)
                ORDER BY ha_events.revision DESC LIMIT $9`,
               [
                 claims.tenantId,
@@ -278,6 +283,8 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
                 afterRevision,
                 cut.watermark,
                 limit + 1,
+                fields.actorPersonId ?? null,
+                fields.nodeId ?? null,
               ],
             );
             selected.push(...result.rows.map(({ summary_json }) => parseDefaultEventSummaryRow(summary_json)));

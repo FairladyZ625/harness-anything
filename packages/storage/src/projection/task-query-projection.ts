@@ -1,3 +1,5 @@
+import { taskAttribution } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
+import { taskAttributionRows } from "./event-summary-read-index.ts";
 import { publicRuntimeSession } from "@harness-anything/kernel/internal/domain/runtime-public-query.ts";
 // No @write-boundary-exemption marker is needed here: this module never opens a
 // database itself — it receives the already-open rebuildable projection handle
@@ -223,17 +225,28 @@ export function readTaskIndexRows(
     ...values,
   );
   const visible = limit === null ? rows : rows.slice(0, limit),
+    origins = query.withAttribution
+      ? taskAttributionRows(
+          db,
+          visible.map(({ task_id }) => task_id),
+        )
+      : null,
     projected = visible.flatMap((row) => {
-      let task: TaskV2 | null;
+      let snapshot: Parameters<typeof taskAttribution>[0];
       try {
-        task = (JSON.parse(row.snapshot_json) as { readonly task?: TaskV2 | null }).task ?? null;
+        snapshot = JSON.parse(row.snapshot_json) as typeof snapshot;
       } catch {
         throw new Error(`projection snapshot mismatch for task ${row.task_id}`);
       }
-      if (task === null) return [];
+      const task = snapshot.task,
+        origin = origins?.get(row.task_id);
+      if (!task) return [];
       if (validateTaskV2(task, true).length) throw new Error(`projection snapshot mismatch for task ${row.task_id}`);
       return [
         {
+          ...(origin
+            ? taskAttribution(snapshot, origin.origin_node_id, origin.latest_node_id, origin.latest_person_id)
+            : {}),
           taskId: row.task_id,
           supersededBy: task.supersededBy ?? null,
           title: task.title,
@@ -305,8 +318,7 @@ function readTaskScopeRows(
   }
 
   const memberIds = [...members.keys()],
-    selectedIds =
-      query.taskIds === undefined ? memberIds : memberIds.filter((taskId) => query.taskIds!.includes(taskId));
+    selectedIds = query.taskIds === undefined ? memberIds : query.taskIds.filter((taskId) => members.has(taskId));
   return readTaskIndexRows(db, { ...unscopedQuery, taskIds: selectedIds });
 }
 

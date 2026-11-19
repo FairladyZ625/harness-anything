@@ -310,7 +310,8 @@ export function taskQueryApi(
       withDatabase(projectionPath, readHead, (db) => readRelationProjectionRow(db, relationId)),
     readEntityVersionWitness: (entityRef) =>
       withDatabase(projectionPath, readHead, (db) => readEntityVersionWitness(db, entityRef)),
-    listPinnedEntities: () => withDatabase(projectionPath, readHead, listPinnedEntityRows),
+    listPinnedEntities: (personId) =>
+      withDatabase(projectionPath, readHead, (db) => listPinnedEntityRows(db, personId)),
     readTaskOperation: (opId) =>
       withDatabase(projectionPath, readHead, (db) => {
         const row = prepareQuery(db, EVENT_BY_OP_SQL, (sql) =>

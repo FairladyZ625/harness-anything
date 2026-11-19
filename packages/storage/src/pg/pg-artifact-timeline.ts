@@ -294,6 +294,7 @@ export async function readPgArtifactTimeline(
   client: PoolClient,
   scope: PgProjectionScope,
   query: ArtifactTimelineQuery,
+  repoId?: string,
 ): Promise<Pick<ArtifactTimelineRead, "rows" | "hasMore" | "counts">> {
   if (query.kind !== "html" && query.kind !== "md" && query.kind !== "raw")
     throw new Error("artifact timeline kind is invalid");
@@ -308,6 +309,8 @@ export async function readPgArtifactTimeline(
     throw Object.assign(new Error("Artifact timeline index backfill is pending; retry after migration."), {
       code: "projection_pending",
     });
+  const memberFilter = query.actorPersonId !== undefined || query.nodeId !== undefined;
+  if (memberFilter && repoId === undefined) throw new Error("Scoped artifact read requires a repository id.");
   const scopedReaders = canonicalReaders(scope.readers),
     pageReaders = scopedReaders.length === 0 ? [""] : scopedReaders,
     rowsByPath = new Map<string, PageRow>();
@@ -321,7 +324,8 @@ export async function readPgArtifactTimeline(
       afterSql = 'AND (a.sort_ms, a.relative, a.package_dir) > ($8, $9::text COLLATE "C", $10::text COLLATE "C")';
       values.push(sortMs, query.after.relative, query.after.packageDir);
     }
-    const limitParameter = values.push(limit + 1),
+    const attribution = memberFilter ? pgArtifactAttributionPredicate(values, query, repoId!) : "",
+      limitParameter = values.push(limit + 1),
       page = await client.query<PageRow>(
         `SELECT a.package_dir, a.relative, a.kind, a.occurred_at, a.sort_ms, a.size_bytes,
            s.task_id, s.snapshot->'task'->>'title' AS title
@@ -335,7 +339,7 @@ export async function readPgArtifactTimeline(
          ) s ON true
          WHERE a.tenant_id=$1 AND a.project_id=$2 AND a.policy_epoch=$3
            AND a.all_readers=$4 AND a.reader=$5 AND a.kind=$6
-           ${afterSql}
+           ${afterSql} ${attribution}
          ORDER BY a.sort_ms, a.relative COLLATE "C", a.package_dir COLLATE "C"
          LIMIT $${limitParameter}`,
         values,
@@ -347,7 +351,17 @@ export async function readPgArtifactTimeline(
   }
   const ordered = [...rowsByPath.values()].sort(comparePageRows),
     counts: Record<ArtifactTimelineKind, number> = { html: 0, md: 0, raw: 0 };
-  if (scopedReaders.length <= 1) {
+  if (memberFilter) {
+    const values: unknown[] = [...scopeValues(scope), scopedReaders.length === 0, pageReaders],
+      attribution = pgArtifactAttributionPredicate(values, query, repoId!);
+    const totals = await client.query<{ readonly kind: ArtifactTimelineKind; readonly total: string }>(
+      `SELECT a.kind, count(DISTINCT a.path)::text AS total FROM ha_artifact_documents a
+       WHERE a.tenant_id=$1 AND a.project_id=$2 AND a.policy_epoch=$3
+         AND a.all_readers=$4 AND a.reader=ANY($5::text[]) ${attribution} GROUP BY a.kind`,
+      values,
+    );
+    for (const row of totals.rows) counts[row.kind] = Number(row.total);
+  } else if (scopedReaders.length <= 1) {
     const totals = await client.query<{ readonly kind: ArtifactTimelineKind; readonly total: string | number }>(
       `SELECT kind, total FROM ha_artifact_counts
        WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
@@ -387,6 +401,21 @@ export async function readPgArtifactTimeline(
     hasMore: ordered.length > limit,
     counts,
   };
+}
+
+function pgArtifactAttributionPredicate(values: unknown[], query: ArtifactTimelineQuery, repoId: string): string {
+  const repo = values.push(repoId),
+    person = values.push(query.actorPersonId ?? null),
+    node = values.push(query.nodeId ?? null);
+  return `AND EXISTS (
+    SELECT 1 FROM ha_projection_values d
+    JOIN ha_events e ON e.tenant_id=d.tenant_id AND e.project_id=d.project_id
+      AND e.policy_epoch=d.policy_epoch AND e.repo_id=$${repo} AND e.revision=d.workspace_revision
+    WHERE d.tenant_id=a.tenant_id AND d.project_id=a.project_id AND d.policy_epoch=a.policy_epoch
+      AND d.model='document' AND d.owner_id='' AND d.entity_id=a.path
+      AND ($${person}::text IS NULL OR e.actor_person_id=$${person})
+      AND ($${node}::text IS NULL OR e.fleet_node_id=$${node})
+  )`;
 }
 
 /** One-time expansion for projections whose documents predate the index. Idempotent, and it

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
+import { compileEntityPinEvent } from "@harness-anything/kernel/internal/domain/entity-pin-event.ts";
 import { compileEntityUpsert } from "@harness-anything/kernel/internal/domain/entity-event-compile.ts";
 import {
   compileRelationCreatedEvent,
@@ -211,7 +212,51 @@ pgliteIntegrationSuite("PGlite storage contract", () => {
         });
       await append({ event: related, plan: relationEventWritePlan(related), blobs: [] });
 
+      const todoId = "todo_0123456789abcdef01234567",
+        entityRef = `todo/${todoId}`,
+        memberEvent = (personId: string) => ({
+          workspaceRevision: nextRevision,
+          actor: { principal: { personId }, executor: null },
+          source: { kind: "node" as const, nodeId: "edge-parity" },
+          occurredAt: "2026-08-11T00:14:00.000Z",
+          eventId: `pglite-member-event-${nextRevision}`,
+          opId: `pglite-member-op-${nextRevision}`,
+        });
+      await append(
+        compileEntityUpsert({
+          ...memberEvent("person_alice"),
+          entityKind: "todo",
+          entity: { id: todoId, text: "Shared projection", completed: false, archived: false },
+        }),
+      );
+      for (const [personId, pinned] of [
+        ["person_alice", true],
+        ["person_bob", true],
+        ["person_bob", false],
+      ] as const)
+        await append(compileEntityPinEvent({ ...memberEvent(personId), entityRef, pinned }));
+
+      const assertCollaboratorParity = async () => {
+        const alice = await backend.projection.listPinnedEntities("person_alice");
+        assert.deepEqual(alice, sqliteProjection.listPinnedEntities("person_alice"));
+        assert.deepEqual(
+          alice.map((row) => row.entityRef),
+          [entityRef],
+        );
+        assert.deepEqual(await backend.projection.listPinnedEntities("person_bob"), []);
+        const todo = await backend.projection.getEntity("todo", todoId);
+        assert.equal(todo?.createdByPersonId, "person_alice");
+        assert.equal(todo?.originNodeId, "edge-parity");
+        assert.deepEqual(todo, sqliteProjection.getEntity("todo", todoId));
+        const query = { taskIds: ["task-work-root"], withAttribution: true };
+        assert.deepEqual(
+          (await backend.projection.readTaskIndex(query)).rows,
+          sqliteProjection.readTaskIndex(query).rows,
+        );
+      };
+
       sqliteProjection.catchUp();
+      await assertCollaboratorParity();
       await assertLifecycleParity(backend.projection, sqliteProjection, "task-work-root");
       await assertLifecycleParity(backend.projection, sqliteProjection, "task-gated-parity");
       assert.equal((await backend.projection.readSnapshot("task-gated-parity"))!.gateWitnesses.length, 1);
@@ -266,6 +311,7 @@ pgliteIntegrationSuite("PGlite storage contract", () => {
           }),
         scope,
       );
+      await assertCollaboratorParity();
       assert.deepEqual(await backend.projection.readSnapshot("task-lease-submit"), beforeRebuild);
       assert.deepEqual(await backend.projection.readCut(), {
         status: "ready",

@@ -4,7 +4,18 @@ export * from "./task-presentation-read.ts";
 export * from "./workspace-summary-read.ts";
 export * from "./workspace-scope-read.ts";
 export * from "./work-topology-read.ts";
-export * from "./work-read.ts";
+export {
+  planGoalSummary,
+  readWork,
+  renderWorkExplainer,
+  renderWorkPayload,
+  workIndexFromProjection,
+  workListFromProjection,
+  workReceiptLine,
+  workShowFromProjection,
+  type WorkIndexRow,
+  type WorkListRow,
+} from "./work-read.ts";
 export * from "./work-briefs-read.ts";
 export * from "./task-index-query.ts";
 export * from "./repo-cell-event-query.ts";
@@ -19,6 +30,9 @@ export * from "./premise-review.ts";
 export * from "./reckoning-signals.ts";
 export * from "./schedule-projection.ts";
 export * from "./todo-read.ts";
+export * from "./collaborator-reads.ts";
+export * from "./collaborator-token-usage.ts";
+export * from "./collaborator-artifacts.ts";
 
 export { makePersonActionExplanationService } from "../person-action-explanation-service.ts";
 export { makeSquadActionExplanationService } from "../squad-action-explanation-service.ts";

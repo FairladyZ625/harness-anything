@@ -1,3 +1,7 @@
+import {
+  personalPinsFromNewest,
+  pinRetirementEventTypes,
+} from "@harness-anything/kernel/internal/domain/entity-pin-event.ts";
 import type { DatabaseSync } from "node:sqlite";
 import { runtimeSessionEntityV1, type RuntimeSession } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import type { CanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
@@ -92,8 +96,13 @@ function writeEntityProjection(
   );
 }
 
-export function listEntityProjectionRows(db: DatabaseSync, entityKind: string): readonly EntityProjectionRow[] {
-  return queryRows(db, LIST_ENTITY_SQL, entityKind).map(entityProjectionRow);
+export function listEntityProjectionRows(
+  db: DatabaseSync,
+  entityKind: string,
+  withAttribution = false,
+): readonly EntityProjectionRow[] {
+  const rows = queryRows(db, LIST_ENTITY_SQL, entityKind).map(entityProjectionRow);
+  return entityKind === "todo" || withAttribution ? projectEntityOrigins(db, entityKind, rows) : rows;
 }
 
 /** Count one entity kind at the storage boundary, filtered by top-level value fields. */
@@ -122,7 +131,9 @@ export function getEntityProjectionRow(
   entityId: string,
 ): EntityProjectionRow | null {
   const row = queryRows(db, GET_ENTITY_SQL, entityKind, entityId)[0];
-  return row === undefined ? null : entityProjectionRow(row);
+  if (row === undefined) return null;
+  const entity = entityProjectionRow(row);
+  return entityKind === "todo" ? projectEntityOrigins(db, entityKind, [entity])[0]! : entity;
 }
 
 export function deleteEntityProjectionRow(db: DatabaseSync, entityKind: string, entityId: string): void {
@@ -184,7 +195,36 @@ function entityProjectionRow(row: Readonly<Record<string, unknown>>): EntityProj
   };
 }
 
-export function listPinnedEntityRows(db: DatabaseSync): readonly PinnedEntityProjectionRow[] {
+export function listPinnedEntityRows(db: DatabaseSync, personId?: string): readonly PinnedEntityProjectionRow[] {
+  if (personId !== undefined) {
+    const rows = queryRows<{ entity_ref: string; actor_person_id: string; occurred_at: string; event_type: string }>(
+      db,
+      `SELECT json_extract(e.event_json, '$.payload.entityRef') AS entity_ref,
+              s.actor_person_id, s.occurred_at, s.event_type
+       FROM event_summary s INDEXED BY event_summary_type_revision
+       CROSS JOIN event_index e ON e.workspace_revision=s.workspace_revision
+       WHERE s.event_type IN ('entity_pinned','entity_unpinned') AND s.actor_person_id=?
+         AND NOT EXISTS (
+           SELECT 1 FROM event_summary_entity_ref ref
+           CROSS JOIN event_summary retirement ON retirement.workspace_revision=ref.workspace_revision
+           WHERE ref.entity_ref=json_extract(e.event_json, '$.payload.entityRef')
+             AND ref.workspace_revision>s.workspace_revision
+             AND retirement.event_type IN (SELECT value FROM json_each(?))
+         )
+       ORDER BY s.workspace_revision DESC`,
+      personId,
+      JSON.stringify(pinRetirementEventTypes),
+    );
+    return personalPinsFromNewest(
+      rows.map((row) => ({
+        entityRef: row.entity_ref,
+        personId: row.actor_person_id,
+        pinnedAt: row.occurred_at,
+        pinned: row.event_type === "entity_pinned",
+      })),
+      personId,
+    );
+  }
   return queryRows(
     db,
     "SELECT entity_ref, pinned_at, pinned_by FROM pinned_entities ORDER BY pinned_at DESC, entity_ref ASC",
@@ -192,5 +232,35 @@ export function listPinnedEntityRows(db: DatabaseSync): readonly PinnedEntityPro
     entityRef: String(row.entity_ref),
     pinnedAt: String(row.pinned_at),
     pinnedBy: String(row.pinned_by),
+  }));
+}
+
+// The entity-ref index serves both old and rebuilt caches. Resolve the first upsert, so an edit
+// or completion by another collaborator never replaces the creator. The write document stays V1.
+function projectEntityOrigins(
+  db: DatabaseSync,
+  kind: string,
+  entities: readonly EntityProjectionRow[],
+): readonly EntityProjectionRow[] {
+  if (entities.length === 0) return entities;
+  const origins = new Map(
+    queryRows<{ id: string; person_id: string | null; node_id: string | null }>(
+      db,
+      `SELECT requested.value AS id, s.actor_person_id AS person_id, s.source_node_id AS node_id
+       FROM json_each(?) requested LEFT JOIN event_summary s ON s.workspace_revision=(
+         SELECT ref.workspace_revision FROM event_summary_entity_ref ref
+         CROSS JOIN event_summary event ON event.workspace_revision=ref.workspace_revision
+         WHERE ref.entity_ref=? || '/' || requested.value
+           AND event.event_type IN ('entity_upserted','entity_reference_declared','schedule_created')
+         ORDER BY ref.workspace_revision LIMIT 1
+       )`,
+      JSON.stringify(entities.map(({ id }) => id)),
+      kind,
+    ).map((row) => [row.id, row]),
+  );
+  return entities.map((row) => ({
+    ...row,
+    createdByPersonId: origins.get(row.id)?.person_id ?? null,
+    originNodeId: origins.get(row.id)?.node_id ?? null,
   }));
 }

@@ -1,8 +1,9 @@
+import { taskAttribution } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
 import { assertPgTaskParentIndexReady } from "./pg-task-parent-index.ts";
 import type { TaskProjectionQueries, TaskLifecycleSnapshot, TaskIndexProjectionRow } from "@harness-anything/kernel";
 import type { PoolClient } from "pg";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
-import { readCutInTransaction } from "./pg-event-queries.ts";
+import { pgTaskAttributionColumns, readCutInTransaction } from "./pg-event-queries.ts";
 import type { PgTaskProjectionSourceOptions, PgTaskProjectionSource } from "./pg-task-source.ts";
 import type { AsyncQueries } from "./pg-runtime-dispatch-queries.ts";
 import { checkedPageLimit } from "./pg-query-page.ts";
@@ -202,26 +203,33 @@ export function pgTaskIndexQueries(
         }
         const paged = query.limit !== undefined || query.cursor !== undefined,
           pageSize = paged ? checkedPageLimit(query.limit ?? 100) : null;
+        let attribution = "";
+        if (query.withAttribution) {
+          values.push(options.repoId);
+          attribution = `,snapshot,${pgTaskAttributionColumns(values.length)}`;
+        }
         if (pageSize !== null) values.push(pageSize + 1);
-        const result = await client.query<{
-          task_id: string;
-          task_title: string | null;
-          task_status: string | null;
-          task_pinned: boolean | null;
-          parent_task_id: string | null;
-          task_work_kind: string | null;
-          task_risk_tier: string | null;
-          task_urgency: string | null;
-          task_class: string | null;
-          task_superseded_by: string | null;
-          task_package_disposition: string | null;
-          package_path: string | null;
-          updated_at: string;
-          presentation_status: string | null;
-        }>(
+        const result = await client.query<
+          {
+            task_id: string;
+            task_title: string | null;
+            task_status: string | null;
+            task_pinned: boolean | null;
+            parent_task_id: string | null;
+            task_work_kind: string | null;
+            task_risk_tier: string | null;
+            task_urgency: string | null;
+            task_class: string | null;
+            task_superseded_by: string | null;
+            task_package_disposition: string | null;
+            package_path: string | null;
+            updated_at: string;
+            presentation_status: string | null;
+          } & PgIndexAttribution
+        >(
           `SELECT task_id,task_title,task_status,task_pinned,parent_task_id,task_work_kind,task_risk_tier,
              task_urgency,task_class,task_superseded_by,task_package_disposition,package_path,updated_at::text,
-             ${presentation} AS presentation_status FROM ha_task_snapshots
+             ${presentation} AS presentation_status${attribution} FROM ha_task_snapshots
              WHERE ${where.join(" AND ")} ORDER BY task_id
              ${pageSize === null ? "" : `LIMIT $${values.length}`}`,
           values,
@@ -247,22 +255,31 @@ export function pgTaskIndexQueries(
   };
 }
 
-function indexRow(row: {
-  readonly task_id: string;
-  readonly task_title: string | null;
-  readonly task_status: string | null;
-  readonly task_pinned: boolean | null;
-  readonly parent_task_id: string | null;
-  readonly task_work_kind: string | null;
-  readonly task_risk_tier: string | null;
-  readonly task_urgency: string | null;
-  readonly task_class: string | null;
-  readonly task_superseded_by: string | null;
-  readonly task_package_disposition: string | null;
-  readonly package_path: string | null;
-  readonly updated_at: string;
-  readonly presentation_status: string | null;
-}): ReturnType<TaskProjectionQueries["readTaskIndex"]>["rows"] {
+interface PgIndexAttribution {
+  readonly snapshot?: TaskLifecycleSnapshot;
+  readonly origin_node_id?: string | null;
+  readonly latest_node_id?: string | null;
+  readonly latest_person_id?: string | null;
+}
+
+function indexRow(
+  row: {
+    readonly task_id: string;
+    readonly task_title: string | null;
+    readonly task_status: string | null;
+    readonly task_pinned: boolean | null;
+    readonly parent_task_id: string | null;
+    readonly task_work_kind: string | null;
+    readonly task_risk_tier: string | null;
+    readonly task_urgency: string | null;
+    readonly task_class: string | null;
+    readonly task_superseded_by: string | null;
+    readonly task_package_disposition: string | null;
+    readonly package_path: string | null;
+    readonly updated_at: string;
+    readonly presentation_status: string | null;
+  } & PgIndexAttribution,
+): ReturnType<TaskProjectionQueries["readTaskIndex"]>["rows"] {
   if (
     row.task_status === null ||
     row.task_title === null ||
@@ -272,6 +289,14 @@ function indexRow(row: {
     return [];
   return [
     {
+      ...(row.snapshot
+        ? taskAttribution(
+            row.snapshot,
+            row.origin_node_id ?? null,
+            row.latest_node_id ?? null,
+            row.latest_person_id ?? null,
+          )
+        : {}),
       taskId: row.task_id,
       supersededBy: row.task_superseded_by,
       title: row.task_title,

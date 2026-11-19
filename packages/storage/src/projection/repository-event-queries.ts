@@ -269,13 +269,24 @@ export function repositoryEventQueries(
           };
         }
         if (typeof fields === "object") {
+          const filters: string[] = [],
+            values: string[] = [];
+          if (fields.actorPersonId !== undefined) {
+            filters.push("AND actor_person_id = ?");
+            values.push(fields.actorPersonId);
+          }
+          if (fields.nodeId !== undefined) {
+            filters.push("AND source_node_id = ?");
+            values.push(fields.nodeId);
+          }
           const selected = [...new Set(fields.taskIds)].flatMap((taskId) =>
             queryRows(
               db,
               "SELECT summary_json FROM event_summary WHERE json_extract(summary_json, '$.taskId') = ? " +
-                "AND workspace_revision > ? ORDER BY workspace_revision DESC LIMIT ?",
+                `AND workspace_revision > ? ${filters.join(" ")} ORDER BY workspace_revision DESC LIMIT ?`,
               taskId,
               afterRevision,
+              ...values,
               limit + 1,
             ).map(
               (row) => JSON.parse(String(row.summary_json)) as import("@harness-anything/kernel").CanonicalEventSummary,
