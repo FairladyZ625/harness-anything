@@ -43,13 +43,13 @@ export function readCompletionContext(
 ): CompletionReadinessContext {
   const taskRead = projection.read(taskId),
     contractPath = taskRead.packagePath ? `${taskRead.packagePath}/task-contract.json` : null,
+    completedArchive =
+      taskRead.snapshot.task?.status === "done" && (taskRead.snapshot.task.packageDisposition ?? "active") !== "active",
     contractDocument =
       contractPath === null
         ? null
         : (projection.readDocument(contractPath).document ??
-          ((snapshot.task?.packageDisposition ?? "active") !== "active"
-            ? (projection.readDocumentHistory?.(contractPath).document ?? null)
-            : null)),
+          (completedArchive ? (projection.readDocumentHistory?.(contractPath).document ?? null) : null)),
     unavailable: CompletionReadinessContext = {
       closeout: "missing",
       closeoutPath: "",

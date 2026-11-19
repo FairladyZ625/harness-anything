@@ -141,8 +141,10 @@ export function locateTaskTransitionDocument(input: {
   const packagePath = task.packagePath,
     contractPath = `${packagePath}/task-contract.json`,
     activeContractRead = input.projection.readDocument(contractPath),
+    completedArchive =
+      task.snapshot.task.status === "done" && (task.snapshot.task.packageDisposition ?? "active") !== "active",
     contractRead =
-      activeContractRead.document || (task.snapshot.task.packageDisposition ?? "active") === "active"
+      activeContractRead.document || !completedArchive
         ? activeContractRead
         : (input.projection.readDocumentHistory?.(contractPath) ?? activeContractRead);
   if (contractRead.watermark < contractRead.sourceRevision || !contractRead.document)
