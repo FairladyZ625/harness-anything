@@ -111,6 +111,8 @@ export interface EntityProjectionRow {
   readonly freshness: EntityFreshness;
   readonly currentVersion: EntityVersion | null;
   readonly value: Readonly<Record<string, unknown>>;
+  readonly createdByPersonId?: string | null;
+  readonly originNodeId?: string | null;
 }
 export interface PinnedEntityProjectionRow {
   readonly entityRef: string;
@@ -161,7 +163,7 @@ export interface TaskProjection {
     readonly watermark: number;
     readonly sourceRevision: number;
   };
-  readonly listEntities: (entityKind: string) => readonly EntityProjectionRow[];
+  readonly listEntities: (entityKind: string, withAttribution?: boolean) => readonly EntityProjectionRow[];
   /** Row count for one kind whose value matches every named top-level field. Counted at the
    *  storage boundary so a caller that only needs a number never materializes the collection. */
   readonly countEntities: (
@@ -169,7 +171,8 @@ export interface TaskProjection {
     valueEquals: Readonly<Record<string, string | number | boolean>>,
   ) => number;
   readonly getEntity: (entityKind: string, entityId: string) => EntityProjectionRow | null;
-  readonly listPinnedEntities: () => readonly PinnedEntityProjectionRow[];
+  /** Pass the viewer for a personal read. Existing unscoped transport uses the historical repository view. */
+  readonly listPinnedEntities: (personId?: string) => readonly PinnedEntityProjectionRow[];
   /**
    * Raw task read. `presentationStatus` selects the presentation snapshot. `presentationRollup`
    * (default true) says whether the backend may compute that rollup when the caller discards it;
@@ -284,7 +287,8 @@ export interface TaskProjection {
     decisionIds: readonly string[],
   ) => readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
   readonly readRuntimeDispatchPage: (query: {
-    /** Task-scoped history pages seek each task time index, never materialize its history. */
+    /** Task-scoped history pages seek each task time index, never materialize its history.
+     * Pages order by the UTC millisecond key of startedAt ?? occurredAt, then by dispatch ID. */
     readonly taskIds?: readonly string[];
     readonly startedAtGte: string;
     readonly cursor?: { readonly startedAt: string; readonly dispatchId: string };
@@ -316,7 +320,14 @@ export interface TaskProjection {
     afterRevision: number,
     limit: number,
     /** Header-only projection for aggregate tails; omitted reads return the canonical summary. */
-    fields?: "fleet" | { readonly taskIds: readonly string[] } | { readonly fleetNodeIds: readonly string[] },
+    fields?:
+      | "fleet"
+      | {
+          readonly taskIds: readonly string[];
+          readonly actorPersonId?: string;
+          readonly nodeId?: string;
+        }
+      | { readonly fleetNodeIds: readonly string[] },
   ) => {
     readonly status: ReadSet.ReadSetProjectionCut["status"];
     readonly events: readonly import("../domain/canonical-event-summary.ts").CanonicalEventSummary[];

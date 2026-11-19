@@ -1,4 +1,9 @@
 import {
+  matchesCollaboratorScope,
+  type CollaboratorScope,
+} from "@harness-anything/kernel/internal/domain/collaborator-scope.ts";
+import type { TaskProjection } from "@harness-anything/kernel";
+import {
   isScheduleEvent,
   nextScheduleOccurrence,
   validateScheduleV1,
@@ -51,6 +56,25 @@ export function inspectScheduleProjection(row: ProjectedScheduleRow): InspectedS
       definitionRevision: row.workspaceRevision,
     },
   };
+}
+
+export function readCollaboratorSchedules(
+  projection: Pick<TaskProjection, "listEntities">,
+  scope: CollaboratorScope = {},
+) {
+  return projection.listEntities("schedule", true).flatMap((row) => {
+    const schedule = inspectScheduleProjection(row);
+    const personId = row.createdByPersonId ?? null;
+    const currentNode = schedule.valid
+      ? (schedule.schedule.status.activeRun?.nodeId ?? schedule.schedule.status.lastRun?.nodeId)
+      : undefined;
+    return matchesCollaboratorScope(scope, [
+      { personId, nodeId: row.originNodeId ?? null },
+      { personId, nodeId: currentNode ?? null },
+    ])
+      ? [schedule]
+      : [];
+  });
 }
 
 // ---------------------------------------------------------------------------

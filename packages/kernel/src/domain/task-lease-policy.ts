@@ -187,3 +187,10 @@ export function decideRawTaskLease(previous: LeaseV1 | null, event: TaskEventV1)
 export function decideReadableTaskLease(lease: LeaseV1 | null): LeaseV1 | null {
   return lease?.phase === "released" ? null : lease;
 }
+
+/** Project lease expiry at the read clock while retaining the raw CAS version. */
+export function effectiveLeaseValue(current: LeaseV1 | null, now: string): LeaseV1 | null {
+  if (current === null || current.phase === "released") return current;
+  if (current.expiresAt > now) return current;
+  return current.phase === "reserving" ? null : checkedLease({ ...current, phase: "orphaned" }, true);
+}

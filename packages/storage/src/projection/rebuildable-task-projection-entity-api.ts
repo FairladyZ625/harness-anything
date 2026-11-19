@@ -13,11 +13,11 @@ export function entityQueryApi(
 ): Pick<TaskProjection, "listEntities" | "countEntities" | "getEntity"> {
   const { projectionPath, readHead } = context;
   return {
-    listEntities: (entityKind) =>
+    listEntities: (entityKind, withAttribution) =>
       withDatabase(projectionPath, readHead, (db) => {
         const cut = readProjectionCut(db, readHead);
         requireReadyEntityCut(cut.watermark, cut.sourceRevision);
-        return listEntityProjectionRows(db, entityKind);
+        return listEntityProjectionRows(db, entityKind, withAttribution);
       }),
     countEntities: (entityKind, valueEquals) =>
       withDatabase(projectionPath, readHead, (db) => {

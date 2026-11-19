@@ -195,6 +195,8 @@ export interface TaskProjectionListQuery {
   readonly decisionRelationsOnly?: boolean;
   readonly taskIds?: readonly string[];
   readonly presentationStatus?: boolean;
+  /** Attach the canonical creator, origin node and current or latest operator to index rows. */
+  readonly withAttribution?: boolean;
 }
 
 export interface TaskRelationQuery {

@@ -6683,7 +6683,7 @@
         "port": "packages/storage/src/store/local-version-control-commands.ts#LocalVersionControlCommandAdapter.execute"
       },
       {
-        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-commands.ts#makeLocalVersionControlCommands.currentBranch.name:7c1e1c2d5128707779589e5c90b54227",
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-commands.ts#makeLocalVersionControlCommands.currentBranch.name:94eea7c92fad4854a87b5e65e991a51f",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/storage/src/store/local-version-control-commands.ts#LocalVersionControlCommandAdapter.execute"
@@ -7067,6 +7067,24 @@
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-orchestration-host.ts#connectRepoWriterHost.startRepoWriterWorker.handleRequest:cc9c981ddd6e5674ff0735abd116cc15",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-runtime.ts#openFleetEdgeRuntime.reconcile:5b3bd69ac1f9b9094e89a6db54a3ec2e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-runtime.ts#openFleetEdgeRuntime.run.receipt:9034d3ee2daae438a013fb13c965daab",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-runtime.ts#openFleetEdgeRuntime.run.receipt:1459b3858c0fb8b9d4747af85836ca05",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"

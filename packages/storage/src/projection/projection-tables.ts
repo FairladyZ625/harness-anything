@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import { isoTimestampMillisecondsSql } from "./iso-timestamp-sql.ts";
+import { isoOffsetTimestampMillisecondsSql, isoTimestampMillisecondsSql } from "./iso-timestamp-sql.ts";
 import {
   EVENT_SUMMARY_READ_INDEX_TRIGGERS_SQL,
   backfillEventSummaryReadIndex,
@@ -32,6 +32,18 @@ export const TASK_INDEX_TABLES_SQL = `
     CREATE INDEX IF NOT EXISTS task_snapshot_parent
       ON task_snapshot(json_extract(snapshot_json, '$.task.metadata.parentTaskId'));
     /* @gate-identity state-store/task.projection.task_package */ CREATE TABLE IF NOT EXISTS task_package (task_id TEXT PRIMARY KEY, package_path TEXT NOT NULL UNIQUE);`;
+
+const dispatchActivityAt =
+  "COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt'))";
+export const sqliteDispatchPageTimeKey = isoOffsetTimestampMillisecondsSql(
+  dispatchActivityAt,
+  `unixepoch(substr(${dispatchActivityAt},1,19))`,
+);
+
+export const sqliteImportedTaskPinPredicate = `
+  json_extract(event_json,'$.type')='entity_migrated'
+  AND json_extract(event_json,'$.payload.entity.kind')='task'
+  AND json_type(event_json,'$.payload.entity.task.pinned')='true'`;
 
 export const REPOSITORY_READ_TABLES_SQL = `
     ${DISPATCH_LIFECYCLE_TABLES_SQL}
@@ -216,6 +228,18 @@ export const REPOSITORY_READ_TABLES_SQL = `
       AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
     CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_started ON event_index(
       json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.payload.dispatchId')
+    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
+    CREATE INDEX IF NOT EXISTS event_index_migrated_task_pin ON event_index(
+      json_extract(event_json,'$.actor.principal.personId'), workspace_revision
+    ) WHERE ${sqliteImportedTaskPinPredicate};
+    -- Match the event type as well as the range so the planner can seek the ordered window.
+    CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_epoch_ms ON event_index(
+      json_extract(event_json, '$.type'), ${sqliteDispatchPageTimeKey}, json_extract(event_json, '$.payload.dispatchId')
+    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
+    CREATE INDEX IF NOT EXISTS event_index_runtime_task_dispatch_epoch_ms ON event_index(
+      json_extract(event_json, '$.payload.taskId'), ${sqliteDispatchPageTimeKey}, json_extract(event_json, '$.payload.dispatchId')
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
       AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
     CREATE INDEX IF NOT EXISTS event_index_runtime_attempt_group ON event_index(

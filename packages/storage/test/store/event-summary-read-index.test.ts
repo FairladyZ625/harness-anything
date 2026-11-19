@@ -352,8 +352,10 @@ test("fleet backfill and incremental writes keep unique, bounded node activity o
       {
         task_id: "task_25",
         origin_node_id: edge,
-        latest_node_id: "center",
+        origin_at: at(25),
+        latest_node_id: edge,
         latest_person_id: personId,
+        latest_at: at(37),
       },
     );
   } finally {

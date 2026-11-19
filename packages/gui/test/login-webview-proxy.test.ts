@@ -4,7 +4,7 @@ import { connect, createServer } from "node:net";
 import test from "node:test";
 import { closeLoginProxy, openLoginProxy } from "../src/main/login-webview-proxy.ts";
 
-test("the login proxy accepts only the issuer CONNECT authority and forwards to its loopback target", async () => {
+test("the login proxy accepts only the issuer CONNECT authority and forwards to its configured target", async () => {
   let upstreamConnections = 0;
   const upstream = createServer(() => {
       upstreamConnections += 1;
@@ -16,16 +16,26 @@ test("the login proxy accepts only the issuer CONNECT authority and forwards to 
   await listening;
   const target = upstream.address();
   assert.ok(target && typeof target !== "string");
-  const proxy = await openLoginProxy(`https://127.0.0.1:${target.port}`, "https://center.example:8443"),
-    address = proxy.address();
-  assert.ok(address && typeof address !== "string");
   try {
-    assert.match(await connectThrough(address.port, "center.example:8443"), /^HTTP\/1\.1 200 /u);
-    assert.equal(upstreamConnections, 1);
-    assert.match(await connectThrough(address.port, "other.example:8443"), /^HTTP\/1\.1 403 /u);
-    assert.equal(upstreamConnections, 1);
+    for (const [origin, port, otherPort] of [
+      ["https://center.example:8443", 8443, 443],
+      ["https://center.example", 443, 8443],
+    ] as const) {
+      const proxy = await openLoginProxy(`https://127.0.0.1:${target.port}`, origin);
+      try {
+        const address = proxy.address();
+        assert.ok(address && typeof address !== "string");
+        const before = upstreamConnections;
+        assert.match(await connectThrough(address.port, `center.example:${port}`), /^HTTP\/1\.1 200 /u);
+        assert.equal(upstreamConnections, before + 1);
+        assert.match(await connectThrough(address.port, `other.example:${port}`), /^HTTP\/1\.1 403 /u);
+        assert.match(await connectThrough(address.port, `center.example:${otherPort}`), /^HTTP\/1\.1 403 /u);
+        assert.equal(upstreamConnections, before + 1);
+      } finally {
+        await closeLoginProxy(proxy);
+      }
+    }
   } finally {
-    await closeLoginProxy(proxy);
     await new Promise<void>((resolve) => upstream.close(() => resolve()));
   }
 });

@@ -1,3 +1,4 @@
+import { normalizePersistedTimestamp } from "./timestamp.ts";
 import {
   agentRuntimeEventTypes,
   type AgentRuntimeEventType,
@@ -45,4 +46,30 @@ export function publicRuntimeSession(session: RuntimeSession): RuntimeSession {
 export function publicRuntimeInstallation(installation: RuntimeInstallation): Omit<RuntimeInstallation, "hostRef"> {
   const { hostRef: _hostRef, ...publicFields } = installation;
   return publicFields;
+}
+
+export function runtimeDispatchPageTimeKey(value: string): number {
+  // An empty lower bound is the existing unbounded dispatch-page request.
+  if (value === "") return Number.MIN_SAFE_INTEGER;
+  const milliseconds = Date.parse(value);
+  if (!Number.isFinite(milliseconds)) throw new Error("Invalid dispatch page timestamp");
+  return milliseconds;
+}
+
+export function runtimeDispatchPageKey(event: Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }>) {
+  const startedAt = event.payload.startedAt ?? event.occurredAt;
+  return {
+    startedAt: normalizePersistedTimestamp(startedAt) ?? startedAt,
+    dispatchId: event.payload.dispatchId,
+  };
+}
+
+export function compareRuntimeDispatchPageKeys(
+  left: ReturnType<typeof runtimeDispatchPageKey>,
+  right: ReturnType<typeof runtimeDispatchPageKey>,
+): number {
+  const time = runtimeDispatchPageTimeKey(left.startedAt) - runtimeDispatchPageTimeKey(right.startedAt);
+  if (time !== 0) return time;
+  // SQLite BINARY and PostgreSQL C order the dispatch ID's encoded bytes.
+  return Buffer.compare(Buffer.from(left.dispatchId), Buffer.from(right.dispatchId));
 }

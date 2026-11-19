@@ -1,3 +1,4 @@
+import { isoOffsetTimestampMillisecondsSql } from "../projection/iso-timestamp-sql.ts";
 import type { Pool, PoolClient } from "pg";
 import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync-types.ts";
 import {
@@ -68,6 +69,14 @@ const eventReadFields = {
     ELSE v->>'taskId' END`,
 };
 const eventScope = "tenant_id,project_id,policy_epoch,repo_id";
+// A scalar index key lets PostgreSQL apply built-in comparisons under RLS. A function
+// over protected row data cannot be moved below the RLS security qualifications.
+export const pgDispatchPageTimeKey = "dispatch_activity_epoch_ms";
+const dispatchPagePending = `event_type='runtime_dispatch_requested' AND ${pgDispatchPageTimeKey} IS NULL`;
+export const pgImportedTaskPinPredicate = `
+  event_type='entity_migrated'
+  AND ha_read_index_json(event_json)#>>'{payload,entity,kind}'='task'
+  AND ha_read_index_json(event_json)#>'{payload,entity,task,pinned}'='true'::jsonb`;
 const dispatchIndexes = [
   ["id", "dispatch_id,revision"],
   ["key", "dispatch_key,revision"],
@@ -83,6 +92,8 @@ const dispatchIndexes = [
   ["agent_session", "agent_id,runtime_session_id,dispatch_activity_at DESC,dispatch_id DESC"],
   ["squad_session", "squad_id,runtime_session_id,dispatch_activity_at DESC,dispatch_id DESC"],
   ["page", "dispatch_started_at,dispatch_id"],
+  ["epoch_ms", `${pgDispatchPageTimeKey},dispatch_id`],
+  ["task_epoch_ms", `payload_task_id,${pgDispatchPageTimeKey},dispatch_id`],
   // "Newest dispatch for this task" without walking every dispatch the task ever had:
   // fleet overview reads one current dispatch per lease row. Effective time is
   // `startedAt ?? occurredAt`, matching the dispatch row's timestamp fallback.
@@ -111,6 +122,7 @@ export function eventReadIndexDdl(): readonly string[] {
     ...Object.keys(eventReadFields).map(
       (column) => `ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS ${column} text COLLATE "C"`,
     ),
+    `ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS ${pgDispatchPageTimeKey} bigint`,
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS read_index_version smallint NOT NULL DEFAULT 0",
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS runtime_session_present boolean NOT NULL DEFAULT false",
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS runtime_session_unsettled boolean NOT NULL DEFAULT false",
@@ -224,6 +236,16 @@ export function eventReadIndexDdl(): readonly string[] {
       END $function$`,
     `CREATE OR REPLACE TRIGGER ha_event_entity_ref_fields AFTER INSERT OR UPDATE OF event_json,entity_refs,readers ON ha_events
       FOR EACH ROW EXECUTE FUNCTION ha_event_entity_ref_fields()`,
+    // The ISO date/time is parsed without its zone, so the function is independent of session
+    // timezone. PostgreSQL calls astronomical year 0000 "0001 BC".
+    `CREATE OR REPLACE FUNCTION ha_dispatch_epoch_ms(value text) RETURNS bigint
+      LANGUAGE sql IMMUTABLE STRICT SET search_path FROM CURRENT AS $function$
+      SELECT ${isoOffsetTimestampMillisecondsSql(
+        "value",
+        `EXTRACT(EPOCH FROM (CASE WHEN substr(value,1,4)='0000'
+          THEN '0001' || substr(value,5,15) || ' BC' ELSE substr(value,1,19) END)::timestamp)::bigint`,
+      )}
+    $function$`,
     `CREATE OR REPLACE FUNCTION ha_event_read_index_fields() RETURNS trigger
       LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
       DECLARE v jsonb;
@@ -232,6 +254,9 @@ export function eventReadIndexDdl(): readonly string[] {
         ${Object.entries(eventReadFields)
           .map(([column, expression]) => `NEW.${column} := ${expression};`)
           .join("\n")}
+        IF NEW.event_type='runtime_dispatch_requested' THEN
+          NEW.${pgDispatchPageTimeKey} := ha_dispatch_epoch_ms(NEW.dispatch_activity_at);
+        END IF;
         NEW.runtime_session_present := NEW.event_type='runtime_dispatch_requested' AND EXISTS (
           SELECT 1 FROM ha_projection_values p WHERE p.tenant_id=NEW.tenant_id AND p.project_id=NEW.project_id
           AND p.policy_epoch=NEW.policy_epoch AND p.model='runtime-session' AND p.owner_id=''
@@ -294,6 +319,10 @@ export function eventReadIndexDdl(): readonly string[] {
       (tenant_id,project_id,policy_epoch,repo_id,fact_anchor_id,revision) WHERE fact_anchor_id IS NOT NULL`,
     `CREATE INDEX IF NOT EXISTS ha_events_type_time_revision ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,event_type,occurred_at,revision)`,
+    `CREATE INDEX IF NOT EXISTS ha_events_migrated_task_pin ON ha_events
+      (${eventScope},actor_person_id,revision) WHERE ${pgImportedTaskPinPredicate}`,
+    `CREATE INDEX IF NOT EXISTS ha_events_dispatch_epoch_pending
+      ON ha_events (${eventScope},revision) WHERE ${dispatchPagePending}`,
     ...dispatchIndexes.map(
       ([name, columns]) => `CREATE INDEX IF NOT EXISTS ha_events_dispatch_${name}
       ON ha_events (${eventScope},${columns}) WHERE event_schema='agent-runtime-event/v1' AND event_type='runtime_dispatch_requested'`,
@@ -359,6 +388,18 @@ export function eventReadIndexDdl(): readonly string[] {
           WHERE (e.tenant_id,e.project_id,e.repo_id,e.revision)=(b.tenant_id,b.project_id,b.repo_id,b.revision) RETURNING 1
         ) SELECT count(*)::integer INTO processed FROM filled;
         IF processed = 0 THEN
+          WITH batch AS (
+            SELECT revision FROM ha_events
+            WHERE tenant_id=tenant AND project_id=project AND policy_epoch=epoch AND repo_id=repo
+              AND ${dispatchPagePending}
+            ORDER BY revision LIMIT 64 FOR UPDATE
+          ), filled AS (
+            UPDATE ha_events e SET ${pgDispatchPageTimeKey}=ha_dispatch_epoch_ms(e.dispatch_activity_at) FROM batch b
+            WHERE e.tenant_id=tenant AND e.project_id=project AND e.policy_epoch=epoch AND e.repo_id=repo
+              AND e.revision=b.revision RETURNING 1
+          ) SELECT count(*)::integer INTO processed FROM filled;
+        END IF;
+        IF processed = 0 THEN
           INSERT INTO ha_event_summary_state(tenant_id,project_id,policy_epoch,repo_id,ready)
           VALUES (tenant,project,epoch,repo,true)
           ON CONFLICT (tenant_id,project_id,policy_epoch,repo_id) DO UPDATE SET ready=true;
@@ -378,6 +419,24 @@ export function eventRefIndexGrantDdl(): readonly string[] {
       END IF;
     END $grant$`,
   );
+}
+
+/** An incomplete dispatch key migration cannot serve an ordered, complete history page. */
+export async function pgDispatchPageTimeGate(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  repoId: string,
+): Promise<void> {
+  const pending = await client.query(
+    `SELECT 1 FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4
+      AND ${dispatchPagePending} LIMIT 1`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
+  );
+  if (pending.rows.length) {
+    const error = new Error("Dispatch page time index backfill is pending");
+    Object.defineProperty(error, "code", { value: "projection_pending" });
+    throw error;
+  }
 }
 
 export async function assertPgEventReadIndexReady(

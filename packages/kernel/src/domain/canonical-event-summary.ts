@@ -2,6 +2,7 @@ import type { PersistedCanonicalEventV1 } from "./doc-sync.contract.ts";
 import { squadRunSubjectEntityIdentity } from "./squad-run.ts";
 import { daemonProtocolFleetPolicy } from "./cli-operational-policy.ts";
 import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
+import { leaseIsEffective } from "./execution.ts";
 import { writeSourceNodeId } from "./write-source.ts";
 
 export type CanonicalEventSummary = Readonly<Record<string, unknown>> & {
@@ -142,18 +143,39 @@ export interface TaskAttribution {
   readonly activeOrLatestNodeId: string | null;
 }
 
+export interface TaskActivityAttribution extends TaskAttribution {
+  readonly originActivityAt: string | null;
+  readonly activeOrLatestActivityAt: string | null;
+}
+
 export function taskAttribution(
   snapshot: TaskLifecycleSnapshot,
   originNodeId: string | null,
   latestNodeId: string | null,
   latestPersonId: string | null,
-): TaskAttribution {
-  const createdByPersonId = snapshot.task?.createdBy.principal.personId ?? null;
+  latestAt: string | null,
+  // Only the attributed task index carries activity timestamps.
+  originAt?: string | null,
+): TaskAttribution & Partial<TaskActivityAttribution> {
+  const createdByPersonId = snapshot.task?.createdBy.principal.personId ?? null,
+    lease = snapshot.lease,
+    holder = leaseIsEffective(lease) ? lease : null,
+    personId = holder ? holder.actor.principal.personId : latestAt === null ? createdByPersonId : latestPersonId,
+    nodeId = holder ? writeSourceNodeId(holder.source) : latestAt === null ? originNodeId : latestNodeId;
   return {
     createdByPersonId,
     originNodeId,
-    activeOrLatestPersonId: snapshot.lease?.actor.principal.personId ?? latestPersonId ?? createdByPersonId,
-    activeOrLatestNodeId: writeSourceNodeId(snapshot.lease?.source) ?? latestNodeId ?? originNodeId,
+    activeOrLatestPersonId: personId,
+    activeOrLatestNodeId: nodeId,
+    ...(originAt === undefined
+      ? {}
+      : {
+          originActivityAt: originAt,
+          activeOrLatestActivityAt:
+            holder && (personId !== latestPersonId || nodeId !== latestNodeId)
+              ? new Date(Date.parse(holder.expiresAt) - holder.ttlMs).toISOString()
+              : (latestAt ?? originAt),
+        }),
   };
 }
 

@@ -1,19 +1,22 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { rmSync } from "node:fs";
 import path from "node:path";
-import { after } from "node:test";
+import { after, type TestContext } from "node:test";
 import { daemonProcessAlive, readDaemonPid } from "@harness-anything/daemon/internal/daemon-singleton";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 /** Register ownership before launching: test failures must not skip daemon teardown. */
-export function ownDaemonFixture(input: {
-  readonly parent: string;
-  readonly userRoot: string;
-  readonly daemonId: string;
-  readonly env: NodeJS.ProcessEnv;
-}): void {
-  after(async () => {
+export function ownDaemonFixture(
+  input: {
+    readonly parent: string;
+    readonly userRoot: string;
+    readonly daemonId: string;
+    readonly env: NodeJS.ProcessEnv;
+  },
+  context?: TestContext,
+): void {
+  const cleanup = async () => {
     const pid = readDaemonPid(input.userRoot, input.daemonId);
     if (pid !== null) {
       const stopped = spawnSync(
@@ -38,6 +41,8 @@ export function ownDaemonFixture(input: {
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
     }
-    rmSync(input.parent, { recursive: true, force: true });
-  });
+    removeTempRepository(input.parent);
+  };
+  if (context) context.after(cleanup);
+  else after(cleanup);
 }

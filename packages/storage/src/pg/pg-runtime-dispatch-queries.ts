@@ -2,7 +2,11 @@ import {
   storageReadPolicy,
   validateStorageReadWindow,
 } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
-import { assertPgEventReadIndexReady } from "./pg-event-read-index-migration.ts";
+import {
+  assertPgEventReadIndexReady,
+  pgDispatchPageTimeGate,
+  pgDispatchPageTimeKey,
+} from "./pg-event-read-index-migration.ts";
 import { prefixUpperBound } from "../projection/document-read-range.ts";
 import type { PoolClient } from "pg";
 import type {
@@ -11,7 +15,12 @@ import type {
   TaskProjectionQueries,
   RuntimeSession,
 } from "@harness-anything/kernel";
-import { publicRuntimeDispatch } from "@harness-anything/kernel/internal/domain/runtime-public-query.ts";
+import {
+  compareRuntimeDispatchPageKeys,
+  publicRuntimeDispatch,
+  runtimeDispatchPageKey,
+  runtimeDispatchPageTimeKey,
+} from "@harness-anything/kernel/internal/domain/runtime-public-query.ts";
 import { eventIndexEvent } from "./pg-event-queries.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import type { PgTaskProjectionSourceOptions } from "./pg-task-source.ts";
@@ -329,45 +338,39 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
       transaction(async (client) => {
         if (!validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.standard))
           throw new Error("runtime dispatch page requires a limit from 1 to 500");
-        const rows =
-          taskIds === undefined
-            ? await readDispatchRows(
-                client,
-                "dispatch_started_at>=$6 AND (dispatch_started_at,dispatch_id)>($7::text,$8::text)",
-                [startedAtGte, cursor?.startedAt ?? "", cursor?.dispatchId ?? ""],
-                "dispatch_started_at, dispatch_id",
-                limit + 1,
-              )
-            : (
-                await Promise.all(
-                  taskIds.map((taskId) =>
-                    readDispatchRows(
-                      client,
-                      "payload_task_id=$6 AND COALESCE(dispatch_started_at,occurred_at)>=$9 AND (COALESCE(dispatch_started_at,occurred_at),dispatch_id)>($7::text,$8::text)",
-                      [taskId, cursor?.startedAt ?? "", cursor?.dispatchId ?? "", startedAtGte],
-                      "COALESCE(dispatch_started_at,occurred_at),dispatch_id",
-                      limit + 1,
+        await pgDispatchPageTimeGate(client, scope, repoId);
+        const after = runtimeDispatchPageTimeKey(cursor?.startedAt ?? ""),
+          window = `${pgDispatchPageTimeKey}>=$6::bigint AND (${pgDispatchPageTimeKey},dispatch_id)>($7::bigint,$8::text COLLATE "C")`,
+          order = `${pgDispatchPageTimeKey},dispatch_id`,
+          values = [Math.max(runtimeDispatchPageTimeKey(startedAtGte), after), after, cursor?.dispatchId ?? ""],
+          rows =
+            taskIds === undefined
+              ? await readDispatchRows(client, window, values, order, limit + 1)
+              : (
+                  await Promise.all(
+                    taskIds.map((taskId) =>
+                      readDispatchRows(
+                        client,
+                        `${window} AND payload_task_id=$9`,
+                        [...values, taskId],
+                        order,
+                        limit + 1,
+                      ),
                     ),
-                  ),
+                  )
                 )
-              )
-                .flat()
-                .sort(
-                  (a, b) =>
-                    (a.payload.startedAt ?? a.occurredAt).localeCompare(b.payload.startedAt ?? b.occurredAt) ||
-                    a.payload.dispatchId.localeCompare(b.payload.dispatchId),
-                )
-                .slice(0, limit + 1);
+                  .flat()
+                  .map((event) => ({ event, key: runtimeDispatchPageKey(event) }))
+                  .sort((left, right) => compareRuntimeDispatchPageKeys(left.key, right.key))
+                  .slice(0, limit + 1)
+                  .map(({ event }) => event);
         const selected = rows.slice(0, limit),
           last = selected.at(-1),
           done = rows.length <= limit;
         return {
           rows: await Promise.all(selected.map((event) => projected(client, event))),
           done,
-          nextCursor:
-            !done && last
-              ? { startedAt: last.payload.startedAt ?? last.occurredAt, dispatchId: last.payload.dispatchId }
-              : null,
+          nextCursor: !done && last ? runtimeDispatchPageKey(last) : null,
         };
       }),
   };

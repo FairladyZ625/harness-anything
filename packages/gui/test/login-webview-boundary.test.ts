@@ -85,17 +85,33 @@ test("an edge listener can pin its delivered certificate without exposing a priv
   });
   assert.equal(directWithoutTargetUrl?.proxyTarget, undefined);
 
-  assert.throws(
-    () =>
-      resolve(authorizationUrl, {
-        listener: {
-          hostname: "10.211.55.2",
-          port: 18544,
-          certificate: leaf,
-          targetUrl: "https://10.211.55.3:18544/",
-        },
-      }),
-    /The login listener proxy target must be a loopback HTTPS URL\./u,
+  assert.deepEqual(
+    resolve(authorizationUrl, {
+      listener: {
+        hostname: "10.211.55.2",
+        port: 18544,
+        certificate: leaf,
+        targetUrl: "https://10.144.144.2:7545/",
+      },
+    }),
+    {
+      origin: "https://10.211.55.2:18544",
+      fingerprint256: leafFingerprint,
+      proxyTarget: "https://10.144.144.2:7545/",
+    },
+  );
+
+  assert.equal(
+    resolve("https://attacker.example/authorize", {
+      listener: {
+        hostname: "10.211.55.2",
+        port: 18544,
+        certificate: leaf,
+        targetUrl: "https://10.144.144.2:7545/",
+      },
+    })?.fingerprint256,
+    undefined,
+    "a third-party authorization origin does not inherit the listener's certificate trust",
   );
 
   assert.throws(
@@ -105,10 +121,28 @@ test("an edge listener can pin its delivered certificate without exposing a priv
           hostname: "10.211.55.2",
           port: 18544,
           certificate: leaf,
-          targetUrl: "http://127.0.0.1:56506/",
+          targetUrl: "http://10.144.144.2:7545/",
         },
       }),
-    /The login listener proxy target must be a loopback HTTPS URL\./u,
+    /The login listener proxy target must be an HTTPS URL/u,
+  );
+});
+
+test("a DNS listener on the default HTTPS port can pin an IPv6 connection target", () => {
+  assert.deepEqual(
+    resolve("https://center.internal/authorize", {
+      listener: listener({
+        hostname: "center.internal",
+        port: 443,
+        certificate: leaf,
+        targetUrl: "https://[fd00::2]:7545/",
+      }),
+    }),
+    {
+      origin: "https://center.internal",
+      fingerprint256: leafFingerprint,
+      proxyTarget: "https://[fd00::2]:7545/",
+    },
   );
 });
 
@@ -206,7 +240,7 @@ test("certificate decisions bind the guest, the full origin, and the fingerprint
   // Guests of no grant never earn trust.
   assert.equal(
     grants.decideCertificateError({ webContentsId: 1, url: "https://10.211.55.2:18544/", certificatePem: leaf }),
-    false,
+    "reject",
   );
   assert.equal(grants.bindGuestWebContents(1, {}), null);
   assert.equal(grants.bindGuestWebContents(1, sessionOf(first.partition))?.partition, first.partition);
@@ -216,7 +250,7 @@ test("certificate decisions bind the guest, the full origin, and the fingerprint
       url: "https://10.211.55.2:18544/realms/",
       certificatePem: leaf,
     }),
-    true,
+    "accept",
     "the bound guest, the listener origin, and the pinned certificate are accepted together",
   );
   const refusals: readonly [
@@ -230,13 +264,13 @@ test("certificate decisions bind the guest, the full origin, and the fingerprint
     ["unparseable url", { webContentsId: 1, url: "not a url", certificatePem: leaf }],
   ];
   for (const [name, input] of refusals) {
-    assert.equal(grants.decideCertificateError(input), false, name);
+    assert.equal(grants.decideCertificateError(input), "reject", name);
   }
   // A destroyed guest stops earning trust even while the sign-in's grant is alive.
   grants.unbindGuestWebContents(1);
   assert.equal(
     grants.decideCertificateError({ webContentsId: 1, url: "https://10.211.55.2:18544/", certificatePem: leaf }),
-    false,
+    "reject",
   );
 });
 
@@ -248,7 +282,7 @@ test("the sign-in settling releases the token and every certificate decision wit
   assert.equal(grants.consumeWebviewAttachment({ partition: first.partitionToken, src: authorizationUrl }), null);
   assert.equal(
     grants.decideCertificateError({ webContentsId: 3, url: "https://10.211.55.2:18544/", certificatePem: leaf }),
-    false,
+    "reject",
     "a released sign-in's certificate stays rejected",
   );
   assert.equal(

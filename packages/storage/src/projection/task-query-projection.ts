@@ -1,3 +1,6 @@
+import { effectiveLeaseValue } from "@harness-anything/kernel/internal/domain/task-lease-policy.ts";
+import { taskAttribution } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
+import { taskAttributionRows } from "./event-summary-read-index.ts";
 import { publicRuntimeSession } from "@harness-anything/kernel/internal/domain/runtime-public-query.ts";
 // No @write-boundary-exemption marker is needed here: this module never opens a
 // database itself — it receives the already-open rebuildable projection handle
@@ -140,8 +143,9 @@ export function readTaskChildCounts(
 export function readTaskIndexRows(
   db: DatabaseSync,
   query: TaskProjectionListQuery = {},
+  now = new Date().toISOString(),
 ): { readonly rows: readonly TaskIndexProjectionRow[]; readonly page: ProjectionPage | null } {
-  if (query.scopeRootTaskId !== undefined) return readTaskScopeRows(db, query);
+  if (query.scopeRootTaskId !== undefined) return readTaskScopeRows(db, query, now);
   const values: (string | number | null)[] = [],
     where: string[] = [],
     field = (jsonPath: string) => `json_extract(task_snapshot.snapshot_json, '${jsonPath}')`;
@@ -211,29 +215,54 @@ export function readTaskIndexRows(
     readonly package_path: string | null;
     readonly updated_at: string;
     readonly snapshot_json: string;
+    readonly lease_json?: string | null;
     readonly presentation_status: TaskV2["status"];
   }>(
     db,
     [
       "SELECT task_snapshot.task_id, task_package.package_path, task_snapshot.updated_at,",
-      `${query.presentationStatus ? PRESENTATION_STATUS_SQL : "task_snapshot.status"} AS presentation_status, task_snapshot.snapshot_json FROM task_snapshot`,
+      `${query.presentationStatus ? PRESENTATION_STATUS_SQL : "task_snapshot.status"} AS presentation_status, task_snapshot.snapshot_json`,
+      query.withAttribution
+        ? ", lease_cas.lease_json FROM task_snapshot LEFT JOIN lease_cas USING(task_id)"
+        : "FROM task_snapshot",
       `LEFT JOIN task_package USING(task_id)${where.length ? ` WHERE ${where.join(" AND ")}` : ""}`,
       `ORDER BY task_snapshot.task_id${limit === null ? "" : " LIMIT ?"}`,
     ].join(" "),
     ...values,
   );
   const visible = limit === null ? rows : rows.slice(0, limit),
+    origins = query.withAttribution
+      ? taskAttributionRows(
+          db,
+          visible.map(({ task_id }) => task_id),
+        )
+      : null,
     projected = visible.flatMap((row) => {
-      let task: TaskV2 | null;
+      let snapshot: Parameters<typeof taskAttribution>[0];
       try {
-        task = (JSON.parse(row.snapshot_json) as { readonly task?: TaskV2 | null }).task ?? null;
+        snapshot = JSON.parse(row.snapshot_json) as typeof snapshot;
       } catch {
         throw new Error(`projection snapshot mismatch for task ${row.task_id}`);
       }
-      if (task === null) return [];
+      const task = snapshot.task,
+        origin = origins?.get(row.task_id);
+      if (!task) return [];
       if (validateTaskV2(task, true).length) throw new Error(`projection snapshot mismatch for task ${row.task_id}`);
       return [
         {
+          ...(origin
+            ? taskAttribution(
+                {
+                  ...snapshot,
+                  lease: effectiveLeaseValue(row.lease_json ? JSON.parse(row.lease_json) : null, now),
+                },
+                origin.origin_node_id,
+                origin.latest_node_id,
+                origin.latest_person_id,
+                origin.latest_at,
+                origin.origin_at,
+              )
+            : {}),
           taskId: row.task_id,
           supersededBy: task.supersededBy ?? null,
           title: task.title,
@@ -267,6 +296,7 @@ export function readTaskIndexRows(
 function readTaskScopeRows(
   db: DatabaseSync,
   query: TaskProjectionListQuery,
+  now: string,
 ): { readonly rows: readonly TaskIndexProjectionRow[]; readonly page: ProjectionPage | null } {
   const { scopeRootTaskId, ...unscopedQuery } = query,
     members = new Map<string, TaskIndexProjectionRow>(),
@@ -274,7 +304,7 @@ function readTaskScopeRows(
       taskIds: [scopeRootTaskId!],
       ...(query.presentationStatus === undefined ? {} : { presentationStatus: query.presentationStatus }),
     }).rows[0];
-  if (!root) return readTaskIndexRows(db, { ...unscopedQuery, taskIds: [] });
+  if (!root) return readTaskIndexRows(db, { ...unscopedQuery, taskIds: [] }, now);
 
   // Page through the existing parent index. This keeps the walk proportional to the selected
   // scope; a recursive join makes SQLite scan the full parent expression index at every level.
@@ -305,9 +335,8 @@ function readTaskScopeRows(
   }
 
   const memberIds = [...members.keys()],
-    selectedIds =
-      query.taskIds === undefined ? memberIds : memberIds.filter((taskId) => query.taskIds!.includes(taskId));
-  return readTaskIndexRows(db, { ...unscopedQuery, taskIds: selectedIds });
+    selectedIds = query.taskIds === undefined ? memberIds : query.taskIds.filter((taskId) => members.has(taskId));
+  return readTaskIndexRows(db, { ...unscopedQuery, taskIds: selectedIds }, now);
 }
 
 /** Derive display-only creation time from the first canonical event for a task.

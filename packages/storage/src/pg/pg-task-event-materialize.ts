@@ -164,7 +164,7 @@ async function materializeProjectionEvent(
     snapshot = await storeTaskBootstrap(client, scope, event, tables);
   } else if (isMigrationImportEvent(event)) {
     ({ taskId, snapshot } = await storeMigrationImport(client, scope, event, tables));
-  } else if (isEntityPinEvent(event)) {
+  } else if (isEntityPinEvent(event) && event.actor.principal.personId) {
     await storeEntityPin(client, scope, event, tables);
   } else if (isEntityEvent(event)) {
     await storeEntityEvent(client, scope, event, tables, input.readContentBlob);

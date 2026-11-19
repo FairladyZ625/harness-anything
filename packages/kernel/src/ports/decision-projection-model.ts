@@ -96,6 +96,8 @@ export interface DecisionPageQuery {
   readonly cursor?: string;
 }
 
+export const DEFAULT_DECISION_LIST_PAGE_SIZE = 100;
+
 export interface DecisionListFilters {
   readonly withBody?: boolean;
   readonly search?: string;

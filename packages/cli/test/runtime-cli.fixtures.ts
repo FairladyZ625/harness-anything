@@ -3,7 +3,7 @@ import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-any
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, type TestContext } from "node:test";
@@ -14,6 +14,7 @@ import { makeTaskEventReader } from "@harness-anything/storage";
 import { localUserDaemonEndpoint } from "../src/daemon/client.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { waitForValue } from "../../../tools/fixtures/wait-for-condition.ts";
+import { ownDaemonFixture } from "./daemon-cleanup.fixture.ts";
 
 const realm = await spawnKeycloak();
 after(() => realm.close());
@@ -165,10 +166,7 @@ export function createRuntimeFixture(context: TestContext) {
     HARNESS_DAEMON_ENDPOINT: localUserDaemonEndpoint(userRoot, daemonId),
     HARNESS_ACTOR: "agent:runtime-cli-test",
   };
-  context.after(() => {
-    runMaybe(root, env, ["daemon", "stop"]);
-    rmSync(parent, { recursive: true, force: true });
-  });
+  ownDaemonFixture({ parent, userRoot, daemonId, env }, context);
   realm.bind(userRoot);
   signInAt(userRoot, "owner");
   assert.equal(run(root, env, ["daemon", "start", "--service"]).ok, true);

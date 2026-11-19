@@ -8,7 +8,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { AgentRuntimeEventV1 } from "@harness-anything/kernel";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import {
+  appendRuntimeWorkerRecord,
+  archiveDispatchStream,
+  openDispatchStream,
+  readDispatchStreamHeaders,
+} from "../src/daemon-host/dispatch-stream.ts";
 import { cancelRuntime } from "../src/daemon-host/runtime-spawn-control.ts";
 import { publishExit } from "../src/daemon-host/runtime-spawn-settlement.ts";
 import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
@@ -570,3 +575,142 @@ for (const scheduled of [false, true])
       }
     },
   );
+
+/** A running attempt whose local stream was archived or removed before any terminal outcome landed. */
+function unsettledWithoutLiveStream(
+  t: test.TestContext,
+  stream: "archived" | "missing",
+  recordedGroupPid: number | null,
+) {
+  const rootDir = mkdtempSync(path.join(tmpdir(), `ha-cancel-${stream}-unsettled-`));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const dispatchId = "dispatch_969696969696969696969696",
+    runtimeSessionId = "runtime_969696969696969696969696",
+    ids = { dispatchId, instanceId: "instance-1", source: "local" as const },
+    events: AgentRuntimeEventV1[] = [
+      lifecycleEvent("R", runtimeSessionId, ids),
+      lifecycleEvent("S", runtimeSessionId, ids),
+    ],
+    published: Array<{ type: string; payload: Record<string, unknown>; body?: string }> = [];
+  if (stream === "archived") {
+    openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "cancel-archived-unsettled");
+    archiveDispatchStream(rootDir, dispatchId);
+    assert.deepEqual(readDispatchStreamHeaders(rootDir), [], "the fixture stream has no live copy");
+    assert.equal(readDispatchStreamHeaders(rootDir, true).length, 1, "the fixture stream is archived");
+  }
+  const readDispatchLifecycle = dispatchLifecycleReadOf(() => events);
+  let outcome: string | null = null;
+  const context = {
+    input: { rootDir, repoId: `cancel-${stream}-unsettled`, now: () => "2026-11-19T00:00:00.000Z" },
+    requiredRuntimeProjection: () => ({
+      readRuntimeSession: () => ({ ...liveSession(runtimeSessionId), outcome }),
+      readDispatchLifecycle,
+      readRuntimeSessions: () => [],
+      readRuntimeDispatch: () => ({
+        actor: binding.actor,
+        source: "local",
+        payload: { dispatchId, instanceId: "instance-1" },
+      }),
+      readRuntimeSessionEvents: () => [],
+      readRuntimeSessionEventsByType: () =>
+        recordedGroupPid === null
+          ? []
+          : [
+              {
+                type: "runtime_session_liveness_changed",
+                source: "local",
+                payload: { processGroupPid: recordedGroupPid },
+              },
+            ],
+    }),
+    processes: new Map(),
+    exiting: new Set<string>(),
+    ownsModelSlot: () => false,
+    publishExit: async () => assert.fail("a stream without a live copy must not be adopted"),
+    publishRuntimeEvent: async (
+      type: string,
+      payload: Record<string, unknown>,
+      _opId: string,
+      _eventBinding: unknown,
+      body?: string,
+    ) => {
+      published.push({ type, payload, body });
+      if (type === "runtime_session_outcome_observed") {
+        outcome = String(payload.outcome);
+        events.push({ ...lifecycleEvent("O", runtimeSessionId, ids), payload } as unknown as AgentRuntimeEventV1);
+      }
+      return {};
+    },
+    controlReceipt: (_opId: string, _runtimeSessionId: string, detail: string) => ({ detail }),
+    runtimeSpawnError,
+  };
+  return { rootDir, dispatchId, runtimeSessionId, context, published };
+}
+
+test("an archived stream without a terminal outcome is not adopted and accepts the owner ruling", async (t) => {
+  const f = unsettledWithoutLiveStream(t, "archived", null);
+  await assert.rejects(cancelRuntime(f.context as never, { runtimeSessionId: f.runtimeSessionId }, binding), {
+    code: "runtime_process_group_unproven",
+  });
+  assert.deepEqual(f.published, [], "an unproven stop publishes nothing");
+  assert.deepEqual(readDispatchStreamHeaders(f.rootDir), [], "cancellation must not reopen the archived stream");
+  const reason = "Owner abandons the archived dispatch that never published its outcome.";
+  const receipt = await cancelRuntime(
+    f.context as never,
+    { runtimeSessionId: f.runtimeSessionId, ruling: reason },
+    binding,
+  );
+  assert.equal(receipt.detail, "ruling_resolved");
+  assert.deepEqual(
+    f.published.map(({ type }) => type),
+    ["runtime_session_outcome_observed"],
+  );
+  assert.equal(f.published[0]!.payload.reasonCode, "ruling_resolved");
+  assert.equal(f.published[0]!.payload.dispatchId, f.dispatchId);
+  assert.equal(JSON.parse(f.published[0]!.body!).processStop, "unproven");
+  assert.deepEqual(readDispatchStreamHeaders(f.rootDir), [], "the ruling must not reopen the archived stream");
+  const repeated = await cancelRuntime(
+    f.context as never,
+    { runtimeSessionId: f.runtimeSessionId, ruling: reason },
+    binding,
+  );
+  assert.equal(repeated.detail, "already-exited");
+  assert.equal(f.published.length, 1, "a repeated ruling appends no second terminal event");
+});
+
+for (const stream of ["archived", "missing"] as const)
+  test(`an owner ruling over a ${stream} stream still refuses a recorded group whose leader is alive`, async (t) => {
+    const f = unsettledWithoutLiveStream(t, stream, process.pid);
+    await assert.rejects(
+      cancelRuntime(f.context as never, { runtimeSessionId: f.runtimeSessionId, ruling: "Abandon dispatch" }, binding),
+      { code: "runtime_ruling_not_allowed" },
+    );
+    assert.deepEqual(f.published, []);
+    assert.deepEqual(readDispatchStreamHeaders(f.rootDir), [], "a refused ruling must not reopen a stream");
+  });
+
+test("an owner ruling over a missing stream is not blocked by a recorded group whose leader is gone", async (t) => {
+  const f = unsettledWithoutLiveStream(t, "missing", 2_147_483_647);
+  const receipt = await cancelRuntime(
+    f.context as never,
+    { runtimeSessionId: f.runtimeSessionId, ruling: "Owner abandons the dispatch whose stream was pruned." },
+    binding,
+  );
+  if (process.platform === "win32") {
+    // Windows cannot observe a group without its local containment witness: only the ruling closes it.
+    assert.equal(receipt.detail, "ruling_resolved");
+    assert.deepEqual(
+      f.published.map(({ type }) => type),
+      ["runtime_session_outcome_observed"],
+    );
+    assert.equal(f.published[0]!.payload.reasonCode, "ruling_resolved");
+  } else {
+    // POSIX proves the vanished group stopped, so the ruling request settles as a proven cancellation.
+    assert.equal(receipt.detail, "cancelled");
+    assert.deepEqual(
+      f.published.map(({ type }) => type),
+      ["runtime_session_exited", "runtime_session_cancelled", "runtime_session_outcome_observed"],
+    );
+    assert.equal(f.published.at(-1)!.payload.outcome, "cancelled");
+  }
+});

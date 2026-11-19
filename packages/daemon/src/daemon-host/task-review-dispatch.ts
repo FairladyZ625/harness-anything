@@ -218,13 +218,22 @@ export async function dispatchDecisionReview(
   if (typeof action.expectedDigest === "string" && action.expectedDigest !== digest)
     throw new DecisionReviewContentConflictError(action.expectedDigest, digest);
   const baseKey = decisionReviewDispatchKey(decisionId, digest),
-    revision = cell.store.readHead()?.revision ?? 0;
+    revision = cell.store.readHead()?.revision ?? 0,
+    // A session that recorded its verdict for its digest has finished that review, whether or not
+    // its runtime exit was ever observed.
+    reviewRecorded = (reviewedDigest: string, runtimeSessionId: string) =>
+      current.reviews.some(
+        (review) =>
+          review.reviewContentDigest === reviewedDigest &&
+          review.actor.executor?.id === `runtime-session:${runtimeSessionId}`,
+      );
   const activeDecisionDispatch = cell.projection.readRuntimeDispatchesByDecision(decisionId).find(({ event }) => {
     const target = event.payload.reviewTarget;
     return (
       target?.kind === "decision" &&
       target.decisionId === decisionId &&
-      !reviewAttemptEnded(cell, event.payload.runtimeSessionId)
+      !reviewAttemptEnded(cell, event.payload.runtimeSessionId) &&
+      !reviewRecorded(target.digest, event.payload.runtimeSessionId)
     );
   });
   if (activeDecisionDispatch && activeDecisionDispatch.event.payload.reviewTarget?.digest !== digest)
@@ -240,11 +249,7 @@ export async function dispatchDecisionReview(
   while (
     existing !== null &&
     reviewAttemptEnded(cell, ids.runtimeSessionId) &&
-    !current.reviews.some(
-      (review) =>
-        review.reviewContentDigest === digest &&
-        review.actor.executor?.id === `runtime-session:${ids.runtimeSessionId}`,
-    )
+    !reviewRecorded(digest, ids.runtimeSessionId)
   ) {
     attempt += 1;
     key = reviewAttemptKey(baseKey, attempt);

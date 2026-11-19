@@ -24,7 +24,7 @@ export function runEntityPinAction(
       ? cell.projection.getEntity("schedule", parsed.id) !== null
       : cell.projection.readEntityVersionWitness(entityRef).currentVersion !== null;
   const pinned = action.kind === "entity-pin",
-    pinnedEntities = cell.projection.listPinnedEntities(),
+    pinnedEntities = cell.projection.listPinnedEntities(binding.actor.principal.personId),
     current = pinnedEntities.some((row) => row.entityRef === entityRef),
     revision = cell.store.readHead()?.revision ?? 0,
     opId = cell.operationId(action, binding, cell.input.repoId, revision);

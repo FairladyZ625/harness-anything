@@ -1,3 +1,9 @@
+import {
+  collaboratorTaskActivityAt,
+  scopedPersonId,
+  taskMatchesCollaboratorActivity,
+  type CollaboratorScope,
+} from "@harness-anything/kernel/internal/domain/collaborator-scope.ts";
 import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import type { AwaitsAskKind } from "@harness-anything/kernel/internal/domain/task-blocking";
 import {
@@ -7,8 +13,9 @@ import {
   type CursorPageReceipt,
   type TaskProjection,
 } from "@harness-anything/kernel";
-import { taskPresentationReads } from "./task-presentation-read.ts";
-import { workIndexFromProjection } from "./work-read.ts";
+import { readAgendaAwaitsPage } from "./agenda-awaits-read.ts";
+import { requireSameProjectionCut } from "./projection-cut.ts";
+import { readWorkTasks, workIndexAtRead } from "./work-read.ts";
 
 /**
  * 「你交代的事」读模型(task_a3ffd5ceb;dec_C612E69B7C7E3480A5F9D2CAD3 重构区):每个工作根
@@ -37,7 +44,7 @@ export interface WorkBriefAwaitsRow {
 }
 
 export interface WorkBriefAgendaPage {
-  readonly page: CursorPageReceipt;
+  readonly page: CursorPageReceipt & { readonly limit?: number; readonly cursor?: string | null };
   readonly awaitingYou: readonly WorkBriefAwaitsRow[];
 }
 
@@ -106,27 +113,61 @@ export interface WorkBriefsReadResult {
   readonly warnings: readonly string[];
 }
 
-export function workBriefsFromProjection(input: {
-  readonly projection: TaskProjection;
-  /** 议程读面的同源入口;分页在内部沿游标排空到末页,游标停滞抛错不发布部分读面。 */
-  readonly agendaPage: (query: { readonly limit?: number; readonly cursor?: string }) => WorkBriefAgendaPage;
-  /** 读者的 person id;缺省时不过滤(单仓单业主仍是全集,多业主仓必须传)。 */
-  readonly principalId?: string;
-  readonly ciRuns?: readonly WorkBriefCiRun[];
-  readonly now?: () => Date;
-}): WorkBriefsReadResult {
+export function workBriefsFromProjection(
+  input: CollaboratorScope & {
+    readonly projection: TaskProjection;
+    /** 议程读面的同源入口;分页在内部沿游标排空到末页,游标停滞抛错不发布部分读面。 */
+    readonly agendaPage?: (query: {
+      readonly limit?: number;
+      readonly cursor?: string;
+      readonly scopePersonId?: string;
+      readonly filterNodeId?: string;
+    }) => WorkBriefAgendaPage;
+    /** Agenda viewer, independent of Work membership and the legacy root-owner lens. */
+    readonly viewerPersonId?: string;
+    /** Legacy root-owner lens when neither an explicit viewer nor a member scope is supplied. */
+    readonly principalId?: string;
+    readonly ciRuns?: readonly WorkBriefCiRun[];
+    readonly now?: () => Date;
+  },
+): WorkBriefsReadResult {
   const now = input.now ?? (() => new Date()),
-    index = taskPresentationReads(input.projection).readTaskIndex({ activePackagesOnly: true }),
+    index = readWorkTasks(input.projection, input),
     byId = new Map(index.rows.map((row) => [row.taskId, row])),
-    works = workIndexFromProjection(input.projection).works,
-    asksByWork = asksByWorkRoot(input.projection, works, input.agendaPage, input.principalId),
+    works = workIndexAtRead(index, input).works,
+    personId = scopedPersonId(input),
+    viewerPersonId = input.viewerPersonId ?? input.principalId ?? personId,
+    agendaPage: NonNullable<typeof input.agendaPage> =
+      input.agendaPage ??
+      ((query) => {
+        if (viewerPersonId === undefined) throw new Error("A Work Brief agenda requires a viewer.");
+        const read = readAgendaAwaitsPage(input.projection, { ...query, viewerPersonId });
+        requireSameProjectionCut("work brief agenda", [index, read]);
+        return read;
+      }),
+    asksByWork = asksByWorkRoot(input.projection, works, agendaPage, personId ?? viewerPersonId, {
+      ...(personId === undefined ? {} : { scopePersonId: personId }),
+      ...(input.filterNodeId === undefined ? {} : { filterNodeId: input.filterNodeId }),
+    }),
     latestRunByBranch = new Map<string, WorkBriefCiRun>();
   for (const run of input.ciRuns ?? []) if (!latestRunByBranch.has(run.branch)) latestRunByBranch.set(run.branch, run);
   const briefs: WorkBrief[] = [];
   for (const work of works) {
-    if (input.principalId !== undefined && rootPrincipal(input.projection, work.taskId) !== input.principalId) continue;
+    if (
+      personId === undefined &&
+      input.viewerPersonId === undefined &&
+      input.principalId !== undefined &&
+      rootPrincipal(input.projection, work.taskId) !== input.principalId
+    )
+      continue;
     // 根自身是容器:状态桶的成员证据只用子树成员,根的呈示状态只用于终态判定。
-    const members = work.memberTaskIds.flatMap((taskId) => byId.get(taskId) ?? []),
+    const scoped = personId !== undefined || input.filterNodeId !== undefined;
+    const members = work.memberTaskIds.flatMap((taskId) => {
+        const row = byId.get(taskId);
+        if (!row || !taskMatchesCollaboratorActivity(input, row)) return [];
+        const updatedAt = scoped ? (collaboratorTaskActivityAt(input, row) ?? row.updatedAt) : row.updatedAt;
+        return [{ ...row, updatedAt }];
+      }),
       asks = asksByWork.get(work.taskId) ?? [],
       open = members.filter(({ status }) => !isTerminalStatus(status)),
       active = open.filter(({ status }) => status === "active"),
@@ -139,16 +180,19 @@ export function workBriefsFromProjection(input: {
       ),
       // 已完成必须「全体成员终态」:实测(2026-10-18,PLT-Honest)存在根呈 cancelled 而
       // 子树挂着活跃任务与等你提问的工作——按根终态折已完成会把业主的活问题藏掉。
+      participationOnly = members.length === 0 && work.memberTaskIds.length > 0,
       bucket: WorkBriefBucket =
-        open.length === 0
-          ? "done"
-          : asks.length > 0
-            ? "waiting"
-            : blocked.length > 0
-              ? "stuck"
-              : active.length > 0 || review.length > 0
-                ? "running"
-                : "unclear";
+        asks.length > 0
+          ? "waiting"
+          : participationOnly
+            ? "unclear"
+            : open.length === 0
+              ? "done"
+              : blocked.length > 0
+                ? "stuck"
+                : active.length > 0 || review.length > 0
+                  ? "running"
+                  : "unclear";
     if (bucket === "done") {
       const retiredAt = deliveredAt ?? work.lastActivityAt;
       if (Date.parse(retiredAt) < now().getTime() - DONE_FOLD_DAYS * 86_400_000) continue;
@@ -159,7 +203,8 @@ export function workBriefsFromProjection(input: {
       bucket,
       lastActivityAt: work.lastActivityAt,
       deliveredAt: bucket === "done" ? deliveredAt : null,
-      sentenceParts: sentenceParts(asks, blocked, active, review, open, doneMembers),
+      sentenceParts:
+        participationOnly && asks.length === 0 ? [] : sentenceParts(asks, blocked, active, review, open, doneMembers),
       asks,
       openTasks: [...open]
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
@@ -169,7 +214,10 @@ export function workBriefsFromProjection(input: {
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
         .slice(0, DELIVERED_TASK_LIMIT)
         .map(({ taskId, title, status, updatedAt }) => ({ taskId, title, status, updatedAt })),
-      pullRequests: pullRequestsOf(work.memberTaskIds, latestRunByBranch),
+      pullRequests: pullRequestsOf(
+        members.map(({ taskId }) => taskId),
+        latestRunByBranch,
+      ),
     });
   }
   briefs.sort(
@@ -233,8 +281,13 @@ function pullRequestsOf(
 function asksByWorkRoot(
   projection: TaskProjection,
   works: readonly { readonly taskId: string; readonly memberTaskIds: readonly string[] }[],
-  agendaPage: (query: { readonly limit?: number; readonly cursor?: string }) => WorkBriefAgendaPage,
+  agendaPage: (query: {
+    readonly limit?: number;
+    readonly cursor?: string;
+    readonly scopePersonId?: string;
+  }) => WorkBriefAgendaPage,
   principalId: string | undefined,
+  scope: CollaboratorScope,
 ): ReadonlyMap<string, WorkBriefAwaitsRow[]> {
   // 「等你」行的扫取:沿服务端游标排空到末页,与 #3869 的关系图完整读同一策略
   // (cursorStep,同步壳见 ./paginated-read.ts);重复游标表示异常循环,抛错且不发布
@@ -243,9 +296,15 @@ function asksByWorkRoot(
     principalId === undefined
       ? []
       : drainCursorPagesSync(
-          (facets) => agendaPage({ limit: AGENDA_SWEEP_PAGE_SIZE, ...facets }),
+          (facets) =>
+            agendaPage({
+              limit: AGENDA_SWEEP_PAGE_SIZE,
+              ...facets,
+              ...scope,
+            }),
           "work briefs agenda sweep",
         ).flatMap((page) => page.awaitingYou);
+  if (asks.length === 0) return new Map();
   const workOfTask = new Map<string, string>();
   for (const work of works)
     for (const taskId of [work.taskId, ...work.memberTaskIds]) workOfTask.set(taskId, work.taskId);
@@ -264,6 +323,7 @@ function asksByWorkRoot(
     }
   const byWork = new Map<string, WorkBriefAwaitsRow[]>();
   for (const ask of asks) {
+    if (ask.personId !== principalId) continue;
     const sourceTaskId = /^task\/([^/]+)$/u.exec(ask.sourceRef)?.[1],
       workId =
         (sourceTaskId !== undefined ? workOfTask.get(sourceTaskId) : undefined) ??

@@ -1,9 +1,10 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import {
   openDaemonHost,
   createJsonRpcProtocolServer,
@@ -108,7 +109,7 @@ test("real runtime metrics twice preserves request retention, denominator and P9
     assert.equal(traffic.filter((record) => record.event === "request" && record.method === "observe.tail").length, 5);
   } finally {
     if (daemon && !("pid" in daemon)) await daemon.stop();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -256,6 +257,6 @@ test("native metrics reads real rotated logs over one socket and rejects an actu
     else process.env.HARNESS_DAEMON_ENDPOINT = priorEndpoint;
     if (priorRelay === undefined) delete process.env.HARNESS_DAEMON_RELAY;
     else process.env.HARNESS_DAEMON_RELAY = priorRelay;
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
