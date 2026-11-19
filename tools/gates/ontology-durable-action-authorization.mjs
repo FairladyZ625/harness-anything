@@ -30,7 +30,7 @@ import {
   serverSourceGraph,
 } from "./authorization-flow-graph.mjs";
 import { makeAuthorizationTracer } from "./authorization-flow-trace.mjs";
-import { processNativeSourceSites } from "./authorization-process-source-sites.mjs";
+import { processNativeSourceSites, runDescriptorTraversals } from "./authorization-process-source-sites.mjs";
 import { withArtifactActionIngressDeclarations } from "./ontology-gate-lib.mjs";
 import {
   sourceFileOf,
@@ -582,7 +582,7 @@ function auditAuthorization(rootDir, inputs, options) {
       declaredCalls.get(node).push({ action, source });
     }
   record("witnessesAndSetup", { ms: elapsed() });
-  function traceRow({ descriptor, index }) {
+  function* traceRow({ descriptor, index }, proofs) {
     const routeStart = performance.now();
     const rewrite = descriptor.kindRewrite,
       kind = rewrite?.authorizedKind ?? descriptor.actionKind ?? descriptor.id,
@@ -611,9 +611,8 @@ function auditAuthorization(rootDir, inputs, options) {
       ownSession: authority === "own-session",
       canonicalCut: !nonCanonical.has(kind),
     };
-    const owner = tracer.traceDescriptor(traceInput);
+    const owner = yield* tracer.descriptorTraversal(traceInput);
     const ownerEnd = performance.now();
-    graph.resetFramePool();
     const ownerEvidence =
       authority === "local-transport" ? owner.local : authority === "own-session" ? owner.session : owner.authorized;
     const targets = sourceTargets(action, descriptor.id).filter((source) => {
@@ -626,10 +625,10 @@ function auditAuthorization(rootDir, inputs, options) {
       ownerEvidence.length > 0 &&
       declarationViolations.length === 0 &&
       owner.violations.length === 0
-        ? sourceTracer.traceDescriptor({ ...traceInput, sources: targets })
+        ? yield* sourceTracer.descriptorTraversal({ ...traceInput, sources: targets })
         : null;
     if (fullTrace) {
-      for (const source of fullTrace.sources.values()) sourceResults.set(source.id, source);
+      for (const source of fullTrace.sources.values()) proofs.set(source.id, source);
     }
     const remainingTargets = fullTrace
       ? targets.filter((target) => {
@@ -639,16 +638,15 @@ function auditAuthorization(rootDir, inputs, options) {
       : [];
     const policyTrace =
       remainingTargets.length > 0
-        ? tracer.traceDescriptor({
+        ? yield* tracer.descriptorTraversal({
             ...traceInput,
             sources: remainingTargets,
             sourceEvaluator: fullTrace.sourceEvaluator,
           })
         : null;
     if (policyTrace) {
-      for (const source of policyTrace.sources.values()) sourceResults.set(source.id, source);
+      for (const source of policyTrace.sources.values()) proofs.set(source.id, source);
     }
-    if (fullTrace || policyTrace) graph.resetFramePool();
     record("route", {
       id: descriptor.id,
       ownerMs: Math.round(ownerEnd - routeStart),
@@ -669,7 +667,19 @@ function auditAuthorization(rootDir, inputs, options) {
       violations,
     };
   }
-  let rows;
+  const rows = [];
+  const walkProfile = options.profile ? { sourceFrames: 0, sourceBodyVisits: 0 } : null;
+  function traceBatch(items) {
+    const proofs = items.map(() => new Map());
+    rows.push(
+      ...runDescriptorTraversals(
+        items.map((item, i) => traceRow(item, proofs[i])),
+        walkProfile,
+      ),
+    );
+    for (const results of proofs) for (const [id, proof] of results) sourceResults.set(id, proof);
+    graph.resetFramePool();
+  }
   let scopedSourceActions = availableSources;
   if (options.groupQueue) {
     const groups = new Map();
@@ -686,7 +696,7 @@ function auditAuthorization(rootDir, inputs, options) {
       }
     const queue = [...groups].sort(([a], [b]) => (loads.get(b) ?? 0) - (loads.get(a) ?? 0) || a - b);
     const owned = new Set();
-    rows = [];
+    const pending = [];
     for (
       let turn = Atomics.add(options.groupQueue, 0, 1);
       turn < queue.length;
@@ -696,13 +706,11 @@ function auditAuthorization(rootDir, inputs, options) {
       const [group, descriptors] = queue[turn];
       owned.add(group);
       for (const item of descriptors) {
-        try {
-          rows.push(traceRow(item));
-        } catch (error) {
-          throw new Error(`authorization for ${item.descriptor.id}: ${error.stack ?? error}`);
-        }
+        pending.push(item);
+        if (pending.length === 2) traceBatch(pending.splice(0));
       }
     }
+    if (pending.length) traceBatch(pending);
     rows.sort((a, b) => a.index - b.index);
     scopedSourceActions = availableSources.flatMap((action) => {
       const sources = action.ontology.sources.filter((src) => {
@@ -711,8 +719,8 @@ function auditAuthorization(rootDir, inputs, options) {
       });
       return sources.length ? [{ ...action, ontology: { ...action.ontology, sources } }] : [];
     });
-  } else rows = selected.map(traceRow);
-  record("serverRoutes", { ms: elapsed() });
+  } else for (const item of selected) traceBatch([item]);
+  record("serverRoutes", { ms: elapsed(), ...walkProfile });
   const processEvaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true });
   const nativeSites = new Map(),
     targetsByRoute = new Map();

@@ -9,9 +9,9 @@ import {
   freshEvaluationGraph,
   makeEvaluator,
 } from "../authorization-flow-graph.mjs";
-import { processNativeSourceSites } from "../authorization-process-source-sites.mjs";
+import { processNativeSourceSites, processSourceQueries } from "../authorization-process-source-sites.mjs";
 import { sourceOriginFilter } from "../authorization-source-origins.mjs";
-import { processSourceSites, sourceSite, sourceWitnesses } from "../authorization-source-proof.mjs";
+import { processSourceSites, sourceFrameKey, sourceSite, sourceWitnesses } from "../authorization-source-proof.mjs";
 import { scanOntologyText } from "../ontology-closure-scan.mjs";
 import { makeRepo } from "./helpers.mjs";
 
@@ -550,6 +550,63 @@ test("a request-free call frame answers provenance without evaluating its condit
       assert.equal(calls, before, "a closed input cannot supply either request or action provenance");
       assert.equal(evaluator.provenance(expression, request), "request");
     }
+  } finally {
+    graph.releaseQueries();
+  }
+});
+
+test("joint source traversal keeps each descriptor's first deeply captured callback", () => {
+  const file = "packages/daemon/src/nested.ts";
+  const { rootDir } = makeRepo({
+    [file]: `
+function record() { sink.append("witness"); }
+function idle() {}
+function inner(value) { return () => value(); }
+function outer(thunk) { return () => thunk(); }
+function enter(callable) { if (true) callable(); }`,
+  });
+  const graph = buildFlowGraph(rootDir);
+  try {
+    const [record, idle, inner, outer, entry] = graph.modules.get(file).sourceFile.statements;
+    const site = sourceSite(graph, record.body.statements[0].expression);
+    const steps = [];
+    const branch = entry.body.statements[0];
+    function query(implementation, kind) {
+      const captured = graph.internEnv([[inner.parameters[0], { expression: implementation.name, env: EMPTY_ENV }]]);
+      const nested = graph.internEnv([
+        [outer.parameters[0], { expression: inner.body.statements[0].expression, env: captured }],
+      ]);
+      const env = graph.internEnv([
+        [entry.parameters[0], { expression: outer.body.statements[0].expression, env: nested }],
+      ]);
+      const scalar = makeEvaluator(graph, { kind, constants: {}, functions: {}, strictMembers: true });
+      const evaluator = {
+        ...scalar,
+        fold(node, env) {
+          if (node === branch.expression) steps.push([kind, "condition"]);
+          return scalar.fold(node, env);
+        },
+        evaluate(node, env) {
+          if (node === branch.thenStatement.expression.expression) steps.push([kind, "callee"]);
+          return scalar.evaluate(node, env);
+        },
+      };
+      return { graph, entry, options: { evaluator, env, targets: [site], targetOnly: true } };
+    }
+    const queries = [query(idle, "first"), query(record, "second"), query(idle, "third")];
+    assert.equal(
+      sourceFrameKey(graph, entry, queries[0].options.env),
+      sourceFrameKey(graph, entry, queries[1].options.env),
+    );
+    assert.notEqual(queries[0].options.env, queries[1].options.env);
+    assert.deepEqual(
+      processSourceQueries(queries).map((sites) => sites.has(site)),
+      [false, true, false],
+    );
+    assert.deepEqual(steps, [
+      ...["first", "second", "third"].map((kind) => [kind, "condition"]),
+      ...["first", "second", "third"].map((kind) => [kind, "callee"]),
+    ]);
   } finally {
     graph.releaseQueries();
   }
