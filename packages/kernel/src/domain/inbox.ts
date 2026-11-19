@@ -12,7 +12,7 @@ import type { AgentRuntimeEventV1 } from "./agent-runtime.ts";
 import { timestamp } from "./timestamp.ts";
 import { isNonEmptyString, isRecord } from "./write-chain.contract.ts";
 
-export const INBOX_MODEL_VERSION = 1;
+export const INBOX_MODEL_VERSION = 2;
 export const INBOX_PAGE_LIMIT = 200;
 const INBOX_TEXT_LIMIT = 256;
 const INBOX_SUMMARY_LIMIT = 1024;
@@ -35,15 +35,25 @@ export const inboxItemStatuses = [
   "dropped_stale",
 ] as const;
 export type InboxItemStatus = (typeof inboxItemStatuses)[number];
-/** Non-terminal statuses; each one is an ordered queue readable through {@link InboxQuery}. */
+/** Non-terminal statuses; each one is an ordered queue within one consumer kind. */
 export const inboxQueueStatuses = ["pending", "quarantined_external", "claimed"] as const;
 export type InboxQueueStatus = (typeof inboxQueueStatuses)[number];
 
-export const inboxItemSources = ["ruling_resolved", "timer_fired", "task_stalled", "external_ingress"] as const;
+export const inboxItemSources = [
+  "ruling_resolved",
+  "timer_fired",
+  "task_stalled",
+  "external_ingress",
+  "peer_request",
+  "peer_reply",
+] as const;
 export type InboxItemSource = (typeof inboxItemSources)[number];
 /** External input lands quarantined until host isolation (CH4) exists; it never wakes a runtime. */
 export const inboxItemAdmissions = ["dispatchable", "quarantined_external"] as const;
 export type InboxItemAdmission = (typeof inboxItemAdmissions)[number];
+/** Which single consumer class may claim an item; this is separate from external-input admission. */
+export const inboxConsumerKinds = ["unattended_dispatch", "interactive_watch", "quarantined_external"] as const;
+export type InboxConsumerKind = (typeof inboxConsumerKinds)[number];
 export const inboxStaleReasons = ["source_epoch_superseded", "source_retired", "target_terminal"] as const;
 export type InboxStaleReason = (typeof inboxStaleReasons)[number];
 
@@ -56,8 +66,15 @@ export interface InboxEventPayloads {
     readonly sourceEpoch: number;
     readonly dedupeKey: string;
     readonly admission: InboxItemAdmission;
+    readonly consumerKind?: InboxConsumerKind;
     readonly taskId: string | null;
     readonly agentId: string | null;
+    readonly senderPersonId?: string | null;
+    readonly workId?: string | null;
+    readonly lane?: string | null;
+    readonly correlationId?: string | null;
+    readonly minRevision?: number;
+    readonly requiredBlobSha256s?: readonly string[];
     readonly summary: string;
     readonly enqueuedAt: string;
   };
@@ -112,6 +129,19 @@ export const inboxPayloadFields: { readonly [Type in InboxEventType]: readonly (
   inbox_item_dropped_stale: ["inboxId", "itemId", "claimId", "reasonCode", "observedSourceEpoch", "droppedAt"],
 };
 
+/** Optional additions keep already accepted Inbox event envelopes readable. */
+export const inboxOptionalPayloadFields: Partial<Record<InboxEventType, readonly string[]>> = {
+  inbox_item_enqueued: [
+    "senderPersonId",
+    "consumerKind",
+    "workId",
+    "lane",
+    "correlationId",
+    "minRevision",
+    "requiredBlobSha256s",
+  ],
+};
+
 export type InboxEvent = Extract<AgentRuntimeEventV1, { readonly type: InboxEventType }>;
 
 export function isInboxEventType(type: string): type is InboxEventType {
@@ -131,6 +161,13 @@ export interface InboxItem {
   readonly dedupeKey: string;
   readonly taskId: string | null;
   readonly agentId: string | null;
+  readonly senderPersonId: string | null;
+  readonly workId: string | null;
+  readonly lane: string | null;
+  readonly correlationId: string | null;
+  readonly minRevision: number;
+  readonly requiredBlobSha256s: readonly string[];
+  readonly consumerKind: InboxConsumerKind;
   readonly summary: string;
   readonly status: InboxItemStatus;
   readonly enqueuedAt: string;
@@ -201,6 +238,15 @@ export function reduceInboxItem(current: InboxItem | null, event: InboxEvent): I
         dedupeKey: payload.dedupeKey,
         taskId: payload.taskId,
         agentId: payload.agentId,
+        senderPersonId: event.actor.principal?.personId ?? payload.senderPersonId ?? null,
+        workId: payload.workId ?? null,
+        lane: payload.lane ?? null,
+        correlationId: payload.correlationId ?? null,
+        minRevision: payload.minRevision ?? event.workspaceRevision,
+        requiredBlobSha256s: payload.requiredBlobSha256s ?? [],
+        consumerKind:
+          payload.consumerKind ??
+          (payload.admission === "quarantined_external" ? "quarantined_external" : "unattended_dispatch"),
         summary: payload.summary,
         status: payload.admission === "quarantined_external" ? "quarantined_external" : "pending",
         enqueuedAt: payload.enqueuedAt,
@@ -348,7 +394,9 @@ export type InboxQuery =
   | {
       readonly by: "queue";
       readonly status: InboxQueueStatus;
-      /** Omitted: the cross-inbox queue in enqueue order, which the single consumer pages through. */
+      /** Required to keep unattended dispatch, interactive watch and quarantine consumers isolated. */
+      readonly consumerKind: InboxConsumerKind;
+      /** Omitted: the cross-inbox queue in enqueue order for this consumer kind. */
       readonly inboxId?: string;
       readonly limit?: number;
       /** The `enqueuedRevision` of the last item on the previous page. */
@@ -392,9 +440,9 @@ function epoch(value: unknown): boolean {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
-/** `task:<taskId>`, `agent:<agentId>`, or `supervisor:<workId|repo>` (CH2 supervisor inbox). */
+/** `task:<taskId>`, `agent:<agentId>`, `person:<personId>`, or `supervisor:<workId|repo>`. */
 export function isValidInboxId(value: unknown): value is string {
-  return typeof value === "string" && /^(?:task|agent|supervisor):[^\s]{1,128}$/u.test(value);
+  return typeof value === "string" && /^(?:task|agent|person|supervisor):[^\s]{1,128}$/u.test(value);
 }
 
 function enqueuedIssues(value: Readonly<Record<string, unknown>>): readonly string[] {
@@ -406,8 +454,18 @@ function enqueuedIssues(value: Readonly<Record<string, unknown>>): readonly stri
     !epoch(value.sourceEpoch) ||
     !boundedText(value.dedupeKey, 512) ||
     !(inboxItemAdmissions as readonly unknown[]).includes(value.admission) ||
+    (value.consumerKind !== undefined && !(inboxConsumerKinds as readonly unknown[]).includes(value.consumerKind)) ||
     !nullableText(value.taskId) ||
     !nullableText(value.agentId) ||
+    (value.senderPersonId !== undefined && !nullableText(value.senderPersonId)) ||
+    (value.workId !== undefined && !nullableText(value.workId)) ||
+    (value.lane !== undefined && !nullableText(value.lane)) ||
+    (value.correlationId !== undefined && !nullableText(value.correlationId)) ||
+    (value.minRevision !== undefined && !epoch(value.minRevision)) ||
+    (value.requiredBlobSha256s !== undefined &&
+      (!Array.isArray(value.requiredBlobSha256s) ||
+        value.requiredBlobSha256s.length > 16 ||
+        !value.requiredBlobSha256s.every((sha) => typeof sha === "string" && /^[a-f0-9]{64}$/u.test(sha)))) ||
     !boundedText(value.summary, INBOX_SUMMARY_LIMIT) ||
     !timestamp(String(value.enqueuedAt))
   )
@@ -419,8 +477,16 @@ function enqueuedIssues(value: Readonly<Record<string, unknown>>): readonly stri
   if ((kind === "task" && value.taskId !== id) || (kind === "agent" && value.agentId !== id))
     return ["inbox item enqueue target does not match its inbox"];
   // R4 hard gate: until verified host isolation exists, external input is recorded, never executed.
-  if ((value.source === "external_ingress") !== (value.admission === "quarantined_external"))
-    return ["inbox external ingress must be quarantined, and only external ingress may be quarantined"];
+  const externalIngress = value.source === "external_ingress",
+    consumerKind =
+      value.consumerKind ?? (value.admission === "quarantined_external" ? "quarantined_external" : "unattended_dispatch");
+  if (
+    externalIngress !== (value.admission === "quarantined_external") ||
+    externalIngress !== (consumerKind === "quarantined_external") ||
+    ((value.source === "peer_request" || value.source === "peer_reply") &&
+      (value.consumerKind === undefined || value.consumerKind !== "interactive_watch"))
+  )
+    return ["external ingress must be quarantined, and peer messages must use the interactive watch consumer"];
   return [];
 }
 

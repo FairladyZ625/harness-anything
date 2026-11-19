@@ -113,7 +113,7 @@ const env = {
 };
 
 test("(d) unattended admission refuses bypass and strips plaintext GitHub tokens without echoing them", () => {
-  for (const workKind of ["code_change", "supervision"] as const)
+  for (const workKind of ["code_change", "supervision", "peer_readonly"] as const)
     assert.throws(
       () =>
         assertUnattendedLaunchAdmission({
@@ -156,6 +156,14 @@ test("(d) code work is capped at workspace-write, supervision at read-only, unsu
     }).permissionMode,
     "read-only",
   );
+  const peer = assertUnattendedLaunchAdmission({
+    workKind: "peer_readonly",
+    requestedPermissionMode: null,
+    supportedPermissionModes: ["read-only"],
+    environment: { GITHUB_TOKEN: "ghp_peer_token" },
+  });
+  assert.equal(peer.permissionMode, "read-only");
+  assert.deepEqual(peer.environment, {});
   assert.throws(
     () =>
       assertUnattendedLaunchAdmission({

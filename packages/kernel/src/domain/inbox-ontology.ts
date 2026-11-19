@@ -2,7 +2,12 @@ import { INBOX_PAGE_LIMIT } from "./inbox.ts";
 import type { OntologyJudgmentDeclaration, OntologyPolicyDeclaration } from "./ontology-source.ts";
 
 /** Inbox aggregate declarations (dec_7CE3162BF9BFB157DAB9F9B6C0 CH1, R4). */
-const inboxFixtures = ["packages/kernel/test/inbox.test.ts", "packages/storage/test/store/inbox-projection.test.ts"];
+const inboxFixtures = [
+  "packages/kernel/test/inbox.test.ts",
+  "packages/storage/test/store/inbox-projection.test.ts",
+  "packages/storage/test/pglite/pglite-inbox.integration.test.ts",
+  "packages/storage/test/postgres/pg-inbox.integration.test.ts",
+];
 const inboxSource = (symbol: string) => `policy:packages/kernel:packages/kernel/src/domain/inbox.ts#${symbol}`;
 
 export const inboxPolicies = [
@@ -11,17 +16,18 @@ export const inboxPolicies = [
     ownerRef: "runtime-session/inbox_item_enqueued",
     unit: "inbox items per read",
     bounds:
-      "Queue reads return at most 200 items per page in enqueue-revision order; identities are at most 256 characters, dedupe keys 512 and summaries 1024.",
+      "Queue reads require consumerKind unattended_dispatch, interactive_watch, or quarantined_external, return at most 200 items in enqueue-revision order, and keep each consumer isolated; identities are at most 256 characters, dedupe keys 512 and summaries 1024.",
     defaultValue: INBOX_PAGE_LIMIT,
-    version: 1,
+    version: 2,
     scope: "Inbox events and Inbox projection reads",
-    reason: "Bound every Inbox read and payload so one fold and one page never grow with inbox history.",
+    reason:
+      "Bound every Inbox read and payload so one fold and one page never grow with inbox history, and keep background dispatch from claiming interactive watch messages.",
     fixtures: inboxFixtures,
     sources: [
       inboxSource("INBOX_PAGE_LIMIT:7fbdd7a0b52227f85420ba40b43bb354"),
       inboxSource("INBOX_TEXT_LIMIT:eb151f03d98158007b488536b00f7417"),
       inboxSource("INBOX_SUMMARY_LIMIT:e6e6093fc4dce229ecd75abcef9891e3"),
-      inboxSource("enqueuedIssues:9aae0a2463287c7502e6f9f9f112de90"),
+      inboxSource("enqueuedIssues:b52c34440b99f9ecbadad1ba19b4a5a1"),
     ].map((candidateId) => ({ candidateId, route: "readInbox" })),
   },
   {
@@ -47,15 +53,15 @@ export const inboxPolicies = [
     ownerRef: "runtime-session/inbox_item_enqueued",
     unit: "inbox admission",
     bounds:
-      "external_ingress is admitted only as quarantined_external, and only external_ingress may be quarantined; a quarantined item is never claimed.",
+      "external_ingress is admitted only as quarantined_external and only into the quarantined_external consumerKind; peer_request and peer_reply require interactive_watch.",
     defaultValue: "quarantined_external",
-    version: 1,
+    version: 2,
     scope: "Inbox events until verified host isolation exists (R4)",
     reason: "External input is recorded but never executed before host isolation exists.",
     fixtures: inboxFixtures,
     sources: [
       inboxSource("reduceInboxItem.item.status:d91a350dc6eb2c6f420694fcd95c75f1"),
-      inboxSource("enqueuedIssues:a5d5914012ad35190849aa24a6c4582a"),
+      inboxSource("enqueuedIssues:1fea5df76694395d7b799c3b236d1508"),
     ].map((candidateId) => ({ candidateId, route: "readInbox" })),
   },
 ] as const satisfies readonly OntologyPolicyDeclaration[];
@@ -67,7 +73,8 @@ export const inboxJudgments = [
     inputs: ["InboxEventType", "unknown payload"],
     output: "readonly string[] issues",
     failureCodes: [],
-    explain: "Field-value contract of the five Inbox payloads, called once from the agent runtime event validator.",
+    explain:
+      "Field-value contract of the Inbox event payloads, including peer traffic and optional causal-routing metadata, called once from the agent runtime event validator.",
     consumers: ["packages/kernel/src/domain/agent-runtime.ts"],
     sources: [
       {
@@ -105,7 +112,7 @@ export const inboxJudgments = [
       "unattended_permission_unsupported",
     ],
     explain:
-      "Refuse bypass, cap code work at workspace-write and supervision at read-only, fail closed on unsupported modes, and strip plaintext GitHub tokens.",
+      "Refuse bypass, cap code work at workspace-write and supervision or peer-read-only work at read-only, fail closed on unsupported modes, and strip plaintext GitHub tokens.",
     consumers: [],
     sources: [
       {

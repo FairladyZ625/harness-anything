@@ -30,6 +30,7 @@ export const INBOX_TABLES_SQL = `
       inbox_id TEXT NOT NULL,
       item_id TEXT NOT NULL,
       dedupe_key TEXT NOT NULL,
+      consumer_kind TEXT NOT NULL,
       status TEXT NOT NULL,
       enqueued_revision INTEGER NOT NULL,
       revision INTEGER NOT NULL,
@@ -38,9 +39,11 @@ export const INBOX_TABLES_SQL = `
     );
     CREATE UNIQUE INDEX IF NOT EXISTS inbox_item_dedupe ON inbox_item(inbox_id, dedupe_key);
     CREATE INDEX IF NOT EXISTS inbox_item_queue
-      ON inbox_item(status, enqueued_revision) WHERE status IN ('pending', 'quarantined_external', 'claimed');
+      ON inbox_item(consumer_kind, status, enqueued_revision)
+      WHERE status IN ('pending', 'quarantined_external', 'claimed');
     CREATE INDEX IF NOT EXISTS inbox_item_inbox_queue
-      ON inbox_item(inbox_id, status, enqueued_revision) WHERE status IN ('pending', 'quarantined_external', 'claimed');
+      ON inbox_item(inbox_id, consumer_kind, status, enqueued_revision)
+      WHERE status IN ('pending', 'quarantined_external', 'claimed');
     /* @gate-identity state-store/task.projection.inbox_cursor */ CREATE TABLE IF NOT EXISTS inbox_cursor (
       singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
       revision INTEGER NOT NULL,
@@ -97,7 +100,12 @@ export function catchUpInbox(db: DatabaseSync, onProgress?: (progress: { applied
 function modelVersion(db: DatabaseSync): number | undefined | null {
   const cursorColumns = queryRows<{ name: string }>(db, "PRAGMA table_info(inbox_cursor)").map(({ name }) => name),
     itemColumns = queryRows<{ name: string }>(db, "PRAGMA table_info(inbox_item)").map(({ name }) => name);
-  if (!cursorColumns.includes("model_version") || !itemColumns.includes("enqueued_revision")) return null;
+  if (
+    !cursorColumns.includes("model_version") ||
+    !itemColumns.includes("enqueued_revision") ||
+    !itemColumns.includes("consumer_kind")
+  )
+    return null;
   return queryRows<{ model_version: number }>(db, "SELECT model_version FROM inbox_cursor WHERE singleton = 1")[0]
     ?.model_version;
 }
@@ -146,13 +154,14 @@ function readAddressedItem(db: DatabaseSync, event: InboxEvent): InboxItem | nul
 function writeItem(db: DatabaseSync, item: InboxItem): void {
   runSql(
     db,
-    `INSERT INTO inbox_item(inbox_id, item_id, dedupe_key, status, enqueued_revision, revision, item_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO inbox_item(inbox_id, item_id, dedupe_key, consumer_kind, status, enqueued_revision, revision, item_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(inbox_id, item_id) DO UPDATE SET
        status = excluded.status, revision = excluded.revision, item_json = excluded.item_json`,
     item.inboxId,
     item.itemId,
     item.dedupeKey,
+    item.consumerKind,
     item.status,
     item.enqueuedRevision,
     item.revision,
@@ -179,12 +188,13 @@ export function readInboxRows(
   if (!(inboxQueueStatuses as readonly string[]).includes(query.status))
     throw new Error(`inbox queue status is not a queue: ${String(query.status)}`);
   const limit = inboxPageLimit(query.limit),
-    parameters: (string | number)[] = [query.status, inboxQueueCursor(query.cursor)],
+    parameters: (string | number)[] = [query.consumerKind, query.status, inboxQueueCursor(query.cursor)],
     inboxClause = query.inboxId === undefined ? "" : " AND inbox_id = ?";
   if (query.inboxId !== undefined) parameters.push(query.inboxId);
   const items = queryRows<{ item_json: string }>(
     db,
-    `SELECT item_json FROM inbox_item WHERE status = ? AND enqueued_revision > ?${inboxClause}
+    `SELECT item_json FROM inbox_item
+     WHERE consumer_kind = ? AND status = ? AND enqueued_revision > ?${inboxClause}
      ORDER BY enqueued_revision LIMIT ?`,
     ...parameters,
     limit + 1,

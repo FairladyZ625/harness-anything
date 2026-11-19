@@ -50,6 +50,12 @@ function enqueue(
     sourceEpoch: input.sourceEpoch,
     dedupeKey: input.dedupeKey,
     admission: input.source === "external_ingress" ? "quarantined_external" : "dispatchable",
+    consumerKind:
+      input.source === "external_ingress"
+        ? "quarantined_external"
+        : input.source === "peer_request" || input.source === "peer_reply"
+          ? "interactive_watch"
+          : "unattended_dispatch",
     taskId: input.taskId === undefined ? input.inboxId.slice("task:".length) : input.taskId,
     agentId: input.agentId ?? null,
     summary: `wakeup ${input.itemId}`,
@@ -58,8 +64,8 @@ function enqueue(
 }
 
 /**
- * Nine accepted events covering every transition plus an ignored duplicate. Final state:
- * pending queue [item-a2 @6, item-c1 @9]; quarantined [item-x1 @4]; item-a1 completed; item-b1 dropped_stale.
+ * The scenario covers every transition, a dedupe collision, both peer sources and each consumer partition.
+ * The unattended queue ends with [item-a2 @6, item-c1 @9]; person:owner has one claimed request and one pending reply.
  */
 export function inboxScenario(): readonly InboxEvent[] {
   return [
@@ -117,17 +123,62 @@ export function inboxScenario(): readonly InboxEvent[] {
       droppedAt: "2026-11-18T00:00:08.000Z",
     }),
     enqueue(9, { inboxId: "task:task_c", itemId: "item-c1", source: "timer_fired", sourceEpoch: 2, dedupeKey: "k-c1" }),
+    inboxEvent(10, "inbox_item_enqueued", {
+      inboxId: "person:owner",
+      itemId: "peer-request",
+      source: "peer_request",
+      sourceRef: "person:sender/request-1",
+      sourceEpoch: 1,
+      dedupeKey: "peer-request-1",
+      admission: "dispatchable",
+      consumerKind: "interactive_watch",
+      taskId: null,
+      agentId: null,
+      senderPersonId: "person-spoofed",
+      workId: "work-a2a",
+      lane: "owner-review",
+      correlationId: "corr-request-1",
+      minRevision: 14,
+      requiredBlobSha256s: ["a".repeat(64)],
+      summary: "Peer request",
+      enqueuedAt: "2026-11-18T00:00:10.000Z",
+    }),
+    inboxEvent(11, "inbox_item_claimed", {
+      inboxId: "person:owner",
+      itemId: "peer-request",
+      claimId: "claim-peer-request",
+      claimedAt: "2026-11-18T00:00:11.000Z",
+      leaseUntil: "2026-11-18T00:01:11.000Z",
+    }),
+    inboxEvent(12, "inbox_item_enqueued", {
+      inboxId: "person:owner",
+      itemId: "peer-reply",
+      source: "peer_reply",
+      sourceRef: "person:sender/reply-1",
+      sourceEpoch: 1,
+      dedupeKey: "peer-reply-1",
+      admission: "dispatchable",
+      consumerKind: "interactive_watch",
+      taskId: null,
+      agentId: null,
+      summary: "Peer reply",
+      enqueuedAt: "2026-11-18T00:00:12.000Z",
+    }),
   ];
 }
 
 /** Every read shape the host wiring consumes; backends must answer each one identically. */
 export const inboxParityQueries: readonly InboxQuery[] = [
-  { by: "queue", status: "pending" },
-  { by: "queue", status: "pending", limit: 1 },
-  { by: "queue", status: "pending", limit: 1, cursor: "6" },
-  { by: "queue", status: "pending", inboxId: "task:task_a" },
-  { by: "queue", status: "claimed" },
-  { by: "queue", status: "quarantined_external" },
+  { by: "queue", status: "pending", consumerKind: "unattended_dispatch" },
+  { by: "queue", status: "pending", consumerKind: "unattended_dispatch", limit: 1 },
+  { by: "queue", status: "pending", consumerKind: "unattended_dispatch", limit: 1, cursor: "6" },
+  { by: "queue", status: "pending", consumerKind: "unattended_dispatch", inboxId: "task:task_a" },
+  { by: "queue", status: "claimed", consumerKind: "unattended_dispatch" },
+  { by: "queue", status: "quarantined_external", consumerKind: "quarantined_external" },
+  { by: "queue", status: "pending", consumerKind: "interactive_watch", inboxId: "person:owner" },
+  { by: "queue", status: "claimed", consumerKind: "interactive_watch", inboxId: "person:owner" },
+  { by: "item", inboxId: "person:owner", itemId: "peer-request" },
+  { by: "dedupe", inboxId: "person:owner", dedupeKey: "peer-reply-1" },
   { by: "item", inboxId: "task:task_a", itemId: "item-a1" },
   { by: "item", inboxId: "task:task_a", itemId: "item-a1-retry" },
   { by: "item", inboxId: "task:task_b", itemId: "item-b1" },
