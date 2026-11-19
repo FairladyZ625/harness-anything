@@ -293,7 +293,7 @@ const GIT_HISTORY_STDERR_BYTES = 512;
 export function runGitHistoryLog(
   rootDir: string,
   args: readonly string[],
-  timeoutMs = daemonRuntimePolicy.defaultValue.runtime.currentWorktreeHeadTimeoutMs,
+  timeoutMs: number = daemonRuntimePolicy.defaultValue.runtime.currentWorktreeHeadTimeoutMs,
 ): GitHistoryLogResult {
   try {
     return {

@@ -248,7 +248,6 @@ export function pgTaskIndexQueries(
         );
         const visible = pageSize === null ? result.rows : result.rows.slice(0, pageSize),
           at = now(),
-          at = now(),
           rows = visible.flatMap((row) => indexRow(row, at));
         return {
           ...cut,
