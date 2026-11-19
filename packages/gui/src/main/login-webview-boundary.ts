@@ -97,6 +97,8 @@ export interface LoginWebviewAttachment {
   readonly allowedOrigins: readonly string[];
 }
 
+export type CertificateErrorDecision = "accept" | "reject";
+
 interface LoginWebviewGrantRecord extends LoginWebviewGrantHandle {
   readonly expectedSrc: string;
   readonly allowedOrigins: readonly string[];
@@ -132,11 +134,11 @@ export function createLoginWebviewGrants(
   readonly bindGuestWebContents: (webContentsId: number, session: object) => LoginWebviewAttachment | null;
   readonly unbindGuestWebContents: (webContentsId: number) => void;
   readonly release: (partitionToken: string) => void;
-  readonly decideCertificateError: (input: {
+  readonly certificateErrorDecision: (input: {
     readonly webContentsId: number;
     readonly url: string;
     readonly certificatePem: string;
-  }) => boolean;
+  }) => CertificateErrorDecision;
 } {
   const createToken = createIdentifiers.createToken ?? randomUUID,
     createPartition = createIdentifiers.createPartition ?? (() => `login-${randomUUID()}`),
@@ -179,13 +181,13 @@ export function createLoginWebviewGrants(
       grants.delete(partitionToken);
       record?.guestWebContentsIds.clear();
     },
-    decideCertificateError: ({ webContentsId, url, certificatePem }) => {
+    certificateErrorDecision: ({ webContentsId, url, certificatePem }) => {
       const record = [...grants.values()].find((grant) => grant.guestWebContentsIds.has(webContentsId));
-      if (!record) return false;
-      return (
+      const trusted =
+        record !== undefined &&
         URL.parse(url)?.origin === record.trust.origin &&
-        matchesLoginCertificate(certificatePem, record.trust.fingerprint256)
-      );
+        matchesLoginCertificate(certificatePem, record.trust.fingerprint256);
+      return trusted ? "accept" : "reject";
     },
   };
 }

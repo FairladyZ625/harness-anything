@@ -102,11 +102,11 @@ export function createLoginWebviewSecurity(session: Pick<typeof electronSession,
         event.preventDefault();
         callback(
           !webContents.isDestroyed() &&
-            grants.decideCertificateError({
+            grants.certificateErrorDecision({
               webContentsId: webContents.id,
               url,
               certificatePem: certificate.data,
-            }),
+            }) === "accept",
         );
       });
     },
