@@ -47,6 +47,7 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
   readonly #external?: IdentitySessionPort;
   readonly #pending = new Map<string, Pending>();
   readonly #browserCodes = new Map<string, BrowserCode>();
+  readonly #externalTargets = new Set<string>();
   #currentDeviceCode: string | undefined;
   #loginServer: Server | undefined;
   #loginPort: number | undefined;
@@ -122,10 +123,12 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     _authorityOverride?: OidcLoginAuthority,
     expiresAtLimit?: number,
   ): Promise<Record<string, unknown>> {
-    const external = this.#externalSession(loginTarget);
+    const external = this.#externalSession(loginTarget) ?? (_authorityOverride ? this.#external : undefined);
     if (external) {
       this.#externalDevicePending = false;
       const receipt = await external.beginDevice(loginTarget, _authorityOverride, expiresAtLimit);
+      if (loginTarget) this.#externalTargets.add(loginTarget);
+      this.#currentDeviceCode = undefined;
       this.#externalDevicePending = true;
       return receipt;
     }
@@ -401,14 +404,22 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
   }
   #externalSession(loginTarget?: string): IdentitySessionPort | undefined {
     if (!this.#external) return undefined;
-    if (loginTarget && existsSync(path.join(loginTarget, "fleet-edge.json"))) return this.#external;
+    if (
+      loginTarget &&
+      (this.#externalTargets.has(loginTarget) || existsSync(path.join(loginTarget, "fleet-edge.json")))
+    )
+      return this.#external;
     const file = path.join(this.#root, "rbac", "config.json");
     if (!existsSync(file)) return undefined;
     const config = JSON.parse(readFileSync(file, "utf8")) as { readonly mode?: unknown };
     return config.mode === "builtin" || config.mode === undefined ? undefined : this.#external;
   }
   #assertLocalLoginTarget(loginTarget?: string): void {
-    if (loginTarget && existsSync(path.join(loginTarget, "fleet-edge.json"))) throw identityPluginRequired();
+    if (
+      loginTarget &&
+      (this.#externalTargets.has(loginTarget) || existsSync(path.join(loginTarget, "fleet-edge.json")))
+    )
+      throw identityPluginRequired();
   }
   async #loginPageUrl(kind: "login" | "device", value: string): Promise<string> {
     if (!this.#loginServer) {

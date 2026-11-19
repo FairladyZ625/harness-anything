@@ -42,8 +42,8 @@ export function makeLocalVersionControlCommands(adapter: LocalVersionControlComm
     },
     currentBranch: (repoRoot) => {
       try {
-        const name = execute(repoRoot, "rev-parse", "--abbrev-ref", "HEAD").trim();
-        return name.length > 0 && name !== "HEAD" ? name : null;
+        const name = execute(repoRoot, "symbolic-ref", "--quiet", "--short", "HEAD").trim();
+        return name.length > 0 ? name : null;
       } catch (error) {
         consumeKnownError(error);
         return null;

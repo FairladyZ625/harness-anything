@@ -6594,7 +6594,7 @@
         "port": "packages/storage/src/store/local-version-control-commands.ts#LocalVersionControlCommandAdapter.execute"
       },
       {
-        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-commands.ts#makeLocalVersionControlCommands.currentBranch.name:7c1e1c2d5128707779589e5c90b54227",
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-commands.ts#makeLocalVersionControlCommands.currentBranch.name:94eea7c92fad4854a87b5e65e991a51f",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/storage/src/store/local-version-control-commands.ts#LocalVersionControlCommandAdapter.execute"
