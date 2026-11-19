@@ -934,6 +934,14 @@ test(
     );
     assert.equal(declared.outcome, "applied", JSON.stringify(declared));
     await catchUpReplica(replica);
+    mkdirSync(path.join(edgeRoot, ".harness"), { recursive: true });
+    writeFileSync(
+      path.join(edgeRoot, ".harness", "settings.local.json"),
+      JSON.stringify({
+        schema: "settings-local/v1",
+        runtimeAgentBindings: [{ agentId: "carbon-worker", instance: "unconfigured-instance" }],
+      }),
+    );
 
     let allowHostingCredential = false,
       prExists = false,
@@ -1019,19 +1027,12 @@ test(
     assert.ok(firstCandidate, "declare-executor submitted task must produce an edge review candidate");
 
     // Negative control: without a configured hosting credential on any edge instance, pre-publication fails closed.
-    const selectedInstanceId =
-      typeof firstCandidate.payload.runtimeInstanceId === "string" ? firstCandidate.payload.runtimeInstanceId : null;
     await assert.rejects(
       runtime.run("repo.agentRuntime.spawn", firstCandidate.payload),
       /PR publication requires the daemon-held hosting credential/u,
     );
     assert.equal(reviewerStarts, 0);
-    assert.deepEqual(
-      probedInstances,
-      selectedInstanceId === "unconfigured-instance"
-        ? ["unconfigured-instance", "agy-yr"]
-        : ["agy-yr", "unconfigured-instance"],
-    );
+    assert.deepEqual(probedInstances, ["unconfigured-instance", "agy-yr"]);
 
     // Positive path: with hosting credential configured on agy-yr, edge pre-publication succeeds and launches reviewer.
     probedInstances.length = 0;
@@ -1040,9 +1041,6 @@ test(
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
     assert.equal(reviewerStarts, 1);
     assert.equal(prExists, true);
-    assert.deepEqual(
-      probedInstances,
-      selectedInstanceId === "unconfigured-instance" ? ["unconfigured-instance", "agy-yr"] : ["agy-yr"],
-    );
+    assert.deepEqual(probedInstances, ["unconfigured-instance", "agy-yr"]);
   },
 );

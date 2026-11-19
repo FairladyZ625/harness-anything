@@ -13,6 +13,7 @@ import {
   isNativeExecution,
   repositorySettings,
   type RepositorySettingsV1,
+  type SettingsV1,
   type RuntimeProviderUnreachable,
   type TaskProjection,
 } from "@harness-anything/kernel";
@@ -68,6 +69,7 @@ import { applyFleetMirrorCut, locateFleetMirrorView } from "./fleet-edge-mirror.
 import { transitionDocumentReadinessContract } from "./transition-document-access.ts";
 import { validateAgentRuntimeOverview, type AgentRuntimeOverviewResult } from "./agent-runtime-contract.ts";
 import { makeRuntimeSpawner, type RuntimeDaemonRoute, type RuntimeLauncher } from "./runtime-spawn.ts";
+import { applyLocalAgentBinding } from "./runtime-spawn-agent.ts";
 import type { ReviewerReviewRecoveryInput, RuntimeAgent, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { readReplicaGeneration } from "../fleet-sync/fleet/replica-generation.ts";
@@ -864,6 +866,7 @@ export function openFleetEdgeRuntime(input: {
               intentInstanceId,
               preferredInstanceId: spawnHints?.preferredRuntimeInstanceId,
               agentId: spawnHints?.agentId,
+              readSettings,
               findAgent: (agentId) =>
                 trustedScheduleAgents.get(agentId) ??
                 findMirroredAgentDeclaration(
@@ -1755,10 +1758,12 @@ function resolveReviewPublicationInstanceCandidates(input: {
   readonly intentInstanceId: string | undefined;
   readonly preferredInstanceId: string | undefined;
   readonly agentId: string | undefined;
+  readonly readSettings: () => SettingsV1;
   readonly findAgent: (agentId: string) => RuntimeAgent | undefined;
   readonly localInstances: readonly RuntimeInstanceSummary[];
 }): readonly string[] {
-  const agent = input.agentId ? input.findAgent(input.agentId) : undefined;
+  const declaration = input.agentId ? input.findAgent(input.agentId) : undefined,
+    agent = declaration ? applyLocalAgentBinding({ readSettings: input.readSettings }, declaration) : undefined;
   const localIds = new Set(input.localInstances.map((instance) => instance.instanceId));
   const enabledLocal = input.localInstances.filter((instance) => instance.enabled);
   const configuredLocal = enabledLocal.filter((instance) => instance.hostingCredentialState === "configured");
