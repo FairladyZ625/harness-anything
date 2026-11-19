@@ -67,7 +67,7 @@ test(
       ) as Record<string, string[]>;
       assert.deepEqual(
         capabilities.daemon?.filter((id) => id.startsWith("daemon-fleet")),
-        ["daemon-fleet-center-start", "daemon-fleet-edge-sync", "daemon-fleet-edge-repoint"],
+        ["daemon-fleet-center-start", "daemon-fleet-edge-repoint", "daemon-fleet-edge-sync"],
       );
       assert.equal(run(fixture, "center", ["daemon", "start", "--service"]).ok, true);
       register(fixture);
