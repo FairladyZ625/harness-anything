@@ -582,7 +582,7 @@ async function waitForAttached(page, repoId) {
   const deadline = Date.now() + 20_000;
   for (;;) {
     const attached = await page.evaluate(async (id) => {
-      const repos = (await globalThis.harness.getSystemStatus()).repos ?? [];
+      const repos = (await globalThis.harness.request("daemon.gui.system.read", {})).repos ?? [];
       return repos.some((repo) => repo.repoId === id && repo.cellState === "attached");
     }, repoId);
     if (attached) return;

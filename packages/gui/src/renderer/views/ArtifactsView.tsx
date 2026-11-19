@@ -18,6 +18,11 @@ import { artifactsClient, artifactsQueryKeys } from "../artifacts-client.ts";
 import { consumeKnownError } from "../../api/error-consumption.ts";
 import { isHtmlDocument } from "../entity-locator-renderer.ts";
 import { openArtifactExternally } from "../artifact-open-client.ts";
+import {
+  CollaboratorFilters,
+  useCollaboratorFilters,
+  type CollaboratorFilterOptions,
+} from "../components/CollaboratorFilters.tsx";
 
 // Artifacts 抽屉(task_7e713fee 重排,视觉基线 v1 §2.4 行与筛选):分页 `repo.artifacts.list`
 // 读出跨 task 包的 artifacts html/md 投影(归属、时间、时间来源都是 daemon 事实),本页只
@@ -55,14 +60,17 @@ export const ARTIFACT_OPEN_BUTTON_CLASS = [
 export function ArtifactsView({
   repoId,
   onNavigateTask,
+  collaborator,
 }: {
   readonly repoId: string;
   readonly onNavigateTask: (taskId: string) => void;
+  readonly collaborator?: CollaboratorFilterOptions;
 }) {
   const [kind, setKind] = useState<ArtifactGuiKind>("html");
+  const scope = useCollaboratorFilters(collaborator);
   const query = useQuery({
-    queryKey: artifactsQueryKeys.list(repoId, kind),
-    queryFn: () => artifactsClient.list(repoId, kind),
+    queryKey: [...artifactsQueryKeys.list(repoId, kind), scope.query],
+    queryFn: () => artifactsClient.list(repoId, kind, scope.query),
     staleTime: 10_000,
   });
   return (
@@ -82,6 +90,7 @@ export function ArtifactsView({
           ) : undefined
         }
       />
+      {collaborator && <CollaboratorFilters options={collaborator} selection={scope} />}
       {query.isError && (
         <p role="alert" data-testid="artifacts-read-error" className={ARTIFACTS_READ_ERROR_ROW_CLASS}>
           {t("artifacts.readFailed", {

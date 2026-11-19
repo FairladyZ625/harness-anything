@@ -192,6 +192,24 @@ test("registered edges read only their current repository's member directory wit
     canManageFleetNodes: false,
     members: [],
   });
+  for (const method of ["repo.agenda.read", "repo.works.briefs.read", "repo.workspace.scope.read"]) {
+    await assert.rejects(
+      requestDaemonJsonRpcAt(
+        running.endpoint,
+        method,
+        {
+          repo: { repoId: "repo-a" },
+          payload: {
+            scopePersonId: "repo-admin",
+            ...(method === "repo.workspace.scope.read" ? { rootTaskId: "task-cross-member" } : {}),
+          },
+        },
+        1_000,
+        15_000,
+      ),
+      { code: "authorization_denied" },
+    );
+  }
   assert.equal(existsSync(path.join(edgeUserRoot, "rbac/config.json")), false);
 
   await t.test("Fleet retirement previews and confirms at the bound center", async () => {

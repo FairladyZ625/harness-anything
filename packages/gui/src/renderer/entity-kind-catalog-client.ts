@@ -1,6 +1,7 @@
 import { isRendererRecord, rendererReadError } from "./result-validation.ts";
 import type { GovernedEntityRow } from "./graph/governedEntities.ts";
 import { invoke } from "./api-client-invoke.ts";
+import type { DaemonGuiReadPayloadMap } from "@harness-anything/daemon/protocol";
 
 /**
  * GUI 里**唯一**的实体 kind 来源(task_0df76ed3fb 设计页 §1)。
@@ -115,8 +116,11 @@ export interface EntityRowListResult {
 }
 
 /** 声明实体的行读面。内建 kind 各有自己的读,这条只服务 vertical 声明出来的 kind。 */
-export async function readGovernedEntityRows(repoId: string): Promise<readonly GovernedEntityRow[]> {
-  const result = await invoke("repo.entity.rows.read", { repoId });
+export async function readGovernedEntityRows(
+  repoId: string,
+  scope: DaemonGuiReadPayloadMap["repo.entity.rows.read"] = {},
+): Promise<readonly GovernedEntityRow[]> {
+  const result = await invoke("repo.entity.rows.read", { repoId, ...scope });
   if (!isRendererRecord(result) || result.schema !== "entity-row-list/v1" || !Array.isArray(result.rows))
     throw rendererReadError(result, "Entity row bridge returned an invalid result.");
   return result.rows as readonly GovernedEntityRow[];

@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import {
+  CollaboratorFilters,
+  useCollaboratorFilters,
+  type CollaboratorFilterOptions,
+} from "../components/CollaboratorFilters.tsx";
 import { Plus } from "@phosphor-icons/react";
 import { entityDocGroups, type EntityKindDoc } from "../entity-docs.ts";
 import type { ViewId } from "../navigation/viewHistory.ts";
@@ -42,6 +47,7 @@ export function EntitiesView({
   onExitDetail,
   onOpenView,
   projectName,
+  collaborator,
 }: {
   readonly repoId: string;
   /**
@@ -55,12 +61,14 @@ export function EntitiesView({
   readonly onExitDetail: () => void;
   readonly onOpenView: (viewId: ViewId) => void;
   readonly projectName: string;
+  readonly collaborator?: CollaboratorFilterOptions;
 }) {
+  const scope = useCollaboratorFilters(collaborator);
   const liveCounts = useEntityLiveCounts(repoId);
   // 分组来自已注册 kind 读面:声明一个新 kind,这一页不改代码就多一条目录项。
   const { catalog } = useEntityKindCatalog(repoId);
   useDeepLinkedEntityContent(repoId, focusedRef);
-  const governedRows = useGovernedEntityRows(repoId);
+  const governedRows = useGovernedEntityRows(repoId, scope.query);
   const groups = entityDocGroups(catalog);
   const queryClient = useQueryClient();
   const [creatingKind, setCreatingKind] = useState(false);
@@ -106,6 +114,7 @@ export function EntitiesView({
           </button>
         }
       />
+      {collaborator && <CollaboratorFilters options={collaborator} selection={scope} />}
       {creatingKind && (
         <div className="px-4">
           <VerticalKindForm
@@ -140,7 +149,11 @@ export function EntitiesView({
                     <EntityDocCard
                       key={doc.kind}
                       doc={doc}
-                      live={doc.liveCount === null ? null : liveCounts[doc.liveCount]}
+                      live={
+                        doc.liveCount === null || scope.person !== null || scope.node !== null
+                          ? null
+                          : liveCounts[doc.liveCount]
+                      }
                       onOpen={() => onOpenEntityDoc(doc.kind)}
                       origin={catalogRow?.origin ?? "builtin"}
                       importable={catalogRow?.importable ?? false}

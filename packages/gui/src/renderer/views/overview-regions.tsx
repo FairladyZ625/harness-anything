@@ -49,9 +49,9 @@ export interface OverviewBoardDeps {
   readonly onOpenSignoffs: (taskId: string) => void;
   /** 本块没列出的待办(评审中等)落回待办签发总池。 */
   readonly onOpenPool: () => void;
-  readonly onUnpin: (taskId: string) => void;
+  readonly onUnpin?: (taskId: string) => void;
   /** 置顶区非任务实体的取消置顶(实体级 entity-unpin 写通道)。 */
-  readonly onUnpinEntity: (entityRef: string) => void;
+  readonly onUnpinEntity?: (entityRef: string) => void;
 }
 
 const BRIEF_BUCKET_LABEL: Readonly<Record<WorkBrief["bucket"], MessageKey>> = {
@@ -528,11 +528,13 @@ export function OverviewPinsBody({
             title={task.title}
             time={task.updatedAt === null ? undefined : formatRelative(task.updatedAt, { now: deps.now })}
             action={
-              <UnpinIconButton
-                testId={`overview-unpin-${task.taskId}`}
-                onClick={() => deps.onUnpin(task.taskId)}
-                label={t("views.overviewView.unpinRowLabel", { title: task.title })}
-              />
+              deps.onUnpin && (
+                <UnpinIconButton
+                  testId={`overview-unpin-${task.taskId}`}
+                  onClick={() => deps.onUnpin?.(task.taskId)}
+                  label={t("views.overviewView.unpinRowLabel", { title: task.title })}
+                />
+              )
             }
             onClick={() => onOpenTask(task.taskId)}
           />
@@ -545,11 +547,13 @@ export function OverviewPinsBody({
             tag={<StatusTag tone="neutral" label={entity.kind} />}
             title={entity.title}
             action={
-              <UnpinIconButton
-                testId={`overview-unpin-${entity.ref}`}
-                onClick={() => deps.onUnpinEntity(entity.ref)}
-                label={t("views.overviewView.unpinRowLabel", { title: entity.title })}
-              />
+              deps.onUnpinEntity && (
+                <UnpinIconButton
+                  testId={`overview-unpin-${entity.ref}`}
+                  onClick={() => deps.onUnpinEntity?.(entity.ref)}
+                  label={t("views.overviewView.unpinRowLabel", { title: entity.title })}
+                />
+              )
             }
             onClick={() => deps.onNavigateEntity(entity.ref)}
           />

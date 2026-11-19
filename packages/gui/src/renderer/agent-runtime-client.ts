@@ -94,6 +94,7 @@ export const agentRuntimeClient = {
     repoId: string,
     taskId?: string,
     page?: { readonly limit: number; readonly cursor?: string },
+    scope?: Pick<DaemonGuiReadPayloadMap["repo.agentRuntime.overview"], "scopePersonId" | "filterNodeId">,
   ): Promise<AgentRuntimeOverviewResult> => {
     const readPage = async (facets: { readonly limit?: number; readonly cursor?: string }) =>
       checked(
@@ -101,6 +102,7 @@ export const agentRuntimeClient = {
           repoId,
           ...(taskId ? { taskId } : {}),
           ...facets,
+          ...scope,
         } as DaemonGuiReadPayloadMap["repo.agentRuntime.overview"] & RepoScope),
         "installations",
       ) as AgentRuntimeOverviewResult;
@@ -164,6 +166,15 @@ export const agentRuntimeClient = {
       } as DaemonGuiReadPayloadMap["repo.agentRuntime.tokenUsageDetail"] & RepoScope),
       "sessions",
     ) as AgentRuntimeTokenUsageDetailResult,
+  collaboratorTokenUsage: async (
+    repoId: string,
+    query: DaemonGuiReadPayloadMap["repo.agentRuntime.tokenUsage"] & { readonly groupBy: "person" | "node" },
+  ) => {
+    const result = await invoke("repo.agentRuntime.tokenUsage", { repoId, ...query });
+    if (!result || !("groupBy" in result) || result.groupBy !== query.groupBy)
+      throw new Error("Token usage bridge returned an invalid attribution result.");
+    return result;
+  },
 };
 function memberIdOf(member: AgentRuntimeTokenUsageMemberIdentity): string {
   return member.kind === "agent" ? member.agentId : member.squadId;

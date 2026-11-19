@@ -1,7 +1,7 @@
 import { TitleText } from "./primitives/TitleText.tsx";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FolderSimple, CaretUpDown, CloudSlash, PushPinSlash } from "@phosphor-icons/react";
-import type { SystemRepoRow } from "../api-client.ts";
+import { FolderSimple, CaretUpDown, PushPinSlash } from "@phosphor-icons/react";
+import type { AgendaSuccess, SystemRepoRow } from "../api-client.ts";
 import type { Project } from "../model/types.ts";
 import type { RuntimeHealth } from "../model/runtime-health.ts";
 import type { ViewId } from "../navigation/viewHistory.ts";
@@ -10,11 +10,10 @@ import { NavButton, ThemeToggle } from "./shell-chrome.tsx";
 import { QuickSwitcher } from "./sidebar/QuickSwitcher.tsx";
 import { SystemStatusPanel, type LedgerStatusBarInput } from "./sidebar/SystemStatusPanel.tsx";
 import { useConnectionsQuery } from "../connection-data.ts";
-import { RepoModeBadge } from "./RepoModeBadge.tsx";
+import { RepoModeBadge, type RepoMode } from "./RepoModeBadge.tsx";
 import { t } from "../i18n/index.tsx";
 import { guiHostBridge } from "../gui-transport.ts";
 import { readIdentity, type IdentitySnapshot } from "../identity-session.ts";
-import { useAgendaQuery } from "../agenda-data.ts";
 import { useWorkIndexQuery } from "../task-data.ts";
 import { workIndexOf } from "../model/work-collections.ts";
 import { decisionRows, needsYouWorkIds } from "../views/overview-model.ts";
@@ -23,11 +22,13 @@ export interface AppSidebarProps {
   readonly project: Project;
   readonly repos: readonly SystemRepoRow[];
   readonly activeRepoId: string | null;
+  readonly effectiveRepoMode?: RepoMode | null;
   readonly view: ViewId;
   /** 任务详情占用主区时导航不点亮任何一项(与旧 App.tsx 判定一致)。 */
   readonly hasSelection: boolean;
   /** 待办签发总池的待办角标(决策待裁 + 门禁待签 + 收口待同意 + 阻断待特批)。 */
   readonly poolBadgeCount: number | undefined;
+  readonly agenda?: AgendaSuccess;
   readonly projectSwitcherOpen: boolean;
   readonly onProjectSwitcherToggle: () => void;
   readonly onOpenProject: (repoId: string) => void;
@@ -45,7 +46,7 @@ export interface AppSidebarProps {
   /** 置顶项的打开位:App 按「根任务即工作」分流到工作页或任务详情。 */
   readonly onOpenPinned: (taskId: string) => void;
   /** 解除置顶(pin 写通道)。侧栏置顶块与总览置顶区各自带取消入口。 */
-  readonly onUnpinWork: (taskId: string) => void;
+  readonly onUnpinWork?: (taskId: string) => void;
   readonly ledgerStatus: LedgerStatusBarInput;
   readonly onRefreshLedger: () => void;
   readonly health: RuntimeHealth;
@@ -81,9 +82,11 @@ export function AppSidebar({
   project,
   repos,
   activeRepoId,
+  effectiveRepoMode,
   view,
   hasSelection,
   poolBadgeCount,
+  agenda,
   projectSwitcherOpen,
   onProjectSwitcherToggle,
   onOpenProject,
@@ -135,6 +138,7 @@ export function AppSidebar({
   // 当前仓的模式徽标与端点(PLT-EdgeGUI-W3,设计稿 §3.4):端点来自连接表,
   // local 仓挂在隐含本机连接下、无端点,不显示端点行。
   const activeRepo = repos.find((repo) => repo.repoId === activeRepoId) ?? null,
+    badgeMode = effectiveRepoMode === undefined ? activeRepo?.mode : effectiveRepoMode,
     connections = useConnectionsQuery().data ?? [],
     endpoint = activeRepo
       ? connections.find((connection) => connection.id === activeRepo.connectionId)?.endpoint
@@ -157,10 +161,9 @@ export function AppSidebar({
   // 工作命中集都出自 decisionRows——总览顶部决策带的同一单一定义,侧栏不重推判据。
   // 会话级的五级分类仍只在 model/smart-attention.ts;侧栏没有会话读面,不为一个计数再拉
   // 一份 runtime 读,数的是议程里「当前真实要本人动手」的项。
-  const agendaQuery = useAgendaQuery(activeRepoId);
-  const needsYouRows = useMemo(() => decisionRows(agendaQuery.data), [agendaQuery.data]);
+  const needsYouRows = useMemo(() => decisionRows(agenda), [agenda]);
   const needsYouCount = needsYouRows.length;
-  const needsYouWorks = useMemo(() => needsYouWorkIds(agendaQuery.data), [agendaQuery.data]);
+  const needsYouWorks = useMemo(() => needsYouWorkIds(agenda), [agenda]);
   const pinnedWorks = useMemo(() => {
     const works = pinnedWork.filter((item) => workIndex.isWorkRoot(item.taskId));
     // 有 Needs you 项的置顶工作绝对在前(它卡在等人,不是在干活);其余保持原序。
@@ -184,14 +187,6 @@ export function AppSidebar({
       <div data-testid="app-sidebar-head" className="shrink-0">
         <div className="titlebar-drag titlebar-traffic-top flex items-center gap-2 px-3 pt-3 pb-1">
           <span className="font-mono ui-micro font-semibold tracking-wide text-text-muted">HARNESS</span>
-          <span
-            title={t("components.appSidebar.localModeNotSynchronizedV2MultiTerminal")}
-            className={`inline-flex items-center gap-1 rounded border border-border px-1 py-px
-              font-mono ui-micro text-text-faint`}
-          >
-            <CloudSlash weight="bold" />
-            {t("components.appSidebar.local")}
-          </span>
           <div className="titlebar-no-drag ml-auto">
             <ThemeToggle />
           </div>
@@ -213,7 +208,7 @@ export function AppSidebar({
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
                   <span className="min-w-0 truncate">{project.name}</span>
-                  {activeRepo ? <RepoModeBadge mode={activeRepo.mode} /> : null}
+                  {badgeMode ? <RepoModeBadge mode={badgeMode} /> : null}
                 </span>
                 <span className="block truncate font-mono ui-micro text-text-faint">
                   {endpoint ? `${project.preset} · ${endpoint}` : project.preset}
@@ -316,18 +311,20 @@ export function AppSidebar({
                     </button>
                     {/* 无边框小图标,只在该行悬停或键盘聚焦时出现,平时不占视觉
                         (评审第 6 条:一列带边框的方块是全页最抢眼的重复图形)。 */}
-                    <button
-                      type="button"
-                      data-testid={`sidebar-unpin-${item.taskId}`}
-                      onClick={() => onUnpinWork(item.taskId)}
-                      aria-label={t("components.appSidebar.unpinWorkLabel", { title: item.title })}
-                      title={t("components.appSidebar.unpinWorkLabel", { title: item.title })}
-                      className="grid size-6 shrink-0 place-items-center rounded text-text-faint opacity-0
+                    {onUnpinWork && (
+                      <button
+                        type="button"
+                        data-testid={`sidebar-unpin-${item.taskId}`}
+                        onClick={() => onUnpinWork(item.taskId)}
+                        aria-label={t("components.appSidebar.unpinWorkLabel", { title: item.title })}
+                        title={t("components.appSidebar.unpinWorkLabel", { title: item.title })}
+                        className="grid size-6 shrink-0 place-items-center rounded text-text-faint opacity-0
                         transition-opacity hover:bg-white/[0.08] hover:text-text
                         group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
-                    >
-                      <PushPinSlash weight="bold" className="size-3.5" aria-hidden />
-                    </button>
+                      >
+                        <PushPinSlash weight="bold" className="size-3.5" aria-hidden />
+                      </button>
+                    )}
                   </div>
                 );
               })}

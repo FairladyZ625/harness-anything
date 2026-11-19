@@ -59,6 +59,7 @@ export default {
       if (["overview", "work"].includes(id))
         await page.getByText("Builtin owner work", { exact: true }).first().waitFor();
       if (id === "board") await page.getByTestId("board-task-card").filter({ hasText: "Builtin child task" }).waitFor();
+      if (id === "todos") assert.equal(await page.getByTestId("todos-scope").inputValue(), "mine");
       const screenshot = await shot(`builtin-${id}`);
       results.push({ id, label, result: "passed", screenshot });
       writeFileSync(path.join(runRoot, "sidebar-results.json"), JSON.stringify(results, null, 2));

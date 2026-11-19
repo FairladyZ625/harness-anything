@@ -21,6 +21,11 @@ import { cacheWriteTokensOfUsage } from "./runtime-spawn-provider-stream.ts";
 import { workRootWalk } from "@harness-anything/application/internal/queries/workspace-scope-read.ts";
 import type { WorkRuleTask } from "@harness-anything/application/internal/queries/workspace-scope-read.ts";
 import { modelPriceOf, modelPricingVersion, usageCostUsd } from "../runtime-engine/agent-runtime-model-pricing.ts";
+import {
+  collaboratorTokenUsageResult,
+  validateCollaboratorTokenUsage,
+  type CollaboratorTokenUsageResult,
+} from "./collaborator-token-usage-read.ts";
 
 export {
   tokenUsageInsightLimits,
@@ -574,11 +579,18 @@ export function agentRuntimeTokenUsageReadHandlers(context: {
   readonly now: () => string;
   readonly projection: Pick<
     TaskProjection,
-    "readCut" | "getEntity" | "readRuntimeDispatchPage" | "readTaskIndex" | "readDispatchLifecycle"
+    | "readCut"
+    | "getEntity"
+    | "readRuntimeDispatchPage"
+    | "readTaskIndex"
+    | "readDispatchLifecycle"
+    | "readRuntimeSessionEventsByType"
   >;
   readonly cellCodedError: (code: string, text: string) => Error;
 }): {
-  readonly "repo.agentRuntime.tokenUsage": (payload: Readonly<Record<string, unknown>>) => AgentRuntimeTokenUsageResult;
+  readonly "repo.agentRuntime.tokenUsage": (
+    payload: Readonly<Record<string, unknown>>,
+  ) => AgentRuntimeTokenUsageResult | CollaboratorTokenUsageResult;
   readonly "repo.agentRuntime.tokenUsageDetail": (
     payload: Readonly<Record<string, unknown>>,
   ) => AgentRuntimeTokenUsageDetailResult;
@@ -588,6 +600,27 @@ export function agentRuntimeTokenUsageReadHandlers(context: {
       const range = agentRuntimeTokenUsageRangeOf(payload);
       if (range === null)
         throw context.cellCodedError("invalid_command", "Token usage range must be today, 7d or 30d.");
+      const { scopePersonId, filterPersonId, filterNodeId } = payload;
+      const groupBy =
+        payload.groupBy ??
+        (scopePersonId !== undefined || filterPersonId !== undefined
+          ? "person"
+          : filterNodeId !== undefined
+            ? "node"
+            : null);
+      if (groupBy === "person" || groupBy === "node") {
+        const { sinceMs } = planWindow(new Date(context.now()), range);
+        return collaboratorTokenUsageResult(
+          context.projection,
+          {
+            startedAtGte: new Date(sinceMs).toISOString(),
+            ...(typeof scopePersonId === "string" ? { scopePersonId } : {}),
+            ...(typeof filterPersonId === "string" ? { filterPersonId } : {}),
+            ...(typeof filterNodeId === "string" ? { filterNodeId } : {}),
+          },
+          groupBy,
+        );
+      }
       return agentRuntimeTokenUsageHandler({ ...context, range });
     },
     "repo.agentRuntime.tokenUsageDetail": (payload) => {
@@ -966,6 +999,7 @@ function sharedResultFields(value: Record<string, unknown>): boolean {
 }
 
 export function validateAgentRuntimeTokenUsage(value: unknown): readonly string[] {
+  if (isRecord(value) && value.groupBy !== undefined) return validateCollaboratorTokenUsage(value);
   const validRow = (row: unknown, keys: number, ...labels: readonly string[]): boolean =>
     isRecord(row) &&
     Object.keys(row).length === keys &&

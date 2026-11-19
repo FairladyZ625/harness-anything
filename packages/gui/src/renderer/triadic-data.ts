@@ -382,20 +382,25 @@ export function useTriadicProjectionQuery(
     readonly graphEnabled?: boolean;
     readonly decisionsEnabled?: boolean;
     readonly decisionStates?: ReadonlyArray<Exclude<DecisionState, "unknown">>;
+    readonly decisionScope?: Omit<Parameters<typeof harnessClient.getDecisions>[0], "repoId" | "state">;
   } = {},
 ) {
   const enabled = options.enabled !== false && repoId !== null;
   const graphEnabled = enabled && options.graphEnabled !== false;
   const decisionsEnabled = enabled && options.decisionsEnabled !== false;
   const decisionStates = options.decisionStates;
+  const decisionScope = options.decisionScope;
   const graph = useCompleteRelationGraphQuery(repoId ?? "unselected", graphEnabled);
   const decisions = useQuery({
-    queryKey: triadicQueryKeys.decisions(repoId ?? "unselected", decisionStates),
+    queryKey: [
+      ...triadicQueryKeys.decisions(repoId ?? "unselected", decisionStates),
+      ...(decisionScope && Object.keys(decisionScope).length ? [decisionScope] : []),
+    ],
     queryFn: async () => {
-      if (decisionStates === undefined) return harnessClient.getDecisions({ repoId: repoId! });
+      if (decisionStates === undefined) return harnessClient.getDecisions({ repoId: repoId!, ...decisionScope });
       if (decisionStates.length === 0) return { ok: true as const, decisions: [], warnings: [] };
       const reads = await Promise.all(
-        decisionStates.map((state) => harnessClient.getDecisions({ repoId: repoId!, state })),
+        decisionStates.map((state) => harnessClient.getDecisions({ repoId: repoId!, state, ...decisionScope })),
       );
       return {
         ...reads[0]!,

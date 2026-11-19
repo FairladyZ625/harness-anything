@@ -7,6 +7,9 @@ test("agenda RPC accepts only its bounded page payload", () => {
   const parse = (payload: Record<string, unknown>) =>
     parseDaemonRpcParams("repo.agenda.read", { repo: { repoId: "alpha" }, payload });
   assert.equal(parse({ limit: 25, cursor: "agenda-cursor" }).ok, true);
+  assert.equal(parse({ scopePersonId: "person-alice" }).ok, true);
+  assert.equal(parse({ scopePersonId: 42 }).ok, false);
+  assert.equal(parse({ viewerPersonId: "person-alice" }).ok, false);
   assert.equal(parse({ limit: 0 }).ok, false);
   assert.equal(parse({ status: "active" }).ok, false);
 });

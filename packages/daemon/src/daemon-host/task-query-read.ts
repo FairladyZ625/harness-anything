@@ -1,5 +1,8 @@
-import { readTodos } from "@harness-anything/application/internal/queries/todo-read.ts";
-import { describeSubmittedCloseoutAttention } from "@harness-anything/application/internal/queries/collaborator-reads.ts";
+import { readTodos, readViewerTodos } from "@harness-anything/application/internal/queries/todo-read.ts";
+import {
+  describeSubmittedCloseoutAttention,
+  readCollaboratorAgenda,
+} from "@harness-anything/application/internal/queries/collaborator-reads.ts";
 import { activeCutReviewDispatches } from "./review-dispatch-state.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -120,6 +123,8 @@ export interface AgendaQuery {
   readonly limit?: number;
   readonly cursor?: string;
   readonly principalId?: string;
+  readonly pinPersonId?: string;
+  readonly scopePersonId?: string;
   readonly nodeId?: string;
   readonly teamIds?: readonly string[];
   readonly ownerPersonId?: string;
@@ -547,10 +552,32 @@ export function makeTaskQueryReadModel(input: {
   }
   function agenda(query: AgendaQuery = {}): DaemonAgendaResult {
     const attentionOnly = query.attentionOnly === true,
-      todos = attentionOnly ? [] : readTodos(projection).filter(todoIsOpen),
+      personal =
+        query.scopePersonId === undefined
+          ? null
+          : readCollaboratorAgenda(projection, { viewerPersonId: query.scopePersonId }),
+      todos = attentionOnly
+        ? []
+        : (personal?.todos ??
+          (query.pinPersonId === undefined
+            ? readTodos(projection)
+            : readViewerTodos(projection, { viewerPersonId: query.pinPersonId })
+          ).filter(todoIsOpen)),
       sourceLimit = query.limit ?? 100,
       cursor = query.cursor === undefined ? null : decodeAgendaCursor(query.cursor),
-      scope = agendaWorkScope(query.work),
+      workScope = agendaWorkScope(query.work),
+      scope =
+        personal === null
+          ? workScope
+          : {
+              ...workScope,
+              members: new Set(
+                personal.tasks.flatMap(({ taskId }) =>
+                  workScope.members === null || workScope.members.has(taskId) ? [taskId] : [],
+                ),
+              ),
+            },
+      scopedDecisionIds = personal === null ? null : new Set(personal.decisions.map(({ decisionId }) => decisionId)),
       readTaskPage = (status: "active" | "submitted" | "blocked" | "planned" | "in_review", key: AgendaCursorKey) =>
         cursor?.[key] === null || (attentionOnly && (status === "blocked" || status === "planned"))
           ? null
@@ -929,32 +956,35 @@ export function makeTaskQueryReadModel(input: {
                 },
               ];
             }),
-      decisionSignals = (decisions?.decisions ?? []).map((decision) => {
-        if (decisionReviewRequirement === null) return { decision, signal: "ready" as const };
-        const full = projection.readDecision(decision.decisionId).decision;
-        if (!full) return { decision, signal: "ready" as const };
-        const readiness = decisionReviewState(full, decisionReviewRequirement).acceptReviewReadiness;
-        if (!readiness) return { decision, signal: "ready" as const };
-        if (readiness.next.action === "override-review" || readiness.next.action === "respond-review")
-          return { decision, signal: "awaitingOwner" as const };
-        const running = readDecisionReviewDispatches({ rootDir, projection, decision: full }).filter(
-          ({ reviewContentDigest, status }) => reviewContentDigest === readiness.currentDigest && status === "running",
-        );
-        if (running.length > 0)
+      decisionSignals = (decisions?.decisions ?? [])
+        .filter(({ decisionId }) => scopedDecisionIds === null || scopedDecisionIds.has(decisionId))
+        .map((decision) => {
+          if (decisionReviewRequirement === null) return { decision, signal: "ready" as const };
+          const full = projection.readDecision(decision.decisionId).decision;
+          if (!full) return { decision, signal: "ready" as const };
+          const readiness = decisionReviewState(full, decisionReviewRequirement).acceptReviewReadiness;
+          if (!readiness) return { decision, signal: "ready" as const };
+          if (readiness.next.action === "override-review" || readiness.next.action === "respond-review")
+            return { decision, signal: "awaitingOwner" as const };
+          const running = readDecisionReviewDispatches({ rootDir, projection, decision: full }).filter(
+            ({ reviewContentDigest, status }) =>
+              reviewContentDigest === readiness.currentDigest && status === "running",
+          );
+          if (running.length > 0)
+            return {
+              decision,
+              signal: "inProgress" as const,
+              reviewers: running.map(({ dispatchId, reviewer, findingCount }) => ({
+                dispatchId,
+                reviewer,
+                findingCount,
+              })),
+            };
           return {
             decision,
-            signal: "inProgress" as const,
-            reviewers: running.map(({ dispatchId, reviewer, findingCount }) => ({
-              dispatchId,
-              reviewer,
-              findingCount,
-            })),
+            signal: readiness.next.action === "dispatch-review" ? ("needsReview" as const) : ("ready" as const),
           };
-        return {
-          decision,
-          signal: readiness.next.action === "dispatch-review" ? ("needsReview" as const) : ("ready" as const),
-        };
-      }),
+        }),
       decisionRow = ({ decision }: (typeof decisionSignals)[number]): AgendaDecisionRow => ({
         decisionId: decision.decisionId,
         title: decision.title,
@@ -1030,7 +1060,9 @@ export function makeTaskQueryReadModel(input: {
         ];
       }),
       reckoning = attentionOnly ? { items: [], reads: [] } : readReckoningAgenda({ projection, store: input.store }),
-      allPinnedEntities = attentionOnly ? [] : readPinnedEntities().map(resolvePinnedEntity),
+      allPinnedEntities = attentionOnly
+        ? []
+        : (personal?.pinnedEntities ?? readPinnedEntities(query.pinPersonId)).map(resolvePinnedEntity),
       pinnedEntities = allPinnedEntities.slice(0, sourceLimit),
       pinnedEntityOverflow = Math.max(0, allPinnedEntities.length - pinnedEntities.length),
       nextState: AgendaCursor = {

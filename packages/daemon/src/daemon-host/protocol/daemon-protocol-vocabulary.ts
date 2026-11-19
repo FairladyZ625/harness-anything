@@ -398,7 +398,7 @@ function useCaseProjectionSelectorFields(
   facet: UseCaseProjectionFacet,
 ): readonly string[] {
   const base = ["name", "facet"];
-  if (name === "schedule-plane") return base;
+  if (name === "schedule-plane") return [...base, "scopePersonId", "filterPersonId", "filterNodeId"];
   if (name === "schedule-run-history") return [...base, "scheduleId", "limit"];
   if (facet === "members")
     return [

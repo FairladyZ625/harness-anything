@@ -4,7 +4,11 @@ import { daemonControlPhaseWords } from "../api/renderer-dto.ts";
 import { repoCellStateWords } from "../api/renderer-dto.ts";
 import { repoRegistrationStateWords } from "../api/renderer-dto.ts";
 
-import type { DaemonHomeOverviewResult, DaemonTaskDispatchesPayload } from "@harness-anything/daemon/protocol";
+import type {
+  DaemonGuiReadPayloadMap,
+  DaemonHomeOverviewResult,
+  DaemonTaskDispatchesPayload,
+} from "@harness-anything/daemon/protocol";
 import type { TaskAssignmentDirectory } from "@harness-anything/daemon/protocol";
 import type { RepositoryReadFrame } from "@harness-anything/daemon/protocol";
 import { repositoryReadFrame } from "./repository-read-frame.ts";
@@ -143,14 +147,7 @@ export type TaskDispatchBatchRead = Extract<TaskDispatchesRead, { readonly taskI
 export type TaskDispatchMemberRead = Extract<TaskDispatchesRead, { readonly truncated: boolean }>;
 
 /** Optional narrow/paged facets for the wide task reads; omitting them keeps the full result. */
-export interface TaskQueryFacets {
-  readonly status?: string;
-  readonly changedAfterRevision?: number;
-  readonly updatedAfter?: string;
-  readonly updatedBefore?: string;
-  readonly limit?: number;
-  readonly cursor?: string;
-}
+export type TaskQueryFacets = DaemonGuiReadPayloadMap["repo.tasks.list"];
 /** Legacy wide read: no facet selector, optionally narrowed by status/time/page. */
 export interface RelationPageQuery {
   readonly status?: string;
@@ -375,7 +372,7 @@ export const harnessClient = {
   async getTaskWip(payload: RepoScope): Promise<TaskWipRead> {
     return readTaskWipResult(await invoke("repo.tasks.wip", payload));
   },
-  async getWorkIndex(payload: RepoScope): Promise<WorkIndexRead> {
+  async getWorkIndex(payload: RepoScope & DaemonGuiReadPayloadMap["repo.works.index"]): Promise<WorkIndexRead> {
     const result = await invoke("repo.works.index", payload);
     if (!result || result.schema !== "daemon.work-index/v1" || result.ok !== true || !Array.isArray(result.works))
       throw new Error(localErrorHint(result, "Work index bridge returned an invalid result."));
@@ -388,13 +385,13 @@ export const harnessClient = {
     return result as WorkTopologyRead;
   },
   /** `repo.works.briefs.read`:每工作根的状态桶、分句与抽屉行,daemon 侧唯一推导。 */
-  async getWorkBriefs(payload: RepoScope): Promise<WorkBriefsRead> {
+  async getWorkBriefs(payload: RepoScope & DaemonGuiReadPayloadMap["repo.works.briefs.read"]): Promise<WorkBriefsRead> {
     const result = await invoke("repo.works.briefs.read", payload);
     if (!result || result.schema !== "daemon.work-briefs/v1" || result.ok !== true || !Array.isArray(result.briefs))
       throw new Error(localErrorHint(result, "Work briefs bridge returned an invalid result."));
     return result;
   },
-  async getAgenda(payload: RepoScope & { readonly limit?: number; readonly cursor?: string }): Promise<AgendaSuccess> {
+  async getAgenda(payload: RepoScope & DaemonGuiReadPayloadMap["repo.agenda.read"]): Promise<AgendaSuccess> {
     return readAgendaResult(await invoke("repo.agenda.read", payload));
   },
   async getSettings(payload: RepoScope): Promise<SettingsSuccess> {
@@ -407,7 +404,7 @@ export const harnessClient = {
     return readWorkspaceSummaryResult(await invoke("repo.workspace.summary.read", payload));
   },
   async getWorkspaceScope(
-    payload: RepoScope & { readonly rootTaskId: string; readonly limit?: number; readonly cursor?: string },
+    payload: RepoScope & DaemonGuiReadPayloadMap["repo.workspace.scope.read"],
   ): Promise<WorkspaceScopeRead> {
     const result = await invoke("repo.workspace.scope.read", payload);
     if (!result || result.schema !== "daemon.workspace-scope/v1" || result.ok !== true)
@@ -443,7 +440,10 @@ export const harnessClient = {
     return readRelationFactFacetResult(await invoke("repo.triadic.relationGraph", payload));
   },
   async getDecisions(
-    payload: RepoScope & { readonly state?: Exclude<DecisionState, "unknown"> },
+    payload: RepoScope &
+      Omit<DaemonGuiReadPayloadMap["repo.decisions.list"], "projection"> & {
+        readonly state?: Exclude<DecisionState, "unknown">;
+      },
   ): Promise<DecisionListSuccess> {
     return readDecisionListResult(await invoke("repo.decisions.list", payload));
   },

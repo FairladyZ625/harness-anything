@@ -1,3 +1,5 @@
+import { readRepositoryCollaboration } from "@harness-anything/application/internal/queries/collaborator-reads.ts";
+import { decodeAuthorizationResource } from "@harness-anything/kernel";
 import {
   FLEET_RECENT_DISPATCH_LIMIT,
   FLEET_RECENT_TASK_LIMIT,
@@ -101,6 +103,8 @@ export type FleetLeaseReads =
 export interface FleetOverviewInput {
   readonly repoId: string;
   readonly mode: string;
+  readonly members?: readonly { readonly personId: string }[];
+  readonly modeUnavailable?: string;
   readonly generatedAt: string;
   readonly center: FleetCenterFact;
   /** 本 repo 的副本状态行(空数组 = 中心没有 fleet listener 或尚无边缘同步过)。 */
@@ -193,6 +197,7 @@ export interface FleetOverviewResult {
   readonly ok: true;
   readonly repoId: string;
   readonly mode: string;
+  readonly effectiveMode?: "local" | "center" | "edge";
   readonly generatedAt: string;
   readonly center: {
     readonly nodeId: typeof FLEET_CENTER_NODE_ID;
@@ -376,6 +381,13 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
     ok: true,
     repoId: input.repoId,
     mode: input.mode,
+    ...(input.mode === "local" && (input.members !== undefined || nodes.some(({ role }) => role === "edge"))
+      ? readRepositoryCollaboration({
+          mode: "local",
+          members: input.members ?? [],
+          nodes: nodes.map(({ role }) => ({ kind: role })),
+        })
+      : {}),
     generatedAt: input.generatedAt,
     center: {
       nodeId: FLEET_CENTER_NODE_ID,
@@ -396,6 +408,7 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
       "sync-internals=center-sender-phase",
     ],
     warnings: [
+      ...(input.modeUnavailable === undefined ? [] : [input.modeUnavailable]),
       ...new Set(
         [...input.nodeOwners.values()]
           .filter((state) => state.kind === "unavailable")
@@ -518,6 +531,8 @@ export function validateFleetOverview(value: unknown): readonly string[] {
   if (row.ok !== true) errors.push("ok must be true");
   for (const field of ["repoId", "mode", "generatedAt"] as const)
     if (typeof row[field] !== "string") errors.push(`${field} must be a string`);
+  if (row.effectiveMode !== undefined && !["local", "center", "edge"].includes(String(row.effectiveMode)))
+    errors.push("effectiveMode must be local, center or edge");
   const center = row.center;
   if (center === null || typeof center !== "object" || Array.isArray(center)) errors.push("center must be an object");
   else {
@@ -793,6 +808,21 @@ export async function readFleetOverviewFromHost(input: {
     ].filter((nodeId) => nodeId !== FLEET_CENTER_NODE_ID),
   );
   for (const nodeId of edgeNodeIds) nodeOwners.set(nodeId, await ownerOf(nodeId));
+  let members: readonly { readonly personId: string }[] | undefined, modeUnavailable: string | undefined;
+  if (input.mode === "local" && [...edgeNodeIds].every((nodeId) => retiredNodes.has(nodeId))) {
+    try {
+      const authority = await input.keycloakCenter();
+      const grants = await authority.provider.readGrants(authority.accessToken);
+      members = grants.flatMap((grant) => {
+        const resource = decodeAuthorizationResource(grant.resource);
+        return resource.kind !== "fleet" && resource.repoId === input.repoId
+          ? grant.userIds.map((personId) => ({ personId }))
+          : [];
+      });
+    } catch (error) {
+      modeUnavailable = `repository-mode-unavailable=${runtimeErrorCode(error) ?? "authorization_metadata_unavailable"}`;
+    }
+  }
   const tail = await input.cell.observeTail(
     {
       kind: "events",
@@ -816,6 +846,8 @@ export async function readFleetOverviewFromHost(input: {
   return buildFleetOverview({
     repoId: input.repoId,
     mode: input.mode,
+    ...(members === undefined ? {} : { members }),
+    ...(modeUnavailable === undefined ? {} : { modeUnavailable }),
     generatedAt: input.now,
     center: {
       daemonId: input.daemon.daemonId,

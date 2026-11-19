@@ -36,8 +36,12 @@ function result(value: unknown) {
   return receipt;
 }
 export const todosClient = {
-  async list(repoId: string, targetRef?: string): Promise<readonly TodoRow[]> {
-    const params = { repoId, all: true, ...(targetRef ? { targetRef } : {}) };
+  async list(
+    repoId: string,
+    targetRef?: string,
+    selection: { readonly mine?: boolean; readonly filterPersonId?: string } = {},
+  ): Promise<readonly TodoRow[]> {
+    const params = { repoId, all: true, ...(targetRef ? { targetRef } : {}), ...selection };
     const receipt = result(await invoke("repo.todo.list", params));
     return (JSON.parse(receipt.evidence ?? "{}") as { todos: TodoRow[] }).todos;
   },

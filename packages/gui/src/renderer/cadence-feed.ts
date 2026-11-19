@@ -46,7 +46,11 @@ const CADENCE_FEED_IDLE: CadenceFeedState = {
   now: "1970-01-01T00:00:00.000Z",
 };
 
-export function useCadenceFeed(repoId: string): CadenceFeedState {
+export function useCadenceFeed(
+  repoId: string,
+  scopePersonId: string | null = null,
+  filterNodeId: string | null = null,
+): CadenceFeedState {
   const [state, setState] = useState<CadenceFeedState>(CADENCE_FEED_IDLE),
     stateRef = useRef(state),
     commit = (next: CadenceFeedState): void => {
@@ -71,11 +75,13 @@ export function useCadenceFeed(repoId: string): CadenceFeedState {
         const result:
           | { readonly ok: true; readonly page: ObserveTailRead }
           | { readonly ok: false; readonly message: string } = await harnessClient
-          .tailObservability(
-            walkingHistory
+          .tailObservability({
+            ...(walkingHistory
               ? observeTailRequest(repoId, "events", "history", historyCursor)
-              : observeTailRequest(repoId, "events", "follow", liveCursor),
-          )
+              : observeTailRequest(repoId, "events", "follow", liveCursor)),
+            ...(scopePersonId === null ? {} : { scopePersonId }),
+            ...(filterNodeId === null ? {} : { filterNodeId }),
+          })
           .then(
             (page): { readonly ok: true; readonly page: ObserveTailRead } => ({ ok: true, page }),
             (error: unknown): { readonly ok: false; readonly message: string } => ({
@@ -146,6 +152,6 @@ export function useCadenceFeed(repoId: string): CadenceFeedState {
       cancelled = true;
       if (timer !== undefined) clearTimeout(timer);
     };
-  }, [repoId]);
+  }, [repoId, scopePersonId, filterNodeId]);
   return state;
 }

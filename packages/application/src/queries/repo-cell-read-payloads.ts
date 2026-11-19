@@ -41,7 +41,7 @@ export function agendaQueryFromPayload(
 export function taskDispatchesPayloadFromCell(
   context: ApiPayloadQueryContext,
   payload: Readonly<Record<string, unknown>>,
-): TaskDispatchesPayload {
+): TaskDispatchesPayload & { readonly personId?: string; readonly nodeId?: string } {
   const advisorySurface = decisionReadSurfaces.find((surface) => surface === payload.advisorySurface);
   if (payload.advisorySurface !== undefined && advisorySurface === undefined)
     throw context.cellCodedError("invalid_command", "Task dispatch advisorySurface is invalid.");
@@ -72,8 +72,12 @@ export function taskDispatchesPayloadFromCell(
       limit,
       ...(agentId === undefined ? {} : { agentId }),
       ...(squadId === undefined ? {} : { squadId }),
+      ...(payload.personId === undefined ? {} : { personId: context.requiredCellText(payload.personId, "personId") }),
+      ...(payload.nodeId === undefined ? {} : { nodeId: context.requiredCellText(payload.nodeId, "nodeId") }),
     } as TaskDispatchesPayload;
   }
+  if (payload.personId !== undefined || payload.nodeId !== undefined)
+    throw context.cellCodedError("invalid_command", "Task dispatch member reads are required for attribution filters.");
   if (!Array.isArray(payload.taskIds))
     return { ...advisory, taskId: context.requiredCellText(payload.taskId, "taskId") };
   const taskIds = payload.taskIds.map((taskId) => context.requiredCellText(taskId, "taskIds[]")),

@@ -391,7 +391,7 @@ export function makeRepoReadRuntime(
           checkRevision(projection);
           return { ...readAtCut(projection, method, payload, binding), ...frame };
         }) as never;
-      if (method === "repo.tasks.list")
+      if (method === "repo.tasks.list" && payload.attestationOnly !== true)
         return query((projection) =>
           makeTaskQueryReadModel({
             rootDir: input.rootDir,

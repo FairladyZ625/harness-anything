@@ -23,6 +23,11 @@ import {
   type FleetHistoryRange,
 } from "../model/cadence-fleet.ts";
 import { agentRuntimeClient, runtimeQueryKeys } from "../agent-runtime-client.ts";
+import {
+  CollaboratorFilters,
+  useCollaboratorFilters,
+  type CollaboratorFilterOptions,
+} from "../components/CollaboratorFilters.tsx";
 
 /**
  * 研发态势(Cadence & Pulse)一级视图:治理域下项目研发心跳的驾驶舱。
@@ -48,6 +53,7 @@ export function CadenceView({
   decisions,
   onNavigateEntity,
   onOpenPool,
+  collaborator,
 }: {
   readonly repoId: string;
   readonly projectName: string;
@@ -57,20 +63,24 @@ export function CadenceView({
   readonly decisions: readonly { readonly decisionId: string; readonly title: string; readonly state: string }[];
   readonly onNavigateEntity: (ref: string) => void;
   readonly onOpenPool: () => void;
+  readonly collaborator?: CollaboratorFilterOptions;
 }) {
+  const scope = useCollaboratorFilters(collaborator);
   const [tab, setTab] = useState<"tasks" | "fleet">("tasks"),
     [fleetRange, setFleetRange] = useState<FleetHistoryRange>("24h"),
-    feed = useCadenceFeed(repoId),
+    feed = useCadenceFeed(repoId, scope.person, scope.node),
     // 执行概况的一条有界读面(groupBy=task,无成员级 status 筛选):query key 并入
     // sessionGroupsAll 家族,与会话页共享缓存与台账 cut 的失效扇出,不另建轮询。
     // daemon 保证 live 会话不被 since 切掉,「正在执行」区天然不受历史窗口影响。
     fleetGroups = useQuery({
-      queryKey: [...runtimeQueryKeys.sessionGroupsAll(repoId), "cadence", "task", fleetRange],
+      queryKey: [...runtimeQueryKeys.sessionGroupsAll(repoId), "cadence", "task", fleetRange, scope.person, scope.node],
       queryFn: () =>
         agentRuntimeClient.sessionGroups(repoId, {
           groupBy: "task",
           since: new Date(Date.now() - FLEET_HISTORY_RANGE_MS[fleetRange]).toISOString(),
           limit: FLEET_GROUPS_LIMIT,
+          ...(scope.person ? { personId: scope.person } : {}),
+          ...(scope.node ? { nodeId: scope.node } : {}),
         }),
       enabled: tab === "fleet",
       staleTime: 4_000,
@@ -130,6 +140,7 @@ export function CadenceView({
           </span>
         }
       />
+      {collaborator && <CollaboratorFilters options={collaborator} selection={scope} />}
       {feed.status === "unavailable" ? (
         <p
           data-testid="cadence-unavailable"

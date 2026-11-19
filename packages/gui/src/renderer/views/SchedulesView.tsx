@@ -1,6 +1,11 @@
 import { Notice } from "../components/primitives/Notice";
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  CollaboratorFilters,
+  useCollaboratorFilters,
+  type CollaboratorFilterOptions,
+} from "../components/CollaboratorFilters.tsx";
 import type { ScheduleGuiRowDto, SchedulesListResult } from "@harness-anything/daemon/protocol";
 import { ScheduleFormDialog } from "../components/ScheduleFormDialog.tsx";
 import { t } from "../i18n/index.tsx";
@@ -28,6 +33,7 @@ export function SchedulesView({
   onFocusSchedule,
   onFocusGraph,
   onBack,
+  collaborator,
 }: {
   readonly repoId: string;
   readonly focusedEntityRef: string | null;
@@ -39,16 +45,19 @@ export function SchedulesView({
   readonly onFocusGraph?: (ref: string) => void;
   /** 详情 hub 返回键 = 全局历史弹栈(与任务/预设详情同一能力,业主 2026-10-11)。 */
   readonly onBack: () => void;
+  readonly collaborator?: CollaboratorFilterOptions;
 }) {
+  const scope = useCollaboratorFilters(collaborator);
   const query = useQuery({
-    queryKey: ["schedules", repoId],
-    queryFn: () => schedulesClient.list(repoId),
+    queryKey: ["schedules", repoId, scope.query],
+    queryFn: () => schedulesClient.list(repoId, scope.query),
     staleTime: 2_000,
   });
   return (
     // 列表页头(页名+汇总句)随列表态渲染在 ScheduleListPane 里;详情态整个卸载
     // (chrome 审计 B1①):详情页身份由详情头左端的「← 定时计划」返回钮承担。
     <section data-testid="schedules-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      {collaborator && !focusedEntityRef && <CollaboratorFilters options={collaborator} selection={scope} />}
       {query.isError && (
         <Notice tone="bad" variant="strip" testId="schedules-read-error">
           {t("schedules.readFailed", {

@@ -13,6 +13,7 @@ import {
   type JsonlTailFile,
 } from "./observe-jsonl-tail.ts";
 import { daemonRequestLogPath } from "./request-log.ts";
+import { readCollaboratorCadence } from "@harness-anything/application/internal/queries/collaborator-reads.ts";
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
 import { DAEMON_OBSERVE_TAIL_SCHEMA } from "./protocol/daemon-protocol-schema-ids.ts";
 import {
@@ -128,6 +129,8 @@ function buildObserveEventTail(
 }
 
 function readEventTail(projection: TaskProjection, payload: EventTailPayload): EventTailPage {
+  if (payload.scopePersonId !== undefined || payload.filterNodeId !== undefined)
+    return readScopedEventTail(projection, payload);
   const requested = payload.cursor?.revision;
   if (payload.direction === "follow") {
     const after = requested!,
@@ -176,6 +179,37 @@ function readEventTail(projection: TaskProjection, payload: EventTailPayload): E
     liveCursor: { kind: "events", revision: lastRevision },
     sourceCursor: { kind: "events", revision: page.sourceRevision },
     done: page.status === "ready" && (selected.length === 0 || firstRevision <= 1),
+  };
+}
+
+function readScopedEventTail(projection: TaskProjection, payload: EventTailPayload): EventTailPage {
+  const cut = projection.readCut();
+  const following = payload.direction === "follow";
+  const after = following ? payload.cursor!.revision : 0;
+  const before = following
+    ? Math.min(after + pageSize, cut.watermark) + 1
+    : (payload.cursor?.revision ?? cut.watermark + 1);
+  if (after > cut.sourceRevision || before > cut.sourceRevision + 1)
+    throw observeError("invalid_cursor", "Canonical event cursor is ahead of the source revision.");
+  const page = readCollaboratorCadence(projection, {
+    scopePersonId: payload.scopePersonId,
+    filterNodeId: payload.filterNodeId,
+    revisionBound: before,
+    limit: pageSize,
+  });
+  const selected = page.rows.toReversed().flatMap(({ revision }) => {
+    if (revision <= after) return [];
+    const summary = projection.readEventSummaries(revision - 1, 1).events[0];
+    return summary?.workspaceRevision === revision ? [summary] : [];
+  });
+  const liveRevision = Math.max(after, before - 1);
+  return {
+    status: cut.status,
+    items: selected,
+    historyCursor: following ? null : { kind: "events", revision: page.rows.at(-1)?.revision ?? 0 },
+    liveCursor: { kind: "events", revision: liveRevision },
+    sourceCursor: { kind: "events", revision: cut.sourceRevision },
+    done: cut.status === "ready" && (following ? liveRevision === cut.sourceRevision : !page.hasMore),
   };
 }
 

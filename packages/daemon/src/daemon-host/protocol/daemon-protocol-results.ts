@@ -239,6 +239,8 @@ export type ObserveTailPayload =
        * canonical summary; this narrows one aggregate read without changing the shared tail.
        */
       readonly fields?: "fleet";
+      readonly scopePersonId?: string;
+      readonly filterNodeId?: string;
     })
   | ObserveTailRequestFor<"repo-log">
   | ObserveTailRequestFor<"daemon-log">
@@ -286,12 +288,20 @@ export function validateObserveTailPayload(value: unknown): readonly string[] {
   if (!isJsonObject(value)) return ["observe tail payload must be an object"];
   if (
     Object.keys(value).some(
-      (key) => key !== "kind" && key !== "direction" && key !== "cursor" && key !== "dispatchId" && key !== "fields",
+      (key) => !["kind", "direction", "cursor", "dispatchId", "fields", "scopePersonId", "filterNodeId"].includes(key),
     )
   )
     return ["observe tail payload contains an unknown field"];
   if (value.fields !== undefined && (value.kind !== "events" || value.fields !== "fleet"))
     return ["observe tail fields is only valid as fleet on an events tail"];
+  for (const field of ["scopePersonId", "filterNodeId"] as const) {
+    const filter = value[field];
+    if (
+      filter !== undefined &&
+      (value.kind !== "events" || value.fields !== undefined || typeof filter !== "string" || !filter.trim())
+    )
+      return [`observe tail ${field} requires a non-empty event filter`];
+  }
   if (!observeTailKinds.includes(value.kind as ObserveTailKind)) return ["observe tail kind is invalid"];
   if (!observeTailDirections.includes(value.direction as ObserveTailDirection))
     return ["observe tail direction is invalid"];
@@ -527,7 +537,9 @@ type DaemonGuiReadDataMap = {
   readonly "repo.agentRuntime.overview": AgentRuntimeOverviewResult;
   readonly "repo.agentRuntime.sessions.read": AgentRuntimeSessionResult;
   readonly "repo.agentRuntime.events.read": AgentRuntimeEventsResult;
-  readonly "repo.agentRuntime.tokenUsage": AgentRuntimeTokenUsageResult;
+  readonly "repo.agentRuntime.tokenUsage":
+    | AgentRuntimeTokenUsageResult
+    | import("../collaborator-token-usage-read.ts").CollaboratorTokenUsageResult;
   readonly "repo.agentRuntime.tokenUsageDetail": AgentRuntimeTokenUsageDetailResult;
   readonly "repo.task.dispatches": DaemonTaskDispatchesResult;
   readonly "repo.agent.entities.list": Extract<AgentEntityGuiRead, { readonly schema: "agent-entity-catalog/v1" }>;
@@ -559,6 +571,8 @@ export type DaemonGuiReadMethod = Exclude<keyof DaemonGuiReadResultMap, DaemonHo
 
 export type DaemonGuiRpcReadMethod = keyof DaemonGuiReadResultMap;
 
+type CollaboratorScope = import("@harness-anything/kernel/internal/domain/collaborator-scope.ts").CollaboratorScope;
+
 export type DaemonGuiReadPayloadMap = {
   readonly "daemon.gui.system.read": Readonly<Record<string, never>>;
   readonly "daemon.gui.home.read": Readonly<Record<string, never>>;
@@ -568,9 +582,9 @@ export type DaemonGuiReadPayloadMap = {
   readonly "repo.tasks.claimable": Readonly<Record<string, never>>;
   readonly "repo.tasks.list": DaemonTaskQueryPayload;
   readonly "repo.tasks.wip": Readonly<Record<string, never>>;
-  readonly "repo.works.index": Readonly<Record<string, never>>;
+  readonly "repo.works.index": CollaboratorScope;
   readonly "repo.work.topology.read": { readonly workRootTaskId: string };
-  readonly "repo.works.briefs.read": Readonly<Record<string, never>>;
+  readonly "repo.works.briefs.read": CollaboratorScope;
   readonly "repo.projection.read": DaemonUseCaseProjectionPayload;
   readonly "repo.entity.actions.explain": {
     readonly schema: "entity-action-explain-request/v1";
@@ -581,7 +595,7 @@ export type DaemonGuiReadPayloadMap = {
   };
   readonly "repo.entity.kinds.read": Readonly<Record<string, never>>;
   readonly "repo.vertical.declaration.read": Readonly<Record<string, never>>;
-  readonly "repo.entity.rows.read": Readonly<Record<string, never>>;
+  readonly "repo.entity.rows.read": CollaboratorScope;
   readonly "repo.entity.locator.read": { readonly locatorKind: string; readonly locatorValue: string };
   readonly "repo.entity.content.read": {
     readonly entityKind: string;
@@ -592,7 +606,7 @@ export type DaemonGuiReadPayloadMap = {
   readonly "repo.reckoning.signals.read": { readonly generatedAt?: string; readonly windowHours?: number };
   readonly "repo.policy.metadata.read": Readonly<Record<string, never>>;
   readonly "repo.workspace.summary.read": Readonly<Record<string, never>>;
-  readonly "repo.workspace.scope.read": {
+  readonly "repo.workspace.scope.read": CollaboratorScope & {
     readonly rootTaskId: string;
     readonly limit?: number;
     readonly cursor?: string;
@@ -617,12 +631,12 @@ export type DaemonGuiReadPayloadMap = {
   readonly "repo.tasks.documents.list": { readonly taskId: string };
   readonly "repo.tasks.deliveryDiff.read": { readonly taskId: string };
   /** absent kind = html(时间线默认面);md 是显式 opt-in。 */
-  readonly "repo.artifacts.list": {
+  readonly "repo.artifacts.list": CollaboratorScope & {
     readonly kind?: "html" | "md" | "raw";
     readonly limit?: number;
     readonly cursor?: string;
   };
-  readonly "repo.agentRuntime.overview": {
+  readonly "repo.agentRuntime.overview": Pick<CollaboratorScope, "scopePersonId" | "filterNodeId"> & {
     readonly taskId?: string;
     readonly limit?: number;
     readonly cursor?: string;
@@ -634,7 +648,10 @@ export type DaemonGuiReadPayloadMap = {
     readonly runtimeSessionId: string;
     readonly afterCursor: string;
   };
-  readonly "repo.agentRuntime.tokenUsage": { readonly range?: AgentRuntimeTokenUsageRange };
+  readonly "repo.agentRuntime.tokenUsage": CollaboratorScope & {
+    readonly range?: AgentRuntimeTokenUsageRange;
+    readonly groupBy?: "person" | "node";
+  };
   /** Exactly one of agentId/squadId scopes the member detail read. */
   readonly "repo.agentRuntime.tokenUsageDetail": {
     readonly range?: AgentRuntimeTokenUsageRange;
@@ -676,7 +693,9 @@ export type DaemonGuiReadPayloadMap = {
 
 /** Optional narrow/paged query facets for the wide task reads. Absent fields keep the
  * unparameterized full-result behavior; every field is explicit — nothing truncates silently. */
-export interface DaemonTaskQueryPayload {
+export interface DaemonTaskQueryPayload extends CollaboratorScope {
+  readonly involvement?: "all" | "mine";
+  readonly attestationOnly?: boolean;
   readonly status?: string;
   readonly changedAfterRevision?: number;
   readonly updatedAfter?: string;
@@ -695,6 +714,7 @@ export interface DaemonTaskQueryPayload {
 }
 
 export interface DaemonAgendaPayload {
+  readonly scopePersonId?: string;
   readonly limit?: number;
   readonly cursor?: string;
   /** Narrow the agenda to one work: the root task and its subtree. */
@@ -836,7 +856,8 @@ export type DaemonDecisionFullRow = DecisionProjectionRow & {
   readonly reviewDispatches: readonly DaemonDecisionReviewDispatchRow[];
 };
 
-export interface DaemonDecisionListPayload {
+export interface DaemonDecisionListPayload extends CollaboratorScope {
+  readonly involvement?: "all" | "mine";
   readonly projection?: "summary" | "full";
   readonly state?: DecisionProjectionRow["state"];
 }

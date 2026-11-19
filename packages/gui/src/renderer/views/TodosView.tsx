@@ -8,20 +8,42 @@ import { Empty } from "../components/primitives/Empty.tsx";
 import { SegCtl } from "../components/primitives/SegCtl.tsx";
 import { EntityRefLink } from "../components/EntityRefLink.tsx";
 import { t } from "../i18n/index.tsx";
+import type { MemberOption } from "../model/attribution.ts";
 
 type TodoView = "open" | "completed" | "archived";
+type TodoScope = "mine" | "all" | `person:${string}`;
 
 export function TodosView({
   repoId,
   onNavigateEntity,
   focusedEntityRef = null,
   targetRef,
+  selectedPersonId,
+  currentPersonId,
+  members = [],
 }: {
   readonly repoId: string;
   readonly onNavigateEntity: (ref: string) => void;
   readonly focusedEntityRef?: string | null;
   readonly targetRef?: string;
+  readonly selectedPersonId?: string | null;
+  readonly currentPersonId?: string | null;
+  readonly members?: readonly MemberOption[];
 }) {
+  const [localScope, setLocalScope] = useState<TodoScope>("mine");
+  const availableLocalScope =
+    localScope === "mine" || localScope === "all" || members.some(({ personId }) => `person:${personId}` === localScope)
+      ? localScope
+      : "mine";
+  const scope =
+    targetRef || selectedPersonId === null
+      ? "all"
+      : selectedPersonId === undefined
+        ? availableLocalScope
+        : selectedPersonId === currentPersonId
+          ? "mine"
+          : (`person:${selectedPersonId}` as const);
+  const selection = scope === "all" ? {} : scope === "mine" ? { mine: true } : { filterPersonId: scope.slice(7) };
   const [view, setView] = useState<TodoView>("open"),
     [text, setText] = useState(""),
     [relate, setRelate] = useState(""),
@@ -34,8 +56,8 @@ export function TodosView({
     input = useRef<HTMLInputElement>(null),
     queryClient = useQueryClient(),
     query = useQuery({
-      queryKey: ["todos", repoId, targetRef ?? null],
-      queryFn: () => todosClient.list(repoId, targetRef),
+      queryKey: ["todos", repoId, targetRef ?? null, scope, currentPersonId],
+      queryFn: () => todosClient.list(repoId, targetRef, selection),
     }),
     mutation = useMutation({
       mutationFn: (run: () => Promise<unknown>) => run(),
@@ -92,6 +114,26 @@ export function TodosView({
     >
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
         <h2 className="font-semibold">{t(targetRef ? "todos.attached" : "todos.title")}</h2>
+        {!targetRef && (
+          <select
+            data-testid="todos-scope"
+            aria-label={t("components.scopeLens.label")}
+            value={scope}
+            disabled={selectedPersonId !== undefined}
+            className="rounded border border-border bg-surface-raised px-2 py-1 ui-meta text-text"
+            onChange={(event) => setLocalScope(event.target.value as TodoScope)}
+          >
+            <option value="mine">{t("components.scopeLens.me")}</option>
+            <option value="all">{t("components.scopeLens.all")}</option>
+            {members
+              .filter(({ personId }) => personId !== currentPersonId)
+              .map(({ personId, label }) => (
+                <option key={personId} value={`person:${personId}`}>
+                  {label}
+                </option>
+              ))}
+          </select>
+        )}
         {!targetRef && (
           <SegCtl
             label={t("todos.views")}

@@ -55,12 +55,16 @@ export function LiveFloorView({
   repoId,
   tasks,
   works,
+  scopePersonId = null,
+  viewerPersonId = null,
   onOpenTask,
   onNavigateEntity,
 }: {
   readonly repoId: string;
   readonly tasks: readonly TaskRow[];
   readonly works: WorkIndex;
+  readonly scopePersonId?: string | null;
+  readonly viewerPersonId?: string | null;
   readonly onOpenTask: (taskId: string) => void;
   readonly onNavigateEntity: (ref: string) => void;
 }) {
@@ -75,8 +79,11 @@ export function LiveFloorView({
   };
 
   const runtime = useQuery({
-      queryKey: runtimeQueryKeys.overviewAll(repoId),
-      queryFn: () => agentRuntimeClient.overview(repoId),
+      queryKey: [...runtimeQueryKeys.overviewAll(repoId), ...(scopePersonId === null ? [] : [scopePersonId])],
+      queryFn: () =>
+        scopePersonId === null
+          ? agentRuntimeClient.overview(repoId)
+          : agentRuntimeClient.overview(repoId, undefined, undefined, { scopePersonId }),
       staleTime: 4_000,
       refetchInterval: QUERY_PACING_MS.tokenUsage,
     }),
@@ -110,7 +117,7 @@ export function LiveFloorView({
       staleTime: 4_000,
       refetchInterval: QUERY_PACING_MS.tokenUsage,
     }),
-    agenda = useAgendaQuery(repoId),
+    agenda = useAgendaQuery(repoId, scopePersonId, viewerPersonId),
     // decision ask 的依据(提案原文问题)要先于 asks 组装就绪:候选直接取 agenda 的两个
     // decision 池,不经过 asks,否则声明顺序成环。
     decisionAsks = useMemo(

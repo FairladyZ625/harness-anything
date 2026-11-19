@@ -1,6 +1,7 @@
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
 import { consumeKnownError, type EntityKindCatalogV1, type TaskProjection } from "@harness-anything/kernel";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
+import { readCollaboratorEntities } from "@harness-anything/application/internal/queries/collaborator-reads.ts";
 
 /**
  * 已声明实体的行读面(task_0df76ed3fb 设计页 §3)。
@@ -58,15 +59,22 @@ export function readDeclaredEntityRows(input: {
   readonly catalog: EntityKindCatalogV1;
   readonly projection: Pick<TaskProjection, "listEntities">;
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
+  readonly scope?: Parameters<typeof readCollaboratorEntities>[2];
 }): EntityRowListV1 {
   const rows: EntityRowV1[] = [];
   for (const { kind, origin } of input.catalog.kinds) {
     if (origin !== "vertical") continue;
-    for (const row of input.projection.listEntities(kind)) rows.push(entityRow(kind, row));
+    for (const row of readCollaboratorEntities(
+      { listEntities: (kind) => input.projection.listEntities(kind) },
+      kind,
+      input.scope,
+    ))
+      rows.push(entityRow(kind, row));
   }
   let runtimeInstances: readonly RuntimeInstanceSummary[] = [];
   try {
-    runtimeInstances = input.runtimeInstances?.() ?? [];
+    if (!input.scope?.scopePersonId && !input.scope?.filterPersonId && !input.scope?.filterNodeId)
+      runtimeInstances = input.runtimeInstances?.() ?? [];
   } catch (error) {
     consumeKnownError(error);
   }

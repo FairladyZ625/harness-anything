@@ -23,12 +23,15 @@ const eventsQueryKeys = {
 
 /** 最近变化:一页 history(最新端,升序),不跟流——总览不做事件 follow 循环(cadence 页才做)。
  * 事件页只喂给与工作页共用的 workDayGroups 收束;runtime_* 等内部事件不产步骤,不进总览。 */
-export function useOverviewRecentEvents(repoId: string | null) {
+export function useOverviewRecentEvents(repoId: string | null, scopePersonId: string | null = null) {
   const selectedRepoId = repoId ?? "unselected";
   return useQuery({
-    queryKey: eventsQueryKeys.recent(selectedRepoId),
+    queryKey: [...eventsQueryKeys.recent(selectedRepoId), ...(scopePersonId === null ? [] : [scopePersonId])],
     queryFn: async () => {
-      const page = await harnessClient.tailObservability(observeTailRequest(selectedRepoId, "events", "history", null));
+      const page = await harnessClient.tailObservability({
+        ...observeTailRequest(selectedRepoId, "events", "history", null),
+        ...(scopePersonId === null ? {} : { scopePersonId }),
+      });
       if (page.status === "unavailable") return [] as readonly CadenceFeedEvent[];
       return page.items.map((item) => cadenceEventOf(item)) as readonly CadenceFeedEvent[];
     },
@@ -39,17 +42,20 @@ export function useOverviewRecentEvents(repoId: string | null) {
 }
 
 /** repo 级 runtime overview 的读法(只含未退出的会话):总览与项目管理页共用同一 key 去重。 */
-export function overviewRuntimeQuery(repoId: string) {
+export function overviewRuntimeQuery(repoId: string, scopePersonId: string | null = null) {
   return {
-    queryKey: runtimeQueryKeys.overviewAll(repoId),
-    queryFn: (): Promise<AgentRuntimeOverviewResult> => agentRuntimeClient.overview(repoId),
+    queryKey: [...runtimeQueryKeys.overviewAll(repoId), ...(scopePersonId === null ? [] : [scopePersonId])],
+    queryFn: (): Promise<AgentRuntimeOverviewResult> =>
+      scopePersonId === null
+        ? agentRuntimeClient.overview(repoId)
+        : agentRuntimeClient.overview(repoId, undefined, undefined, { scopePersonId }),
     staleTime: 4_000,
   };
 }
 
 /** 执行中:repo 级 runtime overview(与研发态势同一读面,key 共享去重;cut 扇出覆盖)。 */
-export function useOverviewRuntime(repoId: string | null) {
-  return useQuery({ ...overviewRuntimeQuery(repoId ?? "unselected"), enabled: repoId !== null });
+export function useOverviewRuntime(repoId: string | null, scopePersonId: string | null = null) {
+  return useQuery({ ...overviewRuntimeQuery(repoId ?? "unselected", scopePersonId), enabled: repoId !== null });
 }
 
 /* ------------------------------------------------------------------ Agent 泳道读面(dec_C0AF8CBBFFECF71F4F34FB76F9 CH2/CH4) */

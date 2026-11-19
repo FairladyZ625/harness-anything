@@ -8,6 +8,7 @@ import { runtimeQueryKeys } from "./agent-runtime-client.ts";
 import { LEDGER_PROBE_FOCUS_REFETCH, QUERY_PACING_MS } from "./query-pacing.ts";
 import { workspaceSummaryQueryKeys } from "./workspace-summary-data.ts";
 import { repositoryReadFrame } from "./repository-read-frame.ts";
+import { drainCursorPages } from "./paginated-read.ts";
 
 export const TASK_LIST_PAGE_LIMIT = guiInteractionPolicy.defaultValue.pageSizes.tasks;
 
@@ -51,11 +52,15 @@ export function useTaskWipQuery(repoId: string | null, enabled: boolean) {
 }
 
 /** 工作索引(daemon `repo.works.index`):工作根与任务所属工作,随台账切面换代(invalidateLedgerDependents)。 */
-export function useWorkIndexQuery(repoId: string | null): UseQueryResult<WorkIndexRead, Error> {
+export function useWorkIndexQuery(
+  repoId: string | null,
+  scopePersonId: string | null = null,
+): UseQueryResult<WorkIndexRead, Error> {
   const selectedRepoId = repoId ?? "unselected";
   return useQuery({
-    queryKey: taskQueryKeys.works(selectedRepoId),
-    queryFn: () => harnessClient.getWorkIndex({ repoId: selectedRepoId }),
+    queryKey: [...taskQueryKeys.works(selectedRepoId), ...(scopePersonId === null ? [] : [scopePersonId])],
+    queryFn: () =>
+      harnessClient.getWorkIndex({ repoId: selectedRepoId, ...(scopePersonId === null ? {} : { scopePersonId }) }),
     enabled: repoId !== null,
     staleTime: 10_000,
   });
@@ -280,6 +285,51 @@ export function useActiveTasksQuery(
   hydrationPending: boolean,
 ): UseQueryResult<TaskListSuccess["rows"], Error> {
   return useQuery(activeTasksQuery(repoId ?? "unselected", repoId !== null && hydrationPending));
+}
+
+/** One recent page per terminal board column while the complete cut hydrates. */
+export function useRecentTerminalTasksQuery(repoId: string | null, hydrationPending: boolean) {
+  return useQuery({
+    queryKey: [...taskQueryKeys.all(repoId ?? "unselected"), "recent-terminal"],
+    queryFn: () => readRecentTerminalTasks(repoId!),
+    enabled: repoId !== null && hydrationPending,
+    staleTime: 0,
+  });
+}
+
+export async function readRecentTerminalTasks(repoId: string, now = Date.now()): Promise<TaskListSuccess["rows"]> {
+  const updatedAfter = new Date(now - 7 * 86_400_000).toISOString();
+  const pages = await Promise.all(
+    (["done", "cancelled"] as const).map((status) =>
+      harnessClient.getTasks({ repoId, status, statusSource: "raw", updatedAfter, limit: TASK_LIST_PAGE_LIMIT }),
+    ),
+  );
+  return pages.flatMap(({ rows }) => rows);
+}
+
+export function useScopedAttestationTasks(
+  repoId: string | null,
+  scope: Pick<TaskQueryFacets, "scopePersonId" | "filterPersonId" | "filterNodeId" | "involvement">,
+) {
+  return useQuery({
+    queryKey: [...taskQueryKeys.all(repoId ?? "unselected"), "attestation", scope],
+    queryFn: async () => {
+      const pages = await drainCursorPages(
+        (facets) =>
+          harnessClient.getTasks({
+            repoId: repoId!,
+            attestationOnly: true,
+            ...scope,
+            ...facets,
+            limit: TASK_LIST_PAGE_LIMIT,
+          }),
+        "attestation task read",
+      );
+      return pages.flatMap(({ rows }) => rows);
+    },
+    enabled: repoId !== null && Object.keys(scope).length > 0,
+    staleTime: 0,
+  });
 }
 
 /**
