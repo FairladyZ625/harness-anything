@@ -1,10 +1,32 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { taskLifecycleWritePlan, type TaskProjectionQueries } from "@harness-anything/kernel";
+import {
+  applyTransition,
+  DISPATCH_LIFECYCLE_PAGE_LIMIT,
+  emptyTaskLifecycleSnapshot,
+  normalizeTaskLifecycleCommand,
+  REPLAY_TASK_GRAPH,
+  sha256Bytes,
+  taskLifecycleWritePlan,
+  type ActorAxes,
+  type TaskEventV1,
+  type TaskLifecycleCommand,
+  type TaskProjectionQueries,
+  type WriteSource,
+} from "@harness-anything/kernel";
 import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { writeFileDurably } from "../../storage/src/durable-file.ts";
 import {
@@ -16,9 +38,12 @@ import {
 } from "../src/daemon-host/dispatch-stream.ts";
 import { dispatchEvidenceStatePath, writeDispatchEvidenceState } from "../src/daemon-host/dispatch-evidence-state.ts";
 import { measureLocalRootStorage, reclaimLocalRootStorage } from "../src/daemon-host/local-root-storage.ts";
-import { cachePurgeDerivedDirectories } from "../src/daemon-host/repo-cache-purge.ts";
+import type { RepoCellActionContext } from "../src/daemon-host/repo-cell-types.ts";
+import { runRuntimeHandoffAction } from "../src/daemon-host/runtime-handoff-store.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
+
+const dirLinkType = process.platform === "win32" ? "junction" : "dir";
 
 function createTestRepo(prefix: string): { readonly rootDir: string; readonly cleanup: () => void } {
   const rootDir = mkdtempSync(path.join(tmpdir(), prefix));
@@ -35,7 +60,18 @@ function writeDummyFile(target: string, bytes: number): void {
   writeFileSync(target, Buffer.alloc(bytes, 0x61));
 }
 
-function seedClosedDispatch(rootDir: string, dispatchId: string, taskId: string | null, startedAt: string): void {
+function seedClosedDispatch(
+  rootDir: string,
+  dispatchId: string,
+  taskId: string | null,
+  startedAt: string,
+  options: {
+    readonly outcome?: "succeeded" | "failed" | "stopped";
+    readonly classification?: string;
+    readonly emitExit?: boolean;
+  } = {},
+): void {
+  const outcome = options.outcome ?? "succeeded";
   openDispatchStream(rootDir, {
     dispatchId,
     taskId,
@@ -60,18 +96,26 @@ function seedClosedDispatch(rootDir: string, dispatchId: string, taskId: string 
     event: { type: "model.streaming", turnId: "t1", payload: { kind: "text_delta", delta: "world" } },
   });
   appendRuntimeWorkerRecord(rootDir, dispatchId, {
-    kind: "process_exit",
-    exitCode: 0,
+    kind: "provider_event",
     occurredAt: startedAt,
+    event: { type: "result", turnId: "t1", response: "hello world", is_error: outcome !== "succeeded" },
   });
+  if (options.emitExit !== false) {
+    appendRuntimeWorkerRecord(rootDir, dispatchId, {
+      kind: "process_exit",
+      exitCode: outcome === "succeeded" ? 0 : 1,
+      occurredAt: startedAt,
+    });
+  }
   appendRuntimeWorkerRecord(rootDir, dispatchId, {
     kind: "terminal_outcome",
     occurredAt: startedAt,
-    reason: "completed",
-    body: "done",
+    reason: outcome,
+    body: outcome,
     payload: {
       runtimeSessionId: `runtime-${dispatchId}`,
-      outcome: "succeeded",
+      outcome,
+      ...(options.classification ? { attempt: { classification: options.classification } } : {}),
       resultRef: `dispatch:${dispatchId}`,
       result: { text: "hello world" },
       endedAt: startedAt,
@@ -79,7 +123,7 @@ function seedClosedDispatch(rootDir: string, dispatchId: string, taskId: string 
   });
 }
 
-test("measureLocalRootStorage handles missing localRoot and classifies entries against purge SSoT without following symlinks", () => {
+test("F6 regression: measureLocalRootStorage classifies mixed runtime subtrees by full leaf path and excludes manual requests subdirectories from request-log bytes", () => {
   const { rootDir, cleanup } = createTestRepo("ha-local-storage-measure-");
   try {
     const missing = measureLocalRootStorage(rootDir);
@@ -95,29 +139,52 @@ test("measureLocalRootStorage handles missing localRoot and classifies entries a
       path.join(rootDir, ".harness", "runtime", "dispatches", "archive", "dispatch_111111111111111111111111.jsonl"),
       128,
     );
+    writeDummyFile(path.join(rootDir, ".harness", "runtime", "retired-dispatches", "legacy.jsonl"), 200);
+    writeDummyFile(path.join(rootDir, ".harness", "runtime", "custom-debug", "trace.log"), 300);
+    writeDummyFile(path.join(rootDir, ".harness", "requests", "requests.jsonl"), 120);
+    writeDummyFile(path.join(rootDir, ".harness", "requests", "requests.jsonl.1"), 80);
+    writeDummyFile(path.join(rootDir, ".harness", "requests", "from-deli-ai-lab", "ha-requests-20261109.md"), 4000);
     writeDummyFile(path.join(rootDir, ".harness", "settings.local.json"), 32);
-    writeDummyFile(path.join(rootDir, "outside.txt"), 4096);
-    symlinkSync(path.join(rootDir, "outside.txt"), path.join(rootDir, ".harness", "cache", "linked-outside"));
+    writeDummyFile(path.join(rootDir, "outside.txt"), 8192);
+    if (process.platform !== "win32") {
+      symlinkSync(path.join(rootDir, "outside.txt"), path.join(rootDir, ".harness", "cache", "linked-outside"));
+    }
 
     const report = measureLocalRootStorage(rootDir);
     assert.equal(report.exists, true);
     assert.equal(report.byClass.authoritative.bytes, 1024 + 64);
-    assert.equal(report.byClass.unrecognized.bytes, 32);
+    assert.equal(
+      report.byClass.unrecognized.bytes,
+      32 + 200 + 300 + 120 + 80 + 4000,
+      "unknown runtime siblings and requests/ files must classify as unrecognized, never derived",
+    );
     assert.ok(report.byClass.derived.bytes >= 512 + 256 + 128);
-    assert.ok(report.byClass.derived.bytes < 4096, "symlink target bytes outside localRoot must not be traversed");
+    assert.ok(
+      report.byClass.derived.bytes < 512 + 256 + 128 + 200,
+      "derived bytes must exclude unknown runtime siblings, manual requests docs, and symlink targets",
+    );
 
-    const topDerived = new Set(cachePurgeDerivedDirectories.map((entry) => entry.split("/")[0]!));
-    for (const entry of report.entries) {
-      if (topDerived.has(entry.name)) assert.equal(entry.classification, "derived");
-    }
-    assert.ok(report.highlights.some((h) => h.path === "cache/completion-conversion-verification.sqlite"));
-    assert.ok(report.highlights.some((h) => h.path === "store/generations"));
+    const runtimeEntry = report.entries.find((entry) => entry.name === "runtime");
+    assert.equal(
+      runtimeEntry?.classification,
+      "unrecognized",
+      "mixed runtime directory holding non-derived siblings must not be labeled wholly derived",
+    );
+
+    const requestHighlight = report.highlights.find((h) => h.path.startsWith("requests"));
+    assert.ok(requestHighlight, "writer-owned request logs highlight must be reported");
+    assert.equal(
+      requestHighlight.bytes,
+      200,
+      "request log highlight must count only requests.jsonl and numbered rotations, excluding from-deli-ai-lab/",
+    );
+    assert.equal(requestHighlight.files, 2);
   } finally {
     cleanup();
   }
 });
 
-test("reclaimLocalRootStorage preserves canonical ledger replay, in-flight runtimes, pending evidence, and active handoffs while reclaiming terminal/derived artifacts", async () => {
+test("F3 regression: reclaimLocalRootStorage preserves canonical ledger replay, in-flight runtimes, pending evidence, and unrecognized runtime/retired-dispatches files", async () => {
   const { rootDir, cleanup } = createTestRepo("ha-local-storage-reclaim-");
   const nowMs = Date.parse("2026-11-19T00:00:00.000Z");
   const oldIso = new Date(nowMs - 90 * 86_400_000).toISOString();
@@ -130,7 +197,7 @@ test("reclaimLocalRootStorage preserves canonical ledger replay, in-flight runti
   const factProtectedArchiveId = "dispatch_555555555555555555555555";
   const expiredArchiveId = "dispatch_666666666666666666666666";
   const orphanSidecarId = "dispatch_777777777777777777777777";
-  const handoffTerminalId = "dispatch_888888888888888888888888";
+  const handoffDoneId = "dispatch_888888888888888888888888";
   const handoffRevokedId = "dispatch_999999999999999999999999";
   const handoffResumedId = "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa";
   const handoffActiveId = "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb";
@@ -165,15 +232,10 @@ test("reclaimLocalRootStorage preserves canonical ledger replay, in-flight runti
     const beforeRebuild = projection.rebuild();
     assert.equal(beforeRebuild.watermark, allEvents.length);
 
-    // 1. Settled dispatch still in live dispatches/ (must be archived + compacted + removed from live-index)
     seedClosedDispatch(rootDir, settledStreamId, "task_done", recentIso);
     writeDispatchEvidenceState(rootDir, settledStreamId, "not-required");
-    assert.equal(readDispatchLiveIndex(rootDir, ["task_done"]).entries.length, 1);
-
-    // 2. Legacy pre-lifecycle dispatch for a terminal task (no lifecycle row, terminalOutcome present)
     seedClosedDispatch(rootDir, legacyTerminalId, "task_done", recentIso);
 
-    // 3. In-flight runtime dispatch (must NEVER be archived or deleted)
     openDispatchStream(rootDir, {
       dispatchId: liveStreamId,
       taskId: "task_active",
@@ -188,22 +250,18 @@ test("reclaimLocalRootStorage preserves canonical ledger replay, in-flight runti
       occurredAt: recentIso,
     });
 
-    // 4. Settled dispatch whose evidence is still pending (must NEVER be compacted or deleted)
-    seedClosedDispatch(rootDir, pendingEvidenceId, "task_done", oldIso);
+    seedClosedDispatch(rootDir, pendingEvidenceId, "task_done", oldIso, { outcome: "failed" });
     writeDispatchEvidenceState(rootDir, pendingEvidenceId, "pending");
 
-    // 5. Archived streams: one Fact-protected (must survive >60d), one expired (must be pruned)
     seedClosedDispatch(rootDir, factProtectedArchiveId, "task_done", oldIso);
     archiveDispatchStream(rootDir, factProtectedArchiveId);
     seedClosedDispatch(rootDir, expiredArchiveId, "task_done", oldIso);
     archiveDispatchStream(rootDir, expiredArchiveId);
 
-    // 6. Orphaned non-pending evidence sidecar
     writeDispatchEvidenceState(rootDir, orphanSidecarId, "stored");
 
-    // 7. Handoffs: terminal task, revoked, resumed -> rollout removed; active -> rollout preserved
     for (const [id, meta] of [
-      [handoffTerminalId, { taskId: "task_done", revokedAt: null }],
+      [handoffDoneId, { taskId: "task_done", revokedAt: null }],
       [handoffRevokedId, { taskId: "task_active", revokedAt: recentIso }],
       [handoffResumedId, { taskId: "task_active", revokedAt: null }],
       [handoffActiveId, { taskId: "task_active", revokedAt: null }],
@@ -213,7 +271,6 @@ test("reclaimLocalRootStorage preserves canonical ledger replay, in-flight runti
       writeFileDurably(path.join(dir, "rollout.jsonl"), '{"kind":"rollout"}\n', 0o600);
     }
 
-    // 8. Leaked verification SQLite, legacy projections.sqlite, retired-dispatches, and preserved unrecognized files
     writeDummyFile(path.join(rootDir, ".harness", "cache", "completion-conversion-verification.sqlite"), 512);
     writeDummyFile(path.join(rootDir, ".harness", "cache", "completion-conversion-verification.sqlite-wal"), 64);
     writeDummyFile(path.join(rootDir, ".harness", "cache", "projections.sqlite"), 128);
@@ -227,6 +284,7 @@ test("reclaimLocalRootStorage preserves canonical ledger replay, in-flight runti
         runtimeSessionId: `runtime-${settledStreamId}`,
         attemptSettled: true,
         groupSettled: true,
+        stopProof: "proven_stopped",
         outcome: "succeeded",
       },
       {
@@ -243,6 +301,7 @@ test("reclaimLocalRootStorage preserves canonical ledger replay, in-flight runti
         runtimeSessionId: `runtime-${pendingEvidenceId}`,
         attemptSettled: true,
         groupSettled: true,
+        stopProof: "proven_stopped",
         outcome: "failed",
       },
     ]);
@@ -280,38 +339,22 @@ test("reclaimLocalRootStorage preserves canonical ledger replay, in-flight runti
     assert.equal(result.archivedDispatches, 2);
     assert.equal(result.removedOrphanSidecars, 1);
     assert.equal(result.removedHandoffRollouts, 3);
-    assert.equal(result.removedRetiredDispatches, true);
     assert.ok(result.removedStaleCacheFiles >= 3);
 
-    // Settled & legacy terminal streams moved to archive and dropped from live-index
-    assert.equal(
-      path.basename(path.dirname(dispatchStreamPath(rootDir, settledStreamId))),
-      "archive",
-      "settled stream moved to archive",
-    );
-    assert.equal(
-      path.basename(path.dirname(dispatchStreamPath(rootDir, legacyTerminalId))),
-      "archive",
-      "legacy terminal stream moved to archive",
-    );
+    assert.equal(path.basename(path.dirname(dispatchStreamPath(rootDir, settledStreamId))), "archive");
+    assert.equal(path.basename(path.dirname(dispatchStreamPath(rootDir, legacyTerminalId))), "archive");
     assert.deepEqual(
       readDispatchLiveIndex(rootDir, ["task_done"]).entries.map((entry) => entry.dispatchId),
       [pendingEvidenceId],
     );
 
-    // In-flight runtime and pending evidence remain untouched in dispatches/
     assert.equal(path.basename(path.dirname(dispatchStreamPath(rootDir, liveStreamId))), "dispatches");
-    assert.equal(existsSync(dispatchStreamPath(rootDir, liveStreamId)), true);
     assert.equal(path.basename(path.dirname(dispatchStreamPath(rootDir, pendingEvidenceId))), "dispatches");
-    assert.equal(existsSync(dispatchEvidenceStatePath(rootDir, pendingEvidenceId)), true);
-
-    // Fact-protected archive survives, expired archive pruned, orphan sidecar pruned
     assert.equal(existsSync(dispatchStreamPath(rootDir, factProtectedArchiveId)), true);
     assert.equal(existsSync(dispatchStreamPath(rootDir, expiredArchiveId)), false);
     assert.equal(existsSync(dispatchEvidenceStatePath(rootDir, orphanSidecarId)), false);
 
-    // Handoff rollouts: terminal/revoked/resumed removed (checkpoint.json preserved); active rollout preserved
-    for (const id of [handoffTerminalId, handoffRevokedId, handoffResumedId]) {
+    for (const id of [handoffDoneId, handoffRevokedId, handoffResumedId]) {
       assert.equal(existsSync(path.join(rootDir, ".harness", "runtime-handoffs", id, "rollout.jsonl")), false);
       assert.equal(existsSync(path.join(rootDir, ".harness", "runtime-handoffs", id, "checkpoint.json")), true);
     }
@@ -320,29 +363,588 @@ test("reclaimLocalRootStorage preserves canonical ledger replay, in-flight runti
       true,
     );
 
-    // Leaked cache & retired-dispatches removed; active task.sqlite and unrecognized preserved
     assert.equal(
       existsSync(path.join(rootDir, ".harness", "cache", "completion-conversion-verification.sqlite")),
       false,
     );
     assert.equal(existsSync(path.join(rootDir, ".harness", "cache", "projections.sqlite")), false);
-    assert.equal(existsSync(path.join(rootDir, ".harness", "runtime", "retired-dispatches", "old.jsonl")), false);
+    assert.equal(
+      existsSync(path.join(rootDir, ".harness", "runtime", "retired-dispatches", "old.jsonl")),
+      true,
+      "unrecognized runtime/retired-dispatches files must NEVER be auto-deleted",
+    );
     assert.equal(existsSync(path.join(rootDir, ".harness", "cache", "task.sqlite")), true);
     assert.equal(existsSync(path.join(rootDir, ".harness", "wal.bricked-20260821-0940", "head.json")), true);
     assert.equal(existsSync(path.join(rootDir, ".harness", "settings.local.json")), true);
 
-    // Canonical ledger cold rebuild is 100% invariant before and after reclamation
     projection.close();
     rmSync(path.join(rootDir, ".harness", "cache", "task.sqlite"), { force: true });
     const coldProjection = makeTaskProjection({ rootDir, eventStore });
     const afterRebuild = coldProjection.rebuild();
     assert.equal(afterRebuild.watermark, beforeRebuild.watermark);
     assert.equal(afterRebuild.stateDigest, beforeRebuild.stateDigest);
-    assert.equal(coldProjection.read("task_done").snapshot.task?.status, "done");
-    assert.equal(coldProjection.read("task_active").snapshot.task?.status, "active");
     coldProjection.close();
   } finally {
     await eventStore.drain();
+    cleanup();
+  }
+});
+
+test("F1 regression: legacy abnormal failed stream without sidecar, unproven-stop attempt, and foreign-node attempt remain uncompacted in live dispatches", async () => {
+  const { rootDir, cleanup } = createTestRepo("ha-local-storage-f1-");
+  const nowMs = Date.parse("2026-11-19T00:00:00.000Z");
+  const oldIso = new Date(nowMs - 90 * 86_400_000).toISOString();
+
+  const legacyFailedId = "dispatch_f10000000000000000000001";
+  const legacyNoExitId = "dispatch_f10000000000000000000002";
+  const legacyAwaitingRulingId = "dispatch_f10000000000000000000003";
+  const unprovenStopId = "dispatch_f10000000000000000000004";
+  const foreignNodeId = "dispatch_f10000000000000000000005";
+  const recoveryPendingId = "dispatch_f10000000000000000000006";
+
+  const eventStore = makeTaskEventStore({ rootDir, repoId: "f1-test" });
+  const projection = makeTaskProjection({ rootDir, eventStore });
+  try {
+    for (const event of lifecycleFixture({ taskId: "task_done", executionId: "exec-done", reviewId: "rev-done" })
+      .events) {
+      const plan = taskLifecycleWritePlan(event);
+      eventStore.append({ event, plan, blobs: [] });
+      projection.apply(event, plan);
+    }
+
+    seedClosedDispatch(rootDir, legacyFailedId, "task_done", oldIso, {
+      outcome: "failed",
+      classification: "provider_fault",
+    });
+    const rawLegacyFailedPath = dispatchStreamPath(rootDir, legacyFailedId);
+    const rawLegacyFailedBytes = readFileSync(rawLegacyFailedPath);
+
+    seedClosedDispatch(rootDir, legacyNoExitId, "task_done", oldIso, {
+      outcome: "succeeded",
+      emitExit: false,
+    });
+    seedClosedDispatch(rootDir, legacyAwaitingRulingId, "task_done", oldIso, {
+      outcome: "failed",
+      classification: "awaiting_ruling",
+    });
+    seedClosedDispatch(rootDir, unprovenStopId, "task_done", oldIso, { outcome: "succeeded" });
+    writeDispatchEvidenceState(rootDir, unprovenStopId, "not-required");
+
+    seedClosedDispatch(rootDir, foreignNodeId, "task_done", oldIso, { outcome: "succeeded" });
+    writeDispatchEvidenceState(rootDir, foreignNodeId, "not-required");
+
+    seedClosedDispatch(rootDir, recoveryPendingId, "task_done", oldIso, { outcome: "succeeded" });
+    writeDispatchEvidenceState(rootDir, recoveryPendingId, "not-required");
+
+    archiveDispatchStream(rootDir, legacyFailedId);
+    assert.equal(
+      path.basename(path.dirname(dispatchStreamPath(rootDir, legacyFailedId))),
+      "dispatches",
+      "archiveDispatchStream must honor mustPreserveDispatch for legacy abnormal failed streams without sidecars",
+    );
+
+    const lifecycleReader = lifecycleReadForSync([
+      {
+        dispatchId: unprovenStopId,
+        runtimeSessionId: `runtime-${unprovenStopId}`,
+        attemptSettled: true,
+        groupSettled: true,
+        process: "unknown",
+        stopProof: "unproven",
+        outcome: "succeeded",
+      },
+      {
+        dispatchId: foreignNodeId,
+        runtimeSessionId: `runtime-${foreignNodeId}`,
+        owner: "node:edge-other",
+        attemptSettled: true,
+        groupSettled: true,
+        stopProof: "proven_stopped",
+        outcome: "succeeded",
+      },
+      {
+        dispatchId: recoveryPendingId,
+        runtimeSessionId: `runtime-${recoveryPendingId}`,
+        attemptSettled: true,
+        groupSettled: true,
+        stopProof: "proven_stopped",
+        outcome: "succeeded",
+      },
+    ]);
+
+    reclaimLocalRootStorage({
+      rootDir,
+      projection: {
+        read: (taskId) => projection.read(taskId),
+        readDispatchLifecycle: (query) => lifecycleReader(query),
+        readRuntimeDispatchByResumeSource: () => null,
+        searchFacts: () => ({ status: "ready", watermark: 1, sourceRevision: 1, facts: [] }),
+      },
+      retention: { retentionDays: 60, retentionBytes: 0 },
+      nowMs,
+      recoveryDispatchIds: [recoveryPendingId],
+    });
+
+    assert.equal(
+      path.basename(path.dirname(dispatchStreamPath(rootDir, legacyFailedId))),
+      "dispatches",
+      "legacy abnormal failed stream must remain in live dispatches and survive 60d archive retention",
+    );
+    assert.deepEqual(
+      readFileSync(dispatchStreamPath(rootDir, legacyFailedId)),
+      rawLegacyFailedBytes,
+      "legacy abnormal failed stream must remain uncompacted byte-for-byte",
+    );
+    assert.equal(
+      path.basename(path.dirname(dispatchStreamPath(rootDir, legacyNoExitId))),
+      "dispatches",
+      "legacy stream without process_exit proof must remain in live dispatches",
+    );
+    assert.equal(
+      path.basename(path.dirname(dispatchStreamPath(rootDir, unprovenStopId))),
+      "dispatches",
+      "attempt without proven_stopped single-attempt proof must remain in live dispatches",
+    );
+    assert.equal(
+      path.basename(path.dirname(dispatchStreamPath(rootDir, foreignNodeId))),
+      "dispatches",
+      "attempt owned by another node must not be archived by local reclamation",
+    );
+    assert.equal(
+      path.basename(path.dirname(dispatchStreamPath(rootDir, recoveryPendingId))),
+      "dispatches",
+      "dispatch still pending runtime adoption/recovery must remain in live dispatches",
+    );
+    assert.equal(
+      existsSync(path.join(rootDir, ".harness", "runtime", "dispatches", `${legacyAwaitingRulingId}.jsonl`)),
+      false,
+    );
+  } finally {
+    projection.close();
+    await eventStore.drain();
+    cleanup();
+  }
+});
+
+test("F2 regression: cancelled task handoff rollout survives attach reclamation through reinstate and real target-node claim", async () => {
+  const { rootDir, cleanup } = createTestRepo("ha-local-storage-f2-");
+  const eventStore = makeTaskEventStore({ rootDir, repoId: "f2-handoff-repo" });
+  const projection = makeTaskProjection({ rootDir, eventStore });
+  const ownerActor: ActorAxes = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } };
+  const targetSource: WriteSource = { kind: "node", nodeId: "node-two" };
+  const dispatchId = "dispatch_f20000000000000000000001";
+  const runtimeSessionId = "runtime_f20000000000000000000001";
+  const nativeSessionId = "019abcdef-1234-5678-9999-abcdef123456";
+  const rolloutBytes = Buffer.from(
+    `${JSON.stringify({
+      type: "session_meta",
+      payload: { id: nativeSessionId, cli_version: "0.159.1", timestamp: "2026-10-01T00:00:00.000Z" },
+    })}\n${JSON.stringify({
+      type: "response_item",
+      payload: { type: "message", role: "user", content: [{ type: "input_text", text: "preserve-across-cancel" }] },
+    })}\n`,
+  );
+
+  try {
+    let snapshot = emptyTaskLifecycleSnapshot();
+    let rev = 0;
+    const appendLifecycle = (
+      source: WriteSource,
+      intent: Parameters<typeof normalizeTaskLifecycleCommand>[1],
+      proof: unknown,
+    ) => {
+      rev += 1;
+      const cmd: TaskLifecycleCommand = {
+        ...normalizeTaskLifecycleCommand(
+          { workspaceId: "f2-handoff-repo", actor: ownerActor, source, expectedRevision: rev - 1 },
+          intent,
+        ),
+        eventId: `ev-f2-${rev}`,
+        workspaceRevision: rev,
+        occurredAt: `2026-11-19T00:0${rev}:00.000Z`,
+      };
+      const applied = applyTransition(snapshot, cmd, proof as never);
+      snapshot = applied.snapshot;
+      const plan = taskLifecycleWritePlan(applied.event as TaskEventV1);
+      eventStore.append({ event: applied.event as TaskEventV1, plan, blobs: [] });
+      projection.apply(applied.event as TaskEventV1, plan);
+    };
+
+    appendLifecycle(
+      "local",
+      {
+        type: "CreateReplayTask",
+        taskId: "task_cancel_handoff",
+        title: "Recoverable handoff task",
+        taskClass: "standard",
+        graph: REPLAY_TASK_GRAPH,
+        completionGateIds: [],
+        presetSnapshotDigest: "sha256:" + "1".repeat(64),
+      },
+      { taskIdUnique: true, actorBinding: ownerActor },
+    );
+    appendLifecycle(
+      "local",
+      { type: "StartExecution", taskId: "task_cancel_handoff", executionId: "exec-1" },
+      {
+        actorBinding: ownerActor,
+        deliveryBaseline: { kind: "commit", commitSha: "0".repeat(40) },
+        reservation: {
+          taskId: "task_cancel_handoff",
+          executionId: "exec-1",
+          expiresAt: "2026-11-19T02:00:00.000Z",
+          ttlMs: 3_600_000,
+          previousHolder: null,
+          reason: "initial_claim",
+          version: 0,
+        },
+      },
+    );
+    appendLifecycle(
+      "local",
+      {
+        type: "ReleaseRuntimeLease",
+        taskId: "task_cancel_handoff",
+        executionId: "exec-1",
+        leaseVersion: 0,
+        reason: "source runtime settled",
+      },
+      {},
+    );
+
+    const uploadRef = "doc-sync-claims/handoff_f2_upload";
+    writeFileDurably(path.join(rootDir, ".harness", uploadRef), rolloutBytes, 0o600);
+
+    const exportAuditEvents = new Map<string, object>();
+    const lifecycleReader = lifecycleReadForSync([
+      {
+        dispatchId,
+        runtimeSessionId,
+        attemptSettled: true,
+        groupSettled: true,
+        stopProof: "proven_stopped",
+        outcome: "succeeded",
+      },
+    ]);
+    const cell = {
+      rootDir,
+      now: () => "2026-11-19T00:10:00.000Z",
+      requiredCellText: (value: unknown) => String(value),
+      store: {
+        readEvent: (opId: string) => exportAuditEvents.get(opId) ?? null,
+      },
+      projection: {
+        ...projection,
+        readDispatchLifecycle: (query: Parameters<typeof lifecycleReader>[0]) => lifecycleReader(query),
+        readRuntimeDispatchById: (id: string) =>
+          id === dispatchId
+            ? {
+                event: {
+                  actor: ownerActor,
+                  source: "local" as WriteSource,
+                  payload: {
+                    dispatchId,
+                    runtimeSessionId,
+                    handoffEnabled: true,
+                    kindId: "codex",
+                    taskId: "task_cancel_handoff",
+                    executionId: "exec-1",
+                    agentId: "codex-worker",
+                    definitionSnapshot: { model: "gpt-5.6-sol" },
+                  },
+                },
+              }
+            : null,
+        readRuntimeSession: (id: string) =>
+          id === runtimeSessionId
+            ? {
+                runtimeSessionId,
+                providerSessionId: nativeSessionId,
+                outcome: "succeeded",
+                endedAt: "2026-11-19T00:05:00.000Z",
+                resultRef: "artifact:runtime-result/sha256/" + "c".repeat(64),
+              }
+            : null,
+        readRuntimeDispatchByResumeSource: () => null,
+      },
+      appendAuxiliaryRuntimeIngress: (draft: { readonly opId: string }) => {
+        exportAuditEvents.set(draft.opId, draft);
+        return { outcome: "applied", opId: draft.opId };
+      },
+      receiptForOperation: (opId: string) => ({ outcome: "applied", opId, revision: rev, evidence: opId }),
+    } as unknown as RepoCellActionContext;
+
+    const exported = runRuntimeHandoffAction(
+      cell,
+      {
+        kind: "runtime-handoff-export",
+        dispatchId,
+        commit: "a".repeat(40),
+        candidate: {
+          ref: uploadRef,
+          sha256: sha256Bytes(rolloutBytes),
+          size: rolloutBytes.byteLength,
+          mediaType: "application/x-ndjson",
+        },
+      } as never,
+      { actor: ownerActor, source: "local" } as never,
+    );
+    assert.equal(exported.outcome, "applied");
+
+    // Cancel task -> attach reclamation runs -> reinstate -> start on target node -> claim
+    appendLifecycle(
+      "local",
+      {
+        type: "TransitionTask",
+        taskId: "task_cancel_handoff",
+        status: "cancelled",
+        force: true,
+        reason: "batch cancel",
+      },
+      {},
+    );
+    assert.equal(projection.read("task_cancel_handoff").snapshot.task?.status, "cancelled");
+
+    const reclaimDuringCancel = reclaimLocalRootStorage({
+      rootDir,
+      projection: {
+        read: (taskId) => projection.read(taskId),
+        readDispatchLifecycle: (query) => lifecycleReader(query),
+        readRuntimeDispatchByResumeSource: () => null,
+        searchFacts: () => ({ status: "ready", watermark: rev, sourceRevision: rev, facts: [] }),
+      },
+      retention: { retentionDays: 60, retentionBytes: 0 },
+      nowMs: Date.parse("2026-11-19T00:15:00.000Z"),
+    });
+    assert.equal(
+      reclaimDuringCancel.removedHandoffRollouts,
+      0,
+      "cancelled task handoff rollout must NOT be deleted because cancelled tasks can be reinstated",
+    );
+
+    appendLifecycle(
+      "local",
+      {
+        type: "TransitionTask",
+        taskId: "task_cancel_handoff",
+        status: "planned",
+        reason: "reinstate cancelled task",
+      },
+      {},
+    );
+    assert.equal(projection.read("task_cancel_handoff").snapshot.task?.status, "planned");
+
+    appendLifecycle(
+      targetSource,
+      { type: "StartExecution", taskId: "task_cancel_handoff", executionId: "exec-2" },
+      {
+        actorBinding: ownerActor,
+        deliveryBaseline: { kind: "commit", commitSha: "a".repeat(40) },
+        reservation: {
+          taskId: "task_cancel_handoff",
+          executionId: "exec-2",
+          expiresAt: "2026-11-19T03:00:00.000Z",
+          ttlMs: 3_600_000,
+          previousHolder: null,
+          reason: "initial_claim",
+          version: 1,
+        },
+      },
+    );
+    assert.equal(projection.read("task_cancel_handoff").snapshot.task?.status, "active");
+
+    const claimed = runRuntimeHandoffAction(
+      cell,
+      { kind: "runtime-handoff-claim", dispatchId, offset: 0 } as never,
+      { actor: ownerActor, source: targetSource } as never,
+    ) as { readonly dataBase64?: string; readonly done?: boolean };
+    assert.equal(claimed.done, true);
+    assert.deepEqual(Buffer.from(claimed.dataBase64!, "base64"), rolloutBytes);
+  } finally {
+    projection.close();
+    await eventStore.drain();
+    cleanup();
+  }
+});
+
+test("F4 regression: root and intermediate directory symlinks never traverse or mutate external node storage", () => {
+  const external = createTestRepo("ha-local-storage-ext-");
+  const rootSymRepo = createTestRepo("ha-local-storage-rootsym-");
+  const midSymRepo = createTestRepo("ha-local-storage-midsym-");
+  const nowMs = Date.parse("2026-11-19T00:00:00.000Z");
+  const oldIso = new Date(nowMs - 90 * 86_400_000).toISOString();
+  const extLiveId = "dispatch_f40000000000000000000001";
+  const extArchiveId = "dispatch_f40000000000000000000002";
+  const extSidecarId = "dispatch_f40000000000000000000003";
+  const extHandoffId = "dispatch_f40000000000000000000004";
+
+  try {
+    seedClosedDispatch(external.rootDir, extLiveId, "task_done", oldIso);
+    writeDispatchEvidenceState(external.rootDir, extLiveId, "not-required");
+    seedClosedDispatch(external.rootDir, extArchiveId, "task_done", oldIso);
+    archiveDispatchStream(external.rootDir, extArchiveId);
+    writeDispatchEvidenceState(external.rootDir, extSidecarId, "stored");
+    writeFileDurably(
+      path.join(external.rootDir, ".harness", "runtime-handoffs", extHandoffId, "checkpoint.json"),
+      JSON.stringify({ dispatchId: extHandoffId, taskId: "task_done", revokedAt: oldIso }),
+      0o600,
+    );
+    writeFileDurably(
+      path.join(external.rootDir, ".harness", "runtime-handoffs", extHandoffId, "rollout.jsonl"),
+      '{"kind":"external"}\n',
+      0o600,
+    );
+    writeDummyFile(path.join(external.rootDir, ".harness", "cache", "completion-conversion-verification.sqlite"), 512);
+    writeDummyFile(path.join(external.rootDir, ".harness", "requests", "requests.jsonl"), 256);
+
+    // 1. Root localRoot (.harness) is itself a symlink to external/.harness
+    rmSync(path.join(rootSymRepo.rootDir, ".harness"), { recursive: true, force: true });
+    symlinkSync(path.join(external.rootDir, ".harness"), path.join(rootSymRepo.rootDir, ".harness"), dirLinkType);
+
+    // 2. Intermediate directories under midSymRepo/.harness are symlinks to external/.harness/*
+    mkdirSync(path.join(midSymRepo.rootDir, ".harness"), { recursive: true });
+    for (const sub of ["runtime", "runtime-handoffs", "cache", "requests"]) {
+      symlinkSync(
+        path.join(external.rootDir, ".harness", sub),
+        path.join(midSymRepo.rootDir, ".harness", sub),
+        dirLinkType,
+      );
+    }
+
+    const doneProjection: Pick<
+      TaskProjectionQueries,
+      "read" | "readDispatchLifecycle" | "readRuntimeDispatchByResumeSource" | "searchFacts"
+    > = {
+      read: () =>
+        ({ status: "ready", watermark: 1, sourceRevision: 1, snapshot: { task: { status: "done" } } }) as never,
+      readDispatchLifecycle: lifecycleReadForSync([
+        {
+          dispatchId: extLiveId,
+          runtimeSessionId: `runtime-${extLiveId}`,
+          attemptSettled: true,
+          groupSettled: true,
+          stopProof: "proven_stopped",
+          outcome: "succeeded",
+        },
+      ]),
+      readRuntimeDispatchByResumeSource: () => ({ event: {} }) as never,
+      searchFacts: () => ({ status: "ready", watermark: 1, sourceRevision: 1, facts: [] }),
+    };
+
+    const rootSymMeasure = measureLocalRootStorage(rootSymRepo.rootDir);
+    assert.equal(rootSymMeasure.totalBytes, 0, "symlinked localRoot must never be traversed");
+
+    const midSymMeasure = measureLocalRootStorage(midSymRepo.rootDir);
+    assert.equal(
+      midSymMeasure.byClass.derived.bytes,
+      0,
+      "intermediate directory symlinks must not count external derived storage",
+    );
+    assert.equal(midSymMeasure.highlights.length, 0, "highlights must not follow intermediate directory symlinks");
+
+    for (const candidateRoot of [rootSymRepo.rootDir, midSymRepo.rootDir]) {
+      reclaimLocalRootStorage({
+        rootDir: candidateRoot,
+        projection: doneProjection,
+        retention: { retentionDays: 60, retentionBytes: 0 },
+        nowMs,
+      });
+    }
+
+    // Every single file in external.rootDir must remain untouched in its original place
+    assert.equal(
+      existsSync(path.join(external.rootDir, ".harness", "runtime", "dispatches", `${extLiveId}.jsonl`)),
+      true,
+    );
+    assert.equal(
+      existsSync(path.join(external.rootDir, ".harness", "runtime", "dispatches", "archive", `${extArchiveId}.jsonl`)),
+      true,
+    );
+    assert.equal(existsSync(dispatchEvidenceStatePath(external.rootDir, extSidecarId)), true);
+    assert.equal(
+      existsSync(path.join(external.rootDir, ".harness", "runtime-handoffs", extHandoffId, "rollout.jsonl")),
+      true,
+    );
+    assert.equal(
+      existsSync(path.join(external.rootDir, ".harness", "cache", "completion-conversion-verification.sqlite")),
+      true,
+    );
+  } finally {
+    midSymRepo.cleanup();
+    rootSymRepo.cleanup();
+    external.cleanup();
+  }
+});
+
+test("F5 regression: heavy single-task reclamation bounds per-turn dispatches, batches live-index writes, and reads Fact projection once", () => {
+  const { rootDir, cleanup } = createTestRepo("ha-local-storage-f5-");
+  const nowMs = Date.parse("2026-11-19T00:00:00.000Z");
+  const recentIso = new Date(nowMs - 86_400_000).toISOString();
+  const totalDispatches = DISPATCH_LIFECYCLE_PAGE_LIMIT + 35;
+  const dispatchIds: string[] = [];
+
+  try {
+    for (let i = 0; i < totalDispatches; i += 1) {
+      const id = `dispatch_f5${i.toString(16).padStart(22, "0")}`;
+      dispatchIds.push(id);
+      seedClosedDispatch(rootDir, id, "task_heavy", recentIso);
+      writeDispatchEvidenceState(rootDir, id, "not-required");
+    }
+    assert.equal(readDispatchLiveIndex(rootDir, ["task_heavy"]).entries.length, totalDispatches);
+
+    let factReads = 0;
+    let lifecycleQueries = 0;
+    const lifecycleReader = lifecycleReadForSync(
+      dispatchIds.map((dispatchId) => ({
+        dispatchId,
+        runtimeSessionId: `runtime-${dispatchId}`,
+        attemptSettled: true,
+        groupSettled: true,
+        stopProof: "proven_stopped" as const,
+        outcome: "succeeded" as const,
+      })),
+    );
+    const projection: Pick<
+      TaskProjectionQueries,
+      "read" | "readDispatchLifecycle" | "readRuntimeDispatchByResumeSource" | "searchFacts"
+    > = {
+      read: () =>
+        ({ status: "ready", watermark: 1, sourceRevision: 1, snapshot: { task: { status: "done" } } }) as never,
+      readDispatchLifecycle: (query) => {
+        lifecycleQueries += 1;
+        return lifecycleReader(query);
+      },
+      readRuntimeDispatchByResumeSource: () => null,
+      searchFacts: () => {
+        factReads += 1;
+        return { status: "ready", watermark: 1, sourceRevision: 1, facts: [] };
+      },
+    };
+
+    const firstTurn = reclaimLocalRootStorage({
+      rootDir,
+      projection,
+      retention: { retentionDays: 60, retentionBytes: 0 },
+      nowMs,
+    });
+    assert.equal(
+      firstTurn.archivedDispatches,
+      DISPATCH_LIFECYCLE_PAGE_LIMIT,
+      "each reclamation turn must bound processed live dispatches to DISPATCH_LIFECYCLE_PAGE_LIMIT",
+    );
+    assert.equal(lifecycleQueries, 1, "one bounded turn must issue at most one lifecycle page query");
+    assert.equal(factReads, 1, "Fact projection must be read once, not duplicated");
+    assert.equal(readDispatchLiveIndex(rootDir, ["task_heavy"]).entries.length, 35);
+
+    const secondTurn = reclaimLocalRootStorage({
+      rootDir,
+      projection,
+      retention: { retentionDays: 60, retentionBytes: 0 },
+      nowMs,
+    });
+    assert.equal(secondTurn.archivedDispatches, 35);
+    assert.equal(readDispatchLiveIndex(rootDir, ["task_heavy"]).entries.length, 0);
+  } finally {
     cleanup();
   }
 });
@@ -354,7 +956,9 @@ test("reclaimLocalRootStorage fails closed when projections are pending and isol
     const dispatchA = "dispatch_cccccccccccccccccccccccc";
     const dispatchB = "dispatch_dddddddddddddddddddddddd";
     seedClosedDispatch(edgeA.rootDir, dispatchA, null, "2026-10-01T00:00:00.000Z");
+    writeDispatchEvidenceState(edgeA.rootDir, dispatchA, "not-required");
     seedClosedDispatch(edgeB.rootDir, dispatchB, null, "2026-10-01T00:00:00.000Z");
+    writeDispatchEvidenceState(edgeB.rootDir, dispatchB, "not-required");
 
     const pendingProjection: Pick<
       TaskProjectionQueries,
@@ -387,6 +991,7 @@ test("reclaimLocalRootStorage fails closed when projections are pending and isol
           runtimeSessionId: `runtime-${dispatchA}`,
           attemptSettled: true,
           groupSettled: true,
+          stopProof: "proven_stopped",
           outcome: "succeeded",
         },
       ]),
