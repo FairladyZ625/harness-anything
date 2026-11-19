@@ -12,12 +12,16 @@
 //        [--out <dir>] [--keep] [--reuse-workspace <ws>] [--cold-attach] [--attach-timeout-ms <ms>]
 //        [--medium-submit]
 import { spawn, spawnSync } from "node:child_process";
+import { cp, copyFile } from "node:fs/promises";
 import {
   existsSync,
+  lstatSync,
   mkdtempSync,
   mkdirSync,
   rmSync,
   readdirSync,
+  statSync,
+  symlinkSync,
   writeFileSync,
   readFileSync,
   copyFileSync,
@@ -29,6 +33,7 @@ import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { resolveHarnessLayout } from "../packages/kernel/src/layout/index.ts";
+import { cmdShellInvocation } from "../packages/storage/src/store/cmd-command-line.ts";
 import { materialize } from "./readonly-checkout.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -80,10 +85,20 @@ export function resolveSourceRoot(explicit, cwd = repoRoot) {
   return path.resolve(path.dirname(result.stdout.trim()));
 }
 
+function stripWorkerGitHooksFromPath(pathValue, platform = process.platform) {
+  if (typeof pathValue !== "string" || pathValue.length === 0) return pathValue;
+  const delimiter = platform === "win32" ? ";" : ":";
+  return pathValue
+    .split(delimiter)
+    .filter((entry) => !/[\\/]tools[\\/]git-hooks[\\/]?$/iu.test(entry.trim()))
+    .join(delimiter);
+}
+
 /** Everything a dispatched worker carries that must not reach an isolated forensic daemon:
- *  all HARNESS_* injections plus provider/runtime session keys (CEO ruling 2026-10-22 22:40 —
- *  local identity is the sanctioned way to attach a temporary copy). */
-export function forensicEnv(base) {
+ *  all HARNESS_* injections, the worker git-hooks PATH wrapper, plus provider/runtime session
+ *  keys (CEO ruling 2026-10-22 22:40 — local identity is the sanctioned way to attach a
+ *  temporary copy). */
+export function forensicEnv(base, platform = process.platform) {
   const env = {};
   for (const [key, value] of Object.entries(base)) {
     if (key.startsWith("HARNESS_")) continue;
@@ -101,6 +116,10 @@ export function forensicEnv(base) {
       ].includes(key)
     )
       continue;
+    if (key.toUpperCase() === "PATH" && typeof value === "string") {
+      env[key] = stripWorkerGitHooksFromPath(value, platform);
+      continue;
+    }
     env[key] = value;
   }
   // Same heap ceiling the production daemon runs with; without it a full-ledger attach dies
@@ -142,29 +161,108 @@ export function parsePeakRssBytes(timeStderr, platform = process.platform) {
 export function copyTreeArgs(platform = process.platform) {
   if (platform === "darwin") return ["-cR"];
   if (platform === "linux") return ["-a", "--reflink=auto"];
+  if (platform === "win32") return [];
   return ["-a"];
 }
 
 export function copyTreeMethod(platform = process.platform) {
+  if (platform === "win32") return "node fs.cp recursive";
   return copyTreeArgs(platform).join(" ");
 }
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+function joinCrossPlatform(baseDir, ...parts) {
+  return baseDir.includes("\\") ? path.win32.join(baseDir, ...parts) : path.join(baseDir, ...parts);
+}
 
-// Every long-running child runs here as a tracked, detached process group. Node cannot run a
-// JS signal handler while it blocks inside spawnSync/Atomics.wait, so a signal arriving during
-// an npm ci or a multi-gigabyte copy would otherwise sit unprocessed until the child finished
-// on its own — and a throw from the old-style handler never reached the finally block. With
-// tracked async children the event loop stays free between steps, the interrupt handler kills
-// whole child groups immediately, and cleanup always runs.
+function dirnameCrossPlatform(targetPath) {
+  return targetPath.includes("\\") ? path.win32.dirname(targetPath) : path.dirname(targetPath);
+}
+
+function findWin32NpmEntry(environment, execPath) {
+  const pathEnv = environment.PATH ?? environment.Path ?? "";
+  for (const dir of pathEnv.split(";").filter(Boolean)) {
+    const cliJs = joinCrossPlatform(dir, "node_modules", "npm", "bin", "npm-cli.js");
+    if (existsSync(cliJs)) return { kind: "node-script", scriptPath: cliJs };
+    const cmdShim = joinCrossPlatform(dir, "npm.cmd");
+    if (existsSync(cmdShim)) return { kind: "cmd-shim", cmdPath: cmdShim };
+  }
+  if (execPath) {
+    const execDir = dirnameCrossPlatform(execPath);
+    const besideNodeJs = joinCrossPlatform(execDir, "node_modules", "npm", "bin", "npm-cli.js");
+    if (existsSync(besideNodeJs)) return { kind: "node-script", scriptPath: besideNodeJs };
+    const besideNodeCmd = joinCrossPlatform(execDir, "npm.cmd");
+    if (existsSync(besideNodeCmd)) return { kind: "cmd-shim", cmdPath: besideNodeCmd };
+  }
+  return { kind: "cmd-shim", cmdPath: "npm.cmd" };
+}
+
+/** Resolve `npm` for the target platform: on Windows, prefer the co-located `npm-cli.js`
+ *  entrypoint directly under `node.exe` (avoiding `.cmd` EINVAL and shell quoting entirely), or
+ *  wrap an explicit `.cmd` shim with audited BatBadBut `cmd.exe` quoting. */
+export function npmInvocation(
+  args,
+  platform = process.platform,
+  environment = process.env,
+  execPath = process.execPath,
+) {
+  if (platform !== "win32") return { command: "npm", args, windowsVerbatimArguments: false };
+  const entry = findWin32NpmEntry(environment, execPath);
+  if (entry.kind === "node-script") {
+    return { command: execPath, args: [entry.scriptPath, ...args], windowsVerbatimArguments: false };
+  }
+  return cmdShellInvocation(entry.cmdPath, args, environment);
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const PROGRESS_INTERVAL_MS = 15_000;
+const NATIVE_COPY_CONCURRENCY = 16;
+const NATIVE_COPY_EXPAND_DEPTH = 4;
+
+function reportProgress(message) {
+  console.error(`[old-data-copy] ${message}`);
+}
+
+async function withProgressHeartbeat(label, operation, intervalMs = PROGRESS_INTERVAL_MS) {
+  const startedAt = Date.now();
+  const timer = setInterval(() => {
+    const elapsedSec = Math.round((Date.now() - startedAt) / 1000);
+    reportProgress(`${label} running (${elapsedSec}s elapsed)`);
+  }, intervalMs);
+  timer.unref?.();
+  try {
+    return await operation();
+  } finally {
+    clearInterval(timer);
+  }
+}
+
+// Every long-running child runs here as a tracked, detached process group (or killed via taskkill
+// /T /F on Windows). Node cannot run a JS signal handler while it blocks inside
+// spawnSync/Atomics.wait, so a signal arriving during an npm ci or a multi-gigabyte copy would
+// otherwise sit unprocessed until the child finished on its own — and a throw from the old-style
+// handler never reached the finally block. With tracked async children the event loop stays free
+// between steps, the interrupt handler kills whole child groups immediately, and cleanup always runs.
 const liveChildren = new Set();
 
 function killChildTree(child) {
   try {
-    if (process.platform !== "win32" && child.pid) process.kill(-child.pid, "SIGKILL");
+    if (process.platform === "win32") {
+      if (child.pid)
+        spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
+          windowsHide: true,
+          stdio: "ignore",
+        });
+      else child.kill();
+      return;
+    }
+    if (child.pid) process.kill(-child.pid, "SIGKILL");
     else child.kill("SIGKILL");
   } catch {
-    child.kill("SIGKILL");
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // Child already exited before tree termination ran.
+    }
   }
 }
 
@@ -244,6 +342,59 @@ export function copyLayout(sourceRoot) {
   };
 }
 
+/** On a remote-edge mirror (`<projectRoot>/fleet-edge.json`), the workspace's own `<localRoot>`
+ *  carries no replicated ledger (or only an empty pre-sync shell); the live generation-3 ledger,
+ *  content-addressed objects, and warm projection live inside `<viewRoot>/repos/<repoId>/views/<nodeId>`
+ *  under the published `fleet-basebackup/v3` pointer (`current.json`). Resolve that store read-only
+ *  without ever reading, copying, or logging the edge machine credential. */
+export function resolveSourceDataRoot(sourceProjectRoot, localRoot) {
+  const edgeConfigPath = path.join(sourceProjectRoot, "fleet-edge.json");
+  if (!existsSync(edgeConfigPath)) return { dataLocalRoot: localRoot, replica: null };
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(edgeConfigPath, "utf8"));
+  } catch (error) {
+    throw new Error(
+      `fleet-edge.json at ${edgeConfigPath} is not JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const repoId = typeof parsed?.repoId === "string" && parsed.repoId.length > 0 ? parsed.repoId : null,
+    nodeId = typeof parsed?.nodeId === "string" && parsed.nodeId.length > 0 ? parsed.nodeId : null,
+    viewRootRel = typeof parsed?.viewRoot === "string" && parsed.viewRoot.length > 0 ? parsed.viewRoot : null;
+  if (parsed?.schema !== "fleet-edge-config/v1" || !repoId || !nodeId || !viewRootRel)
+    throw new Error(`fleet-edge.json at ${edgeConfigPath} is not a valid fleet-edge-config/v1`);
+  const viewRoot = path.resolve(sourceProjectRoot, viewRootRel),
+    viewDir = path.join(viewRoot, "repos", repoId, "views", nodeId),
+    pointerPath = path.join(viewDir, "current.json");
+  if (!existsSync(pointerPath))
+    throw new Error(
+      `remote-edge workspace ${sourceProjectRoot} has no published replica generation at ${pointerPath}; run ha daemon fleet edge sync first`,
+    );
+  let pointer;
+  try {
+    pointer = JSON.parse(readFileSync(pointerPath, "utf8"));
+  } catch (error) {
+    throw new Error(
+      `replica pointer at ${pointerPath} is not JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const generationId = typeof pointer?.id === "string" && /^[A-Za-z0-9-]+$/u.test(pointer.id) ? pointer.id : null;
+  if (!generationId || pointer?.metadata?.schema !== "fleet-basebackup/v3")
+    throw new Error(`replica pointer at ${pointerPath} does not name an active fleet-basebackup/v3 generation`);
+  const replicaLocalRoot = path.join(viewDir, "generations", generationId, ".harness");
+  if (!existsSync(path.join(replicaLocalRoot, "store", "generations")))
+    throw new Error(`replica generation ${generationId} has no store/generations under ${replicaLocalRoot}`);
+  return {
+    dataLocalRoot: replicaLocalRoot,
+    replica: {
+      repoId,
+      generationId,
+      replicaRevision:
+        typeof pointer.metadata?.position?.revision === "number" ? pointer.metadata.position.revision : null,
+    },
+  };
+}
+
 /** The ledger's own identity, read from the generation-3 activation certificate the store wrote.
  *  A copy registered under any other id is a different repository to the attach path: the
  *  certificate's repoId is checked against the registered one and attach fails closed with
@@ -251,7 +402,8 @@ export function copyLayout(sourceRoot) {
  *  was written with — the id a node happens to use is not part of the data being reviewed. */
 export function copyRepoId(sourceRoot) {
   const layout = copyLayout(sourceRoot),
-    certificate = `${path.join(layout.localRoot, "store", "generations", "3", "ledger.sqlite")}.activation.json`;
+    { dataLocalRoot } = resolveSourceDataRoot(layout.projectRoot, layout.localRoot),
+    certificate = `${path.join(dataLocalRoot, "store", "generations", "3", "ledger.sqlite")}.activation.json`;
   if (!existsSync(certificate))
     throw new Error(`no generation-3 activation certificate at ${certificate}; the ledger would not attach`);
   let value;
@@ -280,21 +432,168 @@ export function harnessCloneArgs(sourceRoot, targetRoot) {
   return ["clone", "--quiet", "--no-checkout", sourceRoot, targetRoot];
 }
 
-export async function snapshotRepository(sourceRoot, workspace) {
+function excludedHarnessSubtree(harnessSource, entryPath) {
+  const rel = path.relative(harnessSource, entryPath);
+  if (!rel) return false;
+  const topSegment = rel.split(path.sep)[0];
+  return topSegment === ".git" || topSegment === "node_modules" || topSegment === "restore-drills";
+}
+
+async function initMinimalHarnessGitRepo(harnessTarget, configRelative) {
+  await runText("git", ["-C", harnessTarget, "init", "--quiet"], harnessTarget);
+  await runText("git", ["-C", harnessTarget, "symbolic-ref", "HEAD", "refs/heads/main"], harnessTarget);
+  await runText("git", ["-C", harnessTarget, "config", "core.autocrlf", "false"], harnessTarget);
+  const configTarget = configRelative ? path.join(path.dirname(harnessTarget), ...configRelative.split("/")) : null;
+  if (configTarget && existsSync(configTarget)) {
+    const rel = path.relative(harnessTarget, configTarget);
+    if (rel && !rel.startsWith("..") && !path.isAbsolute(rel))
+      await runText("git", ["-C", harnessTarget, "add", "--", rel.split(path.sep).join("/")], harnessTarget);
+  }
+  await runText(
+    "git",
+    [
+      "-C",
+      harnessTarget,
+      "-c",
+      "user.name=Old Copy Snapshot",
+      "-c",
+      "user.email=oldcopy@example.invalid",
+      "-c",
+      "commit.gpgsign=false",
+      "commit",
+      "--quiet",
+      "--allow-empty",
+      "-m",
+      "old-data-copy snapshot",
+    ],
+    harnessTarget,
+  );
+}
+
+function externalCpAvailable(platform = process.platform, environment = process.env) {
+  if (platform === "win32") return false;
+  const pathEnv = environment.PATH ?? environment.Path ?? "";
+  for (const dir of pathEnv.split(":").filter(Boolean)) {
+    if (existsSync(path.join(dir, "cp"))) return true;
+  }
+  return false;
+}
+
+function planNativeCopy(sourceDir, targetDir, filter, depth = 0, dirs = [], units = []) {
+  if (filter && !filter(sourceDir)) return { dirs, units };
+  const stat = lstatSync(sourceDir);
+  if (!stat.isDirectory()) {
+    units.push({ src: sourceDir, dst: targetDir });
+    return { dirs, units };
+  }
+  const entries = readdirSync(sourceDir, { withFileTypes: true });
+  if (depth >= NATIVE_COPY_EXPAND_DEPTH || !entries.some((entry) => entry.isDirectory())) {
+    units.push({ src: sourceDir, dst: targetDir });
+    return { dirs, units };
+  }
+  dirs.push(targetDir);
+  for (const entry of entries) {
+    const childSrc = path.join(sourceDir, entry.name);
+    const childDst = path.join(targetDir, entry.name);
+    if (filter && !filter(childSrc)) continue;
+    if (entry.isDirectory()) planNativeCopy(childSrc, childDst, filter, depth + 1, dirs, units);
+    else units.push({ src: childSrc, dst: childDst });
+  }
+  return { dirs, units };
+}
+
+/** Copy a directory tree using platform block-cloning (`cp`) on POSIX and falling back to
+ *  Node's `fs.promises.cp` (fanned out across wide bucket directories with bounded progress
+ *  heartbeats) on Windows or when external `cp` is unavailable. */
+export async function copyTree(sourceDir, targetDir, options = {}) {
+  const platform = options.platform ?? process.platform;
+  const filter = options.filter;
+  const label = options.progressLabel ?? path.basename(targetDir);
+  if (platform !== "win32" && !filter && externalCpAvailable(platform)) {
+    await withProgressHeartbeat(`cp ${label}`, () => runText("cp", [...copyTreeArgs(platform), sourceDir, targetDir]));
+    return copyTreeMethod(platform);
+  }
+  const { dirs, units } = planNativeCopy(sourceDir, targetDir, filter);
+  for (const dir of dirs) mkdirSync(dir, { recursive: true });
+  const startedAt = Date.now();
+  let nextIndex = 0,
+    completed = 0;
+  const timer = setInterval(() => {
+    const elapsedSec = Math.round((Date.now() - startedAt) / 1000);
+    reportProgress(`copy ${label}: ${completed}/${units.length} units (${elapsedSec}s elapsed)`);
+  }, PROGRESS_INTERVAL_MS);
+  timer.unref?.();
+  try {
+    const workerCount = Math.max(1, Math.min(NATIVE_COPY_CONCURRENCY, units.length));
+    await Promise.all(
+      Array.from({ length: workerCount }, async () => {
+        while (nextIndex < units.length) {
+          const unit = units[nextIndex++];
+          await cp(unit.src, unit.dst, {
+            recursive: true,
+            verbatimSymlinks: true,
+            ...(filter ? { filter } : {}),
+          });
+          completed += 1;
+        }
+      }),
+    );
+  } finally {
+    clearInterval(timer);
+  }
+  return "node fs.cp recursive";
+}
+
+/** Copy individual files into an existing directory, preserving filenames. */
+export async function copyFilesIntoDirectory(sources, targetDir, options = {}) {
+  const platform = options.platform ?? process.platform;
+  const label = options.progressLabel ?? path.basename(targetDir);
+  if (platform !== "win32" && externalCpAvailable(platform)) {
+    await withProgressHeartbeat(`cp ${label}`, () => runText("cp", [...copyTreeArgs(platform), ...sources, targetDir]));
+    return copyTreeMethod(platform);
+  }
+  await withProgressHeartbeat(`copy ${label}`, () =>
+    Promise.all(sources.map((src) => copyFile(src, path.join(targetDir, path.basename(src))))),
+  );
+  return "node fs.cp recursive";
+}
+
+export async function snapshotRepository(sourceRoot, workspace, options = {}) {
   const layout = copyLayout(sourceRoot),
     sourceProjectRoot = layout.projectRoot,
     sourceLocalRoot = layout.localRoot,
+    { dataLocalRoot, replica } = resolveSourceDataRoot(sourceProjectRoot, sourceLocalRoot),
     workspaceLocalRoot = path.join(workspace, ...layout.localRootRelative.split("/")),
-    storeGenerations = path.join(sourceLocalRoot, "store", "generations");
+    storeGenerations = path.join(dataLocalRoot, "store", "generations");
   if (!existsSync(storeGenerations))
     throw new Error(`no ${layout.localRootRelative}/store/generations under ${sourceProjectRoot}`);
   const generation = activeGeneration(storeGenerations);
   mkdirSync(workspace, { recursive: true });
   const steps = [];
+  if (replica !== null) {
+    steps.push({
+      item: "fleet-edge-replica",
+      method: "active fleet-basebackup/v3 replica generation",
+      generationId: replica.generationId,
+      replicaRevision: replica.replicaRevision,
+    });
+  }
   const harnessSource = path.join(sourceProjectRoot, "harness");
+  const harnessTarget = path.join(workspace, "harness");
+  let harnessPlainCopy = false;
   if (existsSync(harnessSource)) {
-    await runText("git", harnessCloneArgs(harnessSource, path.join(workspace, "harness")));
-    steps.push({ item: "harness", method: "git local clone --no-checkout (no working tree)" });
+    if (existsSync(path.join(harnessSource, ".git"))) {
+      await runText("git", harnessCloneArgs(harnessSource, harnessTarget));
+      steps.push({ item: "harness", method: "git local clone --no-checkout (no working tree)" });
+    } else {
+      const method = await copyTree(harnessSource, harnessTarget, {
+        ...options,
+        progressLabel: "harness",
+        filter: (entryPath) => !excludedHarnessSubtree(harnessSource, entryPath),
+      });
+      harnessPlainCopy = true;
+      steps.push({ item: "harness", method: `${method} + git init (no nested .git)` });
+    }
   }
   // The clone carries committed state only, but the live daemon resolves the config from the
   // working tree. A repository whose localRoot rename is not committed yet (the motivating
@@ -306,6 +605,7 @@ export async function snapshotRepository(sourceRoot, workspace) {
     copyFileSync(layout.configPath, target);
     steps.push({ item: layout.configRelative, method: "live working-tree copy (may be uncommitted)" });
   }
+  if (harnessPlainCopy) await initMinimalHarnessGitRepo(harnessTarget, layout.configRelative);
   const placed = copyLayout(workspace);
   if (placed.localRoot !== workspaceLocalRoot)
     throw new Error(
@@ -316,13 +616,16 @@ export async function snapshotRepository(sourceRoot, workspace) {
   // are immutable once written, so every object referenced by the captured ledger exists
   // before the object clone starts. Reversing these two snapshots can capture a new event but
   // miss the blob it names when a writer commits during the multi-minute tree clone.
-  const sourceCache = path.join(sourceLocalRoot, "cache");
+  const sourceCache = path.join(dataLocalRoot, "cache");
   if (existsSync(sourceCache)) {
     mkdirSync(path.join(workspaceLocalRoot, "cache"), { recursive: true });
     for (const name of ["task.sqlite", "projections.sqlite"]) {
       const file = path.join(sourceCache, name);
       if (!existsSync(file)) continue;
-      await snapshotCacheDatabase(file, path.join(workspaceLocalRoot, "cache", name), steps);
+      await snapshotCacheDatabase(file, path.join(workspaceLocalRoot, "cache", name), steps, {
+        ...options,
+        progressLabel: `cache/${name}`,
+      });
     }
   }
 
@@ -333,24 +636,37 @@ export async function snapshotRepository(sourceRoot, workspace) {
   await sqliteBackup(sourceLedger, ledgerSnapshot);
   steps.push({ item: `store/generations/${generation}/ledger.sqlite`, method: "VACUUM INTO before object clone" });
 
-  await runText("cp", [...copyTreeArgs(), storeGenerations, copiedGenerations]);
+  const generationsCopyMethod = await copyTree(storeGenerations, copiedGenerations, {
+    ...options,
+    progressLabel: `store/generations/${generation}`,
+  });
   // The clone carries the live ledger's main file plus stale -wal/-shm; replace that trio
   // with the earlier self-contained snapshot so the event cut and object tree are coherent.
   rmSync(copiedLedger, { force: true, maxRetries: 5, retryDelay: 20 });
   rmSync(`${copiedLedger}-wal`, { force: true });
   rmSync(`${copiedLedger}-shm`, { force: true });
   renameSync(ledgerSnapshot, copiedLedger);
-  steps.push({ item: `store/generations/${generation} objects and retired generations`, method: copyTreeMethod() });
+  steps.push({
+    item: `store/generations/${generation} objects and retired generations`,
+    method: generationsCopyMethod,
+  });
   for (const dir of HARNESS_COPY_DIRS) {
-    const from = path.join(sourceLocalRoot, dir);
-    if (existsSync(from)) {
-      await runText("cp", [...copyTreeArgs(), from, path.join(workspaceLocalRoot, dir)]);
-      steps.push({ item: dir, method: copyTreeMethod() });
+    const from = [path.join(dataLocalRoot, dir), path.join(sourceLocalRoot, dir)].find((candidate) =>
+      existsSync(candidate),
+    );
+    if (from) {
+      const dirCopyMethod = await copyTree(from, path.join(workspaceLocalRoot, dir), {
+        ...options,
+        progressLabel: dir,
+      });
+      steps.push({ item: dir, method: dirCopyMethod });
     }
   }
   for (const name of HARNESS_COPY_FILES) {
-    const from = path.join(sourceLocalRoot, name);
-    if (existsSync(from)) {
+    const from = [path.join(dataLocalRoot, name), path.join(sourceLocalRoot, name)].find((candidate) =>
+      existsSync(candidate),
+    );
+    if (from) {
       copyFileSync(from, path.join(workspaceLocalRoot, name));
       steps.push({ item: name, method: "copy" });
     }
@@ -382,12 +698,19 @@ export async function snapshotRepository(sourceRoot, workspace) {
  *  on the copy (checkpoint) and verified; a torn copy is discarded rather than trusted, which
  *  only costs attach a catch-up from the ledger. The -shm sidecar is a live shared-memory
  *  index and is never copied; every sqlite open rebuilds it. */
-async function snapshotCacheDatabase(sourceFile, targetFile, steps) {
+async function snapshotCacheDatabase(sourceFile, targetFile, steps, options = {}) {
   const sources = [sourceFile, `${sourceFile}-wal`].filter((candidate) => existsSync(candidate));
-  await runText("cp", [...copyTreeArgs(), ...sources, path.dirname(targetFile)]);
+  const method = await copyFilesIntoDirectory(sources, path.dirname(targetFile), options);
+  const label = options.progressLabel ?? path.basename(targetFile);
+  const checkpointStartedAt = Date.now();
+  const checkpointTimer = setInterval(() => {
+    reportProgress(`checkpoint ${label} running (${Math.round((Date.now() - checkpointStartedAt) / 1000)}s elapsed)`);
+  }, PROGRESS_INTERVAL_MS);
+  checkpointTimer.unref?.();
   const recovered = await run(process.execPath, ["-e", CHECKPOINT_CLONE, targetFile], {
     cwd: path.dirname(targetFile),
   });
+  clearInterval(checkpointTimer);
   const [check, witnessJson] = (recovered.stdout ?? "").trim().split("\n");
   const healthy = recovered.status === 0 && check === "ok";
   if (healthy) {
@@ -396,7 +719,7 @@ async function snapshotCacheDatabase(sourceFile, targetFile, steps) {
         .relative(path.dirname(path.dirname(targetFile)), targetFile)
         .split(path.sep)
         .join("/"),
-      method: `${copyTreeMethod()} + checkpoint`,
+      method: `${method} + checkpoint`,
       witness: JSON.parse(witnessJson),
     });
     return;
@@ -409,7 +732,7 @@ async function snapshotCacheDatabase(sourceFile, targetFile, steps) {
       .relative(path.dirname(path.dirname(targetFile)), targetFile)
       .split(path.sep)
       .join("/"),
-    method: `${copyTreeMethod()} (torn clone discarded; attach will catch up)`,
+    method: `${method} (torn clone discarded; attach will catch up)`,
     discarded: true,
     raw: `${recovered.stdout ?? ""}${recovered.stderr ?? ""}`.trim(),
   });
@@ -420,7 +743,7 @@ const { DatabaseSync } = require("node:sqlite");
 const { statSync } = require("node:fs");
 const db = new DatabaseSync(process.argv[1]);
 try {
-  db.exec("PRAGMA busy_timeout = 10000; PRAGMA wal_checkpoint(TRUNCATE)");
+  db.exec("PRAGMA busy_timeout = 10000; PRAGMA cache_size = -524288; PRAGMA mmap_size = 2147483648; PRAGMA temp_store = MEMORY; PRAGMA wal_checkpoint(TRUNCATE)");
   const check = db.prepare("PRAGMA quick_check").get();
   if (String(check?.quick_check ?? "") !== "ok") throw new Error("quick_check: " + JSON.stringify(check));
   const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(row => row.name));
@@ -448,8 +771,10 @@ async function sqliteBackup(from, to) {
   const code =
     `const { DatabaseSync } = require("node:sqlite");\n` +
     `const db = new DatabaseSync(process.argv[1], { readOnly: true });\n` +
-    `try { db.exec("VACUUM INTO '" + ${JSON.stringify(sqlTarget)} + "'"); } finally { db.close(); }\n`;
-  await runText(process.execPath, ["-e", code, from]);
+    `try { db.exec("PRAGMA cache_size = -524288; PRAGMA mmap_size = 2147483648; VACUUM INTO '" + ${JSON.stringify(sqlTarget)} + "'"); } finally { db.close(); }\n`;
+  await withProgressHeartbeat(`sqlite-backup ${path.basename(from)}`, () =>
+    runText(process.execPath, ["-e", code, from]),
+  );
 }
 
 export async function resolveBuild(buildArg, tempRoot, sourceRoot = repoRoot) {
@@ -490,6 +815,142 @@ export function planDaemonDistSteps({ nodeModules, distEntry, head, marker }) {
   return steps;
 }
 
+const EXCLUDED_BUILD_PACKAGE_DIRS = new Set([
+  "node_modules",
+  "test",
+  "tests",
+  "build-resources",
+  "dist-electron",
+  ".runtime-cache",
+]);
+
+function discoverWorkspacePackages(checkoutRoot) {
+  const packagesDir = path.join(checkoutRoot, "packages");
+  const map = new Map();
+  if (!existsSync(packagesDir)) return map;
+  for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const pkgDir = path.join(packagesDir, entry.name);
+    const pkgJsonPath = path.join(pkgDir, "package.json");
+    if (!existsSync(pkgJsonPath)) continue;
+    try {
+      const pkgJson = JSON.parse(readFileSync(pkgJsonPath, "utf8"));
+      if (typeof pkgJson?.name === "string" && pkgJson.name.length > 0) map.set(pkgJson.name, pkgDir);
+    } catch {
+      continue;
+    }
+  }
+  return map;
+}
+
+/** True when `<checkoutRoot>/node_modules` has workspace links (`@harness-anything/*`) missing
+ *  or resolving outside `checkoutRoot` — the exact shape Windows `.worktrees/<id>` produces when
+ *  `mirrorNodeModules` copies absolute NTFS Junctions pointing at canonical `packages/*`. */
+export function externalWorkspaceLinks(checkoutRoot) {
+  const nodeModules = path.join(checkoutRoot, "node_modules");
+  if (!existsSync(nodeModules)) return false;
+  const realRoot = realpathSync(checkoutRoot);
+  for (const [pkgName] of discoverWorkspacePackages(checkoutRoot)) {
+    const linkPath = path.join(nodeModules, ...pkgName.split("/"));
+    if (!existsSync(linkPath)) return true;
+    const resolved = realpathSync(linkPath);
+    if (!isInsideDir(realRoot, resolved)) return true;
+  }
+  return false;
+}
+
+/** Mirror third-party dependencies from `donorRoot/node_modules` into `targetRoot/node_modules`
+ *  while pointing every workspace package (`@harness-anything/*`) at `targetRoot/packages/*`.
+ *  Never mutates `donorRoot`. */
+export function mirrorWorkspaceNodeModules(donorRoot, targetRoot) {
+  const workspacePackages = discoverWorkspacePackages(targetRoot);
+  const mirrorDir = (relative, scopePrefix = "") => {
+    const srcDir = path.join(donorRoot, relative);
+    const dstDir = path.join(targetRoot, relative);
+    mkdirSync(dstDir, { recursive: true });
+    for (const entry of readdirSync(srcDir, { withFileTypes: true })) {
+      const relChild = path.join(relative, entry.name);
+      const srcPath = path.join(donorRoot, relChild);
+      const dstPath = path.join(targetRoot, relChild);
+      if (entry.isDirectory() && (entry.name.startsWith("@") || entry.name === ".bin")) {
+        mirrorDir(relChild, entry.name.startsWith("@") ? `${entry.name}/` : "");
+        continue;
+      }
+      const pkgKey = relative === "node_modules" || scopePrefix ? `${scopePrefix}${entry.name}` : null;
+      if (pkgKey && workspacePackages.has(pkgKey)) continue;
+      if (!existsSync(srcPath)) continue;
+      const resolved = entry.isSymbolicLink() ? realpathSync(srcPath) : srcPath;
+      const isDir = statSync(resolved).isDirectory();
+      if (!isDir && process.platform === "win32") {
+        copyFileSync(resolved, dstPath);
+      } else {
+        symlinkSync(resolved, dstPath, isDir ? (process.platform === "win32" ? "junction" : "dir") : "file");
+      }
+    }
+  };
+  mirrorDir("node_modules");
+  for (const [pkgName, pkgDir] of workspacePackages) {
+    const dstPath = path.join(targetRoot, "node_modules", ...pkgName.split("/"));
+    mkdirSync(path.dirname(dstPath), { recursive: true });
+    if (existsSync(dstPath)) continue;
+    if (process.platform === "win32") symlinkSync(pkgDir, dstPath, "junction");
+    else symlinkSync(path.relative(path.dirname(dstPath), pkgDir), dstPath, "dir");
+  }
+}
+
+function includedBuildPackageEntry(packagesSrc, entryPath) {
+  const rel = path.relative(packagesSrc, entryPath);
+  if (!rel) return true;
+  const segments = rel.split(path.sep);
+  if (segments.some((seg) => EXCLUDED_BUILD_PACKAGE_DIRS.has(seg))) return false;
+  if (segments[0] === "gui" && segments.length >= 2 && segments[1] !== "package.json") return false;
+  return true;
+}
+
+async function prepareRunnableBuild(build, tempRoot, donorRoot = repoRoot) {
+  const head = build.resolvedSha ?? headCommitOrNull(build.root);
+  const buildNodeModules = path.join(build.root, "node_modules");
+  const donorNodeModules = path.join(donorRoot, "node_modules");
+  if (!existsSync(buildNodeModules)) {
+    const donorLock = path.join(donorRoot, "package-lock.json");
+    const buildLock = path.join(build.root, "package-lock.json");
+    if (
+      existsSync(donorNodeModules) &&
+      existsSync(donorLock) &&
+      existsSync(buildLock) &&
+      readFileSync(donorLock).equals(readFileSync(buildLock))
+    ) {
+      mirrorWorkspaceNodeModules(donorRoot, build.root);
+      return { ...build, requestedRoot: build.root, root: build.root, head, isolatedMirror: true };
+    }
+    return { ...build, requestedRoot: build.root, root: build.root, head, isolatedMirror: false };
+  }
+  if (!externalWorkspaceLinks(build.root))
+    return { ...build, requestedRoot: build.root, root: build.root, head, isolatedMirror: false };
+  const isolatedRoot = path.join(tempRoot, "runnable-build");
+  mkdirSync(isolatedRoot, { recursive: true });
+  for (const rootFile of ["package.json", "package-lock.json", "tsconfig.json"]) {
+    const src = path.join(build.root, rootFile);
+    if (existsSync(src)) copyFileSync(src, path.join(isolatedRoot, rootFile));
+  }
+  const packagesSrc = path.join(build.root, "packages");
+  if (existsSync(packagesSrc)) {
+    await copyTree(packagesSrc, path.join(isolatedRoot, "packages"), {
+      platform: "win32",
+      progressLabel: "runnable-build/packages",
+      filter: (entryPath) => includedBuildPackageEntry(packagesSrc, entryPath),
+    });
+  }
+  mirrorWorkspaceNodeModules(build.root, isolatedRoot);
+  return { ...build, requestedRoot: build.root, root: isolatedRoot, head, isolatedMirror: true };
+}
+
+const WIN32_VERBATIM_SPAWN =
+  "const { spawnSync } = require('node:child_process');" +
+  "const inv = JSON.parse(process.argv[1]);" +
+  "const res = spawnSync(inv.command, inv.args, { stdio: 'inherit', windowsVerbatimArguments: Boolean(inv.windowsVerbatimArguments) });" +
+  "process.exit(res.status ?? 1);";
+
 async function ensureDaemonDist(buildRoot, head = headCommitOrNull(buildRoot)) {
   const plan = planDaemonDistSteps({
     nodeModules: existsSync(path.join(buildRoot, "node_modules")),
@@ -497,13 +958,15 @@ async function ensureDaemonDist(buildRoot, head = headCommitOrNull(buildRoot)) {
     head,
     marker: readMarkerOrNull(path.join(buildRoot, "packages", "daemon", "dist", "build-id.txt")),
   });
-  for (const step of plan)
-    await runText(
-      step.command,
-      step.args,
-      buildRoot,
-      head ? { ...process.env, HARNESS_BUILD_COMMIT: head } : process.env,
+  const stepEnv = head ? { ...process.env, HARNESS_BUILD_COMMIT: head } : process.env;
+  for (const step of plan) {
+    const inv = step.command === "npm" ? npmInvocation(step.args) : { ...step, windowsVerbatimArguments: false };
+    await withProgressHeartbeat(`${step.command} ${step.args.join(" ")}`, () =>
+      inv.windowsVerbatimArguments
+        ? runText(process.execPath, ["-e", WIN32_VERBATIM_SPAWN, JSON.stringify(inv)], buildRoot, stepEnv)
+        : runText(inv.command, inv.args, buildRoot, stepEnv),
     );
+  }
   return { steps: plan.map((step) => [step.command, ...step.args].join(" ")), head };
 }
 
@@ -707,7 +1170,11 @@ async function createAndSubmitMediumEvidenceTask(buildRoot, workspace, env, iden
  *  temp root goes away and cannot await. */
 function cliSync(buildRoot, args, env, workspaceRoot, identity) {
   const invocation = cliInvocation(buildRoot, args, env, workspaceRoot, identity);
-  const result = spawnSync(invocation.command, invocation.args, { ...invocation.options, encoding: "utf8" });
+  const result = spawnSync(invocation.command, invocation.args, {
+    ...invocation.options,
+    encoding: "utf8",
+    windowsHide: true,
+  });
   return interpretCli(result);
 }
 
@@ -732,14 +1199,47 @@ function readLifecycle(pathname) {
     .filter((record) => record !== null);
 }
 
-function processRssBytes(pid) {
-  const result = spawnSync("ps", ["-o", "rss=", "-p", String(pid)], { encoding: "utf8" });
-  const value = Number((result.stdout ?? "").trim());
-  return Number.isFinite(value) && value > 0 ? value * 1024 : null;
+export function parseProcessRssBytes(stdout, platform = process.platform) {
+  const trimmed = String(stdout ?? "").trim();
+  if (!/^\d+$/u.test(trimmed)) return null;
+  const value = Number(trimmed);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return platform === "win32" ? value : value * 1024;
 }
 
-function processAlive(pid) {
-  return processRssBytes(pid) !== null;
+export function processRssMethod(platform = process.platform) {
+  return platform === "win32"
+    ? "PowerShell Get-Process WorkingSet64 polled every 500ms"
+    : "ps -o rss= polled every 500ms";
+}
+
+export function processRssBytes(pid, platform = process.platform) {
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  const result =
+    platform === "win32"
+      ? spawnSync(
+          "powershell.exe",
+          [
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            `(Get-Process -Id ${pid} -ErrorAction SilentlyContinue).WorkingSet64`,
+          ],
+          { encoding: "utf8", windowsHide: true, timeout: 5000 },
+        )
+      : spawnSync("ps", ["-o", "rss=", "-p", String(pid)], { encoding: "utf8" });
+  if (result.status !== 0 || result.error) return null;
+  return parseProcessRssBytes(result.stdout ?? "", platform);
+}
+
+export function processAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
 }
 
 /** Wait until the lifecycle log carries a terminal attach record for this workspace, the
@@ -751,23 +1251,43 @@ function processAlive(pid) {
 async function awaitAttach(userRoot, daemonId, workspace, pid, timeoutMs, sampleDaemonRss) {
   const lifecycle = daemonLifecyclePath(userRoot, daemonId);
   const spellings = new Set([path.resolve(workspace), realpathSync.native(workspace)]);
-  const deadline = Date.now() + timeoutMs;
+  const startedAt = Date.now();
+  const deadline = startedAt + timeoutMs;
+  let lastProgressAt = startedAt;
+  let pollCount = 0;
   for (;;) {
-    sampleDaemonRss();
-    const terminal = readLifecycle(lifecycle).find(
+    // On Windows, PowerShell RSS sampling spawns a ~170ms child; sample on entry, on exit, and
+    // every 4th poll (2s) so the event loop stays responsive while `ps` on POSIX stays 500ms.
+    if (process.platform !== "win32" || pollCount % 4 === 0) sampleDaemonRss();
+    pollCount += 1;
+    const records = readLifecycle(lifecycle);
+    const terminal = records.find(
       (record) => TERMINAL_ATTACH_EVENTS.has(record.event) && spellings.has(path.resolve(String(record.rootDir ?? ""))),
     );
-    if (terminal) return { outcome: "terminal-record", record: terminal };
+    if (terminal) {
+      sampleDaemonRss();
+      return { outcome: "terminal-record", record: terminal };
+    }
     if (!processAlive(pid)) return { outcome: "daemon-exited" };
-    if (Date.now() > deadline) return { outcome: "timeout" };
+    const now = Date.now();
+    if (now > deadline) return { outcome: "timeout" };
+    if (now - lastProgressAt >= PROGRESS_INTERVAL_MS) {
+      lastProgressAt = now;
+      const latestEvent = records.at(-1)?.event ?? "waiting-for-lifecycle";
+      reportProgress(
+        `awaitAttach pid=${pid} lastEvent=${latestEvent} (${Math.round((now - startedAt) / 1000)}s elapsed)`,
+      );
+    }
     await sleep(500);
   }
 }
 
-async function awaitDaemonDown(pid, timeoutMs = 60_000) {
-  const deadline = Date.now() + timeoutMs;
-  while (processAlive(pid) && Date.now() < deadline) await sleep(500);
-  return !processAlive(pid);
+async function awaitDaemonDown(pid, timeoutMs = 300_000) {
+  return await withProgressHeartbeat(`awaitDaemonDown pid=${pid}`, async () => {
+    const deadline = Date.now() + timeoutMs;
+    while (processAlive(pid) && Date.now() < deadline) await sleep(500);
+    return !processAlive(pid);
+  });
 }
 
 /** Sync twin with a tighter cap for the interrupt path: it must not sit in an uninterruptible
@@ -926,10 +1446,23 @@ async function runDirectEvidence(buildRoot, workspace, tempRoot, env, repoId) {
   };
 }
 
+function isInsideDir(parentDir, targetPath) {
+  const rel = path.relative(path.resolve(parentDir), path.resolve(targetPath));
+  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
 function boundedRm(target) {
   const resolved = path.resolve(target);
-  if (!resolved.startsWith(path.resolve(tmpdir()))) throw new Error(`refusing to remove outside tmpdir: ${resolved}`);
+  if (!isInsideDir(tmpdir(), resolved)) throw new Error(`refusing to remove outside tmpdir: ${resolved}`);
   rmSync(resolved, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+}
+
+async function cleanupTempRoot(target) {
+  const resolved = path.resolve(target);
+  if (!isInsideDir(tmpdir(), resolved)) throw new Error(`refusing to remove outside tmpdir: ${resolved}`);
+  const code =
+    "require('node:fs').rmSync(process.argv[1], { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });";
+  await withProgressHeartbeat("temp-cleanup", () => runText(process.execPath, ["-e", code, resolved]));
 }
 
 export async function main(argv, session = {}) {
@@ -974,7 +1507,26 @@ export async function main(argv, session = {}) {
           buildCliOptions(env, daemonHandle.workspace, daemonHandle),
         ),
       );
-      if (daemonStopReceipt === null) daemonStopReceipt = stopped.receipt;
+      let effectiveStop = stopped;
+      if (effectiveStop.receipt?.ok !== true && processAlive(daemonHandle.pid)) {
+        effectiveStop = cliSync(
+          daemonHandle.buildRoot,
+          ["daemon", "stop", "--daemon-id", daemonHandle.daemonId],
+          env,
+          daemonHandle.workspace,
+          daemonHandle,
+        );
+      }
+      if (effectiveStop.receipt?.ok !== true && processAlive(daemonHandle.pid)) {
+        effectiveStop = cliSync(
+          daemonHandle.buildRoot,
+          ["daemon", "stop", "--daemon-id", daemonHandle.daemonId, "--force"],
+          env,
+          daemonHandle.workspace,
+          daemonHandle,
+        );
+      }
+      if (daemonStopReceipt === null) daemonStopReceipt = effectiveStop.receipt;
     } catch {
       // The finally block reports the leftover pid; nothing here may mask the primary failure.
     }
@@ -982,9 +1534,13 @@ export async function main(argv, session = {}) {
   };
   try {
     // 1. Build resolution and daemon dist. A stale dist (older HEAD than the checkout) is
-    //    rebuilt here, before anything can run it.
-    const build = await resolveBuild(args.build, tempRoot);
-    const { steps: buildSteps, head } = await ensureDaemonDist(build.root, build.resolvedSha);
+    //    rebuilt here, before anything can run it. When a Windows worktree's workspace links
+    //    point outside the worktree (or a historical archive shares our lockfile), mirror an
+    //    isolated runnable build under tempRoot so every @harness-anything/* import resolves
+    //    inside the build under test without mutating any shared node_modules.
+    const resolvedBuild = await resolveBuild(args.build, tempRoot);
+    const build = await prepareRunnableBuild(resolvedBuild, tempRoot);
+    const { steps: buildSteps, head } = await ensureDaemonDist(build.root, build.head);
     if (head) env.HARNESS_BUILD_COMMIT = head;
     // 2. Snapshot (or reuse a kept workspace for negative-control arms on the same copy). The
     //    copy keeps the ledger's own identity: registering it under a different id makes attach
@@ -1007,7 +1563,7 @@ export async function main(argv, session = {}) {
       certificate: path.relative(workspace, identity.certificate).split(path.sep).join("/"),
       activationRevision: identity.activationRevision,
     };
-    if (!path.resolve(workspace).startsWith(path.resolve(tmpdir())))
+    if (!isInsideDir(tmpdir(), workspace))
       throw new Error(`workspace must live under the system temp dir, got ${workspace}`);
     if (args.coldAttach) {
       const projectionPath = path.join(copyLayout(workspace).localRoot, "cache", "task.sqlite");
@@ -1024,7 +1580,8 @@ export async function main(argv, session = {}) {
     const daemonCliOptions = buildCliOptions(env, workspace, { userRoot, daemonId });
     receipt.build = {
       requested: build.requested,
-      root: build.root,
+      root: build.requestedRoot,
+      ...(build.isolatedMirror && build.root !== build.requestedRoot ? { runnableRoot: build.root } : {}),
       sourceArchive: build.sourceArchive,
       headCommit: head,
       prepared: buildSteps,
@@ -1124,7 +1681,7 @@ export async function main(argv, session = {}) {
       history,
       daemonStatusRepo: repoStatus,
       daemonPeakRssBytes: daemonPeakRss,
-      daemonRssMethod: "ps -o rss= polled every 500ms",
+      daemonRssMethod: processRssMethod(),
     };
     if (awaited.outcome !== "terminal-record" || awaited.record.event !== "repo_attach_completed")
       receipt.failures.push({
@@ -1159,7 +1716,9 @@ export async function main(argv, session = {}) {
     daemonStopReceipt = stopped.receipt;
     if (await awaitDaemonDown(pid)) daemonHandle = null;
     // 6. Direct reads and full cold rebuild through the build's own production functions.
-    const direct = await runDirectEvidence(build.root, workspace, tempRoot, env, receipt.source.repository);
+    const direct = await withProgressHeartbeat("direct-evidence+cold-rebuild", () =>
+      runDirectEvidence(build.root, workspace, tempRoot, env, receipt.source.repository),
+    );
     const byStep = new Map(direct.steps.map((step) => [step.step, step]));
     const observedLayout = byStep.get("layout")?.value ?? null;
     receipt.reads = {
@@ -1190,7 +1749,7 @@ export async function main(argv, session = {}) {
     };
     receipt.peakRss = {
       daemonBytes: daemonPeakRss,
-      daemonMethod: "ps -o rss= polled every 500ms",
+      daemonMethod: processRssMethod(),
       rebuildBytes: direct.peakRssBytes,
       rebuildMethod: direct.peakRssBytes === null ? null : "/usr/bin/time maximum resident set size",
     };
@@ -1237,7 +1796,7 @@ export async function main(argv, session = {}) {
   }
   if (!args.keep) {
     try {
-      boundedRm(tempRoot);
+      await cleanupTempRoot(tempRoot);
     } catch (error) {
       receipt.failures.push({ phase: "temp-cleanup", message: String(error instanceof Error ? error.message : error) });
       receipt.ok = false;
@@ -1265,7 +1824,13 @@ function installInterruptHandlers(session) {
     const handle = session.daemonHandle;
     if (handle && processAlive(handle.pid)) {
       try {
-        cliSync(handle.buildRoot, ["daemon", "stop"], session.env, handle.workspace, handle);
+        cliSync(
+          handle.buildRoot,
+          ["daemon", "stop", "--daemon-id", handle.daemonId],
+          session.env,
+          handle.workspace,
+          handle,
+        );
         if (awaitDaemonDownSync(handle.pid)) notes.push("daemon stopped");
         else notes.push(`daemon pid ${handle.pid} left to the owner-pid watchdog`);
       } catch {
