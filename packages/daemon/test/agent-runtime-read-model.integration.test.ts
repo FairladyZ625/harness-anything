@@ -42,7 +42,7 @@ import type { DaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { parseProviderFrame } from "../src/daemon-host/runtime-spawn-provider-frames.ts";
 import { consumeProviderLine } from "../src/daemon-host/runtime-spawn-provider-stream.ts";
 import { validateAgentRuntimeSession } from "../src/daemon-host/agent-runtime-contract.ts";
-import { agentDefinitionSnapshotEndpoint } from "../src/daemon-host/agent-runtime-contract.ts";
+import { agentDefinitionSnapshotEndpoint } from "../src/daemon-host/agent-runtime-snapshot.ts";
 import {
   archiveDispatchStream,
   dispatchStreamPath,

@@ -13,7 +13,7 @@ import {
   runtimeDefinitionSnapshotArtifact,
   type AgentDefinitionSnapshot,
 } from "@harness-anything/kernel";
-import { agentDefinitionSnapshotEndpoint } from "../src/daemon-host/agent-runtime-contract.ts";
+import { agentDefinitionSnapshotEndpoint } from "../src/daemon-host/agent-runtime-snapshot.ts";
 import { resolveAgentRuntimeDeclaration } from "../src/daemon-host/agent-declaration-resolution.ts";
 import { type RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
 import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";

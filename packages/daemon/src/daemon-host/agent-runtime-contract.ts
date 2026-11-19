@@ -1,6 +1,4 @@
 import { agentRuntimeSessionGroupStatusWords } from "@harness-anything/kernel/internal/domain/client-view-status.ts";
-import * as agentRuntimeDomain from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
-import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { validRuntimeInstanceTier } from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
 import type { RuntimeLiveness } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
@@ -38,12 +36,6 @@ import { validAgentRuntimeAttemptChain, type AgentRuntimeAttemptChainDto } from 
 import type { ProviderUnreachableEvidence } from "./protocol/task-dispatch-contract.ts";
 export type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 export type { AgentRuntimeTargetV1, RuntimeInstallationState } from "@harness-anything/kernel";
-
-const agentDefinitionSnapshotErrors = (
-  agentRuntimeDomain as typeof agentRuntimeDomain & {
-    readonly agentDefinitionSnapshotErrors?: (value: unknown) => readonly string[];
-  }
-).agentDefinitionSnapshotErrors;
 
 export interface AgentRuntimeInstallationDto {
   readonly installationId: string;
@@ -795,8 +787,7 @@ function validAgentDefinitionSnapshotDto(value: unknown): value is AgentDefiniti
     )
   )
     return false;
-  const errors = agentDefinitionSnapshotErrors?.(value);
-  return errors === undefined ? validCurrentAgentDefinitionSnapshot(value) : errors.length === 0;
+  return validCurrentAgentDefinitionSnapshot(value);
 }
 
 function validCurrentAgentDefinitionSnapshot(value: Record<string, unknown>): boolean {
@@ -825,26 +816,6 @@ function validCurrentAgentDefinitionSnapshot(value: Record<string, unknown>): bo
     (value.webSearch === undefined || ["disabled", "cached", "live"].includes(String(value.webSearch))) &&
     (value.mcpPolicy === undefined || ["disabled", "inherit"].includes(String(value.mcpPolicy)))
   );
-}
-
-export function redactAgentDefinitionSnapshot(snapshot: AgentDefinitionSnapshot): AgentDefinitionSnapshot {
-  const { baseUrl, ...safeSnapshot } = snapshot;
-  return !Object.hasOwn(snapshot, "endpointKind")
-    ? ({ ...safeSnapshot, ...agentDefinitionSnapshotEndpoint(baseUrl) } as unknown as AgentDefinitionSnapshot)
-    : (safeSnapshot as unknown as AgentDefinitionSnapshot);
-}
-
-type AgentDefinitionSnapshotEndpoint = {
-  readonly endpointKind: "official" | "custom";
-  readonly baseUrlHash: string | null;
-};
-
-export function agentDefinitionSnapshotEndpoint(baseUrl: string | null | undefined): AgentDefinitionSnapshotEndpoint {
-  if (baseUrl === null || baseUrl === undefined || baseUrl === "")
-    return { endpointKind: "official", baseUrlHash: null };
-  const normalizedBaseUrl = URL.canParse(baseUrl) ? new URL(baseUrl).toString() : baseUrl,
-    digest = sha256Text(normalizedBaseUrl).slice(0, 16);
-  return { endpointKind: "custom", baseUrlHash: `sha256:${digest}` };
 }
 
 function validAssociation(value: unknown): value is AgentRuntimeAssociationDto {

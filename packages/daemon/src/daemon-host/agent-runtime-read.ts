@@ -18,7 +18,6 @@ import {
   agentRuntimeSessionGroupStatusWords,
   agentRuntimeUnattributedGroupKeys,
   coded,
-  redactAgentDefinitionSnapshot,
   type AgentRuntimeEventsResult,
   type AgentRuntimeInstallationDto,
   type AgentRuntimeOverviewResult,
@@ -29,6 +28,7 @@ import {
   type AgentRuntimeSessionResult,
   type AgentRuntimeUnattributedGroupKey,
 } from "./agent-runtime-contract.ts";
+import { redactAgentDefinitionSnapshot } from "./agent-runtime-snapshot.ts";
 import {
   buildAgentRuntimeSessionGroups,
   latestDispatchStartedAt,
