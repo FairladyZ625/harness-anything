@@ -155,15 +155,15 @@ const RUNTIME_DISPATCH_MEMBER_SESSIONS_SQL = (member: "agentId" | "squadId", sco
       WHERE b.runtime_session_id=json_extract(d.event_json, '$.payload.runtimeSessionId')) AS taskIds
   FROM latest CROSS JOIN event_index d ON d.workspace_revision=latest.revision ORDER BY runtimeSessionId`;
 };
-const RUNTIME_DISPATCH_PAGE_SQL = [
-  "SELECT event_json FROM event_index INDEXED BY event_index_runtime_dispatch_started",
-  "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
-  "AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
-  "AND json_extract(event_json, '$.payload.startedAt') >= ?",
-  "AND (json_extract(event_json, '$.payload.startedAt') > ? OR",
-  "(json_extract(event_json, '$.payload.startedAt') = ? AND json_extract(event_json, '$.payload.dispatchId') > ?))",
-  "ORDER BY json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.payload.dispatchId') LIMIT ?",
-].join(" ");
+const dispatchActivityAt =
+  "COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt'))";
+const dispatchId = "json_extract(event_json, '$.payload.dispatchId')";
+const RUNTIME_DISPATCH_PAGE_SQL = `
+  SELECT event_json FROM event_index INDEXED BY event_index_runtime_dispatch_activity
+  WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+    AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'
+    AND ${dispatchActivityAt} >= ? AND (${dispatchActivityAt}, ${dispatchId}) > (?, ?)
+  ORDER BY ${dispatchActivityAt}, ${dispatchId} LIMIT ?`;
 const RUNTIME_OUTCOME_BY_DISPATCH_SQL = [
   "SELECT event_json FROM event_index",
   "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
@@ -468,24 +468,14 @@ export function repositoryEventQueries(
           afterDispatchId = cursor?.dispatchId ?? "",
           raw =
             taskIds === undefined
-              ? queryRows(
-                  db,
-                  RUNTIME_DISPATCH_PAGE_SQL,
-                  startedAtGte,
-                  afterStartedAt,
-                  afterStartedAt,
-                  afterDispatchId,
-                  pageLimit + 1,
-                )
+              ? queryRows(db, RUNTIME_DISPATCH_PAGE_SQL, startedAtGte, afterStartedAt, afterDispatchId, pageLimit + 1)
               : taskIds
                   .flatMap((taskId) =>
                     queryRows(
                       db,
                       RUNTIME_LATEST_DISPATCH_BY_TASK_SQL.replace(
                         "ORDER BY",
-                        `AND COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt')) >= ? AND
-              (COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt')),
-               json_extract(event_json, '$.payload.dispatchId')) > (?, ?) ORDER BY`,
+                        `AND ${dispatchActivityAt} >= ? AND (${dispatchActivityAt}, ${dispatchId}) > (?, ?) ORDER BY`,
                       )
                         .replaceAll(" DESC", " ASC")
                         .replace("LIMIT 1", "LIMIT ?"),

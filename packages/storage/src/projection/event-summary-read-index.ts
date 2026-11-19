@@ -151,22 +151,29 @@ export function backfillEventSummaryReadIndex(
   }
 }
 
-// All three task facts are point selections on the activity indexes, including for an upgraded cache.
+// Select person, node and time from the same latest attributed event. Its node may be null.
 const TASK_ATTRIBUTION_COLUMNS_SQL = `
  (SELECT source_node_id FROM event_summary
    WHERE activity_task_id=task_snapshot.task_id AND event_type IN ('task_created','task_bootstrapped')
    ORDER BY workspace_revision LIMIT 1) AS origin_node_id,
+ (SELECT occurred_at FROM event_summary
+   WHERE activity_task_id=task_snapshot.task_id AND event_type IN ('task_created','task_bootstrapped')
+   ORDER BY workspace_revision LIMIT 1) AS origin_at,
  (SELECT source_node_id FROM event_summary
-   WHERE activity_task_id=task_snapshot.task_id AND source_node_id IS NOT NULL
+   WHERE activity_task_id=task_snapshot.task_id AND actor_person_id IS NOT NULL
    ORDER BY workspace_revision DESC LIMIT 1) AS latest_node_id,
  (SELECT actor_person_id FROM event_summary WHERE activity_task_id=task_snapshot.task_id AND actor_person_id IS NOT NULL
-   ORDER BY workspace_revision DESC LIMIT 1) AS latest_person_id`;
+   ORDER BY workspace_revision DESC LIMIT 1) AS latest_person_id,
+ (SELECT occurred_at FROM event_summary WHERE activity_task_id=task_snapshot.task_id AND actor_person_id IS NOT NULL
+   ORDER BY workspace_revision DESC LIMIT 1) AS latest_at`;
 
 type TaskAttributionRow = {
   readonly task_id: string;
   readonly origin_node_id: string | null;
   readonly latest_node_id: string | null;
   readonly latest_person_id: string | null;
+  readonly latest_at: string | null;
+  readonly origin_at: string | null;
 };
 
 /** Resolve the selected page in one statement, independently of the task index's wire and plan. */

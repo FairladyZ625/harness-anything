@@ -1,7 +1,15 @@
 import { decisionEventTypes } from "@harness-anything/kernel/internal/domain/decision-event-types.ts";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
-import type { TaskProjection, TaskProjectionListQuery } from "@harness-anything/kernel";
-import type { DecisionListFilters } from "@harness-anything/kernel/internal/ports/decision-projection-model.ts";
+import {
+  drainCursorPagesSync,
+  parseEntityRef,
+  type TaskProjection,
+  type TaskProjectionListQuery,
+} from "@harness-anything/kernel";
+import {
+  DEFAULT_DECISION_LIST_PAGE_SIZE,
+  type DecisionListFilters,
+} from "@harness-anything/kernel/internal/ports/decision-projection-model.ts";
 import type { EventListQuery } from "@harness-anything/kernel/internal/domain/event-list.ts";
 import {
   effectiveRepositoryMode,
@@ -10,8 +18,9 @@ import {
   taskMatchesCollaboratorScope,
   type CollaboratorScope,
 } from "@harness-anything/kernel/internal/domain/collaborator-scope.ts";
-import { writeSourceNodeId } from "@harness-anything/kernel/internal/domain/write-source.ts";
-import { readViewerTodos, todoRelations } from "./todo-read.ts";
+import { readAgendaAwaitsPage, type AgendaAwaitsProjection } from "./agenda-awaits-read.ts";
+import { readViewerTodos } from "./todo-read.ts";
+import { runtimeDispatchStartedAt, sourceNodeReader } from "./runtime-attribution.ts";
 import { requireSameProjectionCut } from "./projection-cut.ts";
 
 export type { CollaboratorScope };
@@ -61,7 +70,7 @@ function involvementPersonId(query: CollaboratorDecisionQuery): string | undefin
 }
 
 export function readCollaboratorDecisions(
-  projection: Pick<TaskProjection, "listDecisions" | "readRelationQuery" | "readEventList">,
+  projection: AgendaAwaitsProjection & Pick<TaskProjection, "listDecisions" | "readEventList">,
   query: CollaboratorDecisionQuery = {},
 ): ReturnType<TaskProjection["listDecisions"]> {
   const {
@@ -75,18 +84,23 @@ export function readCollaboratorDecisions(
     personId = involvementPersonId(query);
   if (personId === undefined && filterNodeId === undefined && involvement !== "mine")
     return projection.listDecisions(filters);
-  const awaits = new Set(
-    personId === undefined
-      ? []
-      : todoRelations(projection, {
-          target: `person/${personId}`,
-          relationType: "awaits",
-        }).map(({ sourceRef }) => sourceRef.split("/").slice(0, 2).join("/")),
-  );
+  const cut = projection.readCut(),
+    awaits = new Set<string>();
+  if (personId !== undefined)
+    for (const page of drainCursorPagesSync(
+      (facets) => readAgendaAwaitsPage(projection, { viewerPersonId: personId, ...facets }),
+      "decision awaits",
+    )) {
+      requireSameProjectionCut("decision awaits", [cut, page]);
+      for (const { sourceRef } of page.awaitingYou) {
+        const ref = parseEntityRef(sourceRef);
+        if (ref?.kind === "decision") awaits.add(ref.id);
+      }
+    }
   const matches = ({ decisionId, proposer }: ReturnType<TaskProjection["listDecisions"]>["decisions"][number]) =>
     (personId === undefined
       ? involvement !== "mine"
-      : proposer.principal.personId === personId || awaits.has(`decision/${decisionId}`)) &&
+      : proposer.principal.personId === personId || awaits.has(decisionId)) &&
     (filterNodeId === undefined ||
       projection.readEventList({
         entity: `decision/${decisionId}`,
@@ -95,27 +109,30 @@ export function readCollaboratorDecisions(
         limit: storageReadPolicy.defaultValue.pageSizes.one,
       }).rows.length !== 0);
   const decisions: ReturnType<TaskProjection["listDecisions"]>["decisions"][number][] = [];
+  const limit = filters.limit ?? (filters.cursor === undefined ? undefined : DEFAULT_DECISION_LIST_PAGE_SIZE);
   let cursor = filters.cursor;
   let result: ReturnType<TaskProjection["listDecisions"]>;
-  const visited = new Set<string>();
+  const visited = new Set(filters.cursor === undefined ? [] : [filters.cursor]);
   do {
     result = projection.listDecisions({
       ...filters,
       ...(cursor === undefined ? {} : { cursor }),
-      ...(filters.limit === undefined ? {} : { limit: filters.limit - decisions.length }),
+      ...(limit === undefined ? {} : { limit: limit - decisions.length }),
     });
+    requireSameProjectionCut("collaborator decisions", [cut, result]);
     decisions.push(...result.decisions.filter(matches));
     cursor = result.page?.nextCursor ?? undefined;
     if (cursor !== undefined) {
-      if (visited.has(cursor) || cursor === filters.cursor) throw new Error("Decision page cursor did not advance.");
+      if (visited.has(cursor)) throw new Error("Decision page cursor did not advance.");
       visited.add(cursor);
     }
-  } while (cursor !== undefined && filters.limit !== undefined && decisions.length < filters.limit);
+  } while (cursor !== undefined && limit !== undefined && decisions.length < limit);
+  requireSameProjectionCut("collaborator decisions", [cut, projection.readCut()]);
   return {
-    ...result,
+    ...cut,
     decisions,
     ...(result.page
-      ? { page: { ...result.page, limit: filters.limit ?? result.page.limit, cursor: filters.cursor ?? null } }
+      ? { page: { ...result.page, limit: limit ?? result.page.limit, cursor: filters.cursor ?? null } }
       : {}),
   };
 }
@@ -147,42 +164,49 @@ export function readAttestationPool(
   };
 }
 
-export function readCollaboratorAgenda(projection: TaskProjection, query: CollaboratorViewer) {
+export function readCollaboratorAgenda(
+  projection: Parameters<typeof readCollaboratorDecisions>[0] &
+    Pick<TaskProjection, "readTaskIndex" | "listPinnedEntities" | "listEntities">,
+  query: Parameters<typeof readAgendaAwaitsPage>[1],
+) {
   const personId = query.scopePersonId ?? query.viewerPersonId,
+    awaits = readAgendaAwaitsPage(projection, query),
     tasks = listScopedTasks(projection, { ...query, scopePersonId: personId }),
-    decisions = readCollaboratorDecisions(projection, { ...query, scopePersonId: personId, state: "proposed" }),
-    awaitingYou = todoRelations(projection, { target: `person/${personId}`, relationType: "awaits" });
+    decisions = readCollaboratorDecisions(projection, {
+      scopePersonId: personId,
+      ...(query.filterNodeId === undefined ? {} : { filterNodeId: query.filterNodeId }),
+      state: "proposed",
+    }),
+    pinnedEntities = readPersonalPins(projection, query),
+    todos = readViewerTodos(projection, { ...query, viewerPersonId: personId }).filter(({ open }) => open);
   return {
-    ...requireSameProjectionCut("collaborator agenda", [tasks, decisions]),
+    ...requireSameProjectionCut("collaborator agenda", [awaits, tasks, decisions, projection.readCut()]),
     personId,
-    pinnedEntities: readPersonalPins(projection, query),
-    todos: readViewerTodos(projection, { ...query, viewerPersonId: personId }).filter(({ open }) => open),
-    awaitingYou:
-      query.filterNodeId === undefined
-        ? awaitingYou
-        : awaitingYou.filter(
-            ({ workspaceRevision }) =>
-              workspaceRevision !== null &&
-              writeSourceNodeId(projection.readEventWitness(workspaceRevision)?.source) === query.filterNodeId,
-          ),
+    pinnedEntities,
+    todos,
+    page: awaits.page,
+    awaitingYou: awaits.awaitingYou,
     decisions: decisions.decisions,
     tasks: tasks.rows.filter(({ status }) => status !== "done" && status !== "cancelled"),
   };
 }
 
 export function readCollaboratorLiveFloor(
-  projection: Pick<TaskProjection, "readRuntimeSessions" | "readLatestRuntimeDispatchBySession">,
-  scope: CollaboratorScope = {},
+  projection: Pick<
+    TaskProjection,
+    "readRuntimeSessions" | "readLatestRuntimeDispatchBySession" | "readRuntimeSessionEventsByType"
+  >,
+  scope: CollaboratorScope & { readonly startedAtGte?: string } = {},
 ) {
+  const sourceNode = sourceNodeReader(projection);
   return projection.readRuntimeSessions({ inFlightOnly: true }).flatMap((session) => {
-    const dispatch = projection.readLatestRuntimeDispatchBySession(session.runtimeSessionId);
-    return matchesCollaboratorScope(scope, [
-      {
-        personId: dispatch?.actor.principal.personId ?? null,
-        nodeId: writeSourceNodeId(dispatch?.source),
-      },
-    ])
-      ? [{ session, dispatch }]
+    const dispatch = projection.readLatestRuntimeDispatchBySession(session.runtimeSessionId),
+      startedAt = dispatch === null ? null : runtimeDispatchStartedAt(dispatch),
+      personId = dispatch?.actor.principal.personId ?? null,
+      nodeId = sourceNode(dispatch?.source);
+    if (scope.startedAtGte !== undefined && (startedAt === null || startedAt < scope.startedAtGte)) return [];
+    return matchesCollaboratorScope(scope, [{ personId, nodeId }])
+      ? [{ session, dispatch, personId, nodeId, startedAt }]
       : [];
   });
 }

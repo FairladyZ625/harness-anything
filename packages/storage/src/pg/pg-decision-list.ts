@@ -1,3 +1,4 @@
+import { DEFAULT_DECISION_LIST_PAGE_SIZE } from "@harness-anything/kernel/internal/ports/decision-projection-model.ts";
 import type { PoolClient } from "pg";
 import type {
   DecisionListFilters,
@@ -56,7 +57,8 @@ export async function listPgDecisionRows(
   const search = filters.search?.trim();
   if (search) where.push(`decision_id=ANY(${bind(await searchPgDecisionIds(client, scope, search, repoId))}::text[])`);
   const paged = filters.limit !== undefined || filters.cursor !== undefined,
-    limit = filters.limit === undefined ? (paged ? 100 : null) : checkedPageLimit(filters.limit),
+    limit =
+      filters.limit === undefined ? (paged ? DEFAULT_DECISION_LIST_PAGE_SIZE : null) : checkedPageLimit(filters.limit),
     limitSql = limit === null ? "" : ` LIMIT ${bind(limit + 1)}`,
     result = await client.query<{ decision_id: string; value: Record<string, unknown> }>(
       `SELECT decision_id,value FROM ha_decisions WHERE ${where.join(" AND ")}

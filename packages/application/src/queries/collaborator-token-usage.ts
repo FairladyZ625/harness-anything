@@ -4,7 +4,8 @@ import {
   matchesCollaboratorScope,
   type CollaboratorScope,
 } from "@harness-anything/kernel/internal/domain/collaborator-scope.ts";
-import { writeSourceNodeId } from "@harness-anything/kernel/internal/domain/write-source.ts";
+import { requireSameProjectionCut } from "./projection-cut.ts";
+import { runtimeDispatchStartedAt, sourceNodeReader } from "./runtime-attribution.ts";
 
 interface TokenUsageTotals {
   dispatches: number;
@@ -27,11 +28,12 @@ const emptyTotals = (): TokenUsageTotals => ({
 });
 
 export function readCollaboratorTokenUsage(
-  projection: Pick<TaskProjection, "readRuntimeDispatchPage" | "readCut">,
+  projection: Pick<TaskProjection, "readRuntimeDispatchPage" | "readCut" | "readRuntimeSessionEventsByType">,
   query: CollaboratorScope & { readonly startedAtGte: string; readonly startedAtLt?: string },
 ) {
   const { startedAtGte, startedAtLt } = query,
     cut = projection.readCut(),
+    sourceNode = sourceNodeReader(projection),
     persons = new Map<string | null, TokenUsageTotals>(),
     nodes = new Map<string | null, TokenUsageTotals>(),
     totals = emptyTotals();
@@ -43,9 +45,9 @@ export function readCollaboratorTokenUsage(
       ...(cursor ? { cursor } : {}),
     });
     for (const { event, metrics } of page.rows) {
-      const startedAt = event.payload.startedAt ?? event.occurredAt,
+      const startedAt = runtimeDispatchStartedAt(event),
         personId = event.actor.principal.personId ?? null,
-        nodeId = writeSourceNodeId(event.source);
+        nodeId = sourceNode(event.source);
       if (startedAtLt !== undefined && Date.parse(startedAt) >= Date.parse(startedAtLt)) break dispatchPages;
       if (!matchesCollaboratorScope(query, [{ personId, nodeId }])) continue;
       const person = persons.get(personId) ?? emptyTotals(),
@@ -74,9 +76,7 @@ export function readCollaboratorTokenUsage(
       throw new Error("Token usage dispatch page cursor did not advance.");
     cursor = next;
   }
-  const after = projection.readCut();
-  if (after.watermark !== cut.watermark || after.sourceRevision !== cut.sourceRevision)
-    throw new Error("Token usage reads crossed a projection cut.");
+  requireSameProjectionCut("token usage", [cut, projection.readCut()]);
   return {
     ...cut,
     totals,

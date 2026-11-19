@@ -1,5 +1,6 @@
 import {
   scopedPersonId,
+  taskMatchesCollaboratorActivity,
   taskMatchesCollaboratorScope,
   type CollaboratorScope,
 } from "@harness-anything/kernel/internal/domain/collaborator-scope.ts";
@@ -134,7 +135,7 @@ export function workspaceStructureFromProjection(
         ? null
         : new Set(projection.listPinnedEntities(personId).map(({ entityRef }) => entityRef));
   const counts: Record<keyof WorkspaceScopeStatusCounts, number> = emptyScopeCounts();
-  for (const row of leaves) counts[scopeStatus(row.status)] += 1;
+  for (const row of leaves) if (taskMatchesCollaboratorActivity(input, row)) counts[scopeStatus(row.status)] += 1;
   const sortedLeaves = [...leaves].sort((left, right) => left.taskId.localeCompare(right.taskId));
   const limit = input.limit ?? 100;
   const start = input.cursor ? sortedLeaves.findIndex(({ taskId }) => taskId.localeCompare(input.cursor!) > 0) : 0;

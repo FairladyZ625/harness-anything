@@ -245,7 +245,14 @@ export function readTaskIndexRows(
       return [
         {
           ...(origin
-            ? taskAttribution(snapshot, origin.origin_node_id, origin.latest_node_id, origin.latest_person_id)
+            ? taskAttribution(
+                snapshot,
+                origin.origin_node_id,
+                origin.latest_node_id,
+                origin.latest_person_id,
+                origin.latest_at,
+                origin.origin_at,
+              )
             : {}),
           taskId: row.task_id,
           supersededBy: task.supersededBy ?? null,

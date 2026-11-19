@@ -528,10 +528,14 @@ export function pgTaskAttributionColumns(repoParameter: number): string {
   return `
     (SELECT fleet_node_id FROM ha_events e WHERE ${scope}
       AND event_type IN ('task_created','task_bootstrapped') ORDER BY revision LIMIT 1) AS origin_node_id,
+    (SELECT occurred_at FROM ha_events e WHERE ${scope}
+      AND event_type IN ('task_created','task_bootstrapped') ORDER BY revision LIMIT 1) AS origin_at,
     (SELECT fleet_node_id FROM ha_events e WHERE ${scope}
-      AND fleet_node_id IS NOT NULL ORDER BY revision DESC LIMIT 1) AS latest_node_id,
+      AND actor_person_id IS NOT NULL ORDER BY revision DESC LIMIT 1) AS latest_node_id,
     (SELECT actor_person_id FROM ha_events e WHERE ${scope} AND actor_person_id IS NOT NULL
-      ORDER BY revision DESC LIMIT 1) AS latest_person_id`;
+      ORDER BY revision DESC LIMIT 1) AS latest_person_id,
+    (SELECT occurred_at FROM ha_events e WHERE ${scope} AND actor_person_id IS NOT NULL
+      ORDER BY revision DESC LIMIT 1) AS latest_at`;
 }
 
 interface PgFleetHeaderRow {

@@ -31,11 +31,33 @@ export function matchesCollaboratorScope(
   );
 }
 
+function taskOrigin(task: Partial<TaskAttribution>): CollaboratorAttribution {
+  return { personId: task.createdByPersonId ?? null, nodeId: task.originNodeId ?? null };
+}
+
+function taskOperator(task: Partial<TaskAttribution>): CollaboratorAttribution {
+  return { personId: task.activeOrLatestPersonId ?? null, nodeId: task.activeOrLatestNodeId ?? null };
+}
+
 export function taskMatchesCollaboratorScope(scope: CollaboratorScope, task: Partial<TaskAttribution>): boolean {
-  return matchesCollaboratorScope(scope, [
-    { personId: task.createdByPersonId ?? null, nodeId: task.originNodeId ?? null },
-    { personId: task.activeOrLatestPersonId ?? null, nodeId: task.activeOrLatestNodeId ?? null },
-  ]);
+  return matchesCollaboratorScope(scope, [taskOrigin(task), taskOperator(task)]);
+}
+
+/** Participation preserves visibility. Execution and its timestamp belong to the current operator. */
+export function taskMatchesCollaboratorActivity(
+  scope: CollaboratorScope,
+  task: Partial<TaskAttribution> & { readonly status: string },
+): boolean {
+  return task.status !== "active" || matchesCollaboratorScope(scope, [taskOperator(task)]);
+}
+
+export function collaboratorTaskActivityAt(
+  scope: CollaboratorScope,
+  task: Partial<TaskAttribution> & { readonly updatedAt: string },
+): string | null {
+  if (matchesCollaboratorScope(scope, [taskOperator(task)])) return task.activeOrLatestActivityAt ?? task.updatedAt;
+  if (matchesCollaboratorScope(scope, [taskOrigin(task)])) return task.originActivityAt ?? task.updatedAt;
+  return null;
 }
 
 export function effectiveRepositoryMode<Mode extends "local" | "center" | "edge">(

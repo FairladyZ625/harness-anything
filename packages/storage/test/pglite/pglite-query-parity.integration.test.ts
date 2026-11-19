@@ -4,7 +4,7 @@ import { appendBootstrapQueryFixture } from "../postgres/query-bootstrap.fixture
 import test from "node:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { taskLifecycleWritePlan } from "@harness-anything/kernel";
+import { relationIsCurrent, taskLifecycleWritePlan } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
 import {
   canonicalEventWritePlan,
@@ -28,6 +28,15 @@ import { assertTaskIndexQueryParity } from "../postgres/pg-task-index-parity.fix
 import { assertRelationQueryParity } from "../postgres/pg-relation-query-parity.fixture.ts";
 import { assertValueQueryParity } from "../postgres/pg-value-query-parity.fixture.ts";
 import { appendRecoveryQueryFixtures, assertRecoveryQueryContract } from "../runtime-recovery-query.assertions.ts";
+import {
+  alice,
+  bob,
+  edgeA,
+  edgeB,
+  first,
+  second,
+  appendCollaboratorLedger,
+} from "../store/collaborator-ledger.events.fixture.ts";
 import { runtimeProviderEvents } from "../runtime-provider-bytes.assertions.ts";
 
 pgliteIntegrationSuite("complete synchronous query parity", () => {
@@ -164,6 +173,89 @@ pgliteIntegrationSuite("complete synchronous query parity", () => {
         projection.close();
         await embedded.drain();
         await sqlite.drain();
+      }
+    });
+  });
+
+  test("PGlite exposes collaborator decision and billing queries over accepted events", async () => {
+    await withTempStoreAsync(async (rootDir) => {
+      initRepo(rootDir);
+      const repoId = "pglite-collaborator-ledger",
+        storage = {
+          backend: "pglite" as const,
+          dataDir: join(rootDir, "database"),
+          materialize: false,
+          scope: { tenantId: "collaborators", projectId: "collaborators", policyEpoch: 1 },
+        },
+        embedded = makeTaskEventStore({ repoId, rootDir, storage });
+      try {
+        await appendCollaboratorLedger(
+          (bundle) => {
+            embedded.append(bundle);
+          },
+          () => (embedded.readHead()?.revision ?? 0) + 1,
+        );
+        const reader = makeTaskProjectionReader({ repoId, storage });
+        try {
+          reader.withSession((queries) => {
+            const all = queries.listDecisions().decisions;
+            const ids = all.map(({ decisionId }) => decisionId).sort();
+            assert.deepEqual(ids, ["dec_ALICE_ONLY", "dec_AWAITS_BOB", "dec_BOB_ONLY"]);
+            const involvement = (personId: string) => {
+              const asks = new Set(
+                queries
+                  .readRelationQuery({
+                    target: `person/${personId}`,
+                    relationType: "awaits",
+                    state: "active",
+                  })
+                  .rows.filter(relationIsCurrent)
+                  .map(({ sourceRef }) => sourceRef),
+              );
+              return all
+                .filter(
+                  ({ decisionId, proposer }) =>
+                    proposer.principal.personId === personId || asks.has(`decision/${decisionId}`),
+                )
+                .map(({ decisionId }) => decisionId)
+                .sort();
+            };
+            assert.deepEqual(involvement(alice), ["dec_ALICE_ONLY", "dec_AWAITS_BOB"]);
+            assert.deepEqual(involvement(bob), ["dec_AWAITS_BOB", "dec_BOB_ONLY"]);
+            assert.deepEqual(involvement("person_unrelated"), []);
+
+            const firstPage = queries.readRuntimeDispatchPage({ startedAtGte: first, limit: 1 });
+            assert.deepEqual(firstPage.nextCursor, { startedAt: first, dispatchId: "billing-alice-dispatch" });
+            const secondPage = queries.readRuntimeDispatchPage({
+              startedAtGte: first,
+              limit: 1,
+              cursor: firstPage.nextCursor!,
+            });
+            assert.equal(secondPage.done, true);
+            const rows = [...firstPage.rows, ...secondPage.rows];
+            assert.deepEqual(
+              rows.map(({ event, metrics }) => [event.actor.principal.personId, event.source, metrics?.totalTokens]),
+              [
+                [alice, { kind: "node", nodeId: edgeA }, 15],
+                [bob, { kind: "node", nodeId: edgeB }, 27],
+              ],
+            );
+            assert.equal(
+              rows.reduce((total, row) => total + (row.metrics?.totalTokens ?? 0), 0),
+              42,
+            );
+            assert.deepEqual(
+              queries
+                .readRuntimeDispatchPage({ startedAtGte: second, limit: 1 })
+                .rows.map(({ metrics }) => metrics?.totalTokens),
+              [27],
+            );
+          });
+        } finally {
+          reader.close();
+        }
+      } finally {
+        await embedded.drain();
       }
     });
   });

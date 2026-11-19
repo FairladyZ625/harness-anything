@@ -3,10 +3,8 @@ import type { EntityProjectionRow, PinnedEntityProjectionRow } from "@harness-an
 import {
   personalPinsFromNewest,
   pinRetirementEventTypes,
-  type EntityPinEventV1,
 } from "@harness-anything/kernel/internal/domain/entity-pin-event.ts";
 import { assertPgEventReadIndexReady } from "./pg-event-read-index-migration.ts";
-import { readEventRowsInTransaction } from "./pg-event-queries.ts";
 import type { PgTaskProjectionSourceOptions } from "./pg-task-source.ts";
 
 export async function readPgPersonalPins(
@@ -15,34 +13,47 @@ export async function readPgPersonalPins(
   personId: string,
   watermark: number,
 ): Promise<readonly PinnedEntityProjectionRow[]> {
-  const rows = await readEventRowsInTransaction(
-    client,
-    scope,
-    [...(scope.readers ?? [])],
-    repoId,
-    `event_type IN ('entity_pinned','entity_unpinned') AND actor_person_id=$6 AND revision <= $7
-      AND NOT EXISTS (
-        SELECT 1 FROM ha_event_entity_refs ref
-        JOIN ha_events retirement USING (tenant_id, project_id, repo_id, policy_epoch, revision)
-        WHERE (ref.tenant_id,ref.project_id,ref.repo_id,ref.policy_epoch)=($1,$2,$3,$4)
-          AND ref.entity_ref=ha_read_index_json(ha_events.event_json)#>>'{payload,entityRef}'
-          AND ref.revision > ha_events.revision AND ref.revision <= $7
-          AND retirement.event_type=ANY($8::text[])
-          AND (cardinality($5::text[])=0 OR retirement.readers && $5::text[])
-      )`,
-    [personId, watermark, pinRetirementEventTypes],
-    "DESC",
+  await assertPgEventReadIndexReady(client, scope, repoId);
+  const visibility = `(tenant_id,project_id,repo_id,policy_epoch)=($1,$2,$3,$4)
+     AND (cardinality($5::text[])=0 OR readers && $5::text[]) AND revision <= $7`;
+  const { rows } = await client.query<{ entity_ref: string; occurred_at: string; event_type: string }>(
+    `WITH latest_pin AS MATERIALIZED (
+       SELECT ha_read_index_json(event_json)#>>'{payload,entityRef}' AS entity_ref, max(revision) AS revision
+       FROM ha_events
+       WHERE ${visibility} AND actor_person_id=$6 AND event_type IN ('entity_pinned','entity_unpinned')
+       GROUP BY 1
+     )
+     SELECT pin.entity_ref, event.occurred_at, event.event_type
+     FROM latest_pin pin
+     JOIN ha_events event ON (event.tenant_id,event.project_id,event.repo_id,event.policy_epoch,event.revision)
+       =($1,$2,$3,$4,pin.revision)
+     WHERE event.event_type='entity_pinned' AND NOT EXISTS (
+       SELECT 1 FROM ha_event_entity_refs ref
+       JOIN ha_events retired USING (tenant_id,project_id,repo_id,policy_epoch,revision)
+       WHERE (ref.tenant_id,ref.project_id,ref.repo_id,ref.policy_epoch)=($1,$2,$3,$4)
+         AND (cardinality($5::text[])=0 OR retired.readers && $5::text[])
+         AND ref.entity_ref=pin.entity_ref AND ref.revision > pin.revision AND ref.revision <= $7
+         AND (retired.event_type=ANY($8::text[]) OR (retired.event_type='task_transitioned'
+           AND ha_read_index_json(retired.event_json)#>>'{payload,task,status}'='cancelled'))
+     )`,
+    [
+      scope.tenantId,
+      scope.projectId,
+      repoId,
+      scope.policyEpoch,
+      [...(scope.readers ?? [])],
+      personId,
+      watermark,
+      pinRetirementEventTypes,
+    ],
   );
   return personalPinsFromNewest(
-    rows.map(({ event_json }) => {
-      const event = JSON.parse(event_json) as EntityPinEventV1;
-      return {
-        entityRef: event.payload.entityRef,
-        personId: event.actor.principal.personId ?? null,
-        pinnedAt: event.occurredAt,
-        pinned: event.type === "entity_pinned",
-      };
-    }),
+    rows.map(({ entity_ref, occurred_at, event_type }) => ({
+      entityRef: entity_ref,
+      personId,
+      pinnedAt: occurred_at,
+      pinned: event_type === "entity_pinned",
+    })),
     personId,
   );
 }

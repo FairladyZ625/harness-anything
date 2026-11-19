@@ -109,7 +109,7 @@ export interface PgTaskProjectionSource
     readonly limit?: number;
   }) => Promise<TaskRelationProjectionRead>;
   readonly readDecisions: (decisionIds: readonly string[], withBody?: boolean) => Promise<DecisionProjectionListRead>;
-  readonly listDecisions: (filters: DecisionListFilters) => Promise<DecisionProjectionListRead>;
+  readonly listDecisions: (filters?: DecisionListFilters) => Promise<DecisionProjectionListRead>;
   readonly searchFacts: (filters: FactSearchFilters) => Promise<FactProjectionSearchRead>;
   readonly listDecisionAgendaPage: (query: DecisionPageQuery) => Promise<DecisionAgendaProjectionPageRead>;
   readonly currentLease: (taskId: string, now?: string) => Promise<LeaseV1 | null>;
@@ -336,6 +336,8 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             origin_node_id: string | null;
             latest_node_id: string | null;
             latest_person_id: string | null;
+            latest_at: string | null;
+            origin_at: string | null;
           }>(
             `SELECT task_id, package_path, generation, workspace_revision::text, snapshot, ${pgTaskAttributionColumns(repoParameter)}, created_at::text, completed_at::text, updated_at::text, ${presentation} AS presentation_status FROM ha_task_snapshots
            WHERE ${where.join(" AND ")} ORDER BY ${query.pinnedFirst ? "task_pinned DESC, " : ""}task_id${limitParameter === null ? "" : ` LIMIT $${limitParameter}`}`,
@@ -357,7 +359,14 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             createdAt: row.created_at === null ? null : toIsoTimestamp(row.created_at),
             completedAt: row.completed_at === null ? null : toIsoTimestamp(row.completed_at),
             updatedAt: toIsoTimestamp(row.updated_at),
-            ...taskAttribution(hydrated[index]!, row.origin_node_id, row.latest_node_id, row.latest_person_id),
+            ...taskAttribution(
+              hydrated[index]!,
+              row.origin_node_id,
+              row.latest_node_id,
+              row.latest_person_id,
+              row.latest_at,
+              row.origin_at,
+            ),
             snapshot: query.presentationStatus
               ? presentSnapshot(hydrated[index]!, row.presentation_status)
               : hydrated[index]!,
@@ -551,7 +560,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
   const currentLease = (taskId: string, at = now()) => readLease("task_id", taskId, at);
   const currentLeaseForExecution = (executionId: string, at = now()) =>
     readLease("raw_lease->>'executionId'", executionId, at);
-  const listDecisions = (filters: DecisionListFilters): Promise<DecisionProjectionListRead> =>
+  const listDecisions = (filters: DecisionListFilters = {}): Promise<DecisionProjectionListRead> =>
     withPostgresTransaction(
       options.pool,
       async (client) => {

@@ -96,7 +96,22 @@ export function compileEntityPinEvent(input: {
 }
 
 export function validateEntityPinEvent(value: unknown): readonly string[] {
-  return validateEntityPinEventFields(value, true);
+  return validateEntityPinEventFields(pinEventValidationInput(value), true);
+}
+
+function pinEventValidationInput(value: unknown): unknown {
+  // Validate the envelope of machine-written history without attributing the event to a member.
+  if (
+    isRecord(value) &&
+    isRecord(value.actor) &&
+    isRecord(value.actor.principal) &&
+    !Object.hasOwn(value.actor.principal, "personId")
+  )
+    return {
+      ...value,
+      actor: { ...value.actor, principal: { ...value.actor.principal, personId: "historical-pin-validation" } },
+    };
+  return value;
 }
 export function validateCurrentEntityPinEvent(value: unknown): readonly string[] {
   return validateEntityPinEventFields(value, false);

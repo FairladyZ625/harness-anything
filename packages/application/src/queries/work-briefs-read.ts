@@ -1,4 +1,9 @@
-import { scopedPersonId, type CollaboratorScope } from "@harness-anything/kernel/internal/domain/collaborator-scope.ts";
+import {
+  collaboratorTaskActivityAt,
+  scopedPersonId,
+  taskMatchesCollaboratorActivity,
+  type CollaboratorScope,
+} from "@harness-anything/kernel/internal/domain/collaborator-scope.ts";
 import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import type { AwaitsAskKind } from "@harness-anything/kernel/internal/domain/task-blocking";
 import {
@@ -8,6 +13,8 @@ import {
   type CursorPageReceipt,
   type TaskProjection,
 } from "@harness-anything/kernel";
+import { readAgendaAwaitsPage } from "./agenda-awaits-read.ts";
+import { requireSameProjectionCut } from "./projection-cut.ts";
 import { readWorkTasks, workIndexAtRead } from "./work-read.ts";
 
 /**
@@ -37,7 +44,7 @@ export interface WorkBriefAwaitsRow {
 }
 
 export interface WorkBriefAgendaPage {
-  readonly page: CursorPageReceipt;
+  readonly page: CursorPageReceipt & { readonly limit?: number; readonly cursor?: string | null };
   readonly awaitingYou: readonly WorkBriefAwaitsRow[];
 }
 
@@ -110,7 +117,7 @@ export function workBriefsFromProjection(
   input: CollaboratorScope & {
     readonly projection: TaskProjection;
     /** 议程读面的同源入口;分页在内部沿游标排空到末页,游标停滞抛错不发布部分读面。 */
-    readonly agendaPage: (query: {
+    readonly agendaPage?: (query: {
       readonly limit?: number;
       readonly cursor?: string;
       readonly scopePersonId?: string;
@@ -127,7 +134,16 @@ export function workBriefsFromProjection(
     byId = new Map(index.rows.map((row) => [row.taskId, row])),
     works = workIndexAtRead(index, input).works,
     personId = scopedPersonId(input),
-    asksByWork = asksByWorkRoot(input.projection, works, input.agendaPage, personId ?? input.principalId, {
+    viewerPersonId = input.principalId ?? personId,
+    agendaPage: NonNullable<typeof input.agendaPage> =
+      input.agendaPage ??
+      ((query) => {
+        if (viewerPersonId === undefined) throw new Error("A Work Brief agenda requires a viewer.");
+        const read = readAgendaAwaitsPage(input.projection, { ...query, viewerPersonId });
+        requireSameProjectionCut("work brief agenda", [index, read]);
+        return read;
+      }),
+    asksByWork = asksByWorkRoot(input.projection, works, agendaPage, personId ?? viewerPersonId, {
       ...(personId === undefined ? {} : { scopePersonId: personId }),
       ...(input.filterNodeId === undefined ? {} : { filterNodeId: input.filterNodeId }),
     }),
@@ -142,7 +158,13 @@ export function workBriefsFromProjection(
     )
       continue;
     // 根自身是容器:状态桶的成员证据只用子树成员,根的呈示状态只用于终态判定。
-    const members = work.memberTaskIds.flatMap((taskId) => byId.get(taskId) ?? []),
+    const scoped = personId !== undefined || input.filterNodeId !== undefined;
+    const members = work.memberTaskIds.flatMap((taskId) => {
+        const row = byId.get(taskId);
+        if (!row || !taskMatchesCollaboratorActivity(input, row)) return [];
+        const updatedAt = scoped ? (collaboratorTaskActivityAt(input, row) ?? row.updatedAt) : row.updatedAt;
+        return [{ ...row, updatedAt }];
+      }),
       asks = asksByWork.get(work.taskId) ?? [],
       open = members.filter(({ status }) => !isTerminalStatus(status)),
       active = open.filter(({ status }) => status === "active"),
@@ -155,16 +177,19 @@ export function workBriefsFromProjection(
       ),
       // 已完成必须「全体成员终态」:实测(2026-10-18,PLT-Honest)存在根呈 cancelled 而
       // 子树挂着活跃任务与等你提问的工作——按根终态折已完成会把业主的活问题藏掉。
+      participationOnly = members.length === 0 && work.memberTaskIds.length > 0,
       bucket: WorkBriefBucket =
-        open.length === 0
-          ? "done"
-          : asks.length > 0
-            ? "waiting"
-            : blocked.length > 0
-              ? "stuck"
-              : active.length > 0 || review.length > 0
-                ? "running"
-                : "unclear";
+        asks.length > 0
+          ? "waiting"
+          : participationOnly
+            ? "unclear"
+            : open.length === 0
+              ? "done"
+              : blocked.length > 0
+                ? "stuck"
+                : active.length > 0 || review.length > 0
+                  ? "running"
+                  : "unclear";
     if (bucket === "done") {
       const retiredAt = deliveredAt ?? work.lastActivityAt;
       if (Date.parse(retiredAt) < now().getTime() - DONE_FOLD_DAYS * 86_400_000) continue;
@@ -175,7 +200,8 @@ export function workBriefsFromProjection(
       bucket,
       lastActivityAt: work.lastActivityAt,
       deliveredAt: bucket === "done" ? deliveredAt : null,
-      sentenceParts: sentenceParts(asks, blocked, active, review, open, doneMembers),
+      sentenceParts:
+        participationOnly && asks.length === 0 ? [] : sentenceParts(asks, blocked, active, review, open, doneMembers),
       asks,
       openTasks: [...open]
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
@@ -185,7 +211,10 @@ export function workBriefsFromProjection(
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
         .slice(0, DELIVERED_TASK_LIMIT)
         .map(({ taskId, title, status, updatedAt }) => ({ taskId, title, status, updatedAt })),
-      pullRequests: pullRequestsOf(work.memberTaskIds, latestRunByBranch),
+      pullRequests: pullRequestsOf(
+        members.map(({ taskId }) => taskId),
+        latestRunByBranch,
+      ),
     });
   }
   briefs.sort(

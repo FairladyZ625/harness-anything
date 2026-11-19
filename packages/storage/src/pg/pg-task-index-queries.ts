@@ -260,6 +260,8 @@ interface PgIndexAttribution {
   readonly origin_node_id?: string | null;
   readonly latest_node_id?: string | null;
   readonly latest_person_id?: string | null;
+  readonly latest_at?: string | null;
+  readonly origin_at?: string | null;
 }
 
 function indexRow(
@@ -295,6 +297,8 @@ function indexRow(
             row.origin_node_id ?? null,
             row.latest_node_id ?? null,
             row.latest_person_id ?? null,
+            row.latest_at ?? null,
+            row.origin_at ?? null,
           )
         : {}),
       taskId: row.task_id,

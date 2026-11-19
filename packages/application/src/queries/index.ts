@@ -46,3 +46,5 @@ export {
 export { readTaskAncestry } from "../task-ancestry-read.ts";
 export { readTaskReadSet, type TaskReadSetProjection } from "../task-read-set-service.ts";
 export { readTaskReviewAttribution } from "../task-review-attribution.ts";
+
+export { readAgendaAwaitsPage } from "./agenda-awaits-read.ts";

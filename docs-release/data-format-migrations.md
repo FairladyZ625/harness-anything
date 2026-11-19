@@ -159,3 +159,18 @@ delete the whole temp copy, and exit non-zero (130/143) without printing a recei
 `--keep` to keep the copy after a normal run, and `--reuse-workspace <ws>` to run a second
 build against the same copy (the negative-control shape: identical data, only the build
 differs). Pass `--medium-submit` to create, start, sync, submit, and show a synthetic medium task in that temporary copy; the receipt includes the actual `submission.riskTierAssessment`, and the subsequent cold rebuild includes those synthetic events. This flag never writes to the source repository.
+
+## Personal pins and dispatch activity
+
+SQLite stays on projection schema 38. SQLite and PostgreSQL add a derived dispatch-page index
+over `startedAt ?? occurredAt` and the dispatch ID through their existing index installation.
+The previous index remains for the current/previous binary window. Remove it after the previous
+writer and reader leave the support window. The new lookup preserves the time and dispatch ID
+ordering across old and current rows.
+
+The canonical stream and document bytes stay unchanged. Replay admits historical Pin/Unpin
+envelopes whose principal lacks a person ID and records them as unattributed history without
+changing any pin set. Runtime replay accepts the historical `runtime-session/<id>` source and
+resolves its node from the session launch. Current event admission still requires the current
+actor and source shapes. No ledger conversion or backfill is needed. Rebuilding the cache from
+accepted events applies the same rules to its full history.

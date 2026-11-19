@@ -83,6 +83,7 @@ const dispatchIndexes = [
   ["agent_session", "agent_id,runtime_session_id,dispatch_activity_at DESC,dispatch_id DESC"],
   ["squad_session", "squad_id,runtime_session_id,dispatch_activity_at DESC,dispatch_id DESC"],
   ["page", "dispatch_started_at,dispatch_id"],
+  ["activity_page", "dispatch_activity_at,dispatch_id"],
   // "Newest dispatch for this task" without walking every dispatch the task ever had:
   // fleet overview reads one current dispatch per lease row. Effective time is
   // `startedAt ?? occurredAt`, matching the dispatch row's timestamp fallback.

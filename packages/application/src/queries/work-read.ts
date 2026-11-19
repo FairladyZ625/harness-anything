@@ -1,5 +1,7 @@
 import {
+  collaboratorTaskActivityAt,
   scopedPersonId,
+  taskMatchesCollaboratorActivity,
   taskMatchesCollaboratorScope,
   type CollaboratorScope,
 } from "@harness-anything/kernel/internal/domain/collaborator-scope.ts";
@@ -227,8 +229,9 @@ export function workIndexAtRead(read: TaskIndexProjectionRead, scope: Collaborat
       for (const child of below) pending.push(child);
       if (scoped && !taskMatchesCollaboratorScope(scope, row)) continue;
       memberTaskIds.push(row.taskId);
-      if (below.length === 0) counts[scopeStatus(row.status)] += 1;
-      if (lastActivityAt === null || row.updatedAt > lastActivityAt) lastActivityAt = row.updatedAt;
+      if (below.length === 0 && taskMatchesCollaboratorActivity(scope, row)) counts[scopeStatus(row.status)] += 1;
+      const activity = scoped ? collaboratorTaskActivityAt(scope, row) : row.updatedAt;
+      if (activity !== null && (lastActivityAt === null || activity > lastActivityAt)) lastActivityAt = activity;
     }
     if (scoped && memberTaskIds.length === 0 && !taskMatchesCollaboratorScope(scope, root)) continue;
     const status =
@@ -252,7 +255,7 @@ export function workIndexAtRead(read: TaskIndexProjectionRead, scope: Collaborat
         taskCount: memberTaskIds.length,
         root: root.taskClass === "work" ? "declared" : "derived",
         parentTaskId: root.parentTaskId,
-        lastActivityAt: lastActivityAt ?? root.updatedAt,
+        lastActivityAt: lastActivityAt ?? collaboratorTaskActivityAt(scope, root) ?? root.updatedAt,
       }),
       memberTaskIds: memberTaskIds.sort(),
     });

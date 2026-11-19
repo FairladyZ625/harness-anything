@@ -333,9 +333,9 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
           taskIds === undefined
             ? await readDispatchRows(
                 client,
-                "dispatch_started_at>=$6 AND (dispatch_started_at,dispatch_id)>($7::text,$8::text)",
+                "dispatch_activity_at>=$6 AND (dispatch_activity_at,dispatch_id)>($7::text,$8::text)",
                 [startedAtGte, cursor?.startedAt ?? "", cursor?.dispatchId ?? ""],
-                "dispatch_started_at, dispatch_id",
+                "dispatch_activity_at, dispatch_id",
                 limit + 1,
               )
             : (

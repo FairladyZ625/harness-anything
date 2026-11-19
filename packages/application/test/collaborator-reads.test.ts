@@ -39,6 +39,8 @@ const row = (
   taskId,
   title,
   createdByPersonId,
+  activeOrLatestPersonId: createdByPersonId,
+  activeOrLatestNodeId: createdByPersonId === bob ? edge : "center",
   parentTaskId,
   status,
   updatedAt,
@@ -98,11 +100,22 @@ test("shared Work counts, brief and workspace are calculated from the selected m
 
 test("decision involvement includes the proposer and the target of an active awaits relation", () => {
   const decisions = [
-    { decisionId: "private", proposer: actor(alice) },
-    { decisionId: "waiting", proposer: actor(alice) },
-    { decisionId: "authored", proposer: actor(bob) },
+    { decisionId: "dec_PRIVATE", proposer: actor(alice) },
+    { decisionId: "dec_WAITING", proposer: actor(alice) },
+    { decisionId: "dec_AUTHORED", proposer: actor(bob) },
   ];
+  const ask = {
+    relationId: "ask",
+    sourceRef: "decision/dec_WAITING",
+    state: "active",
+    strength: "weak",
+    freshness: "current",
+    rationale: "consent: Approve the draft?",
+    workspaceRevision: cut.watermark,
+    entity: { createdAt: first, provenance: { actor: actor(alice) } },
+  };
   const projection = {
+    readCut: () => cut,
     listDecisions: ({ limit, cursor }: { limit?: number; cursor?: string }) => {
       const start = Number(cursor ?? 0),
         end = start + (limit ?? decisions.length);
@@ -119,21 +132,23 @@ test("decision involvement includes the proposer and the target of an active awa
         state: "active",
         limit: storageReadPolicy.defaultValue.pageSizes.standard,
       });
-      return { ...cut, rows: [{ sourceRef: "decision/waiting" }], page: null };
+      return { ...cut, rows: [ask], page: null };
     },
+    readRelationEdge: () => ask,
+    readDecision: () => ({ ...cut, decision: { title: "Waiting", state: "proposed" } }),
     readTaskIndex: () => ({ ...cut, rows: [row("bob-review", "Sign", bob, null, "in_review", first)], warnings: [] }),
   } as unknown as TaskProjection;
   const query = { involvement: "mine", viewerPersonId: bob, limit: 1 } as const;
   const page = readCollaboratorDecisions(projection, query);
   assert.deepEqual(
     page.decisions.map(({ decisionId }) => decisionId),
-    ["waiting"],
+    ["dec_WAITING"],
   );
   assert.deepEqual(
     readCollaboratorDecisions(projection, { ...query, cursor: page.page!.nextCursor! }).decisions.map(
       ({ decisionId }) => decisionId,
     ),
-    ["authored"],
+    ["dec_AUTHORED"],
   );
   assert.equal(readCollaboratorDecisions(projection, { involvement: "all" }).decisions.length, 3);
   assert.deepEqual(readAttestationPool(projection, { involvement: "mine" }).tasks, []);
@@ -141,6 +156,35 @@ test("decision involvement includes the proposer and the target of an active awa
     readAttestationPool(projection, query).tasks.map(({ taskId }) => taskId),
     ["bob-review"],
   );
+});
+
+test("cursor-only decision pages fill the default window and refuse mixed cuts", () => {
+  const query = { involvement: "mine", viewerPersonId: bob, cursor: "start" } as const;
+  let drift = false;
+  const projection = {
+    readCut: () => cut,
+    readRelationQuery: () => ({ ...cut, rows: [] }),
+    listDecisions: ({ limit, cursor }: { limit?: number; cursor?: string }) => {
+      assert.equal(limit, 100);
+      return cursor === "start"
+        ? { ...cut, decisions: [{ decisionId: "dec_OTHER", proposer: actor(alice) }], page: { nextCursor: "next" } }
+        : {
+            ...cut,
+            ...(drift ? { watermark: cut.watermark + 1 } : {}),
+            decisions: [{ decisionId: "dec_MATCH", proposer: actor(bob) }],
+            page: { nextCursor: null },
+          };
+    },
+  } as unknown as TaskProjection;
+  const cursorOnly = readCollaboratorDecisions(projection, query);
+  assert.deepEqual(cursorOnly, readCollaboratorDecisions(projection, { ...query, limit: 100 }));
+  assert.deepEqual(
+    cursorOnly.decisions.map(({ decisionId }) => decisionId),
+    ["dec_MATCH"],
+  );
+  assert.deepEqual(cursorOnly.page, { limit: 100, cursor: "start", nextCursor: null });
+  drift = true;
+  assert.throws(() => readCollaboratorDecisions(projection, query), /spans multiple event projection cuts/);
 });
 
 test("legacy ownerless todos remain in mine and an administrator's agenda uses the selected member", () => {
@@ -152,6 +196,7 @@ test("legacy ownerless todos remain in mine and an administrator's agenda uses t
   }));
   const projection = {
     listEntities: () => rows,
+    readCut: () => cut,
     readRelationQuery: () => ({ ...cut, rows: [], page: null }),
     listDecisions: () => ({ ...cut, decisions: [] }),
     readTaskIndex: () => ({ ...cut, rows: [], warnings: [] }),
@@ -202,8 +247,11 @@ test("node filters reach the artifact and cadence projection ahead of pagination
   const live = readCollaboratorLiveFloor(
     {
       readRuntimeSessions: (() => [{ runtimeSessionId: alice }, { runtimeSessionId: bob }]) as never,
+      readRuntimeSessionEventsByType: () => [],
       readLatestRuntimeDispatchBySession: ((id: string) => ({
         actor: actor(id),
+        payload: {},
+        occurredAt: first,
         source: id === bob ? { kind: "node", nodeId: edge } : "local",
       })) as never,
     },
