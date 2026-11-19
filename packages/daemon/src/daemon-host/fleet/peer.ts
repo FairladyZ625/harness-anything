@@ -1206,7 +1206,7 @@ function peerSocket(options: Omit<FleetPeerOptions, "repoId">): Promise<TLSSocke
       const reason =
         options.signal?.reason instanceof Error ? options.signal.reason : new Error("Fleet connection cancelled");
       finish(() => {
-        socket.destroy(reason);
+        socket.destroy();
         reject(reason);
       });
     };
@@ -1215,7 +1215,7 @@ function peerSocket(options: Omit<FleetPeerOptions, "repoId">): Promise<TLSSocke
           () => {
             const error = new Error("Fleet connection timeout");
             finish(() => {
-              socket.destroy(error);
+              socket.destroy();
               reject(error);
             });
           },
