@@ -88,8 +88,20 @@ test("local provider and Agent bindings overlay the shared capability and decisi
       preferredInstances: ["local-backup"],
     });
     const instances = [
-      { instanceId: "local-backup", kindId: "codex", models: ["gpt-6.1-sol"], enabled: true },
-      { instanceId: "local-codex", kindId: "codex", models: ["gpt-6.1-sol"], enabled: true },
+      {
+        instanceId: "local-backup",
+        kindId: "codex",
+        models: ["gpt-6.1-sol"],
+        enabled: true,
+        authReadiness: { status: "ready", code: null, hint: null },
+      },
+      {
+        instanceId: "local-codex",
+        kindId: "codex",
+        models: ["gpt-6.1-sol"],
+        enabled: true,
+        authReadiness: { status: "ready", code: null, hint: null },
+      },
     ] as never;
     assert.deepEqual(
       resolveRuntimeInstanceCandidates({

@@ -285,7 +285,7 @@ export function agentRuntimeAmbiguityWarning(input: {
       `Agent ${agent.id} can dispatch to ${String(candidates.length)} enabled instances ` +
       `(${candidates.join(", ")}) and does not name one; ` +
       (input.selected === undefined
-        ? "dispatch uses runtime-row and node-local catalog order. "
+        ? "dispatch would fall back to runtime-row and node-local catalog order. "
         : `this dispatch took ${input.selected}. `) +
       "Use runtimeAgentBindings in settings.local.json to pin an instance or set preferredInstances. Run ha runtime " +
       "instance list to see the enabled instances.",

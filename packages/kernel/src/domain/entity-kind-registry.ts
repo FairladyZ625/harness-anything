@@ -1875,12 +1875,22 @@ export function explainEntityKind(kind: string): EntityKindExplanation {
  */
 export function explainEntityKindContract(contract: EntityKindContract): EntityKindExplanation {
   const actions =
-    contract.actionCatalog?.actions.map(({ execution: _execution, ...action }) => Object.freeze(action)) ?? [];
+    contract.actionCatalog?.actions.map(({ execution: _execution, ...action }) => Object.freeze(action)) ?? [],
+    documentFields = [...explainEntityJsonSchema(contract.schema)];
+  // Agent rows have always exposed these two names to GUI entity documentation. They are now
+  // node-local overlay fields rather than declaration fields, so keep them in the explanation
+  // projection for older readers while the strict declaration schema rejects them on writes.
+  if (contract.kind === "agent") {
+    documentFields.push(
+      { name: "instance", type: "string", required: false, description: "Node-local binding overlay." },
+      { name: "preferredInstances", type: "array", required: false, description: "Node-local preference overlay." },
+    );
+  }
   return {
     schema: "entity-kind-explanation/v1",
     kind: contract.kind,
     residency: contract.residency,
-    documentSchema: { id: contract.schema.$id, fields: explainEntityJsonSchema(contract.schema) },
+    documentSchema: { id: contract.schema.$id, fields: documentFields },
     id: contract.id,
     relations: contract.relations,
     canonicalProjection: contract.canonicalProjection,
