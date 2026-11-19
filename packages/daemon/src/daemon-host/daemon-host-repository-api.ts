@@ -789,7 +789,14 @@ export function createDaemonHostRepositoryApi(
             signal: context.closeSignal,
             runRuntime: (request, requestAuth) => context.host.fleet.edgeRuntime(request, requestAuth),
           });
-          if (forwarded) return forwarded as WriteReceiptDraft | SquadControlResult;
+          if (forwarded) {
+            if (
+              ["task-dispatch-review", "task-submit", "task-settle", "task-rework"].includes(action.kind) &&
+              ["applied", "no_changes", "pending"].includes(String(forwarded.outcome))
+            )
+              context.onAutoClaimTrigger?.(`forwarded:${action.kind}`);
+            return forwarded as WriteReceiptDraft | SquadControlResult;
+          }
         } catch (error) {
           if (context.code(error) === "local_transport_required" && !modeAdmission.ok)
             return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);

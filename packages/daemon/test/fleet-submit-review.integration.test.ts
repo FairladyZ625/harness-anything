@@ -748,3 +748,301 @@ test(
     console.log("[edge-publication-order]", JSON.stringify(order));
   },
 );
+
+test(
+  "hosted edge review resolves hosting credentials when execution uses declare-executor without runtime-session",
+  { timeout: 120_000 },
+  async (t) => {
+    const installations = [
+      {
+        installationId: definition.installationId,
+        kindId: definition.kindId,
+        executablePath: "/fixture/reviewer",
+        version: "1.0.0",
+        observedAt: "2026-11-07T00:00:00.000Z",
+      },
+      {
+        installationId: `${definition.installationId}-agy-yr`,
+        kindId: definition.kindId,
+        executablePath: "/fixture/reviewer-agy-yr",
+        version: "1.0.0",
+        observedAt: "2026-11-07T00:00:00.000Z",
+      },
+    ];
+    const f = await fleetFixture(t, ["tasks", "agents"], installations, "local", undefined, undefined, false);
+    const { repoId, nodeId } = f.subject,
+      taskId = "task-declare-executor-edge-review",
+      remote = path.join(f.root, "origin.git"),
+      edgeRoot = path.join(f.root, "hosted-declare-edge"),
+      viewRoot = path.join(f.root, "hosted-declare-view");
+    git(f.repo, "branch", "-M", "main");
+    writeFileSync(path.join(f.repo, ".gitignore"), "/harness/\n/.harness/\n/.worktrees/\n");
+    git(f.repo, "rm", "-r", "--cached", "--", "harness");
+    git(f.repo, "add", ".gitignore");
+    git(f.repo, "commit", "-qm", "test: ignored task ledger");
+    git(f.repo, "init", "--bare", "-q", "--initial-branch=main", remote);
+    git(f.repo, "remote", "add", "origin", pathToFileURL(remote).href);
+    git(f.repo, "push", "-qu", "origin", "main");
+    git(f.repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
+    git(f.root, "clone", "-q", pathToFileURL(remote).href, edgeRoot);
+    git(edgeRoot, "config", "user.name", "Fleet Test");
+    git(edgeRoot, "config", "user.email", "fleet@example.invalid");
+
+    for (const [index, instanceId] of ["unconfigured-instance", "agy-yr"].entries()) {
+      await registerFixtureRuntimeInstance(f.host, repoId, localAuthFixture(), {
+        instanceId,
+        name: `Hosted ${instanceId}`,
+        kindId: definition.kindId,
+        installationId: installations[index]!.installationId,
+        providerId: definition.providerId,
+        models: [definition.model],
+        authMode: definition.authMode,
+      });
+    }
+    assert.equal(
+      (
+        await f.host.run(
+          repoId,
+          {
+            kind: "agent-install",
+            declaration: {
+              schema: "agent-declaration/v1",
+              id: "carbon-worker",
+              name: "Carbon worker",
+              instructions: "Implement externally and submit.",
+              role: "worker",
+              runtimes: [{ type: "codex", model: definition.model }],
+            },
+          },
+          localAuthFixture(),
+        )
+      ).outcome,
+      "applied",
+    );
+    assert.equal(
+      (
+        await f.host.run(
+          repoId,
+          {
+            kind: "agent-install",
+            declaration: {
+              schema: "agent-declaration/v1",
+              id: "closeout-reviewer",
+              name: "Edge reviewer",
+              instructions: "Review the frozen delivery.",
+              role: "reviewer",
+              runtimes: [{ type: "codex", model: definition.model }],
+            },
+          },
+          localAuthFixture(),
+        )
+      ).outcome,
+      "applied",
+    );
+    const created = await f.host.run(
+      repoId,
+      { kind: "task-create", taskId, title: "Declare-executor hosted edge review", presetId: "standard-task" },
+      f.auth,
+    );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFleetPublication(f.host, repoId, created.opId, f.auth);
+    const packagePath = String(created.packagePath);
+    await realizeTaskPlanFixture(f.repo, packagePath, (planPath) =>
+      f.host.run(repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
+    );
+    const center = await f.center(),
+      channel = {
+        host: "127.0.0.1",
+        port: center.port,
+        caPath: f.certFile,
+        nodeId,
+        credential: "machine-secret",
+        principalId: "person-owner",
+        repoId,
+        viewRoot,
+        quotaBytes: 64 * 1024 * 1024,
+        workspaceRoot: edgeRoot,
+      },
+      readAccessToken = f.owners.readAccessToken(nodeId),
+      replica = {
+        readAccessToken,
+        port: center.port,
+        ca: f.cert,
+        nodeId,
+        credential: "machine-secret",
+        principalId: "person-owner",
+        repoId,
+        viewRoot,
+        diskQuotaBytes: channel.quotaBytes,
+      };
+    await catchUpReplica(replica);
+    assert.equal(applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull").outcome, "applied");
+    const sync = startResidentReplicaSync(replica);
+    t.after(() => sync.close());
+
+    const started = await runFleetEdgeTask(
+      { payload: { ...channel, action: { kind: "task-start", taskId } } },
+      readAccessToken,
+    );
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+    const workerRoot = path.join(edgeRoot, ".worktrees", taskId);
+    git(edgeRoot, "worktree", "add", "-B", taskId, workerRoot, "main");
+    git(workerRoot, "config", "user.name", "Fleet Test");
+    git(workerRoot, "config", "user.email", "fleet@example.invalid");
+    writeFileSync(path.join(workerRoot, "delivery.txt"), "declare-executor edge delivery\n");
+    git(workerRoot, "add", "delivery.txt");
+    git(workerRoot, "commit", "-qm", "feat: declare-executor delivery");
+    const frozen = git(workerRoot, "rev-parse", "HEAD");
+    await catchUpReplica(replica);
+    assert.equal(applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull").outcome, "applied");
+    for (const root of [f.repo, edgeRoot]) {
+      const config = path.join(root, "harness", "harness.yaml");
+      writeFileSync(
+        config,
+        readFileSync(config, "utf8").replace(
+          "settings:\n",
+          "settings:\n  hosting:\n    provider: github\n    host: github.com\n",
+        ),
+      );
+    }
+    writeFileSync(
+      path.join(edgeRoot, "harness", packagePath, "closeout.md"),
+      "## Summary\nDeclared-executor delivery.\n## Verification\nHosted PR pre-publish.\n" +
+        "## 摘要\n显式声明执行器交付。\n## 验证\n评审前预发布。\n",
+    );
+    const submitted = await runFleetEdgeTask(
+      { payload: { ...channel, action: { kind: "task-submit", taskId } } },
+      readAccessToken,
+    );
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const submittedExecutionId = String(
+      makeTaskEventReader({ repoId, rootDir: f.repo })
+        .read()
+        .events.findLast((event) => event.type === "execution_submitted" && event.taskId === taskId)?.payload.execution
+        .executionId,
+    );
+    const declared = await f.host.run(
+      repoId,
+      {
+        kind: "task-declare-executor",
+        taskId,
+        executionId: submittedExecutionId,
+        agent: "carbon-worker",
+        reason: "External carbon-worker implementation.",
+      },
+      f.auth,
+    );
+    assert.equal(declared.outcome, "applied", JSON.stringify(declared));
+    await catchUpReplica(replica);
+
+    let allowHostingCredential = false,
+      prExists = false,
+      reviewerStarts = 0;
+    const probedInstances: string[] = [];
+    const realFetch = globalThis.fetch;
+    t.mock.method(globalThis, "fetch", async (url: string | URL, options: RequestInit = {}) => {
+      if (!String(url).startsWith("https://api.github.com/")) return realFetch(url, options);
+      const method = options.method ?? "GET";
+      if (!String(url).includes("/pulls")) return Response.json({ default_branch: "main" });
+      const pr = { number: 77, html_url: "https://github.com/acme/repo/pull/77", head: { sha: frozen } };
+      if (method === "GET" && !String(url).endsWith("/77")) return Response.json(prExists ? [pr] : []);
+      prExists = true;
+      return Response.json(pr);
+    });
+    const basePorts = scheduleRuntimePorts();
+    const baseInstance = basePorts.runtimeInstances()[0]!;
+    const runtime = openFleetEdgeRuntime({
+      readBinding: () => f.owners.binding(nodeId),
+      readAccessToken: f.owners.readAccessToken(nodeId),
+      controlBinding: () => f.owners.binding(nodeId),
+      resolveLocation: () => ({ ...channel, method: "repo.agentRuntime.spawn", action: {} }),
+      daemonGeneration: 1,
+      daemonRoute: {
+        userRoot: path.join(f.root, "edge-declare-user"),
+        daemonId: "hosted-declare-edge",
+        endpoint: path.join(f.root, "edge-declare.sock"),
+      },
+      ports: {
+        ...basePorts,
+        runtimeInstances: () => [
+          { ...baseInstance, instanceId: "unconfigured-instance", name: "Unconfigured" },
+          {
+            ...baseInstance,
+            instanceId: "agy-yr",
+            name: "Configured Edge",
+            hostingCredentialState: "configured",
+          },
+        ],
+        prepareRuntimeLaunch: async (instanceId, req) => {
+          const prepared = await basePorts.prepareRuntimeLaunch(instanceId, req);
+          return {
+            ...prepared,
+            definition: { ...prepared.definition, instanceId },
+          };
+        },
+        prepareDaemonGitEnvironment: async (instanceId, provider, repo) => {
+          probedInstances.push(instanceId);
+          if (allowHostingCredential && instanceId === "agy-yr" && provider === "github" && repo === repoId)
+            return { GH_TOKEN: "fixture-hosting-token" };
+          return null;
+        },
+      },
+      launch: () => {
+        reviewerStarts++;
+        return {
+          pid: process.pid,
+          onOutput: () => undefined,
+          onErrorOutput: () => undefined,
+          onExit: () => undefined,
+          terminate: () => undefined,
+        };
+      },
+    });
+    t.after(() => runtime.close());
+    const readCandidate = async () => {
+      const snapshot = parseNodeAutoDispatchSnapshot(
+        await readFleetOperationalClient({
+          hostname: channel.host,
+          port: center.port,
+          ca: f.cert,
+          nodeId,
+          credential: channel.credential,
+          repoId,
+          readAccessToken,
+          method: "repo.tasks.autoDispatchCandidates",
+          payload: {},
+        }),
+      );
+      return snapshot.candidates.find((row) => row.taskId === taskId && row.kind === "review");
+    };
+    const firstCandidate = await readCandidate();
+    assert.ok(firstCandidate, "declare-executor submitted task must produce an edge review candidate");
+
+    // Negative control: without a configured hosting credential on any edge instance, pre-publication fails closed.
+    const selectedInstanceId =
+      typeof firstCandidate.payload.runtimeInstanceId === "string" ? firstCandidate.payload.runtimeInstanceId : null;
+    await assert.rejects(
+      runtime.run("repo.agentRuntime.spawn", firstCandidate.payload),
+      /PR publication requires the daemon-held hosting credential/u,
+    );
+    assert.equal(reviewerStarts, 0);
+    assert.deepEqual(
+      probedInstances,
+      selectedInstanceId === "unconfigured-instance"
+        ? ["unconfigured-instance", "agy-yr"]
+        : ["agy-yr", "unconfigured-instance"],
+    );
+
+    // Positive path: with hosting credential configured on agy-yr, edge pre-publication succeeds and launches reviewer.
+    probedInstances.length = 0;
+    allowHostingCredential = true;
+    const spawned = await runtime.run("repo.agentRuntime.spawn", firstCandidate.payload);
+    assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
+    assert.equal(reviewerStarts, 1);
+    assert.equal(prExists, true);
+    assert.deepEqual(
+      probedInstances,
+      selectedInstanceId === "unconfigured-instance" ? ["unconfigured-instance", "agy-yr"] : ["agy-yr"],
+    );
+  },
+);

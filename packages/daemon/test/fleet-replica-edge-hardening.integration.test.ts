@@ -154,6 +154,56 @@ test("stop joins the active confirmation and drops queued confirmations", { time
 });
 
 test(
+  "daemon shutdown cancels pending confirmation work without reporting a close failure",
+  { timeout: 120_000 },
+  async (t) => {
+    const fixture = await fleetReplicationFixture(t);
+    await seedCenterData(fixture, seededTask);
+    await fixture.openCenter();
+    const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-harden-shutdown-confirm-")),
+      streamController = new AbortController(),
+      shutdownController = new AbortController(),
+      entered = Promise.withResolvers<void>();
+    t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+    const running = runFleetReplicaSync({
+      hostname: "127.0.0.1",
+      port: fixture.centerPort(),
+      ca: fixture.cert,
+      servername: "localhost",
+      nodeId: "edge-one",
+      credential: "secret-edge-one",
+      readAccessToken: async () => "device-token-edge-one",
+      repoId: replicationRepoId,
+      viewRoot,
+      diskQuotaBytes: 64 * 1024 * 1024,
+      signal: streamController.signal,
+      shutdownSignal: shutdownController.signal,
+      confirmTimeoutMs: 60_000,
+      onConfirmed: async () => {
+        entered.resolve();
+        await new Promise<never>((_resolve, reject) =>
+          shutdownController.signal.addEventListener("abort", () => reject(new Error("daemon closed")), {
+            once: true,
+          }),
+        );
+      },
+      onConfirmedFailure: (error) => {
+        throw error;
+      },
+    });
+    t.after(async () => {
+      shutdownController.abort(new Error("daemon closed"));
+      streamController.abort();
+      await running;
+    });
+    await entered.promise;
+    shutdownController.abort(new Error("daemon closed"));
+    streamController.abort();
+    await running;
+  },
+);
+
+test(
   "stop releases a confirmation waiting for a future replica sequence before joining it",
   { timeout: 120_000 },
   async (t) => {
@@ -636,5 +686,112 @@ test(
     );
     assert.ok(pauses > 0, "the edge stopped reading while received frames waited to be written");
     assert.deepEqual(stream.failures, []);
+  },
+);
+
+test(
+  "a hung confirmation releases its confirming lock on timeout so later revisions confirm",
+  { timeout: 120_000 },
+  async (t) => {
+    const fixture = await fleetReplicationFixture(t);
+    await seedCenterData(fixture, seededTask);
+    await fixture.openCenter();
+    const viewRootTimeout = mkdtempSync(path.join(tmpdir(), "ha-harden-confirm-timeout-"));
+    t.after(() => rmSync(viewRootTimeout, { recursive: true, force: true }));
+
+    let timeoutCalls = 0,
+      timeoutSecondConfirmed = false;
+    const timeoutFailures: unknown[] = [];
+    startHardeningStream(t, fixture, viewRootTimeout, {
+      confirmTimeoutMs: 80,
+      onConfirmed: async () => {
+        const call = ++timeoutCalls;
+        if (call === 1) {
+          await new Promise<never>(() => undefined);
+        }
+        timeoutSecondConfirmed = true;
+      },
+      onConfirmedFailure: (error) => timeoutFailures.push(error),
+    });
+    await waitForState(
+      () => timeoutFailures.some((error) => (error as { code?: string }).code === "replica_confirm_timeout"),
+      "hung confirmation timeout",
+      30_000,
+    );
+    await pressure(fixture);
+    await waitForState(() => timeoutSecondConfirmed, "later revision confirmation after timeout", 30_000);
+    assert.ok(timeoutCalls >= 2, `expected later revision to re-trigger onConfirmed, got ${timeoutCalls}`);
+  },
+);
+
+test(
+  "a hung confirmation releases its confirming lock on connection drop so later revisions confirm",
+  { timeout: 120_000 },
+  async (t) => {
+    const fixture = await fleetReplicationFixture(t);
+    await seedCenterData(fixture, seededTask);
+    await fixture.openCenter();
+    const viewRootDrop = mkdtempSync(path.join(tmpdir(), "ha-harden-confirm-drop-"));
+    t.after(() => rmSync(viewRootDrop, { recursive: true, force: true }));
+
+    const liveSockets = new Set<Socket>(),
+      relayServer = createServer((client) => {
+        const upstream = connect(fixture.centerPort(), "127.0.0.1");
+        liveSockets.add(client).add(upstream);
+        const drop = () => {
+          client.destroy();
+          upstream.destroy();
+          liveSockets.delete(client);
+          liveSockets.delete(upstream);
+        };
+        client.on("error", drop).on("close", drop);
+        upstream.on("error", drop).on("close", drop);
+        client.pipe(upstream).pipe(client);
+      });
+    await new Promise<void>((resolve) => relayServer.listen(0, "127.0.0.1", resolve));
+    t.after(() => {
+      for (const socket of liveSockets) socket.destroy();
+      relayServer.close();
+    });
+    const relayPort = (relayServer.address() as { port: number }).port;
+    let dropCalls = 0,
+      sawAbortedSignal = false,
+      dropFirstEntered = false,
+      dropSecondConfirmed = false;
+    const dropFailures: unknown[] = [];
+    const dropStream = startHardeningStream(t, fixture, viewRootDrop, {
+      port: relayPort,
+      confirmTimeoutMs: 60_000,
+      onConfirmed: async (_paths, signal) => {
+        const call = ++dropCalls;
+        if (call === 1) {
+          signal?.addEventListener(
+            "abort",
+            () => {
+              sawAbortedSignal = true;
+            },
+            { once: true },
+          );
+          dropFirstEntered = true;
+          // Intentionally ignore signal to verify the confirming lock releases even for non-cancellable callbacks.
+          await new Promise<never>(() => undefined);
+        }
+        dropSecondConfirmed = true;
+      },
+      onConfirmedFailure: (error) => dropFailures.push(error),
+    });
+    await waitForState(() => dropFirstEntered, "first confirmation to enter", 30_000);
+    for (const socket of [...liveSockets]) socket.destroy();
+    await waitForState(
+      () =>
+        dropStream.failures.length >= 1 &&
+        dropFailures.some((error) => (error as { code?: string }).code === "replica_stream_down"),
+      "hung confirmation released on connection drop",
+      30_000,
+    );
+    assert.equal(sawAbortedSignal, true, "the confirmation abort signal fires on disconnect");
+    await pressure(fixture);
+    await waitForState(() => dropSecondConfirmed, "later revision confirmation after reconnect", 30_000);
+    assert.ok(dropCalls >= 2, `expected later revision after reconnect to trigger onConfirmed, got ${dropCalls}`);
   },
 );
