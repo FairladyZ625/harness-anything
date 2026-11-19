@@ -261,19 +261,13 @@ test(
       assert.equal((status.repos as { readonly state: string }[])[0]?.state, "warming");
       assert.match(String(status.summary), /attaching 0\/1/u);
 
-      let writeSettled = false;
       const queuedWrite = requestDaemonJsonRpcAt(
         daemon.endpoint,
         "repo.task.create",
         { repo: { repoId }, payload: { taskId: "task-bind-first", title: "Bound before attach" } },
         2_000,
-        5_000,
-      ).then((receipt) => {
-        writeSettled = true;
-        return receipt;
-      });
-      await eventLoopTurn();
-      assert.equal(writeSettled, false, "the accepted write waits behind attachment instead of losing its connection");
+      );
+      await waitForQueuedTaskCreate(daemon.endpoint, repoId, "running", queuedWrite);
       attachmentReleased = true;
       attachmentGate.resolve();
       assert.equal((await queuedWrite).outcome, "applied");
@@ -513,7 +507,6 @@ test(
       );
       await cellOpening.promise;
       writeFileSync(buildIdPath, "build-b\n", "utf8");
-      const diagnosticsEndpoint = daemonDiagnosticsEndpoint(daemon.endpoint);
       const queuedWrite = requestDaemonJsonRpcAt(
         daemon.endpoint,
         "repo.task.create",
@@ -523,20 +516,7 @@ test(
         undefined,
         true,
       );
-      await Promise.race([
-        waitForDurableCondition(async () => {
-          const status = await requestDaemonJsonRpcAt(diagnosticsEndpoint, "daemon.status", {}, 2_000, 2_000);
-          return (
-            status.state === "draining" &&
-            (status.inFlight as { method: string; repoId: string }[]).some(
-              (operation) => operation.method === "repo.task.create" && operation.repoId === repoId,
-            )
-          );
-        }),
-        queuedWrite.then((receipt) =>
-          assert.fail(`Write replied before attachment publication: ${JSON.stringify(receipt)}`),
-        ),
-      ]);
+      await waitForQueuedTaskCreate(daemon.endpoint, repoId, "draining", queuedWrite);
       assert.equal(readDaemonPid(userRoot, repoId) !== null, true, "queued work keeps the drifted daemon resident");
       assert.equal(existsSync(daemon.endpoint), true);
       attachmentReleased = true;
@@ -1858,6 +1838,27 @@ function deferred<T>(): { readonly promise: Promise<T>; readonly resolve: (value
 
 async function waitUntil(predicate: () => boolean | Promise<boolean>): Promise<void> {
   return waitForDurableCondition(predicate);
+}
+
+async function waitForQueuedTaskCreate(
+  endpoint: string,
+  repoId: string,
+  daemonState: "running" | "draining",
+  write: ReturnType<typeof requestDaemonJsonRpcAt>,
+): Promise<void> {
+  const diagnostics = daemonDiagnosticsEndpoint(endpoint);
+  await Promise.race([
+    waitForDurableCondition(async () => {
+      const status = await requestDaemonJsonRpcAt(diagnostics, "daemon.status", {}, 2_000, 2_000);
+      return (
+        status.state === daemonState &&
+        (status.inFlight as { method: string; repoId: string }[]).some(
+          (operation) => operation.method === "repo.task.create" && operation.repoId === repoId,
+        )
+      );
+    }),
+    write.then((receipt) => assert.fail(`Write replied before attachment publication: ${JSON.stringify(receipt)}`)),
+  ]);
 }
 
 async function eventuallyValue<T>(read: () => T | null): Promise<T> {
