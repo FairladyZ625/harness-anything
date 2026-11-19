@@ -131,9 +131,10 @@ test("an archive failure after an initial success rewrites the disposition to pe
 });
 
 test("the settled stream keeps its bytes when replacing the not-required sidecar fails", async (context) => {
-  const fixture = workerGitFixture(context, "forensics-stale-sidecar", { reachableRemote: true }),
+  const result = "r".repeat(200 * 1024),
+    fixture = workerGitFixture(context, "forensics-stale-sidecar", { reachableRemote: true }),
     runtime = workerSettlementRuntime(fixture, {
-      finalText: "delivered",
+      finalText: result,
       providerOutcome: "succeeded",
       toolCallObserved: true,
     }),
@@ -141,7 +142,7 @@ test("the settled stream keeps its bytes when replacing the not-required sidecar
     settleContext = workerSettlementContext(
       fixture,
       async () => ({}),
-      "delivered",
+      result,
       git(fixture.worker, "rev-parse", "HEAD").trim(),
     ),
     sidecar = dispatchEvidenceStatePath(fixture.canonical, runtime.dispatchId),
@@ -149,6 +150,10 @@ test("the settled stream keeps its bytes when replacing the not-required sidecar
   stream.appendProviderEvent(
     { type: "thread.started", thread_id: "provider-stale-sidecar" },
     "2026-11-05T00:00:01.000Z",
+  );
+  stream.appendProviderEvent(
+    { type: "item.completed", item: { type: "agent_message", text: "p".repeat(40 * 1024) } },
+    "2026-11-05T00:00:02.000Z",
   );
   settleContext.input.remote = {
     archive: async () => {
@@ -172,7 +177,9 @@ test("the settled stream keeps its bytes when replacing the not-required sidecar
   const live = dispatchStreamPath(fixture.canonical, runtime.dispatchId),
     bytes = readFileSync(live);
   assert.equal(readDispatchEvidenceState(fixture.canonical, runtime.dispatchId), "not-required");
-  assert.equal(readDispatchStreamSummary(fixture.canonical, runtime.dispatchId)?.evidenceState, "pending");
+  assert.match(bytes.toString("utf8"), /"kind":"evidence_state"[^\n]+"state":"pending"/u);
+  const summary = readDispatchStreamSummary(fixture.canonical, runtime.dispatchId);
+  assert.equal(summary?.evidenceState, null, "the terminal record can mask the marker from the bounded summary");
   archiveDispatchStream(fixture.canonical, runtime.dispatchId);
   assert.equal(dispatchStreamPath(fixture.canonical, runtime.dispatchId), live);
   assert.deepEqual(readFileSync(live), bytes);

@@ -12023,7 +12023,7 @@
         "role": "support"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/dispatch-stream-archive.ts#pruneDispatchStreamArchive:b8382f84ae26e86a3116422afaf0b62a",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/dispatch-stream-archive.ts#pruneDispatchStreamArchiveSteps:b8382f84ae26e86a3116422afaf0b62a",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"

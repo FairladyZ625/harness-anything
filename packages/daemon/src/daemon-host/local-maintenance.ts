@@ -1,5 +1,4 @@
 import { opendirSync, type Dirent } from "node:fs";
-import { consumeKnownError } from "@harness-anything/kernel";
 
 export type MaintenanceSchedule = (work: () => void) => void | Promise<void>;
 type MaintenanceStep = void | "turn";
@@ -21,7 +20,7 @@ export function scheduleMaintenance(
   batchSize: number,
   onComplete?: () => void,
 ): void {
-  const enqueue = (): void => {
+  const scheduleTurn = (): void => {
     let started = false;
     const scheduled = schedule(() => {
       started = true;
@@ -33,19 +32,13 @@ export function scheduleMaintenance(
         }
         if (step.value === "turn") break;
       }
-      enqueue();
+      scheduleTurn();
     });
     // A closed repository resolves its queued turn without running the callback.
     if (!(scheduled instanceof Promise)) return;
-    void scheduled.then(
-      () => {
-        if (!started) steps.return(undefined);
-      },
-      (error: unknown) => {
-        steps.return(undefined);
-        consumeKnownError(error);
-      },
-    );
+    void Promise.allSettled([scheduled]).then(() => {
+      if (!started) steps.return(undefined);
+    });
   };
-  enqueue();
+  scheduleTurn();
 }

@@ -1,4 +1,4 @@
-import { lstatSync, mkdirSync, readSync, renameSync, unlinkSync } from "node:fs";
+import { lstatSync, readSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import * as Order from "effect/Order";
 import * as SortedSet from "effect/SortedSet";
@@ -23,32 +23,6 @@ interface ArchivedStream {
   readonly file: string;
   readonly sizeBytes: number;
   readonly startedAtMs: number;
-}
-
-/** Resolve both physical roots before reading evidence or moving a terminal stream. */
-export function moveDispatchStreamToArchive(rootDir: string, dispatchId: string, compact: boolean): string | null {
-  const name = `${dispatchId}.jsonl`;
-  if (!dispatchFilePattern.test(name)) throw new Error("dispatch id is invalid");
-  const layout = resolveHarnessLayout(rootDir);
-  const directory = resolveOwnedLocalDirectory(layout, ["runtime", "dispatches"]);
-  const archive = resolveOwnedLocalDirectory(layout, ["runtime", "dispatches", "archive"], true);
-  if (directory === null || archive === null) return null;
-
-  const live = path.join(directory, name),
-    archived = path.join(archive, name);
-  const liveStat = lstatSync(live, { throwIfNoEntry: false });
-  const archivedStat = lstatSync(archived, { throwIfNoEntry: false });
-  if (archivedStat && !archivedStat.isFile()) return null;
-  if (liveStat) {
-    if (!liveStat.isFile() || mustPreserveDispatch(rootDir, dispatchId, live)) return null;
-    /* @gate-identity state-store/execution.dispatch-stream-archive */ mkdirSync(archive, {
-      recursive: true,
-      mode: 0o700,
-    });
-    /* @gate-identity state-store/execution.dispatch-stream-archive */ renameSync(live, archived);
-  } else if (!archivedStat || mustPreserveDispatch(rootDir, dispatchId, archived)) return null;
-  if (compact) compactDispatchStreamArchive(archived, dispatchId);
-  return archived;
 }
 
 /** Queue one archive entry at a time so existing writer work can run between files. */

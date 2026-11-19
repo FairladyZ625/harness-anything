@@ -7,6 +7,7 @@ import {
   mkdirSync,
   openSync,
   readSync,
+  renameSync,
   readdirSync,
   readFileSync,
   statSync,
@@ -32,8 +33,8 @@ import { scrubProviderValue } from "../runtime-engine/secret-scrub.ts";
 import { dispatchProviderActivity, type DispatchProviderActivity } from "./dispatch-activity.ts";
 import { providerReconnectFromFrame } from "./runtime-provider-fault.ts";
 
-import { moveDispatchStreamToArchive } from "./dispatch-stream-archive.ts";
 import { readDispatchEvidenceState, removeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
+import { compactDispatchStreamArchive } from "./dispatch-stream-compaction.ts";
 import { resolveOwnedLocalDirectory } from "./local-root-paths.ts";
 
 /**
@@ -47,6 +48,10 @@ export function mustPreserveDispatch(rootDir: string, dispatchId: string, file?:
   const summary =
     file === undefined ? readDispatchStreamSummary(rootDir, dispatchId) : readDispatchStreamSummaryAt(file, dispatchId);
   if (summary?.evidenceState === "pending") return true;
+  // A large terminal record can hide the fallback marker between the bounded windows.
+  // Without a visible terminal, not-required cannot authorize removal of a tracked stream.
+  if (state === "not-required" && summary?.header.evidenceTrackingVersion === 1 && summary.terminalOutcome === null)
+    return true;
   if (state !== null) return false;
   if (summary?.header.evidenceTrackingVersion === 1) return true;
   if (summary === null || summary.terminalOutcome === null) return false;
@@ -77,6 +82,32 @@ export function archiveDispatchStreams(
   if (options?.indexRemovals === undefined)
     for (const [taskId, ids] of indexRemovals) removeDispatchLiveIndexEntries(rootDir, taskId, ids);
   return archivedIds;
+}
+
+/** Resolve both physical roots before reading evidence or moving a terminal stream. */
+function moveDispatchStreamToArchive(rootDir: string, dispatchId: string, compact: boolean): string | null {
+  assertDispatchId(dispatchId);
+  const name = `${dispatchId}.jsonl`;
+  const layout = resolveHarnessLayout(rootDir);
+  const directory = resolveOwnedLocalDirectory(layout, ["runtime", "dispatches"]);
+  const archive = resolveOwnedLocalDirectory(layout, ["runtime", "dispatches", "archive"], true);
+  if (directory === null || archive === null) return null;
+
+  const live = path.join(directory, name),
+    archived = path.join(archive, name);
+  const liveStat = lstatSync(live, { throwIfNoEntry: false });
+  const archivedStat = lstatSync(archived, { throwIfNoEntry: false });
+  if (archivedStat && !archivedStat.isFile()) return null;
+  if (liveStat) {
+    if (!liveStat.isFile() || mustPreserveDispatch(rootDir, dispatchId, live)) return null;
+    /* @gate-identity state-store/execution.dispatch-stream */ mkdirSync(archive, {
+      recursive: true,
+      mode: 0o700,
+    });
+    /* @gate-identity state-store/execution.dispatch-stream */ renameSync(live, archived);
+  } else if (!archivedStat || mustPreserveDispatch(rootDir, dispatchId, archived)) return null;
+  if (compact) compactDispatchStreamArchive(archived, dispatchId);
+  return archived;
 }
 
 /**

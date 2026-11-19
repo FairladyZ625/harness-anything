@@ -234,7 +234,9 @@ export function openDaemonRequestLog(options: DaemonRequestLogOptions): DaemonRe
       const target = path.join(directory, name);
       const info = lstatSync(target, { throwIfNoEntry: false });
       if (info?.isFile() && info.mtimeMs < cutoff)
-        await /* @gate-identity non-state/environment-io.69b1169ea4d01ff3 */ rm(target, { force: true });
+        await /* @gate-identity non-state/environment-io.69b1169ea4d01ff3 */ rm(path.join(directory, name), {
+          force: true,
+        });
     }
   }
 

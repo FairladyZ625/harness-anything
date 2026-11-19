@@ -7,6 +7,8 @@ import {
   type DispatchLifecycleView,
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
+import type { FactEventV1 } from "@harness-anything/kernel/internal/domain/fact-event.ts";
 import { removeFileDurably } from "../../../storage/src/durable-file.ts";
 import { readDispatchEvidenceState, removeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
 import { archiveDispatchStreams, removeDispatchLiveIndexEntries } from "./dispatch-stream.ts";
@@ -76,6 +78,7 @@ export interface LocalRootReclaimResult {
 const dispatchFilePattern = /^dispatch_([a-f0-9]{24})\.jsonl$/u;
 const evidenceSidecarPattern = /^dispatch_([a-f0-9]{24})\.evidence-state\.json$/u;
 const dispatchIdPattern = /^dispatch_[a-f0-9]{24}$/u;
+const evidenceCreationEvent: FactEventV1["type"] = "fact_recorded";
 const verificationCacheSuffixes = ["", "-wal", "-shm"] as const;
 
 function emptyClassTotals(): Record<LocalRootEntryClass, { bytes: number; files: number }> {
@@ -312,7 +315,10 @@ export function scheduleLocalRootReclamation(input: {
         if (cut.watermark === factWatermark || cut.watermark === verifiedThrough) return true;
         // A normal write may advance the cut. A newer recorded Fact invalidates the protection
         // snapshot, so end this pass before deleting against a stale set of references.
-        const newest = projection.readEventList({ type: "fact_recorded", limit: 1 }).rows[0];
+        const newest = projection.readEventList({
+          type: evidenceCreationEvent,
+          limit: storageReadPolicy.defaultValue.pageSizes.one,
+        }).rows[0];
         if (newest && newest.revision > factWatermark) return false;
         verifiedThrough = cut.watermark;
         return true;
@@ -369,7 +375,8 @@ function archiveSettledDispatchStreams(input: {
     // cannot establish that the attempt is no longer recoverable or still running.
     if (!view?.attempt.fence.verified || view.attempt.fence.owner !== input.owner) continue;
     if (input.liveRuntimeSessionIds?.has(view.attempt.runtimeSessionId) || view.policy.processAlive) continue;
-    if (!view.policy.attemptSettled || view.attempt.stopProof !== "proven_stopped") continue;
+    const stopProven = view.attempt.stopProof === "proven_stopped";
+    if (!view.policy.attemptSettled || !stopProven) continue;
     const groupFinal =
       view.policy.groupSettled &&
       (!view.policy.successorAdmissible ||
