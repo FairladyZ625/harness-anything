@@ -99,7 +99,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         {
           description:
-            "Let the task creator release a stopped worker lease with a reason; this does not arrange or launch a replacement.",
+            "Release a stopped worker lease as its task creator, or a settled orphan runtime lease as repository admin.",
         },
       ),
     ],

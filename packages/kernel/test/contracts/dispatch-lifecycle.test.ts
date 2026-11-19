@@ -9,6 +9,7 @@ import {
   type AgentRuntimeEventV1,
 } from "../../src/domain/agent-runtime.ts";
 import { terminalDomainStatuses } from "../../src/domain/lifecycle-status.ts";
+import { orphanRuntimeLeaseStop } from "../../src/domain/orphan-runtime-recovery.ts";
 import { taskEventTypes } from "../../src/domain/task-lifecycle-event.ts";
 import { submissionDigest } from "../../src/domain/submission-digest.ts";
 import {
@@ -1023,6 +1024,32 @@ test("task writer admission spans instances and nodes and survives lease release
     { ...view.attempt.task!, leaseVersion: null },
   ])
     assert.equal(taskWriterConflict([{ ...view, attempt: { ...view.attempt, task } }], "task-writer"), null);
+});
+
+test("an audited orphan ruling releases only its own dispatch lease generation without inventing a stop", () => {
+  const ids = { dispatchId: "orphan", runtimeSessionId: "orphan-session", attemptGroupId: "orphan" },
+    lease = {
+      taskId: "orphan-task",
+      executionId: "orphan-execution",
+      version: 3,
+      actor: { principal: { personId: "original" }, executor: null },
+    },
+    start = taskEvent("execution_started", lease.taskId, { execution: execution(lease.executionId), lease }),
+    dispatch = runtimeEvent({ t: "R" }, ids, implementer(lease.taskId, lease.executionId)),
+    outcome = runtimeEvent({ t: "O", outcome: "unknown", exitCode: null, reasonCode: "ruling_resolved" }, ids);
+  assert.ok(outcome.type === "runtime_session_outcome_observed");
+  const audited = {
+      ...outcome,
+      payload: {
+        ...outcome.payload,
+        orphanRecovery: { originalPersonId: "original", adminPersonId: "admin", reason: "Removed identity" },
+      },
+    },
+    view = dispatchLifecycleView(fold([start, dispatch, audited]).groups.get(ids.attemptGroupId)!);
+  assert.equal(view.attempt.stopProof, "unproven");
+  assert.equal(orphanRuntimeLeaseStop(lease, view, audited), "ruled_unreachable");
+  assert.equal(orphanRuntimeLeaseStop({ ...lease, version: 4 }, view, audited), null);
+  assert.equal(orphanRuntimeLeaseStop(lease, view, outcome), null);
 });
 
 test("runtime_dispatch_requested permission metadata folds into attempts and summaries with unknown fallback for history", () => {

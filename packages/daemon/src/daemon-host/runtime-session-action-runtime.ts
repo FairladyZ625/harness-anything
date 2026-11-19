@@ -16,7 +16,7 @@ import type { RepoCellActionContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoTaskAction, RuntimeIngressAction } from "./repo-cell-types.ts";
 
 export function runtimeSessionActionPreparer(projection: () => TaskProjection): EntityActionCatalogPreparer {
-  return (contract, action, binding) => {
+  return (contract, action, binding: RepoCellBinding) => {
     if (action.reasonCode === "ruling_resolved" && binding.executionPrincipal)
       invalidRuntimeSessionAction("execution_credential_rejected", "A runtime cannot answer its own owner ruling.");
     const runtimeSessionId = requiredRuntimeActionText(action.runtimeSessionId, "runtimeSessionId"),
@@ -28,7 +28,23 @@ export function runtimeSessionActionPreparer(projection: () => TaskProjection): 
     // dispatch. Only a terminal event from the same person on the local center can settle one; the
     // creation record is the ownership fence, so a remote node can never claim the session.
     if (!dispatch && importedSessionTerminalSettlement(projection(), runtimeSessionId, action, binding)) return action;
-    if (!localOwner) {
+    const recovery = binding.orphanRecovery,
+      recoveryMatches =
+        recovery !== undefined &&
+        recovery.dispatchId === dispatch?.payload.dispatchId &&
+        recovery.audit.originalPersonId === dispatch.actor.principal.personId &&
+        recovery.audit.adminPersonId === binding.actor.principal.personId &&
+        binding.actor.executor === null &&
+        stableStringify(dispatchSource) === stableStringify(ingressSource) &&
+        (action.kind === "runtime_session_exited" ||
+          action.kind === "runtime_session_cancelled" ||
+          action.kind === "runtime_session_outcome_observed");
+    if (action.orphanRecovery !== undefined)
+      invalidRuntimeSessionAction(
+        "execution_scope_mismatch",
+        "Orphan recovery evidence must come from the center writer.",
+      );
+    if (!localOwner && !recoveryMatches) {
       if (
         !dispatch ||
         typeof dispatchSource !== "object" ||
@@ -72,7 +88,13 @@ export function runtimeSessionActionPreparer(projection: () => TaskProjection): 
         contract.id,
         "runtime-session/node-fence",
       );
-    return { ...action, dispatchId: dispatch.payload.dispatchId };
+    return {
+      ...action,
+      dispatchId: dispatch.payload.dispatchId,
+      ...(recoveryMatches && action.kind === "runtime_session_outcome_observed"
+        ? { orphanRecovery: recovery.audit }
+        : {}),
+    };
   };
 }
 

@@ -1,3 +1,8 @@
+import {
+  orphanRuntimeRecoveryAudit,
+  type OrphanRuntimeRecoveryAudit,
+} from "@harness-anything/kernel/internal/domain/orphan-runtime-recovery.ts";
+import { onlineAuthorizationCredential } from "./repo-cell-authorization.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 
@@ -32,4 +37,40 @@ export async function withOnlineRuntimeSession(
       ...(readCenter ? { center: readCenter } : {}),
     },
   };
+}
+
+export async function readOrphanRuntimeRecoveryAuthority(
+  repoId: string,
+  binding: RepoCellBinding,
+  originalPersonId: string,
+  reason: string,
+): Promise<OrphanRuntimeRecoveryAudit | null> {
+  const { center, session } = onlineAuthorizationCredential({ binding }) ?? {};
+  if (
+    !center ||
+    !session ||
+    binding.source !== "local" ||
+    binding.actor.executor !== null ||
+    binding.executionPrincipal ||
+    binding.delegatedExecutionToken ||
+    binding.authorizationDecision?.outcome !== "allowed" ||
+    binding.actor.principal.personId === originalPersonId
+  )
+    return null;
+  const { provider, accessToken } = await center(),
+    people = await provider.readPeople(accessToken),
+    originalPersonExists = people.some(({ personId }) => personId === originalPersonId),
+    admins = people.filter(({ personId }) => personId === binding.actor.principal.personId);
+  if (originalPersonExists || admins.length !== 1) return null;
+  const grants = await provider.readGrants(accessToken);
+  return orphanRuntimeRecoveryAudit({
+    originalPersonId,
+    actor: binding.actor,
+    reason,
+    originalPersonExists,
+    repositoryAdmin: grants.some(
+      ({ resource, groupId, userIds }) =>
+        resource === repoId && groupId === "admin" && userIds.includes(admins[0]!.userId),
+    ),
+  });
 }

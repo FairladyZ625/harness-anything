@@ -922,6 +922,7 @@ function unsubmittedExitGuidance(
 
 function runtimeSessionBinding(binding: ActiveRuntime["binding"], runtimeSessionId: string): ActiveRuntime["binding"] {
   const { authorizationDecision: _spawnDecision, ...current } = binding;
+  if (current.orphanRecovery) return current;
   return {
     ...current,
     actor: {
@@ -1342,8 +1343,13 @@ export function controlReceipt(
     };
   }
   const store = context.requiredRuntimeStore(context.input),
-    published = store.readEvent(opId),
-    revision = published?.workspaceRevision ?? store.readHead()?.revision ?? 0,
+    published =
+      store.readEvent(opId) ??
+      (detail === "already-exited"
+        ? (store.readEvent(`${opId}-outcome`) ?? store.readEvent(`${opId}-ruling-resolved`))
+        : null);
+  opId = published?.opId ?? opId;
+  const revision = published?.workspaceRevision ?? store.readHead()?.revision ?? 0,
     publication = published ? store.publication(published) : null,
     canonicalVisible = published !== null && publication?.cut.opId === opId && publication.cut.revision === revision,
     base = {

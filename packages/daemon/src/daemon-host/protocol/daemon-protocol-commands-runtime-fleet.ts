@@ -387,9 +387,21 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     id: "runtime-cancel",
     phase: "Runtime-B",
     path: ["runtime", "cancel", "<runtime-session-id>"],
-    summary: "Cancel a runtime session or record an owner ruling for an unreachable dispatch.",
+    summary: "Cancel a runtime session, recover a stopped orphan with --reason, or rule on an unreachable dispatch.",
     method: "repo.agentRuntime.cancel",
-    inputs: [cliInput("--ruling", "single", false, { code: "invalid_field" }, { pathKind: "non-path" })],
+    inputs: [
+      cliInput("--ruling", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput(
+        "--reason",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          pathKind: "non-path",
+          description: "Required for repository admin recovery when the original owner is absent from RBAC.",
+        },
+      ),
+    ],
   }),
   defineRuntimeLocalWriteCommand({
     id: "runtime-steer",

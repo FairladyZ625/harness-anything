@@ -4,6 +4,28 @@ import type { OntologyPolicyDeclaration, OntologyJudgmentDeclaration } from "./o
 /** Runtime aggregate declarations for dec_AEB05951C69E47FCE53E53C341/CH1 consumer cutover. */
 export const dispatchLifecyclePolicies = [
   {
+    id: "orphan-runtime-recovery",
+    ownerRef: "runtime-session/runtime_session_outcome_observed",
+    unit: "current RuntimeSession attempt and lease generation",
+    bounds:
+      "Repository admin recovery requires the original principal to be absent, a reason, and accepted stop evidence or an explicit unreachable ruling. Release uses the current terminal attempt's task, execution, and unreleased lease generation.",
+    defaultValue: null,
+    version: 1,
+    scope: "center runtime terminal publication and task lease release",
+    reason: "dec_B3802F58B1A80FBFC5AB8111CC/CH1 preserves original ownership while recording the acting administrator.",
+    fixtures: [
+      "packages/kernel/test/contracts/dispatch-lifecycle.test.ts",
+      "packages/daemon/test/orphan-runtime-recovery.integration.test.ts",
+    ],
+    sources: [
+      {
+        candidateId:
+          "policy:packages/kernel:packages/kernel/src/domain/orphan-runtime-recovery.ts#orphanRuntimeLeaseStop:84674658c0e82d91fe7bfbf5424fcdcf",
+        route: "orphan runtime lease release",
+      },
+    ],
+  },
+  {
     id: "dispatch-reservations",
     ownerRef: "runtime-session/run",
     unit: "provider slots / lifecycle capability",

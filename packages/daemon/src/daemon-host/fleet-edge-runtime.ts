@@ -73,7 +73,7 @@ import { readScheduleAction, dispatchClaimedSchedule } from "./schedule-action-r
 import { orchestrateRuntimeSessionsAwait } from "./runtime-orchestration.ts";
 import { prepareScheduleOccurrenceWorkspace, scheduleSettlementDetail } from "./schedule-occurrence-workspace.ts";
 import { taskMissionSections, taskPlanSection, runtimeMissionName } from "./runtime-spawn-mission.ts";
-import { readRuntimeDispatchOwnerEvidence } from "./runtime-spawn-control.ts";
+import { readRuntimeDispatchOwnerEvidence } from "./runtime-dispatch-owner-evidence.ts";
 import { runtimeSpawnReceipt } from "../runtime-engine/runtime-spawn-receipt.ts";
 import { admitTaskDispatch } from "./task-dispatch-recovery.ts";
 import { runtimeForwardingContext } from "./fleet/forwarding-port.ts";

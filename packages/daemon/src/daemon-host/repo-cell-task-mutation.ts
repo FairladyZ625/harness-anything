@@ -107,13 +107,30 @@ export function taskMutation(
       ownerRecovery =
         isSamePerson(task.createdBy, binding.actor) &&
         (activeLease.phase === "orphaned" || terminalRuntimeBinding !== null),
-      ownerForcedTakeover = forceTakeover && isSamePerson(task.createdBy, binding.actor);
+      ownerForcedTakeover = forceTakeover && isSamePerson(task.createdBy, binding.actor),
+      leaseRuntimeSessionId = runtimeSessionIdFromActor(activeLease.actor),
+      foreignRuntimeDispatch =
+        !isSamePerson(activeLease.actor, binding.actor) && leaseRuntimeSessionId !== null
+          ? cell.projection.readRuntimeDispatch(leaseRuntimeSessionId)
+          : null,
+      recovery = binding.orphanRecovery,
+      orphanRecovery =
+        forceTakeover &&
+        recovery !== undefined &&
+        recovery.dispatchId === foreignRuntimeDispatch?.payload.dispatchId &&
+        recovery.audit.reason === optionalReleaseText(action.reason)
+          ? recovery.audit
+          : null;
     if (!authorizationDecision || authorizationDecision.outcome !== "allowed")
       throw cell.cellCodedError(
         "authorization_missing",
         "Release criteria require the center AuthorizationPort decision.",
       );
-    if (!sameHolder && !samePrincipalRecovery && !sessionHandoff && !ownerRecovery && !ownerForcedTakeover)
+    if (
+      foreignRuntimeDispatch
+        ? !orphanRecovery
+        : !sameHolder && !samePrincipalRecovery && !sessionHandoff && !ownerRecovery && !ownerForcedTakeover
+    )
       throw cell.cellCodedError(
         "lease_conflict",
         [
@@ -152,7 +169,9 @@ export function taskMutation(
       authorizationDecision,
       audit: {
         command: "release",
-        reason,
+        reason: orphanRecovery
+          ? `Repository admin ${orphanRecovery.adminPersonId} released orphaned lease of ${orphanRecovery.originalPersonId}: ${orphanRecovery.reason}`
+          : reason,
         fields: ["lease"],
       },
     });
