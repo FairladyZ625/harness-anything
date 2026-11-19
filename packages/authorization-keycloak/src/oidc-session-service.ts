@@ -1238,8 +1238,10 @@ export class OidcSessionService {
   }
 
   #lapsing(session: StoredSession): boolean {
-    const hasNodeClient = session.authority?.clientId?.startsWith("harness-node-") === true;
+    const hasNodeClient =
+      session.sessionExpiresAt === null && session.authority?.clientId?.startsWith("harness-node-") === true;
     const hasLegacyNodeAuthority =
+      session.sessionExpiresAt === null &&
       session.authority?.clientId === undefined &&
       session.loginTarget !== undefined &&
       Boolean(this.#host.readFleetEdgeConfig(session.loginTarget));
