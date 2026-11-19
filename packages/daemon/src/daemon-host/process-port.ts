@@ -285,22 +285,20 @@ export type GitHistoryLogResult =
 const GIT_HISTORY_STDERR_BYTES = 512;
 
 /**
- * Read-only `git log` for reverse code-path trace (dec_9979850C7CE87C17271D78E4D1 CH1). Unlike
+ * Read-only Git history and status for reverse code-path trace (dec_9979850C7CE87C17271D78E4D1 CH1). Unlike
  * makeGitReadinessSource it keeps the exit status, system error code and a bounded stderr digest, so
  * callers can tell "no history" from "git failed". Host read and dispatch entries only; the writer
  * plane never imports this module.
  */
-export function runGitHistoryLog(rootDir: string, args: readonly string[]): GitHistoryLogResult {
+export function runGitHistoryLog(
+  rootDir: string,
+  args: readonly string[],
+  timeoutMs = daemonRuntimePolicy.defaultValue.runtime.currentWorktreeHeadTimeoutMs,
+): GitHistoryLogResult {
   try {
     return {
       ok: true,
-      stdout: runProcessText(
-        "git",
-        args,
-        rootDir,
-        { ...process.env, LC_ALL: "C" },
-        daemonRuntimePolicy.defaultValue.runtime.currentWorktreeHeadTimeoutMs,
-      ),
+      stdout: runProcessText("git", args, rootDir, { ...process.env, LC_ALL: "C" }, timeoutMs),
     };
   } catch (error) {
     const failure = (typeof error === "object" && error !== null ? error : {}) as {

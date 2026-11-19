@@ -43,7 +43,7 @@ test("a cell without a Git worktree reports git_worktree_unavailable instead of 
     const port = makeWorkspaceGitHistoryPort(dir);
     for (const outcome of [
       port.readPathHistory({ paths: [TARGET], maxCommits: 5 }),
-      port.readBranchCollisions!({ path: TARGET, maxCommits: 5 }),
+      port.readBranchCollisions!({ paths: [TARGET], maxCommits: 5 }),
     ])
       assert.deepEqual(
         { availability: outcome.availability, reason: outcome.availability === "unavailable" ? outcome.reason : null },
@@ -106,11 +106,46 @@ test("one batched first-parent history covers several paths; unmerged task branc
       ],
       "first-parent: the merge is attributed, the branch-internal commit is not walked",
     );
-    const collisions = port.readBranchCollisions!({ path: TARGET, maxCommits: 10 });
+    const collisions = port.readBranchCollisions!({ paths: [TARGET, OTHER], maxCommits: 10 });
     assert.equal(collisions.availability, "available");
     if (collisions.availability !== "available") return;
-    assert.deepEqual([...parseBranchCollisions(collisions.stdout)], [[TASK_C, { branch: TASK_C, commits: 1 }]]);
-    const quiet = port.readBranchCollisions!({ path: OTHER, maxCommits: 10 });
-    assert.equal(quiet.availability === "available" && parseBranchCollisions(quiet.stdout).size, 0);
+    assert.deepEqual(
+      [...parseBranchCollisions(collisions.stdout, [TARGET, OTHER])],
+      [[TASK_C, { branch: TASK_C, commits: 1, tracePaths: new Set([TARGET]) }]],
+    );
+    const quiet = port.readBranchCollisions!({ paths: [OTHER], maxCommits: 10 });
+    assert.equal(quiet.availability === "available" && parseBranchCollisions(quiet.stdout, [OTHER]).size, 0);
+  });
+});
+
+test("managed worktrees report only requested dirty paths, with or without staging", () => {
+  withDir((dir) => {
+    git(dir, "init", "-q", "-b", "main");
+    write(dir, TARGET, "export const a = 1;\n");
+    write(dir, OTHER, "export const b = 1;\n");
+    git(dir, "add", "-A");
+    git(dir, "commit", "-q", "-m", "chore: seed");
+    const staged = path.join(dir, ".worktrees", TASK_A),
+      unstaged = path.join(dir, ".worktrees", TASK_C),
+      added = "packages/demo/src/new file.ts";
+    git(dir, "worktree", "add", "-qb", TASK_A, staged);
+    git(dir, "worktree", "add", "-qb", TASK_C, unstaged);
+    write(staged, OTHER, "export const b = 2;\n");
+    git(staged, "add", "--", OTHER);
+    write(unstaged, TARGET, "export const a = 3;\n");
+    write(unstaged, added, "export const c = 1;\n");
+    const port = makeWorkspaceGitHistoryPort(dir);
+    assert.deepEqual(
+      port
+        .readDirtyWorktreeCollisions?.({ paths: [TARGET, OTHER, added] })
+        ?.toSorted((a, b) => a.taskId.localeCompare(b.taskId)),
+      [
+        { taskId: TASK_A, tracePaths: [OTHER] },
+        { taskId: TASK_C, tracePaths: [TARGET, added] },
+      ],
+    );
+    assert.deepEqual(port.readDirtyWorktreeCollisions?.({ paths: [TARGET], excludeTaskId: TASK_C }), []);
+    assert.deepEqual(port.readDirtyWorktreeCollisions?.({ paths: ["packages/demo/src/*.ts"] }), []);
+    assert.equal(git(unstaged, "rev-parse", "HEAD"), git(dir, "rev-parse", "HEAD"));
   });
 });

@@ -2,7 +2,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { TaskProjection } from "@harness-anything/kernel";
-import { CAUSAL_CONTEXT_MAX_BYTES, assembleTaskCausalContext } from "../src/daemon-host/dispatch-causal-context.ts";
+import {
+  CAUSAL_CONTEXT_MAX_BYTES,
+  assembleTaskCausalContext,
+  withLocalWorktreeCollisions,
+} from "../src/daemon-host/dispatch-causal-context.ts";
 
 const cut = (revision = 1) => ({ status: "ready" as const, watermark: revision, sourceRevision: revision });
 
@@ -1013,7 +1017,8 @@ test("conflicting inherited restrictions remain visible in ancestor order", () =
 });
 
 const TRACE_PLAN_PATH = "packages/daemon/src/daemon-host/fact-observed-commit.ts",
-  TRACE_MERGE = "9".repeat(40);
+  TRACE_MERGE = "9".repeat(40),
+  COLLIDING_TASK = "task_dddddddddddddddddddddddddd";
 
 function tracedProjection(
   options: { readonly chosenText?: string; readonly whyNot?: string; readonly workTitle?: string } = {},
@@ -1098,6 +1103,11 @@ const tracedGit = (calls: string[][]) => ({
       stdout: `\x1e${TRACE_MERGE}\x1f${"8".repeat(40)}\x1fMerge pull request #3809 from o/task_cccccccccccccccccccccccccc\n\n${TRACE_PLAN_PATH}\n`,
     };
   },
+  readDirtyWorktreeCollisions: ({ paths, excludeTaskId }: { paths: readonly string[]; excludeTaskId?: string }) => {
+    assert.deepEqual(paths, [TRACE_PLAN_PATH]);
+    assert.equal(excludeTaskId, "task_leaf");
+    return [{ taskId: COLLIDING_TASK, tracePaths: paths }];
+  },
 });
 
 test("passive reverse trace appends redlines and anchored facts with trace-path, only when a host Git port is supplied", () => {
@@ -1122,12 +1132,19 @@ test("passive reverse trace appends redlines and anchored facts with trace-path,
     block,
     /<anchored ref="fact\/F-0000BEEF" trace-path="[^"]+">observedCommit is captured on record \(src:[^)]+\)<\/anchored>/u,
   );
-  assert.match(block, /<refs>task\/task_root decision\/dec_REDLINE fact\/F-0000BEEF<\/refs>/u);
+  assert.match(
+    block,
+    new RegExp(`<collision ref="task/${COLLIDING_TASK}" trace-path="${TRACE_PLAN_PATH}">[^<]*uncommitted`, "u"),
+  );
+  assert.match(
+    block,
+    new RegExp(`<refs>task/task_root decision/dec_REDLINE fact/F-0000BEEF task/${COLLIDING_TASK}</refs>`, "u"),
+  );
   const redline = block.indexOf("<redline"),
     governs = block.indexOf("<governs");
   assert.ok(
-    block.indexOf("<work") < redline && redline < governs,
-    "forward lineage first, redline before its decision line",
+    redline < block.indexOf("<work") && redline < governs,
+    "reverse redlines precede forward lineage and lower-priority reverse detail",
   );
   const handoff = assembleTaskCausalContext({ projection: tracedProjection(), taskId: "task_leaf" });
   assert.ok(handoff !== null);
@@ -1140,7 +1157,7 @@ test("passive reverse trace appends redlines and anchored facts with trace-path,
   );
 });
 
-test("an oversized reverse trace is shed whole under the 8192-byte cap and never splits a UTF-8 character", () => {
+test("an oversized context keeps the redline and collision ahead of lower-priority detail within 8192 bytes", () => {
   const block = assembleTaskCausalContext({
     projection: tracedProjection({
       workTitle: "工作".repeat(1200),
@@ -1155,12 +1172,29 @@ test("an oversized reverse trace is shed whole under the 8192-byte cap and never
   const bytes = backgroundByteLength(block);
   assert.ok(bytes <= CAUSAL_CONTEXT_MAX_BYTES, `background is ${bytes} bytes`);
   assert.match(block, /^<task-context truncated="yes">/u);
-  assert.match(
-    block,
-    /<omitted>[^<]*decision\/dec_REDLINE[^<]*<\/omitted>/u,
-    "the shed redline is named, not silently lost",
-  );
+  assert.match(block, /<redline ref="decision\/dec_REDLINE\/RJ3"[^>]*>[^<]*禁止[^<]*<\/redline>/u);
+  assert.match(block, /<collision ref="task\/task_d{26}"/u);
+  assert.doesNotMatch(block, /<work ref="task\/task_root">/u);
+  assert.match(block, /<omitted>[^<]*task\/task_root[^<]*<\/omitted>/u, "the shed work title is named");
   const background = block.slice(0, block.indexOf("</task-context>") + "</task-context>".length);
   assert.equal(Buffer.from(background, "utf8").toString("utf8"), background);
   assert.doesNotMatch(background, /\uFFFD/u, "no half character");
+});
+
+test("edge collisions fit in the canonical context budget and preserve the inherited plan", () => {
+  const center = assembleTaskCausalContext({
+    projection: tracedProjection({ workTitle: "界".repeat(2410) }),
+    taskId: "task_leaf",
+    gitHistory: null,
+  });
+  assert.ok(center !== null);
+  const collisions = [{ taskId: COLLIDING_TASK, tracePaths: [TRACE_PLAN_PATH] }],
+    edge = withLocalWorktreeCollisions(center, collisions);
+  assert.ok(edge !== null);
+  assertLineGrammar(edge);
+  assert.ok(backgroundByteLength(edge) <= CAUSAL_CONTEXT_MAX_BYTES);
+  assert.match(edge, /<redline ref="decision\/dec_REDLINE\/RJ3"/u);
+  assert.match(edge, /<collision ref="task\/task_d{26}"/u);
+  assert.equal(edge.slice(background(edge).length), center.slice(background(center).length));
+  assert.match(withLocalWorktreeCollisions(null, collisions) ?? "", /<collision ref="task\/task_d{26}"/u);
 });

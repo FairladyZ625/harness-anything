@@ -71,6 +71,7 @@ interface TracePayload {
     readonly status?: string | null;
     readonly branch?: string;
     readonly commits?: number;
+    readonly matchReason?: "branch_diff" | "worktree_dirty";
   }[];
 }
 
@@ -129,7 +130,8 @@ function renderTraceCollisions(active: NonNullable<TracePayload["activeTasks"]>)
   if (active.length === 0) return [...lines, "  (none)"];
   for (const task of active)
     lines.push(
-      `  • ${task.taskId ?? "?"} [${task.status ?? "unknown"}] ${task.branch ?? ""} (${String(task.commits ?? 0)} unmerged commits): ${task.title ?? ""}`,
+      `  • ${task.taskId ?? "?"} [${task.status ?? "unknown"}] ${task.branch ?? ""} ` +
+        `(${String(task.commits ?? 0)} unmerged commits${task.matchReason === "worktree_dirty" ? ", uncommitted worktree changes" : ""}): ${task.title ?? ""}`,
     );
   return lines;
 }

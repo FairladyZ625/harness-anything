@@ -36,7 +36,7 @@ export function readTaskRuntimeContext(
     causalContext: assembleTaskCausalContext({
       projection,
       taskId,
-      gitHistory: makeWorkspaceGitHistoryPort(rootDir),
+      gitHistory: makeWorkspaceGitHistoryPort(rootDir, true),
     }),
     riskTier: task?.metadata?.riskTier ?? null,
     riskTierFlowVersion: task?.metadata?.riskTierFlowVersion ?? null,

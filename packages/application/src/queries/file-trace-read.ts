@@ -35,7 +35,14 @@ export type GitHistoryOutcome =
       readonly message: string;
     };
 
-/** Host-implemented Git reads. Each method call is exactly one child process. */
+export interface TraceWorktreeCollision {
+  readonly taskId: string;
+  readonly tracePaths: readonly string[];
+}
+
+type PassiveCollision = TraceWorktreeCollision & Pick<TraceCollision, "matchReason">;
+
+/** Host-implemented Git reads. Runtime-context reads supply the history capability alone. */
 export interface GitHistoryPort {
   /** `git log -m --first-parent --name-only` over up to MAX_TRACED_FILES paths in one process. */
   readonly readPathHistory: (input: {
@@ -43,7 +50,15 @@ export interface GitHistoryPort {
     readonly maxCommits: number;
   }) => GitHistoryOutcome;
   /** Commits on local `task_*` branches not yet reachable from HEAD that touch one path. */
-  readonly readBranchCollisions?: (input: { readonly path: string; readonly maxCommits: number }) => GitHistoryOutcome;
+  readonly readBranchCollisions?: (input: {
+    readonly paths: readonly string[];
+    readonly maxCommits: number;
+  }) => GitHistoryOutcome;
+  /** Bounded probes of other local managed worktrees, scoped to the supplied literal paths. */
+  readonly readDirtyWorktreeCollisions?: (input: {
+    readonly paths: readonly string[];
+    readonly excludeTaskId?: string;
+  }) => readonly TraceWorktreeCollision[];
 }
 
 export type TraceProjection = Pick<
@@ -96,7 +111,7 @@ export interface TraceCollision {
   readonly status: string | null;
   readonly branch: string;
   readonly commits: number;
-  readonly matchReason: "branch_diff";
+  readonly matchReason: "branch_diff" | "worktree_dirty";
 }
 
 export type TraceGitAvailability =
@@ -197,14 +212,28 @@ export function parseGitHistory(stdout: string): readonly ParsedCommit[] {
 }
 
 /** Parse `git log --source --format=GIT_COLLISION_FORMAT` into commit counts per task branch. */
-export function parseBranchCollisions(stdout: string): ReadonlyMap<string, { branch: string; commits: number }> {
-  const byTask = new Map<string, { branch: string; commits: number }>();
+export function parseBranchCollisions(stdout: string, paths: readonly string[]) {
+  const byTask = new Map<string, { branch: string; commits: number; tracePaths: ReadonlySet<string> }>();
   for (const record of stdout.split("\x1e")) {
-    const [, source = ""] = (record.split(/\r?\n/u)[0] ?? "").split("\x1f");
+    const [header = "", ...files] = record.split("\0"),
+      [, source = ""] = header.trim().split("\x1f");
     const taskId = TASK_ID.exec(source)?.[0].toLowerCase();
     if (taskId === undefined) continue;
-    const entry = byTask.get(taskId) ?? { branch: source.trim().replace(/^refs\/heads\//u, ""), commits: 0 };
-    byTask.set(taskId, { ...entry, commits: entry.commits + 1 });
+    const touched =
+      paths.length === 1
+        ? paths
+        : paths.filter((path) =>
+            files.some((file) => {
+              const target = file.replace(/^\r?\n/u, "");
+              return target === path || target.startsWith(`${path}/`);
+            }),
+          );
+    const entry = byTask.get(taskId) ?? { branch: source.replace(/^refs\/heads\//u, ""), commits: 0, tracePaths: [] };
+    byTask.set(taskId, {
+      ...entry,
+      commits: entry.commits + 1,
+      tracePaths: new Set([...entry.tracePaths, ...touched]),
+    });
   }
   return byTask;
 }
@@ -428,7 +457,15 @@ export function traceFileCausalHistory(input: {
       decisionStates: "any",
       sectionRows: TRACE_SECTION_ROWS,
     });
-  const activeTasks = readCollisions(input.projection, graph.reads, input.gitHistory, path, maxCommits);
+  const { branches, dirty, rows } = readCollisions(input.projection, graph.reads, input.gitHistory, [path], maxCommits);
+  const activeTasks: TraceCollision[] = [...rows.keys()].map((taskId) => ({
+    taskId,
+    title: rows.get(taskId)?.title ?? null,
+    status: rows.get(taskId)?.status ?? null,
+    branch: branches.get(taskId)?.branch ?? taskId,
+    commits: branches.get(taskId)?.commits ?? 0,
+    matchReason: dirty.has(taskId) ? "worktree_dirty" : "branch_diff",
+  }));
   return {
     schema: "file-trace-read/v1",
     ok: true,
@@ -459,29 +496,27 @@ function readCollisions(
   projection: TraceProjection,
   reads: ProjectionCut[],
   gitHistory: GitHistoryPort | null,
-  path: string,
+  paths: readonly string[],
   maxCommits: number,
-): readonly TraceCollision[] {
-  const outcome = gitHistory?.readBranchCollisions?.({ path, maxCommits });
-  if (outcome === undefined || outcome.availability !== "available") return [];
-  const branches = parseBranchCollisions(outcome.stdout);
-  if (branches.size === 0) return [];
-  const read = projection.readTaskIndex({ taskIds: [...branches.keys()] });
-  reads.push(read);
-  const rows = new Map(read.rows.map((row) => [row.taskId, row] as const));
-  return [...branches]
-    .filter(([taskId]) => {
-      const status = rows.get(taskId)?.status;
-      return status !== "done" && status !== "cancelled";
-    })
-    .map(([taskId, entry]) => ({
-      taskId,
-      title: rows.get(taskId)?.title ?? null,
-      status: rows.get(taskId)?.status ?? null,
-      branch: entry.branch,
-      commits: entry.commits,
-      matchReason: "branch_diff" as const,
-    }));
+  excludeTaskId?: string,
+) {
+  const outcome = gitHistory?.readBranchCollisions?.({ paths, maxCommits }),
+    branches = parseBranchCollisions(outcome?.availability === "available" ? outcome.stdout : "", paths),
+    hits =
+      gitHistory?.readDirtyWorktreeCollisions?.({ paths, ...(excludeTaskId === undefined ? {} : { excludeTaskId }) }) ??
+      [],
+    dirty = new Map(hits.map(({ taskId, tracePaths }) => [taskId, tracePaths])),
+    taskIds = [...new Set([...dirty.keys(), ...branches.keys()])].filter((taskId) => taskId !== excludeTaskId),
+    rows = new Map<string, TaskIndexProjectionRow | undefined>(taskIds.map((taskId) => [taskId, undefined]));
+  if (taskIds.length > 0) {
+    const read = projection.readTaskIndex({ taskIds });
+    reads.push(read);
+    for (const row of read.rows) {
+      if (row.status === "done" || row.status === "cancelled") rows.delete(row.taskId);
+      else if (rows.has(row.taskId)) rows.set(row.taskId, row);
+    }
+  }
+  return { branches, dirty, rows };
 }
 
 /** Rejected redlines first, then task lineage, then module scope. */
@@ -499,6 +534,7 @@ export interface PassiveTraceSelection {
   readonly git: TraceGitAvailability;
   readonly decisions: readonly TraceDecision[];
   readonly facts: readonly TraceFact[];
+  readonly collisions: readonly PassiveCollision[];
 }
 
 /**
@@ -510,6 +546,7 @@ export function selectPassiveTraceContext(input: {
   readonly projection: TraceProjection;
   readonly planBody: string;
   readonly gitHistory: GitHistoryPort | null;
+  readonly taskId?: string;
   readonly excludeDecisionIds: readonly string[];
   readonly excludeFactRefs: readonly string[];
   readonly maxDecisions: number;
@@ -526,10 +563,26 @@ export function selectPassiveTraceContext(input: {
     decisionStates: "in_effect",
     sectionRows: TRACE_SECTION_ROWS,
   });
+  const { branches, dirty, rows } = readCollisions(
+    input.projection,
+    graph.reads,
+    input.gitHistory,
+    paths,
+    input.maxCommits ?? DEFAULT_TRACE_COMMITS,
+    input.taskId,
+  );
+  const collisions: PassiveCollision[] = [];
+  for (const taskId of rows.keys()) {
+    const dirtyPaths = dirty.get(taskId) ?? [],
+      branchPaths = [...(branches.get(taskId)?.tracePaths ?? [])].filter((path) => !dirtyPaths.includes(path));
+    if (dirtyPaths.length > 0) collisions.push({ taskId, tracePaths: dirtyPaths, matchReason: "worktree_dirty" });
+    if (branchPaths.length > 0) collisions.push({ taskId, tracePaths: branchPaths, matchReason: "branch_diff" });
+  }
   return {
     paths,
     reads: graph.reads,
     git: graph.git,
+    collisions,
     decisions: rankDecisions(graph.decisions)
       .filter((decision) => !input.excludeDecisionIds.includes(decision.decisionId))
       .slice(0, input.maxDecisions),

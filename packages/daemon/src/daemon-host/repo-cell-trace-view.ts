@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, lstatSync, opendirSync } from "node:fs";
 import path from "node:path";
 import type { WriteReceiptDraft as WriteReceipt } from "@harness-anything/kernel";
 import {
@@ -8,6 +8,7 @@ import {
   traceFileCausalHistory,
   type GitHistoryOutcome,
   type GitHistoryPort,
+  type TraceWorktreeCollision,
 } from "@harness-anything/application/internal/queries/file-trace-read.ts";
 import type {
   QueryAction,
@@ -19,14 +20,18 @@ import { runGitHistoryLog } from "./process-port.ts";
 /** A valid repository whose HEAD has no commit yet has, truthfully, no history for any path. */
 const UNBORN_HEAD =
   /does not have any commits yet|bad default revision 'HEAD'|unknown revision or path not in the working tree.*HEAD/iu;
+const MAX_WORKTREE_ENTRIES = 32;
+const MAX_WORKTREE_PROBES = 8;
+const WORKTREE_PROBE_TIMEOUT_MS = 300;
+const TASK_WORKTREE = /^task_[0-9a-f]{26}$/u;
 
 /**
- * Host adapter for the application GitHistoryPort (dec_9979850C7CE87C17271D78E4D1 CH1/CH3): every
- * method is exactly one `git` child process through runGitHistoryLog, and every failure surfaces as
+ * Host adapter for the application GitHistoryPort (dec_9979850C7CE87C17271D78E4D1 CH1/CH3): each
+ * history read is one `git` child process through runGitHistoryLog, and each failure surfaces as
  * a structured `unavailable` outcome — a center cell without a source worktree is
  * `git_worktree_unavailable`, a failing git is `git_log_failed` with its exit status and stderr.
  */
-export function makeWorkspaceGitHistoryPort(rootDir: string): GitHistoryPort {
+export function makeWorkspaceGitHistoryPort(rootDir: string, historyOnly = false): GitHistoryPort {
   const readGit = (args: readonly string[]): GitHistoryOutcome => {
     if (!existsSync(path.join(rootDir, ".git")))
       return {
@@ -34,7 +39,7 @@ export function makeWorkspaceGitHistoryPort(rootDir: string): GitHistoryPort {
         reason: "git_worktree_unavailable",
         message: "This repository cell holds no local Git source worktree.",
       };
-    const result = runGitHistoryLog(rootDir, args);
+    const result = runGitHistoryLog(rootDir, ["--literal-pathspecs", ...args]);
     if (result.ok) return { availability: "available", stdout: result.stdout };
     if (result.exitCode !== null && UNBORN_HEAD.test(result.stderr)) return { availability: "available", stdout: "" };
     return {
@@ -45,7 +50,7 @@ export function makeWorkspaceGitHistoryPort(rootDir: string): GitHistoryPort {
       }): ${result.stderr || "no diagnostic output"}`,
     };
   };
-  return {
+  const history: GitHistoryPort = {
     readPathHistory: ({ paths, maxCommits }) =>
       readGit([
         "log",
@@ -57,19 +62,82 @@ export function makeWorkspaceGitHistoryPort(rootDir: string): GitHistoryPort {
         "--",
         ...paths.slice(0, MAX_TRACED_FILES),
       ]),
-    readBranchCollisions: ({ path: tracePath, maxCommits }) =>
+  };
+  if (historyOnly) return history;
+  return {
+    ...history,
+    readBranchCollisions: ({ paths, maxCommits }) =>
       readGit([
         "log",
         "--source",
+        "--name-only",
+        "-z",
         `--max-count=${String(maxCommits)}`,
         `--format=${GIT_COLLISION_FORMAT}`,
         "--branches=task_*",
         "--not",
         "HEAD",
         "--",
-        tracePath,
+        ...paths.slice(0, MAX_TRACED_FILES),
       ]),
+    readDirtyWorktreeCollisions: (input) => readDirtyWorktreeCollisions(rootDir, input),
   };
+}
+
+function readDirtyWorktreeCollisions(
+  rootDir: string,
+  { paths, excludeTaskId }: { readonly paths: readonly string[]; readonly excludeTaskId?: string },
+): readonly TraceWorktreeCollision[] {
+  const directory = path.join(rootDir, ".worktrees"),
+    targets = paths.slice(0, MAX_TRACED_FILES),
+    collisions: TraceWorktreeCollision[] = [];
+  if (targets.length === 0 || !lstatSync(directory, { throwIfNoEntry: false })?.isDirectory()) return collisions;
+  const entries = opendirSync(directory);
+  try {
+    let probes = 0;
+    for (let visited = 0; visited < MAX_WORKTREE_ENTRIES && probes < MAX_WORKTREE_PROBES; visited++) {
+      const entry = entries.readSync();
+      if (entry === null) break;
+      const taskId = entry.name;
+      if (!entry.isDirectory() || !TASK_WORKTREE.test(taskId) || taskId === excludeTaskId) continue;
+      const worktree = path.join(directory, taskId);
+      if (!lstatSync(path.join(worktree, ".git"), { throwIfNoEntry: false })?.isFile()) continue;
+      probes++;
+      const status = runGitHistoryLog(
+        worktree,
+        [
+          "--no-optional-locks",
+          "--literal-pathspecs",
+          "-c",
+          "core.fsmonitor=false",
+          "-c",
+          "core.untrackedCache=false",
+          "status",
+          "--porcelain=v1",
+          "-z",
+          "--no-renames",
+          "--untracked-files=all",
+          "--ignore-submodules=all",
+          "--",
+          ...targets,
+        ],
+        WORKTREE_PROBE_TIMEOUT_MS,
+      );
+      // A disappearing, inaccessible or slow peer worktree is advisory. Continue sampling the others.
+      if (!status.ok) continue;
+      const changed = status.stdout
+          .split("\0")
+          .filter(Boolean)
+          .map((record) => record.slice(3)),
+        tracePaths = targets.filter((target) =>
+          changed.some((file) => file === target || file.startsWith(`${target}/`)),
+        );
+      if (tracePaths.length > 0) collisions.push({ taskId, tracePaths });
+    }
+  } finally {
+    entries.closeSync();
+  }
+  return collisions;
 }
 
 /** `ha trace <path>`: the read receipt around the application trace, with the host Git port injected. */

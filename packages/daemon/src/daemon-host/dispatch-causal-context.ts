@@ -11,6 +11,7 @@ import {
   selectPassiveTraceContext,
   type GitHistoryPort,
   type PassiveTraceSelection,
+  type TraceWorktreeCollision,
 } from "@harness-anything/application/internal/queries/file-trace-read.ts";
 
 /**
@@ -39,8 +40,8 @@ import {
  * in UTF-8 bytes — a provable hard bound the tests assert on real dispatch
  * captures; byte↔token ratios are deliberately not claimed. Fields render at
  * full length (a truncated clause is worse than an absent one), so the bound
- * falls on whole entries: a greedy fit in relation-distance order (identity,
- * first deriving decision, its evidence facts, remaining decisions, tails) sheds
+ * falls on whole entries: a greedy fit keeps active collisions and in-effect
+ * rejected redlines before lineage, evidence facts and the remaining details. It sheds
  * entries from the far end and names every dropped ref in a closing `<omitted>`
  * line, and the root is marked `truncated="yes"`. The size is measured, not
  * guessed: over the production ledger's 3,053 causal-neighborhood blocks
@@ -180,7 +181,7 @@ export function assembleTaskCausalContext(input: {
     work === null &&
     parent === null &&
     decisionIds.length === 0 &&
-    (passive === null || passive.decisions.length + passive.facts.length === 0)
+    (passive === null || passive.decisions.length + passive.facts.length + passive.collisions.length === 0)
   )
     return null;
   // Priority order is relation distance from the dispatched task: identity lines first,
@@ -188,7 +189,8 @@ export function assembleTaskCausalContext(input: {
   // then the evidence layer — a fat work title can never starve the facts of all
   // budget. The remaining decisions, the work goal and the framing question are detail
   // tails the greedy fit sheds first.
-  const details: DetailLine[] = [],
+  const traceLines = passive === null ? null : passiveTraceLines(passive),
+    details: DetailLine[] = [...(traceLines?.priority ?? [])],
     tails: DetailLine[] = [];
   // The refs line already carries every canonical id, so identity lines stay
   // title-only — repeating the id in an attribute would spend budget twice.
@@ -253,9 +255,7 @@ export function assembleTaskCausalContext(input: {
   if (workGoal !== null && work !== null)
     tails.unshift(detail(`task/${work.taskId}`, `<goal ref="task/${work.taskId}">${xmlText(workGoal)}</goal>`));
   details.push(...(decisionBlocks[1] ?? []), ...tails);
-  // Reverse-trace redlines ride the far tail: the forward lineage keeps budget priority, and the
-  // greedy fit sheds these first, naming each shed ref in <omitted>.
-  if (passive !== null) details.push(...passiveTraceLines(passive));
+  if (traceLines !== null) details.push(...traceLines.tail);
   const refs = [
     ...(work === null ? [] : [`task/${work.taskId}`]),
     ...(parent === null || parent.taskId === work?.taskId ? [] : [`task/${parent.taskId}`]),
@@ -263,6 +263,7 @@ export function assembleTaskCausalContext(input: {
     ...servedFactRefs,
     ...(passive?.decisions.map((decision) => `decision/${decision.decisionId}`) ?? []),
     ...(passive?.facts.map((fact) => fact.ref) ?? []),
+    ...(passive?.collisions.map(({ taskId }) => `task/${taskId}`) ?? []),
   ];
   const authorization = decisionExecutionSurface(decisionRead?.decisions ?? [], derives.rows),
     factsNote = servedFactRefs.length > 0 || (passive?.facts.length ?? 0) > 0 ? FACTS_NOTE : null;
@@ -360,6 +361,7 @@ function readPassiveTrace(
   if (plan.document === null) return null;
   const selection = selectPassiveTraceContext({
     projection,
+    taskId,
     planBody: plan.document.body,
     gitHistory,
     excludeDecisionIds: forwardDecisionIds,
@@ -371,22 +373,23 @@ function readPassiveTrace(
   return selection;
 }
 
-/** Rejected redlines (with whyNot) lead each traced decision; every line names the plan path that woke it. */
-function passiveTraceLines(passive: PassiveTraceSelection): DetailLine[] {
-  const lines: DetailLine[] = [],
+/** Every passive line names the plan path that produced it. */
+function passiveTraceLines(passive: PassiveTraceSelection): { priority: DetailLine[]; tail: DetailLine[] } {
+  const priority: DetailLine[] = [],
+    tail: DetailLine[] = [],
     tracePath = (paths: readonly string[]) => xmlText(paths[0] ?? passive.paths[0] ?? "");
   for (const decision of passive.decisions) {
     const ref = `decision/${decision.decisionId}`,
       path = tracePath(decision.tracePaths);
     for (const option of decision.rejected)
       if (option.whyNot.trim())
-        lines.push(
+        priority.push(
           detail(
             ref,
             `<redline ref="${ref}/${xmlText(option.id)}" trace-path="${path}">${xmlText(`${option.summary} — Why Not: ${option.whyNot}`)}</redline>`,
           ),
         );
-    lines.push(
+    tail.push(
       detail(
         ref,
         `<governs ref="${ref}" trace-path="${path}" title="${xmlText(decision.title)}">${xmlText(decision.summary)}</governs>`,
@@ -394,13 +397,70 @@ function passiveTraceLines(passive: PassiveTraceSelection): DetailLine[] {
     );
   }
   for (const fact of passive.facts)
-    lines.push(
+    tail.push(
       detail(
         fact.ref,
         `<anchored ref="${fact.ref}" trace-path="${tracePath(fact.tracePaths)}">${xmlText(fact.summary)} (src:${xmlText(fact.evidenceSource)})</anchored>`,
       ),
     );
-  return lines;
+  return { priority: [...priority, ...collisionLines(passive.collisions)], tail };
+}
+
+function collisionLines(collisions: readonly (TraceWorktreeCollision & { matchReason?: string })[]): DetailLine[] {
+  return collisions.flatMap(({ taskId, tracePaths, matchReason }) => {
+    const ref = `task/${taskId}`,
+      warning =
+        matchReason === "branch_diff"
+          ? "Active task branch has unmerged commits."
+          : "Active worktree has uncommitted changes.";
+    return tracePaths.map((target) =>
+      detail(ref, `<collision ref="${ref}" trace-path="${escapeXml(target)}">${warning}</collision>`),
+    );
+  });
+}
+
+/** Edge dispatch receives canonical causal prose from the center, then adds edge-local Git evidence. */
+export function withLocalWorktreeCollisions(
+  context: string | null,
+  collisions: readonly TraceWorktreeCollision[],
+): string | null {
+  if (collisions.length === 0) return context;
+  const warnings = collisionLines(collisions),
+    end = context?.indexOf(`\n${ROOT_CLOSE}`) ?? -1;
+  if (end < 0 || context === null || !/^<task-context(?: truncated="yes")?>\n/u.test(context)) {
+    const block = renderWithinBudget(warnings, [...new Set(warnings.map(({ ref }) => ref))], null);
+    return context === null ? block : `${block}\n\n${context}`;
+  }
+  const [open, ...lines] = context.slice(0, end).split("\n"),
+    refs =
+      lines
+        .find((line) => line.startsWith("<refs>"))
+        ?.slice(6, -7)
+        .split(" ")
+        .filter(Boolean) ?? [],
+    omitted =
+      lines
+        .find((line) => line.startsWith("<omitted>"))
+        ?.slice(9, -10)
+        .split(" ")
+        .filter(Boolean) ?? [],
+    kept = lines.flatMap((line) => {
+      const ref = /^<[a-z]+ ref="([^"]+)"/u.exec(line)?.[1];
+      return ref === undefined ? [] : [detail(ref, line)];
+    }),
+    details = [
+      ...kept.filter(({ line }) => line.startsWith("<redline ")),
+      ...warnings,
+      ...kept.filter(({ line }) => !line.startsWith("<redline ")),
+    ],
+    block = renderWithinBudget(
+      details,
+      [...new Set([...refs, ...warnings.map(({ ref }) => ref)])],
+      lines.find((line) => line.startsWith("<note>")) ?? null,
+      open === TRUNCATED_OPEN,
+      omitted,
+    );
+  return block + context.slice(end + 1 + ROOT_CLOSE.length);
 }
 
 /**
@@ -413,7 +473,13 @@ function passiveTraceLines(passive: PassiveTraceSelection): DetailLine[] {
  * (only a pathological id set can do that), refs are shed from the tail under the
  * widest root, so the refs line and every emitted line fit without a final clamp.
  */
-function renderWithinBudget(details: readonly DetailLine[], refs: readonly string[], factsNote: string | null): string {
+function renderWithinBudget(
+  details: readonly DetailLine[],
+  refs: readonly string[],
+  factsNote: string | null,
+  previouslyTruncated = false,
+  priorOmissions: readonly string[] = [],
+): string {
   const note = factsNote === null ? 0 : byteLength(factsNote) + 1;
   const mutable = [...refs];
   let refsLine = `<refs>${mutable.join(" ")}</refs>`;
@@ -431,9 +497,11 @@ function renderWithinBudget(details: readonly DetailLine[], refs: readonly strin
   // 16-byte-longer truncated form; fitting the whole root while emitting the truncated one
   // would overshoot the cap and cut `</task-context>` off a details-only shed. A whole-root
   // fit that sheds nothing is emitted as measured.
-  const whole = fitWithinBudget(details, refsLine, ROOT_OPEN, factsNote);
-  if (!whole.dropped) return renderBlock(ROOT_OPEN, refsLine, whole.kept, whole.omittedLine, factsNote);
-  const truncated = fitWithinBudget(details, refsLine, TRUNCATED_OPEN, factsNote);
+  if (!previouslyTruncated) {
+    const whole = fitWithinBudget(details, refsLine, ROOT_OPEN, factsNote);
+    if (!whole.dropped) return renderBlock(ROOT_OPEN, refsLine, whole.kept, whole.omittedLine, factsNote);
+  }
+  const truncated = fitWithinBudget(details, refsLine, TRUNCATED_OPEN, factsNote, priorOmissions);
   return renderBlock(TRUNCATED_OPEN, refsLine, truncated.kept, truncated.omittedLine, factsNote);
 }
 
@@ -443,6 +511,7 @@ function fitWithinBudget(
   refsLine: string,
   open: string,
   factsNote: string | null,
+  priorOmissions: readonly string[] = [],
 ): BudgetFit {
   let used =
     byteLength(open) +
@@ -452,7 +521,7 @@ function fitWithinBudget(
     1 +
     byteLength(ROOT_CLOSE);
   const kept: string[] = [],
-    omitted: string[] = [];
+    omitted = [...priorOmissions];
   let dropped = false;
   for (const entry of details) {
     const cost = byteLength(entry.line) + 1;

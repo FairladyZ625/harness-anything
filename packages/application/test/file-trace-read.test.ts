@@ -144,7 +144,7 @@ function port(overrides: Partial<GitHistoryPort> = {}) {
       invocations.push({ method: "readBranchCollisions", input });
       return {
         availability: "available",
-        stdout: `\x1e${"5".repeat(40)}\x1frefs/heads/${TASK_C}\n\x1e${"6".repeat(40)}\x1frefs/heads/${TASK_C}\n\x1e${"7".repeat(40)}\x1fHEAD\n`,
+        stdout: `\x1e${"5".repeat(40)}\x1frefs/heads/${TASK_C}\0\n${PATH}\0\x1e${"6".repeat(40)}\x1frefs/heads/${TASK_C}\0\n${PATH}\0\x1e${"7".repeat(40)}\x1fHEAD\0`,
       };
     },
     ...overrides,
@@ -354,7 +354,7 @@ test("reads from different projection cuts fail closed", () => {
   );
 });
 
-test("passive dispatch trace batches every plan path into one Git process and dedupes the forward context", () => {
+test("serving runtime context batches every plan path into one Git process and dedupes the forward context", () => {
   const { projection } = fixture(),
     { gitHistory, invocations } = port(),
     plan = [
@@ -365,7 +365,7 @@ test("passive dispatch trace batches every plan path into one Git process and de
     selection = selectPassiveTraceContext({
       projection,
       planBody: plan,
-      gitHistory,
+      gitHistory: { readPathHistory: gitHistory.readPathHistory },
       excludeDecisionIds: ["dec_PLAIN"],
       excludeFactRefs: ["fact/F-00000003"],
       maxDecisions: 2,
