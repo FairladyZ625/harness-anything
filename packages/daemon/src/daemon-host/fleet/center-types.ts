@@ -10,6 +10,22 @@ import type { ReplicationFrame, ReplicationPeer } from "../../fleet-sync/fleet/p
 import type { ResourceBudget } from "./resource-budget.ts";
 import type { RuntimeExecutionPrincipal } from "../runtime-execution-credential.ts";
 
+export interface CenterMovedDetails {
+  readonly newExternalUrl: string;
+  readonly newLoginUrl: string;
+  readonly newEpoch: number;
+  readonly spkiSha256: string;
+}
+
+export interface CenterRelocatedTombstoneV1 extends CenterMovedDetails {
+  readonly schema: "center-relocated/v1";
+  readonly repoId: string;
+  readonly finalRevision: number;
+  readonly tipHash: string;
+  readonly oldEpoch: number;
+  readonly relocatedAt: string;
+}
+
 export interface FleetCenterOptions {
   /** Persist one transport record per completed frame; the runtime wires this to the conn log. */
   readonly recordTraffic?: (entry: import("../conn-log.ts").DaemonTrafficLogEntry) => void;
@@ -32,6 +48,8 @@ export interface FleetCenterOptions {
   > &
     Partial<Pick<DaemonHost, "readRepositoryMembers" | "unregisterFleetNode">>;
   readonly stateRoot: string;
+  readonly relocationRoot?: string;
+  readonly centerRelocated?: CenterRelocatedTombstoneV1;
   readonly writerEpochStateRoot?: string;
   readonly writerEpochLease?: (repoId: string) => WriterEpochLease;
   readonly key: string | Buffer;
@@ -199,11 +217,19 @@ export class FleetFault extends Error {
   readonly code: string;
   readonly retryable: boolean;
   readonly resumeOffset: number | null;
-  constructor(code: string, message: string, retryable = false, resumeOffset: number | null = null) {
+  readonly centerMoved?: CenterMovedDetails;
+  constructor(
+    code: string,
+    message: string,
+    retryable = false,
+    resumeOffset: number | null = null,
+    centerMoved?: CenterMovedDetails,
+  ) {
     super(message);
     this.code = code;
     this.retryable = retryable;
     this.resumeOffset = resumeOffset;
+    this.centerMoved = centerMoved;
   }
 }
 

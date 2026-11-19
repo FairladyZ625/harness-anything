@@ -42,6 +42,27 @@ export const clientLocalCommands = [
     ].join("\n"),
   },
   {
+    id: "fleet-center-export",
+    path: ["fleet", "center", "export"],
+    usage: "ha fleet center export --root <path> --bundle <path> --repo <id> --writer-epoch <n> [--slots <path>] [--json]",
+    summary: "Stage blobs outside the freeze, then write a portable relocation-bundle/v1 cut.",
+    help: "    The manifest contains only bundle-relative paths and SHA-256 digests.",
+  },
+  {
+    id: "fleet-center-import",
+    path: ["fleet", "center", "import"],
+    usage: "ha fleet center import --bundle <path> --destination <path> [--state-root <path>] [--repo <id>] [--json]",
+    summary: "Verify every relocation-bundle/v1 digest before restoring and advancing the writer epoch.",
+    help: "    A digest, repo, revision or tip mismatch removes the partially restored destination.",
+  },
+  {
+    id: "fleet-center-retire",
+    path: ["fleet", "center", "retire"],
+    usage: "ha fleet center retire --repo <id> --old-epoch <n> --final-revision <n> --tip-hash <hash> --new-external-url <url> --new-login-url <url> --spki-sha256 <hash> [--user-root <path>] [--json]",
+    summary: "Write the irreversible center-relocated.json tombstone and fence old-center writes.",
+    help: "    A restarted old center returns CENTER_MOVED with the tombstone routing fields.",
+  },
+  {
     id: "daemon-metrics",
     path: ["daemon", "metrics"],
     usage:

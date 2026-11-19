@@ -130,6 +130,10 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
     const { runDaemonControl } = await import("./daemon/control.ts");
     return runDaemonControl(argv, emit);
   }
+  if (command === "fleet" && argv[1] === "center") {
+    const { runCenterRelocationCommand } = await import("./center-relocation-command.ts");
+    return runCenterRelocationCommand(argv);
+  }
   const parseStartedAt = cliPhaseStart(),
     parsed = parseThinCommand(explainHelpOverlay?.argv ?? argv);
   cliPhaseEnd("parse", parseStartedAt);

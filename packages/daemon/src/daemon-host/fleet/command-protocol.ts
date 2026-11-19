@@ -351,7 +351,19 @@ export type FleetFrameV1 =
   | Msg<"fleet.transfer.end/v1", { transferId: string; totalBytes: number; sha256: string }>
   | Msg<
       "fleet.error/v1",
-      { inReplyTo: string; code: string; message: string; retryable: boolean; resumeOffset: number | null }
+      {
+        inReplyTo: string;
+        code: string;
+        message: string;
+        retryable: boolean;
+        resumeOffset: number | null;
+        centerMoved?: {
+          readonly newExternalUrl: string;
+          readonly newLoginUrl: string;
+          readonly newEpoch: number;
+          readonly spkiSha256: string;
+        };
+      }
     >;
 export type FleetDocChange = Readonly<{
   path: string;
@@ -1054,13 +1066,20 @@ const schemas: Readonly<Record<string, Check>> = {
       Buffer.from(value, "base64").toString("base64") === value,
   }),
   "fleet.transfer.end/v1": shape({ ...common, transferId: id, totalBytes: uint, sha256: sha64 }),
-  "fleet.error/v1": shape({
-    ...reply,
-    code: text,
-    message: bodyText,
-    retryable: (value) => typeof value === "boolean",
-    resumeOffset: nullable(uint),
-  }),
+  "fleet.error/v1": optionalShape(
+    {
+      ...reply,
+      code: text,
+      message: bodyText,
+      retryable: (value) => typeof value === "boolean",
+      resumeOffset: nullable(uint),
+      centerMoved: optionalShape(
+        { newExternalUrl: text, newLoginUrl: text, newEpoch: uint, spkiSha256: text },
+        ["newExternalUrl", "newLoginUrl", "newEpoch", "spkiSha256"],
+      ),
+    },
+    ["schema", "messageId", "inReplyTo", "code", "message", "retryable", "resumeOffset"],
+  ),
 };
 function validateFleetFrame(value: unknown): FleetFrameV1 {
   const payload = record(value)

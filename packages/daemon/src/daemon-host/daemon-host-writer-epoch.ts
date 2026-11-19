@@ -1,5 +1,6 @@
 /** @daemon-transport-authority The daemon's writer-epoch lifecycle: leases, fences, and binding decoration. */
 import path from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { readDaemonRegistry } from "@harness-anything/kernel";
 import { localSystemBinding, withDaemonWriterEpochFence } from "./daemon-host-binding.ts";
 import {
@@ -45,6 +46,7 @@ export function openDaemonWriterEpochs(input: {
       return authority;
     },
     writerEpochLease = (repoId: string, rootDir?: string): WriterEpochLease => {
+      assertCenterNotRelocated(input.userRoot, repoId);
       epoch(repoId);
       const existing = daemonWriterLeases.get(repoId);
       if (existing) return existing;
@@ -95,4 +97,31 @@ export function openDaemonWriterEpochs(input: {
     closeDaemonWriterEpoch,
     daemonWriterBinding,
   };
+}
+
+function assertCenterNotRelocated(userRoot: string, repoId: string): void {
+  const file = path.join(path.resolve(userRoot), "fleet", "center-relocated.json");
+  if (!existsSync(file)) return;
+  const value = JSON.parse(readFileSync(file, "utf8")) as {
+    readonly schema?: unknown;
+    readonly repoId?: unknown;
+    readonly newExternalUrl?: unknown;
+    readonly newLoginUrl?: unknown;
+    readonly newEpoch?: unknown;
+    readonly spkiSha256?: unknown;
+  };
+  if (value.schema !== "center-relocated/v1" || value.repoId !== repoId) return;
+  const error = Object.assign(
+    new Error("The center has moved; repoint this edge before retrying."),
+    {
+      code: "CENTER_MOVED",
+      centerMoved: {
+        newExternalUrl: String(value.newExternalUrl),
+        newLoginUrl: String(value.newLoginUrl),
+        newEpoch: Number(value.newEpoch),
+        spkiSha256: String(value.spkiSha256),
+      },
+    },
+  );
+  throw error;
 }

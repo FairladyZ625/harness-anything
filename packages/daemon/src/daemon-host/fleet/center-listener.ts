@@ -65,7 +65,7 @@ import {
 } from "./center-lease-claims.ts";
 import { digestId, immediate, loadState, mid, ownedUpload, serve, writeCenterDurableJson } from "./center-transport.ts";
 import { createHelloRateLimiter } from "./center-hello-guard.ts";
-import type { Delivery, FleetCenterOptions, FleetTlsCenter, SessionWindow } from "./center-types.ts";
+import type { CenterRelocatedTombstoneV1, Delivery, FleetCenterOptions, FleetTlsCenter, SessionWindow } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
 import { type FleetFrameV1 } from "./command-protocol.ts";
 import type { FleetOverviewResult } from "./fleet-overview-read.ts";
@@ -123,7 +123,9 @@ function awaitWithSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T
 }
 export async function listenFleetTls(options: FleetCenterOptions): Promise<FleetTlsCenter> {
   /* @gate-identity non-state/environment-io.f4d8382218704581 */ mkdirSync(options.stateRoot, { recursive: true });
-  const closing = new AbortController();
+  const closing = new AbortController(),
+    centerRelocated =
+      options.centerRelocated ?? readCenterRelocated(options.relocationRoot ?? path.dirname(options.stateRoot));
   const nodeAdmission = createNodeRetirementAdmission();
   const deliveries = createFleetDeliveryDrain(options.onDeliverySettled);
   const resourceBudget = createResourceBudget(DOC_SHOW_BUDGET_LIMITS);
@@ -140,11 +142,20 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     acquireWriterEpoch =
       options.writerEpochLease ??
       ((repoId: string) => {
+        if (centerRelocated)
+          throw new FleetFault(
+            "CENTER_MOVED",
+            "The center has moved; repoint this edge before retrying.",
+            false,
+            null,
+            centerRelocated,
+          );
         const rootDir = options.host.status().repos.find((repo) => repo.repoId === repoId)?.rootDir;
         return writerEpoch.acquire(repoId, readLedgerWriterEpoch(repoId, rootDir, options.storage?.[repoId]));
       });
-  for (const repo of options.host.status().repos)
-    if (repo.state === "attached") ownedEpochs.set(repo.repoId, acquireWriterEpoch(repo.repoId));
+  if (!centerRelocated)
+    for (const repo of options.host.status().repos)
+      if (repo.state === "attached") ownedEpochs.set(repo.repoId, acquireWriterEpoch(repo.repoId));
   // A center must keep using the epoch it acquired, even after another center
   // advances the shared state. Reading the latest row here would let a stale
   // process silently adopt its successor's epoch and defeat fencing.
@@ -1866,6 +1877,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       socket,
       {
         ...options,
+        ...(centerRelocated === null ? {} : { centerRelocated }),
         commandResourceBudget: resourceBudget,
         authenticate: observedAuthenticate,
         onReplicationStart: observedReplicationStart,
@@ -1975,6 +1987,27 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       ...(repoId === undefined ? {} : { repoId }),
     });
   }
+}
+
+function readCenterRelocated(userRoot: string): CenterRelocatedTombstoneV1 | null {
+  const file = path.join(path.resolve(userRoot), "fleet", "center-relocated.json");
+  if (!existsSync(file)) return null;
+  const value = JSON.parse(readFileSync(file, "utf8")) as Partial<CenterRelocatedTombstoneV1>;
+  if (
+    value.schema !== "center-relocated/v1" ||
+    typeof value.repoId !== "string" ||
+    !Number.isSafeInteger(value.finalRevision) ||
+    !Number.isSafeInteger(value.oldEpoch) ||
+    !Number.isSafeInteger(value.newEpoch) ||
+    value.newEpoch !== Number(value.oldEpoch) + 1 ||
+    typeof value.tipHash !== "string" ||
+    typeof value.newExternalUrl !== "string" ||
+    typeof value.newLoginUrl !== "string" ||
+    typeof value.spkiSha256 !== "string" ||
+    typeof value.relocatedAt !== "string"
+  )
+    throw new Error(`Center relocation tombstone at ${file} is invalid.`);
+  return value as CenterRelocatedTombstoneV1;
 }
 
 function fleetErrorCode(error: unknown): string | null {

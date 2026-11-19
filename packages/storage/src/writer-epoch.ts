@@ -17,6 +17,7 @@ import {
 import type { StorageBackendConfig } from "./storage-backend.ts";
 import { requireExternalWriterEpochOpener } from "./sql-backend-adapters.ts";
 import { writerEpochStorage } from "./writer-epoch-storage.ts";
+import { centerMovedError } from "./center-relocation-state.ts";
 
 type EpochRow = {
   readonly repo_id: string;
@@ -527,6 +528,7 @@ export function openPersistentWriterEpoch(options: {
   readonly now?: () => string;
   readonly storage?: StorageBackendConfig;
   readonly storageByRepo?: Readonly<Record<string, StorageBackendConfig>>;
+  readonly initialEpochFloor?: number;
 }): PersistentWriterEpoch {
   if (options.storage?.backend === "postgres" || options.storage?.backend === "pglite")
     return requireExternalWriterEpochOpener(options.storage.backend)({ ...options, storage: options.storage });
@@ -561,6 +563,7 @@ export function openPersistentWriterEpoch(options: {
         repoId,
         holderId,
         now,
+        initialEpochFloor: options.initialEpochFloor,
       });
       authorities.set(repoId, authority);
     }
@@ -569,6 +572,8 @@ export function openPersistentWriterEpoch(options: {
   return {
     acquire: (repoId, observedLedgerEpoch = 0) => {
       if (!repoId) throw new WriterEpochError("writer_epoch_invalid", "repoId is required for writer epoch allocation");
+      const moved = centerMovedError(path.dirname(options.stateRoot), repoId);
+      if (moved) throw moved;
       return authorityFor(repoId).acquire(repoId, observedLedgerEpoch);
     },
     current: (repoId) => authorityFor(repoId).current(repoId),

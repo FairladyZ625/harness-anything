@@ -495,6 +495,7 @@ export async function serve(
         message: fault.message,
         retryable: fault.retryable,
         resumeOffset: fault.resumeOffset,
+        ...(fault.centerMoved === undefined ? {} : { centerMoved: fault.centerMoved }),
       }),
       onComplete: () => {
         if (fault.code === "authentication_failed") socket.end();
@@ -503,6 +504,14 @@ export async function serve(
   };
   const dispatch = async (frame: FleetFrameV1) => {
     try {
+      if (options.centerRelocated)
+        throw new FleetFault(
+          "CENTER_MOVED",
+          "The center has moved; repoint this edge before retrying.",
+          false,
+          null,
+          options.centerRelocated,
+        );
       if (nodeId === null) {
         if (frame.schema === "fleet.edge.join.status/v1") {
           if (!options.edgeJoinStatus)

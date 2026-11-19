@@ -35,7 +35,8 @@ export class WriterEpochError extends Error {
     | "writer_epoch_migration_required"
     | "writer_epoch_legacy_unreadable"
     | "writer_epoch_legacy_unsupported"
-    | "writer_epoch_daemon_running";
+    | "writer_epoch_daemon_running"
+    | "CENTER_MOVED";
   constructor(code: WriterEpochError["code"], message: string) {
     super(message);
     this.name = "WriterEpochError";

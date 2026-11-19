@@ -118,6 +118,7 @@ export async function prepareFleetCenterAdmission(input: FleetCenterAdmissionReq
       : {}),
     ...(input.recordTraffic ? { recordTraffic: input.recordTraffic } : {}),
     stateRoot: request.stateRoot ?? path.join(input.userRoot, "fleet"),
+    relocationRoot: input.userRoot,
     writerEpochStateRoot: path.join(input.userRoot, "fleet"),
     ...(input.writerEpochLease ? { writerEpochLease: input.writerEpochLease } : {}),
     key,
