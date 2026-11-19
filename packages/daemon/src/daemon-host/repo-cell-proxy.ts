@@ -155,7 +155,12 @@ export async function openRepoCellProxy(
     };
   }
   const reads = openRepoReadClient(input, options.createReadWorker);
-  const query = <T>(method: string, args: readonly unknown[] = [], binding?: RepoCellBinding): Promise<T> => {
+  const query = <T>(
+    method: string,
+    args: readonly unknown[] = [],
+    binding?: RepoCellBinding,
+    signal?: AbortSignal,
+  ): Promise<T> => {
     if (closed) return Promise.reject(cellCodedError("repo_unavailable", "RepoCell is closed."));
     const status = supervisor.status();
     const observeEvents = method === "observeTail" && (args[0] as { kind?: unknown } | null)?.kind === "events";
@@ -178,7 +183,7 @@ export async function openRepoCellProxy(
       !(status.state === "unavailable" && status.projectionReadable === true)
     )
       return Promise.reject(cellCodedError("repo_unavailable", status.lastError ?? "RepoWriterCell is not ready."));
-    return reads.request(method, args, binding);
+    return reads.request(method, args, binding, signal);
   };
   const readSession = (runtimeSessionId: string) =>
     query<import("@harness-anything/kernel").RuntimeSession | null>("readSession", [runtimeSessionId]);
@@ -226,7 +231,7 @@ export async function openRepoCellProxy(
       !(action.kind === "receipt-show" && action.waitFor !== undefined)
     ) {
       try {
-        return await query("run", [action, supervisor.status()], binding);
+        return await query("run", [action, supervisor.status()], binding, signal);
       } catch (error) {
         return failed(operationId(action, binding, input.repoId, 0), error) as Awaited<ReturnType<RepoCell["run"]>>;
       }
@@ -292,9 +297,14 @@ export async function openRepoCellProxy(
       reread: (payload) => supervisor.request("catalog", { method: "reread", args: [payload] }),
     },
     terminal,
-    read: async (method, payload = {}, binding) => {
+    read: async (method, payload = {}, binding, signal) => {
       if (method === "repo.entity.actions.explain") {
-        const at = await query<{ revision: number; binding: RepoCellBinding }>("explainBasis", [payload], binding);
+        const at = await query<{ revision: number; binding: RepoCellBinding }>(
+          "explainBasis",
+          [payload],
+          binding,
+          signal,
+        );
         const prepared = await preparePersonActionExplanationBinding(
           {
             revision: at.revision,
@@ -304,22 +314,23 @@ export async function openRepoCellProxy(
           },
           payload,
         );
-        return query("read", [method, payload, at.revision], prepared);
+        return query("read", [method, payload, at.revision], prepared, signal);
       }
-      return query("read", [method, payload], binding);
+      return query("read", [method, payload], binding, signal);
     },
-    readDispatchLifecycle: (queryValue) => query("readDispatchLifecycle", [queryValue]),
+    readDispatchLifecycle: (queryValue, signal) => query("readDispatchLifecycle", [queryValue], undefined, signal),
     readEventWitness: (revision) => query("readEventWitness", [revision]),
-    readNodeAutoClaimAssignments: (binding) => query("readNodeAutoClaimAssignments", [], binding),
-    readNodeAutoDispatchCandidates: (nodeId) => query("readNodeAutoDispatchCandidates", [nodeId]),
+    readNodeAutoClaimAssignments: (binding, signal) => query("readNodeAutoClaimAssignments", [], binding, signal),
+    readNodeAutoDispatchCandidates: (nodeId, signal) =>
+      query("readNodeAutoDispatchCandidates", [nodeId], undefined, signal),
     workspaceSummary: () => query("read", ["repo.workspace.summary.read", {}]),
     workspaceScope: (payload) => query("read", ["repo.workspace.scope.read", payload]),
     // File tails already use async I/O with a fixed byte/page budget. Only the ledger
     // event tail needs a query worker; a cold worker adds no isolation to bounded file I/O.
-    observeTail: (payload, daemon, binding) => {
+    observeTail: (payload, daemon, binding, signal) => {
       if (closed) return Promise.reject(cellCodedError("repo_unavailable", "RepoCell is closed."));
       return (payload as { kind?: unknown })?.kind === "events"
-        ? query("observeTail", [payload, daemon], binding)
+        ? query("observeTail", [payload, daemon], binding, signal)
         : readObserveTail({
             repoId: input.repoId,
             rootDir: input.rootDir,

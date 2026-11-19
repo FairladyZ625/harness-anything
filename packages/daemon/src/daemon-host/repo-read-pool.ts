@@ -6,6 +6,7 @@ import {
   type StorageWorkerContext,
 } from "@harness-anything/storage";
 import { randomUUID } from "node:crypto";
+import { addAbortListener } from "node:events";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
@@ -49,6 +50,7 @@ type Job = {
   readonly resolve: (value: unknown) => void;
   readonly reject: (error: Error) => void;
   readonly settled: () => void;
+  readonly detachAbort?: () => void;
 };
 type Slot = {
   worker: Worker | null;
@@ -86,8 +88,14 @@ export function openRepoReadClient(input: RepoCellOpenInput, createWorker?: Repo
   let closed = false;
   let closing: Promise<void> | undefined;
   return {
-    request: <T>(method: string, args: readonly unknown[], binding?: RepoCellBinding): Promise<T> => {
+    request: <T>(
+      method: string,
+      args: readonly unknown[],
+      binding?: RepoCellBinding,
+      signal?: AbortSignal,
+    ): Promise<T> => {
       if (closed) return Promise.reject(readError("repo_unavailable", "Repository reader is closed."));
+      if (signal?.aborted) return Promise.reject(readAborted());
       if (queue.length >= REPO_READ_QUEUE_LIMIT && slots.every((slot) => slot.job || slot.starting || slot.stopping))
         return Promise.reject(readError("read_overloaded", "Repository read queue is full; retry the read.", true));
       const requestId = randomUUID(),
@@ -121,7 +129,12 @@ export function openRepoReadClient(input: RepoCellOpenInput, createWorker?: Repo
       });
       outstanding.add(completion);
       return new Promise<T>((resolve, reject) => {
-        queue.push({
+        let listener: ReturnType<typeof addAbortListener> | undefined;
+        const detachAbort = () => {
+          listener?.[Symbol.dispose]();
+          listener = undefined;
+        };
+        const job: Job = {
           owner,
           completion,
           createWorker,
@@ -136,12 +149,29 @@ export function openRepoReadClient(input: RepoCellOpenInput, createWorker?: Repo
           },
           resolve: resolve as (value: unknown) => void,
           reject,
+          detachAbort,
           settled: () => {
+            detachAbort();
             outstanding.delete(completion);
             settled();
           },
-        });
-        pump();
+        };
+        const abort = () => {
+          const index = queue.indexOf(job);
+          if (index < 0) return;
+          queue.splice(index, 1);
+          // Release an unstarted reservation. A worker already booting can become a warm reader.
+          const reserved = slots.find((slot) => slot.starting === job && slot.worker === null);
+          if (reserved) void stop(reserved);
+          reject(readAborted(replicaPin?.release));
+          job.settled();
+        };
+        queue.push(job);
+        if (signal?.aborted) abort();
+        else {
+          if (signal) listener = addAbortListener(signal, abort);
+          pump();
+        }
       }).finally(() => replicaPin?.release());
     },
     close: () => {
@@ -189,6 +219,7 @@ function pump(): void {
       continue;
     }
     queue.shift();
+    job.detachAbort?.();
     job.handoff = slot.owner !== null && slot.owner !== job.owner;
     slot.job = job;
     slot.owner = job.owner;
@@ -345,4 +376,12 @@ function stop(slot: Slot): Promise<void> {
 }
 function readError(code: string, message: string, retryable = false): Error {
   return Object.assign(new Error(message), { code, data: { retryable } });
+}
+function readAborted(releasePin?: () => void): unknown {
+  try {
+    releasePin?.();
+  } catch (error) {
+    return error;
+  }
+  return readError("read_aborted", "Repository read was cancelled before execution.");
 }

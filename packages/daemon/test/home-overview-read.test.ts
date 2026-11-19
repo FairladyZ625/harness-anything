@@ -266,11 +266,12 @@ test("home overview: timeout gracefully degrades slow repo without blocking othe
   writeFileSync(path.join(tempUserRoot, "registry.json"), JSON.stringify(registryData, null, 2));
 
   const cells = new Map<string, RepoCell>();
+  const signals: (AbortSignal | undefined)[] = [];
   const slowCell: Partial<RepoCell> = {
     status: () => ({ state: "attached" }) as RepoCellStatus,
-    read: async () => {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      return {} as any;
+    read: async (_method, _payload, _binding, signal) => {
+      signals.push(signal);
+      return new Promise(() => {});
     },
   };
   cells.set("repo-slow", slowCell as RepoCell);
@@ -292,6 +293,10 @@ test("home overview: timeout gracefully degrades slow repo without blocking othe
     assert.match(slowRepo.unavailableReason!, /超时/);
     assert.equal(slowRepo.waitingCount, null);
     assert.equal(slowRepo.isQuiet, false);
+    assert.deepEqual(
+      signals.map((signal) => signal?.aborted),
+      [true, true, true],
+    );
   } finally {
     try {
       rmSync(tempUserRoot, { recursive: true, force: true });

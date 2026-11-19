@@ -427,18 +427,24 @@ export interface RepoCell {
     method: M,
     payload?: Readonly<Record<string, unknown>>,
     binding?: RepoCellBinding,
+    signal?: AbortSignal,
   ) => Promise<DaemonGuiReadResultMap[M]>;
   readonly readDispatchLifecycle: (
     query: import("@harness-anything/kernel").DispatchLifecycleQuery,
+    signal?: AbortSignal,
   ) => Promise<import("@harness-anything/kernel").DispatchLifecycleRead>;
   /** Canonical actor witness for an event revision; used by local policy decisions. */
   readonly readEventWitness: (
     revision: number,
   ) => Promise<ReturnType<import("@harness-anything/kernel").TaskProjection["readEventWitness"]>>;
   /** Assignment edges and actor witnesses read from one authorized projection cut. */
-  readonly readNodeAutoClaimAssignments: (binding: RepoCellBinding) => Promise<readonly RepoCellAutoClaimAssignment[]>;
+  readonly readNodeAutoClaimAssignments: (
+    binding: RepoCellBinding,
+    signal?: AbortSignal,
+  ) => Promise<readonly RepoCellAutoClaimAssignment[]>;
   readonly readNodeAutoDispatchCandidates?: (
     nodeId: string,
+    signal?: AbortSignal,
   ) => Promise<readonly import("./node-auto-dispatch.ts").NodeAutoDispatchCandidate[]>;
   readonly workspaceSummary: () => Promise<DaemonGuiReadResultMap["repo.workspace.summary.read"]>;
   readonly workspaceScope: (
@@ -448,6 +454,7 @@ export interface RepoCell {
     payload: unknown,
     daemon: { readonly userRoot: string; readonly daemonId: string },
     binding?: RepoCellBinding,
+    signal?: AbortSignal,
   ) => Promise<ObserveTailResult>;
   readonly replica: ReplicaCutSource;
   readonly verifyReadiness: () => Promise<{

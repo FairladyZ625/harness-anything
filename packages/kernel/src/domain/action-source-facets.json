@@ -904,7 +904,7 @@
         "role": "support"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-read-pool.ts#openRepoReadClient.request.settled:d6be87a1ada55d2111056fb29af5e364",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-read-pool.ts#openRepoReadClient.request.job.settled:d6be87a1ada55d2111056fb29af5e364",
         "route": "repository-read",
         "role": "support"
       },

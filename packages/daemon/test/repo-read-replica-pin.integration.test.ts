@@ -66,6 +66,19 @@ test(
       writeFileSync(pointer, JSON.stringify(next));
       replicaGenerationReaders(viewDir).collect();
       assert.equal(existsSync(before.rootDir), true, "receiver collection must see the query worker's pin");
+      const controller = new AbortController(),
+        replacement = readReplicaGeneration(viewDir)!,
+        latest = { ...next, id: "latest" };
+      cpSync(replacement.rootDir, path.join(viewDir, "generations", latest.id), { recursive: true });
+      const queued = client.request("read", ["repo.tasks.list", {}], undefined, controller.signal),
+        cancelled = assert.rejects(queued, { code: "read_aborted" });
+      writeFileSync(pointer, JSON.stringify(latest));
+      replicaGenerationReaders(viewDir).collect();
+      assert.equal(existsSync(replacement.rootDir), true, "the queued read pins its own generation");
+      controller.abort();
+      assert.equal(existsSync(replacement.rootDir), false, "aborting the queued read releases its pin immediately");
+      assert.equal(existsSync(before.rootDir), true, "the in-flight read still owns its pin");
+      await cancelled;
       Atomics.store(barrier, 2, 1);
       Atomics.notify(barrier, 2);
       assert.deepEqual(
