@@ -12,15 +12,11 @@ export function parseTrace(
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
   const rest = args.slice(1),
-    valueFlags = new Set(
-      (route.inputs as readonly { readonly kind: string; readonly name: string }[])
-        .filter((input) => input.kind === "single")
-        .map((input) => input.name),
-    );
+    descriptorInputs = inputs.get(route.id)?.inputs ?? [];
   let pathIndex = -1;
   for (let index = 0; index < rest.length; index++) {
     const token = rest[index]!;
-    if (valueFlags.has(token)) index++;
+    if (descriptorInputs.some((input) => input.kind === "single" && input.name === token)) index++;
     else if (!token.startsWith("--")) {
       pathIndex = index;
       break;

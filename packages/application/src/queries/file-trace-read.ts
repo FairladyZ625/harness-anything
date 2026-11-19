@@ -20,8 +20,8 @@ import { requireSameProjectionCut, type ProjectionCut } from "./projection-cut.t
 export const MAX_TRACED_FILES = 5;
 export const DEFAULT_TRACE_COMMITS = 20;
 export const MAX_TRACE_COMMITS = 200;
-/** Per-section caps for `ha trace`; every projection read below is a bounded, indexed page. */
-const TRACE_SECTION_LIMIT = 20;
+/** Per-section row count for `ha trace`; every projection read below is a bounded, indexed page. */
+const TRACE_SECTION_ROWS = 20;
 const CODE_PATH_EXTENSIONS = /\.(?:ts|tsx|js|mjs|cjs|json|py|rs|go|sql|sh|css|html|md|yaml|yml)$/iu;
 const CODE_PATH_ROOTS = new Set(["packages", "tools", "scripts", "src", "test", "docs", "apps"]);
 const NON_CODE_PREFIXES = ["http://", "https://", "harness/", ".harness/", "tasks/", "decisions/", "facts/"];
@@ -237,9 +237,9 @@ function traceGraph(input: {
   readonly maxCommits: number;
   readonly gitHistory: GitHistoryPort | null;
   readonly decisionStates: "in_effect" | "any";
-  readonly sectionLimit: number;
+  readonly sectionRows: number;
 }): TraceGraph {
-  const { projection, paths, sectionLimit } = input,
+  const { projection, paths, sectionRows } = input,
     reads: ProjectionCut[] = [projection.readCut()];
   const history: GitHistoryOutcome =
     input.gitHistory === null
@@ -295,11 +295,11 @@ function traceGraph(input: {
       state: "in_effect",
       modulePrefixes: prefixes,
       withBody: false,
-      limit: sectionLimit,
+      limit: sectionRows,
     });
   reads.push(moduleRead);
   const rows = new Map(moduleRead.decisions.map((row) => [row.decisionId, row] as const)),
-    missing = [...viaTasks.keys()].filter((id) => !rows.has(id)).slice(0, sectionLimit);
+    missing = [...viaTasks.keys()].filter((id) => !rows.has(id)).slice(0, sectionRows);
   if (missing.length > 0) {
     const read = projection.readDecisions(missing, false);
     reads.push(read);
@@ -309,7 +309,7 @@ function traceGraph(input: {
     .filter((row) => input.decisionStates === "any" || row.state === "in_effect")
     .map((row) => traceDecision(row, viaTasks.get(row.decisionId), paths, commitPaths, commitTask))
     .filter((decision) => decision.viaTaskIds.length > 0 || decision.viaModulePrefix !== null);
-  const facts = traceFacts(projection, reads, paths, commits, commitPaths, sectionLimit);
+  const facts = traceFacts(projection, reads, paths, commits, commitPaths, sectionRows);
   return { reads, git: gitAvailability(history), commits, commitPaths, taskById, commitTask, decisions, facts };
 }
 
@@ -423,7 +423,7 @@ export function traceFileCausalHistory(input: {
       maxCommits,
       gitHistory: input.gitHistory,
       decisionStates: "any",
-      sectionLimit: TRACE_SECTION_LIMIT,
+      sectionRows: TRACE_SECTION_ROWS,
     });
   const activeTasks = readCollisions(input.projection, graph.reads, input.gitHistory, path, maxCommits);
   return {
@@ -521,7 +521,7 @@ export function selectPassiveTraceContext(input: {
     maxCommits: input.maxCommits ?? DEFAULT_TRACE_COMMITS * 2,
     gitHistory: input.gitHistory,
     decisionStates: "in_effect",
-    sectionLimit: TRACE_SECTION_LIMIT,
+    sectionRows: TRACE_SECTION_ROWS,
   });
   return {
     paths,

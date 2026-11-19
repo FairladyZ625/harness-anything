@@ -22,7 +22,7 @@ const UNBORN_HEAD = /does not have any commits yet|bad default revision 'HEAD'|u
  * `git_worktree_unavailable`, a failing git is `git_log_failed` with its exit status and stderr.
  */
 export function makeWorkspaceGitHistoryPort(rootDir: string): GitHistoryPort {
-  const run = (args: readonly string[]): GitHistoryOutcome => {
+  const readGit = (args: readonly string[]): GitHistoryOutcome => {
     if (!existsSync(path.join(rootDir, ".git")))
       return {
         availability: "unavailable",
@@ -42,7 +42,7 @@ export function makeWorkspaceGitHistoryPort(rootDir: string): GitHistoryPort {
   };
   return {
     readPathHistory: ({ paths, maxCommits }) =>
-      run([
+      readGit([
         "log",
         "-m",
         "--first-parent",
@@ -53,7 +53,7 @@ export function makeWorkspaceGitHistoryPort(rootDir: string): GitHistoryPort {
         ...paths.slice(0, MAX_TRACED_FILES),
       ]),
     readBranchCollisions: ({ path: tracePath, maxCommits }) =>
-      run([
+      readGit([
         "log",
         "--source",
         `--max-count=${String(maxCommits)}`,
