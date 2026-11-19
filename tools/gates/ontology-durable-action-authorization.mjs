@@ -28,6 +28,7 @@ import {
   serverSourceGraph,
 } from "./authorization-flow-graph.mjs";
 import { makeAuthorizationTracer } from "./authorization-flow-trace.mjs";
+import { processNativeSourceSites } from "./authorization-process-source-sites.mjs";
 import { withArtifactActionIngressDeclarations } from "./ontology-gate-lib.mjs";
 import {
   sourceFileOf,
@@ -657,11 +658,12 @@ function auditAuthorization(rootDir, inputs, options) {
       if (!nativeSites.has(cacheKey)) {
         nativeSites.set(
           cacheKey,
-          processSourceSites(graph, root, {
-            evaluator: processEvaluator,
-            targets: routeTargets.map((source) => source.site),
-            targetOnly: true,
-          }),
+          processNativeSourceSites(
+            graph,
+            root,
+            processEvaluator,
+            routeTargets.map((source) => source.site),
+          ),
         );
       }
       const sites = nativeSites.get(cacheKey);

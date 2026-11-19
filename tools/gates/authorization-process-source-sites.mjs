@@ -1,6 +1,7 @@
 import ts from "typescript";
 import { bindArguments, EMPTY_ENV, isFunctionNode, makeEvaluator, unwrap } from "./authorization-flow-graph.mjs";
 import { nodeStart, sourceSite } from "./authorization-gui-source-proof.mjs";
+import { sourceOriginFilter } from "./authorization-source-origins.mjs";
 
 const frameKeys = new WeakMap();
 const graphReferences = new WeakMap();
@@ -73,6 +74,21 @@ function frameKey(graph, fn, env) {
 }
 
 const sourceWalks = new WeakMap();
+
+export function processNativeSourceSites(graph, entry, evaluator, targets) {
+  const ranges = targets.map((site) => {
+    const [, file, start, end] = /^(.*):(\d+):(\d+)$/u.exec(site);
+    return { file, start: Number(start), end: Number(end) };
+  });
+  const mayReachTarget = sourceOriginFilter(graph, ranges);
+  const reached = new Set();
+  // Each witness gets its own search order. The shared evaluator and origin
+  // scope keep the expanded frames and their proofs across the searches.
+  for (const site of new Set(targets))
+    if (processSourceSites(graph, entry, { evaluator, targets: [site], targetOnly: true, mayReachTarget }).has(site))
+      reached.add(site);
+  return reached;
+}
 
 export function processSourceSites(
   graph,
@@ -221,6 +237,7 @@ export function processSourceSites(
     if (references.has(args)) return references.get(args);
     const found = [];
     function visit(child) {
+      if (isFunctionNode(child)) found.push(rangeOf(child));
       if (ts.isCallExpression(child)) {
         const declaration = graph.callDeclaration(child);
         if (isFunctionNode(declaration) && declaration.body) found.push(rangeOf(declaration));

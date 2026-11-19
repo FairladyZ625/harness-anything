@@ -9,6 +9,7 @@ import {
   freshEvaluationGraph,
   makeEvaluator,
 } from "../authorization-flow-graph.mjs";
+import { processNativeSourceSites } from "../authorization-process-source-sites.mjs";
 import { sourceOriginFilter } from "../authorization-source-origins.mjs";
 import { processSourceSites, sourceSite, sourceWitnesses } from "../authorization-source-proof.mjs";
 import { scanOntologyText } from "../ontology-closure-scan.mjs";
@@ -296,6 +297,26 @@ function second() { shared(); }`,
   const firstReads = targetReads;
   assert.deepEqual([...query(second)], [site]);
   assert.equal(targetReads, firstReads, "a proven suffix does not traverse its target edge again");
+});
+
+test("native witnesses share their walk and retain the same reachable sites", () => {
+  const file = "packages/daemon/src/native-targets.ts";
+  const { rootDir } = makeRepo({
+    [file]: `function left() { store.append("left"); }
+function right() { store.append("right"); }
+function invoke(callback) { callback(); }
+function ignore(callback) {}
+function entry() { ignore(() => store.append("unused")); invoke(left); invoke(right); }`,
+  });
+  const graph = buildFlowGraph(rootDir);
+  const [left, right, , , entry] = graph.modules.get(file).sourceFile.statements;
+  const [first, second] = [left, right].map((fn) => sourceSite(graph, fn.body.statements[0].expression));
+  const absent = sourceSite(graph, entry.body.statements[0].expression.arguments[0].body);
+  const targets = [second, absent, first, second];
+  const evaluator = makeEvaluator(graph, { strictMembers: true });
+  const expected = processSourceSites(graph, entry, { evaluator, targets, targetOnly: true });
+  assert.deepEqual(expected, new Set([first, second]));
+  assert.deepEqual(processNativeSourceSites(graph, entry, evaluator, targets), expected);
 });
 
 test("matchAny source queries stop at the first hit without marking unvisited targets missing", () => {
