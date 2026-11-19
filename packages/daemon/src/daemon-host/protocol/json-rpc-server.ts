@@ -599,8 +599,8 @@ export function createJsonRpcProtocolServer(options: {
       method === "daemon.fleet.center.read" ||
       method === "daemon.fleet.center.external-address.read" ||
       method === "daemon.fleet.center.external-address.set" ||
-      method === "daemon.fleet.edge.sync"
-      || method === "daemon.fleet.edge.repoint"
+      method === "daemon.fleet.edge.sync" ||
+      method === "daemon.fleet.edge.repoint"
     ) {
       try {
         const result =
