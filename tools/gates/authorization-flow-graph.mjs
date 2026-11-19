@@ -1264,6 +1264,24 @@ export function makeEvaluator(graph, facts) {
     return fold(binding.declaration.initializer, binding.moduleScoped ? moduleEnv : env, depth + 1);
   }
 
+  // Provenance starts at a request argument. A function invoked with a closed
+  // frame cannot return request or action provenance, for any descriptor.
+  const requestInputs = (graphScope.requestInputs ??= new WeakMap());
+  function mayCarryRequest(env, depth = 0) {
+    if (!env.size) return false;
+    if (depth >= maxProvenanceDepth || !graph.internEnv?.isCanonical?.(env)) return true;
+    const cached = requestInputs.get(env);
+    if (cached !== undefined) return cached;
+    for (const bound of env.values()) {
+      if (bound.root || bound.rest || (bound.env && mayCarryRequest(bound.env, depth + 1))) {
+        requestInputs.set(env, true);
+        return true;
+      }
+    }
+    requestInputs.set(env, false);
+    return false;
+  }
+
   /**
    * Request provenance. `request` values carry the descriptor's RPC method; `action` values are
    * the command object built from the request (a call over request data), which carries its kind.
@@ -1273,6 +1291,7 @@ export function makeEvaluator(graph, facts) {
     if (depth > maxProvenanceDepth) return null;
     const node = unwrap(expression);
     if (!node || literal(node) || ts.isRegularExpressionLiteral(node)) return null;
+    if (!mayCarryRequest(env)) return null;
     return cachedQuery(provenanceCache, node, env, depth, provenanceOf);
   }
 

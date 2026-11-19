@@ -523,3 +523,34 @@ test("interleaved Programs bind through their own query owner on shared source f
   assert.deepEqual(first.fold(expression, EMPTY_ENV), { value: "ok" });
   left.releaseQueries();
 });
+
+test("a request-free call frame answers provenance without evaluating its conditional", () => {
+  const file = "packages/daemon/src/provenance.ts";
+  const { rootDir } = makeRepo({
+    [file]: 'import { select } from "@test/authority"; function choose(arg) { return select(1) ? arg : null; }',
+  });
+  const graph = buildFlowGraph(rootDir);
+  const owner = graph.modules.get(file).sourceFile.statements[1];
+  const expression = owner.body.statements[0].expression;
+  const input = owner.parameters[0];
+  const empty = graph.internEnv([[input, { expression: expression.whenFalse, env: EMPTY_ENV }]]);
+  const request = graph.internEnv([[input, { root: true }]]);
+  let calls = 0;
+  const functions = {
+    select() {
+      calls++;
+      return true;
+    },
+  };
+  try {
+    for (const kind of ["first", "second"]) {
+      const evaluator = makeEvaluator(graph, { kind, authorityModule: "@test/authority", constants: {}, functions });
+      const before = calls;
+      assert.equal(evaluator.provenance(expression, empty), null);
+      assert.equal(calls, before, "a closed input cannot supply either request or action provenance");
+      assert.equal(evaluator.provenance(expression, request), "request");
+    }
+  } finally {
+    graph.releaseQueries();
+  }
+});
