@@ -37,7 +37,8 @@ import { exitCodeFor } from "../ontology-gate-lib.mjs";
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 let ordinal = 0;
 function partitionedTest(name, run) {
-  if (testOrdinalInPartition(ordinal++, process.env.HARNESS_TEST_PARTITION, [1, 1, 2, 3, 1, 4, 1, 2, 4, 2]))
+  // Keep the two full worker-startup tests in different Colab partitions.
+  if (testOrdinalInPartition(ordinal++, process.env.HARNESS_TEST_PARTITION, [1, 1, 2, 3, 1, 4, 1, 2, 4, 3]))
     test(name, run);
 }
 

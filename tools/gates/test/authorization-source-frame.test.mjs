@@ -1,6 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
+import ts from "typescript";
 import {
   bindArguments,
   buildFlowGraph,
@@ -12,6 +13,25 @@ import { sourceOriginFilter } from "../authorization-source-origins.mjs";
 import { processSourceSites, sourceSite, sourceWitnesses } from "../authorization-source-proof.mjs";
 import { scanOntologyText } from "../ontology-closure-scan.mjs";
 import { makeRepo } from "./helpers.mjs";
+
+test("shard roots retain callable union types imported from an unlisted TSX module", () => {
+  const entry = "packages/gui/src/renderer/graph/entry.ts",
+    filters = "packages/gui/src/renderer/filters.tsx",
+    { rootDir } = makeRepo({
+      [entry]: `import type { Filters } from "../filters.tsx";
+type Update = Filters | ((previous: Filters) => Filters);
+function apply(update: Update) {
+  if (typeof update === "function") return update({ density: "all" });
+}`,
+      [filters]: 'export interface Filters { density: "all" | "focus" }',
+    }),
+    graph = buildFlowGraph(rootDir, { sourceFiles: [entry] }),
+    fn = graph.modules.get(entry).sourceFile.statements[2],
+    callback = fn.body.statements[0].thenStatement.expression,
+    signature = graph.callDeclaration(callback);
+  assert.ok(signature && ts.isFunctionTypeNode(signature), "the callback resolves without a second TSX root");
+  graph.releaseQueries();
+});
 
 test("shared source witnesses survive caller mutation and reject replaced syntax", () => {
   const file = "packages/daemon/src/witness.ts",
