@@ -12,9 +12,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
   applyTransition,
+  compileFactWrite,
   DISPATCH_LIFECYCLE_PAGE_LIMIT,
   emptyTaskLifecycleSnapshot,
   normalizeTaskLifecycleCommand,
@@ -25,6 +27,7 @@ import {
   type TaskEventV1,
   type TaskLifecycleCommand,
   type TaskProjectionQueries,
+  type FactEventDraftV1,
   type WriteSource,
 } from "@harness-anything/kernel";
 import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
@@ -1116,6 +1119,142 @@ test("scheduleLocalRootReclamation interleaves bounded maintenance turns with no
       [liveDispatchId],
     );
   } finally {
+    cleanup();
+  }
+});
+
+test("scheduled reclamation pages a real SQLite Fact projection between ordinary writer turns", async () => {
+  const { rootDir, cleanup } = createTestRepo("ha-local-storage-fact-pages-");
+  const eventStore = makeTaskEventStore({ rootDir, repoId: "fact-page-reclaim-test" });
+  const projection = makeTaskProjection({ rootDir, eventStore });
+  try {
+    assert.equal(projection.readCut().status, "ready");
+    const database = new DatabaseSync(projection.path),
+      seed = database.prepare(
+        "INSERT INTO fact(task_id,fact_id,ref,statement,evidence_source,observed_at,confidence,memory_class,op_id,workspace_revision,row_json) VALUES (NULL,?,?,?,?,?,?,?,?,0,?)",
+      ),
+      search = database.prepare("INSERT INTO fact_fts(fact_id,statement,evidence_source) VALUES (?,?,?)");
+    try {
+      database.exec("BEGIN");
+      for (let index = 0; index < 640; index += 1) {
+        const occurredAt = "2026-11-19T00:00:00.000Z",
+          factId = `F-${index.toString().padStart(8, "0")}`,
+          evidenceSource = `.harness/runtime/dispatches/archive/dispatch_${index.toString(16).padStart(24, "0")}.jsonl`,
+          statement = `Fact ${index}: ${"evidence detail ".repeat(12)}`,
+          row = {
+            schema: "fact-row/v1",
+            ref: `fact/${factId}`,
+            factId,
+            statement,
+            evidenceSource,
+            observedAt: occurredAt,
+            confidence: "high",
+            memoryClass: "semantic",
+            memoryTags: [],
+            provenance: [],
+            actor: { principal: { personId: "fact-page-test" }, executor: null },
+            source: "local",
+            occurredAt,
+            workspaceRevision: 0,
+            archived: false,
+          };
+        seed.run(
+          factId,
+          `fact/${factId}`,
+          statement,
+          evidenceSource,
+          occurredAt,
+          "high",
+          "semantic",
+          `op-fact-page-${index}`,
+          JSON.stringify(row),
+        );
+        search.run(factId, statement, evidenceSource);
+      }
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    } finally {
+      database.close();
+    }
+
+    const arrivingDispatchId = `dispatch_${(640).toString(16).padStart(24, "0")}`;
+    seedClosedDispatch(rootDir, arrivingDispatchId, null, "2020-01-01T00:00:00.000Z");
+    archiveDispatchStream(rootDir, arrivingDispatchId);
+
+    const pageSize = 64,
+      maintenanceQueue: (() => void | Promise<void>)[] = [],
+      order: string[] = [];
+    let factPages = 0,
+      writerRan = false;
+    const scheduleReclamation = () =>
+      scheduleLocalRootReclamation({
+        rootDir,
+        projection: () => ({
+          ...projection,
+          searchFacts: (filters) => {
+            const result = projection.searchFacts(filters);
+            factPages += 1;
+            assert.ok(result.facts.length <= pageSize, "each writer turn reads a bounded SQLite Fact page");
+            return result;
+          },
+        }),
+        readRetention: () => ({ retentionDays: 60, retentionBytes: 0 }),
+        schedule: (work) => maintenanceQueue.push(work),
+        maxDispatchesPerTurn: 10,
+        onComplete: () => order.push("reclamation-complete"),
+      });
+    scheduleReclamation();
+    maintenanceQueue.push(() => {
+      assert.equal(factPages, 1, "ordinary writes run before the next Fact page is decoded");
+      writerRan = true;
+      const occurredAt = "2026-11-19T00:00:00.000Z",
+        event: FactEventDraftV1 = {
+          schema: "fact-event/v1",
+          eventId: "event-fact-page-writer",
+          workspaceRevision: 1,
+          opId: "op-fact-page-writer",
+          factId: "F-00000640",
+          type: "fact_recorded",
+          actor: { principal: { personId: "fact-page-writer" }, executor: null },
+          source: "local",
+          occurredAt,
+          payload: {
+            statement: "Fact from an interleaved regular writer.",
+            evidenceSource: `.harness/runtime/dispatches/archive/${arrivingDispatchId}.jsonl`,
+            observedAt: occurredAt,
+            confidence: "high",
+            memoryClass: "semantic",
+            memoryTags: [],
+            provenance: [
+              {
+                runtime: "codex",
+                sessionId: "fact-page-writer",
+                transcriptReachability: "by_session_id",
+                boundAt: occurredAt,
+              },
+            ],
+          },
+        },
+        compiled = compileFactWrite({ event });
+      eventStore.append(compiled);
+      projection.apply(compiled.event, compiled.plan);
+      order.push("ordinary-writer");
+    });
+
+    while (maintenanceQueue.length > 0) await maintenanceQueue.shift()!();
+    assert.equal(existsSync(dispatchStreamPath(rootDir, arrivingDispatchId)), true);
+    scheduleReclamation();
+    while (maintenanceQueue.length > 0) await maintenanceQueue.shift()!();
+
+    assert.equal(writerRan, true);
+    assert.equal(factPages, 13, "one interrupted scan reads two pages, then the stable scan reads exactly eleven");
+    assert.deepEqual(order, ["ordinary-writer", "reclamation-complete", "reclamation-complete"]);
+    assert.equal(existsSync(dispatchStreamPath(rootDir, arrivingDispatchId)), true);
+    assert.equal(projection.searchFacts({}).facts.length, 641);
+  } finally {
+    projection.close();
     cleanup();
   }
 });

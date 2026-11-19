@@ -1,12 +1,25 @@
 import { lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { DispatchEvidenceState } from "@harness-anything/kernel/internal/domain/operational-status.ts";
+import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import { consumeKnownError, resolveHarnessLayout } from "@harness-anything/kernel";
 import { removeFileDurably, writeFileDurably } from "../../../storage/src/durable-file.ts";
+import type { DispatchExitClassification } from "./runtime-fallback-contract.ts";
 
 export type { DispatchEvidenceState };
 
 const stateSchema = "dispatch-evidence-state/v1" as const;
+
+export function dispatchForensicsRequired(
+  outcome: DispatchAttemptOutcome,
+  classification: DispatchExitClassification | undefined,
+  evidenceRequired = false,
+): boolean {
+  return (
+    evidenceRequired ||
+    (classification !== "awaiting_ruling" && (outcome === "failed" || outcome === "stopped" || outcome === "unknown"))
+  );
+}
 
 /**
  * The one durable disposition of a dispatch's evidence copy. It is a small sidecar beside the

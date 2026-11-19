@@ -7,7 +7,11 @@ import {
   appendIncidentActionReceipt,
   readIncidentActionReceipt,
 } from "../src/daemon-host/decision-incident-receipt.ts";
-import { dispatchEvidenceStatePath, readDispatchEvidenceState } from "../src/daemon-host/dispatch-evidence-state.ts";
+import {
+  dispatchEvidenceStatePath,
+  readDispatchEvidenceState,
+  writeDispatchEvidenceState,
+} from "../src/daemon-host/dispatch-evidence-state.ts";
 import {
   appendRuntimeWorkerRecord,
   archiveDispatchStream,
@@ -131,7 +135,7 @@ test("an archive failure after an initial success rewrites the disposition to pe
 });
 
 test("the settled stream keeps its bytes when replacing the not-required sidecar fails", async (context) => {
-  const result = "r".repeat(200 * 1024),
+  const result = "r".repeat(90 * 1024),
     fixture = workerGitFixture(context, "forensics-stale-sidecar", { reachableRemote: true }),
     runtime = workerSettlementRuntime(fixture, {
       finalText: result,
@@ -171,6 +175,19 @@ test("the settled stream keeps its bytes when replacing the not-required sidecar
     renameSync(backup, sidecar);
     append(...args);
   });
+  const appendTerminal = runtime.stream.appendTerminalOutcome!;
+  context.mock.method(runtime.stream, "appendTerminalOutcome", (...args: Parameters<typeof appendTerminal>) => {
+    appendRuntimeWorkerRecord(fixture.canonical, runtime.dispatchId, {
+      kind: "provider_event",
+      occurredAt: args[1],
+      event: {
+        type: "model.streaming",
+        turnId: "turn-tail-filler",
+        payload: { kind: "reasoning_delta", delta: "g".repeat(128 * 1024) },
+      },
+    });
+    appendTerminal(...args);
+  });
   context.mock.method(console, "error", () => undefined);
   await publishExit(settleContext, runtime, 0);
 
@@ -180,6 +197,40 @@ test("the settled stream keeps its bytes when replacing the not-required sidecar
   assert.match(bytes.toString("utf8"), /"kind":"evidence_state"[^\n]+"state":"pending"/u);
   const summary = readDispatchStreamSummary(fixture.canonical, runtime.dispatchId);
   assert.equal(summary?.evidenceState, null, "the terminal record can mask the marker from the bounded summary");
+  assert.equal(summary?.terminalOutcome?.payload.outcome, "failed", "the full terminal remains visible");
+  archiveDispatchStream(fixture.canonical, runtime.dispatchId);
+  assert.equal(dispatchStreamPath(fixture.canonical, runtime.dispatchId), live);
+  assert.deepEqual(readFileSync(live), bytes);
+});
+
+test("a stale not-required disposition cannot retire a visible abnormal terminal", async (context) => {
+  const fixture = workerGitFixture(context, "forensics-stale-not-required", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, { finalText: "failed", providerOutcome: "failed" }),
+    stream = fixtureStream(fixture, runtime),
+    occurredAt = "2026-11-05T00:00:03.000Z";
+  writeDispatchEvidenceState(fixture.canonical, runtime.dispatchId, "not-required");
+  stream.appendTerminalOutcome(
+    {
+      payload: {
+        runtimeSessionId: runtime.runtimeSessionId,
+        outcome: "failed",
+        exitCode: 1,
+        resultRef: `artifact:runtime-result/sha256/${"a".repeat(64)}`,
+        result: null,
+        endedAt: occurredAt,
+        attempt: { classification: "worker_stop", reason: "injected failed terminal" },
+      },
+      body: "failed",
+      reason: "injected failed terminal",
+    },
+    occurredAt,
+  );
+  const live = dispatchStreamPath(fixture.canonical, runtime.dispatchId),
+    bytes = readFileSync(live);
+  assert.equal(
+    readDispatchStreamSummary(fixture.canonical, runtime.dispatchId)?.terminalOutcome?.payload.outcome,
+    "failed",
+  );
   archiveDispatchStream(fixture.canonical, runtime.dispatchId);
   assert.equal(dispatchStreamPath(fixture.canonical, runtime.dispatchId), live);
   assert.deepEqual(readFileSync(live), bytes);

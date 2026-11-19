@@ -33,7 +33,11 @@ import { scrubProviderValue } from "../runtime-engine/secret-scrub.ts";
 import { dispatchProviderActivity, type DispatchProviderActivity } from "./dispatch-activity.ts";
 import { providerReconnectFromFrame } from "./runtime-provider-fault.ts";
 
-import { readDispatchEvidenceState, removeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
+import {
+  dispatchForensicsRequired,
+  readDispatchEvidenceState,
+  removeDispatchEvidenceState,
+} from "./dispatch-evidence-state.ts";
 import { compactDispatchStreamArchive } from "./dispatch-stream-compaction.ts";
 import { resolveOwnedLocalDirectory } from "./local-root-paths.ts";
 
@@ -48,10 +52,14 @@ export function mustPreserveDispatch(rootDir: string, dispatchId: string, file?:
   const summary =
     file === undefined ? readDispatchStreamSummary(rootDir, dispatchId) : readDispatchStreamSummaryAt(file, dispatchId);
   if (summary?.evidenceState === "pending") return true;
-  // A large terminal record can hide the fallback marker between the bounded windows.
-  // Without a visible terminal, not-required cannot authorize removal of a tracked stream.
-  if (state === "not-required" && summary?.header.evidenceTrackingVersion === 1 && summary.terminalOutcome === null)
-    return true;
+  if (state === "not-required" && summary?.header.evidenceTrackingVersion === 1) {
+    const terminal = summary.terminalOutcome;
+    if (
+      terminal === null ||
+      dispatchForensicsRequired(terminal.payload.outcome, terminal.payload.attempt?.classification)
+    )
+      return true;
+  }
   if (state !== null) return false;
   if (summary?.header.evidenceTrackingVersion === 1) return true;
   if (summary === null || summary.terminalOutcome === null) return false;

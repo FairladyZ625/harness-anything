@@ -155,7 +155,7 @@ export function measureLocalRootStorage(rootDir: string): LocalRootStorageReport
  * bounded writer turns (`maxDispatches`, default `DISPATCH_LIFECYCLE_PAGE_LIMIT`).
  * Never crosses symbolic links, never touches canonical `store/` or `wal/`, preserves abnormal
  * legacy streams via `mustPreserveDispatch`, preserves `cancelled` handoff rollouts, and reads
- * the Fact projection at most once.
+ * the Fact projection in a single paginated traversal.
  */
 export function reclaimLocalRootStorage(input: {
   readonly rootDir: string;
@@ -240,9 +240,10 @@ function* sweepLocalRootStorage(
         facts.sources,
         input.nowMs ?? Date.now(),
         input.recoveryDispatchIds ?? [],
-        canDeleteArchive === undefined ? undefined : () => canDeleteArchive(facts.watermark),
+        () => facts.isReady() && (canDeleteArchive === undefined || canDeleteArchive(facts.watermark)),
       );
-      archivePruned = true;
+      if (facts.isReady()) archivePruned = true;
+      else skippedReason = "fact projection changed during evidence scan";
     } else {
       skippedReason = "fact projection pending";
     }
