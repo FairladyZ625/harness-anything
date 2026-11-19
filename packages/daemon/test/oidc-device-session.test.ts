@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
+import { OidcSessionService } from "@harness-anything/authorization-keycloak";
 import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
+import type { OidcLoginAuthority } from "@harness-anything/kernel";
 
 function selectExternalProvider(root: string, config: Readonly<Record<string, string>> = {}): void {
   mkdirSync(path.join(root, "rbac"), { recursive: true });
@@ -13,6 +15,105 @@ function selectExternalProvider(root: string, config: Readonly<Record<string, st
     path.join(root, "rbac", "config.json"),
     JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external", ...config }),
   );
+}
+
+function edgeSession(t: TestContext) {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-edge-session-")),
+    loginTarget = "edge-root",
+    authority: OidcLoginAuthority = {
+      url: "https://identity.example.test",
+      realm: "harness",
+      clientId: "harness-node-edge-a",
+    },
+    issuer = `${authority.url}/realms/${authority.realm}`,
+    edge = {
+      repoId: "repo-a",
+      host: "127.0.0.1",
+      port: 443,
+      caPath: path.join(root, "edge-ca.pem"),
+      nodeId: "edge-a",
+      credential: "test-credential",
+    },
+    selected = new Map<string, { readonly authority: OidcLoginAuthority; readonly issuer: string }>(),
+    state = { now: 1_000, issued: 0, revoked: false, failDeviceAuthorization: false },
+    resetRequests: boolean[] = [];
+  mkdirSync(root, { recursive: true });
+  writeFileSync(edge.caPath, "test CA");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  let stored: string | undefined;
+  const store = {
+    read: () => stored,
+    write: (value: string) => {
+      stored = value;
+    },
+    delete: () => {
+      stored = undefined;
+    },
+    retireBootstrap: () => {},
+  };
+  const host = {
+    centers: {
+      read: (target?: string) => selected.get(target ?? ""),
+      write: (
+        target: string | undefined,
+        selection: { readonly authority: OidcLoginAuthority; readonly issuer: string },
+      ) => selected.set(target ?? "", selection),
+    },
+    readFleetEdgeConfig: () => edge,
+    readFleetLoginAuthorityClient: async ({ resetSession }: { readonly resetSession: boolean }) => {
+      resetRequests.push(resetSession);
+      if (resetSession) state.revoked = true;
+      return authority;
+    },
+    reportFleetDeviceLogin: async () => {},
+    errorMessageWithCause: (error: unknown) => String(error),
+    rootCaFromCertificateChain: () => undefined,
+    systemCaCertificates: () => [],
+    probeSystemCaTrust: async () => true,
+    fetchWithTlsCa: (
+      fetcher: typeof fetch,
+      _ca: string | readonly string[],
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => fetcher(input, init),
+  } satisfies ConstructorParameters<typeof OidcSessionService>[1];
+  const service = new OidcSessionService(root, host, {
+    now: () => state.now,
+    randomBytes: ((size: number) => Buffer.alloc(size, 7)) as typeof import("node:crypto").randomBytes,
+    sessionStore: () => store,
+    reportDevice: async () => {},
+    fetch: (async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/.well-known/openid-configuration")) return Response.json({ issuer });
+      if (url.endsWith("/auth/device"))
+        return state.failDeviceAuthorization
+          ? Response.json({ error: "temporarily_unavailable" }, { status: 503 })
+          : Response.json({
+              device_code: "private-device",
+              user_code: "EDGE-CODE",
+              verification_uri: `${issuer}/device`,
+              expires_in: 600,
+              interval: 1,
+            });
+      if (url.endsWith("/userinfo")) return Response.json({ sub: "edge-subject", harness_person_id: "person-edge" });
+      const form = init?.body as URLSearchParams;
+      if (form.get("grant_type") === "refresh_token")
+        return state.revoked ? Response.json({ error: "invalid_grant" }, { status: 400 }) : issueTokens();
+      state.revoked = false;
+      return issueTokens();
+    }) as typeof fetch,
+  });
+  function issueTokens(): Response {
+    const serial = ++state.issued;
+    return Response.json({
+      access_token: `x.${Buffer.from(JSON.stringify({ iss: issuer, serial })).toString("base64url")}.x`,
+      refresh_token: `edge-refresh-${serial}`,
+      expires_in: 60,
+      refresh_expires_in: 90 * 24 * 60 * 60,
+      scope: "openid profile email offline_access",
+    });
+  }
+  return { service, loginTarget, state, resetRequests, store, stored: () => stored };
 }
 
 test("Device login without verification_uri_complete keeps secrets private and binds the person after pending/slow-down", async (t) => {
@@ -338,4 +439,48 @@ test("first device authorization reports an unreachable authority with the same 
       return true;
     },
   );
+});
+
+test("abandoning an edge browser login leaves the existing offline session renewable", async (t) => {
+  const active = edgeSession(t),
+    first = await active.service.begin("http://127.0.0.1:43125/callback", active.loginTarget);
+  await active.service.complete("authorization-code", String(first.state));
+  const before = active.stored();
+  await active.service.begin("http://127.0.0.1:43126/callback", active.loginTarget);
+  assert.equal(active.stored(), before);
+  assert.equal(active.resetRequests.includes(true), false);
+  active.state.now += 61_000;
+  assert.equal((await active.service.status(active.loginTarget)).authenticated, true);
+});
+
+test("a failed edge device authorization does not revoke the existing offline session", async (t) => {
+  const active = edgeSession(t);
+  await active.service.beginDevice(active.loginTarget);
+  active.state.now += 1_000;
+  await active.service.pollDevice();
+  const before = active.stored();
+  active.state.failDeviceAuthorization = true;
+  await assert.rejects(active.service.beginDevice(active.loginTarget), { code: "oidc_device_rejected" });
+  assert.equal(active.stored(), before);
+  assert.equal(active.resetRequests.includes(true), false);
+  active.state.now += 61_000;
+  assert.equal((await active.service.status(active.loginTarget)).authenticated, true);
+});
+
+test("a legacy edge session without an authority client id uses the five-minute renewal margin", async (t) => {
+  const active = edgeSession(t);
+  await active.service.beginDevice(active.loginTarget);
+  active.state.now += 1_000;
+  await active.service.pollDevice();
+
+  const session = JSON.parse(active.store.read()!) as {
+    authority: Record<string, unknown>;
+    expiresAt: number;
+  };
+  delete session.authority.clientId;
+  session.expiresAt = active.state.now + 120_000;
+  active.store.write(JSON.stringify(session));
+
+  assert.equal((await active.service.status(active.loginTarget)).authenticated, true);
+  assert.equal(active.state.issued, 2);
 });

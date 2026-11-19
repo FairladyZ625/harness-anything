@@ -122,6 +122,7 @@ const grantUsersPrefix = "grant-users:",
   grantPermissionPrefix = "grant:",
   personAttribute = "harness_person_id",
   nodeClientPrefix = "harness-node-",
+  nodeAccessTokenLifespan = "3600",
   customGroupAttribute = "harness_policy_group",
   groupScopesAttribute = "harness_scopes";
 
@@ -361,7 +362,7 @@ export class KeycloakPolicyAdapter
           redirectUris: ["http://127.0.0.1/*"],
           attributes: {
             ...client.attributes,
-            ...(isNodeClient ? { "access.token.lifespan": "300" } : {}),
+            ...(isNodeClient ? { "access.token.lifespan": nodeAccessTokenLifespan } : {}),
             ...keycloakLoginAttributes,
             ...(device ? { harness_device: device } : {}),
           },
@@ -1194,7 +1195,7 @@ function nodeClientBody(config: KeycloakPolicyAdapterConfig, node: KeycloakNode)
     attributes: {
       [personAttribute]: node.personId,
       harness_device: JSON.stringify(node),
-      "access.token.lifespan": "300",
+      "access.token.lifespan": nodeAccessTokenLifespan,
       ...keycloakLoginAttributes,
     },
     protocolMappers: keycloakLoginMappers(config.resourceServerClientId),

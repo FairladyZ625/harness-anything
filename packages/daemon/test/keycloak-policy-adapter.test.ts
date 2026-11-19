@@ -212,6 +212,47 @@ test("realm synchronization does not grant or remove anything when no legacy rol
   );
 });
 
+test("login-client synchronization upgrades an existing node to a one-hour access token", async () => {
+  const device = {
+      nodeId: "edge-a",
+      personId: "person-a",
+      systemName: "edge-a",
+      displayName: "Edge A",
+      platform: "linux",
+      registeredAt: "2026-01-01T00:00:00.000Z",
+      state: "active",
+      revision: 1,
+      revocation: "complete",
+    },
+    client = {
+      id: "node-client-a",
+      clientId: "harness-node-edge-a",
+      enabled: true,
+      serviceAccountsEnabled: true,
+      fullScopeAllowed: false,
+      attributes: {
+        harness_person_id: "person-a",
+        harness_device: JSON.stringify(device),
+        "access.token.lifespan": "300",
+      },
+    };
+  let synchronized: Record<string, unknown> | undefined;
+  const fetchPort: typeof fetch = async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith("/clients") && !init?.method) return Response.json([client]);
+    if (url.pathname.endsWith(`/clients/${client.id}`) && !init?.method) return Response.json(client);
+    if (url.pathname.endsWith(`/clients/${client.id}`) && init?.method === "PUT") {
+      synchronized = JSON.parse(String(init.body)) as Record<string, unknown>;
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname.endsWith("/roles/access-admin")) return new Response(null, { status: 404 });
+    throw new Error(`Unexpected Keycloak request ${init?.method ?? "GET"} ${url.pathname}`);
+  };
+  await new KeycloakPolicyAdapter(config, fetchPort).syncLoginClients("admin-token");
+  const attributes = synchronized?.attributes as Record<string, string>;
+  assert.equal(attributes["access.token.lifespan"], "3600");
+});
+
 test("sync re-expands stored grants to the currently declared actions of their group", async () => {
   const keycloak = fakeKeycloak(),
     adapter = new KeycloakPolicyAdapter(config, keycloak.fetch);
