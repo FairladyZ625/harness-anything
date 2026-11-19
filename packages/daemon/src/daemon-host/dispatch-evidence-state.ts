@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { DispatchEvidenceState } from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { consumeKnownError, resolveHarnessLayout } from "@harness-anything/kernel";
@@ -26,7 +26,7 @@ export function dispatchEvidenceStatePath(rootDir: string, dispatchId: string): 
 /** A missing or unreadable sidecar is `null`; new streams treat that as fail-closed. */
 export function readDispatchEvidenceState(rootDir: string, dispatchId: string): DispatchEvidenceState | null {
   const file = dispatchEvidenceStatePath(rootDir, dispatchId);
-  if (!existsSync(file)) return null;
+  if (!lstatSync(file, { throwIfNoEntry: false })?.isFile()) return null;
   try {
     const value: unknown = JSON.parse(readFileSync(file, "utf8"));
     if (value === null || typeof value !== "object") return null;
@@ -59,5 +59,5 @@ export function writeDispatchEvidenceState(
 
 export function removeDispatchEvidenceState(rootDir: string, dispatchId: string): void {
   const file = dispatchEvidenceStatePath(rootDir, dispatchId);
-  if (statSync(file, { throwIfNoEntry: false })?.isFile()) removeFileDurably(file);
+  if (lstatSync(file, { throwIfNoEntry: false })?.isFile()) removeFileDurably(file);
 }

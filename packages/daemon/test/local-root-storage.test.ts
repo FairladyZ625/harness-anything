@@ -32,10 +32,12 @@ import { writeFileDurably } from "../../storage/src/durable-file.ts";
 import {
   appendRuntimeWorkerRecord,
   archiveDispatchStream,
+  dispatchLiveIndexPath,
   dispatchStreamPath,
   openDispatchStream,
   readDispatchLiveIndex,
 } from "../src/daemon-host/dispatch-stream.ts";
+import { scheduleArchivedDispatchStreamCompaction } from "../src/daemon-host/dispatch-stream-archive.ts";
 import { dispatchEvidenceStatePath, writeDispatchEvidenceState } from "../src/daemon-host/dispatch-evidence-state.ts";
 import {
   measureLocalRootStorage,
@@ -340,16 +342,17 @@ test("F3 regression: reclaimLocalRootStorage preserves canonical ledger replay, 
 
     assert.equal(result.skippedReason, null);
     assert.equal(result.archivePruned, true);
-    assert.equal(result.archivedDispatches, 2);
+    assert.equal(result.archivedDispatches, 1);
     assert.equal(result.removedOrphanSidecars, 1);
     assert.equal(result.removedHandoffRollouts, 3);
     assert.ok(result.removedStaleCacheFiles >= 3);
 
     assert.equal(path.basename(path.dirname(dispatchStreamPath(rootDir, settledStreamId))), "archive");
-    assert.equal(path.basename(path.dirname(dispatchStreamPath(rootDir, legacyTerminalId))), "archive");
+    assert.equal(path.basename(path.dirname(dispatchStreamPath(rootDir, legacyTerminalId))), "dispatches");
+    assert.ok(existsSync(dispatchStreamPath(rootDir, legacyTerminalId)));
     assert.deepEqual(
       readDispatchLiveIndex(rootDir, ["task_done"]).entries.map((entry) => entry.dispatchId),
-      [pendingEvidenceId],
+      [legacyTerminalId, pendingEvidenceId],
     );
 
     assert.equal(path.basename(path.dirname(dispatchStreamPath(rootDir, liveStreamId))), "dispatches");
@@ -404,6 +407,7 @@ test("F1 regression: legacy abnormal failed stream without sidecar, unproven-sto
   const unprovenStopId = "dispatch_f10000000000000000000004";
   const foreignNodeId = "dispatch_f10000000000000000000005";
   const recoveryPendingId = "dispatch_f10000000000000000000006";
+  const legacyUnprovenId = "dispatch_f10000000000000000000007";
 
   const eventStore = makeTaskEventStore({ rootDir, repoId: "f1-test" });
   const projection = makeTaskProjection({ rootDir, eventStore });
@@ -435,6 +439,10 @@ test("F1 regression: legacy abnormal failed stream without sidecar, unproven-sto
     seedClosedDispatch(rootDir, recoveryPendingId, "task_done", oldIso, { outcome: "succeeded" });
     writeDispatchEvidenceState(rootDir, recoveryPendingId, "not-required");
 
+    seedClosedDispatch(rootDir, legacyUnprovenId, "task_done", oldIso, { emitExit: false });
+    const legacyUnprovenPath = dispatchStreamPath(rootDir, legacyUnprovenId);
+    const legacyUnprovenBytes = readFileSync(legacyUnprovenPath);
+
     archiveDispatchStream(rootDir, legacyFailedId);
     assert.equal(
       path.basename(path.dirname(dispatchStreamPath(rootDir, legacyFailedId))),
@@ -443,6 +451,14 @@ test("F1 regression: legacy abnormal failed stream without sidecar, unproven-sto
     );
 
     const lifecycleReader = lifecycleReadForSync([
+      {
+        dispatchId: legacyAwaitingRulingId,
+        runtimeSessionId: `runtime-${legacyAwaitingRulingId}`,
+        attemptSettled: true,
+        groupSettled: true,
+        stopProof: "proven_stopped",
+        outcome: "failed",
+      },
       {
         dispatchId: unprovenStopId,
         runtimeSessionId: `runtime-${unprovenStopId}`,
@@ -508,6 +524,11 @@ test("F1 regression: legacy abnormal failed stream without sidecar, unproven-sto
       path.basename(path.dirname(dispatchStreamPath(rootDir, recoveryPendingId))),
       "dispatches",
       "dispatch still pending runtime adoption/recovery must remain in live dispatches",
+    );
+    assert.equal(
+      readFileSync(legacyUnprovenPath).equals(legacyUnprovenBytes),
+      true,
+      "legacy terminal outcome without lifecycle stop proof must remain in live dispatches",
     );
     assert.equal(
       existsSync(path.join(rootDir, ".harness", "runtime", "dispatches", `${legacyAwaitingRulingId}.jsonl`)),
@@ -874,6 +895,9 @@ test("F4 regression: root and intermediate directory symlinks never traverse or 
         retention: { retentionDays: 60, retentionBytes: 0 },
         nowMs,
       });
+      scheduleArchivedDispatchStreamCompaction(candidateRoot, () => {
+        assert.fail("attach must not schedule compaction through a linked directory");
+      });
     }
 
     // Every single file in external.rootDir must remain untouched in its original place
@@ -1008,6 +1032,9 @@ test("scheduleLocalRootReclamation interleaves bounded maintenance turns with no
 
     const order: string[] = [];
     const queue: { readonly label: string; readonly work: () => void | Promise<void> }[] = [];
+    const shardPath = dispatchLiveIndexPath(rootDir, "task_interleave");
+    const initialShard = readFileSync(shardPath);
+    const liveDispatchId = "dispatch_100000000000000000000019";
     let completed = false;
     scheduleLocalRootReclamation({
       rootDir,
@@ -1027,7 +1054,12 @@ test("scheduleLocalRootReclamation interleaves bounded maintenance turns with no
     queue.push({
       label: "user-write",
       work: () => {
-        order.push(`user-write(remaining=${readDispatchLiveIndex(rootDir, ["task_interleave"]).entries.length})`);
+        const remaining = dispatchIds.filter(
+          (id) => path.basename(path.dirname(dispatchStreamPath(rootDir, id))) === "dispatches",
+        );
+        assert.deepEqual(readFileSync(shardPath), initialShard, "maintenance has not rewritten the task index yet");
+        seedClosedDispatch(rootDir, liveDispatchId, "task_interleave", recentIso, { emitExit: false });
+        order.push(`user-write(remaining=${remaining.length})`);
       },
     });
 
@@ -1046,7 +1078,10 @@ test("scheduleLocalRootReclamation interleaves bounded maintenance turns with no
       "reclaim-turn",
       "compaction-scheduled",
     ]);
-    assert.equal(readDispatchLiveIndex(rootDir, ["task_interleave"]).entries.length, 0);
+    assert.deepEqual(
+      readDispatchLiveIndex(rootDir, ["task_interleave"]).entries.map(({ dispatchId }) => dispatchId),
+      [liveDispatchId],
+    );
   } finally {
     cleanup();
   }

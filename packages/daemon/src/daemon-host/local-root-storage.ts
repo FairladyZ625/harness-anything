@@ -1,7 +1,6 @@
-import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
+import { lstatSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
-  consumeKnownError,
   DISPATCH_LIFECYCLE_PAGE_LIMIT,
   dispatchOwnerForNode,
   resolveHarnessLayout,
@@ -10,7 +9,17 @@ import {
 } from "@harness-anything/kernel";
 import { removeFileDurably } from "../../../storage/src/durable-file.ts";
 import { readDispatchEvidenceState, removeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
-import { archiveDispatchStreams, mustPreserveDispatch, readDispatchStreamSummary } from "./dispatch-stream.ts";
+import {
+  archiveDispatchStreams,
+  removeDispatchLiveIndexEntries,
+  type DispatchLiveIndexEntry,
+} from "./dispatch-stream.ts";
+import {
+  isStrictRealChild,
+  ownedSubdirectoryOrAbsent,
+  resolveOwnedDirectory,
+  resolveOwnedLocalRoot,
+} from "./local-root-paths.ts";
 import {
   pruneDispatchStreamArchive,
   tryReadFactEvidenceSources,
@@ -60,7 +69,6 @@ export interface LocalRootStorageReport {
 
 export interface LocalRootReclaimResult {
   readonly archivedDispatches: number;
-  readonly nextAfterDispatchId: string | null;
   readonly removedOrphanSidecars: number;
   readonly removedHandoffRollouts: number;
   readonly removedStaleCacheFiles: number;
@@ -161,74 +169,69 @@ export function reclaimLocalRootStorage(input: {
   readonly recoveryDispatchIds?: readonly string[];
   readonly liveRuntimeSessionIds?: ReadonlySet<string>;
   readonly maxDispatches?: number;
-  readonly afterDispatchId?: string;
-  readonly compactArchived?: boolean;
-  readonly runNonDispatchSweep?: boolean;
 }): LocalRootReclaimResult {
   const layout = resolveHarnessLayout(input.rootDir),
     ownedLocalRoot = resolveOwnedLocalRoot(layout);
   if (ownedLocalRoot === null) {
     return {
       archivedDispatches: 0,
-      nextAfterDispatchId: null,
       removedOrphanSidecars: 0,
       removedHandoffRollouts: 0,
       removedStaleCacheFiles: 0,
       archivePruned: false,
-      skippedReason: lstatSync(layout.localRoot, { throwIfNoEntry: false })
-        ? "localRoot physical boundary check failed"
-        : null,
+      skippedReason: "localRoot missing or outside its physical boundary",
     };
   }
 
-  const recoverySet = new Set(input.recoveryDispatchIds ?? []),
-    doneTaskCache = new Map<string, boolean>(),
-    maxDispatches = Math.max(1, input.maxDispatches ?? DISPATCH_LIFECYCLE_PAGE_LIMIT),
+  const doneTaskCache = new Map<string, boolean>(),
     dispatchResult = archiveSettledDispatchStreams({
       rootDir: layout.rootDir,
       ownedLocalRoot,
       projection: input.projection,
       owner: dispatchOwnerForNode(input.ownerNodeId),
-      recoverySet,
+      recoverySet: new Set(input.recoveryDispatchIds ?? []),
       liveRuntimeSessionIds: input.liveRuntimeSessionIds,
       doneTaskCache,
-      maxDispatches,
-      afterDispatchId: input.afterDispatchId,
-      compactArchived: input.compactArchived !== false,
+      batch: readLiveDispatchIds(ownedLocalRoot).slice(
+        0,
+        Math.max(1, input.maxDispatches ?? DISPATCH_LIFECYCLE_PAGE_LIMIT),
+      ),
+      compactArchived: true,
     });
+  const sweep = sweepLocalRootStorage(layout.rootDir, ownedLocalRoot, input, doneTaskCache);
+  return {
+    ...sweep,
+    archivedDispatches: dispatchResult.archived,
+    skippedReason: dispatchResult.skippedReason ?? sweep.skippedReason,
+  };
+}
 
-  if (input.runNonDispatchSweep === false) {
-    return {
-      archivedDispatches: dispatchResult.archived,
-      nextAfterDispatchId: dispatchResult.nextAfterDispatchId,
-      removedOrphanSidecars: 0,
-      removedHandoffRollouts: 0,
-      removedStaleCacheFiles: 0,
-      archivePruned: false,
-      skippedReason: dispatchResult.skippedReason,
-    };
-  }
+type StorageSweepInput = Pick<
+  Parameters<typeof reclaimLocalRootStorage>[0],
+  "projection" | "retention" | "nowMs" | "recoveryDispatchIds"
+>;
 
-  const removedOrphanSidecars = pruneOrphanEvidenceSidecars(layout.rootDir, ownedLocalRoot),
-    removedHandoffRollouts = pruneRetiredHandoffRollouts(
-      layout.rootDir,
-      ownedLocalRoot,
-      input.projection,
-      doneTaskCache,
-    ),
+function sweepLocalRootStorage(
+  rootDir: string,
+  ownedLocalRoot: string,
+  input: StorageSweepInput,
+  doneTaskCache: Map<string, boolean>,
+): Omit<LocalRootReclaimResult, "archivedDispatches"> {
+  const removedOrphanSidecars = pruneOrphanEvidenceSidecars(rootDir, ownedLocalRoot),
+    removedHandoffRollouts = pruneRetiredHandoffRollouts(rootDir, ownedLocalRoot, input.projection, doneTaskCache),
     removedStaleCacheFiles = pruneStaleDerivedFiles(ownedLocalRoot);
 
   let archivePruned = false,
-    skippedReason: string | null = dispatchResult.skippedReason;
+    skippedReason: string | null = null;
   const ownedDispatchesDir = resolveOwnedDirectory(ownedLocalRoot, "runtime", "dispatches");
   if (ownedDispatchesDir === null || ownedSubdirectoryOrAbsent(ownedDispatchesDir, "archive") !== null) {
     const factSources = tryReadFactEvidenceSources(input.projection);
     if (factSources.status !== "ready") {
-      skippedReason = skippedReason ?? "fact projection pending";
+      skippedReason = "fact projection pending";
     } else {
       if (ownedDispatchesDir !== null) {
         pruneDispatchStreamArchive(
-          layout.rootDir,
+          rootDir,
           input.retention,
           factSources.sources,
           input.nowMs ?? Date.now(),
@@ -240,8 +243,6 @@ export function reclaimLocalRootStorage(input: {
   }
 
   return {
-    archivedDispatches: dispatchResult.archived,
-    nextAfterDispatchId: dispatchResult.nextAfterDispatchId,
     removedOrphanSidecars,
     removedHandoffRollouts,
     removedStaleCacheFiles,
@@ -255,8 +256,8 @@ export function reclaimLocalRootStorage(input: {
  * thousands of settled dispatches never monopolize the single-writer queue or rewrite transcripts
  * synchronously before `scheduleArchivedDispatchStreamCompaction` interleaves them.
  *
- * Monotonic cursor: `afterDispatchId` strictly increases in lexicographic `dispatch_<hex>` order;
- * termination signal: `result.nextAfterDispatchId === null` or `result.skippedReason !== null`.
+ * Enumerate candidates once. Commit index removals in one pass over the latest task shards so
+ * another writer can insert entries between archive turns without losing them.
  */
 export function scheduleLocalRootReclamation(input: {
   readonly rootDir: string;
@@ -271,44 +272,65 @@ export function scheduleLocalRootReclamation(input: {
   readonly maxDispatchesPerTurn?: number;
   readonly onComplete?: () => void;
 }): void {
-  let afterDispatchId: string | undefined;
-  const enqueueTurn = (finalSweepOnly = false): void => {
+  const layout = resolveHarnessLayout(input.rootDir),
+    recoverySet = new Set(input.recoveryDispatchIds ?? []),
+    doneTaskCache = new Map<string, boolean>(),
+    indexRemovals: DispatchLiveIndexEntry[] = [],
+    batchSize = Math.max(1, input.maxDispatchesPerTurn ?? DISPATCH_LIFECYCLE_PAGE_LIMIT);
+  let dispatchIds: readonly string[] | undefined,
+    offset = 0;
+  const finish = (): void => {
     input.schedule(() => {
-      if (finalSweepOnly) {
-        reclaimLocalRootStorage({
-          rootDir: input.rootDir,
-          projection: input.projection(),
-          retention: input.readRetention(),
-          ownerNodeId: input.ownerNodeId,
-          recoveryDispatchIds: input.recoveryDispatchIds,
-          maxDispatches: 1,
-          afterDispatchId: "dispatch_ffffffffffffffffffffffff",
-          compactArchived: false,
-          runNonDispatchSweep: true,
-        });
-        input.onComplete?.();
-        return;
+      const ownedLocalRoot = resolveOwnedLocalRoot(layout);
+      if (ownedLocalRoot !== null) {
+        const dispatches = resolveOwnedDirectory(ownedLocalRoot, "runtime", "dispatches");
+        if (dispatches !== null && resolveOwnedDirectory(dispatches, "live-index") !== null)
+          removeDispatchLiveIndexEntries(layout.rootDir, indexRemovals);
+        sweepLocalRootStorage(
+          layout.rootDir,
+          ownedLocalRoot,
+          {
+            projection: input.projection(),
+            retention: input.readRetention(),
+            recoveryDispatchIds: input.recoveryDispatchIds,
+          },
+          doneTaskCache,
+        );
       }
-      const result = reclaimLocalRootStorage({
-        rootDir: input.rootDir,
-        projection: input.projection(),
-        retention: input.readRetention(),
-        ownerNodeId: input.ownerNodeId,
-        recoveryDispatchIds: input.recoveryDispatchIds,
-        maxDispatches: input.maxDispatchesPerTurn ?? DISPATCH_LIFECYCLE_PAGE_LIMIT,
-        ...(afterDispatchId === undefined ? {} : { afterDispatchId }),
-        compactArchived: false,
-        runNonDispatchSweep: false,
-      });
-      if (result.nextAfterDispatchId !== null && result.skippedReason === null) {
-        afterDispatchId = result.nextAfterDispatchId;
-        enqueueTurn(false);
-        return;
-      }
-      enqueueTurn(true);
+      input.onComplete?.();
     });
   };
-  enqueueTurn(false);
+  const enqueueTurn = (): void => {
+    input.schedule(() => {
+      const ownedLocalRoot = resolveOwnedLocalRoot(layout);
+      if (ownedLocalRoot === null) return finish();
+      dispatchIds ??= readLiveDispatchIds(ownedLocalRoot);
+      const batch = dispatchIds.slice(offset, offset + batchSize);
+      offset += batch.length;
+      const result = archiveSettledDispatchStreams({
+        rootDir: layout.rootDir,
+        ownedLocalRoot,
+        projection: input.projection(),
+        owner: dispatchOwnerForNode(input.ownerNodeId),
+        recoverySet,
+        doneTaskCache,
+        batch,
+        compactArchived: false,
+        indexRemovals,
+      });
+      if (result.skippedReason === null && offset < dispatchIds.length) enqueueTurn();
+      else finish();
+    });
+  };
+  enqueueTurn();
+}
+
+function readLiveDispatchIds(ownedLocalRoot: string): readonly string[] {
+  const directory = resolveOwnedDirectory(ownedLocalRoot, "runtime", "dispatches");
+  if (directory === null) return [];
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) =>
+    entry.isFile() && dispatchFilePattern.test(entry.name) ? [entry.name.slice(0, -6)] : [],
+  );
 }
 
 function archiveSettledDispatchStreams(input: {
@@ -319,79 +341,55 @@ function archiveSettledDispatchStreams(input: {
   readonly recoverySet: ReadonlySet<string>;
   readonly liveRuntimeSessionIds?: ReadonlySet<string>;
   readonly doneTaskCache: Map<string, boolean>;
-  readonly maxDispatches: number;
-  readonly afterDispatchId?: string;
+  readonly batch: readonly string[];
   readonly compactArchived: boolean;
-}): { readonly archived: number; readonly nextAfterDispatchId: string | null; readonly skippedReason: string | null } {
+  readonly indexRemovals?: DispatchLiveIndexEntry[];
+}): { readonly archived: number; readonly skippedReason: string | null } {
   const ownedDispatchesDir = resolveOwnedDirectory(input.ownedLocalRoot, "runtime", "dispatches");
-  if (ownedDispatchesDir === null) return { archived: 0, nextAfterDispatchId: null, skippedReason: null };
+  if (ownedDispatchesDir === null) return { archived: 0, skippedReason: null };
   if (
     ownedSubdirectoryOrAbsent(ownedDispatchesDir, "archive") === null ||
     ownedSubdirectoryOrAbsent(ownedDispatchesDir, "live-index") === null
   )
-    return { archived: 0, nextAfterDispatchId: null, skippedReason: "dispatch subdirectory boundary check failed" };
+    return { archived: 0, skippedReason: "dispatch subdirectory boundary check failed" };
 
-  const allLiveIds = readdirSync(ownedDispatchesDir)
-    .flatMap((name) => {
-      const match = dispatchFilePattern.exec(name);
-      if (!match) return [];
-      return readOwnedRegularFileStat(ownedDispatchesDir, name) ? [`dispatch_${match[1]}`] : [];
-    })
-    .sort();
-  const remaining =
-    input.afterDispatchId === undefined ? allLiveIds : allLiveIds.filter((id) => id > input.afterDispatchId!);
-  if (remaining.length === 0) return { archived: 0, nextAfterDispatchId: null, skippedReason: null };
-
-  const batch = remaining.slice(0, input.maxDispatches),
-    nextAfterDispatchId = remaining.length > batch.length ? batch.at(-1)! : null;
-
+  const batch = input.batch;
   const viewsById = new Map<string, DispatchLifecycleView>();
   for (let offset = 0; offset < batch.length; offset += DISPATCH_LIFECYCLE_PAGE_LIMIT) {
     const page = input.projection.readDispatchLifecycle({
       by: "dispatch",
       dispatchIds: batch.slice(offset, offset + DISPATCH_LIFECYCLE_PAGE_LIMIT),
     });
-    if (page.status !== "ready")
-      return { archived: 0, nextAfterDispatchId: null, skippedReason: "dispatch lifecycle projection pending" };
+    if (page.status !== "ready") return { archived: 0, skippedReason: "dispatch lifecycle projection pending" };
     for (const row of page.rows) viewsById.set(row.attempt.dispatchId, row);
   }
 
   const toArchive: string[] = [];
   for (const dispatchId of batch) {
-    if (input.recoverySet.has(dispatchId)) continue;
-    if (mustPreserveDispatch(input.rootDir, dispatchId)) continue;
-    const view = viewsById.get(dispatchId);
-    if (view !== undefined) {
-      if (!view.attempt.fence.verified || view.attempt.fence.owner !== input.owner) continue;
-      if (input.liveRuntimeSessionIds?.has(view.attempt.runtimeSessionId) || view.policy.processAlive) continue;
-      const stopProven = view.attempt.stopProof === "proven_stopped";
-      if (!view.policy.attemptSettled || !stopProven) continue;
-      const groupFinal =
-        view.policy.groupSettled &&
-        (!view.policy.successorAdmissible ||
-          (view.attempt.task !== null &&
-            isTaskIrreversiblyDoneCached(input.projection, view.attempt.task.taskId, input.doneTaskCache)));
-      if (!groupFinal) continue;
-      toArchive.push(dispatchId);
+    if (input.recoverySet.has(dispatchId) || !readOwnedRegularFileStat(ownedDispatchesDir, `${dispatchId}.jsonl`))
       continue;
-    }
-    const summary = readDispatchStreamSummary(input.rootDir, dispatchId);
-    if (!summary || input.liveRuntimeSessionIds?.has(summary.header.runtimeSessionId)) continue;
-    const headerOwner =
-      summary.header.executionOwner === undefined || summary.header.executionOwner === "local"
-        ? "local"
-        : `node:${summary.header.executionOwner.nodeId}`;
-    if (headerOwner !== input.owner) continue;
-    if (summary.terminalOutcome === null || summary.header.taskId === null) continue;
-    if (!isTaskIrreversiblyDoneCached(input.projection, summary.header.taskId, input.doneTaskCache)) continue;
-    toArchive.push(dispatchId);
+    const view = viewsById.get(dispatchId);
+    // Only the lifecycle owns node and stop proof. A legacy terminal transcript by itself
+    // cannot establish that the attempt is no longer recoverable or still running.
+    if (!view?.attempt.fence.verified || view.attempt.fence.owner !== input.owner) continue;
+    if (input.liveRuntimeSessionIds?.has(view.attempt.runtimeSessionId) || view.policy.processAlive) continue;
+    if (!view.policy.attemptSettled || view.attempt.stopProof !== "proven_stopped") continue;
+    const groupFinal =
+      view.policy.groupSettled &&
+      (!view.policy.successorAdmissible ||
+        (view.attempt.task !== null &&
+          isTaskIrreversiblyDoneCached(input.projection, view.attempt.task.taskId, input.doneTaskCache)));
+    if (groupFinal) toArchive.push(dispatchId);
   }
 
   const archived =
     toArchive.length === 0
       ? 0
-      : archiveDispatchStreams(input.rootDir, toArchive, { compact: input.compactArchived }).length;
-  return { archived, nextAfterDispatchId, skippedReason: null };
+      : archiveDispatchStreams(input.rootDir, toArchive, {
+          compact: input.compactArchived,
+          indexRemovals: input.indexRemovals,
+        }).length;
+  return { archived, skippedReason: null };
 }
 
 function pruneOrphanEvidenceSidecars(rootDir: string, ownedLocalRoot: string): number {
@@ -609,8 +607,8 @@ function walkOwnedEntry(
       totals[kind].files += 1;
       continue;
     }
-    const realDir = safeRealpath(target);
-    if (!realDir || !isStrictRealChild(ownedLocalRoot, realDir)) continue;
+    const realDir = realpathSync(target);
+    if (!isStrictRealChild(ownedLocalRoot, realDir)) continue;
     for (const child of readdirSync(realDir)) {
       stack.push({ target: path.join(realDir, child), relative: `${relative}/${child}` });
     }
@@ -634,53 +632,11 @@ function walkOwnedDirectorySize(
       files += 1;
       continue;
     }
-    const realDir = safeRealpath(current);
-    if (!realDir || (realDir !== ownedLocalRoot && !isStrictRealChild(ownedLocalRoot, realDir))) continue;
+    const realDir = realpathSync(current);
+    if (realDir !== ownedLocalRoot && !isStrictRealChild(ownedLocalRoot, realDir)) continue;
     for (const name of readdirSync(realDir)) stack.push(path.join(realDir, name));
   }
   return { bytes, files };
-}
-
-function resolveOwnedLocalRoot(layout: ReturnType<typeof resolveHarnessLayout>): string | null {
-  if (!existsSync(layout.rootDir)) return null;
-  const realRepoRoot = safeRealpath(layout.rootDir);
-  if (!realRepoRoot) return null;
-  const relativeSegments = path
-    .relative(layout.rootDir, layout.localRoot)
-    .split(path.sep)
-    .filter((segment) => segment.length > 0 && segment !== ".");
-  if (relativeSegments.length === 0 || relativeSegments.some((segment) => segment === "..")) return null;
-  let current = realRepoRoot;
-  for (const segment of relativeSegments) {
-    const candidate = path.join(current, segment),
-      stat = lstatSync(candidate, { throwIfNoEntry: false });
-    if (!stat || stat.isSymbolicLink() || !stat.isDirectory()) return null;
-    const realCandidate = safeRealpath(candidate);
-    if (!realCandidate || !isStrictRealChild(realRepoRoot, realCandidate)) return null;
-    current = realCandidate;
-  }
-  return current;
-}
-
-function resolveOwnedDirectory(ownedBaseDir: string, ...segments: readonly string[]): string | null {
-  let current = ownedBaseDir;
-  for (const segment of segments) {
-    if (segment.length === 0 || segment === "." || segment === ".." || segment.includes(path.sep)) return null;
-    const candidate = path.join(current, segment),
-      stat = lstatSync(candidate, { throwIfNoEntry: false });
-    if (!stat || stat.isSymbolicLink() || !stat.isDirectory()) return null;
-    const realCandidate = safeRealpath(candidate);
-    if (!realCandidate || !isStrictRealChild(ownedBaseDir, realCandidate)) return null;
-    current = realCandidate;
-  }
-  return current;
-}
-
-function ownedSubdirectoryOrAbsent(ownedParentDir: string, childName: string): string | "absent" | null {
-  const candidate = path.join(ownedParentDir, childName),
-    stat = lstatSync(candidate, { throwIfNoEntry: false });
-  if (!stat) return "absent";
-  return resolveOwnedDirectory(ownedParentDir, childName);
 }
 
 function readOwnedRegularFileStat(
@@ -692,20 +648,6 @@ function readOwnedRegularFileStat(
     stat = lstatSync(target, { throwIfNoEntry: false });
   if (!stat || stat.isSymbolicLink() || !stat.isFile()) return null;
   return { path: target, size: stat.size };
-}
-
-function safeRealpath(target: string): string | null {
-  try {
-    return realpathSync(target);
-  } catch (error) {
-    consumeKnownError(error);
-    return null;
-  }
-}
-
-function isStrictRealChild(realParent: string, realCandidate: string): boolean {
-  const prefix = realParent.endsWith(path.sep) ? realParent : `${realParent}${path.sep}`;
-  return realCandidate.startsWith(prefix);
 }
 
 function toPosix(relative: string): string {

@@ -3,6 +3,7 @@ import path from "node:path";
 import { resolveHarnessLayout, type TaskProjectionQueries } from "@harness-anything/kernel";
 import { compactDispatchStreamArchive } from "./dispatch-stream-compaction.ts";
 import { readDispatchEvidenceState, removeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
+import { resolveOwnedDirectory, resolveOwnedLocalRoot } from "./local-root-paths.ts";
 import { withReadOnlyFile } from "../../../storage/src/durable-file.ts";
 
 type Schedule = (work: () => void | Promise<void>) => void;
@@ -36,10 +37,8 @@ export function archiveDispatchStream(rootDir: string, dispatchId: string, compa
 
 /** Queue one local terminal archive at a time so existing writer work can run between files. */
 export function scheduleArchivedDispatchStreamCompaction(rootDir: string, schedule: Schedule): void {
-  const root = dispatchRoot(rootDir),
-    archive = path.join(root, "archive");
-  if (!lstatSync(root, { throwIfNoEntry: false })?.isDirectory()) return;
-  if (!lstatSync(archive, { throwIfNoEntry: false })?.isDirectory()) return;
+  const archive = ownedArchiveDirectory(rootDir);
+  if (archive === null) return;
   const dispatchIds = readdirSync(archive)
     .filter((name) => /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(name))
     .map((name) => name.slice(0, -6))
@@ -49,6 +48,7 @@ export function scheduleArchivedDispatchStreamCompaction(rootDir: string, schedu
     const dispatchId = dispatchIds[nextIndex++];
     if (!dispatchId) return;
     schedule(() => {
+      if (ownedArchiveDirectory(rootDir) !== archive) return;
       try {
         const archived = path.join(archive, `${dispatchId}.jsonl`);
         if (lstatSync(archived, { throwIfNoEntry: false })?.isFile())
@@ -136,10 +136,8 @@ export function pruneDispatchStreamArchive(
 }
 
 function archivedDispatchStreams(rootDir: string): readonly ArchivedStream[] {
-  const root = dispatchRoot(rootDir),
-    archive = path.join(root, "archive");
-  if (!lstatSync(root, { throwIfNoEntry: false })?.isDirectory()) return [];
-  if (!lstatSync(archive, { throwIfNoEntry: false })?.isDirectory()) return [];
+  const archive = ownedArchiveDirectory(rootDir);
+  if (archive === null) return [];
   return readdirSync(archive)
     .filter((name) => /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(name))
     .map((name) => {
@@ -152,6 +150,11 @@ function archivedDispatchStreams(rootDir: string): readonly ArchivedStream[] {
     })
     .filter((stream): stream is ArchivedStream => stream !== null)
     .sort((left, right) => left.startedAtMs - right.startedAtMs || left.dispatchId.localeCompare(right.dispatchId));
+}
+
+function ownedArchiveDirectory(rootDir: string): string | null {
+  const localRoot = resolveOwnedLocalRoot(resolveHarnessLayout(rootDir));
+  return localRoot === null ? null : resolveOwnedDirectory(localRoot, "runtime", "dispatches", "archive");
 }
 
 /** Read the age signal from the stream's own header line; the header is written by this daemon. */

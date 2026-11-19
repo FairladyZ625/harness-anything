@@ -3,6 +3,7 @@ import {
   constants as fsConstants,
   existsSync,
   fstatSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readSync,
@@ -58,7 +59,7 @@ export function mustPreserveDispatch(rootDir: string, dispatchId: string): boole
 export function archiveDispatchStreams(
   rootDir: string,
   dispatchIds: readonly string[],
-  options?: { readonly compact?: boolean },
+  options?: { readonly compact?: boolean; readonly indexRemovals?: DispatchLiveIndexEntry[] },
 ): readonly string[] {
   const archivedIds: string[] = [],
     indexRemovals: DispatchLiveIndexEntry[] = [],
@@ -70,7 +71,11 @@ export function archiveDispatchStreams(
     if (!existsSync(liveDispatchStreamPath(rootDir, dispatchId))) {
       archivedIds.push(dispatchId);
       if (header?.taskId)
-        indexRemovals.push({ dispatchId, taskId: header.taskId, runtimeSessionId: header.runtimeSessionId });
+        (options?.indexRemovals ?? indexRemovals).push({
+          dispatchId,
+          taskId: header.taskId,
+          runtimeSessionId: header.runtimeSessionId,
+        });
     }
   }
   if (indexRemovals.length > 0) removeDispatchLiveIndexEntries(rootDir, indexRemovals);
@@ -483,7 +488,7 @@ export function removeDispatchLiveIndexEntries(rootDir: string, removals: readon
     const stored = readStoredDispatchLiveIndex(dispatchLiveIndexPath(rootDir, taskId), taskId);
     if (!stored) continue;
     const entries = stored.entries.filter((entry) => !dispatchIds.has(entry.dispatchId));
-    if (entries.length !== stored.entries.length) writeDispatchLiveIndex(rootDir, taskId, dispatchLiveIndex(entries));
+    if (entries.length !== stored.entries.length) writeDispatchLiveIndex(rootDir, taskId, { ...stored, entries });
   }
 }
 
@@ -928,7 +933,7 @@ function writeDispatchLiveIndex(rootDir: string, taskId: string, index: Dispatch
   writeFileDurably(target, `${JSON.stringify(index, null, 2)}\n`, 0o600);
 }
 function readStoredDispatchLiveIndex(target: string, taskId: string): DispatchLiveIndex | null {
-  if (!existsSync(target) || !statSync(target).isFile()) return null;
+  if (!lstatSync(target, { throwIfNoEntry: false })?.isFile()) return null;
   try {
     const parsed: unknown = JSON.parse(readFileSync(target, "utf8"));
     if (!isDispatchIndexRecord(parsed) || parsed.schema !== liveIndexSchema) return null;
