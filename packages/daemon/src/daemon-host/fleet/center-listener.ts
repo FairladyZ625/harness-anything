@@ -60,6 +60,7 @@ import {
 import { digestId, immediate, loadState, mid, ownedUpload, serve, writeCenterDurableJson } from "./center-transport.ts";
 import { createHelloRateLimiter } from "./center-hello-guard.ts";
 import {
+  closeableCenterReplicationSlots,
   createCenterNodePrincipals,
   openCenterRelocationEpochs,
   readListenerCenterRelocated,
@@ -158,9 +159,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       return uploadPath;
     },
   };
-  const replicationSlots = openReplicationSlots(
-    path.join(options.stateRoot, "replication-slots.sqlite"),
-    options.storage,
+  const replicationSlots = closeableCenterReplicationSlots(
+    openReplicationSlots(path.join(options.stateRoot, "replication-slots.sqlite"), options.storage),
   );
   // The cap only bounds a slot that never returns: log rows are a few columns, while a slot past the cap
   // costs a full base backup. A busy center writes thousands of commits a day; keep months of them.

@@ -6,6 +6,7 @@ import {
   readLedgerWriterEpoch,
   type CenterMigratingStateV1,
   type PersistentWriterEpoch,
+  type ReplicationSlots,
   type WriterEpochLease,
 } from "@harness-anything/storage";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
@@ -13,8 +14,39 @@ import type { CenterMovedDetails, CenterRelocatedTombstoneV1, FleetCenterOptions
 import { FleetFault } from "./center-types.ts";
 import type { createNodeRetirementAdmission } from "./node-retirement.ts";
 
-function listenerRelocationRoot(options: FleetCenterOptions): string {
-  return options.relocationRoot ?? path.dirname(options.stateRoot);
+function listenerRelocationRoot(options: FleetCenterOptions): string | null {
+  if (typeof options.relocationRoot === "string" && options.relocationRoot.length > 0) return options.relocationRoot;
+  if (typeof options.stateRoot === "string" && options.stateRoot.length > 0) return path.dirname(options.stateRoot);
+  return null;
+}
+
+export function closeableCenterReplicationSlots(inner: ReplicationSlots): ReplicationSlots {
+  let finalList: ReturnType<ReplicationSlots["list"]> | null = null;
+  return {
+    ...inner,
+    current: (target) => (finalList !== null ? false : inner.current(target)),
+    cursor: (key) =>
+      finalList !== null
+        ? (finalList.find((row) => row.repoId === key.repoId && row.nodeId === key.nodeId)?.ack ?? null)
+        : inner.cursor(key),
+    minimumAck: (repoId, history) => {
+      if (finalList === null) return inner.minimumAck(repoId, history);
+      let minSeq: number | null = null;
+      for (const row of finalList) {
+        const seq = row.ack?.durable.sequence;
+        if (row.repoId === repoId && row.history === history && typeof seq === "number") {
+          minSeq = minSeq === null || seq < minSeq ? seq : minSeq;
+        }
+      }
+      return minSeq;
+    },
+    list: () => (finalList !== null ? finalList : inner.list()),
+    close: () => {
+      if (finalList !== null) return;
+      finalList = inner.list();
+      inner.close();
+    },
+  };
 }
 
 export function readListenerCenterRelocated(
@@ -24,7 +56,9 @@ export function readListenerCenterRelocated(
   if (options.centerRelocated) {
     if (repoId === undefined || options.centerRelocated.repoId === repoId) return options.centerRelocated;
   }
-  return readCenterRelocated(listenerRelocationRoot(options), repoId ?? options.centerRepoId);
+  const root = listenerRelocationRoot(options);
+  if (root === null) return null;
+  return readCenterRelocated(root, repoId ?? options.centerRepoId);
 }
 
 export function readListenerCenterMigrating(
@@ -32,7 +66,9 @@ export function readListenerCenterMigrating(
   repoId: string | undefined,
 ): CenterMigratingStateV1 | null {
   if (!repoId) return null;
-  return readCenterMigrating(listenerRelocationRoot(options), repoId);
+  const root = listenerRelocationRoot(options);
+  if (root === null) return null;
+  return readCenterMigrating(root, repoId);
 }
 
 export function centerMovedFleetFault(details: CenterMovedDetails): FleetFault {

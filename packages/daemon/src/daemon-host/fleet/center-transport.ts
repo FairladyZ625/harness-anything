@@ -525,10 +525,12 @@ export async function serve(
           throw centerMigratingFleetFault(frameRepoId);
       } else if (options.centerRelocated) {
         const hasAttachedSibling = options.host
-          .status()
-          .repos.some(
-            (repo) => repo.state === "attached" && readListenerCenterRelocated(options, repo.repoId) === null,
-          );
+          ? options.host
+              .status()
+              .repos.some(
+                (repo) => repo.state === "attached" && readListenerCenterRelocated(options, repo.repoId) === null,
+              )
+          : false;
         if (!hasAttachedSibling) throw centerMovedFleetFault(options.centerRelocated);
       }
       if (nodeId === null) {
