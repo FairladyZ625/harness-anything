@@ -7,7 +7,8 @@ import { existsSync, mkdirSync, readdirSync, statfsSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { writeFileDurably } from "@harness-anything/storage";
-import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../client/fleet-edge-config.ts";
+import { fleetEdgeCaPath, readFleetEdgeConfig, writeFleetEdgeConfig } from "../client/fleet-edge-config.ts";
+import { daemonUserRoot } from "../client/local-daemon-target.ts";
 import { runProcessExitAsync, runProcessTextAsync } from "../process-port.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import { consumeKnownError, type OidcLoginAuthority } from "@harness-anything/kernel";
@@ -87,6 +88,7 @@ export interface EdgeJoinClientPorts {
   readonly probeCenter?: typeof probeFleetEdgeCenterAddress;
   readonly probeLogin?: (authority: OidcLoginAuthority) => Promise<void>;
   readonly homeDir?: string;
+  readonly userRoot?: string;
   /** Test seam for the filesystem capacity used by the derived quota. */
   readonly availableBytes?: (rootDir: string) => number;
   /** Receives each repository's phase as the join loop advances, so a viewer can show progress. */
@@ -116,9 +118,9 @@ export async function joinFleetEdge(
     ...(link.loginBrowserUrl ? { browserUrl: link.loginBrowserUrl } : {}),
     ...(link.loginCertificate ? { certificate: link.loginCertificate } : {}),
   };
-  const base = request.workspaceRoot
-    ? path.resolve(request.workspaceRoot)
-    : path.join(ports.homeDir ?? homedir(), "harness-edge");
+  const homeDir = ports.homeDir ?? homedir(),
+    userRoot = ports.userRoot ?? (ports.homeDir ? path.join(ports.homeDir, ".harness") : daemonUserRoot()),
+    base = request.workspaceRoot ? path.resolve(request.workspaceRoot) : path.join(homeDir, "harness-edge");
   if (request.workspaceRoot && link.repoIds.length > 1) {
     let directory = base;
     for (;;) {
@@ -225,10 +227,8 @@ export async function joinFleetEdge(
       if ((error as { code?: string }).code !== "already_consumed") throw error;
       const status = await (ports.status ?? requestFleetEdgeJoinStatusPinned)(address);
       if (status.state !== "consumed" || !status.nodeId) throw error;
-      const recoveryRoots = link.repoIds.map((repoId) => path.join(base, repoId));
-      if (existingCheckout) recoveryRoots.unshift(existingCheckout);
-      const saved = recoveryRoots
-        .map(readFleetEdgeConfig)
+      const saved = link.repoIds
+        .map((repoId) => readFleetEdgeConfig(userRoot, repoId))
         .find(
           (config) =>
             config !== null &&
@@ -262,7 +262,7 @@ export async function joinFleetEdge(
     const originUrl =
         originUrls && Object.hasOwn(originUrls, repository.repoId) ? originUrls[repository.repoId] : undefined,
       root = await resolveJoinWorkspace(base, existingCheckout, repository, originUrl),
-      caPath = path.join(root, "fleet-center-ca.pem"),
+      caPath = fleetEdgeCaPath(userRoot, repository.repoId),
       report = (phase: EdgeJoinRepositoryProgress["phase"]) =>
         ports.onProgress?.({ joinId: admitted.joinId, repository: { repoId: repository.repoId, phase } });
     report("workspace");
@@ -283,8 +283,8 @@ export async function joinFleetEdge(
       });
       continue;
     }
-    // The pinned certificate and join receipt are local trust/configuration, never part of the Git checkout.
-    const previous = readFleetEdgeConfig(root),
+    // The pinned certificate and join receipt are local node trust/configuration under userRoot, never in the Git checkout.
+    const previous = readFleetEdgeConfig(userRoot, repository.repoId),
       saved = previous?.nodeId === admitted.nodeId ? previous : null,
       savedWaitTimeoutMs = saved?.waitTimeoutMs,
       savedMaxAgeMs = saved?.maxAgeMs,
@@ -293,8 +293,8 @@ export async function joinFleetEdge(
         request.quotaBytes ??
         saved?.quotaBytes ??
         deriveEdgeJoinQuotaBytes(root, ports.availableBytes ?? ((directory) => availableFilesystemBytes(directory)));
-    writeFileDurably(caPath, certificate);
-    writeFleetEdgeConfig(root, {
+    writeFileDurably(caPath, certificate, 0o600);
+    writeFleetEdgeConfig(userRoot, repository.repoId, {
       ...(savedWaitTimeoutMs === undefined ? {} : { waitTimeoutMs: savedWaitTimeoutMs }),
       ...(savedMaxAgeMs === undefined ? {} : { maxAgeMs: savedMaxAgeMs }),
       ...(savedMaxLagRevisions === undefined ? {} : { maxLagRevisions: savedMaxLagRevisions }),

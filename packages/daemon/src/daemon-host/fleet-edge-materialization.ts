@@ -1,5 +1,6 @@
 import type { WriteReceipt } from "@harness-anything/kernel";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { daemonUserRoot } from "./client/local-daemon-target.ts";
 import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
 import { locateFleetMirrorView, materializeFleetMirrorView } from "./fleet-edge-mirror.ts";
 import { authorizeRepoActionBinding, withAuthorizationDecision } from "./repo-cell-authorization.ts";
@@ -14,8 +15,8 @@ import { settleHostLocalReceipt } from "@harness-anything/application/internal/c
 import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
-function edgeReplica(rootDir: string, repoId: string, binding: RepoCellBinding) {
-  const config = readFleetEdgeConfig(rootDir);
+function edgeReplica(userRoot: string | undefined, repoId: string, binding: RepoCellBinding) {
+  const config = readFleetEdgeConfig(userRoot ?? daemonUserRoot(), repoId);
   if (!config) return null;
   if (config.repoId !== repoId)
     throw cellCodedError("fleet_edge_config_missing", "The edge repository configuration is unavailable.");
@@ -24,13 +25,14 @@ function edgeReplica(rootDir: string, repoId: string, binding: RepoCellBinding) 
 
 /** A local preference settles the actual replica mirror after its writer turn, never the runtime ledger. */
 export function reconcileFleetNodeMaterialization(input: {
+  readonly userRoot?: string;
   readonly rootDir: string;
   readonly repoId: string;
   readonly binding: RepoCellBinding;
   readonly action: RepoTaskAction;
   readonly receipt: WriteReceipt;
 }): WriteReceipt {
-  const replica = edgeReplica(input.rootDir, input.repoId, input.binding);
+  const replica = edgeReplica(input.userRoot, input.repoId, input.binding);
   // A preference may precede the first join/backup; every later pull reads the same local setting.
   if (!replica || !locateFleetMirrorView(replica.viewRoot, input.repoId, replica.nodeId, { includeEntries: false }))
     return input.receipt;
@@ -63,13 +65,14 @@ export function reconcileFleetNodeMaterialization(input: {
 
 /** The existing document selection/receipt contract runs against an authorized, pinned replica cut. */
 export async function materializeFleetEdgeDocuments(input: {
+  readonly userRoot?: string;
   readonly rootDir: string;
   readonly repoId: string;
   readonly binding: RepoCellBinding;
   readonly action: RepoTaskAction;
   readonly now: string;
 }): Promise<WriteReceipt> {
-  const replica = edgeReplica(input.rootDir, input.repoId, input.binding);
+  const replica = edgeReplica(input.userRoot, input.repoId, input.binding);
   if (!replica) throw cellCodedError("replica_unavailable", "This edge has no Fleet replica configuration.");
   const cut = withEdgeReadModel(replica, (_projection, frame) => frame.cut),
     binding = await authorizeRepoActionBinding({

@@ -3,6 +3,7 @@ import { readAgentEntityDeclarationSource } from "./agent-entities.ts";
 import { fleetMirrorTaskPaths } from "./fleet-edge-mirror.ts";
 import { readEdgeRuntimeRepository } from "./fleet-edge-runtime-read.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { daemonUserRoot } from "./client/local-daemon-target.ts";
 // Edge-side product write path: routes one `ha task ...` write command through
 // the fleet TLS channel, attaches to the center's wait queue for as long as the
 // caller is willing to wait, reconnects with full-jitter exponential backoff
@@ -302,10 +303,15 @@ function fleetExactTaskPackagePath(view: FleetMirrorView, workspaceRoot: string,
 
 /** A repository read on an edge: answered by the host's edge cell after this edge's own writes land. */
 export async function runFleetEdgeRepositoryRead(
-  input: { readonly rootDir: string; readonly repoId: string; readonly action: FleetTaskAction },
+  input: {
+    readonly userRoot?: string;
+    readonly rootDir: string;
+    readonly repoId: string;
+    readonly action: FleetTaskAction;
+  },
   readLocal: () => Promise<Record<string, unknown>>,
 ): Promise<Record<string, unknown>> {
-  const config = readFleetEdgeConfig(input.rootDir);
+  const config = readFleetEdgeConfig(input.userRoot ?? daemonUserRoot(), input.repoId);
   if (!config) return readLocal();
   if (config.repoId !== input.repoId)
     throw Object.assign(new Error("The edge repository configuration is unavailable."), {

@@ -153,12 +153,26 @@ test("one invitation creates and syncs an independent workspace for every reposi
   const workspaceRoots = syncs.map((payload) => String(payload.workspaceRoot));
   assert.notEqual(workspaceRoots[0], workspaceRoots[1]);
   for (const [index, repoId] of ["repo-a", "repo-b"].entries()) {
-    const workspaceRoot = workspaceRoots[index]!;
+    const workspaceRoot = workspaceRoots[index]!,
+      edgeConfigDir = path.join(temp, ".harness", "fleet", "edge", repoId);
     assert.equal(path.basename(workspaceRoot), repoId);
-    assert.equal(existsSync(path.join(workspaceRoot, "fleet-center-ca.pem")), true);
+    assert.equal(existsSync(path.join(workspaceRoot, "fleet-center-ca.pem")), false);
+    assert.equal(existsSync(path.join(workspaceRoot, "fleet-edge.json")), false);
+    assert.equal(existsSync(path.join(edgeConfigDir, "fleet-center-ca.pem")), true);
+    assert.equal(existsSync(path.join(edgeConfigDir, "fleet-edge.json")), true);
     assert.equal(existsSync(path.join(workspaceRoot, "harness", "harness.yaml")), true);
     assert.equal(syncs[index]?.nodeId, "edge-node");
     assert.equal(syncs[index]?.credential, "machine-credential");
+    assert.equal(
+      execFileSync(
+        "git",
+        ["-C", workspaceRoot, "status", "--porcelain", "--", "fleet-edge.json", "fleet-center-ca.pem"],
+        {
+          encoding: "utf8",
+        },
+      ).trim(),
+      "",
+    );
   }
   assert.equal(JSON.stringify(result).includes("machine-credential"), false);
 
@@ -673,8 +687,8 @@ test("ssh-reverse writes the login authority before the first sync", async (t) =
       }),
       beginLogin: async () => assert.fail("the matching session must be reused"),
       register: async () => undefined,
-      sync: async (payload) => {
-        configAtSync = readFleetEdgeConfig(String(payload.workspaceRoot));
+      sync: async () => {
+        configAtSync = readFleetEdgeConfig(path.join(root, ".harness"), "repo-a");
         return { ok: true };
       },
       join: async () => ({

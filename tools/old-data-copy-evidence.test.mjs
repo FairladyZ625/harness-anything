@@ -19,6 +19,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { waitForArrival, watchFileArrival } from "./fixtures/event-arrival.ts";
+import { writeDaemonRegistryRepo } from "../packages/kernel/src/daemon/registry.ts";
 import { seedSettingsEvent } from "../packages/daemon/test/repo-settings.fixture.ts";
 import {
   copyFilesIntoDirectory,
@@ -285,8 +286,8 @@ test("snapshot: the harness clone carries objects and config, not the authored t
   }
 });
 
-function runCommand(args) {
-  return spawnSync(process.execPath, [script, ...args], { encoding: "utf8", cwd: repoRoot, timeout: 300_000 });
+function runCommand(args, env = process.env) {
+  return spawnSync(process.execPath, [script, ...args], { encoding: "utf8", cwd: repoRoot, env, timeout: 300_000 });
 }
 
 function repoHead() {
@@ -682,6 +683,7 @@ test("remote-edge workspace resolves fleet-basebackup/v3 replica store without l
   try {
     const seeded = await createSourceFixture(path.join(parent, "seeded"));
     const edgeRoot = path.join(parent, "edge");
+    const edgeUser = path.join(parent, "edge-user");
     const edgeHarness = path.join(edgeRoot, "harness");
     const edgeLocal = path.join(edgeRoot, ".harness");
     const viewRoot = path.join(parent, "edge-view");
@@ -702,8 +704,18 @@ test("remote-edge workspace resolves fleet-basebackup/v3 replica store without l
       '{"nodeTaskMaterializationPolicy":"in_flight"}\n',
       "utf8",
     );
+    writeDaemonRegistryRepo({
+      userRoot: edgeUser,
+      canonicalRoot: edgeRoot,
+      repoId: "canonical",
+      mode: "remote-edge",
+      authoredBranch: "main",
+      createConvenienceLinks: false,
+    });
+    const edgeConfigDir = path.join(edgeUser, "fleet", "edge", "canonical");
+    mkdirSync(edgeConfigDir, { recursive: true });
     writeFileSync(
-      path.join(edgeRoot, "fleet-edge.json"),
+      path.join(edgeConfigDir, "fleet-edge.json"),
       JSON.stringify({
         schema: "fleet-edge-config/v1",
         repoId: "canonical",
@@ -719,7 +731,7 @@ test("remote-edge workspace resolves fleet-basebackup/v3 replica store without l
     );
 
     // Negative control: before replica pointer exists, resolving the remote-edge store fails closed.
-    assert.throws(() => resolveSourceDataRoot(edgeRoot, edgeLocal), /no published replica generation/u);
+    assert.throws(() => resolveSourceDataRoot(edgeRoot, edgeLocal, edgeUser), /no published replica generation/u);
 
     await copyTree(path.join(seeded, ".harness"), replicaHarness, { platform: "win32" });
     writeFileSync(
@@ -738,9 +750,9 @@ test("remote-edge workspace resolves fleet-basebackup/v3 replica store without l
       "utf8",
     );
 
-    assert.equal(copyRepoId(edgeRoot).repoId, "canonical");
+    assert.equal(copyRepoId(edgeRoot, edgeUser).repoId, "canonical");
     const ws = path.join(parent, "ws-edge");
-    const snap = await snapshotRepository(edgeRoot, ws, { platform: "win32" });
+    const snap = await snapshotRepository(edgeRoot, ws, { platform: "win32", userRoot: edgeUser });
     assert.equal(
       existsSync(path.join(ws, "fleet-edge.json")),
       false,
@@ -759,7 +771,10 @@ test("remote-edge workspace resolves fleet-basebackup/v3 replica store without l
     assert.ok(existsSync(path.join(ws, ".harness", "settings.local.json")), "edge settings.local.json copied");
 
     const out = path.join(parent, "out");
-    const result = runCommand(["--source", edgeRoot, "--out", out, "--attach-timeout-ms", "120000"]);
+    const result = runCommand(["--source", edgeRoot, "--out", out, "--attach-timeout-ms", "120000"], {
+      ...process.env,
+      HARNESS_DAEMON_USER_ROOT: edgeUser,
+    });
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
     const receipt = JSON.parse(result.stdout);
     assert.equal(receipt.ok, true, JSON.stringify(receipt.failures));

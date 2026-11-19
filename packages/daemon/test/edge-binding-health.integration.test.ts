@@ -10,6 +10,7 @@ import path from "node:path";
 import test from "node:test";
 import { writeDaemonRegistryRepo } from "@harness-anything/kernel/daemon-registry";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
@@ -115,21 +116,17 @@ test("edge binding health reads the selected login authority through fleet disco
     mkdirSync(edgeRoot);
     mkdirSync(path.join(edgeRoot, "harness"));
     writeFileSync(path.join(edgeRoot, "harness", "harness.yaml"), "schema: harness-anything/v1\n");
-    writeFileSync(
-      path.join(edgeRoot, "fleet-edge.json"),
-      JSON.stringify({
-        schema: "fleet-edge-config/v1",
-        repoId: nodeId,
-        host: "127.0.0.1",
-        port: center.port,
-        caPath: certFile,
-        servername: "localhost",
-        nodeId,
-        credential: "fixture-machine-secret",
-        viewRoot: edgeRoot,
-        quotaBytes: 1024,
-      }),
-    );
+    writeFleetEdgeConfig(userRoot, nodeId, {
+      repoId: nodeId,
+      host: "127.0.0.1",
+      port: center.port,
+      caPath: certFile,
+      servername: "localhost",
+      nodeId,
+      credential: "fixture-machine-secret",
+      viewRoot: edgeRoot,
+      quotaBytes: 1024,
+    });
     writeDaemonRegistryRepo({
       userRoot,
       canonicalRoot: edgeRoot,

@@ -21,6 +21,7 @@ import {
   type ReplicaSyncOptions,
 } from "../src/daemon-host/fleet/replica-sync.ts";
 import { readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
+import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { edgeReplicaDoctor } from "../src/daemon-host/edge-replica-doctor.ts";
 import { runWalReceiver } from "../src/daemon-host/fleet/walreceiver.ts";
 import { REPLICATION_CHUNK_BYTES, type ReplicationFrame } from "../src/fleet-sync/fleet/protocol.ts";
@@ -572,26 +573,27 @@ test(
     assert.equal(typeof row.ackedAt, "string");
 
     // Edge doctor: a confirming stream is healthy; a stream silent past three keepalives is not.
-    const workspace = mkdtempSync(path.join(tmpdir(), "ha-harden-workspace-"));
-    writeFileSync(
-      path.join(workspace, "fleet-edge.json"),
-      JSON.stringify({
-        schema: "fleet-edge-config/v1",
-        repoId: replicationRepoId,
-        host: "127.0.0.1",
-        port: fixture.centerPort(),
-        caPath: "ca.pem",
-        nodeId: "edge-one",
-        credential: "secret-edge-one",
-        viewRoot,
-        quotaBytes: 64 * 1024 * 1024,
-      }),
-    );
-    const fresh = edgeReplicaDoctor(workspace, replicationRepoId);
+    const workspace = mkdtempSync(path.join(tmpdir(), "ha-harden-workspace-")),
+      doctorUserRoot = mkdtempSync(path.join(tmpdir(), "ha-harden-user-"));
+    t.after(() => {
+      rmSync(workspace, { recursive: true, force: true });
+      rmSync(doctorUserRoot, { recursive: true, force: true });
+    });
+    writeFleetEdgeConfig(doctorUserRoot, replicationRepoId, {
+      repoId: replicationRepoId,
+      host: "127.0.0.1",
+      port: fixture.centerPort(),
+      caPath: "ca.pem",
+      nodeId: "edge-one",
+      credential: "secret-edge-one",
+      viewRoot,
+      quotaBytes: 64 * 1024 * 1024,
+    });
+    const fresh = edgeReplicaDoctor(workspace, replicationRepoId, undefined, doctorUserRoot);
     assert.equal(fresh.failureCode, null, JSON.stringify(fresh));
     assert.equal(fresh.lag, 0);
     assert.equal(typeof fresh.lastSuccessAt, "string");
-    const silent = edgeReplicaDoctor(workspace, replicationRepoId, () => Date.now() + 10 * 60_000);
+    const silent = edgeReplicaDoctor(workspace, replicationRepoId, () => Date.now() + 10 * 60_000, doctorUserRoot);
     assert.equal(silent.failureCode, "replica_stream_silent", JSON.stringify(silent));
     assert.equal(silent.lag, null);
 

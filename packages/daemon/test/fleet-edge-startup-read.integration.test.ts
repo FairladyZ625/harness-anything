@@ -17,6 +17,7 @@ import { createUnixSocketTransportServer } from "../src/daemon-host/transport/un
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
+import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { materializeCellReplica } from "./edge-repository-cut.fixtures.ts";
 import { eventuallyValue } from "./fixtures/runtime-ingress.ts";
@@ -194,20 +195,19 @@ test(
 test("a readable edge generation stays attached when the center sync token fails", { timeout: 180_000 }, async (t) => {
   const fixture = await fleetNodeClaimFixture(t);
   const edge = await fleetEdgeHostFixture(t, fixture, {
-    beforeOpen: async (edgeRoot) => {
+    beforeOpen: async (edgeRoot, edgeUser) => {
       // Preserve a previously readable replica while making the local writer fail to attach.
       // This is the path used by a remote edge whose local ledger is unavailable after restart.
-      await materializeCellReplica(fixture.repo, "lease-repo", "person-one");
-      const config = JSON.parse(readFileSync(path.join(fixture.repo, "fleet-edge.json"), "utf8")) as Record<
-          string,
-          unknown
-        >,
-        viewRoot = String(config.viewRoot),
+      await materializeCellReplica(fixture.repo, "lease-repo", "person-one", edgeUser);
+      const config = readFleetEdgeConfig(edgeUser, "lease-repo")!,
+        viewRoot = config.viewRoot,
         viewDir = path.join(viewRoot, "repos", "lease-repo", "views", "test-edge");
-      config.host = "127.0.0.1";
-      config.port = fixture.center.port;
-      config.caPath = path.join(fixture.root, "tls.crt");
-      writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
+      writeFleetEdgeConfig(edgeUser, "lease-repo", {
+        ...config,
+        host: "127.0.0.1",
+        port: fixture.center.port,
+        caPath: path.join(fixture.root, "tls.crt"),
+      });
       writeFileSync(
         path.join(viewDir, "replica-health.json"),
         JSON.stringify({
@@ -231,7 +231,7 @@ test("a readable edge generation stays attached when the center sync token fails
       health: JSON.parse(
         readFileSync(
           path.join(
-            String(JSON.parse(readFileSync(path.join(edge.edgeRoot, "fleet-edge.json"), "utf8")).viewRoot),
+            readFleetEdgeConfig(edge.edgeUser, "lease-repo")!.viewRoot,
             "repos",
             "lease-repo",
             "views",

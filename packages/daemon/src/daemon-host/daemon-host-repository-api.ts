@@ -67,7 +67,7 @@ import {
   validateBackupDestination,
   validateRepoAllPurge,
 } from "./repo-all-purge.ts";
-import { removeFileDurably } from "../../../storage/src/durable-file.ts";
+import { removeFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { readPolicyMetadata } from "@harness-anything/application/queries";
 import { renderStuckRuntimeRecoveries } from "./runtime-recovery-watch.ts";
 
@@ -723,10 +723,7 @@ export function createDaemonHostRepositoryApi(
         userRoot: context.input.userRoot,
         createConvenienceLinks: false,
       });
-      if (rootDir) {
-        const fleetEdgeFile = path.join(rootDir, "fleet-edge.json");
-        if (existsSync(fleetEdgeFile)) removeFileDurably(fleetEdgeFile);
-      }
+      removeFleetEdgeConfig(context.input.userRoot, request.repoId);
       const repo = context.publicRegistryRepo(result.repo);
       if (purging) {
         const removed = purgingAll ? removeRepoHarnessData(rootDir!) : purgeRepoCache(rootDir!);
@@ -828,7 +825,7 @@ export function createDaemonHostRepositoryApi(
           (repo) => repo.repoId === repoId && repo.mode === "remote-edge",
         );
         if (edge?.canonicalRoot) {
-          const receipt = edgeReplicaDoctor(edge.canonicalRoot, repoId);
+          const receipt = edgeReplicaDoctor(edge.canonicalRoot, repoId, undefined, context.input.userRoot);
           return {
             ...receipt,
             checks: [
@@ -900,6 +897,7 @@ export function createDaemonHostRepositoryApi(
         const resolvedAction = await resolveVerticalKindCommandAction(cell, action as RepoTaskAction);
         if (cell.status().mode === "remote-edge" && resolvedAction.kind === "doc-materialize")
           return await materializeFleetEdgeDocuments({
+            userRoot: context.input.userRoot,
             rootDir: cell.status().rootDir,
             repoId,
             binding: serverBinding,
@@ -908,7 +906,12 @@ export function createDaemonHostRepositoryApi(
           });
         let receipt = edgeRead
           ? ((await runFleetEdgeRepositoryRead(
-              { rootDir: cell.status().rootDir, repoId, action: resolvedAction as never },
+              {
+                userRoot: context.input.userRoot,
+                rootDir: cell.status().rootDir,
+                repoId,
+                action: resolvedAction as never,
+              },
               async () =>
                 (await cell.run(resolvedAction, serverBinding, auth.connectionSignal)) as Record<string, unknown>,
             )) as Awaited<ReturnType<typeof cell.run>>)
@@ -920,6 +923,7 @@ export function createDaemonHostRepositoryApi(
           (receipt.outcome === "applied" || receipt.outcome === "no_changes")
         )
           receipt = reconcileFleetNodeMaterialization({
+            userRoot: context.input.userRoot,
             rootDir: cell.status().rootDir,
             repoId,
             binding: serverBinding,

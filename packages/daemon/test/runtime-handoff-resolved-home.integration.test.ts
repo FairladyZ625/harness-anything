@@ -7,6 +7,7 @@ import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
 import { applyFleetMirrorCut } from "../src/daemon-host/fleet-edge-mirror.ts";
 import { dispatchStreamPath, readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
@@ -181,10 +182,7 @@ for (const row of [{type:'thread.started',thread_id:id},
       quotaBytes: 64 * 1024 * 1024,
       workspaceRoot: rootDir,
     };
-    writeFileSync(
-      path.join(rootDir, "fleet-edge.json"),
-      JSON.stringify({ schema: "fleet-edge-config/v1", ...request }),
-    );
+    writeFleetEdgeConfig(userRoot, repoId, request);
     f.owners.signIn(userRoot, nodeId, rootDir);
     const host = await openDaemonHost({
       daemonId: nodeId,

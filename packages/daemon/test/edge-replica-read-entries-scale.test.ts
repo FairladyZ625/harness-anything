@@ -29,6 +29,7 @@ import { installCostProbe, resetCostProbe, snapshotCostProbe } from "./fixtures/
 
 interface EdgeScaleFixture {
   readonly root: string;
+  readonly userRoot: string;
   readonly viewRoot: string;
   readonly viewDir: string;
   readonly repoId: string;
@@ -45,6 +46,7 @@ const RUNTIME_RESULT_BODY = "runtime result payload";
 
 async function makeFixture(documentCount: number): Promise<EdgeScaleFixture> {
   const root = mkdtempSync(path.join(tmpdir(), "ha-edge-entries-scale-")),
+    userRoot = path.join(root, "user"),
     repo = path.join(root, "repo"),
     repoId = "scale-repo",
     nodeId = "scale-node",
@@ -157,9 +159,10 @@ async function makeFixture(documentCount: number): Promise<EdgeScaleFixture> {
     viewRoot,
     quotaBytes: 64 * 1024 * 1024,
   };
-  writeFleetEdgeConfig(repo, config);
+  writeFleetEdgeConfig(userRoot, repoId, config);
   return {
     root,
+    userRoot,
     viewRoot,
     viewDir,
     repoId,
@@ -253,7 +256,7 @@ test("non-entry edge replica reads do not scan mirror entries, while negative co
     },
     {
       name: "edgeReplicaDoctor",
-      run: (f) => edgeReplicaDoctor(f.workspaceRoot, f.repoId),
+      run: (f) => edgeReplicaDoctor(f.workspaceRoot, f.repoId, undefined, f.userRoot),
     },
     {
       name: "readEdgeRuntimeResult",
@@ -283,7 +286,7 @@ test("non-entry edge replica reads do not scan mirror entries, while negative co
     readEdgeRuntimeResult(large.viewRoot, large.repoId, large.nodeId, large.runtimeResultRef),
     RUNTIME_RESULT_BODY,
   );
-  assert.equal(edgeReplicaDoctor(large.workspaceRoot, large.repoId).currentCut?.revision, 1);
+  assert.equal(edgeReplicaDoctor(large.workspaceRoot, large.repoId, undefined, large.userRoot).currentCut?.revision, 1);
 
   // Default withEdgeReadModel must not load mirror entries into view.entries.
   const defaultEntriesSmall = measureSqlRows(() =>

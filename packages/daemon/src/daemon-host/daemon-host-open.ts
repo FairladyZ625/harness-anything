@@ -35,7 +35,7 @@ import {
   type RuntimeInstallationWitness,
 } from "./agent-runtime-instances.ts";
 import { daemonBuildStamp, observeDaemonBuild } from "./build-identity.ts";
-import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { fleetEdgeConfigDir, readFleetEdgeConfig, readFleetEdgeConfigForRoot } from "./client/fleet-edge-config.ts";
 import {
   openNodeAutoClaimLoop,
   type NodeAutoClaimCandidate,
@@ -1238,14 +1238,20 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             return loginTarget;
           };
         if (request.operation === "edge-join-create" && request.joinMode === "member-device" && loginTarget) {
-          const edge = readFleetEdgeConfig(loginTarget);
+          const edge = request.repoId
+            ? readFleetEdgeConfig(input.userRoot, request.repoId)
+            : readFleetEdgeConfigForRoot(input.userRoot, loginTarget);
           if (edge) {
             return {
               ...(await createFleetMemberDeviceLink(
                 {
                   hostname: edge.host,
                   port: edge.port,
-                  ca: readFileSync(edge.caPath),
+                  ca: readFileSync(
+                    path.isAbsolute(edge.caPath)
+                      ? edge.caPath
+                      : path.resolve(fleetEdgeConfigDir(input.userRoot, edge.repoId), edge.caPath),
+                  ),
                   ...(edge.servername ? { servername: edge.servername } : {}),
                   nodeId: edge.nodeId,
                   credential: edge.credential,
@@ -1272,6 +1278,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               register: (rootDir, repoId) =>
                 host.admin({ kind: "register", rootDir, repoId, mode: "remote-edge" }, auth),
               sync: (payload) => host.fleet.edgeSync(payload, auth),
+              userRoot: input.userRoot,
               onProgress: edgeJoinProgress.record,
             },
           );
@@ -1306,7 +1313,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           if (result !== null) return result;
         }
         if (request.operation === "listener" && loginTarget) {
-          const edge = readFleetEdgeConfig(loginTarget);
+          const edge = request.repoId
+            ? readFleetEdgeConfig(input.userRoot, request.repoId)
+            : readFleetEdgeConfigForRoot(input.userRoot, loginTarget);
           if (edge?.loginUrl && edge.loginCertificate) {
             const target = new URL(edge.loginUrl),
               browser = new URL(edge.loginBrowserUrl ?? edge.loginUrl);
@@ -1327,7 +1336,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         if (
           (request.operation === "health" || request.operation === "bootstrap-status") &&
           loginTarget &&
-          readFleetEdgeConfig(loginTarget)
+          (request.repoId
+            ? readFleetEdgeConfig(input.userRoot, request.repoId)
+            : readFleetEdgeConfigForRoot(input.userRoot, loginTarget))
         )
           return oidc
             .bindingHealth(loginTarget)
@@ -1407,7 +1418,12 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             authorizeOwnerRecovery: async () => {
               const brokenListener =
                 managedListenerProblem(input.userRoot) !== undefined &&
-                !(loginTarget && readFleetEdgeConfig(loginTarget));
+                !(
+                  loginTarget &&
+                  (request.repoId
+                    ? readFleetEdgeConfig(input.userRoot, request.repoId)
+                    : readFleetEdgeConfigForRoot(input.userRoot, loginTarget))
+                );
               if (!brokenListener) return false;
               if (!isDaemonSocketOwner(auth))
                 throw hostCodedError(
@@ -1492,7 +1508,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     for (const repo of registered) {
       if (repo.state !== "enabled" || repo.mode !== "remote-edge" || repo.canonicalRoot === null) continue;
       const rootDir = repo.canonicalRoot,
-        config = readFleetEdgeConfig(rootDir);
+        config = readFleetEdgeConfig(input.userRoot, repo.repoId);
       if (!config || config.repoId !== repo.repoId) {
         fleetVersionWarnings.delete(repo.repoId);
         continue;
@@ -1507,10 +1523,12 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         replicaSync = { controller, config: connection, task: Promise.resolve() };
       replicaSyncControllers.set(repo.repoId, replicaSync);
       const viewRoot = path.isAbsolute(config.viewRoot) ? config.viewRoot : path.resolve(rootDir, config.viewRoot);
-      const caPath = path.isAbsolute(config.caPath) ? config.caPath : path.resolve(rootDir, config.caPath);
+      const caPath = path.isAbsolute(config.caPath)
+        ? config.caPath
+        : path.resolve(fleetEdgeConfigDir(input.userRoot, repo.repoId), config.caPath);
       const readAccessToken = createFleetReplicaAccessTokenReader({
         config,
-        workspaceRoot: rootDir,
+        configDir: fleetEdgeConfigDir(input.userRoot, repo.repoId),
         readUserAccessToken: async () => {
           const auth = await oidc.bind({ transportKind: "unix-socket" }, rootDir);
           return auth.localSessionAccessToken ? auth.localSessionAccessToken() : auth.oidcPrincipal?.accessToken;

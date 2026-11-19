@@ -1,6 +1,13 @@
 import { consumeKnownError } from "@harness-anything/kernel";
+import { existsSync, lstatSync } from "node:fs";
 import path from "node:path";
-import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import {
+  fleetEdgeCaPath,
+  fleetEdgeConfigDir,
+  fleetEdgeConfigPath,
+  readFleetEdgeConfig,
+} from "./client/fleet-edge-config.ts";
+import { daemonUserRoot } from "./client/local-daemon-target.ts";
 import { locateFleetMirrorView } from "./fleet-edge-mirror.ts";
 import { readReplicaGeneration } from "../fleet-sync/fleet/replica-generation.ts";
 import { readReplicaHealth, replicaFailure } from "../fleet-sync/fleet/replica-health.ts";
@@ -8,8 +15,44 @@ import { readReplicaHealth, replicaFailure } from "../fleet-sync/fleet/replica-h
 /** Three missed center keepalives: a stream this quiet is not delivering (REPLICATION_KEEPALIVE_MS). */
 const REPLICA_STREAM_SILENT_MS = 45_000;
 
+/** Workspace residue check: machine-local edge files with credentials must live under userRoot, never in the repo. */
+export function edgeConfigResidueDoctorCheck(rootDir: string, repoId: string, userRoot: string = daemonUserRoot()) {
+  const candidates = ["fleet-edge.json", "fleet-center-ca.pem"] as const,
+    present = candidates
+      .map((name) => ({ name, fullPath: path.join(rootDir, name) }))
+      .filter(({ fullPath }) => lstatSync(fullPath, { throwIfNoEntry: false }) !== undefined);
+  if (present.length === 0)
+    return {
+      id: "edge-config-residue" as const,
+      status: "ok" as const,
+      count: 0,
+      summary: "No fleet-edge.json or fleet-center-ca.pem residue in repository workspace.",
+      next: "Nothing to do.",
+    };
+  const targetDir = fleetEdgeConfigDir(userRoot, repoId),
+    targetConfig = fleetEdgeConfigPath(userRoot, repoId),
+    targetCa = fleetEdgeCaPath(userRoot, repoId),
+    hasTargetConfig = existsSync(targetConfig),
+    names = present.map((item) => item.name),
+    paths = present.map((item) => item.fullPath);
+  return {
+    id: "edge-config-residue" as const,
+    status: "fail" as const,
+    count: present.length,
+    summary: `Repository workspace still holds machine-local edge file(s) (${names.join(", ")}) that may expose credentials to Git and are no longer read from the workspace.`,
+    next: hasTargetConfig
+      ? `Node config already exists at ${targetDir}. Remove the workspace residue: rm -f ${paths.map((p) => JSON.stringify(p)).join(" ")}, then rerun ha doctor.`
+      : `Move residual edge config out of the workspace to ${targetDir}: mkdir -p ${JSON.stringify(targetDir)} && mv ${paths.map((p) => JSON.stringify(p)).join(" ")} ${JSON.stringify(`${targetDir}/`)}, update caPath in ${JSON.stringify(targetConfig)} to ${JSON.stringify(targetCa)} (or rerun ha daemon fleet edge sync), then rerun ha doctor.`,
+  };
+}
+
 /** Local observations remain available when the replica, transport or canonical writer is broken. */
-export function edgeReplicaDoctor(rootDir: string, repoId: string, now: () => number = Date.now) {
+export function edgeReplicaDoctor(
+  rootDir: string,
+  repoId: string,
+  now: () => number = Date.now,
+  userRoot: string = daemonUserRoot(),
+) {
   const replica = {
     currentCut: null as { revision: number; headDigest: string } | null,
     centerCut: null as { revision: number; headDigest: string } | null,
@@ -23,7 +66,7 @@ export function edgeReplicaDoctor(rootDir: string, repoId: string, now: () => nu
     authorizationShapeDigest: null as string | null,
   };
   try {
-    const config = readFleetEdgeConfig(rootDir);
+    const config = readFleetEdgeConfig(userRoot, repoId);
     if (!config || config.repoId !== repoId)
       throw Object.assign(new Error("Replica configuration is unavailable"), { code: "fleet_edge_config_invalid" });
     const viewRoot = path.resolve(rootDir, config.viewRoot),
@@ -83,6 +126,7 @@ export function edgeReplicaDoctor(rootDir: string, repoId: string, now: () => nu
           : `Replica at revision ${replica.currentCut?.revision}; lag ${replica.lag ?? "unknown"}`,
         next: failed ? "Inspect the replica failure and retry edge sync." : "No action required.",
       },
+      edgeConfigResidueDoctorCheck(rootDir, repoId, userRoot),
       ...center.checks,
     ],
   };

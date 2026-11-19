@@ -10,6 +10,7 @@ import {
 import path from "node:path";
 import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { daemonUserRoot } from "./client/local-daemon-target.ts";
 import { readReplicaGeneration } from "../fleet-sync/fleet/replica-generation.ts";
 import { readReplicaHealth } from "../fleet-sync/fleet/replica-health.ts";
 import { commandDescriptorForAction, repoCellExecutionForAction } from "./protocol/daemon-protocol-commands.ts";
@@ -67,7 +68,8 @@ export async function openRepoCellProxy(
       for (const waiter of waiters) waiter();
     };
   // Read per use: the first `ha daemon fleet edge sync` writes fleet-edge.json after this cell opened.
-  const edgeConfig = () => (input.mode === "remote-edge" ? readFleetEdgeConfig(input.rootDir) : null);
+  const userRoot = input.userRoot ?? input.runtimeDaemonRoute?.userRoot ?? daemonUserRoot();
+  const edgeConfig = () => (input.mode === "remote-edge" ? readFleetEdgeConfig(userRoot, input.repoId) : null);
   let runtimeSignalVersion = 0;
   let replicaOnly = false;
   let supervisor: Awaited<ReturnType<typeof openWriterSupervisor>>;

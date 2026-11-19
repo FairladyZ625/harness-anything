@@ -11,7 +11,8 @@ import type * as ClientStatus from "@harness-anything/kernel/internal/domain/cli
 import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import type { AgentRuntimeInstanceDto } from "./agent-runtime-contract.ts";
 import { storedAgentDeclarationOutcome } from "./agent-entities.ts";
-import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { readFleetEdgeConfig, type FleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { daemonUserRoot } from "./client/local-daemon-target.ts";
 import { scheduleReasoningEfforts } from "./protocol/daemon-protocol-commands-runtime-fleet.ts";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
 import { formatScheduleDuration } from "./protocol/daemon-protocol-vocabulary.ts";
@@ -43,9 +44,12 @@ import { runtimeKindForId } from "../runtime-engine/runtime-inventory.ts";
 export interface SchedulesGuiReadContext {
   readonly mode: DaemonRepoMode | null;
   readonly rootDir: string;
+  readonly userRoot?: string;
   readonly now: () => string;
   readonly input: {
     readonly repoId: string;
+    readonly edgeConfig?: () => FleetEdgeConfig | null;
+    readonly runtimeDaemonRoute?: { readonly userRoot: string };
     readonly runtimeInstances?: () => readonly AgentRuntimeInstanceDto[];
   };
   readonly projection: Pick<TaskProjection, "readRuntimeSession" | "readRuntimeDispatch"> & {
@@ -114,10 +118,11 @@ function triggerDtoOf(schedule: ScheduleV1): ScheduleGuiTriggerDto {
   };
 }
 
-function viewerNodeIdOf(mode: DaemonRepoMode, rootDir: string): string | null {
+function viewerNodeIdOf(mode: DaemonRepoMode, context: SchedulesGuiReadContext): string | null {
   if (mode === "local" || mode === "remote-center") return "local";
   if (mode !== "remote-edge") return null;
-  const config = readFleetEdgeConfig(rootDir);
+  const userRoot = context.userRoot ?? context.input.runtimeDaemonRoute?.userRoot ?? daemonUserRoot();
+  const config = context.input.edgeConfig?.() ?? readFleetEdgeConfig(userRoot, context.input.repoId);
   if (!config) throw new Error("A remote-edge Schedule read requires fleet-edge.json.");
   return config.nodeId;
 }
@@ -247,7 +252,7 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
     throw new Error("Schedule GUI reads for remote-proxy repositories must be routed to the remote daemon.");
   const mode = repoMode,
     now = context.now(),
-    viewerNodeId = viewerNodeIdOf(mode, context.rootDir),
+    viewerNodeId = viewerNodeIdOf(mode, context),
     cut = context.projection.readTaskStatuses([]),
     agentOptions = scheduleAgentOptions(context),
     agentsById = new Map(agentOptions.map((agent) => [agent.agentId, agent])),

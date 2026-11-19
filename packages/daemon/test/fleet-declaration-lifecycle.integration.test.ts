@@ -5,6 +5,7 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
@@ -58,22 +59,17 @@ test(
         readFileSync(path.join(fixture.userRoot, "rbac/config.json")),
       );
       const oidc = createIdentitySession(edgeUser);
-      writeFileSync(
-        path.join(edgeRoot, "fleet-edge.json"),
-        JSON.stringify({
-          schema: "fleet-edge-config/v1",
-          repoId,
-          host: "127.0.0.1",
-          port: center.port,
-          caPath: fixture.certFile,
-          servername: "localhost",
-          nodeId,
-          credential: "machine-secret",
-          viewRoot: path.join(edgeUser, "view"),
-          quotaBytes: 64 * 1024 * 1024,
-        }),
-      );
-      signInAt(edgeUser, fixture.owners.nodeOwner(nodeId)!, [], `device-token-${nodeId}`, edgeRoot);
+      writeFleetEdgeConfig(edgeUser, repoId, {
+        repoId,
+        host: "127.0.0.1",
+        port: center.port,
+        caPath: fixture.certFile,
+        servername: "localhost",
+        nodeId,
+        credential: "machine-secret",
+        viewRoot: path.join(edgeUser, "view"),
+        quotaBytes: 64 * 1024 * 1024,
+      });
       registerDaemonRepo({
         canonicalRoot: edgeRoot,
         repoId,
@@ -81,6 +77,7 @@ test(
         userRoot: edgeUser,
         createConvenienceLinks: false,
       });
+      signInAt(edgeUser, fixture.owners.nodeOwner(nodeId)!, [], `device-token-${nodeId}`, edgeRoot);
       const edge = await openDaemonHost({ daemonId, userRoot: edgeUser, oidc });
       fixture.track(() => edge.close());
       await edge.attachmentsSettled();

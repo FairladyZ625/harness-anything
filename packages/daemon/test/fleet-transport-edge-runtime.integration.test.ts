@@ -22,7 +22,12 @@ import {
 } from "../src/daemon-host/fleet-edge-runtime.ts";
 import { runFleetEdgeTask } from "../src/daemon-host/fleet-edge-task.ts";
 import { readFleetOperationalClient, readFleetRepositoryMetadataClient } from "../src/daemon-host/fleet/peer.ts";
-import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
+import {
+  fleetEdgeCaPath,
+  fleetEdgeConfigDir,
+  readFleetEdgeConfig,
+  writeFleetEdgeConfig,
+} from "../src/daemon-host/client/fleet-edge-config.ts";
 import { waitForFleetReplicaSequence } from "../src/daemon-host/fleet/replica-sync.ts";
 import {
   fleetFixture,
@@ -232,21 +237,16 @@ test(
     });
     assert.equal(applyFleetMirrorCut(viewRoot, fixture.subject.repoId, edgeRoot, "pull").outcome, "applied");
     // The edge config makes the edge daemon own the resident replica stream, which `edgeSync` waits on.
-    writeFileSync(
-      path.join(edgeRoot, "fleet-edge.json"),
-      JSON.stringify({
-        schema: "fleet-edge-config/v1",
-        repoId: fixture.subject.repoId,
-        host: "127.0.0.1",
-        port: center.port,
-        caPath: fixture.certFile,
-        nodeId: fixture.subject.nodeId,
-        credential: "machine-secret",
-        viewRoot,
-        quotaBytes: replicaQuota,
-      }),
-    );
-    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId, edgeRoot);
+    writeFleetEdgeConfig(edgeUserRoot, fixture.subject.repoId, {
+      repoId: fixture.subject.repoId,
+      host: "127.0.0.1",
+      port: center.port,
+      caPath: fixture.certFile,
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      viewRoot,
+      quotaBytes: replicaQuota,
+    });
     registerDaemonRepo({
       canonicalRoot: edgeRoot,
       repoId: fixture.subject.repoId,
@@ -254,6 +254,7 @@ test(
       userRoot: edgeUserRoot,
       createConvenienceLinks: false,
     });
+    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId, edgeRoot);
     const runtimeDefinition: AgentDefinitionSnapshot = {
         schema: "agent-definition-snapshot/v1",
         configVersion: 1,
@@ -895,11 +896,13 @@ test(
     });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     assert.equal(existsSync(path.join(edgeRoot, "harness/agents/edge-worker.json")), true);
-    copyFileSync(fixture.certFile, path.join(edgeRoot, "fleet-center-ca.pem"));
-    writeFleetEdgeConfig(edgeRoot, {
+    const caPath = fleetEdgeCaPath(edgeUserRoot, repoId);
+    mkdirSync(path.dirname(caPath), { recursive: true });
+    copyFileSync(fixture.certFile, caPath);
+    writeFleetEdgeConfig(edgeUserRoot, repoId, {
       host: "127.0.0.1",
       port: center.port,
-      caPath: path.join(edgeRoot, "fleet-center-ca.pem"),
+      caPath,
       loginUrl: fixture.owners.url,
       loginRealm: "harness",
       loginCertificate: fixture.cert.toString(),
@@ -909,7 +912,6 @@ test(
       viewRoot,
       quotaBytes: replicaQuota,
     });
-    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId, edgeRoot);
     registerDaemonRepo({
       canonicalRoot: edgeRoot,
       repoId,
@@ -917,6 +919,7 @@ test(
       userRoot: edgeUserRoot,
       createConvenienceLinks: false,
     });
+    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId, edgeRoot);
     const launchedIn: string[] = [],
       edgeHost = await openDaemonHost({
         daemonId: "fleet-worker-edge",
@@ -997,8 +1000,8 @@ test(
     const migration = await edgeHost.admin({ kind: "update", repoId, rootDir: movedRoot }, localAuth);
     assert.equal(migration.outcome, "applied", JSON.stringify(migration));
     assert.equal(existsSync(oldRoot), false, "the registered old workspace root has been retired");
-    const migratedConfig = readFleetEdgeConfig(edgeRoot);
-    assert.equal(migratedConfig?.caPath, path.join(movedRoot, "fleet-center-ca.pem"));
+    const migratedConfig = readFleetEdgeConfig(edgeUserRoot, repoId);
+    assert.equal(migratedConfig?.caPath, fleetEdgeCaPath(edgeUserRoot, repoId));
     assert.equal(migratedConfig?.viewRoot, movedViewRoot);
     assert.equal(existsSync(oldViewRoot), false, "the old replica directory moves with the registration");
     viewRoot = movedViewRoot;
@@ -1070,8 +1073,10 @@ test(
       "schema: harness-anything/v1\nname: startup-recovery-edge\n" +
         "layout:\n  authoredRoot: harness\n  localRoot: .harness\n",
     );
-    copyFileSync(fixture.certFile, path.join(workspaceRoot, "center-ca.pem"));
-    writeFleetEdgeConfig(workspaceRoot, {
+    const caDir = fleetEdgeConfigDir(userRoot, repoId);
+    mkdirSync(caDir, { recursive: true });
+    copyFileSync(fixture.certFile, path.join(caDir, "center-ca.pem"));
+    writeFleetEdgeConfig(userRoot, repoId, {
       host: "127.0.0.1",
       port: unavailablePort,
       caPath: "center-ca.pem",

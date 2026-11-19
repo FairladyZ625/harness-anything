@@ -1,8 +1,18 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import {
+  readDaemonRegistry,
   type AuthorizationProvider,
   type IdentityAuthenticationContext,
   type IdentitySessionPort,
@@ -45,6 +55,7 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
   readonly #writes: { current: Promise<unknown> } = { current: Promise.resolve() };
   readonly #adapter: BuiltinPolicyAdapter;
   readonly #external?: IdentitySessionPort;
+  readonly #isExternalTarget?: (loginTarget: string) => boolean;
   readonly #pending = new Map<string, Pending>();
   readonly #browserCodes = new Map<string, BrowserCode>();
   readonly #externalTargets = new Set<string>();
@@ -61,10 +72,12 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     userRoot: string,
     readArtifactActionScopes?: () => Promise<readonly string[]>,
     external?: IdentitySessionPort,
+    isExternalTarget?: (loginTarget: string) => boolean,
   ) {
     this.#root = userRoot;
     this.#adapter = new BuiltinPolicyAdapter({ userRoot, readArtifactActionScopes });
     this.#external = external;
+    this.#isExternalTarget = isExternalTarget;
   }
   async begin(redirectUri: string, loginTarget?: string): Promise<Record<string, unknown>> {
     const external = this.#externalSession(loginTarget);
@@ -402,24 +415,25 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
   #provider(): BuiltinPolicyAdapter {
     return this.#adapter;
   }
+  #isRemoteEdgeTarget(loginTarget?: string): boolean {
+    if (!loginTarget) return false;
+    if (this.#externalTargets.has(loginTarget) || this.#isExternalTarget?.(loginTarget) === true) return true;
+    const canonical = canonicalTarget(loginTarget);
+    return readDaemonRegistry({ userRoot: this.#root }).repos.some(
+      (repo) =>
+        repo.mode === "remote-edge" && repo.canonicalRoot !== null && canonicalTarget(repo.canonicalRoot) === canonical,
+    );
+  }
   #externalSession(loginTarget?: string): IdentitySessionPort | undefined {
     if (!this.#external) return undefined;
-    if (
-      loginTarget &&
-      (this.#externalTargets.has(loginTarget) || existsSync(path.join(loginTarget, "fleet-edge.json")))
-    )
-      return this.#external;
+    if (this.#isRemoteEdgeTarget(loginTarget)) return this.#external;
     const file = path.join(this.#root, "rbac", "config.json");
     if (!existsSync(file)) return undefined;
     const config = JSON.parse(readFileSync(file, "utf8")) as { readonly mode?: unknown };
     return config.mode === "builtin" || config.mode === undefined ? undefined : this.#external;
   }
   #assertLocalLoginTarget(loginTarget?: string): void {
-    if (
-      loginTarget &&
-      (this.#externalTargets.has(loginTarget) || existsSync(path.join(loginTarget, "fleet-edge.json")))
-    )
-      throw identityPluginRequired();
+    if (this.#isRemoteEdgeTarget(loginTarget)) throw identityPluginRequired();
   }
   async #loginPageUrl(kind: "login" | "device", value: string): Promise<string> {
     if (!this.#loginServer) {
@@ -665,3 +679,7 @@ async function readRequestBody(request: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 const loginPageHeaders = { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" };
+function canonicalTarget(target: string): string {
+  const resolved = path.resolve(target);
+  return existsSync(resolved) ? realpathSync.native(resolved) : resolved;
+}

@@ -158,7 +158,10 @@ test("edge repository and GUI write RPCs reach the same center command port", { 
     "fleet_edge_config_invalid",
     "a registered edge requires its configuration",
   );
-  writeFleetEdgeConfig(unconfigured.edgeRoot, { ...unconfigured.config, repoId: "different-repository" });
+  writeFleetEdgeConfig(unconfigured.edgeUser, "lease-repo", {
+    ...unconfigured.config,
+    repoId: "different-repository",
+  });
   assert.equal(
     (await unconfiguredWrite()).code,
     "fleet_edge_config_invalid",

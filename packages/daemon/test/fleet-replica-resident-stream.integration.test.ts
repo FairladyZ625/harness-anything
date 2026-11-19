@@ -524,6 +524,7 @@ test(
     await assert.rejects(
       syncFleetEdgeMirror(
         {
+          userRoot: path.join(viewRoot, "_user"),
           payload: {
             host: "127.0.0.1",
             port: fixture.centerPort(),
@@ -761,6 +762,7 @@ test(
     const sync = () =>
       syncFleetEdgeMirror(
         {
+          userRoot: path.join(viewRoot, "_user"),
           payload: {
             host: "127.0.0.1",
             port: command.port,
@@ -855,6 +857,7 @@ test(
     await assert.rejects(
       syncFleetEdgeMirror(
         {
+          userRoot: path.join(viewRoot, "_user"),
           payload: {
             host: "127.0.0.1",
             port: fixture.centerPort(),

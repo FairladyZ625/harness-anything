@@ -6,6 +6,7 @@ import test from "node:test";
 import type { AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { applyFleetMirrorCut } from "../src/daemon-host/fleet-edge-mirror.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { registerBootstrappedDaemonRepo, registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
@@ -69,21 +70,16 @@ test(
       diskQuotaBytes: replicaQuota,
     });
     assert.equal(applyFleetMirrorCut(viewRoot, fixture.subject.repoId, edgeRoot, "pull").outcome, "applied");
-    writeFileSync(
-      path.join(edgeRoot, "fleet-edge.json"),
-      JSON.stringify({
-        schema: "fleet-edge-config/v1",
-        repoId: fixture.subject.repoId,
-        host: "127.0.0.1",
-        port: center.port,
-        caPath: fixture.certFile,
-        nodeId: fixture.subject.nodeId,
-        credential: "machine-secret",
-        viewRoot,
-        quotaBytes: replicaQuota,
-      }),
-    );
-    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId, edgeRoot);
+    writeFleetEdgeConfig(edgeUserRoot, fixture.subject.repoId, {
+      repoId: fixture.subject.repoId,
+      host: "127.0.0.1",
+      port: center.port,
+      caPath: fixture.certFile,
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      viewRoot,
+      quotaBytes: replicaQuota,
+    });
     registerBootstrappedDaemonRepo({
       canonicalRoot: edgeRoot,
       repoId: fixture.subject.repoId,
@@ -91,6 +87,7 @@ test(
       userRoot: edgeUserRoot,
       createConvenienceLinks: false,
     });
+    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId, edgeRoot);
 
     const edgeHost = await openDaemonHost({
       daemonId: "fleet-escalation-edge",

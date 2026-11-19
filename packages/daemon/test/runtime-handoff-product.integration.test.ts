@@ -13,6 +13,7 @@ import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rp
 import { parseDaemonActionResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
 import { applyFleetMirrorCut } from "../src/daemon-host/fleet-edge-mirror.ts";
 import { runtimePidIsAlive } from "../src/runtime-engine/runtime-process-liveness.ts";
@@ -191,10 +192,7 @@ for (const row of [{type:'thread.started',thread_id:id},
         quotaBytes: 64 * 1024 * 1024,
         workspaceRoot: rootDir,
       };
-      writeFileSync(
-        path.join(rootDir, "fleet-edge.json"),
-        JSON.stringify({ schema: "fleet-edge-config/v1", ...request }),
-      );
+      writeFleetEdgeConfig(userRoot, repoId, request);
       f.owners.signIn(userRoot, nodeId, rootDir);
       const host = await openDaemonHost({ daemonId: nodeId, userRoot, runtimeDiscover: () => [installation] });
       f.track(() => host.close());

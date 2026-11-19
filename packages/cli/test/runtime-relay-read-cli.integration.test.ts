@@ -182,9 +182,10 @@ async function startFakeDaemon(socketPath: string): Promise<FakeDaemon> {
 function fleetWorkspace(): { readonly root: string; readonly userRoot: string } {
   const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ha-relay-fleet-"))),
     userRoot = path.join(root, "sealed-user");
-  // The workspace declares a remote-edge fleet channel; the host registry is unreadable.
+  // The node declares a remote-edge fleet config under userRoot; the host registry is unreadable.
+  mkdirSync(path.join(userRoot, "fleet", "edge", "relay-fleet"), { recursive: true });
   writeFileSync(
-    path.join(root, "fleet-edge.json"),
+    path.join(userRoot, "fleet", "edge", "relay-fleet", "fleet-edge.json"),
     `${JSON.stringify({
       schema: "fleet-edge-config/v1",
       repoId: "relay-fleet",

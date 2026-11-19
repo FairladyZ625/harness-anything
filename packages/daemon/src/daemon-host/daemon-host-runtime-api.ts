@@ -1,7 +1,7 @@
 import path from "node:path";
 import { daemonRpcCommandTopology } from "./rpc-command-routing.ts";
 import { readFileSync } from "node:fs";
-import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { fleetEdgeConfigDir, readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { createFleetReplicaAccessTokenReader } from "./fleet/replica-token.ts";
 import {
   parseFleetCenterExternalUrl,
@@ -619,7 +619,7 @@ export function createDaemonHostRuntimeApi(
             "Fleet edge sync requires the matching enabled remote-edge registration.",
           );
         context.localOnly(auth);
-        const persistedConfig = readFleetEdgeConfig(request.workspaceRoot),
+        const persistedConfig = readFleetEdgeConfig(context.input.userRoot, request.repoId),
           matchingConfig =
             persistedConfig?.repoId === request.repoId &&
             persistedConfig.host === request.host &&
@@ -635,7 +635,7 @@ export function createDaemonHostRuntimeApi(
               ...(matchingConfig?.loginServername ? { loginServername: matchingConfig.loginServername } : {}),
               ...(matchingConfig?.loginCertificate ? { loginCertificate: matchingConfig.loginCertificate } : {}),
             },
-            workspaceRoot: request.workspaceRoot,
+            configDir: fleetEdgeConfigDir(context.input.userRoot, request.repoId),
             readUserAccessToken: async () => {
               const session = await context.oidc.bind(auth, request.workspaceRoot);
               return session.localSessionAccessToken
@@ -643,8 +643,10 @@ export function createDaemonHostRuntimeApi(
                 : session.oidcPrincipal?.accessToken;
             },
           });
-        const receipt = await syncFleetEdgeMirror({ payload: request }, readAccessToken, () =>
-          context.startReplicaSyncs(),
+        const receipt = await syncFleetEdgeMirror(
+          { userRoot: context.input.userRoot, payload: request },
+          readAccessToken,
+          () => context.startReplicaSyncs(),
         );
         await runReplicaConfirmedRound({
           reconcile: async () => {

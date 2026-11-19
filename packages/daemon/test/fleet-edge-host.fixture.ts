@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { TestContext } from "node:test";
+import { fleetEdgeConfigPath, writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { oidcCenterSelections } from "../src/daemon-host/oidc-center-selection.ts";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
@@ -48,7 +49,7 @@ export async function fleetEdgeHostFixture(
     readonly now?: () => string;
     /** false leaves fleet-edge.json for the first `daemon.fleet.edge.sync` to write. */
     readonly writeEdgeConfig?: boolean;
-    readonly beforeOpen?: (edgeRoot: string) => void | Promise<void>;
+    readonly beforeOpen?: (edgeRoot: string, edgeUser: string) => void | Promise<void>;
   } = {},
 ) {
   // The edge lives outside the center fixture's root: its daemon writes until it is closed.
@@ -140,7 +141,6 @@ export async function fleetEdgeHostFixture(
     );
   if (options.humanSession !== false) signIn(options.personId ?? "person-one");
   const config = {
-    schema: "fleet-edge-config/v1",
     repoId: options.repoId ?? "lease-repo",
     host: "127.0.0.1",
     port: options.centerPort ?? f.center.port,
@@ -152,22 +152,18 @@ export async function fleetEdgeHostFixture(
     quotaBytes: 64 * 1024 * 1024,
     waitTimeoutMs: 2000,
   };
-  if (options.writeEdgeConfig !== false) writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
-  await options.beforeOpen?.(edgeRoot);
+  if (options.writeEdgeConfig !== false) writeFleetEdgeConfig(edgeUser, config.repoId, config);
+  await options.beforeOpen?.(edgeRoot, edgeUser);
   if (authority.url)
     await createIdentitySession(edgeUser, {
       fetch,
       loginAuthority: fixtureLoginAuthority,
     }).status(edgeRoot);
   else
-    oidcCenterSelections(edgeUser).write(
-      edgeRoot,
-      {
-        issuer,
-        authority: selectedAuthority,
-      },
-      true,
-    );
+    oidcCenterSelections(edgeUser).write(edgeRoot, {
+      issuer,
+      authority: selectedAuthority,
+    });
   const host = await openDaemonHost({
     daemonId: `${name}-daemon`,
     ...(options.now ? { now: options.now } : {}),
@@ -289,5 +285,19 @@ export async function fleetEdgeHostFixture(
       { kind: "register", rootDir: edgeRoot, repoId: options.repoId ?? "lease-repo", mode: "remote-edge" },
       auth,
     );
-  return { host, rpc, createRpc, edgeRoot, edgeUser, viewRoot, config, command, signIn, register, issuer, close };
+  return {
+    host,
+    rpc,
+    createRpc,
+    edgeRoot,
+    edgeUser,
+    viewRoot,
+    config: { schema: "fleet-edge-config/v1", ...config },
+    edgeConfigPath: fleetEdgeConfigPath(edgeUser, config.repoId),
+    command,
+    signIn,
+    register,
+    issuer,
+    close,
+  };
 }

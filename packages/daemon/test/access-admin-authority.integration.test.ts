@@ -113,7 +113,7 @@ test("registered edges read only their current repository's member directory wit
       path.join(canonicalRoot, "harness/harness.yaml"),
       readFileSync(path.join(root, `center-${repoId}`, "harness/harness.yaml")),
     );
-    writeFleetEdgeConfig(canonicalRoot, {
+    writeFleetEdgeConfig(edgeUserRoot, repoId, {
       repoId,
       nodeId,
       host: "localhost",
