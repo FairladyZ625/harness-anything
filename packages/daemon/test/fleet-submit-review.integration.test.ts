@@ -753,14 +753,23 @@ test(
   "hosted edge review resolves hosting credentials when execution uses declare-executor without runtime-session",
   { timeout: 120_000 },
   async (t) => {
-    const installation = {
-      installationId: definition.installationId,
-      kindId: definition.kindId,
-      executablePath: "/fixture/reviewer",
-      version: "1.0.0",
-      observedAt: "2026-11-07T00:00:00.000Z",
-    };
-    const f = await fleetFixture(t, ["tasks", "agents"], [installation], "local", undefined, undefined, false);
+    const installations = [
+      {
+        installationId: definition.installationId,
+        kindId: definition.kindId,
+        executablePath: "/fixture/reviewer",
+        version: "1.0.0",
+        observedAt: "2026-11-07T00:00:00.000Z",
+      },
+      {
+        installationId: `${definition.installationId}-agy-yr`,
+        kindId: definition.kindId,
+        executablePath: "/fixture/reviewer-agy-yr",
+        version: "1.0.0",
+        observedAt: "2026-11-07T00:00:00.000Z",
+      },
+    ];
+    const f = await fleetFixture(t, ["tasks", "agents"], installations, "local", undefined, undefined, false);
     const { repoId, nodeId } = f.subject,
       taskId = "task-declare-executor-edge-review",
       remote = path.join(f.root, "origin.git"),
@@ -779,12 +788,12 @@ test(
     git(edgeRoot, "config", "user.name", "Fleet Test");
     git(edgeRoot, "config", "user.email", "fleet@example.invalid");
 
-    for (const instanceId of ["unconfigured-instance", "agy-yr"]) {
+    for (const [index, instanceId] of ["unconfigured-instance", "agy-yr"].entries()) {
       await registerFixtureRuntimeInstance(f.host, repoId, localAuthFixture(), {
         instanceId,
         name: `Hosted ${instanceId}`,
         kindId: definition.kindId,
-        installationId: definition.installationId,
+        installationId: installations[index]!.installationId,
         providerId: definition.providerId,
         models: [definition.model],
         authMode: definition.authMode,
@@ -1001,12 +1010,17 @@ test(
     assert.ok(firstCandidate, "declare-executor submitted task must produce an edge review candidate");
 
     // Negative control: without a configured hosting credential on any edge instance, pre-publication fails closed.
+    const selectedInstanceId =
+      typeof firstCandidate.payload.runtimeInstanceId === "string" ? firstCandidate.payload.runtimeInstanceId : null;
     await assert.rejects(
       runtime.run("repo.agentRuntime.spawn", firstCandidate.payload),
       /PR publication requires the daemon-held hosting credential/u,
     );
     assert.equal(reviewerStarts, 0);
-    assert.deepEqual(probedInstances, ["agy-yr", "unconfigured-instance"]);
+    assert.deepEqual(
+      probedInstances,
+      selectedInstanceId === "unconfigured-instance" ? ["unconfigured-instance", "agy-yr"] : ["agy-yr", "unconfigured-instance"],
+    );
 
     // Positive path: with hosting credential configured on agy-yr, edge pre-publication succeeds and launches reviewer.
     probedInstances.length = 0;
@@ -1015,6 +1029,9 @@ test(
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
     assert.equal(reviewerStarts, 1);
     assert.equal(prExists, true);
-    assert.deepEqual(probedInstances, ["agy-yr"]);
+    assert.deepEqual(
+      probedInstances,
+      selectedInstanceId === "unconfigured-instance" ? ["unconfigured-instance", "agy-yr"] : ["agy-yr"],
+    );
   },
 );
