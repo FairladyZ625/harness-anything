@@ -973,6 +973,13 @@ test(
             hostingCredentialState: "configured",
           },
         ],
+        prepareRuntimeLaunch: async (instanceId, req) => {
+          const prepared = await basePorts.prepareRuntimeLaunch(instanceId, req);
+          return {
+            ...prepared,
+            definition: { ...prepared.definition, instanceId },
+          };
+        },
         prepareDaemonGitEnvironment: async (instanceId, provider, repo) => {
           probedInstances.push(instanceId);
           if (allowHostingCredential && instanceId === "agy-yr" && provider === "github" && repo === repoId)
