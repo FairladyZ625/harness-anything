@@ -17,7 +17,10 @@ import { createUnixSocketTransportServer } from "../src/daemon-host/transport/un
 import { cellCodedError } from "../src/daemon-host/repo-cell-errors.ts";
 import { projectedTaskIds } from "../src/daemon-host/repo-cell-receipts.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
-import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
+import {
+  allowFixtureRuntimeInstances,
+  registerBootstrappedDaemonRepo as registerDaemonRepo,
+} from "./repo-settings.fixture.ts";
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { definition, installation, initIngressRepo, rpc, spawnCli } from "./fixtures/runtime-ingress.ts";
 
@@ -172,6 +175,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", { time
       },
       auth,
     );
+    await allowFixtureRuntimeInstances(host, repoId, auth, [ingressDefinition.instanceId]);
     await t.test("server binds the dispatched RuntimeSession to the task execution", async () => {
       const taskId = "task-runtime-agent",
         executionId = "exec-runtime-agent";
