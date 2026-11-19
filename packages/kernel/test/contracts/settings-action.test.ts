@@ -677,20 +677,21 @@ test("repositorySettingsActionValues combines local runtime and decision fields 
       decisions: { provider: "local-decisions" },
       runtime: { allowedInstances: ["private-provider"] },
     }),
+    sharedDecisions = { enabledPoints: ["dispatch-stop-reason@0123456789ab"] },
     merged = {
       ...current,
       ...local,
       schema: "settings/v1",
       settingsId: "repository",
       runtime: { ...current.runtime, ...local.runtime },
-      decisions: { ...current.decisions, ...local.decisions },
+      decisions: { ...sharedDecisions, ...local.decisions },
     } as SettingsV1,
     values = repositorySettingsActionValues(merged);
 
   assert.equal(values.runtimeSelectionStrategy, current.runtime.selectionStrategy);
   assert.deepEqual(values.runtimeAllowedInstances, ["private-provider"]);
   assert.equal(values.decisionsProvider, "local-decisions");
-  assert.deepEqual(values.decisionsEnabledPoints, current.decisions.enabledPoints);
+  assert.deepEqual(values.decisionsEnabledPoints, sharedDecisions.enabledPoints);
 });
 
 /** A repository whose authored document already declares a local command mapping for `lint`. */
