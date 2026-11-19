@@ -431,15 +431,20 @@ export interface RepoCell {
   ) => Promise<DaemonGuiReadResultMap[M]>;
   readonly readDispatchLifecycle: (
     query: import("@harness-anything/kernel").DispatchLifecycleQuery,
+    signal?: AbortSignal,
   ) => Promise<import("@harness-anything/kernel").DispatchLifecycleRead>;
   /** Canonical actor witness for an event revision; used by local policy decisions. */
   readonly readEventWitness: (
     revision: number,
   ) => Promise<ReturnType<import("@harness-anything/kernel").TaskProjection["readEventWitness"]>>;
   /** Assignment edges and actor witnesses read from one authorized projection cut. */
-  readonly readNodeAutoClaimAssignments: (binding: RepoCellBinding) => Promise<readonly RepoCellAutoClaimAssignment[]>;
+  readonly readNodeAutoClaimAssignments: (
+    binding: RepoCellBinding,
+    signal?: AbortSignal,
+  ) => Promise<readonly RepoCellAutoClaimAssignment[]>;
   readonly readNodeAutoDispatchCandidates?: (
     nodeId: string,
+    signal?: AbortSignal,
   ) => Promise<readonly import("./node-auto-dispatch.ts").NodeAutoDispatchCandidate[]>;
   readonly workspaceSummary: () => Promise<DaemonGuiReadResultMap["repo.workspace.summary.read"]>;
   readonly workspaceScope: (

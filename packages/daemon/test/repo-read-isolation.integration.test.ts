@@ -9,6 +9,9 @@ import { PassThrough } from "node:stream";
 import { Worker } from "node:worker_threads";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { createDaemonHostRepositoryApi } from "../src/daemon-host/daemon-host-repository-api.ts";
+import type { DaemonHostApiContext } from "../src/daemon-host/daemon-host-context.ts";
+import type { RepoCell, RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
 import { openRepoCellProxy } from "../src/daemon-host/repo-cell-proxy.ts";
 import { openRepoReadClient, REPO_READ_WORKERS, REPO_READ_QUEUE_LIMIT } from "../src/daemon-host/repo-read-pool.ts";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
@@ -22,6 +25,24 @@ import { registerBootstrappedDaemonRepo, openBootstrappedRepoCell } from "./repo
 async function waitStarted(barrier: Int32Array, count: number): Promise<void> {
   for (let observed = Atomics.load(barrier, 1); observed < count; observed = Atomics.load(barrier, 1))
     await Atomics.waitAsync(barrier, 1, observed).value;
+}
+
+async function assertFullQueueAvailable(repoId: string, root: string): Promise<void> {
+  const live = openRepoReadClient({ repoId: repoId as never, rootDir: root as never, ownerId: "queue-probe" });
+  const admission = new AbortController();
+  try {
+    const probes = Array.from({ length: REPO_READ_QUEUE_LIMIT + 1 }, () =>
+      live
+        .request("read", ["repo.workspace.summary.read", {}], undefined, admission.signal)
+        .catch((error: { readonly code?: string }) => error.code),
+    );
+    admission.abort();
+    const codes = await Promise.all(probes);
+    assert.equal(codes.filter((code) => code === "read_aborted").length, REPO_READ_QUEUE_LIMIT);
+    assert.equal(codes.filter((code) => code === "read_overloaded").length, 1);
+  } finally {
+    await live.close();
+  }
 }
 
 test(
@@ -38,6 +59,10 @@ test(
     registerBootstrappedDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
     let workers = 0;
     let onReadIssued: (() => void) | undefined;
+    let cellForFleet: RepoCell;
+    const doctorInitial = Promise.withResolvers<void>(),
+      doctorContinue = Promise.withResolvers<void>(),
+      doctorConnection = new AbortController();
     const host = await openDaemonHost({
       daemonId: "read-isolation",
       userRoot,
@@ -51,13 +76,22 @@ test(
             });
           },
         });
-        const read = cell.read;
+        cellForFleet = cell;
+        const { read, run } = cell;
         const trackedRead: typeof read = (...args) => {
           const result = read(...args);
           onReadIssued?.();
           return result;
         };
-        return Object.assign(cell, { read: trackedRead });
+        const trackedRun: typeof run = async (...args) => {
+          const receipt = await run(...args);
+          if (args[0].kind === "doctor-health") {
+            doctorInitial.resolve();
+            await doctorContinue.promise;
+          }
+          return receipt;
+        };
+        return Object.assign(cell, { read: trackedRead, run: trackedRun });
       },
     });
     const auth = { transportKind: "unix-socket" as const };
@@ -65,6 +99,12 @@ test(
     try {
       await host.attachmentsSettled();
       await rpc(host, auth, "repo.workspace.summary.read", { repo: { repoId } });
+      const doctor = rpc(host, { ...auth, connectionSignal: doctorConnection.signal }, "repo.task.read", {
+        repo: { repoId },
+        payload: { action: { kind: "doctor-health" } },
+      });
+      pending.push(doctor);
+      await Promise.race([doctorInitial.promise, doctor.then((reply) => assert.fail(JSON.stringify(reply)))]);
       Atomics.store(barrier, 0, 1);
       for (let index = 0; index < REPO_READ_WORKERS; index++)
         pending.push(rpc(host, auth, "repo.workspace.summary.read", { repo: { repoId } }));
@@ -106,6 +146,91 @@ test(
       const metrics = { statusP99: p99(status), helloP99: p99(hello), writeP99: p99(writes) };
       assert.ok(metrics.statusP99 < 1000 && metrics.helloP99 < 1000, JSON.stringify(metrics));
       t.diagnostic(JSON.stringify(metrics));
+      await t.test("a disconnect cancels doctor health's queued settings read after its initial result", async () => {
+        const issued = Promise.withResolvers<void>();
+        onReadIssued = () => {
+          doctorConnection.abort();
+          issued.resolve();
+        };
+        doctorContinue.resolve();
+        try {
+          await Promise.race([issued.promise, doctor.then((reply) => assert.fail(JSON.stringify(reply)))]);
+          await assertFullQueueAvailable(repoId, root);
+          const result = await doctor;
+          assert.equal(result.outcome, "op_rejected", JSON.stringify(result));
+          assert.equal(result.code, "read_aborted");
+          assert.equal(Atomics.load(barrier, 1), REPO_READ_WORKERS);
+        } finally {
+          onReadIssued = undefined;
+        }
+      });
+      await t.test("a disconnected home overview frees its three reads before a reader becomes idle", async () => {
+        const disconnected = new AbortController(),
+          issued = Promise.withResolvers<void>();
+        let remaining = 3;
+        onReadIssued = () => {
+          if (--remaining === 0) issued.resolve();
+        };
+        try {
+          pending.push(rpc(host, { ...auth, connectionSignal: disconnected.signal }, "daemon.gui.home.read", {}));
+          await issued.promise;
+          disconnected.abort();
+          await assertFullQueueAvailable(repoId, root);
+          assert.equal(Atomics.load(barrier, 1), REPO_READ_WORKERS);
+        } finally {
+          onReadIssued = undefined;
+          disconnected.abort();
+        }
+      });
+      await t.test("Fleet operational reads release queue slots on client disconnect", async () => {
+        const realCell = cellForFleet!;
+        const nodePrincipal = { personId: "person-owner", nodeId: "node-one" };
+        const binding: RepoCellBinding = {
+          actor: { principal: { personId: nodePrincipal.personId }, executor: null },
+          source: { kind: "node", nodeId: nodePrincipal.nodeId },
+        };
+        for (const phase of ["settings", "lifecycle", "assignments", "dispatch"] as const) {
+          const disconnected = new AbortController(),
+            issued = Promise.withResolvers<void>();
+          const fleetAuth = {
+            transportKind: "fleet-tls" as const,
+            nodePrincipal,
+            connectionSignal: disconnected.signal,
+          };
+          const afterSubmitting = <T>(request: Promise<T>): Promise<T> => {
+            disconnected.abort();
+            issued.resolve();
+            return request;
+          };
+          const cell = {
+            ...realCell,
+            read: (...args: Parameters<RepoCell["read"]>) =>
+              phase === "settings" ? afterSubmitting(realCell.read(...args)) : Promise.resolve({}),
+            readDispatchLifecycle: (...args: Parameters<RepoCell["readDispatchLifecycle"]>) =>
+              afterSubmitting(realCell.readDispatchLifecycle(...args)),
+            readNodeAutoClaimAssignments: (...args: Parameters<RepoCell["readNodeAutoClaimAssignments"]>) =>
+              afterSubmitting(realCell.readNodeAutoClaimAssignments(...args)),
+            readNodeAutoDispatchCandidates: (
+              ...args: Parameters<NonNullable<RepoCell["readNodeAutoDispatchCandidates"]>>
+            ) => afterSubmitting(realCell.readNodeAutoDispatchCandidates!(...args)),
+          };
+          const api = createDaemonHostRepositoryApi({
+            cells: new Map([[repoId, cell]]),
+            binding: async () => binding,
+          } as unknown as DaemonHostApiContext);
+          const request =
+            phase === "dispatch"
+              ? api.readNodeAutoDispatchCandidates(repoId, fleetAuth)
+              : phase === "assignments"
+                ? api.readNodeAutoClaimCandidates(repoId, fleetAuth)
+                : api.readDispatchLifecycle(repoId, { by: "dispatch", dispatchIds: ["dispatch-fixture"] }, fleetAuth);
+          const rejected = assert.rejects(request, { code: "read_aborted" }, phase);
+          pending.push(rejected);
+          await Promise.race([issued.promise, rejected]);
+          await assertFullQueueAvailable(repoId, root);
+          await rejected;
+        }
+      });
       await t.test("disconnect frees a full queue for a live client while every worker is still busy", async () => {
         const overload = Promise.withResolvers<void>(),
           input = new PassThrough(),
@@ -122,7 +247,10 @@ test(
             method: "repo.workspace.summary.read",
             params: { repo: { repoId } },
           }));
-        output.resume();
+        let written = "";
+        output.setEncoding("utf8").on("data", (chunk: string) => {
+          written += chunk;
+        });
         const connection = serveJsonRpcStream({
           input,
           output,
@@ -165,6 +293,15 @@ test(
           const disconnected = once(input, "close");
           input.destroy();
           await disconnected;
+          await connection.close();
+          assert.deepEqual(
+            written
+              .trim()
+              .split("\n")
+              .map((line) => JSON.parse(line).id),
+            [hello.id],
+            "the transport drops the disconnected client's entire late reply",
+          );
           await live.handle(hello);
           const issued = Promise.withResolvers<void>();
           let remaining = batch.length;
@@ -208,6 +345,8 @@ test(
         }
       });
     } finally {
+      doctorConnection.abort();
+      doctorContinue.resolve();
       Atomics.store(barrier, 2, 1);
       Atomics.notify(barrier, 2);
       await Promise.allSettled(pending);

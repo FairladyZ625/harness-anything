@@ -119,8 +119,8 @@ export function createDaemonHostRepositoryApi(
       if (!cell || cell.status().mode === "remote-edge")
         throw context.hostCodedError("repo_unavailable", `Center repository ${repoId} is unavailable.`);
       const binding = await context.binding(cell.status().rootDir, auth);
-      await cell.read("repo.settings.read", {}, binding);
-      return cell.readDispatchLifecycle(query);
+      await cell.read("repo.settings.read", {}, binding, auth.connectionSignal);
+      return cell.readDispatchLifecycle(query, auth.connectionSignal);
     },
     readNodeAutoDispatchCandidates: async (repoId, auth) => {
       if (auth.transportKind !== "fleet-tls" || !auth.nodePrincipal)
@@ -140,7 +140,7 @@ export function createDaemonHostRepositoryApi(
         );
       if (!cell.readNodeAutoDispatchCandidates)
         throw context.hostCodedError("repo_unavailable", `Repository ${repoId} cannot read node dispatch candidates.`);
-      const candidates = await cell.readNodeAutoDispatchCandidates(nodeId!);
+      const candidates = await cell.readNodeAutoDispatchCandidates(nodeId!, auth.connectionSignal);
       return { schema: "node-auto-dispatch-candidates/v1", candidates };
     },
     readNodeAutoClaimCandidates: async (repoId, auth) => {
@@ -156,16 +156,17 @@ export function createDaemonHostRepositoryApi(
           "authentication_required",
           "Fleet node binding does not match its authenticated owner.",
         );
-      const settings = await cell.read("repo.settings.read", {}, binding),
-        assignments = await cell.readNodeAutoClaimAssignments(binding),
+      const signal = auth.connectionSignal,
+        settings = await cell.read("repo.settings.read", {}, binding, signal),
+        assignments = await cell.readNodeAutoClaimAssignments(binding, signal),
         claimable = await readClaimableTasks({
           repoId,
           binding,
           settings: settings.settings,
           now: context.now(),
-          page: (query) => cell.read("repo.tasks.list", query, binding),
+          page: (query) => cell.read("repo.tasks.list", query, binding, signal),
           readTask: async (taskId) =>
-            (await cell.read("repo.tasks.runtimeContext.read", { taskId }, binding)).snapshot.task,
+            (await cell.read("repo.tasks.runtimeContext.read", { taskId }, binding, signal)).snapshot.task,
           readAssignments: async () => assignments.map(({ relation }) => relation),
         });
       const relations = new Map(assignments.map((row) => [row.relation.sourceRef, row] as const)),
@@ -196,13 +197,13 @@ export function createDaemonHostRepositoryApi(
       );
       const activeTaskIds = new Set<string>();
       const active = await readActiveDispatchLifecycle(
-        (query) => cell.readDispatchLifecycle(query),
+        (query) => cell.readDispatchLifecycle(query, signal),
         context.hostCodedError,
       );
       for (const { attempt, policy } of active) {
         if (policy.capacity === "released" || !attempt.task) continue;
         const taskId = attempt.task.taskId,
-          task = await cell.read("repo.tasks.runtimeContext.read", { taskId }, binding),
+          task = await cell.read("repo.tasks.runtimeContext.read", { taskId }, binding, signal),
           key = nodeAutoClaimLeaseKey({ repoId, taskId, nodeId, lease: task.snapshot.lease });
         if (key) activeTaskIds.add(taskId);
       }
@@ -907,7 +908,7 @@ export function createDaemonHostRepositoryApi(
           void context.scheduleScheduler.refresh();
         if (action.kind === "doctor-health" && receipt.outcome === "applied") {
           const health = receipt as typeof receipt & { checks: readonly DoctorCheck[] };
-          const settings = (await cell.read("repo.settings.read")).settings;
+          const settings = (await cell.read("repo.settings.read", {}, undefined, auth.connectionSignal)).settings;
           const checks = [
             ...health.checks.map((check) =>
               check.id === "build-drift" ? doctorBuildDrift(context.buildObserver.status()) : check,

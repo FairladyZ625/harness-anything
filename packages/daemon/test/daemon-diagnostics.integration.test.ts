@@ -26,12 +26,19 @@ async function fixture(mode: string) {
   child.stderr!.on("data", (chunk) => {
     stderr += chunk;
   });
+  const closed = once(child, "close");
+  const childFailure = (code: number | null, signal: NodeJS.Signals | null) =>
+    new Error(`diagnostics fixture ${mode} exited with ${signal ?? code}: ${stderr}`);
+  const send = (command: string) =>
+    new Promise<void>((resolve, reject) => {
+      child.send(command, (error) => (error ? reject(error) : resolve()));
+    });
   const message = async (key: string) => {
     for (;;) {
       const [value] = await Promise.race([
         once(child, "message"),
-        once(child, "exit").then(([code]) => {
-          throw new Error(`child exited ${code}: ${stderr}`);
+        closed.then(([code, signal]) => {
+          throw childFailure(code, signal);
         }),
       ]);
       if (value[key]) return value;
@@ -41,15 +48,22 @@ async function fixture(mode: string) {
   return {
     userRoot,
     endpoint,
-    child,
+    send,
     message,
     close: async () => {
-      if (child.connected) {
-        const exited = once(child, "exit");
-        child.send(mode === "drain" ? "release" : "close");
-        await exited;
+      try {
+        const sendError = child.connected
+          ? await send(mode === "drain" ? "release" : "close").then(
+              () => undefined,
+              (error: unknown) => error,
+            )
+          : undefined;
+        const [code, signal] = await closed;
+        if (code !== 0) throw childFailure(code, signal);
+        if (sendError) throw sendError;
+      } finally {
+        rmSync(userRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
       }
-      rmSync(userRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     },
   };
 }
@@ -75,8 +89,7 @@ for (const mode of ["javascript", "native"]) {
       if (process.platform !== "win32")
         assert.equal(statSync(daemonDiagnosticsEndpoint(f.endpoint)).mode & 0o777, 0o600);
       const armed = f.message("armed");
-      f.child.send("arm");
-      await armed;
+      await Promise.all([f.send("arm"), armed]);
       const request = client.request("daemon.status", {});
       const [, blockedOperation] = await Promise.all([
         request,
@@ -143,8 +156,7 @@ test("real daemon keeps independent status available while a shutdown item is he
   const f = await fixture("drain");
   try {
     const draining = f.message("draining");
-    f.child.send("stop");
-    await draining;
+    await Promise.all([f.send("stop"), draining]);
     const status = await diagnostic(f.endpoint);
     assert.equal(status.state, "stopping");
     assert.ok((status.inFlight as { method: string }[]).some((operation) => operation.method === "daemon.close"));

@@ -317,10 +317,11 @@ export async function openRepoCellProxy(
       }
       return query("read", [method, payload], binding, signal);
     },
-    readDispatchLifecycle: (queryValue) => query("readDispatchLifecycle", [queryValue]),
+    readDispatchLifecycle: (queryValue, signal) => query("readDispatchLifecycle", [queryValue], undefined, signal),
     readEventWitness: (revision) => query("readEventWitness", [revision]),
-    readNodeAutoClaimAssignments: (binding) => query("readNodeAutoClaimAssignments", [], binding),
-    readNodeAutoDispatchCandidates: (nodeId) => query("readNodeAutoDispatchCandidates", [nodeId]),
+    readNodeAutoClaimAssignments: (binding, signal) => query("readNodeAutoClaimAssignments", [], binding, signal),
+    readNodeAutoDispatchCandidates: (nodeId, signal) =>
+      query("readNodeAutoDispatchCandidates", [nodeId], undefined, signal),
     workspaceSummary: () => query("read", ["repo.workspace.summary.read", {}]),
     workspaceScope: (payload) => query("read", ["repo.workspace.scope.read", payload]),
     // File tails already use async I/O with a fixed byte/page budget. Only the ledger

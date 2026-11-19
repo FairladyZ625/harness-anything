@@ -611,7 +611,13 @@ export function createJsonRpcProtocolServer(options: {
     if (method === "daemon.gui.home.read") {
       try {
         markDaemonOperationPhase("projection-read");
-        return reply(method, parseDaemonGuiReadResult(method, await options.host.home(options.authContext)));
+        return reply(
+          method,
+          parseDaemonGuiReadResult(
+            method,
+            await options.host.home({ ...options.authContext, connectionSignal: readSignal }),
+          ),
+        );
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }

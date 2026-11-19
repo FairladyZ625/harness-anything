@@ -806,6 +806,7 @@ export async function readFleetOverviewFromHost(input: {
     },
     { daemonId: input.daemon.daemonId, userRoot: input.userRoot },
     input.binding,
+    input.signal,
   );
   const eventFacts = (tail.status === "unavailable" ? [] : tail.items).slice(-EVENT_PAGE_LIMIT).map((item) => {
     const row = item as Readonly<Record<string, unknown>>,
