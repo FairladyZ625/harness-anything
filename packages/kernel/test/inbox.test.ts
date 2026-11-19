@@ -116,9 +116,61 @@ test("inbox payload contract rejects unknown fields, mismatched targets, and unb
   assert.notDeepEqual(validateCurrentAgentRuntimeEvent(enqueued(1, { sourceEpoch: -1 })), []);
   assert.notDeepEqual(validateCurrentAgentRuntimeEvent(enqueued(1, { dedupeKey: "x".repeat(513) })), []);
   assert.notDeepEqual(
+    validateCurrentAgentRuntimeEvent(enqueued(1, { consumerKind: "other" as never })),
+    [],
+  );
+  assert.notDeepEqual(validateCurrentAgentRuntimeEvent(enqueued(1, { minRevision: -1 })), []);
+  assert.notDeepEqual(
+    validateCurrentAgentRuntimeEvent(enqueued(1, { requiredBlobSha256s: Array(17).fill("a".repeat(64)) })),
+    [],
+  );
+  assert.notDeepEqual(validateCurrentAgentRuntimeEvent(enqueued(1, { requiredBlobSha256s: ["A".repeat(64)] })), []);
+  assert.notDeepEqual(
     validateCurrentAgentRuntimeEvent(claimed(2, "claim-1", "2026-11-18T00:01:00.000Z", "2026-11-18T00:00:59.000Z")),
     [],
     "a claim lease must end after it starts",
+  );
+});
+
+test("person Inbox supports peer envelopes without task binding and normalizes causal routing fields", () => {
+  const peer = enqueued(12, {
+    inboxId: "person:owner",
+    itemId: "peer-request",
+    source: "peer_request",
+    sourceRef: "person:sender/request-1",
+    dedupeKey: "peer-request-1",
+    admission: "dispatchable",
+    consumerKind: "interactive_watch",
+    taskId: null,
+    agentId: null,
+    senderPersonId: "person-payload-claim",
+    workId: "work-a2a",
+    lane: "owner-review",
+    correlationId: "corr-request-1",
+    requiredBlobSha256s: ["a".repeat(64)],
+  });
+  assert.deepEqual(validateCurrentAgentRuntimeEvent(peer), []);
+  const item = applied(null, peer);
+  assert.equal(item.senderPersonId, "person-inbox", "the event envelope is authoritative over optional payload metadata");
+  assert.equal(item.taskId, null);
+  assert.equal(item.agentId, null);
+  assert.equal(item.workId, "work-a2a");
+  assert.equal(item.lane, "owner-review");
+  assert.equal(item.correlationId, "corr-request-1");
+  assert.equal(item.minRevision, 12);
+  assert.deepEqual(item.requiredBlobSha256s, ["a".repeat(64)]);
+  assert.equal(item.consumerKind, "interactive_watch");
+
+  const ordinary = applied(null, enqueued(13));
+  assert.equal(ordinary.minRevision, 13);
+  assert.deepEqual(ordinary.requiredBlobSha256s, []);
+  assert.equal(ordinary.workId, null);
+  assert.equal(ordinary.senderPersonId, "person-inbox");
+  assert.equal(ordinary.consumerKind, "unattended_dispatch");
+  assert.notDeepEqual(
+    validateCurrentAgentRuntimeEvent(enqueued(14, { source: "peer_reply", admission: "dispatchable" })),
+    [],
+    "peer traffic must choose its interactive watch consumer explicitly",
   );
 });
 

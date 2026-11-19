@@ -33,8 +33,19 @@ const ITEM = "inbox-item",
   QUEUE = "inbox-queue";
 const MODELS = [ITEM, DEDUPE, QUEUE] as const;
 
-function queueKey(status: string, enqueuedRevision: number): string {
-  return `${status}:${String(enqueuedRevision).padStart(16, "0")}`;
+function queueKey(consumerKind: string, status: string, enqueuedRevision: number): string {
+  return `${consumerKind}:${status}:${String(enqueuedRevision).padStart(16, "0")}`;
+}
+
+function projectionScopeForItem(scope: PgProjectionScope, item: InboxItem): PgProjectionScope {
+  if (!item.inboxId.startsWith("person:")) return scope;
+  const recipientPersonId = item.inboxId.slice("person:".length);
+  const readers = new Set([...(scope.readers ?? []), recipientPersonId]);
+  if (item.senderPersonId !== null) readers.add(item.senderPersonId);
+  return {
+    ...scope,
+    readers: [...readers],
+  };
 }
 
 async function addressedItem(client: PoolClient, scope: PgProjectionScope, event: InboxEvent) {
@@ -57,24 +68,25 @@ export async function projectPgInbox(
     step = reduceInboxItem(current, input);
   if (step.kind !== "applied") return;
   const item = step.item,
-    revision = input.workspaceRevision;
-  await putPgProjectionValue(client, scope, ITEM, item.itemId, item.inboxId, revision, item);
+    revision = input.workspaceRevision,
+    itemScope = projectionScopeForItem(scope, item);
+  await putPgProjectionValue(client, itemScope, ITEM, item.itemId, item.inboxId, revision, item);
   if (current === null)
-    await putPgProjectionValue(client, scope, DEDUPE, item.dedupeKey, item.inboxId, revision, item.itemId);
+    await putPgProjectionValue(client, itemScope, DEDUPE, item.dedupeKey, item.inboxId, revision, item.itemId);
   else
     await deletePgProjectionValue(
       client,
       scope,
       QUEUE,
-      queueKey(current.status, current.enqueuedRevision),
+      queueKey(current.consumerKind, current.status, current.enqueuedRevision),
       current.inboxId,
     );
   if (!isTerminalInboxStatus(item.status))
     await putPgProjectionValue(
       client,
-      scope,
+      itemScope,
       QUEUE,
-      queueKey(item.status, item.enqueuedRevision),
+      queueKey(item.consumerKind, item.status, item.enqueuedRevision),
       item.inboxId,
       revision,
       item,
@@ -135,13 +147,14 @@ async function readQueue(
   if (!(inboxQueueStatuses as readonly string[]).includes(query.status))
     throw new Error(`inbox queue status is not a queue: ${String(query.status)}`);
   const limit = inboxPageLimit(query.limit),
+    consumerPrefix = `${query.consumerKind}:${query.status}:`,
     values: unknown[] = [
       scope.tenantId,
       scope.projectId,
       scope.policyEpoch,
       [...readers],
-      queueKey(query.status, inboxQueueCursor(query.cursor)),
-      `${query.status};`,
+      `${consumerPrefix}${String(inboxQueueCursor(query.cursor)).padStart(16, "0")}`,
+      `${query.consumerKind}:${query.status};`,
     ],
     predicates = [
       "tenant_id=$1",

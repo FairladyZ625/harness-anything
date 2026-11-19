@@ -2,7 +2,7 @@ import type { StatusVocabulary, StatusWordRegistration } from "./status-vocabula
 import { inboxItemStatuses, inboxQueueStatuses, type InboxItemStatus } from "./inbox.ts";
 
 const meanings: Readonly<Record<InboxItemStatus, string>> = {
-  pending: "The wakeup is durable and waits for the single automatic consumer to claim it.",
+  pending: "The wakeup is durable and waits for its designated consumer partition to claim it.",
   quarantined_external: "External input is recorded only; it never wakes a runtime until host isolation exists.",
   claimed: "One consumer holds the wakeup under a claim id until its lease expires.",
   completed: "The claimed wakeup started its run; the item is settled.",

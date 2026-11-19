@@ -19,6 +19,7 @@ import { deriveRelationId, type EntityRelationRecord } from "./entity-relation.t
 import { timestamp } from "./timestamp.ts";
 import {
   inboxEventTypes,
+  inboxOptionalPayloadFields,
   inboxPayloadFields,
   isInboxEventType,
   validateInboxEventPayload,
@@ -596,8 +597,9 @@ function validateAgentRuntimePayloadFields(
   const acceptedFields = historicalDispatchKey
     ? payloadFields[type].map((field) => (field === "dispatchKey" ? "idempotencyKey" : field))
     : payloadFields[type];
-  const optionalFields =
-    type === "runtime_session_outcome_observed"
+  const optionalFields = isInboxEventType(type)
+    ? (inboxOptionalPayloadFields[type] ?? [])
+    : type === "runtime_session_outcome_observed"
       ? ["reasonCode", "dispatchId", "endedAt", "runtimeMetrics", "attempt"]
       : type === "runtime_session_started"
         ? ["taskBinding"]

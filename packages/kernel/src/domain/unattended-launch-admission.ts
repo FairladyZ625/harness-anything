@@ -12,13 +12,14 @@
  */
 import type { AgentPermissionMode } from "./agent-squad-schema.ts";
 
-export const unattendedWorkKinds = ["code_change", "supervision"] as const;
+export const unattendedWorkKinds = ["code_change", "supervision", "peer_readonly"] as const;
 export type UnattendedWorkKind = (typeof unattendedWorkKinds)[number];
 export type UnattendedPermissionMode = Exclude<AgentPermissionMode, "bypass">;
 
 export const unattendedPermissionCeilings: Readonly<Record<UnattendedWorkKind, UnattendedPermissionMode>> = {
   code_change: "workspace-write",
   supervision: "read-only",
+  peer_readonly: "read-only",
 };
 /** Host credentials that an unattended child process must never inherit in plaintext. */
 export const unattendedStrippedEnvironmentKeys = ["GH_TOKEN", "GITHUB_TOKEN"] as const;

@@ -35,7 +35,7 @@ test("SQLite Inbox projection folds per item, dedupes, orders queues, and rebuil
     assert.equal(b1?.status, "dropped_stale");
     assert.equal(b1?.settlementReason, "source_retired");
 
-    const pending = projection.readInbox({ by: "queue", status: "pending" });
+    const pending = projection.readInbox({ by: "queue", status: "pending", consumerKind: "unattended_dispatch" });
     assert.deepEqual(
       items(pending).map(({ itemId, enqueuedRevision }) => [itemId, enqueuedRevision]),
       [
@@ -43,33 +43,86 @@ test("SQLite Inbox projection folds per item, dedupes, orders queues, and rebuil
         ["item-c1", 9],
       ],
     );
-    const firstPage = projection.readInbox({ by: "queue", status: "pending", limit: 1 });
+    const firstPage = projection.readInbox({
+      by: "queue",
+      status: "pending",
+      consumerKind: "unattended_dispatch",
+      limit: 1,
+    });
     assert.deepEqual(
       items(firstPage).map(({ itemId }) => itemId),
       ["item-a2"],
     );
     assert.equal(firstPage.status === "ready" ? firstPage.nextCursor : undefined, "6");
-    const secondPage = projection.readInbox({ by: "queue", status: "pending", limit: 1, cursor: "6" });
+    const secondPage = projection.readInbox({
+      by: "queue",
+      status: "pending",
+      consumerKind: "unattended_dispatch",
+      limit: 1,
+      cursor: "6",
+    });
     assert.deepEqual(
       items(secondPage).map(({ itemId }) => itemId),
       ["item-c1"],
     );
     assert.equal(secondPage.status === "ready" ? secondPage.nextCursor : undefined, null);
     assert.deepEqual(
-      items(projection.readInbox({ by: "queue", status: "quarantined_external" })).map(({ itemId }) => itemId),
+      items(
+        projection.readInbox({
+          by: "queue",
+          status: "quarantined_external",
+          consumerKind: "quarantined_external",
+        }),
+      ).map(({ itemId }) => itemId),
       ["item-x1"],
     );
-    assert.deepEqual(items(projection.readInbox({ by: "queue", status: "claimed" })), []);
-    assert.throws(() => projection.readInbox({ by: "queue", status: "pending", cursor: "x" }), /cursor is invalid/u);
+    assert.deepEqual(
+      items(projection.readInbox({ by: "queue", status: "claimed", consumerKind: "unattended_dispatch" })),
+      [],
+    );
+    const [peerRequest] = items(
+      projection.readInbox({
+        by: "queue",
+        status: "claimed",
+        consumerKind: "interactive_watch",
+        inboxId: "person:owner",
+      }),
+    );
+    assert.equal(peerRequest?.itemId, "peer-request");
+    assert.equal(peerRequest?.senderPersonId, "person-inbox", "the envelope actor takes precedence over payload metadata");
+    assert.equal(peerRequest?.workId, "work-a2a");
+    assert.equal(peerRequest?.lane, "owner-review");
+    assert.equal(peerRequest?.correlationId, "corr-request-1");
+    assert.equal(peerRequest?.minRevision, 14);
+    assert.deepEqual(peerRequest?.requiredBlobSha256s, ["a".repeat(64)]);
+    const [peerReply] = items(
+      projection.readInbox({
+        by: "queue",
+        status: "pending",
+        consumerKind: "interactive_watch",
+        inboxId: "person:owner",
+      }),
+    );
+    assert.equal(peerReply?.itemId, "peer-reply");
+    assert.equal(peerReply?.senderPersonId, "person-inbox");
+    assert.equal(peerReply?.minRevision, 12, "omitted causal watermarks default to the enqueue revision");
+    assert.deepEqual(peerReply?.requiredBlobSha256s, []);
+    assert.throws(
+      () => projection.readInbox({ by: "queue", status: "pending", consumerKind: "unattended_dispatch", cursor: "x" }),
+      /cursor is invalid/u,
+    );
 
     const reads = inboxParityQueries.map((query) => projection.readInbox(query)),
       digest = projection.readStateDigest(),
       projectionPath = projection.path;
     projection.close();
 
-    // A cache from another model version (or before the tables existed) refolds from its own event rows.
+    // A version-1 Inbox table has no consumer_kind column; opening drops it and refolds from canonical events.
     const db = new DatabaseSync(projectionPath);
-    db.exec("DROP TABLE inbox_item; DROP TABLE inbox_cursor;");
+    db.exec(
+      "DROP INDEX inbox_item_queue; DROP INDEX inbox_item_inbox_queue; " +
+        "ALTER TABLE inbox_item DROP COLUMN consumer_kind; UPDATE inbox_cursor SET model_version=1;",
+    );
     db.close();
     const rebuilt = makeTaskProjection({ rootDir, eventStore: store, projectionPath });
     assert.deepEqual(
@@ -96,6 +149,7 @@ test("a source event and its inbox_item_enqueued commit in one publication, or n
         sourceEpoch: 1,
         dedupeKey: "k-batch",
         admission: "dispatchable",
+        consumerKind: "unattended_dispatch",
         taskId: source.taskId,
         agentId: null,
         summary: "wakeup committed with its source",
@@ -111,7 +165,14 @@ test("a source event and its inbox_item_enqueued commit in one publication, or n
     assert.equal(store.readHead()?.revision, 2);
     projection.apply(source);
     projection.apply(wakeup);
-    const [item] = items(projection.readInbox({ by: "queue", status: "pending", inboxId: `task:${source.taskId}` }));
+    const [item] = items(
+      projection.readInbox({
+        by: "queue",
+        status: "pending",
+        consumerKind: "unattended_dispatch",
+        inboxId: `task:${source.taskId}`,
+      }),
+    );
     assert.equal(item?.itemId, "item-batch");
     assert.equal(item?.enqueuedRevision, 2);
     projection.close();
