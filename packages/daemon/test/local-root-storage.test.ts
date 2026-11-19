@@ -749,8 +749,8 @@ test("F2 regression: cancelled task handoff rollout survives attach reclamation 
           executionId: "exec-1",
           expiresAt: "2026-11-19T03:00:00.000Z",
           ttlMs: 3_600_000,
-          previousHolder: ownerActor,
-          reason: "reclaim_after_reinstate",
+          previousHolder: null,
+          reason: "initial_claim",
           version: 1,
         },
       },
@@ -793,11 +793,8 @@ test("F2 regression: cancelled task handoff rollout survives attach reclamation 
       nowMs: Date.parse("2026-11-19T00:30:00.000Z"),
     });
     assert.equal(reclaimAfterConsume.removedHandoffRollouts, 1);
-    assert.equal(fs.existsSync(path.join(rootDir, ".harness", "runtime-handoffs", dispatchId, "rollout.jsonl")), false);
-    assert.equal(
-      fs.existsSync(path.join(rootDir, ".harness", "runtime-handoffs", dispatchId, "checkpoint.json")),
-      true,
-    );
+    assert.equal(existsSync(path.join(rootDir, ".harness", "runtime-handoffs", dispatchId, "rollout.jsonl")), false);
+    assert.equal(existsSync(path.join(rootDir, ".harness", "runtime-handoffs", dispatchId, "checkpoint.json")), true);
   } finally {
     projection.close();
     await eventStore.drain();
