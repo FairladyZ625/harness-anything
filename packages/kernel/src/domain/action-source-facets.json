@@ -3048,7 +3048,7 @@
         "role": "effect"
       },
       {
-        "candidateId": "action:packages/cli:packages/cli/src/daemon/client.ts#settleRepoWarming:efdbc745903dcf40976a2441397af36d",
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/client.ts#repoWarmingProgress:efdbc745903dcf40976a2441397af36d",
         "route": "cli:ha",
         "role": "effect"
       },
@@ -3143,7 +3143,7 @@
         "role": "effect"
       },
       {
-        "candidateId": "action:packages/cli:packages/cli/src/cli-runtime-wait.ts#renderRuntimeFrames:5a7e4c5f771eb2cd86cbb568924235ef",
+        "candidateId": "action:packages/cli:packages/cli/src/cli-runtime-wait.ts#renderRuntimeFrames:54dd04aea9ae012f1c8b286638569655",
         "route": "cli:ha",
         "role": "effect"
       },
@@ -3183,7 +3183,7 @@
         "role": "effect"
       },
       {
-        "candidateId": "action:packages/cli:packages/cli/src/cli-runtime-wait.ts#renderRuntimeFrames:6e02fac36637667fd4f8638778c23e49",
+        "candidateId": "action:packages/cli:packages/cli/src/cli-runtime-wait.ts#renderRuntimeFrames:5e508f9959402eca0199084c40d61ea5",
         "route": "cli:ha",
         "role": "effect"
       },

@@ -133,8 +133,10 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
   if (!errors.length && isNamedActionRoute(value.method))
     errors.push(...validateNamedActionPayload(value.method, (value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.terminal.attach") {
-    const afterSeq = ((value.params as JsonObject).payload as JsonObject).afterSeq;
+    const { afterSeq, daemonGeneration } = (value.params as JsonObject).payload as JsonObject;
     if (!integer(afterSeq) || Number(afterSeq) < 0) errors.push("terminal attach sequence is invalid");
+    if (daemonGeneration !== undefined && (!integer(daemonGeneration) || Number(daemonGeneration) < 0))
+      errors.push("terminal attach generation is invalid");
   }
   if (!errors.length && value.method === "repo.agentRuntime.attach") {
     const after = ((value.params as JsonObject).payload as JsonObject).afterCursor;

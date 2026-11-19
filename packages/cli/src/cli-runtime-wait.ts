@@ -1,6 +1,7 @@
 import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type { AgentRuntimeSessionResult } from "@harness-anything/daemon/internal/agent-runtime-contract";
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
+import type { AgentRuntimeStreamValue } from "@harness-anything/daemon/protocol";
 import { cliErrorMessage } from "./cli-error.ts";
 import type { ThinCommand } from "./cli/thin-command.ts";
 import { consumeKnownError, runCommandThroughDaemon, streamRuntimeThroughDaemon } from "./daemon/client.ts";
@@ -172,7 +173,7 @@ async function waitForStreamedRuntime(
       command,
       runtimeSessionId,
       (value) => renderRuntimeFrames(value, writeActivity),
-      () => writeActivity("[stream] lost; the daemon-side wait continues\n"),
+      (failure) => writeActivity(`[stream] ${failure.code}; the daemon-side wait continues\n`),
     );
   } catch (error) {
     consumeKnownError(error);
@@ -397,17 +398,10 @@ function daemonGoneReceipt(
   };
 }
 
-export function renderRuntimeFrames(value: unknown, write: (text: string) => void): void {
-  if (!value || typeof value !== "object") return;
-  const record = value as Record<string, unknown>;
-  if (Array.isArray(record.events)) {
-    for (const event of record.events) renderRuntimeFrames(event, write);
-    return;
+function renderRuntimeFrames(value: AgentRuntimeStreamValue, write: (text: string) => void): void {
+  for (const frame of "ok" in value ? (value.ok ? value.events : []) : [value]) {
+    if (frame.type === "gap") write(`[stream] resumed from snapshot at sequence ${frame.snapshotSeq}\n`);
+    const activity = frame.type === "gap" ? frame.snapshot.activity : frame.type === "activity" ? frame : null;
+    if (activity?.content !== undefined) write(`[${activity.activity}] ${activity.content}\n`);
   }
-  if (record.type === "gap") {
-    write(`[stream] resumed from snapshot at sequence ${String(record.snapshotSeq)}\n`);
-    return;
-  }
-  if (record.type === "activity" && typeof record.content === "string")
-    write(`[${String(record.activity)}] ${record.content}\n`);
 }

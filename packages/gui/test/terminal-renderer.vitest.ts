@@ -2,6 +2,7 @@ import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: integration
 import { describe, expect, it, vi } from "vitest";
 import {
+  applyTerminalAttachment,
   closeTerminalTab,
   mostRecentAttachableTerminal,
   reconcileTerminalGeneration,
@@ -118,8 +119,39 @@ describe("terminal renderer control", () => {
       );
     expect(restarted[0]).toMatchObject({ state: "unknown", daemonGeneration: 8, attachmentId: null });
     expect(restarted[0]?.notice).toContain("not durable");
-    expect(restarted[1]).toMatchObject({ state: "running", daemonGeneration: 8, backend: "tmux", attachmentId: null });
+    expect(restarted[1]).toMatchObject({ state: "running", daemonGeneration: 7, backend: "tmux", attachmentId: null });
     expect(restarted[2]?.state).toBe("exited");
+    const resumed = applyTerminalAttachment(
+      restarted[1]!,
+      {
+        schema: "terminal-attach/v1",
+        ok: true,
+        sessionId: durable.sessionId,
+        attachmentId: "attach-b",
+        daemonGeneration: 8,
+        outputSeq: 12,
+        replayFromSeq: 1,
+        status: "gap",
+      },
+      "replay gap",
+    );
+    const frame = {
+      schema: "terminal-attach-event/v1",
+      sessionId: durable.sessionId,
+      seq: 1,
+      kind: "output",
+      utf8: "new output",
+      droppedThrough: null,
+      occurredAt: "2026-01-01T00:00:00Z",
+    } as const;
+    const updated = reduceTerminalStream(resumed, frame);
+    expect(updated).toMatchObject({
+      daemonGeneration: 8,
+      lastSeq: 1,
+      output: "ready\nnew output",
+      notice: "replay gap",
+    });
+    expect(reduceTerminalStream(updated, frame)).toBe(updated);
   });
 
   it("sends a closed repo-scoped terminal packet without secret or environment fields", async () => {

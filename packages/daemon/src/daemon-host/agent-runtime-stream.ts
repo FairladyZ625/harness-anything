@@ -3,6 +3,8 @@ import type { ActorIdentity, RuntimeSession, WriteSource } from "@harness-anythi
 import { serialize } from "./agent-runtime-contract.ts";
 import {
   runtimeStreamKind,
+  emptyRuntimeStreamSnapshot,
+  applyRuntimeStreamSignal,
   sameRuntimeStream,
   validateAgentRuntimeAttach,
   validateAgentRuntimeAttachEvent,
@@ -76,7 +78,7 @@ export function makeAgentRuntimeStreamHub(input: {
     if (!state) {
       state = {
         cursor: { repoId: input.repoId, streamKind: runtimeStreamKind, streamEpoch: randomUUID(), seq: 0 },
-        snapshot: { activity: null, heartbeatAt: null, outcome: null, error: null },
+        snapshot: emptyRuntimeStreamSnapshot,
         events: [],
         subscribers: new Set(),
       };
@@ -87,20 +89,36 @@ export function makeAgentRuntimeStreamHub(input: {
   return {
     attach: async (runtimeSessionId, afterCursor, signal) => {
       const session = await input.readSession(runtimeSessionId);
-      if (session === null || !(await input.canAttach(session))) return unsupported(runtimeSessionId);
-      if (closed || signal?.aborted) return unsupported(runtimeSessionId);
-      const state = stateFor(runtimeSessionId);
-      // Transport EOF refuses new subscriptions even if terminal publication was denied.
-      // This does not settle the canonical lifecycle or its parked outcome waiter.
-      if (state.snapshot.outcome !== null) return unsupported(runtimeSessionId);
+      if (session === null) return unsupported(runtimeSessionId);
+      const live =
+        session.outcome == null &&
+        streams.get(runtimeSessionId)?.snapshot.outcome == null &&
+        (await input.canAttach(session));
+      const retained = streams.get(runtimeSessionId);
+      const outcome = retained?.snapshot.outcome ?? session.outcome ?? null;
+      // Repository authorization already ran. Liveness admits fresh listeners, while a cursor
+      // can finish a stream whose process exited during the disconnect.
+      if (closed || signal?.aborted || (outcome === null ? !live : afterCursor === undefined))
+        return unsupported(runtimeSessionId);
+      const state = retained ?? stateFor(runtimeSessionId);
       const { cursor } = state,
         oldest = state.events[0]?.cursor.seq ?? cursor.seq,
-        gap = afterCursor
-          ? !sameRuntimeStream(afterCursor, cursor) || afterCursor.seq < oldest || afterCursor.seq > cursor.seq
-          : oldest > 1;
+        gap =
+          outcome !== state.snapshot.outcome ||
+          (afterCursor
+            ? !sameRuntimeStream(afterCursor, cursor) || afterCursor.seq < oldest || afterCursor.seq > cursor.seq
+            : oldest > 1);
       const initialEvents = gap
-        ? [gapEvent(runtimeSessionId, state, now())]
+        ? [gapEvent(runtimeSessionId, state, now(), outcome)]
         : state.events.filter((event) => event.cursor.seq > (afterCursor?.seq ?? 0));
+      const initial = {
+        ok: true,
+        status: gap ? "gap" : "attached",
+        runtimeSessionId,
+        cursor,
+        events: initialEvents,
+      } as const;
+      if (outcome !== null) return { initial, next: async () => null, detach: () => undefined };
       const controller = new AbortController();
       const detach = () => {
         controller.abort();
@@ -112,13 +130,7 @@ export function makeAgentRuntimeStreamHub(input: {
       state.subscribers.add(subscriber);
       signal?.addEventListener("abort", detach, { once: true });
       return {
-        initial: {
-          ok: true,
-          status: gap ? "gap" : "attached",
-          runtimeSessionId,
-          cursor,
-          events: initialEvents,
-        },
+        initial,
         next: () => nextEvent(runtimeSessionId, state, subscriber, now),
         detach,
       };
@@ -134,7 +146,7 @@ export function makeAgentRuntimeStreamHub(input: {
           occurredAt,
           ...signal,
         } as const;
-      state.snapshot = applySignal(state.snapshot, signal, occurredAt);
+      state.snapshot = applyRuntimeStreamSignal(state.snapshot, signal, occurredAt);
       state.events.push(event);
       if (state.events.length > BUFFER_LIMIT) state.events.shift();
       for (const subscriber of state.subscribers) subscriber.wake?.();
@@ -209,7 +221,12 @@ function unsupported(runtimeSessionId: string): AgentRuntimeAttachSubscription {
     detach: () => undefined,
   };
 }
-function gapEvent(runtimeSessionId: string, state: StreamState, occurredAt: Date): AgentRuntimeAttachEvent {
+function gapEvent(
+  runtimeSessionId: string,
+  state: StreamState,
+  occurredAt: Date,
+  outcome = state.snapshot.outcome,
+): AgentRuntimeAttachEvent {
   return {
     schema: "agent-runtime-attach-event/v2",
     type: "gap",
@@ -217,24 +234,8 @@ function gapEvent(runtimeSessionId: string, state: StreamState, occurredAt: Date
     cursor: state.cursor,
     occurredAt: occurredAt.toISOString(),
     snapshotSeq: state.cursor.seq,
-    snapshot: state.snapshot,
+    snapshot: { ...state.snapshot, outcome },
   };
-}
-function applySignal(
-  snapshot: RuntimeStreamSnapshot,
-  signal: AgentRuntimeNativeSignal,
-  occurredAt: string,
-): RuntimeStreamSnapshot {
-  switch (signal.type) {
-    case "activity":
-      return { ...snapshot, activity: { ...signal, occurredAt } };
-    case "heartbeat":
-      return { ...snapshot, heartbeatAt: occurredAt };
-    case "exit":
-      return { ...snapshot, outcome: signal.outcome };
-    case "error":
-      return { ...snapshot, error: signal.code };
-  }
 }
 function runtimeStreamError(code: string, message: string): Error {
   const error = new Error(message) as Error & { code: string };

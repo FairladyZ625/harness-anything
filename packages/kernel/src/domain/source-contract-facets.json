@@ -3758,7 +3758,7 @@
         "explain": "Top-level JSON-RPC 2.0 request envelope validator enforcing registered method names, secret-key hygiene and per-method parameter schemas.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateDaemonRpcCall:e4d6bdf787fc93628cd93baa55abb032",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateDaemonRpcCall:c5b6ad9ce505ca47ca271b93cac80022",
             "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateDaemonRpcCall"
           }
         ]

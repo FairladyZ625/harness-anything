@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { DockviewApi } from "dockview-react";
 import type { TerminalSessionRow } from "@harness-anything/daemon/protocol";
 import {
+  applyTerminalAttachment,
   closeTerminalTab,
   mostRecentAttachableTerminal,
   reconcileTerminalGeneration,
@@ -245,12 +246,7 @@ export function TerminalView({
               current.map((tab) => {
                 if (tab.sessionId !== row.sessionId) return tab;
                 if (!isInitial(value)) return reduceTerminalStream(tab, value);
-                return {
-                  ...tab,
-                  daemonGeneration: value.daemonGeneration,
-                  attachmentId: value.attachmentId,
-                  notice: value.status === "gap" ? t("terminal.view.replayGap") : tab.notice,
-                };
+                return applyTerminalAttachment(tab, value, t("terminal.view.replayGap"));
               }),
             );
           },
@@ -765,7 +761,7 @@ function tabFromRow(
     sessionId: row.sessionId,
     name: row.name,
     state: row.status,
-    daemonGeneration,
+    daemonGeneration: existing?.daemonGeneration ?? daemonGeneration,
     attachmentId: null,
     lastSeq: existing?.lastSeq ?? afterSeq,
     output: existing?.output ?? "",

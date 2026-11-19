@@ -24,6 +24,8 @@ For the first migration from a development checkout, first stop the old daemon u
 
 Use the CLI at `$INSTALL_ROOT/current/node_modules/.bin/ha` for daily commands. Workers receive the CLI from the daemon's own installation. Online hello accepts the current protocol minor and its immediate predecessor within the same major. Build commits are diagnostic metadata, so existing workers keep their original CLI, relay and credentials across a compatible release switch. The server replies with the admitted protocol version. A protocol outside that window returns `incompatible_protocol_version`: use the release CLI or an isolated development/test daemon. Refused hello never sends the business request, including shutdown, and cannot fall back to signals or a stopped marker. Internal APIs have no compatibility adapters; a protocol bump retires the older minor automatically.
 
+Protocol 1.1 enables recoverable runtime and terminal subscriptions. Unary calls still use 1.0 during a rolling upgrade. A 1.1 daemon rejects streams on a 1.0 connection with `protocol_upgrade_required` before decoding the attach request. Upgrade the daemon and CLI or GUI together to use live streaming.
+
 ## Roll back
 
 ```sh

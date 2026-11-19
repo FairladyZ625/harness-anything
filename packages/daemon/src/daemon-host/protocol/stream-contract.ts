@@ -47,6 +47,39 @@ export type AgentRuntimeAttachResult =
       readonly cursor: RuntimeStreamCursor;
       readonly events: readonly AgentRuntimeAttachEvent[];
     };
+export type AgentRuntimeStreamValue = AgentRuntimeAttachResult | AgentRuntimeAttachEvent;
+
+export function runtimeStreamFrames(value: AgentRuntimeStreamValue): readonly AgentRuntimeAttachEvent[] {
+  return "ok" in value ? (value.ok ? value.events : []) : [value];
+}
+
+export const emptyRuntimeStreamSnapshot: RuntimeStreamSnapshot = Object.freeze({
+  activity: null,
+  heartbeatAt: null,
+  outcome: null,
+  error: null,
+});
+
+export function applyRuntimeStreamSignal(
+  snapshot: RuntimeStreamSnapshot,
+  signal: AgentRuntimeNativeSignal | Extract<AgentRuntimeAttachEvent, { type: "gap" }>,
+  occurredAt: string,
+): RuntimeStreamSnapshot {
+  switch (signal.type) {
+    case "gap":
+      return signal.snapshot;
+    case "activity": {
+      const { type, activity, content } = signal;
+      return { ...snapshot, activity: { type, activity, ...(content === undefined ? {} : { content }), occurredAt } };
+    }
+    case "heartbeat":
+      return { ...snapshot, heartbeatAt: occurredAt };
+    case "exit":
+      return { ...snapshot, outcome: signal.outcome };
+    case "error":
+      return { ...snapshot, error: signal.code };
+  }
+}
 
 export function sameRuntimeStream(left: RuntimeStreamCursor, right: RuntimeStreamCursor): boolean {
   return left.repoId === right.repoId && left.streamKind === right.streamKind && left.streamEpoch === right.streamEpoch;
@@ -169,4 +202,14 @@ export function parseDaemonStreamEvent(
     method === "repo.agentRuntime.attach" ? validateAgentRuntimeAttachEvent(value) : validateTerminalAttachEvent(value);
   if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
   return value as AgentRuntimeAttachEvent | JsonObject;
+}
+
+/** Socket notifications and SSE end events use the same terminal payload. */
+export function parseDaemonStreamEnd(value: unknown, hint?: string): void {
+  if (record(value)) {
+    if (exact(value, [])) return;
+    if (exact(value, ["code"]) && typeof value.code === "string" && value.code.length > 0)
+      throw new DaemonProtocolContractError(value.code, hint ?? `Upstream daemon ended the stream: ${value.code}.`);
+  }
+  throw new DaemonProtocolContractError("invalid_result", "Invalid stream termination frame.");
 }

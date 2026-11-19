@@ -1,6 +1,6 @@
 import {
   consumeDaemonStream,
-  isStreamUnavailableCode,
+  parseDaemonStreamEnd,
   parseDaemonStreamEvent,
   parseDaemonStreamResult,
   streamInterrupted,
@@ -12,6 +12,7 @@ import type { GuiTransport } from "../renderer/gui-transport.ts";
 import { reportCollaborationResponse } from "../api/collaboration-response.ts";
 
 const browserTokenStorageKey = "harness.browser.access-token";
+const streamEndPrefix = "event: end\ndata: ";
 
 export function loadBrowserGuiTransport(): GuiTransport {
   const hashToken = new URLSearchParams(window.location.hash.slice(1)).get("access_token");
@@ -84,7 +85,7 @@ async function readBrowserStream(
     });
     if (!response.ok) {
       const error = await readBrowserFailure(method, response);
-      if (isStreamUnavailableCode(error.code)) throw streamInterrupted(error.message);
+      if (error.code) return parseDaemonStreamEnd({ code: error.code }, error.message);
       throw error;
     }
     if (!response.body || response.headers.get("content-type") !== "text/event-stream")
@@ -104,7 +105,8 @@ async function readBrowserStream(
         while (boundary >= 0) {
           const event = pending.slice(0, boundary);
           pending = pending.slice(boundary + 2);
-          if (event === "event: end\ndata: null") return;
+          if (event.startsWith(streamEndPrefix))
+            return parseDaemonStreamEnd(JSON.parse(event.slice(streamEndPrefix.length)));
           if (!event.startsWith("data: ")) throw new Error("Invalid browser stream frame.");
           const value: unknown = JSON.parse(event.slice(6));
           receive(initial ? parseDaemonStreamResult(method, value) : parseDaemonStreamEvent(method, value));

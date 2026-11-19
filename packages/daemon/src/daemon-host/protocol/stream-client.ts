@@ -1,4 +1,4 @@
-import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
+import { clientRetryDelay } from "./client-retry.ts";
 import { DaemonProtocolContractError } from "./json-rpc-types.ts";
 import type { DaemonStreamMethod, DaemonStreamPayloadMap } from "./daemon-protocol.contract.ts";
 import {
@@ -8,9 +8,6 @@ import {
   type AgentRuntimeAttachResult,
   type RuntimeStreamCursor,
 } from "./stream-contract.ts";
-
-const { reconnectBaseDelayMs, reconnectMaxDelayMs, reconnectAttemptLimit } =
-  daemonProtocolFleetPolicy.defaultValue.client;
 
 export type StreamPayload = DaemonStreamPayloadMap[DaemonStreamMethod];
 export type StreamReader = (
@@ -32,7 +29,7 @@ class DaemonStreamLostError extends DaemonProtocolContractError {
   }
 }
 
-export function isStreamUnavailableCode(code: unknown): boolean {
+function isStreamUnavailableCode(code: string): boolean {
   return (
     code === "daemon_stream_interrupted" ||
     code === "daemon_unavailable" ||
@@ -41,12 +38,6 @@ export function isStreamUnavailableCode(code: unknown): boolean {
     code === "repo_warming" ||
     code === "repo_unavailable"
   );
-}
-
-export function streamRetryDelay(attempt: number, random = Math.random()): number | null {
-  if (attempt >= reconnectAttemptLimit) return null;
-  const ceiling = Math.min(reconnectMaxDelayMs, reconnectBaseDelayMs * 2 ** attempt);
-  return Math.floor(ceiling * (0.5 + random * 0.5));
 }
 
 /** The socket, Electron and browser share one owner of the applied cursor and retry budget. */
@@ -63,12 +54,17 @@ export async function consumeDaemonStream(input: {
     terminal = "afterSeq" in input.payload ? input.payload : undefined;
   let cursor = runtime?.afterCursor,
     terminalSeq = terminal?.afterSeq ?? 0,
+    terminalGeneration = terminal?.daemonGeneration,
     attached = false,
     attempts = 0;
   while (!input.signal.aborted) {
     let initial = true;
     const payload = terminal
-      ? { ...terminal, afterSeq: terminalSeq }
+      ? {
+          ...terminal,
+          afterSeq: terminalSeq,
+          ...(terminalGeneration === undefined ? {} : { daemonGeneration: terminalGeneration }),
+        }
       : runtime && cursor
         ? { ...runtime, afterCursor: cursor }
         : input.payload;
@@ -78,16 +74,31 @@ export async function consumeDaemonStream(input: {
         (value) => {
           if (input.signal.aborted) return;
           if (terminal) {
-            const frame = value as { readonly sessionId: string; readonly ok?: boolean; readonly seq?: number };
+            const frame = value as {
+              readonly sessionId: string;
+              readonly ok?: boolean;
+              readonly seq: number;
+              readonly daemonGeneration: number;
+              readonly outputSeq: number;
+            };
             if (frame.sessionId !== terminal.sessionId)
               throw new DaemonProtocolContractError("invalid_result", "Terminal stream returned a different session.");
-            if (initial) attached ||= frame.ok === true;
-            else if (typeof frame.seq === "number" && frame.seq > terminalSeq) {
-              // The attach head describes pending replay. Resume after the last applied frame.
+            if (initial) {
+              initial = false;
+              if (frame.ok === true) {
+                if (
+                  (terminalGeneration !== undefined && terminalGeneration !== frame.daemonGeneration) ||
+                  frame.outputSeq < terminalSeq
+                )
+                  terminalSeq = 0;
+                terminalGeneration = frame.daemonGeneration;
+                attached = true;
+              }
+            } else {
+              if (frame.seq <= terminalSeq) return;
               terminalSeq = frame.seq;
               attempts = 0;
             }
-            initial = false;
             input.onValue(value);
             return;
           }
@@ -106,7 +117,7 @@ export async function consumeDaemonStream(input: {
             const unseen = result.events.filter((frame) => accept(frame, result.status === "gap"));
             input.onValue({ ...result, events: unseen });
             attached = true;
-            if (result.cursor.seq > (cursor?.seq ?? -1) || !cursor) advance(result.cursor);
+            cursor ??= { ...result.cursor, seq: 0 };
             return;
           }
           if (!runtime) {
@@ -128,7 +139,7 @@ export async function consumeDaemonStream(input: {
     const { error } = outcome;
     if (!attached || !(error instanceof DaemonProtocolContractError) || !isStreamUnavailableCode(error.code))
       throw error;
-    const delay = streamRetryDelay(attempts);
+    const delay = clientRetryDelay(attempts);
     if (delay === null) throw new DaemonStreamLostError(error.message, attempts);
     attempts += 1;
     await (input.wait ?? waitForRetry)(delay, input.signal);
@@ -145,12 +156,10 @@ export async function consumeDaemonStream(input: {
   function accept(frame: AgentRuntimeAttachEvent, reset: boolean): boolean {
     checkCursor(frame.cursor, frame.type === "gap");
     if (!reset && cursor && sameRuntimeStream(frame.cursor, cursor) && frame.cursor.seq <= cursor.seq) return false;
-    advance(frame.cursor);
+    if (frame.cursor.seq > 0 && (!cursor || !sameRuntimeStream(frame.cursor, cursor) || frame.cursor.seq > cursor.seq))
+      attempts = 0;
+    cursor = frame.cursor;
     return true;
-  }
-  function advance(next: RuntimeStreamCursor): void {
-    if (!cursor || !sameRuntimeStream(next, cursor) || next.seq > cursor.seq) attempts = 0;
-    cursor = next;
   }
 }
 

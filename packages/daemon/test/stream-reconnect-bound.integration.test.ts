@@ -7,7 +7,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
-import { streamAgentRuntimeAt, type DaemonStreamLost } from "../src/daemon-host/client/local-json-rpc-stream.ts";
+import { streamAgentRuntimeAt, type DaemonStreamFailure } from "../src/daemon-host/client/local-json-rpc-stream.ts";
+import { daemonHelloMismatch } from "../src/daemon-host/client/daemon-hello.ts";
+import { createInterface } from "node:readline";
 import { runtimeCursor } from "./fixtures/runtime-stream.ts";
 
 // #1654: a stream that had attached once reconnected every 40ms forever, invisibly, while the
@@ -51,7 +53,7 @@ test("an attached stream exhausts a bounded reconnect budget and reports the los
       server.listen(socketPath, resolve);
     });
     const values: unknown[] = [];
-    const failure = Promise.withResolvers<DaemonStreamLost>();
+    const failure = Promise.withResolvers<DaemonStreamFailure>();
     const detach = await streamAgentRuntimeAt({
       socketPath,
       repoId: "stream-bound",
@@ -70,6 +72,42 @@ test("an attached stream exhausts a bounded reconnect budget and reports the los
       server.close();
     }
   } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("a new stream client never sends attach to a 1.0 resident", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-stream-version-")),
+    socketPath = localUserDaemonEndpoint(parent, "stream-version"),
+    previous = { major: 1, minor: 0 },
+    methods: string[] = [];
+  const server = net.createServer((socket) => {
+    const lines = createInterface({ input: socket });
+    lines.on("line", (line) => {
+      const request = JSON.parse(line);
+      methods.push(request.method);
+      const mismatch = daemonHelloMismatch(request.params.protocolVersion, previous);
+      const result = mismatch
+        ? { ok: false, code: mismatch.code, error: { hint: mismatch.message } }
+        : { ok: true, protocolVersion: previous };
+      socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
+    });
+  });
+  try {
+    mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
+    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    await assert.rejects(
+      streamAgentRuntimeAt({
+        socketPath,
+        repoId: "stream-version",
+        payload: { runtimeSessionId: "runtime-a" },
+        onValue: () => assert.fail("old resident cannot deliver v2 data"),
+      }),
+      { code: "incompatible_protocol_version" },
+    );
+    assert.deepEqual(methods, ["protocol.hello"]);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(parent, { recursive: true, force: true });
   }
 });

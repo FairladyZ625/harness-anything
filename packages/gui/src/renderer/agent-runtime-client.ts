@@ -14,8 +14,15 @@ import type {
   AgentRuntimeTokenUsageResult,
 } from "@harness-anything/daemon/protocol";
 import type { DaemonGuiReadPayloadMap } from "@harness-anything/daemon/protocol";
+import {
+  applyRuntimeStreamSignal,
+  emptyRuntimeStreamSnapshot,
+  runtimeStreamFrames,
+  type AgentRuntimeStreamValue,
+  type RuntimeStreamSnapshot,
+} from "@harness-anything/daemon/protocol";
 import type { QueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import { readUseCaseProjection } from "./use-case-projection-client.ts";
@@ -188,25 +195,43 @@ function checkedSessionGroupMembers(value: unknown): Record<string, unknown> {
   return value;
 }
 
-/** Live provider frames wake the indexed lifecycle read. Canonical cuts also wake this cache. */
-export function useSessionEventWakeup(repoId: string, runtimeSessionId: string | null) {
+/** Native activity comes from the stream. Lifecycle and transcript remain indexed reads. */
+export function useSessionEventWakeup(
+  repoId: string,
+  runtimeSessionId: string | null,
+  showNativeActivity = false,
+): RuntimeStreamSnapshot["activity"] {
   const queryClient = useQueryClient();
+  const [value, setValue] = useState<{
+    repoId: string;
+    runtimeSessionId: string;
+    activity: RuntimeStreamSnapshot["activity"];
+  } | null>(null);
   useEffect(() => {
+    if (showNativeActivity) setValue(null);
     if (!runtimeSessionId) return;
     const transport = guiTransport();
     if (transport.capabilities().stream?.status !== "available") return;
     const queryKey = runtimeQueryKeys.events(repoId, runtimeSessionId);
+    let snapshot = emptyRuntimeStreamSnapshot;
     return transport.subscribe(
       "repo.agentRuntime.attach",
       { repo: { repoId }, payload: { runtimeSessionId } },
       (value) => {
-        if (!isRendererRecord(value) || value.ok === false) return;
-        if (value.type || (Array.isArray(value.events) && value.events.length > 0))
-          void queryClient.invalidateQueries({ queryKey, exact: true }, { cancelRefetch: false });
+        if (!isRendererRecord(value)) return;
+        const frames = runtimeStreamFrames(value as AgentRuntimeStreamValue);
+        if (frames.length === 0) return;
+        if (showNativeActivity) {
+          const priorActivity = snapshot.activity;
+          for (const frame of frames) snapshot = applyRuntimeStreamSignal(snapshot, frame, frame.occurredAt);
+          if (snapshot.activity !== priorActivity) setValue({ repoId, runtimeSessionId, activity: snapshot.activity });
+        }
+        void queryClient.invalidateQueries({ queryKey, exact: true }, { cancelRefetch: false });
       },
       (error) => console.warn("Runtime event stream lost", error),
     );
-  }, [repoId, queryClient, runtimeSessionId]);
+  }, [repoId, queryClient, runtimeSessionId, showNativeActivity]);
+  return value?.repoId === repoId && value.runtimeSessionId === runtimeSessionId ? value.activity : null;
 }
 
 /** cursor 的序数部分(lifecycle:<workspaceRevision>),用于事件排序与去重。 */

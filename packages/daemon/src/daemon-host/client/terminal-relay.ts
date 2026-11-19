@@ -106,9 +106,9 @@ export async function relayDaemonTerminal(input: {
     method: "repo.terminal.attach",
     payload: { sessionId: input.sessionId, afterSeq: 0 },
     onValue: (value) => {
-      const frame = value as { readonly kind?: unknown; readonly utf8?: unknown };
+      const frame = value as { readonly kind?: unknown; readonly status?: unknown; readonly utf8?: unknown };
       if (frame.kind === "output" && typeof frame.utf8 === "string") input.write(frame.utf8);
-      else if (frame.kind === "gap")
+      else if (frame.kind === "gap" || frame.status === "gap")
         input.write("\n[stream] some terminal output was dropped; scrollback is incomplete.\n");
       else if (frame.kind === "exit") void finishFromFrame();
     },

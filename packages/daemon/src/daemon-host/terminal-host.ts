@@ -123,7 +123,7 @@ export interface TerminalHost {
   readonly resize: (payload: JsonObject) => TerminalControlReceipt;
   readonly detach: (payload: JsonObject) => JsonObject;
   readonly terminate: (payload: JsonObject) => TerminalControlReceipt;
-  readonly attach: (sessionId: string, afterSeq: number) => TerminalAttachSubscription;
+  readonly attach: (sessionId: string, afterSeq: number, daemonGeneration?: number) => TerminalAttachSubscription;
   readonly close: () => Promise<void>;
 }
 export interface TrustedTerminalLaunch {
@@ -212,7 +212,7 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
       tmuxNamespace: namespace,
     });
   };
-  const attach = (sessionId: string, afterSeq: number): TerminalAttachSubscription => {
+  const attach: TerminalHost["attach"] = (sessionId, afterSeq, daemonGeneration) => {
     const session = requiredSession(sessionId);
     if (isRunningSession(session)) ensureChannel(session);
     else if (isUnknownSession(session))
@@ -222,28 +222,33 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
       );
     const attachmentId = `attach_${randomUUID()}`;
     const subscriber: Subscriber = { id: attachmentId, queue: [], bytes: 0, waiter: null, closed: false };
-    const earliest = session.frames[0]?.seq ?? session.outputSeq + 1;
-    const replayState = afterSeq < earliest - 1 ? "gap" : "attached";
-    if (replayState === "gap")
+    const reset =
+      (daemonGeneration !== undefined && daemonGeneration !== input.daemonGeneration) || afterSeq > session.outputSeq;
+    const resumeSeq = reset ? 0 : afterSeq;
+    const selected: Frame[] = [];
+    let bytes = 0;
+    for (let i = session.frames.length - 1; i >= 0; i--) {
+      const item = session.frames[i]!;
+      if (item.seq <= resumeSeq) break;
+      bytes += frameSize(item);
+      if (bytes > replayLimit) break;
+      selected.push(item);
+    }
+    selected.reverse();
+    const replayFromSeq = selected[0]?.seq ?? session.outputSeq + 1,
+      droppedThrough = replayFromSeq - 1;
+    if (droppedThrough > resumeSeq)
       subscriber.queue.push(
         writeTerminalAttachEvent<Frame>({
           schema: "terminal-attach-event/v1",
           sessionId,
-          seq: earliest - 1,
+          seq: droppedThrough,
           kind: "gap",
           utf8: "",
-          droppedThrough: earliest - 1,
+          droppedThrough,
           occurredAt: now(),
         }),
       );
-    const selected: Frame[] = [];
-    let bytes = 0;
-    for (const item of session.frames.filter((candidate) => candidate.seq > afterSeq).reverse()) {
-      const size = frameSize(item);
-      if (bytes + size > replayLimit) break;
-      selected.unshift(item);
-      bytes += size;
-    }
     subscriber.queue.push(...selected);
     subscriber.bytes = subscriber.queue.reduce((total, item) => total + frameSize(item), 0);
     session.subscribers.set(attachmentId, subscriber);
@@ -254,8 +259,8 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
         sessionId,
         attachmentId,
         daemonGeneration: input.daemonGeneration,
-        status: replayState,
-        replayFromSeq: selected[0]?.seq ?? session.outputSeq + 1,
+        status: reset || droppedThrough > resumeSeq ? "gap" : "attached",
+        replayFromSeq,
         outputSeq: session.outputSeq,
       }),
       next: () => next(subscriber),

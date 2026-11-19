@@ -543,6 +543,7 @@ test("a TMUX registry restores a live session and attach uses the existing names
     firstLaunches: RecordedLaunch[] = [],
     restoredLaunches: RecordedLaunch[] = [],
     registry = path.join(root, ".harness", "generated", "terminal-sessions.json");
+  let output: ((utf8: string) => void) | undefined;
   try {
     const controller = fakeTmuxController(live, killed),
       first = openTerminalHost({
@@ -571,19 +572,34 @@ test("a TMUX registry restores a live session and attach uses the existing names
         rootDir: root,
         daemonGeneration: 15,
         tmux: controller,
-        spawnPty: recordingPtySpawner(restoredLaunches, live),
+        spawnPty: recordingPtySpawner(restoredLaunches, live, false, (listener) => {
+          output = listener;
+        }),
       }),
       row = terminalRows(restored)[0];
     assert.deepEqual(
       row && { sessionId: row.sessionId, status: row.status, backend: row.backend, attachable: row.attachable },
       { sessionId: spawned.sessionId, status: "running", backend: "tmux", attachable: true },
     );
-    const attachment = restored.attach(spawned.sessionId!, 0);
+    const attachment = restored.attach(spawned.sessionId!, 325, 14);
+    assert.equal(attachment.initial.status, "gap");
+    assert.equal(attachment.initial.daemonGeneration, 15);
+    assert.equal(attachment.initial.replayFromSeq, 1);
     assert.deepEqual(restoredLaunches[0], {
       file: "/test/tmux",
       args: ["-u", "attach-session", "-t", namespace],
       cwd: root,
     });
+    const pending = attachment.next();
+    assert.ok(output);
+    output("first frame after daemon restart");
+    const frame = await pending;
+    assert.equal(frame?.seq, 1);
+    assert.equal(frame?.utf8, "first frame after daemon restart");
+    const ahead = restored.attach(spawned.sessionId!, 325, 15);
+    assert.equal(ahead.initial.status, "gap");
+    assert.equal((await ahead.next())?.seq, 1);
+    ahead.detach();
     assert.equal(
       restored.detach({ sessionId: spawned.sessionId!, attachmentId: attachment.initial.attachmentId as string }).state,
       "detached",
@@ -642,14 +658,22 @@ interface RecordedLaunch {
   readonly cwd: unknown;
   readonly env?: unknown;
 }
-function recordingPtySpawner(launches: RecordedLaunch[], live?: Set<string>, recordEnvironment = false): never {
+function recordingPtySpawner(
+  launches: RecordedLaunch[],
+  live?: Set<string>,
+  recordEnvironment = false,
+  registerOutput?: (listener: (utf8: string) => void) => void,
+): never {
   return ((file: string, args: readonly string[] | string, options: Record<string, unknown>) => {
     const argv = typeof args === "string" ? args : [...args];
     launches.push({ file, args: argv, cwd: options.cwd, ...(recordEnvironment ? { env: options.env } : {}) });
     if (Array.isArray(argv) && argv.includes("new-session")) live?.add(String(argv[4]));
     let exit: ((value: { readonly exitCode: number }) => void) | undefined;
     return {
-      onData: () => ({ dispose: () => undefined }),
+      onData: (listener: (utf8: string) => void) => {
+        registerOutput?.(listener);
+        return { dispose: () => undefined };
+      },
       onExit: (listener: (value: { readonly exitCode: number }) => void) => {
         exit = listener;
         return { dispose: () => undefined };

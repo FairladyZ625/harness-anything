@@ -165,10 +165,11 @@ async function relayStream(
       }),
     )
     .then(
-      () => response.end(signal.aborted ? undefined : "event: end\ndata: null\n\n"),
+      () => response.end(signal.aborted ? undefined : "event: end\ndata: {}\n\n"),
       (error: unknown) => {
         if (signal.aborted) response.end();
-        else if (response.headersSent) response.destroy();
+        else if (response.headersSent)
+          response.end(`event: end\ndata: ${JSON.stringify({ code: daemonClientFailureCode(error) })}\n\n`);
         else writeFailure(response, error);
       },
     )

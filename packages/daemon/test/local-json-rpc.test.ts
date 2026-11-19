@@ -20,7 +20,9 @@ import {
   connectSocket,
   JsonRpcLineClient,
   requestDaemonJsonRpcAt,
+  requestLocalDaemonJsonRpcForTarget,
 } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { retryLocalDaemonWrite } from "../src/daemon-host/client/local-json-rpc-retry.ts";
 import {
   actionForDaemonMethod,
   commandClassForAction,
@@ -43,6 +45,7 @@ function lineServer(
   handler: (
     request: { readonly id: number; readonly method: string; readonly params: Record<string, unknown> },
     reply: (result: Record<string, unknown>) => void,
+    disconnect: () => void,
   ) => void,
 ): Promise<{ readonly socketPath: string; readonly close: () => Promise<void> }> {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-json-rpc-client-")),
@@ -51,10 +54,13 @@ function lineServer(
     socket.on("data", (chunk: Buffer) => {
       for (const line of chunk.toString("utf8").split("\n").filter(Boolean)) {
         const request = JSON.parse(line) as { readonly id: number; readonly method: string };
-        handler(request, (result) =>
-          socket.write(
-            `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: request.method === "protocol.hello" ? { ...fixtureDaemonHello(), ...result } : result })}\n`,
-          ),
+        handler(
+          request,
+          (result) =>
+            socket.write(
+              `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: request.method === "protocol.hello" ? { ...fixtureDaemonHello(), ...result } : result })}\n`,
+            ),
+          () => socket.destroy(),
         );
       }
     });
@@ -74,6 +80,74 @@ function lineServer(
     );
   });
 }
+
+test("local unary RPC reuses a stable key after a lost write reply", async () => {
+  const keys: unknown[] = [];
+  const applied = new Set<unknown>();
+  const server = await lineServer((request, reply, disconnect) => {
+    if (request.method === "protocol.hello") return reply({ ok: true });
+    const key = (request.params.payload as { idempotencyKey?: string }).idempotencyKey;
+    keys.push(key);
+    if (!applied.has(key)) {
+      applied.add(key);
+      return disconnect();
+    }
+    reply({ ok: true, idempotencyKey: key });
+  });
+  const target = { socketPath: server.socketPath, repoId: "local-retry" };
+  try {
+    const response = await requestLocalDaemonJsonRpcForTarget(
+      target,
+      "repo.task.create",
+      {
+        repo: { repoId: target.repoId },
+        payload: { title: "local retry", idempotencyKey: "stable" },
+      },
+      2000,
+    );
+    assert.deepEqual(response, { ok: true, idempotencyKey: "stable" });
+    assert.deepEqual(keys, ["stable", "stable"]);
+    assert.equal(applied.size, 1);
+    await assert.rejects(
+      requestLocalDaemonJsonRpcForTarget(
+        target,
+        "repo.task.create",
+        {
+          repo: { repoId: target.repoId },
+          payload: { title: "without a key" },
+        },
+        2000,
+      ),
+      { code: "daemon_closed" },
+    );
+    assert.deepEqual(keys, ["stable", "stable", undefined]);
+  } finally {
+    await server.close();
+  }
+});
+
+test("local write exhaustion returns its original receipt and permanent refusals take one attempt", async (t) => {
+  t.mock.method(Math, "random", () => 0);
+  const warming = { ok: false, error: { code: "repo_warming" } };
+  let attempts = 0;
+  const receipt = await retryLocalDaemonWrite(async () => {
+    attempts++;
+    return warming;
+  });
+  assert.equal(attempts, 6);
+  assert.equal(receipt, warming);
+
+  const denied = { ok: false, error: { code: "authorization_denied" } };
+  attempts = 0;
+  assert.equal(
+    await retryLocalDaemonWrite(async () => {
+      attempts++;
+      return denied;
+    }),
+    denied,
+  );
+  assert.equal(attempts, 1);
+});
 
 test("a reused connection keeps its socket listener counts flat across read rounds", async () => {
   const server = await lineServer((_request, reply) => reply({ ok: true }));

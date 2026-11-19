@@ -42,8 +42,17 @@ export type {
   DaemonStreamMethod,
   DaemonTaskSnapshotListResult,
 } from "./daemon-protocol.contract.ts";
-export { consumeDaemonStream, isStreamUnavailableCode, streamInterrupted } from "./stream-client.ts";
-export { parseDaemonStreamEvent, parseDaemonStreamResult } from "./stream-contract.ts";
+export { consumeDaemonStream, streamInterrupted } from "./stream-client.ts";
+export {
+  applyRuntimeStreamSignal,
+  emptyRuntimeStreamSnapshot,
+  parseDaemonStreamEnd,
+  parseDaemonStreamEvent,
+  parseDaemonStreamResult,
+  runtimeStreamFrames,
+  type AgentRuntimeStreamValue,
+  type RuntimeStreamSnapshot,
+} from "./stream-contract.ts";
 export {
   interactiveRpcDescriptor,
   scopedRpcParams,
@@ -51,7 +60,7 @@ export {
   type InteractiveRpcDescriptor,
 } from "./client-rpc.ts";
 export { DAEMON_GUI_COMMAND_RECEIPT_SCHEMA } from "./daemon-protocol-schema-ids.ts";
-export { isUtcTimestamp } from "./json-rpc-types.ts";
+export { DaemonProtocolContractError, isUtcTimestamp } from "./json-rpc-types.ts";
 export type { ScheduleRunOutputsDto, ScheduleRunsResult } from "./schedule-runs-contract.ts";
 export { compatibleScheduleInstances, isAvailableScheduleGuiAgentOption } from "./schedules-contract.ts";
 export type {

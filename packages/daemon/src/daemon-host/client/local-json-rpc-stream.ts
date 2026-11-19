@@ -1,23 +1,22 @@
 import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
-import { assertDaemonHello, daemonHelloParams } from "./daemon-hello.ts";
+import {
+  assertDaemonHello,
+  daemonHelloParams,
+  recoverableStreamUpgradeRequired,
+  supportsRecoverableStreams,
+} from "./daemon-hello.ts";
 import { createInterface } from "node:readline";
 import { daemonStreamFacetByMethod } from "../protocol/daemon-protocol-action-routes.ts";
 import type { DaemonStreamMethod, DaemonStreamPayloadMap } from "../protocol/daemon-protocol.contract.ts";
-import { parseDaemonStreamEvent, parseDaemonStreamResult } from "../protocol/stream-contract.ts";
+import { parseDaemonStreamEnd, parseDaemonStreamEvent, parseDaemonStreamResult } from "../protocol/stream-contract.ts";
 import { DaemonProtocolContractError, isJsonObject } from "../protocol/json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "../protocol/version.ts";
-import {
-  consumeDaemonStream,
-  isStreamUnavailableCode,
-  streamInterrupted,
-  type StreamPayload,
-} from "../protocol/stream-client.ts";
-import type { AgentRuntimeAttachEvent, AgentRuntimeAttachResult } from "../protocol/stream-contract.ts";
+import { consumeDaemonStream, streamInterrupted, type StreamPayload } from "../protocol/stream-client.ts";
+import type { AgentRuntimeStreamValue } from "../protocol/stream-contract.ts";
 import { createDaemonEndpointSocket, executionCredentialParams } from "./local-json-rpc-client.ts";
 
-export type AgentRuntimeStreamValue = AgentRuntimeAttachResult | AgentRuntimeAttachEvent;
-export interface DaemonStreamLost {
-  readonly code: "daemon_stream_lost";
+export interface DaemonStreamFailure {
+  readonly code: string;
   readonly attempts: number;
   readonly lastError: string;
 }
@@ -47,7 +46,7 @@ export function streamAgentRuntimeAt(
 export async function streamDaemonFacetAt(
   input: DaemonSocketStream & {
     readonly signal?: AbortSignal;
-    readonly onClosed?: (failure: DaemonStreamLost) => void;
+    readonly onClosed?: (failure: DaemonStreamFailure) => void;
   },
 ): Promise<() => void> {
   const controller = new AbortController(),
@@ -68,7 +67,7 @@ export async function streamDaemonFacetAt(
     (error: unknown) => {
       if (!opened) return ready.reject(error);
       input.onClosed?.({
-        code: "daemon_stream_lost",
+        code: error instanceof DaemonProtocolContractError ? error.code : "daemon_request_failed",
         attempts: isJsonObject(error) && typeof error.attempts === "number" ? error.attempts : 0,
         lastError: error instanceof Error ? error.message : String(error),
       });
@@ -138,12 +137,12 @@ export async function readDaemonStreamAt(
         throw new DaemonProtocolContractError("invalid_result", String(value.error.message));
       if (value.id === 1) {
         assertDaemonHello(value.result);
+        if (!supportsRecoverableStreams(value.result.protocolVersion)) throw recoverableStreamUpgradeRequired();
         handshaken = true;
         send(2, facet.method, { repo: { repoId: input.repoId }, payload: input.payload });
       } else if (value.id === 2 && handshaken) {
         if (isJsonObject(value.result) && value.result.ok === false && isJsonObject(value.result.error)) {
           const { code, hint } = value.result.error;
-          if (isStreamUnavailableCode(code)) throw streamInterrupted(String(hint));
           throw new DaemonProtocolContractError(String(code), String(hint));
         }
         const receipt = parseDaemonStreamResult(input.method, value.result);
@@ -154,9 +153,7 @@ export async function readDaemonStreamAt(
       } else if (attached && value.method === facet.eventMethod) {
         await input.onValue(parseDaemonStreamEvent(input.method, value.params));
       } else if (attached && value.method === `${facet.eventMethod}.end`) {
-        if (isJsonObject(value.params) && typeof value.params.code === "string")
-          throw new DaemonProtocolContractError(value.params.code, "Upstream daemon ended the stream.");
-        return;
+        return parseDaemonStreamEnd(value.params);
       }
     }
     if (!input.signal.aborted) throw streamInterrupted("Daemon closed the stream connection.");

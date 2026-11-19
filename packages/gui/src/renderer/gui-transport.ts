@@ -3,6 +3,7 @@ import type { ProjectDirectoryApi } from "../api/project-directory-contract.ts";
 import type { ProjectWindowApi } from "../api/project-window-contract.ts";
 import type { AppCommandApi } from "../api/app-command-contract.ts";
 import type { DaemonRpcMethodMap, DaemonRpcResult, DaemonStreamMethod } from "@harness-anything/daemon/protocol";
+import { DaemonProtocolContractError } from "@harness-anything/daemon/protocol";
 import type { FirstRunApi } from "../api/first-run-contract.ts";
 import type { ArtifactOpenApi } from "../api/artifact-open-contract.ts";
 import type { ConnectionAdminApi, RepoAdminApi } from "../api/connection-admin-contract.ts";
@@ -75,8 +76,10 @@ export function createElectronGuiTransport(bridge: GuiBridge): GuiTransport {
         params,
         (value) => {
           if (signal.aborted) return;
-          if (value && typeof value === "object" && "code" in value && value.code === "daemon_stream_lost") {
-            onError(Object.assign(new Error(String("hint" in value ? value.hint : value.code)), { code: value.code }));
+          if (value && typeof value === "object" && "schema" in value && value.schema === "daemon-stream-failure/v1") {
+            const code = "code" in value && typeof value.code === "string" ? value.code : "invalid_result";
+            const hint = "hint" in value && typeof value.hint === "string" ? value.hint : "Invalid stream error.";
+            onError(new DaemonProtocolContractError(code, hint));
           } else onValue(value);
         },
         onError,

@@ -53,7 +53,7 @@ it("reconnects with the applied cursor and consumes a gap snapshot before new in
           frame(initial(0)) + frame(heartbeat(1)).slice(0, 38),
           frame(heartbeat(1)).slice(38) + frame(heartbeat(1)),
         ])
-      : response([frame(initial(0, [gap], "new", "gap")) + frame(heartbeat(1, "new")) + "event: end\ndata: null\n\n"]);
+      : response([frame(initial(0, [gap], "new", "gap")) + frame(heartbeat(1, "new")) + "event: end\ndata: {}\n\n"]);
   });
   vi.stubGlobal("fetch", fetch);
   const stop = createBrowserGuiTransport("test-token").subscribe(
@@ -72,6 +72,30 @@ it("reconnects with the applied cursor and consumes a gap snapshot before new in
     expect(JSON.parse(String(sent[1]?.body)).params.payload.afterCursor).toEqual(runtimeCursor(repoId, 1));
     expect(sent[0]?.headers).toMatchObject({ Authorization: "Bearer test-token" });
     expect(fetch).toHaveBeenCalledTimes(2);
+  } finally {
+    stop();
+  }
+});
+
+it("reports a permanent SSE end code after data without retrying", async () => {
+  vi.useFakeTimers();
+  const onValue = vi.fn(),
+    failure = Promise.withResolvers<unknown>(),
+    fetch = vi.fn(async () =>
+      response([frame(initial(1, [heartbeat(1)])) + 'event: end\ndata: {"code":"invalid_result"}\n\n']),
+    );
+  vi.stubGlobal("fetch", fetch);
+  const stop = createBrowserGuiTransport("test-token").subscribe(
+    "repo.agentRuntime.attach",
+    { repo: { repoId }, payload: { runtimeSessionId } },
+    onValue,
+    failure.resolve,
+  );
+  try {
+    await vi.runAllTimersAsync();
+    expect(await failure.promise).toMatchObject({ code: "invalid_result" });
+    expect(onValue).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledOnce();
   } finally {
     stop();
   }

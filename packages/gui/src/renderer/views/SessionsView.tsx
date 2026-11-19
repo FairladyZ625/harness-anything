@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { isAvailableSquadRunSummary } from "@harness-anything/daemon/protocol";
 import { agentEntityClient, isAvailableSquadEntityRow } from "../agent-entity-client.ts";
-import { agentRuntimeClient, runtimeQueryKeys, useSessionEventWakeup } from "../agent-runtime-client.ts";
+import { agentRuntimeClient, runtimeQueryKeys } from "../agent-runtime-client.ts";
 import { harnessClient } from "../api-client.ts";
 import { readAllTaskDispatches } from "../task-dispatch-client.ts";
 import { t, type MessageKey } from "../i18n/index.tsx";
@@ -738,7 +738,6 @@ export function SessionsView({
     return [...ids];
   }, [selectedSessionId, displayedGroups, allRows]);
 
-  useSessionEventWakeup(repoId, selectedSessionId);
   const sessionTouches = useOverviewSessionTouches(repoId, touchSessionIds);
   const sessionCacheTtlMs = useMemo(
     () => sessionCacheTtlOf(taskSessionsByTask, selectedSession.data?.session, unattributedSessions),

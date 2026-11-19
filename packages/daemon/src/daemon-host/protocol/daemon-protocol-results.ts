@@ -1281,6 +1281,7 @@ export type DaemonStreamPayloadMap = {
   readonly "repo.terminal.attach": {
     readonly sessionId: string;
     readonly afterSeq: number;
+    readonly daemonGeneration?: number;
   };
 };
 

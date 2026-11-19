@@ -402,7 +402,7 @@ export const daemonStreamFacets = Object.freeze([
     requiresRepo: true,
     params: shape({
       repo: shape({ repoId: "string" }),
-      payload: shape({ sessionId: "string", afterSeq: "number" }),
+      payload: shape({ sessionId: "string", afterSeq: "number", daemonGeneration: "number?" }),
     }),
     commandClass: "repo-read",
   },

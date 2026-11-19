@@ -50,6 +50,7 @@ test("headless Chromium receives the hub snapshot and releases its socket on abo
       canAttach: () => true,
     }),
     released = Promise.withResolvers<void>();
+  let attachRequests = 0;
   const server = createSocketServer((socket) => {
     const controller = new AbortController();
     const lines = createInterface({ input: socket });
@@ -66,8 +67,19 @@ test("headless Chromium receives the hub snapshot and releases its socket on abo
       }
       assert.equal(packet.method, method);
       assert.equal(packet.params.repo.repoId, repoId);
+      const attempt = ++attachRequests;
       void hub.attach(sessionId, packet.params.payload.afterCursor, controller.signal).then((subscription) => {
         socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: packet.id, result: subscription.initial })}\n`);
+        if (attempt > 1) {
+          socket.write(
+            `${JSON.stringify({
+              jsonrpc: "2.0",
+              method: `${method}.frame.end`,
+              params: { code: "invalid_result" },
+            })}\n`,
+          );
+          return;
+        }
         const next = hub.publish(sessionId, { type: "heartbeat" });
         socket.write(`${JSON.stringify({ jsonrpc: "2.0", method: `${method}.frame`, params: next })}\n`);
       });
@@ -170,6 +182,19 @@ test("headless Chromium receives the hub snapshot and releases its socket on abo
     assert.equal(frames[0].events[0].snapshotSeq, 33);
     assert.equal(frames[1].cursor.seq, 34);
     await released.promise;
+    const ended = await page.evaluate(
+      async ({ token, body }) => {
+        const response = await fetch("/stream", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body,
+        });
+        return { status: response.status, text: await response.text() };
+      },
+      { token, body },
+    );
+    assert.equal(ended.status, 200);
+    assert.equal(ended.text.split("\n\n").filter(Boolean).at(-1), 'event: end\ndata: {"code":"invalid_result"}');
   } finally {
     await browser?.close();
     await broker?.close();

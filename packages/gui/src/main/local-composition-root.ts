@@ -78,9 +78,9 @@ export function createLocalGuiServiceBridge(): GuiServiceBridge {
         onValue: emit,
         onClosed: (failure) =>
           emit({
-            ok: false,
+            schema: "daemon-stream-failure/v1",
             code: failure.code,
-            hint: `daemon stream lost after ${failure.attempts} reconnect attempts (${failure.lastError}); reopen the panel or restart the daemon.`,
+            hint: failure.lastError,
           }),
       });
     },

@@ -60,7 +60,6 @@ export const cliOperationalPolicy = {
     "packages/cli/test/guidance-plane.test.ts",
   ],
   sources: [
-    "policy:packages/cli:packages/cli/src/daemon/client.ts#settleRepoWarming.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
     "policy:packages/cli:packages/cli/src/daemon/control.ts#waitProcessExit.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
     "policy:packages/cli:packages/cli/src/daemon/control.ts#waitForDaemonStop.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
     "policy:packages/cli:packages/cli/src/daemon/control.ts#forceStopInUseRefusal.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
@@ -1118,7 +1117,7 @@ export const daemonLifecycleObservationContractPolicy = {
     "policy:packages/daemon:packages/daemon/src/daemon-host/client/daemon-autostart.ts#ensureLocalDaemonRunning.attempts:5007c49b2464bfbfbcf01e27f6555747:3",
     "policy:packages/daemon:packages/daemon/src/daemon-host/client/daemon-autostart.ts#ensureLocalDaemonRunning.attempts:5007c49b2464bfbfbcf01e27f6555747:4",
     "policy:packages/daemon:packages/daemon/src/daemon-host/client/daemon-autostart.ts#ensureLocalDaemonRunning.attempts:5007c49b2464bfbfbcf01e27f6555747:5",
-    "policy:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-write.ts#runFleetEdgeRetry.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/daemon-retry.ts#runDaemonRetry.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
     "policy:packages/daemon:packages/daemon/src/fleet-sync/fleet/center-delivery-drain.ts#createFleetDeliveryDrain.admit.released:c634ea4f4d8960a8ac39fbdbce66e15c",
     "policy:packages/daemon:packages/daemon/src/daemon-host/fleet/center-lease-claims.ts#reclaimConsumedClaims.released:c634ea4f4d8960a8ac39fbdbce66e15c",
     "policy:packages/daemon:packages/daemon/src/daemon-host/fleet/center-lease-claims.ts#discardOwnedClaims.released:c634ea4f4d8960a8ac39fbdbce66e15c",

@@ -1,8 +1,12 @@
 import { RuntimeHandoff } from "./RuntimeHandoff.tsx";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import type { AgentRuntimeSessionDto, AgentRuntimeSessionResult } from "@harness-anything/daemon/protocol";
+import type {
+  AgentRuntimeSessionDto,
+  AgentRuntimeSessionResult,
+  RuntimeStreamSnapshot,
+} from "@harness-anything/daemon/protocol";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
-import { agentRuntimeClient } from "../../agent-runtime-client.ts";
+import { agentRuntimeClient, useSessionEventWakeup } from "../../agent-runtime-client.ts";
 import { sessionDispatchIdOf, sessionInstallationBadge, type SessionRow, shortRef } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { actorDisplayName } from "../../model/actor-name.ts";
@@ -108,6 +112,7 @@ export function SessionsPanel({
   readonly needsYou?: boolean;
   readonly remoteEdge?: boolean;
 }) {
+  const nativeActivity = useSessionEventWakeup(repoId, runtimeSessionId, true);
   const [session, setSession] = useState<AgentRuntimeSessionDto | null>(null),
     [result, setResult] = useState<string | null>(null),
     [settlement, setSettlement] = useState<SessionSettlement | null>(null),
@@ -145,6 +150,7 @@ export function SessionsPanel({
       ) : (
         <SessionDetailView
           session={session}
+          nativeActivity={nativeActivity}
           row={row}
           squadNames={squadNames}
           taskTitles={taskTitles}
@@ -375,6 +381,7 @@ function OutputDocLink({
 // it achieved. The container above owns the session read and durable replay timeline.
 export function SessionDetailView({
   session,
+  nativeActivity = null,
   row,
   squadNames,
   taskTitles = new Map(),
@@ -393,6 +400,7 @@ export function SessionDetailView({
   needsYou,
 }: {
   readonly session: AgentRuntimeSessionDto;
+  readonly nativeActivity?: RuntimeStreamSnapshot["activity"];
   readonly row: SessionRow | null;
   readonly squadNames: ReadonlyMap<string, string>;
   /** 同 SessionsPanel:缺省空表 = 没有挂载的投影,回落 id。 */
@@ -413,6 +421,7 @@ export function SessionDetailView({
   readonly cacheTtl?: PromptCacheTtlState | null;
   readonly needsYou?: boolean;
 }) {
+  const lastActivityAt = nativeActivity?.occurredAt ?? session.activity.lastObservedAt;
   // 任务出口:组行携带 taskId 时用它(带标题),否则回落会话关联的第一个任务。
   const association = session.associations[0],
     rowTaskId = row === null ? null : row.taskId,
@@ -627,12 +636,17 @@ export function SessionDetailView({
                 {durationMs === null ? (startedLabel ?? "—") : formatDuration(durationMs)}
               </dd>
             </div>
-            <div className="flex items-baseline gap-1.5">
+            <div className="flex min-w-0 items-baseline gap-1.5">
               <dt className="font-mono uppercase tracking-[0.07em] text-text-faint">
                 {t("agentRuntime.facts.lastActivity")}
               </dt>
-              <dd className="text-text" title={session.activity.lastObservedAt}>
-                {formatTime(session.activity.lastObservedAt, { style: "date-time" }) ?? session.activity.lastObservedAt}
+              <dd className="min-w-0 text-text" title={lastActivityAt}>
+                {formatTime(lastActivityAt, { style: "date-time" }) ?? lastActivityAt}
+                {nativeActivity && (
+                  <span data-testid="session-native-activity" className="block truncate" title={nativeActivity.content}>
+                    {nativeActivity.content ?? nativeActivity.activity}
+                  </span>
+                )}
               </dd>
             </div>
             {row?.kind === "round" && row.delegation !== null && (

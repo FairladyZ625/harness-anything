@@ -55,7 +55,11 @@ import {
 import { parseDaemonActionResult, parseDaemonReadResult } from "./daemon-result-validation.ts";
 import { parseDaemonStreamResult } from "./stream-contract.ts";
 import { isJsonObject, type JsonObject, type JsonRpcRequest, type JsonRpcResponse } from "./json-rpc-types.ts";
-import { daemonHelloMismatch } from "../client/daemon-hello.ts";
+import {
+  daemonHelloMismatch,
+  recoverableStreamUpgradeRequired,
+  supportsRecoverableStreams,
+} from "../client/daemon-hello.ts";
 import { consumeKnownError } from "@harness-anything/kernel";
 import type { DaemonBuildObserver, DaemonBuildStamp } from "../build-identity.ts";
 import { diagnosticForError } from "../receipt-guidance.ts";
@@ -116,6 +120,7 @@ export function createJsonRpcProtocolServer(options: {
   readonly onBuildDriftObserved?: () => void;
 }): JsonRpcProtocolServer {
   let handshaken = false,
+    recoverableStreamsEnabled = false,
     lifecycleReadsEnabled = false;
   // Hello, lifecycle negotiation and the first business frame are one admitted exchange.
   // Retain its reservation across negotiation so build drain cannot strand the business frame.
@@ -236,7 +241,12 @@ export function createJsonRpcProtocolServer(options: {
     };
     if (request.method === "protocol.hello") {
       handshaken = false;
+      recoverableStreamsEnabled = false;
       lifecycleReadsEnabled = false;
+    }
+    if (handshaken && !recoverableStreamsEnabled && daemonStreamFacetByMethod.has(request.method)) {
+      const error = recoverableStreamUpgradeRequired();
+      return reply(request.method, daemonProtocolError(request.method, error.code, error.message));
     }
     const parsed = parseDaemonRpcParams(request.method, request.params);
     if (!parsed.ok) return reply(request.method, invalidParamsReceipt(request.method, parsed.errors));
@@ -269,6 +279,7 @@ export function createJsonRpcProtocolServer(options: {
       Reflect.deleteProperty(options.authContext, "executionPrincipal");
       Reflect.deleteProperty(options.authContext, "executionCredential");
       const warning = daemonBuildStaleNotice(options.buildObserver, options.buildDrainStatus);
+      recoverableStreamsEnabled = supportsRecoverableStreams(params.protocolVersion);
       handshaken = true;
       return reply(method, {
         ok: true,
@@ -652,7 +663,7 @@ export function createJsonRpcProtocolServer(options: {
                 params.payload.afterCursor,
                 options.authContext,
               )
-            : options.host.terminalAttach(repo, params.payload.sessionId, params.payload.afterSeq, options.authContext),
+            : options.host.terminalAttach(repo, params.payload, options.authContext),
         );
       } catch (error) {
         return reply(method, protocolFailure(method, error));

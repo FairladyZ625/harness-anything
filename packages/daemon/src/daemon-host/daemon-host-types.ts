@@ -16,6 +16,7 @@ import type {
 import { type DaemonBuildStatus } from "./build-identity.ts";
 import type { DaemonControlReceipt, TerminalAttachSubscription } from "./gui-s3-control.ts";
 import { type DaemonGuiReadResultMap, type DaemonGuiRpcReadMethod } from "./protocol/daemon-protocol.contract.ts";
+import type { DaemonStreamPayloadMap } from "./protocol/daemon-protocol-results.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { type RepoBootstrapRequest } from "./repo-bootstrap.ts";
 import {
@@ -173,8 +174,7 @@ export interface DaemonHost {
   ) => Promise<AuthorizationDecision>;
   readonly terminalAttach: (
     repoId: string,
-    sessionId: string,
-    afterSeq: number,
+    payload: DaemonStreamPayloadMap["repo.terminal.attach"],
     auth: DaemonAuthenticationContext,
   ) => Promise<TerminalAttachSubscription>;
   readonly terminalAction: (

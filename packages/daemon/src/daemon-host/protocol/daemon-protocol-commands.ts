@@ -448,7 +448,7 @@ export const daemonProtocolMethods = Object.freeze([
     params: shape({
       protocolVersion: shape({ major: "number", minor: "number" }),
       // Accepted only for the 1.0 compatibility window: the 2026-11-03 CLI sent it and no daemon
-      // reads it. Remove by 2026-12-04 or when the current minor advances to 1.1, whichever is first.
+      // reads it. Remove by 2026-12-04, with the unary 1.0 compatibility window.
       buildCommit: "string-null?",
       sessionEnvironment: "json?",
       executionCredential: "string?",
