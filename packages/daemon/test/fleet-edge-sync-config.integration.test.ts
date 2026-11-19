@@ -12,6 +12,7 @@ import path from "node:path";
 import test from "node:test";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import {
   fleetEdgeConfigPath,
   readFleetEdgeConfig,
@@ -513,6 +514,19 @@ test(
     assert.equal(existsSync(otherSelectionFile), false);
     assert.equal(selection.read(e.edgeRoot, oldConfigIdentity), undefined);
     assert.equal(selection.read(undefined), undefined);
+    const loginRequests: string[] = [],
+      identity = createIdentitySession(e.edgeUser, {
+        fetch: (async (input) => {
+          loginRequests.push(String(input));
+          return Response.json({ issuer: `${publishedAuthority.url}/realms/${publishedAuthority.realm}` });
+        }) as typeof fetch,
+      }),
+      login = await identity.begin("http://127.0.0.1:43123/callback", e.edgeRoot);
+    assert.equal(
+      loginRequests[0],
+      `${publishedAuthority.url}/realms/${publishedAuthority.realm}/.well-known/openid-configuration`,
+    );
+    assert.equal(new URL(String(login.authorizationUrl)).origin, publishedAuthority.browserUrl);
     assert.equal(readFleetEdgeConfig(e.edgeUser, "lease-repo")?.loginBrowserUrl, publishedAuthority.browserUrl);
     assert.equal(readFleetEdgeConfig(e.edgeUser, "lease-repo")?.loginServername, publishedAuthority.servername);
     assert.equal(readFleetEdgeConfig(e.edgeUser, "lease-repo")?.loginCertificate, publishedAuthority.certificate);
