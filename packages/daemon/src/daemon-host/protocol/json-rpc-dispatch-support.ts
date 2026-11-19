@@ -214,11 +214,11 @@ export function previousDispatchLifecycleReadResult<T>(method: string, result: T
   )
     return result;
   const hiddenKeys = new Set([
-    "lifecycle",
-    "effectivePermissionMode",
-    "requestedPermissionMode",
-    "permissionModeSource",
-  ]),
+      "lifecycle",
+      "effectivePermissionMode",
+      "requestedPermissionMode",
+      "permissionModeSource",
+    ]),
     sessionRead = method === "repo.agentRuntime.overview" || method === "repo.agentRuntime.sessions.read";
   const project = (value: unknown): unknown => {
     if (Array.isArray(value)) return value.map(project);
