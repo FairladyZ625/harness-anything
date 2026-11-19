@@ -53,8 +53,7 @@ export function resolveLoginListenerTrust(input: {
 function validateProxyTarget(value: unknown, listenerOrigin: string): string | undefined {
   assert.equal(typeof value, "string", "The login listener proxy target must be a URL.");
   const target = new URL(value as string),
-    validHttpsTarget =
-      target.protocol === "https:" && !target.username && !target.password && target.port !== "0";
+    validHttpsTarget = target.protocol === "https:" && !target.username && !target.password && target.port !== "0";
   assert.equal(
     validHttpsTarget,
     true,
