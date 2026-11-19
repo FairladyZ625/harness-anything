@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { createSourceProgram } from "./authorization-source-program.mjs";
+import { makeEvaluationCache } from "./authorization-evaluation-cache.mjs";
 import {
   bindArguments,
   bindingNames,
@@ -12,7 +13,6 @@ import {
   EMPTY_ENV,
   enclosingScopes,
   isFunctionNode,
-  lexicalEnvironment,
   makeEnvironmentInterner,
   makeFileOf,
   memberName,
@@ -126,6 +126,7 @@ export function buildFlowGraph(
     exportedBindings = new Map(),
     typeNames = new WeakMap(),
     anchorSources = new Map(),
+    writesIndexed = new WeakSet(),
     assignedValues = new Map(),
     singleAssignments = new Map(),
     nonSimpleWrites = new Set(),
@@ -191,9 +192,10 @@ export function buildFlowGraph(
     modules.set(file, { file, sourceFile, imports });
     if (programSources.has(sourceFile)) indexMembers(sourceFile, file);
   }
-  // Index writes once per Program. A local's initializer alone does not describe `let db`
-  // or values assigned by a nested callback; retain all their actual parameter dependencies.
-  for (const { sourceFile } of modules.values())
+  // Local writes cannot cross a file boundary. Index them only when a proof queries the file.
+  function indexWrites(sourceFile) {
+    if (writesIndexed.has(sourceFile) || !relativeFiles.has(sourceFile)) return;
+    writesIndexed.add(sourceFile);
     (function visit(node) {
       if (ts.isTypeNode(node)) return;
       if (
@@ -225,6 +227,7 @@ export function buildFlowGraph(
       }
       ts.forEachChild(node, visit);
     })(sourceFile);
+  }
   // Source lookup/type/free-parameter metadata depends only on this fixed tree.
   // Evaluation facts and argument frames belong to each fresh query context.
   const graph = {
@@ -272,7 +275,9 @@ export function buildFlowGraph(
       return result;
     },
     singleAssignment(declaration) {
-      if (!declaration || declaration.initializer || nonSimpleWrites.has(declaration)) return null;
+      if (!declaration || declaration.initializer) return null;
+      indexWrites(sourceFileOf(declaration));
+      if (nonSimpleWrites.has(declaration)) return null;
       const entry = singleAssignments.get(declaration);
       if (!entry) return null;
       const enclosing = (node) => {
@@ -369,6 +374,7 @@ export function buildFlowGraph(
         const binding = lookup(current.text, current);
         if (binding?.kind === "param") addFreeParameter(query, binding.parameter);
         else if (binding?.kind === "var" && !binding.moduleScoped) {
+          indexWrites(sourceFileOf(binding.declaration));
           if (binding.declaration.initializer) includeValue(binding.declaration.initializer);
           for (const value of assignedValues.get(binding.declaration) ?? []) includeValue(value);
         } else if (["fn", "class"].includes(binding?.kind) && !ts.isSourceFile(binding.node.parent))
@@ -795,192 +801,26 @@ export function buildFlowGraph(
   }
 }
 
-// Member/type candidates and return syntax depend only on this immutable source index.
-const evaluatorGraphScopes = new WeakMap();
-// Fact folds remain keyed by the individual audit, never by the shared member index.
-const evaluatorFactScopes = new WeakMap();
-const EMPTY_SCOPE_MAP = Object.freeze({});
-const UNSET_QUERY = Symbol("unset");
-
-function getEvaluatorScope(graph, facts) {
-  let graphScope = evaluatorGraphScopes.get(graph.members);
-  if (!graphScope) {
-    const promiseThenEntries = graph.members.get("then") ?? [];
-    graphScope = {
-      typedMemberCandidates: new WeakMap(),
-      canonicalSignatures: new Map(),
-      expressionIds: new WeakMap(),
-      returnExpressionCache: new WeakMap(),
-      nextExpressionId: 0,
-      onlyExternalPromiseThen: promiseThenEntries.every((entry) => !/\.[cm]?[jt]sx?$/u.test(entry.file)),
-    };
-    evaluatorGraphScopes.set(graph.members, graphScope);
-  }
-  let factScopes = evaluatorFactScopes.get(graph);
-  if (!factScopes) evaluatorFactScopes.set(graph, (factScopes = []));
-  const strictMembers = Boolean(facts.strictMembers);
-  const authorityModule = facts.authorityModule ?? "";
-  const constants = facts.constants ?? EMPTY_SCOPE_MAP;
-  const functions = facts.functions ?? EMPTY_SCOPE_MAP;
-  const commandClass = facts.commandClass ?? "";
-  const hasKind = Boolean(facts.kind);
-  const hasMethod = facts.method !== undefined;
-  const fieldKeys = facts.fields ? Object.keys(facts.fields).sort().join(",") : "";
-  let factScope = factScopes.find(
-    (entry) =>
-      entry.strictMembers === strictMembers &&
-      entry.authorityModule === authorityModule &&
-      entry.constants === constants &&
-      entry.functions === functions &&
-      entry.commandClass === commandClass &&
-      entry.hasKind === hasKind &&
-      entry.hasMethod === hasMethod &&
-      entry.fieldKeys === fieldKeys,
-  );
-  if (!factScope) {
-    factScope = {
-      strictMembers,
-      authorityModule,
-      constants,
-      functions,
-      commandClass,
-      hasKind,
-      hasMethod,
-      fieldKeys,
-      memberCache: new Map(),
-      emptyValueQueries: new WeakMap(),
-      emptyFoldQueries: new WeakMap(),
-    };
-    factScopes.push(factScope);
-  }
-  return { graphScope, factScope };
-}
-
 export function makeEvaluator(graph, facts) {
   const bindFrame = (fn, args, env) => bindArguments(fn, args, env, fn.env, graph.internEnv);
-  const { graphScope, factScope } = getEvaluatorScope(graph, facts);
-  const { typedMemberCandidates, canonicalSignatures, expressionIds, returnExpressionCache } = graphScope;
+  const { graphScope, factScope, cachedQuery, markDescriptorFact, lexicalEnv } = makeEvaluationCache(graph, facts);
+  const { typedMemberCandidates, canonicalSignatures, expressionIds, returnExpressionCache, spreadArguments } =
+    graphScope;
   const { memberCache, emptyValueQueries, emptyFoldQueries } = factScope;
   const unknown = { unknown: true },
     moduleEnv = EMPTY_ENV,
-    lexicalEnv = graph.internEnv ? graph.internEnv.lexicalEnvironment : lexicalEnvironment,
     valueQueries = new WeakMap(),
     assignments = new Map(),
     writeReferences = new WeakMap(),
     provenanceCache = new WeakMap(),
     objectQueries = new WeakMap(),
-    foldQueries = new WeakMap(),
-    factFlagsByArray = new WeakMap();
-  let queryFrame = null;
-
-  function markDescriptorFact() {
-    if (queryFrame) queryFrame.usedDescriptorFact = true;
-  }
-
+    foldQueries = new WeakMap();
   function descriptorAllowsKind(parts) {
-    if (facts.kind !== undefined) markDescriptorFact();
-    return parts.every((part) => graph.propertyAllowsLiteral(part, "kind", facts.kind) !== false);
-  }
-
-  // Like provenance, these pure queries use immutable argument frames. A shared field
-  // expression is one subproblem per frame and remaining depth, not a fresh receiver walk.
-  const canInternEnv = graph.internEnv?.isCanonical;
-  function cachedQuery(cache, expression, env, depth, calculate, pending = null, emptyCache = null) {
-    let slot = cache.get(expression);
-    if (!slot) {
-      slot = {
-        closed: graph.freeParameters ? graph.freeParameters(expression).size === 0 : false,
-        empty: null,
-        pendingDepths: null,
-        rawEnv: null,
-        rawCanonEnv: null,
-        rawDepths: null,
-        canonEnv: null,
-        canonDepths: null,
-        more: null,
-      };
-      cache.set(expression, slot);
-    }
-    let depths;
-    let resolvedEnv;
-    if (slot.closed || env.size === 0) {
-      resolvedEnv = EMPTY_ENV;
-      depths = slot.empty;
-      if (!depths) slot.empty = depths = [];
-    } else if (slot.rawEnv === env) {
-      depths = slot.rawDepths;
-      resolvedEnv = slot.rawCanonEnv;
-    } else {
-      resolvedEnv = lexicalEnv(expression, env);
-      if (resolvedEnv.size === 0) {
-        depths = slot.empty;
-        if (!depths) slot.empty = depths = [];
-      } else if (slot.canonEnv === null) {
-        slot.canonEnv = resolvedEnv;
-        slot.canonDepths = depths = [];
-      } else if (slot.canonEnv === resolvedEnv) {
-        depths = slot.canonDepths;
-      } else {
-        let more = slot.more;
-        if (!more) slot.more = more = new WeakMap();
-        depths = more.get(resolvedEnv);
-        if (!depths) {
-          depths = [];
-          more.set(resolvedEnv, depths);
-        }
-      }
-      if (!canInternEnv || canInternEnv(env)) {
-        slot.rawEnv = env;
-        slot.rawCanonEnv = resolvedEnv;
-        slot.rawDepths = depths;
-      }
-    }
-    if (resolvedEnv === EMPTY_ENV && emptyCache) {
-      const sharedDepths = emptyCache.get(expression);
-      if (sharedDepths && depth < sharedDepths.length && sharedDepths[depth] !== UNSET_QUERY) {
-        return sharedDepths[depth];
-      }
-    }
-    if (depth < depths.length && depths[depth] !== UNSET_QUERY) {
-      if (queryFrame) {
-        const cachedFlags = factFlagsByArray.get(depths)?.[depth] ?? 0;
-        if (slot.pendingDepths?.includes(depth) || cachedFlags & 2) queryFrame.hitInFlight = true;
-        if (cachedFlags & 1) queryFrame.usedDescriptorFact = true;
-      }
-      return depths[depth];
-    }
-    while (depths.length <= depth) depths.push(UNSET_QUERY);
-    depths[depth] = pending;
-    if (!slot.pendingDepths) slot.pendingDepths = [];
-    slot.pendingDepths.push(depth);
-    const parentFrame = queryFrame;
-    const frame = { hitInFlight: false, usedDescriptorFact: false };
-    queryFrame = frame;
-    let result;
-    try {
-      result = calculate(expression, resolvedEnv, depth);
-    } finally {
-      queryFrame = parentFrame;
-      slot.pendingDepths.pop();
-    }
-    if (parentFrame) {
-      if (frame.hitInFlight) parentFrame.hitInFlight = true;
-      if (frame.usedDescriptorFact) parentFrame.usedDescriptorFact = true;
-    }
-    depths[depth] = result;
-    const storeFlags = (frame.usedDescriptorFact ? 1 : 0) | (frame.hitInFlight ? 2 : 0);
-    if (storeFlags) {
-      let flags = factFlagsByArray.get(depths);
-      if (!flags) factFlagsByArray.set(depths, (flags = []));
-      flags[depth] = storeFlags;
-    }
-    if (resolvedEnv === EMPTY_ENV && emptyCache && !frame.hitInFlight && !frame.usedDescriptorFact) {
-      let sharedDepths = emptyCache.get(expression);
-      if (!sharedDepths) emptyCache.set(expression, (sharedDepths = []));
-      while (sharedDepths.length <= depth) sharedDepths.push(UNSET_QUERY);
-      sharedDepths[depth] = result;
-    }
-    return result;
+    return parts.every((part) => {
+      const allowed = graph.propertyAllowsLiteral(part, "kind", facts.kind);
+      if (allowed !== null) markDescriptorFact();
+      return allowed !== false;
+    });
   }
 
   function evaluateBinding(binding, name, env, depth) {
@@ -1109,6 +949,8 @@ export function makeEvaluator(graph, facts) {
   }
 
   function memberCandidates(key, depth, access) {
+    const all = graph.members.get(key) ?? [];
+    if (all.length === 0 && !facts.strictMembers) return [{ external: key }];
     const signatures = access ? graph.memberSignature(access) : null;
     if (facts.strictMembers && !signatures) return [unknown];
     const sigToken = signatures ? canonicalSignatureToken(signatures, key) : null,
@@ -1116,9 +958,13 @@ export function makeEvaluator(graph, facts) {
     let byDepth = memberCache.get(cacheKey);
     if (byDepth) {
       if (byDepth.constValues) return byDepth.constValues;
-      if (byDepth.has(depth)) return byDepth.get(depth);
+      if (byDepth.has(depth)) {
+        // Computed member values may have folded a descriptor fact. The static cache
+        // only reuses results independent of the descriptor, including their callees.
+        markDescriptorFact();
+        return byDepth.get(depth);
+      }
     } else memberCache.set(cacheKey, (byDepth = new Map()));
-    const all = graph.members.get(key) ?? [];
     if (all.length === 0) return [{ external: key }];
     // A typed receiver reaches only the implementations of its own interface member; an
     // untyped one keeps every same-named candidate, so a narrowing can never hide an effect.
@@ -1148,6 +994,7 @@ export function makeEvaluator(graph, facts) {
       byDepth.constValues = values;
       return values;
     }
+    markDescriptorFact();
     byDepth.set(depth, [unknown]);
     const values = distinct(
       entries.flatMap(({ value }) =>
@@ -1183,9 +1030,7 @@ export function makeEvaluator(graph, facts) {
     return cachedQuery(valueQueries, node, env, depth, evaluateNode, [unknown], emptyValueQueries);
   }
 
-  function evaluateNode(expression, env, depth) {
-    const node = unwrap(expression);
-    if (!node) return [unknown];
+  function evaluateNode(node, env, depth) {
     if (ts.isIdentifier(node)) {
       const binding = graph.lookup(node.text, node);
       if (binding) return evaluateBinding(binding, node.text, env, depth);
@@ -1283,6 +1128,13 @@ export function makeEvaluator(graph, facts) {
 
   /** Expand a spread of a traced rest parameter while retaining each argument's source frame. */
   function expandArguments(args, env, depth = 0) {
+    let hasSpread = spreadArguments.get(args);
+    if (hasSpread === undefined) {
+      hasSpread = args.some(ts.isSpreadElement);
+      spreadArguments.set(args, hasSpread);
+    }
+    // bindArguments already accepts raw argument nodes in the caller's frame.
+    if (!hasSpread) return args;
     return args.flatMap((argument) => {
       if (!ts.isSpreadElement(argument)) return [{ flowArgument: true, expression: argument, env }];
       const values = evaluate(argument.expression, env, depth + 1),
@@ -1549,11 +1401,7 @@ export function makeEvaluator(graph, facts) {
     return values;
   }
 
-  /** The literal object an expression denotes, followed through bindings, with its environment. */
-  /**
-   * The object literals an expression can evaluate to, through bindings, fields, choices and the
-   * returns of traced calls; null when any of them is opaque.
-   */
+  // The possible objects reached through bindings, fields and calls. Opaque expressions return null.
   const SK_OBJECT_LITERAL = ts.SyntaxKind.ObjectLiteralExpression;
   const SK_CONDITIONAL = ts.SyntaxKind.ConditionalExpression;
   const SK_PROPERTY_ACCESS = ts.SyntaxKind.PropertyAccessExpression;
@@ -1669,7 +1517,7 @@ export function makeEvaluator(graph, facts) {
   function requestSelectedKind(key, initializer, env) {
     const node = unwrap(initializer);
     if (key !== "kind" || facts.kind === undefined || !ts.isTemplateExpression(node)) return null;
-    if (queryFrame) queryFrame.usedDescriptorFact = true;
+    markDescriptorFact();
     if (!node.templateSpans.every((span) => fold(span.expression, env) || provenance(span.expression, env)))
       return null;
     const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"),
@@ -1722,7 +1570,6 @@ export function makeEvaluator(graph, facts) {
       (key === "kind" && facts.kind !== undefined) ||
       Boolean(facts.fields && Object.hasOwn(facts.fields, key));
     if (mightBeRequestField) {
-      markDescriptorFact();
       const tag = provenance(baseExpression, env);
       if (tag) {
         const field = requestField(key, tag);
@@ -1956,8 +1803,18 @@ export function makeEvaluator(graph, facts) {
   }
 
   function foldBinary(node, env, depth) {
-    const operator = node.operatorToken.kind,
-      left = fold(node.left, env, depth + 1);
+    const operator = node.operatorToken.kind;
+    const supported =
+      operator === ts.SyntaxKind.AmpersandAmpersandToken ||
+      operator === ts.SyntaxKind.BarBarToken ||
+      operator === ts.SyntaxKind.QuestionQuestionToken ||
+      operator === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+      operator === ts.SyntaxKind.EqualsEqualsToken ||
+      operator === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
+      operator === ts.SyntaxKind.ExclamationEqualsToken ||
+      operator === ts.SyntaxKind.PlusToken;
+    if (!supported) return null;
+    const left = fold(node.left, env, depth + 1);
     if (operator === ts.SyntaxKind.AmpersandAmpersandToken) {
       if (left && !left.value) return left;
       const right = fold(node.right, env, depth + 1);

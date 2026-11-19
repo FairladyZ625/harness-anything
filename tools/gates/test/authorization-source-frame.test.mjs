@@ -8,6 +8,7 @@ import {
   freshEvaluationGraph,
   makeEvaluator,
 } from "../authorization-flow-graph.mjs";
+import { sourceOriginFilter } from "../authorization-source-origins.mjs";
 import { processSourceSites, sourceSite, sourceWitnesses } from "../authorization-source-proof.mjs";
 import { scanOntologyText } from "../ontology-closure-scan.mjs";
 import { makeRepo } from "./helpers.mjs";
@@ -248,6 +249,35 @@ function entry() { first(); }`,
   );
 });
 
+test("target-only source queries reuse a proven suffix reached by another caller", () => {
+  const file = "packages/daemon/src/shared-suffix.ts";
+  const { rootDir } = makeRepo({
+    [file]: `function target() { store.append("target"); }
+function middle() { target(); }
+function shared() { middle(); }
+function first() { shared(); }
+function second() { shared(); }`,
+  });
+  const original = buildFlowGraph(rootDir);
+  const [target, , , first, second] = original.modules.get(file).sourceFile.statements;
+  let targetReads = 0;
+  const graph = {
+    ...original,
+    fileOf(node) {
+      if (node === target) targetReads++;
+      return original.fileOf(node);
+    },
+  };
+  const site = sourceSite(original, target.body.statements[0].expression);
+  const evaluator = makeEvaluator(graph, { strictMembers: true });
+  const query = (entry) => processSourceSites(graph, entry, { evaluator, targets: [site], targetOnly: true });
+  assert.deepEqual([...query(first)], [site]);
+  assert.ok(targetReads > 0);
+  const firstReads = targetReads;
+  assert.deepEqual([...query(second)], [site]);
+  assert.equal(targetReads, firstReads, "a proven suffix does not traverse its target edge again");
+});
+
 test("matchAny source queries stop at the first hit without marking unvisited targets missing", () => {
   const file = "packages/daemon/src/match-any.ts";
   const { rootDir } = makeRepo({
@@ -274,10 +304,66 @@ function entry() { hit(); later(); }`,
     true,
     "an early matchAny exit must not cache unvisited targets as missing",
   );
+  assert.deepEqual(
+    [...processSourceSites(graph, entry, { evaluator, targets: [secondSite, absentSite], targetOnly: true })],
+    [secondSite],
+  );
   assert.equal(
     processSourceSites(graph, entry, { evaluator, targets: [absentSite], matchAny: true }).has(absentSite),
     false,
   );
+});
+
+test("source origins keep typed member implementations and caller-bound functions", () => {
+  const file = "packages/daemon/src/origin-entry.ts",
+    implementation = "packages/daemon/src/origin-implementation.ts",
+    { rootDir } = makeRepo({
+      [file]: `import { alternate, write } from "./origin-implementation.ts";
+import type { Port } from "./origin-implementation.ts";
+declare const port: Port;
+function relay(callback) { callback(); }
+function throughPort() { port.commit(); }
+function bindings() { relay(alternate); relay(write); }`,
+      [implementation]: `export interface Port { commit(): void }
+export function write() { store.append("wanted"); }
+export function alternate() { store.append("unrelated"); }
+export const port: Port = { commit() { write(); } };`,
+    }),
+    graph = buildFlowGraph(rootDir),
+    [, write] = graph.modules.get(implementation).sourceFile.statements,
+    [, , , relay, throughPort, bindings] = graph.modules.get(file).sourceFile.statements,
+    call = write.body.statements[0].expression,
+    site = sourceSite(graph, call),
+    mayReach = sourceOriginFilter(graph, [{ file: implementation, start: call.getStart(), end: call.end }]),
+    frame = (index) =>
+      bindArguments({ node: relay, env: EMPTY_ENV }, bindings.body.statements[index].expression.arguments, EMPTY_ENV);
+  assert.equal(mayReach(relay, frame(0)), false);
+  assert.equal(mayReach(relay, frame(1)), true);
+  const query = { targets: [site], targetOnly: true, mayReachTarget: mayReach };
+  assert.equal(processSourceSites(graph, relay, { ...query, env: frame(0) }).has(site), false);
+  assert.equal(processSourceSites(graph, relay, { ...query, env: frame(1) }).has(site), true);
+  assert.equal(mayReach(throughPort, EMPTY_ENV), true);
+  assert.equal(processSourceSites(graph, throughPort, query).has(site), true);
+});
+
+test("a lexical class receiver retains the source of a sibling method", () => {
+  const file = "packages/daemon/src/receiver.mjs",
+    { rootDir } = makeRepo({
+      [file]: `class Receiver {
+  run() { this.write(); }
+  write() { store.append(); }
+}`,
+    }),
+    graph = buildFlowGraph(rootDir, { lexicalFiles: [file] }),
+    [receiver] = graph.modules.get(file).sourceFile.statements,
+    [run, write] = receiver.members,
+    call = write.body.statements[0].expression,
+    site = sourceSite(graph, call),
+    options = { targets: [site], targetOnly: true };
+  assert.equal(graph.callDeclaration(run.body.statements[0].expression), undefined);
+  assert.equal(processSourceSites(graph, run, options).has(site), true);
+  const mayReachTarget = sourceOriginFilter(graph, [{ file, start: call.getStart(), end: call.end }]);
+  assert.equal(processSourceSites(graph, run, { ...options, mayReachTarget }).has(site), true);
 });
 
 test("source summaries reuse unchanged frames and retain separate callback bindings", () => {

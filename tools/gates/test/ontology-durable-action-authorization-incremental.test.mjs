@@ -16,6 +16,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import ts from "typescript";
+import {
+  authorizationShardBuckets,
+  finishSourceRows,
+  partitionAuthorizationSources,
+} from "../authorization-audit-shards.mjs";
 import { buildFlowGraph } from "../authorization-flow-graph.mjs";
 import { sourceFileOf, guiCallbackCallerFiles } from "../authorization-source-proof.mjs";
 import { testOrdinalInPartition } from "../../node-test-runner-lib.mjs";
@@ -25,6 +30,7 @@ import {
   changedAuthorizationScope,
   loadAuthorizationInputs,
   shardedAudit,
+  shardWorkerCount,
 } from "../ontology-durable-action-authorization.mjs";
 import { exitCodeFor } from "../ontology-gate-lib.mjs";
 
@@ -34,6 +40,78 @@ function partitionedTest(name, run) {
   if (testOrdinalInPartition(ordinal++, process.env.HARNESS_TEST_PARTITION, [1, 1, 2, 3, 1, 4, 1, 2, 4, 2]))
     test(name, run);
 }
+
+test("authorization admission is bounded by the runner CPU and memory budgets", () => {
+  const gib = 1024 ** 3;
+  assert.equal(shardWorkerCount(4, 15.625 * gib), 2);
+  assert.equal(shardWorkerCount(2, 24 * gib), 2);
+  assert.equal(shardWorkerCount(8, 24 * gib), 4);
+  assert.equal(shardWorkerCount(4, 4 * gib), 1);
+});
+
+test("descriptor sources and shared native entry routes each have exactly one shard", () => {
+  const bindings = (route, role, ...ids) => ids.map((candidateId) => ({ route, role, candidateId }));
+  const actions = [
+    { kind: "daemon-start", ontology: { sources: bindings("daemon:bin", "effect", "start-1", "start-2") } },
+    { kind: "migrate-storage", ontology: { sources: bindings("daemon:bin", "effect", "migrate-1", "migrate-2") } },
+    {
+      kind: "script-run",
+      ontology: {
+        sources: [
+          ...bindings("script-run", "script", "script-1", "script-2"),
+          ...bindings("script-run", "client", "client"),
+        ],
+      },
+    },
+    { kind: "cli", ontology: { sources: bindings("cli:ha", "effect", "native-cli") } },
+  ];
+  const durable = [{ id: "script-run" }];
+  const partition = () =>
+    Array.from({ length: 4 }, (_, index) =>
+      partitionAuthorizationSources(actions, authorizationShardBuckets(actions, durable), { index, count: 4 }),
+    );
+  const shards = partition().map((shard) => shard.flatMap((action) => action.ontology.sources));
+  assert.deepEqual(partition(), partition());
+  assert.deepEqual(
+    shards
+      .flat()
+      .map((source) => source.candidateId)
+      .sort(),
+    actions.flatMap((action) => action.ontology.sources.map((source) => source.candidateId)).sort(),
+  );
+  const owners = (route) =>
+    shards.flatMap((sources, index) => (sources.some((source) => source.route === route) ? [index] : []));
+  assert.deepEqual(owners("script-run"), [0]);
+  assert.equal(owners("daemon:bin").length, 1);
+  assert.equal(owners("cli:ha").length, 1);
+});
+
+test("a multiplexed client loses authority when its other shard rejects a server route", () => {
+  const row = {
+    id: "client",
+    kind: "task-start",
+    route: "task.start",
+    clientRoutes: ["task.attest", "task.start"],
+    isRead: false,
+  };
+  const proofs = [{ row, rawClient: ["typed client"], authority: "authorization-port", witnessed: true, within: true }];
+  const accepted = { id: "task.start", kind: "task-start", ok: true };
+  const other = { id: "task.attest", kind: "task-attest", ok: false };
+  const durable = [
+    [accepted.id, accepted.kind],
+    [other.id, other.kind],
+  ];
+  assert.deepEqual(finishSourceRows(proofs, [accepted, other], durable), [
+    {
+      ...row,
+      authority: "authorization-port",
+      ok: false,
+      evidence: [],
+      violations: ["client source route task.attest targets an unverified server authorization descriptor"],
+    },
+  ]);
+  assert.equal(finishSourceRows(proofs, [accepted, { ...other, ok: true }], durable)[0].ok, true);
+});
 
 function fixtureGraph(modules) {
   return {
@@ -278,7 +356,12 @@ partitionedTest(
       "task.submit",
       "task.unpin",
     ];
-    const green = await shardedAudit(repoRoot, [file], { sourceRoot: dir, only });
+    const inputs = await loadAuthorizationInputs(repoRoot);
+    const options = { sourceRoot: dir, only };
+    const serial = () => auditDurableActionAuthorization(repoRoot, inputs, { ...options, changedFiles: [file] });
+    const parallel = () => shardedAudit(repoRoot, [file], { ...options, shardCount: 4, concurrency: 2 });
+    const green = await parallel();
+    assert.deepEqual(green, serial());
     assert.deepEqual(green.findings, []);
     assert.equal(green.rows.find((row) => row.id === "task.start")?.ok, true);
     assert.equal(green.rows.find((row) => row.id === "task.attest")?.ok, true);
@@ -296,13 +379,18 @@ partitionedTest(
       file,
     );
     writeFileSync(target, mutated);
-    const red = await shardedAudit(repoRoot, [file], { sourceRoot: dir, only });
+    const red = await parallel();
+    assert.deepEqual(red, serial());
     assert.ok(red.findings.length > 0);
     assert.equal(exitCodeFor("ratchet", red.findings.length), 1);
     const clientSource = red.sourceRows.find((row) =>
       row.id.includes("task-actions.ts#useTaskActions.once.promise:973c6c96"),
     );
     assert.equal(clientSource?.ok, false);
+    assert.ok(red.findings.some((finding) => finding.startsWith(`${clientSource.id}: `)));
+    console.log(
+      `AUTHORIZATION_NEGATIVE_CONTROL ${JSON.stringify({ candidateId: clientSource.id, findings: red.findings })}`,
+    );
   },
 );
 
