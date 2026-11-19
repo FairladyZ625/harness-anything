@@ -2,9 +2,10 @@ import { existsSync, realpathSync, rmSync } from "node:fs";
 import path from "node:path";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
-import { readDispatchStreamHeaders, readDispatchStreamSummary, removeDispatchStream } from "./dispatch-stream.ts";
-import { readDispatchEvidenceState } from "./dispatch-evidence-state.ts";
+import { mustPreserveDispatch, readDispatchStreamHeaders, removeDispatchStream } from "./dispatch-stream.ts";
 import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
+
+export type LocalRootLeafClass = "derived" | "authoritative" | "unrecognized";
 
 /**
  * The one list of local paths a cache purge may delete. Everything else in the local root is
@@ -66,24 +67,39 @@ export function purgeRepoCache(rootDir: string): readonly string[] {
   return removed.sort();
 }
 
+/** Relative directory prefixes under `layout.localRoot` that a cache purge preserves. */
+export function cachePurgePreservedLocalDirectories(rootDir: string): readonly string[] {
+  const layout = resolveHarnessLayout(rootDir),
+    localPrefix = `${path.relative(layout.rootDir, layout.localRoot).split(path.sep).join("/")}/`;
+  return cachePurgePreservedPaths(rootDir)
+    .map((entry) => entry.split(path.sep).join("/"))
+    .flatMap((normalized) => (normalized.startsWith(localPrefix) ? [normalized.slice(localPrefix.length)] : []));
+}
+
 /**
- * Whether one dispatch stream is still the only copy of an abnormal run. A sidecar decides this
- * without reading the bounded summary; a missing sidecar on a tracked stream (header version 1)
- * is fail-closed, and a legacy stream with an unreadable/abnormal terminal is preserved too.
+ * Shared leaf-level classification for paths relative to `layout.localRoot`.
+ * Directory entries in `cachePurgeDerivedDirectories` and `preserved` cover files strictly inside
+ * that directory (`${prefix}/...`); a symbolic link replacing the directory entry itself is never
+ * treated as derived or authoritative.
  */
-function mustPreserveDispatch(rootDir: string, dispatchId: string): boolean {
-  const state = readDispatchEvidenceState(rootDir, dispatchId);
-  if (state === "pending") return true;
-  if (state !== null) return false;
-  const summary = readDispatchStreamSummary(rootDir, dispatchId);
-  if (summary?.header.evidenceTrackingVersion === 1) return true;
-  if (summary?.evidenceState === "pending") return true;
-  // Legacy streams carry no sidecar and no tracking header: keep the historical cache-purge
-  // behavior unless the readable terminal is actually abnormal.
-  if (summary === null || summary.terminalOutcome === null) return false;
-  const outcome = summary.terminalOutcome.payload.outcome,
-    classification = summary.terminalOutcome.payload.attempt?.classification;
-  return outcome !== "succeeded" && classification !== "awaiting_ruling";
+export function classifyLocalRootLeaf(
+  relativeFromLocalRoot: string,
+  preservedLocalDirectories: readonly string[],
+  options?: { readonly isSymbolicLink?: boolean },
+): LocalRootLeafClass {
+  const coveredBy = (prefixes: readonly string[]): boolean =>
+    prefixes.some(
+      (prefix) =>
+        relativeFromLocalRoot.startsWith(`${prefix}/`) ||
+        (!options?.isSymbolicLink && relativeFromLocalRoot === prefix),
+    );
+  if (coveredBy(cachePurgeDerivedDirectories)) return "derived";
+  return coveredBy(preservedLocalDirectories) ? "authoritative" : "unrecognized";
+}
+
+export function aggregateLocalRootEntryClass(classes: readonly LocalRootLeafClass[]): LocalRootLeafClass {
+  if (classes.includes("unrecognized")) return "unrecognized";
+  return classes.includes("authoritative") ? "authoritative" : "derived";
 }
 
 /** Deletes the repository's local and authored Harness roots; callers must have a drilled backup first. */

@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readSync, renameSync, statSync, unlinkSync } from "node:fs";
+import { lstatSync, mkdirSync, readdirSync, readSync, renameSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { resolveHarnessLayout, type TaskProjectionQueries } from "@harness-anything/kernel";
 import { compactDispatchStreamArchive } from "./dispatch-stream-compaction.ts";
@@ -21,23 +21,25 @@ interface ArchivedStream {
 }
 
 /** Move a terminal stream out of the directory enumerated by live-runtime reads. */
-export function archiveDispatchStream(rootDir: string, dispatchId: string): void {
-  const { live, archived } = streamPaths(rootDir, dispatchId);
-  if (statSync(live, { throwIfNoEntry: false })?.isFile()) {
+export function archiveDispatchStream(rootDir: string, dispatchId: string, compact = true): void {
+  const { live, archived } = streamPaths(rootDir, dispatchId),
+    liveStat = lstatSync(live, { throwIfNoEntry: false });
+  if (liveStat?.isFile()) {
     /* @gate-identity state-store/execution.dispatch-stream-archive */ mkdirSync(path.dirname(archived), {
       recursive: true,
       mode: 0o700,
     });
     /* @gate-identity state-store/execution.dispatch-stream-archive */ renameSync(live, archived);
-  } else if (!statSync(archived, { throwIfNoEntry: false })?.isFile()) return;
-  compactDispatchStreamArchive(archived, dispatchId);
+  } else if (!lstatSync(archived, { throwIfNoEntry: false })?.isFile()) return;
+  if (compact) compactDispatchStreamArchive(archived, dispatchId);
 }
 
 /** Queue one local terminal archive at a time so existing writer work can run between files. */
 export function scheduleArchivedDispatchStreamCompaction(rootDir: string, schedule: Schedule): void {
   const root = dispatchRoot(rootDir),
     archive = path.join(root, "archive");
-  if (!statSync(archive, { throwIfNoEntry: false })?.isDirectory()) return;
+  if (!lstatSync(root, { throwIfNoEntry: false })?.isDirectory()) return;
+  if (!lstatSync(archive, { throwIfNoEntry: false })?.isDirectory()) return;
   const dispatchIds = readdirSync(archive)
     .filter((name) => /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(name))
     .map((name) => name.slice(0, -6))
@@ -49,7 +51,8 @@ export function scheduleArchivedDispatchStreamCompaction(rootDir: string, schedu
     schedule(() => {
       try {
         const archived = path.join(archive, `${dispatchId}.jsonl`);
-        if (statSync(archived, { throwIfNoEntry: false })?.isFile()) compactDispatchStreamArchive(archived, dispatchId);
+        if (lstatSync(archived, { throwIfNoEntry: false })?.isFile())
+          compactDispatchStreamArchive(archived, dispatchId);
       } finally {
         enqueueNext();
       }
@@ -124,7 +127,7 @@ export function pruneDispatchStreamArchive(
     if (!doomed.has(stream.dispatchId)) continue;
     // Re-check before deleting, like the compaction pass above: a dispatch purge may have taken
     // the file between the enumeration and this delete; either way the next pass re-enumerates.
-    if (statSync(stream.file, { throwIfNoEntry: false })?.isFile())
+    if (lstatSync(stream.file, { throwIfNoEntry: false })?.isFile())
       /* @gate-identity state-store/execution.dispatch-stream-archive */ unlinkSync(stream.file);
     // A retained stream's sidecar is not independent evidence. Remove the stored/not-required
     // disposition with the stream it describes; a pending disposition was never doomed above.
@@ -133,13 +136,15 @@ export function pruneDispatchStreamArchive(
 }
 
 function archivedDispatchStreams(rootDir: string): readonly ArchivedStream[] {
-  const archive = path.join(dispatchRoot(rootDir), "archive");
-  if (!statSync(archive, { throwIfNoEntry: false })?.isDirectory()) return [];
+  const root = dispatchRoot(rootDir),
+    archive = path.join(root, "archive");
+  if (!lstatSync(root, { throwIfNoEntry: false })?.isDirectory()) return [];
+  if (!lstatSync(archive, { throwIfNoEntry: false })?.isDirectory()) return [];
   return readdirSync(archive)
     .filter((name) => /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(name))
     .map((name) => {
       const file = path.join(archive, name),
-        stat = statSync(file, { throwIfNoEntry: false }),
+        stat = lstatSync(file, { throwIfNoEntry: false }),
         startedAtMs = stat?.isFile() ? archivedStartedAtMs(file) : NaN;
       return stat?.isFile() && Number.isFinite(startedAtMs)
         ? { dispatchId: name.slice(0, -6), file, sizeBytes: stat.size, startedAtMs }
@@ -200,14 +205,25 @@ function factEvidenceNames(prefixes: readonly string[], dispatchId: string): boo
  * to answer on a projection that is not at the canonical cut: pruning against a short list of
  * evidence sources would delete streams live facts still name, so the caller skips the pass.
  */
-export function readFactEvidenceSources(projection: Pick<TaskProjectionQueries, "searchFacts">): readonly string[] {
+export function tryReadFactEvidenceSources(
+  projection: Pick<TaskProjectionQueries, "searchFacts">,
+):
+  | { readonly status: "ready"; readonly sources: readonly string[] }
+  | { readonly status: "pending"; readonly watermark: number; readonly sourceRevision: number } {
   const read = projection.searchFacts({});
+  if (read.status !== "ready")
+    return { status: "pending", watermark: read.watermark, sourceRevision: read.sourceRevision };
+  return { status: "ready", sources: read.facts.map((fact) => fact.evidenceSource) };
+}
+
+export function readFactEvidenceSources(projection: Pick<TaskProjectionQueries, "searchFacts">): readonly string[] {
+  const read = tryReadFactEvidenceSources(projection);
   if (read.status !== "ready")
     throw new Error(
       `fact projection is not at the canonical cut (watermark ${read.watermark}, source revision ` +
         `${read.sourceRevision}); refusing to prune the dispatch archive against a partial evidence list`,
     );
-  return read.facts.map((fact) => fact.evidenceSource);
+  return read.sources;
 }
 
 function streamPaths(rootDir: string, dispatchId: string): { readonly live: string; readonly archived: string } {

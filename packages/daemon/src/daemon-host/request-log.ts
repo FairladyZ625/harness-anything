@@ -104,6 +104,10 @@ export function daemonRequestLogPath(rootDir: string): string {
   return path.join(resolveHarnessLayout(rootDir).localRoot, requestLogDirName, requestLogFileName);
 }
 
+export function isDaemonRequestLogFileName(name: string): boolean {
+  return /^requests\.jsonl(?:\.\d+)?$/u.test(name);
+}
+
 export function openDaemonRequestLog(options: DaemonRequestLogOptions): DaemonRequestLog {
   const maxBytes = options.maxBytes ?? daemonLogDefaultMaxBytes;
   const keptDays = options.keptDays ?? defaultKeptDays;
@@ -151,7 +155,6 @@ export function openDaemonRequestLog(options: DaemonRequestLogOptions): DaemonRe
         // records within it.
         await closeSink(logPath, sink);
         await rotate(logPath);
-        await pruneAgedFiles(logPath);
         sink = await openSink(logPath);
       }
       sink.bytes += (await sink.handle.write(line, null, "utf8")).bytesWritten;
@@ -220,7 +223,7 @@ export function openDaemonRequestLog(options: DaemonRequestLogOptions): DaemonRe
       return;
     }
     for (const name of names) {
-      if (!pattern.test(name)) continue;
+      if (base === requestLogFileName ? !isDaemonRequestLogFileName(name) : !pattern.test(name)) continue;
       try {
         const age = (await stat(path.join(directory, name))).mtimeMs;
         if (age < cutoff)

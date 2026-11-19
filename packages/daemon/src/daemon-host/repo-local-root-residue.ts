@@ -2,7 +2,12 @@ import type * as OperationalStatus from "@harness-anything/kernel/internal/domai
 import { existsSync, lstatSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { DEFAULT_HARNESS_LOCAL_ROOT, resolveHarnessLayout } from "@harness-anything/kernel";
-import { cachePurgeDerivedDirectories, cachePurgePreservedPaths } from "./repo-cache-purge.ts";
+import {
+  aggregateLocalRootEntryClass,
+  cachePurgePreservedLocalDirectories,
+  classifyLocalRootLeaf,
+  type LocalRootLeafClass,
+} from "./repo-cache-purge.ts";
 
 /**
  * Read-only classification of what a renamed `layout.localRoot` left in the default `.harness`
@@ -34,7 +39,7 @@ export interface OldLocalRootResidue {
   readonly unrecognized: readonly string[];
 }
 
-type EntryClass = "derived" | "authoritative" | "unrecognized";
+type EntryClass = LocalRootLeafClass;
 
 export function oldLocalRootResidue(rootDir: string): OldLocalRootResidue | null {
   const layout = resolveHarnessLayout(rootDir);
@@ -43,22 +48,13 @@ export function oldLocalRootResidue(rootDir: string): OldLocalRootResidue | null
   if (!existsSync(legacy)) return null;
   const entries = readdirSync(legacy).sort();
   if (entries.length === 0) return null;
-  const legacyPrefix = `${toPosix(path.relative(layout.rootDir, legacy))}/`,
-    localPrefix = `${toPosix(path.relative(layout.rootDir, layout.localRoot))}/`,
-    derived = cachePurgeDerivedDirectories.map((relative) => `${legacyPrefix}${relative}`),
-    // `cachePurgePreservedPaths` names what a purge keeps *under the active local root*; the same
-    // relative names are what the renamed root would have held, so re-anchor them to the old
-    // prefix. Entries outside the local root (authored root, .worktrees) cannot sit under it.
-    preserved = cachePurgePreservedPaths(rootDir).flatMap((pathFromRoot) => {
-      const normalized = toPosix(pathFromRoot);
-      return normalized.startsWith(localPrefix) ? [`${legacyPrefix}${normalized.slice(localPrefix.length)}`] : [];
-    }),
+  const preserved = cachePurgePreservedLocalDirectories(rootDir),
     classOf = (entry: string): EntryClass | null => {
-      const leaves = leafFiles(path.join(legacy, entry), `${legacyPrefix}${entry}`);
+      const leaves = leafFiles(path.join(legacy, entry), entry);
       if (leaves.length === 0) return null;
-      const classes = leaves.map((leaf) => classifyLeaf(leaf, derived, preserved));
-      if (classes.includes("unrecognized")) return "unrecognized";
-      return classes.includes("authoritative") ? "authoritative" : "derived";
+      return aggregateLocalRootEntryClass(
+        leaves.map((leaf) => classifyLocalRootLeaf(leaf.relative, preserved, { isSymbolicLink: leaf.isSymbolicLink })),
+      );
     },
     classified = entries.flatMap((entry) => {
       const kind = classOf(entry);
@@ -78,22 +74,17 @@ function toPosix(relative: string): string {
   return relative.split(path.sep).join("/");
 }
 
-/** `relative` is a file path (or a bare list entry) from the legacy root. A list entry matches its
- *  own directory and everything under it, which is what a purge deletes. */
-function classifyLeaf(relative: string, derived: readonly string[], preserved: readonly string[]): EntryClass {
-  const coveredBy = (prefixes: readonly string[]): boolean =>
-    prefixes.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`));
-  if (coveredBy(derived)) return "derived";
-  return coveredBy(preserved) ? "authoritative" : "unrecognized";
-}
-
-/** Every non-directory path under `target`, as a path relative to the repository root. Symbolic
+/** Every non-directory path under `target`, as a path relative to the local root. Symbolic
  *  links are leaves (authored content), never traversed; directories with no files yield none. */
-function leafFiles(target: string, relative: string, found: string[] = []): string[] {
+function leafFiles(
+  target: string,
+  relative: string,
+  found: { readonly relative: string; readonly isSymbolicLink: boolean }[] = [],
+): { readonly relative: string; readonly isSymbolicLink: boolean }[] {
   const stat = lstatSync(target, { throwIfNoEntry: false });
   if (stat === undefined) return found;
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
-    found.push(relative);
+    found.push({ relative, isSymbolicLink: stat.isSymbolicLink() });
     return found;
   }
   for (const entry of readdirSync(target)) leafFiles(path.join(target, entry), `${relative}/${entry}`, found);

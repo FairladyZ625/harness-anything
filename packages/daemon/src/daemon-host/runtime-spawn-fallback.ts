@@ -7,7 +7,7 @@ import {
 import { runtimeExecutionBudgetRefusal } from "./runtime-spend-cap.ts";
 import { INITIAL_SETTINGS_V1 } from "@harness-anything/kernel/internal/domain/settings.ts";
 import {
-  archiveDispatchStream,
+  archiveDispatchStreams,
   readDispatchStream,
   reopenDispatchStream,
   scrubProviderValue,
@@ -604,5 +604,5 @@ export async function releaseFallbackResources(
     if (failure)
       console.error(`[review-worktree] ${lifecycle.controlLeafDispatchId} could not be reclaimed: ${failure.message}`);
   }
-  for (const dispatchId of lifecycle.groupDispatchIds) archiveDispatchStream(context.input.rootDir, dispatchId);
+  archiveDispatchStreams(context.input.rootDir, lifecycle.groupDispatchIds);
 }

@@ -108,13 +108,20 @@ export async function runDoctorStorage(rootDir: string, json: boolean): Promise<
     return `${bytes} B`;
   };
   const lines = [
-    `doctor storage: ${report.relativeLocalRoot} (${formatBytes(report.totalBytes)}, ${report.totalFiles} files)`,
+    `doctor storage: ${report.relativeLocalRoot} (${formatBytes(report.totalBytes)} apparent, ${report.totalFiles} files)`,
     `  authoritative: ${formatBytes(report.byClass.authoritative.bytes)} (${report.byClass.authoritative.files} files)`,
     `  derived:       ${formatBytes(report.byClass.derived.bytes)} (${report.byClass.derived.files} files)`,
     `  unrecognized:  ${formatBytes(report.byClass.unrecognized.bytes)} (${report.byClass.unrecognized.files} files)`,
-    ...report.entries.map(
-      (entry) => `  [${entry.classification}] ${entry.name}\t${formatBytes(entry.bytes)}\t(${entry.files} files)`,
-    ),
+    ...report.entries.map((entry) => {
+      const nonZeroClasses = (["authoritative", "derived", "unrecognized"] as const).filter(
+        (kind) => entry.byClass[kind].files > 0,
+      );
+      const mixedNote =
+        nonZeroClasses.length > 1
+          ? ` [mixed: ${nonZeroClasses.map((kind) => `${kind}=${formatBytes(entry.byClass[kind].bytes)}`).join(", ")}]`
+          : "";
+      return `  [${entry.classification}] ${entry.name}\t${formatBytes(entry.bytes)}\t(${entry.files} files)${mixedNote}`;
+    }),
     ...(report.highlights.length > 0
       ? [
           "  highlights:",

@@ -35,24 +35,54 @@ import { archiveDispatchStream as archiveDispatchStreamUnchecked } from "./dispa
 import { readDispatchEvidenceState, removeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
 
 /**
+ * Single authority for whether a dispatch stream is still the only copy of an abnormal run.
+ * Sidecars settle in O(1); missing sidecars on tracked streams fail closed, and legacy streams
+ * without sidecars preserve abnormal terminal outcomes other than `awaiting_ruling`.
+ */
+export function mustPreserveDispatch(rootDir: string, dispatchId: string): boolean {
+  const state = readDispatchEvidenceState(rootDir, dispatchId);
+  if (state === "pending") return true;
+  if (state !== null) return false;
+  const summary = readDispatchStreamSummary(rootDir, dispatchId);
+  if (summary?.header.evidenceTrackingVersion === 1) return true;
+  if (summary?.evidenceState === "pending") return true;
+  if (summary === null || summary.terminalOutcome === null) return false;
+  const outcome = summary.terminalOutcome.payload.outcome,
+    classification = summary.terminalOutcome.payload.attempt?.classification;
+  return outcome !== "succeeded" && classification !== "awaiting_ruling";
+}
+
+/**
+ * Batch-archive settled streams and rewrite each touched task's `live-index` shard at most once.
+ */
+export function archiveDispatchStreams(
+  rootDir: string,
+  dispatchIds: readonly string[],
+  options?: { readonly compact?: boolean },
+): readonly string[] {
+  const archivedIds: string[] = [],
+    indexRemovals: DispatchLiveIndexEntry[] = [],
+    compact = options?.compact !== false;
+  for (const dispatchId of dispatchIds) {
+    if (mustPreserveDispatch(rootDir, dispatchId)) continue;
+    const header = readDispatchStreamHeader(rootDir, dispatchId);
+    archiveDispatchStreamUnchecked(rootDir, dispatchId, compact);
+    if (!existsSync(liveDispatchStreamPath(rootDir, dispatchId))) {
+      archivedIds.push(dispatchId);
+      if (header?.taskId)
+        indexRemovals.push({ dispatchId, taskId: header.taskId, runtimeSessionId: header.runtimeSessionId });
+    }
+  }
+  if (indexRemovals.length > 0) removeDispatchLiveIndexEntries(rootDir, indexRemovals);
+  return archivedIds;
+}
+
+/**
  * The guarded archive entry every settlement/adoption/fallback caller uses. A stream whose
- * evidence copy is still `pending` is not renamed or compacted: the raw live bytes are the
- * only recoverable copy until the canonical artifact write end accepts the snapshot.
+ * evidence copy is still `pending` or abnormal legacy is not renamed or compacted.
  */
 export function archiveDispatchStream(rootDir: string, dispatchId: string): void {
-  const sidecar = readDispatchEvidenceState(rootDir, dispatchId);
-  if (sidecar === "pending") return;
-  const summary = readDispatchStreamSummary(rootDir, dispatchId);
-  if (summary?.evidenceState === "pending") return;
-  // New settlements always write a sidecar. If it is missing while the header advertises
-  // tracking, the disposition write failed: fail closed instead of compacting the only copy.
-  if (sidecar === null && summary?.header.evidenceTrackingVersion === 1) return;
-  const header = summary?.header ?? readDispatchStreamHeader(rootDir, dispatchId);
-  archiveDispatchStreamUnchecked(rootDir, dispatchId);
-  if (header?.taskId)
-    removeDispatchLiveIndexEntries(rootDir, [
-      { dispatchId, taskId: header.taskId, runtimeSessionId: header.runtimeSessionId },
-    ]);
+  archiveDispatchStreams(rootDir, [dispatchId]);
 }
 
 export { scrubProviderValue } from "../runtime-engine/secret-scrub.ts";
