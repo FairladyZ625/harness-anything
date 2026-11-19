@@ -81,7 +81,6 @@ import type { FleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { assertFleetEdgeRepositoryGit } from "./fleet-edge-git-preflight.ts";
 import { publishSubmittedCut } from "./submitted-cut-publication.ts";
 import { taskPrBodyRenderer } from "./task-pr-body-render.ts";
-import { runtimeErrorCode } from "../runtime-engine/runtime-spawn-errors.ts";
 
 export interface FleetEdgeRuntimeRequest {
   readonly payload: FleetEdgeConfig & {
@@ -844,25 +843,15 @@ export function openFleetEdgeRuntime(input: {
               intentInstanceId,
               preferredInstanceId: spawnHints?.preferredRuntimeInstanceId,
               agentId: spawnHints?.agentId,
-              resolveAgent: (agentId) =>
-                trustedScheduleAgents.get(agentId) ?? mirroredAgentDeclaration(request, agentId),
+              findAgent: (agentId) =>
+                trustedScheduleAgents.get(agentId) ?? findMirroredAgentDeclaration(request, agentId),
               localInstances: input.ports.runtimeInstances(),
             }),
             prepareDaemonGitEnvironment = input.ports.prepareDaemonGitEnvironment
               ? async (_initialId: string, provider: "github" | "gitlab", repoId: string) => {
                   for (const candidateId of candidateInstanceIds) {
-                    try {
-                      const env = await input.ports.prepareDaemonGitEnvironment(candidateId, provider, repoId);
-                      if (env !== null) return env;
-                    } catch (error) {
-                      // An implementation instance from another node or a removed local instance
-                      // must not block falling back to an instance configured on this node.
-                      if (runtimeErrorCode(error) === "runtime_instance_not_found") {
-                        consumeKnownError(error);
-                        continue;
-                      }
-                      throw error;
-                    }
+                    const env = await input.ports.prepareDaemonGitEnvironment(candidateId, provider, repoId);
+                    if (env !== null) return env;
                   }
                   return null;
                 }
@@ -1269,7 +1258,6 @@ export function openFleetEdgeRuntime(input: {
         const prepared = action.recovery === undefined ? null : await prepareEdgeRecoverySpawn(action);
         if (prepared?.replay) return prepared.replay;
         const spawnPayload = prepared?.payload ?? action;
-        const binding = await controlBinding(request);
         const receipt = await executionSignalContext.run(connectionSignal, () =>
           reviewSpawnContext.run(
             {
@@ -1281,7 +1269,13 @@ export function openFleetEdgeRuntime(input: {
                 : {}),
               ...(typeof spawnPayload.agentId === "string" ? { agentId: spawnPayload.agentId } : {}),
             },
-            () => spawner.spawn(spawnPayload, binding, null, Boolean(prepared?.recovery)),
+            async () =>
+              spawner.spawn(
+                prepared?.payload ?? action,
+                await controlBinding(request),
+                null,
+                Boolean(prepared?.recovery),
+              ),
           ),
         );
         return prepared?.recovery ? { ...receipt, recovery: { ...prepared.recovery, replayed: false } } : receipt;
@@ -1614,10 +1608,10 @@ function taskRuntimeContext(
  * An edge holds no ledger of its own: the agents installed at the center reach it as the documents of its
  * mirrored view, under the same bundled layer every node ships.
  */
-function mirroredAgentDeclaration(
+function findMirroredAgentDeclaration(
   request: Pick<FleetEdgeRuntimeRequest["payload"], "viewRoot" | "repoId" | "workspaceRoot" | "nodeId">,
   agentId: string,
-): RuntimeAgent {
+): RuntimeAgent | undefined {
   const logical = `agents/${agentId}.json`;
   if (
     entitySlug(agentId) &&
@@ -1632,8 +1626,15 @@ function mirroredAgentDeclaration(
         ),
       ),
     );
-  const bundled = readBundledAgentDeclaration(agentId);
-  if (bundled) return bundled;
+  return readBundledAgentDeclaration(agentId) ?? undefined;
+}
+
+function mirroredAgentDeclaration(
+  request: Pick<FleetEdgeRuntimeRequest["payload"], "viewRoot" | "repoId" | "workspaceRoot" | "nodeId">,
+  agentId: string,
+): RuntimeAgent {
+  const declaration = findMirroredAgentDeclaration(request, agentId);
+  if (declaration) return declaration;
   throw edgeRuntimeError(
     "agent_not_found",
     `${agentId} is neither in this node's mirrored view nor a bundled agent; ` +
@@ -1707,18 +1708,11 @@ function resolveReviewPublicationInstanceCandidates(input: {
   readonly intentInstanceId: string | undefined;
   readonly preferredInstanceId: string | undefined;
   readonly agentId: string | undefined;
-  readonly resolveAgent: (agentId: string) => RuntimeAgent;
+  readonly findAgent: (agentId: string) => RuntimeAgent | undefined;
   readonly localInstances: readonly RuntimeInstanceSummary[];
 }): readonly string[] {
-  let agent: RuntimeAgent | undefined;
-  if (input.agentId) {
-    try {
-      agent = input.resolveAgent(input.agentId);
-    } catch (error) {
-      // A repository-authored reviewer may resolve only after worktree checkout.
-      consumeKnownError(error);
-    }
-  }
+  const agent = input.agentId ? input.findAgent(input.agentId) : undefined;
+  const localIds = new Set(input.localInstances.map((instance) => instance.instanceId));
   const enabledLocal = input.localInstances.filter((instance) => instance.enabled);
   const configuredLocal = enabledLocal.filter((instance) => instance.hostingCredentialState === "configured");
   const candidates = [
@@ -1734,7 +1728,7 @@ function resolveReviewPublicationInstanceCandidates(input: {
   const ordered: string[] = [];
   const seen = new Set<string>();
   for (const id of candidates) {
-    if (typeof id !== "string" || !id || seen.has(id)) continue;
+    if (typeof id !== "string" || !id || seen.has(id) || !localIds.has(id)) continue;
     seen.add(id);
     ordered.push(id);
   }

@@ -45,6 +45,12 @@ export class FleetReplicaStreamDownError extends Error {
     super(message, cause === undefined ? undefined : { cause });
   }
 }
+class ReplicaConfirmTimeoutError extends Error {
+  readonly code = "replica_confirm_timeout";
+  constructor(confirmTimeoutMs: number) {
+    super(`replica confirmation timed out after ${confirmTimeoutMs}ms`);
+  }
+}
 const streamDown = (cause: unknown): FleetReplicaStreamDownError =>
   new FleetReplicaStreamDownError(
     `replica stream is down: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -191,15 +197,15 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
             pendingChangedPaths = new Set();
             const aborted = new Promise<never>((_resolve, reject) => {
               activeConfirmAbort = reject;
-              if (Number.isFinite(confirmTimeoutMs) && confirmTimeoutMs > 0) {
-                timer = setTimeout(() => {
-                  const timeoutError = Object.assign(
-                    new Error(`replica confirmation timed out after ${confirmTimeoutMs}ms`),
-                    { code: "replica_confirm_timeout" },
-                  );
-                  confirmController.abort(timeoutError);
-                  reject(timeoutError);
-                }, confirmTimeoutMs);
+              if (Number.isFinite(confirmTimeoutMs)) {
+                const timeoutError = new ReplicaConfirmTimeoutError(confirmTimeoutMs);
+                timer = setTimeout(
+                  () => {
+                    confirmController.abort(timeoutError);
+                    reject(timeoutError);
+                  },
+                  Math.max(1, confirmTimeoutMs),
+                );
                 timer.unref?.();
               }
             });

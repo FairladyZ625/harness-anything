@@ -894,7 +894,7 @@ test(
     git(workerRoot, "commit", "-qm", "feat: declare-executor delivery");
     const frozen = git(workerRoot, "rev-parse", "HEAD");
     await catchUpReplica(replica);
-    assert.equal(applyFleetMirrorCut(viewRoot, repoId, workerRoot, "pull").outcome, "applied");
+    assert.equal(applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull").outcome, "applied");
     for (const root of [f.repo, edgeRoot]) {
       const config = path.join(root, "harness", "harness.yaml");
       writeFileSync(
@@ -906,7 +906,7 @@ test(
       );
     }
     writeFileSync(
-      path.join(workerRoot, "harness", packagePath, "closeout.md"),
+      path.join(edgeRoot, "harness", packagePath, "closeout.md"),
       "## Summary\nDeclared-executor delivery.\n## Verification\nHosted PR pre-publish.\n" +
         "## 摘要\n显式声明执行器交付。\n## 验证\n评审前预发布。\n",
     );

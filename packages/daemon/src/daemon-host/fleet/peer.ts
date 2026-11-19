@@ -1210,16 +1210,18 @@ function peerSocket(options: Omit<FleetPeerOptions, "repoId">): Promise<TLSSocke
         reject(reason);
       });
     };
-    const timer =
-      Number.isFinite(timeoutMs) && timeoutMs > 0
-        ? setTimeout(() => {
+    const timer = Number.isFinite(timeoutMs)
+      ? setTimeout(
+          () => {
             const error = new Error("Fleet connection timeout");
             finish(() => {
               socket.destroy(error);
               reject(error);
             });
-          }, timeoutMs)
-        : undefined;
+          },
+          Math.max(1, timeoutMs),
+        )
+      : undefined;
     timer?.unref?.();
     const finish = (done: () => void) => {
       if (settled) return;
