@@ -20,7 +20,7 @@ import { createTaskRelationProjectionTable } from "./task-query-projection.ts";
 import { ensureLeaseTaskActiveColumn, REPOSITORY_READ_TABLES_SQL, TASK_INDEX_TABLES_SQL } from "./projection-tables.ts";
 import { ensureWorkspaceTaskCensus } from "./workspace-task-census.ts";
 import { catchUpDispatchLifecycle } from "./dispatch-lifecycle-projection.ts";
-import { catchUpInbox } from "./inbox-projection.ts";
+import { catchUpInbox, ensureInboxModel } from "./inbox-projection.ts";
 import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 import {
   closeProjectionConnection,
@@ -491,6 +491,7 @@ function configureDatabase(db: DatabaseSync): void {
 }
 
 function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgress): void {
+  ensureInboxModel(db);
   ensureRuntimeSessionExecutionNodeColumn(db);
   ensureEventSummaryReadIndexColumns(db);
   ensureLeaseTaskActiveColumn(db);
