@@ -1,5 +1,7 @@
 import { consumeKnownError } from "@harness-anything/kernel";
 import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
+import { runDaemonRetry } from "../daemon-retry.ts";
+import { deterministicReplicaConfirmFailure } from "../runtime-recovery-watch.ts";
 import { runFleetReplicaStream, type FleetReplicaStreamOptions } from "./peer.ts";
 import { readReplicaGeneration } from "../../fleet-sync/fleet/replica-generation.ts";
 import { recordReplicaHealth, replicaFailure } from "../../fleet-sync/fleet/replica-health.ts";
@@ -166,6 +168,9 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
   let failures = 0,
     deterministicFailures = 0,
     lastPosition: string | undefined,
+    attemptedConfirmPosition: string | undefined,
+    unconfirmedCut = true,
+    latchedConfirmFailureKey: string | null = null,
     confirming = false,
     confirmAgain = false,
     confirmation: Promise<void> | undefined,
@@ -190,54 +195,118 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
       try {
         do {
           confirmAgain = false;
-          const confirmController = new AbortController();
+          const confirmController = new AbortController(),
+            roundController = new AbortController();
           activeConfirmController = confirmController;
-          let timer: ReturnType<typeof setTimeout> | undefined, onShutdown: (() => void) | undefined;
+          let timer: ReturnType<typeof setTimeout> | undefined,
+            onShutdown: (() => void) | undefined,
+            onStreamStop: (() => void) | undefined,
+            inCallback = false,
+            stoppedBetweenRuns = false,
+            lastFailure: unknown;
           try {
             // An empty set is a durable eventless ACK; the mirror can advance its marker without rescanning.
-            const changedPaths = pendingChangedPaths;
+            const rawChangedPaths = pendingChangedPaths,
+              heartbeatOnly =
+                lastPosition !== undefined &&
+                lastPosition === attemptedConfirmPosition &&
+                rawChangedPaths !== null &&
+                rawChangedPaths.size === 0;
+            attemptedConfirmPosition = lastPosition;
             pendingChangedPaths = new Set();
+            const roundChangedPaths = unconfirmedCut
+              ? heartbeatOnly && latchedConfirmFailureKey !== null
+                ? []
+                : undefined
+              : rawChangedPaths
+                ? [...rawChangedPaths]
+                : undefined;
             const aborted = new Promise<never>((_resolve, reject) => {
-              activeConfirmAbort = reject;
-              onShutdown = () => {
-                const reason = options.shutdownSignal?.reason ?? new Error("daemon closed");
+              const abortRound = (reason: unknown) => {
                 confirmController.abort(reason);
+                roundController.abort(reason);
                 reject(reason);
+              };
+              activeConfirmAbort = abortRound;
+              onShutdown = () => {
+                abortRound(options.shutdownSignal?.reason ?? new Error("daemon closed"));
               };
               if (options.shutdownSignal?.aborted) onShutdown();
               else options.shutdownSignal?.addEventListener("abort", onShutdown, { once: true });
               if (Number.isFinite(confirmTimeoutMs)) {
                 const timeoutError = new ReplicaConfirmTimeoutError(confirmTimeoutMs);
-                timer = setTimeout(
-                  () => {
-                    confirmController.abort(timeoutError);
-                    reject(timeoutError);
-                  },
-                  Math.max(1, confirmTimeoutMs),
-                );
+                timer = setTimeout(() => abortRound(timeoutError), Math.max(1, confirmTimeoutMs));
                 timer.unref?.();
               }
             });
             aborted.catch(consumeKnownError);
-            const run = Promise.resolve().then(() =>
-              options.onConfirmed!(changedPaths ? [...changedPaths] : undefined, confirmController.signal),
-            );
+            onStreamStop = () => {
+              if (!inCallback) {
+                stoppedBetweenRuns = true;
+                roundController.abort(options.signal?.reason ?? new Error("replica stream stopped"));
+              }
+            };
+            options.signal?.addEventListener("abort", onStreamStop, { once: true });
+            const run = runDaemonRetry({
+              signal: roundController.signal,
+              run: async () => {
+                inCallback = true;
+                try {
+                  await options.onConfirmed!(roundChangedPaths, confirmController.signal);
+                } finally {
+                  inCallback = false;
+                }
+              },
+              retryDelay: (settled, failuresSoFar) => {
+                if (settled.ok) return null;
+                lastFailure = settled.error;
+                const code =
+                  typeof settled.error === "object" && settled.error !== null && "code" in settled.error
+                    ? String((settled.error as { readonly code?: unknown }).code)
+                    : "";
+                if (
+                  failuresSoFar >= 2 ||
+                  options.signal?.aborted ||
+                  options.shutdownSignal?.aborted ||
+                  confirmController.signal.aborted ||
+                  code === "replica_stream_down" ||
+                  code === "replica_confirm_timeout" ||
+                  deterministicReplicaConfirmFailure(settled.error) !== null
+                )
+                  return null;
+                return replicaRetryDelay(settled.error, failuresSoFar);
+              },
+            });
             run.catch(consumeKnownError);
-            try {
-              await Promise.race([run, aborted]);
-            } catch (error) {
-              pendingChangedPaths = null;
-              throw error;
-            }
+            await Promise.race([run, aborted]);
+            unconfirmedCut = false;
+            latchedConfirmFailureKey = null;
           } catch (error) {
             consumeKnownError(error);
-            if (!options.shutdownSignal?.aborted)
-              (options.onConfirmedFailure ?? ((cause) => console.error("[fleet-replica] confirmation failed", cause)))(
-                error,
-              );
+            unconfirmedCut = true;
+            const reported = stoppedBetweenRuns && lastFailure !== undefined ? lastFailure : error;
+            if (!options.shutdownSignal?.aborted && !(stoppedBetweenRuns && lastFailure === undefined)) {
+              const deterministic = deterministicReplicaConfirmFailure(reported);
+              if (deterministic === null) {
+                latchedConfirmFailureKey = null;
+                (
+                  options.onConfirmedFailure ?? ((cause) => console.error("[fleet-replica] confirmation failed", cause))
+                )(reported);
+              } else {
+                const failureKey = `${deterministic.code}\u0000${deterministic.message}`;
+                if (latchedConfirmFailureKey !== failureKey) {
+                  latchedConfirmFailureKey = failureKey;
+                  (
+                    options.onConfirmedFailure ??
+                    ((cause) => console.error("[fleet-replica] confirmation failed", cause))
+                  )(reported);
+                }
+              }
+            }
           } finally {
             if (timer) clearTimeout(timer);
             if (onShutdown) options.shutdownSignal?.removeEventListener("abort", onShutdown);
+            if (onStreamStop) options.signal?.removeEventListener("abort", onStreamStop);
             if (activeConfirmController === confirmController) {
               activeConfirmController = null;
               activeConfirmAbort = null;
