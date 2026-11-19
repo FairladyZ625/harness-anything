@@ -102,7 +102,7 @@ const sharedCapabilities = {
 // from its initialize response (agentCapabilities.loadSession vs sessionCapabilities.resume,
 // runtime-worker-acp.ts), so no acp kind carries a per-kind launch flag or capability entry.
 const acpDeclaredCapabilities = ["structured_witness", "resume", "attach", "session_identity"] as const;
-const runtimeUnsettledTurnContinuation = {
+export const runtimeUnsettledTurnContinuation = {
   maxContinuations: daemonRuntimePolicy.defaultValue.runtime.unsettledTurnMaxContinuations,
   prompt: "Continue the current task from where it left off.",
 } as const;

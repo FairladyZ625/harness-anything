@@ -1,8 +1,42 @@
 import type { DispatchAttemptOutcome as RuntimeExitOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import type { RuntimeInstanceKind } from "./agent-runtime-instances.ts";
+import { runtimeKindForId } from "../runtime-engine/runtime-inventory.ts";
 import type { ActiveRuntime, ProviderFrame, ProviderReconnect } from "./runtime-spawn-types.ts";
 import type { RuntimeAttemptOutcome, RuntimeProviderFault } from "./runtime-fallback-contract.ts";
 import { runtimeSpendCapReason } from "./runtime-spend-cap.ts";
+
+const sameSessionTransientFaultCodes = new Set<RuntimeProviderFault["code"]>([
+  "server_error",
+  "provider_disconnected",
+  "rate_limited",
+]);
+
+export function runtimeSupportsFaultResume(kindId: RuntimeInstanceKind): boolean {
+  const kind = runtimeKindForId(kindId);
+  return (
+    kind.capabilities.resume === "supported" && (kind.protocolFamily === "acp" || kind.launch.resumeFlag !== undefined)
+  );
+}
+
+export function effectiveProviderFault(
+  active: Pick<ActiveRuntime, "kindId" | "errorOverflowed" | "errorBuffer" | "providerFault">,
+): RuntimeProviderFault | null {
+  const stderrFault = providerFaultFromStderr(active.kindId, active.errorOverflowed ? "" : (active.errorBuffer ?? ""));
+  return stderrFault?.code === "print_timeout" ? stderrFault : (active.providerFault ?? stderrFault);
+}
+
+export function canResumeSameSessionFault(
+  active: Pick<ActiveRuntime, "kindId" | "providerSessionId" | "toolCallObserved" | "lossReason">,
+  exitCode: number | null,
+  providerFault: RuntimeProviderFault | null,
+): boolean {
+  return (
+    Boolean(active.toolCallObserved && active.providerSessionId && runtimeSupportsFaultResume(active.kindId)) &&
+    (providerFault
+      ? sameSessionTransientFaultCodes.has(providerFault.code)
+      : exitCode === null && active.lossReason === null)
+  );
+}
 
 const quota =
     /\b(?:quota|usage limit|credit balance|insufficient[_ -]?quota|resource[_ -]?exhausted)\b|使用上限|配额/iu,
@@ -152,8 +186,7 @@ export function classifyRuntimeExit(
   exitCode: number | null,
   ruling: { readonly question: string; readonly options?: readonly string[] } | null = null,
 ): RuntimeAttemptOutcome & { readonly outcome: RuntimeExitOutcome } {
-  const stderrFault = providerFaultFromStderr(active.kindId, active.errorOverflowed ? "" : active.errorBuffer),
-    providerFault = stderrFault?.code === "print_timeout" ? stderrFault : (active.providerFault ?? stderrFault),
+  const providerFault = effectiveProviderFault(active),
     outcome = runtimeExitOutcome(active, exitCode, providerFault),
     provider = { instance: active.instanceId, model: active.model, kind: active.kindId },
     attemptGroupId = active.fallbackAttempt?.attemptGroupId ?? active.dispatchId,
@@ -204,7 +237,11 @@ export function classifyRuntimeExit(
   // provider fault after tools may have left side effects. Quota keeps its cooldown semantics.
   if (providerFault?.code === "print_timeout")
     return { ...classified("gate_red", providerFault.reason), outcome: "failed" };
-  if (active.toolCallObserved && ((providerFault && !providerFault.faultClass) || exitCode === null))
+  if (
+    active.toolCallObserved &&
+    !canResumeSameSessionFault(active, exitCode, providerFault) &&
+    ((providerFault && !providerFault.faultClass) || exitCode === null)
+  )
     return {
       ...classified("gate_red", providerFault?.reason ?? "Provider disconnected after tool activity."),
       outcome: "failed",

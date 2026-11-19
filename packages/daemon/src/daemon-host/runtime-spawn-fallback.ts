@@ -1,9 +1,13 @@
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { executionRuntimeBudgetPolicy } from "@harness-anything/kernel/internal/domain/task-submission-policy.ts";
 import {
   collectRuntimeWorkspaceProgress,
   runtimeProgressSnapshot,
   type RuntimeWorkspaceProgress,
 } from "./runtime-continuation-context.ts";
+import { exponentialBackoffMs } from "./daemon-retry.ts";
+import { canResumeSameSessionFault, effectiveProviderFault } from "./runtime-provider-fault.ts";
+import { runtimeUnsettledTurnContinuation } from "../runtime-engine/runtime-inventory.ts";
 import { runtimeExecutionBudgetRefusal } from "./runtime-spend-cap.ts";
 import { INITIAL_SETTINGS_V1 } from "@harness-anything/kernel/internal/domain/settings.ts";
 import {
@@ -188,6 +192,17 @@ export function initialFallbackAttempt(
  * provider stderr. It must never inline the previous attempt's raw log, whose size would grow the
  * next mission (and can push it past the next provider's input limit).
  */
+export function sameSessionFaultContinuationPrompt(
+  outcome: RuntimeAttemptOutcome,
+  continuationPrompt: string = runtimeUnsettledTurnContinuation.prompt,
+): string {
+  return [
+    "# Same-session transient fault continuation",
+    `Previous attempt ended with a transient provider fault (${outcome.classification}: ${outcome.reason}).`,
+    continuationPrompt,
+  ].join("\n");
+}
+
 export function continuationMission(
   outcome: RuntimeAttemptOutcome,
   originalMission: string,
@@ -268,8 +283,17 @@ export async function settleFallbackAttempt(
   const scheduledTerminal = (
     schedule: NonNullable<FallbackSettlement["fallbackSchedule"]>,
     delayMs: number,
+    sameSession?: { readonly sameSessionResume: true; readonly providerSessionId: string },
   ): FallbackSettlement => {
-    active.stream.appendFallbackState({ state: "scheduled", ...schedule, delayMs }, input.now());
+    active.stream.appendFallbackState(
+      {
+        state: "scheduled",
+        ...schedule,
+        delayMs,
+        ...(sameSession ?? {}),
+      },
+      input.now(),
+    );
     return { fallbackState: "scheduled", fallbackSchedule: schedule };
   };
   const fallback = active.fallbackAttempt;
@@ -278,7 +302,7 @@ export async function settleFallbackAttempt(
   // disposition it had before that tail was labelled (a drained reconnect is evidence about the
   // ending, not a reason to re-run a delivery).
   const delivered = terminal.outcome === "succeeded";
-  if (isProviderFailureClassification(outcome.classification) && !delivered) {
+  const recordProviderFailure = (): void => {
     const settings = input.readSettings?.(),
       runtime = settings?.runtime;
     input.runtimeProviderHealth?.recordFailure({
@@ -294,10 +318,11 @@ export async function settleFallbackAttempt(
         active.providerFault?.code === "auth_failed" ||
         (active.providerFault?.faultClass === "quota_exhausted" && outcome.resetAt === undefined),
     });
-  } else if (active.providerOutcome === "succeeded" || delivered) {
-    input.runtimeProviderHealth?.recordSuccess(outcome.provider.instance, active.startedAt);
-  }
+  };
   if (delivered || !isProviderFailureClassification(outcome.classification) || !fallback) {
+    if (isProviderFailureClassification(outcome.classification) && !delivered) recordProviderFailure();
+    else if (active.providerOutcome === "succeeded" || delivered)
+      input.runtimeProviderHealth?.recordSuccess(outcome.provider.instance, active.startedAt);
     await input.onAttemptTerminal?.(terminal);
     return;
   }
@@ -311,18 +336,89 @@ export async function settleFallbackAttempt(
           : executionRuntimeBudgetPolicy.defaultValue,
         active,
       );
-    if (refusal) return exhaustedTerminal(`${refusal.code}: ${refusal.message}`, refusal);
+    if (refusal) {
+      recordProviderFailure();
+      return exhaustedTerminal(`${refusal.code}: ${refusal.message}`, refusal);
+    }
   }
   const currentCandidateIndex = fallback.candidateIndex ?? fallback.attemptIndex,
     nextAttemptIndex = fallback.attemptIndex + 1,
-    nextCandidateIndex = currentCandidateIndex + 1,
-    retryRound = fallback.retryRound ?? 0,
     runtimeSettings = input.readSettings?.()?.runtime,
+    observedAt = Date.parse(input.now()),
+    sameSessionRetryCount = fallback.sameSessionRetryCount ?? 0,
+    postToolExecution = active.toolCallObserved || sameSessionRetryCount > 0;
+  if (postToolExecution) {
+    const sameSessionProviderSessionId =
+        active.providerSessionId ?? fallback.sameSessionProviderSessionId ?? active.resumeProviderSessionId ?? null,
+      providerFault = effectiveProviderFault(active),
+      canResume =
+        sameSessionProviderSessionId !== null &&
+        canResumeSameSessionFault(
+          {
+            kindId: outcome.provider.kind,
+            providerSessionId: sameSessionProviderSessionId,
+            toolCallObserved: true,
+            lossReason: active.lossReason ?? null,
+          },
+          providerFault === null && active.lossReason === null && outcome.classification === "provider_fault"
+            ? null
+            : 1,
+          providerFault,
+        );
+    if (!canResume) {
+      recordProviderFailure();
+      return exhaustedTerminal(
+        `Post-tool provider failure cannot safely resume on the same session: ${outcome.reason}`,
+      );
+    }
+    const { sameSessionFaultMaxRetries, sameSessionFaultBackoffBaseMs, sameSessionFaultBackoffMaxMs } =
+      daemonRuntimePolicy.defaultValue.runtime;
+    if (sameSessionRetryCount >= sameSessionFaultMaxRetries) {
+      recordProviderFailure();
+      return exhaustedTerminal(
+        `Same-session resume exhausted after ${String(sameSessionRetryCount)} retry(s) (${String(nextAttemptIndex)} attempt(s)): ${outcome.reason}`,
+      );
+    }
+    const delayMs = exponentialBackoffMs({
+        attempt: sameSessionRetryCount,
+        baseMs: sameSessionFaultBackoffBaseMs,
+        maxMs: sameSessionFaultBackoffMaxMs,
+      }),
+      resetAt =
+        outcome.classification === "provider_quota" && outcome.resetAt ? Date.parse(outcome.resetAt) : Number.NaN,
+      notBeforeMs = Math.max(observedAt + delayMs, Number.isFinite(resetAt) ? resetAt : observedAt),
+      waitStartedAt = fallback.waitStartedAt ? Date.parse(fallback.waitStartedAt) : observedAt,
+      maxWaitMs = Math.max(
+        0,
+        Number(runtimeSettings?.providerMaxWaitSeconds ?? INITIAL_SETTINGS_V1.runtime.providerMaxWaitSeconds) * 1_000,
+      );
+    if (observedAt - waitStartedAt + Math.max(0, notBeforeMs - observedAt) > maxWaitMs) {
+      recordProviderFailure();
+      return exhaustedTerminal(
+        `Same-session resume wait budget exhausted after ${String(Math.max(0, observedAt - waitStartedAt))}ms: ${outcome.reason}`,
+      );
+    }
+    const nextProvider = fallback.candidates[currentCandidateIndex] ?? {
+      instance: outcome.provider.instance,
+      model: outcome.provider.model,
+    };
+    return scheduledTerminal(
+      {
+        notBeforeAt: new Date(notBeforeMs).toISOString(),
+        nextProvider,
+        waitStartedAt: new Date(waitStartedAt).toISOString(),
+      },
+      delayMs,
+      { sameSessionResume: true, providerSessionId: sameSessionProviderSessionId },
+    );
+  }
+  recordProviderFailure();
+  const nextCandidateIndex = currentCandidateIndex + 1,
+    retryRound = fallback.retryRound ?? 0,
     maxRetries = Math.max(
       0,
       Number(runtimeSettings?.providerMaxRetries ?? INITIAL_SETTINGS_V1.runtime.providerMaxRetries),
     ),
-    observedAt = Date.parse(input.now()),
     selection =
       nextCandidateIndex >= fallback.candidates.length
         ? null
@@ -405,7 +501,7 @@ export async function scheduleFallbackContinuation(args: {
 }): Promise<void> {
   const { context } = args,
     { input } = context;
-  if (context.closed?.()) return;
+  if (context.closed?.() || context.closeSignal?.aborted) return;
   const read = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [args.dispatchId] });
   if (read.status !== "ready")
     throw runtimeSpawnError("dispatch_lifecycle_pending", "Fallback lifecycle is not ready.");
@@ -448,9 +544,13 @@ export async function scheduleFallbackContinuation(args: {
   const plan = lifecycle.successor.schedule;
   if (!plan) throw runtimeSpawnError("runtime_event_missing", `Fallback ${args.dispatchId} has no schedule data.`);
   const notBeforeMs = Date.parse(plan.notBeforeAt);
+  const signal = context.closeSignal;
+  if (signal?.aborted) return;
+  let detachAbort: (() => void) | undefined;
   const timer = setTimeout(
     async () => {
-      if (context.closed?.()) return;
+      detachAbort?.();
+      if (context.closed?.() || signal?.aborted) return;
       // Host probes finish before input.schedule enters the exclusive writer turn (D1).
       let workspaceProgress: RuntimeWorkspaceProgress = { head: null, changedFiles: null, unavailable: null };
       let remoteNode: string | null | undefined = null;
@@ -464,26 +564,37 @@ export async function scheduleFallbackContinuation(args: {
           unavailable: `progress snapshot unavailable (${runtimeErrorCode(error) ?? "probe_failed"})`,
         };
       }
-      if (context.closed?.()) return;
+      if (context.closed?.() || signal?.aborted) return;
       input.schedule(async () => {
+        if (context.closed?.() || signal?.aborted) return;
         const currentRead = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [args.dispatchId] });
         if (currentRead.status !== "ready")
           throw runtimeSpawnError("dispatch_lifecycle_pending", "Fallback lifecycle is not ready.");
         const currentGroup = currentRead.rows[0];
         if (!currentGroup?.policy.fallbackPending || currentGroup.controlLeafDispatchId !== args.dispatchId) return;
-        const terminal = readDispatchStream(input.rootDir, args.dispatchId)?.terminalOutcome;
+        const currentStream = readDispatchStream(input.rootDir, args.dispatchId),
+          terminal = currentStream?.terminalOutcome;
         if (terminal && (await publishTerminal(terminal))) return;
         if (Date.parse(input.now()) < notBeforeMs) return scheduleFallbackContinuation(args);
         const dispatchCwd = header.cwd!,
           fallback = header.fallbackAttempt!,
+          scheduledFallback = currentStream?.scheduledFallback ?? stream.scheduledFallback,
+          sameSessionResume =
+            scheduledFallback?.sameSessionResume === true && typeof scheduledFallback.providerSessionId === "string",
+          sameSessionProviderSessionId = sameSessionResume ? scheduledFallback.providerSessionId! : undefined,
           nextAttemptIndex = fallback.attemptIndex + 1,
-          naturalNextIndex = (fallback.candidateIndex ?? fallback.attemptIndex) + 1,
-          exhaustedPass = naturalNextIndex >= fallback.candidates.length,
-          nextCandidateIndex = fallback.candidates.findIndex(
-            (candidate) =>
-              candidate.instance === plan.nextProvider.instance && candidate.model === plan.nextProvider.model,
-          ),
-          next = fallback.candidates[nextCandidateIndex];
+          currentCandidateIndex = fallback.candidateIndex ?? fallback.attemptIndex,
+          naturalNextIndex = currentCandidateIndex + 1,
+          exhaustedPass = !sameSessionResume && naturalNextIndex >= fallback.candidates.length,
+          nextCandidateIndex = sameSessionResume
+            ? currentCandidateIndex
+            : fallback.candidates.findIndex(
+                (candidate) =>
+                  candidate.instance === plan.nextProvider.instance && candidate.model === plan.nextProvider.model,
+              ),
+          next = sameSessionResume
+            ? (fallback.candidates[currentCandidateIndex] ?? plan.nextProvider)
+            : fallback.candidates[nextCandidateIndex];
         if (!next)
           throw runtimeSpawnError(
             "runtime_event_missing",
@@ -493,20 +604,30 @@ export async function scheduleFallbackContinuation(args: {
             ...fallback,
             attemptIndex: nextAttemptIndex,
             candidateIndex: nextCandidateIndex,
-            retryRound: (fallback.retryRound ?? 0) + (exhaustedPass ? 1 : 0),
+            retryRound: sameSessionResume
+              ? (fallback.retryRound ?? 0)
+              : (fallback.retryRound ?? 0) + (exhaustedPass ? 1 : 0),
+            ...(sameSessionResume
+              ? {
+                  sameSessionRetryCount: (fallback.sameSessionRetryCount ?? 0) + 1,
+                  sameSessionProviderSessionId,
+                }
+              : {}),
             ...(fallback.waitStartedAt || plan.waitStartedAt || exhaustedPass
               ? { waitStartedAt: fallback.waitStartedAt ?? plan.waitStartedAt ?? input.now() }
               : {}),
           },
-          continuation = continuationMission(
-            stream.attemptOutcome!,
-            fallback.originalMission,
-            workspaceProgress,
-            header.taskId && !input.remote
-              ? (context.requiredRuntimeProjection(input).read(header.taskId, false, false).snapshot.task
-                  ?.currentNode ?? "implementation")
-              : (remoteNode ?? "unavailable"),
-          );
+          continuation = sameSessionResume
+            ? sameSessionFaultContinuationPrompt(stream.attemptOutcome!, runtimeUnsettledTurnContinuation.prompt)
+            : continuationMission(
+                stream.attemptOutcome!,
+                fallback.originalMission,
+                workspaceProgress,
+                header.taskId && !input.remote
+                  ? (context.requiredRuntimeProjection(input).read(header.taskId, false, false).snapshot.task
+                      ?.currentNode ?? "implementation")
+                  : (remoteNode ?? "unavailable"),
+              );
         try {
           const continuationPayload: JsonObject = {
               runtimeInstanceId: next.instance,
@@ -522,6 +643,7 @@ export async function scheduleFallbackContinuation(args: {
               ...(header.fast === undefined ? {} : { fast: header.fast }),
               ...(header.permissionMode ? { permissionMode: header.permissionMode } : {}),
               ...(header.mcpPolicy ? { mcpPolicy: header.mcpPolicy } : {}),
+              ...(sameSessionProviderSessionId ? { providerSessionId: sameSessionProviderSessionId } : {}),
               cwd:
                 dispatchCwd === input.rootDir
                   ? { scope: "repo-root" }
@@ -589,6 +711,11 @@ export async function scheduleFallbackContinuation(args: {
     Math.min(Math.max(0, notBeforeMs - Date.parse(input.now())), 2_147_483_647),
   );
   timer.unref();
+  if (signal) {
+    const onAbort = (): void => clearTimeout(timer);
+    signal.addEventListener("abort", onAbort, { once: true });
+    detachAbort = () => signal.removeEventListener("abort", onAbort);
+  }
 }
 
 /** Group resources stay available across every attempt, including delayed/restarted continuations. */

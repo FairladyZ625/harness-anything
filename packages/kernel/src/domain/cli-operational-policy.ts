@@ -225,6 +225,11 @@ export const daemonRuntimePolicy = {
     runtime: {
       subscriptionProbeTimeoutMs: { status: 5_000, standard: 10_000, extended: 15_000, modelListing: 60_000 },
       unsettledTurnMaxContinuations: 3,
+      sameSessionFaultMaxRetries: 2,
+      sameSessionFaultBackoffBaseMs: 500,
+      sameSessionFaultBackoffMaxMs: 4_000,
+      codexProviderRequestMaxRetries: 4,
+      codexProviderStreamMaxRetries: 5,
       nativePrintTimeout: "120m",
       recoveryStuckAfterMs: 2 * 60_000,
       workspaceActivityIntervalMs: 1_000,
@@ -369,6 +374,8 @@ export const daemonRuntimePolicy = {
     "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.runtime.modelSlots.defaultCapacity:378f72001da122eea753d4f31c215c90",
     "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.runtime.modelSlots.maximumCapacity:18029538efa8ec95e7812a169a106bf7",
     "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.runtime.workerPushDetailLimit:54458e73d85bc3dabbacedea78af05cb",
+    "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.runtime.sameSessionFaultBackoffBaseMs:a511432efa7c98a4bc2b14933baf7be1",
+    "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.runtime.sameSessionFaultBackoffMaxMs:a988bab4007c0d0c915e2f4edd5478ed",
   ].map((candidateId) => ({ candidateId, route: "daemonRuntimePolicy" })),
 } as const satisfies OntologyPolicyDeclaration;
 

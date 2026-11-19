@@ -205,6 +205,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     });
   const ownsModelSlotQueue = input.modelSlotQueue === undefined;
   let fallbackClosed = false;
+  const fallbackAbort = new AbortController();
   const preflightRuntimeSelection = async (payload: JsonObject): Promise<void> => {
     // A resumed dispatch carries its own model and instance in the recorded stream header; do not
     // re-resolve it from the current declaration before the resume admission reads that header.
@@ -244,6 +245,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   const extracted: RuntimeSpawnerContext = {
     dispatchState,
     closed: () => fallbackClosed,
+    closeSignal: fallbackAbort.signal,
     input,
     requiredRuntimeStore,
     requiredRuntimeProjection,
@@ -1753,6 +1755,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     isIdle: () => processes.size === 0 && exiting.size === 0,
     close: () => {
       fallbackClosed = true;
+      fallbackAbort.abort(new DOMException("Runtime spawner closed.", "AbortError"));
       if (ownsModelSlotQueue) modelSlotQueue.close();
       closeRuntimes(extracted);
     },

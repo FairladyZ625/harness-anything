@@ -9,6 +9,7 @@ import {
   observeProviderFault,
   providerFaultFromFrame,
   providerFaultFromStderr,
+  runtimeSupportsFaultResume,
 } from "../src/daemon-host/runtime-provider-fault.ts";
 import { parseCodexFrame, parseProviderFrame } from "../src/daemon-host/runtime-spawn-provider-frames.ts";
 
@@ -864,4 +865,102 @@ test("agy print deadline outranks an earlier quota diagnostic", () => {
   );
   assert.equal(result.outcome, "failed");
   assert.equal(isProviderFailureClassification(result.classification), false);
+});
+
+for (const kindId of runtimeKindIds) {
+  const expectedClassification = runtimeSupportsFaultResume(kindId) ? "provider_fault" : "gate_red";
+  for (const diagnostic of ["stream disconnected before message_stop", "service is busy; please try again later"]) {
+    test(`${kindId}: post-tool transient fault with captured providerSessionId classifies by resume capability`, () => {
+      const providerFault = providerFaultFromStderr(kindId, diagnostic);
+      assert.ok(providerFault);
+      const result = classifyRuntimeExit(
+        active({
+          kindId,
+          providerOutcome: "failed",
+          providerFault,
+          toolCallObserved: true,
+          providerSessionId: "session-same-1",
+        }),
+        1,
+      );
+      assert.equal(result.outcome, "failed");
+      assert.equal(result.classification, expectedClassification);
+    });
+  }
+
+  test(`${kindId}: post-tool bare disconnect with captured providerSessionId classifies by resume capability`, () => {
+    const result = classifyRuntimeExit(
+      active({ kindId, toolCallObserved: true, providerSessionId: "session-same-1" }),
+      null,
+    );
+    assert.equal(result.outcome, runtimeSupportsFaultResume(kindId) ? "unknown" : "failed");
+    assert.equal(result.classification, expectedClassification);
+  });
+}
+
+test("post-tool non-recoverable or deterministic errors still fail closed even when providerSessionId is present", () => {
+  const deterministicCases = [
+    {
+      kindId: "codex" as const,
+      providerFault: providerFaultFromFrame("codex", {
+        type: "turn.failed",
+        error: { http_status: 401, message: "unauthorized" },
+      }),
+    },
+    {
+      kindId: "codex" as const,
+      providerFault: providerFaultFromFrame("codex", {
+        type: "turn.failed",
+        error: { code: "unknown_model", message: "model_not_found" },
+      }),
+    },
+    {
+      kindId: "claude" as const,
+      providerFault: providerFaultFromFrame("claude", {
+        type: "result",
+        session_id: "fixture-session",
+        subtype: "success",
+        is_error: false,
+        result: "Requires approval",
+        permission_denials: [{ tool_name: "Bash", non_execution_kind: "user-rejected" }],
+      }),
+    },
+    {
+      kindId: "codex" as const,
+      providerFault: providerFaultFromFrame("codex", {
+        type: "turn.failed",
+        error: { code: "request_unavailable" },
+      }),
+    },
+  ];
+  for (const { kindId, providerFault } of deterministicCases) {
+    assert.ok(providerFault);
+    const result = classifyRuntimeExit(
+      active({
+        kindId,
+        providerOutcome: "failed",
+        providerFault,
+        toolCallObserved: true,
+        providerSessionId: "session-same-1",
+      }),
+      1,
+    );
+    assert.equal(result.outcome, "failed");
+    assert.equal(isProviderFailureClassification(result.classification), false, providerFault.code);
+  }
+  const timedOut = classifyRuntimeExit(
+    active({
+      kindId: "agy",
+      providerOutcome: "succeeded",
+      providerFault: providerFaultFromStderr(
+        "agy",
+        "[agy] print timeout after 2h0m0s with turn in progress; returning partial output",
+      ),
+      toolCallObserved: true,
+      providerSessionId: "session-same-1",
+    }),
+    0,
+  );
+  assert.equal(timedOut.outcome, "failed");
+  assert.equal(timedOut.classification, "gate_red");
 });
