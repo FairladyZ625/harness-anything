@@ -829,14 +829,14 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       "repo.tasks.list",
       await bridge.invoke("repo.tasks.list", scopedRpcParams("repo.tasks.list", scope)),
     );
-    assert.equal(afterSubmit.rows[0]?.snapshot.task?.status, "submitted");
+    assert.equal(afterSubmit.rows[0]?.snapshot.task?.status, "done");
     assert.equal(afterSubmit.rows[0]?.snapshot.lease, null);
     const evidence = afterSubmit.rows[0]?.executionEvidence.find((item) => item.executionId === executionId);
-    assert.equal(evidence?.origin, "native");
+    assert.equal(evidence?.origin, "archival");
     assert.deepEqual(evidence?.outputs, [], "submission must not invent output locators from the retired packet");
-    const submission = afterSubmit.rows[0]?.snapshot.executions.find(
-      (item) => item.executionId === executionId,
-    )?.submission;
+    const execution = afterSubmit.rows[0]?.snapshot.executions.find((item) => item.executionId === executionId);
+    assert.equal(execution?.state, "accepted");
+    const submission = execution?.submission;
     assert.ok(
       submission?.deliverables.some((item) => item.endsWith(artifactPath)),
       JSON.stringify(submission),

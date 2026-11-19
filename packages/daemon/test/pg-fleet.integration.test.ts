@@ -251,12 +251,26 @@ for (const { gitFollower, materialize } of [
           executionId: "execution-pg-docs",
         });
         assert.equal(cut.commitSha, null);
-        await edgeRun(two, { kind: "task-complete", taskId: "task-pg-docs" });
         const reader = fixture.centerReader();
         try {
-          assert.equal(reader.withSession((queries) => queries.read("task-pg-docs").snapshot).task?.status, "done");
+          const completion = reader.withSession((queries) => {
+            const snapshot = queries.read("task-pg-docs").snapshot;
+            assert.equal(snapshot.task?.status, "done");
+            assert.equal(snapshot.executions[0]?.submission?.commitSha, null);
+            return queries.readTaskCompletion("task-pg-docs", "execution-pg-docs");
+          });
+          assert.ok(completion, "submit recorded completion before the explicit retry");
+          const completed = await edgeRun(two, { kind: "task-complete", taskId: "task-pg-docs" });
+          assert.equal(completed.opId, completion.opId, "complete replays the automatic completion");
         } finally {
           reader.close();
+        }
+        if (gitFollower) {
+          await fixture.host.settleMaterialization(replicationRepoId, "PG fixture publication");
+          const replay = await fixture.centerRun({ kind: "receipt-show", opId: cut.opId });
+          assert.equal(replay.commitSha, null);
+          assert.equal(replay.git.state, "verified");
+          assert.match(replay.git.commitSha ?? "", /^[0-9a-f]{40}$/u);
         }
         assert.equal(existsSync(path.join(fixture.repo, ".git")), gitFollower !== undefined);
         if (!materialize)

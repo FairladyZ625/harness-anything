@@ -221,18 +221,28 @@ export function readCompletionDeliveryStatus(
   };
 }
 
-export function factRetirementAssessment(
+export function requireFactRetirementAssessment(
   projection: TaskProjectionQueries,
   taskId: string,
   stillHoldsAttestations: readonly FactStillHoldsAttestation[],
 ): FactRetirementAssessment {
+  const assessment = factRetirementAssessment(projection, taskId, stillHoldsAttestations);
+  if ("unavailable" in assessment) throw cellCodedError("content_not_ready", assessment.unavailable);
+  return assessment;
+}
+
+export function factRetirementAssessment(
+  projection: TaskProjectionQueries,
+  taskId: string,
+  stillHoldsAttestations: readonly FactStillHoldsAttestation[],
+): FactRetirementAssessment | { readonly unavailable: string } {
   const taskRef = `task/${taskId}`,
     taskRelationReads = [
       projection.readRelationQuery({ source: taskRef, state: "active", limit: 500 }),
       projection.readRelationQuery({ target: taskRef, state: "active", limit: 500 }),
     ];
   if (taskRelationReads.some((read) => read.page?.nextCursor))
-    throw cellCodedError("content_not_ready", `Task ${taskId} exceeds the 500-edge Fact retirement budget.`);
+    return { unavailable: `Task ${taskId} exceeds the 500-edge Fact retirement budget.` };
   const relationRead = {
       ...taskRelationReads[0],
       rows: [
@@ -241,10 +251,7 @@ export function factRetirementAssessment(
     },
     relationReady = taskRelationReads.every((read) => read.status === "ready");
   if (!relationReady)
-    throw cellCodedError(
-      "content_not_ready",
-      `Relation projection is not ready for Fact retirement assessment on Task ${taskId}.`,
-    );
+    return { unavailable: `Relation projection is not ready for Fact retirement assessment on Task ${taskId}.` };
   const decisionIds = [
       ...new Set(
         relationRead.rows.flatMap((edge) => {
@@ -265,10 +272,7 @@ export function factRetirementAssessment(
     decisionRead = projection.readDecisions(decisionIds),
     decisionReady = decisionRead.status === "ready";
   if (!decisionReady)
-    throw cellCodedError(
-      "content_not_ready",
-      `Decision projection is not ready for Fact retirement assessment on Task ${taskId}.`,
-    );
+    return { unavailable: `Decision projection is not ready for Fact retirement assessment on Task ${taskId}.` };
   const claimRefs = decisionRead.decisions.flatMap((decision) =>
       decision.claims
         .filter((claim) => claim.loadBearing)
@@ -281,10 +285,7 @@ export function factRetirementAssessment(
       projection.readRelationQuery({ source, state: "active", limit: 500 }),
     );
   if (narrowReads.some((read) => read.status !== "ready" || read.page?.nextCursor))
-    throw cellCodedError(
-      "content_not_ready",
-      `Task ${taskId} Fact retirement neighborhood is not ready or exceeds budget.`,
-    );
+    return { unavailable: `Task ${taskId} Fact retirement neighborhood is not ready or exceeds budget.` };
   const upstreamFactRefs = narrowReads
       .flatMap((read) => read.rows)
       .filter((edge) => edge.relationType === "evidenced-by")
@@ -293,10 +294,7 @@ export function factRetirementAssessment(
       projection.readRelationQuery({ target, relationType: "supersedes-fact", state: "active", limit: 500 }),
     );
   if (livenessReads.some((read) => read.status !== "ready" || read.page?.nextCursor))
-    throw cellCodedError(
-      "content_not_ready",
-      `Task ${taskId} Fact liveness neighborhood is not ready or exceeds budget.`,
-    );
+    return { unavailable: `Task ${taskId} Fact liveness neighborhood is not ready or exceeds budget.` };
   return assessFactRetirement({
     taskId,
     decisions: decisionRead.decisions,
@@ -333,7 +331,7 @@ export function readTaskCompletion(
   const producesReady = context.projectionStatus === "ready";
   if (read.snapshot.task && context.closeoutGates?.factDisposition && producesReady)
     try {
-      const assessment = factRetirementAssessment(projection, taskId, []);
+      const assessment = requireFactRetirementAssessment(projection, taskId, []);
       if (assessment.undischarged.length) factRetirement = { undischarged: assessment.undischarged };
     } catch (error) {
       if (cellErrorCode(error) !== "content_not_ready") throw error;

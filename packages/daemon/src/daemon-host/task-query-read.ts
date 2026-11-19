@@ -8,7 +8,6 @@ import {
   blockingOf,
   todoIsOpen,
   closeoutReadiness,
-  consumeKnownError,
   deriveRelationId,
   freshnessReasonOf,
   isTerminalDecisionState,
@@ -86,7 +85,6 @@ import {
   premiseReviewCommand,
 } from "@harness-anything/application/internal/queries/premise-review.ts";
 import { readIncidentActionReceipt } from "./decision-incident-receipt.ts";
-import { cellErrorCode } from "./repo-cell-errors.ts";
 import { factRetirementAssessment, readCompletionContext } from "./task-completion-read.ts";
 import {
   projectionCut,
@@ -840,16 +838,12 @@ export function makeTaskQueryReadModel(input: {
             if (context.projectionStatus !== "ready") return [];
             const { blocker } = taskCompletionNext(source.snapshot, context, row.executionId),
               next = taskCompletionAction(source.snapshot, context);
-            let undischargedFactRefs: readonly string[] = [];
-            if (blocker === null && context.closeoutGates?.factDisposition) {
-              try {
-                const assessment = factRetirementAssessment(projection, row.taskId, []);
-                undischargedFactRefs = assessment.undischarged.map(({ factRef }) => factRef);
-              } catch (error) {
-                if (cellErrorCode(error) !== "content_not_ready") throw error;
-                consumeKnownError(error);
-              }
-            }
+            const retirement =
+              blocker === null && context.closeoutGates?.factDisposition
+                ? factRetirementAssessment(projection, row.taskId, [])
+                : null;
+            const undischargedFactRefs =
+              retirement && !("unavailable" in retirement) ? retirement.undischarged.map(({ factRef }) => factRef) : [];
             return [
               [
                 row.executionId,

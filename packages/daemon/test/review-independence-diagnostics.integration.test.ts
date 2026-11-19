@@ -381,9 +381,16 @@ test("a lightweight child bare-invocation execution closes without a review disp
     writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
     const submitted = await cell.run({ kind: "task-submit", taskId, executionId: priorExecutionId }, bare);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    assert.deepEqual((submitted as Record<string, unknown>).transition, {
+      from: "active/implementation",
+      to: "done/review",
+    });
+    assert.deepEqual(submitted.next, []);
     assert.equal(
-      String((submitted.next as readonly { readonly command: string }[])[0]?.command),
-      `ha task complete ${taskId}`,
+      makeTaskEventReader({ repoId: "review-bare", rootDir })
+        .read()
+        .events.some((event) => event.type === "runtime_dispatch_requested" && event.payload.taskId === taskId),
+      false,
     );
     return;
     writeFileSync(

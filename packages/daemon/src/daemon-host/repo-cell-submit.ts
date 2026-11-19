@@ -2,7 +2,6 @@ import path from "node:path";
 import {
   completionContractGap,
   completionGuidance,
-  consumeKnownError,
   missingChineseCloseoutSections,
   resolveCompletionContract,
   submissionFromCloseout,
@@ -37,7 +36,6 @@ import { taskExecutionPlacement } from "./task-execution-placement.ts";
 import { taskPrBodyRenderer } from "./task-pr-body-render.ts";
 import { readTaskRiskManifest } from "./task-risk-tier.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
-import { cellErrorCode } from "./repo-cell-errors.ts";
 import { factRetirementAssessment, readCompletionContext } from "./task-completion-read.ts";
 
 import type { PreparedSubmissionDelivery } from "./submission-delivery.ts";
@@ -449,14 +447,8 @@ async function submittedCutCompletion(
     { blocker } = taskCompletionNext(snapshot, context, executionId);
   if (blocker !== null) return { step: null, completed: false };
   if (context.closeoutGates?.factDisposition) {
-    try {
-      const retirement = factRetirementAssessment(cell.projection, taskId, []);
-      if (!retirement.ready) return { step: null, completed: false };
-    } catch (error) {
-      if (cellErrorCode(error) !== "content_not_ready") throw error;
-      consumeKnownError(error);
-      return { step: null, completed: false };
-    }
+    const retirement = factRetirementAssessment(cell.projection, taskId, []);
+    if ("unavailable" in retirement || !retirement.ready) return { step: null, completed: false };
   }
   const completeAction: RepoTaskAction = { kind: "task-complete", taskId, executionId },
     revision = cell.store.readHead()?.revision ?? snapshot.revision,
