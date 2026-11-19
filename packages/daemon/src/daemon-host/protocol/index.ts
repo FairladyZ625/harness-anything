@@ -60,7 +60,7 @@ export {
   type InteractiveRpcDescriptor,
 } from "./client-rpc.ts";
 export { DAEMON_GUI_COMMAND_RECEIPT_SCHEMA } from "./daemon-protocol-schema-ids.ts";
-export { DaemonProtocolContractError, isUtcTimestamp } from "./json-rpc-types.ts";
+export { isUtcTimestamp } from "./json-rpc-types.ts";
 export type { ScheduleRunOutputsDto, ScheduleRunsResult } from "./schedule-runs-contract.ts";
 export { compatibleScheduleInstances, isAvailableScheduleGuiAgentOption } from "./schedules-contract.ts";
 export type {

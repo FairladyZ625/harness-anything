@@ -52,6 +52,30 @@ describe("GUI transport adapters", () => {
     });
   });
 
+  it("delivers a terminal IPC failure through the error callback with its original code", () => {
+    const onValue = vi.fn(),
+      onError = vi.fn(),
+      unsubscribe = vi.fn();
+    const transport = createElectronGuiTransport({
+      subscribe(_method, _params, receive) {
+        receive({ schema: "daemon-stream-failure/v1", code: "invalid_result", hint: "Invalid upstream frame." });
+        return unsubscribe;
+      },
+    });
+    const stop = transport.subscribe(
+      "repo.agentRuntime.attach",
+      { repo: { repoId: "canonical" }, payload: { runtimeSessionId: "runtime" } },
+      onValue,
+      onError,
+    );
+    expect(onError).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ code: "invalid_result", message: "Invalid upstream frame." }),
+    );
+    expect(onValue).not.toHaveBeenCalled();
+    stop();
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
   it("retains browser credentials across a same-tab reload after clearing the fragment", async () => {
     window.history.replaceState(null, "", "/#access_token=reload-secret");
     guiTransport();

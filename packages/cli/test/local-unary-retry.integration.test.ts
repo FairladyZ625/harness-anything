@@ -11,10 +11,10 @@ import test from "node:test";
 import { promisify } from "node:util";
 import { canonicalRoot, workspaceId } from "@harness-anything/daemon/internal/protocol/daemon-protocol-identifiers";
 import { createJsonRpcProtocolServer, localUserDaemonEndpoint } from "@harness-anything/daemon/client";
-import { registerDaemonRepo, makeTaskEventReader } from "@harness-anything/storage";
+import { makeTaskEventReader } from "@harness-anything/storage";
 import { createLocalGuiServiceBridge } from "../../gui/src/main/local-composition-root.ts";
 import { withPolicyGroup } from "../../daemon/test/keycloak-policy.fixtures.ts";
-import { openBootstrappedRepoCell } from "../../daemon/test/repo-settings.fixture.ts";
+import { openBootstrappedRepoCell, registerBootstrappedDaemonRepo } from "../../daemon/test/repo-settings.fixture.ts";
 import { initRepo } from "../../daemon/test/task-surface.fixtures.ts";
 import { startBrowserGuiBroker } from "../src/cli/gui-browser-broker.ts";
 
@@ -31,7 +31,13 @@ test("CLI, Electron composition, and Browser broker replay one committed write a
   mkdirSync(rootDir);
   mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
   initRepo(rootDir);
-  registerDaemonRepo({ userRoot, repoId, canonicalRoot: rootDir, displayName: "Local retry", mode: "local" });
+  registerBootstrappedDaemonRepo({
+    userRoot,
+    repoId,
+    canonicalRoot: rootDir,
+    displayName: "Local retry",
+    mode: "local",
+  });
   const cell = await openBootstrappedRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "local-retry" });
   const binding = withPolicyGroup(
     {

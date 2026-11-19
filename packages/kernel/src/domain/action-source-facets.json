@@ -13487,7 +13487,7 @@
         "role": "support"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/gui-transport.ts#createElectronGuiTransport.subscribe.stop:ac666f490aa67385287e71e49b6cb43f",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/gui-transport.ts#createElectronGuiTransport.subscribe.stop:4f2650565e08ddcff584ededb0a998b3",
         "route": "daemon-local-state",
         "role": "support"
       },
