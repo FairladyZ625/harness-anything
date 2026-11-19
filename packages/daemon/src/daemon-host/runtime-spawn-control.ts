@@ -98,8 +98,11 @@ export async function cancelRuntime(
   }
   // Only a live stream is a control channel a recovery can adopt. An archived stream is the
   // history of a stopped dispatch: it remains authorization and stop-proof evidence only.
-  const liveDispatchIds = new Set(readDispatchStreamHeaders(context.input.rootDir).map(({ dispatchId }) => dispatchId)),
-    hasLiveDispatch = liveDispatchIds.has(matchingHeader?.dispatchId ?? canonicalDispatch?.payload.dispatchId ?? "");
+  const targetDispatchId = matchingHeader?.dispatchId ?? canonicalDispatch?.payload?.dispatchId,
+    hasLiveDispatch =
+      targetDispatchId !== undefined &&
+      (ruling !== null || matchingHeader !== undefined) &&
+      readDispatchStreamHeaders(context.input.rootDir).some(({ dispatchId }) => dispatchId === targetDispatchId);
   let ownerGroup: { readonly evidence: RuntimeDispatchOwnerEvidence | null; readonly pid: number | null } | undefined,
     groupStop: ReturnType<typeof probeProcessGroup> | undefined;
   const readOwnerGroup = async () =>
@@ -321,7 +324,7 @@ async function readOwnerProcessGroup(
     ownerBinding &&
     evidence.actor.principal.personId === ownerBinding.actor.principal.personId &&
     sameWriteSource(evidence.source, ownerBinding.source) &&
-    (matchingHeader === undefined || evidence.payload.dispatchId === matchingHeader.dispatchId)
+    (matchingHeader === undefined || evidence.payload?.dispatchId === matchingHeader.dispatchId)
       ? evidence.processGroupPid
       : null;
   return { evidence, pid };
