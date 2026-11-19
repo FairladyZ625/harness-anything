@@ -196,7 +196,7 @@ test("edge connection changes do not select a different OIDC center", (t) => {
   assert.equal(existsSync(fleetEdgeConfigPath(active.userRoot, "edge-repo")), true);
 });
 
-test("clearing an edge center selection tombstones its disk file and drops process state", (t) => {
+test("clearing an edge center selection tombstones its disk file and reads as empty", (t) => {
   const active = fixture(t),
     selection = oidcCenterSelections(active.userRoot),
     authority = { url: "https://login.example", realm: "harness", clientId: "harness-gui" };
