@@ -216,7 +216,7 @@ test(
         await edge.host.terminalAction(
           "lease-repo",
           "repo.terminal.input",
-          { sessionId, clientSeq: 1, utf8: "echo __EDGE_TERMINAL__\r" },
+          { sessionId, daemonGeneration: spawned.daemonGeneration, clientSeq: 1, utf8: "echo __EDGE_TERMINAL__\r" },
           localAuthFixture(),
         )
       ).acceptedThrough,

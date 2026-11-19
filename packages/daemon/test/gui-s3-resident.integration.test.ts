@@ -358,7 +358,12 @@ test(
       // round-trip exercises the terminal bridge without depending on shell syntax.
       await rpc("repo.terminal.input", {
         repo: { repoId: "alpha" },
-        payload: { sessionId: terminal.sessionId, clientSeq: 1, utf8: "echo __S3_RESIDENT_PTY__\r" },
+        payload: {
+          sessionId: terminal.sessionId,
+          daemonGeneration: terminal.daemonGeneration,
+          clientSeq: 1,
+          utf8: "echo __S3_RESIDENT_PTY__\r",
+        },
       });
       await eventually(() => terminalOutput(frames).includes("__S3_RESIDENT_PTY__"));
       assert.equal(

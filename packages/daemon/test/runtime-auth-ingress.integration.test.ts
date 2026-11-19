@@ -163,7 +163,12 @@ test("daemon ingress spawns interactive sign-in terminals on the isolated state 
           await eventually(async () => terminalOutput(frames).includes("Paste the operator sign-in token:"));
           const ack = await rpc(host, auth, "repo.terminal.input", {
             repo: { repoId },
-            payload: { sessionId: spawned.sessionId, clientSeq: 1, utf8: `${token}\n` },
+            payload: {
+              sessionId: spawned.sessionId,
+              daemonGeneration: attached.daemonGeneration,
+              clientSeq: 1,
+              utf8: `${token}\n`,
+            },
           });
           assert.equal(ack.ok, true);
           await eventually(async () => terminalOutput(frames).includes(`Signed in as ${token}.`));
@@ -328,7 +333,7 @@ async function rpcTerminalAttach(
   repoId: string,
   sessionId: string,
   frames: Record<string, unknown>[],
-): Promise<{ readonly close: () => void }> {
+): Promise<{ readonly close: () => void; readonly daemonGeneration: number }> {
   const server = createJsonRpcProtocolServer({
     host,
     build: daemonBuildStamp(),
@@ -351,8 +356,9 @@ async function rpcTerminalAttach(
     params: { repo: { repoId }, payload: { sessionId, afterSeq: 0 } },
   });
   assert.ok(response && !Array.isArray(response) && "result" in response);
-  assert.equal((response as { result: { ok: boolean } }).result.ok, true, JSON.stringify(response));
-  return { close: server.close };
+  const initial = response.result as { ok: boolean; daemonGeneration: number };
+  assert.equal(initial.ok, true, JSON.stringify(response));
+  return { close: server.close, daemonGeneration: initial.daemonGeneration };
 }
 
 function terminalOutput(frames: readonly Record<string, unknown>[]): string {

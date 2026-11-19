@@ -16,6 +16,7 @@ test("terminal relay shares one control connection for resize, input, and exit l
     stdin = new PassThrough() as PassThrough & { setRawMode: (mode: boolean) => void };
   let connections = 0,
     hellos = 0,
+    inputParams: unknown,
     streamSocket: net.Socket | undefined,
     inputSeen!: () => void,
     attachSeen!: () => void;
@@ -33,7 +34,7 @@ test("terminal relay shares one control connection for resize, input, and exit l
         for (;;) {
           const newline = buffered.indexOf("\n");
           if (newline < 0) break;
-          const request = JSON.parse(buffered.slice(0, newline)) as { id: number; method: string };
+          const request = JSON.parse(buffered.slice(0, newline)) as { id: number; method: string; params?: unknown };
           buffered = buffered.slice(newline + 1);
           if (request.method === "protocol.hello") {
             hellos += 1;
@@ -52,6 +53,7 @@ test("terminal relay shares one control connection for resize, input, and exit l
               outputSeq: 0,
             });
           } else if (request.method === "repo.terminal.input") {
+            inputParams = request.params;
             reply(socket, request.id, { ok: true });
             inputSeen();
           } else if (request.method === "repo.terminal.sessions.list")
@@ -94,6 +96,10 @@ test("terminal relay shares one control connection for resize, input, and exit l
       })}\n`,
     );
     assert.equal(await relay, 0);
+    assert.deepEqual(inputParams, {
+      repo: { repoId: "repo-1" },
+      payload: { sessionId: "session-1", daemonGeneration: 1, clientSeq: 1, utf8: "x" },
+    });
     assert.equal(connections, 2, "the stream and all control calls must use one socket each");
     assert.equal(hellos, 2, "the relay must send one hello for its stream and one for its control connection");
   } finally {

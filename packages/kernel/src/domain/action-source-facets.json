@@ -16166,7 +16166,7 @@
     "owner": "terminal",
     "sources": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/terminal-client.ts#terminalClient.input.result:27906f8540256e97d7a63cdd140313b6",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/terminal-client.ts#terminalClient.input.result:85c66d526da36037da2996b1a5329de5",
         "route": "terminal.input",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"

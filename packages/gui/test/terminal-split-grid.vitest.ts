@@ -5,6 +5,12 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { request as requestHttp } from "node:http";
+import { createRequire } from "node:module";
+import { Readable } from "node:stream";
+import type { Window as TestWindow } from "happy-dom";
+import type { GuiServiceBridge } from "../src/main/local-composition-root.ts";
+import { resetGuiTransportForTest } from "../src/renderer/gui-transport.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { TerminalView } from "../src/renderer/views/TerminalView.tsx";
 
@@ -15,11 +21,13 @@ const terminalPaneMock = vi.hoisted(() => ({ onSelectionChange: null as ((text: 
 vi.mock("../src/renderer/components/terminal/TerminalPane.tsx", () => ({
   TerminalPane: ({
     output,
+    interactive,
     onFit,
     onInput,
     onSelectionChange,
   }: {
     readonly output: string;
+    readonly interactive: boolean;
     readonly onFit: (c: number, r: number) => void;
     readonly onInput: (text: string) => void;
     readonly onSelectionChange: (text: string) => void;
@@ -28,8 +36,11 @@ vi.mock("../src/renderer/components/terminal/TerminalPane.tsx", () => ({
     return createElement("button", {
       "data-testid": "terminal-pane",
       "data-output": output,
+      "data-interactive": interactive ? "true" : "false",
       onClick: () => onFit(120, 40),
-      onKeyDown: (event) => onInput(event.key),
+      onKeyDown: (event) => {
+        if (interactive) onInput(event.key);
+      },
     });
   },
 }));
@@ -191,6 +202,9 @@ afterEach(() => {
   root = null;
   container = null;
   delete (window as unknown as Record<string, unknown>).harness;
+  resetGuiTransportForTest();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
   terminalPaneMock.onSelectionChange = null;
 });
@@ -223,6 +237,26 @@ async function flush() {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 }
+
+function fetchBrowserBroker(url: URL, init: RequestInit): Promise<Response> {
+  const headers = new Headers(init.headers);
+  headers.set("Origin", url.origin);
+  return new Promise((resolve, reject) => {
+    const request = requestHttp(
+      url.href,
+      { method: init.method, headers: Object.fromEntries(headers), signal: init.signal ?? undefined },
+      (response) =>
+        resolve(
+          new Response(Readable.toWeb(response) as ReadableStream<Uint8Array>, {
+            status: response.statusCode,
+            headers: { "Content-Type": response.headers["content-type"] ?? "" },
+          }),
+        ),
+    );
+    request.once("error", reject);
+    request.end(String(init.body));
+  });
+}
 function panes(): readonly HTMLElement[] {
   return [...container!.querySelectorAll<HTMLElement>('[data-testid="terminal-pane-card"]')];
 }
@@ -242,10 +276,12 @@ async function mountDurablePane() {
   const { bridge } = stubBridge([
     sessionRow({ requestedBackend: "tmux", backend: "tmux", durability: "daemon-restart" }),
   ]);
-  let acceptedThrough = 0;
+  let acceptedThrough = 0,
+    hostGeneration = 7;
   const writes: string[] = [];
   const beforeAck = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
-  bridge.sendTerminalInput.mockImplementation(async ({ clientSeq, utf8 }) => {
+  bridge.sendTerminalInput.mockImplementation(async ({ daemonGeneration, clientSeq, utf8 }) => {
+    if (daemonGeneration !== hostGeneration) throw new Error("terminal_generation_mismatch");
     const seq = Number(clientSeq);
     if (seq > acceptedThrough + 1) throw new Error(`terminal_input_gap: Expected clientSeq ${acceptedThrough + 1}`);
     if (seq > acceptedThrough) {
@@ -276,7 +312,8 @@ async function mountDurablePane() {
         replayFromSeq: 1,
         outputSeq: 0,
       });
-      if (daemonGeneration === 8) {
+      if (daemonGeneration !== hostGeneration) {
+        hostGeneration = daemonGeneration;
         acceptedThrough = 0;
         output(1, "after\n");
       }
@@ -299,7 +336,12 @@ describe("terminal split panes (PLT-TerminalWorkspace W1)", () => {
     expect(terminal.dataset.output).toBe("before\nafter\n");
     await type("c");
     await type("d");
-    expect(input.mock.calls.map(([payload]) => payload.clientSeq)).toEqual([1, 2, 1, 2]);
+    expect(input.mock.calls.map(([payload]) => [payload.daemonGeneration, payload.clientSeq])).toEqual([
+      [7, 1],
+      [7, 2],
+      [8, 1],
+      [8, 2],
+    ]);
     expect(writes).toEqual(["a", "b", "c", "d"]);
   });
 
@@ -326,6 +368,133 @@ describe("terminal split panes (PLT-TerminalWorkspace W1)", () => {
     ]);
     expect(writes).toEqual(["a", "b", "c", "d"]);
   });
+
+  // dec_89D06D7360CBEC09795F7B12EC/CH3: the same pane and real transport must recover after
+  // the old host emits its end frame, and an already-issued unary request must keep its old generation.
+  it.each(["Electron", "Browser"])(
+    "recovers a mounted %s pane across graceful terminal host shutdown",
+    async (client) => {
+      // Use the Node loader for the real servers. The renderer's Vite worker transform
+      // treats PGlite's dynamically resolved worker URL as a browser asset.
+      const loadNode = createRequire(import.meta.url);
+      const { startTerminalRestartFixture } = loadNode(
+        "../../daemon/test/fixtures/terminal-restart.ts",
+      ) as typeof import("../../daemon/test/fixtures/terminal-restart.ts");
+      const { startBrowserGuiFixture } = loadNode(
+        "../../cli/test/gui-browser-broker.fixture.ts",
+      ) as typeof import("../../cli/test/gui-browser-broker.fixture.ts");
+      const fixture = await startTerminalRestartFixture("repo-a");
+      const release = Promise.withResolvers<void>();
+      let held = false,
+        staleReply: unknown;
+      const hold = async (method: string, params: unknown): Promise<boolean> => {
+        if (method !== "repo.terminal.input" || (params as { payload: Row }).payload.utf8 !== "b") return false;
+        held = true;
+        await release.promise;
+        return true;
+      };
+      for (const [name, value] of Object.entries(fixture.env)) vi.stubEnv(name, value);
+      vi.stubEnv("HARNESS_EXECUTION_CREDENTIAL", undefined);
+      vi.stubEnv("HARNESS_DAEMON_RELAY", undefined);
+      vi.stubEnv("HARNESS_GUI_READONLY_DAEMON_USER_ROOT", undefined);
+      const previousUrl = window.location.href,
+        dom = (window as unknown as TestWindow).happyDOM;
+      let broker: Awaited<ReturnType<typeof startBrowserGuiFixture>> | undefined;
+      try {
+        if (client === "Electron") {
+          const { createLocalGuiServiceBridge } = loadNode(
+            "../src/main/local-composition-root.ts",
+          ) as typeof import("../src/main/local-composition-root.ts");
+          const bridge = createLocalGuiServiceBridge();
+          const harness: Window["harness"] = {
+            request: async (method, params) => {
+              const delayed = await hold(method, params);
+              const result = await bridge.invoke(method, params as Parameters<GuiServiceBridge["invoke"]>[1]);
+              if (delayed) staleReply = result;
+              return result;
+            },
+            subscribe: (method, params, onValue, onError) => {
+              const controller = new AbortController();
+              void bridge
+                .stream(method, params as Parameters<GuiServiceBridge["stream"]>[1], onValue, controller.signal)
+                .catch(onError);
+              return () => controller.abort();
+            },
+          };
+          Object.defineProperty(window, "harness", { configurable: true, value: harness });
+        } else {
+          broker = await startBrowserGuiFixture(
+            fixture.parent,
+            fixture.rootDir,
+            "<!doctype html><title>Terminal restart</title>",
+          );
+          const url = new URL(broker.url);
+          dom.setURL(url.href);
+          vi.stubGlobal("fetch", async (resource: string, init: RequestInit) => {
+            const call = JSON.parse(String(init.body)) as { method: string; params: unknown };
+            const delayed = await hold(call.method, call.params);
+            const response = await fetchBrowserBroker(new URL(resource, url), init);
+            if (delayed) staleReply = await response.clone().json();
+            return response;
+          });
+        }
+
+        mountView();
+        const expectOutput = (value: string) =>
+          expect
+            .poll(
+              async () => {
+                await flush();
+                return panes()[0]?.querySelector<HTMLElement>('[data-testid="terminal-pane"]')?.dataset.output;
+              },
+              { timeout: 8_000 },
+            )
+            .toBe(value);
+        await expectOutput("");
+        const [pane] = panes();
+        expect(pane.dataset.sessionId).toBe(fixture.sessionId);
+        const terminal = pane.querySelector<HTMLElement>('[data-testid="terminal-pane"]')!;
+        const type = (key: string) =>
+          act(async () => {
+            terminal.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+          });
+        await expect.poll(() => terminal.dataset.interactive, { timeout: 8_000 }).toBe("true");
+        await type("a");
+        await expectOutput("a");
+        await type("b");
+        await expect.poll(() => held).toBe(true);
+        await act(async () => fixture.restart());
+        await expectOutput("areattached:");
+        expect(panes()[0]).toBe(pane);
+        expect(fixture.attached).toMatchObject([
+          { generation: 7, afterSeq: 0 },
+          { generation: 8, afterSeq: 1, daemonGeneration: 7 },
+        ]);
+        await type("c");
+        await expectOutput("areattached:c");
+        release.resolve();
+        await expect
+          .poll(() => staleReply)
+          .toMatchObject({ ok: false, error: { code: "terminal_generation_mismatch" } });
+        await type("d");
+        await expectOutput("areattached:cd");
+        expect(fixture.writes).toEqual([
+          { generation: 7, utf8: "a" },
+          { generation: 8, utf8: "c" },
+          { generation: 8, utf8: "d" },
+        ]);
+      } finally {
+        release.resolve();
+        if (root) act(() => root!.unmount());
+        root = null;
+        await broker?.close();
+        await fixture.close();
+        window.sessionStorage.clear();
+        dom.setURL(previousUrl);
+      }
+    },
+    25_000,
+  );
 
   it("splits inside the active tab instead of opening a second tab", async () => {
     const { bridge } = stubBridge([sessionRow()]);
@@ -627,6 +796,7 @@ describe("terminal split panes (PLT-TerminalWorkspace W1)", () => {
     expect(bridge.sendTerminalInput).toHaveBeenCalledWith({
       repoId: "repo-a",
       sessionId: "s-restore",
+      daemonGeneration: 7,
       clientSeq: 1,
       utf8: "pasted input",
     });

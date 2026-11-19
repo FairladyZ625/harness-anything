@@ -3788,10 +3788,10 @@
       {
         "id": "daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateNamedActionPayload",
         "symbol": "packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateNamedActionPayload",
-        "explain": "Closed JSON-RPC request envelope validator for `repo.gui.action` command dispatch requests before handing inputs to kernel/application command handlers.",
+        "explain": "Closed parameter validation for named RPC actions, including the terminal input generation and sequence.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateNamedActionPayload:8cd55ddbffab5772b41dfe9174f72910",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateNamedActionPayload:43665ad0e0e19db93c16af0c9bf828e4",
             "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateNamedActionPayload"
           }
         ]

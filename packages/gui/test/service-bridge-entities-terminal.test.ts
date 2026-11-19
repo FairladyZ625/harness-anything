@@ -419,6 +419,7 @@ test(
         scopedRpcParams("repo.terminal.input", {
           ...scope,
           sessionId,
+          daemonGeneration: initial?.daemonGeneration,
           clientSeq: 1,
           utf8: "echo GUI_S3_R2_PTY\r",
         }),

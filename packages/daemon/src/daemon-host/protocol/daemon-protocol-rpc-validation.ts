@@ -488,8 +488,11 @@ export function validateNamedActionPayload(method: DaemonGuiActionMethod, value:
     (!exactCwd(value.cwd) || !["direct-pty", "tmux"].includes(String(value.backend)))
   )
     errors.push("terminal spawn request is invalid");
-  if (method === "repo.terminal.input" && (!integer(value.clientSeq) || Number(value.clientSeq) < 0))
-    errors.push("terminal input sequence is invalid");
+  if (
+    method === "repo.terminal.input" &&
+    ![value.clientSeq, value.daemonGeneration].every((field) => Number.isSafeInteger(field) && Number(field) >= 0)
+  )
+    errors.push("terminal input sequence and daemon generation must be nonnegative safe integers");
   if (
     method === "repo.terminal.resize" &&
     (![value.cols, value.rows].every(integer) ||

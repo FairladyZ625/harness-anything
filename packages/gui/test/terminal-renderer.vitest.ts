@@ -240,7 +240,7 @@ describe("terminal renderer control", () => {
       ),
     });
     await terminalClient.list("repo-a");
-    await terminalClient.input("repo-a", "terminal-a", 4, "ls\n");
+    await terminalClient.input("repo-a", "terminal-a", 7, 4, "ls\n");
     await terminalClient.resize("repo-a", "terminal-a", 120, 40);
     await terminalClient.detach("repo-a", "terminal-a", "attach-a");
     await terminalClient.terminate("repo-a", "terminal-a", true);
@@ -248,7 +248,10 @@ describe("terminal renderer control", () => {
       ["repo.terminal.sessions.list", { repo: { repoId: "repo-a" } }],
       [
         "repo.terminal.input",
-        { repo: { repoId: "repo-a" }, payload: { sessionId: "terminal-a", clientSeq: 4, utf8: "ls\n" } },
+        {
+          repo: { repoId: "repo-a" },
+          payload: { sessionId: "terminal-a", daemonGeneration: 7, clientSeq: 4, utf8: "ls\n" },
+        },
       ],
       [
         "repo.terminal.resize",

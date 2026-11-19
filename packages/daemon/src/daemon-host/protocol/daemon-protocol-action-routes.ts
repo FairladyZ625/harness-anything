@@ -356,7 +356,7 @@ export const daemonActionRoutes = Object.freeze([
     "terminal.input",
     "repo.terminal.input",
     "terminal-input",
-    shape({ sessionId: "string", clientSeq: "number", utf8: "string" }),
+    shape({ sessionId: "string", daemonGeneration: "number", clientSeq: "number", utf8: "string" }),
     { outputSchemaId: TERMINAL_INPUT_ACK_SCHEMA.id },
   ),
   actionRpc(

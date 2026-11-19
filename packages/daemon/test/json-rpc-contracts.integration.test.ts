@@ -53,6 +53,19 @@ test("edge invitation fields cross the shared daemon.rbac.manage wire contract",
   });
   assert.equal(result.ok, true, result.ok ? "" : result.errors.join("; "));
 });
+
+// dec_89D06D7360CBEC09795F7B12EC/CH3: every terminal input sequence belongs to its attach generation.
+test("repo.terminal.input requires a nonnegative safe daemon generation in the closed payload", () => {
+  const base = { sessionId: "terminal-a", clientSeq: 1, utf8: "x" };
+  const check = (payload: unknown) =>
+    parseDaemonRpcParams("repo.terminal.input", { repo: { repoId: "alpha" }, payload });
+  assert.equal(check({ ...base, daemonGeneration: 7 }).ok, true);
+  assert.equal(check(base).ok, false);
+  for (const daemonGeneration of [-1, 7.5, Number.MAX_SAFE_INTEGER + 1, "7", null])
+    assert.equal(check({ ...base, daemonGeneration }).ok, false, JSON.stringify(daemonGeneration));
+  assert.equal(check({ ...base, daemonGeneration: 7, clientSeq: -1 }).ok, false);
+  assert.equal(check({ ...base, daemonGeneration: 7, unexpected: true }).ok, false);
+});
 // prettier-ignore
 
 test("JSON-RPC failures retain the underlying fetch cause in the CLI rejection explanation", async () => {
@@ -273,7 +286,7 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["repo.agentRuntime.cancel", { runtimeSessionId: "runtime-session-a" }],
     ["repo.agentRuntime.steer", { runtimeSessionId: "runtime-session-a", prompt: "Adjust course." }],
     ["repo.terminal.spawn", { idempotencyKey: "terminal-once", backend: "direct-pty", name: "Shell", cwd: { scope: "repo-root" }, shellProfileId: "default" }],
-    ["repo.terminal.input", { sessionId: "terminal-a", clientSeq: 1, utf8: "pwd\n" }],
+    ["repo.terminal.input", { sessionId: "terminal-a", daemonGeneration: 7, clientSeq: 1, utf8: "pwd\n" }],
     ["repo.terminal.resize", { sessionId: "terminal-a", cols: 100, rows: 30 }],
     ["repo.terminal.detach", { sessionId: "terminal-a", attachmentId: "attachment-a" }],
     ["repo.terminal.terminate", { sessionId: "terminal-a", confirmed: true }]

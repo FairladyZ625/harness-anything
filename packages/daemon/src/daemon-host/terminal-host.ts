@@ -74,8 +74,8 @@ type Subscriber = {
   readonly id: string;
   readonly queue: Frame[];
   bytes: number;
-  waiter: ((frame: Frame | null) => void) | null;
-  closed: boolean;
+  waiter: { readonly resolve: (frame: Frame | null) => void; readonly reject: (error: Error) => void } | null;
+  end: "closed" | Error | null;
 };
 type OpenTerminalHostInput = {
   readonly repoId: string;
@@ -221,7 +221,7 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
         "TMUX is unavailable; this durable session cannot be attached right now.",
       );
     const attachmentId = `attach_${randomUUID()}`;
-    const subscriber: Subscriber = { id: attachmentId, queue: [], bytes: 0, waiter: null, closed: false };
+    const subscriber: Subscriber = { id: attachmentId, queue: [], bytes: 0, waiter: null, end: null };
     const reset =
       (daemonGeneration !== undefined && daemonGeneration !== input.daemonGeneration) || afterSeq > session.outputSeq;
     const resumeSeq = reset ? 0 : afterSeq;
@@ -307,6 +307,11 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
     attach,
     input: (payload) => {
       const session = requiredSession(requiredTerminalText(payload.sessionId, "sessionId"));
+      if (payload.daemonGeneration !== input.daemonGeneration)
+        throw terminalHostError(
+          "terminal_generation_mismatch",
+          "Terminal input belongs to a different daemon generation.",
+        );
       const clientSeq = positiveInteger(payload.clientSeq, "clientSeq");
       const utf8 = requiredTerminalText(payload.utf8, "utf8");
       if (isExitedSession(session)) throw terminalHostError("terminal_exited", "Terminal session has exited.");
@@ -376,9 +381,14 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
       return control("applied", session.sessionId, "exited", `${session.sessionId}:terminate`);
     },
     close: async () => {
-      const drains: Promise<void>[] = [];
+      const drains: Promise<void>[] = [],
+        interruption = terminalHostError(
+          "daemon_stopping",
+          "The daemon is stopping; the tmux session can be reattached.",
+        );
       for (const session of sessions.values()) {
-        for (const subscriber of session.subscribers.values()) detachSubscriber(session, subscriber);
+        const cause = session.durability === "daemon-restart" && isRunningSession(session) ? interruption : undefined;
+        for (const subscriber of session.subscribers.values()) detachSubscriber(session, subscriber, cause);
         const child = session.child,
           exited = session.childExited;
         session.child = null;
@@ -655,11 +665,11 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
     });
   }
   function push(subscriber: Subscriber, item: Frame): void {
-    if (subscriber.closed) return;
+    if (subscriber.end) return;
     if (subscriber.waiter) {
       const waiter = subscriber.waiter;
       subscriber.waiter = null;
-      waiter(item);
+      waiter.resolve(item);
       return;
     }
     subscriber.queue.push(item);
@@ -698,21 +708,22 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
 }
 
 function next(subscriber: Subscriber): Promise<Frame | null> {
-  if (subscriber.closed) return Promise.resolve(null);
+  if (subscriber.end) return subscriber.end === "closed" ? Promise.resolve(null) : Promise.reject(subscriber.end);
   const item = subscriber.queue.shift();
   if (item) {
     subscriber.bytes -= frameSize(item);
     return Promise.resolve(item);
   }
-  return new Promise((resolve) => {
-    subscriber.waiter = resolve;
+  return new Promise((resolve, reject) => {
+    subscriber.waiter = { resolve, reject };
   });
 }
-function detachSubscriber(session: Session, subscriber: Subscriber): void {
-  if (subscriber.closed) return;
-  subscriber.closed = true;
+function detachSubscriber(session: Session, subscriber: Subscriber, cause?: Error): void {
+  if (subscriber.end) return;
+  subscriber.end = cause ?? "closed";
   session.subscribers.delete(subscriber.id);
-  subscriber.waiter?.(null);
+  if (cause) subscriber.waiter?.reject(cause);
+  else subscriber.waiter?.resolve(null);
   subscriber.waiter = null;
 }
 function terminalSessionRow(session: Session): TerminalSessionRow {

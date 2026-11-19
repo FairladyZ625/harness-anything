@@ -152,6 +152,16 @@ async function mount(
   const listeners = new Map<string, (frame: TerminalStreamFrame) => void>();
   const attach = vi.spyOn(terminalClient, "attach").mockImplementation((_repo, id, _seq, callback) => {
     listeners.set(id, callback);
+    callback({
+      schema: "terminal-attach/v1",
+      ok: true,
+      sessionId: id,
+      attachmentId: `attach-${id}`,
+      daemonGeneration: 1,
+      status: "attached",
+      replayFromSeq: 1,
+      outputSeq: 0,
+    });
     return () => listeners.delete(id);
   });
   const spawn = vi.spyOn(terminalClient, "spawn");
@@ -348,7 +358,7 @@ describe("provider authentication terminal bridge (dec_DA1602487428A58E8B446ECE3
         );
         textarea.dispatchEvent(new Event("input", { bubbles: true }));
       });
-      await settled(() => expect(input).toHaveBeenCalledWith(repoId, sessionId, 1, "fixture-oauth-code"));
+      await settled(() => expect(input).toHaveBeenCalledWith(repoId, sessionId, 1, 1, "fixture-oauth-code"));
       rows[1] = { ...rows[1], status: "exited", attachable: false, exitCode: 0 };
       await act(async () =>
         listeners.get(sessionId)!({

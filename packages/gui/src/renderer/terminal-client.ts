@@ -50,10 +50,15 @@ export const terminalClient = {
       (value) => onValue(attachValue(value)),
       onError,
     ),
-  input: async (repoId: string, sessionId: string, clientSeq: number, utf8: string): Promise<number> => {
-    const result: unknown = await invoke("repo.terminal.input", { repoId, sessionId, clientSeq, utf8 } as {
-      readonly repoId: string;
-    } & object);
+  input: async (
+    repoId: string,
+    sessionId: string,
+    daemonGeneration: number,
+    clientSeq: number,
+    utf8: string,
+  ): Promise<number> => {
+    const payload = { repoId, sessionId, daemonGeneration, clientSeq, utf8 };
+    const result: unknown = await invoke("repo.terminal.input", payload);
     if (
       !isRendererRecord(result) ||
       result.schema !== "terminal-input-ack/v1" ||
@@ -114,6 +119,7 @@ function attachValue(value: unknown): TerminalAttachInitial | TerminalStreamFram
     value.schema === "terminal-attach/v1" &&
     value.ok === true &&
     typeof value.attachmentId === "string" &&
+    Number.isSafeInteger(value.daemonGeneration) &&
     Number.isSafeInteger(value.outputSeq)
   )
     return value as unknown as TerminalAttachInitial;

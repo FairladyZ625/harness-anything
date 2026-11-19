@@ -241,12 +241,8 @@ export function TerminalView({
             if (initial) {
               const previous = terminalInputs.current.get(row.sessionId);
               // A restored tmux session keeps its id but starts a new input sequence.
-              if (
-                previous &&
-                (previous.daemonGeneration === undefined || previous.daemonGeneration === value.daemonGeneration)
-              )
-                previous.daemonGeneration = value.daemonGeneration;
-              else terminalInputs.current.set(row.sessionId, newTerminalInput(value.daemonGeneration));
+              if (previous?.daemonGeneration !== value.daemonGeneration)
+                terminalInputs.current.set(row.sessionId, newTerminalInput(value.daemonGeneration));
             } else if (value.kind === "exit" && !exitedSessions.current.has(row.sessionId)) {
               exitedSessions.current.add(row.sessionId);
               onSessionExitRef.current?.(row.sessionId);
@@ -474,12 +470,18 @@ export function TerminalView({
   );
   const send = useCallback(
     (sessionId: string, utf8: string) => {
-      const input = terminalInputs.current.get(sessionId) ?? newTerminalInput();
-      terminalInputs.current.set(sessionId, input);
+      const input = terminalInputs.current.get(sessionId);
+      if (!input) return;
       input.tail = input.tail
         .then(async () => {
           if (terminalInputs.current.get(sessionId) !== input) return;
-          input.acceptedThrough = await terminalClient.input(repoId, sessionId, input.acceptedThrough + 1, utf8);
+          input.acceptedThrough = await terminalClient.input(
+            repoId,
+            sessionId,
+            input.daemonGeneration,
+            input.acceptedThrough + 1,
+            utf8,
+          );
         })
         .catch((cause: unknown) => {
           consumeKnownError(cause);
@@ -603,6 +605,7 @@ export function TerminalView({
   const paneActions = useMemo<TerminalPaneActions>(
     () => ({
       session: (sessionId) => tabs.find((tab) => tab.sessionId === sessionId) ?? null,
+      canInput: (sessionId) => terminalInputs.current.has(sessionId),
       focusedPanelId,
       focusRequestId: attachedRequestId,
       confirmSessionId: confirmId,
@@ -789,7 +792,7 @@ function isInitial(
 ): value is TerminalAttachInitial {
   return value.schema === "terminal-attach/v1";
 }
-function newTerminalInput(daemonGeneration?: number) {
+function newTerminalInput(daemonGeneration: number) {
   return { daemonGeneration, acceptedThrough: 0, tail: Promise.resolve() };
 }
 function message(value: unknown): string {
