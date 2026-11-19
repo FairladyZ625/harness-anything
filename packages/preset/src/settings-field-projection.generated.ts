@@ -466,8 +466,7 @@ export const settingsFieldProtocolProjection = {
       field: "decisionsProvider",
       description: "Decisions provider used by enabled advisory decision points.",
       group: "decisions",
-      effect:
-        "Only the named provider may receive enabled decision-point inputs; unset selects the first enabled provider on this node.",
+      effect: "Named provider receives decision-point inputs; unset uses the first enabled provider on this node.",
       name: "--decisions-provider",
       kind: "single",
       regex: "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$",
