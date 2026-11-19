@@ -46,7 +46,21 @@ test("canonical Work, edge and Pin events produce a member's brief before and af
                 ...task,
                 title,
                 taskClass: taskId === "shared-work" ? "work" : "standard",
-                metadata: { ...task.metadata, parentTaskId: taskId === "shared-work" ? null : "shared-work" },
+                metadata: {
+                  idempotencyKey: null,
+                  parentTaskId: taskId === "shared-work" ? null : "shared-work",
+                  workKind: null,
+                  riskTier: null,
+                  urgency: null,
+                  verticalId: "software",
+                  presetId: "standard-task",
+                  profileId: "baseline",
+                  moduleKey: null,
+                  slug: taskId,
+                  surfaces: [],
+                  fromLegacyId: null,
+                  ...task.metadata,
+                },
               },
             },
           } as TaskEventV1;
@@ -80,6 +94,7 @@ test("canonical Work, edge and Pin events produce a member's brief before and af
           now: () => new Date("2026-08-12T00:00:00.000Z"),
           agendaPage: () => ({ awaitingYou: [], page: { limit: 500, cursor: null, nextCursor: null } }),
         }).briefs;
+      assert.equal(workIndexFromProjection(projection).works[0]?.counts.executing, 1);
       assert.deepEqual(
         index.works.map((work) => [work.taskId, work.counts.executing, work.counts.done]),
         [["shared-work", 0, 1]],
