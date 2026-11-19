@@ -62,7 +62,7 @@ type Subscriber = {
   cursor: number;
   wake: (() => void) | null;
   readonly cancelled: () => boolean;
-  readonly release: () => void;
+  readonly detach: () => void;
 };
 
 export function makeAgentRuntimeStreamHub(input: {
@@ -130,12 +130,12 @@ export function makeAgentRuntimeStreamHub(input: {
       } as const;
       if (outcome !== null) return { initial, next: async () => null, detach: () => undefined };
       let detached = false;
-      const detach = () => {
+      const cancel = () => {
         detached = true;
-        release();
+        detach();
       };
-      const release = () => {
-        signal?.removeEventListener("abort", detach);
+      const detach = () => {
+        signal?.removeEventListener("abort", cancel);
         state.subscribers.delete(subscriber);
         subscriber.wake?.();
       };
@@ -143,14 +143,14 @@ export function makeAgentRuntimeStreamHub(input: {
         cursor: cursor.seq,
         wake: null,
         cancelled: () => detached || signal?.aborted === true,
-        release,
+        detach,
       };
       state.subscribers.add(subscriber);
-      signal?.addEventListener("abort", detach, { once: true });
+      signal?.addEventListener("abort", cancel, { once: true });
       return {
         initial,
         next: () => nextEvent(runtimeSessionId, state, subscriber, isClosed, now),
-        detach,
+        detach: cancel,
       };
     },
     publish: (runtimeSessionId, signal) => {
@@ -195,7 +195,7 @@ export function makeAgentRuntimeStreamHub(input: {
     },
     close: () => {
       closed = true;
-      for (const state of streams.values()) for (const subscriber of state.subscribers) subscriber.release();
+      for (const state of streams.values()) for (const subscriber of state.subscribers) subscriber.detach();
       streams.clear();
       tokens.clear();
     },

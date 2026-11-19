@@ -151,8 +151,7 @@ export async function consumeDaemonStream(input: {
     // Attach refusals from a draining daemon can persist through shutdown and successor startup.
     // The first stopping signal opens one bounded handoff window, including subsequent socket gaps.
     if (error.code === "daemon_stopping") handoffUntil ??= performance.now() + shutdownHandoffMs;
-    const remaining = handoffUntil === undefined ? undefined : Math.ceil(handoffUntil - performance.now());
-    const delay = clientRetryDelay(attempts, undefined, remaining);
+    const delay = clientRetryDelay(attempts, undefined, handoffUntil);
     if (delay === null) throw new DaemonStreamLostError(error.message, attempts);
     attempts += 1;
     await (input.wait ?? waitForRetry)(delay, input.signal);
