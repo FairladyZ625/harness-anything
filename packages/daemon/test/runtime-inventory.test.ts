@@ -226,6 +226,7 @@ test("Codex resume refuses an argv it cannot express without throwing", () => {
 function codexLaunchArgs(
   mode: "bypass" | "workspace-write" | "read-only",
   callbackRelayPath?: string,
+  writableRoots: readonly string[] = [],
 ): readonly string[] {
   return launchArgs(
     {
@@ -249,6 +250,11 @@ function codexLaunchArgs(
     mode,
     false,
     callbackRelayPath,
+    process.platform,
+    [],
+    [],
+    undefined,
+    writableRoots,
   );
 }
 
@@ -375,6 +381,24 @@ test("Codex callback socket grant is emitted once for fresh and resume with work
     false,
   );
   assert.deepEqual(codexResumeArgs(resumed), resumed, "steering an already resumed session keeps one grant");
+
+  const linkedRoots = ["/repo/.git/worktrees/wt-1", "/repo/.git"],
+    legacyFreshWt = codexLaunchArgs("workspace-write", undefined, linkedRoots),
+    legacyResumedWt = codexResumeArgs(legacyFreshWt),
+    relayFreshWt = codexLaunchArgs("workspace-write", relayPath, linkedRoots),
+    relayResumedWt = codexResumeArgs(relayFreshWt);
+  assert.ok(
+    legacyResumedWt.includes('sandbox_workspace_write.writable_roots=["/repo/.git/worktrees/wt-1","/repo/.git"]'),
+  );
+  assert.equal(legacyResumedWt.includes("--sandbox"), false);
+  assert.ok(legacyResumedWt.includes('sandbox_mode="workspace-write"'));
+  assert.deepEqual(codexResumeArgs(legacyResumedWt), legacyResumedWt);
+  assert.ok(
+    relayResumedWt.includes(
+      'permissions.harness-callback-relay.filesystem={":slash_tmp"="deny",":tmpdir"="deny","/repo/.git/worktrees/wt-1"="write","/repo/.git"="write"}',
+    ),
+  );
+  assert.deepEqual(codexResumeArgs(relayResumedWt), relayResumedWt);
 });
 
 // The shape above is only correct if the real subcommand parser accepts it. `--help` is the
@@ -395,6 +419,19 @@ test(
         accepted.status,
         0,
         `${mode} resume argv must parse: ${accepted.stderr.split("\n")[0] ?? ""} :: ${JSON.stringify(resumed)}`,
+      );
+    }
+    const linkedRoots = ["/repo/.git/worktrees/wt-1", "/repo/.git"],
+      relayPath = "/tmp/harness-anything-501/r-0123456789abcdef01234567.sock";
+    for (const resumed of [
+      codexResumeArgs(codexLaunchArgs("workspace-write", undefined, linkedRoots)),
+      codexResumeArgs(codexLaunchArgs("workspace-write", relayPath, linkedRoots)),
+    ]) {
+      const accepted = spawnSync(binary, [...resumed, "--help"], { encoding: "utf8", env: codexProbeEnvironment() });
+      assert.equal(
+        accepted.status,
+        0,
+        `linked worktree resume argv must parse: ${accepted.stderr.split("\n")[0] ?? ""} :: ${JSON.stringify(resumed)}`,
       );
     }
     // Negative control: the shape the first iteration produced. If the CLI ever starts accepting

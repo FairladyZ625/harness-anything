@@ -852,6 +852,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                     : null;
                 prepared = await input.prepareLaunch(runtimeInstanceId, {
                   cwd,
+                  repoRoot: input.rootDir,
                   prompt,
                   ...(selectedModel ? { model: selectedModel } : {}),
                   ...(selectedEffort ? { effort: selectedEffort } : {}),

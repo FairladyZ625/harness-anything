@@ -282,6 +282,7 @@ export interface RepoWriterInputPorts {
     instanceId: string,
     request: {
       readonly cwd: string;
+      readonly repoRoot?: string;
       readonly prompt: string;
       readonly model?: string;
       readonly effort?: string;
