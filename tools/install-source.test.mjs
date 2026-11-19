@@ -16,10 +16,12 @@ const otherSha = "b".repeat(40);
 
 const gitStub = `#!/bin/sh
 printf 'git %s\\n' "$*" >> "$STUB_GIT_LOG"
+http_retry=0
+if [ "$1" = "-c" ]; then http_retry=1; shift 2; fi
 if [ "$1" = "-C" ]; then shift 2; fi
 case "$1" in
   pull)
-    if [ "\${STUB_PULL:-fail}" = fail ]; then
+    if [ "\${STUB_PULL:-fail}" = fail ] || { [ "\${STUB_PULL:-fail}" = retry ] && [ "$http_retry" = 0 ]; }; then
       printf '%s\\n' "fatal: unable to access 'https://github.com/FairladyZ625/harness-anything.git/': Failed to connect to github.com port 443 after 75002 ms: Could not connect to server" >&2
       exit 128
     fi
@@ -28,9 +30,26 @@ case "$1" in
   rev-parse)
     shift
     case "$1" in
-      --verify) printf '%s\\n' "\${STUB_RESOLVED:-${headSha}}" ;;
+      --verify)
+        if [ "\${STUB_RESOLVED:-}" = missing ]; then exit 128; fi
+        printf '%s\\n' "\${STUB_RESOLVED:-${headSha}}"
+        ;;
       *) printf '%s\\n' "\${STUB_HEAD:-1111111111111111111111111111111111111111}" ;;
     esac
+    exit 0
+    ;;
+  fetch)
+    if [ "\${STUB_FETCH:-ok}" = fail ] || { [ "\${STUB_FETCH:-ok}" = retry ] && [ "$http_retry" = 0 ]; }; then exit 128; fi
+    exit 0
+    ;;
+  status)
+    if [ "\${STUB_DIRTY:-}" = 1 ]; then printf '%s\\n' ' M package.json'; fi
+    exit 0
+    ;;
+  clone)
+    target=
+    for argument in "$@"; do target=$argument; done
+    mkdir -p "$target/.git"
     exit 0
     ;;
 esac
@@ -103,52 +122,69 @@ test("default install still pulls when the remote is reachable", { skip: skipOnW
   });
 });
 
+test("pull retries over HTTP/1.1 after the default Git transport fails", { skip: skipOnWindows }, () => {
+  withFixture((fixture) => {
+    const result = runInstall(fixture, [], { STUB_PULL: "retry" });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(readLines(fixture.gitLog).slice(0, 2), [
+      `git -C ${fixture.installRoot} pull --ff-only`,
+      `git -c http.version=HTTP/1.1 -C ${fixture.installRoot} pull --ff-only`,
+    ]);
+  });
+});
+
 test("pull failure without offline evidence stops before building and explains why", { skip: skipOnWindows }, () => {
   withFixture((fixture) => {
     const result = runInstall(fixture, []);
 
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /Cannot update .* from https:\/\/github\.com\/FairladyZ625\/harness-anything\.git/u);
-    assert.match(result.stderr, /rerun with --offline/u);
+    assert.match(result.stderr, /Cannot update .*rerun with --offline/u);
     assert.deepEqual(readLines(fixture.npmLog), []);
   });
 });
 
-test(
-  "pull failure continues when --ref proves the checkout is already the requested commit",
-  { skip: skipOnWindows },
-  () => {
-    withFixture((fixture) => {
-      const result = runInstall(fixture, ["--ref", headSha], { STUB_HEAD: headSha, STUB_RESOLVED: headSha });
-
-      assert.equal(result.status, 0, result.stderr);
-      assert.match(result.stderr, /Pull failed, but .* is already at a{40}; continuing with the local source/u);
-      assert.equal(readLines(fixture.npmLog)[0], "npm ci");
-    });
-  },
-);
-
-test("pull failure with a different --ref stops before building", { skip: skipOnWindows }, () => {
+test("--ref skips pull when the checkout already has the requested commit", { skip: skipOnWindows }, () => {
   withFixture((fixture) => {
-    const result = runInstall(fixture, ["--ref", otherSha], { STUB_HEAD: headSha, STUB_RESOLVED: otherSha });
+    const result = runInstall(fixture, ["--ref", headSha], { STUB_HEAD: headSha, STUB_RESOLVED: headSha });
 
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, new RegExp(`local HEAD is ${headSha}`, "u"));
-    assert.deepEqual(readLines(fixture.npmLog), []);
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(readLines(fixture.gitLog).join("\n"), /pull/u);
+    assert.equal(readLines(fixture.npmLog)[0], "npm ci");
   });
 });
 
-test("--ref is enforced after a successful pull", { skip: skipOnWindows }, () => {
+test("--ref fetches and checks out a different clean commit", { skip: skipOnWindows }, () => {
   withFixture((fixture) => {
     const result = runInstall(fixture, ["--ref", otherSha], {
-      STUB_PULL: "ok",
+      STUB_HEAD: headSha,
+      STUB_RESOLVED: otherSha,
+      STUB_FETCH: "retry",
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const gitLines = readLines(fixture.gitLog);
+    assert.doesNotMatch(gitLines.join("\n"), /pull/u);
+    assert.deepEqual(gitLines.filter((line) => /fetch/u.test(line)).slice(-2), [
+      `git fetch --no-tags -- origin ${otherSha}`,
+      `git -c http.version=HTTP/1.1 fetch --no-tags -- origin ${otherSha}`,
+    ]);
+    assert.equal(gitLines.at(-1), `git checkout --detach ${otherSha}`);
+    assert.equal(readLines(fixture.npmLog)[0], "npm ci");
+  });
+});
+
+test("offline --ref mismatch stops before fetching or installing dependencies", { skip: skipOnWindows }, () => {
+  withFixture((fixture) => {
+    const result = runInstall(fixture, ["--offline", "--ref", otherSha], {
       STUB_HEAD: headSha,
       STUB_RESOLVED: otherSha,
     });
 
     assert.equal(result.status, 1);
-    assert.match(result.stderr, new RegExp(`--ref requires ${otherSha}`, "u"));
+    assert.match(result.stderr, new RegExp(`Offline install requires HEAD at ${otherSha}`, "u"));
     assert.deepEqual(readLines(fixture.npmLog), []);
+    assert.doesNotMatch(readLines(fixture.gitLog).join("\n"), /fetch|checkout/u);
   });
 });
 
@@ -195,6 +231,87 @@ test(
   },
 );
 
+test("dirty --ref install stops before fetching or installing dependencies", { skip: skipOnWindows }, () => {
+  withFixture((fixture) => {
+    const result = runInstall(fixture, ["--ref", otherSha], {
+      STUB_HEAD: headSha,
+      STUB_RESOLVED: otherSha,
+      STUB_DIRTY: "1",
+    });
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /has local changes/u);
+    assert.deepEqual(readLines(fixture.npmLog), []);
+    assert.doesNotMatch(readLines(fixture.gitLog).join("\n"), /fetch|checkout/u);
+  });
+});
+
+test("--ref keeps a locally resolved commit when fetch retries are exhausted", { skip: skipOnWindows }, () => {
+  withFixture((fixture) => {
+    const result = runInstall(fixture, ["--ref", otherSha], {
+      STUB_HEAD: headSha,
+      STUB_RESOLVED: otherSha,
+      STUB_FETCH: "fail",
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stderr, new RegExp(`Using the local commit ${otherSha}`, "u"));
+    const gitLines = readLines(fixture.gitLog);
+    assert.equal(gitLines.filter((line) => /fetch/u.test(line)).length, 4);
+    assert.ok(gitLines.includes(`git checkout --detach ${otherSha}`));
+    assert.equal(readLines(fixture.npmLog)[0], "npm ci");
+  });
+});
+
+test("--ref stops after fetch retries when the requested commit is not local", { skip: skipOnWindows }, () => {
+  withFixture((fixture) => {
+    const result = runInstall(fixture, ["--ref", otherSha], {
+      STUB_HEAD: headSha,
+      STUB_RESOLVED: "missing",
+      STUB_FETCH: "fail",
+    });
+
+    assert.equal(result.status, 1);
+    const gitLines = readLines(fixture.gitLog);
+    assert.equal(gitLines.filter((line) => /fetch/u.test(line)).length, 4);
+    assert.doesNotMatch(gitLines.join("\n"), /checkout/u);
+    assert.deepEqual(readLines(fixture.npmLog), []);
+  });
+});
+
+test("Electron download retries the default source and falls back to npmmirror", { skip: skipOnWindows }, () => {
+  withFixture((fixture) => {
+    const result = runInstall(fixture, ["--offline"], { STUB_DEFAULT_ELECTRON_FAILURE: "1" });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(readLines(path.join(path.dirname(fixture.gitLog), "electron.log")), [
+      "mirror=<default>",
+      "mirror=<default>",
+      "mirror=<default>",
+      "mirror=<default>",
+      "mirror=https://npmmirror.com/mirrors/electron/",
+    ]);
+    assert.match(result.stderr, /Retrying with https:\/\/npmmirror\.com\/mirrors\/electron\//u);
+  });
+});
+
+test("Electron download failure preserves an explicitly selected mirror", { skip: skipOnWindows }, () => {
+  withFixture((fixture) => {
+    const result = runInstall(fixture, ["--offline"], {
+      ELECTRON_MIRROR: "https://mirror.example.invalid/",
+      STUB_CUSTOM_ELECTRON_FAILURE: "1",
+    });
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /failed with the configured mirror/u);
+    assert.deepEqual(readLines(path.join(path.dirname(fixture.gitLog), "electron.log")), [
+      "mirror=https://mirror.example.invalid/",
+      "mirror=https://mirror.example.invalid/",
+      "mirror=https://mirror.example.invalid/",
+      "mirror=https://mirror.example.invalid/",
+    ]);
+  });
+});
 test("installer supports root-level npm prefix entries produced on Windows", { skip: skipOnWindows }, () => {
   withFixture((fixture) => {
     const result = runInstall(fixture, ["--offline"], { STUB_WIN_PREFIX: "1" });
@@ -314,7 +431,14 @@ function createFixture(root) {
   mkdirSync(path.join(electronRoot, "dist"), { recursive: true });
   writeFileSync(path.join(electronRoot, "package.json"), '{"name":"electron","version":"0.0.0"}\n');
   writeFileSync(path.join(electronRoot, "path.txt"), "electron\n");
-  writeExecutable(path.join(electronRoot, "install.js"), "process.exit(0);\n");
+  writeExecutable(
+    path.join(electronRoot, "install.js"),
+    String.raw`const fs=require("node:fs");
+const mirror=process.env.ELECTRON_MIRROR||"";
+fs.appendFileSync(process.env.STUB_ELECTRON_LOG,"mirror="+(mirror||"<default>")+"\n");
+if(process.env.STUB_CUSTOM_ELECTRON_FAILURE==="1"||(process.env.STUB_DEFAULT_ELECTRON_FAILURE==="1"&&!mirror))process.exit(1);
+`,
+  );
   writeExecutable(path.join(electronRoot, "dist", "electron"), "#!/bin/sh\nexit 0\n");
   writeExecutable(path.join(binDir, "git"), gitStub);
   writeExecutable(path.join(binDir, "npm"), npmStub);
@@ -343,6 +467,7 @@ function runInstall(fixture, args, env = {}) {
       HARNESS_NPM_PREFIX: fixture.npmPrefix,
       STUB_GIT_LOG: fixture.gitLog,
       STUB_NPM_LOG: fixture.npmLog,
+      STUB_ELECTRON_LOG: path.join(path.dirname(fixture.gitLog), "electron.log"),
       STUB_NPM_PREFIX: fixture.npmPrefix,
       ...env,
     },

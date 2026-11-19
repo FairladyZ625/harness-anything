@@ -502,8 +502,28 @@ async function prepareJoinWorkspace(
       ...needsOrigin,
     };
   }
-  const addressFailure = await validateFleetOriginAddress(process.cwd(), originUrl, repository.defaultBranch);
-  if (addressFailure) return { ...addressFailure, ...needsOrigin };
+  const address = originUrl.trim();
+  if (!isSupportedFleetGitRemote(address))
+    return {
+      code: "edge_origin_invalid",
+      message: "Enter a valid HTTPS, SSH, Git, or local Git address and ensure the center default branch is available.",
+      ...needsOrigin,
+    };
+  const addressResult = await runProcessExitAsync(
+    "git",
+    ["ls-remote", "--exit-code", "--heads", "--", address, `refs/heads/${repository.defaultBranch}`],
+    process.cwd(),
+    { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    undefined,
+    undefined,
+    { timeoutMs: daemonProtocolFleetPolicy.defaultValue.fleet.edgeJoinAddressTimeoutMs },
+  ).catch(() => null);
+  if (!addressResult || addressResult.exitCode !== 0)
+    return {
+      code: "edge_origin_unreachable",
+      message: `Git could not reach the supplied address or find the center default branch ${repository.defaultBranch}. Check the address and repository read access, then retry.`,
+      ...needsOrigin,
+    };
   if (hasGit) {
     try {
       await runProcessTextAsync("git", ["-C", root, "remote", "add", "--", "origin", originUrl]);
@@ -545,34 +565,6 @@ function ensureCenterLayout(root: string, harnessYaml: string): void {
   if (existsSync(layout)) return;
   /* @gate-identity non-state/environment-io.983af9eb1df07bc2 */ mkdirSync(path.dirname(layout), { recursive: true });
   writeFileDurably(layout, harnessYaml);
-}
-
-async function validateFleetOriginAddress(
-  rootDir: string,
-  address: string,
-  defaultBranch: string | null,
-): Promise<{ readonly code: string; readonly message: string } | null> {
-  const trimmed = address.trim();
-  if (!defaultBranch || !isSupportedFleetGitRemote(trimmed))
-    return {
-      code: "edge_origin_invalid",
-      message: "Enter a valid HTTPS, SSH, Git, or local Git address and ensure the center default branch is available.",
-    };
-  const result = await runProcessExitAsync(
-    "git",
-    ["ls-remote", "--exit-code", "--heads", "--", trimmed, `refs/heads/${defaultBranch}`],
-    rootDir,
-    { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-    undefined,
-    undefined,
-    { timeoutMs: daemonProtocolFleetPolicy.defaultValue.fleet.edgeJoinAddressTimeoutMs },
-  ).catch(() => null);
-  if (!result || result.exitCode !== 0)
-    return {
-      code: "edge_origin_unreachable",
-      message: `Git could not reach the supplied address or find the center default branch ${defaultBranch}. Check the address and repository read access, then retry.`,
-    };
-  return null;
 }
 
 async function probeLoginAddress(authority: OidcLoginAuthority): Promise<void> {
