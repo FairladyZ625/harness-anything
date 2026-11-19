@@ -1,3 +1,4 @@
+import { readPgEntityOrigins, readPgPersonalPins } from "./pg-collaborator-projection.ts";
 import { prefixUpperBound } from "../projection/document-read-range.ts";
 import { documentPathAncestors } from "../projection/document-path-ancestors.ts";
 import { entityValueFilterEntries } from "../projection/entity-value-filter.ts";
@@ -117,10 +118,11 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
       );
   };
   return {
-    listEntities: (kind) =>
+    listEntities: (kind, withAttribution) =>
       read(async (client) => {
         await ready(client);
-        return listPgProjectionValues<EntityProjectionRow>(client, scope, `entity:${kind}`);
+        const rows = await listPgProjectionValues<EntityProjectionRow>(client, scope, `entity:${kind}`);
+        return kind === "todo" || withAttribution ? readPgEntityOrigins(client, options, kind, rows) : rows;
       }),
     countEntities: (kind, valueEquals) =>
       read(async (client) => {
@@ -151,10 +153,16 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
          AND (cardinality($6::text[])=0 OR readers && $6::text[]) ORDER BY workspace_revision DESC LIMIT 1`,
           [scope.tenantId, scope.projectId, scope.policyEpoch, `entity:${kind}`, id, readers],
         );
-        return row.rows[0] ? (JSON.parse(row.rows[0].value) as EntityProjectionRow) : null;
+        const entity = row.rows[0] ? (JSON.parse(row.rows[0].value) as EntityProjectionRow) : null;
+        if (kind !== "todo" || entity === null) return entity;
+        return (await readPgEntityOrigins(client, options, kind, [entity]))[0]!;
       }),
-    listPinnedEntities: () =>
+    listPinnedEntities: (personId) =>
       read(async (client) => {
+        if (personId !== undefined) {
+          const cut = await readCutInTransaction(client, scope, readers, repoId);
+          return readPgPersonalPins(client, options, personId, cut.watermark);
+        }
         await assertPgReadIndexReady(client, scope, "pin");
         const result = await client.query<{ value: string }>(
           `SELECT value FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
@@ -256,7 +264,7 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
     readArtifactTimelinePage: (query) =>
       read(async (client) => {
         const cut = await readCutInTransaction(client, scope, readers, repoId);
-        return { ...cut, ...(await readPgArtifactTimeline(client, scope, query)) };
+        return { ...cut, ...(await readPgArtifactTimeline(client, scope, query, repoId)) };
       }),
     readReplicaBasis: (after) =>
       read(async (client) => {

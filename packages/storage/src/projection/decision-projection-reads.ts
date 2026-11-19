@@ -1,3 +1,4 @@
+import { DEFAULT_DECISION_LIST_PAGE_SIZE } from "@harness-anything/kernel/internal/ports/decision-projection-model.ts";
 import type { DecisionDocumentState } from "@harness-anything/kernel";
 import type { DatabaseSync } from "node:sqlite";
 import type { SessionProvenanceV1 } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
@@ -393,7 +394,8 @@ function listDecisionRowsPageFromIndex(
   values: readonly (string | number)[],
 ): { readonly rows: readonly DecisionProjectionRow[]; readonly page?: ProjectionPage } {
   const paged = filters.limit !== undefined || filters.cursor !== undefined,
-    pageLimit = filters.limit === undefined ? (paged ? 100 : null) : checkedPageLimit(filters.limit),
+    pageLimit =
+      filters.limit === undefined ? (paged ? DEFAULT_DECISION_LIST_PAGE_SIZE : null) : checkedPageLimit(filters.limit),
     sqlLimit = pageLimit === null ? -1 : pageLimit + 1,
     cursorId = filters.cursor === undefined ? undefined : decodePageCursor(filters.cursor, 1)[0]!,
     cursorLegacyNumber = cursorId === undefined ? null : decisionLegacyNumber(cursorId),

@@ -201,6 +201,9 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
         if (query.actor !== undefined)
           add((parameter) => `event.actor_refs @> ARRAY[$${parameter}]::text[]`, query.actor);
         if (query.entity !== undefined) add((parameter) => `ref.entity_ref = $${parameter}`, query.entity);
+        if (query.actorPersonId !== undefined)
+          add((parameter) => `event.actor_person_id = $${parameter}`, query.actorPersonId);
+        if (query.nodeId !== undefined) add((parameter) => `event.fleet_node_id = $${parameter}`, query.nodeId);
         values.push(query.limit + 1);
         // A scalar ref/revision range drives entity pages, including bare-id suffixes. Return
         // only the stored descriptor: submission event_json can contain an entire artifact set.
@@ -267,6 +270,8 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
                  AND canonical_task_id = $6
                  AND (cardinality($5::text[]) = 0 OR readers && $5::text[])
                  AND revision > $7 AND revision <= $8
+                 AND ($10::text IS NULL OR actor_person_id=$10)
+                 AND ($11::text IS NULL OR fleet_node_id=$11)
                ORDER BY ha_events.revision DESC LIMIT $9`,
               [
                 claims.tenantId,
@@ -278,6 +283,8 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
                 afterRevision,
                 cut.watermark,
                 limit + 1,
+                fields.actorPersonId ?? null,
+                fields.nodeId ?? null,
               ],
             );
             selected.push(...result.rows.map(({ summary_json }) => parseDefaultEventSummaryRow(summary_json)));
@@ -521,10 +528,14 @@ export function pgTaskAttributionColumns(repoParameter: number): string {
   return `
     (SELECT fleet_node_id FROM ha_events e WHERE ${scope}
       AND event_type IN ('task_created','task_bootstrapped') ORDER BY revision LIMIT 1) AS origin_node_id,
+    (SELECT occurred_at FROM ha_events e WHERE ${scope}
+      AND event_type IN ('task_created','task_bootstrapped') ORDER BY revision LIMIT 1) AS origin_at,
     (SELECT fleet_node_id FROM ha_events e WHERE ${scope}
-      AND fleet_node_id IS NOT NULL ORDER BY revision DESC LIMIT 1) AS latest_node_id,
+      AND actor_person_id IS NOT NULL ORDER BY revision DESC LIMIT 1) AS latest_node_id,
     (SELECT actor_person_id FROM ha_events e WHERE ${scope} AND actor_person_id IS NOT NULL
-      ORDER BY revision DESC LIMIT 1) AS latest_person_id`;
+      ORDER BY revision DESC LIMIT 1) AS latest_person_id,
+    (SELECT occurred_at FROM ha_events e WHERE ${scope} AND actor_person_id IS NOT NULL
+      ORDER BY revision DESC LIMIT 1) AS latest_at`;
 }
 
 interface PgFleetHeaderRow {

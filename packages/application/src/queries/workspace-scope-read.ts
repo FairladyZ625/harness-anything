@@ -1,3 +1,9 @@
+import {
+  scopedPersonId,
+  taskMatchesCollaboratorActivity,
+  taskMatchesCollaboratorScope,
+  type CollaboratorScope,
+} from "@harness-anything/kernel/internal/domain/collaborator-scope.ts";
 import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import { taskPresentationReads } from "./task-presentation-read.ts";
 import { type TaskProjection, type TaskIndexProjectionRow, type TaskV2 } from "@harness-anything/kernel";
@@ -58,21 +64,25 @@ export type WorkspaceStructureRead = Omit<WorkspaceScopeRead, "eventSummaries" |
 /** The GUI scope read: the work's structure plus its newest event summaries on the first page. */
 export function workspaceScopeFromProjection(
   projection: TaskProjection,
-  input: { readonly rootTaskId: string; readonly limit?: number; readonly cursor?: string },
+  input: CollaboratorScope & { readonly rootTaskId: string; readonly limit?: number; readonly cursor?: string },
 ): WorkspaceScopeRead {
   const structure = workspaceStructureFromProjection(projection, input),
     eventWindow = input.cursor
       ? { summaries: [] as readonly CanonicalEventSummary[], complete: false }
-      : workspaceEventSummaries(projection, new Set([structure.root.taskId, ...structure.memberTaskIds]));
+      : workspaceEventSummaries(projection, [structure.root.taskId, ...structure.memberTaskIds], input);
   return { ...structure, eventSummaries: eventWindow.summaries, eventWindowComplete: eventWindow.complete };
 }
 
 /** Structure only; agenda and work show call this and never scan events. */
 export function workspaceStructureFromProjection(
   projection: TaskProjection,
-  input: { readonly rootTaskId: string; readonly limit?: number; readonly cursor?: string },
+  input: CollaboratorScope & { readonly rootTaskId: string; readonly limit?: number; readonly cursor?: string },
 ): WorkspaceStructureRead {
-  const read = taskPresentationReads(projection).readTaskIndex({ scopeRootTaskId: input.rootTaskId });
+  const personId = scopedPersonId(input),
+    scoped = personId !== undefined || input.filterNodeId !== undefined,
+    read = scoped
+      ? projection.readTaskIndex({ scopeRootTaskId: input.rootTaskId, withAttribution: true })
+      : taskPresentationReads(projection).readTaskIndex({ scopeRootTaskId: input.rootTaskId });
   const byId = new Map(read.rows.map((row) => [row.taskId, row]));
   const root = byId.get(input.rootTaskId);
   if (!root) throw new Error(`Workspace root task not found: ${input.rootTaskId}`);
@@ -87,12 +97,12 @@ export function workspaceStructureFromProjection(
   const descendants: TaskIndexProjectionRow[] = [];
   const pending = [...(children.get(root.taskId) ?? [])];
   const seen = new Set([root.taskId]);
-  while (pending.length) {
-    const row = pending.shift()!;
+  for (let index = 0; index < pending.length; index += 1) {
+    const row = pending[index]!;
     if (seen.has(row.taskId)) continue;
     seen.add(row.taskId);
     descendants.push(row);
-    pending.push(...(children.get(row.taskId) ?? []));
+    for (const child of children.get(row.taskId) ?? []) pending.push(child);
   }
 
   const ancestors: TaskIndexProjectionRow[] = [];
@@ -110,14 +120,22 @@ export function workspaceStructureFromProjection(
       incompleteParentRefs.push(parentId);
       break;
     }
-    ancestors.unshift(parent);
+    ancestors.push(parent);
     parentId = parent.parentTaskId;
   }
 
-  const groups = descendants.filter((row) => (children.get(row.taskId)?.length ?? 0) > 0);
-  const leaves = descendants.filter((row) => !children.has(row.taskId));
+  const members = scoped ? descendants.filter((row) => taskMatchesCollaboratorScope(input, row)) : descendants,
+    visibleGroupIds = new Set(members.map(({ taskId }) => taskId));
+  for (const row of descendants.toReversed())
+    if (row.parentTaskId !== null && visibleGroupIds.has(row.taskId)) visibleGroupIds.add(row.parentTaskId);
+  const groups = descendants.filter((row) => children.has(row.taskId) && visibleGroupIds.has(row.taskId)),
+    leaves = members.filter((row) => !children.has(row.taskId)),
+    personalPins =
+      personId === undefined
+        ? null
+        : new Set(projection.listPinnedEntities(personId).map(({ entityRef }) => entityRef));
   const counts: Record<keyof WorkspaceScopeStatusCounts, number> = emptyScopeCounts();
-  for (const row of leaves) counts[scopeStatus(row.status)] += 1;
+  for (const row of leaves) if (taskMatchesCollaboratorActivity(input, row)) counts[scopeStatus(row.status)] += 1;
   const sortedLeaves = [...leaves].sort((left, right) => left.taskId.localeCompare(right.taskId));
   const limit = input.limit ?? 100;
   const start = input.cursor ? sortedLeaves.findIndex(({ taskId }) => taskId.localeCompare(input.cursor!) > 0) : 0;
@@ -132,7 +150,7 @@ export function workspaceStructureFromProjection(
     taskClass: task.taskClass,
     parentTaskId: task.parentTaskId,
     updatedAt: task.updatedAt,
-    pinned: task.pinned,
+    pinned: personalPins === null ? task.pinned : personalPins.has(`task/${task.taskId}`),
     hasChildren: children.has(task.taskId),
   });
   return {
@@ -140,16 +158,16 @@ export function workspaceStructureFromProjection(
     ok: true,
     status: read.status,
     root: row(root),
-    ancestors: ancestors.map(row),
+    ancestors: ancestors.reverse().map(row),
     goalMaterial: root.packagePath ? { taskId: root.taskId, path: "task_plan.md" } : null,
     counts,
     scope: {
-      descendantCount: descendants.length,
+      descendantCount: members.length,
       executableLeafCount: leaves.length,
-      archivedCount: descendants.filter(({ packageDisposition }) => packageDisposition !== "active").length,
+      archivedCount: members.filter(({ packageDisposition }) => packageDisposition !== "active").length,
     },
     groups: groups.map(row),
-    memberTaskIds: descendants.map(({ taskId }) => taskId).sort(),
+    memberTaskIds: members.map(({ taskId }) => taskId).sort(),
     tasks: pageRows.map(row),
     page: { limit, cursor: input.cursor ?? null, nextCursor },
     incompleteParentRefs,
@@ -161,9 +179,15 @@ export function workspaceStructureFromProjection(
 
 function workspaceEventSummaries(
   projection: TaskProjection,
-  memberTaskIds: ReadonlySet<string>,
+  taskIds: readonly string[],
+  scope: CollaboratorScope,
 ): { readonly summaries: readonly CanonicalEventSummary[]; readonly complete: boolean } {
-  const page = projection.readEventSummaries(0, WORKSPACE_EVENT_LIMIT, { taskIds: [...memberTaskIds] });
+  const actorPersonId = scopedPersonId(scope),
+    page = projection.readEventSummaries(0, WORKSPACE_EVENT_LIMIT, {
+      taskIds,
+      ...(actorPersonId === undefined ? {} : { actorPersonId }),
+      ...(scope.filterNodeId === undefined ? {} : { nodeId: scope.filterNodeId }),
+    });
   return { summaries: page.events, complete: page.hasMore === false };
 }
 

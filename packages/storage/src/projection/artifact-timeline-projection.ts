@@ -181,7 +181,19 @@ export function readArtifactTimelineRows(
 ): Pick<ArtifactTimelineRead, "rows" | "hasMore" | "counts"> {
   if (!ARTIFACT_TIMELINE_KINDS.includes(query.kind)) throw new Error("artifact timeline kind is invalid");
   const limit = checkedTimelineLimit(query.limit),
-    values: (string | number)[] = [query.kind];
+    scoped = query.actorPersonId !== undefined || query.nodeId !== undefined,
+    scopeJoin = scoped
+      ? `JOIN document d ON d.path=a.path
+      JOIN event_summary origin ON origin.workspace_revision=d.workspace_revision`
+      : "",
+    scopeWhere = [
+      ...(query.actorPersonId === undefined ? [] : ["origin.actor_person_id = ?"]),
+      ...(query.nodeId === undefined ? [] : ["origin.source_node_id = ?"]),
+    ]
+      .map((clause) => `AND ${clause}`)
+      .join(" "),
+    scopeValues = [query.actorPersonId, query.nodeId].filter((value): value is string => value !== undefined),
+    values: (string | number)[] = [query.kind, ...scopeValues];
   let afterSql = "";
   if (query.after !== undefined) {
     const sortMs = -Date.parse(query.after.occurredAt);
@@ -203,10 +215,10 @@ export function readArtifactTimelineRows(
     [
       "SELECT a.package_dir, a.relative, a.kind, a.occurred_at, a.size_bytes,",
       "p.task_id, json_extract(s.snapshot_json, '$.task.title') AS title",
-      "FROM artifact_document a",
+      `FROM artifact_document a ${scopeJoin}`,
       "LEFT JOIN task_package p ON p.package_path = 'tasks/' || a.package_dir",
       "LEFT JOIN task_snapshot s ON s.task_id = p.task_id",
-      `WHERE a.kind = ? ${afterSql}`,
+      `WHERE a.kind = ? ${scopeWhere} ${afterSql}`,
       "ORDER BY a.sort_ms, a.relative, a.package_dir",
       "LIMIT ?",
     ].join(" "),
@@ -215,7 +227,11 @@ export function readArtifactTimelineRows(
   const counts: Record<ArtifactTimelineKind, number> = { html: 0, md: 0, raw: 0 };
   for (const row of queryRows<{ readonly kind: ArtifactTimelineKind; readonly total: number }>(
     db,
-    "SELECT kind, total FROM artifact_count",
+    scoped
+      ? `SELECT a.kind, COUNT(*) AS total FROM artifact_document a ${scopeJoin}
+      WHERE 1=1 ${scopeWhere} GROUP BY a.kind`
+      : "SELECT kind, total FROM artifact_count",
+    ...scopeValues,
   ))
     counts[row.kind] = row.total;
   return {

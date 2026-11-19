@@ -1,5 +1,13 @@
+import {
+  collaboratorTaskActivityAt,
+  scopedPersonId,
+  taskMatchesCollaboratorActivity,
+  taskMatchesCollaboratorScope,
+  type CollaboratorScope,
+} from "@harness-anything/kernel/internal/domain/collaborator-scope.ts";
 import { taskPresentationReads } from "./task-presentation-read.ts";
 import type {
+  TaskIndexProjectionRead,
   TaskIndexProjectionRow,
   TaskProjection,
   TaskV2,
@@ -11,7 +19,6 @@ import {
   emptyScopeCounts,
   scopeStatus,
   workRootOf,
-  workRootWalk,
   workspaceStructureFromProjection,
   type WorkspaceScopeStatusCounts,
   type WorkspaceScopeTaskRow,
@@ -191,28 +198,87 @@ export interface WorkIndexRow extends WorkListRow {
  * Every work at one cut with the tasks that belong to it, for a reader that holds the whole task list but must
  * not re-derive the rule (the GUI): `ha work list --all`'s roots, each task assigned by `workRootOf`'s walk.
  */
-export function workIndexFromProjection(projection: TaskProjection) {
-  const read = taskPresentationReads(projection).readTaskIndex({ activePackagesOnly: true }),
-    byId = new Map(read.rows.map((row) => [row.taskId, row])),
-    works = workRows(read.rows),
-    members = new Map(works.map(({ taskId }) => [taskId, [] as string[]]));
-  for (const row of read.rows) {
-    const work = workRootWalk(row.taskId, (id) => byId.get(id));
-    if (work !== null && work.taskId !== row.taskId) members.get(work.taskId)?.push(row.taskId);
+export function workIndexFromProjection(projection: TaskProjection, scope: CollaboratorScope = {}) {
+  return workIndexAtRead(readWorkTasks(projection, scope), scope);
+}
+
+export function readWorkTasks(projection: TaskProjection, scope: CollaboratorScope) {
+  return hasWorkLens(scope)
+    ? projection.readTaskIndex({ activePackagesOnly: true, withAttribution: true })
+    : taskPresentationReads(projection).readTaskIndex({ activePackagesOnly: true });
+}
+
+export function workIndexAtRead(read: TaskIndexProjectionRead, scope: CollaboratorScope) {
+  const children = workChildren(read.rows),
+    roots = read.rows.filter((row) =>
+      isWorkRoot(row.taskClass, row.parentTaskId, children.get(row.taskId)?.length ?? 0),
+    ),
+    rootIds = new Set(roots.map(({ taskId }) => taskId)),
+    scoped = hasWorkLens(scope),
+    totals = new Map(scoped ? [] : workRows(read.rows).map((work) => [work.taskId, work])),
+    works: WorkIndexRow[] = [];
+  for (const root of roots) {
+    const memberTaskIds: string[] = [],
+      counts = emptyScopeCounts(),
+      pending = [...(children.get(root.taskId) ?? [])];
+    let lastActivityAt: string | null = null;
+    for (let index = 0; index < pending.length; index += 1) {
+      const row = pending[index]!;
+      if (rootIds.has(row.taskId)) continue;
+      const below = children.get(row.taskId) ?? [];
+      for (const child of below) pending.push(child);
+      if (scoped && !taskMatchesCollaboratorScope(scope, row)) continue;
+      memberTaskIds.push(row.taskId);
+      if (below.length === 0 && taskMatchesCollaboratorActivity(scope, row)) counts[scopeStatus(row.status)] += 1;
+      const activity = scoped ? collaboratorTaskActivityAt(scope, row) : row.updatedAt;
+      if (activity !== null && (lastActivityAt === null || activity > lastActivityAt)) lastActivityAt = activity;
+    }
+    if (scoped && memberTaskIds.length === 0 && !taskMatchesCollaboratorScope(scope, root)) continue;
+    const status =
+      counts.executing || counts.pending
+        ? "active"
+        : counts.blocked
+          ? "blocked"
+          : counts.planned
+            ? "planned"
+            : counts.done
+              ? "done"
+              : counts.cancelled
+                ? "cancelled"
+                : root.status;
+    works.push({
+      ...(totals.get(root.taskId) ?? {
+        taskId: root.taskId,
+        title: root.title,
+        status,
+        counts,
+        taskCount: memberTaskIds.length,
+        root: root.taskClass === "work" ? "declared" : "derived",
+        parentTaskId: root.parentTaskId,
+        lastActivityAt: lastActivityAt ?? collaboratorTaskActivityAt(scope, root) ?? root.updatedAt,
+      }),
+      memberTaskIds: memberTaskIds.sort(),
+    });
   }
   return {
     schema: "daemon.work-index/v1" as const,
     ok: true as const,
     status: read.status,
-    works: works.map((work): WorkIndexRow => ({ ...work, memberTaskIds: members.get(work.taskId)!.sort() })),
+    works: works.sort(
+      (left, right) =>
+        right.lastActivityAt.localeCompare(left.lastActivityAt) || left.taskId.localeCompare(right.taskId),
+    ),
     watermark: read.watermark,
     sourceRevision: read.sourceRevision,
     warnings: read.warnings,
   };
 }
 
-/** The roots (declared, or a top-level task with children) with their subtree counts, newest activity first. */
-function workRows(rows: readonly TaskIndexProjectionRow[]): WorkListRow[] {
+function hasWorkLens(scope: CollaboratorScope): boolean {
+  return scopedPersonId(scope) !== undefined || scope.filterNodeId !== undefined;
+}
+
+function workChildren(rows: readonly TaskIndexProjectionRow[]): Map<string, TaskIndexProjectionRow[]> {
   const children = new Map<string, TaskIndexProjectionRow[]>();
   for (const row of rows) {
     if (row.parentTaskId === null) continue;
@@ -220,6 +286,12 @@ function workRows(rows: readonly TaskIndexProjectionRow[]): WorkListRow[] {
     if (siblings) siblings.push(row);
     else children.set(row.parentTaskId, [row]);
   }
+  return children;
+}
+
+/** The roots (declared, or a top-level task with children) with their subtree counts, newest activity first. */
+function workRows(rows: readonly TaskIndexProjectionRow[]): WorkListRow[] {
+  const children = workChildren(rows);
   return rows
     .filter((row) => isWorkRoot(row.taskClass, row.parentTaskId, children.get(row.taskId)?.length ?? 0))
     .map((row): WorkListRow => {
@@ -228,15 +300,15 @@ function workRows(rows: readonly TaskIndexProjectionRow[]): WorkListRow[] {
         members: TaskIndexProjectionRow[] = [],
         pending = [...(children.get(row.taskId) ?? [])];
       let lastActivityAt = row.updatedAt;
-      while (pending.length) {
-        const member = pending.shift()!;
+      for (let index = 0; index < pending.length; index += 1) {
+        const member = pending[index]!;
         if (seen.has(member.taskId)) continue;
         seen.add(member.taskId);
         members.push(member);
         if (member.updatedAt > lastActivityAt) lastActivityAt = member.updatedAt;
         const below = children.get(member.taskId) ?? [];
         if (below.length === 0) counts[scopeStatus(member.status)] += 1;
-        pending.push(...below);
+        for (const child of below) pending.push(child);
       }
       return {
         taskId: row.taskId,
@@ -255,8 +327,11 @@ function workRows(rows: readonly TaskIndexProjectionRow[]): WorkListRow[] {
     );
 }
 
-export function workShowFromProjection(projection: TaskProjection, input: { readonly taskId: string }) {
-  const scope = workspaceStructureFromProjection(projection, { rootTaskId: input.taskId, limit: 500 }),
+export function workShowFromProjection(
+  projection: TaskProjection,
+  input: CollaboratorScope & { readonly taskId: string },
+) {
+  const scope = workspaceStructureFromProjection(projection, { ...input, rootTaskId: input.taskId, limit: 500 }),
     packagePath = projection.read(input.taskId).packagePath,
     plan = packagePath === null ? null : projection.readDocument(`${packagePath}/task_plan.md`).document;
   return {

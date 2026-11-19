@@ -1,3 +1,4 @@
+import { writeSourceRuntimeSessionId } from "./write-source.ts";
 import {
   validSquadDispatchContext,
   validSquadRunObservation,
@@ -797,7 +798,12 @@ function validRuntimeProviderUnreachable(value: unknown): value is RuntimeProvid
   );
 }
 export function validateAgentRuntimeEvent(value: unknown): readonly string[] {
-  return validateAgentRuntimeEventFields(value, true);
+  return validateAgentRuntimeEventFields(runtimeEventValidationInput(value), true);
+}
+function runtimeEventValidationInput(value: unknown): unknown {
+  return isRecord(value) && writeSourceRuntimeSessionId(value.source) !== null
+    ? { ...value, source: "remote_direct" }
+    : value;
 }
 export function validateCurrentAgentRuntimeEvent(value: unknown): readonly string[] {
   return validateAgentRuntimeEventFields(value, false);

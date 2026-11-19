@@ -159,3 +159,26 @@ delete the whole temp copy, and exit non-zero (130/143) without printing a recei
 `--keep` to keep the copy after a normal run, and `--reuse-workspace <ws>` to run a second
 build against the same copy (the negative-control shape: identical data, only the build
 differs). Pass `--medium-submit` to create, start, sync, submit, and show a synthetic medium task in that temporary copy; the receipt includes the actual `submission.riskTierAssessment`, and the subsequent cold rebuild includes those synthetic events. This flag never writes to the source repository.
+
+## Personal pins and dispatch activity
+
+SQLite stays on projection schema 38. SQLite and PostgreSQL index dispatch pages globally
+and by task through their existing index installation. Both indexes use the integer UTC
+epoch milliseconds of `startedAt ?? occurredAt`, followed by dispatch ID. Window bounds,
+cursor comparisons and billing use the same instant, including historical numeric offsets.
+For example, `17:00:00+08:00` and `09:00:00.000Z` share a key. Fractions finer than a
+millisecond are truncated. SQLite derives the key when it installs the indexes. PostgreSQL
+maintains a derived bigint in its event-index trigger. Continue the existing scoped
+`ha_backfill_event_read_indexes` command until it returns zero to populate the key for
+historical dispatches. Dispatch pages report `projection_pending` while keys are missing.
+The previous release's indexes remain for older binaries and the existing dispatch lookup paths.
+
+The canonical stream and document bytes stay unchanged. Replay admits historical Pin/Unpin
+envelopes whose principal lacks a person ID and records them as unattributed history without
+changing any pin set. A migrated Task/v2 with `pinned: true` seeds the migration actor's
+personal pin at the import revision, matching the original projected owner. Subsequent
+personal Unpin and shared retirement events can supersede that seed. A derived partial
+index isolates pinned imports from the rest of migration history. Runtime replay accepts the historical `runtime-session/<id>` source and
+resolves its node from the session launch. Current event admission still requires the current
+actor and source shapes. No ledger conversion or backfill is needed. Rebuilding the cache from
+accepted events applies the same rules to its full history.

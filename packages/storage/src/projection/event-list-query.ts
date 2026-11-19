@@ -30,6 +30,8 @@ export function readEventList(db: DatabaseSync, query: EventListQuery): EventLis
   if (query.before !== undefined) add("event.occurred_at <= ?", query.before);
   if (query.actor !== undefined)
     add("(event.actor_person_id = ? OR event.actor_executor_id = ?)", query.actor, query.actor);
+  if (query.actorPersonId !== undefined) add("event.actor_person_id = ?", query.actorPersonId);
+  if (query.nodeId !== undefined) add("event.source_node_id = ?", query.nodeId);
   // An entity filter drives from the ref index (ref, revision) so the page stops after k matches
   // instead of reading every historical event to test its JSON array.
   if (query.entity !== undefined) add("ref.entity_ref = ?", query.entity);

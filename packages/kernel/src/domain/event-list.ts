@@ -2,6 +2,8 @@ export interface EventListQuery {
   readonly type?: string;
   readonly entity?: string;
   readonly actor?: string;
+  readonly actorPersonId?: string;
+  readonly nodeId?: string;
   readonly after?: string;
   readonly before?: string;
   readonly limit: number;

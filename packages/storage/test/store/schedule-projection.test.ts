@@ -118,6 +118,7 @@ test("Schedule definition and run view share one canonical stream and rebuild ex
     eventStore.append(pin);
     projection.apply(pin.event, pin.plan);
     assert.equal(projection.listPinnedEntities().length, 1);
+    assert.equal(projection.listPinnedEntities(actor.principal.personId).length, 1);
 
     const deleted = compileScheduleDeletedEvent({
       ...input(6, "schedule_deleted", settledSchedule),
@@ -129,6 +130,7 @@ test("Schedule definition and run view share one canonical stream and rebuild ex
     assert.equal(projection.readDocument("schedules/schedule-heartbeat.json").document, null);
     assert.equal(projection.getEntity("schedule", "schedule-heartbeat"), null);
     assert.deepEqual(projection.listPinnedEntities(), []);
+    assert.deepEqual(projection.listPinnedEntities(actor.principal.personId), []);
     assert.deepEqual(
       eventStore.read().events.map(({ type }) => type),
       [
@@ -145,6 +147,7 @@ test("Schedule definition and run view share one canonical stream and rebuild ex
     assert.equal(projection.readDocument("schedules/schedule-heartbeat.json").document, null);
     assert.equal(projection.getEntity("schedule", "schedule-heartbeat"), null);
     assert.deepEqual(projection.listPinnedEntities(), []);
+    assert.deepEqual(projection.listPinnedEntities(actor.principal.personId), []);
   });
 });
 

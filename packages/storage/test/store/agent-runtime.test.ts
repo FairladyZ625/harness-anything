@@ -846,9 +846,20 @@ test("runtime dispatch history supports keyed reads and done-driven startedAt pa
       cursor: first.nextCursor,
       limit: 1,
     });
-    assert.equal(second.done, true);
-    assert.equal(second.nextCursor, null);
+    assert.equal(second.done, false);
+    assert.ok(second.nextCursor);
     assert.equal(second.rows[0]?.event.payload.dispatchId, "dispatch_history_2");
+    const third = projection.readRuntimeDispatchPage({
+      startedAtGte: "2026-09-01T00:00:00.000Z",
+      cursor: second.nextCursor,
+      limit: 1,
+    });
+    assert.equal(third.done, true);
+    assert.equal(third.nextCursor, null);
+    assert.deepEqual(
+      third.rows.map(({ event }) => [event.payload.dispatchId, event.occurredAt]),
+      [["dispatch_unstarted", "2026-09-03T00:00:00.000Z"]],
+    );
   });
 });
 

@@ -1,8 +1,11 @@
-import { assertLeaseReservation } from "@harness-anything/kernel/internal/domain/task-lease-policy.ts";
+import {
+  assertLeaseReservation,
+  effectiveLeaseValue,
+} from "@harness-anything/kernel/internal/domain/task-lease-policy.ts";
 import type { Pool } from "pg";
 import type { LeaseV1 } from "@harness-anything/kernel";
 import { canonicalJson } from "../projection/rebuildable-task-projection-sql.ts";
-import { changedLeaseAtCut, effectiveLeaseValue } from "../projection/rebuildable-task-projection-runtime.ts";
+import { changedLeaseAtCut } from "../projection/rebuildable-task-projection-runtime.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import type { PostgresEventStoreScope } from "../postgres/pg-event-store.ts";
 

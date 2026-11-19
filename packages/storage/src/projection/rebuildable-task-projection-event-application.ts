@@ -209,6 +209,7 @@ function applyEventProjection(
       event.workspaceRevision,
       eventJson,
     );
+    if (!event.actor.principal.personId) return;
     if (event.type === "entity_pinned")
       runSql(
         db,

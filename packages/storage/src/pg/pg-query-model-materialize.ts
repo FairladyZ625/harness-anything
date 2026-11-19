@@ -184,8 +184,10 @@ export async function materializePgQueryModels(
       pinnedBy: event.actor.principal.personId,
     } satisfies PinnedEntityProjectionRow);
   if (isEntityPinEvent(event)) {
-    if (event.type === "entity_pinned") await pin(event.payload.entityRef);
-    else await drop("pin", event.payload.entityRef);
+    if (event.actor.principal.personId) {
+      if (event.type === "entity_pinned") await pin(event.payload.entityRef);
+      else await drop("pin", event.payload.entityRef);
+    }
   } else if (snapshot?.task) {
     if (snapshot.task.pinned) await pin(`task/${snapshot.task.taskId}`);
     else await drop("pin", `task/${snapshot.task.taskId}`);

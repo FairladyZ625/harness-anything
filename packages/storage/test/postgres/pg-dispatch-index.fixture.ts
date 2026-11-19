@@ -49,6 +49,10 @@ export async function assertDispatchIndexes(pool: Pool, seedPool: Pool, backend:
         "UPDATE ha_events SET read_index_version=4,dispatch_key=NULL WHERE tenant_id=$1 AND revision=100002",
         [scope.tenantId],
       );
+      await client.query(
+        "UPDATE ha_events SET dispatch_activity_epoch_ms=NULL WHERE tenant_id=$1 AND revision=100001",
+        [scope.tenantId],
+      );
       await client.query("ANALYZE");
     },
     scope,
@@ -61,10 +65,10 @@ export async function assertDispatchIndexes(pool: Pool, seedPool: Pool, backend:
       ownsPool: false,
     });
   await assert.rejects(() => source.readRuntimeDispatchById("target-100002"), { code: "projection_pending" });
-  await withPostgresTransaction(
-    seedPool,
-    async (client) => {
-      assert.equal(
+  const backfill = () =>
+    withPostgresTransaction(
+      seedPool,
+      async (client) =>
         (
           await client.query("SELECT ha_backfill_event_read_indexes($1,$2,$3,$4) AS processed", [
             scope.tenantId,
@@ -73,22 +77,14 @@ export async function assertDispatchIndexes(pool: Pool, seedPool: Pool, backend:
             repoId,
           ])
         ).rows[0].processed,
-        1,
-      );
-      assert.equal(
-        (
-          await client.query("SELECT ha_backfill_event_read_indexes($1,$2,$3,$4) AS processed", [
-            scope.tenantId,
-            scope.projectId,
-            scope.policyEpoch,
-            repoId,
-          ])
-        ).rows[0].processed,
-        0,
-      );
-    },
-    scope,
-  );
+      scope,
+    );
+  assert.equal(await backfill(), 1);
+  await assert.rejects(() => source.readRuntimeDispatchPage({ startedAtGte: "2026-11-04", limit: 1 }), {
+    code: "projection_pending",
+  });
+  assert.equal(await backfill(), 1);
+  assert.equal(await backfill(), 0);
   plans.length = 0;
   assert.equal((await source.readRuntimeDispatchById("target-100002"))?.event.payload.dispatchId, "target-100002");
   assert.equal(
@@ -112,7 +108,23 @@ export async function assertDispatchIndexes(pool: Pool, seedPool: Pool, backend:
   assert.equal((await source.readRuntimeDispatchesByAttemptGroup("attempt-target")).length, 2);
   assert.equal((await source.readRuntimeDispatchesByDecision("decision-target")).length, 2);
   assert.equal((await source.readRuntimeDispatchByDispatchIdPrefix("target-", 1)).length, 1);
-  assert.equal((await source.readRuntimeDispatchPage({ startedAtGte: "2026-11-04", limit: 1 })).rows.length, 1);
+  for (const taskIds of [undefined, ["target"]]) {
+    const scope = taskIds === undefined ? {} : { taskIds };
+    const page = await source.readRuntimeDispatchPage({ ...scope, startedAtGte: "2026-11-04", limit: 1 });
+    assert.equal(page.rows.length, 1);
+    assert.equal(page.rows[0]!.event.payload.dispatchId, "target-100001");
+    assert.ok(page.nextCursor);
+    const next = await source.readRuntimeDispatchPage({
+      ...scope,
+      startedAtGte: "",
+      cursor: page.nextCursor,
+      limit: 1,
+    });
+    assert.equal(next.rows.length, 1);
+    assert.equal(next.rows[0]!.event.payload.dispatchId, "target-100002");
+    assert.equal(next.done, true);
+    assert.equal(next.nextCursor, null);
+  }
   for (const member of [{ agentId: "agent-target" }, { squadId: "squad-target" }]) {
     const page = await source.readRuntimeDispatchesByMember({ ...member, limit: 1 });
     assert.equal(page.rows[0]?.payload.dispatchId, "target-100002");
@@ -130,6 +142,13 @@ export async function assertDispatchIndexes(pool: Pool, seedPool: Pool, backend:
       (Number(scan["Actual Rows"]) + Number(scan["Rows Removed by Filter"] ?? 0)) * Number(scan["Actual Loops"]) <= 6,
       `dispatch read scanned unrelated history: ${JSON.stringify(scan)}`,
     );
+  const dispatchPages = explainNodes(plans).filter((row) => String(row["Index Name"]).endsWith("_epoch_ms"));
+  assert.equal(dispatchPages.length, 4);
+  for (const scan of dispatchPages) {
+    assert.equal(Number(scan["Rows Removed by Filter"] ?? 0), 0, JSON.stringify(scan));
+    assert.match(String(scan["Index Cond"]), /dispatch_activity_epoch_ms >=/u);
+    assert.match(String(scan["Index Cond"]), /ROW\(dispatch_activity_epoch_ms, dispatch_id\) >/u);
+  }
   const timed = createPgTaskProjectionSource({ pool, scope, repoId, ownsPool: false });
   await measurePgRead(backend, "readRuntimeDispatchById", () => timed.readRuntimeDispatchById("target-100002"));
   await measurePgRead(backend, "readRuntimeDispatchByDispatchKey", () =>

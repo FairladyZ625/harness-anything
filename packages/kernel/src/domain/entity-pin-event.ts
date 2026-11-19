@@ -18,6 +18,43 @@ export type EntityPinEventV1 = EventEnvelope<
   { readonly entityRef: string }
 >;
 
+/** Lifecycle events retire pins for all viewers before the entity can be pinned again. */
+export const pinRetirementEventTypes = [
+  "decision_accepted",
+  "decision_rejected",
+  "decision_retired",
+  "decision_superseded",
+  "entity_deleted",
+  "schedule_deleted",
+  "task_archived",
+  "task_completed",
+  "task_deleted",
+  "task_superseded",
+] as const;
+
+/** Fold a single person's events in reverse revision order. A machine event without a
+ * principal lives outside every personal pin set and cannot undo a person's pin. */
+export function personalPinsFromNewest(
+  events: Iterable<{
+    readonly personId: string | null;
+    readonly entityRef: string;
+    readonly pinnedAt: string;
+    readonly pinned: boolean;
+  }>,
+  personId: string,
+): readonly { readonly entityRef: string; readonly pinnedAt: string; readonly pinnedBy: string }[] {
+  const seen = new Set<string>();
+  const pins: { entityRef: string; pinnedAt: string; pinnedBy: string }[] = [];
+  for (const event of events) {
+    if (event.personId !== personId || seen.has(event.entityRef)) continue;
+    seen.add(event.entityRef);
+    if (event.pinned) pins.push({ entityRef: event.entityRef, pinnedAt: event.pinnedAt, pinnedBy: personId });
+  }
+  return pins.sort(
+    (left, right) => right.pinnedAt.localeCompare(left.pinnedAt) || left.entityRef.localeCompare(right.entityRef),
+  );
+}
+
 export function compileEntityPinEvent(input: {
   readonly entityRef: string;
   readonly pinned: boolean;
@@ -59,7 +96,22 @@ export function compileEntityPinEvent(input: {
 }
 
 export function validateEntityPinEvent(value: unknown): readonly string[] {
-  return validateEntityPinEventFields(value, true);
+  return validateEntityPinEventFields(pinEventValidationInput(value), true);
+}
+
+function pinEventValidationInput(value: unknown): unknown {
+  // Validate the envelope of machine-written history without attributing the event to a member.
+  if (
+    isRecord(value) &&
+    isRecord(value.actor) &&
+    isRecord(value.actor.principal) &&
+    !Object.hasOwn(value.actor.principal, "personId")
+  )
+    return {
+      ...value,
+      actor: { ...value.actor, principal: { ...value.actor.principal, personId: "historical-pin-validation" } },
+    };
+  return value;
 }
 export function validateCurrentEntityPinEvent(value: unknown): readonly string[] {
   return validateEntityPinEventFields(value, false);
