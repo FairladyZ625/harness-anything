@@ -47,13 +47,15 @@ export function createFactProjectionTables(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS fact_observed_id_page ON fact(observed_at DESC, fact_id ASC);
     CREATE INDEX IF NOT EXISTS fact_confidence_page ON fact(confidence, observed_at DESC, task_id ASC, fact_id ASC);
     CREATE INDEX IF NOT EXISTS fact_memory_class_page ON fact(memory_class, observed_at DESC, task_id ASC, fact_id ASC);
-    CREATE INDEX IF NOT EXISTS fact_observed_commit ON fact(${FACT_OBSERVED_COMMIT_SQL});
+    CREATE INDEX IF NOT EXISTS fact_observed_commit ON fact(${factObservedCommitSql()});
     CREATE INDEX IF NOT EXISTS fact_evidence_source ON fact(evidence_source);
   `);
 }
 
-/** Reverse trace readers repeat this expression verbatim so SQLite matches its index. */
-const FACT_OBSERVED_COMMIT_SQL = "json_extract(row_json, '$.observedCommit')";
+/** Reverse trace readers repeat this expression verbatim so SQLite matches its index; json_valid
+ * keeps undecodable row_json fixtures from failing index maintenance or scans. */
+export const factObservedCommitSql = (column = "row_json"): string =>
+  `(CASE WHEN json_valid(${column}) THEN json_extract(${column}, '$.observedCommit') END)`;
 
 /** `<path>`, `<path>:<line…>` and `<path>#<anchor>` evidence sources as index-backed equality and ranges. */
 function evidenceSourcePathClause(paths: readonly string[], values: string[]): string {
@@ -351,7 +353,7 @@ export function searchFactRowsPage(
     values.push(filters.observedBefore);
   }
   if (filters.observedCommits !== undefined) {
-    where.push(`${FACT_OBSERVED_COMMIT_SQL.replace("row_json", "fact.row_json")} IN (SELECT value FROM json_each(?))`);
+    where.push(`${factObservedCommitSql("fact.row_json")} IN (SELECT value FROM json_each(?))`);
     values.push(JSON.stringify(filters.observedCommits));
   }
   if (filters.evidenceSourcePaths !== undefined)

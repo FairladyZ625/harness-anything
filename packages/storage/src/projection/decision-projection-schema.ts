@@ -5,13 +5,14 @@ const moduleExpression = (value: string) => {
   const slashed = `replace(trim(${value}), char(92), '/')`;
   return `rtrim(CASE WHEN substr(${slashed}, 1, 2) = './' THEN substr(${slashed}, 3) ELSE ${slashed} END, '/')`;
 };
+const appliesModulesJson = (column: string) => `CASE WHEN json_valid(${column}) THEN ${column} ELSE '{}' END`;
 const appliesModuleRows = (owner: string, from: string) =>
   `SELECT module_prefix, decision_id FROM (SELECT ${moduleExpression("module.value")} AS module_prefix, ${owner} AS decision_id` +
   ` FROM ${from} WHERE module.type = 'text') WHERE module_prefix <> ''`;
 const refillAppliesModules = `
     DELETE FROM decision_applies_module WHERE decision_id = NEW.decision_id;
     INSERT OR IGNORE INTO decision_applies_module(module_prefix, decision_id)
-      ${appliesModuleRows("NEW.decision_id", "json_each(NEW.applies_json, '$.modules') AS module")};`;
+      ${appliesModuleRows("NEW.decision_id", `json_each(${appliesModulesJson("NEW.applies_json")}, '$.modules') AS module`)};`;
 /**
  * dec_9979850C7CE87C17271D78E4D1 CH2: path → governing decision lookups probe this prefix table
  * instead of decoding every decision's applies JSON. Triggers own the derivation for every writer;
@@ -135,7 +136,7 @@ export function createDecisionProjectionTables(db: DatabaseSync): void {
     INSERT OR IGNORE INTO decision_applies_module(module_prefix, decision_id)
       ${appliesModuleRows(
         "decision.decision_id",
-        "decision, json_each(decision.applies_json, '$.modules') AS module",
+        `decision, json_each(${appliesModulesJson("decision.applies_json")}, '$.modules') AS module`,
       )} AND NOT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = 'decision_applies_module_insert');
     ${DECISION_APPLIES_MODULE_TRIGGER_SQL}
   `);

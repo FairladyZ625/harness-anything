@@ -33,19 +33,44 @@ export type {
 } from "@harness-anything/kernel";
 import { prepareQuery, queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
 import { isRelationFreshness } from "./relation-freshness-columns.ts";
-import { TASK_EXTERNAL_COMMIT_SQL, TASK_SUBMISSION_COMMIT_SQL } from "./projection-tables.ts";
+import { EXECUTION_SUBMISSION_COMMIT_SQL, TASK_EXTERNAL_COMMIT_SQL } from "./projection-tables.ts";
 
 interface TraceCommitSnapshot {
-  readonly executions?: readonly { readonly submission?: { readonly commitSha?: string | null } | null }[];
   readonly externalResolution?: { readonly commitSha?: string | null } | null;
 }
 
-/** The JSON twin of TASK_SUBMISSION_COMMIT_SQL / TASK_EXTERNAL_COMMIT_SQL, in that order. */
-function traceCommitKeys(snapshot: TraceCommitSnapshot): readonly string[] {
-  const executions = snapshot.executions ?? [],
-    submitted = executions.at(-1)?.submission?.commitSha ?? executions.at(-2)?.submission?.commitSha ?? null,
-    external = snapshot.externalResolution?.commitSha ?? null;
-  return [...new Set([submitted, external].filter((sha): sha is string => typeof sha === "string" && sha !== ""))];
+const executionFieldSql = (alias: string, jsonPath: string): string =>
+  `CASE WHEN json_valid(${alias}.value_json) THEN json_extract(${alias}.value_json, '${jsonPath}') END`;
+
+/** Latest submitted cut in SQLite's normalized execution projection: matches PG's
+ * `COALESCE(executions[-1].submission.commitSha, executions[-2].submission.commitSha)` over the
+ * canonical `(iteration, claimedAt, executionId)` order. */
+export const latestTaskSubmissionCommitSql = (taskIdExpr: string): string =>
+  `COALESCE(` +
+  `(SELECT ${executionFieldSql("latest", "$.submission.commitSha")} FROM entity_projection AS latest ` +
+  `WHERE latest.entity_kind = 'execution' AND latest.task_id = ${taskIdExpr} ` +
+  `ORDER BY ${executionFieldSql("latest", "$.iteration")} DESC, ${executionFieldSql("latest", "$.claimedAt")} DESC, latest.entity_id DESC LIMIT 1), ` +
+  `(SELECT ${executionFieldSql("previous", "$.submission.commitSha")} FROM entity_projection AS previous ` +
+  `WHERE previous.entity_kind = 'execution' AND previous.task_id = ${taskIdExpr} ` +
+  `ORDER BY ${executionFieldSql("previous", "$.iteration")} DESC, ${executionFieldSql("previous", "$.claimedAt")} DESC, previous.entity_id DESC LIMIT 1 OFFSET 1)` +
+  `)`;
+
+/** Covering partial-index seek on `entity_projection_execution_commit`, verified against the task's
+ * latest submitted cut, plus the `task_snapshot_external_commit` expression index. */
+export const TASK_TRACE_COMMIT_MATCH_SQL =
+  `task_snapshot.task_id IN (` +
+  `SELECT candidate.task_id FROM (` +
+  `SELECT DISTINCT task_id FROM entity_projection INDEXED BY entity_projection_execution_commit ` +
+  `WHERE entity_kind = 'execution' AND ${EXECUTION_SUBMISSION_COMMIT_SQL} IN (SELECT value FROM json_each(?))` +
+  `) AS candidate WHERE ${latestTaskSubmissionCommitSql("candidate.task_id")} IN (SELECT value FROM json_each(?)) ` +
+  `UNION SELECT task_id FROM task_snapshot WHERE ${TASK_EXTERNAL_COMMIT_SQL} IN (SELECT value FROM json_each(?)))`;
+
+/** The JSON twin of latestTaskSubmissionCommitSql / TASK_EXTERNAL_COMMIT_SQL, in that order. */
+function traceCommitKeys(submitted: string | null | undefined, snapshot: TraceCommitSnapshot): readonly string[] {
+  const external = snapshot.externalResolution?.commitSha ?? null;
+  return [
+    ...new Set([submitted ?? null, external].filter((sha): sha is string => typeof sha === "string" && sha !== "")),
+  ];
 }
 
 /** SQL query implementation for the rebuildable task projection. */
@@ -206,12 +231,9 @@ export function readTaskIndexRows(
     values.push(JSON.stringify(query.taskIds));
   }
   if (query.submissionCommitShas !== undefined) {
-    // One indexed probe per key; the UNION keeps each branch on its own expression index.
-    where.push(
-      `task_snapshot.task_id IN (SELECT task_id FROM task_snapshot WHERE ${TASK_SUBMISSION_COMMIT_SQL} IN (SELECT value FROM json_each(?))` +
-        ` UNION SELECT task_id FROM task_snapshot WHERE ${TASK_EXTERNAL_COMMIT_SQL} IN (SELECT value FROM json_each(?)))`,
-    );
-    values.push(JSON.stringify(query.submissionCommitShas), JSON.stringify(query.submissionCommitShas));
+    const shasJson = JSON.stringify(query.submissionCommitShas);
+    where.push(TASK_TRACE_COMMIT_MATCH_SQL);
+    values.push(shasJson, shasJson, shasJson);
   }
   if (query.slug !== undefined) {
     where.push(`${field("$.task.metadata.slug")} = ?`);
@@ -239,10 +261,14 @@ export function readTaskIndexRows(
     readonly snapshot_json: string;
     readonly lease_json?: string | null;
     readonly presentation_status: TaskV2["status"];
+    readonly submission_commit_sha?: string | null;
   }>(
     db,
     [
       "SELECT task_snapshot.task_id, task_package.package_path, task_snapshot.updated_at,",
+      ...(query.submissionCommitShas === undefined
+        ? []
+        : [`${latestTaskSubmissionCommitSql("task_snapshot.task_id")} AS submission_commit_sha,`]),
       `${query.presentationStatus ? PRESENTATION_STATUS_SQL : "task_snapshot.status"} AS presentation_status, task_snapshot.snapshot_json`,
       query.withAttribution
         ? ", lease_cas.lease_json FROM task_snapshot LEFT JOIN lease_cas USING(task_id)"
@@ -260,7 +286,7 @@ export function readTaskIndexRows(
         )
       : null,
     projected = visible.flatMap((row) => {
-      let snapshot: Parameters<typeof taskAttribution>[0] & TraceCommitSnapshot;
+      let snapshot: Parameters<typeof taskAttribution>[0];
       try {
         snapshot = JSON.parse(row.snapshot_json) as typeof snapshot;
       } catch {
@@ -297,7 +323,9 @@ export function readTaskIndexRows(
           taskClass: task.taskClass,
           packageDisposition: task.packageDisposition ?? "active",
           packagePath: row.package_path,
-          ...(query.submissionCommitShas === undefined ? {} : { submissionCommitShas: traceCommitKeys(snapshot) }),
+          ...(query.submissionCommitShas === undefined
+            ? {}
+            : { submissionCommitShas: traceCommitKeys(row.submission_commit_sha, snapshot) }),
           updatedAt: row.updated_at,
         },
       ];
@@ -816,12 +844,9 @@ export function listTaskRowsNarrow(
     values.push(JSON.stringify(query.taskIds));
   }
   if (query.submissionCommitShas !== undefined) {
-    // One indexed probe per key; the UNION keeps each branch on its own expression index.
-    where.push(
-      `task_snapshot.task_id IN (SELECT task_id FROM task_snapshot WHERE ${TASK_SUBMISSION_COMMIT_SQL} IN (SELECT value FROM json_each(?))` +
-        ` UNION SELECT task_id FROM task_snapshot WHERE ${TASK_EXTERNAL_COMMIT_SQL} IN (SELECT value FROM json_each(?)))`,
-    );
-    values.push(JSON.stringify(query.submissionCommitShas), JSON.stringify(query.submissionCommitShas));
+    const shasJson = JSON.stringify(query.submissionCommitShas);
+    where.push(TASK_TRACE_COMMIT_MATCH_SQL);
+    values.push(shasJson, shasJson, shasJson);
   }
   if (query.cursor !== undefined) {
     if (query.pinnedFirst) {
