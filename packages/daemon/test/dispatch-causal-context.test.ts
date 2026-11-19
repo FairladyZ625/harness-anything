@@ -1011,3 +1011,114 @@ test("conflicting inherited restrictions remain visible in ancestor order", () =
   assert.match(context, /task\/task_outer — tasks\/outer\/task_plan\.md/u);
   assert.match(context, /task\/task_parent — tasks\/parent\/task_plan\.md/u);
 });
+
+const TRACE_PLAN_PATH = "packages/daemon/src/daemon-host/fact-observed-commit.ts",
+  TRACE_MERGE = "9".repeat(40);
+
+function tracedProjection(options: { readonly chosenText?: string; readonly whyNot?: string; readonly workTitle?: string } = {}) {
+  return stub({
+    readTaskIndex: (query: { taskIds?: string[] }) => ({
+      ...cut(),
+      rows: [
+        { taskId: "task_root", title: options.workTitle ?? "Work", taskClass: "work", parentTaskId: null, packagePath: "tasks/root" },
+        { taskId: "task_leaf", title: "Leaf", taskClass: "standard", parentTaskId: "task_root", packagePath: "tasks/leaf" },
+      ].filter((row) => query?.taskIds === undefined || query.taskIds.length === 0 || query.taskIds.includes(row.taskId)),
+    }),
+    readDocument: (docPath: string) => ({
+      ...cut(),
+      document: {
+        body: docPath.startsWith("tasks/leaf") ? `# Leaf\n\nEdit \`${TRACE_PLAN_PATH}\`.\n` : "# Root\n\n## Goal\n\nKeep redlines.\n",
+        workspaceRevision: 1,
+        blobSha256: "b".repeat(64),
+        size: 10,
+      },
+    }),
+    listDecisions: () => ({
+      ...cut(),
+      decisions: [
+        {
+          decisionId: "dec_REDLINE",
+          title: "Observed commit anchors",
+          state: "in_effect",
+          question: "q",
+          appliesTo: { modules: ["packages/daemon/src/"], productLines: [] },
+          chosen: [{ id: "CH4", text: options.chosenText ?? "Capture HEAD at fact record time" }],
+          rejected: [{ id: "RJ3", text: "Static code-doc-anchors.json", whyNot: options.whyNot ?? "Static anchors rot & conflict." }],
+          claims: [],
+        },
+      ],
+    }),
+    searchFacts: (filters: { evidenceSourcePaths?: string[] }) => ({
+      ...cut(),
+      facts: filters.evidenceSourcePaths
+        ? [
+            {
+              ref: "fact/F-0000BEEF",
+              factId: "F-0000BEEF",
+              statement: "observedCommit is captured on record",
+              evidenceSource: `${TRACE_PLAN_PATH}:15-29`,
+              archived: false,
+              invalidated: false,
+            },
+          ]
+        : [],
+    }),
+  });
+}
+
+const tracedGit = (calls: string[][]) => ({
+  readPathHistory: ({ paths }: { readonly paths: readonly string[] }) => {
+    calls.push([...paths]);
+    return {
+      availability: "available" as const,
+      stdout: `\x1e${TRACE_MERGE}\x1f${"8".repeat(40)}\x1fMerge pull request #3809 from o/task_cccccccccccccccccccccccccc\n\n${TRACE_PLAN_PATH}\n`,
+    };
+  },
+});
+
+test("passive reverse trace appends redlines and anchored facts with trace-path, only when a host Git port is supplied", () => {
+  const calls: string[][] = [],
+    block = assembleTaskCausalContext({ projection: tracedProjection(), taskId: "task_leaf", gitHistory: tracedGit(calls) });
+  assert.ok(block !== null);
+  assertLineGrammar(block);
+  assert.deepEqual(calls, [[TRACE_PLAN_PATH]], "one batched Git history read per dispatch");
+  assert.match(
+    block,
+    /<redline ref="decision\/dec_REDLINE\/RJ3" trace-path="packages\/daemon\/src\/daemon-host\/fact-observed-commit\.ts">Static code-doc-anchors\.json — Why Not: Static anchors rot &amp; conflict\.<\/redline>/u,
+  );
+  assert.match(
+    block,
+    /<governs ref="decision\/dec_REDLINE" trace-path="[^"]+" title="Observed commit anchors">Capture HEAD at fact record time<\/governs>/u,
+  );
+  assert.match(block, /<anchored ref="fact\/F-0000BEEF" trace-path="[^"]+">observedCommit is captured on record \(src:[^)]+\)<\/anchored>/u);
+  assert.match(block, /<refs>task\/task_root decision\/dec_REDLINE fact\/F-0000BEEF<\/refs>/u);
+  const redline = block.indexOf("<redline"),
+    governs = block.indexOf("<governs");
+  assert.ok(block.indexOf("<work") < redline && redline < governs, "forward lineage first, redline before its decision line");
+  const handoff = assembleTaskCausalContext({ projection: tracedProjection(), taskId: "task_leaf" });
+  assert.ok(handoff !== null);
+  assert.doesNotMatch(handoff, /trace-path=/u, "the handoff store passes no port and stays Git-free");
+  const center = assembleTaskCausalContext({ projection: tracedProjection(), taskId: "task_leaf", gitHistory: null });
+  assert.match(center ?? "", /<redline ref="decision\/dec_REDLINE\/RJ3"/u, "module-scoped redlines need no Git worktree");
+});
+
+test("an oversized reverse trace is shed whole under the 8192-byte cap and never splits a UTF-8 character", () => {
+  const block = assembleTaskCausalContext({
+    projection: tracedProjection({
+      workTitle: "工作".repeat(1200),
+      chosenText: "红线".repeat(500),
+      whyNot: "禁止".repeat(500),
+    }),
+    taskId: "task_leaf",
+    gitHistory: tracedGit([]),
+  });
+  assert.ok(block !== null);
+  assertLineGrammar(block);
+  const bytes = backgroundByteLength(block);
+  assert.ok(bytes <= CAUSAL_CONTEXT_MAX_BYTES, `background is ${bytes} bytes`);
+  assert.match(block, /^<task-context truncated="yes">/u);
+  assert.match(block, /<omitted>[^<]*decision\/dec_REDLINE[^<]*<\/omitted>/u, "the shed redline is named, not silently lost");
+  const background = block.slice(0, block.indexOf("</task-context>") + "</task-context>".length);
+  assert.equal(Buffer.from(background, "utf8").toString("utf8"), background);
+  assert.doesNotMatch(background, /\uFFFD/u, "no half character");
+});
