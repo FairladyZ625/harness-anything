@@ -10,9 +10,14 @@ import {
   readDispatchStream,
   readDispatchStreamHeaders,
   readDispatchStreamSummary,
+  type DispatchStreamHeader,
 } from "./dispatch-stream.ts";
 import { runtimeKindForId } from "../runtime-engine/runtime-inventory.ts";
-import { probeProcessGroup, processGroupRecoveryHint } from "./runtime/process-group-reconciler.ts";
+import {
+  observeRecordedProcessGroup,
+  probeProcessGroup,
+  processGroupRecoveryHint,
+} from "./runtime/process-group-reconciler.ts";
 import type { ActiveRuntime, RuntimeBinding, RuntimeDispatchOwnerEvidence } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { disposeActiveRuntimeObservations } from "./runtime-spawn-active.ts";
@@ -91,6 +96,27 @@ export async function cancelRuntime(
       "This runtime has no owner dispatch on this node; cancel it through its owner.",
     );
   }
+  // Only a live stream is a control channel a recovery can adopt. An archived stream is the
+  // history of a stopped dispatch: it remains authorization and stop-proof evidence only.
+  const liveDispatchIds = new Set(readDispatchStreamHeaders(context.input.rootDir).map(({ dispatchId }) => dispatchId)),
+    hasLiveDispatch = liveDispatchIds.has(matchingHeader?.dispatchId ?? canonicalDispatch?.payload.dispatchId ?? "");
+  let ownerGroup: { readonly evidence: RuntimeDispatchOwnerEvidence | null; readonly pid: number | null } | undefined,
+    groupStop: ReturnType<typeof probeProcessGroup> | undefined;
+  const readOwnerGroup = async () =>
+      (ownerGroup ??= await readOwnerProcessGroup(
+        context,
+        runtimeSessionId,
+        canonicalDispatch,
+        ownerBinding,
+        matchingHeader,
+      )),
+    ownerGroupIdentity = (pid: number | null) => ({
+      pgid: pid ?? undefined,
+      ...(matchingHeader
+        ? { dispatch: { rootDir: context.input.rootDir, dispatchId: matchingHeader.dispatchId } }
+        : {}),
+    }),
+    probeOwnerGroup = (pid: number | null) => (groupStop ??= probeProcessGroup(ownerGroupIdentity(pid)));
   if (ruling !== null) {
     // A ruling is an owner decision for an unreachable runtime only. Check every
     // precondition before recovery, process-group probing, or the active-process
@@ -99,19 +125,18 @@ export async function cancelRuntime(
         active !== undefined ||
         context.exiting.has(runtimeSessionId) ||
         context.ownsModelSlot?.(runtimeSessionId) === true,
-      hasReadableDispatch =
-        matchingHeader !== undefined ||
-        headers.some((header) => header.dispatchId === canonicalDispatch?.payload.dispatchId),
-      hasRecordedProcessGroup = !crossNodeCenterRuling && canonicalDispatch?.processGroupPid != null;
-    if (hasLocalOwner || hasReadableDispatch || hasRecordedProcessGroup)
+      recordedGroupPid = crossNodeCenterRuling ? null : (await readOwnerGroup()).pid,
+      hasLiveProcessGroup =
+        recordedGroupPid !== null && observeRecordedProcessGroup(ownerGroupIdentity(recordedGroupPid)) === "running";
+    if (hasLocalOwner || hasLiveDispatch || hasLiveProcessGroup)
       throw runtimeSpawnError(
         "runtime_ruling_not_allowed",
-        "Owner ruling requires no local runtime owner, no readable dispatch stream, and no recorded process group.",
+        "Owner ruling requires no local runtime owner, no live dispatch stream, and no observably live process group.",
       );
   }
-  // Recovery observes only an admitted attempt with a local spool. Missing spools go to the
-  // same fenced process-group observer below; absence never releases a reservation by itself.
-  if (matchingHeader && !active && attempt?.policy.canAdoptProcess) {
+  // Recovery observes only an admitted attempt with a live local spool. Missing or archived spools go
+  // to the same fenced process-group observer below; absence never releases a reservation by itself.
+  if (matchingHeader && hasLiveDispatch && !active && attempt?.policy.canAdoptProcess) {
     await adoptRuntimes(context, undefined, { runtimeSessionId, authorizationBinding: binding });
   }
   const currentLifecycle = await readDispatchLifecycle(context, { by: "session", runtimeSessionId });
@@ -146,28 +171,9 @@ export async function cancelRuntime(
   // Missing control transport does not prove the process tree stopped.
   if (attempt && attempt.attempt.outcome === null) {
     const instanceId = matchingHeader?.instanceId ?? canonicalDispatch?.instanceId;
-    const ownerEvidence =
-        canonicalDispatch ??
-        (context.input.remote?.readRuntimeDispatch
-          ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
-          : readRuntimeDispatchOwnerEvidence(context.requiredRuntimeProjection(context.input), runtimeSessionId)),
-      processGroupPid =
-        ownerEvidence?.actor.principal.personId === ownerBinding.actor.principal.personId &&
-        sameWriteSource(ownerEvidence.source, ownerBinding.source) &&
-        (matchingHeader === undefined || ownerEvidence.payload.dispatchId === matchingHeader.dispatchId)
-          ? ownerEvidence.processGroupPid
-          : null;
+    const { evidence: ownerEvidence, pid: processGroupPid } = await readOwnerGroup();
     // Remote edge PIDs cannot be probed against center's OS PID table during cross-node ruling.
-    if (
-      !stopAlreadyProven &&
-      (crossNodeCenterRuling ||
-        probeProcessGroup({
-          pgid: processGroupPid ?? undefined,
-          ...(matchingHeader
-            ? { dispatch: { rootDir: context.input.rootDir, dispatchId: matchingHeader.dispatchId } }
-            : {}),
-        }) !== "proven_stopped")
-    ) {
+    if (!stopAlreadyProven && (crossNodeCenterRuling || probeOwnerGroup(processGroupPid) !== "proven_stopped")) {
       if (ruling !== null) {
         const rulingBinding = crossNodeCenterRuling ? { ...binding, source: ownerBinding.source } : binding;
         const resultBody = JSON.stringify({
@@ -295,6 +301,30 @@ export async function cancelRuntime(
     return context.controlReceipt(opId, runtimeSessionId, "cancelled");
   }
   return context.controlReceipt(opId, runtimeSessionId, "already-exited");
+}
+
+/** The owner's recorded process group, accepted only from evidence for this owner and dispatch. */
+async function readOwnerProcessGroup(
+  context: RuntimeSpawnerContext,
+  runtimeSessionId: string,
+  canonicalDispatch: RuntimeDispatchOwnerEvidence | null,
+  ownerBinding: Pick<RuntimeDispatchOwnerEvidence, "actor" | "source"> | null | undefined,
+  matchingHeader: DispatchStreamHeader | undefined,
+): Promise<{ readonly evidence: RuntimeDispatchOwnerEvidence | null; readonly pid: number | null }> {
+  const evidence =
+    canonicalDispatch ??
+    (context.input.remote?.readRuntimeDispatch
+      ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
+      : readRuntimeDispatchOwnerEvidence(context.requiredRuntimeProjection(context.input), runtimeSessionId));
+  const pid =
+    evidence &&
+    ownerBinding &&
+    evidence.actor.principal.personId === ownerBinding.actor.principal.personId &&
+    sameWriteSource(evidence.source, ownerBinding.source) &&
+    (matchingHeader === undefined || evidence.payload.dispatchId === matchingHeader.dispatchId)
+      ? evidence.processGroupPid
+      : null;
+  return { evidence, pid };
 }
 
 export function readRuntimeDispatchOwnerEvidence(

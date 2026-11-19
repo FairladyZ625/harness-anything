@@ -10,6 +10,7 @@ import {
   readDispatchStreamSummary,
 } from "../src/daemon-host/dispatch-stream.ts";
 import {
+  observeRecordedProcessGroup,
   probeProcessGroup,
   reconcileProcessGroup,
   requestProcessGroupStop,
@@ -213,4 +214,37 @@ test("the reference pgid identity spelling addresses the same process group", ()
   const deps = scripted([{ signal: 0, error: "ESRCH" }]);
   assert.equal(probeProcessGroup({ pgid: 44, startedAt: "tick" }, deps), "proven_stopped");
   assert.deepEqual(deps.calls, ["44:0"]);
+});
+
+test("observeRecordedProcessGroup trusts Windows containment stop proof and otherwise probes leader reachability", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-recorded-group-alive-")),
+    dispatchId = "dispatch_444444444444444444444444";
+  try {
+    openDispatchStream(rootDir, {
+      dispatchId,
+      runtimeSessionId: "runtime_444444444444444444444444",
+      instanceId: "test",
+      taskId: null,
+      executionId: null,
+      startedAt: new Date().toISOString(),
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, {
+      kind: "process_containment",
+      pid: process.pid,
+      containmentId: "Global\\stopped-job",
+    });
+    assert.equal(
+      observeRecordedProcessGroup(
+        { pgid: process.pid, dispatch: { rootDir, dispatchId } },
+        { platform: "win32", observeWindowsGroup: () => ({ activeProcesses: 0, uptimeMs: 5_000 }) },
+      ),
+      "proven_stopped",
+    );
+    assert.equal(observeRecordedProcessGroup({ pgid: process.pid }, { platform: "win32" }), "running");
+    assert.equal(observeRecordedProcessGroup({ pgid: 2_147_483_647 }, { platform: "win32" }), "unknown_unreachable");
+    assert.equal(observeRecordedProcessGroup({ pgid: 42 }, scripted([{ signal: 0 }])), "running");
+    assert.equal(observeRecordedProcessGroup(1, scripted([])), "unknown_unreachable");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });
