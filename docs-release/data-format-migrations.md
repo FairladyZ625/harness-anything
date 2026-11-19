@@ -163,10 +163,15 @@ differs). Pass `--medium-submit` to create, start, sync, submit, and show a synt
 ## Personal pins and dispatch activity
 
 SQLite stays on projection schema 38. SQLite and PostgreSQL index dispatch pages globally
-and by task through their existing index installation. The page key is the UTC millisecond
-representation of `startedAt ?? occurredAt`, followed by dispatch ID. The window and cursor
-use the same key, so timestamps such as `:00Z`, `:00.000Z` and `:00.1Z` sort consistently.
-The previous indexes remain for older binaries and the existing dispatch lookup paths.
+and by task through their existing index installation. Both indexes use the integer UTC
+epoch milliseconds of `startedAt ?? occurredAt`, followed by dispatch ID. Window bounds,
+cursor comparisons and billing use the same instant, including historical numeric offsets.
+For example, `17:00:00+08:00` and `09:00:00.000Z` share a key. Fractions finer than a
+millisecond are truncated. SQLite derives the key when it installs the indexes. PostgreSQL
+maintains a derived bigint in its event-index trigger. Continue the existing scoped
+`ha_backfill_event_read_indexes` command until it returns zero to populate the key for
+historical dispatches. Dispatch pages report `projection_pending` while keys are missing.
+The previous release's indexes remain for older binaries and the existing dispatch lookup paths.
 
 The canonical stream and document bytes stay unchanged. Replay admits historical Pin/Unpin
 envelopes whose principal lacks a person ID and records them as unattributed history without

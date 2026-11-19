@@ -1,4 +1,4 @@
-import { effectiveLeaseValue } from "./rebuildable-task-projection-runtime.ts";
+import { effectiveLeaseValue } from "@harness-anything/kernel/internal/domain/task-lease-policy.ts";
 import { taskAttribution } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
 import { taskAttributionRows } from "./event-summary-read-index.ts";
 import { publicRuntimeSession } from "@harness-anything/kernel/internal/domain/runtime-public-query.ts";

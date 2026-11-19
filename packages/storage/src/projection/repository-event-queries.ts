@@ -467,9 +467,10 @@ export function repositoryEventQueries(
       withRead((db) => {
         if (!validateStorageReadWindow(pageLimit, storageReadPolicy.defaultValue.pageSizes.standard))
           throw new Error("runtime dispatch page requires a limit from 1 to 500");
-        const page = [
-            runtimeDispatchPageTimeKey(startedAtGte),
-            runtimeDispatchPageTimeKey(cursor?.startedAt ?? ""),
+        const after = runtimeDispatchPageTimeKey(cursor?.startedAt ?? ""),
+          page = [
+            Math.max(runtimeDispatchPageTimeKey(startedAtGte), after),
+            after,
             cursor?.dispatchId ?? "",
             pageLimit + 1,
           ] as const,

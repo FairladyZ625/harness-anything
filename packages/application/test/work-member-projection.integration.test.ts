@@ -2,7 +2,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { serializeCanonicalEventUnchecked } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
 import {
   compileRelationCreatedEvent,
   relationEventWritePlan,
@@ -19,7 +18,10 @@ import {
 } from "@harness-anything/kernel";
 import { makeTaskEventReader, makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { sqliteLedgerPath } from "../../storage/src/store/sqlite-event-store.ts";
-import { appendCollaboratorLedger } from "../../storage/test/store/collaborator-ledger.events.fixture.ts";
+import {
+  appendCollaboratorLedger,
+  historicalBillingDispatchBytes,
+} from "../../storage/test/store/collaborator-ledger.events.fixture.ts";
 import { assertCollaboratorLedger } from "./collaborator-ledger.fixture.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { initRepo } from "../../storage/test/store/task-event-store.fixtures.ts";
@@ -236,22 +238,26 @@ test("SQLite collaborator queries read persisted decisions, question pages and h
       const row = db.prepare("SELECT event_json FROM event WHERE revision=?");
       const write = db.prepare("UPDATE event SET event_json=?,digest=? WHERE revision=?");
       for (const revision of revisions) {
-        const event = JSON.parse(String(row.get(revision)?.event_json));
-        event.source = `runtime-session/${event.payload.runtimeSessionId}`;
-        const bytes = serializeCanonicalEventUnchecked(event);
+        const body = String(row.get(revision)?.event_json);
+        const bytes = historicalBillingDispatchBytes(body, true);
         write.run(bytes, `sha256:${sha256Text(bytes)}`, revision);
       }
     } finally {
       db.close();
     }
 
-    const reader = makeTaskEventReader({ rootDir, repoId, generation: 3 }),
-      projection = makeTaskProjection({ rootDir, eventStore: reader });
+    const reader = makeTaskEventReader({ rootDir, repoId, generation: 3 });
     try {
-      assert.equal(projection.rebuild().watermark, reader.readHead()?.revision);
-      assertCollaboratorLedger(projection);
+      for (const cold of [true, false]) {
+        const projection = makeTaskProjection({ rootDir, eventStore: reader });
+        try {
+          if (cold) assert.equal(projection.rebuild().watermark, reader.readHead()?.revision);
+          assertCollaboratorLedger(projection);
+        } finally {
+          projection.close();
+        }
+      }
     } finally {
-      projection.close();
       await reader.drain();
     }
   });

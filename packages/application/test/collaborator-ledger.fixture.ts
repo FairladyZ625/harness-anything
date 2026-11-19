@@ -53,6 +53,44 @@ export function assertCollaboratorLedger(projection: TaskProjectionQueries): voi
     ["decision/dec_BOB_ONLY"],
   );
 
+  for (const taskIds of [undefined, ["billing-task-a"], ["billing-task-b"], ["billing-task-a", "billing-task-b"]]) {
+    const scope = taskIds === undefined ? {} : { taskIds };
+    const ids = [];
+    let cursor: NonNullable<ReturnType<TaskProjectionQueries["readRuntimeDispatchPage"]>["nextCursor"]> | undefined;
+    for (;;) {
+      const page = projection.readRuntimeDispatchPage({
+        ...scope,
+        startedAtGte: "2026-11-19T11:00:00+08:00",
+        limit: 1,
+        ...(cursor ? { cursor } : {}),
+      });
+      assert.equal(page.rows.length, 1);
+      const event = page.rows[0]!.event;
+      const id = event.payload.dispatchId;
+      assert.ok(!ids.includes(id), `repeated dispatch ${id}`);
+      ids.push(id);
+      if (id === "billing-alice-dispatch") {
+        assert.equal(event.payload.startedAt, undefined);
+        assert.equal(event.occurredAt, "2026-11-19T11:00:00+08:00");
+      }
+      if (id === "billing-millis-dispatch") assert.equal(event.payload.startedAt, "2026-11-18T22:00:00.0009-05:00");
+      if (page.done) {
+        assert.equal(page.nextCursor, null);
+        break;
+      }
+      assert.ok(page.nextCursor);
+      cursor = page.nextCursor;
+    }
+    assert.deepEqual(
+      ids,
+      ["alice", "millis", "later", "bob"]
+        .filter(
+          (id) => taskIds === undefined || taskIds.includes(id === "millis" ? "billing-task-b" : "billing-task-a"),
+        )
+        .map((id) => `billing-${id}-dispatch`),
+    );
+  }
+
   let pages = 0;
   const billing = {
     readCut: projection.readCut,
@@ -86,6 +124,7 @@ export function assertCollaboratorLedger(projection: TaskProjectionQueries): voi
     readCollaboratorTokenUsage(billing, { startedAtGte: first, ...scope }).totals.totalTokens;
   assert.equal(bill({ filterNodeId: edgeA, startedAtLt: second }), 28);
   assert.equal(bill({ filterNodeId: edgeA, startedAtLt: "2026-11-19T03:00:00.025Z" }), 20);
+  assert.equal(bill({ filterNodeId: edgeA, startedAtLt: "2026-11-19T11:00:00.025+08:00" }), 20);
   assert.equal(bill({ filterNodeId: edgeB }), 27);
   assert.equal(bill({ scopePersonId: alice, filterNodeId: edgeB }), 0);
   assert.equal(bill({ scopePersonId: "person_unrelated" }), 0);

@@ -2,6 +2,7 @@ import {
   assertLeaseReservation,
   checkedLease,
   decideReadableTaskLease,
+  effectiveLeaseValue,
 } from "@harness-anything/kernel/internal/domain/task-lease-policy.ts";
 import {
   storageReadPolicy,
@@ -297,12 +298,6 @@ function lifecycleRelation({
   freshness,
 }: ReturnType<typeof readRelationProjectionRows>[number]) {
   return { relationId, sourceRef, targetRef, relationType, state, strength, freshness };
-}
-
-export function effectiveLeaseValue(current: LeaseV1 | null, now: string): LeaseV1 | null {
-  if (current === null || current.phase === "released") return current;
-  if (current.expiresAt > now) return current;
-  return current.phase === "reserving" ? null : checkedLease({ ...current, phase: "orphaned" }, true);
 }
 
 export function readIntervals(db: DatabaseSync, taskId: string): readonly LeaseInterval[] {

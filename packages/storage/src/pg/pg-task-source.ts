@@ -46,7 +46,7 @@ import type { EventListPage, EventListQuery } from "@harness-anything/kernel/int
 import { readPgDecisionRows } from "./pg-decision-reads.ts";
 import { assertPgDecisionIndexReady } from "./pg-decision-index-migration.ts";
 import { listPgDecisionRows } from "./pg-decision-list.ts";
-import { effectiveLeaseValue } from "../projection/rebuildable-task-projection-runtime.ts";
+import { effectiveLeaseValue } from "@harness-anything/kernel/internal/domain/task-lease-policy.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { withPostgresTransaction, type PostgresScopeClaims } from "../postgres/transaction.ts";
 

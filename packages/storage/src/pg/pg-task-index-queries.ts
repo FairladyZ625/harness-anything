@@ -1,4 +1,4 @@
-import { effectiveLeaseValue } from "../projection/rebuildable-task-projection-runtime.ts";
+import { effectiveLeaseValue } from "@harness-anything/kernel/internal/domain/task-lease-policy.ts";
 import { taskAttribution } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
 import { assertPgTaskParentIndexReady } from "./pg-task-parent-index.ts";
 import type { TaskProjectionQueries, TaskLifecycleSnapshot, TaskIndexProjectionRow } from "@harness-anything/kernel";

@@ -1,4 +1,8 @@
 import {
+  parseCanonicalEvent,
+  serializeCanonicalEventUnchecked,
+} from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
+import {
   compileDecisionWrite,
   MIGRATION_DOCUMENT_POLICY_ID,
   MIGRATION_IMPORT_SOURCE,
@@ -25,6 +29,26 @@ export const second = "2026-11-19T04:00:00.000Z";
 const actor = (personId: string) => ({ principal: { personId }, executor: null });
 const node = (nodeId: string) => ({ kind: "node" as const, nodeId });
 export const awaitRef = "decision/dec_AWAITS_BOB";
+
+export function historicalBillingDispatchBytes(body: string, legacySource = false): string {
+  const event = parseCanonicalEvent(body);
+  if (event.schema !== "agent-runtime-event/v1" || event.type !== "runtime_dispatch_requested")
+    throw new Error("Expected a billing dispatch");
+  const { dispatchId, runtimeSessionId } = event.payload;
+  const historical = serializeCanonicalEventUnchecked({
+    ...event,
+    ...(legacySource && dispatchId !== "billing-millis-dispatch"
+      ? { source: `runtime-session/${runtimeSessionId}` as const }
+      : {}),
+    occurredAt: dispatchId === "billing-alice-dispatch" ? "2026-11-19T11:00:00+08:00" : event.occurredAt,
+    payload: {
+      ...event.payload,
+      ...(dispatchId === "billing-millis-dispatch" ? { startedAt: "2026-11-18T22:00:00.0009-05:00" } : {}),
+    },
+  });
+  parseCanonicalEvent(historical);
+  return historical;
+}
 
 export async function appendCollaboratorLedger(
   append: (bundle: CanonicalWriteBundle) => void | Promise<void>,
@@ -94,7 +118,7 @@ export async function appendCollaboratorLedger(
       type: "runtime_session_started",
       payload: { ...identity, launchGeneration: 1, attachable: false },
     });
-    if (id === "live" || id === "alice") historicalDispatchRevisions.push(nextRevision());
+    if (id === "live" || id === "alice" || id === "millis") historicalDispatchRevisions.push(nextRevision());
     await appendRuntime({
       ...envelope(`dispatch-${id}`, personId, nodeId, at),
       schema: "agent-runtime-event/v1",

@@ -6,10 +6,15 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   compileEntityPinEvent,
+  type CanonicalEventV1,
   relationIsCurrent,
   taskLifecycleWritePlan,
   type TaskEventV1,
 } from "@harness-anything/kernel";
+import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
+import { createPGliteStorageBackend } from "../../src/pglite/storage-backend.ts";
+import { rebuildPgProjection } from "../../src/pg/pg-task-event-materialize.ts";
+import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
 import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
 import {
   canonicalEventWritePlan,
@@ -41,6 +46,7 @@ import {
   first,
   second,
   appendCollaboratorLedger,
+  historicalBillingDispatchBytes,
   migratedTaskPinBundle,
 } from "../store/collaborator-ledger.events.fixture.ts";
 import { runtimeProviderEvents } from "../runtime-provider-bytes.assertions.ts";
@@ -195,88 +201,166 @@ pgliteIntegrationSuite("complete synchronous query parity", () => {
         },
         embedded = makeTaskEventStore({ repoId, rootDir, storage });
       try {
-        await appendCollaboratorLedger(
+        const revisions = await appendCollaboratorLedger(
           (bundle) => {
             embedded.append(bundle);
           },
           () => (embedded.readHead()?.revision ?? 0) + 1,
         );
-        const reader = makeTaskProjectionReader({ repoId, storage });
-        try {
-          reader.withSession((queries) => {
-            const all = queries.listDecisions().decisions;
-            const ids = all.map(({ decisionId }) => decisionId).sort();
-            assert.deepEqual(ids, ["dec_ALICE_ONLY", "dec_AWAITS_BOB", "dec_BOB_ONLY"]);
-            const involvement = (personId: string) => {
-              const asks = new Set(
-                queries
-                  .readRelationQuery({
-                    target: `person/${personId}`,
-                    relationType: "awaits",
-                    state: "active",
-                  })
-                  .rows.filter(relationIsCurrent)
-                  .map(({ sourceRef }) => sourceRef),
-              );
-              return all
-                .filter(
-                  ({ decisionId, proposer }) =>
-                    proposer.principal.personId === personId || asks.has(`decision/${decisionId}`),
-                )
-                .map(({ decisionId }) => decisionId)
-                .sort();
-            };
-            assert.deepEqual(involvement(alice), ["dec_ALICE_ONLY", "dec_AWAITS_BOB"]);
-            assert.deepEqual(involvement(bob), ["dec_AWAITS_BOB", "dec_BOB_ONLY"]);
-            assert.deepEqual(involvement("person_unrelated"), []);
+        await embedded.drain();
+        const assertLedger = () => {
+          const reader = makeTaskProjectionReader({ repoId, storage });
+          try {
+            reader.withSession((queries) => {
+              const all = queries.listDecisions().decisions;
+              const ids = all.map(({ decisionId }) => decisionId).sort();
+              assert.deepEqual(ids, ["dec_ALICE_ONLY", "dec_AWAITS_BOB", "dec_BOB_ONLY"]);
+              const involvement = (personId: string) => {
+                const asks = new Set(
+                  queries
+                    .readRelationQuery({
+                      target: `person/${personId}`,
+                      relationType: "awaits",
+                      state: "active",
+                    })
+                    .rows.filter(relationIsCurrent)
+                    .map(({ sourceRef }) => sourceRef),
+                );
+                return all
+                  .filter(
+                    ({ decisionId, proposer }) =>
+                      proposer.principal.personId === personId || asks.has(`decision/${decisionId}`),
+                  )
+                  .map(({ decisionId }) => decisionId)
+                  .sort();
+              };
+              assert.deepEqual(involvement(alice), ["dec_ALICE_ONLY", "dec_AWAITS_BOB"]);
+              assert.deepEqual(involvement(bob), ["dec_AWAITS_BOB", "dec_BOB_ONLY"]);
+              assert.deepEqual(involvement("person_unrelated"), []);
 
-            for (const taskIds of [undefined, ["billing-task-a", "billing-task-b"]]) {
-              const window = taskIds === undefined ? {} : { taskIds };
-              const rows = [];
-              const cursors = [];
-              let cursor: { startedAt: string; dispatchId: string } | undefined;
-              do {
-                const page = queries.readRuntimeDispatchPage({
-                  ...window,
-                  startedAtGte: first,
-                  limit: 1,
-                  ...(cursor ? { cursor } : {}),
-                });
-                rows.push(...page.rows);
-                cursors.push(page.nextCursor);
-                cursor = page.nextCursor ?? undefined;
-              } while (cursor && rows.length < 5);
-              assert.deepEqual(cursors, [
-                { startedAt: first, dispatchId: "billing-alice-dispatch" },
-                { startedAt: first, dispatchId: "billing-millis-dispatch" },
-                { startedAt: "2026-11-19T03:00:00.100Z", dispatchId: "billing-later-dispatch" },
-                null,
-              ]);
+              for (const taskIds of [
+                undefined,
+                ["billing-task-a"],
+                ["billing-task-b"],
+                ["billing-task-a", "billing-task-b"],
+              ]) {
+                const window = taskIds === undefined ? {} : { taskIds };
+                const rows = [];
+                const cursors = [];
+                let cursor: { startedAt: string; dispatchId: string } | undefined;
+                do {
+                  const page = queries.readRuntimeDispatchPage({
+                    ...window,
+                    startedAtGte: "2026-11-18T22:00:00-05:00",
+                    limit: 1,
+                    ...(cursor ? { cursor } : {}),
+                  });
+                  rows.push(...page.rows);
+                  cursors.push(page.nextCursor);
+                  assert.equal(page.done, page.nextCursor === null);
+                  cursor = page.nextCursor ?? undefined;
+                } while (cursor && rows.length < 5);
+                const scopeRows = [
+                  { taskId: "billing-task-a", startedAt: first, dispatchId: "billing-alice-dispatch" },
+                  { taskId: "billing-task-b", startedAt: first, dispatchId: "billing-millis-dispatch" },
+                  {
+                    taskId: "billing-task-a",
+                    startedAt: "2026-11-19T03:00:00.100Z",
+                    dispatchId: "billing-later-dispatch",
+                  },
+                  { taskId: "billing-task-a", startedAt: second, dispatchId: "billing-bob-dispatch" },
+                ].filter(({ taskId }) => taskIds === undefined || taskIds.includes(taskId));
+                assert.deepEqual(cursors, [
+                  ...scopeRows.slice(0, -1).map(({ startedAt, dispatchId }) => ({ startedAt, dispatchId })),
+                  null,
+                ]);
+                assert.deepEqual(
+                  rows.map(({ event }) => event.payload.dispatchId),
+                  scopeRows.map(({ dispatchId }) => dispatchId),
+                );
+                assert.deepEqual(
+                  rows.map(({ event, metrics }) => [
+                    event.actor.principal.personId,
+                    event.source,
+                    event.payload.startedAt ?? event.occurredAt,
+                    metrics?.totalTokens,
+                  ]),
+                  [
+                    [alice, { kind: "node", nodeId: edgeA }, "2026-11-19T11:00:00+08:00", 15],
+                    [alice, { kind: "node", nodeId: edgeA }, "2026-11-18T22:00:00.0009-05:00", 5],
+                    [alice, { kind: "node", nodeId: edgeA }, "2026-11-19T03:00:00.1Z", 8],
+                    [bob, { kind: "node", nodeId: edgeB }, second, 27],
+                  ].filter(
+                    (_, index) =>
+                      taskIds === undefined || taskIds.includes(index === 1 ? "billing-task-b" : "billing-task-a"),
+                  ),
+                );
+                if (scopeRows[0]?.dispatchId === "billing-alice-dispatch")
+                  assert.equal(rows[0]!.event.payload.startedAt, undefined);
+              }
               assert.deepEqual(
-                rows.map(({ event, metrics }) => [
-                  event.actor.principal.personId,
-                  event.source,
-                  event.payload.startedAt,
-                  metrics?.totalTokens,
-                ]),
-                [
-                  [alice, { kind: "node", nodeId: edgeA }, undefined, 15],
-                  [alice, { kind: "node", nodeId: edgeA }, first, 5],
-                  [alice, { kind: "node", nodeId: edgeA }, "2026-11-19T03:00:00.1Z", 8],
-                  [bob, { kind: "node", nodeId: edgeB }, second, 27],
-                ],
+                queries
+                  .readRuntimeDispatchPage({ startedAtGte: second, limit: 1 })
+                  .rows.map(({ metrics }) => metrics?.totalTokens),
+                [27],
               );
-            }
-            assert.deepEqual(
-              queries
-                .readRuntimeDispatchPage({ startedAtGte: second, limit: 1 })
-                .rows.map(({ metrics }) => metrics?.totalTokens),
-              [27],
+            });
+          } finally {
+            reader.close();
+          }
+        };
+        const editLedger = async (rebuild: boolean) => {
+          const backend = await createPGliteStorageBackend({ repoId, storage });
+          try {
+            await withPostgresTransaction(
+              backend.pool,
+              async (client) => {
+                if (rebuild) {
+                  const { rows } = await client.query<{ event_json: string }>(
+                    "SELECT event_json FROM ha_events ORDER BY revision",
+                  );
+                  const events = rows.map(({ event_json }) => JSON.parse(event_json) as CanonicalEventV1);
+                  const sourceRevision = events.at(-1)!.workspaceRevision;
+                  assert.equal(
+                    (
+                      await rebuildPgProjection(client, storage.scope, {
+                        events,
+                        sourceRevision,
+                        readContentBlob: async (digest) =>
+                          (
+                            await client.query<{ body: Buffer }>("SELECT body FROM ha_content_blobs WHERE sha256=$1", [
+                              digest,
+                            ])
+                          ).rows[0]?.body ?? null,
+                      })
+                    ).revision,
+                    sourceRevision,
+                  );
+                  return;
+                }
+                for (const revision of revisions) {
+                  const { rows } = await client.query<{ event_json: string }>(
+                    "SELECT event_json FROM ha_events WHERE revision=$1",
+                    [revision],
+                  );
+                  const body = historicalBillingDispatchBytes(rows[0]!.event_json);
+                  await client.query("UPDATE ha_events SET event_json=$1,event_digest=$2 WHERE revision=$3", [
+                    body,
+                    `sha256:${sha256Text(body)}`,
+                    revision,
+                  ]);
+                }
+              },
+              storage.scope,
             );
-          });
-        } finally {
-          reader.close();
-        }
+          } finally {
+            await backend.close();
+          }
+        };
+        await editLedger(false);
+        assertLedger();
+        await editLedger(true);
+        assertLedger();
       } finally {
         await embedded.drain();
       }

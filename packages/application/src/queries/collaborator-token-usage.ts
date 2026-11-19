@@ -1,6 +1,5 @@
 import {
   compareRuntimeDispatchPageKeys,
-  runtimeDispatchPageKey,
   runtimeDispatchPageTimeKey,
 } from "@harness-anything/kernel/internal/domain/runtime-public-query.ts";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
@@ -51,7 +50,8 @@ export function readCollaboratorTokenUsage(
       ...(cursor ? { cursor } : {}),
     });
     for (const { event, metrics } of page.rows) {
-      if (upper !== undefined && runtimeDispatchPageKey(event).startedAt >= upper) break dispatchPages;
+      if (upper !== undefined && runtimeDispatchPageTimeKey(event.payload.startedAt ?? event.occurredAt) >= upper)
+        break dispatchPages;
       const personId = event.actor.principal.personId ?? null,
         nodeId = sourceNode(event.source);
       if (!matchesCollaboratorScope(query, [{ personId, nodeId }])) continue;

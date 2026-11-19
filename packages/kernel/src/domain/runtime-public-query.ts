@@ -48,13 +48,18 @@ export function publicRuntimeInstallation(installation: RuntimeInstallation): Om
   return publicFields;
 }
 
-export function runtimeDispatchPageTimeKey(value: string): string {
-  return normalizePersistedTimestamp(value) ?? value;
+export function runtimeDispatchPageTimeKey(value: string): number {
+  // An empty lower bound is the existing unbounded dispatch-page request.
+  if (value === "") return Number.MIN_SAFE_INTEGER;
+  const milliseconds = Date.parse(value);
+  if (!Number.isFinite(milliseconds)) throw new Error("Invalid dispatch page timestamp");
+  return milliseconds;
 }
 
 export function runtimeDispatchPageKey(event: Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }>) {
+  const startedAt = event.payload.startedAt ?? event.occurredAt;
   return {
-    startedAt: runtimeDispatchPageTimeKey(event.payload.startedAt ?? event.occurredAt),
+    startedAt: normalizePersistedTimestamp(startedAt) ?? startedAt,
     dispatchId: event.payload.dispatchId,
   };
 }
@@ -63,7 +68,8 @@ export function compareRuntimeDispatchPageKeys(
   left: ReturnType<typeof runtimeDispatchPageKey>,
   right: ReturnType<typeof runtimeDispatchPageKey>,
 ): number {
-  if (left.startedAt !== right.startedAt) return left.startedAt < right.startedAt ? -1 : 1;
+  const time = runtimeDispatchPageTimeKey(left.startedAt) - runtimeDispatchPageTimeKey(right.startedAt);
+  if (time !== 0) return time;
   // SQLite BINARY and PostgreSQL C order the dispatch ID's encoded bytes.
   return Buffer.compare(Buffer.from(left.dispatchId), Buffer.from(right.dispatchId));
 }

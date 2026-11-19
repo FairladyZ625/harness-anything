@@ -2,7 +2,11 @@ import {
   storageReadPolicy,
   validateStorageReadWindow,
 } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
-import { assertPgEventReadIndexReady, pgDispatchPageTimeKey } from "./pg-event-read-index-migration.ts";
+import {
+  assertPgEventReadIndexReady,
+  pgDispatchPageTimeGate,
+  pgDispatchPageTimeKey,
+} from "./pg-event-read-index-migration.ts";
 import { prefixUpperBound } from "../projection/document-read-range.ts";
 import type { PoolClient } from "pg";
 import type {
@@ -334,13 +338,11 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
       transaction(async (client) => {
         if (!validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.standard))
           throw new Error("runtime dispatch page requires a limit from 1 to 500");
-        const window = `${pgDispatchPageTimeKey}>=$6 AND (${pgDispatchPageTimeKey},dispatch_id)>($7::text,$8::text)`,
+        await pgDispatchPageTimeGate(client, scope, repoId);
+        const after = runtimeDispatchPageTimeKey(cursor?.startedAt ?? ""),
+          window = `${pgDispatchPageTimeKey}>=$6::bigint AND (${pgDispatchPageTimeKey},dispatch_id)>($7::bigint,$8::text COLLATE "C")`,
           order = `${pgDispatchPageTimeKey},dispatch_id`,
-          values = [
-            runtimeDispatchPageTimeKey(startedAtGte),
-            runtimeDispatchPageTimeKey(cursor?.startedAt ?? ""),
-            cursor?.dispatchId ?? "",
-          ],
+          values = [Math.max(runtimeDispatchPageTimeKey(startedAtGte), after), after, cursor?.dispatchId ?? ""],
           rows =
             taskIds === undefined
               ? await readDispatchRows(client, window, values, order, limit + 1)
