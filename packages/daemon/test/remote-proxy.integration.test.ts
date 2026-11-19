@@ -17,9 +17,15 @@ import { runDaemonControl } from "@harness-anything/cli/internal/daemon/control"
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
-import { streamDaemonFacetAt } from "../src/daemon-host/client/local-json-rpc-stream.ts";
+import {
+  streamAgentRuntimeAt,
+  streamDaemonFacetAt,
+  type DaemonStreamFailure,
+} from "../src/daemon-host/client/local-json-rpc-stream.ts";
 import { openDaemonHost, type DaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
+import type { RuntimeStreamCursor } from "../src/daemon-host/protocol/stream-contract.ts";
 import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import { serveJsonRpcStream, type DaemonTransportConnection } from "../src/daemon-host/transport/json-rpc-stream.ts";
 import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
@@ -27,7 +33,7 @@ import { openBootstrappedRepoCell, registerBootstrappedDaemonRepo } from "./repo
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import type { CredentialPort } from "../src/daemon-host/agent-runtime-credential-port.ts";
 import { createLocalGuiServiceBridge } from "../../gui/src/main/local-composition-root.ts";
-import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
+import { fixtureRuntimeProcess, runtimeProcessFixture } from "./fixtures/runtime-process.ts";
 
 test(
   "remote-proxy forwards repository frames and streams, reconnects, and fails closed",
@@ -433,6 +439,317 @@ test(
         freshProxy.close();
       }
     });
+  },
+);
+
+test(
+  "local remote-proxy shutdown emits daemon_stopping, preserves cursor handoff, and distinguishes EOF and detach",
+  { timeout: 30_000 },
+  async (t) => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-remote-proxy-stop-")),
+      repoId = "proxy-handoff-repo",
+      repoRoot = path.join(parent, "repo-b"),
+      userRootA = path.join(parent, "user-a"),
+      userRootB = path.join(parent, "user-b"),
+      endpointA = localUserDaemonEndpoint(userRootA, "proxy-a"),
+      uid = process.getuid?.() ?? 0,
+      executablePath = writeProviderExecutable(
+        path.join(parent, "codex-stub.mjs"),
+        "if (process.argv[2] === '--version') console.log('codex-stub 1.0.0');\n",
+      );
+    signInPolicyTestUser(userRootA, "owner", [repoId], "admin");
+    signInPolicyTestUser(userRootB, "owner", [repoId], "admin");
+    initRepo(repoRoot, repoId, uid);
+    registerBootstrappedDaemonRepo({
+      canonicalRoot: repoRoot,
+      repoId,
+      userRoot: userRootB,
+      createConvenienceLinks: false,
+    });
+    const workers: ReturnType<typeof runtimeProcessFixture>[] = [],
+      outputs: Array<(chunk: string) => void> = [],
+      attachCursorsOnB: Array<RuntimeStreamCursor | undefined> = [],
+      attachNotifiers = new Set<() => void>();
+    let launchIndex = 0;
+    const hostB = await openDaemonHost({
+        daemonId: "origin-b",
+        userRoot: userRootB,
+        runtimeCredentialPort: providerVault().port,
+        openCell: openBootstrappedRepoCell,
+        runtimeDiscover: () => [
+          {
+            installationId: "installation-codex",
+            kindId: "codex",
+            executablePath,
+            version: "1.0.0",
+            observedAt: "2026-09-02T00:00:00.000Z",
+          },
+        ],
+        runtimeLaunch: (_prepared, persistence) => {
+          const worker = workers[launchIndex++]!;
+          appendRuntimeWorkerRecord(repoRoot, persistence.dispatchId, { kind: "process_started", pid: worker.pid });
+          return {
+            ...worker,
+            onOutput: (listener) => {
+              outputs.push(listener);
+              queueMicrotask(() =>
+                listener(`${JSON.stringify({ type: "thread.started", thread_id: `proxy-session-${launchIndex}` })}\n`),
+              );
+            },
+            onErrorOutput: () => undefined,
+          };
+        },
+      }),
+      observedHostB: DaemonHost = {
+        ...hostB,
+        attach: (repo, sessionId, cursor, auth) => {
+          attachCursorsOnB.push(cursor);
+          for (const wake of attachNotifiers) wake();
+          return hostB.attach(repo, sessionId, cursor, auth);
+        },
+      },
+      tcpB = daemonTcpTransport(observedHostB, uid);
+    await hostB.attachmentsSettled();
+    await tcpB.start();
+    const openProxyDaemon = async (endFrames: JsonObject[]) => {
+      const host = await openDaemonHost({
+          daemonId: "proxy-a",
+          userRoot: userRootA,
+          runtimeCredentialPort: providerVault().port,
+          runtimeDiscover: () => [
+            {
+              installationId: "installation-codex",
+              kindId: "codex",
+              executablePath,
+              version: "fixture",
+              observedAt: "2026-10-02T00:00:00.000Z",
+            },
+          ],
+        }),
+        transport = createUnixSocketTransportServer({
+          daemonId: "proxy-a",
+          socketPath: endpointA,
+          createProtocolServer: (authContext, emit) =>
+            createJsonRpcProtocolServer({
+              host,
+              build: daemonBuildStamp(),
+              authContext,
+              emit: async (method, params) => {
+                await emit(method, params);
+                if (method === "repo.agentRuntime.attach.frame.end") endFrames.push(params);
+              },
+            }),
+        });
+      await transport.start();
+      return {
+        close: async () => {
+          await host.close();
+          await transport.stop();
+        },
+      };
+    };
+    const endFramesA1: JsonObject[] = [],
+      endFramesA2: JsonObject[] = [];
+    let proxyA1: { readonly close: () => Promise<void> } | undefined = await openProxyDaemon(endFramesA1);
+    t.after(async () => {
+      await proxyA1?.close();
+      await tcpB.stop();
+      await hostB.close();
+      rmSync(parent, { recursive: true, force: true });
+    });
+    workers.push(runtimeProcessFixture(t), runtimeProcessFixture(t));
+
+    registerDaemonRepo({
+      userRoot: userRootA,
+      repoId,
+      mode: "remote-proxy",
+      endpoint: tcpB.endpoint,
+      createConvenienceLinks: false,
+    });
+    const rpcB = (method: string, params: Record<string, unknown>) =>
+      requestDaemonJsonRpcAt(tcpB.endpoint, method, params, 2_000, 5_000);
+    await rpcB("daemon.runtimeInstance.create", {
+      payload: {
+        instanceId: "proxy-codex",
+        name: "Proxy Codex",
+        kindId: "codex",
+        installationId: "installation-codex",
+        providerId: "openai",
+        models: ["gpt-proxy"],
+        authMode: "subscription",
+      },
+    });
+    assert.equal(
+      (
+        await rpcB("repo.settings.update", {
+          repo: { repoId },
+          payload: { runtimeAllowedInstances: ["proxy-codex"], expectedVersion: 1, idempotencyKey: "allow-handoff" },
+        })
+      ).outcome,
+      "applied",
+    );
+    const spawn = async (dispatchKey: string) => {
+      const receipt = await rpcB("repo.agentRuntime.spawn", {
+        repo: { repoId },
+        payload: {
+          runtimeInstanceId: "proxy-codex",
+          model: "gpt-proxy",
+          cwd: { scope: "repo-root" },
+          prompt: `Run ${dispatchKey}`,
+          taskId: null,
+          dispatchKey,
+        },
+      });
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      return String(receipt.runtimeSessionId);
+    };
+    const session1 = await spawn("handoff-1"),
+      session2 = await spawn("handoff-2");
+    await waitForDurableCondition(async () => {
+      const overview = await rpcB("repo.agentRuntime.overview", { repo: { repoId }, payload: {} });
+      return (
+        JSON.stringify(overview).includes("proxy-session-1") && JSON.stringify(overview).includes("proxy-session-2")
+      );
+    });
+
+    const received: Array<{
+        readonly type?: string;
+        readonly content?: string;
+        readonly cursor?: RuntimeStreamCursor;
+      }> = [],
+      failures: DaemonStreamFailure[] = [],
+      arrivals = new Set<() => void>();
+    const waitForFrame = (predicate: (frame: (typeof received)[number]) => boolean) =>
+      waitForArrival(
+        () => received.find(predicate) ?? null,
+        (arrive) => {
+          arrivals.add(arrive);
+          return () => arrivals.delete(arrive);
+        },
+      );
+    const detachClient = await streamAgentRuntimeAt({
+      socketPath: endpointA,
+      repoId,
+      payload: { runtimeSessionId: session1 },
+      timeoutMs: 2_000,
+      onValue: (value) => {
+        const frames = "ok" in value ? (value.ok ? value.events : []) : [value];
+        for (const frame of frames) received.push(frame);
+        for (const wake of arrivals) wake();
+      },
+      onClosed: (failure) => failures.push(failure),
+    });
+    t.after(detachClient);
+
+    outputs[0]!(
+      `${JSON.stringify({ type: "item.completed", item: { id: "msg-1", type: "agent_message", text: "before A1 stop" } })}\n`,
+    );
+    const firstFrame = await waitForFrame((frame) => frame.content === "before A1 stop");
+    const appliedCursor = firstFrame.cursor!;
+
+    await proxyA1.close();
+    proxyA1 = undefined;
+    assert.deepEqual(endFramesA1, [{ code: "daemon_stopping" }]);
+    assert.deepEqual(failures, []);
+
+    const proxyA2 = await openProxyDaemon(endFramesA2);
+    t.after(() => proxyA2.close());
+    await waitForArrival(
+      () => (attachCursorsOnB.length >= 2 ? true : null),
+      (arrive) => {
+        attachNotifiers.add(arrive);
+        return () => attachNotifiers.delete(arrive);
+      },
+    );
+    assert.deepEqual(attachCursorsOnB[1], appliedCursor);
+
+    outputs[0]!(
+      `${JSON.stringify({ type: "item.completed", item: { id: "msg-2", type: "agent_message", text: "after A2 handoff" } })}\n`,
+    );
+    const secondFrame = await waitForFrame((frame) => frame.content === "after A2 handoff");
+    assert.equal(secondFrame.cursor!.streamEpoch, appliedCursor.streamEpoch);
+    assert.equal(secondFrame.cursor!.seq, appliedCursor.seq + 1);
+    assert.equal(
+      received.filter((frame) => frame.content === "before A1 stop").length,
+      1,
+      "cursor resume must not replay already applied frames",
+    );
+
+    workers[0]!.exit(0);
+    await waitForFrame((frame) => frame.type === "exit");
+    await waitForArrival(
+      () => (endFramesA2.length > 0 ? true : null),
+      (arrive) => {
+        const timer = setInterval(arrive, 25);
+        return () => clearInterval(timer);
+      },
+    );
+    assert.deepEqual(endFramesA2, [{}]);
+    assert.deepEqual(failures, []);
+
+    const directClosingProxy = openRemoteProxyManager(userRootA);
+    try {
+      const sub = await directClosingProxy.stream(repoId, "repo.agentRuntime.attach", {
+        runtimeSessionId: session2,
+      });
+      const pendingNext = sub.next();
+      directClosingProxy.close();
+      await assert.rejects(pendingNext, { code: "daemon_stopping" });
+      await assert.rejects(
+        directClosingProxy.stream(repoId, "repo.agentRuntime.attach", { runtimeSessionId: session2 }),
+        { code: "daemon_stopping" },
+      );
+    } finally {
+      directClosingProxy.close();
+    }
+
+    const callerCancelProxy = openRemoteProxyManager(userRootA);
+    try {
+      const callerAbort = new AbortController();
+      const subBySignal = await callerCancelProxy.stream(
+        repoId,
+        "repo.agentRuntime.attach",
+        { runtimeSessionId: session2 },
+        callerAbort.signal,
+      );
+      const pendingBySignal = subBySignal.next();
+      callerAbort.abort();
+      assert.equal(await pendingBySignal, null);
+
+      const subByDetach = await callerCancelProxy.stream(repoId, "repo.agentRuntime.attach", {
+        runtimeSessionId: session2,
+      });
+      const pendingByDetach = subByDetach.next();
+      subByDetach.detach();
+      assert.equal(await pendingByDetach, null);
+
+      callerCancelProxy.close();
+    } finally {
+      callerCancelProxy.close();
+    }
+
+    const naturalEndProxy = openRemoteProxyManager(userRootA);
+    try {
+      const sub = await naturalEndProxy.stream(repoId, "repo.agentRuntime.attach", {
+        runtimeSessionId: session2,
+      });
+      workers[1]!.exit(0);
+      const frames: JsonObject[] = [];
+      for (;;) {
+        const frame = await sub.next();
+        if (frame === null) break;
+        frames.push(frame);
+      }
+      assert.equal(
+        frames.some((frame) => frame.type === "exit"),
+        true,
+        `expected natural exit frame before EOF, got ${JSON.stringify(frames)}`,
+      );
+      naturalEndProxy.close();
+      assert.equal(await sub.next(), null);
+    } finally {
+      naturalEndProxy.close();
+    }
   },
 );
 
