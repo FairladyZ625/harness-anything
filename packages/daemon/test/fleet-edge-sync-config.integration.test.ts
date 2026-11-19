@@ -274,7 +274,7 @@ test(
       });
     assert.ok(sync && !Array.isArray(sync) && "result" in sync, JSON.stringify(sync));
     assert.equal((sync.result as Record<string, unknown>).ok, true, JSON.stringify(sync.result));
-    assert.equal(readFleetEdgeConfig(edge.edgeRoot)?.loginUrl, loginUrl);
+    assert.equal(readFleetEdgeConfig(edge.edgeRoot)?.loginUrl, publishedAuthority.url);
     assert.equal(readFleetEdgeConfig(edge.edgeRoot)?.loginRealm, "harness");
     assert.equal(
       await waitForFleetReplicaReady({ viewRoot: edge.viewRoot, repoId: "lease-repo", nodeId: "node-one" }),
