@@ -109,9 +109,7 @@ test("Settings updates preserve an explicit empty runtime capability list", () =
 
 test("node-local Agent bindings enforce instance ids, unique preferences, and unique Agents", () => {
   const valid = localSettings({
-    runtimeAgentBindings: [
-      { agentId: "worker", instance: "codex-api", preferredInstances: ["codex-backup"] },
-    ],
+    runtimeAgentBindings: [{ agentId: "worker", instance: "codex-api", preferredInstances: ["codex-backup"] }],
   });
   assert.deepEqual(validateLocalSettingsV1(valid), []);
   assert.notDeepEqual(

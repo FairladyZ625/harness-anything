@@ -1875,7 +1875,7 @@ export function explainEntityKind(kind: string): EntityKindExplanation {
  */
 export function explainEntityKindContract(contract: EntityKindContract): EntityKindExplanation {
   const actions =
-    contract.actionCatalog?.actions.map(({ execution: _execution, ...action }) => Object.freeze(action)) ?? [],
+      contract.actionCatalog?.actions.map(({ execution: _execution, ...action }) => Object.freeze(action)) ?? [],
     documentFields = [...explainEntityJsonSchema(contract.schema)];
   // Agent rows have always exposed these two names to GUI entity documentation. They are now
   // node-local overlay fields rather than declaration fields, so keep them in the explanation

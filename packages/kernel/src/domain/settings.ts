@@ -69,7 +69,8 @@ export {
 export const SETTINGS_ID = "repository";
 const settingsRootOwners = new Map<string, Set<SettingsFieldOwnership>>();
 for (const { path, ownership } of SETTINGS_FIELD_DECLARATIONS) {
-  const root = path[0]!, owners = settingsRootOwners.get(root) ?? new Set<SettingsFieldOwnership>();
+  const root = path[0]!,
+    owners = settingsRootOwners.get(root) ?? new Set<SettingsFieldOwnership>();
   owners.add(ownership);
   settingsRootOwners.set(root, owners);
 }
@@ -361,8 +362,7 @@ function insertDeclaredSchema(root: MutableObjectSchema, declaration: SettingsFi
     if (existing?.type === "object") {
       if (existing["x-settings-ownership"] !== declaration.ownership) delete existing["x-settings-ownership"];
       parent = existing;
-    }
-    else {
+    } else {
       const nested: MutableObjectSchema = {
         type: "object",
         properties: {},

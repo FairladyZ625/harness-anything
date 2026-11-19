@@ -86,10 +86,8 @@ export function makeSettingsActionRuntime(
     }
     // Local provider selection and node policy must not publish a shared Settings change.
     if (
-      (action.taskMaterializationPolicy !== undefined ||
-        Object.hasOwn(action, "runtimeAllowedInstances") ||
-        Object.hasOwn(action, "decisionsProvider")) &&
       local !== null &&
+      (contract.execution.localOnlyFields ?? []).some((field) => Object.hasOwn(action, field)) &&
       Object.keys(action).every(
         (field) =>
           ["kind", "expectedVersion", "idempotencyKey"].includes(field) ||

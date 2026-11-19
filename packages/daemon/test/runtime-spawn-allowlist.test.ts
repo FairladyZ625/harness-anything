@@ -52,6 +52,9 @@ test("an explicitly empty model capability list admits no node instances", async
     undefined,
     null,
   );
-  assert.deepEqual(instances.map(({ models }) => models), [[]]);
+  assert.deepEqual(
+    instances.map(({ models }) => models),
+    [[]],
+  );
   assert.deepEqual(allowedInstanceIds, []);
 });

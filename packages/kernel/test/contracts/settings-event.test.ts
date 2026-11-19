@@ -17,10 +17,7 @@ import {
 } from "../../src/domain/settings-event.ts";
 import { requireEntityKindContract } from "../../src/domain/entity-kind-registry.ts";
 import type { EntityJsonSchemaNode } from "../../src/domain/entity-json-schema.ts";
-import {
-  interpretEmbeddedEntityProjections,
-  interpretEntityValue,
-} from "../../src/domain/entity-kind-projection.ts";
+import { interpretEmbeddedEntityProjections, interpretEntityValue } from "../../src/domain/entity-kind-projection.ts";
 import { dropRetiredSettingsWalFlush } from "../../src/domain/settings-history.ts";
 import {
   SETTINGS_FIELD_OWNERSHIP,

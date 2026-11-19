@@ -384,7 +384,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     optional: true,
     pattern: settingValuePattern,
     description: "Decisions provider used by enabled advisory decision points.",
-    effect: "Only the named provider may receive enabled decision-point inputs; unset selects the first enabled provider on this node.",
+    effect:
+      "Only the named provider may receive enabled decision-point inputs; unset selects the first enabled provider on this node.",
     group: "decisions",
     action: { field: "decisionsProvider", type: "string" },
     cli: { name: "--decisions-provider", kind: "single" },

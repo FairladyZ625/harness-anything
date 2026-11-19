@@ -271,7 +271,7 @@ export function installIdentities(parent: string, root: string, env: NodeJS.Proc
     squadSource = path.join(parent, "core-squad");
   for (const identity of identities) {
     const agentSource = path.join(parent, identity.id);
-    const { localInstance, ...declaration } = identity;
+    const { localInstance: _localInstance, ...declaration } = identity;
     writeIdentity(agentSource, {
       id: identity.id,
       title: identity.name,
