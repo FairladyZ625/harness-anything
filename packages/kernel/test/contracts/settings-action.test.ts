@@ -15,6 +15,7 @@ import {
   readSettingsFacet,
   repositorySettings,
   settingsFieldPresentationFromDeclarations,
+  type SettingsV1,
   validateLocalSettingsV1,
   writeRepositorySettingsFacet,
 } from "../../src/domain/settings.ts";
@@ -669,6 +670,27 @@ test("repositorySettingsActionValues covers every repository field for a fully p
       .closeoutConsent,
     false,
   );
+});
+
+test("repositorySettingsActionValues combines local runtime and decision fields without dropping shared values", () => {
+  const local = localSettings({
+      decisions: { provider: "local-decisions" },
+      runtime: { allowedInstances: ["private-provider"] },
+    }),
+    merged = {
+      ...current,
+      ...local,
+      schema: "settings/v1",
+      settingsId: "repository",
+      runtime: { ...current.runtime, ...local.runtime },
+      decisions: { ...current.decisions, ...local.decisions },
+    } as SettingsV1,
+    values = repositorySettingsActionValues(merged);
+
+  assert.equal(values.runtimeSelectionStrategy, current.runtime.selectionStrategy);
+  assert.deepEqual(values.runtimeAllowedInstances, ["private-provider"]);
+  assert.equal(values.decisionsProvider, "local-decisions");
+  assert.deepEqual(values.decisionsEnabledPoints, current.decisions.enabledPoints);
 });
 
 /** A repository whose authored document already declares a local command mapping for `lint`. */
