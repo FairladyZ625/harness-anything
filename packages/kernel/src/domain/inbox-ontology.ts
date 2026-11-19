@@ -16,7 +16,7 @@ export const inboxPolicies = [
     ownerRef: "runtime-session/inbox_item_enqueued",
     unit: "inbox items per read",
     bounds:
-      "Queue reads require consumerKind unattended_dispatch, interactive_watch, or quarantined_external, return at most 200 items in enqueue-revision order, and keep each consumer isolated; identities are at most 256 characters, dedupe keys 512 and summaries 1024.",
+      "Consumer-partition reads require consumerKind unattended_dispatch, interactive_watch, or quarantined_external, return at most 200 items in enqueue-revision order, and keep each consumer isolated; identities are at most 256 characters, dedupe keys 512 and summaries 1024.",
     defaultValue: INBOX_PAGE_LIMIT,
     version: 2,
     scope: "Inbox events and Inbox projection reads",
@@ -28,7 +28,6 @@ export const inboxPolicies = [
       inboxSource("INBOX_TEXT_LIMIT:eb151f03d98158007b488536b00f7417"),
       inboxSource("INBOX_SUMMARY_LIMIT:e6e6093fc4dce229ecd75abcef9891e3"),
       inboxSource("enqueuedIssues:b52c34440b99f9ecbadad1ba19b4a5a1"),
-      inboxSource("enqueuedIssues.consumerKind:610cfd0bf7fd352a34dc7f040d91a4c1"),
       inboxSource("reduceInboxItem.item.consumerKind:19b8d7be33270534fffa4e6841d73c43"),
     ].map((candidateId) => ({ candidateId, route: "readInbox" })),
   },
