@@ -29,6 +29,7 @@ import { DaemonObserveView } from "./views/DaemonObserveView.tsx";
 import { taskDetailEntry } from "./views/task-detail-entry.tsx";
 import { CollaborationView } from "./views/CollaborationView.tsx";
 import { useFleetOverview } from "./collaboration-data.ts";
+import { displayedRepoMode } from "./components/RepoModeBadge.tsx";
 import { collaborationSummaryOf } from "./model/collaboration.ts";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
 import { AppSidebar } from "./components/AppSidebar.tsx";
@@ -657,15 +658,7 @@ function AppShell() {
           project={project}
           repos={systemQuery.data?.repos ?? []}
           activeRepoId={activeRepoId}
-          effectiveRepoMode={
-            activeRepo?.mode === "local"
-              ? fleetOverview.overview?.effectiveMode === "center"
-                ? "remote-center"
-                : fleetOverview.overview?.effectiveMode === "local"
-                  ? "local"
-                  : null
-              : (activeRepo?.mode ?? null)
-          }
+          effectiveRepoMode={displayedRepoMode(activeRepo?.mode ?? null, fleetOverview.overview?.effectiveMode)}
           view={view}
           hasSelection={selected !== null}
           poolBadgeCount={poolBadgeCount}
