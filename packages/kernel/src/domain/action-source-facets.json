@@ -8238,13 +8238,13 @@
         "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-squad-coordinator.ts#makeRepoCellSquadCoordinator.settleScheduleOccurrence:b43ad24105a5a234eb5a1976cc2c4665",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-squad-coordinator.ts#makeRepoCellSquadCoordinator.settleScheduleOccurrence:8b957daca85e8bc6883841f7e8bbbb34",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-squad-coordinator.ts#makeRepoCellSquadCoordinator.runtimeSpawner.cancel:d326c1bab9a65326ebef1517535867d1",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-squad-coordinator.ts#makeRepoCellSquadCoordinator.runtimeSpawner.cancel:7e5c4e3cbedb7ebe77094b9412b7f1fc",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.cancel"

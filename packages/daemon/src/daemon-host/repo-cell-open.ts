@@ -719,21 +719,10 @@ export async function openRepoWriterCell(
       "runtime-session": runtimeSessionActionPreparer(() => projection),
     },
   };
-  const squadCoordinator = makeRepoCellSquadCoordinator({
-    rootDir,
-    repoId: input.repoId,
-    now,
+  const squadCoordinator = makeRepoCellSquadCoordinator(runtimeContext, {
     readWorktreeSetup: () => readSettings().worktree,
-    projection,
-    store,
-    runtimeContext,
-    extracted,
-    runtimeSpawner,
-    entityActionExecutor,
-    entityActionRuntimes,
     authorizeRuntimeAction,
     onlineBinding,
-    ...(input.killpoint ? { killpoint: input.killpoint } : {}),
   });
   const operationalContext = Object.defineProperty(runtimeContext, "settings", {
     value: settings,

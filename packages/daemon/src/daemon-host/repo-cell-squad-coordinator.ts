@@ -1,15 +1,12 @@
-import { isSameExecution, type CanonicalEventStore, type TaskProjection } from "@harness-anything/kernel";
-import type { EntityActionCatalogRuntimes } from "@harness-anything/application/internal/commands/entity-action-catalog-executor.ts";
+import { isSameExecution } from "@harness-anything/kernel";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
-import type { RepoCellActionContext, RepoCellRuntimeContext } from "./repo-cell-types.ts";
-import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
+import type { RepoCellBinding, RepoCellRuntimeContext, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { publishTaskArtifact } from "./doc-sync-actions.ts";
 import { operationId } from "./repo-cell-proof.ts";
 import { settleScheduledRuntime } from "./schedule-action-runtime.ts";
 import { makeSquadCoordinator } from "./squad-coordinator.ts";
 import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
-import { makeRuntimeSpawner } from "./runtime-spawn.ts";
 import { requireSquadBusinessAction } from "./squad-runtime-ingress.ts";
 import {
   createSquadChild,
@@ -21,55 +18,33 @@ import {
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { WorktreeSetupSettings } from "./worktree-setup.ts";
 
-export function makeRepoCellSquadCoordinator(deps: {
-  readonly rootDir: string;
-  readonly repoId: string;
-  readonly now: () => string;
-  readonly readWorktreeSetup: () => WorktreeSetupSettings;
-  readonly projection: TaskProjection;
-  readonly store: CanonicalEventStore;
-  readonly runtimeContext: RepoCellRuntimeContext;
-  readonly extracted: RepoCellActionContext;
-  readonly runtimeSpawner: ReturnType<typeof makeRuntimeSpawner>;
-  readonly entityActionExecutor: RepoCellActionContext["entityActionExecutor"];
-  readonly entityActionRuntimes: EntityActionCatalogRuntimes;
-  readonly authorizeRuntimeAction: (
-    action: RepoTaskAction,
-    binding: RuntimeBinding,
-    actionId: string,
-  ) => Promise<RepoCellBinding>;
-  readonly onlineBinding: (binding: RepoCellBinding) => Promise<RepoCellBinding>;
-  readonly killpoint?: (point: import("@harness-anything/kernel").EventPublicationKillpoint) => void;
-}): ReturnType<typeof makeSquadCoordinator> {
-  const {
-    rootDir,
-    repoId,
-    now,
-    readWorktreeSetup,
-    projection,
-    store,
-    runtimeContext,
-    extracted,
-    runtimeSpawner,
-    entityActionExecutor,
-    entityActionRuntimes,
-    authorizeRuntimeAction,
-    onlineBinding,
-    killpoint,
-  } = deps;
+export function makeRepoCellSquadCoordinator(
+  cell: RepoCellRuntimeContext,
+  deps: {
+    readonly readWorktreeSetup: () => WorktreeSetupSettings;
+    readonly authorizeRuntimeAction: (
+      action: RepoTaskAction,
+      binding: RuntimeBinding,
+      actionId: string,
+    ) => Promise<RepoCellBinding>;
+    readonly onlineBinding: (binding: RepoCellBinding) => Promise<RepoCellBinding>;
+  },
+): ReturnType<typeof makeSquadCoordinator> {
+  const { readWorktreeSetup, authorizeRuntimeAction, onlineBinding } = deps,
+    repoId = cell.input.repoId;
 
   return makeSquadCoordinator({
-    rootDir,
-    now,
+    rootDir: cell.rootDir,
+    now: cell.now,
     readWorktreeSetup,
-    query: (read) => read(projection),
-    readResult: (ref) => readCanonicalRuntimeResult(store, ref),
+    query: (read) => read(cell.projection),
+    readResult: (ref) => readCanonicalRuntimeResult(cell.store, ref),
     publishObservation: (observation, binding) =>
-      publishLocalSquadRunObservation(extracted, observation, binding, authorizeRuntimeAction),
-    createChildTask: async (child, binding) => createSquadChild(extracted, child, binding, authorizeRuntimeAction),
+      publishLocalSquadRunObservation(cell, observation, binding, authorizeRuntimeAction),
+    createChildTask: async (child, binding) => createSquadChild(cell, child, binding, authorizeRuntimeAction),
     settleScheduleOccurrence: (settlement, binding) =>
       settleScheduledRuntime(
-        runtimeContext,
+        cell,
         {
           runtimeSessionId: settlement.runtimeSessionId,
           dispatchId: settlement.dispatchId,
@@ -82,16 +57,16 @@ export function makeRepoCellSquadCoordinator(deps: {
         },
         async (action, actionId) => {
           const authorized = await authorizeRuntimeAction(action, binding, actionId);
-          return entityActionExecutor.run(
+          return cell.entityActionExecutor.run(
             action,
             authorized,
             operationId(action, authorized, repoId, 0),
-            entityActionRuntimes,
+            cell.entityActionRuntimes,
           );
         },
       ),
     releaseTaskLease: async (taskId, binding, executionId, squadRunId) => {
-      const lease = projection.currentLease(taskId, now());
+      const lease = cell.projection.currentLease(taskId, cell.now());
       if (lease === null || lease.executionId !== executionId) return;
       if (!isSameExecution(lease.actor, binding.actor))
         throw cellCodedError("lease_conflict", `Squad cannot release another holder's lease for ${taskId}.`);
@@ -102,19 +77,19 @@ export function makeRepoCellSquadCoordinator(deps: {
           squadRunId,
           reason: "Squad workers hold independent child leases.",
         },
-        receipt = await extracted.taskSurfaceWrite(
+        receipt = await cell.taskSurfaceWrite(
           action,
           await authorizeRuntimeAction(action, binding, `squad-release:${taskId}:${lease.version}`),
         );
       if (receipt.outcome !== "applied")
         throw cellCodedError(receipt.code ?? "lease_conflict", `Squad could not release ${taskId}.`);
     },
-    settleChildTask: (child, binding) => settleSquadChildAssignment(extracted, child, binding, authorizeRuntimeAction),
+    settleChildTask: (child, binding) => settleSquadChildAssignment(cell, child, binding, authorizeRuntimeAction),
     recordOwnershipCheck: async (child, binding) => {
-      const packagePath = projection.read(child.taskId).packagePath;
+      const packagePath = cell.projection.read(child.taskId).packagePath;
       if (!packagePath) throw cellCodedError("task_not_found", child.taskId);
       await publishSquadChildDocument(
-        extracted,
+        cell,
         {
           parentTaskId: child.parentTaskId,
           squadRunId: child.squadRunId,
@@ -128,33 +103,37 @@ export function makeRepoCellSquadCoordinator(deps: {
     },
     reacquireTaskLease: async (taskId, binding, parent) => {
       if (parent)
-        requireSquadBusinessAction(projection, { kind: "squad-reacquire", squadRunId: parent.squadRunId }, binding);
+        requireSquadBusinessAction(
+          cell.projection,
+          { kind: "squad-reacquire", squadRunId: parent.squadRunId },
+          binding,
+        );
       await reacquireSquadTaskLease({
         taskId,
         binding,
-        snapshot: projection.read(taskId).snapshot as Snapshot,
+        snapshot: cell.projection.read(taskId).snapshot as Snapshot,
         ...(parent && parent.subject.kind === "task" && parent.subject.taskId === taskId
           ? { executionId: parent.subject.executionId }
           : {}),
         start: async (executionId) => {
-          extracted.assertTaskWipCapacity(taskId, "active");
+          cell.assertTaskWipCapacity(taskId, "active");
           const action = { kind: "task-start", taskId, ...(executionId ? { executionId } : {}) },
-            revision = store.readHead()?.revision ?? 0,
+            revision = cell.store.readHead()?.revision ?? 0,
             authorizationDecision = await evaluateRepoCellAction({
-              readTask: (taskId) => projection.read(taskId).snapshot.task,
-              repoId: repoId,
+              readTask: (id) => cell.projection.read(id).snapshot.task,
+              repoId,
               action,
               binding: await onlineBinding(binding),
               actionId: `squad-task-start:${taskId}:${revision}`,
               revision,
-              now: now(),
+              now: cell.now(),
             });
           if (authorizationDecision.outcome === "denied")
             throw cellCodedError(
               "authorization_denied",
               authorizationDecision.nextActions.join(" ") || "Squad lease reacquisition requires repo-write authority.",
             );
-          return extracted.lifecycleAction(action, { ...binding, authorizationDecision });
+          return cell.lifecycleAction(action, { ...binding, authorizationDecision });
         },
       });
     },
@@ -169,11 +148,11 @@ export function makeRepoCellSquadCoordinator(deps: {
           {
             binding: authorizedBinding,
             workspaceId: repoId,
-            rootDir,
-            store,
-            projection,
-            now,
-            killpoint: killpoint,
+            rootDir: cell.rootDir,
+            store: cell.store,
+            projection: cell.projection,
+            now: cell.now,
+            killpoint: cell.input.killpoint,
           },
           {
             taskId: report.taskId,
@@ -190,15 +169,15 @@ export function makeRepoCellSquadCoordinator(deps: {
     runtimeSpawner: () => ({
       spawn: async (payload, binding, onPrepared) => {
         const action = { kind: "runtime-spawn", ...payload },
-          revision = store.readHead()?.revision ?? 0,
+          revision = cell.store.readHead()?.revision ?? 0,
           authorizationDecision = await evaluateRepoCellAction({
-            readTask: (taskId) => projection.read(taskId).snapshot.task,
-            repoId: repoId,
+            readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
+            repoId,
             action,
             binding: await onlineBinding(binding),
             actionId: `squad-runtime-spawn:${String(payload.dispatchKey ?? "current")}:${revision}`,
             revision,
-            now: now(),
+            now: cell.now(),
           });
         if (authorizationDecision.outcome === "denied")
           return Promise.reject(
@@ -207,21 +186,21 @@ export function makeRepoCellSquadCoordinator(deps: {
               authorizationDecision.nextActions.join(" ") || "Squad runtime dispatch requires repo-write authority.",
             ),
           );
-        return runtimeSpawner.spawnCoordinated(payload, { ...binding, authorizationDecision }, onPrepared);
+        return cell.runtimeSpawner.spawnCoordinated(payload, { ...binding, authorizationDecision }, onPrepared);
       },
       // The schedule channel carries the occurrence claim as its trusted subject; the squad
       // leader payload stays the coordinator's, so the spawn stays inside the same authorization.
       spawnScheduled: async (payload, scheduled, binding, onPrepared) => {
         const action = { kind: "runtime-spawn", ...payload },
-          revision = store.readHead()?.revision ?? 0,
+          revision = cell.store.readHead()?.revision ?? 0,
           authorizationDecision = await evaluateRepoCellAction({
-            readTask: (taskId) => projection.read(taskId).snapshot.task,
-            repoId: repoId,
+            readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
+            repoId,
             action,
             binding: await onlineBinding(binding),
             actionId: `squad-runtime-spawn:${String(payload.dispatchKey ?? "current")}:${revision}`,
             revision,
-            now: now(),
+            now: cell.now(),
           });
         if (authorizationDecision.outcome === "denied")
           return Promise.reject(
@@ -230,7 +209,7 @@ export function makeRepoCellSquadCoordinator(deps: {
               authorizationDecision.nextActions.join(" ") || "Squad runtime dispatch requires repo-write authority.",
             ),
           );
-        return runtimeSpawner.spawnScheduledCoordinated(
+        return cell.runtimeSpawner.spawnScheduledCoordinated(
           payload,
           scheduled,
           { ...binding, authorizationDecision },
@@ -239,15 +218,15 @@ export function makeRepoCellSquadCoordinator(deps: {
       },
       cancel: async (payload, binding) => {
         const action = { kind: "runtime-cancel", ...payload },
-          revision = store.readHead()?.revision ?? 0,
+          revision = cell.store.readHead()?.revision ?? 0,
           authorizationDecision = await evaluateRepoCellAction({
-            readTask: (taskId) => projection.read(taskId).snapshot.task,
-            repoId: repoId,
+            readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
+            repoId,
             action,
             binding: await onlineBinding(binding),
             actionId: `squad-runtime-cancel:${String(payload.runtimeSessionId ?? "current")}:${revision}`,
             revision,
-            now: now(),
+            now: cell.now(),
           });
         if (authorizationDecision.outcome === "denied")
           return Promise.reject(
@@ -257,7 +236,7 @@ export function makeRepoCellSquadCoordinator(deps: {
                 "Squad runtime cancellation requires repo-write authority.",
             ),
           );
-        return runtimeSpawner.cancel(payload, { ...binding, authorizationDecision });
+        return cell.runtimeSpawner.cancel(payload, { ...binding, authorizationDecision });
       },
     }),
   });
