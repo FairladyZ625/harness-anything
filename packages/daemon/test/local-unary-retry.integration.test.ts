@@ -13,10 +13,10 @@ import { canonicalRoot, workspaceId } from "@harness-anything/daemon/internal/pr
 import { createJsonRpcProtocolServer, localUserDaemonEndpoint } from "@harness-anything/daemon/client";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { createLocalGuiServiceBridge } from "../../gui/src/main/local-composition-root.ts";
-import { withPolicyGroup } from "../../daemon/test/keycloak-policy.fixtures.ts";
-import { openBootstrappedRepoCell, registerBootstrappedDaemonRepo } from "../../daemon/test/repo-settings.fixture.ts";
-import { initRepo } from "../../daemon/test/task-surface.fixtures.ts";
-import { startBrowserGuiBroker } from "../src/cli/gui-browser-broker.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { openBootstrappedRepoCell, registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
+import { initRepo } from "./task-surface.fixtures.ts";
+import { startBrowserGuiBroker } from "../../cli/src/cli/gui-browser-broker.ts";
 
 // dec_89D06D7360CBEC09795F7B12EC/CH3: lose an applied receipt at the socket, after the
 // real writer accepted it. Every entry point retransmits the same request to that writer.
