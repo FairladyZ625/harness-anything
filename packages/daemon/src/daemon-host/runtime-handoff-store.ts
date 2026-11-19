@@ -55,26 +55,28 @@ export function readHandoffCheckpoint(rootDir: string, dispatchId: string): Runt
   return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as RuntimeHandoffCheckpoint) : null;
 }
 
+export type ReclaimableHandoffRolloutReason = "revoked" | "consumed" | "task_done";
+
 /**
  * Single handoff authority for whether a retained `rollout.jsonl` can NEVER be claimed again.
  * A `cancelled` task can be reinstated (`cancelled -> planned -> active`), so only explicit
  * revocation, durable consumption (`resumedFromDispatchId`), or irreversible task completion
- * (`done`, which has no outgoing transitions) permits deleting `rollout.jsonl`.
+ * (`done`, which has no outgoing transitions) yields a non-null reclamation reason.
  */
-export function isHandoffCheckpointIrreversiblyRetired(
+export function reclaimableHandoffRolloutReason(
   checkpoint: Pick<RuntimeHandoffCheckpoint, "dispatchId" | "taskId" | "revokedAt">,
   projection: Pick<TaskProjectionQueries, "read" | "readRuntimeDispatchByResumeSource">,
   doneTaskCache?: Map<string, boolean>,
-): boolean {
-  if (typeof checkpoint.revokedAt === "string" && checkpoint.revokedAt.length > 0) return true;
-  if (projection.readRuntimeDispatchByResumeSource(checkpoint.dispatchId) !== null) return true;
-  if (typeof checkpoint.taskId !== "string" || checkpoint.taskId.length === 0) return false;
+): ReclaimableHandoffRolloutReason | null {
+  if (typeof checkpoint.revokedAt === "string" && checkpoint.revokedAt.length > 0) return "revoked";
+  if (projection.readRuntimeDispatchByResumeSource(checkpoint.dispatchId) !== null) return "consumed";
+  if (typeof checkpoint.taskId !== "string" || checkpoint.taskId.length === 0) return null;
   const cached = doneTaskCache?.get(checkpoint.taskId);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) return cached ? "task_done" : null;
   const read = projection.read(checkpoint.taskId);
   const done = read.status === "ready" && read.snapshot.task?.status === "done";
   doneTaskCache?.set(checkpoint.taskId, done);
-  return done;
+  return done ? "task_done" : null;
 }
 
 /** Runs only under the center RepoCell write queue. Payloads are never canonical document claims. */

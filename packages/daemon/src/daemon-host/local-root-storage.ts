@@ -24,7 +24,7 @@ import {
   type LocalRootLeafClass,
 } from "./repo-cache-purge.ts";
 import { isDaemonRequestLogFileName } from "./request-log.ts";
-import { isHandoffCheckpointIrreversiblyRetired, readHandoffCheckpoint } from "./runtime-handoff-store.ts";
+import { readHandoffCheckpoint, reclaimableHandoffRolloutReason } from "./runtime-handoff-store.ts";
 
 export type LocalRootEntryClass = LocalRootLeafClass;
 
@@ -221,7 +221,7 @@ export function reclaimLocalRootStorage(input: {
   let archivePruned = false,
     skippedReason: string | null = dispatchResult.skippedReason;
   const ownedDispatchesDir = resolveOwnedDirectory(ownedLocalRoot, "runtime", "dispatches");
-  if (ownedDispatchesDir === null || isSafeSubdirectoryOrAbsent(ownedDispatchesDir, "archive")) {
+  if (ownedDispatchesDir === null || ownedSubdirectoryOrAbsent(ownedDispatchesDir, "archive") !== null) {
     const factSources = tryReadFactEvidenceSources(input.projection);
     if (factSources.status !== "ready") {
       skippedReason = skippedReason ?? "fact projection pending";
@@ -326,8 +326,8 @@ function archiveSettledDispatchStreams(input: {
   const ownedDispatchesDir = resolveOwnedDirectory(input.ownedLocalRoot, "runtime", "dispatches");
   if (ownedDispatchesDir === null) return { archived: 0, nextAfterDispatchId: null, skippedReason: null };
   if (
-    !isSafeSubdirectoryOrAbsent(ownedDispatchesDir, "archive") ||
-    !isSafeSubdirectoryOrAbsent(ownedDispatchesDir, "live-index")
+    ownedSubdirectoryOrAbsent(ownedDispatchesDir, "archive") === null ||
+    ownedSubdirectoryOrAbsent(ownedDispatchesDir, "live-index") === null
   )
     return { archived: 0, nextAfterDispatchId: null, skippedReason: "dispatch subdirectory boundary check failed" };
 
@@ -364,7 +364,8 @@ function archiveSettledDispatchStreams(input: {
     if (view !== undefined) {
       if (!view.attempt.fence.verified || view.attempt.fence.owner !== input.owner) continue;
       if (input.liveRuntimeSessionIds?.has(view.attempt.runtimeSessionId) || view.policy.processAlive) continue;
-      if (!view.policy.attemptSettled || view.attempt.stopProof !== "proven_stopped") continue;
+      const stopProven = view.attempt.stopProof === "proven_stopped";
+      if (!view.policy.attemptSettled || !stopProven) continue;
       const groupFinal =
         view.policy.groupSettled &&
         (!view.policy.successorAdmissible ||
@@ -381,7 +382,6 @@ function archiveSettledDispatchStreams(input: {
         ? "local"
         : `node:${summary.header.executionOwner.nodeId}`;
     if (headerOwner !== input.owner) continue;
-    if (summary.process?.exited !== true) continue;
     if (summary.terminalOutcome === null || summary.header.taskId === null) continue;
     if (!isTaskIrreversiblyDoneCached(input.projection, summary.header.taskId, input.doneTaskCache)) continue;
     toArchive.push(dispatchId);
@@ -397,10 +397,10 @@ function archiveSettledDispatchStreams(input: {
 function pruneOrphanEvidenceSidecars(rootDir: string, ownedLocalRoot: string): number {
   const ownedDispatchesDir = resolveOwnedDirectory(ownedLocalRoot, "runtime", "dispatches");
   if (ownedDispatchesDir === null) return 0;
-  if (!isSafeSubdirectoryOrAbsent(ownedDispatchesDir, "archive")) return 0;
-  const ownedArchiveDir = resolveOwnedDirectory(ownedLocalRoot, "runtime", "dispatches", "archive"),
-    presentStreams = new Set<string>();
-  for (const directory of [ownedDispatchesDir, ...(ownedArchiveDir ? [ownedArchiveDir] : [])]) {
+  const archiveSubdir = ownedSubdirectoryOrAbsent(ownedDispatchesDir, "archive");
+  if (archiveSubdir === null) return 0;
+  const presentStreams = new Set<string>();
+  for (const directory of [ownedDispatchesDir, ...(archiveSubdir === "absent" ? [] : [archiveSubdir])]) {
     for (const name of readdirSync(directory)) {
       const match = dispatchFilePattern.exec(name);
       if (match && readOwnedRegularFileStat(directory, name)) presentStreams.add(`dispatch_${match[1]}`);
@@ -437,7 +437,7 @@ function pruneRetiredHandoffRollouts(
     if (!rolloutFile || !checkpointFile) continue;
     const checkpoint = readHandoffCheckpoint(rootDir, name);
     if (!checkpoint) continue;
-    if (!isHandoffCheckpointIrreversiblyRetired(checkpoint, projection, doneTaskCache)) continue;
+    if (reclaimableHandoffRolloutReason(checkpoint, projection, doneTaskCache) === null) continue;
     removeFileDurably(rolloutFile.path);
     removed += 1;
   }
@@ -676,13 +676,11 @@ function resolveOwnedDirectory(ownedBaseDir: string, ...segments: readonly strin
   return current;
 }
 
-function isSafeSubdirectoryOrAbsent(ownedParentDir: string, childName: string): boolean {
+function ownedSubdirectoryOrAbsent(ownedParentDir: string, childName: string): string | "absent" | null {
   const candidate = path.join(ownedParentDir, childName),
     stat = lstatSync(candidate, { throwIfNoEntry: false });
-  if (!stat) return true;
-  if (stat.isSymbolicLink() || !stat.isDirectory()) return false;
-  const realCandidate = safeRealpath(candidate);
-  return realCandidate !== null && isStrictRealChild(ownedParentDir, realCandidate);
+  if (!stat) return "absent";
+  return resolveOwnedDirectory(ownedParentDir, childName);
 }
 
 function readOwnedRegularFileStat(

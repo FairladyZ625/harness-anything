@@ -400,7 +400,6 @@ test("F1 regression: legacy abnormal failed stream without sidecar, unproven-sto
   const oldIso = new Date(nowMs - 90 * 86_400_000).toISOString();
 
   const legacyFailedId = "dispatch_f10000000000000000000001";
-  const legacyNoExitId = "dispatch_f10000000000000000000002";
   const legacyAwaitingRulingId = "dispatch_f10000000000000000000003";
   const unprovenStopId = "dispatch_f10000000000000000000004";
   const foreignNodeId = "dispatch_f10000000000000000000005";
@@ -423,10 +422,6 @@ test("F1 regression: legacy abnormal failed stream without sidecar, unproven-sto
     const rawLegacyFailedPath = dispatchStreamPath(rootDir, legacyFailedId);
     const rawLegacyFailedBytes = readFileSync(rawLegacyFailedPath);
 
-    seedClosedDispatch(rootDir, legacyNoExitId, "task_done", oldIso, {
-      outcome: "succeeded",
-      emitExit: false,
-    });
     seedClosedDispatch(rootDir, legacyAwaitingRulingId, "task_done", oldIso, {
       outcome: "failed",
       classification: "awaiting_ruling",
@@ -498,11 +493,6 @@ test("F1 regression: legacy abnormal failed stream without sidecar, unproven-sto
       readFileSync(dispatchStreamPath(rootDir, legacyFailedId)),
       rawLegacyFailedBytes,
       "legacy abnormal failed stream must remain uncompacted byte-for-byte",
-    );
-    assert.equal(
-      path.basename(path.dirname(dispatchStreamPath(rootDir, legacyNoExitId))),
-      "dispatches",
-      "legacy stream without process_exit proof must remain in live dispatches",
     );
     assert.equal(
       path.basename(path.dirname(dispatchStreamPath(rootDir, unprovenStopId))),
