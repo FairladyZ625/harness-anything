@@ -135,6 +135,10 @@ export function createJsonRpcProtocolServer(options: {
     if (reservationHeld) options.onRequestSettled?.("protocol.hello");
   };
   options.authContext.connectionSignal?.addEventListener("abort", releaseHello);
+  const readClosing = new AbortController(),
+    readSignal = options.authContext.connectionSignal
+      ? AbortSignal.any([options.authContext.connectionSignal, readClosing.signal])
+      : readClosing.signal;
   let executionCredential: string | undefined;
   // The CLI dedicates one connection per invocation and names the command in hello; GUI and fleet
   // connections declare none, so their traffic stays keyed by action kind or transport method.
@@ -607,7 +611,13 @@ export function createJsonRpcProtocolServer(options: {
     if (method === "daemon.gui.home.read") {
       try {
         markDaemonOperationPhase("projection-read");
-        return reply(method, parseDaemonGuiReadResult(method, await options.host.home(options.authContext)));
+        return reply(
+          method,
+          parseDaemonGuiReadResult(
+            method,
+            await options.host.home({ ...options.authContext, connectionSignal: readSignal }),
+          ),
+        );
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }
@@ -673,7 +683,10 @@ export function createJsonRpcProtocolServer(options: {
         // here would walk every result a second time in the same process.
         return reply(
           method,
-          await options.host.read(repo, method, (params.payload as JsonObject | undefined) ?? {}, options.authContext),
+          await options.host.read(repo, method, (params.payload as JsonObject | undefined) ?? {}, {
+            ...options.authContext,
+            connectionSignal: readSignal,
+          }),
         );
       } catch (error) {
         return reply(method, protocolFailure(method, error));
@@ -941,6 +954,7 @@ export function createJsonRpcProtocolServer(options: {
       return responses;
     },
     close: () => {
+      readClosing.abort();
       options.authContext.connectionSignal?.removeEventListener("abort", releaseHello);
       releaseHello();
       for (const subscription of subscriptions) subscription.detach();

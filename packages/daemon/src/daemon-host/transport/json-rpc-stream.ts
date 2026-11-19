@@ -176,9 +176,9 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
   }
 
   function failConnection(error: Error): void {
-    disconnect();
     options.onError?.(error);
     writeFrame(streamErrorResponse(null, -32700, error.message));
+    disconnect();
     options.output.end();
   }
 
@@ -186,6 +186,7 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
     return writeFrameWithBackpressure(frame).bytes;
   }
   function writeFrameWithBackpressure(frame: unknown): { readonly bytes: number; readonly writable: boolean } {
+    if (disconnected.signal.aborted || !options.output.writable) return { bytes: 0, writable: true };
     const encoded = encodeJsonLineFrame(frame);
     return { bytes: Buffer.byteLength(encoded, "utf8"), writable: options.output.write(encoded) };
   }

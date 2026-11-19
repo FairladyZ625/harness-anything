@@ -681,6 +681,7 @@ export async function readFleetOverviewFromHost(input: {
   readonly mode: string;
   readonly cell: RepoCell;
   readonly binding: RepoCellBinding;
+  readonly signal?: AbortSignal;
   readonly fleetReplicas: readonly FleetReplicaStatus[];
   readonly nodeSessions: readonly FleetNodeSessionStatus[];
   readonly keycloakCenter: KeycloakCenterAuthority;
@@ -711,6 +712,7 @@ export async function readFleetOverviewFromHost(input: {
               ...(cursor === undefined ? {} : { cursor }),
             },
             input.binding,
+            input.signal,
           );
           rows.push(...page.rows);
           cursor = page.page?.nextCursor ?? undefined;
@@ -743,6 +745,7 @@ export async function readFleetOverviewFromHost(input: {
           // history, so a long-running task must not make this read linear in that history.
           { taskIds: taskIds.slice(offset, offset + 500), latestOnly: true },
           input.binding,
+          input.signal,
         );
         dispatches.push(
           ...read.dispatches.map((row) => ({
@@ -803,6 +806,7 @@ export async function readFleetOverviewFromHost(input: {
     },
     { daemonId: input.daemon.daemonId, userRoot: input.userRoot },
     input.binding,
+    input.signal,
   );
   const eventFacts = (tail.status === "unavailable" ? [] : tail.items).slice(-EVENT_PAGE_LIMIT).map((item) => {
     const row = item as Readonly<Record<string, unknown>>,

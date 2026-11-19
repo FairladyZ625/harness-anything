@@ -632,6 +632,36 @@ test("the collaboration read omits a retired node even when force preserved its 
   );
 });
 
+test("a disconnect during Fleet node-owner lookup reaches the event tail", async () => {
+  const disconnect = new AbortController();
+  await assert.rejects(
+    readFleetOverviewFromHost({
+      repoId: "repo-test",
+      mode: "remote-center",
+      cell: {
+        read: async () => ({ rows: [] }),
+        observeTail: async (_payload: unknown, _daemon: unknown, _binding: unknown, signal?: AbortSignal) => {
+          assert.equal(signal, disconnect.signal);
+          signal?.throwIfAborted();
+          assert.fail("a disconnected event tail must not run");
+        },
+      } as never,
+      binding: {} as never,
+      signal: disconnect.signal,
+      nodeSessions: [],
+      fleetReplicas: [replica("edge-one")],
+      keycloakCenter: (async () => {
+        disconnect.abort();
+        throw new Error("owner lookup failed");
+      }) as never,
+      now: "2026-11-01T00:00:00Z",
+      userRoot: "/tmp/fleet-overview-test",
+      daemon: { daemonId: "default", startedAt: "2026-11-01T00:00:00Z" },
+    }),
+    { name: "AbortError" },
+  );
+});
+
 test("a completed edge task keeps its event provenance after releasing its lease", async () => {
   const completedAt = "2026-10-06T00:05:00.000Z",
     edge = "node-edge-a",

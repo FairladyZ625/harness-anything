@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { EventEmitter } from "node:events";
+import { EventEmitter, getEventListeners } from "node:events";
 import test from "node:test";
 import type { Worker } from "node:worker_threads";
 import { openRepoReadClient } from "../src/daemon-host/repo-read-pool.ts";
@@ -102,6 +102,42 @@ test("closing a client before worker creation prevents a detached reader from st
   await Promise.all([closing, rejected]);
   await turn();
   assert.equal(created, 0);
+});
+
+test("abort rejects a queued read and detaches its listener before any worker can start", async () => {
+  const workers: Reader[] = [],
+    client = openRepoReadClient({ repoId: "abort" as never, rootDir: "/unused" as never, ownerId: "test" }, () => {
+      const worker = new Reader();
+      workers.push(worker);
+      queueMicrotask(() => worker.ready());
+      return worker as unknown as Worker;
+    }),
+    controller = new AbortController();
+  try {
+    const queued = client.request("queued", [], undefined, controller.signal);
+    const cancelled = assert.rejects(queued, { code: "read_aborted" });
+    controller.abort();
+    assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+    await cancelled;
+    await assert.rejects(client.request("already-aborted", [], undefined, controller.signal), { code: "read_aborted" });
+    assert.equal(workers.length, 0);
+
+    await client.request("warm", []);
+    const worker = workers[0]!;
+    worker.hold = true;
+    const active = new AbortController(),
+      read = client.request("active", [], undefined, active.signal);
+    assert.equal(getEventListeners(active.signal, "abort").length, 0, "assignment ends queue cancellation");
+    active.abort();
+    await turn();
+    assert.equal(worker.held.length, 1);
+    worker.release();
+    assert.deepEqual(await read, worker.received.at(-1)?.payload);
+    assert.equal(worker.stopped, false);
+  } finally {
+    workers.forEach((worker) => worker.release());
+    await client.close();
+  }
 });
 
 test("close awaits handle release and reuses the unreferenced worker for the same repository", async () => {
