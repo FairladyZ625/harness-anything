@@ -112,17 +112,6 @@ export interface AgentDefinitionSnapshot {
   readonly authMode: "subscription" | "api-key";
 }
 
-export function agentDefinitionSnapshotEndpoint(
-  baseUrl: string | null | undefined,
-): Pick<AgentDefinitionSnapshot, "endpointKind" | "baseUrlHash"> {
-  if (baseUrl === null || baseUrl === undefined || baseUrl === "")
-    return { endpointKind: "official", baseUrlHash: null };
-  const normalizedBaseUrl = URL.canParse(baseUrl) ? new URL(baseUrl).toString() : baseUrl;
-  return {
-    endpointKind: "custom",
-    baseUrlHash: `sha256:${sha256Text(normalizedBaseUrl).slice(0, 16)}`,
-  };
-}
 export interface RuntimeKind {
   readonly kindId: string;
   readonly protocolFamily: RuntimeProtocolFamily;

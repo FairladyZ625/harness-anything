@@ -70,6 +70,7 @@ test("runtime instance CLI list returns the node identity for the current Fleet 
     userRoot,
     createConvenienceLinks: false,
   });
+  writeFileSync(path.join(parent, "fleet.crt"), "test fleet certificate\n", "utf8");
   writeFleetEdgeConfig(root, {
     repoId,
     host: "center.example.invalid",

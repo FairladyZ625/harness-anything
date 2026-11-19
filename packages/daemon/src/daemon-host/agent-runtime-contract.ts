@@ -1,8 +1,6 @@
+import { createHash } from "node:crypto";
 import { agentRuntimeSessionGroupStatusWords } from "@harness-anything/kernel/internal/domain/client-view-status.ts";
-import {
-  agentDefinitionSnapshotErrors,
-  agentDefinitionSnapshotEndpoint,
-} from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
+import { agentDefinitionSnapshotErrors } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import { validRuntimeInstanceTier } from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
 import type { RuntimeLiveness } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
@@ -798,6 +796,17 @@ export function redactAgentDefinitionSnapshot(snapshot: AgentDefinitionSnapshot)
     ? { ...safeSnapshot, ...agentDefinitionSnapshotEndpoint(baseUrl) }
     : safeSnapshot;
 }
+
+export function agentDefinitionSnapshotEndpoint(
+  baseUrl: string | null | undefined,
+): Pick<AgentDefinitionSnapshot, "endpointKind" | "baseUrlHash"> {
+  if (baseUrl === null || baseUrl === undefined || baseUrl === "")
+    return { endpointKind: "official", baseUrlHash: null };
+  const normalizedBaseUrl = URL.canParse(baseUrl) ? new URL(baseUrl).toString() : baseUrl,
+    digest = createHash("sha256").update(normalizedBaseUrl).digest("hex").slice(0, 16);
+  return { endpointKind: "custom", baseUrlHash: `sha256:${digest}` };
+}
+
 function validAssociation(value: unknown): value is AgentRuntimeAssociationDto {
   return (
     isAgentRuntimeContractRecord(value) &&

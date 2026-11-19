@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -115,6 +115,7 @@ test("runtime instance list scopes its node identity to the selected Fleet edge 
   mkdirSync(userRoot, { recursive: true });
   mkdirSync(path.join(repoRoot, "harness"), { recursive: true });
   writeFileSync(path.join(repoRoot, "harness", "harness.yaml"), "schema: harness-anything/v1\n", "utf8");
+  writeFileSync(path.join(parent, "fleet.crt"), "test fleet certificate\n", "utf8");
   execFileSync("git", ["-C", repoRoot, "init", "-q", "-b", "main"]);
   execFileSync("git", ["-C", repoRoot, "config", "user.name", "Runtime List Test"]);
   execFileSync("git", ["-C", repoRoot, "config", "user.email", "runtime-list@example.invalid"]);
@@ -189,7 +190,7 @@ test("runtime instance list scopes its node identity to the selected Fleet edge 
           scopedRepoId?: string,
         ) => {
           forwardedRepoId = scopedRepoId;
-          return { ok: true, nodeId: scopedRepoId ?? "center" };
+          return { ok: true, nodeId: scopedRepoId === undefined ? "center" : "edge-runtime-node" };
         },
       } as never,
       build: daemonBuildStamp(),
@@ -211,7 +212,7 @@ test("runtime instance list scopes its node identity to the selected Fleet edge 
     assert.ok(response && !Array.isArray(response) && "result" in response);
     const receipt = response.result as Record<string, unknown>;
     assert.equal(forwardedRepoId, repoId);
-    assert.equal(receipt.nodeId, repoId);
+    assert.equal(receipt.nodeId, "edge-runtime-node");
   } finally {
     await host.close();
     rmSync(parent, { recursive: true, force: true });

@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import { agentDefinitionSnapshotEndpoint } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
+import { agentDefinitionSnapshotEndpoint } from "./agent-runtime-contract.ts";
 import { type AgentDefinitionSnapshot, type RuntimeMcpPolicy } from "@harness-anything/kernel";
 import { resolveRuntimeMcpPolicy, runtimeSupportsMcpPolicy } from "../runtime-engine/runtime-permissions.ts";
 import { consumeKnownError } from "@harness-anything/kernel";

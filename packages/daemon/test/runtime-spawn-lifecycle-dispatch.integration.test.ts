@@ -9,11 +9,11 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
 import {
-  agentDefinitionSnapshotEndpoint,
   consumeKnownError,
   runtimeDefinitionSnapshotArtifact,
   type AgentDefinitionSnapshot,
 } from "@harness-anything/kernel";
+import { agentDefinitionSnapshotEndpoint } from "../src/daemon-host/agent-runtime-contract.ts";
 import { resolveAgentRuntimeDeclaration } from "../src/daemon-host/agent-declaration-resolution.ts";
 import { type RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
 import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
