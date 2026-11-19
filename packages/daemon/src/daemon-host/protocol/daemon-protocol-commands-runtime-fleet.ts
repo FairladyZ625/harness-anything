@@ -665,6 +665,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
   }),
   defineHostAdminCommand({
     id: "daemon-fleet-edge-repoint",
+    actionKind: "daemon-fleet-edge-sync",
     hostAuthority: "local-transport",
     phase: "Fleet-Wiring",
     path: ["daemon", "fleet", "edge", "repoint"],
