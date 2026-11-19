@@ -13,7 +13,7 @@ import type {
   AgentRuntimeTokenUsageRange,
   AgentRuntimeTokenUsageResult,
 } from "@harness-anything/daemon/protocol";
-import type { DaemonGuiReadPayloadMap } from "@harness-anything/daemon/protocol";
+import type { DaemonGuiReadPayloadMap, DaemonGuiReadResultMap } from "@harness-anything/daemon/protocol";
 import {
   applyRuntimeStreamSignal,
   emptyRuntimeStreamSnapshot,
@@ -31,6 +31,10 @@ import { guiTransport } from "./gui-transport.ts";
 import { sessionEventTimeline, type SessionEventTimeline } from "./sessions-model.ts";
 
 type RepoScope = { readonly repoId: string };
+type CollaboratorTokenUsage = Extract<
+  DaemonGuiReadResultMap["repo.agentRuntime.tokenUsage"],
+  { readonly groupBy: "person" | "node" }
+>;
 /** The `runtime-session-groups` projection selector: grouping, range and text query are daemon-side. */
 export type SessionGroupsQuery = {
   readonly groupBy?: "task" | "squad" | "agent" | "day";
@@ -169,7 +173,7 @@ export const agentRuntimeClient = {
   collaboratorTokenUsage: async (
     repoId: string,
     query: DaemonGuiReadPayloadMap["repo.agentRuntime.tokenUsage"] & { readonly groupBy: "person" | "node" },
-  ) => {
+  ): Promise<CollaboratorTokenUsage> => {
     const result = await invoke("repo.agentRuntime.tokenUsage", { repoId, ...query });
     if (!result || !("groupBy" in result) || result.groupBy !== query.groupBy)
       throw new Error("Token usage bridge returned an invalid attribution result.");
