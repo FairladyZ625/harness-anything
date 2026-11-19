@@ -15,6 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { MessageChannel, receiveMessageOnPort } from "node:worker_threads";
 import ts from "typescript";
 import {
   authorizationShardBuckets,
@@ -22,6 +23,7 @@ import {
   partitionAuthorizationSources,
 } from "../authorization-audit-shards.mjs";
 import { buildFlowGraph } from "../authorization-flow-graph.mjs";
+import { readAuthorizationTypes } from "../authorization-shared-types.mjs";
 import { sourceFileOf, guiCallbackCallerFiles } from "../authorization-source-proof.mjs";
 import { testOrdinalInPartition } from "../../node-test-runner-lib.mjs";
 import { replaceSourceOnce, runGit } from "./helpers.mjs";
@@ -48,6 +50,28 @@ test("authorization admission is bounded by the runner CPU and memory budgets", 
   assert.equal(shardWorkerCount(2, 24 * gib), 2);
   assert.equal(shardWorkerCount(8, 24 * gib), 4);
   assert.equal(shardWorkerCount(4, 4 * gib), 1);
+});
+
+test("a late checker notification cannot consume the next request's unpublished reply", (t) => {
+  const { port1, port2 } = new MessageChannel();
+  const signal = new Int32Array(new SharedArrayBuffer(4));
+  const checker = readAuthorizationTypes({ meta: { modules: [] }, port: port1, signal });
+  let wakes = 0;
+  t.mock.method(Atomics, "wait", () => {
+    if (++wakes === 2) {
+      assert.equal(receiveMessageOnPort(port2).message.method, "typeName");
+      port2.postMessage({ value: "ReplyType" });
+      Atomics.store(signal, 0, 1);
+    }
+    return "ok";
+  });
+  try {
+    assert.equal(checker.queries.typeName("input"), "ReplyType");
+    assert.equal(wakes, 2);
+  } finally {
+    checker.release();
+    port2.close();
+  }
 });
 
 test("descriptor sources and shared native entry routes each have exactly one shard", () => {
@@ -457,7 +481,12 @@ partitionedTest(
   async () => {
     const result = await shardedAudit(
       repoRoot,
-      ["tools/affected-tests.mjs", "tools/affected-tests.test.mjs", "tools/test-tier-manifest.mjs"],
+      [
+        "tools/affected-tests.mjs",
+        "tools/affected-tests.test.mjs",
+        "tools/test-tier-manifest.mjs",
+        "tools/stress/core/controller.mjs",
+      ],
       { shardCount: 4, concurrency: 2 },
     );
     assert.deepEqual(result.findings, []);
@@ -468,5 +497,15 @@ partitionedTest(
     assert.ok(result.rows.every((row) => row.ok));
     assert.ok(result.sourceRows.length >= 1, "technical-port tooling importers are verified in incremental scope");
     assert.ok(result.sourceRows.every((row) => row.ok));
+    assert.ok(
+      result.sourceRows.some(
+        (row) =>
+          row.authority === "technical-port" &&
+          row.evidence.some((line) =>
+            line.includes("tools/stress/core/controller.mjs#runScenario.options.adapter.submit"),
+          ),
+      ),
+      "workers resolve the adapter method declared inside the stress controller's JSDoc",
+    );
   },
 );

@@ -72,11 +72,15 @@ export function sourceOriginFilter(graph, targets) {
               : argument && ts.isNumericLiteral(argument)
                 ? String(Number(argument.text))
                 : graph.uniqueSymbolKey(argument);
-          const members = key === null ? null : graph.members.get(key);
-          const signatures = (key === null || members?.length) && graph.memberSignature(callee);
+          const have =
+            key !== null &&
+            (graph.members.hasCandidates ? graph.members.hasCandidates(key) : graph.members.get(key)?.length);
+          const signatures = (key === null || have) && graph.memberSignature(callee);
           if (signatures && key === null) opaque = true;
+          else if (signatures && graph.members.matching)
+            for (const member of graph.members.matching(key, signatures)) next.add(member.value);
           else if (signatures)
-            for (const member of members)
+            for (const member of graph.members.get(key))
               if (signatures.has(member.declaration) || graph.implementsMember(member.declaration, key, signatures))
                 next.add(member.value);
         }

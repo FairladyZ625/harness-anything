@@ -26,6 +26,7 @@ const sourceWitnessIndexes = new WeakMap();
 /** Identity and AST come from the same scanner as closure, never a second fingerprint. */
 export function sourceWitnesses(graph, sources) {
   const witnesses = new Map();
+  if (graph.sourceWitnessKeys) return graph.sourceWitnessKeys(new Set(sources.map(sourceFileOf)));
   for (const file of new Set(sources.map(sourceFileOf))) {
     const source = graph.modules.get(file)?.sourceFile;
     if (!source) continue;

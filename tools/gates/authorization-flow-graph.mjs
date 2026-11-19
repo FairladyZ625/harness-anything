@@ -53,11 +53,13 @@ export function serverSourceGraph(graph) {
   if (!indexes) {
     indexes = {
       modules: new Map([...graph.modules].filter(([file]) => included(file))),
-      members: new Map(
-        [...graph.members]
-          .map(([key, entries]) => [key, entries.filter((entry) => included(entry.file))])
-          .filter(([, entries]) => entries.length > 0),
-      ),
+      members: graph.projectMembers
+        ? graph.projectMembers(included)
+        : new Map(
+            [...graph.members]
+              .map(([key, entries]) => [key, entries.filter((entry) => included(entry.file))])
+              .filter(([, entries]) => entries.length > 0),
+          ),
     };
     serverSourceIndexes.set(graph.modules, indexes);
   }
@@ -78,9 +80,9 @@ export function authorizationPolicyGraph(graph) {
   if (!indexes) {
     indexes = {
       modules: new Map([...graph.modules].filter(([file]) => included(file))),
-      members: new Map(
-        [...graph.members].map(([key, entries]) => [key, entries.filter((entry) => included(entry.file))]),
-      ),
+      members: graph.projectMembers
+        ? graph.projectMembers(included)
+        : new Map([...graph.members].map(([key, entries]) => [key, entries.filter((entry) => included(entry.file))])),
     };
     policyIndexes.set(graph.modules, indexes);
   }
@@ -101,11 +103,11 @@ export function authorizationPolicyGraph(graph) {
  */
 export function buildFlowGraph(
   rootDir,
-  { anchorRoot = rootDir, sourceFiles = [], lexicalFiles = [], sourceOverrides = new Map(), oldProgram } = {},
+  { anchorRoot = rootDir, sourceFiles = [], lexicalFiles = [], sourceOverrides = new Map(), oldProgram, shared } = {},
 ) {
   const internEnv = makeEnvironmentInterner(lookup, freeParameters);
   const modules = new Map(),
-    members = new Map(),
+    members = shared?.members ?? new Map(),
     typedEntries = new Map(),
     scopes = new WeakMap(),
     identifierLookups = new WeakMap(),
@@ -141,25 +143,28 @@ export function buildFlowGraph(
     }
     return source;
   };
-  let files = [
-    ...new Set([
-      ...sourceRoots.flatMap((root) => walkTypeScriptFiles(rootDir, root)),
-      ...sourceFiles,
-      ...sourceOverrides.keys(),
-    ]),
-  ];
-  const program = createSourceProgram(rootDir, { anchorRoot, files, sourceFiles, sourceOverrides, oldProgram }),
-    checker = program.getTypeChecker(),
-    programSources = new WeakSet(program.getSourceFiles()),
+  let files = shared
+    ? []
+    : [
+        ...new Set([
+          ...sourceRoots.flatMap((root) => walkTypeScriptFiles(rootDir, root)),
+          ...sourceFiles,
+          ...sourceOverrides.keys(),
+        ]),
+      ];
+  const program = shared
+      ? null
+      : createSourceProgram(rootDir, { anchorRoot, files, sourceFiles, sourceOverrides, oldProgram }),
+    checker = program?.getTypeChecker(),
+    programSources = new WeakSet(program?.getSourceFiles() ?? []),
     relativeFiles = new WeakMap(),
-    fileOf = makeFileOf(relativeFiles, sourceFileOf);
+    fileOf = shared?.fileOf ?? makeFileOf(relativeFiles, sourceFileOf);
   // Declaration fallback can call an implementation outside the indexed source roots.
   // It still belongs to this Program and must use this graph's frame pool.
   files = [
     ...new Set([
       ...files,
-      ...program
-        .getSourceFiles()
+      ...(program?.getSourceFiles() ?? [])
         .map((file) => path.relative(rootDir, file.fileName).split(path.sep).join("/"))
         .filter(
           (file) =>
@@ -176,8 +181,30 @@ export function buildFlowGraph(
         (sourceOverrides.has(file)
           ? ts.createSourceFile(path.join(rootDir, file), sourceOverrides.get(file), ts.ScriptTarget.Latest, true)
           : parseTypeScript(rootDir, file)),
-      imports = new Map();
+      imports = importsOf(sourceFile);
     relativeFiles.set(sourceFile, file);
+    modules.set(file, { file, sourceFile, imports });
+    if (programSources.has(sourceFile)) indexMembers(sourceFile, file);
+  }
+  for (const [file, read] of shared?.modules ?? []) {
+    let source, imports;
+    const mod = {
+      file,
+      get sourceFile() {
+        if (!source) {
+          source = read();
+          relativeFiles.set(source, file);
+        }
+        return source;
+      },
+      get imports() {
+        return (imports ??= importsOf(mod.sourceFile));
+      },
+    };
+    modules.set(file, mod);
+  }
+  function importsOf(sourceFile) {
+    const imports = new Map();
     for (const statement of sourceFile.statements) {
       if (!ts.isImportDeclaration(statement) || !statement.importClause || statement.importClause.isTypeOnly) continue;
       const from = statement.moduleSpecifier.text,
@@ -189,8 +216,7 @@ export function buildFlowGraph(
           if (!element.isTypeOnly)
             imports.set(element.name.text, { from, exported: element.propertyName?.text ?? element.name.text });
     }
-    modules.set(file, { file, sourceFile, imports });
-    if (programSources.has(sourceFile)) indexMembers(sourceFile, file);
+    return imports;
   }
   // Local writes cannot cross a file boundary. Index them only when a proof queries the file.
   function indexWrites(sourceFile) {
@@ -305,9 +331,21 @@ export function buildFlowGraph(
       return withinScope ? entry : null;
     },
   };
-  return graph;
+  return shared
+    ? {
+        ...graph,
+        ...shared.queries,
+        projectMembers: shared.projectMembers,
+        transportEntries: shared.entries,
+        sourceWitnessKeys: shared.witnessKeys,
+      }
+    : graph;
 
   function queryContext(owner) {
+    if (shared) {
+      shared.register((source) => registerSourceFileInterner(source, owner));
+      return { internEnv: owner, resetFramePool: owner.resetFramePool, releaseQueries: () => shared.release() };
+    }
     for (const sourceFile of program.getSourceFiles()) registerSourceFileInterner(sourceFile, owner);
     for (const { sourceFile } of modules.values()) registerSourceFileInterner(sourceFile, owner);
     return {
@@ -734,6 +772,7 @@ export function buildFlowGraph(
   }
 
   function importTarget(binding) {
+    if (shared) return shared.queries.importTarget(binding);
     const cacheKey = `${binding.file}\u0000${binding.from}`;
     const cached = importTargets.get(cacheKey);
     if (cached) return cached;
@@ -949,8 +988,10 @@ export function makeEvaluator(graph, facts) {
   }
 
   function memberCandidates(key, depth, access) {
-    const all = graph.members.get(key) ?? [];
-    if (all.length === 0 && !facts.strictMembers) return [{ external: key }];
+    const haveMembers = graph.members.hasCandidates
+      ? graph.members.hasCandidates(key)
+      : Boolean(graph.members.get(key)?.length);
+    if (!haveMembers && !facts.strictMembers) return [{ external: key }];
     const signatures = access ? graph.memberSignature(access) : null;
     if (facts.strictMembers && !signatures) return [unknown];
     const sigToken = signatures ? canonicalSignatureToken(signatures, key) : null,
@@ -965,7 +1006,7 @@ export function makeEvaluator(graph, facts) {
         return byDepth.get(depth);
       }
     } else memberCache.set(cacheKey, (byDepth = new Map()));
-    if (all.length === 0) return [{ external: key }];
+    if (!haveMembers) return [{ external: key }];
     // A typed receiver reaches only the implementations of its own interface member; an
     // untyped one keeps every same-named candidate, so a narrowing can never hide an effect.
     let entries;
@@ -974,12 +1015,17 @@ export function makeEvaluator(graph, facts) {
       entries = byKey?.get(key);
       if (!entries) {
         if (!byKey) typedMemberCandidates.set(sigToken, (byKey = new Map()));
-        entries = all.filter(
-          (entry) => signatures.has(entry.declaration) || graph.implementsMember(entry.declaration, key, signatures),
-        );
+        entries = graph.members.matching
+          ? graph.members.matching(key, signatures)
+          : graph.members
+              .get(key)
+              .filter(
+                (entry) =>
+                  signatures.has(entry.declaration) || graph.implementsMember(entry.declaration, key, signatures),
+              );
         byKey.set(key, entries);
       }
-    } else entries = all;
+    } else entries = graph.members.get(key);
     // A typed member whose implementation lives outside the traced packages is an external call.
     if (entries.length === 0) return [{ external: key }];
     let allFunctions = true;
