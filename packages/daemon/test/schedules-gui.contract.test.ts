@@ -7,8 +7,8 @@ import path from "node:path";
 import { createScheduleV1, type CanonicalEventV1, type ScheduleV1 } from "@harness-anything/kernel";
 import { compileScheduleRunEvent } from "@harness-anything/kernel/internal/domain/schedule-event";
 import {
-  daemonGuiActionMethods,
-  daemonGuiReadMethods,
+  daemonActionRoutes,
+  daemonReadRoutes,
   validateDaemonRpcCall,
 } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { daemonGuiReadSchemas } from "../src/daemon-host/protocol/daemon-protocol-schema-registry.ts";
@@ -36,7 +36,7 @@ import {
   validateSchedulesList,
   type ScheduleGuiRowDto,
   type SchedulesListResult,
-} from "../src/daemon-host/protocol/schedules-gui-contract.ts";
+} from "../src/daemon-host/protocol/schedules-contract.ts";
 const now = "2026-08-27T08:00:00.000Z";
 const actor = { principal: { personId: "schedule-gui" }, executor: null } as const;
 
@@ -85,14 +85,12 @@ function guiContext(overrides: Partial<SchedulesGuiReadContext> = {}): Schedules
 test("the schedule plane is served by the schedule-plane use-case projection, payload-closed", () => {
   // The per-store `repo.schedules.list` read is gone; the plane now arrives as a named projection.
   assert.equal(
-    daemonGuiReadMethods.some(({ method }) => method === "repo.schedules.list"),
+    daemonReadRoutes.some(({ method }) => method === "repo.schedules.list"),
     false,
     "repo.schedules.list must no longer be a read method",
   );
-  const facet = daemonGuiReadMethods.find(({ method }) => method === "repo.projection.read");
+  const facet = daemonReadRoutes.find(({ method }) => method === "repo.projection.read");
   assert.ok(facet, "repo.projection.read must be registered");
-  assert.equal(facet.guiBridgeMethod, "readUseCaseProjection");
-  assert.equal(facet.outputSchemaId, DAEMON_USE_CASE_PROJECTION_SCHEMA.id);
   assert.deepEqual(
     validateDaemonRpcCall({
       method: "repo.projection.read",
@@ -112,7 +110,7 @@ test("the schedule plane is served by the schedule-plane use-case projection, pa
 
 test("the schedule run history projection keeps a closed occurrence query", () => {
   assert.equal(
-    daemonGuiReadMethods.some(({ method }) => method === "repo.schedules.runs"),
+    daemonReadRoutes.some(({ method }) => method === "repo.schedules.runs"),
     false,
     "repo.schedules.runs must no longer be a read method",
   );
@@ -217,16 +215,16 @@ test("a builtin schedule row exposes its effective retention and a protected del
 });
 
 test("the six schedule GUI actions reuse the canonical action kinds", () => {
-  const methods = daemonGuiActionMethods
+  const methods = daemonActionRoutes
     .filter(({ method }) => method.startsWith("repo.schedule."))
-    .map(({ method, actionKind, guiBridgeMethod }) => ({ method, actionKind, guiBridgeMethod }));
+    .map(({ method, actionKind }) => ({ method, actionKind }));
   assert.deepEqual(methods, [
-    { method: "repo.schedule.create", actionKind: "schedule-create", guiBridgeMethod: "createSchedule" },
-    { method: "repo.schedule.update", actionKind: "schedule-update", guiBridgeMethod: "updateSchedule" },
-    { method: "repo.schedule.delete", actionKind: "schedule-delete", guiBridgeMethod: "deleteSchedule" },
-    { method: "repo.schedule.enable", actionKind: "schedule-enable", guiBridgeMethod: "enableSchedule" },
-    { method: "repo.schedule.disable", actionKind: "schedule-disable", guiBridgeMethod: "disableSchedule" },
-    { method: "repo.schedule.runNow", actionKind: "schedule-run-now", guiBridgeMethod: "runScheduleNow" },
+    { method: "repo.schedule.create", actionKind: "schedule-create" },
+    { method: "repo.schedule.update", actionKind: "schedule-update" },
+    { method: "repo.schedule.delete", actionKind: "schedule-delete" },
+    { method: "repo.schedule.enable", actionKind: "schedule-enable" },
+    { method: "repo.schedule.disable", actionKind: "schedule-disable" },
+    { method: "repo.schedule.runNow", actionKind: "schedule-run-now" },
   ]);
   const validate = (method: string, payload: Record<string, unknown>) =>
     validateDaemonRpcCall({ method, params: { repo: { repoId: "schedule-gui" }, payload } });

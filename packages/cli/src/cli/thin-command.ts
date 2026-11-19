@@ -1,6 +1,5 @@
 export const thinCliLocalErrorCodes = Object.freeze([
   "oidc_device_expired",
-  "browser_broker_failed",
   "command_not_found",
   "daemon_start_runtime_forbidden",
   "daemon_stopped_by_operator",

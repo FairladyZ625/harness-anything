@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { parseDaemonGuiActionResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { parseDaemonActionResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import { runRuntimeHandoff } from "../src/daemon-host/runtime-handoff.ts";
 import {
   assertHandoffClaim,
@@ -106,7 +106,7 @@ test("handoff facade returns a declared command and the real rejected receipt co
   assert.equal(receipt.command, "runtime-handoff-claim");
   assert.equal(receipt.ok, false);
   assert.deepEqual(receipt.error, { code });
-  assert.equal(parseDaemonGuiActionResult("repo.agentRuntime.handoff", receipt).code, code);
+  assert.equal(parseDaemonActionResult("repo.agentRuntime.handoff", receipt).code, code);
 });
 
 test("handoff claim rejects a packet whose causal content changed after export", () => {

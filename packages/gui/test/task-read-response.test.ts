@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -44,7 +45,13 @@ for (const code of ["repo_unavailable", "authorization_denied", "isolated rows"]
     process.env.HARNESS_DAEMON_USER_ROOT = parent;
     process.env.HARNESS_DAEMON_ID = "task-response";
     try {
-      assert.deepEqual(await createLocalGuiServiceBridge().invoke("getTasks", { repoId: "proxy-repo" }), receipt);
+      assert.deepEqual(
+        await createLocalGuiServiceBridge().invoke(
+          "repo.tasks.list",
+          scopedRpcParams("repo.tasks.list", { repoId: "proxy-repo" }),
+        ),
+        receipt,
+      );
       assert.deepEqual(
         warn.mock.calls.map((call) => call.arguments),
         code === "isolated rows"

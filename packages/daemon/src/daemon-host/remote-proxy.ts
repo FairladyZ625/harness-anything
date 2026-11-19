@@ -1,12 +1,13 @@
 import type net from "node:net";
+import { TransformStream } from "node:stream/web";
 import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { assertRuntimeCredentialEndpoint } from "./client/local-daemon-target.ts";
-import { readDaemonRegistry, type DaemonRegistryConnection } from "@harness-anything/kernel";
+import { consumeKnownError, readDaemonRegistry, type DaemonRegistryConnection } from "@harness-anything/kernel";
 import { connectSocket, JsonRpcLineClient, daemonHelloFailureCode } from "./client/local-json-rpc-client.ts";
-import { streamDaemonFacetAt } from "./client/local-json-rpc-stream.ts";
-import { daemonStreamFacetByMethod } from "./protocol/daemon-protocol-gui-actions.ts";
+import { readDaemonStreamAt } from "./client/local-json-rpc-stream.ts";
+import { isJsonObject, type JsonObject } from "./protocol/json-rpc-types.ts";
+import { streamInterrupted } from "./protocol/stream-client.ts";
 import { type DaemonStreamMethod, type DaemonStreamPayloadMap } from "./protocol/daemon-protocol.contract.ts";
-import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./protocol/version.ts";
 
 export interface RemoteProxySubscription {
@@ -22,6 +23,7 @@ export interface RemoteProxyManager {
     repoId: string,
     method: DaemonStreamMethod,
     payload: DaemonStreamPayloadMap[DaemonStreamMethod],
+    signal?: AbortSignal,
   ) => Promise<RemoteProxySubscription>;
   readonly probe: (endpoint: string) => Promise<JsonObject>;
   readonly close: () => void;
@@ -78,66 +80,58 @@ export function openRemoteProxyManager(userRoot: string): RemoteProxyManager {
         assertRuntimeCredentialEndpoint(remote.connection.endpoint);
       return connectorFor(remote).request(method, params);
     },
-    stream: async (repoId, method, payload) => {
-      const remote = resolveRoute(repoId);
-      const values: JsonObject[] = [],
-        waiters: Array<(value: JsonObject | null) => void> = [];
-      let initial: JsonObject | undefined,
-        closed = false,
-        upstreamDetach: (() => void) | undefined;
+    stream: async (repoId, method, payload, callerSignal) => {
+      const remote = resolveRoute(repoId),
+        controller = new AbortController(),
+        signal = callerSignal ? AbortSignal.any([controller.signal, callerSignal]) : controller.signal,
+        channel = new TransformStream<JsonObject>(),
+        reader = channel.readable.getReader(),
+        writer = channel.writable.getWriter(),
+        first = Promise.withResolvers<JsonObject>();
+      let opened = false;
       const detach = () => {
-        if (closed) return;
-        upstreamDetach?.();
-        closeQueue();
-      };
-      try {
-        upstreamDetach = await streamDaemonFacetAt({
-          socketPath: remote.connection.endpoint,
-          repoId,
-          method,
-          payload,
-          onValue: (value) => {
-            if (!isJsonRecord(value)) return;
-            if (initial === undefined) {
-              initial = value;
-              return;
-            }
-            if (method === "repo.agentRuntime.attach" && Array.isArray(value.events)) {
-              for (const event of value.events) if (isJsonRecord(event)) pushValue(event);
-              return;
-            }
-            pushValue(value);
-          },
-          onClosed: () => closeQueue(),
-        });
-      } catch (error) {
-        throw classifyRemoteProxyError(error);
-      }
-      if (initial === undefined) {
-        upstreamDetach();
-        throw remoteProxyError("remote_proxy_unavailable", "Remote stream closed before its attach receipt.");
-      }
-      if (!closed) streamDetachers.add(detach);
-      return {
-        initial,
-        next: () => {
-          const value = values.shift();
-          if (value) return Promise.resolve(value);
-          if (closed) return Promise.resolve(null);
-          return new Promise((resolve) => waiters.push(resolve));
-        },
-        detach,
-      };
-      function closeQueue(): void {
-        if (closed) return;
-        closed = true;
+        controller.abort();
         streamDetachers.delete(detach);
-        for (const waiter of waiters.splice(0)) waiter(null);
-      }
-      function pushValue(value: JsonObject): void {
-        const waiter = waiters.shift();
-        if (waiter) waiter(value);
-        else values.push(value);
+        void reader.cancel().catch(consumeKnownError);
+      };
+      streamDetachers.add(detach);
+      void readDaemonStreamAt({
+        socketPath: remote.connection.endpoint,
+        repoId,
+        method,
+        payload,
+        signal,
+        onValue: (value) => {
+          if (!isJsonObject(value)) throw remoteProxyError("invalid_result", "Invalid remote stream frame.");
+          if (opened) return writer.write(value);
+          opened = true;
+          first.resolve(value);
+        },
+      })
+        .then(
+          () => {
+            if (!opened) first.reject(streamInterrupted("Remote stream closed before its attach receipt."));
+            return writer.close();
+          },
+          (error: unknown) => {
+            if (!opened) first.reject(classifyRemoteProxyError(error));
+            return writer.abort(error);
+          },
+        )
+        .catch(consumeKnownError);
+      try {
+        const initial = await first.promise;
+        return {
+          initial,
+          next: async () => {
+            const frame = await reader.read();
+            return frame.done ? null : frame.value;
+          },
+          detach,
+        };
+      } catch (error) {
+        detach();
+        throw error;
       }
     },
     probe: async (endpoint) => {
@@ -234,12 +228,4 @@ function classifyRemoteProxyError(error: unknown): Error {
 
 function remoteProxyError(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });
-}
-
-function isJsonRecord(value: unknown): value is JsonObject {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-export function remoteProxyEventMethod(method: DaemonStreamMethod): string {
-  return daemonStreamFacetByMethod.get(method)!.eventMethod;
 }

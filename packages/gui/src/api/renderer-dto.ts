@@ -77,9 +77,6 @@ export type AgentRuntimeOverviewPayload = DaemonGuiReadPayloadMap["repo.agentRun
 export type AgentRuntimeSessionPayload = DaemonGuiReadPayloadMap["repo.agentRuntime.sessions.read"];
 export type AgentRuntimeEventsPayload = DaemonGuiReadPayloadMap["repo.agentRuntime.events.read"];
 export type GuiActionResult = DaemonGuiActionResult;
-export type GuiBridgeMethod =
-  | (typeof import("@harness-anything/daemon/protocol").daemonGuiInvokeFacets)[number]["guiBridgeMethod"]
-  | (typeof import("@harness-anything/daemon/protocol").daemonGuiStreamFacets)[number]["guiBridgeMethod"];
 export type { GuiSubmissionV1 };
 
 export {

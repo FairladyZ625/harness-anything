@@ -11,9 +11,9 @@ import { agentRuntimeClient } from "../src/renderer/agent-runtime-client.ts";
 import { agentEntityClient } from "../src/renderer/agent-entity-client.ts";
 import { decisionProviderClient } from "../src/renderer/decision-provider-client.ts";
 import { harnessClient } from "../src/renderer/api-client.ts";
-import { assertPreloadPayload } from "../src/preload/allowlist.ts";
+import { assertRendererRpc } from "../src/preload/allowlist.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
-import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
+import { scopedRpcParams, type RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
 
 const hydrogen = "gemini-4-hydrogen-low",
   carbon = "gemini-4-carbon-high";
@@ -111,7 +111,10 @@ describe("multi-account provider workflow", () => {
         subscriptionIsolationKinds: ["agy"],
       }));
       const create = vi.spyOn(runtimeInstanceClient, "create").mockImplementation(async (input, repoId) => {
-        assertPreloadPayload("createRuntimeInstance", { ...input, repoId });
+        assertRendererRpc(
+          "daemon.runtimeInstance.create",
+          scopedRpcParams("daemon.runtimeInstance.create", { ...input, repoId }),
+        );
         instance = {
           schemaVersion: 2,
           instanceId: input.instanceId,
@@ -133,7 +136,7 @@ describe("multi-account provider workflow", () => {
         };
         return receipt;
       });
-      const auth = vi.spyOn(runtimeInstanceClient, "auth").mockResolvedValue({
+      const login = vi.spyOn(runtimeInstanceClient, "login").mockResolvedValue({
         schema: "terminal-control-receipt/v1",
         outcome: "applied",
         sessionId: "login-test",
@@ -158,7 +161,10 @@ describe("multi-account provider workflow", () => {
         return instance;
       });
       const update = vi.spyOn(runtimeInstanceClient, "update").mockImplementation(async (input, repoId) => {
-        assertPreloadPayload("updateRuntimeInstance", { ...input, repoId });
+        assertRendererRpc(
+          "daemon.runtimeInstance.update",
+          scopedRpcParams("daemon.runtimeInstance.update", { ...input, repoId }),
+        );
         instance = { ...instance!, models: input.models!, defaultModel: input.defaultModel!, tier: input.tier };
         return receipt;
       });
@@ -173,7 +179,7 @@ describe("multi-account provider workflow", () => {
       await change("new-runtime-tier", "2");
       expect(field<HTMLSelectElement>("new-runtime-isolation").disabled).toBe(true);
       await click("new-runtime-create");
-      await settled(() => expect(auth).toHaveBeenCalledWith("demo", "agy-pro", "login"));
+      await settled(() => expect(login).toHaveBeenCalledWith("demo", "agy-pro"));
       expect(onOpenAuthTerminal).toHaveBeenCalledWith("agy-pro", "login-test");
       expect(create.mock.calls[0]).toEqual([
         {
@@ -277,7 +283,14 @@ describe("multi-account provider workflow", () => {
       await change("agent-selection-strategy", "lru");
       await click("agent-save");
       expect(onSave.mock.calls[0]?.[0].selectionStrategy).toBe("lru");
-      assertPreloadPayload("saveAgent", { repoId: "demo", declaration: onSave.mock.calls[0]![0], expectedVersion: 7 });
+      assertRendererRpc(
+        "repo.agent.entity.write",
+        scopedRpcParams("repo.agent.entity.write", {
+          repoId: "demo",
+          declaration: onSave.mock.calls[0]![0],
+          expectedVersion: 7,
+        }),
+      );
       await change("agent-selection-strategy", "");
       await click("agent-save");
       expect(onSave.mock.calls[1]?.[0]).not.toHaveProperty("selectionStrategy");

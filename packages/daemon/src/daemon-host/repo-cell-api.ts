@@ -81,7 +81,7 @@ import { agentRuntimeTokenUsageReadHandlers } from "./agent-runtime-token-usage.
 import {
   admitUseCaseProjectionSelector,
   type DaemonUseCaseProjectionResult,
-} from "./protocol/daemon-protocol-gui-types.ts";
+} from "./protocol/daemon-protocol-results.ts";
 import { listProjectedTaskDocuments, readProjectedDocument } from "./doc-sync-actions.ts";
 import { readArtifactsGui } from "./artifacts-gui-read.ts";
 import { makeGitReadinessSource } from "./process-port.ts";
@@ -1201,10 +1201,10 @@ export function createRepoCellApi(
       if (!ready) throw context.cellCodedError("repo_unavailable", "RepoCell L2 projection is not ready.");
       return { cellState: "attached", l2State: "ready" };
     },
-    attach: async (runtimeSessionId, afterCursor) => {
+    attach: async (runtimeSessionId, afterCursor, signal) => {
       await context.tail;
       if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
-      return context.runtimeStream.attach(runtimeSessionId, afterCursor);
+      return context.runtimeStream.attach(runtimeSessionId, afterCursor, signal);
     },
     runtime: context.runtimeStream,
     status: () => repoCellStatus(context),

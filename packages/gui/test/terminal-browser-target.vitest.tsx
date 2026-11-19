@@ -77,21 +77,23 @@ async function mount(target: "embedded" | "system" = "embedded") {
   setActiveLocale("en-US");
   let current = target;
   const external = vi.fn(async () => undefined);
-  const request = vi.fn(async (method: string, payload: { guiTerminalBrowser?: "embedded" | "system" }) => {
-    if (method === "getSettings") return read(current);
-    if (method === "updateSettings") {
-      current = payload.guiTerminalBrowser!;
-      return {
-        schema: "command-receipt/v2",
-        command: "settings-update",
-        opId: "browser-test",
-        ok: true,
-        outcome: "applied",
-        revision: 1,
-      };
-    }
-    throw new Error(`Unexpected ${method}`);
-  });
+  const request = vi.fn(
+    async (method: string, { payload }: { payload: { guiTerminalBrowser?: "embedded" | "system" } }) => {
+      if (method === "repo.settings.read") return read(current);
+      if (method === "repo.settings.update") {
+        current = payload.guiTerminalBrowser!;
+        return {
+          schema: "command-receipt/v2",
+          command: "settings-update",
+          opId: "browser-test",
+          ok: true,
+          outcome: "applied",
+          revision: 1,
+        };
+      }
+      throw new Error(`Unexpected ${method}`);
+    },
+  );
   Object.defineProperty(window, "harness", { configurable: true, value: { request, externalUrl: { open: external } } });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   client.setQueryData(settingsQueryKeys.read(repoId), read(target));
@@ -147,8 +149,8 @@ describe("terminal browser preference", () => {
     await click("terminal-browser-toggle");
     await vi.waitFor(() =>
       expect(f.request).toHaveBeenCalledWith(
-        "updateSettings",
-        expect.objectContaining({ guiTerminalBrowser: "system" }),
+        "repo.settings.update",
+        expect.objectContaining({ payload: expect.objectContaining({ guiTerminalBrowser: "system" }) }),
       ),
     );
     await act(async () => {

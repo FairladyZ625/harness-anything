@@ -4,7 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { daemonGuiActionMethods } from "@harness-anything/daemon/protocol";
+import { daemonActionRoutes } from "@harness-anything/daemon/protocol";
 import { presetCommands, presetMethods } from "../../preset/src/preset-command-contract.ts";
 import { WorkView } from "../src/renderer/views/WorkView.tsx";
 import { harnessClient } from "../src/renderer/api-client.ts";
@@ -302,7 +302,7 @@ async function until(predicate: () => boolean, label: string): Promise<void> {
 
 describe("G1 开始一项工作:GUI Action 与真实契约对齐", () => {
   const declared = presetCommands.find((command) => command.id === "task-create");
-  const guiCreate = daemonGuiActionMethods.find(({ method }) => method === "repo.task.create");
+  const guiCreate = daemonActionRoutes.find(({ method }) => method === "repo.task.create");
 
   it("task-create GUI Action 复用 CLI 方法的中心单写 payload 与 Action kind", () => {
     expect(declared, "task-create command declaration").toBeTruthy();

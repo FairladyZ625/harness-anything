@@ -19,7 +19,7 @@ import {
   type ObserveTailCursor,
   type ObserveTailPayload,
   type ObserveTailResult,
-} from "./protocol/daemon-protocol-gui-types.ts";
+} from "./protocol/daemon-protocol-results.ts";
 
 export { DAEMON_OBSERVE_TAIL_SCHEMA };
 export type { ObserveTailCursor, ObserveTailPayload, ObserveTailResult };

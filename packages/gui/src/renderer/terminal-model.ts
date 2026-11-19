@@ -1,4 +1,5 @@
 import type * as DomainStatus from "../api/renderer-dto.ts";
+import type { TerminalAttachInitial } from "./terminal-client.ts";
 export interface TerminalTab {
   readonly sessionId: string;
   readonly name: string;
@@ -60,6 +61,21 @@ export function reduceTerminalStream(tab: TerminalTab, frame: TerminalStreamFram
   };
 }
 
+export function applyTerminalAttachment(
+  tab: TerminalTab,
+  initial: TerminalAttachInitial,
+  replayGapNotice: string,
+): TerminalTab {
+  const reset = tab.daemonGeneration !== initial.daemonGeneration || tab.lastSeq > initial.outputSeq;
+  return {
+    ...tab,
+    daemonGeneration: initial.daemonGeneration,
+    attachmentId: initial.attachmentId,
+    lastSeq: reset ? 0 : tab.lastSeq,
+    notice: initial.status === "gap" || (reset && tab.lastSeq > 0) ? replayGapNotice : tab.notice,
+  };
+}
+
 export function reconcileTerminalGeneration(
   tabs: readonly TerminalTab[],
   daemonGeneration: number,
@@ -68,7 +84,9 @@ export function reconcileTerminalGeneration(
     tab.daemonGeneration === daemonGeneration || tab.state === "exited"
       ? tab
       : tab.durability === "daemon-restart"
-        ? { ...tab, daemonGeneration, attachmentId: null }
+        ? tab.attachmentId === null
+          ? tab
+          : { ...tab, attachmentId: null }
         : {
             ...tab,
             daemonGeneration,

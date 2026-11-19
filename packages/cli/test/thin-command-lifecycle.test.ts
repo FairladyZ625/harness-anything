@@ -845,8 +845,8 @@ test("thin doc commands derive descriptor-only actions from the protocol directo
 test("doc CLI and GUI delivery surfaces do not import store, Git, or semantic compiler code", () => {
   const sources = [
     "../src/cli/thin-command.ts",
-    "../../gui/src/api/api-contract-registry.ts",
-    "../../gui/src/api/service-bridge.ts",
+    "../../gui/src/renderer/gui-transport.ts",
+    "../../daemon/src/daemon-host/protocol/client-rpc.ts",
     "../../gui/src/main/local-composition-root.ts",
   ];
   for (const source of sources)

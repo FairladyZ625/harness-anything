@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   actionForDaemonMethod,
   commandClassForAction,
-  daemonGuiActionMethods,
+  daemonActionRoutes,
   parseDaemonRpcParams,
 } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { policyActionForTarget } from "../src/daemon-host/repo-cell-authorization.ts";
@@ -52,7 +52,7 @@ test("GUI entity unpin ingress maps onto the Entity Pin action by ref", () => {
     false,
   );
   assert.equal(
-    daemonGuiActionMethods.some((entry) => entry.guiBridgeMethod === "unpinEntity"),
+    daemonActionRoutes.some((entry) => entry.method === "repo.entity.unpin"),
     true,
   );
 });
@@ -72,15 +72,15 @@ test("GUI pin ingress stays closed to the renderer", () => {
     );
   }
   assert.equal(
-    daemonGuiActionMethods.some(({ method }) => method === "repo.task.run"),
+    daemonActionRoutes.some(({ method }) => method === "repo.task.run"),
     false,
     "the generic task action RPC must stay off the GUI bridge",
   );
-  for (const guiBridgeMethod of ["pinTask", "unpinTask"])
+  for (const method of ["repo.task.pin", "repo.task.unpin"])
     assert.equal(
-      daemonGuiActionMethods.some((entry) => entry.guiBridgeMethod === guiBridgeMethod),
+      daemonActionRoutes.some((entry) => entry.method === method),
       true,
-      `${guiBridgeMethod} must be declared once on the GUI bridge`,
+      `${method} must be registered`,
     );
 });
 

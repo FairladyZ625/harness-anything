@@ -1,6 +1,6 @@
 import type * as DomainStatus from "../api/renderer-dto.ts";
 import { isRendererRecord, rendererReadError } from "./result-validation.ts";
-import { guiHostBridge } from "./gui-transport.ts";
+import { invoke } from "./api-client-invoke.ts";
 
 /**
  * 实体**自己收管的内容**的读(`repo.entity.content.read`)。
@@ -35,15 +35,6 @@ export interface EntityContentRead {
   readonly truncated: boolean;
 }
 
-type ContentBridge = {
-  readonly readEntityContent: (payload: {
-    readonly repoId: string;
-    readonly entityKind: string;
-    readonly entityId: string;
-    readonly path?: string;
-  }) => Promise<unknown>;
-};
-
 /**
  * 内容读的 query 声明。内容根与树里每一层共用同一份 key / 读函数 / 新鲜度——两处各拼
  * 一份就会出现同一层双读。空 `path` 表示内容根:读面的 `path` 是可选参数,递一个空串会被
@@ -63,9 +54,12 @@ export async function readEntityOwnedContent(
   entityId: string,
   path = "",
 ): Promise<EntityContentRead> {
-  const channel = (guiHostBridge() as unknown as Partial<ContentBridge> | undefined)?.readEntityContent;
-  if (!channel) throw new Error("Entity content bridge is unavailable.");
-  const value = await channel({ repoId, entityKind, entityId, ...(path === "" ? {} : { path }) });
+  const value = await invoke("repo.entity.content.read", {
+    repoId,
+    entityKind,
+    entityId,
+    ...(path === "" ? {} : { path }),
+  });
   if (!isRendererRecord(value) || value.schema !== "entity-content-read/v1" || typeof value.outcome !== "string")
     throw rendererReadError(value, "Entity content bridge returned an invalid result.");
   return value as unknown as EntityContentRead;

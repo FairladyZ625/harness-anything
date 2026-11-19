@@ -2,7 +2,7 @@ import type * as ClientStatus from "@harness-anything/kernel/internal/domain/cli
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import type { WriteReceiptOutcome } from "@harness-anything/kernel/internal/domain/write-receipt-status.ts";
 import { isJsonObject, rejectSecretKeys, type JsonObject } from "./protocol/json-rpc-types.ts";
-import { validateReceiptAcceptance } from "@harness-anything/kernel";
+import { validateReceiptAcceptance } from "@harness-anything/kernel/internal/domain/receipt-acceptance.ts";
 import { isContractVersion } from "@harness-anything/kernel/contract-version";
 
 export interface DaemonControlReceipt extends JsonObject {

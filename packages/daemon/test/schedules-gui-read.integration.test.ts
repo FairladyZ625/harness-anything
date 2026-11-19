@@ -19,8 +19,8 @@ import {
   registerBootstrappedDaemonRepo as registerDaemonRepo,
 } from "./repo-settings.fixture.ts";
 import { canonicalRoot } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
-import type { ScheduleGuiRowDto, SchedulesListResult } from "../src/daemon-host/protocol/schedules-gui-contract.ts";
+import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
+import type { ScheduleGuiRowDto, SchedulesListResult } from "../src/daemon-host/protocol/schedules-contract.ts";
 
 const actor = withPolicyGroup(
   { actor: { principal: { personId: "schedule-operator" }, executor: null }, source: "local" as const },
@@ -171,7 +171,7 @@ test(
         // merely disagree with field expectations (a claimed-but-unlinked activeRun or a
         // lastRun without detail previously failed this parse).
         const list = async (): Promise<SchedulesListResult> =>
-          parseDaemonGuiReadResult(
+          parseDaemonReadResult(
             "repo.projection.read",
             await cell.read("repo.projection.read", { name: "schedule-plane" }),
           ).projection as SchedulesListResult;
@@ -228,7 +228,7 @@ test(
         );
         const runtimeSessionId = running.activeRun!.runtimeSessionId;
         assert.notEqual(runtimeSessionId, null);
-        const attached = await cell.attach(runtimeSessionId!, "stream:0");
+        const attached = await cell.attach(runtimeSessionId!);
         try {
           assert.equal(attached.initial.ok, true, JSON.stringify(attached.initial));
           output?.(
@@ -407,7 +407,7 @@ test(
         },
       };
       const list = async (): Promise<SchedulesListResult> =>
-        parseDaemonGuiReadResult(
+        parseDaemonReadResult(
           "repo.projection.read",
           await host.read("schedules-gui-center", "repo.projection.read", { name: "schedule-plane" }, localAuth),
         ).projection as SchedulesListResult;

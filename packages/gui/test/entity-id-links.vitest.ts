@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 // @vitest-environment happy-dom
-import { beforeAll, afterEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -117,6 +117,8 @@ beforeAll(() => {
   setActiveLocale("zh-CN");
 });
 
+beforeEach(() => vi.stubGlobal("harness", {}));
+
 afterEach(() => {
   while (mounted.length > 0) {
     const { root, container } = mounted.pop()!;
@@ -126,6 +128,7 @@ afterEach(() => {
     container.remove();
   }
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 function fixtureRepoRow(): SystemRepoRow {

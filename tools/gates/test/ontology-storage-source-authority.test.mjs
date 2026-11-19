@@ -40,17 +40,17 @@ function fixture() {
   symlinkSync(realpathSync(path.join(repoRoot, "node_modules")), path.join(rootDir, "node_modules"), "dir");
   return rootDir;
 }
-const action = (sources) => ({
+const action = (sources, residency = { scope: "host-local", writer: "daemon-host" }) => ({
   kind: "storage-io",
   receiptSettlement: "none",
-  residency: { scope: "canonical", writer: "center-repo-cell" },
+  residency,
   ontology: { owner: "storage", technical: true, authority: "local-process", sources },
 });
-const inputs = (sources) => ({
+const inputs = (sources, residency) => ({
   descriptors: [],
   methods: [],
   functions: {},
-  constants: { actionDeclarations: [action(sources)] },
+  constants: { actionDeclarations: [action(sources, residency)] },
 });
 
 test("a declared SQLite technical port passes G-A without claiming a remote command permission", () => {
@@ -58,6 +58,16 @@ test("a declared SQLite technical port passes G-A without claiming a remote comm
   assert.deepEqual(result.findings, []);
   assert.equal(result.sourceRows[0].ok, true);
   assert.match(result.sourceRows[0].evidence.join(" "), /typed technical port/u);
+});
+
+test("the typed SQLite port grants no authority to claim a canonical ledger cut", () => {
+  const result = auditDurableActionAuthorization(
+    fixture(),
+    inputs([binding("persist")], { scope: "canonical", writer: "center-repo-cell" }),
+  );
+  assert.equal(result.sourceRows[0].ok, false);
+  assert.equal(result.findings.length, 1);
+  assert.match(result.findings[0], /no verified owner\/authority chain/u);
 });
 
 test("the same-shaped storage domain bypass cannot borrow the proven SQLite port", () => {

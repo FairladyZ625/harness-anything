@@ -12,7 +12,7 @@ import { makeTaskEventReader } from "@harness-anything/storage";
 import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
 import { appendRuntimeWorkerRecord } from "../src/daemon-host/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiActionResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { parseDaemonActionResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -338,8 +338,8 @@ async function recoveryScenario(budgetCase: boolean | string): Promise<void> {
       // the result validator the daemon's repo.agentRuntime.spawn RPC applies before replying.
       assert.equal(replayed.opId, recovered.opId, JSON.stringify(replayed));
       assert.equal(replayed.status, "accepted_durable", JSON.stringify(replayed));
-      parseDaemonGuiActionResult("repo.agentRuntime.spawn", recovered);
-      parseDaemonGuiActionResult("repo.agentRuntime.spawn", replayed);
+      parseDaemonActionResult("repo.agentRuntime.spawn", recovered);
+      parseDaemonActionResult("repo.agentRuntime.spawn", replayed);
       // The same key with a different request is a conflict, not a retry.
       await assert.rejects(
         cell.spawnRuntime(spawnPayload("ceo-recovery-1", { ...fence, executionId: "execution-elsewhere" }), ceo),

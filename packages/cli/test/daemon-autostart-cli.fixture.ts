@@ -400,7 +400,7 @@ async function probeRuntimeAttach(
     const detach = await streamAgentRuntimeAt({
       socketPath: endpoint,
       repoId,
-      payload: { runtimeSessionId, afterCursor: "stream:0" },
+      payload: { runtimeSessionId },
       onValue: () => {
         initialValues += 1;
       },

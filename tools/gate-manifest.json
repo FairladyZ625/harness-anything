@@ -1144,7 +1144,7 @@
         "package.json:scripts.test:contract",
         "packages/daemon/test/via-center-forward-command.contract.test.ts",
         "packages/gui/test/ipc-handler-registration.test.ts",
-        "packages/gui/src/api/api-contract-registry.ts",
+        "packages/daemon/src/daemon-host/protocol/client-rpc.ts",
         "packages/gui/src/preload/allowlist.ts",
         "packages/gui/src/main/ipc-handlers.ts"
       ],
@@ -3758,12 +3758,12 @@
       "tierReason": null,
       "localPathGlobs": ["packages/**/src/**", "packages/**/package.json", "tools/check-api-contract-registry.mjs"],
       "authoritySource": [
-        "packages/gui/src/api/api-contract-registry.ts",
+        "packages/daemon/src/daemon-host/protocol/client-rpc.ts",
         "packages/gui/src/preload/allowlist.ts",
-        "packages/gui/src/api/service-bridge.ts",
+        "packages/gui/src/main/ipc-handlers.ts",
         "packages/application/src/index.ts"
       ],
-      "consumerScope": ["GUI API route registry, preload allowlist, bridge handlers, and service methods"],
+      "consumerScope": ["Canonical daemon RPC descriptors, Electron admission, and transport handlers"],
       "githubContext": {
         "requiredContexts": ["quick-gates"],
         "workflowJobs": ["quick-gates", "full-check"],
@@ -3780,7 +3780,7 @@
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           "tools/check-api-contract-registry.mjs",
-          "packages/gui/src/api/api-contract-registry.ts",
+          "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts",
           "packages/gui/src/preload/allowlist.ts",
           "package.json:scripts.harness:check-api-contract-registry",
           "tools/gate-manifest.json"
@@ -3822,7 +3822,7 @@
       ],
       "authoritySource": [
         "packages/kernel/src/schemas",
-        "packages/gui/src/api/api-contract-registry.ts",
+        "packages/daemon/src/daemon-host/protocol/client-rpc.ts",
         "tools/check-schema-contracts.mjs"
       ],
       "consumerScope": ["published schema contracts and schema references"],

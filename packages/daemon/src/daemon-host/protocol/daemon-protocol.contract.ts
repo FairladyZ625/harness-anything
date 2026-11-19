@@ -2,28 +2,17 @@ import { presetMethods } from "@harness-anything/preset/internal/preset-command-
 import type { ContractVersion } from "@harness-anything/kernel/contract-version";
 import { currentDaemonProtocolVersion } from "./daemon-protocol-identifiers.ts";
 export { currentDaemonProtocolVersion } from "./daemon-protocol-identifiers.ts";
-import { daemonOwnedProtocolCommands } from "./daemon-protocol-commands.ts";
-import {
-  daemonGuiActionMethods,
-  daemonStreamFacets,
-  providerMethods,
-  runtimeInstanceAuthMethods,
-  runtimeInstanceMethods,
-} from "./daemon-protocol-gui-actions.ts";
-import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
-import { daemonRepositoryReadMethods } from "./daemon-protocol-commands.ts";
+import { daemonOwnedProtocolCommands, daemonOwnedRpcMethods } from "./daemon-protocol-commands.ts";
 import type { DaemonSessionEnvironment } from "./daemon-protocol-identifiers.ts";
 import {
   allDaemonProtocolMethods,
-  daemonProtocolMethods,
-  fleetProtocolMethods,
   type DaemonRpcDescriptor,
   type DaemonRpcMethod,
 } from "./daemon-protocol-commands.ts";
 export {
   accessAdminOperations,
   allDaemonProtocolMethods,
-  daemonGuiInvokeFacets,
+  interactiveRpcMethods,
   daemonProtocolMethods,
   fleetProtocolMethods,
   providerMethods,
@@ -32,7 +21,7 @@ export {
   type DaemonRpcDescriptor,
   type DaemonRpcMethod,
 } from "./daemon-protocol-commands.ts";
-import type { RpcEnumRule, RpcShape } from "./daemon-protocol-gui-types.ts";
+import type { RpcEnumRule, RpcShape } from "./daemon-protocol-results.ts";
 import type { JsonObject, JsonValue } from "./json-rpc-types.ts";
 import { daemonGuiActionSchemas, daemonGuiReadSchemas } from "./daemon-protocol-schema-registry.ts";
 import type { DaemonStatusResult } from "./daemon-status-contract.ts";
@@ -140,20 +129,20 @@ type RepoRpcParams<Payload> = {
   readonly payload: Payload;
 };
 type PresetRpcMethod = (typeof presetMethods)[number]["method"];
-type DaemonGuiReadParams<Method extends keyof import("./daemon-protocol-gui-types.ts").DaemonGuiReadPayloadMap> =
+type DaemonGuiReadParams<Method extends keyof import("./daemon-protocol-results.ts").DaemonGuiReadPayloadMap> =
   Method extends "daemon.gui.system.read" | "daemon.gui.home.read"
     ? Readonly<Record<string, never>>
     : Method extends "daemon.gui.control.receipt"
-      ? { readonly payload: import("./daemon-protocol-gui-types.ts").DaemonGuiReadPayloadMap[Method] }
-      : import("./daemon-protocol-gui-types.ts").DaemonGuiReadPayloadMap[Method] extends Readonly<Record<string, never>>
+      ? { readonly payload: import("./daemon-protocol-results.ts").DaemonGuiReadPayloadMap[Method] }
+      : import("./daemon-protocol-results.ts").DaemonGuiReadPayloadMap[Method] extends Readonly<Record<string, never>>
         ? { readonly repo: { readonly repoId: string } }
-        : RepoRpcParams<import("./daemon-protocol-gui-types.ts").DaemonGuiReadPayloadMap[Method]>;
+        : RepoRpcParams<import("./daemon-protocol-results.ts").DaemonGuiReadPayloadMap[Method]>;
 
 type DaemonRpcParamsFor<Method extends DaemonRpcMethod> = Method extends keyof DaemonRpcParamOverrides
   ? DaemonRpcParamOverrides[Method]
-  : Method extends keyof import("./daemon-protocol-gui-types.ts").DaemonStreamPayloadMap
-    ? RepoRpcParams<import("./daemon-protocol-gui-types.ts").DaemonStreamPayloadMap[Method]>
-    : Method extends keyof import("./daemon-protocol-gui-types.ts").DaemonGuiReadPayloadMap
+  : Method extends keyof import("./daemon-protocol-results.ts").DaemonStreamPayloadMap
+    ? RepoRpcParams<import("./daemon-protocol-results.ts").DaemonStreamPayloadMap[Method]>
+    : Method extends keyof import("./daemon-protocol-results.ts").DaemonGuiReadPayloadMap
       ? DaemonGuiReadParams<Method>
       : Method extends PresetRpcMethod
         ? RepoRpcParams<JsonObject>
@@ -227,10 +216,10 @@ export interface DaemonTaskWitnessRunResult {
 
 type DaemonRpcSuccessResult<Method extends DaemonRpcMethod> = Method extends keyof DaemonMethodResults
   ? DaemonMethodResults[Method]
-  : Method extends keyof import("./daemon-protocol-gui-types.ts").DaemonGuiReadResultMap
-    ? import("./daemon-protocol-gui-types.ts").DaemonGuiReadResultMap[Method]
-    : Method extends keyof import("./daemon-protocol-gui-types.ts").DaemonStreamResultMap
-      ? import("./daemon-protocol-gui-types.ts").DaemonStreamResultMap[Method]
+  : Method extends keyof import("./daemon-protocol-results.ts").DaemonGuiReadResultMap
+    ? import("./daemon-protocol-results.ts").DaemonGuiReadResultMap[Method]
+    : Method extends keyof import("./daemon-protocol-results.ts").DaemonStreamResultMap
+      ? import("./daemon-protocol-results.ts").DaemonStreamResultMap[Method]
       : Method extends "protocol.hello"
         ? DaemonProtocolHelloResult
         : Method extends "daemon.status"
@@ -241,8 +230,8 @@ type DaemonRpcSuccessResult<Method extends DaemonRpcMethod> = Method extends key
               ? AgentRuntimeQuote
               : Method extends "repo.preset.run.start" | "repo.preset.run.status"
                 ? object
-                : Method extends import("./daemon-protocol-gui-types.ts").DaemonGuiActionMethod
-                  ? import("./daemon-protocol-gui-types.ts").DaemonGuiActionResult
+                : Method extends import("./daemon-protocol-results.ts").DaemonGuiActionMethod
+                  ? import("./daemon-protocol-results.ts").DaemonGuiActionResult
                   : Readonly<Record<string, unknown>>;
 
 /**
@@ -253,9 +242,7 @@ type DaemonRpcSuccessResult<Method extends DaemonRpcMethod> = Method extends key
 export type DaemonRpcMethodMap = {
   readonly [Method in DaemonRpcMethod]: {
     readonly params: DaemonRpcParamsFor<Method>;
-    readonly result:
-      | DaemonRpcSuccessResult<Method>
-      | import("./daemon-protocol-gui-types.ts").DaemonProtocolErrorResult;
+    readonly result: DaemonRpcSuccessResult<Method> | import("./daemon-protocol-results.ts").DaemonProtocolErrorResult;
   };
 };
 
@@ -332,17 +319,7 @@ export default Object.freeze({
     "Fleet-Collab",
   ]),
   commands: daemonOwnedProtocolCommands,
-  methods: Object.freeze([
-    ...daemonProtocolMethods,
-    ...runtimeInstanceMethods,
-    ...providerMethods,
-    ...runtimeInstanceAuthMethods,
-    ...fleetProtocolMethods,
-    ...daemonGuiReadMethods,
-    ...daemonRepositoryReadMethods,
-    ...daemonGuiActionMethods,
-    ...daemonStreamFacets,
-  ]),
+  methods: daemonOwnedRpcMethods,
   gates: Object.freeze([]),
   guards: Object.freeze([]),
   schemas: Object.freeze([
@@ -376,9 +353,9 @@ export {
   thinCliCommands,
 } from "./daemon-protocol-commands.ts";
 export { taskActionHelpRows } from "./daemon-protocol-commands-task.ts";
-export { daemonGuiActionMethods, daemonGuiStreamFacets, daemonStreamFacets } from "./daemon-protocol-gui-actions.ts";
-export { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
-export { validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
+export { daemonActionRoutes, daemonStreamFacets } from "./daemon-protocol-action-routes.ts";
+export { daemonReadRoutes } from "./daemon-protocol-read-routes.ts";
+export { validateObserveTailResult } from "./daemon-protocol-results.ts";
 export type {
   AgendaAwaitsRow,
   AgendaAnsweredRow,
@@ -431,7 +408,7 @@ export type {
   TaskDispatchRow,
   TaskDocumentListEntryRow,
   TaskPlacementSupplement,
-} from "./daemon-protocol-gui-types.ts";
+} from "./daemon-protocol-results.ts";
 export { canonicalRoot, endpointIdentity, safePath, workspaceId } from "./daemon-protocol-identifiers.ts";
 export type {
   CanonicalRoot,
@@ -444,9 +421,9 @@ export {
   daemonMethodAcceptsPayload,
   daemonMethodAcceptsPayloadExecutor,
   DaemonProtocolContractError,
-  isDaemonGuiActionMethod,
-  isDaemonGuiOnlyActionMethod,
-  isDaemonGuiReadMethod,
+  isDaemonActionRoute,
+  isNamedActionRoute,
+  isDaemonReadRoute,
   isDaemonStreamMethod,
   parseDaemonRpcParams,
   serializeDaemonRpcCall,
@@ -524,4 +501,4 @@ export {
 export { isolateDaemonTaskSnapshotRows, validateDaemonTaskSnapshotList } from "./daemon-protocol-validate-task.ts";
 export { validTaskDispatchRow, validateDaemonWorkspaceSummary } from "./daemon-protocol-validate-relation-query.ts";
 
-export type { TaskAssignmentDirectory } from "./daemon-protocol-gui-types.ts";
+export type { TaskAssignmentDirectory } from "./daemon-protocol-results.ts";

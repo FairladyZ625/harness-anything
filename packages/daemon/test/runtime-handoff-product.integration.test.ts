@@ -10,7 +10,7 @@ import { makeTaskEventReader } from "@harness-anything/storage";
 import { runtimeSessionMissingOutcomeEvidence } from "@harness-anything/kernel";
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
-import { parseDaemonGuiActionResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { parseDaemonActionResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
@@ -348,13 +348,13 @@ for (const row of [{type:'thread.started',thread_id:id},
     assert.equal(exported.command, "runtime-handoff-claim", JSON.stringify(exported));
     assert.equal(Object.hasOwn(exported, "event"), false, JSON.stringify(exported));
     assert.equal(
-      parseDaemonGuiActionResult("repo.agentRuntime.handoff", exported).outcome,
+      parseDaemonActionResult("repo.agentRuntime.handoff", exported).outcome,
       "applied",
       JSON.stringify(exported),
     );
     assert.throws(
       () =>
-        parseDaemonGuiActionResult("repo.agentRuntime.handoff", {
+        parseDaemonActionResult("repo.agentRuntime.handoff", {
           ...exported,
           checkpoint: { ...(exported.checkpoint as JsonObject), commit: "invalid" },
         }),
@@ -472,7 +472,7 @@ for (const row of [{type:'thread.started',thread_id:id},
     );
     assert.equal(centerLocalRepeat.code, "runtime_dispatch_already_resumed", JSON.stringify(centerLocalRepeat));
     assert.equal(
-      parseDaemonGuiActionResult("repo.agentRuntime.handoff", centerLocalRepeat).code,
+      parseDaemonActionResult("repo.agentRuntime.handoff", centerLocalRepeat).code,
       "runtime_dispatch_already_resumed",
     );
     if (liveCodex) {

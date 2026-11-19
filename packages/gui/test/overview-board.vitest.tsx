@@ -417,7 +417,7 @@ describe("总览:左下「关注的工作」", () => {
     // 元组字符串不进正文(2026-10-21 CEO 截图补充:处理者显示成元组字符串是缺陷)。
     vi.stubGlobal("harness", {
       request: (method: string) =>
-        method === "getAgentRuntimeOverview"
+        method === "repo.agentRuntime.overview"
           ? Promise.resolve({
               ok: true,
               status: "ready",
@@ -512,7 +512,7 @@ describe("总览:左下「关注的工作」", () => {
     });
     vi.stubGlobal("harness", {
       request: (method: string) =>
-        method === "tailObservability"
+        method === "observe.tail"
           ? Promise.resolve({
               schema: "daemon.observe-tail/v3",
               ok: true,
@@ -618,7 +618,7 @@ describe("总览:左上「在跑的任务」(窄行名单,泳道数据同源)", 
     };
     vi.stubGlobal("harness", {
       request: (method: string, payload: unknown) => {
-        if (method === "readUseCaseProjection") {
+        if (method === "repo.projection.read") {
           const params = paramsOf(payload);
           if (params.name !== "runtime-session-groups")
             return Promise.reject(new Error(`unexpected projection: ${String(params.name)}`));
@@ -638,7 +638,7 @@ describe("总览:左上「在跑的任务」(窄行名单,泳道数据同源)", 
             },
           });
         }
-        if (method === "getTaskDispatches") {
+        if (method === "repo.task.dispatches") {
           const params = paramsOf(payload);
           const agentId = String(params.agentId ?? "");
           const rows = input.members?.[agentId];

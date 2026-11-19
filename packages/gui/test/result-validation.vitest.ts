@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import { describe, expect, it } from "vitest";
 import { INITIAL_SETTINGS_V1 } from "@harness-anything/kernel";
-import { parseDaemonGuiReadResponse } from "@harness-anything/daemon/client";
+import { parseDaemonReadResponse } from "@harness-anything/daemon/client";
 import { daemonSettingsRead } from "../../daemon/src/daemon-host/protocol/daemon-settings-read-types.ts";
 import { isSettingsSuccess } from "../src/renderer/settings-payload.ts";
 import { localErrorHint, rendererErrorHint, rendererReadError } from "../src/renderer/result-validation.ts";
@@ -102,12 +102,12 @@ it("accepts settings fields a newer daemon added at the main-process parser", ()
       },
       values: { ...response.values, daemonAddedActionValue: [{ id: "new-value" }] },
     },
-    parsed = parseDaemonGuiReadResponse("repo.settings.read", newer);
+    parsed = parseDaemonReadResponse("repo.settings.read", newer);
   expect(isSettingsSuccess(parsed)).toBe(true);
   expect((parsed as { readonly daemonAddedTopLevel?: string }).daemonAddedTopLevel).toBe("ignored");
   expect((parsed as { readonly values: Record<string, unknown> }).values).not.toHaveProperty("daemonAddedActionValue");
   expect(() =>
-    parseDaemonGuiReadResponse("repo.settings.read", {
+    parseDaemonReadResponse("repo.settings.read", {
       ...newer,
       values: { ...newer.values, runtimeCommandInterceptions: ["invalid"] },
     }),

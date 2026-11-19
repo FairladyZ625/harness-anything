@@ -6,7 +6,7 @@ import { resolveLocalDaemonEndpoint } from "../../packages/daemon/src/daemon-hos
 import { requestDaemonJsonRpcAt } from "../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
 import {
   currentDaemonProtocolVersion,
-  daemonGuiInvokeFacets,
+  interactiveRpcMethods,
 } from "../../packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { startGuiResidentDaemonFixture } from "../../packages/gui/test-support/resident-daemon.mjs";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
@@ -249,7 +249,7 @@ export async function openIsolatedFixture({
     }
     assertCanonicalDaemonMethods({
       daemonMethods: Array.isArray(hello.methods) ? hello.methods : [],
-      requiredMethods: daemonGuiInvokeFacets.map((facet) => facet.method),
+      requiredMethods: interactiveRpcMethods.map((facet) => facet.method),
       daemonCommit,
       guiCommit: sourceCommit,
     });

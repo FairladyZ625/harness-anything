@@ -22,14 +22,14 @@ afterEach(() => {
 describe("live floor active runtime sessions", () => {
   it("reads an oversized active-session result through the transport envelope", async () => {
     expect(Buffer.byteLength(JSON.stringify(fullResult))).toBeGreaterThan(FRAME_LIMIT);
-    const calls: Array<{ readonly limit?: number; readonly cursor?: string }> = [];
+    const calls: unknown[] = [];
     Object.defineProperty(window, "harness", {
       configurable: true,
       value: {
-        request: vi.fn(async (method: string, payload: { readonly limit?: number; readonly cursor?: string }) => {
-          expect(method).toBe("getAgentRuntimeOverview");
-          calls.push(payload);
-          expect(payload.limit).toBeUndefined();
+        request: vi.fn(async (method: string, params: { repo: { repoId: string }; payload: { limit?: number } }) => {
+          expect(method).toBe("repo.agentRuntime.overview");
+          calls.push(params);
+          expect(params.payload.limit).toBeUndefined();
           const result = {
             ...FIXTURE_RUNTIME_OVERVIEW,
             sessions,
@@ -42,6 +42,6 @@ describe("live floor active runtime sessions", () => {
     const result = await agentRuntimeClient.overview("live-floor-paging-probe");
 
     expect(result.sessions).toHaveLength(SESSION_COUNT);
-    expect(calls).toEqual([{ repoId: "live-floor-paging-probe" }]);
+    expect(calls).toEqual([{ repo: { repoId: "live-floor-paging-probe" }, payload: {} }]);
   });
 });

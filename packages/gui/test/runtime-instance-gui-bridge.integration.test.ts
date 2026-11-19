@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -75,34 +76,49 @@ test("GUI registry bridge lists, creates, updates, deletes, and probes a runtime
         bridge: base,
         target: async () => ({ repoId: "unused", socketPath: endpoint, userRoot, daemonId }),
       });
-    const before = (await bridge.invoke("listRuntimeInstances", { all: true })) as RuntimeReceipt;
+    const before = (await bridge.invoke(
+      "daemon.runtimeInstance.list",
+      scopedRpcParams("daemon.runtimeInstance.list", { all: true }),
+    )) as RuntimeReceipt;
     assert.deepEqual(before.instances, []);
-    const created = (await bridge.invoke("createRuntimeInstance", {
-      instanceId: "codex-gui",
-      name: "Codex GUI",
-      kindId: "codex",
-      installationId: installation.installationId,
-      providerId: "openai",
-      models: ["model-a", "model-b"],
-      defaultModel: "model-a",
-      codex: { reasoningEffort: "high" },
-      authMode: "subscription",
-    })) as RuntimeReceipt;
+    const created = (await bridge.invoke(
+      "daemon.runtimeInstance.create",
+      scopedRpcParams("daemon.runtimeInstance.create", {
+        instanceId: "codex-gui",
+        name: "Codex GUI",
+        kindId: "codex",
+        installationId: installation.installationId,
+        providerId: "openai",
+        models: ["model-a", "model-b"],
+        defaultModel: "model-a",
+        codex: { reasoningEffort: "high" },
+        authMode: "subscription",
+      }),
+    )) as RuntimeReceipt;
     assert.equal(created.instance?.instanceId, "codex-gui", JSON.stringify(created));
-    const listed = (await bridge.invoke("listRuntimeInstances", { all: true })) as RuntimeReceipt;
+    const listed = (await bridge.invoke(
+      "daemon.runtimeInstance.list",
+      scopedRpcParams("daemon.runtimeInstance.list", { all: true }),
+    )) as RuntimeReceipt;
     assert.deepEqual(
       listed.instances?.map(({ instanceId }) => instanceId),
       ["codex-gui"],
     );
-    const shown = (await bridge.invoke("showRuntimeInstance", { instanceId: "codex-gui" })) as RuntimeReceipt;
+    const shown = (await bridge.invoke(
+      "daemon.runtimeInstance.show",
+      scopedRpcParams("daemon.runtimeInstance.show", { instanceId: "codex-gui" }),
+    )) as RuntimeReceipt;
     assert.equal(shown.instance?.enabled, true, JSON.stringify(shown));
-    const updated = (await bridge.invoke("updateRuntimeInstance", {
-      instanceId: "codex-gui",
-      name: "Codex GUI edited",
-      installationId: replacementInstallation.installationId,
-      models: ["model-b", "model-c"],
-      defaultModel: "model-c",
-    })) as RuntimeReceipt;
+    const updated = (await bridge.invoke(
+      "daemon.runtimeInstance.update",
+      scopedRpcParams("daemon.runtimeInstance.update", {
+        instanceId: "codex-gui",
+        name: "Codex GUI edited",
+        installationId: replacementInstallation.installationId,
+        models: ["model-b", "model-c"],
+        defaultModel: "model-c",
+      }),
+    )) as RuntimeReceipt;
     assert.deepEqual(
       updated.instance && {
         name: updated.instance.name,
@@ -118,7 +134,10 @@ test("GUI registry bridge lists, creates, updates, deletes, and probes a runtime
       },
       JSON.stringify(updated),
     );
-    const relisted = (await bridge.invoke("listRuntimeInstances", { all: true })) as RuntimeReceipt;
+    const relisted = (await bridge.invoke(
+      "daemon.runtimeInstance.list",
+      scopedRpcParams("daemon.runtimeInstance.list", { all: true }),
+    )) as RuntimeReceipt;
     assert.deepEqual(
       relisted.instances?.map((entry) => ({
         name: entry.name,
@@ -136,25 +155,31 @@ test("GUI registry bridge lists, creates, updates, deletes, and probes a runtime
       ],
       JSON.stringify(relisted),
     );
-    const apiCreated = (await base.invoke("createRuntimeInstance", {
-      instanceId: "claude-api-gui",
-      name: "Claude API GUI",
-      kindId: "claude",
-      installationId: claudeInstallation.installationId,
-      providerId: "anthropic",
-      models: ["sonnet", "opus"],
-      defaultModel: "opus",
-      claude: { baseUrl: "https://example.test/" },
-      authMode: "api-key",
-      credentialRef: "credential:v1:fake-gui-model-save",
-    })) as RuntimeReceipt;
+    const apiCreated = (await base.invoke(
+      "daemon.runtimeInstance.create",
+      scopedRpcParams("daemon.runtimeInstance.create", {
+        instanceId: "claude-api-gui",
+        name: "Claude API GUI",
+        kindId: "claude",
+        installationId: claudeInstallation.installationId,
+        providerId: "anthropic",
+        models: ["sonnet", "opus"],
+        defaultModel: "opus",
+        claude: { baseUrl: "https://example.test/" },
+        authMode: "api-key",
+        credentialRef: "credential:v1:fake-gui-model-save",
+      }),
+    )) as RuntimeReceipt;
     assert.equal(apiCreated.ok, true, JSON.stringify(apiCreated));
     const apiBefore = apiCreated.instance as RuntimeInstanceSummary,
       payload = buildRuntimeInstanceUpdatePayload(apiBefore.instanceId, {
         ...runtimeInstanceEditForm(apiBefore),
         models: ["fable", "sonnet", "opus"],
       }),
-      apiUpdated = (await bridge.invoke("updateRuntimeInstance", payload)) as RuntimeReceipt;
+      apiUpdated = (await bridge.invoke(
+        "daemon.runtimeInstance.update",
+        scopedRpcParams("daemon.runtimeInstance.update", payload),
+      )) as RuntimeReceipt;
     assert.equal(apiUpdated.ok, true, JSON.stringify(apiUpdated));
     assert.deepEqual(apiUpdated.instance?.models, ["fable", "sonnet", "opus"]);
     assert.equal(apiUpdated.instance?.defaultModel, "opus");
@@ -163,93 +188,138 @@ test("GUI registry bridge lists, creates, updates, deletes, and probes a runtime
     assert.equal(apiAfter.providerId, apiBefore.providerId);
     assert.deepEqual(apiAfter.configuration, apiBefore.configuration);
     console.info(`GUI_API_MODEL_SAVE ${JSON.stringify({ payload, ok: apiUpdated.ok, models: apiAfter.models })}`);
-    await bridge.invoke("deleteRuntimeInstance", { instanceId: apiBefore.instanceId });
+    await bridge.invoke(
+      "daemon.runtimeInstance.delete",
+      scopedRpcParams("daemon.runtimeInstance.delete", { instanceId: apiBefore.instanceId }),
+    );
     // Claude effort end to end: the create payload stores it, the update write path
     // replaces it and an explicit empty value clears it, and both read back through
     // the same bridge the GUI renderer uses.
-    const claudeCreated = (await bridge.invoke("createRuntimeInstance", {
-      instanceId: "claude-gui",
-      name: "Claude GUI",
-      kindId: "claude",
-      installationId: claudeInstallation.installationId,
-      providerId: "anthropic",
-      models: ["claude-fable-5"],
-      defaultModel: "claude-fable-5",
-      claude: { effort: "high" },
-      authMode: "subscription",
-    })) as RuntimeReceipt;
+    const claudeCreated = (await bridge.invoke(
+      "daemon.runtimeInstance.create",
+      scopedRpcParams("daemon.runtimeInstance.create", {
+        instanceId: "claude-gui",
+        name: "Claude GUI",
+        kindId: "claude",
+        installationId: claudeInstallation.installationId,
+        providerId: "anthropic",
+        models: ["claude-fable-5"],
+        defaultModel: "claude-fable-5",
+        claude: { effort: "high" },
+        authMode: "subscription",
+      }),
+    )) as RuntimeReceipt;
     assert.equal(claudeCreated.instance?.configuration?.effort, "high", JSON.stringify(claudeCreated));
-    const claudeShown = (await bridge.invoke("showRuntimeInstance", { instanceId: "claude-gui" })) as RuntimeReceipt;
+    const claudeShown = (await bridge.invoke(
+      "daemon.runtimeInstance.show",
+      scopedRpcParams("daemon.runtimeInstance.show", { instanceId: "claude-gui" }),
+    )) as RuntimeReceipt;
     assert.equal(claudeShown.instance?.configuration?.effort, "high", JSON.stringify(claudeShown));
-    const claudeUpdated = (await bridge.invoke("updateRuntimeInstance", {
-      instanceId: "claude-gui",
-      effort: "max",
-    })) as RuntimeReceipt;
+    const claudeUpdated = (await bridge.invoke(
+      "daemon.runtimeInstance.update",
+      scopedRpcParams("daemon.runtimeInstance.update", {
+        instanceId: "claude-gui",
+        effort: "max",
+      }),
+    )) as RuntimeReceipt;
     assert.equal(claudeUpdated.instance?.configuration?.effort, "max", JSON.stringify(claudeUpdated));
-    const claudeCleared = (await bridge.invoke("updateRuntimeInstance", {
-      instanceId: "claude-gui",
-      effort: "",
-    })) as RuntimeReceipt;
+    const claudeCleared = (await bridge.invoke(
+      "daemon.runtimeInstance.update",
+      scopedRpcParams("daemon.runtimeInstance.update", {
+        instanceId: "claude-gui",
+        effort: "",
+      }),
+    )) as RuntimeReceipt;
     assert.equal(claudeCleared.instance?.configuration?.effort ?? null, null, JSON.stringify(claudeCleared));
-    const claudeDeleted = (await bridge.invoke("deleteRuntimeInstance", {
-      instanceId: "claude-gui",
-    })) as RuntimeReceipt;
+    const claudeDeleted = (await bridge.invoke(
+      "daemon.runtimeInstance.delete",
+      scopedRpcParams("daemon.runtimeInstance.delete", {
+        instanceId: "claude-gui",
+      }),
+    )) as RuntimeReceipt;
     assert.equal(claudeDeleted.deletedInstanceId, "claude-gui", JSON.stringify(claudeDeleted));
     // Codex and agy effort ride the same declaration-driven update write path under their
     // own configuration keys, and an explicit empty value clears each back to its default.
-    const codexEffortUpdated = (await bridge.invoke("updateRuntimeInstance", {
-      instanceId: "codex-gui",
-      effort: "xhigh",
-    })) as RuntimeReceipt;
+    const codexEffortUpdated = (await bridge.invoke(
+      "daemon.runtimeInstance.update",
+      scopedRpcParams("daemon.runtimeInstance.update", {
+        instanceId: "codex-gui",
+        effort: "xhigh",
+      }),
+    )) as RuntimeReceipt;
     assert.equal(
       codexEffortUpdated.instance?.configuration?.reasoningEffort,
       "xhigh",
       JSON.stringify(codexEffortUpdated),
     );
-    const codexEffortCleared = (await bridge.invoke("updateRuntimeInstance", {
-      instanceId: "codex-gui",
-      effort: "",
-    })) as RuntimeReceipt;
+    const codexEffortCleared = (await bridge.invoke(
+      "daemon.runtimeInstance.update",
+      scopedRpcParams("daemon.runtimeInstance.update", {
+        instanceId: "codex-gui",
+        effort: "",
+      }),
+    )) as RuntimeReceipt;
     assert.equal(
       codexEffortCleared.instance?.configuration?.reasoningEffort ?? null,
       null,
       JSON.stringify(codexEffortCleared),
     );
-    const agyCreated = (await bridge.invoke("createRuntimeInstance", {
-      instanceId: "agy-gui",
-      name: "AGY GUI",
-      kindId: "agy",
-      installationId: agyInstallation.installationId,
-      providerId: "google",
-      models: ["gemini-3.1-pro-low"],
-      defaultModel: "gemini-3.1-pro-low",
-      agy: { effort: "high" },
-      authMode: "subscription",
-    })) as RuntimeReceipt;
+    const agyCreated = (await bridge.invoke(
+      "daemon.runtimeInstance.create",
+      scopedRpcParams("daemon.runtimeInstance.create", {
+        instanceId: "agy-gui",
+        name: "AGY GUI",
+        kindId: "agy",
+        installationId: agyInstallation.installationId,
+        providerId: "google",
+        models: ["gemini-3.1-pro-low"],
+        defaultModel: "gemini-3.1-pro-low",
+        agy: { effort: "high" },
+        authMode: "subscription",
+      }),
+    )) as RuntimeReceipt;
     assert.equal(agyCreated.instance?.configuration?.effort, "high", JSON.stringify(agyCreated));
-    const agyEffortUpdated = (await bridge.invoke("updateRuntimeInstance", {
-      instanceId: "agy-gui",
-      effort: "low",
-    })) as RuntimeReceipt;
+    const agyEffortUpdated = (await bridge.invoke(
+      "daemon.runtimeInstance.update",
+      scopedRpcParams("daemon.runtimeInstance.update", {
+        instanceId: "agy-gui",
+        effort: "low",
+      }),
+    )) as RuntimeReceipt;
     assert.equal(agyEffortUpdated.instance?.configuration?.effort, "low", JSON.stringify(agyEffortUpdated));
-    const agyEffortCleared = (await bridge.invoke("updateRuntimeInstance", {
-      instanceId: "agy-gui",
-      effort: "",
-    })) as RuntimeReceipt;
+    const agyEffortCleared = (await bridge.invoke(
+      "daemon.runtimeInstance.update",
+      scopedRpcParams("daemon.runtimeInstance.update", {
+        instanceId: "agy-gui",
+        effort: "",
+      }),
+    )) as RuntimeReceipt;
     assert.equal(agyEffortCleared.instance?.configuration?.effort ?? null, null, JSON.stringify(agyEffortCleared));
-    const agyDeleted = (await bridge.invoke("deleteRuntimeInstance", {
-      instanceId: "agy-gui",
-    })) as RuntimeReceipt;
+    const agyDeleted = (await bridge.invoke(
+      "daemon.runtimeInstance.delete",
+      scopedRpcParams("daemon.runtimeInstance.delete", {
+        instanceId: "agy-gui",
+      }),
+    )) as RuntimeReceipt;
     assert.equal(agyDeleted.deletedInstanceId, "agy-gui", JSON.stringify(agyDeleted));
-    const probed = (await bridge.invoke("showRuntimeInstance", {
-      instanceId: "codex-gui",
-      probe: true,
-    })) as RuntimeReceipt;
+    const probed = (await bridge.invoke(
+      "daemon.runtimeInstance.show",
+      scopedRpcParams("daemon.runtimeInstance.show", {
+        instanceId: "codex-gui",
+        probe: true,
+      }),
+    )) as RuntimeReceipt;
     assert.equal(probed.instance?.authReadiness?.status, "ready", JSON.stringify(probed));
     assert.equal(probed.instance?.authReadiness?.basis, "provider", JSON.stringify(probed));
-    const deleted = (await bridge.invoke("deleteRuntimeInstance", { instanceId: "codex-gui" })) as RuntimeReceipt;
+    const deleted = (await bridge.invoke(
+      "daemon.runtimeInstance.delete",
+      scopedRpcParams("daemon.runtimeInstance.delete", { instanceId: "codex-gui" }),
+    )) as RuntimeReceipt;
     assert.equal(deleted.deletedInstanceId, "codex-gui", JSON.stringify(deleted));
-    const after = (await bridge.invoke("listRuntimeInstances", { all: true })) as RuntimeReceipt;
+    const after = (await bridge.invoke(
+      "daemon.runtimeInstance.list",
+      scopedRpcParams("daemon.runtimeInstance.list", { all: true }),
+    )) as RuntimeReceipt;
     assert.deepEqual(after.instances, []);
     console.info(
       `GUI_RUNTIME_INSTANCE_BEHAVIOR ${JSON.stringify({ listed: true, created: created.instance?.instanceId, shown: shown.instance?.instanceId, updatedName: updated.instance?.name, updatedInstallation: updated.instance?.installationId, updatedModels: updated.instance?.models, updatedDefaultModel: updated.instance?.defaultModel, relisted: relisted.instances?.[0]?.name, claudeEffortCreated: claudeCreated.instance?.configuration?.effort, claudeEffortUpdated: claudeUpdated.instance?.configuration?.effort, claudeEffortCleared: claudeCleared.instance?.configuration?.effort ?? null, codexEffortUpdated: codexEffortUpdated.instance?.configuration?.reasoningEffort, codexEffortCleared: codexEffortCleared.instance?.configuration?.reasoningEffort ?? null, agyEffortCreated: agyCreated.instance?.configuration?.effort, agyEffortUpdated: agyEffortUpdated.instance?.configuration?.effort, agyEffortCleared: agyEffortCleared.instance?.configuration?.effort ?? null, probed: probed.instance?.authReadiness?.status, deleted: deleted.deletedInstanceId })}`,

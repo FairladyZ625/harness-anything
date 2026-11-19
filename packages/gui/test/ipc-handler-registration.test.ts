@@ -1,235 +1,92 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import test from "node:test";
-import { daemonGuiInvokeFacets, daemonGuiStreamFacets } from "@harness-anything/daemon/client";
 import {
-  apiRouteContracts,
-  assertUniqueHarnessIpcChannels,
-  preloadAllowlist,
+  RPC_CHANNEL,
+  STREAM_OPEN_CHANNEL,
+  STREAM_CLOSE_CHANNEL,
   registerHarnessIpcHandlers,
-  assertPreloadPayload,
   withIpcDomainErrors,
   type GuiServiceBridge,
 } from "../src/index.ts";
 
-const trustedEvent = {
-  sender: { id: 1 },
-  senderFrame: { url: "file:///app/renderer/index.html" },
-};
-const trustedRendererUrl = trustedEvent.senderFrame.url;
+const sender = Object.assign(new EventEmitter(), { id: 1, send: () => undefined });
+const trustedEvent = { sender, senderFrame: { url: "file:///app/renderer/index.html" } };
 
-test("preload and IPC channels derive from the API registry", () => {
-  const registryMethods = [...daemonGuiInvokeFacets, ...daemonGuiStreamFacets].map(
-      ({ guiBridgeMethod }) => guiBridgeMethod,
-    ),
-    invokeMethods = daemonGuiInvokeFacets.map(({ guiBridgeMethod }) => guiBridgeMethod),
-    channels: string[] = [];
-  registerHarnessIpcHandlers(
-    {
-      handle: (channel) => {
-        channels.push(channel);
-      },
-      on: (channel) => {
-        channels.push(channel);
-      },
-    },
-    { invoke: async () => ({ ok: true }), stream: async () => () => undefined },
-    {
-      isTrustedWebContentsId: () => true,
-      rendererUrl: { packagedRendererUrl: trustedRendererUrl },
-    },
-  );
-  assert.deepEqual(preloadAllowlist, registryMethods);
-  const invokeChannels = invokeMethods.map((method) => `harness:${method}`),
-    streamChannels = daemonGuiStreamFacets.flatMap(({ guiBridgeMethod }) => [
-      `harness:${guiBridgeMethod}`,
-      `harness:${guiBridgeMethod}:detach`,
-    ]);
-  assert.deepEqual(channels, [...invokeChannels, ...streamChannels]);
-});
-
-// harness-contract: gui.ipc-preload-alignment
-test("main process registers one IPC handler for each preload allowlist method", async () => {
-  const bridge: GuiServiceBridge = {
-    invoke: async (method, payload) => ({ ok: true, method, payload }),
-    stream: async () => () => undefined,
-  };
-  const handlers = new Map<string, (event: typeof trustedEvent, payload: unknown) => Promise<unknown>>();
+function register(bridge: GuiServiceBridge) {
+  const handlers = new Map<string, (event: typeof trustedEvent, value: unknown) => Promise<unknown>>();
   registerHarnessIpcHandlers(
     {
       handle: (channel, listener) => {
-        handlers.set(channel, listener as (event: typeof trustedEvent, payload: unknown) => Promise<unknown>);
+        assert.equal(handlers.has(channel), false, channel);
+        handlers.set(channel, listener as unknown as (event: typeof trustedEvent, value: unknown) => Promise<unknown>);
       },
       on: () => undefined,
     },
     bridge,
     {
       isTrustedWebContentsId: (id) => id === 1,
-      rendererUrl: { packagedRendererUrl: trustedRendererUrl },
+      rendererUrl: { packagedRendererUrl: trustedEvent.senderFrame.url },
     },
   );
-  const streamMethods = new Set(
-      apiRouteContracts.filter(({ method }) => method === "STREAM").map(({ guiBridgeMethod }) => guiBridgeMethod),
-    ),
-    invokeMethods = preloadAllowlist.filter((method) => !streamMethods.has(method));
-  assert.deepEqual(
-    [...handlers.keys()],
-    invokeMethods.map((method) => `harness:${method}`),
-  );
-  const routeByMethod = new Map(daemonGuiInvokeFacets.map((route) => [route.guiBridgeMethod, route]));
-  const runtimePayload = (method: string): object =>
-    method === "listRuntimeInstances"
-      ? { all: true }
-      : method === "createRuntimeInstance"
-        ? {
-            instanceId: "codex-review",
-            name: "Codex Review",
-            kindId: "codex",
-            installationId: "installation-codex",
-            providerId: "openai",
-            models: ["gpt-5.6-sol"],
-            codex: {},
-            authMode: "api-key",
-            apiKey: "sk-typed-in-form",
-          }
-        : ["signInRuntimeInstance", "signOutRuntimeInstance"].includes(method)
-          ? {
-              repoId: "repo-a",
-              instanceId: "codex-review",
-              idempotencyKey: "once",
-            }
-          : method === "updateRuntimeInstance"
-            ? { instanceId: "codex-review", enabled: true }
-            : { instanceId: "codex-review" };
-  const runtimeMethods = new Set([
-    "listRuntimeInstances",
-    "showRuntimeInstance",
-    "createRuntimeInstance",
-    "updateRuntimeInstance",
-    "deleteRuntimeInstance",
-    "signInRuntimeInstance",
-    "signOutRuntimeInstance",
-  ]);
-  for (const method of invokeMethods) {
-    const payload = runtimeMethods.has(method)
-      ? runtimePayload(method)
-      : method === "getTaskDispatches"
-        ? { repoId: "repo-a", taskIds: ["task-a"] }
-        : ["pinTask", "unpinTask", "materializeTask"].includes(method)
-          ? { repoId: "repo-a", taskId: "task-a" }
-          : method === "unpinEntity"
-            ? { repoId: "repo-a", entityRef: "decision/dec-1" }
-            : ["enableSchedule", "disableSchedule", "runScheduleNow"].includes(method)
-              ? { repoId: "repo-a", scheduleId: "heartbeat-probe", idempotencyKey: "once" }
-              : ["createSchedule", "updateSchedule"].includes(method)
-                ? {
-                    repoId: "repo-a",
-                    scheduleId: "heartbeat-probe",
-                    mode: "detect",
-                    name: "Heartbeat probe",
-                    everyMs: 300_000,
-                    agentId: "probe-agent",
-                    mission: "Run the probe.",
-                    idempotencyKey: "once",
-                  }
-                : method === "deleteSchedule"
-                  ? { repoId: "repo-a", scheduleId: "heartbeat-probe", idempotencyKey: "once" }
-                  : method === "readUseCaseProjection"
-                    ? { repoId: "repo-a", name: "schedule-plane" }
-                    : method === "createDecisionProvider"
-                      ? {
-                          type: "decisions",
-                          providerId: "review-choice",
-                          name: "Review choice",
-                          model: "noul/model",
-                          baseUrl: "",
-                          enabled: true,
-                        }
-                      : method === "updateDecisionProvider"
-                        ? { providerId: "review-choice", enabled: false }
-                        : routeByMethod.get(method)?.requiresRepo
-                          ? { repoId: "repo-a" }
-                          : null;
-    assert.deepEqual(await handlers.get(`harness:${method}`)?.(trustedEvent, payload), { ok: true, method, payload });
-  }
+  return handlers;
+}
+
+// dec_89D06D7360CBEC09795F7B12EC/CH3: one RPC envelope across transports; IPC independently checks the sender.
+// harness-contract: gui.ipc-preload-alignment
+test("main admits the canonical envelope on one unary channel", async () => {
+  const handlers = register({
+    invoke: async (method, params) => ({ method, params }),
+    stream: async () => () => undefined,
+  });
+  assert.deepEqual([...handlers.keys()], [RPC_CHANNEL, STREAM_OPEN_CHANNEL, STREAM_CLOSE_CHANNEL]);
+  const call = handlers.get(RPC_CHANNEL)!;
+  const read = { method: "repo.tasks.list", params: { repo: { repoId: "repo-a" }, payload: { limit: 10 } } };
+  assert.deepEqual(await call(trustedEvent, read), read);
+  await assert.rejects(() => call(trustedEvent, { ...read, method: "daemon.stop" }), /not allowed/u);
+  await assert.rejects(() => call(trustedEvent, { ...read, params: { repoId: "repo-a" } }), /invalid/u);
   await assert.rejects(
-    () => handlers.get("harness:getTasks")?.(trustedEvent, "raw-string"),
-    /payload must be an object/iu,
-  );
-  assert.throws(
-    () =>
-      assertPreloadPayload("spawnAgentRuntime", {
-        nested: { apiToken: "forbidden" },
-      }),
-    /secret-like key/iu,
-  );
-  assert.throws(
-    () =>
-      assertPreloadPayload("createRuntimeInstance", {
-        instanceId: "codex-review",
-        name: "Codex Review",
-        kindId: "codex",
-        installationId: "installation-codex",
-        providerId: "openai",
-        models: ["gpt"],
-        authMode: "subscription",
-        apiKey: "subscription-cannot-carry-a-key",
-      }),
-    /invalid/iu,
-  );
-  assert.throws(
-    () =>
-      assertPreloadPayload("showRuntimeInstance", {
-        instanceId: "codex-review",
-        apiKey: "only-create-accepts-it",
-      }),
-    /secret-like key/iu,
-  );
-  assert.throws(
-    () =>
-      assertPreloadPayload("createRuntimeInstance", {
-        instanceId: "codex-review",
-        name: "Codex Review",
-        kindId: "codex",
-        installationId: "installation-codex",
-        providerId: "openai",
-        models: ["gpt"],
-        authMode: "api-key",
-        credentialRef: "keychain:forbidden/ref",
-      }),
-    /secret-like key/iu,
-  );
-  assert.throws(
-    () =>
-      assertPreloadPayload("createRuntimeInstance", {
-        instanceId: "claude-review",
-        name: "Claude Review",
-        kindId: "claude",
-        installationId: "installation-claude",
-        providerId: "anthropic",
-        models: ["claude"],
-        claude: {},
-        codex: { reasoningEffort: "high" },
-        authMode: "subscription",
-      }),
-    /invalid/iu,
+    () => call(trustedEvent, { ...read, params: { repo: { repoId: "repo-a" }, payload: { limit: 0 } } }),
+    /invalid/u,
   );
   await assert.rejects(
-    () => handlers.get("harness:getTasks")?.({ sender: { id: 1 }, senderFrame: { url: "https://example.com" } }, null),
-    /untrusted_renderer_url/iu,
+    () => call({ ...trustedEvent, senderFrame: { url: "https://example.test" } }, read),
+    /untrusted_renderer_url/u,
   );
-  await assert.rejects(
-    () => handlers.get("harness:getTasks")?.({ sender: { id: 2 }, senderFrame: trustedEvent.senderFrame }, null),
-    /untrusted_web_contents/iu,
-  );
-  assert.equal(handlers.has("harness:capabilities"), false);
+  await assert.rejects(() => call({ ...trustedEvent, sender: { ...sender, id: 2 } }, read), /untrusted_web_contents/u);
 });
 
-test("main process rejects duplicate IPC channels", () => {
-  assert.throws(
-    () => assertUniqueHarnessIpcChannels(["getTasks", "getTasks"]),
-    /Duplicate Harness IPC handler channel/u,
-  );
+test("generic stream IPC isolates subscriptions by sender and aborts opening and active readers", async () => {
+  const seen: AbortSignal[] = [];
+  const handlers = register({
+    invoke: async () => undefined,
+    stream: async (_method, _params, _value, signal) => {
+      seen.push(signal);
+      await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+      return () => undefined;
+    },
+  });
+  const open = handlers.get(STREAM_OPEN_CHANNEL)!;
+  const close = handlers.get(STREAM_CLOSE_CHANNEL)!;
+  const request = {
+    method: "repo.agentRuntime.attach",
+    subscriptionId: "renderer-1",
+    params: { repo: { repoId: "repo-a" }, payload: { runtimeSessionId: "runtime-a" } },
+  };
+  const first = open(trustedEvent, request);
+  await assert.rejects(() => open(trustedEvent, request), /already exists/u);
+  await assert.rejects(() => open(trustedEvent, { ...request, method: "repo.task.run" }), /unknown/iu);
+  await assert.rejects(() => close({ ...trustedEvent, sender: { ...sender, id: 2 } }, request), /untrusted/u);
+  assert.equal(seen[0]?.aborted, false);
+  await close(trustedEvent, request);
+  await first;
+  assert.equal(seen[0]?.aborted, true);
+  const second = open(trustedEvent, request);
+  sender.emit("destroyed");
+  await second;
+  assert.equal(seen[1]?.aborted, true);
+  assert.equal(sender.listenerCount("destroyed"), 0);
 });
 
 test("withIpcDomainErrors records desensitized IPC sequence when HARNESS_GUI_IPC_TRACE is enabled", async () => {
@@ -245,21 +102,19 @@ test("withIpcDomainErrors records desensitized IPC sequence when HARNESS_GUI_IPC
       },
       on: () => undefined,
     });
-    registrar.handle("harness:createRuntimeInstance", async () => ({ ok: true }));
-    registrar.handle("harness:readUseCaseProjection", async () => {
-      throw Object.assign(new Error("projection failed"), { code: "projection_unavailable" });
+    registrar.handle("harness:rpc", async (_, envelope) => {
+      if ((envelope as { method: string }).method === "repo.projection.read")
+        throw Object.assign(new Error("projection failed"), { code: "projection_unavailable" });
+      return { ok: true };
     });
 
-    await handlers.get("harness:createRuntimeInstance")?.(trustedEvent, {
-      repoId: "repo-a",
-      name: "Secret Instance",
-      apiKey: "sk-live-secret-12345",
-      token: "tok-live-99999",
+    await handlers.get("harness:rpc")?.(trustedEvent, {
+      method: "daemon.runtimeInstance.create",
+      params: { payload: { name: "Private Instance", apiKey: "fixture-api-key", token: "fixture-token" } },
     });
-    const failedReply = await handlers.get("harness:readUseCaseProjection")?.(trustedEvent, {
-      repoId: "repo-a",
-      facet: "overview",
-      body: "large-private-body",
+    const failedReply = await handlers.get("harness:rpc")?.(trustedEvent, {
+      method: "repo.projection.read",
+      params: { repo: { repoId: "repo-a" }, payload: { facet: "overview", body: "large-private-body" } },
     });
     assert.deepEqual(failedReply, {
       ipcFailure: { code: "projection_unavailable", message: "projection failed" },
@@ -270,17 +125,24 @@ test("withIpcDomainErrors records desensitized IPC sequence when HARNESS_GUI_IPC
     const entries = tracer.snapshot(true) as Array<Record<string, unknown>>;
     assert.equal(entries.length, 2);
     const serialized = JSON.stringify(entries);
-    assert.equal(serialized.includes("sk-live-secret-12345"), false);
-    assert.equal(serialized.includes("tok-live-99999"), false);
+    assert.equal(serialized.includes("fixture-api-key"), false);
+    assert.equal(serialized.includes("fixture-token"), false);
     assert.equal(serialized.includes("large-private-body"), false);
-    assert.equal(entries[0].channel, "harness:createRuntimeInstance");
+    assert.equal(entries[0].channel, "harness:rpc");
+    assert.equal(entries[0].method, "daemon.runtimeInstance.create");
     assert.equal(entries[0].result, "ok");
     assert.deepEqual(entries[0].payloadSummary, {
-      keys: ["apiKey", "name", "repoId", "token"],
-      fields: { name: "Secret Instance", repoId: "repo-a" },
+      keys: ["apiKey", "name", "token"],
+      fields: { name: "Private Instance" },
       redactedKeys: ["apiKey", "token"],
     });
-    assert.equal(entries[1].channel, "harness:readUseCaseProjection");
+    assert.equal(entries[1].channel, "harness:rpc");
+    assert.equal(entries[1].method, "repo.projection.read");
+    assert.deepEqual(entries[1].payloadSummary, {
+      keys: ["body", "facet", "repoId"],
+      fields: { facet: "overview", repoId: "repo-a" },
+      redactedKeys: ["body"],
+    });
     assert.equal(entries[1].result, "ipc_failure");
     assert.equal(entries[1].errorCode, "projection_unavailable");
     assert.equal(tracer.snapshot().length, 0);

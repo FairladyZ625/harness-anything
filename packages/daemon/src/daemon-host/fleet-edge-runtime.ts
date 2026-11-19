@@ -1548,7 +1548,7 @@ function taskRuntimeContext(
   readonly worktree: TaskWorktreeBindingV1 | null;
   readonly continuationContext: import("./runtime-continuation-context.ts").RuntimeContinuationSeed | null;
   readonly snapshot: import("./repo-cell-types.ts").Snapshot & {
-    readonly workspace: import("./protocol/daemon-protocol-gui-types.ts").TaskWorkspaceView | null;
+    readonly workspace: import("./protocol/daemon-protocol-results.ts").TaskWorkspaceView | null;
   };
 } {
   const worktree = read.worktree as { readonly branch?: unknown; readonly path?: unknown } | null | undefined;
@@ -1612,7 +1612,7 @@ function taskRuntimeContext(
                     })(),
             },
       snapshot: read.snapshot as import("./repo-cell-types.ts").Snapshot & {
-        readonly workspace: import("./protocol/daemon-protocol-gui-types.ts").TaskWorkspaceView | null;
+        readonly workspace: import("./protocol/daemon-protocol-results.ts").TaskWorkspaceView | null;
       },
     };
   throw edgeRuntimeError(

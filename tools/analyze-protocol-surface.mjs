@@ -267,7 +267,7 @@ function parseGuiActionCall(node, helperName, sourceFile) {
     kind: "action",
     actionKind,
     guiBridgeMethod,
-    httpMethod: "POST",
+    httpMethod: helperName === "actionRpc" ? null : "POST",
     httpPath,
     serviceMethod: guiBridgeMethod,
     commandClass,
@@ -288,7 +288,7 @@ function classifyFacetKind(varName, method, relPath) {
 function extractGuiFacets(rootDir, protocolFiles) {
   const facets = [];
   const seen = new Set();
-  const targetFiles = protocolFiles.filter((f) => f.includes("gui") || f.endsWith("observe-tail-read.ts"));
+  const targetFiles = protocolFiles.filter((f) => /gui|(?:action|read)-routes\.ts$|observe-tail-read\.ts$/u.test(f));
 
   for (const relPath of targetFiles) {
     const sf = readSource(rootDir, relPath);
@@ -297,7 +297,7 @@ function extractGuiFacets(rootDir, protocolFiles) {
     visit(sf, (node) => {
       if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
         const name = node.expression.text;
-        if (name === "guiAction" || name === "guiS3Action") {
+        if (["actionRpc", "guiAction", "guiS3Action"].includes(name)) {
           const parsed = parseGuiActionCall(node, name, relPath);
           if (parsed && !seen.has(`${relPath}:${parsed.method}:${parsed.id}`)) {
             seen.add(`${relPath}:${parsed.method}:${parsed.id}`);
@@ -310,7 +310,9 @@ function extractGuiFacets(rootDir, protocolFiles) {
       if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
         const varName = node.name.text;
         const allowedVars = new Set([
+          "daemonReadRoutes",
           "daemonGuiReadMethods",
+          "daemonActionRoutes",
           "daemonGuiActionMethods",
           "daemonStreamFacets",
           "runtimeInstanceMethods",
@@ -369,17 +371,19 @@ function extractGuiGlueLayers(rootDir) {
 
   const apiDerivedFromGuiFacets = Boolean(
     apiRegistrySf &&
-      apiRegistrySf.text.includes("daemonGuiReadMethods") &&
-      apiRegistrySf.text.includes("daemonGuiActionMethods"),
+      /daemon(?:GuiReadMethods|ReadRoutes)/u.test(apiRegistrySf.text) &&
+      /daemon(?:GuiActionMethods|ActionRoutes)/u.test(apiRegistrySf.text),
   );
-  const serviceBridgeDerived = Boolean(serviceBridgeSf && serviceBridgeSf.text.includes("daemonGuiInvokeFacets"));
+  const serviceBridgeDerived = Boolean(
+    serviceBridgeSf && /interactiveRpcMethods|daemonGuiInvokeFacets/u.test(serviceBridgeSf.text),
+  );
   const preloadAllowlistDerived = Boolean(
     allowlistSf &&
-      allowlistSf.text.includes("daemonGuiInvokeFacets") &&
+      /interactiveRpcMethods|daemonGuiInvokeFacets/u.test(allowlistSf.text) &&
       allowlistSf.text.includes("daemonGuiStreamFacets"),
   );
   const electronPreloadExposesStreams = Boolean(
-    electronPreloadSf && electronPreloadSf.text.includes("daemonGuiStreamFacets"),
+    electronPreloadSf && /daemonGuiStreamFacets|STREAM_OPEN_CHANNEL/u.test(electronPreloadSf.text),
   );
   const runtimePreloadStreamBindings = [];
   if (runtimePreloadSf) {
@@ -422,8 +426,8 @@ function extractGuiGlueLayers(rootDir) {
   if (browserBrokerSf) {
     const text = browserBrokerSf.text;
     brokerRpcOnly = text.includes('"/rpc"');
-    brokerAllowsRead = text.includes("isDaemonGuiReadMethod");
-    brokerAllowsAction = text.includes("isDaemonGuiActionMethod");
+    brokerAllowsRead = /isDaemon(?:GuiReadMethod|ReadRoute)/u.test(text);
+    brokerAllowsAction = /isDaemon(?:GuiActionMethod|ActionRoute)/u.test(text);
     brokerHasStreamHandler =
       text.includes("isDaemonStream") ||
       text.includes("text/event-stream") ||
@@ -449,7 +453,9 @@ function extractGuiGlueLayers(rootDir) {
         browserTransportSf &&
           (browserTransportSf.text.includes("EventSource") ||
             browserTransportSf.text.includes("WebSocket") ||
-            browserTransportSf.text.includes("stream(")),
+            browserTransportSf.text.includes("stream(") ||
+            (browserTransportSf.text.includes('fetch("/stream"') &&
+              browserTransportSf.text.includes("consumeDaemonStream"))),
       ),
     },
     browserBroker: {
@@ -486,7 +492,10 @@ function buildDuplicateGlueEntries(kernelActions, cliCommands, guiFacets, layers
     if (layers.serviceBridgeDerived && facet.guiBridgeMethod) shadowLayers.push("gui.serviceBridge");
     if (layers.preloadAllowlistDerived && facet.guiBridgeMethod) shadowLayers.push("gui.preloadAllowlist");
 
-    if (kernelMatch || cliMatches.length > 0) {
+    if (
+      (kernelMatch || cliMatches.length > 0) &&
+      (facet.guiBridgeMethod || facet.httpPath || /gui/u.test(facet.sourceFile))
+    ) {
       duplicateCliGuiGlue.push({
         id: facet.id,
         guiMethod: facet.method,
@@ -524,7 +533,7 @@ function buildStreamingGaps(guiFacets, layers) {
   const gaps = [];
 
   for (const stream of daemonStreams) {
-    if (!stream.guiBridgeMethod) {
+    if (!stream.guiBridgeMethod && !layers.electronPreloadExposesStreams) {
       gaps.push({
         id: `stream-facet-missing-gui-bridge:${stream.method}`,
         archRefs: ["ARCH-006", "ARCH-016"],
@@ -552,11 +561,11 @@ function buildStreamingGaps(guiFacets, layers) {
       severity: "high",
       file: layers.browserBroker.file,
       detail:
-        "CLI browser broker only serves POST /rpc for isDaemonGuiReadMethod/isDaemonGuiActionMethod and has no WebSocket or SSE streaming upgrade/endpoint.",
+        "CLI browser broker only serves POST /rpc for isDaemonReadRoute/isDaemonActionRoute and has no WebSocket or SSE streaming upgrade/endpoint.",
     });
   }
 
-  for (const stream of daemonStreams.filter((s) => Boolean(s.guiBridgeMethod))) {
+  for (const stream of daemonStreams.filter((s) => s.guiBridgeMethod || layers.electronPreloadExposesStreams)) {
     if (layers.browserTransport.exists && !layers.browserTransport.hasStreamingClient) {
       gaps.push({
         id: `browser-parity-missing-stream:${stream.method}`,

@@ -8,7 +8,7 @@ import { readObserveTail } from "../src/daemon-host/observe-tail.ts";
 import {
   validateObserveTailPayload,
   validateObserveTailResult,
-} from "../src/daemon-host/protocol/daemon-protocol-gui-types.ts";
+} from "../src/daemon-host/protocol/daemon-protocol-results.ts";
 
 const fixture = new URL("../fixtures/runtime/dispatch-replay-ended.jsonl", import.meta.url);
 const dispatchId = "dispatch_96e06fd9ca6917fc922e6d58";

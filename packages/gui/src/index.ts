@@ -1,5 +1,3 @@
-export * from "./api/api-contract-registry.ts";
-export * from "./api/service-bridge.ts";
 export {
   harnessRuntimeReleaseReadiness,
   validateRuntimeReleaseReadiness,

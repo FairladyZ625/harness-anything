@@ -375,7 +375,7 @@ for (const file of files) {
   }
 
   if (
-    rel === "packages/gui/src/api/service-bridge.ts" &&
+    rel === "packages/gui/src/main/local-composition-root.ts" &&
     /function\s+validateRelativeDocumentPath|path\.isAbsolute\s*\(\s*documentPath|path\.normalize\s*\(\s*documentPath/.test(
       text,
     )
@@ -385,7 +385,7 @@ for (const file of files) {
     );
   }
 
-  if (rel === "packages/gui/src/api/service-bridge.ts" && !text.includes("daemon")) {
+  if (rel === "packages/gui/src/main/local-composition-root.ts" && !text.includes("daemon")) {
     record(`${rel}: GUI service bridge must delegate document validation through the daemon`);
   }
 

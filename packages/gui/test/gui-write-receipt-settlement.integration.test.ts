@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createLocalGuiServiceBridge } from "../src/main/local-composition-root.ts";
+import { createLocalGuiServiceBridge, type GuiServiceBridge } from "../src/main/local-composition-root.ts";
 import { harnessClient } from "../src/renderer/api-client.ts";
 import { settleTaskReceipt } from "../src/renderer/task-actions.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
@@ -13,25 +13,15 @@ type Receipt = Record<string, unknown> & {
   readonly code?: string;
 };
 
-/**
- * renderer 的 `window.harness` 只是把每个 bridge 方法转给 main 进程的同名调用,
- * 这里用真 daemon 上的 GUI service bridge 顶上去,于是 `harnessClient` 的写路
- * 是真的 renderer → main → daemon,而不是 mock。每个经过的 bridge 方法都记下来。
- */
-function installRendererBridge(
-  bridge: { invoke: (method: string, payload: unknown) => Promise<unknown> },
-  invoked: string[],
-): () => void {
+/** Record the canonical envelope while using a real daemon for the receipt. */
+function installRendererBridge(bridge: GuiServiceBridge, invoked: string[]): () => void {
   const previous = (globalThis as { window?: unknown }).window;
-  const harness = new Proxy(
-    {},
-    {
-      get: (_target, method: string) => (payload: unknown) => {
-        invoked.push(method);
-        return bridge.invoke(method, payload);
-      },
+  const harness = {
+    request(method: string, params: Parameters<GuiServiceBridge["invoke"]>[1]) {
+      invoked.push(method);
+      return bridge.invoke(method, params);
     },
-  );
+  };
   Object.defineProperty(globalThis, "window", { value: { harness }, configurable: true, writable: true });
   return () => {
     Object.defineProperty(globalThis, "window", { value: previous, configurable: true, writable: true });
@@ -66,7 +56,7 @@ test("GUI task writes settle from their own durable receipt without a follow-up 
       assert.equal("wait" in written, false, JSON.stringify(written));
       assert.equal(settleTaskReceipt(written as never).state, "applied", JSON.stringify(written));
     }
-    assert.deepEqual(invoked, ["pinTask", "unpinTask"]);
+    assert.deepEqual(invoked, ["repo.task.pin", "repo.task.unpin"]);
 
     // A signed-in account loses this action immediately when current authority revokes it.
     fixture.keycloak.revoke("person-gui", fixture.repoId, ["task/pin"]);

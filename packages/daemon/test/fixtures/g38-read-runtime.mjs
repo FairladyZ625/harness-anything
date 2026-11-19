@@ -72,6 +72,7 @@ export async function createReadFixtureRuntime({ projection, store, rootDir }, n
     },
   };
   const runtimeStream = makeAgentRuntimeStreamHub({
+    repoId: input.repoId,
     readSession: (id) => projection.readRuntimeSession(id),
     canAttach: (session) => {
       // A known live fixture worker supplies the process grant; both metadata reads stay real.

@@ -136,7 +136,7 @@ test(
         runtimeSessionId = String(receipt.runtimeSessionId),
         dispatchId = String(receipt.dispatchId);
       await until(() => existsSync(ready));
-      const live = await cell.attach(runtimeSessionId, "stream:0");
+      const live = await cell.attach(runtimeSessionId);
       assert.equal(live.initial.ok, true);
       let returned = false;
       const wait = cell.awaitRuntimeOutcome(runtimeSessionId).then(() => {
@@ -160,7 +160,7 @@ test(
       while (frame !== null && frame.type !== "exit") frame = await live.next();
       assert.equal(frame?.type, "exit", "a denied publication must still end the physical stream");
       live.detach();
-      const stopped = await cell.attach(runtimeSessionId, "stream:0");
+      const stopped = await cell.attach(runtimeSessionId);
       stopped.detach();
       assert.equal(stopped.initial.ok, false);
       assert.equal(returned, false, "a denied local terminal stream must not settle the lifecycle waiter");

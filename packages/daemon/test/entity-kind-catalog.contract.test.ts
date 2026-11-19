@@ -14,8 +14,8 @@ import {
 import type { VerticalDeclarationReader } from "../src/daemon-host/vertical-declaration-action.ts";
 import { readDeclaredEntityRows, validateEntityRowList } from "../src/daemon-host/entity-rows-read.ts";
 import { readEntityLocator, validateEntityLocatorRead } from "../src/daemon-host/entity-locator-read.ts";
-import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { daemonReadRoutes, validateDaemonRpcCall } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
 
 const ADR_KIND = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
@@ -336,16 +336,15 @@ test("locator read serves repo files and directories and refuses to escape the r
 });
 
 test("vertical declaration and entity reads are registered on the closed GUI read surface", () => {
-  for (const [method, id, bridge] of [
-    ["repo.vertical.declaration.read", "vertical.declaration.read", "readVerticalDeclaration"],
-    ["repo.entity.kinds.read", "entity.kinds.read", "readEntityKinds"],
-    ["repo.entity.rows.read", "entity.rows.read", "readEntityRows"],
-    ["repo.entity.locator.read", "entity.locator.read", "readEntityLocator"],
+  for (const [method, id] of [
+    ["repo.vertical.declaration.read", "vertical.declaration.read"],
+    ["repo.entity.kinds.read", "entity.kinds.read"],
+    ["repo.entity.rows.read", "entity.rows.read"],
+    ["repo.entity.locator.read", "entity.locator.read"],
   ] as const) {
-    const entry = daemonGuiReadMethods.find((candidate) => candidate.method === method);
+    const entry = daemonReadRoutes.find((candidate) => candidate.method === method);
     assert.ok(entry, `${method} must be registered`);
     assert.equal(entry.id, id);
-    assert.equal(entry.guiBridgeMethod, bridge);
     assert.equal(entry.commandClass, "repo-read");
     assert.equal(entry.requiresRepo, true);
   }
@@ -364,5 +363,5 @@ test("gui result validation rejects a catalog whose declared row lost its declar
     ...catalog,
     kinds: catalog.kinds.map((row) => (row.origin === "vertical" ? { ...row, declaration: null } : row)),
   };
-  assert.throws(() => parseDaemonGuiReadResult("repo.entity.kinds.read", broken));
+  assert.throws(() => parseDaemonReadResult("repo.entity.kinds.read", broken));
 });

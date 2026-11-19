@@ -66,13 +66,15 @@ async function mountSettings(mode: SystemRepoRow["mode"]) {
         chooseRepository: vi.fn(async () => null),
         bootstrap: vi.fn(async () => ({ ok: true })),
       },
-      request: vi.fn(async (method: string, payload: unknown): Promise<unknown> => {
-        if (method === "updateSettings") {
-          updateCalls.push(payload);
-          throw new Error("fetch failed");
-        }
-        throw new Error(`Unexpected settings probe request: ${method}`);
-      }),
+      request: vi.fn(
+        async (method: string, { repo, payload }: { repo: { repoId: string }; payload: object }): Promise<unknown> => {
+          if (method === "repo.settings.update") {
+            updateCalls.push({ ...repo, ...payload });
+            throw new Error("fetch failed");
+          }
+          throw new Error(`Unexpected settings probe request: ${method}`);
+        },
+      ),
     },
   });
 
@@ -310,10 +312,11 @@ describe("settings distinguish machine preferences from repository governance", 
         request = vi.mocked(window.harness.request),
         updates: Record<string, unknown>[] = [];
       let saved = client.getQueryData<Record<string, unknown>>(settingsQueryKeys.read(REPO_ID))!;
-      request.mockImplementation(async (method, payload) => {
-        if (method === "getSettings") return saved;
-        if (method !== "updateSettings") throw new Error(`Unexpected request: ${method}`);
-        updates.push(payload as Record<string, unknown>);
+      request.mockImplementation(async (method, params) => {
+        if (method === "repo.settings.read") return saved;
+        if (method !== "repo.settings.update") throw new Error(`Unexpected request: ${method}`);
+        const { repo, payload } = params as { repo: { repoId: string }; payload: Record<string, unknown> };
+        updates.push({ ...repo, ...payload });
         saved = {
           ...saved,
           revision: mode === "local" ? 2 : 1,

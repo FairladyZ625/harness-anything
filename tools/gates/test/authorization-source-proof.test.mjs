@@ -356,6 +356,7 @@ test("storage technical ports require the actual typed declaration, not a matchi
   const { technicalPortEvidence } = await import("../authorization-source-proof.mjs");
   const action = {
     kind: "storage-io",
+    residency: { scope: "host-local" },
     ontology: { technical: true, authority: "local-process" },
     receiptSettlement: "none",
   };
@@ -409,6 +410,7 @@ test("a package-script technical port proves a root tools/ effect but never a pa
   const port = "node_modules/@types/node/fs.d.ts#fs.writeFileSync";
   const action = {
     kind: "package-assets-build",
+    residency: { scope: "host-local" },
     ontology: { technical: true, authority: "package-script" },
     receiptSettlement: "none",
   };
@@ -492,6 +494,7 @@ test("tools client entries bind business actions with transport + command proof 
   const installAction = { kind: "agent-install", executionClass: "repo-write", ontology: {} };
   const buildAction = {
     kind: "package-assets-build",
+    residency: { scope: "host-local" },
     ontology: { owner: "distribution", technical: true, authority: "package-script" },
     receiptSettlement: "none",
   };
@@ -652,6 +655,7 @@ test("fleet schema RPC writes and indirect/computed CLI wrappers bind business a
   const factRecordAction = { kind: "fact-record", executionClass: "repo-write", ontology: {} };
   const buildAction = {
     kind: "package-assets-build",
+    residency: { scope: "host-local" },
     ontology: { owner: "distribution", technical: true, authority: "package-script" },
     receiptSettlement: "none",
   };
@@ -750,6 +754,7 @@ test("command-table wrapper loops cannot stay in package-assets-build while spli
   ];
   const buildAction = {
     kind: "package-assets-build",
+    residency: { scope: "host-local" },
     ontology: { owner: "distribution", technical: true, authority: "package-script" },
     receiptSettlement: "none",
   };
@@ -882,6 +887,7 @@ test("GUI renderer/preload client calls bind their business action and fail clos
   const accessAction = { kind: "access-manage", executionClass: "admin", ontology: {} };
   const localStateAction = {
     kind: "daemon-local-state",
+    residency: { scope: "host-local" },
     ontology: { owner: "daemon", technical: true, authority: "local-process" },
     receiptSettlement: "none",
   };
@@ -1097,6 +1103,7 @@ test("GUI higher-order callback parameters resolve multiplexed business routes a
   ];
   const localStateAction = {
     kind: "daemon-local-state",
+    residency: { scope: "host-local" },
     ontology: { owner: "daemon", technical: true, authority: "local-process" },
     receiptSettlement: "none",
   };
@@ -1267,6 +1274,7 @@ test("GUI source-proof resolves omitted optional callbacks, concrete class metho
     "../authorization-source-proof.mjs"
   );
   const invokeFile = "packages/gui/src/renderer/api-client-invoke.ts";
+  const transportFile = "packages/gui/src/renderer/gui-transport.ts";
   const featureFile = "packages/gui/src/renderer/runtime-feature.tsx";
   const files = {
     "packages/gui/package.json": JSON.stringify({ name: "@harness-anything/gui", type: "module" }),
@@ -1275,9 +1283,15 @@ test("GUI source-proof resolves omitted optional callbacks, concrete class metho
       "  return { method, payload };",
       "}",
     ].join("\n"),
+    [transportFile]: [
+      "export function guiTransport() {",
+      "  return { subscribe: (_method: string, _params: object, _receive: () => void) => () => undefined };",
+      "}",
+    ].join("\n"),
     [featureFile]: [
       'import { useMemo, useRef } from "react";',
       'import { invoke } from "./api-client-invoke.ts";',
+      'import { guiTransport } from "./gui-transport.ts";',
       "class RowLog {",
       "  dropOldest() { return 0; }",
       "}",
@@ -1300,14 +1314,11 @@ test("GUI source-proof resolves omitted optional callbacks, concrete class metho
       "  };",
       "  return useMemo(() => ({ run }), []);",
       "}",
-      "function bridge() {",
-      "  return { attachTerminal: (_id: string) => () => undefined };",
-      "}",
       "export function FeatureView() {",
       "  const omitted = useOptionalRefresh();",
       "  const forwarded = useForwardedHistory();",
       "  const stops = useRef(new Map<string, () => void>());",
-      '  const stop = bridge().attachTerminal("s1");',
+      '  const stop = guiTransport().subscribe("repo.terminal.attach", { sessionId: "s1" }, () => undefined);',
       '  stops.current.set("s1", stop);',
       "  const run = (fn: () => void) => fn();",
       '  const closeOne = () => run(stops.current.get("s1") ?? (() => undefined));',
@@ -1317,7 +1328,7 @@ test("GUI source-proof resolves omitted optional callbacks, concrete class metho
   };
   const { rootDir } = makeRepo(files);
   symlinkSync(realpathSync(path.join(repoRoot, "node_modules")), path.join(rootDir, "node_modules"), "dir");
-  const graph = buildFlowGraph(rootDir, { sourceFiles: [invokeFile, featureFile] });
+  const graph = buildFlowGraph(rootDir, { sourceFiles: [invokeFile, transportFile, featureFile] });
   const candidates = scanOntologyText(featureFile, files[featureFile])
     .filter((row) => row.category === "action")
     .map((row) => ({ candidateId: row.id }));
@@ -1337,6 +1348,7 @@ test("GUI source-proof resolves omitted optional callbacks, concrete class metho
   const todoAddAction = { kind: "todo-add", executionClass: "repo-write", ontology: {} };
   const localStateAction = {
     kind: "daemon-local-state",
+    residency: { scope: "host-local" },
     ontology: { owner: "daemon", technical: true, authority: "local-process" },
     receiptSettlement: "none",
   };
@@ -1402,11 +1414,11 @@ test("all live non-main GUI client and daemon-local-state sources pass source pr
   );
   const localState = inputs.constants.actionDeclarations.find((action) => action.kind === "daemon-local-state");
   const guiLocalSources = (localState?.ontology?.sources ?? []).filter((source) => isNonMainGui(source.candidateId));
-  // dec_86761D79CF16E14C4583890F59: 19 Agenda bindings replace one old AnswerForm binding.
-  assert.equal(guiClientPairs.length, 217);
-  assert.equal(new Set(guiClientPairs.map(({ action }) => action.kind)).size, 82);
-  // The terminal browser IPC adds one typed host-local source, with proof required for every entry.
-  assert.equal(guiLocalSources.length, 111);
+  // dec_89D06D7360CBEC09795F7B12EC/CH3 binds renderer clients directly to the declared routes.
+  assert.equal(guiClientPairs.length, 244);
+  assert.equal(new Set(guiClientPairs.map(({ action }) => action.kind)).size, 86);
+  // Stream cancellation adds two local support sites, with source proof for every entry.
+  assert.equal(guiLocalSources.length, 113);
 
   const allSources = [...guiClientPairs.map(({ source }) => source), ...guiLocalSources];
   const graph = baselineFlowGraph();

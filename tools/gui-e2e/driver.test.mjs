@@ -344,7 +344,7 @@ test(
     const ipcDoc = JSON.parse(readFileSync(timeoutEntry.ipcTracePath, "utf8"));
     assert.equal(ipcDoc.schema, "gui-e2e-ipc-trace/v1");
     assert.ok(ipcDoc.count > 0 && Array.isArray(ipcDoc.entries));
-    assert.ok(ipcDoc.entries.some((entry) => entry.channel === "harness:getTasks"));
+    assert.ok(ipcDoc.entries.some((entry) => entry.channel === "harness:rpc" && entry.method === "repo.tasks.list"));
 
     assert.equal(byId["recovered-after-timeout"].outcome, "healthy");
   },

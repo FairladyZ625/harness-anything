@@ -7,7 +7,7 @@ import test from "node:test";
 import { BuiltinPolicyAdapter } from "@harness-anything/authorization-builtin";
 import { readAgentSkillsGui } from "../src/daemon-host/agent-skills.ts";
 import { createRepoCellApi, repoCellSynchronousRead } from "../src/daemon-host/repo-cell-api.ts";
-import { daemonGuiReadMethods } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { daemonReadRoutes } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import {
   authenticateRuntimeExecutionCredential,
   issueRuntimeExecutionCredential,
@@ -58,7 +58,7 @@ test("a read-only dispatch cannot read the skill catalog", () => {
 
 test("opening one GUI read does not open the GUI read family", () => {
   const p = principal(),
-    admitted = daemonGuiReadMethods
+    admitted = daemonReadRoutes
       .filter(({ method }) => {
         try {
           requireExecutionRequestScope(p, method, repositoryParams(p));

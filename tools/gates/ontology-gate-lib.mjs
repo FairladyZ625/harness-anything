@@ -182,7 +182,7 @@ export function loadActionCoverageSnapshot(rootDir) {
     "packages/kernel/src/domain/entity-kind-registry.ts",
     "packages/kernel/src/domain/action-declaration.ts",
     "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts",
-    "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-actions.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-action-routes.ts",
   ].map((file) => path.join(rootDir, file));
   const script = [
     "const [registry, declarations, commands, gui] = await Promise.all(process.argv.slice(1, 5).map((url) => import(url)));",
@@ -196,7 +196,7 @@ export function loadActionCoverageSnapshot(rootDir) {
     "  declarations: declarations.actionDeclarations.map((entry) => ({ kind: entry.kind,",
     "    executionClass: entry.executionClass, residency: entry.residency.scope })),",
     "  artifactIngress: [...(declarations.artifactActionIngressKinds ?? [])],",
-    "  ingress: [...commands.daemonProtocolCommands, ...gui.daemonGuiActionMethods, ...declarations.actionDeclarations.flatMap(row => (row.ontology?.sources ?? []).filter(source => source.role !== 'support').map(source => ({ actionKind: row.kind, method: source.route, commandClass: row.executionClass })))]",
+    "  ingress: [...commands.daemonProtocolCommands, ...gui.daemonActionRoutes, ...declarations.actionDeclarations.flatMap(row => (row.ontology?.sources ?? []).filter(source => source.role !== 'support').map(source => ({ actionKind: row.kind, method: source.route, commandClass: row.executionClass })))]",
     "    .filter((entry) => entry.commandClass !== 'repo-read')",
     "    .map((entry) => ({ kind: entry.actionKind ?? entry.id, method: entry.method })),",
     "};",

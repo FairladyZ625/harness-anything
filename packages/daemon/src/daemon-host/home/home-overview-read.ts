@@ -8,7 +8,7 @@ export interface HomeOverviewContext {
   readonly unavailable: ReadonlyMap<string, RepoCellStatus>;
 }
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
-import type { DaemonAgendaResult } from "../protocol/daemon-protocol-gui-types.ts";
+import type { DaemonAgendaResult } from "../protocol/daemon-protocol-results.ts";
 import type { AgentRuntimeSessionGroupsResult } from "../agent-runtime-contract.ts";
 import type { DaemonHomeOverviewResult, DaemonHomeRepoOverview, DaemonHomeMatter } from "./home-overview-types.ts";
 

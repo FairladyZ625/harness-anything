@@ -123,12 +123,13 @@ export default {
       ({ ipcMain }, paths) => {
         const load = process.getBuiltinModule("module").createRequire(paths.bridge),
           { createLocalGuiServiceBridge } = load(paths.bridge),
-          { parseDaemonGuiReadResponse } = load(paths.parser),
+          { parseDaemonReadResponse } = load(paths.parser),
           bridge = createLocalGuiServiceBridge();
-        ipcMain.removeHandler("harness:getSettings");
-        ipcMain.handle("harness:getSettings", async (_event, payload) => {
-          const result = await bridge.invoke("getSettings", payload);
-          return parseDaemonGuiReadResponse("repo.settings.read", {
+        ipcMain.removeHandler("harness:rpc");
+        ipcMain.handle("harness:rpc", async (_event, { method, params }) => {
+          const result = await bridge.invoke(method, params);
+          if (method !== "repo.settings.read") return result;
+          return parseDaemonReadResponse("repo.settings.read", {
             ...result,
             daemonAddedTopLevel: "ignored",
             settings: {
@@ -143,7 +144,7 @@ export default {
       {
         bridge: fileURLToPath(new URL("../../../packages/gui/src/main/local-composition-root.ts", import.meta.url)),
         parser: fileURLToPath(
-          new URL("../../../packages/daemon/src/daemon-host/protocol/gui-result-validation.ts", import.meta.url),
+          new URL("../../../packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts", import.meta.url),
         ),
       },
     );

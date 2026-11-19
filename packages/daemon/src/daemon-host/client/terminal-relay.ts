@@ -37,6 +37,7 @@ export async function relayDaemonTerminal(input: {
     }
   };
   let clientSeq = 0,
+    daemonGeneration: number | undefined,
     queue: Promise<unknown> = Promise.resolve(),
     settled = false,
     resolveExit: ((code: number) => void) | null = null;
@@ -80,10 +81,18 @@ export async function relayDaemonTerminal(input: {
     if ((await sessionRow()) === null) finish(1);
   };
   const onStdin = (chunk: string | Buffer) => {
-    const utf8 = Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
-    if (!utf8) return;
+    const utf8 = Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk),
+      generation = daemonGeneration;
+    if (!utf8 || generation === undefined) return;
     queue = queue
-      .then(() => call("repo.terminal.input", { sessionId: input.sessionId, clientSeq: clientSeq + 1, utf8 }))
+      .then(() =>
+        call("repo.terminal.input", {
+          sessionId: input.sessionId,
+          daemonGeneration: generation,
+          clientSeq: clientSeq + 1,
+          utf8,
+        }),
+      )
       .then(
         () => {
           clientSeq += 1;
@@ -106,14 +115,26 @@ export async function relayDaemonTerminal(input: {
     method: "repo.terminal.attach",
     payload: { sessionId: input.sessionId, afterSeq: 0 },
     onValue: (value) => {
-      const frame = value as { readonly kind?: unknown; readonly utf8?: unknown };
+      const frame = value as {
+        readonly schema?: unknown;
+        readonly daemonGeneration?: unknown;
+        readonly kind?: unknown;
+        readonly status?: unknown;
+        readonly utf8?: unknown;
+      };
+      if (frame.schema === "terminal-attach/v1" && typeof frame.daemonGeneration === "number")
+        daemonGeneration ??= frame.daemonGeneration;
       if (frame.kind === "output" && typeof frame.utf8 === "string") input.write(frame.utf8);
-      else if (frame.kind === "gap")
+      else if (frame.kind === "gap" || frame.status === "gap")
         input.write("\n[stream] some terminal output was dropped; scrollback is incomplete.\n");
       else if (frame.kind === "exit") void finishFromFrame();
     },
     timeoutMs: daemonProtocolFleetPolicy.defaultValue.client.terminalDetachTimeoutMs,
   });
+  if (daemonGeneration === undefined) {
+    detach();
+    return 1;
+  }
   stdin.setRawMode?.(true);
   stdin.on("data", onStdin);
   stdin.resume();

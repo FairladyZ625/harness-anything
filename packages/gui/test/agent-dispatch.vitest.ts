@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: contract
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
@@ -459,7 +460,17 @@ describe("agent dispatch flow", () => {
       outcome: "applied",
       opId: "runtime-cancel-1",
     }));
-    vi.stubGlobal("window", { harness: { cancelAgentRuntime } });
+    vi.stubGlobal("window", {
+      harness: mockRpcBridge(
+        { cancelAgentRuntime },
+        {
+          "repo.agentRuntime.handoff": "handoffAgentRuntime",
+          "repo.receipt.show": "showReceipt",
+          "repo.agentRuntime.spawn": "spawnAgentRuntime",
+          "repo.agentRuntime.cancel": "cancelAgentRuntime",
+        },
+      ),
+    });
     await runtimeCommandClient.cancel("repo-a", "runtime-dispatch");
     expect(cancelAgentRuntime).toHaveBeenCalledWith({ repoId: "repo-a", runtimeSessionId: "runtime-dispatch" });
   });
@@ -507,7 +518,17 @@ describe("agent dispatch flow", () => {
       prompt: "assembled prompt",
       mission: "Verify the auth cleanup diff.",
     }));
-    vi.stubGlobal("window", { harness: { spawnAgentRuntime } });
+    vi.stubGlobal("window", {
+      harness: mockRpcBridge(
+        { spawnAgentRuntime },
+        {
+          "repo.agentRuntime.handoff": "handoffAgentRuntime",
+          "repo.receipt.show": "showReceipt",
+          "repo.agentRuntime.spawn": "spawnAgentRuntime",
+          "repo.agentRuntime.cancel": "cancelAgentRuntime",
+        },
+      ),
+    });
     const preview = await runtimeCommandClient.preview(
       "repo-a",
       buildDispatchSpawnInput({ ...baseRequest, subject: agentSubject }, [codexInstance]),
@@ -537,7 +558,17 @@ describe("agent dispatch flow", () => {
       outcome: "applied",
       opId: "runtime-op-3",
     }));
-    vi.stubGlobal("window", { harness: { spawnAgentRuntime } });
+    vi.stubGlobal("window", {
+      harness: mockRpcBridge(
+        { spawnAgentRuntime },
+        {
+          "repo.agentRuntime.handoff": "handoffAgentRuntime",
+          "repo.receipt.show": "showReceipt",
+          "repo.agentRuntime.spawn": "spawnAgentRuntime",
+          "repo.agentRuntime.cancel": "cancelAgentRuntime",
+        },
+      ),
+    });
     await expect(
       runtimeCommandClient.preview(
         "repo-a",
@@ -560,7 +591,17 @@ describe("agent dispatch flow", () => {
       rejectionExplanation: "The daemon is draining before it exits.",
       error: { code: "daemon_stopping" },
     }));
-    vi.stubGlobal("window", { harness: { spawnAgentRuntime } });
+    vi.stubGlobal("window", {
+      harness: mockRpcBridge(
+        { spawnAgentRuntime },
+        {
+          "repo.agentRuntime.handoff": "handoffAgentRuntime",
+          "repo.receipt.show": "showReceipt",
+          "repo.agentRuntime.spawn": "spawnAgentRuntime",
+          "repo.agentRuntime.cancel": "cancelAgentRuntime",
+        },
+      ),
+    });
     const failure = await runtimeCommandClient
       .preview("repo-a", buildDispatchSpawnInput({ ...baseRequest, subject: agentSubject }, [codexInstance]))
       .then(
@@ -674,7 +715,17 @@ it("uses the same handoff action for GUI export, claim and revoke", async () => 
     outcome: "applied",
     opId: "handoff-one",
   }));
-  vi.stubGlobal("window", { harness: { handoffAgentRuntime } });
+  vi.stubGlobal("window", {
+    harness: mockRpcBridge(
+      { handoffAgentRuntime },
+      {
+        "repo.agentRuntime.handoff": "handoffAgentRuntime",
+        "repo.receipt.show": "showReceipt",
+        "repo.agentRuntime.spawn": "spawnAgentRuntime",
+        "repo.agentRuntime.cancel": "cancelAgentRuntime",
+      },
+    ),
+  });
   try {
     for (const operation of ["export", "claim", "revoke"] as const) {
       await runtimeCommandClient.handoff("repo-a", { operation, dispatchId: "dispatch-source" });

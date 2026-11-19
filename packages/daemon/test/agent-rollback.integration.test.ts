@@ -8,7 +8,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 
 /**
  * A rollback is "install this retained body again", so it must reuse the install action's own
@@ -203,12 +203,12 @@ test("rolling back to the live body is a no-op the caller can detect before writ
 function ports(cell: Awaited<ReturnType<typeof openRepoCell>>) {
   return {
     history: async (agentId: string, limit?: number) =>
-      parseDaemonGuiReadResult(
+      parseDaemonReadResult(
         "repo.agent.history.read",
         await cell.read("repo.agent.history.read", { agentId, ...(limit === undefined ? {} : { limit }) }),
       ),
     version: async (agentId: string, revision: number) =>
-      parseDaemonGuiReadResult(
+      parseDaemonReadResult(
         "repo.agent.version.read",
         await cell.read("repo.agent.version.read", { agentId, revision }),
       ),

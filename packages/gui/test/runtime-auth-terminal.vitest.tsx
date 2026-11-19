@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -119,14 +120,16 @@ async function mount(
     installations: [],
     subscriptionIsolationKinds: ["agy"],
   }));
-  const auth = vi.spyOn(runtimeInstanceClient, "auth").mockResolvedValue({
+  const receipt = {
     schema: "terminal-control-receipt/v1",
     ok: outcome === "applied",
     outcome,
     sessionId,
     operationId: "op-auth",
     error: outcome === "applied" ? null : { code: "fixture_rejection", hint: "Rejected sign in" },
-  } as TerminalControlReceipt);
+  } as TerminalControlReceipt;
+  const login = vi.spyOn(runtimeInstanceClient, "login").mockResolvedValue(receipt);
+  const logout = vi.spyOn(runtimeInstanceClient, "logout").mockResolvedValue(receipt);
   const probe = vi.spyOn(runtimeInstanceClient, "probe").mockImplementation(async () => {
     instance = {
       ...instance,
@@ -149,6 +152,16 @@ async function mount(
   const listeners = new Map<string, (frame: TerminalStreamFrame) => void>();
   const attach = vi.spyOn(terminalClient, "attach").mockImplementation((_repo, id, _seq, callback) => {
     listeners.set(id, callback);
+    callback({
+      schema: "terminal-attach/v1",
+      ok: true,
+      sessionId: id,
+      attachmentId: `attach-${id}`,
+      daemonGeneration: 1,
+      status: "attached",
+      replayFromSeq: 1,
+      outputSeq: 0,
+    });
     return () => listeners.delete(id);
   });
   const spawn = vi.spyOn(terminalClient, "spawn");
@@ -238,9 +251,21 @@ async function mount(
   };
   Object.defineProperty(window, "harness", {
     configurable: true,
-    value: new Proxy(bridge, {
-      get: (target, key) => target[key as keyof typeof bridge] ?? (async () => ({ ok: true })),
-    }),
+    value: mockRpcBridge(
+      new Proxy(bridge, {
+        get: (target, key) => target[key as keyof typeof bridge] ?? (async () => ({ ok: true })),
+      }),
+      {
+        "daemon.gui.system.read": "getSystemStatus",
+        "repo.settings.read": "getSettings",
+        "repo.tasks.list": "getTasks",
+        "repo.workspace.summary.read": "getWorkspaceSummary",
+        "repo.agentRuntime.overview": "getAgentRuntimeOverview",
+        "repo.agent.entities.list": "listAgents",
+        "repo.gui.catalog.snapshot": "getCatalogSnapshot",
+        "daemon.provider.list": "listDecisionProviders",
+      },
+    ),
   });
   window.localStorage.setItem(
     `harness-view-history:${repoId}`,
@@ -289,7 +314,7 @@ async function mount(
       createElement(StrictMode, null, createElement(QueryClientProvider, { client: client! }, createElement(App))),
     ),
   );
-  return { auth, probe, list, attach, spawn, input, rows, listeners };
+  return { login, logout, probe, list, attach, spawn, input, rows, listeners };
 }
 async function back() {
   await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "`", ctrlKey: true })));
@@ -304,15 +329,18 @@ describe("provider authentication terminal bridge (dec_DA1602487428A58E8B446ECE3
   ])(
     "attaches and focuses the returned session over a stored layout, then probes a successful exit (existing pane: %s, warm cache: %s)",
     async (existing, warm) => {
-      const { auth, probe, list, attach, spawn, input, rows, listeners } = await mount(
+      const { login, logout, probe, list, attach, spawn, input, rows, listeners } = await mount(
         "applied",
         existing,
         "agy",
         warm,
       );
       await click("runtime-account-login");
-      await settled(() => expect(attach).toHaveBeenCalledWith(repoId, sessionId, 0, expect.any(Function)));
-      expect(auth).toHaveBeenCalledWith(repoId, instanceId, "login");
+      await settled(() =>
+        expect(attach).toHaveBeenCalledWith(repoId, sessionId, 0, expect.any(Function), expect.any(Function)),
+      );
+      expect(login).toHaveBeenCalledWith(repoId, instanceId);
+      expect(logout).not.toHaveBeenCalled();
       await settled(() =>
         expect(document.querySelector(`[data-session-id="${sessionId}"][data-focused="true"] textarea`)).toBe(
           document.activeElement,
@@ -330,7 +358,7 @@ describe("provider authentication terminal bridge (dec_DA1602487428A58E8B446ECE3
         );
         textarea.dispatchEvent(new Event("input", { bubbles: true }));
       });
-      await settled(() => expect(input).toHaveBeenCalledWith(repoId, sessionId, 1, "fixture-oauth-code"));
+      await settled(() => expect(input).toHaveBeenCalledWith(repoId, sessionId, 1, 1, "fixture-oauth-code"));
       rows[1] = { ...rows[1], status: "exited", attachable: false, exitCode: 0 };
       await act(async () =>
         listeners.get(sessionId)!({
@@ -355,9 +383,9 @@ describe("provider authentication terminal bridge (dec_DA1602487428A58E8B446ECE3
     },
   );
   it("does not navigate on a rejected terminal receipt", async () => {
-    const { auth, attach, probe } = await mount("op_rejected");
+    const { login, attach, probe } = await mount("op_rejected");
     await click("runtime-account-login");
-    await settled(() => expect(auth).toHaveBeenCalledTimes(1));
+    await settled(() => expect(login).toHaveBeenCalledTimes(1));
     expect(document.querySelector('[data-testid="terminal-view"]')).toBeNull();
     expect(document.body.textContent).toContain("Rejected sign in");
     expect(attach).not.toHaveBeenCalled();
@@ -366,7 +394,9 @@ describe("provider authentication terminal bridge (dec_DA1602487428A58E8B446ECE3
   it("ignores an unsuccessful exit and probes when returning to the original Provider detail", async () => {
     const { probe, attach, rows, listeners } = await mount();
     await click("runtime-account-login");
-    await settled(() => expect(attach).toHaveBeenCalledWith(repoId, sessionId, 0, expect.any(Function)));
+    await settled(() =>
+      expect(attach).toHaveBeenCalledWith(repoId, sessionId, 0, expect.any(Function), expect.any(Function)),
+    );
     rows[1] = { ...rows[1], status: "exited", attachable: false, exitCode: 1 };
     await act(async () =>
       listeners.get(sessionId)!({
@@ -397,7 +427,9 @@ describe("provider authentication terminal bridge (dec_DA1602487428A58E8B446ECE3
           }),
       );
       await click("runtime-account-login");
-      await settled(() => expect(attach).toHaveBeenCalledWith(repoId, sessionId, 0, expect.any(Function)));
+      await settled(() =>
+        expect(attach).toHaveBeenCalledWith(repoId, sessionId, 0, expect.any(Function), expect.any(Function)),
+      );
       await back();
       await settled(() => expect(probe).toHaveBeenCalledTimes(1));
       if (!overlap) {
@@ -440,23 +472,25 @@ describe("provider authentication terminal bridge (dec_DA1602487428A58E8B446ECE3
     const { probe, attach, rows } = await mount();
     rows[1] = { ...rows[1], status: "exited", attachable: false, exitCode: 0 };
     await click("runtime-account-login");
-    await settled(() => expect(attach).toHaveBeenCalledWith(repoId, sessionId, 0, expect.any(Function)));
+    await settled(() =>
+      expect(attach).toHaveBeenCalledWith(repoId, sessionId, 0, expect.any(Function), expect.any(Function)),
+    );
     await settled(() => expect(probe).toHaveBeenCalledWith(instanceId, repoId));
   });
   it("leaves the Provider visible when an applied receipt has no session", async () => {
-    const { auth, attach } = await mount();
-    auth.mockResolvedValue({
+    const { login, attach } = await mount();
+    login.mockResolvedValue({
       schema: "terminal-control-receipt/v1",
       outcome: "applied",
       sessionId: null,
     } as TerminalControlReceipt);
     await click("runtime-account-login");
-    await settled(() => expect(auth).toHaveBeenCalledTimes(1));
+    await settled(() => expect(login).toHaveBeenCalledTimes(1));
     expect(attach).not.toHaveBeenCalled();
     expect(document.querySelector('[data-testid="terminal-view"]')).toBeNull();
   });
   it("opens the logout terminal too", async () => {
-    const { auth, attach } = await mount("applied", false, "codex");
+    const { login, logout, attach } = await mount("applied", false, "codex");
     await settled(() =>
       expect(
         [...document.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Sign out"),
@@ -465,14 +499,19 @@ describe("provider authentication terminal bridge (dec_DA1602487428A58E8B446ECE3
     await act(async () =>
       [...document.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Sign out")!.click(),
     );
-    await settled(() => expect(attach).toHaveBeenCalledWith(repoId, sessionId, 0, expect.any(Function)));
-    expect(auth).toHaveBeenCalledWith(repoId, instanceId, "logout");
+    await settled(() =>
+      expect(attach).toHaveBeenCalledWith(repoId, sessionId, 0, expect.any(Function), expect.any(Function)),
+    );
+    expect(logout).toHaveBeenCalledWith(repoId, instanceId);
+    expect(login).not.toHaveBeenCalled();
   });
   it("surfaces a post-login probe failure", async () => {
     const { probe, attach, rows, listeners } = await mount();
     probe.mockRejectedValue(new Error("fixture account probe failed"));
     await click("runtime-account-login");
-    await settled(() => expect(attach).toHaveBeenCalledWith(repoId, sessionId, 0, expect.any(Function)));
+    await settled(() =>
+      expect(attach).toHaveBeenCalledWith(repoId, sessionId, 0, expect.any(Function), expect.any(Function)),
+    );
     rows[1] = { ...rows[1], status: "exited", attachable: false, exitCode: 0 };
     await act(async () =>
       listeners.get(sessionId)!({

@@ -1,6 +1,7 @@
 import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { randomUUID } from "node:crypto";
-import { setTimeout as delay } from "node:timers/promises";
+import { runDaemonRetry } from "./daemon-retry.ts";
+export { raceLifetime } from "./daemon-retry.ts";
 import { waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
 import {
   FleetRemoteError as FleetRemoteErrorClass,
@@ -88,57 +89,14 @@ export async function runFleetEdgeRetry<T>(options: {
   readonly signal?: AbortSignal;
 }): Promise<T> {
   const deadline = Date.now() + options.timeoutMs;
-  let attempt = 0;
-  for (;;) {
-    options.signal?.throwIfAborted();
-    const settled = await raceLifetime(options.write(), options.signal).then(
-      (value) => ({ ok: true as const, value }),
-      (error: unknown) => ({ ok: false as const, error }),
-    );
-    if (settled.ok) {
-      if (!transientFleetReceipt(settled.value) || Date.now() >= deadline) return settled.value;
-    } else {
-      if (!retryableEdgeError(settled.error) || Date.now() >= deadline) throw settled.error;
-    }
-    const remaining = deadline - Date.now();
-    try {
-      await delay(Math.min(fleetEdgeBackoffMs(attempt++), Math.max(1, remaining)), undefined, {
-        ...(options.signal ? { signal: options.signal } : {}),
-      });
-    } catch (error) {
-      // node:timers/promises wraps the signal reason in an AbortError; close owns the reason.
-      if (options.signal?.aborted) throw abortReason(options.signal);
-      throw error;
-    }
-  }
-}
-
-function abortReason(signal: AbortSignal): unknown {
-  return signal.reason instanceof Error ? signal.reason : new DOMException("The operation was aborted.", "AbortError");
-}
-
-/**
- * Reject with the lifetime signal's own reason as soon as it aborts. An operation that ignores
- * the signal still cannot keep its caller alive past the lifetime; one that honors it also
- * settles through its own rejection.
- */
-export function raceLifetime<T>(operation: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
-  if (!signal) return operation;
-  if (signal.aborted) return Promise.reject(abortReason(signal));
-  const pending = operation;
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(abortReason(signal));
-    signal.addEventListener("abort", onAbort, { once: true });
-    pending.then(
-      (value) => {
-        signal.removeEventListener("abort", onAbort);
-        resolve(value);
-      },
-      (error: unknown) => {
-        signal.removeEventListener("abort", onAbort);
-        reject(error);
-      },
-    );
+  return runDaemonRetry({
+    run: options.write,
+    ...(options.signal ? { signal: options.signal } : {}),
+    retryDelay: (settled, attempt) => {
+      const remaining = deadline - Date.now();
+      const transient = settled.ok ? transientFleetReceipt(settled.value) : retryableEdgeError(settled.error);
+      return transient && remaining > 0 ? Math.min(fleetEdgeBackoffMs(attempt), remaining) : null;
+    },
   });
 }
 

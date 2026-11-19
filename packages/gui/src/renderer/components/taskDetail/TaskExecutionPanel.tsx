@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AgentPlan, type PlanStep, type PlanStepStatus } from "../agent-ui/AgentPlan.tsx";
 import { AgentSteering, type SteerNote } from "../agent-ui/AgentSteering.tsx";
-import { pollSessionEventsOnce, runtimeQueryKeys } from "../../agent-runtime-client.ts";
+import { pollSessionEventsOnce, runtimeQueryKeys, useSessionEventWakeup } from "../../agent-runtime-client.ts";
 import { runtimeCommandClient } from "../../runtime-command-client.ts";
 import { resumeRuntimeSpawnInput } from "../../runtime-control.ts";
 import { dispatchRole } from "../../model/lineage-tree.ts";
@@ -56,8 +56,6 @@ export function TaskExecutionPanel({ task }: { readonly task: TaskRow }) {
     queryKey: runtimeQueryKeys.dispatches(task.projectId, task.taskId),
     queryFn: () => readAllTaskDispatches({ repoId: task.projectId, taskId: task.taskId }),
     staleTime: 4_000,
-    refetchInterval: (query) =>
-      (query.state.data?.dispatches ?? []).some((row) => row.status === "running") ? 4_000 : false,
   });
   const rows = useMemo(
     () =>
@@ -74,12 +72,12 @@ export function TaskExecutionPanel({ task }: { readonly task: TaskRow }) {
   // 运行中会话的生命周期事件:走 W1-T1 的增量同步唯一入口(共享 runtime-session-events
   // 缓存与游标),纸条吸收判据只看合并后的事件时间线。
   const queryClient = useQueryClient();
+  useSessionEventWakeup(task.projectId, runningRow?.runtimeSessionId ?? null);
   const events = useQuery({
     queryKey: runtimeQueryKeys.events(task.projectId, runningRow?.runtimeSessionId ?? "none"),
     queryFn: () => pollSessionEventsOnce(queryClient, task.projectId, runningRow!.runtimeSessionId),
     enabled: runningRow !== null,
     staleTime: 4_000,
-    refetchInterval: runningRow !== null ? 4_000 : false,
   });
 
   const [notes, setNotes] = useState<readonly SteerNoteState[]>([]);

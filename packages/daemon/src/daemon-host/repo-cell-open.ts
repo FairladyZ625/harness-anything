@@ -133,6 +133,7 @@ export async function openRepoWriterCell(
   });
   const readSession = (runtimeSessionId: string) => projection.readRuntimeSession(runtimeSessionId);
   const workerRuntimeStream = makeAgentRuntimeStreamHub({
+      repoId: input.repoId,
       readSession,
       canAttach: (session) => readRuntimeCanAttach(projection, session),
       now: () => new Date(now()),

@@ -1,8 +1,8 @@
 export { validateRepositoryReadFrame, type RepositoryReadFrame } from "./repository-read-frame.ts";
 export type { EdgeJoinPlatform } from "../fleet/edge-join.ts";
-export type { TaskAssignmentDirectory } from "./daemon-protocol-gui-types.ts";
-export type { ArtifactGuiKind, ArtifactGuiRowDto, ArtifactsListResult } from "./artifacts-gui-contract.ts";
-export { admitUseCaseProjectionSelector } from "./daemon-protocol-gui-types.ts";
+export type { TaskAssignmentDirectory } from "./daemon-protocol-results.ts";
+export type { ArtifactGuiKind, ArtifactGuiRowDto, ArtifactsListResult } from "./artifacts-contract.ts";
+export { admitUseCaseProjectionSelector } from "./daemon-protocol-results.ts";
 export type {
   AgentDeclarationV1,
   AgentHostAccess,
@@ -12,13 +12,13 @@ export type {
   DaemonStreamPayloadMap,
   GuiSubmissionV1,
   SquadDeclarationV1,
-} from "./daemon-protocol-gui-types.ts";
-export type * from "./daemon-protocol-gui-types.ts";
+} from "./daemon-protocol-results.ts";
+export type * from "./daemon-protocol-results.ts";
 export type { DecisionProviderProbe, DecisionProviderRecord } from "@harness-anything/kernel";
 export type * from "./daemon-protocol-task-completion.ts";
 export type * from "./daemon-settings-read-types.ts";
-export { daemonGuiActionMethods, daemonGuiInvokeFacets, daemonGuiStreamFacets } from "./daemon-protocol-gui-actions.ts";
-export { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
+export { daemonActionRoutes, interactiveRpcMethods } from "./daemon-protocol-action-routes.ts";
+export { daemonReadRoutes } from "./daemon-protocol-read-routes.ts";
 export { daemonGuiReadSchemas } from "./daemon-protocol-schema-registry.ts";
 export { validateDaemonTaskCompletion } from "./daemon-protocol-task-completion.ts";
 export { validateDaemonWorkTopology } from "./daemon-protocol-work-topology.ts";
@@ -39,12 +39,30 @@ export type {
   DaemonGuiRpcReadMethod,
   DaemonRpcMethodMap,
   DaemonRpcResult,
+  DaemonStreamMethod,
   DaemonTaskSnapshotListResult,
 } from "./daemon-protocol.contract.ts";
+export { consumeDaemonStream, streamInterrupted } from "./stream-client.ts";
+export {
+  applyRuntimeStreamSignal,
+  emptyRuntimeStreamSnapshot,
+  parseDaemonStreamEnd,
+  parseDaemonStreamEvent,
+  parseDaemonStreamResult,
+  runtimeStreamFrames,
+  type AgentRuntimeStreamValue,
+  type RuntimeStreamSnapshot,
+} from "./stream-contract.ts";
+export {
+  interactiveRpcDescriptor,
+  scopedRpcParams,
+  streamRpcDescriptor,
+  type InteractiveRpcDescriptor,
+} from "./client-rpc.ts";
 export { DAEMON_GUI_COMMAND_RECEIPT_SCHEMA } from "./daemon-protocol-schema-ids.ts";
 export { isUtcTimestamp } from "./json-rpc-types.ts";
 export type { ScheduleRunOutputsDto, ScheduleRunsResult } from "./schedule-runs-contract.ts";
-export { compatibleScheduleInstances, isAvailableScheduleGuiAgentOption } from "./schedules-gui-contract.ts";
+export { compatibleScheduleInstances, isAvailableScheduleGuiAgentOption } from "./schedules-contract.ts";
 export type {
   ScheduleGuiAgentOptionDto,
   ScheduleGuiHealthDto,
@@ -52,7 +70,7 @@ export type {
   ScheduleGuiOptionsDto,
   ScheduleGuiRowDto,
   SchedulesListResult,
-} from "./schedules-gui-contract.ts";
+} from "./schedules-contract.ts";
 export {
   agentRuntimeInstallationState,
   agentRuntimeKindMatches,

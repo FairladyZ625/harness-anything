@@ -2,6 +2,7 @@ import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/dom
 import { generatedSettingsFieldProtocolProjection } from "@harness-anything/preset/internal/preset-command-contract";
 import {
   allDaemonProtocolMethods,
+  daemonRpcByMethod,
   daemonMethodAcceptsPayload,
   daemonMethodAcceptsPayloadExecutor,
   daemonMethodNameSets,
@@ -9,11 +10,12 @@ import {
 import {
   admitUseCaseProjectionSelector,
   validateShape,
+  isRuntimeStreamCursor,
   validateObserveTailPayload,
   type DaemonGuiActionMethod,
   type DaemonGuiRpcReadMethod,
   type DaemonStreamMethod,
-} from "./daemon-protocol-gui-types.ts";
+} from "./daemon-protocol-results.ts";
 import {
   digest,
   exactRecord,
@@ -47,16 +49,16 @@ function validateDaemonWorkTopologyPayload(value: unknown): string[] {
   return TASK_ID.test(value.workRootTaskId) ? [] : ["work topology workRootTaskId is invalid"];
 }
 
-export function isDaemonGuiReadMethod(method: string): method is DaemonGuiRpcReadMethod {
+export function isDaemonReadRoute(method: string): method is DaemonGuiRpcReadMethod {
   return daemonMethodNameSets.guiRead.has(method);
 }
 
-export function isDaemonGuiActionMethod(method: string): method is DaemonGuiActionMethod {
+export function isDaemonActionRoute(method: string): method is DaemonGuiActionMethod {
   return daemonMethodNameSets.guiAction.has(method);
 }
 
 /** Shared preset RPCs keep their existing validation contract when also exposed to the GUI. */
-export function isDaemonGuiOnlyActionMethod(method: string): method is DaemonGuiActionMethod {
+export function isNamedActionRoute(method: string): method is DaemonGuiActionMethod {
   return daemonMethodNameSets.guiAction.has(method) && !daemonMethodNameSets.preset.has(method);
 }
 
@@ -66,7 +68,7 @@ export function isDaemonStreamMethod(method: string): method is DaemonStreamMeth
 
 export function validateDaemonRpcCall(value: unknown): readonly string[] {
   if (!isJsonObject(value) || typeof value.method !== "string") return ["RPC method is required"];
-  const method = allDaemonProtocolMethods.find((entry) => entry.method === value.method);
+  const method = daemonRpcByMethod.get(value.method);
   if (!method) return ["RPC method is not contracted"];
   const errors = validateShape(value.params === undefined ? {} : value.params, method.params, "params");
   if (!errors.length && value.method === "protocol.hello")
@@ -128,11 +130,17 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
       );
     }
   }
-  if (!errors.length && isDaemonGuiOnlyActionMethod(value.method))
-    errors.push(...validateGuiActionPayload(value.method, (value.params as JsonObject).payload));
+  if (!errors.length && isNamedActionRoute(value.method))
+    errors.push(...validateNamedActionPayload(value.method, (value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.terminal.attach") {
-    const afterSeq = ((value.params as JsonObject).payload as JsonObject).afterSeq;
+    const { afterSeq, daemonGeneration } = (value.params as JsonObject).payload as JsonObject;
     if (!integer(afterSeq) || Number(afterSeq) < 0) errors.push("terminal attach sequence is invalid");
+    if (daemonGeneration !== undefined && (!integer(daemonGeneration) || Number(daemonGeneration) < 0))
+      errors.push("terminal attach generation is invalid");
+  }
+  if (!errors.length && value.method === "repo.agentRuntime.attach") {
+    const after = ((value.params as JsonObject).payload as JsonObject).afterCursor;
+    if (after !== undefined && !isRuntimeStreamCursor(after)) errors.push("runtime attach cursor is invalid");
   }
   return errors;
 }
@@ -334,7 +342,7 @@ export const parseDaemonRpcParams = ((method: string, params: unknown) => {
   };
 }) as ParseDaemonRpcParams;
 
-export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: unknown): string[] {
+export function validateNamedActionPayload(method: DaemonGuiActionMethod, value: unknown): string[] {
   if (!isJsonObject(value)) return ["GUI action payload must be an object"];
   const errors: string[] = [...rejectSecretKeys(value)],
     exactItem = (item: unknown, required: readonly string[], optional: readonly string[] = []) =>
@@ -480,8 +488,11 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
     (!exactCwd(value.cwd) || !["direct-pty", "tmux"].includes(String(value.backend)))
   )
     errors.push("terminal spawn request is invalid");
-  if (method === "repo.terminal.input" && (!integer(value.clientSeq) || Number(value.clientSeq) < 0))
-    errors.push("terminal input sequence is invalid");
+  if (
+    method === "repo.terminal.input" &&
+    ![value.clientSeq, value.daemonGeneration].every((field) => Number.isSafeInteger(field) && Number(field) >= 0)
+  )
+    errors.push("terminal input sequence and daemon generation must be nonnegative safe integers");
   if (
     method === "repo.terminal.resize" &&
     (![value.cols, value.rows].every(integer) ||

@@ -1,194 +1,168 @@
-import net from "node:net";
 import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
-import { assertDaemonHello, daemonHelloParams, daemonHelloFailureCode } from "./daemon-hello.ts";
+import {
+  assertDaemonHello,
+  daemonHelloParams,
+  recoverableStreamUpgradeRequired,
+  supportsRecoverableStreams,
+} from "./daemon-hello.ts";
 import { createInterface } from "node:readline";
-import { consumeKnownError } from "@harness-anything/kernel";
-import { type AgentRuntimeAttachEvent, type AgentRuntimeAttachResult } from "../agent-runtime-stream.ts";
-import { daemonStreamFacetByMethod } from "../protocol/daemon-protocol-gui-actions.ts";
-import type { DaemonStreamPayloadMap } from "../protocol/daemon-protocol.contract.ts";
-import { parseDaemonStreamEvent, parseDaemonStreamResult } from "../protocol/gui-result-validation.ts";
+import { daemonStreamFacetByMethod } from "../protocol/daemon-protocol-action-routes.ts";
+import type { DaemonStreamMethod, DaemonStreamPayloadMap } from "../protocol/daemon-protocol.contract.ts";
+import { parseDaemonStreamEnd, parseDaemonStreamEvent, parseDaemonStreamResult } from "../protocol/stream-contract.ts";
+import { DaemonProtocolContractError, isJsonObject } from "../protocol/json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "../protocol/version.ts";
+import { consumeDaemonStream, streamInterrupted, type StreamPayload } from "../protocol/stream-client.ts";
+import type { AgentRuntimeStreamValue } from "../protocol/stream-contract.ts";
 import { createDaemonEndpointSocket, executionCredentialParams } from "./local-json-rpc-client.ts";
-export type AgentRuntimeStreamValue = AgentRuntimeAttachResult | AgentRuntimeAttachEvent;
-// A stream that has attached once survives daemon unavailability by reconnecting — that is what
-// lets CLI runtime waits ride out daemon restarts — but the reconnect used to be 25/s
-// forever with every failure swallowed, which turned a busy daemon into a connection storm that
-// kept the daemon busy (#1654). Each unavailability episode now gets five attempts with doubling
-// backoff; when the budget is spent the stream gives up and says so through onClosed instead of
-// spinning invisibly. The silence deadline only runs before the first result and resets on every
-// received line, so a slow attach is patience, not a kill: the old flat 200ms fired mid-handshake
-// under load and fed the storm it was timing.
-const {
-  reconnectBaseDelayMs,
-  reconnectMaxDelayMs,
-  reconnectAttemptLimit,
-  streamSilenceMs: defaultSilenceMs,
-} = daemonProtocolFleetPolicy.defaultValue.client;
-export interface DaemonStreamLost {
-  readonly code: "daemon_stream_lost";
+
+export interface DaemonStreamFailure {
+  readonly code: string;
   readonly attempts: number;
   readonly lastError: string;
 }
-export async function streamAgentRuntimeAt(input: {
+interface DaemonSocketStream {
   readonly socketPath: string;
   readonly repoId: string;
-  readonly payload: DaemonStreamPayloadMap["repo.agentRuntime.attach"];
-  readonly onValue: (value: AgentRuntimeStreamValue) => void;
+  readonly method: DaemonStreamMethod;
+  readonly payload: StreamPayload;
+  readonly onValue: (value: unknown) => void;
   readonly timeoutMs?: number;
-  readonly onClosed?: (failure: DaemonStreamLost) => void;
   readonly invokingCommand?: string;
-}): Promise<() => void> {
+}
+
+export function streamAgentRuntimeAt(
+  input: Omit<Parameters<typeof streamDaemonFacetAt>[0], "method" | "payload" | "onValue"> & {
+    readonly payload: DaemonStreamPayloadMap["repo.agentRuntime.attach"];
+    readonly onValue: (value: AgentRuntimeStreamValue) => void;
+  },
+): Promise<() => void> {
   return streamDaemonFacetAt({
     ...input,
     method: "repo.agentRuntime.attach",
-    onValue: input.onValue as (value: unknown) => void,
+    onValue: (value) => input.onValue(value as AgentRuntimeStreamValue),
   });
 }
-export async function streamDaemonFacetAt(input: {
-  readonly socketPath: string;
-  readonly repoId: string;
-  readonly method: keyof DaemonStreamPayloadMap;
-  readonly payload: DaemonStreamPayloadMap[keyof DaemonStreamPayloadMap];
-  readonly onValue: (value: unknown) => void;
-  readonly timeoutMs?: number;
-  readonly onClosed?: (failure: DaemonStreamLost) => void;
-  /** CLI command id this stream serves; recorded by the daemon's request logs. */
-  readonly invokingCommand?: string;
-}): Promise<() => void> {
-  let detached = false,
-    everAttached = false,
-    socket: net.Socket | undefined,
-    retry: ReturnType<typeof setTimeout> | undefined,
-    reconnects = 0,
-    lastFailure = "socket closed",
-    cursor: string | number =
-      input.method === "repo.agentRuntime.attach"
-        ? (input.payload as DaemonStreamPayloadMap["repo.agentRuntime.attach"]).afterCursor
-        : (input.payload as DaemonStreamPayloadMap["repo.terminal.attach"]).afterSeq;
-  const facet = daemonStreamFacetByMethod.get(input.method)!;
-  const scheduleReconnect = (): void => {
-    if (detached) return;
-    if (reconnects >= reconnectAttemptLimit) {
-      input.onClosed?.({ code: "daemon_stream_lost", attempts: reconnects, lastError: lastFailure });
-      return;
-    }
-    const delayMs = Math.min(reconnectBaseDelayMs * 2 ** reconnects, reconnectMaxDelayMs);
-    reconnects += 1;
-    retry = setTimeout(() => {
-      retry = undefined;
-      void connect().catch(consumeKnownError);
-    }, delayMs);
-  };
-  const connect = () =>
-    new Promise<void>((resolve, reject) => {
-      const next = createDaemonEndpointSocket(input.socketPath),
-        lines = createInterface({ input: next });
-      let watchdog: ReturnType<typeof setTimeout> | undefined;
-      socket = next;
-      let settled = false,
-        supported = true,
-        handshaken = false;
-      const armWatchdog = () => {
-        clearTimeout(watchdog);
-        watchdog = setTimeout(
-          () => streamFail(new Error("daemon_stream_unavailable")),
-          input.timeoutMs ?? defaultSilenceMs,
-        );
-      };
-      armWatchdog();
-      next.once("connect", () => {
-        next.write(
-          `${JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "protocol.hello",
-            params: daemonHelloParams({
-              protocolVersion: currentDaemonProtocolVersion,
-              ...executionCredentialParams(),
-              ...(input.invokingCommand ? { invokingCommand: input.invokingCommand } : {}),
-            }),
-          })}\n`,
-        );
+
+export async function streamDaemonFacetAt(
+  input: DaemonSocketStream & {
+    readonly signal?: AbortSignal;
+    readonly onClosed?: (failure: DaemonStreamFailure) => void;
+  },
+): Promise<() => void> {
+  const controller = new AbortController(),
+    signal = input.signal ? AbortSignal.any([controller.signal, input.signal]) : controller.signal,
+    ready = Promise.withResolvers<void>();
+  let opened = false;
+  void consumeDaemonStream({
+    ...input,
+    signal,
+    read: (payload, onValue, active) => readDaemonStreamAt({ ...input, payload, onValue, signal: active }),
+    onValue: (value) => {
+      input.onValue(value);
+      opened = true;
+      ready.resolve();
+    },
+  }).then(
+    () => ready.resolve(),
+    (error: unknown) => {
+      if (!opened) return ready.reject(error);
+      input.onClosed?.({
+        code: error instanceof DaemonProtocolContractError ? error.code : "daemon_request_failed",
+        attempts: isJsonObject(error) && typeof error.attempts === "number" ? error.attempts : 0,
+        lastError: error instanceof Error ? error.message : String(error),
       });
-      lines.on("line", (line) => {
-        if (!settled) armWatchdog();
-        try {
-          const value = JSON.parse(line) as {
-            readonly id?: number;
-            readonly method?: string;
-            readonly params?: unknown;
-            readonly result?: unknown;
-            readonly error?: { readonly message?: string };
-          };
-          if (value.id === 1) {
-            if (value.error) throw new Error(value.error.message ?? "Daemon rejected hello");
-            assertDaemonHello(value.result);
-            handshaken = true;
-            const payload =
-              input.method === "repo.agentRuntime.attach"
-                ? { ...(input.payload as object), afterCursor: cursor }
-                : { ...(input.payload as object), afterSeq: cursor };
-            next.write(
-              `${JSON.stringify({ jsonrpc: "2.0", id: 2, method: facet.method, params: { repo: { repoId: input.repoId }, payload } })}\n`,
-            );
-          } else if (value.id === 2 && handshaken) {
-            if (value.error) throw new Error(value.error.message ?? "daemon stream failed");
-            const initial = parseDaemonStreamResult(input.method, value.result);
-            input.onValue(initial);
-            supported = initial.ok === true;
-            if (initial.ok) {
-              cursor =
-                input.method === "repo.agentRuntime.attach"
-                  ? (initial as AgentRuntimeAttachResult & { readonly cursor: string }).cursor
-                  : Number((initial as Record<string, unknown>).outputSeq);
-              everAttached = true;
-              reconnects = 0;
-            }
-            settled = true;
-            clearTimeout(watchdog);
-            resolve();
-            if (!supported) next.end();
-          } else if (handshaken && value.method === facet.eventMethod) {
-            const event = parseDaemonStreamEvent(input.method, value.params);
-            cursor =
-              input.method === "repo.agentRuntime.attach"
-                ? (event as AgentRuntimeAttachEvent).cursor
-                : Number((event as Record<string, unknown>).seq);
-            input.onValue(event);
-          }
-        } catch (error) {
-          consumeKnownError(error);
-          streamFail(error instanceof Error ? error : new Error(String(error)));
+    },
+  );
+  await ready.promise;
+  return () => controller.abort();
+}
+
+/** One socket attempt. Only the final consumer owns cursor resume and the retry budget. */
+export async function readDaemonStreamAt(
+  input: Omit<DaemonSocketStream, "onValue"> & {
+    readonly signal: AbortSignal;
+    readonly onValue: (value: unknown) => void | Promise<void>;
+  },
+): Promise<void> {
+  if (input.signal.aborted) return;
+  const facet = daemonStreamFacetByMethod.get(input.method);
+  if (!facet) throw new DaemonProtocolContractError("method_not_allowed", "Unknown daemon stream.");
+  const socket = createDaemonEndpointSocket(input.socketPath),
+    lines = createInterface({ input: socket });
+  let handshaken = false,
+    attached = false,
+    failure: Error | undefined,
+    watchdog: ReturnType<typeof setTimeout> | undefined;
+
+  function abort(): void {
+    lines.close();
+    socket.destroy();
+  }
+  function armWatchdog(): void {
+    clearTimeout(watchdog);
+    watchdog = setTimeout(
+      () => disconnect(new Error("Daemon did not answer the stream attach.")),
+      input.timeoutMs ?? daemonProtocolFleetPolicy.defaultValue.client.streamSilenceMs,
+    );
+  }
+  function send(id: number, method: string, params: unknown): void {
+    socket.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+  }
+  function disconnect(error: Error): void {
+    failure = streamInterrupted(error.message);
+    abort();
+  }
+  input.signal.addEventListener("abort", abort, { once: true });
+  socket.once("error", disconnect);
+  lines.on("error", disconnect);
+  armWatchdog();
+  socket.once("connect", () =>
+    send(
+      1,
+      "protocol.hello",
+      daemonHelloParams({
+        protocolVersion: currentDaemonProtocolVersion,
+        ...executionCredentialParams(),
+        ...(input.invokingCommand ? { invokingCommand: input.invokingCommand } : {}),
+      }),
+    ),
+  );
+  try {
+    for await (const line of lines) {
+      if (input.signal.aborted) return;
+      if (!attached) armWatchdog();
+      const value: unknown = JSON.parse(line);
+      if (!isJsonObject(value)) throw new DaemonProtocolContractError("invalid_result", "Invalid stream envelope.");
+      if (isJsonObject(value.error))
+        throw new DaemonProtocolContractError("invalid_result", String(value.error.message));
+      if (value.id === 1) {
+        assertDaemonHello(value.result);
+        if (!supportsRecoverableStreams(value.result.protocolVersion)) throw recoverableStreamUpgradeRequired();
+        handshaken = true;
+        send(2, facet.method, { repo: { repoId: input.repoId }, payload: input.payload });
+      } else if (value.id === 2 && handshaken) {
+        if (isJsonObject(value.result) && value.result.ok === false && isJsonObject(value.result.error)) {
+          const { code, hint } = value.result.error;
+          throw new DaemonProtocolContractError(String(code), String(hint));
         }
-      });
-      lines.on("error", consumeKnownError);
-      next.once("error", streamFail);
-      next.once("close", () => {
-        lines.close();
+        const receipt = parseDaemonStreamResult(input.method, value.result);
+        await input.onValue(receipt);
+        attached = receipt.ok === true;
         clearTimeout(watchdog);
-        if (!settled && !everAttached) {
-          reject(new Error("daemon stream closed before attach"));
-          return;
-        }
-        if (!detached && supported && everAttached && input.method === "repo.agentRuntime.attach") scheduleReconnect();
-      });
-      function streamFail(error: Error): void {
-        lastFailure = error.message;
-        if (daemonHelloFailureCode(error) !== null) {
-          supported = false;
-          if (everAttached)
-            input.onClosed?.({ code: "daemon_stream_lost", attempts: reconnects, lastError: lastFailure });
-        }
-        clearTimeout(watchdog);
-        if (!settled) reject(error);
-        next.destroy();
+        if (!attached) return;
+      } else if (attached && value.method === facet.eventMethod) {
+        await input.onValue(parseDaemonStreamEvent(input.method, value.params));
+      } else if (attached && value.method === `${facet.eventMethod}.end`) {
+        return parseDaemonStreamEnd(value.params);
       }
-    });
-  await connect();
-  return () => {
-    if (detached) return;
-    detached = true;
-    if (retry) clearTimeout(retry);
-    socket?.end();
-  };
+    }
+    if (!input.signal.aborted) throw streamInterrupted("Daemon closed the stream connection.");
+  } catch (error) {
+    throw failure ?? error;
+  } finally {
+    clearTimeout(watchdog);
+    input.signal.removeEventListener("abort", abort);
+    lines.close();
+    socket.destroy();
+  }
 }

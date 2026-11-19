@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -61,8 +62,14 @@ test("a GUI read survives additive daemon fields and keeps the unknown field out
   process.env.HARNESS_DAEMON_ENDPOINT = socketPath;
   try {
     const bridge = createLocalGuiServiceBridge(),
-      first = (await bridge.invoke("listAgents", { repoId: "proxy-repo" })) as { readonly ok: boolean },
-      second = (await bridge.invoke("listAgents", { repoId: "proxy-repo" })) as { readonly ok: boolean };
+      first = (await bridge.invoke(
+        "repo.agent.entities.list",
+        scopedRpcParams("repo.agent.entities.list", { repoId: "proxy-repo" }),
+      )) as { readonly ok: boolean },
+      second = (await bridge.invoke(
+        "repo.agent.entities.list",
+        scopedRpcParams("repo.agent.entities.list", { repoId: "proxy-repo" }),
+      )) as { readonly ok: boolean };
 
     assert.equal(first.ok, true, `an additive daemon field must not fail the read view: ${JSON.stringify(first)}`);
     assert.equal(second.ok, true, "a poll after the first success stays green");
@@ -133,8 +140,14 @@ test("a GUI reads Agent list and detail payloads from a previous daemon that omi
   process.env.HARNESS_DAEMON_ENDPOINT = socketPath;
   try {
     const bridge = createLocalGuiServiceBridge(),
-      catalog = (await bridge.invoke("listAgents", { repoId: "proxy-repo" })) as { readonly ok: boolean },
-      detail = (await bridge.invoke("showAgent", { repoId: "proxy-repo", agentId: "terra" })) as {
+      catalog = (await bridge.invoke(
+        "repo.agent.entities.list",
+        scopedRpcParams("repo.agent.entities.list", { repoId: "proxy-repo" }),
+      )) as { readonly ok: boolean },
+      detail = (await bridge.invoke(
+        "repo.agent.entity.read",
+        scopedRpcParams("repo.agent.entity.read", { repoId: "proxy-repo", agentId: "terra" }),
+      )) as {
         readonly ok: boolean;
       };
     assert.equal(catalog.ok, true, `previous catalog without mcpPolicy failed: ${JSON.stringify(catalog)}`);

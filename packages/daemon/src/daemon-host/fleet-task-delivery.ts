@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { Snapshot } from "./repo-cell-types.ts";
-import type { TaskWorkspaceView } from "./protocol/daemon-protocol-gui-types.ts";
+import type { TaskWorkspaceView } from "./protocol/daemon-protocol-results.ts";
 import type { FleetTaskAction } from "./fleet/command-protocol.ts";
 import { pushWorkerBranch, readPublishedTaskCut, workerPushFailureCode } from "./runtime-worker-push.ts";
 import { makeGitReadinessSource } from "./process-port.ts";

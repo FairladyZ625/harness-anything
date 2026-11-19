@@ -1,7 +1,8 @@
 // harness-test-tier: integration
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseDaemonGuiActionResponse, parseDaemonGuiReadResult } from "@harness-anything/daemon/client";
+import { parseDaemonActionResponse, parseDaemonReadResult } from "@harness-anything/daemon/client";
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
@@ -32,36 +33,43 @@ test("GUI pin/unpin reach the ledger through the resident daemon write path", as
     const bridge = createLocalGuiServiceBridge(),
       scope = { repoId: fixture.repoId },
       taskSnapshot = async () =>
-        parseDaemonGuiReadResult("repo.tasks.list", await bridge.invoke("getTasks", scope)).rows.find(
-          (row) => row.taskId === "task-gui-pin",
-        );
+        parseDaemonReadResult(
+          "repo.tasks.list",
+          await bridge.invoke("repo.tasks.list", scopedRpcParams("repo.tasks.list", scope)),
+        ).rows.find((row) => row.taskId === "task-gui-pin");
     assert.equal((await taskSnapshot())?.snapshot.task?.pinned ?? false, false, "a fresh task is not pinned");
 
-    const pinned = parseDaemonGuiActionResponse(
+    const pinned = parseDaemonActionResponse(
       "repo.task.pin",
-      await bridge.invoke("pinTask", { ...scope, taskId: "task-gui-pin" }),
+      await bridge.invoke("repo.task.pin", scopedRpcParams("repo.task.pin", { ...scope, taskId: "task-gui-pin" })),
     );
     assert.equal(pinned.ok, true, JSON.stringify(pinned));
     assert.equal(pinned.outcome, "applied");
     assert.equal((await taskSnapshot())?.snapshot.task?.pinned, true, "the pin must be visible in the task read");
 
-    const agenda = parseDaemonGuiReadResult("repo.agenda.read", await bridge.invoke("getAgenda", scope));
+    const agenda = parseDaemonReadResult(
+      "repo.agenda.read",
+      await bridge.invoke("repo.agenda.read", scopedRpcParams("repo.agenda.read", scope)),
+    );
     assert.equal(agenda.ok, true);
     const row = agenda.dispatchable.find((candidate) => candidate.taskId === "task-gui-pin");
     assert.notEqual(row, undefined, "the pinned task must appear in the dispatchable group");
     assert.equal(row?.pinned, true, "the agenda projection must carry the same pin");
 
-    const unpinned = parseDaemonGuiActionResponse(
+    const unpinned = parseDaemonActionResponse(
       "repo.task.unpin",
-      await bridge.invoke("unpinTask", { ...scope, taskId: "task-gui-pin" }),
+      await bridge.invoke("repo.task.unpin", scopedRpcParams("repo.task.unpin", { ...scope, taskId: "task-gui-pin" })),
     );
     assert.equal(unpinned.ok, true, JSON.stringify(unpinned));
     assert.equal(unpinned.outcome, "applied");
     assert.equal((await taskSnapshot())?.snapshot.task?.pinned ?? false, false, "unpin must clear the ledger field");
 
-    const missing = parseDaemonGuiActionResponse(
+    const missing = parseDaemonActionResponse(
       "repo.task.pin",
-      await bridge.invoke("pinTask", { ...scope, taskId: "task_does_not_exist" }),
+      await bridge.invoke(
+        "repo.task.pin",
+        scopedRpcParams("repo.task.pin", { ...scope, taskId: "task_does_not_exist" }),
+      ),
     );
     assert.equal(missing.ok, false, JSON.stringify(missing));
   } finally {
@@ -92,9 +100,10 @@ test("GUI entity unpin clears a CLI-pinned decision through the resident daemon 
     const bridge = createLocalGuiServiceBridge(),
       scope = { repoId: fixture.repoId },
       pinnedRefs = async () =>
-        parseDaemonGuiReadResult("repo.agenda.read", await bridge.invoke("getAgenda", scope)).pinnedEntities.map(
-          ({ ref }) => ref,
-        ),
+        parseDaemonReadResult(
+          "repo.agenda.read",
+          await bridge.invoke("repo.agenda.read", scopedRpcParams("repo.agenda.read", scope)),
+        ).pinnedEntities.map(({ ref }) => ref),
       proposed = (await requestDaemonJsonRpcAt(
         fixture.endpoint,
         "repo.decision.propose",
@@ -130,17 +139,20 @@ test("GUI entity unpin clears a CLI-pinned decision through the resident daemon 
     assert.equal((pinned as { readonly outcome?: string }).outcome, "applied", JSON.stringify(pinned));
     assert.equal((await pinnedRefs()).includes(entityRef), true, "the CLI pin must be visible in the agenda");
 
-    const unpinned = parseDaemonGuiActionResponse(
+    const unpinned = parseDaemonActionResponse(
       "repo.entity.unpin",
-      await bridge.invoke("unpinEntity", { ...scope, entityRef }),
+      await bridge.invoke("repo.entity.unpin", scopedRpcParams("repo.entity.unpin", { ...scope, entityRef })),
     );
     assert.equal(unpinned.ok, true, JSON.stringify(unpinned));
     assert.equal(unpinned.outcome, "applied");
     assert.equal((await pinnedRefs()).includes(entityRef), false, "the GUI unpin must clear the agenda pin");
 
-    const missing = parseDaemonGuiActionResponse(
+    const missing = parseDaemonActionResponse(
       "repo.entity.unpin",
-      await bridge.invoke("unpinEntity", { ...scope, entityRef: "decision/dec_does_not_exist" }),
+      await bridge.invoke(
+        "repo.entity.unpin",
+        scopedRpcParams("repo.entity.unpin", { ...scope, entityRef: "decision/dec_does_not_exist" }),
+      ),
     );
     assert.equal(missing.ok, false, JSON.stringify(missing));
   } finally {

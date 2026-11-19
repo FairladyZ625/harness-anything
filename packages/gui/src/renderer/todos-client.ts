@@ -38,35 +38,35 @@ function result(value: unknown) {
 export const todosClient = {
   async list(repoId: string, targetRef?: string): Promise<readonly TodoRow[]> {
     const params = { repoId, all: true, ...(targetRef ? { targetRef } : {}) };
-    const receipt = result(await invoke("repo.todo.list", params, "listTodos"));
+    const receipt = result(await invoke("repo.todo.list", params));
     return (JSON.parse(receipt.evidence ?? "{}") as { todos: TodoRow[] }).todos;
   },
   async show(repoId: string, todoId: string): Promise<TodoDetail> {
     const params = { repoId, todoId };
-    return JSON.parse(result(await invoke("repo.todo.show", params, "showTodo")).evidence ?? "{}");
+    return JSON.parse(result(await invoke("repo.todo.show", params)).evidence ?? "{}");
   },
   async add(repoId: string, text: string, relate?: string) {
     const params = { repoId, text, ...(relate ? { relate } : {}) };
-    return result(await invoke("repo.todo.add", params, "addTodo"));
+    return result(await invoke("repo.todo.add", params));
   },
   async done(repoId: string, todoId: string) {
     const params = { repoId, todoId };
-    return result(await invoke("repo.todo.done", params, "completeTodo"));
+    return result(await invoke("repo.todo.done", params));
   },
   async reopen(repoId: string, todoId: string) {
     const params = { repoId, todoId };
-    return result(await invoke("repo.todo.reopen", params, "reopenTodo"));
+    return result(await invoke("repo.todo.reopen", params));
   },
   async archive(repoId: string, todoId: string) {
     const params = { repoId, todoId };
-    return result(await invoke("repo.todo.archive", params, "archiveTodo"));
+    return result(await invoke("repo.todo.archive", params));
   },
   async relate(repoId: string, todoId: string, targetRef: string) {
     const params = { repoId, todoId, targetRef };
-    return result(await invoke("repo.todo.relate", params, "relateTodo"));
+    return result(await invoke("repo.todo.relate", params));
   },
   async promote(repoId: string, todoId: string, work: string) {
     const params = { repoId, todoId, work };
-    return result(await invoke("repo.todo.promote", params, "promoteTodo"));
+    return result(await invoke("repo.todo.promote", params));
   },
 };

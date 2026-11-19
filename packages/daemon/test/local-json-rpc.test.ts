@@ -20,12 +20,15 @@ import {
   connectSocket,
   JsonRpcLineClient,
   requestDaemonJsonRpcAt,
+  requestLocalDaemonJsonRpcForTarget,
 } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { retryLocalDaemonWrite } from "../src/daemon-host/client/local-json-rpc-retry.ts";
 import {
   actionForDaemonMethod,
   commandClassForAction,
-  daemonGuiActionMethods,
+  daemonActionRoutes,
   daemonProtocolCommands,
+  daemonReadRoutes,
   parseDaemonRpcParams,
 } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { isJsonObject, rejectSecretKeys } from "../src/daemon-host/protocol/json-rpc-types.ts";
@@ -42,6 +45,7 @@ function lineServer(
   handler: (
     request: { readonly id: number; readonly method: string; readonly params: Record<string, unknown> },
     reply: (result: Record<string, unknown>) => void,
+    disconnect: () => void,
   ) => void,
 ): Promise<{ readonly socketPath: string; readonly close: () => Promise<void> }> {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-json-rpc-client-")),
@@ -50,10 +54,13 @@ function lineServer(
     socket.on("data", (chunk: Buffer) => {
       for (const line of chunk.toString("utf8").split("\n").filter(Boolean)) {
         const request = JSON.parse(line) as { readonly id: number; readonly method: string };
-        handler(request, (result) =>
-          socket.write(
-            `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: request.method === "protocol.hello" ? { ...fixtureDaemonHello(), ...result } : result })}\n`,
-          ),
+        handler(
+          request,
+          (result) =>
+            socket.write(
+              `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: request.method === "protocol.hello" ? { ...fixtureDaemonHello(), ...result } : result })}\n`,
+            ),
+          () => socket.destroy(),
         );
       }
     });
@@ -73,6 +80,74 @@ function lineServer(
     );
   });
 }
+
+test("local unary RPC reuses a stable key after a lost write reply", async () => {
+  const keys: unknown[] = [];
+  const applied = new Set<unknown>();
+  const server = await lineServer((request, reply, disconnect) => {
+    if (request.method === "protocol.hello") return reply({ ok: true });
+    const key = (request.params.payload as { idempotencyKey?: string }).idempotencyKey;
+    keys.push(key);
+    if (!applied.has(key)) {
+      applied.add(key);
+      return disconnect();
+    }
+    reply({ ok: true, idempotencyKey: key });
+  });
+  const target = { socketPath: server.socketPath, repoId: "local-retry" };
+  try {
+    const response = await requestLocalDaemonJsonRpcForTarget(
+      target,
+      "repo.task.create",
+      {
+        repo: { repoId: target.repoId },
+        payload: { title: "local retry", idempotencyKey: "stable" },
+      },
+      2000,
+    );
+    assert.deepEqual(response, { ok: true, idempotencyKey: "stable" });
+    assert.deepEqual(keys, ["stable", "stable"]);
+    assert.equal(applied.size, 1);
+    await assert.rejects(
+      requestLocalDaemonJsonRpcForTarget(
+        target,
+        "repo.task.create",
+        {
+          repo: { repoId: target.repoId },
+          payload: { title: "without a key" },
+        },
+        2000,
+      ),
+      { code: "daemon_closed" },
+    );
+    assert.deepEqual(keys, ["stable", "stable", undefined]);
+  } finally {
+    await server.close();
+  }
+});
+
+test("local write exhaustion returns its original receipt and permanent refusals take one attempt", async (t) => {
+  t.mock.method(Math, "random", () => 0);
+  const warming = { ok: false, error: { code: "repo_warming" } };
+  let attempts = 0;
+  const receipt = await retryLocalDaemonWrite(async () => {
+    attempts++;
+    return warming;
+  });
+  assert.equal(attempts, 6);
+  assert.equal(receipt, warming);
+
+  const denied = { ok: false, error: { code: "authorization_denied" } };
+  attempts = 0;
+  assert.equal(
+    await retryLocalDaemonWrite(async () => {
+      attempts++;
+      return denied;
+    }),
+    denied,
+  );
+  assert.equal(attempts, 1);
+});
 
 test("a reused connection keeps its socket listener counts flat across read rounds", async () => {
   const server = await lineServer((_request, reply) => reply({ ok: true }));
@@ -591,7 +666,7 @@ async function measuredGateSetNullKinds(commit: string): Promise<readonly string
 // Fragment from json-rpc-command-descriptors.test.ts.
 test("non-read protocol, Policy, receipt, residency, and entity catalogs close over Action declarations", async () => {
   const protocol = new Map(
-      [...daemonProtocolCommands, ...daemonGuiActionMethods]
+      [...daemonProtocolCommands, ...daemonActionRoutes]
         .filter(({ commandClass }) => commandClass !== "repo-read")
         .map((descriptor) => [descriptor.actionKind ?? descriptor.id, descriptor]),
     ),
@@ -905,7 +980,7 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
       ({ executionClass, residency }) =>
         residency.scope !== "canonical" && executionClass !== "repo-read" && executionClass !== "admin",
     ),
-    localDescriptors = [...daemonProtocolCommands, ...daemonGuiActionMethods],
+    localDescriptors = [...daemonProtocolCommands, ...daemonActionRoutes],
     writerSources = walkTypeScriptFiles(REPO_ROOT, "packages/daemon/src").filter(
       (file) =>
         !file.startsWith("packages/daemon/src/daemon-host/protocol/") &&
@@ -933,7 +1008,7 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   }
   // Canonical GUI writes carry committed acceptance. Materialization and incident dismissal
   // settle host state (dec_9C43012EBB2754D7112F618F0D); control uses dedicated host receipts.
-  for (const { method, actionKind } of daemonGuiActionMethods.filter(
+  for (const { method, actionKind } of daemonActionRoutes.filter(
     ({ method }) => method !== "daemon.gui.control.request" && !method.startsWith("repo.terminal."),
   )) {
     const declaration = actionDeclarations.find((candidate) => candidate.kind === actionKind);
@@ -945,7 +1020,11 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   }
   assert.equal(actionDeclarations.find(({ kind }) => kind === "daemon-control-request")?.receiptSettlement, "none");
   assert.equal(
-    daemonGuiActionMethods.find(({ method }) => method === "daemon.gui.control.request")?.outputSchemaId,
+    daemonActionRoutes.find(({ method }) => method === "daemon.gui.control.request")?.outputSchemaId,
+    "daemon-control-receipt/v1",
+  );
+  assert.equal(
+    daemonReadRoutes.find(({ method }) => method === "daemon.gui.control.receipt")?.outputSchemaId,
     "daemon-control-receipt/v1",
   );
   for (const [method, actionKind, outputSchemaId] of [
@@ -955,11 +1034,11 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
     ["repo.terminal.terminate", "terminal-terminate", "terminal-control-receipt/v1"],
   ] as const) {
     assert.equal(actionDeclarations.find(({ kind }) => kind === actionKind)?.receiptSettlement, "none", method);
-    assert.equal(
-      daemonGuiActionMethods.find((candidate) => candidate.method === method)?.outputSchemaId,
-      outputSchemaId,
-    );
+    assert.equal(daemonActionRoutes.find((candidate) => candidate.method === method)?.outputSchemaId, outputSchemaId);
   }
+  const terminalDetach = daemonActionRoutes.find(({ method }) => method === "repo.terminal.detach");
+  assert.equal(terminalDetach?.commandClass, "repo-read");
+  assert.equal(terminalDetach?.outputSchemaId, "terminal-detach-ack/v1");
 });
 
 test("protocol descriptors preserve topology metadata without authorizing actions", () => {

@@ -7,6 +7,7 @@ import type { DecisionRow, TaskRow } from "../src/renderer/model/types.ts";
 import { decisionProjectionFields } from "./decision-projection-fields.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 
 export const mounted: { readonly root: Root; readonly client: QueryClient }[] = [];
 const definition = {
@@ -434,6 +435,12 @@ export function installBridge({
       watermark: 7,
       sourceRevision: 7,
     })),
+    readUseCaseProjection: async () => ({
+      schema: "daemon.use-case-projection/v1",
+      name: "runtime-session-groups",
+      ok: true,
+      projection: await bridge.getAgentRuntimeSessionGroups(),
+    }),
     getAgentRuntimeOverview: vi.fn(async () => ({
       ok: true,
       status: "ready",
@@ -480,7 +487,19 @@ export function installBridge({
   // 区域布局(dockview)构造时要经 window.document 建 DOM,布局偏好走 window.localStorage。
   const realWindow = window;
   vi.stubGlobal("window", {
-    harness: bridge,
+    harness: mockRpcBridge(bridge, {
+      "repo.tasks.completion.read": "getTaskCompletion",
+      "repo.tasks.document.read": "getTaskDocument",
+      "repo.tasks.documents.list": "getTaskDocuments",
+      "repo.tasks.deliveryDiff.read": "getTaskDeliveryDiff",
+      "repo.task.dispatches": "getTaskDispatches",
+      "repo.triadic.relationGraph": "getRelationGraph",
+      "repo.projection.read": "readUseCaseProjection",
+      "repo.agentRuntime.overview": "getAgentRuntimeOverview",
+      "repo.agentRuntime.sessions.read": "getAgentRuntimeSession",
+      "repo.agentRuntime.events.read": "getAgentRuntimeEvents",
+      "repo.agentRuntime.tokenUsage": "getAgentRuntimeTokenUsage",
+    }),
     document,
     localStorage: realWindow.localStorage,
     addEventListener: () => undefined,

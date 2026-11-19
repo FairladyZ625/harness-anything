@@ -2,15 +2,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { assertDaemonHello, daemonHelloParams } from "../src/daemon-host/client/daemon-hello.ts";
-import { shape, validateShape } from "../src/daemon-host/protocol/daemon-protocol-gui-types.ts";
+import { shape, validateShape } from "../src/daemon-host/protocol/daemon-protocol-results.ts";
 import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
 
 // The hello schema of the previous release (98b51e9), frozen verbatim. The previous daemon is
 // already running when a new CLI starts, so this is the object its closed validator sees: any new
 // field is rejected with `unknown_field` before version negotiation can happen. Keep this copy
-// until the 1.0 compatibility window closes (by 2026-12-04 or when the current minor becomes 1.1),
-// then replace it with the 1.1 schema and bump the protocol minor.
+// until the 1.0 unary compatibility window closes (by 2026-12-04).
 const previousHelloParams = shape({
   protocolVersion: shape({ major: "number", minor: "number" }),
   sessionEnvironment: "json?",
@@ -35,10 +34,55 @@ test("a current client completes hello against the frozen previous-release contr
     reply = previousDaemonHello(params);
 
   assert.equal(params.buildCommit, undefined, "a hello field with no daemon consumer must not be sent");
+  assert.deepEqual(params.protocolVersion, { major: 1, minor: 0 });
   // The bare reply is exactly what the previous diagnostics worker returned; the main daemon shape
   // also reports the version. Both must be admitted without widening the window itself.
   assertDaemonHello(reply);
   assertDaemonHello({ ok: true, protocolVersion: currentDaemonProtocolVersion });
+});
+
+test("a 1.0 hello admits unary calls and refuses stream attach before decoding old cursors", async () => {
+  const { createJsonRpcProtocolServer } = await import("../src/daemon-host/protocol/json-rpc-server.ts");
+  let attaches = 0;
+  const server = createJsonRpcProtocolServer({
+    host: {
+      read: async () => ({ ok: true }),
+      attach: async () => {
+        attaches++;
+        return {
+          initial: { ok: false, code: "unsupported", runtimeSessionId: "runtime-a", hint: "unsupported" },
+          detach: () => undefined,
+          next: async () => null,
+        };
+      },
+    } as never,
+    authContext: { transportKind: "unix-socket" },
+    build: { loadedBuildId: null, commit: null, builtAt: null },
+    emit: async () => undefined,
+  });
+  const call = async (method: string, params: JsonObject = {}) => {
+    const response = await server.handle({ jsonrpc: "2.0", id: 1, method, params });
+    assert.ok(response && "result" in response);
+    return response.result as JsonObject;
+  };
+  const repo = { repoId: "repo-a" },
+    runtimeSessionId = "runtime-a";
+  try {
+    assert.equal((await call("protocol.hello", { protocolVersion: { major: 1, minor: 0 } })).ok, true);
+    assert.equal((await call("repo.agentRuntime.sessions.read", { repo, payload: { runtimeSessionId } })).ok, true);
+    const blocked = await call("repo.agentRuntime.attach", {
+      repo,
+      payload: { runtimeSessionId, afterCursor: "old:1" },
+    });
+    assert.equal(blocked.code, "protocol_upgrade_required");
+    assert.match(String(blocked.rejectionExplanation), /matching CLI, GUI, and daemon releases/u);
+    assert.equal(attaches, 0);
+    assert.equal((await call("protocol.hello", { protocolVersion: currentDaemonProtocolVersion })).ok, true);
+    assert.equal((await call("repo.agentRuntime.attach", { repo, payload: { runtimeSessionId } })).code, "unsupported");
+    assert.equal(attaches, 1);
+  } finally {
+    server.close();
+  }
 });
 
 test("the round trip still refuses a peer outside the current/previous window", () => {
@@ -67,7 +111,7 @@ test("a daemon rejection keeps its own code instead of becoming a version mismat
 test("lifecycle reads require an advertised connection opt-in; previous peers keep their closed DTO", async () => {
   const { makeAgentRuntimeReadModel } = await import("../src/daemon-host/agent-runtime-read.ts"),
     { createJsonRpcProtocolServer } = await import("../src/daemon-host/protocol/json-rpc-server.ts"),
-    { parseDaemonGuiReadResponse } = await import("../src/daemon-host/protocol/gui-result-validation.ts");
+    { parseDaemonReadResponse } = await import("../src/daemon-host/protocol/daemon-result-validation.ts");
   const session = {
     runtimeSessionId: "runtime-test",
     providerSessionId: null,
@@ -132,11 +176,11 @@ test("lifecycle reads require an advertised connection opt-in; previous peers ke
     "context",
   ]);
   assert.ok(Object.keys(previous.session as JsonObject).every((key) => previousFields.has(key)));
-  assert.doesNotThrow(() => parseDaemonGuiReadResponse("repo.agentRuntime.sessions.read", previous));
+  assert.doesNotThrow(() => parseDaemonReadResponse("repo.agentRuntime.sessions.read", previous));
   await call("protocol.dispatchLifecycle.enable");
   const next = await call("repo.agentRuntime.sessions.read", params);
   assert.deepEqual((next.session as JsonObject).lifecycle, current.session.lifecycle);
-  assert.doesNotThrow(() => parseDaemonGuiReadResponse("repo.agentRuntime.sessions.read", next));
+  assert.doesNotThrow(() => parseDaemonReadResponse("repo.agentRuntime.sessions.read", next));
   const { PassThrough, Writable } = await import("node:stream"),
     { JsonRpcLineClient } = await import("../src/daemon-host/client/local-json-rpc-client.ts"),
     input = new PassThrough();

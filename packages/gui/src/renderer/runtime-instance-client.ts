@@ -1,7 +1,7 @@
 import type * as DomainStatus from "../api/renderer-dto.ts";
 import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
 import type { TerminalControlReceipt } from "@harness-anything/daemon/protocol";
-import { guiHostBridge } from "./gui-transport.ts";
+import { invoke } from "./api-client-invoke.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 export interface RuntimeInstallationRow {
   readonly installationId: string;
@@ -61,69 +61,39 @@ export type RuntimeInstanceCreateInput = RuntimeInstanceCreateCommon & {
   readonly kindId: string;
   readonly [field: string]: unknown;
 } & ({ readonly authMode: "subscription" } | { readonly authMode: "api-key"; readonly apiKey: string });
-type Bridge = {
-  readonly listRuntimeInstances: (payload: { readonly all: true; readonly repoId?: string }) => Promise<unknown>;
-  readonly showRuntimeInstance: (payload: {
-    readonly instanceId: string;
-    readonly probe?: boolean;
-    readonly repoId?: string;
-  }) => Promise<unknown>;
-  readonly createRuntimeInstance: (
-    payload: RuntimeInstanceCreateInput & { readonly repoId?: string },
-  ) => Promise<unknown>;
-  readonly updateRuntimeInstance: (
-    payload: RuntimeInstanceUpdateInput & { readonly repoId?: string },
-  ) => Promise<unknown>;
-  readonly deleteRuntimeInstance: (payload: {
-    readonly instanceId: string;
-    readonly repoId?: string;
-  }) => Promise<unknown>;
-  readonly signInRuntimeInstance: (payload: AuthInput) => Promise<unknown>;
-  readonly signOutRuntimeInstance: (payload: AuthInput) => Promise<unknown>;
-};
-type AuthInput = { readonly repoId: string; readonly instanceId: string; readonly idempotencyKey: string };
-const bridge = (): Bridge => {
-  const value = guiHostBridge() as unknown as Partial<Bridge> | undefined,
-    required = [
-      "listRuntimeInstances",
-      "showRuntimeInstance",
-      "createRuntimeInstance",
-      "updateRuntimeInstance",
-      "deleteRuntimeInstance",
-      "signInRuntimeInstance",
-      "signOutRuntimeInstance",
-    ] as const;
-  if (!value || required.some((method) => typeof value[method] !== "function"))
-    throw new Error("Runtime instance bridge is unavailable.");
-  return value as Bridge;
-};
 export const runtimeInstanceClient = {
   list: async (repoId?: string): Promise<RuntimeInstanceCatalog> =>
-    runtimeInstanceCatalog(await bridge().listRuntimeInstances({ all: true, ...scope(repoId) })),
+    runtimeInstanceCatalog(await invoke("daemon.runtimeInstance.list", { all: true, ...scope(repoId) })),
   show: (instanceId: string, repoId?: string) =>
-    runtimeInstanceReceipt(bridge().showRuntimeInstance({ instanceId, ...scope(repoId) })),
+    runtimeInstanceReceipt(invoke("daemon.runtimeInstance.show", { instanceId, ...scope(repoId) })),
   create: (input: RuntimeInstanceCreateInput, repoId?: string) =>
-    runtimeInstanceReceipt(bridge().createRuntimeInstance({ ...input, ...scope(repoId) })),
+    runtimeInstanceReceipt(invoke("daemon.runtimeInstance.create", { ...input, ...scope(repoId) })),
   update: (input: RuntimeInstanceUpdateInput, repoId?: string) =>
-    runtimeInstanceReceipt(bridge().updateRuntimeInstance({ ...input, ...scope(repoId) })),
+    runtimeInstanceReceipt(invoke("daemon.runtimeInstance.update", { ...input, ...scope(repoId) })),
   setEnabled: (instanceId: string, enabled: boolean, repoId?: string) =>
     runtimeInstanceClient.update({ instanceId, enabled }, repoId),
   delete: (instanceId: string, repoId?: string) =>
-    runtimeInstanceReceipt(bridge().deleteRuntimeInstance({ instanceId, ...scope(repoId) })),
+    runtimeInstanceReceipt(invoke("daemon.runtimeInstance.delete", { instanceId, ...scope(repoId) })),
   probe: async (instanceId: string, repoId?: string): Promise<RuntimeInstanceSummary> =>
     runtimeInstanceSummary(
-      (await runtimeInstanceReceipt(bridge().showRuntimeInstance({ instanceId, probe: true, ...scope(repoId) })))
-        .instance,
+      (
+        await runtimeInstanceReceipt(
+          invoke("daemon.runtimeInstance.show", { instanceId, probe: true, ...scope(repoId) }),
+        )
+      ).instance,
     ),
-  auth: async (repoId: string, instanceId: string, action: "login" | "logout"): Promise<TerminalControlReceipt> =>
+  login: async (repoId: string, instanceId: string): Promise<TerminalControlReceipt> =>
     runtimeInstanceTerminal(
-      await bridge()[action === "login" ? "signInRuntimeInstance" : "signOutRuntimeInstance"]({
-        repoId,
-        instanceId,
-        idempotencyKey: `runtime-auth-${action}-${instanceId}-${crypto.randomUUID()}`,
-      }),
+      await invoke("repo.runtimeInstance.auth.login", runtimeInstanceAuthPayload(repoId, instanceId, "login")),
+    ),
+  logout: async (repoId: string, instanceId: string): Promise<TerminalControlReceipt> =>
+    runtimeInstanceTerminal(
+      await invoke("repo.runtimeInstance.auth.logout", runtimeInstanceAuthPayload(repoId, instanceId, "logout")),
     ),
 };
+function runtimeInstanceAuthPayload(repoId: string, instanceId: string, operation: "login" | "logout") {
+  return { repoId, instanceId, idempotencyKey: `runtime-auth-${operation}-${instanceId}-${crypto.randomUUID()}` };
+}
 const scope = (repoId?: string) => (repoId === undefined ? {} : { repoId });
 async function runtimeInstanceReceipt(value: Promise<unknown>): Promise<Record<string, unknown>> {
   const result = await value;

@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
@@ -107,7 +108,13 @@ beforeEach(() => {
       revision: read.revision,
     };
   });
-  Object.defineProperty(window, "harness", { configurable: true, value: { getSettings, updateSettings } });
+  Object.defineProperty(window, "harness", {
+    configurable: true,
+    value: mockRpcBridge(
+      { getSettings, updateSettings },
+      { "repo.settings.read": "getSettings", "repo.settings.update": "updateSettings" },
+    ),
+  });
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   container = document.createElement("div");
   document.body.append(container);

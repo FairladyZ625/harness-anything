@@ -1,6 +1,7 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: integration
 // @vitest-environment happy-dom
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, createElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -249,6 +250,8 @@ beforeAll(() => {
   setActiveLocale("en-US");
 });
 
+beforeEach(() => vi.stubGlobal("harness", {}));
+
 afterEach(async () => {
   await act(async () => {
     for (const { root, client } of mounted.splice(0)) {
@@ -260,6 +263,7 @@ afterEach(async () => {
   window.sessionStorage.clear();
   window.localStorage.clear();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("runtime entry split (W6 IA)", () => {
@@ -1531,7 +1535,26 @@ describe("runtime entry split (W6 IA)", () => {
         "signOutRuntimeInstance",
       ].map((method) => [method, async () => receipt]),
     );
-    vi.stubGlobal("window", { ...window, harness: bridge });
+    vi.stubGlobal("window", {
+      ...window,
+      harness: mockRpcBridge(bridge, {
+        "observe.tail": "tailObservability",
+        "repo.decisions.list": "getDecisions",
+        "repo.task.dispatches": "getTaskDispatches",
+        "repo.agent.entities.list": "listAgents",
+        "repo.squad.runs.list": "listSquadRuns",
+        "repo.squad.run.read": "readSquadRun",
+        "repo.receipt.show": "showReceipt",
+        "repo.agent.entity.write": "saveAgent",
+        "daemon.runtimeInstance.create": "createRuntimeInstance",
+        "daemon.runtimeInstance.list": "listRuntimeInstances",
+        "daemon.runtimeInstance.show": "showRuntimeInstance",
+        "daemon.runtimeInstance.update": "updateRuntimeInstance",
+        "daemon.runtimeInstance.delete": "deleteRuntimeInstance",
+        "repo.runtimeInstance.auth.login": "signInRuntimeInstance",
+        "repo.runtimeInstance.auth.logout": "signOutRuntimeInstance",
+      }),
+    });
     try {
       await expect(runtimeInstanceClient.update({ instanceId: "provider-edit", models: ["fable"] })).rejects.toThrow(
         "Installation is no longer witnessed.",

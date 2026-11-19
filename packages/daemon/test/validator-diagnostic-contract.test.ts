@@ -2,9 +2,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  parseDaemonGuiReadResponse,
+  parseDaemonReadResponse,
   validateDaemonSettingsRead,
-} from "../src/daemon-host/protocol/gui-result-validation.ts";
+} from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import { daemonSettingsRead } from "../src/daemon-host/protocol/daemon-settings-read-types.ts";
 import { INITIAL_SETTINGS_V1 } from "@harness-anything/kernel";
 import {
@@ -542,7 +542,7 @@ test("daemon settings exit stays closed while the GUI client accepts fields a ne
       },
       values: { ...read.values, daemonAddedActionValue: [{ id: "new-value" }] },
     },
-    parsed = parseDaemonGuiReadResponse("repo.settings.read", newer);
+    parsed = parseDaemonReadResponse("repo.settings.read", newer);
   assert.match(
     validateDaemonSettingsRead(newer).join("\n"),
     /field=settings/u,
@@ -563,7 +563,7 @@ test("daemon settings exit stays closed while the GUI client accepts fields a ne
   );
   assert.throws(
     () =>
-      parseDaemonGuiReadResponse("repo.settings.read", {
+      parseDaemonReadResponse("repo.settings.read", {
         ...newer,
         values: { ...newer.values, runtimeCommandInterceptions: ["invalid"] },
       }),

@@ -15,8 +15,8 @@ describe("GUI transport adapters", () => {
   it("drives Electron and browser adapters with the same canonical request", async () => {
     const canonical = { repo: { repoId: "canonical" }, payload: { limit: 1 } } as const;
     const electronRequest = vi.fn(async () => ({ ok: true }));
-    await createElectronGuiTransport({ request: electronRequest }).request("repo.tasks.list", canonical, "getTasks");
-    expect(electronRequest).toHaveBeenCalledWith("getTasks", { repoId: "canonical", limit: 1 });
+    await createElectronGuiTransport({ request: electronRequest }).request("repo.tasks.list", canonical);
+    expect(electronRequest).toHaveBeenCalledWith("repo.tasks.list", canonical);
 
     const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
     vi.stubGlobal("fetch", fetch);
@@ -34,16 +34,8 @@ describe("GUI transport adapters", () => {
       repo: { repoId: "canonical" },
       payload: { locale: "zh-CN", idempotencyKey: "shared-write-fixture" },
     } as const;
-    await createElectronGuiTransport({ request: electronRequest }).request(
-      "repo.settings.update",
-      write,
-      "updateSettings",
-    );
-    expect(electronRequest).toHaveBeenLastCalledWith("updateSettings", {
-      repoId: "canonical",
-      locale: "zh-CN",
-      idempotencyKey: "shared-write-fixture",
-    });
+    await createElectronGuiTransport({ request: electronRequest }).request("repo.settings.update", write);
+    expect(electronRequest).toHaveBeenLastCalledWith("repo.settings.update", write);
     await createBrowserGuiTransport("secret").request("repo.settings.update", write);
     expect(fetch).toHaveBeenLastCalledWith(
       "/rpc",
@@ -53,10 +45,35 @@ describe("GUI transport adapters", () => {
 
   it("enables canonical writes and makes native browser gaps explicit", () => {
     expect(createBrowserGuiTransport("secret").capabilities()).toMatchObject({
-      terminal: { status: "unavailable" },
+      stream: { status: "available" },
+      terminal: { status: "available" },
       nativeFiles: { status: "unavailable" },
       writes: { status: "available" },
     });
+  });
+
+  it("delivers a terminal IPC failure through the error callback with its original code", () => {
+    const onValue = vi.fn(),
+      onError = vi.fn(),
+      unsubscribe = vi.fn();
+    const transport = createElectronGuiTransport({
+      subscribe(_method, _params, receive) {
+        receive({ schema: "daemon-stream-failure/v1", code: "invalid_result", hint: "Invalid upstream frame." });
+        return unsubscribe;
+      },
+    });
+    const stop = transport.subscribe(
+      "repo.agentRuntime.attach",
+      { repo: { repoId: "canonical" }, payload: { runtimeSessionId: "runtime" } },
+      onValue,
+      onError,
+    );
+    expect(onError).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ code: "invalid_result", message: "Invalid upstream frame." }),
+    );
+    expect(onValue).not.toHaveBeenCalled();
+    stop();
+    expect(unsubscribe).toHaveBeenCalledOnce();
   });
 
   it("retains browser credentials across a same-tab reload after clearing the fragment", async () => {

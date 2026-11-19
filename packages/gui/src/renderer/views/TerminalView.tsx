@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { DockviewApi } from "dockview-react";
 import type { TerminalSessionRow } from "@harness-anything/daemon/protocol";
 import {
+  applyTerminalAttachment,
   closeTerminalTab,
   mostRecentAttachableTerminal,
   reconcileTerminalGeneration,
@@ -148,8 +149,7 @@ export function TerminalView({
   const onSessionExitRef = useRef(onSessionExit);
   onSessionExitRef.current = onSessionExit;
   const exitedSessions = useRef(new Set<string>());
-  const ackSeq = useRef(new Map<string, number>()),
-    inflight = useRef(new Map<string, Promise<void>>());
+  const terminalInputs = useRef(new Map<string, ReturnType<typeof newTerminalInput>>());
   const initialised = useRef(new Set<string>());
   const [error, setError] = useState<string | null>(null),
     [confirmId, setConfirmId] = useState<string | null>(null);
@@ -232,24 +232,31 @@ export function TerminalView({
       });
       setError(null);
       try {
-        const stop = terminalClient.attach(repoId, row.sessionId, afterSeq, (value) => {
-          if (!isInitial(value) && value.kind === "exit" && !exitedSessions.current.has(row.sessionId)) {
-            exitedSessions.current.add(row.sessionId);
-            onSessionExitRef.current?.(row.sessionId);
-          }
-          setTabs((current) =>
-            current.map((tab) => {
-              if (tab.sessionId !== row.sessionId) return tab;
-              if (!isInitial(value)) return reduceTerminalStream(tab, value);
-              return {
-                ...tab,
-                daemonGeneration: value.daemonGeneration,
-                attachmentId: value.attachmentId,
-                notice: value.status === "gap" ? t("terminal.view.replayGap") : tab.notice,
-              };
-            }),
-          );
-        });
+        const stop = terminalClient.attach(
+          repoId,
+          row.sessionId,
+          afterSeq,
+          (value) => {
+            const initial = isInitial(value);
+            if (initial) {
+              const previous = terminalInputs.current.get(row.sessionId);
+              // A restored tmux session keeps its id but starts a new input sequence.
+              if (previous?.daemonGeneration !== value.daemonGeneration)
+                terminalInputs.current.set(row.sessionId, newTerminalInput(value.daemonGeneration));
+            } else if (value.kind === "exit" && !exitedSessions.current.has(row.sessionId)) {
+              exitedSessions.current.add(row.sessionId);
+              onSessionExitRef.current?.(row.sessionId);
+            }
+            setTabs((current) =>
+              current.map((tab) => {
+                if (tab.sessionId !== row.sessionId) return tab;
+                if (!initial) return reduceTerminalStream(tab, value);
+                return applyTerminalAttachment(tab, value, t("terminal.view.replayGap"));
+              }),
+            );
+          },
+          (cause) => setError(message(cause)),
+        );
         stops.current.set(row.sessionId, stop);
       } catch (cause) {
         consumeKnownError(cause);
@@ -463,17 +470,23 @@ export function TerminalView({
   );
   const send = useCallback(
     (sessionId: string, utf8: string) => {
-      const tail = inflight.current.get(sessionId) ?? Promise.resolve();
-      const next = tail
+      const input = terminalInputs.current.get(sessionId);
+      if (!input) return;
+      input.tail = input.tail
         .then(async () => {
-          const seq = (ackSeq.current.get(sessionId) ?? 0) + 1;
-          ackSeq.current.set(sessionId, await terminalClient.input(repoId, sessionId, seq, utf8));
+          if (terminalInputs.current.get(sessionId) !== input) return;
+          input.acceptedThrough = await terminalClient.input(
+            repoId,
+            sessionId,
+            input.daemonGeneration,
+            input.acceptedThrough + 1,
+            utf8,
+          );
         })
         .catch((cause: unknown) => {
           consumeKnownError(cause);
-          setError(message(cause));
+          if (terminalInputs.current.get(sessionId) === input) setError(message(cause));
         });
-      inflight.current.set(sessionId, next);
     },
     [repoId],
   );
@@ -592,6 +605,7 @@ export function TerminalView({
   const paneActions = useMemo<TerminalPaneActions>(
     () => ({
       session: (sessionId) => tabs.find((tab) => tab.sessionId === sessionId) ?? null,
+      canInput: (sessionId) => terminalInputs.current.has(sessionId),
       focusedPanelId,
       focusRequestId: attachedRequestId,
       confirmSessionId: confirmId,
@@ -759,7 +773,7 @@ function tabFromRow(
     sessionId: row.sessionId,
     name: row.name,
     state: row.status,
-    daemonGeneration,
+    daemonGeneration: existing?.daemonGeneration ?? daemonGeneration,
     attachmentId: null,
     lastSeq: existing?.lastSeq ?? afterSeq,
     output: existing?.output ?? "",
@@ -777,6 +791,9 @@ function isInitial(
   value: TerminalAttachInitial | import("../terminal-model.ts").TerminalStreamFrame,
 ): value is TerminalAttachInitial {
   return value.schema === "terminal-attach/v1";
+}
+function newTerminalInput(daemonGeneration: number) {
+  return { daemonGeneration, acceptedThrough: 0, tail: Promise.resolve() };
 }
 function message(value: unknown): string {
   return value instanceof Error ? value.message : String(value);

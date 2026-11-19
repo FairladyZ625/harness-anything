@@ -4,5 +4,5 @@
   { "path": "packages/gui/src/main/agent-runtime-ipc.ts", "module": "agent-runtime" },
   { "path": "packages/gui/src/renderer/views/agent-runtime-view.tsx", "module": "agent-runtime" },
   { "path": "packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts", "module": "daemon" },
-  { "path": "packages/gui/src/api/api-contract-registry.ts", "module": "gui" }
+  { "path": "packages/gui/src/browser/browser-gui-transport.ts", "module": "gui" }
 ]

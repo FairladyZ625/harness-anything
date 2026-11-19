@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 // @vitest-environment happy-dom
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -63,6 +63,8 @@ beforeAll(() => {
   setActiveLocale("en-US");
 });
 
+beforeEach(() => vi.stubGlobal("harness", {}));
+
 afterEach(async () => {
   await act(async () => {
     for (const { root, client } of mounted.splice(0)) {
@@ -72,6 +74,7 @@ afterEach(async () => {
   });
   document.body.replaceChildren();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 async function flushEffects() {

@@ -24,16 +24,16 @@ import { taskExecutionProtocolCommands } from "./daemon-protocol-commands-task.t
 import { peopleProtocolCommands } from "./daemon-protocol-commands-people.ts";
 import { relationProtocolCommands } from "./daemon-protocol-commands-relation.ts";
 import {
-  daemonGuiActionMethods,
-  daemonGuiInvokeFacets,
+  daemonActionRoutes,
+  interactiveRpcMethods,
   daemonStreamFacets,
   providerMethods,
   runtimeInstanceAuthMethods,
   runtimeInstanceMethods,
-} from "./daemon-protocol-gui-actions.ts";
-import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
+} from "./daemon-protocol-action-routes.ts";
+import { daemonReadRoutes } from "./daemon-protocol-read-routes.ts";
 import { DaemonProtocolContractError, type JsonObject } from "./json-rpc-types.ts";
-import { optionalEnum, shape } from "./daemon-protocol-gui-types.ts";
+import { declaredActionClass, optionalEnum, shape } from "./daemon-protocol-results.ts";
 import { AGENDA_PIN_CRITERIA, daemonRepoModeWords } from "./daemon-protocol-vocabulary.ts";
 
 const settingsWriteTopology = {
@@ -276,8 +276,9 @@ export function maybeCommandDescriptorForAction(kind: string) {
 
 export function commandClassForAction(kind: string): "repo-read" | "repo-write" | "arbiter" | "admin" {
   const command = commandDescriptorByActionKind.get(kind),
-    guiAction = guiActionDescriptorByKind.get(kind);
+    guiAction = namedActionDescriptorByKind.get(kind);
   return (
+    declaredActionClass(kind) ??
     command?.commandClass ??
     guiAction?.commandClass ??
     daemonRepositoryReadMethods.find((entry) => entry.id === kind)?.commandClass ??
@@ -291,12 +292,6 @@ export function repoCellExecutionForAction(kind: string): "query-only" | "writer
 }
 
 export function actionForDaemonMethod(method: string, payload: JsonObject): JsonObject & { readonly kind: string } {
-  if (method === "repo.agentRuntime.steer") {
-    const descriptor = runtimeFleetProtocolCommands.find((entry) => entry.method === method);
-    if (!descriptor)
-      throw new DaemonProtocolContractError("unsupported_command", `No action descriptor exists for ${method}.`);
-    return { ...payload, kind: descriptor.id };
-  }
   if (method === "repo.task.run" || method === "repo.task.read") {
     const action = payload.action as JsonObject & { readonly kind: string },
       descriptor = commandDescriptorByActionKind.get(action.kind);
@@ -375,14 +370,12 @@ const commandDescriptorByActionKind: ReadonlyMap<string, (typeof daemonProtocolC
   ),
   actionDescriptorByMethod: ReadonlyMap<
     string,
-    | (typeof presetMethods)[number]
-    | (typeof daemonGuiActionMethods)[number]
-    | (typeof daemonRepositoryReadMethods)[number]
+    (typeof presetMethods)[number] | (typeof daemonActionRoutes)[number] | (typeof daemonRepositoryReadMethods)[number]
   > = new Map(
-    [...presetMethods, ...daemonGuiActionMethods, ...daemonRepositoryReadMethods].map((entry) => [entry.method, entry]),
+    [...presetMethods, ...daemonActionRoutes, ...daemonRepositoryReadMethods].map((entry) => [entry.method, entry]),
   ),
-  guiActionDescriptorByKind: ReadonlyMap<string, (typeof daemonGuiActionMethods)[number]> = new Map(
-    daemonGuiActionMethods.map((entry) => [entry.actionKind, entry]),
+  namedActionDescriptorByKind: ReadonlyMap<string, (typeof daemonActionRoutes)[number]> = new Map(
+    daemonActionRoutes.map((entry) => [entry.actionKind, entry]),
   ),
   presetCommandByMethod: ReadonlyMap<string, (typeof presetCommands)[number]> = new Map(
     presetCommands.map((entry) => [entry.method, entry]),
@@ -396,8 +389,8 @@ export const daemonMethodNameSets: {
   readonly stream: ReadonlySet<string>;
 } = {
   preset: new Set(presetMethods.map((entry) => entry.method)),
-  guiRead: new Set([...daemonGuiReadMethods, ...daemonRepositoryReadMethods].map((entry) => entry.method)),
-  guiAction: new Set(daemonGuiActionMethods.map((entry) => entry.method)),
+  guiRead: new Set([...daemonReadRoutes, ...daemonRepositoryReadMethods].map((entry) => entry.method)),
+  guiAction: new Set(daemonActionRoutes.map((entry) => entry.method)),
   stream: new Set(daemonStreamFacets.map((entry) => entry.method)),
 };
 
@@ -455,7 +448,7 @@ export const daemonProtocolMethods = Object.freeze([
     params: shape({
       protocolVersion: shape({ major: "number", minor: "number" }),
       // Accepted only for the 1.0 compatibility window: the 2026-11-03 CLI sent it and no daemon
-      // reads it. Remove by 2026-12-04 or when the current minor advances to 1.1, whichever is first.
+      // reads it. Remove by 2026-12-04, with the unary 1.0 compatibility window.
       buildCommit: "string-null?",
       sessionEnvironment: "json?",
       executionCredential: "string?",
@@ -791,16 +784,6 @@ export const daemonProtocolMethods = Object.freeze([
     }),
   },
   {
-    id: "repo.agentRuntime.steer",
-    phase: "Runtime-B",
-    method: "repo.agentRuntime.steer",
-    requiresRepo: true,
-    params: shape({
-      repo: shape({ repoId: "string" }),
-      payload: shape({ runtimeSessionId: "string?", dispatchId: "string?", prompt: "string", expected: "json?" }),
-    }),
-  },
-  {
     id: "repo.task.read",
     phase: "W3",
     method: "repo.task.read",
@@ -813,7 +796,7 @@ export const daemonProtocolMethods = Object.freeze([
 ] as const);
 
 /* Runtime instance method descriptors live in the browser-safe protocol graph. */
-export { daemonGuiInvokeFacets, providerMethods, runtimeInstanceAuthMethods, runtimeInstanceMethods };
+export { interactiveRpcMethods, providerMethods, runtimeInstanceAuthMethods, runtimeInstanceMethods };
 
 export const fleetProtocolMethods = Object.freeze([
   {
@@ -879,18 +862,32 @@ export const fleetProtocolMethods = Object.freeze([
   },
 ] as const);
 
-export const allDaemonProtocolMethods = Object.freeze([
+export const daemonOwnedRpcMethods = Object.freeze([
   ...daemonProtocolMethods,
   ...runtimeInstanceMethods,
   ...providerMethods,
   ...runtimeInstanceAuthMethods,
   ...fleetProtocolMethods,
-  ...presetMethods,
-  ...daemonGuiReadMethods,
+  ...daemonReadRoutes,
   ...daemonRepositoryReadMethods,
-  ...daemonGuiActionMethods,
+  ...daemonActionRoutes.filter(({ method }) => method !== "repo.task.create"),
   ...daemonStreamFacets,
 ]);
+export const allDaemonProtocolMethods = Object.freeze([...daemonOwnedRpcMethods, ...presetMethods]);
+export const daemonRpcByMethod = indexRpcDescriptors(allDaemonProtocolMethods);
+
+/** dec_89D06D7360CBEC09795F7B12EC/CH3: a second route may never replace a registered codec. */
+export function indexRpcDescriptors<Descriptor extends { readonly method: string }>(
+  descriptors: readonly Descriptor[],
+): ReadonlyMap<string, Descriptor> {
+  const indexed = new Map<string, Descriptor>();
+  for (const descriptor of descriptors) {
+    if (indexed.has(descriptor.method))
+      throw new DaemonProtocolContractError("duplicate_rpc_method", `Duplicate RPC method: ${descriptor.method}.`);
+    indexed.set(descriptor.method, descriptor);
+  }
+  return indexed;
+}
 
 export type DaemonRpcDescriptor = (typeof allDaemonProtocolMethods)[number];
 export type DaemonRpcMethod = DaemonRpcDescriptor["method"];

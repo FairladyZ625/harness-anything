@@ -9,6 +9,7 @@ import { VerticalKindForm } from "../src/renderer/components/entityDoc/VerticalK
 import { sourceIdentityOf } from "../src/renderer/entity-import-preview.ts";
 import type { ArtifactKindDeclaration } from "../src/renderer/vertical-kind-client.ts";
 import type { ViewId } from "../src/renderer/navigation/viewHistory.ts";
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 
 /**
  * `entities-view.vitest.ts` 这一条测试自己的素材与挂载脚手架。
@@ -22,6 +23,18 @@ import type { ViewId } from "../src/renderer/navigation/viewHistory.ts";
 export const REPO_ID = "repo-entities";
 export const noop = () => undefined;
 export const mounted: { root: Root; container: HTMLElement }[] = [];
+const entityReadRoutes = {
+  "repo.workspace.summary.read": "getWorkspaceSummary",
+  "repo.gui.catalog.snapshot": "getCatalogSnapshot",
+  "repo.agent.entities.list": "listAgents",
+  "repo.squad.entities.list": "listSquads",
+  "repo.entity.kinds.read": "readEntityKinds",
+  "repo.entity.rows.read": "readEntityRows",
+  "repo.vertical.declaration.read": "readVerticalDeclaration",
+  "repo.entity.locator.read": "readEntityLocator",
+  "repo.entity.content.read": "readEntityContent",
+  "repo.triadic.relationGraph": "getRelationGraph",
+} as const;
 
 /** 声明 kind 的稳定身份:目录与行的 kind 名都是它,不带任何版本段。 */
 export const ADR_KIND_ID = "KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94";
@@ -134,7 +147,7 @@ export function stubBridge(
   } = {},
 ) {
   const calls = { relationGraph: 0, upserts: [] as object[], publishes: [] as object[], retires: [] as object[] };
-  vi.stubGlobal("window", {
+  const fixtureWindow = {
     harness: {
       getWorkspaceSummary: vi.fn(async () => ({
         schema: "daemon.workspace-summary/v1",
@@ -279,7 +292,14 @@ export function stubBridge(
         };
       }),
     },
+  };
+  mockRpcBridge(fixtureWindow.harness, {
+    ...entityReadRoutes,
+    "repo.vertical.kind.upsert": "upsertVerticalKind",
+    "repo.vertical.kind.publishSchema": "publishVerticalKindSchema",
+    "repo.vertical.kind.retire": "retireVerticalKind",
   });
+  vi.stubGlobal("window", fixtureWindow);
   return calls;
 }
 
@@ -404,7 +424,7 @@ export function stubCrudBridge(
     archives: [],
     deletes: [],
   };
-  vi.stubGlobal("window", {
+  const fixtureWindow = {
     harness: {
       getWorkspaceSummary: vi.fn(async () => ({
         schema: "daemon.workspace-summary/v1",
@@ -431,7 +451,13 @@ export function stubCrudBridge(
       })),
       listAgents: vi.fn(async () => ({ schema: "agent-entity-catalog/v1", ok: true, agents: [] })),
       listSquads: vi.fn(async () => ({ schema: "squad-entity-catalog/v1", ok: true, squads: [] })),
-      listSchedules: vi.fn(async () => ({ ok: true, status: "ready", schedules: [], watermark: 0, sourceRevision: 0 })),
+      listSchedules: vi.fn(async () => ({
+        ok: true,
+        status: "ready",
+        schedules: [],
+        watermark: 0,
+        sourceRevision: 0,
+      })),
       getRelationGraph: vi.fn(async () => ({
         ok: true,
         facet: "facts",
@@ -590,7 +616,15 @@ export function stubCrudBridge(
         };
       }),
     },
+  };
+  mockRpcBridge(fixtureWindow.harness, {
+    ...entityReadRoutes,
+    "repo.entity.import": "importEntity",
+    "repo.entity.update": "updateEntity",
+    "repo.entity.archive": "archiveEntity",
+    "repo.entity.delete": "deleteEntity",
   });
+  vi.stubGlobal("window", fixtureWindow);
   return state;
 }
 

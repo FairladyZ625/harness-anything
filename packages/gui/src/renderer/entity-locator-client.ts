@@ -2,7 +2,6 @@ import type * as DomainStatus from "../api/renderer-dto.ts";
 import type { GuiActionResult } from "../api/renderer-dto.ts";
 import { isRendererRecord, rendererReadError } from "./result-validation.ts";
 import type { EntityLocator, EntityLocatorReadOutcome } from "./entity-locator-renderer.ts";
-import { guiHostBridge } from "./gui-transport.ts";
 import { invoke } from "./api-client-invoke.ts";
 
 /**
@@ -23,16 +22,6 @@ export interface EntityLocatorContent {
   readonly truncated: boolean;
 }
 
-type LocatorBridge = {
-  readonly readEntityLocator: (payload: {
-    readonly repoId: string;
-    readonly locatorKind: string;
-    readonly locatorValue: string;
-  }) => Promise<unknown>;
-};
-
-const bridge = (): Partial<LocatorBridge> => (guiHostBridge() as unknown as Partial<LocatorBridge> | undefined) ?? {};
-
 /**
  * locator 正文读的 query 声明。渲染面与深链接预取共用同一份 key / 读函数 / 新鲜度 /
  * 适用判定,不在两处各拼一份——两处拼出不同的 key 就会各读一次,拼出不同的适用
@@ -49,9 +38,11 @@ export function entityLocatorContentQuery(repoId: string, locator: EntityLocator
 }
 
 export async function readEntityLocatorContent(repoId: string, locator: EntityLocator): Promise<EntityLocatorContent> {
-  const channel = bridge().readEntityLocator;
-  if (!channel) throw new Error("Entity locator bridge is unavailable.");
-  const value = await channel({ repoId, locatorKind: locator.kind, locatorValue: locator.value });
+  const value = await invoke("repo.entity.locator.read", {
+    repoId,
+    locatorKind: locator.kind,
+    locatorValue: locator.value,
+  });
   if (!isRendererRecord(value) || value.schema !== "entity-locator-read/v1" || typeof value.outcome !== "string")
     throw rendererReadError(value, "Entity locator bridge returned an invalid result.");
   return value as unknown as EntityLocatorContent;
@@ -90,21 +81,17 @@ export interface EntityImportInput {
  * GUI 如实显示这个结果,不重试、不改写 expectedVersion。
  */
 export async function importEntity(input: EntityImportInput): Promise<GuiActionResult> {
-  return (await invoke(
-    "repo.entity.import",
-    {
-      repoId: input.repoId,
-      entityKind: input.entityKind,
-      locator: input.locator,
-      locatorKind: input.locatorKind,
-      mode: input.mode,
-      expectedVersion: 0,
-      ...(input.contentVersion ? { contentVersion: input.contentVersion } : {}),
-      ...(input.title ? { title: input.title } : {}),
-      ...(input.attributes ? { attributes: input.attributes } : {}),
-    } as { readonly repoId: string } & object,
-    "importEntity",
-  )) as GuiActionResult;
+  return (await invoke("repo.entity.import", {
+    repoId: input.repoId,
+    entityKind: input.entityKind,
+    locator: input.locator,
+    locatorKind: input.locatorKind,
+    mode: input.mode,
+    expectedVersion: 0,
+    ...(input.contentVersion ? { contentVersion: input.contentVersion } : {}),
+    ...(input.title ? { title: input.title } : {}),
+    ...(input.attributes ? { attributes: input.attributes } : {}),
+  } as { readonly repoId: string } & object)) as GuiActionResult;
 }
 
 /**
@@ -122,11 +109,7 @@ export function updateEntity(input: {
   readonly contentVersion?: string;
   readonly attributes?: Readonly<Record<string, unknown>>;
 }): Promise<GuiActionResult> {
-  return invoke(
-    "repo.entity.update",
-    input as { readonly repoId: string } & object,
-    "updateEntity",
-  ) as Promise<GuiActionResult>;
+  return invoke("repo.entity.update", input as { readonly repoId: string } & object) as Promise<GuiActionResult>;
 }
 
 export function archiveEntity(input: {
@@ -136,11 +119,7 @@ export function archiveEntity(input: {
   readonly expectedVersion: number;
   readonly reason: string;
 }): Promise<GuiActionResult> {
-  return invoke(
-    "repo.entity.archive",
-    input as { readonly repoId: string } & object,
-    "archiveEntity",
-  ) as Promise<GuiActionResult>;
+  return invoke("repo.entity.archive", input as { readonly repoId: string } & object) as Promise<GuiActionResult>;
 }
 
 /**
@@ -157,11 +136,7 @@ export function deleteEntity(input: {
   readonly expectedVersion: number;
   readonly reason: string;
 }): Promise<GuiActionResult> {
-  return invoke(
-    "repo.entity.delete",
-    input as { readonly repoId: string } & object,
-    "deleteEntity",
-  ) as Promise<GuiActionResult>;
+  return invoke("repo.entity.delete", input as { readonly repoId: string } & object) as Promise<GuiActionResult>;
 }
 
 /** 回执不是 applied/no_changes 时的人话:优先中心给的 rejectionExplanation,否则报 outcome+code。 */

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { waitForArrival, waitForDurableCondition } from "../../../tools/fixtures/event-arrival.ts";
 import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import { openRemoteProxyManager } from "../src/daemon-host/remote-proxy.ts";
@@ -243,17 +244,28 @@ test(
       try {
         const gui = createLocalGuiServiceBridge();
         assert.equal(
-          ((await gui.invoke("createRuntimeInstance", { ...payload, repoId })) as Record<string, unknown>).ok,
+          (
+            (await gui.invoke(
+              "daemon.runtimeInstance.create",
+              scopedRpcParams("daemon.runtimeInstance.create", { ...payload, repoId }),
+            )) as Record<string, unknown>
+          ).ok,
           true,
         );
-        const receipt = (await gui.invoke("updateRuntimeInstance", {
-          repoId,
-          instanceId: "same-provider",
-          apiKey: apiKeyB,
-        })) as Record<string, unknown>;
+        const receipt = (await gui.invoke(
+          "daemon.runtimeInstance.update",
+          scopedRpcParams("daemon.runtimeInstance.update", {
+            repoId,
+            instanceId: "same-provider",
+            apiKey: apiKeyB,
+          }),
+        )) as Record<string, unknown>;
         assert.equal(receipt.ok, true, JSON.stringify(receipt));
         assert.equal(receipt.credentialChanged, true);
-        const list = await gui.invoke("listRuntimeInstances", { repoId, all: true });
+        const list = await gui.invoke(
+          "daemon.runtimeInstance.list",
+          scopedRpcParams("daemon.runtimeInstance.list", { repoId, all: true }),
+        );
         assert.doesNotMatch(JSON.stringify([receipt, list]), /fixture-remote-key-[ab]/u);
         assert.deepEqual([...vaultA.secrets.values()], [apiKeyA]);
         assert.deepEqual([...vaultB.secrets.values()], [apiKeyB]);
@@ -264,11 +276,14 @@ test(
           endpoint: "tcp://192.0.2.1:9911",
           createConvenienceLinks: false,
         });
-        const rejected = (await gui.invoke("updateRuntimeInstance", {
-          repoId: "unsafe-provider",
-          instanceId: "same-provider",
-          apiKey: apiKeyA,
-        })) as Record<string, unknown>;
+        const rejected = (await gui.invoke(
+          "daemon.runtimeInstance.update",
+          scopedRpcParams("daemon.runtimeInstance.update", {
+            repoId: "unsafe-provider",
+            instanceId: "same-provider",
+            apiKey: apiKeyA,
+          }),
+        )) as Record<string, unknown>;
         assert.equal(rejected.code, "runtime_credential_transport_unsafe");
         assert.doesNotMatch(JSON.stringify(rejected), /fixture-remote-key-[ab]/u);
         assert.deepEqual([...vaultA.secrets.values()], [apiKeyA]);
@@ -319,7 +334,12 @@ test(
       streamArrivals = new Set<() => void>();
     const waitForStreamValue = (predicate: (value: Record<string, unknown>) => boolean) =>
       waitForArrival(
-        () => (streamValues.some(predicate) ? true : null),
+        () =>
+          streamValues.some(
+            (value) => predicate(value) || (Array.isArray(value.events) && value.events.some(predicate)),
+          )
+            ? true
+            : null,
         (arrive) => {
           streamArrivals.add(arrive);
           return () => streamArrivals.delete(arrive);
@@ -333,7 +353,7 @@ test(
       socketPath: endpointA,
       repoId,
       method: "repo.agentRuntime.attach",
-      payload: { runtimeSessionId, afterCursor: "stream:0" },
+      payload: { runtimeSessionId },
       timeoutMs: 2_000,
       onValue: (value) => {
         streamValues.push(value as Record<string, unknown>);
@@ -406,7 +426,6 @@ test(
         await assert.rejects(
           freshProxy.stream("mismatch-repo", "repo.agentRuntime.attach", {
             runtimeSessionId: "mismatch",
-            afterCursor: "stream:0",
           }),
           { code: "incompatible_protocol_version" },
         );

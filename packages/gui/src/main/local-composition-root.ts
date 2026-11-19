@@ -1,15 +1,16 @@
 import { guiInteractionPolicy } from "@harness-anything/kernel/internal/domain/gui-interaction-policy.ts";
 import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
-import { daemonProtocolError, isDaemonGuiActionMethod, isDaemonGuiReadMethod } from "@harness-anything/daemon/client";
-import type { DaemonTaskSnapshotListResult, DaemonStreamPayloadMap } from "@harness-anything/daemon/protocol";
-import {
-  parseDaemonGuiActionResponse,
-  parseDaemonGuiReadResponse,
-  parseDaemonGuiReadResult,
-} from "@harness-anything/daemon/client";
+import { daemonClientFailureCode, daemonProtocolError } from "@harness-anything/daemon/client";
+import type {
+  DaemonTaskSnapshotListResult,
+  DaemonStreamPayloadMap,
+  DaemonStreamMethod,
+  InteractiveRpcDescriptor,
+} from "@harness-anything/daemon/protocol";
+import { parseClientRpcResponse } from "@harness-anything/daemon/client";
 import { guiDaemonReadOnly, guiDaemonUserRoot, guiGlobalDaemonTarget } from "./gui-daemon-target.ts";
-import { createGuiServiceBridgeForDaemon, type GuiServiceBridge, type ShippedGuiRoute } from "../api/service-bridge.ts";
-import { streamDaemonFacetAt } from "./agent-runtime-stream-client.ts";
+import { interactiveRpcDescriptor } from "@harness-anything/daemon/protocol";
+import { streamDaemonFacetAt } from "@harness-anything/daemon/client";
 import type { FirstRunBootstrapInput } from "../api/first-run-contract.ts";
 import { defaultRegistryReader, resolveRepoScopedTarget } from "./repo-scoped-target.ts";
 import { DEFAULT_GUI_CONNECT_TIMEOUT_MS, guiRequestTimeouts, type GuiRequestTimeouts } from "./gui-local-settings.ts";
@@ -40,30 +41,50 @@ let client: Promise<DaemonClient> | undefined;
 // 覆写参数只会让人以为它能改别人的 authored root。
 // 根目录不归主进程持有:每条仓库级请求用自己的 repoId 解析它,窗口内换项目后下一次请求
 // 就是新项目。启动时捕获的 HARNESS_GUI_ROOT 会让旧根在换项目后继续被校验(issue #4267)。
+export interface GuiServiceBridge {
+  readonly invoke: (method: string, params: JsonObject) => Promise<unknown>;
+  readonly stream: (
+    method: DaemonStreamMethod,
+    params: {
+      readonly repo: { readonly repoId: string };
+      readonly payload: DaemonStreamPayloadMap[DaemonStreamMethod];
+    },
+    emit: (value: unknown) => void,
+    signal: AbortSignal,
+  ) => Promise<() => void>;
+}
+
 export function createLocalGuiServiceBridge(): GuiServiceBridge {
-  return createGuiServiceBridgeForDaemon(
-    (route, payload) => request(route, payload),
-    async (route, payload, emit) => {
+  return {
+    invoke: async (method, params) => {
+      const descriptor = interactiveRpcDescriptor(method);
+      if (!descriptor)
+        return failure(
+          method,
+          "Unsupported interactive RPC",
+          Object.assign(new Error(method), { code: "method_not_allowed" }),
+        );
+      return request(descriptor, params);
+    },
+    stream: async (method, params, emit, signal) => {
       const daemon = await loadClient(),
-        scoped = repoPayload(payload),
-        target = repoTarget(daemon, scoped.repoId);
-      // A stream that exhausts its reconnect budget reaches the renderer through the same frame
-      // channel a failed open already uses, so a lost pane says so instead of going quietly blank.
+        target = repoTarget(daemon, params.repo.repoId);
       return streamDaemonFacetAt({
         socketPath: target.socketPath,
         repoId: target.repoId,
-        method: route.rpcMethod as keyof DaemonStreamPayloadMap,
-        payload: scoped.payload as DaemonStreamPayloadMap[keyof DaemonStreamPayloadMap],
+        method,
+        payload: params.payload,
+        signal,
         onValue: emit,
         onClosed: (failure) =>
           emit({
-            ok: false,
+            schema: "daemon-stream-failure/v1",
             code: failure.code,
-            hint: `daemon stream lost after ${failure.attempts} reconnect attempts (${failure.lastError}); reopen the panel or restart the daemon.`,
+            hint: failure.lastError,
           }),
       });
     },
-  );
+  };
 }
 export async function bootstrapLocalRepository(input: FirstRunBootstrapInput): Promise<JsonObject> {
   if (guiDaemonReadOnly()) return readOnlyFailure("daemon.repo.bootstrap");
@@ -83,37 +104,19 @@ export async function bootstrapLocalRepository(input: FirstRunBootstrapInput): P
     return failure("init", "Repository setup failed", error);
   }
 }
-async function request(route: ShippedGuiRoute, payload: unknown): Promise<JsonObject> {
+async function request(route: InteractiveRpcDescriptor, params: JsonObject): Promise<JsonObject> {
   try {
     const daemon = await loadClient(),
-      scoped =
-        route.requiresRepo ||
-        (route.rpcMethod.startsWith("daemon.runtimeInstance.") &&
-          payload !== null &&
-          typeof payload === "object" &&
-          "repoId" in payload)
-          ? repoPayload(payload)
-          : null;
-    if (guiDaemonReadOnly() && route.commandClass !== "repo-read")
-      return failure(
-        route.rpcMethod,
-        "GUI read-only daemon attachment rejects write operations",
-        Object.assign(new Error("gui_read_only"), { code: "gui_read_only" }),
-      );
-    const scopedTarget = scoped ? repoTarget(daemon, scoped.repoId) : null,
-      target = scopedTarget ?? globalTarget();
-    const daemonPayload = scoped?.payload ?? ((payload ?? {}) as JsonObject);
-    const body: JsonObject = route.inputSchemaId === "gui.empty/v1" ? {} : { payload: daemonPayload },
-      params: JsonObject = scoped ? { repo: { repoId: scoped.repoId }, ...body } : body;
+      scope = params.repo,
+      repoId = scope && typeof scope === "object" && "repoId" in scope ? scope.repoId : undefined;
+    if (guiDaemonReadOnly() && (!("commandClass" in route) || route.commandClass !== "repo-read"))
+      return readOnlyFailure(route.method);
+    const scopedTarget = typeof repoId === "string" ? repoTarget(daemon, repoId) : null,
+      target = scopedTarget ?? globalTarget(),
+      daemonPayload = (params.payload ?? {}) as JsonObject;
     const parse = (result: JsonObject) => {
-      const parsed = (isDaemonGuiActionMethod(route.rpcMethod)
-        ? parseDaemonGuiActionResponse(route.rpcMethod, result)
-        : route.rpcMethod === "daemon.gui.control.receipt"
-          ? parseDaemonGuiReadResult(route.rpcMethod, result)
-          : isDaemonGuiReadMethod(route.rpcMethod)
-            ? parseDaemonGuiReadResponse(route.rpcMethod, result)
-            : result) as unknown as JsonObject;
-      if (route.rpcMethod === "repo.tasks.list" && parsed.ok === true)
+      const parsed = parseClientRpcResponse(route.method, result);
+      if (route.method === "repo.tasks.list" && parsed.ok === true)
         reportInvalidTaskSnapshotRows(parsed as unknown as DaemonTaskSnapshotListResult);
       return parsed;
     };
@@ -124,14 +127,14 @@ async function request(route: ShippedGuiRoute, payload: unknown): Promise<JsonOb
       invoke = () =>
         daemon.requestLocalDaemonJsonRpcForTarget(
           target,
-          route.rpcMethod,
+          route.method,
           params,
           timeouts.connectTimeoutMs,
           requestTimeoutMs(route, daemonPayload, timeouts),
         );
     return parse(await invoke());
   } catch (error) {
-    return failure(route.rpcMethod, "Local daemon request failed", error);
+    return failure(route.method, "Local daemon request failed", error);
   }
 }
 // The transport's own connect deadline is 75ms, tuned for the CLI which retries around it. The GUI
@@ -140,7 +143,6 @@ async function request(route: ShippedGuiRoute, payload: unknown): Promise<JsonOb
 // local setting gui.connectTimeoutMs. The admin channel has no repository root to read settings
 // from, so it keeps the declared default.
 // Socket errors that mean no daemon is listening (missing socket file, nobody accepting).
-const SOCKET_ABSENT_CODES = new Set(["ENOENT", "ECONNREFUSED", "ENOTSOCK", "EACCES"]);
 // Only a socket-level miss means the daemon is absent; a slow or rejected answer came from a live
 // daemon and must keep its own code, otherwise every failure prints the attach-only advice.
 function failure(method: string, prefix: string, error: unknown): JsonObject {
@@ -155,12 +157,7 @@ function failure(method: string, prefix: string, error: unknown): JsonObject {
     const receipt = daemonProtocolError(method, "gui_result_contract_mismatch", hint);
     return { ...receipt, error: { ...receipt.error, hint } } as unknown as JsonObject;
   }
-  const rawCode = error instanceof Error ? (error as { readonly code?: unknown }).code : undefined,
-    raw = typeof rawCode === "string" ? rawCode : null,
-    code =
-      message === "daemon_unavailable" || (raw !== null && SOCKET_ABSENT_CODES.has(raw))
-        ? "daemon_unavailable"
-        : (raw ?? "daemon_request_failed");
+  const code = daemonClientFailureCode(error);
   const hint =
     code === "daemon_unavailable"
       ? [
@@ -217,40 +214,35 @@ const INSTANCE_SHOW_TIMEOUT_MS = guiInteractionPolicy.defaultValue.deadlines.ins
 const INSTANCE_PROBE_TIMEOUT_MS =
   INSTANCE_OP_TIMEOUT_MS + 2 * daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.modelListing;
 
-function requestTimeoutMs(route: ShippedGuiRoute, payload: JsonObject, timeouts: GuiRequestTimeouts): number {
+function requestTimeoutMs(route: InteractiveRpcDescriptor, payload: JsonObject, timeouts: GuiRequestTimeouts): number {
   if (
-    ["createRuntimeInstance", "updateRuntimeInstance", "createDecisionProvider", "updateDecisionProvider"].includes(
-      route.guiBridgeMethod,
-    ) &&
+    [
+      "daemon.runtimeInstance.create",
+      "daemon.runtimeInstance.update",
+      "daemon.provider.create",
+      "daemon.provider.update",
+    ].includes(route.method) &&
     payload.apiKey !== undefined
   )
     return INSTANCE_KEY_TIMEOUT_MS;
-  if (route.commandClass === "repo-write") return REPO_WRITE_TIMEOUT_MS;
-  if (route.guiBridgeMethod === "showRuntimeInstance" && payload.probe === true) return INSTANCE_PROBE_TIMEOUT_MS;
+  if ("commandClass" in route && route.commandClass === "repo-write") return REPO_WRITE_TIMEOUT_MS;
+  if (route.method === "daemon.runtimeInstance.show" && payload.probe === true) return INSTANCE_PROBE_TIMEOUT_MS;
   if (
-    route.guiBridgeMethod === "createRuntimeInstance" ||
-    route.guiBridgeMethod === "updateRuntimeInstance" ||
-    route.guiBridgeMethod === "deleteRuntimeInstance" ||
-    route.guiBridgeMethod === "listRuntimeInstances" ||
-    route.guiBridgeMethod === "signInRuntimeInstance" ||
-    route.guiBridgeMethod === "signOutRuntimeInstance"
+    route.method === "daemon.runtimeInstance.create" ||
+    route.method === "daemon.runtimeInstance.update" ||
+    route.method === "daemon.runtimeInstance.delete" ||
+    route.method === "daemon.runtimeInstance.list" ||
+    route.method === "repo.runtimeInstance.auth.login" ||
+    route.method === "repo.runtimeInstance.auth.logout"
   )
     return INSTANCE_OP_TIMEOUT_MS;
-  if (route.guiBridgeMethod === "showRuntimeInstance") return INSTANCE_SHOW_TIMEOUT_MS;
+  if (route.method === "daemon.runtimeInstance.show") return INSTANCE_SHOW_TIMEOUT_MS;
   // Reads share the daemon with the single-writer queue; sustained ledger writes hold the
   // workspace for seconds at a time, so any deadline that undercuts a normal write window
   // turns ordinary contention into a visible GUI error (200ms, 2s and 10s all did, live;
   // 泽宇 2026-09-01/02 三次亲裁调高). Connection-level failures still surface within
   // the connect deadline through the socket connect path.
   return timeouts.requestTimeoutMs;
-}
-function repoPayload(value: unknown): { readonly repoId: string; readonly payload: JsonObject } {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error("Repository GUI request requires repoId.");
-  const { repoId, ...payload } = value as Record<string, JsonValue>;
-  if (typeof repoId !== "string" || !/^[a-z][a-z0-9-]{0,62}$/u.test(repoId))
-    throw new Error("Repository GUI request has an invalid repoId.");
-  return { repoId, payload };
 }
 function globalTarget() {
   return guiGlobalDaemonTarget();

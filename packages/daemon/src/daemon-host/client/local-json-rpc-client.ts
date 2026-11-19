@@ -4,7 +4,6 @@ export { daemonHelloFailureCode } from "./daemon-hello.ts";
 import { assertDaemonHello, daemonHelloParams } from "./daemon-hello.ts";
 import { createInterface, type Interface as ReadlineInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { currentDaemonProtocolVersion } from "../protocol/version.ts";
 import type { DaemonSessionEnvironment } from "../protocol/daemon-protocol.contract.ts";
 import type { JsonObject, JsonRpcRequest, JsonRpcResponse } from "../protocol/json-rpc-types.ts";
 import { assertDaemonSocketDirectory, resolveLocalDaemonTarget } from "./local-daemon-target.ts";
@@ -43,21 +42,52 @@ export async function requestLocalDaemonJsonRpc(
     env: options.env,
   });
   const socketPath = options.socketPath ?? target.socketPath;
-  return requestWithSocket(
-    await connectSocket(socketPath, timeoutMs),
+  return requestLocalDaemonJsonRpcForTarget(
+    { ...target, socketPath, sessionEnvironment: options.sessionEnvironment, invokingCommand: options.invokingCommand },
     method,
     params,
-    undefined,
-    options.sessionEnvironment,
-    false,
-    options.invokingCommand,
+    timeoutMs,
   );
 }
 
+type LocalRpcRoute = { readonly repoId?: string; readonly remoteEdge?: boolean };
+
+export async function usesLocalWriteRetry(target: LocalRpcRoute, method: string, params: JsonObject): Promise<boolean> {
+  // Relay writes retain their hard failure on disconnect. Fleet owns its forwarded write retries.
+  if (
+    !target.repoId ||
+    target.remoteEdge ||
+    process.env.HARNESS_EXECUTION_CREDENTIAL ||
+    process.env.HARNESS_DAEMON_RELAY === "1" ||
+    !jsonRpcRecord(params.repo) ||
+    params.repo.repoId !== target.repoId ||
+    !jsonRpcRecord(params.payload)
+  )
+    return false;
+  const payload = params.payload,
+    action = method === "repo.task.run" && jsonRpcRecord(payload.action) ? payload.action : payload;
+  if (typeof action.idempotencyKey !== "string" || action.idempotencyKey.trim() === "") return false;
+  const { declaresCanonicalRetryKey } = await import("./local-json-rpc-retry.ts");
+  return declaresCanonicalRetryKey(method, payload);
+}
+
+export async function retryLocalRepoWarming(
+  initial: JsonObject,
+  read: () => Promise<JsonObject>,
+  prepareProgress: () => Promise<() => void>,
+): Promise<JsonObject> {
+  if (!isRepoWarming(initial)) return initial;
+  const retry = await import("./local-json-rpc-retry.ts");
+  return retry.retryLocalRepoWarming(initial, read, isRepoWarming, await prepareProgress());
+}
+
+function isRepoWarming(result: JsonObject): boolean {
+  return result.code === "repo_warming" || (jsonRpcRecord(result.error) && result.error.code === "repo_warming");
+}
+
 export async function requestLocalDaemonJsonRpcForTarget(
-  target: {
+  target: LocalRpcRoute & {
     readonly socketPath: string;
-    readonly repoId?: string;
     readonly reportStaleBuild?: boolean;
     readonly canonicalRoot?: string;
     readonly userRoot?: string;
@@ -70,16 +100,20 @@ export async function requestLocalDaemonJsonRpcForTarget(
   timeoutMs = 75,
   responseTimeoutMs?: number,
 ): Promise<JsonObject> {
-  return requestDaemonJsonRpcAt(
-    target.socketPath,
-    method,
-    params,
-    timeoutMs,
-    responseTimeoutMs,
-    target.sessionEnvironment,
-    target.reportStaleBuild === true,
-    target.invokingCommand,
-  );
+  const request = () =>
+    requestDaemonJsonRpcAt(
+      target.socketPath,
+      method,
+      params,
+      timeoutMs,
+      responseTimeoutMs,
+      target.sessionEnvironment,
+      target.reportStaleBuild === true,
+      target.invokingCommand,
+    );
+  if (!(await usesLocalWriteRetry(target, method, params))) return request();
+  const { retryLocalDaemonWrite } = await import("./local-json-rpc-retry.ts");
+  return retryLocalDaemonWrite(request);
 }
 
 export async function requestDaemonJsonRpcAt(
@@ -116,7 +150,6 @@ export async function openDaemonJsonRpcClientAt(
     await client.request(
       "protocol.hello",
       {
-        protocolVersion: currentDaemonProtocolVersion,
         ...executionCredentialParams(),
         ...(sessionEnvironment && Object.keys(sessionEnvironment).length > 0
           ? { sessionEnvironment: sessionEnvironment as JsonObject }
@@ -284,7 +317,6 @@ async function requestWithSocket(
     const hello = await client.request(
       "protocol.hello",
       {
-        protocolVersion: currentDaemonProtocolVersion,
         ...executionCredentialParams(),
         ...(sessionEnvironment && Object.keys(sessionEnvironment).length > 0
           ? { sessionEnvironment: sessionEnvironment as JsonObject }

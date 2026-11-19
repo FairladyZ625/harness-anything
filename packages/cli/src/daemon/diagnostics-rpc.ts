@@ -1,5 +1,4 @@
 import { connectSocket, JsonRpcLineClient } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
-import { currentDaemonProtocolVersion } from "@harness-anything/daemon/internal/protocol/version";
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 
 // The diagnostics socket is for local observers. Attaching a worker's execution credential would
@@ -14,7 +13,7 @@ export async function openDiagnosticRpc(socketPath: string, timeoutMs: number): 
   const socket = await connectSocket(socketPath, timeoutMs),
     client = new JsonRpcLineClient(socket, socket);
   try {
-    const hello = await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, timeoutMs);
+    const hello = await client.request("protocol.hello", {}, timeoutMs);
     return { client, hello };
   } catch (error) {
     client.close();

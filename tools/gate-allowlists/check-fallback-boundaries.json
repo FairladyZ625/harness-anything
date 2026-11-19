@@ -1,7 +1,7 @@
 {
   "schema": "harness-anything/gate-allowlist/v1",
   "gateId": "check-fallback-boundaries",
-  "baseline": "Existing CH4 fallback exits are ratcheted here; remove a key when the corresponding production exit is deleted.",
+  "baseline": "Existing CH4 fallback exits are ratcheted here. W2 removes the old socket reconnect catch under dec_89D06D7360CBEC09795F7B12EC/CH3.",
   "rationales": {
     "packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#submit": {
       "task": "task_0e1d9f41b62c51a1f78809f6d9",
@@ -170,7 +170,6 @@
       "packages/daemon/src/daemon-host/bin.ts#<module>",
       "packages/daemon/src/daemon-host/build-identity.ts#resolveStamp",
       "packages/daemon/src/daemon-host/client/local-json-rpc-client.ts#onLine",
-      "packages/daemon/src/daemon-host/client/local-json-rpc-stream.ts#connect",
       "packages/daemon/src/daemon-host/client/terminal-relay.ts#onResize",
       "packages/daemon/src/daemon-host/client/terminal-relay.ts#sessionRow",
       "packages/daemon/src/daemon-host/conn-log.ts#closeHandle",

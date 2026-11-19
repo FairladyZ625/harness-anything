@@ -4,7 +4,10 @@ import { lifecycleSummaryFor } from "../../daemon/test/dispatch-lifecycle-read.f
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SessionsPanel } from "../src/renderer/components/runtime/SessionsPanel.tsx";
+import * as guiBridge from "../src/renderer/gui-transport.ts";
+import { emptyRuntimeSnapshot, runtimeCursor } from "../../daemon/test/fixtures/runtime-stream.ts";
 import { harnessClient } from "../src/renderer/api-client.ts";
 import type { ObserveTailRead } from "../src/api/renderer-dto.ts";
 import type { AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
@@ -125,7 +128,11 @@ const mounted: { readonly root: Root; readonly container: HTMLElement }[] = [];
 async function mountPanel(
   row: SessionRow | null,
   session: AgentRuntimeSessionDto = sessionDto,
-  options: { readonly snapshotError?: string; readonly remoteEdge?: boolean } = {},
+  options: {
+    readonly snapshotError?: string;
+    readonly remoteEdge?: boolean;
+    readonly stream?: guiBridge.GuiTransport["subscribe"];
+  } = {},
 ) {
   vi.stubGlobal(
     "ResizeObserver",
@@ -142,38 +149,49 @@ async function mountPanel(
     },
   );
   const tail = vi.spyOn(harnessClient, "tailObservability").mockImplementation(async (payload) => historyPage(payload));
+  vi.spyOn(guiBridge, "guiTransport").mockReturnValue({
+    request: async () => {
+      throw new Error("unexpected RPC");
+    },
+    subscribe: options.stream ?? (() => () => undefined),
+    capabilities: () => ({ stream: { status: options.stream ? "available" : "unavailable" } }),
+  });
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
   mounted.push({ root, container });
   await act(async () => {
     root.render(
-      createElement(SessionsPanel, {
-        repoId: "repo-a",
-        runtimeSessionId: session.runtimeSessionId,
-        snapshot:
-          options.snapshotError === undefined
-            ? {
-                ok: true,
-                status: "ready",
-                session,
-                result: null,
-                settlement: null,
-                watermark: 1,
-                sourceRevision: 1,
-              }
-            : null,
-        snapshotError: options.snapshotError ?? null,
-        row,
-        squadNames: new Map(),
-        decisionRefs: [],
-        busy: false,
-        onCancel: () => undefined,
-        onResume: async () => undefined,
-        onOpenTask: () => undefined,
-        onNavigateEntity: () => undefined,
-        remoteEdge: options.remoteEdge ?? false,
-      } as never),
+      createElement(
+        QueryClientProvider,
+        { client: new QueryClient() },
+        createElement(SessionsPanel, {
+          repoId: "repo-a",
+          runtimeSessionId: session.runtimeSessionId,
+          snapshot:
+            options.snapshotError === undefined
+              ? {
+                  ok: true,
+                  status: "ready",
+                  session,
+                  result: null,
+                  settlement: null,
+                  watermark: 1,
+                  sourceRevision: 1,
+                }
+              : null,
+          snapshotError: options.snapshotError ?? null,
+          row,
+          squadNames: new Map(),
+          decisionRefs: [],
+          busy: false,
+          onCancel: () => undefined,
+          onResume: async () => undefined,
+          onOpenTask: () => undefined,
+          onNavigateEntity: () => undefined,
+          remoteEdge: options.remoteEdge ?? false,
+        } as never),
+      ),
     );
   });
   await act(async () => {
@@ -232,6 +250,61 @@ describe("session detail dispatch resolution", () => {
 });
 
 describe("session detail transcript", () => {
+  it("shows restored native activity before applying the next stream frame", async () => {
+    let receive: (value: unknown) => void = () => {
+      throw new Error("stream never attached");
+    };
+    const { container } = await mountPanel(null, sessionDto, {
+      stream: (method, params, onValue) => {
+        expect(method).toBe("repo.agentRuntime.attach");
+        expect(params.payload).toEqual({ runtimeSessionId: sessionDto.runtimeSessionId });
+        receive = onValue;
+        return () => undefined;
+      },
+    });
+    const runtimeSessionId = sessionDto.runtimeSessionId,
+      cursor = runtimeCursor("repo-a", 33),
+      occurredAt = "2026-10-21T09:41:00Z",
+      base = { schema: "agent-runtime-attach-event/v2", runtimeSessionId, occurredAt },
+      activity = () => container.querySelector('[data-testid="session-native-activity"]')?.textContent;
+    await act(async () =>
+      receive({
+        ok: true,
+        status: "gap",
+        runtimeSessionId,
+        cursor,
+        events: [
+          {
+            ...base,
+            type: "gap",
+            cursor,
+            snapshotSeq: 33,
+            snapshot: {
+              ...emptyRuntimeSnapshot,
+              activity: {
+                type: "activity",
+                activity: "tool",
+                content: "evicted tool activity",
+                occurredAt,
+              },
+            },
+          },
+        ],
+      }),
+    );
+    expect(activity()).toBe("evicted tool activity");
+    await act(async () =>
+      receive({
+        ...base,
+        type: "activity",
+        activity: "message",
+        content: "next native message",
+        cursor: { ...cursor, seq: 34 },
+      }),
+    );
+    expect(activity()).toBe("next native message");
+  });
+
   it("renders the tool calls of a selected session whose group is not expanded", async () => {
     const { container, tail } = await mountPanel(null);
     expect(tail).toHaveBeenCalled();

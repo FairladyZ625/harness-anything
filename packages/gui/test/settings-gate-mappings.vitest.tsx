@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: integration
 /* @vitest-environment happy-dom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -85,25 +86,28 @@ async function mountView(options: { readonly gates?: unknown } = {}): Promise<HT
   const settings = { ...SETTINGS, ...(options.gates === undefined ? {} : { gates: options.gates }) };
   Object.defineProperty(window, "harness", {
     configurable: true,
-    value: {
-      updateSettings: vi.fn(async (payload: Record<string, unknown>) => ({
-        schema: "command-receipt/v2",
-        ok: true,
-        command: "settings-update",
-        outcome: "applied",
-        opId: String(payload.idempotencyKey),
-        revision: 2,
-      })),
-      getSettings: async () => ({
-        schema: "daemon.settings-read/v1",
-        decisionPoints: [],
-        ok: true,
-        settings,
-        values: {},
-        revision: 1,
-        lastChanged: "initial",
-      }),
-    },
+    value: mockRpcBridge(
+      {
+        updateSettings: vi.fn(async (payload: Record<string, unknown>) => ({
+          schema: "command-receipt/v2",
+          ok: true,
+          command: "settings-update",
+          outcome: "applied",
+          opId: String(payload.idempotencyKey),
+          revision: 2,
+        })),
+        getSettings: async () => ({
+          schema: "daemon.settings-read/v1",
+          decisionPoints: [],
+          ok: true,
+          settings,
+          values: {},
+          revision: 1,
+          lastChanged: "initial",
+        }),
+      },
+      { "repo.settings.read": "getSettings", "repo.settings.update": "updateSettings" },
+    ),
   });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const read = {

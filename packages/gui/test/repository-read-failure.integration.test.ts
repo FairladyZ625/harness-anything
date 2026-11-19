@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import path from "node:path";
@@ -65,7 +66,10 @@ test("CLI query-only task list and GUI reads reject an unavailable canonical rep
     assert.equal(cli.receipt.code, "repo_unavailable");
     assert.match(JSON.stringify(cli.receipt), /task bootstrap event identity is invalid/);
     assert.equal(cli.receipt.rows, undefined);
-    const gui = await createLocalGuiServiceBridge().invoke("getTasks", { repoId: fixture.repoId });
+    const gui = await createLocalGuiServiceBridge().invoke(
+      "repo.tasks.list",
+      scopedRpcParams("repo.tasks.list", { repoId: fixture.repoId }),
+    );
     assert.equal(gui.ok, false);
     assert.equal(gui.code, "repo_unavailable");
     assert.match(JSON.stringify(gui), /task bootstrap event identity is invalid/);
@@ -87,7 +91,10 @@ test("a genuinely empty canonical repository succeeds through CLI and GUI", asyn
     assert.equal(cli.exit, 0);
     assert.equal(cli.receipt.ok, true);
     assert.deepEqual(cli.receipt.rows, []);
-    const gui = await createLocalGuiServiceBridge().invoke("getTasks", { repoId: fixture.repoId });
+    const gui = await createLocalGuiServiceBridge().invoke(
+      "repo.tasks.list",
+      scopedRpcParams("repo.tasks.list", { repoId: fixture.repoId }),
+    );
     assert.equal(gui.ok, true);
     assert.deepEqual(gui.rows, []);
     assert.deepEqual(gui.invalidRows, []);
@@ -112,7 +119,10 @@ test("CLI and GUI preserve authorization refusal for an attached repository", as
     assert.equal(cli.receipt.ok, false);
     assert.equal(cli.receipt.code, "authorization_denied");
     assert.equal(cli.receipt.rows, undefined);
-    const gui = await createLocalGuiServiceBridge().invoke("getTasks", { repoId: fixture.repoId });
+    const gui = await createLocalGuiServiceBridge().invoke(
+      "repo.tasks.list",
+      scopedRpcParams("repo.tasks.list", { repoId: fixture.repoId }),
+    );
     assert.equal(gui.ok, false);
     assert.equal(gui.code, "authorization_denied");
     assert.equal(gui.rows, undefined);

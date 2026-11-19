@@ -1,5 +1,4 @@
 import { connectSocket, JsonRpcLineClient } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
-import { currentDaemonProtocolVersion } from "@harness-anything/daemon/internal/protocol/version";
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 
 // The probe is a local observer, so it speaks over the same user-owned socket a human `ha daemon
@@ -15,7 +14,7 @@ export async function openProbeRpc(socketPath: string, timeoutMs: number): Promi
   const socket = await connectSocket(socketPath, timeoutMs),
     client = new JsonRpcLineClient(socket, socket);
   try {
-    const hello = await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, timeoutMs);
+    const hello = await client.request("protocol.hello", {}, timeoutMs);
     return { client, hello };
   } catch (error) {
     client.close();

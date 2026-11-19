@@ -544,7 +544,7 @@ test("an undeclared native effect route cannot bypass descriptor ownership", asy
   writeRepoFile(
     root,
     "packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts",
-    `export const daemonProtocolCommands = []; export const daemonGuiActionMethods = [];`,
+    `export const daemonProtocolCommands = []; export const daemonActionRoutes = [];`,
   );
   writeRepoFile(
     root,
@@ -566,7 +566,7 @@ test("a source cannot borrow another action's authorization route", async (t) =>
   writeRepoFile(
     root,
     "packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts",
-    `export const daemonProtocolCommands = [{id:'task-start',method:'repo.task.run',commandClass:'repo-write'}]; export const daemonGuiActionMethods = [];`,
+    `export const daemonProtocolCommands = [{id:'task-start',method:'repo.task.run',commandClass:'repo-write'}]; export const daemonActionRoutes = [];`,
   );
   writeRepoFile(
     root,
@@ -807,15 +807,15 @@ partitionedTest(
     const allGuiClientActions = inputs.constants.actionDeclarations.filter((action) =>
       (action.ontology?.sources ?? []).some((source) => source.role === "client" && isNonMainGui(source.candidateId)),
     );
-    // dec_9C43012EBB2754D7112F618F0D / dec_13B7B846B56BFA192533011B91 expose
-    // three existing actions; dec_86761D79CF16E14C4583890F59 registers their exact GUI sources.
-    assert.equal(allGuiClientActions.length, 82);
+    // dec_89D06D7360CBEC09795F7B12EC adds four existing routes to the non-main GUI client census:
+    // runtime-instance-list, provider-list, provider-show, and provider-probe.
+    assert.equal(allGuiClientActions.length, 86);
     const expectedGuiClientCount = allGuiClientActions
       .flatMap((action) => action.ontology?.sources ?? [])
       .filter((source) => source.role === "client" && isNonMainGui(source.candidateId)).length;
-    assert.equal(expectedGuiClientCount, 217);
-    // The terminal browser IPC adds one typed, host-local source; all per-source proofs below remain required.
-    assert.equal((localState.ontology.sources ?? []).filter((source) => isNonMainGui(source.candidateId)).length, 111);
+    assert.equal(expectedGuiClientCount, 244);
+    // dec_89D06D7360CBEC09795F7B12EC/CH3. The transport keeps a typed host-local cancellation port.
+    assert.equal((localState.ontology.sources ?? []).filter((source) => isNonMainGui(source.candidateId)).length, 113);
 
     const guiAcceptClient = decisionAccept.ontology.sources.find(
       (source) =>
@@ -884,7 +884,7 @@ partitionedTest(
       nonMainGuiRows.filter((row) => !row.ok),
       [],
     );
-    assert.equal(nonMainGuiRows.filter((row) => row.kind === "daemon-local-state").length, 111);
+    assert.equal(nonMainGuiRows.filter((row) => row.kind === "daemon-local-state").length, 113);
     assert.deepEqual(nonMainGuiRows.find((row) => row.id === guiReviewCallback.candidateId)?.clientRoutes, [
       "decision.dispatchReview",
       "decision.overrideReview",

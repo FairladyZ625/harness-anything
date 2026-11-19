@@ -12,8 +12,13 @@ import {
 import type { ScheduleDefinitionInput } from "../src/renderer/schedules-client.ts";
 import type { ScheduleGuiOptionsDto, ScheduleGuiRowDto } from "@harness-anything/daemon/protocol";
 import { validateDaemonRpcCall } from "@harness-anything/daemon/protocol/validation";
-import { assertPreloadPayload } from "../src/preload/allowlist.ts";
+import { assertRendererRpc } from "../src/preload/allowlist.ts";
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+
+function assertPreloadPayload(method: Parameters<typeof scopedRpcParams>[0], payload: object) {
+  return assertRendererRpc(method, scopedRpcParams(method, payload));
+}
 
 beforeAll(() => setActiveLocale("en-US"));
 afterEach(() => vi.restoreAllMocks());
@@ -389,7 +394,7 @@ describe("interval round-trip (schedule duration vocabulary)", () => {
 // still rejected by the daemon shape, and an interval+cron combination is still
 // rejected by the preload closure.
 describe("real submit() payloads clear the preload and daemon gates", () => {
-  const preloadGate = (method: "createSchedule" | "updateSchedule", payload: Record<string, unknown>) =>
+  const preloadGate = (method: "repo.schedule.create" | "repo.schedule.update", payload: Record<string, unknown>) =>
     assertPreloadPayload(method, { repoId: "repo-a", ...payload, idempotencyKey: "retry-1" });
   const daemonGate = (method: "repo.schedule.create" | "repo.schedule.update", payload: Record<string, unknown>) =>
     validateDaemonRpcCall({
@@ -451,7 +456,7 @@ describe("real submit() payloads clear the preload and daemon gates", () => {
     expect(payload).not.toHaveProperty("runtimeInstanceId");
     expect(payload.everyMs).toBe(7_200_000);
     expect(payload.cronExpression).toBeUndefined();
-    expect(() => preloadGate("updateSchedule", payload as Record<string, unknown>)).not.toThrow();
+    expect(() => preloadGate("repo.schedule.update", payload as Record<string, unknown>)).not.toThrow();
     expect(daemonGate("repo.schedule.update", payload as Record<string, unknown>)).toEqual([]);
   });
 
@@ -469,7 +474,7 @@ describe("real submit() payloads clear the preload and daemon gates", () => {
     expect(payload.everyMs).toBeUndefined();
     expect(payload.cronExpression).toBe("30 2 * * *");
     expect(payload.timezone).toBe("UTC");
-    expect(() => preloadGate("createSchedule", payload as Record<string, unknown>)).not.toThrow();
+    expect(() => preloadGate("repo.schedule.create", payload as Record<string, unknown>)).not.toThrow();
     expect(daemonGate("repo.schedule.create", payload as Record<string, unknown>)).toEqual([]);
   });
 
@@ -488,7 +493,12 @@ describe("real submit() payloads clear the preload and daemon gates", () => {
     expect(daemonGate("repo.schedule.create", withoutMode)).not.toEqual([]);
     // An interval and cron trigger in one payload never crosses the preload boundary.
     expect(() =>
-      preloadGate("updateSchedule", { ...withMode, everyMs: 90_000, cronExpression: "30 2 * * *", timezone: "UTC" }),
+      preloadGate("repo.schedule.update", {
+        ...withMode,
+        everyMs: 90_000,
+        cronExpression: "30 2 * * *",
+        timezone: "UTC",
+      }),
     ).toThrow(/invalid/u);
   });
 });
@@ -628,7 +638,7 @@ describe("cron round-trip on edit", () => {
     expect(payload).not.toHaveProperty("runtimeInstanceId");
     expect(payload).not.toHaveProperty("model");
     for (const retired of [{ runtimeInstanceId: "retired" }, { model: "retired" }]) {
-      expect(() => preloadGate("updateSchedule", { ...payload, ...retired })).toThrow();
+      expect(() => preloadGate("repo.schedule.update", { ...payload, ...retired })).toThrow();
       expect(
         validateDaemonRpcCall({
           method: "repo.schedule.update",

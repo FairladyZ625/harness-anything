@@ -149,7 +149,7 @@ export const schedulesClient = {
     idempotencyKey: string,
   ): Promise<ScheduleActionReceipt> => {
     const params = { repoId, ...input, idempotencyKey };
-    return parseScheduleReceipt(await invoke("repo.schedule.create", params, "createSchedule"));
+    return parseScheduleReceipt(await invoke("repo.schedule.create", params));
   },
   update: async (
     repoId: string,
@@ -157,7 +157,7 @@ export const schedulesClient = {
     idempotencyKey: string,
   ): Promise<ScheduleActionReceipt> => {
     const params = { repoId, ...input, idempotencyKey };
-    return parseScheduleReceipt(await invoke("repo.schedule.update", params, "updateSchedule"));
+    return parseScheduleReceipt(await invoke("repo.schedule.update", params));
   },
   delete: async (
     repoId: string,
@@ -166,19 +166,19 @@ export const schedulesClient = {
     reason?: string,
   ): Promise<ScheduleActionReceipt> => {
     const params = { repoId, scheduleId, ...(reason ? { reason } : {}), idempotencyKey };
-    return parseScheduleReceipt(await invoke("repo.schedule.delete", params, "deleteSchedule"));
+    return parseScheduleReceipt(await invoke("repo.schedule.delete", params));
   },
   enable: async (repoId: string, scheduleId: string, idempotencyKey: string): Promise<ScheduleActionReceipt> => {
     const params = { repoId, scheduleId, idempotencyKey };
-    return parseScheduleReceipt(await invoke("repo.schedule.enable", params, "enableSchedule"));
+    return parseScheduleReceipt(await invoke("repo.schedule.enable", params));
   },
   disable: async (repoId: string, scheduleId: string, idempotencyKey: string): Promise<ScheduleActionReceipt> => {
     const params = { repoId, scheduleId, idempotencyKey };
-    return parseScheduleReceipt(await invoke("repo.schedule.disable", params, "disableSchedule"));
+    return parseScheduleReceipt(await invoke("repo.schedule.disable", params));
   },
   runNow: async (repoId: string, scheduleId: string, idempotencyKey: string): Promise<ScheduleActionReceipt> => {
     const params = { repoId, scheduleId, idempotencyKey };
-    return parseScheduleReceipt(await invoke("repo.schedule.runNow", params, "runScheduleNow"));
+    return parseScheduleReceipt(await invoke("repo.schedule.runNow", params));
   },
 };
 

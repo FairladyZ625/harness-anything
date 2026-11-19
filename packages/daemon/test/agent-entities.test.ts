@@ -22,7 +22,7 @@ import {
   validateAgentEntityCatalog,
   validateAgentEntityDetail,
   validateSquadEntityCatalog,
-} from "../src/daemon-host/protocol/agent-entity-gui-contract.ts";
+} from "../src/daemon-host/protocol/agent-entity-contract.ts";
 import { discoverAgentSkills, resolveAgentSkills } from "../src/daemon-host/agent-skills.ts";
 import {
   agentRuntimeKindMatches,

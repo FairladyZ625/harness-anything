@@ -1,10 +1,9 @@
 import { generatedTaskActionProtocolDeclarations } from "@harness-anything/preset/internal/preset-command-contract";
-import { optionalEnum, type RpcShape, shape } from "./daemon-protocol-gui-types.ts";
-import { DAEMON_GUI_COMMAND_RECEIPT_SCHEMA, guiAction, guiS3Action } from "./daemon-protocol-schema-ids.ts";
+import { actionRpc, optionalEnum, type RpcShape, shape } from "./daemon-protocol-results.ts";
 
 /** GUI 的实体写入面。三条动作都只是既有 center 单写路的命名 ingress:声明实体走
  * generic entity store,artifact 实体走 `ha entity import` 的同一条路与同一个 revision
- * fence。放在这里是因为 `daemon-protocol-gui-actions.ts` 只持有注册表本身,按实体域拆分
+ * fence。放在这里是因为 `daemon-protocol-action-routes.ts` 只持有注册表本身,按实体域拆分
  * 让它维持在 G0-5 的 shrink-only 基线内。 */
 
 /**
@@ -12,35 +11,26 @@ import { DAEMON_GUI_COMMAND_RECEIPT_SCHEMA, guiAction, guiS3Action } from "./dae
  * center 单写路与 entity revision fence,不新造第二条写路。GUI 只递 kind/locator/title,
  * relink 语义的 entityId/sourceIdentity 不开放给渲染层。
  */
-export const entityImportGuiActions = Object.freeze([
-  guiAction(
+export const entityImportRoutes = Object.freeze([
+  actionRpc(
     "vertical.kind.upsert",
     "repo.vertical.kind.upsert",
     "vertical-kind-upsert",
     shape({ kindId: "string", declaration: "json", expectedVersion: "number?" }),
-    "upsertVerticalKind",
-    "/api/vertical/kinds/upsert",
-    "repo-write",
   ),
-  guiAction(
+  actionRpc(
     "vertical.kind.publishSchema",
     "repo.vertical.kind.publishSchema",
     "vertical-kind-publish-schema",
     shape({ kindId: "string", attributes: "json", expectedVersion: "number?" }),
-    "publishVerticalKindSchema",
-    "/api/vertical/kinds/publish-schema",
-    "repo-write",
   ),
-  guiAction(
+  actionRpc(
     "vertical.kind.retire",
     "repo.vertical.kind.retire",
     "vertical-kind-retire",
     shape({ kindId: "string", expectedVersion: "number?", reason: "string" }),
-    "retireVerticalKind",
-    "/api/vertical/kinds/retire",
-    "repo-write",
   ),
-  guiAction(
+  actionRpc(
     "entity.import",
     "repo.entity.import",
     "entity-import",
@@ -54,11 +44,8 @@ export const entityImportGuiActions = Object.freeze([
       title: "string?",
       attributes: "json?",
     }),
-    "importEntity",
-    "/api/entities/import",
-    "repo-write",
   ),
-  guiAction(
+  actionRpc(
     "entity.update",
     "repo.entity.update",
     "entity-update",
@@ -71,46 +58,29 @@ export const entityImportGuiActions = Object.freeze([
       contentVersion: "string?",
       attributes: "json?",
     }),
-    "updateEntity",
-    "/api/entities/update",
-    "repo-write",
   ),
-  guiAction(
+  actionRpc(
     "entity.archive",
     "repo.entity.archive",
     "entity-archive",
     shape({ entityKind: "string", entityId: "string", expectedVersion: "number", reason: "string" }),
-    "archiveEntity",
-    "/api/entities/archive",
-    "repo-write",
   ),
   // Archive keeps the descriptor and its files; delete retires both. Both already exist as one
   // center action apiece, so the GUI names the second one too rather than making archive mean both.
-  guiAction(
+  actionRpc(
     "entity.delete",
     "repo.entity.delete",
     "entity-delete",
     shape({ entityKind: "string", entityId: "string", expectedVersion: "number", reason: "string" }),
-    "deleteEntity",
-    "/api/entities/delete",
-    "repo-write",
   ),
   // 置顶区的实体级取消置顶(task_9ba495de):与 repo.task.unpin 同一条 entity-unpin 写路
   // (runEntityPinAction),GUI 只递 entityRef;非任务实体的 pin 仍走 CLI `ha pin <ref>`。
-  guiAction(
-    "entity.unpin",
-    "repo.entity.unpin",
-    "entity-unpin",
-    shape({ entityRef: "string" }),
-    "unpinEntity",
-    "/api/entities/unpin",
-    "repo-write",
-  ),
+  actionRpc("entity.unpin", "repo.entity.unpin", "entity-unpin", shape({ entityRef: "string" })),
 ] as const);
 
 /** Agent/Squad 声明文档的写入面;两者共用 generic entity store 的同一条写路。 */
-export const entityDeclarationGuiActions = Object.freeze([
-  guiS3Action(
+export const entityDeclarationRoutes = Object.freeze([
+  actionRpc(
     "agent.entity.write",
     "repo.agent.entity.write",
     "agent-install",
@@ -119,113 +89,68 @@ export const entityDeclarationGuiActions = Object.freeze([
     // sends expectedVersion 0; an omitted value keeps the pre-fence behavior for callers that do
     // not hold a revision.
     shape({ declaration: "json", expectedVersion: "number?" }),
-    "saveAgent",
-    "/api/agents",
-    "repo-write",
-    DAEMON_GUI_COMMAND_RECEIPT_SCHEMA.id,
   ),
-  guiS3Action(
-    "squad.entity.write",
-    "repo.squad.entity.write",
-    "squad-install",
-    shape({ declaration: "json" }),
-    "saveSquad",
-    "/api/squads",
-    "repo-write",
-    DAEMON_GUI_COMMAND_RECEIPT_SCHEMA.id,
-  ),
+  actionRpc("squad.entity.write", "repo.squad.entity.write", "squad-install", shape({ declaration: "json" })),
   // The U/D of the GUI entity CRUD: named ingresses onto the same agent-retire / agent-delete /
   // squad-delete actions the CLI uses, so retirement and deletion validation (system-bundled
   // closure, the entity revision fence, agent_referenced) stays in the one daemon executor.
-  guiS3Action(
+  actionRpc(
     "agent.entity.retire",
     "repo.agent.entity.retire",
     "agent-retire",
     shape({ agentId: "string", reason: "string", successor: "string?" }),
-    "retireAgent",
-    "/api/agents/:agentId/retire",
-    "repo-write",
-    DAEMON_GUI_COMMAND_RECEIPT_SCHEMA.id,
   ),
-  guiS3Action(
+  actionRpc(
     "agent.entity.delete",
     "repo.agent.entity.delete",
     "agent-delete",
     shape({ agentId: "string", reason: "string", expectedVersion: "number" }),
-    "deleteAgent",
-    "/api/agents/:agentId",
-    "repo-write",
-    DAEMON_GUI_COMMAND_RECEIPT_SCHEMA.id,
   ),
-  guiS3Action(
+  actionRpc(
     "squad.entity.delete",
     "repo.squad.entity.delete",
     "squad-delete",
     shape({ squadId: "string", reason: "string", expectedVersion: "number" }),
-    "deleteSquad",
-    "/api/squads/:squadId",
-    "repo-write",
-    DAEMON_GUI_COMMAND_RECEIPT_SCHEMA.id,
   ),
 ] as const);
 
 /** 任务收口的 GUI 写入 ingress:与 `ha task complete` 同一个 fleet `task-complete` 动作。放在这里
- * 而不是注册表文件,沿用 43aa1a51e9 的做法,让 `daemon-protocol-gui-actions.ts` 维持在 G0-5 基线内。 */
-export const taskCompletionGuiActions = Object.freeze([
+ * 而不是注册表文件,沿用 43aa1a51e9 的做法,让 `daemon-protocol-action-routes.ts` 维持在 G0-5 基线内。 */
+export const taskCompletionRoutes = Object.freeze([
   // dec_9C43012EBB2754D7112F618F0D / dec_13B7B846B56BFA192533011B91:
   // named GUI ingresses only; admission and persistence remain in the canonical actions.
-  guiAction(
-    "task.archive",
-    "repo.task.archive",
-    "task-archive",
-    shape({ taskIds: "array", reason: "string" }),
-    "archiveTasks",
-    "/api/tasks/archive",
-    "repo-write",
-  ),
-  guiAction(
+  actionRpc("task.archive", "repo.task.archive", "task-archive", shape({ taskIds: "array", reason: "string" })),
+  actionRpc(
     "agentRuntime.incidentDismiss",
     "repo.agentRuntime.incidentDismiss",
     "runtime-incident-dismiss",
     shape({ dispatchId: "string", reason: "string" }),
-    "dismissRuntimeIncident",
-    "/api/runtime/incidents/dismiss",
-    "repo-write",
   ),
-  guiAction(
+  actionRpc(
     "task.escalationResolve",
     "repo.task.escalationResolve",
     "task-escalation-resolve",
     shape({ taskId: "string", dispatchId: "string", answer: "string" }),
-    "resolveTaskEscalation",
-    "/api/tasks/:taskId/escalation/resolve",
-    "repo-write",
   ),
   // Pure passthrough of the fleet `task-complete` action: completion is mechanical — the
   // review verdict and the owner's consent are separate explicit actions, never complete flags.
-  guiAction(
+  actionRpc(
     "task.complete",
     "repo.task.complete",
     "task-complete",
     shape({ taskId: "string", executionId: "string?" }),
-    "completeTask",
-    "/api/tasks/:taskId/complete",
-    "repo-write",
   ),
   // The owner's verdict accept onto the same `task-review-consent` action as the CLI. The
   // execution is a stated id (the reviewed cut's own execution), never an inferred one.
-  guiAction(
+  actionRpc(
     "task.consent",
     "repo.task.consent",
     "task-review-consent",
     shape({ taskId: "string", executionId: "string", reviewId: "string" }),
-    "consentReview",
-    "/api/tasks/:taskId/consent",
-    "repo-write",
   ),
   // Named ingress onto the same `task-attest` action as `ha task attest`: the closed payload mirrors the
   // CLI inputs, and mode/rationale/human-principal admission stays in the one daemon handler.
-  guiAction(
+  actionRpc(
     "task.attest",
     "repo.task.attest",
     "task-attest",
@@ -237,9 +162,6 @@ export const taskCompletionGuiActions = Object.freeze([
       note: "string?",
       rationale: "string?",
     }),
-    "taskAttest",
-    "/api/tasks/:taskId/attest",
-    "repo-write",
   ),
 ]);
 
@@ -253,32 +175,8 @@ const reworkFields = Object.fromEntries(
   }),
 ) as RpcShape["fields"];
 
-export const taskReworkGuiActions = Object.freeze([
-  guiAction(
-    "task.materialize",
-    "repo.task.materialize",
-    "doc-materialize",
-    shape({ taskId: "string" }),
-    "materializeTask",
-    "/api/tasks/:taskId/materialize",
-    "repo-write",
-  ),
-  guiAction(
-    "task.show",
-    "repo.task.show",
-    "task-show",
-    shape({ taskId: "string" }),
-    "showTask",
-    "/api/tasks/:taskId",
-    "repo-read",
-  ),
-  guiAction(
-    "task.rework",
-    "repo.task.rework",
-    "task-rework",
-    shape(reworkFields),
-    "reworkTask",
-    "/api/tasks/:taskId/rework",
-    "repo-write",
-  ),
+export const taskReworkRoutes = Object.freeze([
+  actionRpc("task.materialize", "repo.task.materialize", "doc-materialize", shape({ taskId: "string" })),
+  actionRpc("task.show", "repo.task.show", "task-show", shape({ taskId: "string" }), { read: true }),
+  actionRpc("task.rework", "repo.task.rework", "task-rework", shape(reworkFields)),
 ] as const);

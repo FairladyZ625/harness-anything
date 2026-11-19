@@ -1198,7 +1198,7 @@ test("Codex API-key bearer remains confined to the private provider config", asy
             "admin",
           ),
         ),
-        attached = await cell.attach(String(receipt.runtimeSessionId), "stream:0");
+        attached = await cell.attach(String(receipt.runtimeSessionId));
       assert.equal(attached.initial.ok, true, JSON.stringify(attached.initial));
       assert.ok(exit, "runtime exit listener must be attached before the provider exits");
       exit(0);

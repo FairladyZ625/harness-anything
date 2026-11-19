@@ -24,6 +24,6 @@ describe("todosClient", () => {
     await expect(todosClient.list("repo-edge")).rejects.toThrow(
       "daemon_error: fetch failed: https://center.example.test:8443",
     );
-    expect(invokeMock).toHaveBeenCalledWith("repo.todo.list", { repoId: "repo-edge", all: true }, "listTodos");
+    expect(invokeMock).toHaveBeenCalledWith("repo.todo.list", { repoId: "repo-edge", all: true });
   });
 });

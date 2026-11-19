@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
@@ -90,10 +91,13 @@ const task: TaskRow = {
 describe("graph entry on each graph-focusable detail surface", () => {
   it("Task detail header carries the button with the task ref", async () => {
     vi.stubGlobal("window", {
-      harness: {
-        getTaskDocuments: vi.fn(async () => ({ ok: true, status: "ready", taskId: "task-gui", documents: [] })),
-        getTaskDocument: vi.fn(),
-      },
+      harness: mockRpcBridge(
+        {
+          getTaskDocuments: vi.fn(async () => ({ ok: true, status: "ready", taskId: "task-gui", documents: [] })),
+          getTaskDocument: vi.fn(),
+        },
+        { "repo.tasks.document.read": "getTaskDocument", "repo.tasks.documents.list": "getTaskDocuments" },
+      ),
       // 概况的 Region 是 motion 布局节点,挂载时在 window 上听 resize;document/localStorage
       // 留给真实 happy-dom(区域停靠树构造与偏好落盘要用)。
       document,
@@ -122,10 +126,13 @@ describe("graph entry on each graph-focusable detail surface", () => {
 
   it("Task detail omits the button when the host provides no graph exit", async () => {
     vi.stubGlobal("window", {
-      harness: {
-        getTaskDocuments: vi.fn(async () => ({ ok: true, status: "ready", taskId: "task-gui", documents: [] })),
-        getTaskDocument: vi.fn(),
-      },
+      harness: mockRpcBridge(
+        {
+          getTaskDocuments: vi.fn(async () => ({ ok: true, status: "ready", taskId: "task-gui", documents: [] })),
+          getTaskDocument: vi.fn(),
+        },
+        { "repo.tasks.document.read": "getTaskDocument", "repo.tasks.documents.list": "getTaskDocuments" },
+      ),
       // 概况的 Region 是 motion 布局节点,挂载时在 window 上听 resize;document/localStorage
       // 留给真实 happy-dom(区域停靠树构造与偏好落盘要用)。
       document,

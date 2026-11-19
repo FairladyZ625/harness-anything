@@ -1,6 +1,9 @@
 import type { ContractVersion, CoreDomainError } from "@harness-anything/kernel";
-import { currentDaemonProtocolVersion } from "../protocol/version.ts";
-import type { JsonObject } from "../protocol/json-rpc-types.ts";
+import {
+  currentDaemonProtocolVersion,
+  recoverableStreamProtocolMinor,
+} from "../protocol/daemon-protocol-identifiers.ts";
+import { DaemonProtocolContractError, type JsonObject } from "../protocol/json-rpc-types.ts";
 
 /**
  * protocol.hello is the first frame, so the client cannot negotiate: the previous daemon validates
@@ -10,7 +13,25 @@ import type { JsonObject } from "../protocol/json-rpc-types.ts";
  * tolerates it; `test/protocol-hello-window-roundtrip.test.ts` freezes that boundary.
  */
 export function daemonHelloParams(params: JsonObject = {}): JsonObject {
-  return { protocolVersion: currentDaemonProtocolVersion, ...params };
+  // Unchanged unary calls can speak to the previous resident during rolling upgrades.
+  const { major, minor } = currentDaemonProtocolVersion;
+  return { protocolVersion: { major, minor: minor - 1 }, ...params };
+}
+
+export function supportsRecoverableStreams(protocol: unknown): boolean {
+  const version = record(protocol);
+  return (
+    version?.major === currentDaemonProtocolVersion.major &&
+    typeof version.minor === "number" &&
+    version.minor >= recoverableStreamProtocolMinor
+  );
+}
+
+export function recoverableStreamUpgradeRequired(): DaemonProtocolContractError {
+  return new DaemonProtocolContractError(
+    "protocol_upgrade_required",
+    `Recoverable streams require daemon protocol 1.${recoverableStreamProtocolMinor}. Use matching CLI, GUI, and daemon releases.`,
+  );
 }
 
 export function daemonHelloMismatch(
@@ -45,7 +66,7 @@ export function assertDaemonHello(value: unknown): asserts value is JsonObject {
   // The previous release's diagnostics worker answered hello with a bare `{ ok: true }`. Every
   // main-daemon hello has carried protocolVersion since long before the window, so absence is that
   // one legacy reply shape; refusing it makes `ha daemon status --diagnostics` unusable against the
-  // previous daemon. Remove with the 1.0 window: by 2026-12-04 or when the current minor becomes 1.1.
+  // previous daemon. Remove with the 1.0 window by 2026-12-04.
   if (hello.protocolVersion !== undefined) {
     const mismatch = daemonHelloMismatch(hello.protocolVersion);
     if (mismatch) throw new DaemonHelloError(mismatch.code, mismatch.message);

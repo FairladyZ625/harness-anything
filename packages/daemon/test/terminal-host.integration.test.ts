@@ -26,7 +26,8 @@ test(
       assert.match(String(attached.initial.status), /attached|gap/u);
       assert.equal(host.resize({ sessionId: spawned.sessionId!, cols: 100, rows: 31 }).state, "running");
       assert.equal(
-        host.input({ sessionId: spawned.sessionId!, clientSeq: 1, utf8: "echo __HA_PTY_OK__\r" }).acceptedThrough,
+        host.input({ sessionId: spawned.sessionId!, daemonGeneration: 7, clientSeq: 1, utf8: "echo __HA_PTY_OK__\r" })
+          .acceptedThrough,
         1,
       );
       let output = "";
@@ -333,7 +334,7 @@ test("a terminal child that exits on its own still gets its pty released on wind
     const frame = await attached.next();
     assert.equal(frame?.kind, "exit");
     assert.throws(
-      () => host.input({ sessionId: spawned.sessionId!, clientSeq: 1, utf8: "x" }),
+      () => host.input({ sessionId: spawned.sessionId!, daemonGeneration: 9, clientSeq: 1, utf8: "x" }),
       /Terminal session has exited\./u,
     );
     assert.equal(host.terminate({ sessionId: spawned.sessionId!, confirmed: true }).state, "exited");
@@ -419,8 +420,11 @@ test("closing a running windows terminal does not kill it twice", async () => {
       name: "Close running",
     });
     assert.equal(spawned.ok, true);
+    const attachment = host.attach(spawned.sessionId!, 0);
+    const pending = attachment.next();
     await host.close();
     assert.deepEqual(kills, [0], "close must release the pty exactly once");
+    assert.equal(await pending, null, "a direct PTY ends with its daemon");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -449,6 +453,7 @@ test("selecting TMUX spawns its exact command and confirmed terminate kills the 
       name: "Durable",
     });
     assert.equal(spawned.state, "running");
+    const attachment = host.attach(spawned.sessionId!, 0);
     const namespace = Array.isArray(launches[0]?.args) ? String(launches[0].args[4]) : "";
     assert.deepEqual(launches[0], {
       file: "/test/tmux",
@@ -483,6 +488,7 @@ test("selecting TMUX spawns its exact command and confirmed terminate kills the 
     assert.deepEqual(killed, [namespace]);
     assert.equal(live.size, 0);
     await host.close();
+    assert.equal(await attachment.next(), null, "a terminated tmux session has no reconnect to offer");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -542,7 +548,9 @@ test("a TMUX registry restores a live session and attach uses the existing names
     killed: string[] = [],
     firstLaunches: RecordedLaunch[] = [],
     restoredLaunches: RecordedLaunch[] = [],
+    restoredWrites: string[] = [],
     registry = path.join(root, ".harness", "generated", "terminal-sessions.json");
+  let output: ((utf8: string) => void) | undefined;
   try {
     const controller = fakeTmuxController(live, killed),
       first = openTerminalHost({
@@ -561,6 +569,11 @@ test("a TMUX registry restores a live session and attach uses the existing names
       }),
       namespace = Array.isArray(firstLaunches[0]?.args) ? String(firstLaunches[0].args[4]) : "";
     assert.equal(live.has(namespace), true);
+    const sessionId = spawned.sessionId!;
+    assert.equal(
+      first.input({ sessionId, daemonGeneration: 14, clientSeq: 1, utf8: "first input" }).acceptedThrough,
+      1,
+    );
     await first.close();
     assert.equal(live.has(namespace), true, "daemon close must leave the TMUX server alive");
     assert.equal(statSync(registry).mode & 0o777, 0o600);
@@ -571,19 +584,54 @@ test("a TMUX registry restores a live session and attach uses the existing names
         rootDir: root,
         daemonGeneration: 15,
         tmux: controller,
-        spawnPty: recordingPtySpawner(restoredLaunches, live),
+        spawnPty: recordingPtySpawner(restoredLaunches, live, false, {
+          onOutput: (listener) => {
+            output = listener;
+          },
+          onInput: (utf8) => restoredWrites.push(utf8),
+        }),
       }),
       row = terminalRows(restored)[0];
     assert.deepEqual(
       row && { sessionId: row.sessionId, status: row.status, backend: row.backend, attachable: row.attachable },
       { sessionId: spawned.sessionId, status: "running", backend: "tmux", attachable: true },
     );
-    const attachment = restored.attach(spawned.sessionId!, 0);
+    const attachment = restored.attach(spawned.sessionId!, 325, 14);
+    assert.equal(attachment.initial.status, "gap");
+    assert.equal(attachment.initial.daemonGeneration, 15);
+    assert.equal(attachment.initial.replayFromSeq, 1);
     assert.deepEqual(restoredLaunches[0], {
       file: "/test/tmux",
       args: ["-u", "attach-session", "-t", namespace],
       cwd: root,
     });
+    const pending = attachment.next();
+    assert.ok(output);
+    output("first frame after daemon restart");
+    const frame = await pending;
+    assert.equal(frame?.seq, 1);
+    assert.equal(frame?.utf8, "first frame after daemon restart");
+    assert.throws(() => restored.input({ sessionId, daemonGeneration: 15, clientSeq: 2, utf8: "out of order" }), {
+      code: "terminal_input_gap",
+    });
+    assert.deepEqual(restoredWrites, []);
+    const nextInput = { sessionId, daemonGeneration: 15, clientSeq: 1, utf8: "first input after daemon restart" };
+    assert.equal(restored.input(nextInput).acceptedThrough, 1);
+    assert.equal(restored.input(nextInput).acceptedThrough, 1);
+    assert.throws(() => restored.input({ sessionId, daemonGeneration: 14, clientSeq: 2, utf8: "delayed old input" }), {
+      code: "terminal_generation_mismatch",
+    });
+    assert.throws(() => restored.input({ ...nextInput, daemonGeneration: 14 }), {
+      code: "terminal_generation_mismatch",
+    });
+    const nextKey = { ...nextInput, clientSeq: 2, utf8: "second input after daemon restart" };
+    assert.equal(restored.input(nextKey).acceptedThrough, 2);
+    assert.equal(restored.input(nextKey).acceptedThrough, 2);
+    assert.deepEqual(restoredWrites, [nextInput.utf8, nextKey.utf8]);
+    const ahead = restored.attach(spawned.sessionId!, 325, 15);
+    assert.equal(ahead.initial.status, "gap");
+    assert.equal((await ahead.next())?.seq, 1);
+    ahead.detach();
     assert.equal(
       restored.detach({ sessionId: spawned.sessionId!, attachmentId: attachment.initial.attachmentId as string }).state,
       "detached",
@@ -592,6 +640,38 @@ test("a TMUX registry restores a live session and attach uses the existing names
     assert.equal(live.has(namespace), false);
     assert.deepEqual(JSON.parse(readFileSync(registry, "utf8")).sessions, []);
     await restored.close();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("daemon close interrupts both waiting and active attachments to a live tmux session", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-terminal-tmux-interrupt-")),
+    live = new Set<string>();
+  try {
+    const host = openTerminalHost({
+      repoId: "repo-interrupt",
+      rootDir: root,
+      daemonGeneration: 14,
+      tmux: fakeTmuxController(live, []),
+      spawnPty: recordingPtySpawner([], live),
+    });
+    const { sessionId } = host.spawn({
+      idempotencyKey: "tmux-interrupt",
+      backend: "tmux",
+      cwd: { scope: "repo-root" },
+    });
+    assert.ok(sessionId);
+    const cancelled = host.attach(sessionId, 0);
+    cancelled.detach();
+    assert.equal(await cancelled.next(), null, "explicit detach finishes normally");
+    const waiting = host.attach(sessionId, 0),
+      active = host.attach(sessionId, 0),
+      rejection = assert.rejects(waiting.next(), { code: "daemon_stopping" });
+    await host.close();
+    assert.equal(live.size, 1, "the tmux session survives the host");
+    await rejection;
+    await assert.rejects(active.next(), { code: "daemon_stopping" });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -622,10 +702,10 @@ test("TMUX activity persistence is throttled while termination persists immediat
     const first = readFileSync(registry, "utf8");
     const attachment = host.attach(spawned.sessionId!, 0);
     for (let clientSeq = 1; clientSeq <= 100; clientSeq += 1)
-      host.input({ sessionId: spawned.sessionId!, clientSeq, utf8: "x" });
+      host.input({ sessionId: spawned.sessionId!, daemonGeneration: 16, clientSeq, utf8: "x" });
     assert.equal(readFileSync(registry, "utf8"), first, "activity writes within 10 seconds must be coalesced");
     clock += 10_000;
-    host.input({ sessionId: spawned.sessionId!, clientSeq: 101, utf8: "x" });
+    host.input({ sessionId: spawned.sessionId!, daemonGeneration: 16, clientSeq: 101, utf8: "x" });
     assert.notEqual(readFileSync(registry, "utf8"), first, "activity must persist at the 10 second boundary");
     host.detach({ sessionId: spawned.sessionId!, attachmentId: attachment.initial.attachmentId as string });
     host.terminate({ sessionId: spawned.sessionId!, confirmed: true });
@@ -642,19 +722,30 @@ interface RecordedLaunch {
   readonly cwd: unknown;
   readonly env?: unknown;
 }
-function recordingPtySpawner(launches: RecordedLaunch[], live?: Set<string>, recordEnvironment = false): never {
+function recordingPtySpawner(
+  launches: RecordedLaunch[],
+  live?: Set<string>,
+  recordEnvironment = false,
+  io?: {
+    readonly onOutput: (listener: (utf8: string) => void) => void;
+    readonly onInput: (utf8: string) => void;
+  },
+): never {
   return ((file: string, args: readonly string[] | string, options: Record<string, unknown>) => {
     const argv = typeof args === "string" ? args : [...args];
     launches.push({ file, args: argv, cwd: options.cwd, ...(recordEnvironment ? { env: options.env } : {}) });
     if (Array.isArray(argv) && argv.includes("new-session")) live?.add(String(argv[4]));
     let exit: ((value: { readonly exitCode: number }) => void) | undefined;
     return {
-      onData: () => ({ dispose: () => undefined }),
+      onData: (listener: (utf8: string) => void) => {
+        io?.onOutput(listener);
+        return { dispose: () => undefined };
+      },
       onExit: (listener: (value: { readonly exitCode: number }) => void) => {
         exit = listener;
         return { dispose: () => undefined };
       },
-      write: () => undefined,
+      write: (utf8: string) => io?.onInput(utf8),
       resize: () => undefined,
       kill: () => {
         exit?.({ exitCode: 0 });

@@ -10,10 +10,10 @@ import { projectDecisionReadiness } from "@harness-anything/storage";
 import { INITIAL_SETTINGS_V1, SETTINGS_DECLARATION_RUNTIME, settingsUpdateInputFields } from "@harness-anything/kernel";
 import {
   actionForDaemonMethod,
-  daemonGuiActionMethods,
+  daemonActionRoutes,
   daemonProtocolCommands,
-  isDaemonGuiActionMethod,
-  isDaemonGuiOnlyActionMethod,
+  isDaemonActionRoute,
+  isNamedActionRoute,
   parseDaemonRpcParams,
   serializeDaemonRpcCall,
   validateDaemonDecisionList,
@@ -52,6 +52,19 @@ test("edge invitation fields cross the shared daemon.rbac.manage wire contract",
     sshTarget: "macbook-air-via-tencent-prod",
   });
   assert.equal(result.ok, true, result.ok ? "" : result.errors.join("; "));
+});
+
+// dec_89D06D7360CBEC09795F7B12EC/CH3: every terminal input sequence belongs to its attach generation.
+test("repo.terminal.input requires a nonnegative safe daemon generation in the closed payload", () => {
+  const base = { sessionId: "terminal-a", clientSeq: 1, utf8: "x" };
+  const check = (payload: unknown) =>
+    parseDaemonRpcParams("repo.terminal.input", { repo: { repoId: "alpha" }, payload });
+  assert.equal(check({ ...base, daemonGeneration: 7 }).ok, true);
+  assert.equal(check(base).ok, false);
+  for (const daemonGeneration of [-1, 7.5, Number.MAX_SAFE_INTEGER + 1, "7", null])
+    assert.equal(check({ ...base, daemonGeneration }).ok, false, JSON.stringify(daemonGeneration));
+  assert.equal(check({ ...base, daemonGeneration: 7, clientSeq: -1 }).ok, false);
+  assert.equal(check({ ...base, daemonGeneration: 7, unexpected: true }).ok, false);
 });
 // prettier-ignore
 
@@ -273,14 +286,14 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["repo.agentRuntime.cancel", { runtimeSessionId: "runtime-session-a" }],
     ["repo.agentRuntime.steer", { runtimeSessionId: "runtime-session-a", prompt: "Adjust course." }],
     ["repo.terminal.spawn", { idempotencyKey: "terminal-once", backend: "direct-pty", name: "Shell", cwd: { scope: "repo-root" }, shellProfileId: "default" }],
-    ["repo.terminal.input", { sessionId: "terminal-a", clientSeq: 1, utf8: "pwd\n" }],
+    ["repo.terminal.input", { sessionId: "terminal-a", daemonGeneration: 7, clientSeq: 1, utf8: "pwd\n" }],
     ["repo.terminal.resize", { sessionId: "terminal-a", cols: 100, rows: 30 }],
     ["repo.terminal.detach", { sessionId: "terminal-a", attachmentId: "attachment-a" }],
     ["repo.terminal.terminate", { sessionId: "terminal-a", confirmed: true }]
   ]);
-  assert.deepEqual(daemonGuiActionMethods.map(({ method }) => method), [...cases.keys()]); assert.equal(daemonGuiActionMethods.some(({ method }) => method === "repo.task.run"), false);
-  assert.equal(isDaemonGuiActionMethod("repo.task.create"), true);
-  assert.equal(isDaemonGuiOnlyActionMethod("repo.task.create"), false, "task creation is also an existing preset RPC");
+  assert.deepEqual(daemonActionRoutes.map(({ method }) => method), [...cases.keys()]); assert.equal(daemonActionRoutes.some(({ method }) => method === "repo.task.run"), false);
+  assert.equal(isDaemonActionRoute("repo.task.create"), true);
+  assert.equal(isNamedActionRoute("repo.task.create"), false, "task creation is also an existing preset RPC");
   for (const [method, payload] of cases) { const params = method.startsWith("daemon.") ? { payload } : { repo: { repoId: "alpha" }, payload }; assert.equal(parseDaemonRpcParams(method, params).ok, true, method); assert.equal(parseDaemonRpcParams(method, { ...params, payload: { ...payload, unexpected: true } }).ok, false, `${method}: unknown`); }
   const terminalSpawn = cases.get("repo.terminal.spawn")!; assert.equal(parseDaemonRpcParams("repo.terminal.spawn", { repo: { repoId: "alpha" }, payload: { ...terminalSpawn, backend: "tmux" } }).ok, true); assert.equal(parseDaemonRpcParams("repo.terminal.spawn", { repo: { repoId: "alpha" }, payload: { ...terminalSpawn, backend: "remote" } }).ok, false); const { backend: _backend, ...missingBackend } = terminalSpawn; assert.equal(parseDaemonRpcParams("repo.terminal.spawn", { repo: { repoId: "alpha" }, payload: missingBackend }).ok, false);
   assert.deepEqual(actionForDaemonMethod("repo.task.create", cases.get("repo.task.create")!), {
@@ -321,7 +334,7 @@ test("runtime steer is a GUI action with a real consumer (W3-T1 AgentSteering) a
   // dec_C0AF8CBBFFECF71F4F34FB76F9 CH2/CH4:AgentSteering 的追加指令写入必须走统一 runtime
   // 客户端。2026-10-14 把 steer 移出 GUI 面时还没有消费者;W3-T1 接线后恢复该 facet。
   assert.equal(
-    daemonGuiActionMethods.some(({ method }) => method === "repo.agentRuntime.steer"),
+    daemonActionRoutes.some(({ method }) => method === "repo.agentRuntime.steer"),
     true,
   );
   assert.equal(call({ dispatchId: "dispatch-a", prompt: "Change direction." }).ok, true);
@@ -511,7 +524,7 @@ test("every declared ha init flag survives the daemon.repo.bootstrap wire params
 test("repo.settings.update accepts every settings-contract field and nothing else", () => {
   // 契约(kernel 单源)加字段而 wire 白名单没跟上时,GUI 整表提交会被 unknown_field 静默拒收
   // (2026-09-18 实测:restoreDrillRetention/gatesFromDocument 漂移让每次提交都 op_rejected)。
-  const route = daemonGuiActionMethods.find((candidate) => candidate.method === "repo.settings.update");
+  const route = daemonActionRoutes.find((candidate) => candidate.method === "repo.settings.update");
   assert.ok(route, "the settings update route must stay declared");
   const allowed = new Set(Object.keys(route.params.fields.payload!.fields)),
     expected = new Set([...settingsUpdateInputFields.map(({ field }) => field), "idempotencyKey"]);

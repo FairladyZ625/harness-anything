@@ -44,7 +44,7 @@ export const authoredDocumentStatusVocabularies: readonly StatusVocabulary[] = [
     id: "wire.document-sync-state",
     entity: "DaemonWire",
     field: "syncState",
-    module: "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-types.ts",
+    module: "packages/daemon/src/daemon-host/protocol/daemon-protocol-results.ts",
     anchor: "#syncState",
     words: ["synced", "unsynced", "unobservable", "derived"],
     mirrorOf: "documentReplica.syncState",

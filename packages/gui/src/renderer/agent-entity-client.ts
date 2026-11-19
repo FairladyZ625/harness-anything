@@ -16,7 +16,6 @@ import type {
 } from "@harness-anything/daemon/protocol";
 import { containsSecretLikeKey, entityRecord } from "../api/entity-payload-hygiene.ts";
 import { rendererErrorHint } from "./result-validation.ts";
-import { guiHostBridge } from "./gui-transport.ts";
 import { invoke } from "./api-client-invoke.ts";
 export type {
   AgentDiffField,
@@ -51,58 +50,44 @@ export type EntitySaveResult = {
 // sees only the closed declaration projection plus the absolute skill paths needed
 // for explicit prompt injection; it never sees skill bodies or anything secret-shaped.
 // This client rejects credential-shaped payloads before any component renders them.
-type Bridge = {
-  readonly listAgents: (payload: { readonly repoId: string }) => Promise<unknown>;
-  readonly showAgent: (payload: { readonly repoId: string; readonly agentId: string }) => Promise<unknown>;
-  readonly listAgentSkills: (payload: { readonly repoId: string }) => Promise<unknown>;
-  readonly listSquads: (payload: { readonly repoId: string }) => Promise<unknown>;
-  readonly showSquad: (payload: { readonly repoId: string; readonly squadId: string }) => Promise<unknown>;
-  readonly readAgentHistory: (payload: {
-    readonly repoId: string;
-    readonly agentId: string;
-    readonly limit?: number;
-    readonly cursor?: string;
-    readonly noSummary?: boolean;
-  }) => Promise<unknown>;
-  readonly readAgentVersion: (payload: {
-    readonly repoId: string;
-    readonly agentId: string;
-    readonly revision: number;
-  }) => Promise<unknown>;
-};
-const bridge = (): Bridge => {
-  const value = guiHostBridge() as unknown as Partial<Bridge> | undefined,
-    required = [
-      "listAgents",
-      "showAgent",
-      "listAgentSkills",
-      "listSquads",
-      "showSquad",
-      "readAgentHistory",
-      "readAgentVersion",
-    ] as const;
-  if (!value || required.some((method) => typeof value[method] !== "function"))
-    throw new Error("Agent entity bridge is unavailable.");
-  return value as Bridge;
-};
 export const agentEntityClient = {
   listAgents: async (repoId: string): Promise<readonly AgentEntityRow[]> =>
-    catalog(await bridge().listAgents({ repoId }), "agent-entity-catalog/v1", "agents") as readonly AgentEntityRow[],
+    catalog(
+      await invoke("repo.agent.entities.list", { repoId }),
+      "agent-entity-catalog/v1",
+      "agents",
+    ) as readonly AgentEntityRow[],
   listAgentSkills: async (repoId: string): Promise<readonly AgentSkillRow[]> =>
-    catalog(await bridge().listAgentSkills({ repoId }), "agent-skill-catalog/v1", "skills") as readonly AgentSkillRow[],
+    catalog(
+      await invoke("repo.agent.skills.list", { repoId }),
+      "agent-skill-catalog/v1",
+      "skills",
+    ) as readonly AgentSkillRow[],
   listSquads: async (repoId: string): Promise<readonly SquadEntityRow[]> =>
-    catalog(await bridge().listSquads({ repoId }), "squad-entity-catalog/v1", "squads") as readonly SquadEntityRow[],
+    catalog(
+      await invoke("repo.squad.entities.list", { repoId }),
+      "squad-entity-catalog/v1",
+      "squads",
+    ) as readonly SquadEntityRow[],
   showAgent: async (repoId: string, agentId: string): Promise<AgentEntityDetail> =>
-    detail(await bridge().showAgent({ repoId, agentId }), "agent-entity-detail/v1", "agent") as AgentEntityDetail,
+    detail(
+      await invoke("repo.agent.entity.read", { repoId, agentId }),
+      "agent-entity-detail/v1",
+      "agent",
+    ) as AgentEntityDetail,
   showSquad: async (repoId: string, squadId: string): Promise<SquadEntityDetail> =>
-    detail(await bridge().showSquad({ repoId, squadId }), "squad-entity-detail/v1", "squad") as SquadEntityDetail,
+    detail(
+      await invoke("repo.squad.entity.read", { repoId, squadId }),
+      "squad-entity-detail/v1",
+      "squad",
+    ) as SquadEntityDetail,
   readAgentHistory: async (
     repoId: string,
     agentId: string,
     input: { readonly limit?: number; readonly cursor?: string; readonly noSummary?: boolean } = {},
   ): Promise<AgentHistoryRead> =>
     versioned(
-      await bridge().readAgentHistory({
+      await invoke("repo.agent.history.read", {
         repoId,
         agentId,
         ...(input.limit === undefined ? {} : { limit: input.limit }),
@@ -112,61 +97,38 @@ export const agentEntityClient = {
       "agent-history/v1",
     ) as AgentHistoryRead,
   readAgentVersion: async (repoId: string, agentId: string, revision: number): Promise<AgentVersionRead> =>
-    versioned(await bridge().readAgentVersion({ repoId, agentId, revision }), "agent-version/v1") as AgentVersionRead,
+    versioned(
+      await invoke("repo.agent.version.read", { repoId, agentId, revision }),
+      "agent-version/v1",
+    ) as AgentVersionRead,
   // 保存带上详情里的声明 revision:daemon 的 agent-install 动作已有 expectedVersion 栅栏,
   // 这里只是把编辑者读到的那一版递过去。并发保存的后者因此得到 revision_conflict,而不是
   // 静默覆盖前者。新建没有既有 revision,显式递 0(空实体通过栅栏)。
   saveAgent: async (repoId: string, declaration: AgentDeclarationV1, expectedVersion = 0): Promise<EntitySaveResult> =>
     save(
-      await invoke(
-        "repo.agent.entity.write",
-        { repoId, declaration, expectedVersion } as { readonly repoId: string } & object,
-        "saveAgent",
-      ),
+      await invoke("repo.agent.entity.write", { repoId, declaration, expectedVersion } as {
+        readonly repoId: string;
+      } & object),
     ),
   saveSquad: async (repoId: string, declaration: SquadDeclarationV1): Promise<EntitySaveResult> =>
-    save(
-      await invoke(
-        "repo.squad.entity.write",
-        { repoId, declaration } as { readonly repoId: string } & object,
-        "saveSquad",
-      ),
-    ),
+    save(await invoke("repo.squad.entity.write", { repoId, declaration } as { readonly repoId: string } & object)),
   // U/D 复用 CLI 同一条 daemon 实体动作(agent-retire / agent-delete / squad-delete);
   // 删除的 expectedVersion 是 show 结果里的声明自身 revision,调用方从 detail 拿,不由用户输入。
   retireAgent: async (
     repoId: string,
     input: { readonly agentId: string; readonly reason: string; readonly successor?: string },
   ): Promise<EntitySaveResult> =>
-    save(
-      await invoke(
-        "repo.agent.entity.retire",
-        { repoId, ...input } as { readonly repoId: string } & object,
-        "retireAgent",
-      ),
-    ),
+    save(await invoke("repo.agent.entity.retire", { repoId, ...input } as { readonly repoId: string } & object)),
   deleteAgent: async (
     repoId: string,
     input: { readonly agentId: string; readonly reason: string; readonly expectedVersion: number },
   ): Promise<EntitySaveResult> =>
-    save(
-      await invoke(
-        "repo.agent.entity.delete",
-        { repoId, ...input } as { readonly repoId: string } & object,
-        "deleteAgent",
-      ),
-    ),
+    save(await invoke("repo.agent.entity.delete", { repoId, ...input } as { readonly repoId: string } & object)),
   deleteSquad: async (
     repoId: string,
     input: { readonly squadId: string; readonly reason: string; readonly expectedVersion: number },
   ): Promise<EntitySaveResult> =>
-    save(
-      await invoke(
-        "repo.squad.entity.delete",
-        { repoId, ...input } as { readonly repoId: string } & object,
-        "deleteSquad",
-      ),
-    ),
+    save(await invoke("repo.squad.entity.delete", { repoId, ...input } as { readonly repoId: string } & object)),
 };
 function catalog(value: unknown, schema: string, field: string): readonly unknown[] {
   const row = entityRecord(value);

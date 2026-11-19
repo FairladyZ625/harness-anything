@@ -1,5 +1,5 @@
 import type { DecisionProviderRecord } from "@harness-anything/daemon/protocol";
-import { guiHostBridge } from "./gui-transport.ts";
+import { invoke } from "./api-client-invoke.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 
 export type DecisionProviderCreateInput = {
@@ -21,47 +21,23 @@ export type DecisionProviderUpdateInput = {
   readonly enabled?: boolean;
 };
 
-type Bridge = {
-  readonly listDecisionProviders: (payload: Record<string, never>) => Promise<unknown>;
-  readonly showDecisionProvider: (payload: { readonly providerId: string }) => Promise<unknown>;
-  readonly createDecisionProvider: (payload: DecisionProviderCreateInput) => Promise<unknown>;
-  readonly updateDecisionProvider: (payload: DecisionProviderUpdateInput) => Promise<unknown>;
-  readonly probeDecisionProvider: (payload: { readonly providerId: string }) => Promise<unknown>;
-  readonly deleteDecisionProvider: (payload: { readonly providerId: string }) => Promise<unknown>;
-};
-
-const bridge = (): Bridge => {
-  const value = guiHostBridge() as unknown as Partial<Bridge>,
-    required = [
-      "listDecisionProviders",
-      "showDecisionProvider",
-      "createDecisionProvider",
-      "updateDecisionProvider",
-      "probeDecisionProvider",
-      "deleteDecisionProvider",
-    ] as const;
-  if (required.some((method) => typeof value[method] !== "function"))
-    throw new Error("Decisions provider bridge is unavailable.");
-  return value as Bridge;
-};
-
 export const decisionProviderClient = {
   list: async (): Promise<readonly DecisionProviderRecord[]> => {
-    const result = await checked(bridge().listDecisionProviders({}));
+    const result = await checked(invoke("daemon.provider.list", {}));
     if (!Array.isArray(result.providers))
       throw new Error(rendererErrorHint(result, "Decisions provider list returned an invalid receipt."));
     return result.providers as DecisionProviderRecord[];
   },
   show: async (providerId: string): Promise<DecisionProviderRecord> =>
-    provider(await checked(bridge().showDecisionProvider({ providerId })), "provider"),
+    provider(await checked(invoke("daemon.provider.show", { providerId })), "provider"),
   create: async (input: DecisionProviderCreateInput): Promise<DecisionProviderRecord> =>
-    provider(await checked(bridge().createDecisionProvider(input)), "provider"),
+    provider(await checked(invoke("daemon.provider.create", input)), "provider"),
   update: async (input: DecisionProviderUpdateInput): Promise<DecisionProviderRecord> =>
-    provider(await checked(bridge().updateDecisionProvider(input)), "provider"),
+    provider(await checked(invoke("daemon.provider.update", input)), "provider"),
   probe: async (providerId: string): Promise<DecisionProviderRecord> =>
-    provider(await checked(bridge().probeDecisionProvider({ providerId })), "provider"),
+    provider(await checked(invoke("daemon.provider.probe", { providerId })), "provider"),
   delete: async (providerId: string): Promise<void> => {
-    const result = await checked(bridge().deleteDecisionProvider({ providerId }));
+    const result = await checked(invoke("daemon.provider.delete", { providerId }));
     if (result.deletedProviderId !== providerId)
       throw new Error(rendererErrorHint(result, "Decisions provider delete returned an invalid receipt."));
   },

@@ -4,7 +4,7 @@ import {
   validateObserveTailResult,
   type ObserveTailCursor,
   type ObserveTailResult,
-} from "@harness-anything/daemon/internal/protocol/daemon-protocol-gui-types";
+} from "@harness-anything/daemon/internal/protocol/daemon-protocol-results";
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 import { requestWindowMetrics } from "./metrics-summary.ts";
 import { daemonOption } from "./control-support.ts";

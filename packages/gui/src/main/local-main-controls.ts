@@ -1,4 +1,4 @@
-import type { GuiServiceBridge } from "../api/service-bridge.ts";
+import type { GuiServiceBridge } from "./local-composition-root.ts";
 import { guiBuildStamp, type GuiBuildStamp } from "./gui-build-identity.ts";
 
 type Target = {
@@ -18,7 +18,7 @@ export function addLocalMainControls(input: {
     stream: input.bridge.stream,
     invoke: async (method, payload) => {
       const result = asRecord(await input.bridge.invoke(method, payload));
-      return method === "getSystemStatus" ? overlayLocalSystem(result, input.guiBuild ?? guiBuildStamp) : result;
+      return method === "daemon.gui.system.read" ? overlayLocalSystem(result, input.guiBuild ?? guiBuildStamp) : result;
     },
   };
   // The daemon system-status contract carries neither the user root nor the GUI bundle's build

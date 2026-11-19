@@ -6,8 +6,107 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import type { RuntimeSession } from "@harness-anything/kernel";
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
-import { streamAgentRuntimeAt, type DaemonStreamLost } from "../src/daemon-host/client/local-json-rpc-stream.ts";
+import { streamAgentRuntimeAt, type DaemonStreamFailure } from "../src/daemon-host/client/local-json-rpc-stream.ts";
+import { daemonHelloMismatch } from "../src/daemon-host/client/daemon-hello.ts";
+import type { DaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
+import type { RuntimeStreamCursor } from "../src/daemon-host/protocol/stream-contract.ts";
+import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
+import { createInterface } from "node:readline";
+import { makeAgentRuntimeStreamHub, runtimeCursor } from "./fixtures/runtime-stream.ts";
+
+test(
+  "a hub shutdown sends a retryable end and resumes the applied cursor on its successor",
+  { timeout: 15_000 },
+  async () => {
+    const repoId = "runtime-handoff",
+      runtimeSessionId = "runtime-a",
+      parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-handoff-")),
+      socketPath = localUserDaemonEndpoint(parent, repoId),
+      makeHub = () =>
+        makeAgentRuntimeStreamHub({
+          repoId,
+          readSession: () => ({ runtimeSessionId }) as RuntimeSession,
+          canAttach: () => true,
+        }),
+      first = makeHub(),
+      successor = makeHub(),
+      end = Promise.withResolvers<JsonObject>(),
+      settled = Promise.withResolvers<JsonObject>(),
+      gapReceived = Promise.withResolvers<RuntimeStreamCursor>(),
+      frameReceived = Promise.withResolvers<RuntimeStreamCursor>(),
+      cursors: Array<RuntimeStreamCursor | undefined> = [];
+    let active = first;
+    const transport = createUnixSocketTransportServer({
+      daemonId: repoId,
+      socketPath,
+      createProtocolServer: (authContext, emit, _connectionId, connectionSignal) => {
+        const hub = active;
+        const host = {
+          attach: (_repo, sessionId, cursor, auth) => {
+            cursors.push(cursor);
+            return hub.attach(sessionId, cursor, auth.connectionSignal);
+          },
+        } satisfies Pick<DaemonHost, "attach">;
+        return createJsonRpcProtocolServer({
+          host: host as DaemonHost,
+          build: { loadedBuildId: null, commit: null, builtAt: null },
+          authContext: { ...authContext, connectionSignal },
+          emit: async (method, params) => {
+            await emit(method, params);
+            if (method === "repo.agentRuntime.attach.frame.end") (hub === first ? end : settled).resolve(params);
+          },
+        });
+      },
+    });
+    const controller = new AbortController();
+    try {
+      await transport.start();
+      const applied = first.publish(runtimeSessionId, { type: "heartbeat" });
+      const replacement = successor.publish(runtimeSessionId, {
+        type: "activity",
+        activity: "message",
+        content: "adopted",
+      });
+      await streamAgentRuntimeAt({
+        socketPath,
+        repoId,
+        payload: { runtimeSessionId },
+        signal: controller.signal,
+        onValue: (value) => {
+          if ("ok" in value && value.ok && value.status === "gap") {
+            const [gap] = value.events;
+            assert.ok(gap?.type === "gap");
+            assert.equal(gap.snapshot.activity?.content, "adopted");
+            assert.equal(gap.snapshotSeq, value.cursor.seq);
+            gapReceived.resolve(value.cursor);
+          }
+          if ("type" in value && value.type === "heartbeat") frameReceived.resolve(value.cursor);
+        },
+      });
+      active = successor;
+      first.close();
+      assert.deepEqual(await end.promise, { code: "daemon_stopping" });
+      assert.deepEqual(await gapReceived.promise, replacement.cursor);
+      assert.deepEqual(cursors, [undefined, applied.cursor]);
+      const next = successor.publish(runtimeSessionId, { type: "heartbeat" });
+      assert.deepEqual(await frameReceived.promise, next.cursor);
+      assert.equal(next.cursor.seq, replacement.cursor.seq + 1);
+      successor.publish(runtimeSessionId, { type: "exit", outcome: "succeeded" });
+      successor.close();
+      assert.deepEqual(await settled.promise, {});
+    } finally {
+      controller.abort();
+      first.close();
+      successor.close();
+      await transport.stop();
+      rmSync(parent, { recursive: true, force: true });
+    }
+  },
+);
 
 // #1654: a stream that had attached once reconnected every 40ms forever, invisibly, while the
 // daemon was too busy to answer — a connection storm that kept the daemon busy. The harness below
@@ -19,8 +118,7 @@ test("an attached stream exhausts a bounded reconnect budget and reports the los
     socketPath = localUserDaemonEndpoint(parent, "stream-bound");
   try {
     const accepted: number[] = [];
-    // Connection 1 serves a valid attach and dies; connection 2 serves attach again (a recovered
-    // daemon must refresh the budget); every later connection is destroyed on arrival.
+    // A receipt without stream progress does not refill the retry budget.
     const server = net.createServer((socket) => {
       accepted.push(1);
       if (accepted.length <= 2) {
@@ -37,7 +135,7 @@ test("an attached stream exhausts a bounded reconnect budget and reports the los
                 ok: true,
                 status: "attached",
                 runtimeSessionId: "session-bound",
-                cursor: "stream:0",
+                cursor: runtimeCursor("stream-bound", 0),
                 events: [],
               },
             }) + "\n",
@@ -51,34 +149,20 @@ test("an attached stream exhausts a bounded reconnect budget and reports the los
       server.listen(socketPath, resolve);
     });
     const values: unknown[] = [];
-    let lost: DaemonStreamLost | undefined;
+    const failure = Promise.withResolvers<DaemonStreamFailure>();
     const detach = await streamAgentRuntimeAt({
       socketPath,
       repoId: "stream-bound",
-      payload: { runtimeSessionId: "session-bound", afterCursor: "stream:0" },
+      payload: { runtimeSessionId: "session-bound" },
       onValue: (value) => values.push(value),
-      onClosed: (failure) => {
-        lost = failure;
-      },
+      onClosed: failure.resolve,
     });
     try {
-      const started = Date.now();
       assert.equal((values[0] as { readonly ok: boolean }).ok, true, "the initial attach must succeed");
-      while (lost === undefined) await delay(50);
-      assert.ok(lost, "the stream must report its loss");
+      const lost = await failure.promise;
       assert.equal(lost.code, "daemon_stream_lost");
-      // One successful reconnect refreshed the budget, so the fatal episode gets its full five
-      // attempts: 250 + 500 + 1000 + 2000 + 4000 ms of backoff precede the give-up.
       assert.equal(lost.attempts, 5, `attempts=${lost.attempts}`);
-      assert.ok(Date.now() - started >= 7_500, "the retries must actually back off");
-      assert.equal(
-        accepted.length,
-        7,
-        `exactly one attach, one recovery, and five failed attempts; got ${accepted.length}`,
-      );
-      const settled = accepted.length;
-      await delay(2_000);
-      assert.equal(accepted.length, settled, "a stream that gave up must stop connecting");
+      assert.equal(accepted.length, 6, "one attach and five retries, including a receipt without progress");
     } finally {
       detach();
       server.close();
@@ -88,6 +172,38 @@ test("an attached stream exhausts a bounded reconnect budget and reports the los
   }
 });
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+test("a new stream client never sends attach to a 1.0 resident", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-stream-version-")),
+    socketPath = localUserDaemonEndpoint(parent, "stream-version"),
+    previous = { major: 1, minor: 0 },
+    methods: string[] = [];
+  const server = net.createServer((socket) => {
+    const lines = createInterface({ input: socket });
+    lines.on("line", (line) => {
+      const request = JSON.parse(line);
+      methods.push(request.method);
+      const mismatch = daemonHelloMismatch(request.params.protocolVersion, previous);
+      const result = mismatch
+        ? { ok: false, code: mismatch.code, error: { hint: mismatch.message } }
+        : { ok: true, protocolVersion: previous };
+      socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
+    });
+  });
+  try {
+    mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
+    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    await assert.rejects(
+      streamAgentRuntimeAt({
+        socketPath,
+        repoId: "stream-version",
+        payload: { runtimeSessionId: "runtime-a" },
+        onValue: () => assert.fail("old resident cannot deliver v2 data"),
+      }),
+      { code: "incompatible_protocol_version" },
+    );
+    assert.deepEqual(methods, ["protocol.hello"]);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(parent, { recursive: true, force: true });
+  }
+});

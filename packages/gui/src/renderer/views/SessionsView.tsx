@@ -744,7 +744,7 @@ export function SessionsView({
     [taskSessionsByTask, selectedSession.data, unattributedSessions],
   );
   // 秒针闸门是「确有缓存触达证据」,不是「确有已知 TTL」:nowMs 同时喂排序的 Done
-  // 新鲜度窗(300s)与倒计时,而触达轮询窗恰好同宽(300s)——有触达的页面才有会随
+  // 新鲜度窗(300s)与倒计时,而触达候选窗口恰好同宽(300s)——有触达的页面才有会随
   // 时间变化的排序或倒计时;舰队主力 provider 无已知 TTL 时时钟不能停,否则已完成
   // 组永久压在 Working 之上(返工 F2)。
   const hasCacheTouches = useMemo(() => [...sessionTouches.values()].some((touch) => touch !== null), [sessionTouches]);

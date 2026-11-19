@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { signInProcessPolicyTestUser } from "../../daemon/test/keycloak-process-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { once } from "node:events";
@@ -103,17 +104,20 @@ test("GUI and CLI write the same canonical through one resident daemon", async (
     assert.equal(instance.status, 0, JSON.stringify(instance));
 
     const bridge = createLocalGuiServiceBridge(),
-      guiWrite = bridge.invoke("saveAgent", {
-        repoId,
-        declaration: {
-          schema: "agent-declaration/v1",
-          id: "gui-agent",
-          name: "GUI Agent",
-          instructions: "Written by the GUI path.",
-          runtimes: [{ type: "codex" }],
-          instance: "gui-writer-codex",
-        },
-      }),
+      guiWrite = bridge.invoke(
+        "repo.agent.entity.write",
+        scopedRpcParams("repo.agent.entity.write", {
+          repoId,
+          declaration: {
+            schema: "agent-declaration/v1",
+            id: "gui-agent",
+            name: "GUI Agent",
+            instructions: "Written by the GUI path.",
+            runtimes: [{ type: "codex" }],
+            instance: "gui-writer-codex",
+          },
+        }),
+      ),
       cliSourceWrite = runCliAsync(root, env, ["agent", "install", "--source", sourceRoot]);
     const [guiResult, cliResult] = await Promise.all([guiWrite, cliSourceWrite]);
     assert.equal((guiResult as { readonly ok?: boolean }).ok, true, JSON.stringify(guiResult));
@@ -123,7 +127,10 @@ test("GUI and CLI write the same canonical through one resident daemon", async (
     assert.doesNotMatch(cliResult.stderr, /writer lock|EEXIST/iu);
 
     for (const receipt of [guiResult as Record<string, unknown>, cliResult.receipt]) published(root, env, receipt);
-    const listed = await bridge.invoke("listAgents", { repoId });
+    const listed = await bridge.invoke(
+      "repo.agent.entities.list",
+      scopedRpcParams("repo.agent.entities.list", { repoId }),
+    );
     const agents = (listed as { readonly agents?: readonly { readonly id: string }[] }).agents ?? [];
     assert.deepEqual(agents.map(({ id }) => id).sort(), ["cli-agent", "gui-agent"]);
     assert.match(readFileSync(path.join(root, "harness/agents/gui-agent.json"), "utf8"), /GUI Agent/u);

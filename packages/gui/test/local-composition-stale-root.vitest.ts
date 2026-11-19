@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
@@ -154,9 +155,17 @@ describe("repo-scoped GUI reads after the startup root disappears", () => {
 
   it("reads the ledger bridge, running tasks and work brief from the newly opened project", async () => {
     const bridge = createLocalGuiServiceBridge();
-    const tasks = (await bridge.invoke("getTasks", { repoId: "new-repo" })) as { readonly ok?: boolean };
-    const wip = (await bridge.invoke("getTaskWip", { repoId: "new-repo" })) as { readonly ok?: boolean };
-    const briefs = (await bridge.invoke("getWorkBriefs", { repoId: "new-repo" })) as { readonly ok?: boolean };
+    const tasks = (await bridge.invoke(
+      "repo.tasks.list",
+      scopedRpcParams("repo.tasks.list", { repoId: "new-repo" }),
+    )) as { readonly ok?: boolean };
+    const wip = (await bridge.invoke("repo.tasks.wip", scopedRpcParams("repo.tasks.wip", { repoId: "new-repo" }))) as {
+      readonly ok?: boolean;
+    };
+    const briefs = (await bridge.invoke(
+      "repo.works.briefs.read",
+      scopedRpcParams("repo.works.briefs.read", { repoId: "new-repo" }),
+    )) as { readonly ok?: boolean };
     expect(tasks.ok, JSON.stringify(tasks)).toBe(true);
     expect(wip.ok).toBe(true);
     expect(briefs.ok).toBe(true);
@@ -170,11 +179,11 @@ describe("repo-scoped GUI reads after the startup root disappears", () => {
 
   it("switches every repo-scoped read to the project selected in the same window", async () => {
     const bridge = createLocalGuiServiceBridge();
-    await bridge.invoke("getTasks", { repoId: "new-repo" });
+    await bridge.invoke("repo.tasks.list", scopedRpcParams("repo.tasks.list", { repoId: "new-repo" }));
     seen.length = 0;
-    await bridge.invoke("getTasks", { repoId: "third-repo" });
-    await bridge.invoke("getTaskWip", { repoId: "third-repo" });
-    await bridge.invoke("getWorkBriefs", { repoId: "third-repo" });
+    await bridge.invoke("repo.tasks.list", scopedRpcParams("repo.tasks.list", { repoId: "third-repo" }));
+    await bridge.invoke("repo.tasks.wip", scopedRpcParams("repo.tasks.wip", { repoId: "third-repo" }));
+    await bridge.invoke("repo.works.briefs.read", scopedRpcParams("repo.works.briefs.read", { repoId: "third-repo" }));
     expect(seen).toEqual([
       { method: "repo.tasks.list", repoId: "third-repo" },
       { method: "repo.tasks.wip", repoId: "third-repo" },

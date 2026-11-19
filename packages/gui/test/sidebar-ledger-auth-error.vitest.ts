@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: fast
 // @vitest-environment happy-dom
 //
@@ -91,13 +92,21 @@ async function mountApp(options: { readonly summary: ReadFailure; readonly tasks
   };
   Object.defineProperty(window, "harness", {
     configurable: true,
-    value: new Proxy(bridge, {
-      get(target, method: string) {
-        if (method in target) return target[method];
-        // 与侧栏无关的读面统一回空成功:断言面不扩到它们。
-        return async () => ({ ok: true });
+    value: mockRpcBridge(
+      new Proxy(bridge, {
+        get(target, method: string) {
+          if (method in target) return target[method];
+          // 与侧栏无关的读面统一回空成功:断言面不扩到它们。
+          return async () => ({ ok: true });
+        },
+      }),
+      {
+        "daemon.gui.system.read": "getSystemStatus",
+        "repo.tasks.list": "getTasks",
+        "repo.workspace.summary.read": "getWorkspaceSummary",
+        "repo.agenda.read": "getAgenda",
       },
-    }),
+    ),
   });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const container = document.createElement("div");

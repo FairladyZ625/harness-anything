@@ -11,8 +11,8 @@ import {
   archiveDispatchStream,
   openDispatchStream,
 } from "../src/daemon-host/dispatch-stream.ts";
-import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { daemonReadRoutes, validateDaemonRpcCall } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import { makeSquadCanonicalReader } from "../src/daemon-host/squad-canonical-read.ts";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
@@ -176,7 +176,7 @@ const detail = {
 
 test("squad run list facet is registered and rejects malformed bounds", () => {
   assert.deepEqual(
-    daemonGuiReadMethods.filter(({ method }) => method.startsWith("repo.squad.run")).map(({ method }) => method),
+    daemonReadRoutes.filter(({ method }) => method.startsWith("repo.squad.run")).map(({ method }) => method),
     ["repo.squad.runs.list", "repo.squad.run.read"],
   );
   const validate = (method: string, payload: Record<string, unknown>) =>
@@ -211,7 +211,7 @@ test("squad run read facet requires the exact squad run handle", () => {
 
 test("squad run list validator locks the redacted wire shape", () => {
   assert.deepEqual(validateSquadRunsList(list), []);
-  assert.equal(parseDaemonGuiReadResult("repo.squad.runs.list", list), list);
+  assert.equal(parseDaemonReadResult("repo.squad.runs.list", list), list);
   assert.equal(serializeSquadRunsList(list), `${JSON.stringify(list)}\n`);
   for (const key of ["token", "access_token", "id_token"])
     assert.notDeepEqual(validateSquadRunsList({ ...list, [key]: "secret" }), [], `${key} must stay rejected`);
@@ -219,7 +219,7 @@ test("squad run list validator locks the redacted wire shape", () => {
 
 test("squad run read validator locks the orchestration-flow wire shape", () => {
   assert.deepEqual(validateSquadRunRead(detail), []);
-  assert.equal(parseDaemonGuiReadResult("repo.squad.run.read", detail), detail);
+  assert.equal(parseDaemonReadResult("repo.squad.run.read", detail), detail);
   assert.equal(serializeSquadRunRead(detail), `${JSON.stringify(detail)}\n`);
   for (const key of ["token", "access_token", "id_token"])
     assert.notDeepEqual(validateSquadRunRead({ ...detail, [key]: "secret" }), [], `${key} must stay rejected`);

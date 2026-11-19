@@ -26,9 +26,10 @@ import { makeRepo, replaceSourceOnce } from "./helpers.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const main = "packages/gui/src/main/";
-const bridge = "packages/gui/src/api/service-bridge.ts";
+const bridge = `${main}local-composition-root.ts`;
+const preload = "packages/gui/src/preload/electron-preload.ts";
 const files = [
-  bridge,
+  preload,
   ...[
     "electron-main",
     "ipc-handlers",
@@ -49,6 +50,7 @@ const nativeSources = local.ontology.sources.filter(
       s.candidateId.includes("src/main/desktop-first-run.ts#serviceInstallFailure.")),
 );
 const sources = [
+  ["electron-preload.ts#exposedHarnessApi.request:", submit, `${preload}#invoke`],
   ["ipc-handlers.ts#registerHarnessIpcHandlers:", submit, `${bridge}#GuiServiceBridge.invoke`],
   ["local-main-controls.ts#addLocalMainControls.invoke.result:", submit, `${bridge}#GuiServiceBridge.invoke`],
   ["local-composition-root.ts#request:38ae", submit, `${main}local-composition-root.ts#request.invoke`],
@@ -75,14 +77,14 @@ function graphFor(mutation) {
   symlinkSync(realpathSync(path.join(repoRoot, "node_modules")), path.join(rootDir, "node_modules"), "dir");
   // Scoped/sharded audits must recover the composition caller even when its support source
   // belongs to another shard. Do not give the proof its composition files by hand.
-  const sourceFiles = files.filter((file) => file !== `${main}electron-main.ts` && file !== bridge);
+  const sourceFiles = files.filter((file) => file !== `${main}electron-main.ts`);
   const lexicalFiles = guiCallbackCallerFiles(rootDir, sourceFiles);
   assert.ok(lexicalFiles.includes(`${main}electron-main.ts`));
   assert.ok(lexicalFiles.includes(bridge));
   return buildFlowGraph(rootDir, { anchorRoot: repoRoot, sourceFiles, lexicalFiles });
 }
 
-// dec_7E44897ECDCAEF2B92EC66A260/CH1: forwarding proves every business route, never a local technical port.
+// dec_89D06D7360CBEC09795F7B12EC/CH3 and dec_7E44897ECDCAEF2B92EC66A260/CH1: forwarding proves every business route, never a local technical port.
 test("live GUI main forwarding binds business clients and requires every multiplexed server authorization route", () => {
   const graph = graphFor();
   const witnesses = sourceWitnesses(
@@ -145,6 +147,18 @@ test("live GUI main forwarding binds business clients and requires every multipl
   }
 });
 
+test("dec_89D06D7360CBEC09795F7B12EC: a unary preload RPC requires proof through main", () => {
+  const lexical = guiCallbackCallerFiles(repoRoot, [preload]);
+  assert.ok(lexical.includes(`${main}ipc-handlers.ts`));
+  const graph = graphFor([preload, "ipcRenderer.invoke(channel, payload)", "ipcRenderer.invoke(channel, null)"]);
+  const { action, source } = sources[0];
+  const node = sourceWitnesses(graph, [source]).get(source.candidateId);
+  assert.ok(node);
+  assert.equal(clientEntryEvidence(graph, node, source, action, inputs.descriptors), null);
+  const read = inputs.constants.actionDeclarations.find((entry) => entry.kind === "repository-read");
+  assert.equal(clientEntryEvidence(graph, node, { ...source, route: read.kind }, read, inputs.descriptors), null);
+});
+
 test("main native setup and updater ports retain local authority without borrowing business routes", () => {
   const graph = graphFor();
   const witnesses = sourceWitnesses(graph, nativeSources);
@@ -161,8 +175,8 @@ test("native main callbacks cannot hide a typed daemon bridge under local author
     `${main}update-service.ts`,
     "    current = status;",
     `    current = status;
-    const remote = null as unknown as import("../api/service-bridge.ts").GuiServiceBridge;
-    void remote.invoke("submitTask", {});`,
+    const remote = null as unknown as import("./local-composition-root.ts").GuiServiceBridge;
+    void remote.invoke("repo.task.submit", {});`,
   ]);
   const sources = nativeSources.filter((s) => s.candidateId.includes("update-service.ts#"));
   const witnesses = sourceWitnesses(graph, sources);
@@ -174,13 +188,18 @@ test("native main callbacks cannot hide a typed daemon bridge under local author
 });
 
 for (const [name, mutation] of [
+  ["unknown-method guard removed", [bridge, "if (!descriptor)", "if (false && !descriptor)"]],
   [
-    "unknown-method guard removed",
-    [bridge, 'if (!route) return failure("method_not_allowed", `Unsupported GUI service method: ${method}`);', ""],
+    "sender admission made conditional",
+    [
+      `${main}ipc-handlers.ts`,
+      "    assertTrustedIpcSender(event, trustPolicy);",
+      "    if (false) assertTrustedIpcSender(event, trustPolicy);",
+    ],
   ],
   [
     "forwarded route replaced",
-    [`${main}local-composition-root.ts`, "          route.rpcMethod,", '          "repo.task.submit",'],
+    [`${main}local-composition-root.ts`, "          route.method,", '          "repo.task.submit",'],
   ],
   [
     "bootstrap route replaced",
@@ -193,7 +212,9 @@ for (const [name, mutation] of [
 ]) {
   test(`GUI main forwarding fails closed when ${name}`, () => {
     const graph = graphFor(mutation);
-    const pairs = name.startsWith("bootstrap") ? sources.slice(3) : sources.slice(0, 3);
+    const pairs = sources.filter(({ action }) =>
+      name.startsWith("bootstrap") ? action === bootstrap : action === submit,
+    );
     const witnesses = sourceWitnesses(
       graph,
       pairs.map(({ source }) => source),
@@ -217,7 +238,7 @@ for (const [name, mutation] of [
   });
 }
 
-// dec_7E44897ECDCAEF2B92EC66A260/CH1: packages/gui (all categories) and repo baseline are zeroed and locked.
+// dec_89D06D7360CBEC09795F7B12EC/CH3 and dec_7E44897ECDCAEF2B92EC66A260/CH1: packages/gui (all categories) and repo baseline are zeroed and locked.
 test("dec_7E44897ECDCAEF2B92EC66A260/CH1: packages/gui full-package closure is zeroed and locked", () => {
   const empty = { actions: [], kinds: [] };
   const audit = (candidates, options = {}) =>

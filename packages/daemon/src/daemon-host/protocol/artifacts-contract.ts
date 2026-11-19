@@ -2,7 +2,7 @@ import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain
 import { queryPageRow } from "./daemon-protocol-validate-task.ts";
 import type { CursorPage } from "@harness-anything/kernel/internal/ports/projection-reads.ts";
 import { isJsonObject, rejectSecretKeys } from "./json-rpc-types.ts";
-import { nullableNonEmpty, utcTimestamp } from "./schedules-gui-contract.ts";
+import { nullableNonEmpty, utcTimestamp } from "./schedules-contract.ts";
 
 /** Artifacts GUI wire contract。每页 `repo.artifacts.list` 的 DTO 是「全部 task 包
  * artifacts/ 下的 html/md 文件」×「文档投影(台账时间)」×「task 归属(投影

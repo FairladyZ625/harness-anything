@@ -214,6 +214,8 @@ test("real implementation gate accepts renamed titles and rejects each missing o
       for (const match of source.matchAll(/^[ \t]*\/\/ harness-contract: ([a-z0-9.-]+)$/gm))
         anchors.push({ file, marker: match[0], id: match[1] });
     }
+    // dec_89D06D7360CBEC09795F7B12EC carries one IPC/preload marker in the unified protocol.
+    // The release cut and origin/main each have thirteen exact markers.
     assert.equal(anchors.length, 13);
     const run = () =>
       spawnSync(process.execPath, [path.join(root, "tools/check-implementation-contracts.mjs")], {
@@ -236,7 +238,7 @@ test("real implementation gate accepts renamed titles and rejects each missing o
         ),
       );
     }
-    assert.equal(renamedCount, 13);
+    assert.equal(renamedCount, anchors.length);
     const renamed = run();
     assert.equal(renamed.status, 0, renamed.stderr);
     assert.equal(renamed.stdout, baseline.stdout);

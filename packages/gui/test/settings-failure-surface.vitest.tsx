@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 // 设置页对两类「仓库状态」失败必须原样透出服务端给的 code 与人话(2026-10-23 业主反馈):
@@ -50,10 +51,13 @@ const rejection = (code: string, rejectionExplanation: string) => ({
 async function mountFailingRead(payload: ReturnType<typeof rejection>): Promise<HTMLElement> {
   Object.defineProperty(window, "harness", {
     configurable: true,
-    value: {
-      updateSettings: vi.fn(),
-      getSettings: async () => payload,
-    },
+    value: mockRpcBridge(
+      {
+        updateSettings: vi.fn(),
+        getSettings: async () => payload,
+      },
+      { "repo.settings.read": "getSettings", "repo.settings.update": "updateSettings" },
+    ),
   });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   // The page reads its field/group元数据 from the catalog snapshot even while the settings read

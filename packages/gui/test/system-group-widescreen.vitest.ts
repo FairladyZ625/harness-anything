@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 // G5 系统组三页宽屏不变量:presets/system/settings 内容容器铺满可用宽度
@@ -375,7 +376,10 @@ describe("Settings kind renderer consumes daemon fields and keeps locale local",
       }));
     Object.defineProperty(window, "harness", {
       configurable: true,
-      value: { updateSettings, getSettings },
+      value: mockRpcBridge(
+        { updateSettings, getSettings },
+        { "repo.settings.read": "getSettings", "repo.settings.update": "updateSettings" },
+      ),
     });
     const container = await mountView(
       createElement(

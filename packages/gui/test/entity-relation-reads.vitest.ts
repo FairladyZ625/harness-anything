@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // @vitest-environment happy-dom
 // harness-test-tier: fast
 //
@@ -239,15 +240,27 @@ async function mountApp(view: string, focusedEntityRef: string | null = null) {
   };
   Object.defineProperty(window, "harness", {
     configurable: true,
-    value: new Proxy(bridge, {
-      get(target, method: string) {
-        if (method in target) return target[method];
-        return async (payload?: Record<string, unknown> | null) => {
-          calls.push({ method, payload: payload ?? null });
-          return { ok: true };
-        };
+    value: mockRpcBridge(
+      new Proxy(bridge, {
+        get(target, method: string) {
+          if (method in target) return target[method];
+          return async (payload?: Record<string, unknown> | null) => {
+            calls.push({ method, payload: payload ?? null });
+            return { ok: true };
+          };
+        },
+      }),
+      {
+        "daemon.gui.system.read": "getSystemStatus",
+        "repo.tasks.list": "getTasks",
+        "repo.workspace.summary.read": "getWorkspaceSummary",
+        "repo.agenda.read": "getAgenda",
+        "repo.triadic.relationGraph": "getRelationGraph",
+        "repo.decisions.list": "getDecisions",
+        "repo.agentRuntime.overview": "getAgentRuntimeOverview",
+        "repo.gui.catalog.snapshot": "getCatalogSnapshot",
       },
-    }),
+    ),
   });
 
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -392,10 +405,22 @@ function viStubRelationGraph(
 ) {
   Object.defineProperty(window, "harness", {
     configurable: true,
-    value: {
-      getRelationGraph: read,
-      getAgentRuntimeOverview: async () => ({ ok: true, sessions: [] }),
-    },
+    value: mockRpcBridge(
+      {
+        getRelationGraph: read,
+        getAgentRuntimeOverview: async () => ({ ok: true, sessions: [] }),
+      },
+      {
+        "daemon.gui.system.read": "getSystemStatus",
+        "repo.tasks.list": "getTasks",
+        "repo.workspace.summary.read": "getWorkspaceSummary",
+        "repo.agenda.read": "getAgenda",
+        "repo.triadic.relationGraph": "getRelationGraph",
+        "repo.decisions.list": "getDecisions",
+        "repo.agentRuntime.overview": "getAgentRuntimeOverview",
+        "repo.gui.catalog.snapshot": "getCatalogSnapshot",
+      },
+    ),
   });
 }
 
@@ -486,31 +511,43 @@ describe("factDetail 邻域保留 ±2 跳(F-1 回归)", () => {
     const calls: Record<string, unknown>[] = [];
     Object.defineProperty(window, "harness", {
       configurable: true,
-      value: {
-        getRelationGraph: async (payload: Record<string, unknown>) => {
-          calls.push(payload);
-          if (payload.entity === focus)
+      value: mockRpcBridge(
+        {
+          getRelationGraph: async (payload: Record<string, unknown>) => {
+            calls.push(payload);
+            if (payload.entity === focus)
+              return {
+                ...EMPTY_GRAPH,
+                edges: [edgeRow("rel-focus-a", focus, "task/task-neighbor-a")],
+                facts: [factGraphRow(focus)],
+                page: PAGE,
+              };
+            if (payload.entity !== undefined) return { ...EMPTY_GRAPH, page: PAGE };
+            if (payload.facet !== undefined) return { ...EMPTY_GRAPH, facet: payload.facet, page: PAGE };
+            // 完整图:焦点 → A、A → B。画布只有拿到这份输入才能铺出第二跳。
             return {
               ...EMPTY_GRAPH,
-              edges: [edgeRow("rel-focus-a", focus, "task/task-neighbor-a")],
+              edges: [
+                edgeRow("rel-focus-a", focus, "task/task-neighbor-a"),
+                edgeRow("rel-a-b", "task/task-neighbor-a", secondHop),
+              ],
               facts: [factGraphRow(focus)],
               page: PAGE,
             };
-          if (payload.entity !== undefined) return { ...EMPTY_GRAPH, page: PAGE };
-          if (payload.facet !== undefined) return { ...EMPTY_GRAPH, facet: payload.facet, page: PAGE };
-          // 完整图:焦点 → A、A → B。画布只有拿到这份输入才能铺出第二跳。
-          return {
-            ...EMPTY_GRAPH,
-            edges: [
-              edgeRow("rel-focus-a", focus, "task/task-neighbor-a"),
-              edgeRow("rel-a-b", "task/task-neighbor-a", secondHop),
-            ],
-            facts: [factGraphRow(focus)],
-            page: PAGE,
-          };
+          },
+          getAgentRuntimeOverview: async () => ({ ok: true, sessions: [] }),
         },
-        getAgentRuntimeOverview: async () => ({ ok: true, sessions: [] }),
-      },
+        {
+          "daemon.gui.system.read": "getSystemStatus",
+          "repo.tasks.list": "getTasks",
+          "repo.workspace.summary.read": "getWorkspaceSummary",
+          "repo.agenda.read": "getAgenda",
+          "repo.triadic.relationGraph": "getRelationGraph",
+          "repo.decisions.list": "getDecisions",
+          "repo.agentRuntime.overview": "getAgentRuntimeOverview",
+          "repo.gui.catalog.snapshot": "getCatalogSnapshot",
+        },
+      ),
     });
     const { container } = await mountElement(
       createElement(FactDetailRoute, {
@@ -537,43 +574,55 @@ describe("TaskEvidenceTab 按实体读,不排空全量关系图(F-2)", () => {
     const calls: Record<string, unknown>[] = [];
     Object.defineProperty(window, "harness", {
       configurable: true,
-      value: {
-        getRelationGraph: async (payload: Record<string, unknown>) => {
-          calls.push(payload);
-          if (payload.entity === taskRef)
-            return {
-              ...EMPTY_GRAPH,
-              edges: [
-                edgeRow("rel-p1", taskRef, firstFact, "produces"),
-                edgeRow("rel-p2", taskRef, secondFact, "produces"),
-              ],
-              facts: [factGraphRow(firstFact), factGraphRow(secondFact)],
-              page: PAGE,
-            };
-          if (payload.entity === firstFact)
-            return {
-              ...EMPTY_GRAPH,
-              edges: [edgeRow("rel-e1", "decision/dec-1/C1", firstFact, "evidenced-by")],
-              facts: [factGraphRow(firstFact)],
-              coverageRows: [
-                {
-                  decisionRef: "decision/dec-1",
-                  claimRef: "decision/dec-1/C1",
-                  status: "covered",
-                  covered: true,
-                  fulfillment: "delivered",
-                  relationPath: ["rel-e1"],
-                },
-              ],
-              page: PAGE,
-            };
-          if (payload.entity !== undefined) return { ...EMPTY_GRAPH, page: PAGE };
-          if (payload.facet !== undefined) return { ...EMPTY_GRAPH, facet: payload.facet, page: PAGE };
-          throw new Error(`TaskEvidenceTab must not issue the complete graph read: ${JSON.stringify(payload)}`);
+      value: mockRpcBridge(
+        {
+          getRelationGraph: async (payload: Record<string, unknown>) => {
+            calls.push(payload);
+            if (payload.entity === taskRef)
+              return {
+                ...EMPTY_GRAPH,
+                edges: [
+                  edgeRow("rel-p1", taskRef, firstFact, "produces"),
+                  edgeRow("rel-p2", taskRef, secondFact, "produces"),
+                ],
+                facts: [factGraphRow(firstFact), factGraphRow(secondFact)],
+                page: PAGE,
+              };
+            if (payload.entity === firstFact)
+              return {
+                ...EMPTY_GRAPH,
+                edges: [edgeRow("rel-e1", "decision/dec-1/C1", firstFact, "evidenced-by")],
+                facts: [factGraphRow(firstFact)],
+                coverageRows: [
+                  {
+                    decisionRef: "decision/dec-1",
+                    claimRef: "decision/dec-1/C1",
+                    status: "covered",
+                    covered: true,
+                    fulfillment: "delivered",
+                    relationPath: ["rel-e1"],
+                  },
+                ],
+                page: PAGE,
+              };
+            if (payload.entity !== undefined) return { ...EMPTY_GRAPH, page: PAGE };
+            if (payload.facet !== undefined) return { ...EMPTY_GRAPH, facet: payload.facet, page: PAGE };
+            throw new Error(`TaskEvidenceTab must not issue the complete graph read: ${JSON.stringify(payload)}`);
+          },
+          getDecisions: async () => ({ ok: true, decisions: [], warnings: [] }),
+          getAgentRuntimeOverview: async () => ({ ok: true, sessions: [] }),
         },
-        getDecisions: async () => ({ ok: true, decisions: [], warnings: [] }),
-        getAgentRuntimeOverview: async () => ({ ok: true, sessions: [] }),
-      },
+        {
+          "daemon.gui.system.read": "getSystemStatus",
+          "repo.tasks.list": "getTasks",
+          "repo.workspace.summary.read": "getWorkspaceSummary",
+          "repo.agenda.read": "getAgenda",
+          "repo.triadic.relationGraph": "getRelationGraph",
+          "repo.decisions.list": "getDecisions",
+          "repo.agentRuntime.overview": "getAgentRuntimeOverview",
+          "repo.gui.catalog.snapshot": "getCatalogSnapshot",
+        },
+      ),
     });
     const { container } = await mountElement(
       createElement(TaskEvidenceTab, { task: uiTask("task-bound", "Bound task") }),

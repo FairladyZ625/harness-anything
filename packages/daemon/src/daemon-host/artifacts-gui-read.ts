@@ -3,7 +3,7 @@ import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/stor
 import { consumeKnownError, mediaTypeForBinaryPath, RAW_ARTIFACT_MEDIA_TYPE } from "@harness-anything/kernel";
 import type { ArtifactTimelineCursor, ArtifactTimelineKind, TaskProjection } from "@harness-anything/kernel";
 import type { CursorPage } from "@harness-anything/application/internal/queries/task-index-query.ts";
-import type { ArtifactGuiKind, ArtifactGuiRowDto, ArtifactsListResult } from "./protocol/artifacts-gui-contract.ts";
+import type { ArtifactGuiKind, ArtifactGuiRowDto, ArtifactsListResult } from "./protocol/artifacts-contract.ts";
 
 /** The GUI timeline needs exactly one projection read: the ordered artifact index page. Tests can
  * inject the narrow port without a filesystem or a full projection. */

@@ -8,7 +8,7 @@ import {
   daemonProtocolError,
   validateDaemonDocumentRead,
 } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResponse } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { parseDaemonReadResponse } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 
 const v2Response = {
   ok: true,
@@ -29,7 +29,7 @@ const v2Response = {
 } as const;
 
 test("a v2 document response from the previous daemon parses as unobservable", () => {
-  const parsed = parseDaemonGuiReadResponse("repo.tasks.document.read", v2Response);
+  const parsed = parseDaemonReadResponse("repo.tasks.document.read", v2Response);
   assert.equal(parsed.ok, true);
   assert.equal("source" in parsed ? parsed.source : null, "unobservable");
   assert.equal("syncState" in parsed ? parsed.syncState : null, "unobservable");
@@ -49,7 +49,7 @@ test("the v3 writer contract still rejects a response without source metadata", 
 
 test("a v2 binary response hashes the bytes it actually returned", () => {
   const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00, 0x0a]),
-    parsed = parseDaemonGuiReadResponse("repo.tasks.document.read", {
+    parsed = parseDaemonReadResponse("repo.tasks.document.read", {
       ...v2Response,
       contentKind: "binary",
       body: "",
@@ -78,7 +78,7 @@ test("a previous daemon's document-read rejection parses unchanged", () => {
       "task_not_found",
       "Task task-v2-document does not exist in the canonical event stream.",
     ),
-    parsed = parseDaemonGuiReadResponse("repo.tasks.document.read", rejection) as {
+    parsed = parseDaemonReadResponse("repo.tasks.document.read", rejection) as {
       readonly ok: false;
       readonly code: string;
       readonly rejectionExplanation: string;

@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -18,7 +19,7 @@ import {
 
 const cases = [
   {
-    method: "createRuntimeInstance",
+    method: "daemon.runtimeInstance.create",
     payload: {
       instanceId: "test",
       kindId: "codex",
@@ -30,22 +31,32 @@ const cases = [
     },
     elapsed: 2_001,
   },
-  { method: "listRuntimeInstances", payload: { all: true }, elapsed: 2_001 },
-  { method: "updateRuntimeInstance", payload: { instanceId: "test", enabled: false }, elapsed: 2_001 },
-  { method: "updateRuntimeInstance", payload: { instanceId: "test", enabled: true }, elapsed: 2_001 },
-  { method: "updateRuntimeInstance", payload: { instanceId: "test", name: "edited" }, elapsed: 2_001 },
-  { method: "deleteRuntimeInstance", payload: { instanceId: "test" }, elapsed: 2_001 },
-  { method: "updateRuntimeInstance", payload: { instanceId: "test", apiKey: "fixture-only" }, elapsed: 20_001 },
+  { method: "daemon.runtimeInstance.list", payload: { all: true }, elapsed: 2_001 },
+  { method: "daemon.runtimeInstance.update", payload: { instanceId: "test", enabled: false }, elapsed: 2_001 },
+  { method: "daemon.runtimeInstance.update", payload: { instanceId: "test", enabled: true }, elapsed: 2_001 },
+  { method: "daemon.runtimeInstance.update", payload: { instanceId: "test", name: "edited" }, elapsed: 2_001 },
+  { method: "daemon.runtimeInstance.delete", payload: { instanceId: "test" }, elapsed: 2_001 },
+  { method: "daemon.runtimeInstance.update", payload: { instanceId: "test", apiKey: "fixture-only" }, elapsed: 20_001 },
   {
-    method: "updateRuntimeInstance",
+    method: "daemon.runtimeInstance.update",
     payload: { instanceId: "test", apiKey: "fixture-only" },
     elapsed: 75_001,
     timeout: true,
   },
-  { method: "showRuntimeInstance", payload: { instanceId: "test", probe: true }, elapsed: 2_001 },
-  { method: "showRuntimeInstance", payload: { instanceId: "test" }, elapsed: 2_001, timeout: true },
-  { method: "updateRuntimeInstance", payload: { instanceId: "test", enabled: false }, elapsed: 20_001, timeout: true },
-  { method: "updateRuntimeInstance", payload: { instanceId: "test", enabled: false }, elapsed: 2_001, error: true },
+  { method: "daemon.runtimeInstance.show", payload: { instanceId: "test", probe: true }, elapsed: 2_001 },
+  { method: "daemon.runtimeInstance.show", payload: { instanceId: "test" }, elapsed: 2_001, timeout: true },
+  {
+    method: "daemon.runtimeInstance.update",
+    payload: { instanceId: "test", enabled: false },
+    elapsed: 20_001,
+    timeout: true,
+  },
+  {
+    method: "daemon.runtimeInstance.update",
+    payload: { instanceId: "test", enabled: false },
+    elapsed: 2_001,
+    error: true,
+  },
 ] as const;
 
 for (const scenario of cases) {
@@ -63,7 +74,7 @@ for (const scenario of cases) {
           const request = JSON.parse(line) as { id: number; method: string };
           if (request.method === "protocol.hello") {
             socket.write(
-              `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ...fixtureDaemonHello(), methods: ["protocol.hello", `daemon.runtimeInstance.${scenario.method === "deleteRuntimeInstance" ? "delete" : scenario.method === "showRuntimeInstance" ? "show" : scenario.method === "createRuntimeInstance" ? "create" : scenario.method === "listRuntimeInstances" ? "list" : "update"}`] } })}\n`,
+              `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ...fixtureDaemonHello(), methods: ["protocol.hello", scenario.method] } })}\n`,
             );
           } else {
             seen.push(request.method);
@@ -86,8 +97,12 @@ for (const scenario of cases) {
     process.env.HARNESS_DAEMON_USER_ROOT = parent;
     process.env.HARNESS_DAEMON_ID = daemonId;
     t.mock.timers.enable({ apis: ["setTimeout"] });
-    const pending = createLocalGuiServiceBridge().invoke(scenario.method, scenario.payload);
-    await arrived;
+    const params = scopedRpcParams(scenario.method, scenario.payload);
+    const pending = createLocalGuiServiceBridge().invoke(scenario.method, params);
+    await Promise.race([
+      arrived,
+      pending.then((receipt) => assert.fail(`RPC completed before sending the request: ${JSON.stringify(receipt)}`)),
+    ]);
     t.mock.timers.tick(scenario.elapsed);
     if (!("timeout" in scenario)) {
       reply(
@@ -158,7 +173,9 @@ test("a raised local gui.requestTimeoutMs governs the default read deadline, not
   t.mock.timers.enable({ apis: ["setTimeout"] });
   // Repository-scoped reads use the selected repo's settings file, so the deadline is read
   // from the repository the request names rather than from a process-startup root.
-  const pending = Promise.resolve(createLocalGuiServiceBridge().invoke("getTasks", { repoId: daemonId }));
+  const pending = Promise.resolve(
+    createLocalGuiServiceBridge().invoke("repo.tasks.list", scopedRpcParams("repo.tasks.list", { repoId: daemonId })),
+  );
   await arrived;
   // The old built-in 30s deadline passes without settling the request.
   t.mock.timers.tick(30_000);

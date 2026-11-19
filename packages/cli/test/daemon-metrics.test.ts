@@ -4,7 +4,7 @@ import test from "node:test";
 import { requestWindowMetrics } from "../src/daemon/metrics-summary.ts";
 import { readMetricsHistory, renderDaemonMetrics } from "../src/daemon/metrics.ts";
 import { runDaemonControl } from "../src/daemon/control.ts";
-import type { ObserveTailResult } from "@harness-anything/daemon/internal/protocol/daemon-protocol-gui-types";
+import type { ObserveTailResult } from "@harness-anything/daemon/internal/protocol/daemon-protocol-results";
 
 const until = Date.parse("2026-10-03T12:00:00Z");
 const list = (stats: ReturnType<typeof requestWindowMetrics>) => {

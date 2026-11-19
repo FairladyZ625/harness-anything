@@ -33,6 +33,7 @@ export function TerminalPaneCard(props: IDockviewPanelProps<{ readonly sessionId
   const panelId = props.api.id,
     sessionId = props.params.sessionId,
     tab = actions.session(sessionId),
+    interactive = tab?.state === "running" && tab.attachable && actions.canInput(sessionId),
     focused = actions.focusedPanelId === panelId;
   const [dropZone, setDropZone] = useState<TerminalSplitDirection | null>(null);
   const [menu, setMenu] = useState<{ readonly x: number; readonly y: number } | null>(null);
@@ -90,7 +91,7 @@ export function TerminalPaneCard(props: IDockviewPanelProps<{ readonly sessionId
           at={menu}
           onClose={() => setMenu(null)}
           selection={selection}
-          onPaste={tab?.state === "running" && tab.attachable ? (text) => actions.onInput(tab.sessionId, text) : null}
+          onPaste={interactive ? (text) => actions.onInput(sessionId, text) : null}
           onSplit={(direction) => actions.onSplitPane(panelId, direction)}
           onClosePane={() => actions.onClosePane(panelId, sessionId)}
           onTerminate={tab ? () => actions.setConfirmSessionId(tab.sessionId) : null}
@@ -132,7 +133,7 @@ export function TerminalPaneCard(props: IDockviewPanelProps<{ readonly sessionId
         {tab && <TerminateControls tab={tab} />}
       </div>
       {tab ? (
-        <LivePane tab={tab} focused={focused} onSelectionChange={setSelection} />
+        <LivePane tab={tab} interactive={interactive} focused={focused} onSelectionChange={setSelection} />
       ) : (
         <DeadPane panelId={panelId} sessionId={sessionId} />
       )}
@@ -142,15 +143,16 @@ export function TerminalPaneCard(props: IDockviewPanelProps<{ readonly sessionId
 
 function LivePane({
   tab,
+  interactive,
   focused,
   onSelectionChange,
 }: {
   readonly tab: TerminalTab;
+  readonly interactive: boolean;
   readonly focused: boolean;
   readonly onSelectionChange: (text: string) => void;
 }) {
   const actions = useTerminalPaneActions();
-  const interactive = tab.state === "running" && tab.attachable;
   return (
     <>
       {tab.warning && (

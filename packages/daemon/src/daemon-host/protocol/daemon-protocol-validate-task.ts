@@ -44,7 +44,7 @@ import {
   taskStatusWords,
 } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, type JsonObject, validationValueSummary } from "./json-rpc-types.ts";
-import type { DaemonTaskSnapshotInvalidRow } from "./daemon-protocol-gui-types.ts";
+import type { DaemonTaskSnapshotInvalidRow } from "./daemon-protocol-results.ts";
 
 export const availabilityFields = ["consents", "gateWitnesses"] as const,
   snapshotBaseFields = [

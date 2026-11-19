@@ -738,7 +738,7 @@ test("authored-document vocabularies are covered by the generic scan", () => {
     "packages/kernel/src/domain/authored-document-status.ts#docCandidateStates",
     "packages/kernel/src/domain/authored-document-status.ts#projectedDocumentSyncStates",
     "packages/kernel/src/domain/authored-document-status.ts#observedDocumentSyncStates",
-    "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-types.ts##syncState",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-results.ts##syncState",
   ];
   for (const key of expected) {
     const [module, anchor] = key.split("#", 2);
@@ -858,13 +858,13 @@ test("daemon protocol/gui/home modules have no status vocabulary debt", () => {
   const retiredModules = new Set([
     "packages/daemon/src/daemon-host/gui-s3-control.ts",
     "packages/daemon/src/daemon-host/home/home-overview-types.ts",
-    "packages/daemon/src/daemon-host/protocol/artifacts-gui-contract.ts",
-    "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-types.ts",
+    "packages/daemon/src/daemon-host/protocol/artifacts-contract.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-results.ts",
     "packages/daemon/src/daemon-host/protocol/daemon-protocol-task-delivery-diff.ts",
     "packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-results.ts",
     "packages/daemon/src/daemon-host/protocol/daemon-status-contract.ts",
     "packages/daemon/src/daemon-host/protocol/schedule-runs-contract.ts",
-    "packages/daemon/src/daemon-host/protocol/schedules-gui-contract.ts",
+    "packages/daemon/src/daemon-host/protocol/schedules-contract.ts",
     "packages/daemon/src/daemon-host/protocol/task-dispatch-contract.ts",
   ]);
   assert.deepEqual(

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   actionForDaemonMethod,
-  daemonGuiInvokeFacets,
+  interactiveRpcMethods,
   parseDaemonRpcParams,
 } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { generatedTaskActionProtocolDeclarations } from "@harness-anything/preset/internal/preset-command-contract";
@@ -13,7 +13,7 @@ test("GUI show/rework facets consume the CLI's generated payload and canonical a
     ["repo.task.show", "task-show"],
     ["repo.task.rework", "task-rework"],
   ] as const) {
-    const facet = daemonGuiInvokeFacets.find((entry) => entry.method === method)!;
+    const facet = interactiveRpcMethods.find((entry) => entry.method === method)!;
     assert.ok(facet);
     if (kind === "task-rework") {
       const fields = generatedTaskActionProtocolDeclarations.find((entry) => entry.id === "rework")!.input.fields;
@@ -79,23 +79,23 @@ test("GUI admits task-show metadata and rework outcomes only on their own receip
 // dec_9C43012EBB2754D7112F618F0D and dec_13B7B846B56BFA192533011B91:
 // aliases expose existing actions without widening their closed transport payload.
 test("agenda archive, incident dismissal and escalation resolution use canonical actions", () => {
-  for (const [method, bridge, kind, payload] of [
-    ["repo.task.archive", "archiveTasks", "task-archive", { taskIds: ["task-one", "task-two"], reason: "Received" }],
+  for (const [method, kind, payload] of [
+    ["repo.task.archive", "task-archive", { taskIds: ["task-one", "task-two"], reason: "Received" }],
     [
       "repo.agentRuntime.incidentDismiss",
-      "dismissRuntimeIncident",
       "runtime-incident-dismiss",
       { dispatchId: "dispatch-one", reason: "Handled" },
     ],
     [
       "repo.task.escalationResolve",
-      "resolveTaskEscalation",
       "task-escalation-resolve",
       { taskId: "task-one", dispatchId: "dispatch-one", answer: "Keep scope" },
     ],
   ] as const) {
-    const facet = daemonGuiInvokeFacets.find((entry) => entry.method === method);
-    assert.equal(facet?.guiBridgeMethod, bridge);
+    assert.ok(
+      interactiveRpcMethods.some((entry) => entry.method === method),
+      method,
+    );
     assert.deepEqual(actionForDaemonMethod(method, payload), { kind, ...payload });
     assert.equal(parseDaemonRpcParams(method, { repo: { repoId: "repo-one" }, payload }).ok, true);
     for (const bad of [{ ...payload, principal: "pretend-owner" }, {}])

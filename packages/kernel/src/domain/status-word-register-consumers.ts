@@ -161,7 +161,7 @@ const catalogs: readonly Catalog[] = [
         catalogReadStateWords: "A catalog query has a ready cut, a pending cut, or failed.",
         transcriptTurnStatusWords: "Transcript turn is running, completed, failed, or lacks a known termination.",
         startWorkPreconditionStateWords: "Start work precondition is satisfied, blocked, or cannot be observed.",
-        terminalAttachStatusWords: "Terminal attachment starts at the current tail or reports a replay gap.",
+        streamAttachStatusWords: "A stream attachment resumes at the requested sequence or reports a replay gap.",
         terminalTabStateWords: "Terminal process is running, exited, or has no liveness observation.",
         terminalRestartStateWords: "Terminal restart requires confirmation or has been requested.",
       },

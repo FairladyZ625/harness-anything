@@ -16,6 +16,7 @@ export async function withAutostart(
     readonly userRoot?: string;
     readonly daemonId?: string;
     readonly restartBudgetMs?: number;
+    readonly sharedWriteRetry?: boolean;
     readonly commandCategory: "operation" | "daemon-lifecycle";
   },
 ): Promise<JsonObject> {
@@ -34,6 +35,7 @@ export async function withAutostart(
     outgoingPid = options.userRoot && options.daemonId ? readDaemonPid(options.userRoot, options.daemonId) : null;
   try {
     const result = await request();
+    if (options.sharedWriteRetry) return result;
     if (
       !isDaemonStopping(result) ||
       options.commandCategory === "daemon-lifecycle" ||

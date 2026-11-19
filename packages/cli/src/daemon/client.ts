@@ -286,6 +286,7 @@ export async function runCommandThroughDaemon(
   };
   command = await prepareCommandPayload(command, target.remoteEdge);
   const requestParams = daemonRequestParams(command, target.repoId, env);
+  const sharedWriteRetry = await rpc.usesLocalWriteRetry(target, command.method, requestParams);
   const request = () =>
     requestLocalDaemonJsonRpcForTarget(
       target,
@@ -298,14 +299,15 @@ export async function runCommandThroughDaemon(
     request,
     () => cliDaemonServeLaunch(target.userRoot, target.daemonId),
     target.socketPath,
-    daemonAutostartOptions(command, autostart, env, target.userRoot, target.daemonId),
+    { ...daemonAutostartOptions(command, autostart, env, target.userRoot, target.daemonId), sharedWriteRetry },
   );
-  result = await settleRepoWarming(
-    result,
-    () => openLocalDaemonReader(target, command.method, requestParams),
-    target.userRoot,
-    target.daemonId,
-  );
+  if (!sharedWriteRetry)
+    result = await settleRepoWarming(
+      result,
+      () => openLocalDaemonReader(target, command.method, requestParams),
+      target.userRoot,
+      target.daemonId,
+    );
   if (command.action.kind !== "preset-run-start") return result;
   let observed = 0,
     statusReader: Awaited<ReturnType<typeof openLocalDaemonReader>> | undefined;
@@ -507,51 +509,45 @@ async function settleRepoWarming(
   userRoot: string,
   daemonId: string,
 ): Promise<JsonObject> {
-  if (!isRepoWarming(initial)) return initial;
-  const { readDaemonStartProgress } = await import("@harness-anything/daemon/internal/client/daemon-autostart"),
-    launch = cliDaemonServeLaunch(userRoot, daemonId),
-    startedAt = Date.now();
-  let result = initial,
-    reader: Awaited<ReturnType<typeof openLocalDaemonReader>> | undefined,
-    reported = "";
+  const { retryLocalRepoWarming } = await import("@harness-anything/daemon/internal/client/local-json-rpc-client");
+  let reader: Awaited<ReturnType<typeof openLocalDaemonReader>> | undefined;
   try {
-    // A fixed number of refresh attempts (about 60 s at 250 ms) replaces the clock deadline; the
-    // warming predicate is the read, so no wall-clock comparison decides the outcome.
-    for (
-      let attempt = 0;
-      isRepoWarming(result) && attempt < cliOperationalPolicy.defaultValue.daemon.warmingAttempts;
-      attempt += 1
-    ) {
-      const progress = readDaemonStartProgress(launch, Date.now() - startedAt);
-      if (progress) {
-        const key = `${progress.fingerprint}:${Math.floor((Date.now() - startedAt) / 1_000)}`;
-        if (key !== reported) {
-          reported = key;
-          process.stderr.write(`${progress.message}\n`);
-        }
-      }
-      await new Promise((resolve) => setTimeout(resolve, cliOperationalPolicy.defaultValue.daemon.warmingPollMs));
-      reader ??= await openReader();
-      result = await reader.read();
-    }
-    return result;
+    return await retryLocalRepoWarming(
+      initial,
+      async () => {
+        reader ??= await openReader();
+        return reader.read();
+      },
+      () => repoWarmingProgress(userRoot, daemonId),
+    );
   } finally {
     reader?.close();
   }
 }
-function isRepoWarming(result: JsonObject): boolean {
-  const error =
-    result.error && typeof result.error === "object" && !Array.isArray(result.error)
-      ? (result.error as JsonObject)
-      : null;
-  return result.code === "repo_warming" || error?.code === "repo_warming";
+
+async function repoWarmingProgress(userRoot: string, daemonId: string): Promise<() => void> {
+  const { readDaemonStartProgress } = await import("@harness-anything/daemon/internal/client/daemon-autostart"),
+    launch = cliDaemonServeLaunch(userRoot, daemonId),
+    startedAt = Date.now();
+  let reported = "";
+  return () => {
+    const elapsed = Date.now() - startedAt,
+      progress = readDaemonStartProgress(launch, elapsed);
+    if (progress) {
+      const key = `${progress.fingerprint}:${Math.floor(elapsed / 1_000)}`;
+      if (key !== reported) {
+        reported = key;
+        process.stderr.write(`${progress.message}\n`);
+      }
+    }
+  };
 }
 export async function streamRuntimeThroughDaemon(
   command: ThinCommand,
   runtimeSessionId: string,
-  onValue: (value: unknown) => void,
+  onValue: (value: import("@harness-anything/daemon/protocol").AgentRuntimeStreamValue) => void,
   onClosed?: (
-    failure: import("@harness-anything/daemon/internal/client/local-json-rpc-stream").DaemonStreamLost,
+    failure: import("@harness-anything/daemon/internal/client/local-json-rpc-stream").DaemonStreamFailure,
   ) => void,
 ): Promise<() => void> {
   const target = await resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId }),
@@ -559,7 +555,7 @@ export async function streamRuntimeThroughDaemon(
   return streamAgentRuntimeAt({
     socketPath: target.socketPath,
     repoId: target.repoId,
-    payload: { runtimeSessionId, afterCursor: "stream:0" },
+    payload: { runtimeSessionId },
     onValue,
     timeoutMs: cliOperationalPolicy.defaultValue.daemon.streamTimeoutMs,
     invokingCommand: command.id,

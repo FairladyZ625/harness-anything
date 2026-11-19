@@ -3,20 +3,13 @@ import {
   presetMethods,
   type GeneratedSettingsActionInputField,
 } from "@harness-anything/preset/internal/preset-command-contract";
-import { optionalEnum, shape, type RpcShape } from "./daemon-protocol-gui-types.ts";
-import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
-import { todoGuiActions } from "./daemon-protocol-gui-todo.ts";
-import { entityDeclarationGuiActions, entityImportGuiActions } from "./daemon-protocol-gui-actions-entity.ts";
-import { taskCompletionGuiActions, taskReworkGuiActions } from "./daemon-protocol-gui-actions-entity.ts";
+import { actionRpc, optionalEnum, shape, type RpcShape } from "./daemon-protocol-results.ts";
+import { daemonReadRoutes } from "./daemon-protocol-read-routes.ts";
+import { todoActionRoutes } from "./todo-action-routes.ts";
+import { entityDeclarationRoutes, entityImportRoutes } from "./entity-action-routes.ts";
+import { taskCompletionRoutes, taskReworkRoutes } from "./entity-action-routes.ts";
 import {
-  CATALOG_REREAD_RECEIPT_SCHEMA,
   DAEMON_CONTROL_RECEIPT_SCHEMA,
-  DAEMON_GUI_COMMAND_RECEIPT_SCHEMA,
-  DAEMON_PROTOCOL_ERROR_SCHEMA,
-  guiAction,
-  guiS3Action,
-  TERMINAL_ATTACH_EVENT_SCHEMA,
-  TERMINAL_ATTACH_SCHEMA,
   TERMINAL_CONTROL_RECEIPT_SCHEMA,
   TERMINAL_DETACH_ACK_SCHEMA,
   TERMINAL_INPUT_ACK_SCHEMA,
@@ -26,9 +19,8 @@ const settingsUpdateRpcFields = Object.fromEntries(
   generatedSettingsFieldProtocolProjection.actionInputs.map((field) => [field.field, settingsActionRpcRule(field)]),
 ) as RpcShape["fields"];
 
-const taskCreatePayload = presetMethods.find(({ method }) => method === "repo.task.create")?.params.fields.payload;
-if (!taskCreatePayload || typeof taskCreatePayload === "string")
-  throw new Error("repo.task.create payload projection is missing.");
+const taskCreate = presetMethods.find(({ method }) => method === "repo.task.create");
+if (!taskCreate) throw new Error("Missing task-create RPC declaration.");
 
 function settingsActionRpcRule(field: GeneratedSettingsActionInputField): RpcShape["fields"][string] {
   if (field.field === "idempotencyKey") return "string";
@@ -49,8 +41,8 @@ function settingsActionRpcRule(field: GeneratedSettingsActionInputField): RpcSha
   }
 }
 
-export const daemonGuiActionMethods = Object.freeze([
-  guiS3Action(
+export const daemonActionRoutes = Object.freeze([
+  actionRpc(
     "agentRuntime.handoff",
     "repo.agentRuntime.handoff",
     "runtime-handoff-claim",
@@ -61,10 +53,6 @@ export const daemonGuiActionMethods = Object.freeze([
       prompt: "string?",
       dispatchKey: "string?",
     }),
-    "handoffAgentRuntime",
-    "/api/agent-runtime/handoff",
-    "repo-write",
-    DAEMON_GUI_COMMAND_RECEIPT_SCHEMA.id,
   ),
   {
     id: "gui.control.request",
@@ -79,36 +67,13 @@ export const daemonGuiActionMethods = Object.freeze([
         reason: "string?",
       }),
     }),
-    guiBridgeMethod: "requestDaemonControl",
-    httpMethod: "POST",
-    path: "/api/system/control",
-    inputSchemaId: "gui.daemon-control-request/v1",
-    outputSchemaId: DAEMON_CONTROL_RECEIPT_SCHEMA.id,
-    errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
-    serviceMethod: "requestDaemonControl",
-    auth: "local-session-token",
     commandClass: "admin",
+    outputSchemaId: DAEMON_CONTROL_RECEIPT_SCHEMA.id,
   },
-  guiAction(
-    "task.create",
-    "repo.task.create",
-    "task-create",
-    taskCreatePayload as RpcShape,
-    "createTask",
-    "/api/tasks",
-    "repo-write",
-  ),
-  ...taskReworkGuiActions,
-  guiAction(
-    "task.start",
-    "repo.task.start",
-    "task-start",
-    shape({ taskId: "string", executionId: "string" }),
-    "startTask",
-    "/api/tasks/:taskId/start",
-    "repo-write",
-  ),
-  guiAction(
+  { ...taskCreate, method: "repo.task.create", actionKind: "task-create" },
+  ...taskReworkRoutes,
+  actionRpc("task.start", "repo.task.start", "task-start", shape({ taskId: "string", executionId: "string" })),
+  actionRpc(
     "task.progress.append",
     "repo.task.progress.append",
     "task-progress-append",
@@ -120,20 +85,14 @@ export const daemonGuiActionMethods = Object.freeze([
       baseDocumentSha256: "string-null?",
       asOwner: "boolean?",
     }),
-    "appendTaskProgress",
-    "/api/tasks/:taskId/progress",
-    "repo-write",
   ),
-  guiAction(
+  actionRpc(
     "task.submit",
     "repo.task.submit",
     "task-submit",
     shape({ taskId: "string", executionId: "string?", amend: "boolean?" }),
-    "submitTask",
-    "/api/tasks/:taskId/submit",
-    "repo-write",
   ),
-  guiAction(
+  actionRpc(
     "task.assign",
     "repo.task.assign",
     "task-assign",
@@ -145,50 +104,25 @@ export const daemonGuiActionMethods = Object.freeze([
       teamId: "string?",
       expiresAt: "string?",
     }),
-    "assignTask",
-    "/api/tasks/:taskId/assign",
-    "repo-write",
   ),
-  guiAction(
+  actionRpc(
     "task.unassign",
     "repo.task.unassign",
     "task-unassign",
     shape({ taskId: "string", expectedVersion: "number" }),
-    "unassignTask",
-    "/api/tasks/:taskId/unassign",
-    "repo-write",
   ),
-  ...taskCompletionGuiActions,
+  ...taskCompletionRoutes,
   // Task buttons are aliases onto the repository-wide Entity Pin write path.
-  guiAction(
-    "task.pin",
-    "repo.task.pin",
-    "entity-pin",
-    shape({ taskId: "string" }),
-    "pinTask",
-    "/api/tasks/:taskId/pin",
-    "repo-write",
-  ),
-  guiAction(
-    "task.unpin",
-    "repo.task.unpin",
-    "entity-unpin",
-    shape({ taskId: "string" }),
-    "unpinTask",
-    "/api/tasks/:taskId/unpin",
-    "repo-write",
-  ),
+  actionRpc("task.pin", "repo.task.pin", "entity-pin", shape({ taskId: "string" })),
+  actionRpc("task.unpin", "repo.task.unpin", "entity-unpin", shape({ taskId: "string" })),
   // 答复 awaits 的 GUI 写通道:与 `ha relation unrelate` 同一条 daemon 动作,答复原文即 retire 理由。
-  guiAction(
+  actionRpc(
     "relation.unrelate",
     "repo.relation.unrelate",
     "relation-unrelate",
     shape({ relationId: "string", reason: "string", expectedVersion: "number" }),
-    "retireRelation",
-    "/api/relations/:relationId/retire",
-    "repo-write",
   ),
-  guiAction(
+  actionRpc(
     "decision.list",
     "repo.decision.list",
     "decision-list",
@@ -202,20 +136,16 @@ export const daemonGuiActionMethods = Object.freeze([
       limit: "number?",
       cursor: "string?",
     }),
-    "listDecisions",
-    "/api/decision-control",
-    "repo-read",
+    { read: true },
   ),
-  guiAction(
+  actionRpc(
     "decision.show",
     "repo.decision.show",
     "decision-show",
     shape({ decisionId: "string", includeBody: "boolean?" }),
-    "showDecision",
-    "/api/decision-control/:decisionId",
-    "repo-read",
+    { read: true },
   ),
-  guiAction(
+  actionRpc(
     "decision.propose",
     "repo.decision.propose",
     "decision-propose",
@@ -234,11 +164,8 @@ export const daemonGuiActionMethods = Object.freeze([
       claims: "array",
       fulfillments: "array",
     }),
-    "proposeDecision",
-    "/api/decision-control/propose",
-    "repo-write",
   ),
-  guiAction(
+  actionRpc(
     "decision.accept",
     "repo.decision.accept",
     "decision-accept",
@@ -249,102 +176,58 @@ export const daemonGuiActionMethods = Object.freeze([
       reviewId: "string?",
       expectedDigest: "string?",
     }),
-    "acceptDecision",
-    "/api/decision-control/:decisionId/accept",
-    "repo-write",
   ),
-  guiAction(
+  actionRpc(
     "decision.reject",
     "repo.decision.reject",
     "decision-reject",
     shape({ decisionId: "string", reason: "string" }),
-    "rejectDecision",
-    "/api/decision-control/:decisionId/reject",
-    "arbiter",
   ),
-  guiAction(
+  actionRpc(
     "decision.defer",
     "repo.decision.defer",
     "decision-defer",
     shape({ decisionId: "string", reason: "string" }),
-    "deferDecision",
-    "/api/decision-control/:decisionId/defer",
-    "repo-write",
   ),
   // Decision 评审的 GUI 通道:与 `ha decision respond-review / override-review / dispatch-review`
   // 同一条 daemon 动作,授权与切面判据全在中心;报告正文按 reportRef 经 `ha doc show` 同一读。
-  guiAction(
+  actionRpc(
     "decision.respondReview",
     "repo.decision.respondReview",
     "decision-respond-review",
     shape({ decisionId: "string", responses: "array" }),
-    "respondDecisionReview",
-    "/api/decision-control/:decisionId/respond-review",
-    "repo-write",
   ),
-  guiAction(
+  actionRpc(
     "decision.overrideReview",
     "repo.decision.overrideReview",
     "decision-override-review",
     shape({ decisionId: "string", reviewContentDigest: "string", reviewIds: "array", reason: "string" }),
-    "overrideDecisionReview",
-    "/api/decision-control/:decisionId/override-review",
-    "arbiter",
   ),
-  guiAction(
+  actionRpc(
     "decision.dispatchReview",
     "repo.decision.dispatchReview",
     "decision-dispatch-review",
     shape({ decisionId: "string", expectedDigest: "string" }),
-    "dispatchDecisionReview",
-    "/api/decision-control/:decisionId/dispatch-review",
-    "repo-write",
   ),
-  guiAction(
-    "doc.show",
-    "repo.doc.show",
-    "doc-show",
-    shape({ path: "string" }),
-    "showDocument",
-    "/api/docs",
-    "repo-read",
-  ),
-  ...todoGuiActions,
-  ...entityImportGuiActions,
+  actionRpc("doc.show", "repo.doc.show", "doc-show", shape({ path: "string" }), { read: true }),
+  ...todoActionRoutes,
+  ...entityImportRoutes,
   // `waitFor`/`timeoutMs` are the receipt-acceptance predicates the cell already runs
   // (repo-cell-api → waitForReceiptAcceptance); `ha` settles every write through them.
   // Admitting only `opId` here gave the GUI a single follower snapshot taken before the
   // acceptance had been published, so an accepted write could never be observed as visible.
-  guiAction(
+  actionRpc(
     "receipt.show",
     "repo.receipt.show",
     "receipt-show",
     shape({ opId: "string", waitFor: "array?", timeoutMs: "number?" }),
-    "showReceipt",
-    "/api/receipts/:opId",
-    "repo-read",
+    { read: true },
   ),
-  guiS3Action(
-    "settings.update",
-    "repo.settings.update",
-    "settings-update",
-    shape(settingsUpdateRpcFields),
-    "updateSettings",
-    "/api/settings",
-    "repo-write",
-    DAEMON_GUI_COMMAND_RECEIPT_SCHEMA.id,
-  ),
-  guiS3Action(
-    "gui.catalog.reread",
-    "repo.gui.catalog.reread",
-    "catalog-reread",
-    shape({ expectedDigest: "string?" }),
-    "rereadCatalog",
-    "/api/catalog/reread",
-    "repo-read",
-    CATALOG_REREAD_RECEIPT_SCHEMA.id,
-  ),
-  guiS3Action(
+  actionRpc("settings.update", "repo.settings.update", "settings-update", shape(settingsUpdateRpcFields)),
+  actionRpc("gui.catalog.reread", "repo.gui.catalog.reread", "catalog-reread", shape({ expectedDigest: "string?" }), {
+    read: true,
+  }),
+  actionRpc(
     "agentRuntime.spawn",
     "repo.agentRuntime.spawn",
     "runtime-spawn",
@@ -377,13 +260,9 @@ export const daemonGuiActionMethods = Object.freeze([
       executor: "json?",
       dryRun: "boolean?",
     }),
-    "spawnAgentRuntime",
-    "/api/agent-runtime/spawn",
-    "repo-write",
-    DAEMON_GUI_COMMAND_RECEIPT_SCHEMA.id,
   ),
-  ...entityDeclarationGuiActions,
-  guiAction(
+  ...entityDeclarationRoutes,
+  actionRpc(
     "schedule.create",
     "repo.schedule.create",
     "schedule-create",
@@ -400,11 +279,8 @@ export const daemonGuiActionMethods = Object.freeze([
       fast: "boolean?",
       idempotencyKey: "string",
     }),
-    "createSchedule",
-    "/api/schedules",
-    "repo-write",
   ),
-  guiAction(
+  actionRpc(
     "schedule.update",
     "repo.schedule.update",
     "schedule-update",
@@ -425,67 +301,44 @@ export const daemonGuiActionMethods = Object.freeze([
       keepMonthly: "boolean?",
       idempotencyKey: "string",
     }),
-    "updateSchedule",
-    "/api/schedules/:scheduleId",
-    "repo-write",
   ),
-  guiAction(
+  actionRpc(
     "schedule.delete",
     "repo.schedule.delete",
     "schedule-delete",
     shape({ scheduleId: "string", reason: "string?", idempotencyKey: "string" }),
-    "deleteSchedule",
-    "/api/schedules/:scheduleId",
-    "repo-write",
   ),
-  guiAction(
+  actionRpc(
     "schedule.enable",
     "repo.schedule.enable",
     "schedule-enable",
     shape({ scheduleId: "string", idempotencyKey: "string" }),
-    "enableSchedule",
-    "/api/schedules/:scheduleId/enable",
-    "repo-write",
   ),
-  guiAction(
+  actionRpc(
     "schedule.disable",
     "repo.schedule.disable",
     "schedule-disable",
     shape({ scheduleId: "string", idempotencyKey: "string" }),
-    "disableSchedule",
-    "/api/schedules/:scheduleId/disable",
-    "repo-write",
   ),
-  guiAction(
+  actionRpc(
     "schedule.runNow",
     "repo.schedule.runNow",
     "schedule-run-now",
     shape({ scheduleId: "string", idempotencyKey: "string" }),
-    "runScheduleNow",
-    "/api/schedules/:scheduleId/run-now",
-    "repo-write",
   ),
-  guiS3Action(
+  actionRpc(
     "agentRuntime.cancel",
     "repo.agentRuntime.cancel",
     "runtime-cancel",
     shape({ runtimeSessionId: "string", ruling: "string?" }),
-    "cancelAgentRuntime",
-    "/api/agent-runtime/sessions/:id/cancel",
-    "repo-write",
-    DAEMON_GUI_COMMAND_RECEIPT_SCHEMA.id,
   ),
-  guiS3Action(
+  actionRpc(
     "agentRuntime.steer",
     "repo.agentRuntime.steer",
     "runtime-steer",
     shape({ runtimeSessionId: "string?", dispatchId: "string?", prompt: "string", expected: "json?" }),
-    "steerAgentRuntime",
-    "/api/agent-runtime/sessions/:id/steer",
-    "repo-write",
-    DAEMON_GUI_COMMAND_RECEIPT_SCHEMA.id,
   ),
-  guiS3Action(
+  actionRpc(
     "terminal.spawn",
     "repo.terminal.spawn",
     "terminal-spawn",
@@ -497,50 +350,35 @@ export const daemonGuiActionMethods = Object.freeze([
       shellProfileId: "string?",
       taskId: "string?",
     }),
-    "spawnTerminal",
-    "/api/terminal/sessions",
-    "repo-write",
-    TERMINAL_CONTROL_RECEIPT_SCHEMA.id,
+    { outputSchemaId: TERMINAL_CONTROL_RECEIPT_SCHEMA.id },
   ),
-  guiS3Action(
+  actionRpc(
     "terminal.input",
     "repo.terminal.input",
     "terminal-input",
-    shape({ sessionId: "string", clientSeq: "number", utf8: "string" }),
-    "sendTerminalInput",
-    "/api/terminal/sessions/:id/input",
-    "repo-write",
-    TERMINAL_INPUT_ACK_SCHEMA.id,
+    shape({ sessionId: "string", daemonGeneration: "number", clientSeq: "number", utf8: "string" }),
+    { outputSchemaId: TERMINAL_INPUT_ACK_SCHEMA.id },
   ),
-  guiS3Action(
+  actionRpc(
     "terminal.resize",
     "repo.terminal.resize",
     "terminal-resize",
     shape({ sessionId: "string", cols: "number", rows: "number" }),
-    "resizeTerminal",
-    "/api/terminal/sessions/:id/resize",
-    "repo-write",
-    TERMINAL_CONTROL_RECEIPT_SCHEMA.id,
+    { outputSchemaId: TERMINAL_CONTROL_RECEIPT_SCHEMA.id },
   ),
-  guiS3Action(
+  actionRpc(
     "terminal.detach",
     "repo.terminal.detach",
     "terminal-detach",
     shape({ sessionId: "string", attachmentId: "string" }),
-    "detachTerminal",
-    "/api/terminal/sessions/:id/detach",
-    "repo-read",
-    TERMINAL_DETACH_ACK_SCHEMA.id,
+    { read: true, outputSchemaId: TERMINAL_DETACH_ACK_SCHEMA.id },
   ),
-  guiS3Action(
+  actionRpc(
     "terminal.terminate",
     "repo.terminal.terminate",
     "terminal-terminate",
     shape({ sessionId: "string", confirmed: "boolean?" }),
-    "terminateTerminal",
-    "/api/terminal/sessions/:id/terminate",
-    "repo-write",
-    TERMINAL_CONTROL_RECEIPT_SCHEMA.id,
+    { outputSchemaId: TERMINAL_CONTROL_RECEIPT_SCHEMA.id },
   ),
 ] as const);
 export const daemonStreamFacets = Object.freeze([
@@ -549,10 +387,11 @@ export const daemonStreamFacets = Object.freeze([
     phase: "Runtime-B",
     method: "repo.agentRuntime.attach",
     eventMethod: "repo.agentRuntime.attach.frame",
+    commandClass: "repo-read",
     requiresRepo: true,
     params: shape({
       repo: shape({ repoId: "string" }),
-      payload: shape({ runtimeSessionId: "string", afterCursor: "string" }),
+      payload: shape({ runtimeSessionId: "string", afterCursor: "json?" }),
     }),
   },
   {
@@ -563,26 +402,12 @@ export const daemonStreamFacets = Object.freeze([
     requiresRepo: true,
     params: shape({
       repo: shape({ repoId: "string" }),
-      payload: shape({ sessionId: "string", afterSeq: "number" }),
+      payload: shape({ sessionId: "string", afterSeq: "number", daemonGeneration: "number?" }),
     }),
-    guiBridgeMethod: "attachTerminal",
-    httpMethod: "STREAM",
-    path: "/api/terminal/sessions/:id/attach",
-    inputSchemaId: "gui.terminal-attach/v1",
-    outputSchemaId: TERMINAL_ATTACH_SCHEMA.id,
-    eventSchemaId: TERMINAL_ATTACH_EVENT_SCHEMA.id,
-    errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
-    serviceMethod: "attachTerminal",
-    auth: "local-session-token",
     commandClass: "repo-read",
   },
 ] as const);
 
-type DaemonGuiStreamFacet = Extract<(typeof daemonStreamFacets)[number], { readonly guiBridgeMethod: string }>;
-// The GUI routes are a projection; daemonStreamFacets is the only stream descriptor registry.
-export const daemonGuiStreamFacets = Object.freeze(
-  daemonStreamFacets.filter((facet): facet is DaemonGuiStreamFacet => "guiBridgeMethod" in facet),
-);
 export const daemonStreamFacetByMethod: ReadonlyMap<string, (typeof daemonStreamFacets)[number]> = new Map(
   daemonStreamFacets.map((facet) => [facet.method, facet] as const),
 );
@@ -640,7 +465,6 @@ export const runtimeInstanceMethods = Object.freeze([
         true,
       ),
     }),
-    guiBridgeMethod: "createRuntimeInstance",
   },
   {
     id: "daemon.runtimeInstance.list",
@@ -648,7 +472,6 @@ export const runtimeInstanceMethods = Object.freeze([
     method: "daemon.runtimeInstance.list",
     requiresRepo: false,
     params: shape({ repo: "json?", payload: shape({ all: "boolean?", probe: "boolean?" }) }),
-    guiBridgeMethod: "listRuntimeInstances",
   },
   {
     id: "daemon.runtimeInstance.show",
@@ -656,7 +479,6 @@ export const runtimeInstanceMethods = Object.freeze([
     method: "daemon.runtimeInstance.show",
     requiresRepo: false,
     params: shape({ repo: "json?", payload: shape({ instanceId: "string", probe: "boolean?" }) }),
-    guiBridgeMethod: "showRuntimeInstance",
   },
   {
     id: "daemon.runtimeInstance.update",
@@ -685,7 +507,6 @@ export const runtimeInstanceMethods = Object.freeze([
         apiKey: "string?",
       }),
     }),
-    guiBridgeMethod: "updateRuntimeInstance",
   },
   {
     id: "daemon.runtimeInstance.delete",
@@ -693,7 +514,6 @@ export const runtimeInstanceMethods = Object.freeze([
     method: "daemon.runtimeInstance.delete",
     requiresRepo: false,
     params: shape({ repo: "json?", payload: shape({ instanceId: "string" }) }),
-    guiBridgeMethod: "deleteRuntimeInstance",
   },
 ] as const);
 
@@ -707,7 +527,6 @@ export const runtimeInstanceAuthMethods = Object.freeze([
       repo: shape({ repoId: "string" }),
       payload: shape({ instanceId: "string", idempotencyKey: "string" }),
     }),
-    guiBridgeMethod: "signInRuntimeInstance",
   },
   {
     id: "repo.runtimeInstance.auth.logout",
@@ -718,7 +537,6 @@ export const runtimeInstanceAuthMethods = Object.freeze([
       repo: shape({ repoId: "string" }),
       payload: shape({ instanceId: "string", idempotencyKey: "string" }),
     }),
-    guiBridgeMethod: "signOutRuntimeInstance",
   },
 ] as const);
 
@@ -741,7 +559,6 @@ export const providerMethods = Object.freeze([
         enabled: "boolean?",
       }),
     }),
-    guiBridgeMethod: "createDecisionProvider",
   },
   {
     id: "daemon.provider.list",
@@ -750,7 +567,6 @@ export const providerMethods = Object.freeze([
     requiresRepo: false,
     commandClass: "admin",
     params: shape({ payload: shape({}) }),
-    guiBridgeMethod: "listDecisionProviders",
   },
   {
     id: "daemon.provider.show",
@@ -759,7 +575,6 @@ export const providerMethods = Object.freeze([
     requiresRepo: false,
     commandClass: "admin",
     params: shape({ payload: shape({ providerId: "string" }) }),
-    guiBridgeMethod: "showDecisionProvider",
   },
   {
     id: "daemon.provider.update",
@@ -778,7 +593,6 @@ export const providerMethods = Object.freeze([
         enabled: "boolean?",
       }),
     }),
-    guiBridgeMethod: "updateDecisionProvider",
   },
   {
     id: "daemon.provider.probe",
@@ -787,7 +601,6 @@ export const providerMethods = Object.freeze([
     requiresRepo: false,
     commandClass: "admin",
     params: shape({ payload: shape({ providerId: "string" }) }),
-    guiBridgeMethod: "probeDecisionProvider",
   },
   {
     id: "daemon.provider.delete",
@@ -796,14 +609,13 @@ export const providerMethods = Object.freeze([
     requiresRepo: false,
     commandClass: "admin",
     params: shape({ payload: shape({ providerId: "string" }) }),
-    guiBridgeMethod: "deleteDecisionProvider",
   },
 ] as const);
 
-export const daemonGuiInvokeFacets = Object.freeze([
-  ...daemonGuiReadMethods,
-  ...daemonGuiActionMethods,
-  ...runtimeInstanceMethods.filter((method) => "guiBridgeMethod" in method),
+export const interactiveRpcMethods = Object.freeze([
+  ...daemonReadRoutes,
+  ...daemonActionRoutes,
+  ...runtimeInstanceMethods.filter(({ method }) => method.startsWith("daemon.runtimeInstance.")),
   ...runtimeInstanceAuthMethods,
   ...providerMethods,
 ]);

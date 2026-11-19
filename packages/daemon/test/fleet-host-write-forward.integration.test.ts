@@ -6,8 +6,8 @@ import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
-import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
-import type { ScheduleGuiRowDto, SchedulesListResult } from "../src/daemon-host/protocol/schedules-gui-contract.ts";
+import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
+import type { ScheduleGuiRowDto, SchedulesListResult } from "../src/daemon-host/protocol/schedules-contract.ts";
 
 test("edge repository and GUI write RPCs reach the same center command port", { timeout: 90_000 }, async (t) => {
   const installation = {
@@ -124,7 +124,7 @@ test("edge repository and GUI write RPCs reach the same center command port", { 
     idempotencyKey: "gui-forward-schedule",
   });
   assert.equal(scheduled.outcome, "applied", JSON.stringify(scheduled));
-  const plane = parseDaemonGuiReadResult(
+  const plane = parseDaemonReadResult(
     "repo.projection.read",
     await edge.host.read("lease-repo", "repo.projection.read", { name: "schedule-plane" }, localAuthFixture()),
   ).projection as SchedulesListResult;
@@ -216,7 +216,7 @@ test(
         await edge.host.terminalAction(
           "lease-repo",
           "repo.terminal.input",
-          { sessionId, clientSeq: 1, utf8: "echo __EDGE_TERMINAL__\r" },
+          { sessionId, daemonGeneration: spawned.daemonGeneration, clientSeq: 1, utf8: "echo __EDGE_TERMINAL__\r" },
           localAuthFixture(),
         )
       ).acceptedThrough,

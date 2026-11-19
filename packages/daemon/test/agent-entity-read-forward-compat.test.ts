@@ -2,10 +2,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  parseDaemonGuiReadResponse,
-  parseDaemonGuiReadResult,
-} from "../src/daemon-host/protocol/gui-result-validation.ts";
-import { serializeAgentEntityCatalog } from "../src/daemon-host/protocol/agent-entity-gui-contract.ts";
+  parseDaemonReadResponse,
+  parseDaemonReadResult,
+} from "../src/daemon-host/protocol/daemon-result-validation.ts";
+import { serializeAgentEntityCatalog } from "../src/daemon-host/protocol/agent-entity-contract.ts";
 
 // The daemon added `hostAccess` / `hostAccessSource` in 9737f8f784. An already-running GUI
 // bundle carries the previous field list: the client-inbound read must ignore the additive
@@ -33,8 +33,8 @@ test("client inbound ignores an additive Agent read field and logs it once", (t)
       ...futureCatalog,
       agents: [futureAgentRow, { ...futureAgentRow, id: "luna", name: "Luna" }],
     },
-    first = parseDaemonGuiReadResponse("repo.agent.entities.list", multiRowCatalog),
-    second = parseDaemonGuiReadResponse("repo.agent.entities.list", multiRowCatalog);
+    first = parseDaemonReadResponse("repo.agent.entities.list", multiRowCatalog),
+    second = parseDaemonReadResponse("repo.agent.entities.list", multiRowCatalog);
 
   assert.equal(first.ok, true);
   assert.equal(second.ok, true);
@@ -43,7 +43,7 @@ test("client inbound ignores an additive Agent read field and logs it once", (t)
 });
 
 test("the daemon exit and the write serializer keep the closed Agent shape", () => {
-  assert.throws(() => parseDaemonGuiReadResult("repo.agent.entities.list", futureCatalog), /unknown; remove it/u);
+  assert.throws(() => parseDaemonReadResult("repo.agent.entities.list", futureCatalog), /unknown; remove it/u);
   assert.throws(() => serializeAgentEntityCatalog(futureCatalog), /unknown; remove it/u);
 });
 
@@ -51,7 +51,7 @@ test("client inbound still rejects a missing required Agent field", () => {
   const { name: _name, ...missingName } = futureAgentRow;
   assert.throws(
     () =>
-      parseDaemonGuiReadResponse("repo.agent.entities.list", {
+      parseDaemonReadResponse("repo.agent.entities.list", {
         ...futureCatalog,
         agents: [missingName],
       }),
@@ -61,7 +61,7 @@ test("client inbound still rejects a missing required Agent field", () => {
 
 test("client inbound ignores unknown nested retirement fields within the same window", (t) => {
   t.mock.method(console, "warn", () => undefined);
-  const parsed = parseDaemonGuiReadResponse("repo.agent.entities.list", {
+  const parsed = parseDaemonReadResponse("repo.agent.entities.list", {
     ...futureCatalog,
     agents: [
       {
@@ -77,7 +77,7 @@ test("an additive secret-shaped field stays fatal even when its name is unknown"
   const warn = t.mock.method(console, "warn", () => undefined);
   assert.throws(
     () =>
-      parseDaemonGuiReadResponse("repo.agent.entities.list", {
+      parseDaemonReadResponse("repo.agent.entities.list", {
         ...futureCatalog,
         agents: [{ ...futureAgentRow, access_token: "opaque" }],
       }),
@@ -105,8 +105,8 @@ test("the same client-inbound tolerance covers every read shape, not only Agent 
     repos: [],
     futureOptionalField: true,
   };
-  assert.throws(() => parseDaemonGuiReadResult("daemon.gui.system.read", systemStatus), /futureOptionalField/u);
-  assert.equal(parseDaemonGuiReadResponse("daemon.gui.system.read", systemStatus).ok, true);
+  assert.throws(() => parseDaemonReadResult("daemon.gui.system.read", systemStatus), /futureOptionalField/u);
+  assert.equal(parseDaemonReadResponse("daemon.gui.system.read", systemStatus).ok, true);
 });
 
 test("client inbound accepts previous-daemon Agent list and detail payloads without mcpPolicy while rejecting invalid values", (t) => {
@@ -134,13 +134,13 @@ test("client inbound accepts previous-daemon Agent list and detail payloads with
       },
     };
 
-  assert.equal(parseDaemonGuiReadResponse("repo.agent.entities.list", previousCatalog).ok, true);
-  assert.equal(parseDaemonGuiReadResponse("repo.agent.entity.read", previousDetail).ok, true);
+  assert.equal(parseDaemonReadResponse("repo.agent.entities.list", previousCatalog).ok, true);
+  assert.equal(parseDaemonReadResponse("repo.agent.entity.read", previousDetail).ok, true);
   assert.equal(warn.mock.calls.length, 0);
 
   assert.throws(
     () =>
-      parseDaemonGuiReadResponse("repo.agent.entities.list", {
+      parseDaemonReadResponse("repo.agent.entities.list", {
         ...previousCatalog,
         agents: [{ ...previousAgentRow, mcpPolicy: "always" }],
       }),
@@ -148,7 +148,7 @@ test("client inbound accepts previous-daemon Agent list and detail payloads with
   );
   assert.throws(
     () =>
-      parseDaemonGuiReadResponse("repo.agent.entity.read", {
+      parseDaemonReadResponse("repo.agent.entity.read", {
         ...previousDetail,
         agent: { ...previousDetail.agent, mcpPolicy: 123 },
       }),

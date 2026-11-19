@@ -106,7 +106,7 @@ import { requestAccountLogin } from "./account-login-request.ts";
 import { appMainSurface } from "./app-main-surface.ts";
 type DecisionPoolGroupId = WorkspaceSummaryRead["decisions"]["groups"][number]["id"];
 function AppShell() {
-  const desktopOnly = guiTransport().capabilities().terminal?.status === "unavailable";
+  const desktopOnly = guiTransport().capabilities().nativeFiles?.status === "unavailable";
   // 一个项目一个窗口(task_ca1ee6b9e8f83c89cb376e5f07):本窗口若是「在新窗口打开」
   // 开出的,preload 已带来初始项目作选仓种子(非启用仓由 selectActiveRepoId 回落默认)。
   const [activeRepoId, setActiveRepoId] = useState<string | null>(
@@ -636,7 +636,7 @@ function AppShell() {
               data-testid="browser-capability-notice"
               className="border-b border-border px-3 py-1 ui-meta text-text-muted"
             >
-              实时流、终端和本机文件仅桌面版可用。
+              本机文件仅桌面版可用。
             </div>
           ) : null}
           <NavigationHistoryBar

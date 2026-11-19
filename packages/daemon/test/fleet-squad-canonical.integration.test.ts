@@ -6,7 +6,7 @@ import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { locateFleetMirrorView } from "../src/daemon-host/fleet-edge-mirror.ts";
-import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import { daemonMethodAcceptsPayload } from "../src/daemon-host/protocol/daemon-protocol-rpc-validation.ts";
 import { sha256Text } from "@harness-anything/kernel";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
@@ -552,7 +552,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     params: { repo: { repoId: "lease-repo" }, payload: { taskId } },
   });
   assert.ok(response && !Array.isArray(response) && "result" in response, JSON.stringify(response));
-  const dispatches = parseDaemonGuiReadResult("repo.task.dispatches", response.result);
+  const dispatches = parseDaemonReadResult("repo.task.dispatches", response.result);
   assert.equal(dispatches.dispatches.length, 2, "B reads both accepted runs through the center");
   assert.ok(dispatches.dispatches.some((row) => row.executionId === parentExecutionId));
   assert.ok(dispatches.dispatches.some((row) => row.executionId !== parentExecutionId));
@@ -712,7 +712,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
       readFailures.push({ method, result: read.result });
       continue;
     }
-    const data = parseDaemonGuiReadResult(method, read.result);
+    const data = parseDaemonReadResult(method, read.result);
     assert.equal(data.freshness?.state, "stale", `${method}: ${JSON.stringify(data)}`);
     assert.equal(data.cut?.revision, view.revision, method);
   }

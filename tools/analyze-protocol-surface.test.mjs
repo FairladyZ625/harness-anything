@@ -39,8 +39,8 @@ test("detects duplicate CLI/GUI protocol glue and browser streaming gaps on fixt
           }),
         ];
       `,
-      "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-actions.ts": `
-        export const daemonGuiActionMethods = [
+      "packages/daemon/src/daemon-host/protocol/daemon-protocol-action-routes.ts": `
+        export const daemonActionRoutes = [
           guiAction("task.start", "repo.task.start", "task-start", shape({}), "startTask", "/api/tasks/:taskId/start", "repo-write"),
         ];
         export const daemonStreamFacets = [
@@ -48,22 +48,22 @@ test("detects duplicate CLI/GUI protocol glue and browser streaming gaps on fixt
           { id: "terminal.attach", method: "repo.terminal.attach", guiBridgeMethod: "attachTerminal" },
         ];
       `,
-      "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-reads.ts": `
-        export const daemonGuiReadMethods = [
+      "packages/daemon/src/daemon-host/protocol/daemon-protocol-read-routes.ts": `
+        export const daemonReadRoutes = [
           { id: "gui.system.read", method: "daemon.gui.system.read", guiBridgeMethod: "getSystemStatus", path: "/api/system" },
         ];
       `,
       "packages/gui/src/api/api-contract-registry.ts": `
-        import { daemonGuiReadMethods, daemonGuiActionMethods } from "@harness-anything/daemon/protocol";
-        export const apiRouteContracts = [...daemonGuiReadMethods, ...daemonGuiActionMethods];
+        import { daemonReadRoutes, daemonActionRoutes } from "@harness-anything/daemon/protocol";
+        export const apiRouteContracts = [...daemonReadRoutes, ...daemonActionRoutes];
       `,
       "packages/gui/src/api/service-bridge.ts": `
-        import { daemonGuiInvokeFacets } from "@harness-anything/daemon/protocol";
-        export const routes = daemonGuiInvokeFacets;
+        import { interactiveRpcMethods } from "@harness-anything/daemon/protocol";
+        export const routes = interactiveRpcMethods;
       `,
       "packages/gui/src/preload/allowlist.ts": `
-        import { daemonGuiInvokeFacets, daemonGuiStreamFacets } from "@harness-anything/daemon/protocol";
-        export const allow = [...daemonGuiInvokeFacets, ...daemonGuiStreamFacets];
+        import { interactiveRpcMethods, daemonGuiStreamFacets } from "@harness-anything/daemon/protocol";
+        export const allow = [...interactiveRpcMethods, ...daemonGuiStreamFacets];
       `,
       "packages/gui/src/browser/browser-gui-transport.ts": `
         export function createBrowserGuiTransport() {
@@ -75,7 +75,7 @@ test("detects duplicate CLI/GUI protocol glue and browser streaming gaps on fixt
       `,
       "packages/cli/src/cli/gui-browser-broker.ts": `
         export function handle(req) {
-          if (req.url === "/rpc") return isDaemonGuiReadMethod(req.method) || isDaemonGuiActionMethod(req.method);
+          if (req.url === "/rpc") return isDaemonReadRoute(req.method) || isDaemonActionRoute(req.method);
         }
       `,
     });
@@ -124,8 +124,8 @@ test("negative control: converged surface reports zero duplicate glue and zero b
       "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-task.ts": `
         export const cmds = [defineLedgerWriteCommand({ id: "task-start", actionKind: "task-start", method: "repo.task.run", path: ["task", "start"] })];
       `,
-      "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-actions.ts": `
-        export const daemonGuiActionMethods = [];
+      "packages/daemon/src/daemon-host/protocol/daemon-protocol-action-routes.ts": `
+        export const daemonActionRoutes = [];
         export const daemonStreamFacets = [
           { id: "terminal.attach", method: "repo.terminal.attach", guiBridgeMethod: "attachTerminal" },
         ];
@@ -153,20 +153,13 @@ test("negative control: converged surface reports zero duplicate glue and zero b
   }
 });
 
-test("live repository protocol surface identifies duplicate glue and ARCH-006/ARCH-016 streaming gaps", () => {
+// dec_89D06D7360CBEC09795F7B12EC/CH3: the legacy fixtures above still catch a resurrected shadow.
+test("live repository has one protocol surface and matching stream transports", () => {
   const report = analyzeProtocolSurface(REPO_ROOT);
   assert.equal(report.schema, "protocol-surface-analysis/v1");
-  assert.ok(report.counts.daemonProtocolFiles >= 50);
-  assert.ok(report.counts.daemonGuiShadowFiles >= 9);
-  assert.ok(report.counts.duplicateCliGuiGlue > 0, "must report duplicate CLI/GUI protocol glue");
-  assert.ok(
-    report.duplicateCliGuiGlue.some(
-      (entry) => entry.actionKind === "task-start" && entry.guiMethod === "repo.task.start",
-    ),
-    "expected task-start duplicate CLI/GUI mapping",
-  );
-  const gapIds = new Set(report.streamingSurface.gaps.map((g) => g.id));
-  assert.ok(gapIds.has("browser-transport-stream-unavailable"));
-  assert.ok(gapIds.has("browser-broker-rpc-post-only"));
-  assert.ok(gapIds.has("stream-facet-missing-gui-bridge:repo.agentRuntime.attach"));
+  assert.equal(report.counts.daemonGuiShadowFiles, 0);
+  assert.equal(report.counts.duplicateCliGuiGlue, 0);
+  assert.equal(report.counts.browserStreamingGaps, 0);
+  assert.equal(report.counts.daemonStreamFacets, 2);
+  assert.ok(report.counts.guiActionFacets > 0, "the analyzer must still inspect the canonical action routes");
 });

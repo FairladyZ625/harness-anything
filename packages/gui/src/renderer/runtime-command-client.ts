@@ -11,24 +11,18 @@ export const runtimeCommandClient = {
       readonly prompt?: string;
       readonly dispatchKey?: string;
     },
-  ) => action(await invoke("repo.agentRuntime.handoff", { repoId, ...input }, "handoffAgentRuntime")),
+  ) => action(await invoke("repo.agentRuntime.handoff", { repoId, ...input })),
   spawn: async (repoId: string, input: RuntimeSpawnInput): Promise<unknown> =>
-    action(await invoke("repo.agentRuntime.spawn", { repoId, ...input }, "spawnAgentRuntime")),
+    action(await invoke("repo.agentRuntime.spawn", { repoId, ...input })),
   // The preview asks the same spawn action for the assembled prompt and nothing else:
   // dryRun is forced here so no caller can turn the preview path into a real dispatch.
   preview: async (repoId: string, input: RuntimeSpawnInput): Promise<AgentDispatchPreview> => {
     const payload = { ...input, dryRun: true };
-    return parseAgentDispatchPreview(
-      await invoke("repo.agentRuntime.spawn", { repoId, ...payload }, "spawnAgentRuntime"),
-    );
+    return parseAgentDispatchPreview(await invoke("repo.agentRuntime.spawn", { repoId, ...payload }));
   },
   cancel: async (repoId: string, runtimeSessionId: string): Promise<unknown> =>
     action(
-      await invoke(
-        "repo.agentRuntime.cancel",
-        { repoId, runtimeSessionId } as { readonly repoId: string } & object,
-        "cancelAgentRuntime",
-      ),
+      await invoke("repo.agentRuntime.cancel", { repoId, runtimeSessionId } as { readonly repoId: string } & object),
     ),
   // Steering write (runtime-steer): the daemon interrupts the live provider session at a safe
   // point and continues it with the appended prompt; the receipt is the only success signal.
@@ -48,15 +42,9 @@ export const runtimeCommandClient = {
       };
     },
   ): Promise<unknown> =>
-    action(
-      await invoke(
-        "repo.agentRuntime.steer",
-        { repoId, ...input } as { readonly repoId: string } & object,
-        "steerAgentRuntime",
-      ),
-    ),
+    action(await invoke("repo.agentRuntime.steer", { repoId, ...input } as { readonly repoId: string } & object)),
   showReceipt: async (repoId: string, opId: string): Promise<unknown> =>
-    action(await invoke("repo.receipt.show", { repoId, opId } as { readonly repoId: string } & object, "showReceipt")),
+    action(await invoke("repo.receipt.show", { repoId, opId } as { readonly repoId: string } & object)),
 };
 function action(value: unknown): Record<string, unknown> {
   if (!isRendererRecord(value) || value.schema !== "command-receipt/v2" || typeof value.opId !== "string")

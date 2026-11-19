@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // @vitest-environment happy-dom
 // harness-test-tier: fast
 //
@@ -272,16 +273,27 @@ async function mountApp(options: {
   };
   Object.defineProperty(window, "harness", {
     configurable: true,
-    value: new Proxy(bridge, {
-      get(target, method: string) {
-        if (method in target) return target[method];
-        // 未显式建模的读面统一回空成功,避免把断言面扩大到无关查询。
-        return async (payload?: Record<string, unknown> | null) => {
-          calls.push({ method, payload: payload ?? null });
-          return { ok: true };
-        };
+    value: mockRpcBridge(
+      new Proxy(bridge, {
+        get(target, method: string) {
+          if (method in target) return target[method];
+          // 未显式建模的读面统一回空成功,避免把断言面扩大到无关查询。
+          return async (payload?: Record<string, unknown> | null) => {
+            calls.push({ method, payload: payload ?? null });
+            return { ok: true };
+          };
+        },
+      }),
+      {
+        "daemon.gui.system.read": "getSystemStatus",
+        "repo.tasks.list": "getTasks",
+        "repo.workspace.summary.read": "getWorkspaceSummary",
+        "repo.agenda.read": "getAgenda",
+        "repo.triadic.relationGraph": "getRelationGraph",
+        "repo.decisions.list": "getDecisions",
+        "repo.gui.catalog.snapshot": "getCatalogSnapshot",
       },
-    }),
+    ),
   });
 
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

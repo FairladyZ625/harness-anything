@@ -129,7 +129,7 @@ export function createDaemonHostRuntimeApi(
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
       await context.binding(cell.status().rootDir, auth);
-      return cell.attach(runtimeSessionId, afterCursor);
+      return cell.attach(runtimeSessionId, afterCursor, auth.connectionSignal);
     },
     spawnRuntime: async (repoId, payload, auth) => {
       const edgeReceipt = await runRemoteEdgeRuntime(repoId, "repo.agentRuntime.spawn", payload, auth);
@@ -236,12 +236,12 @@ export function createDaemonHostRuntimeApi(
       }
       return receipt;
     },
-    terminalAttach: async (repoId, sessionId, afterSeq, auth) => {
+    terminalAttach: async (repoId, { sessionId, afterSeq, daemonGeneration }, auth) => {
       context.requireHostMode(repoId, repoReadCommandTopology, auth);
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
       await context.binding(cell.status().rootDir, auth);
-      return cell.terminal.attach(sessionId, afterSeq);
+      return cell.terminal.attach(sessionId, afterSeq, daemonGeneration);
     },
     terminalAction: async (repoId, method, payload, auth) => {
       if (

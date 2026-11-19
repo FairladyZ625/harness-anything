@@ -765,6 +765,7 @@ export function technicalPortEvidence(graph, node, source, action, descriptors =
     source.role !== "technical-port" ||
     source.route !== action.kind ||
     !action.ontology.technical ||
+    action.residency?.scope !== "host-local" ||
     !(authority === "local-process" || (authority === "package-script" && rootToolingSource(graph, node))) ||
     action.receiptSettlement !== "none"
   )

@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: integration
 import { lifecycleFixture } from "./lifecycle.fixtures.ts";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -15,12 +16,17 @@ import { IdentityRail, ProviderRail } from "../src/renderer/components/runtime/R
 import { SessionDetailView } from "../src/renderer/components/runtime/SessionsPanel.tsx";
 import { SquadCard } from "../src/renderer/components/runtime/SquadCard.tsx";
 import { visibleRuntimeInstances } from "../src/renderer/runtime-instance-form.ts";
-import { assertPreloadPayload } from "../src/preload/allowlist.ts";
+import { assertRendererRpc } from "../src/preload/allowlist.ts";
+import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { agentRuntimeClient } from "../src/renderer/agent-runtime-client.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { submitRuntimeSpawn } from "../src/renderer/runtime-control.ts";
 import { runtimeSelfTestSpawnInput } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
 import { runtimeAuthPresentation } from "../src/renderer/runtime-auth-presentation.ts";
+
+function assertPreloadPayload(method: Parameters<typeof scopedRpcParams>[0], payload: object) {
+  return assertRendererRpc(method, scopedRpcParams(method, payload));
+}
 
 beforeAll(() => setActiveLocale("en-US"));
 
@@ -793,12 +799,14 @@ describe("agent runtime renderer", () => {
     expect(withSkills).not.toContain("saving here would drop the mounts");
   });
   it("keeps the Agent/Squad payload path open at the preload boundary", () => {
-    expect(assertPreloadPayload("showAgent", { repoId: "repo-a", agentId: "fable" })).toBe(true);
-    expect(assertPreloadPayload("showSquad", { repoId: "repo-a", squadId: "core-squad" })).toBe(true);
-    expect(assertPreloadPayload("listAgents", { repoId: "repo-a" })).toBe(true);
-    expect(assertPreloadPayload("listAgentSkills", { repoId: "repo-a" })).toBe(true);
-    expect(assertPreloadPayload("listSquads", { repoId: "repo-a" })).toBe(true);
-    expect(() => assertPreloadPayload("listAgents", { repoId: "repo-a", agentId: "fable" })).toThrow(/not allowed/u);
+    expect(assertPreloadPayload("repo.agent.entity.read", { repoId: "repo-a", agentId: "fable" })).toBe(true);
+    expect(assertPreloadPayload("repo.squad.entity.read", { repoId: "repo-a", squadId: "core-squad" })).toBe(true);
+    expect(assertPreloadPayload("repo.agent.entities.list", { repoId: "repo-a" })).toBe(true);
+    expect(assertPreloadPayload("repo.agent.skills.list", { repoId: "repo-a" })).toBe(true);
+    expect(assertPreloadPayload("repo.squad.entities.list", { repoId: "repo-a" })).toBe(true);
+    expect(() => assertPreloadPayload("repo.agent.entities.list", { repoId: "repo-a", agentId: "fable" })).toThrow(
+      /params are invalid/u,
+    );
   });
   it("keeps the masked API key visible and disables it when the call path has no API mode", () => {
     const field = renderToStaticMarkup(
@@ -918,7 +926,20 @@ describe("agent runtime renderer", () => {
         getAgentRuntimeSession: vi.fn(),
         getAgentRuntimeEvents: vi.fn(),
       };
-    vi.stubGlobal("window", { harness: stub });
+    vi.stubGlobal("window", {
+      harness: mockRpcBridge(stub, {
+        "repo.projection.read": "readUseCaseProjection",
+        "repo.agentRuntime.overview": "getAgentRuntimeOverview",
+        "repo.agentRuntime.sessions.read": "getAgentRuntimeSession",
+        "repo.agentRuntime.events.read": "getAgentRuntimeEvents",
+        "repo.agent.entities.list": "listAgents",
+        "repo.agent.entity.read": "showAgent",
+        "repo.agent.skills.list": "listAgentSkills",
+        "repo.squad.entities.list": "listSquads",
+        "repo.squad.entity.read": "showSquad",
+        "repo.receipt.show": "showReceipt",
+      }),
+    });
     await expect(agentRuntimeClient.sessionGroups("repo-a", { groupBy: "task" })).rejects.toThrow(/invalid result/u);
     expect(readUseCaseProjection).toHaveBeenCalledWith({
       repoId: "repo-a",
@@ -944,7 +965,20 @@ describe("agent runtime renderer", () => {
         getAgentRuntimeSession: vi.fn(),
         getAgentRuntimeEvents: vi.fn(),
       };
-    vi.stubGlobal("window", { harness: stub });
+    vi.stubGlobal("window", {
+      harness: mockRpcBridge(stub, {
+        "repo.projection.read": "readUseCaseProjection",
+        "repo.agentRuntime.overview": "getAgentRuntimeOverview",
+        "repo.agentRuntime.sessions.read": "getAgentRuntimeSession",
+        "repo.agentRuntime.events.read": "getAgentRuntimeEvents",
+        "repo.agent.entities.list": "listAgents",
+        "repo.agent.entity.read": "showAgent",
+        "repo.agent.skills.list": "listAgentSkills",
+        "repo.squad.entities.list": "listSquads",
+        "repo.squad.entity.read": "showSquad",
+        "repo.receipt.show": "showReceipt",
+      }),
+    });
     const result = await agentRuntimeClient.sessionGroups("repo-a", {
       groupBy: "task",
       since: "2026-08-26T00:00:00.000Z",
@@ -981,12 +1015,26 @@ describe("agent runtime renderer", () => {
         facet: "members",
       });
     vi.stubGlobal("window", {
-      harness: {
-        getAgentRuntimeOverview: vi.fn(),
-        readUseCaseProjection,
-        getAgentRuntimeSession: vi.fn(),
-        getAgentRuntimeEvents: vi.fn(),
-      },
+      harness: mockRpcBridge(
+        {
+          getAgentRuntimeOverview: vi.fn(),
+          readUseCaseProjection,
+          getAgentRuntimeSession: vi.fn(),
+          getAgentRuntimeEvents: vi.fn(),
+        },
+        {
+          "repo.projection.read": "readUseCaseProjection",
+          "repo.agentRuntime.overview": "getAgentRuntimeOverview",
+          "repo.agentRuntime.sessions.read": "getAgentRuntimeSession",
+          "repo.agentRuntime.events.read": "getAgentRuntimeEvents",
+          "repo.agent.entities.list": "listAgents",
+          "repo.agent.entity.read": "showAgent",
+          "repo.agent.skills.list": "listAgentSkills",
+          "repo.squad.entities.list": "listSquads",
+          "repo.squad.entity.read": "showSquad",
+          "repo.receipt.show": "showReceipt",
+        },
+      ),
     });
     await expect(
       agentRuntimeClient.sessionGroupMembers("repo-a", { groupKey: "unattributed:no-task", groupBy: "task" }),

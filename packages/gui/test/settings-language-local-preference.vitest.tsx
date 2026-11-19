@@ -39,7 +39,7 @@ async function mountSettings() {
     configurable: true,
     value: {
       request: vi.fn(async (method: string, payload: unknown) => {
-        if (method === "updateSettings") {
+        if (method === "repo.settings.update") {
           updateCalls.push(payload);
           throw new Error("fetch failed");
         }

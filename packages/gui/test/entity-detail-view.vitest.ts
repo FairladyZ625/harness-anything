@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 import { beforeAll, afterEach, describe, expect, it, vi } from "vitest";
@@ -329,7 +330,10 @@ afterEach(async () => {
 /** 概况页签里的 Region 是 motion 布局节点,挂载时要在 window 上挂 resize 监听。 */
 function stubOverviewWindow() {
   vi.stubGlobal("window", {
-    harness: { showDecision: vi.fn(async () => showReceipt(PROSE)) },
+    harness: mockRpcBridge(
+      { showDecision: vi.fn(async () => showReceipt(PROSE)) },
+      { "repo.decision.show": "showDecision", "repo.receipt.show": "showReceipt" },
+    ),
     addEventListener: () => undefined,
     removeEventListener: () => undefined,
   });
@@ -446,7 +450,12 @@ describe("DecisionDetailView", () => {
 
   it("页头长标题自己折行;状态/风险/紧急徽章不折行、不被压缩(标准 §2.5 v2)", async () => {
     stubOverviewWindow();
-    vi.stubGlobal("window", { harness: { showDecision: vi.fn(async () => showReceipt(null)) } });
+    vi.stubGlobal("window", {
+      harness: mockRpcBridge(
+        { showDecision: vi.fn(async () => showReceipt(null)) },
+        { "repo.decision.show": "showDecision", "repo.receipt.show": "showReceipt" },
+      ),
+    });
     const div = await mountDecisionView(
       decisionRow({
         title: "为公开仓库添加 production-delta 门:把任务包绕过 CI 直写生产代码的路径关掉的超长决策标题",
@@ -470,7 +479,12 @@ describe("DecisionDetailView", () => {
 
   it("选中决策后能读到 Markdown 正文(正向不变量)", async () => {
     const showDecision = vi.fn(async () => showReceipt(PROSE));
-    vi.stubGlobal("window", { harness: { showDecision } });
+    vi.stubGlobal("window", {
+      harness: mockRpcBridge(
+        { showDecision },
+        { "repo.decision.show": "showDecision", "repo.receipt.show": "showReceipt" },
+      ),
+    });
     const div = await mountDecisionView(decisionRow());
     await openDecisionTab(div, "body");
 
@@ -484,7 +498,12 @@ describe("DecisionDetailView", () => {
   });
 
   it("投影未返回正文时说出原因,不显示空白(负向不变量)", async () => {
-    vi.stubGlobal("window", { harness: { showDecision: vi.fn(async () => showReceipt(null)) } });
+    vi.stubGlobal("window", {
+      harness: mockRpcBridge(
+        { showDecision: vi.fn(async () => showReceipt(null)) },
+        { "repo.decision.show": "showDecision", "repo.receipt.show": "showReceipt" },
+      ),
+    });
     const div = await mountDecisionView(decisionRow());
     await openDecisionTab(div, "body");
 
@@ -495,7 +514,12 @@ describe("DecisionDetailView", () => {
   });
 
   it("投影追赶(pending)与读取失败各自显式说明", async () => {
-    vi.stubGlobal("window", { harness: { showDecision: vi.fn(async () => showReceipt(PROSE, "pending")) } });
+    vi.stubGlobal("window", {
+      harness: mockRpcBridge(
+        { showDecision: vi.fn(async () => showReceipt(PROSE, "pending")) },
+        { "repo.decision.show": "showDecision", "repo.receipt.show": "showReceipt" },
+      ),
+    });
     const pending = await mountDecisionView(decisionRow());
     await openDecisionTab(pending, "body");
     expect(pending.querySelector("[data-testid='decision-body-pending']")?.textContent).toContain("投影仍在追赶");
@@ -510,15 +534,18 @@ describe("DecisionDetailView", () => {
       }
     });
     vi.stubGlobal("window", {
-      harness: {
-        showDecision: vi.fn(async () => ({
-          schema: "command-receipt/v2",
-          ok: false,
-          command: "decision-show",
-          outcome: "op_rejected",
-          opId: "op-x",
-        })),
-      },
+      harness: mockRpcBridge(
+        {
+          showDecision: vi.fn(async () => ({
+            schema: "command-receipt/v2",
+            ok: false,
+            command: "decision-show",
+            outcome: "op_rejected",
+            opId: "op-x",
+          })),
+        },
+        { "repo.decision.show": "showDecision", "repo.receipt.show": "showReceipt" },
+      ),
     });
     const failed = await mountDecisionView(decisionRow());
     await openDecisionTab(failed, "body");
@@ -528,7 +555,12 @@ describe("DecisionDetailView", () => {
 
   it("长正文一次完整渲染,不再有「再显示」入口(规模不变量)", async () => {
     const longBody = Array.from({ length: 30 }, (_, index) => `第 ${index} 节内容,验证长正文完整渲染。`).join("\n\n");
-    vi.stubGlobal("window", { harness: { showDecision: vi.fn(async () => showReceipt(longBody)) } });
+    vi.stubGlobal("window", {
+      harness: mockRpcBridge(
+        { showDecision: vi.fn(async () => showReceipt(longBody)) },
+        { "repo.decision.show": "showDecision", "repo.receipt.show": "showReceipt" },
+      ),
+    });
     const div = await mountDecisionView(decisionRow());
     await openDecisionTab(div, "body");
 
@@ -539,14 +571,24 @@ describe("DecisionDetailView", () => {
 
   it("实体不在投影时给出显式态,且不发起正文读取", async () => {
     const showDecision = vi.fn(async () => showReceipt(PROSE));
-    vi.stubGlobal("window", { harness: { showDecision } });
+    vi.stubGlobal("window", {
+      harness: mockRpcBridge(
+        { showDecision },
+        { "repo.decision.show": "showDecision", "repo.receipt.show": "showReceipt" },
+      ),
+    });
     const missing = await mountDecisionView(null);
     expect(missing.querySelector("[data-testid='decision-detail-pending']")?.textContent).toContain("不在当前投影");
     expect(showDecision).not.toHaveBeenCalled();
   });
 
   it("身份条与分页签齐备(含四个评审页签);池/图出口带决策 ID", async () => {
-    vi.stubGlobal("window", { harness: { showDecision: vi.fn(async () => showReceipt(PROSE)) } });
+    vi.stubGlobal("window", {
+      harness: mockRpcBridge(
+        { showDecision: vi.fn(async () => showReceipt(PROSE)) },
+        { "repo.decision.show": "showDecision", "repo.receipt.show": "showReceipt" },
+      ),
+    });
     const onOpenPool = vi.fn(),
       onFocusGraph = vi.fn();
     const div = await mountDecisionView(decisionRow(), { onOpenPool, onFocusGraph });

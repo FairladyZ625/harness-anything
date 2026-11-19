@@ -9,7 +9,7 @@ import type {
   ObserveTailDirection,
   ObserveTailKind,
   ObserveTailResult,
-} from "./protocol/daemon-protocol-gui-types.ts";
+} from "./protocol/daemon-protocol-results.ts";
 
 const pageSize = 64;
 const readChunkBytes = 64 * 1024;

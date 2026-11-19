@@ -1,14 +1,23 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { once } from "node:events";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import path from "node:path";
 import {
-  isDaemonGuiActionMethod,
-  isDaemonGuiReadMethod,
+  isDaemonActionRoute,
+  isDaemonReadRoute,
+  isDaemonStreamMethod,
+  parseDaemonRpcParams,
 } from "@harness-anything/daemon/internal/protocol/daemon-protocol-rpc-validation";
-import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
+import {
+  requestLocalDaemonJsonRpc,
+  resolveLocalDaemonTarget,
+} from "@harness-anything/daemon/internal/client/local-json-rpc-client";
+import { readDaemonStreamAt } from "@harness-anything/daemon/internal/client/local-json-rpc-stream";
+import { daemonClientFailureCode } from "@harness-anything/daemon/client";
+import type { DaemonStreamMethod, DaemonStreamPayloadMap } from "@harness-anything/daemon/protocol";
 import { isJsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
-import { parseDaemonGuiActionResponse } from "@harness-anything/daemon/internal/protocol/gui-result-validation";
+import { parseClientRpcResponse } from "@harness-anything/daemon/internal/protocol/daemon-result-validation";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const CSP =
@@ -37,7 +46,10 @@ export async function startBrowserGuiBroker(
   const csp = CSP + (parentOrigin ?? "'none'"),
     token = randomBytes(32).toString("base64url"),
     buildRoot = path.join(guiPackageRoot, "dist"),
-    server = createServer((request, response) => void handleRequest(request, response, buildRoot, rootDir, token, csp));
+    lifetime = new AbortController(),
+    server = createServer(
+      (request, response) => void handleRequest(request, response, buildRoot, rootDir, token, csp, lifetime.signal),
+    );
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);
@@ -50,7 +62,10 @@ export async function startBrowserGuiBroker(
   const port = address.port;
   return {
     url: `http://127.0.0.1:${port}/#access_token=${token}`,
-    close: () => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
+    close: () => {
+      lifetime.abort();
+      return new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    },
   };
 }
 
@@ -61,6 +76,7 @@ async function handleRequest(
   rootDir: string,
   token: string,
   csp: string,
+  lifetime: AbortSignal,
 ) {
   const address = request.socket.address();
   if (!address || typeof address === "string" || !("port" in address)) return reject(response, 403);
@@ -69,7 +85,8 @@ async function handleRequest(
   response.setHeader("Content-Security-Policy", csp);
   response.setHeader("Referrer-Policy", "no-referrer");
   response.setHeader("X-Content-Type-Options", "nosniff");
-  if (request.url === "/rpc") return handleRpc(request, response, rootDir, token, expectedHost);
+  if (request.url === "/rpc" || request.url === "/stream")
+    return handleRpc(request, response, rootDir, token, expectedHost, lifetime);
   if (request.method !== "GET" && request.method !== "HEAD") return reject(response, 405);
   const requested = request.url === "/" ? "index.html" : decodeURIComponent((request.url ?? "").slice(1));
   const file = path.resolve(buildRoot, requested);
@@ -87,53 +104,85 @@ async function handleRpc(
   rootDir: string,
   token: string,
   host: string,
+  lifetime: AbortSignal,
 ) {
   if (request.method !== "POST") return reject(response, 405);
   if (request.headers.origin !== `http://${host}` || !authorized(request.headers.authorization, token))
     return reject(response, 403);
   const body = await readBody(request).catch(() => null),
     value = body === null ? null : await parseJsonObject(body);
-  if (
-    value === null ||
-    typeof value.method !== "string" ||
-    (!isDaemonGuiReadMethod(value.method) && !isDaemonGuiActionMethod(value.method)) ||
-    !isJsonObject(value.params)
-  )
-    return reject(response, 400);
+  if (value === null || typeof value.method !== "string" || !isJsonObject(value.params)) return reject(response, 400);
   const method = value.method;
+  if (request.url === "/stream") {
+    if (!isDaemonStreamMethod(method)) return reject(response, 400);
+    const parsed = parseDaemonRpcParams(method, value.params);
+    if (!parsed.ok) return reject(response, 400);
+    return relayStream(response, rootDir, method, parsed.params, lifetime);
+  }
+  if (!isDaemonReadRoute(method) && !isDaemonActionRoute(method)) return reject(response, 400);
   const repo = isJsonObject(value.params.repo) ? value.params.repo : undefined;
   return requestLocalDaemonJsonRpc(rootDir, method, value.params as never, 75, {
     ...(typeof repo?.repoId === "string" ? { repoIdOverride: repo.repoId } : {}),
   })
-    .then((result) => (isDaemonGuiActionMethod(method) ? parseDaemonGuiActionResponse(method, result) : result))
+    .then((result) => parseClientRpcResponse(method, result))
     .then(
       (result) => {
         response.statusCode = 200;
         response.setHeader("Content-Type", "application/json");
         response.end(JSON.stringify(result));
       },
-      (error: unknown) => {
-        const rawCode =
-            error instanceof Error && typeof (error as { readonly code?: unknown }).code === "string"
-              ? (error as Error & { readonly code: string }).code
-              : null,
-          code =
-            (error instanceof Error && error.message === "daemon_unavailable") || isDaemonUnavailableCode(rawCode)
-              ? "daemon_unavailable"
-              : (rawCode ?? "browser_broker_failed");
-        response.statusCode = 502;
-        response.setHeader("Content-Type", "application/json");
-        response.end(
-          JSON.stringify({
-            ok: false,
-            error: { code, hint: error instanceof Error ? error.message : String(error) },
-          }),
-        );
-      },
+      (error: unknown) => writeFailure(response, error),
     );
 }
-function isDaemonUnavailableCode(code: string | null): boolean {
-  return code === "ENOENT" || code === "ECONNREFUSED" || code === "ENOTSOCK" || code === "EACCES";
+
+async function relayStream(
+  response: ServerResponse,
+  rootDir: string,
+  method: DaemonStreamMethod,
+  params: { readonly repo: { readonly repoId: string }; readonly payload: DaemonStreamPayloadMap[DaemonStreamMethod] },
+  lifetime: AbortSignal,
+) {
+  const disconnect = new AbortController(),
+    signal = AbortSignal.any([disconnect.signal, lifetime]);
+  const abort = () => disconnect.abort();
+  response.once("close", abort);
+  await resolveLocalDaemonTarget({ rootDir, repoIdOverride: params.repo.repoId })
+    .then((target) =>
+      readDaemonStreamAt({
+        socketPath: target.socketPath,
+        repoId: target.repoId,
+        method,
+        payload: params.payload,
+        signal,
+        onValue: (value) => {
+          if (signal.aborted) return;
+          if (!response.headersSent) {
+            response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store" });
+          }
+          if (!response.write(`data: ${JSON.stringify(value)}\n\n`))
+            return once(response, "drain", { signal }).then(() => undefined);
+        },
+      }),
+    )
+    .then(
+      () => response.end(signal.aborted ? undefined : "event: end\ndata: {}\n\n"),
+      (error: unknown) => {
+        if (signal.aborted) response.end();
+        else if (response.headersSent)
+          response.end(`event: end\ndata: ${JSON.stringify({ code: daemonClientFailureCode(error) })}\n\n`);
+        else writeFailure(response, error);
+      },
+    )
+    .finally(() => response.off("close", abort));
+}
+
+function writeFailure(response: ServerResponse, error: unknown): void {
+  const code = daemonClientFailureCode(error);
+  response.statusCode = 502;
+  response.setHeader("Content-Type", "application/json");
+  response.end(
+    JSON.stringify({ ok: false, error: { code, hint: error instanceof Error ? error.message : String(error) } }),
+  );
 }
 function authorized(header: string | undefined, token: string): boolean {
   if (!header?.startsWith("Bearer ")) return false;

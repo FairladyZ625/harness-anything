@@ -2,8 +2,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { queryPayloadValidation } from "@harness-anything/kernel/internal/domain/query-payload-validation.ts";
+import { allDaemonProtocolMethods, indexRpcDescriptors } from "../src/daemon-host/protocol/daemon-protocol-commands.ts";
 import { validateDaemonRpcCall } from "../src/daemon-host/protocol/daemon-protocol-rpc-validation.ts";
 import { validateDaemonQueryPayload } from "../src/daemon-host/protocol/daemon-protocol-validate-relation-query.ts";
+
+test("dec_89D06D7360CBEC09795F7B12EC: a second codec cannot replace a canonical RPC descriptor", () => {
+  assert.equal(indexRpcDescriptors(allDaemonProtocolMethods).size, allDaemonProtocolMethods.length);
+  const first = allDaemonProtocolMethods[0]!;
+  assert.throws(() => indexRpcDescriptors([...allDaemonProtocolMethods, first]), {
+    code: "duplicate_rpc_method",
+    message: `Duplicate RPC method: ${first.method}.`,
+  });
+});
 
 test("daemon query payload and RPC validation delegate shared facet rules to kernel queryPayloadValidation", () => {
   const repo = { repoId: "repo-1" };

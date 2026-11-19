@@ -49,8 +49,8 @@ function writeSurfaces(rootDir, { declarations, commands, artifactIngress = [] }
   writeRepoFile(rootDir, commandsPath, `export const daemonProtocolCommands = [${commands.join(", ")}];\n`);
   writeRepoFile(
     rootDir,
-    "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-actions.ts",
-    "export const daemonGuiActionMethods = [];\n",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-action-routes.ts",
+    "export const daemonActionRoutes = [];\n",
   );
   writeRepoFile(rootDir, "packages/kernel/src/domain/entity-ref.ts", "export {};\n");
 }

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { emptyRuntimeSnapshot, runtimeCursor } from "../../daemon/test/fixtures/runtime-stream.ts";
 import { lifecycleSummaryFor } from "../../daemon/test/dispatch-lifecycle-read.fixtures.ts";
 import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
@@ -71,7 +72,7 @@ describe("runtime wait reconnect", { concurrency: 4 }, () => {
             ok: true,
             status: "attached",
             runtimeSessionId,
-            cursor: "stream:0",
+            cursor: runtimeCursor("runtime-wait", 0),
             events: [],
           });
           return;
@@ -97,10 +98,10 @@ describe("runtime wait reconnect", { concurrency: 4 }, () => {
             jsonrpc: "2.0",
             method: "repo.agentRuntime.attach.frame",
             params: {
-              schema: "agent-runtime-attach-event/v1",
+              schema: "agent-runtime-attach-event/v2",
               type: "exit",
               runtimeSessionId,
-              cursor: "stream:1",
+              cursor: runtimeCursor("runtime-wait", 1),
               occurredAt: "2026-08-28T00:00:00.000Z",
               outcome: "succeeded",
             },
@@ -129,22 +130,42 @@ describe("runtime wait reconnect", { concurrency: 4 }, () => {
         return;
       }
       if (request.method === "repo.agentRuntime.attach") {
+        const occurredAt = "2026-08-28T00:00:00.000Z";
         reply(socket, request.id, {
           ok: true,
           status: "gap",
           runtimeSessionId,
-          cursor: "stream:40",
+          cursor: runtimeCursor("runtime-wait", 40),
           events: [
             {
-              schema: "agent-runtime-attach-event/v1",
+              schema: "agent-runtime-attach-event/v2",
               type: "gap",
               runtimeSessionId,
-              cursor: "stream:40",
+              cursor: runtimeCursor("runtime-wait", 40),
               occurredAt: "2026-08-28T00:00:00.000Z",
-              required: "snapshot",
+              snapshotSeq: 40,
+              snapshot: {
+                ...emptyRuntimeSnapshot,
+                activity: { type: "activity", activity: "tool", content: "snapshot-only activity", occurredAt },
+              },
             },
           ],
         });
+        socket.write(
+          `${JSON.stringify({
+            jsonrpc: "2.0",
+            method: "repo.agentRuntime.attach.frame",
+            params: {
+              schema: "agent-runtime-attach-event/v2",
+              type: "activity",
+              activity: "message",
+              content: "post-snapshot activity",
+              runtimeSessionId,
+              cursor: runtimeCursor("runtime-wait", 41),
+              occurredAt,
+            },
+          })}\n`,
+        );
         return;
       }
       if (request.method === "repo.agentRuntime.sessions.await") {
@@ -158,13 +179,16 @@ describe("runtime wait reconnect", { concurrency: 4 }, () => {
     };
     const invocation = runWait(fixture, ["runtime", "status", runtimeSessionId, "--wait"], false);
     try {
-      await waitForObserved(() => pendingAwait.length === 1 || invocation.closed);
+      await waitForObserved(
+        () => (pendingAwait.length === 1 && invocation.stderr.includes("post-snapshot activity")) || invocation.closed,
+      );
       assert.equal(pendingAwait.length, 1, "the daemon-side await must be parked");
       assert.ok(!invocation.closed, "the wait must not return before the daemon answers the await");
       for (const pending of pendingAwait) reply(pending.socket, pending.id, awaitReceipt());
       const result = await invocation.result(hangGuardMs);
       assert.equal(result.code, 0, result.stderr);
       assert.equal(result.stdout.trim(), "settled after reconnect");
+      assert.match(result.stderr, /\[tool\] snapshot-only activity\n\[message\] post-snapshot activity/u);
       assert.equal(statusReads, 1, "a stream gap must not trigger extra status reads");
       assert.equal(awaitRequests, 1);
     } finally {
@@ -193,7 +217,7 @@ describe("runtime wait reconnect", { concurrency: 4 }, () => {
             ok: true,
             status: "attached",
             runtimeSessionId,
-            cursor: "stream:0",
+            cursor: runtimeCursor("runtime-wait", 0),
             events: [],
           });
           setImmediate(() => socket.destroy());
@@ -1277,6 +1301,7 @@ function runWait(
   nodeArgs: readonly string[] = [],
 ): {
   readonly closed: boolean;
+  readonly stderr: string;
   readonly result: (guardMs: number) => Promise<InvocationResult>;
   readonly stop: () => void;
 } {
@@ -1294,7 +1319,10 @@ function runWait(
     stdout = "",
     stderr = "";
   child.stdout!.on("data", (chunk) => (stdout += String(chunk)));
-  child.stderr!.on("data", (chunk) => (stderr += String(chunk)));
+  child.stderr!.on("data", (chunk) => {
+    stderr += String(chunk);
+    progress.emit("progress");
+  });
   const completion = new Promise<InvocationResult>((resolve) => {
     child.once("close", (code) => {
       closed = true;
@@ -1310,6 +1338,9 @@ function runWait(
   return {
     get closed() {
       return closed;
+    },
+    get stderr() {
+      return stderr;
     },
     result: (guardMs) => withTimeout(completion, child, guardMs),
     stop: () => {

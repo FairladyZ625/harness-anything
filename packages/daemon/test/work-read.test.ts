@@ -8,7 +8,7 @@ import {
   workReceiptLine,
   workShowFromProjection,
 } from "@harness-anything/application/queries";
-import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 
 const task = (
   taskId: string,
@@ -107,10 +107,9 @@ test("work index assigns every task to the work root ha work list names; nested 
     index.works.map(({ taskId }) => taskId),
     listed.rows.map(({ taskId }) => taskId),
   );
-  assert.deepEqual(parseDaemonGuiReadResult("repo.works.index", index), index);
+  assert.deepEqual(parseDaemonReadResult("repo.works.index", index), index);
   assert.throws(
-    () =>
-      parseDaemonGuiReadResult("repo.works.index", { ...index, works: [{ ...index.works[0], memberTaskIds: [1] }] }),
+    () => parseDaemonReadResult("repo.works.index", { ...index, works: [{ ...index.works[0], memberTaskIds: [1] }] }),
     /work index/u,
   );
 });
@@ -161,7 +160,7 @@ test("work reads consume the kernel's presented root status while open and child
     closed: "done",
     open: "active",
   });
-  assert.deepEqual(parseDaemonGuiReadResult("repo.works.index", index), index);
+  assert.deepEqual(parseDaemonReadResult("repo.works.index", index), index);
   const shown = workShowFromProjection(projection, { taskId: "all-done" });
   assert.equal(shown.root.status, "done");
   assert.match(renderWorkPayload(shown)!, /^work all-done \[done\] all-done title/u);

@@ -1,3 +1,4 @@
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -67,10 +68,13 @@ describe("task relation decision binding", () => {
       done: true,
     }));
     vi.stubGlobal("window", {
-      harness: {
-        getRelationGraph,
-        getAgentRuntimeOverview: vi.fn(async () => ({ ok: true, sessions: [] })),
-      },
+      harness: mockRpcBridge(
+        {
+          getRelationGraph,
+          getAgentRuntimeOverview: vi.fn(async () => ({ ok: true, sessions: [] })),
+        },
+        { "repo.triadic.relationGraph": "getRelationGraph", "repo.agentRuntime.overview": "getAgentRuntimeOverview" },
+      ),
       addEventListener: () => undefined,
       removeEventListener: () => undefined,
     });
@@ -107,20 +111,23 @@ describe("task relation decision binding", () => {
 
   it("renders the relations Section title and note from en-US i18n", async () => {
     vi.stubGlobal("window", {
-      harness: {
-        getRelationGraph: vi.fn(async () => ({
-          ok: true,
-          page: { limit: 500, cursor: null, nextCursor: null },
-          edges: [],
-          coverageRows: [],
-          factAnchors: [],
-          facts: [],
-          cursor: null,
-          sourceCursor: null,
-          done: true,
-        })),
-        getAgentRuntimeOverview: vi.fn(async () => ({ ok: true, sessions: [] })),
-      },
+      harness: mockRpcBridge(
+        {
+          getRelationGraph: vi.fn(async () => ({
+            ok: true,
+            page: { limit: 500, cursor: null, nextCursor: null },
+            edges: [],
+            coverageRows: [],
+            factAnchors: [],
+            facts: [],
+            cursor: null,
+            sourceCursor: null,
+            done: true,
+          })),
+          getAgentRuntimeOverview: vi.fn(async () => ({ ok: true, sessions: [] })),
+        },
+        { "repo.triadic.relationGraph": "getRelationGraph", "repo.agentRuntime.overview": "getAgentRuntimeOverview" },
+      ),
       addEventListener: () => undefined,
       removeEventListener: () => undefined,
     });

@@ -23,7 +23,7 @@ export type UseCaseProjectionRequest = DaemonGuiReadPayloadMap["repo.projection.
  * so it fails loudly instead of painting another view's data.
  */
 export async function readUseCaseProjection(request: UseCaseProjectionRequest): Promise<unknown> {
-  const value = await invoke("repo.projection.read", request, "readUseCaseProjection");
+  const value = await invoke("repo.projection.read", request);
   if (!isRendererRecord(value) || value.ok !== true || value.schema !== "daemon.use-case-projection/v1")
     throw new Error(rendererErrorHint(value, "Use-case projection bridge returned an invalid result."));
   if (value.name !== request.name)

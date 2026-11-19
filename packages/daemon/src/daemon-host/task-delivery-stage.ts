@@ -1,6 +1,6 @@
 import type { TaskLifecycleSnapshot } from "@harness-anything/kernel";
 import type { CloseoutAssessment } from "@harness-anything/kernel/internal/domain/closeout-readiness";
-import type { TaskDeliveryStage } from "./protocol/daemon-protocol-gui-types.ts";
+import type { TaskDeliveryStage } from "./protocol/daemon-protocol-results.ts";
 
 /**
  * 「完成」只收最近 24h 内终态的任务:业主 2026-10-23 裁定累计完成数对「今天做成了什么」
