@@ -43,7 +43,7 @@ export function readEdgeRuntimeRepository(
         ...readTaskDispatches({
           projection: source,
           rootDir: input.workspaceRoot,
-          ...taskDispatchesPayloadFromCell({ projection: source, cellCodedError, requiredCellText }, payload),
+          ...taskDispatchesPayloadFromCell({ cellCodedError, requiredCellText }, payload),
         }),
         ...frame,
       } as unknown as JsonObject;

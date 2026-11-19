@@ -1211,6 +1211,9 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
     const artifactRequests: Array<Record<string, unknown>> = [];
     const tokenRequests: Array<Record<string, unknown>> = [];
     const decisionRequests: Array<Record<string, unknown>> = [];
+    const taskListRequests: Array<Record<string, unknown>> = [];
+    const floorRequests: Array<Record<string, unknown>> = [];
+    const agendaRequests: Array<Record<string, unknown>> = [];
     const sessionGroupCalls: Array<Record<string, unknown>> = [];
     const fleetUnregisterCalls: Array<{ repoId: string; input: unknown }> = [];
     let isAuthenticated = true;
@@ -1310,19 +1313,24 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
             },
           ],
         }),
-        getTasks: async () => ({
-          ok: true,
-          status: "ready",
-          rows: [
+        getTasks: async (payload: Record<string, unknown>) => {
+          taskListRequests.push(payload);
+          const rows = [
             wireTask("w-app", "App Shared Work", "person_alice", "center", null),
             wireTask("t-app-alice", "App Alice Subtask", "person_alice", edgeA, "w-app"),
             wireTask("t-app-bob", "App Bob Subtask", "person_bob", edgeB, "w-app"),
-          ],
-          invalidRows: [],
-          watermark: 1,
-          sourceRevision: 1,
-          warnings: [],
-        }),
+          ];
+          return {
+            ok: true,
+            status: "ready",
+            rows: payload.scopePersonId === "person_chenyirun" ? [] : rows,
+            invalidRows: [],
+            watermark: 1,
+            sourceRevision: 1,
+            warnings: [],
+            page: { limit: 500, cursor: null, nextCursor: null },
+          };
+        },
         getWorkIndex: async () => ({
           schema: "daemon.work-index/v1",
           ok: true,
@@ -1423,29 +1431,32 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
           scaffolds: { task: [], repository: [] },
           bundledAgents: [],
         }),
-        getAgenda: async () => ({
-          ok: true,
-          status: "ready",
-          inFlight: [],
-          pinnedEntities: [],
-          pinnedEntityOverflow: 0,
-          awaitingRestart: [],
-          awaitingRework: [],
-          awaitingAdjudication: [],
-          underReview: [],
-          awaitingYou: [],
-          answeredForYou: [],
-          decisionReviewInProgress: [],
-          awaitingDecisionReview: [],
-          awaitingDecision: [],
-          waitingOnOthers: [],
-          dispatchable: [],
-          attentionItems: [],
-          summary: "",
-          page: { sourceLimit: 100, cursor: null, nextCursor: null },
-          watermark: 1,
-          sourceRevision: 1,
-        }),
+        getAgenda: async (payload: Record<string, unknown>) => {
+          agendaRequests.push(payload);
+          return {
+            ok: true,
+            status: "ready",
+            inFlight: [],
+            pinnedEntities: [],
+            pinnedEntityOverflow: 0,
+            awaitingRestart: [],
+            awaitingRework: [],
+            awaitingAdjudication: [],
+            underReview: [],
+            awaitingYou: [],
+            answeredForYou: [],
+            decisionReviewInProgress: [],
+            awaitingDecisionReview: [],
+            awaitingDecision: [],
+            waitingOnOthers: [],
+            dispatchable: [],
+            attentionItems: [],
+            summary: "",
+            page: { sourceLimit: 100, cursor: null, nextCursor: null },
+            watermark: 1,
+            sourceRevision: 1,
+          };
+        },
         tailObservability: async () => ({
           schema: "daemon.observe-tail/v3",
           ok: true,
@@ -1457,8 +1468,29 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
           historyCursor: null,
           items: [],
         }),
-        getAgentRuntimeOverview: async () => ({ ok: true, sessions: [] }),
+        getAgentRuntimeOverview: async () => ({
+          ok: true,
+          status: "ready",
+          installations: [],
+          instances: [],
+          sessions: [],
+          watermark: 1,
+          sourceRevision: 1,
+        }),
         getTaskDispatches: async (payload: Record<string, unknown>) => {
+          if (payload.floor !== undefined) {
+            floorRequests.push(payload);
+            return {
+              ok: true,
+              floor: payload.floor,
+              status: "ready",
+              dispatches: [],
+              truncated: false,
+              page: { limit: payload.limit, cursor: null, nextCursor: null },
+              watermark: 1,
+              sourceRevision: 1,
+            };
+          }
           const allDispatches = [
             {
               dispatchId: "d-app-alice",
@@ -1619,7 +1651,12 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
         },
         getDecisions: async (request: Record<string, unknown>) => {
           decisionRequests.push(request);
-          return { ok: true, decisions: [], warnings: [] };
+          return {
+            ok: true,
+            ...(request.projection === "summary" ? { projection: "summary" } : {}),
+            decisions: [],
+            warnings: [],
+          };
         },
         getRelationGraph: async () => ({
           ok: true,
@@ -1718,6 +1755,44 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
       state: "proposed",
       scopePersonId: "person_chenyirun",
     });
+    expect(taskListRequests).toContainEqual(
+      expect.objectContaining({
+        repoId: "repo-test",
+        attestationOnly: true,
+        scopePersonId: "person_chenyirun",
+      }),
+    );
+    await clickSidebarNav(adminApp.container, "现场");
+    await flushMicroAndTimers();
+    expect(floorRequests).toContainEqual(
+      expect.objectContaining({
+        repoId: "repo-test",
+        floor: "ended",
+        personId: "person_chenyirun",
+      }),
+    );
+    await clickSidebarNav(adminApp.container, "研发态势");
+    await flushMicroAndTimers();
+    expect(taskListRequests).toContainEqual({
+      repoId: "repo-test",
+      limit: 500,
+      scopePersonId: "person_chenyirun",
+    });
+    await changeValue(adminApp.container.querySelector('[data-testid="collaborator-filter-node"]'), edgeB);
+    await flushMicroAndTimers();
+    expect(taskListRequests).toContainEqual({
+      repoId: "repo-test",
+      limit: 500,
+      scopePersonId: "person_chenyirun",
+      filterNodeId: edgeB,
+    });
+    expect(agendaRequests).toContainEqual(
+      expect.objectContaining({
+        repoId: "repo-test",
+        scopePersonId: "person_chenyirun",
+        filterNodeId: edgeB,
+      }),
+    );
     await clickSidebarNav(adminApp.container, "产物");
     await flushMicroAndTimers();
     expect(artifactRequests.at(-1)).toEqual(

@@ -114,10 +114,7 @@ import { workspaceScopeFromProjection } from "@harness-anything/application/inte
 import { workIndexFromProjection } from "@harness-anything/application/internal/queries/work-read.ts";
 import { workTopologyFromProjection } from "@harness-anything/application/internal/queries/work-topology-read.ts";
 import { workBriefsFromProjection } from "@harness-anything/application/internal/queries/work-briefs-read.ts";
-import {
-  readAttestationPool,
-  readCollaboratorDecisions,
-} from "@harness-anything/application/internal/queries/collaborator-reads.ts";
+import { readCollaboratorDecisions } from "@harness-anything/application/internal/queries/collaborator-reads.ts";
 
 import { explainAuthenticationRequired, readTaskActionExplanation } from "./task-action-explanation-read.ts";
 import { commitRuntimeSessionAction, settleUnlaunchedRuntimeSession } from "./runtime-session-action-runtime.ts";
@@ -311,9 +308,19 @@ export function createRepoCellApi(
       ),
     "repo.tasks.list": (payload: Readonly<Record<string, unknown>>, binding?: RepoCellBinding) => {
       const query = taskListQueryFromPayload(payload, context.cellCodedError);
-      if (payload.attestationOnly !== true) return queryRead().guiTasks(query);
-      const candidates = readAttestationPool(context.projection, collaboratorInvolvement(payload, binding));
-      return queryRead().guiTasks({ ...query, taskIds: candidates.tasks.map(({ taskId }) => taskId) });
+      if (payload.attestationOnly === true)
+        return queryRead().guiTasks(
+          { ...query, activePackagesOnly: true, openOnly: true },
+          collaboratorInvolvement(payload, binding),
+          true,
+        );
+      const scope = collaboratorScope(payload);
+      return queryRead().guiTasks(
+        query,
+        scope.scopePersonId !== undefined || scope.filterPersonId !== undefined || scope.filterNodeId !== undefined
+          ? scope
+          : undefined,
+      );
     },
     "repo.tasks.wip": () => readTaskWipSnapshot(context as unknown as TaskQueryCell),
     "repo.works.index": (payload) => workIndexFromProjection(context.projection, collaboratorScope(payload)),
@@ -395,7 +402,7 @@ export function createRepoCellApi(
       });
     },
     "repo.agenda.read": (payload: Readonly<Record<string, unknown>>, binding?: RepoCellBinding) => {
-      const { scopePersonId, ...parameters } = payload;
+      const { scopePersonId, filterNodeId, ...parameters } = payload;
       requirePersonalReadScope(
         binding,
         scopePersonId === undefined ? undefined : context.requiredCellText(scopePersonId, "scopePersonId"),
@@ -404,6 +411,7 @@ export function createRepoCellApi(
       return queryRead().agenda({
         ...agendaQueryFromPayload(context, parameters),
         ...(typeof scopePersonId === "string" ? { scopePersonId } : {}),
+        ...(filterNodeId === undefined ? {} : { filterNodeId: context.requiredCellText(filterNodeId, "filterNodeId") }),
         ...(viewer === null ? {} : { pinPersonId: viewer.principalId }),
         ...(viewer === null ? {} : viewer),
       });
@@ -498,6 +506,7 @@ export function createRepoCellApi(
       readTaskDispatches({
         projection: context.projection,
         rootDir: context.rootDir,
+        now: context.now,
         ...taskDispatchesPayloadFromCell(context, payload),
       }),
   } satisfies DaemonGuiReadHandlers;

@@ -283,11 +283,39 @@ export function validateAgendaQueryPayload(value: unknown): string[] {
     errors.push("repo.agenda.read.payload.attentionOnly is invalid");
   if (value.scopePersonId !== undefined && !nonEmpty(value.scopePersonId))
     errors.push("repo.agenda.read.payload.scopePersonId is invalid");
+  if (value.filterNodeId !== undefined && !nonEmpty(value.filterNodeId))
+    errors.push("repo.agenda.read.payload.filterNodeId is invalid");
   return errors;
 }
 
 export function validateTaskDispatchesPayload(value: unknown): string[] {
   if (!isJsonObject(value)) return ["task dispatches payload must be an object"];
+  if (value.floor !== undefined || value.runtimeSessionIds !== undefined) {
+    const { floor, limit, runtimeSessionIds } = value;
+    const maxRows = daemonProtocolFleetPolicy.defaultValue.fleet.overviewPageLimit;
+    const validWidth = typeof limit === "number" && integer(limit) && limit >= 1 && limit <= maxRows;
+    const hasOtherSelector = [
+      value.taskId,
+      value.taskIds,
+      value.agentId,
+      value.squadId,
+      value.latestOnly,
+      value.cursor,
+    ].some((item) => item !== undefined);
+    const validScope = [value.personId, value.nodeId].every((item) => item === undefined || nonEmpty(item));
+    const selector =
+      floor === "ended"
+        ? runtimeSessionIds === undefined
+        : floor === "active" &&
+          Array.isArray(runtimeSessionIds) &&
+          runtimeSessionIds.length > 0 &&
+          runtimeSessionIds.length <= Number(limit) &&
+          runtimeSessionIds.every((id) => nonEmpty(id)) &&
+          new Set(runtimeSessionIds).size === runtimeSessionIds.length;
+    return selector && validWidth && !hasOtherSelector && validScope
+      ? []
+      : ["repo.task.dispatches.payload has an invalid live-floor dispatch selector"];
+  }
   if (value.agentId !== undefined || value.squadId !== undefined) {
     const member =
       nonEmpty(value.agentId) !== nonEmpty(value.squadId) &&

@@ -114,10 +114,25 @@ export type DecisionFullListRow = DecisionProjectionRow & {
 };
 
 export type TaskDispatchesPayload = {
+  readonly personId?: string;
+  readonly nodeId?: string;
   readonly advisorySurface?: DecisionReadSurface;
   readonly latestOnly?: boolean;
 } & (
+  | ({
+      readonly limit: number;
+      readonly cursor?: never;
+      readonly taskId?: never;
+      readonly taskIds?: never;
+      readonly agentId?: never;
+      readonly squadId?: never;
+    } & (
+      | { readonly floor: "active"; readonly runtimeSessionIds: readonly string[] }
+      | { readonly floor: "ended"; readonly runtimeSessionIds?: never }
+    ))
   | {
+      readonly floor?: never;
+      readonly runtimeSessionIds?: never;
       readonly taskId: string;
       readonly taskIds?: never;
       readonly limit?: never;
@@ -126,6 +141,8 @@ export type TaskDispatchesPayload = {
       readonly squadId?: never;
     }
   | {
+      readonly floor?: never;
+      readonly runtimeSessionIds?: never;
       readonly taskId?: never;
       readonly taskIds: readonly string[];
       readonly limit?: number;
@@ -134,6 +151,8 @@ export type TaskDispatchesPayload = {
       readonly squadId?: never;
     }
   | {
+      readonly floor?: never;
+      readonly runtimeSessionIds?: never;
       readonly taskId?: never;
       readonly taskIds?: never;
       readonly limit: number;
@@ -142,6 +161,8 @@ export type TaskDispatchesPayload = {
       readonly squadId?: never;
     }
   | {
+      readonly floor?: never;
+      readonly runtimeSessionIds?: never;
       readonly taskId?: never;
       readonly taskIds?: never;
       readonly limit: number;

@@ -2140,6 +2140,7 @@
   "views.liveFloor.doingReviewDecision": "Reviewing a decision",
   "views.liveFloor.endedReviewRejected": "Rejected in review",
   "views.liveFloor.endedEmpty": "No sessions ended in the last 24 hours.",
+  "views.liveFloor.endedWindowPartial": "Recent window, limited results",
   "views.liveFloor.endedWindowNote": "last 24 hours",
   "views.liveFloor.endedReportToggle": "Report",
   "views.liveFloor.stageOther": "Other",

@@ -48,12 +48,13 @@ import {
   mergeTaskRows,
   useActiveTasksQuery,
   useRecentTerminalTasksQuery,
-  useScopedAttestationTasks,
+  useCollaboratorTaskList,
   useTasksQuery,
   useTaskWipQuery,
   useWorkIndexQuery,
 } from "./task-data.ts";
 import { harnessClient } from "./api-client.ts";
+import { t } from "./i18n/index.tsx";
 import { useAgendaQuery } from "./agenda-data.ts";
 import {
   FULL_RELATION_GRAPH_VIEWS,
@@ -317,10 +318,11 @@ function AppShell() {
         ? {}
         : { scopePersonId: memberScope.scopePersonId };
   const poolScoped = Object.keys(activePoolScope).length > 0;
-  const poolTasksQuery = useScopedAttestationTasks(activeRepoId, activePoolScope);
+  const poolTasksQuery = useCollaboratorTaskList(activeRepoId, { ...activePoolScope, attestationOnly: true });
   const poolTasks = useMemo(
-    () => (poolScoped ? adaptProjectionRows(poolTasksQuery.data ?? [], projectId, "ready", works) : projectTasks),
-    [poolScoped, poolTasksQuery.data, projectId, projectTasks, works],
+    () =>
+      adaptProjectionRows(poolTasksQuery.data?.rows ?? [], projectId, poolTasksQuery.data?.status ?? "pending", works),
+    [poolTasksQuery.data, projectId, works],
   );
   const poolDecisionBadge = useQuery({
     queryKey: [...triadicQueryKeys.decisions(projectId, ["proposed"]), activePoolScope],
@@ -473,7 +475,8 @@ function AppShell() {
   // 决策侧与池内「决策待裁」域计数同读面同判据(workspace summary 的 kernel proposed
   // 判定),角标与域 tab 共享同一 query 缓存,结构性相等。
   const poolBadgeCount = useMemo(() => {
-    if (poolScoped && (poolTasksQuery.data === undefined || poolDecisionBadge.data === undefined)) return undefined;
+    if (poolTasksQuery.data?.status !== "ready" || (poolScoped && poolDecisionBadge.data === undefined))
+      return undefined;
     const lanes = deriveAttestationLanes(poolTasks);
     return (
       (poolScoped
@@ -1082,7 +1085,16 @@ function AppShell() {
                 workspaceSummaryQuery.data ? (
                   <AttestationPoolView
                     repoId={projectId}
-                    scopeControl={<CollaboratorFilters options={memberScope} selection={poolFilter} />}
+                    scopeControl={
+                      <>
+                        <CollaboratorFilters options={memberScope} selection={poolFilter} />
+                        {poolTasksQuery.error ? (
+                          <p role="alert">{poolTasksQuery.error.message}</p>
+                        ) : poolTasksQuery.data?.status !== "ready" ? (
+                          <p role="status">{t("views.agenda.tasksPending")}</p>
+                        ) : null}
+                      </>
+                    }
                     decisions={decisions}
                     summary={
                       poolScoped
@@ -1133,6 +1145,7 @@ function AppShell() {
                   repoId={projectId}
                   collaborator={memberScope}
                   projectName={project.name}
+                  works={works}
                   tasks={projectTasks}
                   agenda={agendaQuery.data}
                   decisions={decisionSummary.decisions}

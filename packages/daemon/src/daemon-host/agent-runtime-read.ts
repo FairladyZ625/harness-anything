@@ -1,4 +1,8 @@
 import {
+  storageReadPolicy,
+  validateStorageReadWindow,
+} from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
+import {
   publicRuntimeSession,
   publicRuntimeInstallation,
   runtimeSessionMissingOutcomeEvidence,
@@ -604,21 +608,24 @@ function overviewQuery(payload: Readonly<Record<string, unknown>>): {
   readonly afterRuntimeSessionId: string | null;
   readonly scope: Parameters<typeof readCollaboratorLiveFloor>[1] | null;
 } {
-  const keys = Object.keys(payload);
+  const allowedFields = ["taskId", "limit", "cursor", "scopePersonId", "filterNodeId"];
   const hasScope = payload.scopePersonId !== undefined || payload.filterNodeId !== undefined;
+  const hasPage = payload.limit !== undefined;
+  const validWidth =
+    !hasPage ||
+    (typeof payload.limit === "number" &&
+      validateStorageReadWindow(payload.limit, storageReadPolicy.defaultValue.pageSizes.sessions));
   if (
-    keys.some((key) => !["taskId", "limit", "cursor", "scopePersonId", "filterNodeId"].includes(key)) ||
+    Object.keys(payload).some((key) => !allowedFields.includes(key)) ||
     (hasScope &&
       (payload.taskId !== undefined ||
-        payload.limit !== undefined ||
+        hasPage ||
         [payload.scopePersonId, payload.filterNodeId].some(
           (field) => field !== undefined && (typeof field !== "string" || !field.trim()),
         ))) ||
     (payload.taskId !== undefined && (typeof payload.taskId !== "string" || !payload.taskId)) ||
-    (payload.limit !== undefined &&
-      (!Number.isInteger(payload.limit) || (payload.limit as number) < 1 || (payload.limit as number) > 64)) ||
-    (payload.cursor !== undefined && (typeof payload.cursor !== "string" || !payload.cursor)) ||
-    (payload.cursor !== undefined && payload.limit === undefined)
+    !validWidth ||
+    (payload.cursor !== undefined && (!hasPage || typeof payload.cursor !== "string" || !payload.cursor))
   ) {
     throw coded(
       "invalid_request",

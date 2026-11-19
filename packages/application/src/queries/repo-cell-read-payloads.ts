@@ -1,6 +1,10 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type { ApiPayloadQueryContext, TaskDispatchesPayload } from "./query-ports.ts";
-import { decisionReadSurfaces } from "@harness-anything/kernel";
-import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
+import { decisionReadSurfaces } from "@harness-anything/kernel/internal/domain/decision-event-catalog.ts";
+import {
+  storageReadPolicy,
+  validateStorageReadWindow,
+} from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 
 export function agendaQueryFromPayload(
   context: ApiPayloadQueryContext,
@@ -39,13 +43,49 @@ export function agendaQueryFromPayload(
 }
 
 export function taskDispatchesPayloadFromCell(
-  context: ApiPayloadQueryContext,
+  context: Pick<ApiPayloadQueryContext, "cellCodedError" | "requiredCellText">,
   payload: Readonly<Record<string, unknown>>,
-): TaskDispatchesPayload & { readonly personId?: string; readonly nodeId?: string } {
+): TaskDispatchesPayload {
   const advisorySurface = decisionReadSurfaces.find((surface) => surface === payload.advisorySurface);
   if (payload.advisorySurface !== undefined && advisorySurface === undefined)
     throw context.cellCodedError("invalid_command", "Task dispatch advisorySurface is invalid.");
   const advisory = advisorySurface === undefined ? {} : { advisorySurface };
+  if (payload.floor !== undefined || payload.runtimeSessionIds !== undefined) {
+    const { floor, limit, runtimeSessionIds } = payload;
+    const validWidth =
+      typeof limit === "number" &&
+      validateStorageReadWindow(limit, daemonProtocolFleetPolicy.defaultValue.fleet.overviewPageLimit);
+    const hasOtherSelector = [
+      payload.taskId,
+      payload.taskIds,
+      payload.agentId,
+      payload.squadId,
+      payload.latestOnly,
+      payload.cursor,
+    ].some((value) => value !== undefined);
+    if (!validWidth || hasOtherSelector)
+      throw context.cellCodedError("invalid_command", "Invalid live-floor dispatch selector.");
+    const filters = {
+      ...advisory,
+      limit,
+      ...(payload.personId === undefined ? {} : { personId: context.requiredCellText(payload.personId, "personId") }),
+      ...(payload.nodeId === undefined ? {} : { nodeId: context.requiredCellText(payload.nodeId, "nodeId") }),
+    };
+    if (floor === "ended" && runtimeSessionIds === undefined) return { ...filters, floor };
+    const active = floor === "active";
+    if (
+      active &&
+      Array.isArray(runtimeSessionIds) &&
+      validateStorageReadWindow(runtimeSessionIds.length, limit) &&
+      new Set(runtimeSessionIds).size === runtimeSessionIds.length
+    )
+      return {
+        ...filters,
+        floor,
+        runtimeSessionIds: runtimeSessionIds.map((id) => context.requiredCellText(id, "runtimeSessionIds[]")),
+      };
+    throw context.cellCodedError("invalid_command", "Invalid live-floor dispatch selector.");
+  }
   if (payload.agentId !== undefined || payload.squadId !== undefined) {
     if (payload.taskId !== undefined || payload.taskIds !== undefined || payload.cursor !== undefined)
       throw context.cellCodedError(

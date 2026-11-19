@@ -343,6 +343,23 @@ export function validateDaemonTaskDispatches(value: unknown): readonly string[] 
         "sourceRevision",
         ...workspacePathFields,
       ]),
+    floor =
+      (value.floor === "active" || value.floor === "ended") &&
+      typeof value.truncated === "boolean" &&
+      queryPageRow(value.page) &&
+      exactRecord(value, [
+        "ok",
+        "status",
+        "floor",
+        "dispatches",
+        "outcome",
+        "exitCode",
+        "page",
+        "truncated",
+        "watermark",
+        "sourceRevision",
+        ...workspacePathFields,
+      ]),
     member =
       nonEmpty(value.agentId) !== nonEmpty(value.squadId) &&
       Array.isArray(value.groups) &&
@@ -370,7 +387,7 @@ export function validateDaemonTaskDispatches(value: unknown): readonly string[] 
         "sourceRevision",
         ...workspacePathFields,
       ]);
-  if (!single && !batch && !member)
+  if (!single && !batch && !member && !floor)
     return [
       validationError(
         validationEntityId(value, ["taskId"], validationEntityId({ taskId: taskIds[0] }, ["taskId"], entityId)),

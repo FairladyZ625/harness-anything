@@ -107,11 +107,23 @@ export function useActiveEdgesQuery(repoId: string | null, enabled: boolean) {
 }
 
 /** 根级常驻读面:决策摘要投影(decisionId/title/state/appliesTo),157,246 B 量级。 */
-export function useDecisionSummaryQuery(repoId: string | null, options: { readonly enabled?: boolean } = {}) {
+export function useDecisionSummaryQuery(
+  repoId: string | null,
+  options: {
+    readonly enabled?: boolean;
+    readonly scope?: Pick<
+      Parameters<typeof harnessClient.getDecisionSummaries>[0],
+      "scopePersonId" | "filterPersonId" | "filterNodeId"
+    >;
+  } = {},
+) {
   const enabled = repoId !== null && options.enabled !== false;
   const query = useQuery({
-    queryKey: triadicQueryKeys.decisionSummary(repoId ?? "unselected"),
-    queryFn: () => harnessClient.getDecisionSummaries({ repoId: repoId! }),
+    queryKey: [
+      ...triadicQueryKeys.decisionSummary(repoId ?? "unselected"),
+      ...(options.scope === undefined ? [] : [options.scope]),
+    ],
+    queryFn: () => harnessClient.getDecisionSummaries({ repoId: repoId!, ...options.scope }),
     enabled,
     staleTime: 10_000,
   });

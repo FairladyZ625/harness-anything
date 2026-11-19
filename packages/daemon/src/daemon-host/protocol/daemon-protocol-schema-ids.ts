@@ -456,6 +456,7 @@ export const daemonArtifactsListPayloadShape = shape({
 
 export const daemonAgendaPayloadShape = shape({
   scopePersonId: "string?",
+  filterNodeId: "string?",
   limit: "number?",
   cursor: "string?",
   work: "string?",

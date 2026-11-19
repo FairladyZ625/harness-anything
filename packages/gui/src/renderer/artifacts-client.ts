@@ -2,7 +2,7 @@ import { guiInteractionPolicy } from "../api/renderer-dto.ts";
 import type { ArtifactGuiKind, ArtifactsListResult, DaemonGuiReadPayloadMap } from "@harness-anything/daemon/protocol";
 import { drainCursorPages } from "./paginated-read.ts";
 import { isRendererRecord, rendererReadError } from "./result-validation.ts";
-import { invoke } from "./api-client-invoke.ts";
+import { requestGuiRead } from "./api-client-invoke.ts";
 
 // Renderer client for the artifacts timeline: paged `repo.artifacts.list` reads return
 // the complete joined DTO — file inventory, task attribution and the time source are
@@ -19,7 +19,7 @@ export const artifactsClient = {
     scope: DaemonGuiReadPayloadMap["repo.works.index"] = {},
   ): Promise<ArtifactsListResult> => {
     const pages = await drainCursorPages(async (facets) => {
-      const value = await invoke("repo.artifacts.list", {
+      const value = await requestGuiRead("repo.artifacts.list", {
         repoId,
         kind,
         limit: guiInteractionPolicy.defaultValue.pageSizes.artifacts,

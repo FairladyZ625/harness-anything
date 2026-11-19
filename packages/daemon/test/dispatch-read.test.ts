@@ -1067,6 +1067,29 @@ test("member dispatch payloads accept one selector and a bounded limit at both b
     }),
     [],
   );
+  const floor = { floor: "ended", limit: 12, personId: "person-alice", nodeId: "edge-a" };
+  assert.deepEqual(parse(floor), floor);
+  assert.deepEqual(
+    validateDaemonRpcCall({
+      method: "repo.task.dispatches",
+      params: { repo: { repoId: "repo-a" }, payload: floor },
+    }),
+    [],
+  );
+  for (const payload of [
+    { ...floor, cursor: "not-an-ended-selector" },
+    { ...floor, taskIds: ["task-a"] },
+    { ...floor, limit: 17 },
+  ]) {
+    assert.throws(() => parse(payload), /Invalid live-floor dispatch selector/);
+    assert.notDeepEqual(
+      validateDaemonRpcCall({
+        method: "repo.task.dispatches",
+        params: { repo: { repoId: "repo-a" }, payload },
+      }),
+      [],
+    );
+  }
   for (const advisorySurface of decisionReadSurfaces) {
     const payload = { taskIds: ["task-a"], advisorySurface };
     assert.deepEqual(parse(payload), payload);

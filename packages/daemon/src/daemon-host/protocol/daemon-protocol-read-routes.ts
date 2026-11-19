@@ -398,6 +398,9 @@ export const daemonReadRoutes = Object.freeze([
       repo: shape({ repoId: "string" }),
       payload: shape({
         taskId: "string?",
+        floor: "string?",
+        runtimeSessionIds: "array?",
+        latestOnly: "boolean?",
         taskIds: "array?",
         limit: "number?",
         cursor: "string?",

@@ -144,7 +144,7 @@ export interface QueryPage {
 }
 export type TaskDispatchBatchRead = Extract<TaskDispatchesRead, { readonly taskIds: readonly string[] }>;
 /** The member page of repo.task.dispatches: an agent's or squad's newest dispatch rows. */
-export type TaskDispatchMemberRead = Extract<TaskDispatchesRead, { readonly truncated: boolean }>;
+export type TaskDispatchMemberRead = Extract<TaskDispatchesRead, { readonly totals: object }>;
 
 /** Optional narrow/paged facets for the wide task reads; omitting them keeps the full result. */
 export type TaskQueryFacets = DaemonGuiReadPayloadMap["repo.tasks.list"];
@@ -447,7 +447,9 @@ export const harnessClient = {
   ): Promise<DecisionListSuccess> {
     return readDecisionListResult(await invoke("repo.decisions.list", payload));
   },
-  async getDecisionSummaries(payload: RepoScope): Promise<DecisionSummaryListSuccess> {
+  async getDecisionSummaries(
+    payload: RepoScope & Omit<DaemonGuiReadPayloadMap["repo.decisions.list"], "projection">,
+  ): Promise<DecisionSummaryListSuccess> {
     return readDecisionSummaryListResult(await invoke("repo.decisions.list", { ...payload, projection: "summary" }));
   },
   async listDecisionControls(
@@ -653,6 +655,7 @@ function readTaskDispatchesResult(value: unknown): TaskDispatchesRead {
       readonly taskLabels?: unknown;
       readonly totals?: unknown;
       readonly truncated?: unknown;
+      readonly floor?: unknown;
     },
     taskIds = Array.isArray(result?.taskIds) ? result.taskIds : [],
     unavailableTaskIds = Array.isArray(result?.unavailableTaskIds) ? result.unavailableTaskIds : [],
@@ -662,6 +665,10 @@ function readTaskDispatchesResult(value: unknown): TaskDispatchesRead {
       taskIds.every((taskId) => typeof taskId === "string") &&
       unavailableTaskIds.every((taskId) => typeof taskId === "string" && taskIds.includes(taskId)) &&
       isQueryPage(result.page),
+    floor =
+      (result?.floor === "active" || result?.floor === "ended") &&
+      isQueryPage(result.page) &&
+      typeof result.truncated === "boolean",
     member =
       (typeof result?.agentId === "string") !== (typeof result?.squadId === "string") &&
       Array.isArray(result?.groups) &&
@@ -682,7 +689,7 @@ function readTaskDispatchesResult(value: unknown): TaskDispatchesRead {
     !result ||
     result.ok !== true ||
     (result.status !== "ready" && result.status !== "pending") ||
-    (single === batch && !member) ||
+    (single === batch && !member && !floor) ||
     !Array.isArray(result.dispatches) ||
     result.dispatches.some(
       (row) =>

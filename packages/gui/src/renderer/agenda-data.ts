@@ -11,13 +11,19 @@ export const agendaQueryKeys = {
   read: (repoId: string) => ["agenda", repoId] as const,
 };
 
-export function agendaQuery(repoId: string, scopePersonId: string | null = null, viewerPersonId: string | null = null) {
+export function agendaQuery(
+  repoId: string,
+  scopePersonId: string | null = null,
+  viewerPersonId: string | null = null,
+  filterNodeId: string | null = null,
+) {
   return {
     queryKey: [
       ...agendaQueryKeys.read(repoId),
       ...(scopePersonId === null && viewerPersonId === null ? [] : [scopePersonId, viewerPersonId]),
+      ...(filterNodeId === null ? [] : [{ filterNodeId }]),
     ],
-    queryFn: () => readAgenda(repoId, scopePersonId),
+    queryFn: () => readAgenda(repoId, scopePersonId, filterNodeId),
     staleTime: 10_000,
     // 续读在 queryFn 内排空,不需要计时器;读完的 agenda 由台账 cut
     // (invalidateLedgerDependents)刷新,它既不是探针也不自持轮询。
@@ -28,8 +34,12 @@ export function useAgendaQuery(
   repoId: string | null,
   scopePersonId: string | null = null,
   viewerPersonId: string | null = null,
+  filterNodeId: string | null = null,
 ) {
-  return useQuery({ ...agendaQuery(repoId ?? "unselected", scopePersonId, viewerPersonId), enabled: repoId !== null });
+  return useQuery({
+    ...agendaQuery(repoId ?? "unselected", scopePersonId, viewerPersonId, filterNodeId),
+    enabled: repoId !== null,
+  });
 }
 
 /**
@@ -42,9 +52,18 @@ export function useAgendaQuery(
  * 取 min、sourceRevision 取 max;daemon 在 cut 追赶中会把 status 报成 pending,
  * 原样透传,视图据此显示「正在追赶 r{sourceRevision}」。
  */
-export async function readAgenda(repoId: string, scopePersonId: string | null = null): Promise<AgendaSuccess> {
+export async function readAgenda(
+  repoId: string,
+  scopePersonId: string | null = null,
+  filterNodeId: string | null = null,
+): Promise<AgendaSuccess> {
   const [first, ...rest] = await drainCursorPages(
-    (facets) => readAgendaPage(repoId, { ...facets, ...(scopePersonId === null ? {} : { scopePersonId }) }),
+    (facets) =>
+      readAgendaPage(repoId, {
+        ...facets,
+        ...(scopePersonId === null ? {} : { scopePersonId }),
+        ...(filterNodeId === null ? {} : { filterNodeId }),
+      }),
     "agenda read",
   );
   let aspect = joinAgendaCut(undefined, first);
@@ -54,7 +73,7 @@ export async function readAgenda(repoId: string, scopePersonId: string | null = 
 
 export async function readAgendaPage(
   repoId: string,
-  facets: { readonly cursor?: string; readonly scopePersonId?: string },
+  facets: { readonly cursor?: string; readonly scopePersonId?: string; readonly filterNodeId?: string },
 ): Promise<AgendaSuccess> {
   return harnessClient.getAgenda({ repoId, limit: AGENDA_PAGE_LIMIT, ...facets });
 }

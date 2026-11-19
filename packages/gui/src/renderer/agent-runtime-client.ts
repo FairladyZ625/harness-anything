@@ -26,7 +26,7 @@ import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import { readUseCaseProjection } from "./use-case-projection-client.ts";
-import { invoke } from "./api-client-invoke.ts";
+import { invoke, requestGuiRead } from "./api-client-invoke.ts";
 import { guiTransport } from "./gui-transport.ts";
 import { sessionEventTimeline, type SessionEventTimeline } from "./sessions-model.ts";
 
@@ -102,7 +102,7 @@ export const agentRuntimeClient = {
   ): Promise<AgentRuntimeOverviewResult> => {
     const readPage = async (facets: { readonly limit?: number; readonly cursor?: string }) =>
       checked(
-        await invoke("repo.agentRuntime.overview", {
+        await requestGuiRead("repo.agentRuntime.overview", {
           repoId,
           ...(taskId ? { taskId } : {}),
           ...facets,
@@ -174,7 +174,7 @@ export const agentRuntimeClient = {
     repoId: string,
     query: DaemonGuiReadPayloadMap["repo.agentRuntime.tokenUsage"] & { readonly groupBy: "person" | "node" },
   ): Promise<CollaboratorTokenUsage> => {
-    const result = await invoke("repo.agentRuntime.tokenUsage", { repoId, ...query });
+    const result = await requestGuiRead("repo.agentRuntime.tokenUsage", { repoId, ...query });
     if (!result || !("groupBy" in result) || result.groupBy !== query.groupBy)
       throw new Error("Token usage bridge returned an invalid attribution result.");
     return result;

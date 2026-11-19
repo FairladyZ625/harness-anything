@@ -2,6 +2,11 @@ import { TabPanel } from "../components/primitives/EntryBoundary.tsx";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { AgendaSuccess } from "../api-client.ts";
+import { adaptProjectionRows } from "../task-adapter.ts";
+import { useCollaboratorTaskList } from "../task-data.ts";
+import { useAgendaQuery } from "../agenda-data.ts";
+import { useDecisionSummaryQuery } from "../triadic-data.ts";
+import type { WorkIndex } from "../model/work-collections.ts";
 import { t } from "../i18n/index.tsx";
 import type { ObserveTailMode } from "../daemon-observe-model.ts";
 import { CADENCE_EVENT_LIMIT, deriveCadenceSnapshot, type CadenceInput } from "../model/cadence.ts";
@@ -48,9 +53,10 @@ const MODE_LABEL: Record<ObserveTailMode, () => string> = {
 export function CadenceView({
   repoId,
   projectName,
-  tasks,
-  agenda,
-  decisions,
+  tasks: defaultTasks,
+  works,
+  agenda: defaultAgenda,
+  decisions: defaultDecisions,
   onNavigateEntity,
   onOpenPool,
   collaborator,
@@ -58,6 +64,7 @@ export function CadenceView({
   readonly repoId: string;
   readonly projectName: string;
   readonly tasks: CadenceInput["tasks"];
+  readonly works?: WorkIndex;
   readonly agenda: AgendaSuccess | undefined;
   /** 决策摘要行:任务页签只读 state 计数,执行概况页签另取 title 命名 decision 组。 */
   readonly decisions: readonly { readonly decisionId: string; readonly title: string; readonly state: string }[];
@@ -65,7 +72,20 @@ export function CadenceView({
   readonly onOpenPool: () => void;
   readonly collaborator?: CollaboratorFilterOptions;
 }) {
-  const scope = useCollaboratorFilters(collaborator);
+  const scope = useCollaboratorFilters(collaborator),
+    scoped = scope.person !== null || scope.node !== null,
+    taskList = useCollaboratorTaskList(repoId, scope.query),
+    tasks = useMemo(
+      () =>
+        scoped
+          ? adaptProjectionRows(taskList.data?.rows ?? [], repoId, taskList.data?.status ?? "pending", works)
+          : defaultTasks,
+      [scoped, taskList.data, repoId, works, defaultTasks],
+    ),
+    scopedAgenda = useAgendaQuery(scoped ? repoId : null, scope.person, collaborator?.currentPersonId, scope.node),
+    agenda = scoped ? scopedAgenda.data : defaultAgenda,
+    scopedDecisions = useDecisionSummaryQuery(scoped ? repoId : null, { scope: scope.query }),
+    decisions = scoped ? scopedDecisions.decisions : defaultDecisions;
   const [tab, setTab] = useState<"tasks" | "fleet">("tasks"),
     [fleetRange, setFleetRange] = useState<FleetHistoryRange>("24h"),
     feed = useCadenceFeed(repoId, scope.person, scope.node),
@@ -127,6 +147,7 @@ export function CadenceView({
     openTask = (taskId: string): void => {
       onNavigateEntity(`task/${taskId}`);
     };
+  const scopeError = taskList.error ?? scopedAgenda.error ?? scopedDecisions.error;
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <PageHeader
@@ -136,11 +157,18 @@ export function CadenceView({
           <span data-testid="cadence-stream" className="flex flex-wrap items-baseline gap-2">
             {feed.mode === null ? null : <span>{MODE_LABEL[feed.mode]()}</span>}
             <span>{t("views.cadence.streamScanned", { count: feed.events.length })}</span>
-            <span>{t(feed.historyComplete ? "views.cadence.windowComplete" : "views.cadence.windowPartial")}</span>
+            <span>
+              {t(
+                feed.historyComplete && (!scoped || taskList.data?.status === "ready")
+                  ? "views.cadence.windowComplete"
+                  : "views.cadence.windowPartial",
+              )}
+            </span>
           </span>
         }
       />
       {collaborator && <CollaboratorFilters options={collaborator} selection={scope} />}
+      {scopeError && <p role="alert">{scopeError.message}</p>}
       {feed.status === "unavailable" ? (
         <p
           data-testid="cadence-unavailable"

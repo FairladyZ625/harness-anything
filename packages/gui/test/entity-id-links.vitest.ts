@@ -277,6 +277,19 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
   vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(TOKEN_USAGE_READ);
   vi.spyOn(todosClient, "list").mockResolvedValue([FIXTURE_TODO]);
   vi.spyOn(harnessClient, "getTaskDispatches").mockImplementation(async (payload) => {
+    if (payload.floor !== undefined)
+      return {
+        ok: true,
+        status: "ready",
+        floor: payload.floor,
+        dispatches: [],
+        page: { limit: payload.limit, cursor: null, nextCursor: null },
+        truncated: false,
+        outcome: "succeeded",
+        exitCode: 0,
+        watermark: 1,
+        sourceRevision: 1,
+      };
     const requested =
         "taskId" in payload ? [payload.taskId as string] : [...(payload as { readonly taskIds: string[] }).taskIds],
       dispatches = requested.includes(TASK_A_ID)

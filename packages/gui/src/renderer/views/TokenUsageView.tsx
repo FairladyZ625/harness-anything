@@ -8,6 +8,7 @@ import { t } from "../i18n/index.tsx";
 import { Empty } from "../components/primitives/Empty.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { Region } from "../components/primitives/Region.tsx";
+import { exactTokens } from "../token-format.ts";
 import { QUERY_PACING_MS } from "../query-pacing.ts";
 import {
   rankScaleFor,
@@ -161,9 +162,9 @@ export function TokenUsageView({
                         "—"}
                     </td>
                     <td>
-                      {row.usageReportedDispatches.toLocaleString()} / {row.dispatches.toLocaleString()}
+                      {exactTokens(row.usageReportedDispatches)} / {exactTokens(row.dispatches)}
                     </td>
-                    <td>{row.totalTokens.toLocaleString()}</td>
+                    <td>{exactTokens(row.totalTokens)}</td>
                   </tr>
                 ))}
               </tbody>

@@ -1,3 +1,4 @@
+import type { TaskDispatchesPayload } from "@harness-anything/application/queries";
 import type { ActionExecutionClass } from "@harness-anything/kernel/internal/domain/action-declaration.ts";
 import { actionExecutionClasses } from "@harness-anything/kernel/internal/domain/action-execution-class.generated.ts";
 import type {
@@ -25,7 +26,6 @@ import type {
   DaemonRepoMode,
   DecisionAcceptReviewReadiness,
   DecisionProjectionRow,
-  DecisionReadSurface,
   FreshnessReason,
   ProjectionPage,
   ProjectionWarning,
@@ -715,6 +715,7 @@ export interface DaemonTaskQueryPayload extends CollaboratorScope {
 
 export interface DaemonAgendaPayload {
   readonly scopePersonId?: string;
+  readonly filterNodeId?: string;
   readonly limit?: number;
   readonly cursor?: string;
   /** Narrow the agenda to one work: the root task and its subtree. */
@@ -876,50 +877,8 @@ export type DaemonDecisionListResult =
       readonly warnings: readonly ProjectionWarning[];
     };
 
-/** The CLI-compatible single read and GUI batch read share the same stable method and
- * schema ids. Exactly one selector is allowed; pagination bounds dispatch rows selected by taskIds. The
- * member selector returns one executor's newest dispatches, bounded by the required limit. */
-export type DaemonTaskDispatchesPayload = {
-  readonly advisorySurface?: DecisionReadSurface;
-  /** Member pages may narrow by canonical dispatch attribution before counting and limiting. */
-  readonly personId?: string;
-  readonly nodeId?: string;
-  /** With taskIds: return only each task's newest dispatch (aggregate readers), never its history. */
-  readonly latestOnly?: boolean;
-} & (
-  | {
-      readonly taskId: string;
-      readonly taskIds?: never;
-      readonly limit?: never;
-      readonly cursor?: never;
-      readonly agentId?: never;
-      readonly squadId?: never;
-    }
-  | {
-      readonly taskId?: never;
-      readonly taskIds: readonly string[];
-      readonly limit?: number;
-      readonly cursor?: string;
-      readonly agentId?: never;
-      readonly squadId?: never;
-    }
-  | {
-      readonly taskId?: never;
-      readonly taskIds?: never;
-      readonly limit: number;
-      readonly cursor?: never;
-      readonly agentId: string;
-      readonly squadId?: never;
-    }
-  | {
-      readonly taskId?: never;
-      readonly taskIds?: never;
-      readonly limit: number;
-      readonly cursor?: never;
-      readonly agentId?: never;
-      readonly squadId: string;
-    }
-);
+/** One selector per read. History and live-floor pages preserve their own bounded cursors. */
+export type DaemonTaskDispatchesPayload = TaskDispatchesPayload;
 
 export interface TaskPlacementSupplement {
   readonly productLines: readonly string[];
@@ -983,6 +942,11 @@ export type DaemonTaskDispatchesResultBase = {
 
 export type DaemonTaskDispatchesResult = DaemonTaskDispatchesResultBase &
   (
+    | {
+        readonly floor: "active" | "ended";
+        readonly page: ProjectionPage;
+        readonly truncated: boolean;
+      }
     | { readonly taskId: string }
     | {
         readonly taskIds: readonly string[];

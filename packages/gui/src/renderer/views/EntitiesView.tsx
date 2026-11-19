@@ -82,6 +82,7 @@ export function EntitiesView({
         repoId={repoId}
         kind={focus.kind}
         selectedEntityRef={focus.entityRef}
+        scope={scope.query}
         liveCounts={liveCounts}
         projectName={projectName}
         fromViewLabel={t("shell.nav.entities")}

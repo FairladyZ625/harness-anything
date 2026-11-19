@@ -784,10 +784,18 @@ export async function readFleetOverviewFromHost(input: {
   );
   const nodeOwners = new Map<string, FleetFieldState>();
   const retiredNodes = new Set<string>();
+  const readDirectory = async () => {
+    const authority = await input.keycloakCenter(),
+      { provider, accessToken } = authority;
+    return {
+      readNode: (nodeId: string) => provider.readNode(accessToken, nodeId),
+      readGrants: () => provider.readGrants(accessToken),
+    };
+  };
   const ownerOf = async (nodeId: string): Promise<FleetFieldState> => {
     try {
-      const authority = await input.keycloakCenter(),
-        node = await authority.provider.readNode(authority.accessToken, nodeId);
+      const directory = await readDirectory(),
+        node = await directory.readNode(nodeId);
       if (node?.state === "removed") retiredNodes.add(nodeId);
       const personId = node?.state === "active" && node.revocation === "complete" ? node.personId : null;
       return { kind: "value", text: personId ?? "not-in-registry" };
@@ -808,21 +816,26 @@ export async function readFleetOverviewFromHost(input: {
     ].filter((nodeId) => nodeId !== FLEET_CENTER_NODE_ID),
   );
   for (const nodeId of edgeNodeIds) nodeOwners.set(nodeId, await ownerOf(nodeId));
-  let members: readonly { readonly personId: string }[] | undefined, modeUnavailable: string | undefined;
-  if (input.mode === "local" && [...edgeNodeIds].every((nodeId) => retiredNodes.has(nodeId))) {
+  const readMembers = async () => {
     try {
-      const authority = await input.keycloakCenter();
-      const grants = await authority.provider.readGrants(authority.accessToken);
-      members = grants.flatMap((grant) => {
-        const resource = decodeAuthorizationResource(grant.resource);
-        return resource.kind !== "fleet" && resource.repoId === input.repoId
-          ? grant.userIds.map((personId) => ({ personId }))
-          : [];
-      });
+      const directory = await readDirectory();
+      const grants = await directory.readGrants();
+      return {
+        members: grants.flatMap((grant) => {
+          const resource = decodeAuthorizationResource(grant.resource);
+          return resource.kind !== "fleet" && resource.repoId === input.repoId
+            ? grant.userIds.map((personId) => ({ personId }))
+            : [];
+        }),
+      };
     } catch (error) {
-      modeUnavailable = `repository-mode-unavailable=${runtimeErrorCode(error) ?? "authorization_metadata_unavailable"}`;
+      return {
+        modeUnavailable: `repository-mode-unavailable=${runtimeErrorCode(error) ?? "authorization_metadata_unavailable"}`,
+      };
     }
-  }
+  };
+  const { members, modeUnavailable } =
+    input.mode === "local" && [...edgeNodeIds].every((nodeId) => retiredNodes.has(nodeId)) ? await readMembers() : {};
   const tail = await input.cell.observeTail(
     {
       kind: "events",
