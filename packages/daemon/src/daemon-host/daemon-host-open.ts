@@ -1721,6 +1721,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         port: config.port,
         ca: readFileSync(caPath),
         ...(config.servername ? { servername: config.servername } : {}),
+        ...(config.spkiSha256 ? { spkiSha256: config.spkiSha256 } : {}),
+        resumeOnly: config.resumeOnly,
         nodeId: config.nodeId,
         credential: config.credential,
         repoId: config.repoId,

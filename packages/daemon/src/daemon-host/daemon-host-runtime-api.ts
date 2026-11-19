@@ -26,8 +26,10 @@ import {
   prepareFleetCenterAdmission,
   startFleetCenterAdmission,
   syncFleetEdgeMirror,
+  repointFleetEdgeMirror,
   type FleetCenterAdmissionRequest,
   type FleetEdgeSyncRequest,
+  type FleetEdgeRepointRequest,
 } from "./fleet-center-admission.ts";
 import { probeTlsAddress, validateCertificateNames } from "./tls-listener-admission.ts";
 import type { FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
@@ -669,6 +671,31 @@ export function createDaemonHostRuntimeApi(
           triggers: [() => context.scheduleScheduler.refresh()],
         });
         return receipt;
+      },
+      edgeRepoint: async (payload, auth) => {
+        const request = payload as unknown as FleetEdgeRepointRequest["payload"];
+        const registered = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
+          (repo) => repo.repoId === request.repoId && repo.state === "enabled",
+        );
+        if (
+          !registered ||
+          registered.mode !== "remote-edge" ||
+          registered.canonicalRoot === null ||
+          canonicalRoot(request.workspaceRoot) !== canonicalRoot(registered.canonicalRoot)
+        )
+          throw context.hostCodedError(
+            "repo_mode_read_only",
+            "Fleet edge repoint requires the matching enabled remote-edge registration.",
+          );
+        context.localOnly(auth);
+        return repointFleetEdgeMirror(
+          { userRoot: context.input.userRoot, payload: request },
+          async () => {
+            const session = await context.oidc.bind(auth, request.workspaceRoot, true);
+            return session.oidcPrincipal?.accessToken;
+          },
+          () => context.startReplicaSyncs(),
+        );
       },
       edgeRuntime: async (payload, auth) => {
         context.localOnly(auth);

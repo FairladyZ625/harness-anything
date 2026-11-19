@@ -16,6 +16,7 @@ export interface FleetEdgeConfig {
   readonly port: number;
   readonly caPath: string;
   readonly servername?: string;
+  readonly spkiSha256?: string;
   readonly loginUrl?: string;
   readonly loginRealm?: string;
   readonly loginServername?: string;
@@ -23,6 +24,8 @@ export interface FleetEdgeConfig {
   readonly loginCertificate?: string;
   readonly nodeId: string;
   readonly credential: string;
+  readonly writerEpoch?: number;
+  readonly resumeOnly?: true;
   readonly viewRoot: string;
   readonly quotaBytes: number;
   readonly waitTimeoutMs?: number;
@@ -74,11 +77,17 @@ export function readFleetEdgeConfig(userRoot: string, repoId: string): FleetEdge
     if (!text(field)) fail(`${field} must be a non-empty string`);
   if (Object.hasOwn(row, "assignmentId") || Object.hasOwn(row, "rosterPath"))
     fail("Static fleet assignments are retired.");
+  if (row.spkiSha256 !== undefined && (typeof row.spkiSha256 !== "string" || !/^[a-f0-9]{64}$/u.test(row.spkiSha256)))
+    fail("spkiSha256 must be a lowercase SHA-256 digest when present");
   const port = Number(row.port),
     quotaBytes = Number(row.quotaBytes);
   if (!Number.isSafeInteger(port) || port < 0 || port > 65535) fail("port must be an integer from 0 to 65535");
   if (!Number.isSafeInteger(quotaBytes) || quotaBytes <= 0) fail("quotaBytes must be a positive integer");
   const waitTimeoutMs = row.waitTimeoutMs === undefined ? undefined : Number(row.waitTimeoutMs);
+  const writerEpoch = row.writerEpoch === undefined ? undefined : Number(row.writerEpoch);
+  if (writerEpoch !== undefined && (!Number.isSafeInteger(writerEpoch) || writerEpoch < 0))
+    fail("writerEpoch must be a non-negative integer when present");
+  if (row.resumeOnly !== undefined && row.resumeOnly !== true) fail("resumeOnly must be true when present");
   if (waitTimeoutMs !== undefined && (!Number.isSafeInteger(waitTimeoutMs) || waitTimeoutMs <= 0))
     fail("waitTimeoutMs must be a positive integer when present");
   const maxAgeMs = row.maxAgeMs === undefined ? undefined : Number(row.maxAgeMs),
@@ -93,6 +102,7 @@ export function readFleetEdgeConfig(userRoot: string, repoId: string): FleetEdge
     port,
     caPath: text("caPath")!,
     ...(text("servername") ? { servername: text("servername") } : {}),
+    ...(text("spkiSha256") ? { spkiSha256: text("spkiSha256") } : {}),
     ...(text("loginUrl") ? { loginUrl: text("loginUrl") } : {}),
     ...(text("loginRealm") ? { loginRealm: text("loginRealm") } : {}),
     ...(text("loginServername") ? { loginServername: text("loginServername") } : {}),
@@ -100,6 +110,8 @@ export function readFleetEdgeConfig(userRoot: string, repoId: string): FleetEdge
     ...(text("loginCertificate") ? { loginCertificate: text("loginCertificate") } : {}),
     nodeId: text("nodeId")!,
     credential: text("credential")!,
+    ...(writerEpoch === undefined ? {} : { writerEpoch }),
+    ...(row.resumeOnly === true ? { resumeOnly: true } : {}),
     viewRoot: text("viewRoot")!,
     quotaBytes,
     ...(waitTimeoutMs !== undefined ? { waitTimeoutMs } : {}),

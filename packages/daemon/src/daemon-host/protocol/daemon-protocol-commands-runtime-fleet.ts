@@ -689,6 +689,23 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       ),
     ],
   }),
+  defineHostAdminCommand({
+    id: "daemon-fleet-edge-repoint",
+    hostAuthority: "local-transport",
+    phase: "Fleet-Wiring",
+    path: ["daemon", "fleet", "edge", "repoint"],
+    summary: "Preflight a relocated fleet center and resume the edge replica from its durable cut.",
+    method: "daemon.fleet.edge.repoint",
+    inputs: [
+      cliInput("--host", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
+      cliInput("--port", "single", true, { code: "invalid_field" }, { pathKind: "non-path", regex: "^(?:0|[1-9][0-9]{0,4})$" }),
+      cliInput("--ca", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
+      cliInput("--spki-sha256", "single", true, { code: "missing_field" }, { pathKind: "non-path", regex: "^[a-f0-9]{64}$" }),
+      cliInput("--credential", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput("--servername", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput("--timeout-ms", "single", false, { code: "invalid_field" }, { pathKind: "non-path", regex: "^[1-9][0-9]{0,9}$" }),
+    ],
+  }),
 ] as const);
 
 const scheduleIdInput = () =>

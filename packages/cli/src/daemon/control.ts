@@ -170,7 +170,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
         "unsupported_command",
         [
           "Use daemon projection rebuild, daemon repo register|update,",
-          "daemon connection add|update|remove|probe, fleet status, fleet center start, fleet edge sync,",
+          "daemon connection add|update|remove|probe, fleet status, fleet center start, fleet edge sync|repoint,",
           "service install|uninstall|status, start --service, status [--diagnostics], metrics, top, slo, or stop.",
         ].join(" "),
       ),
@@ -378,23 +378,30 @@ async function fleetControl(
   const status = argv[at + 2] === "status",
     center = argv[at + 2] === "center" && argv[at + 3] === "start",
     edge = argv[at + 2] === "edge" && argv[at + 3] === "sync",
+    repoint = argv[at + 2] === "edge" && argv[at + 3] === "repoint",
     command = status
       ? "daemon-fleet-status"
       : center
         ? "daemon-fleet-center-start"
         : edge
           ? "daemon-fleet-edge-sync"
+          : repoint
+            ? "daemon-fleet-edge-repoint"
           : "daemon-fleet";
   const flag = (name: string) => daemonOption(argv, name),
     reject = (errorCode: string, nextAction: string) => finish(daemonFailure(command, errorCode, nextAction), 2);
   if (status) return await fleetStatusControl(argv, userRoot, daemonId, finish);
-  if (!center && !edge)
+  if (!center && !edge && !repoint)
     return reject(
       "unsupported_command",
-      "Use daemon fleet status, daemon fleet center start, or daemon fleet edge sync.",
+      "Use daemon fleet status, daemon fleet center start, daemon fleet edge sync, or daemon fleet edge repoint.",
     );
   const byteCountFlag = "--quota-bytes";
-  const required = center ? ["--port", "--repo", byteCountFlag] : [],
+  const required = center
+    ? ["--port", "--repo", byteCountFlag]
+    : repoint
+      ? ["--host", "--port", "--ca", "--spki-sha256"]
+      : [],
     missing = required.filter((name) => !flag(name));
   if (missing.length > 0)
     return reject(
@@ -403,7 +410,7 @@ async function fleetControl(
     );
   const centerStart = center ? fleetCenterStartPayload(argv) : null;
   if (centerStart && !("payload" in centerStart)) return reject(centerStart.code, centerStart.nextAction);
-  const edgeTarget = edge
+  const edgeTarget = edge || repoint
     ? await resolveLocalDaemonTarget({
         rootDir: path.resolve(flag("--root") ?? process.cwd()),
         repoIdOverride: flag("--repo"),
@@ -412,7 +419,7 @@ async function fleetControl(
         daemonId,
       })
     : null;
-  const edgeConfig = edge ? readFleetEdgeConfig(userRoot, edgeTarget!.repoId) : null;
+  const edgeConfig = edge || repoint ? readFleetEdgeConfig(userRoot, edgeTarget!.repoId) : null;
   const edgeFlags = {
     host: "--host",
     port: "--port",
@@ -423,7 +430,7 @@ async function fleetControl(
   } as const;
   const edgeValue = (name: keyof typeof edgeFlags): string | number | undefined =>
     flag(edgeFlags[name]) ?? edgeConfig?.[name];
-  if (edge && Object.keys(edgeFlags).some((name) => edgeValue(name as keyof typeof edgeFlags) === undefined))
+  if ((edge || repoint) && Object.keys(edgeFlags).some((name) => edgeValue(name as keyof typeof edgeFlags) === undefined))
     return reject("missing_field", "Add edge connection fields or populate the node fleet-edge.json.");
   if (!fleetNumber.port.test(String(edgeValue("port"))) || !fleetNumber.quota.test(String(edgeValue("quotaBytes"))))
     return reject(
@@ -433,12 +440,13 @@ async function fleetControl(
   // The machine credential the center issued at node registration: named on the command line, or kept
   // off it in the node's fleet-edge.json.
   const credential = flag("--credential") ?? edgeConfig?.credential;
-  if (edge && credential === undefined)
+  if ((edge || repoint) && credential === undefined)
     return reject("missing_field", "Add --credential, or set credential in the node fleet-edge.json.");
   const edgePayload = () => ({
     host: edgeValue("host"),
     port: Number(edgeValue("port")),
     caPath: path.resolve(String(edgeValue("caPath"))),
+    ...(edgeConfig?.spkiSha256 ? { spkiSha256: edgeConfig.spkiSha256 } : {}),
     nodeId: edgeValue("nodeId"),
     credential,
     repoId: edgeTarget!.repoId,
@@ -450,11 +458,15 @@ async function fleetControl(
       : {}),
     timeoutMs: flag("--timeout-ms") ? Number(flag("--timeout-ms")) : 60_000,
   });
-  const payload = (centerStart ? centerStart.payload : edgePayload()) as JsonObject;
+  const repointPayload = () => ({
+    ...edgePayload(),
+    spkiSha256: flag("--spki-sha256") ?? edgeConfig?.spkiSha256,
+  });
+  const payload = (centerStart ? centerStart.payload : repoint ? repointPayload() : edgePayload()) as JsonObject;
   try {
     const result = await requestDaemonJsonRpcAt(
       edgeTarget?.socketPath ?? localUserDaemonEndpoint(userRoot, daemonId),
-      center ? "daemon.fleet.center.start" : "daemon.fleet.edge.sync",
+      center ? "daemon.fleet.center.start" : repoint ? "daemon.fleet.edge.repoint" : "daemon.fleet.edge.sync",
       { payload },
       75,
     );

@@ -3,7 +3,7 @@ import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/dom
 import { uploadFleetChange } from "./upload-client.ts";
 import { encodeFleetFrames, FleetTransferAssembler } from "./command-transfer.ts";
 import { tlsPeerIdentityOptions } from "../tls-ca-certificate.ts";
-import { connect, type TLSSocket } from "node:tls";
+import { checkServerIdentity, connect, type TLSSocket } from "node:tls";
 import { createHash, X509Certificate } from "node:crypto";
 import { isIP } from "node:net";
 import { randomUUID } from "node:crypto";
@@ -63,6 +63,7 @@ export interface FleetPeerOptions {
   readonly port: number;
   readonly ca: string | Buffer;
   readonly servername?: string;
+  readonly spkiSha256?: string;
   readonly nodeId: string;
   readonly credential: string;
   readonly repoId: string;
@@ -110,6 +111,7 @@ export type FleetPeer = Awaited<ReturnType<typeof openPeer>>;
 const REPLICATION_IDLE_TIMEOUT_MS = daemonProtocolFleetPolicy.defaultValue.fleet.replicationIdleTimeoutMs;
 
 export interface FleetReplicaStreamOptions extends FleetPeerOptions {
+  readonly resumeOnly?: boolean;
   readonly onRevoked?: () => void;
   readonly viewRoot: string;
   readonly diskQuotaBytes: number;
@@ -250,6 +252,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
           .then(() => {
             for (const line of commandDecoder.push(chunk)) {
               const frame = parseFleetFrame(line);
+              if (frame.schema === "fleet.error/v1") throw new FleetRemoteError(frame);
               if (frame.schema !== "fleet.session.ready/v1") continue;
               const localBuildCommit = daemonBuildStamp().commit;
               options.onVersionWarning?.(
@@ -429,6 +432,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
     };
     await runWalReceiver({
       peer: replicationPeer,
+      resumeOnly: options.resumeOnly,
       repoId: options.repoId,
       target,
       directory: path.join(viewRoot, "staging"),
@@ -512,6 +516,8 @@ export async function readFleetRepositoryMetadataClient(
   options: FleetPeerOptions & {
     readonly actionKind?: string;
     readonly includeGitMetadata?: boolean;
+    readonly resumePosition?: import("@harness-anything/storage").ReplicationPosition;
+    readonly readRepointToken?: (authority: FleetLoginAuthority | null | undefined) => Promise<string | undefined>;
     readonly executionId?: string | null;
     readonly taskId?: string;
   },
@@ -520,8 +526,13 @@ export async function readFleetRepositoryMetadataClient(
     readonly loginAuthority?: FleetLoginAuthority | null;
   }
 > {
-  const session = await openPeer(options);
+  let repointToken: string | undefined;
+  const session = await openPeer({
+    ...options,
+    ...(options.readRepointToken ? { readAccessToken: async () => repointToken } : {}),
+  });
   try {
+    if (options.readRepointToken) repointToken = await options.readRepointToken(session.loginAuthority);
     const result = await session.request({
       schema: "fleet.repo.metadata.get/v1",
       messageId: session.messageId(),
@@ -529,6 +540,7 @@ export async function readFleetRepositoryMetadataClient(
       ...(options.executionCredential ? { executionCredential: options.executionCredential } : {}),
       ...(options.executionId !== undefined ? { executionId: options.executionId } : {}),
       ...(options.includeGitMetadata ? { includeGitMetadata: true } : {}),
+      ...(options.resumePosition === undefined ? {} : { resumePosition: options.resumePosition }),
       ...(options.actionKind ? { actionKind: options.actionKind } : {}),
       ...(options.taskId ? { taskId: options.taskId } : {}),
     });
@@ -1194,6 +1206,22 @@ function peerSocket(options: Omit<FleetPeerOptions, "repoId">): Promise<TLSSocke
         port: options.port,
         ca: options.ca,
         ...tlsPeerIdentityOptions(options.servername ?? "localhost"),
+        ...(options.spkiSha256
+          ? {
+              checkServerIdentity: (hostname: string, cert: import("node:tls").PeerCertificate) => {
+                const identityFailure = checkServerIdentity(hostname, cert);
+                if (identityFailure) return identityFailure;
+                const actual = createHash("sha256")
+                  .update(new X509Certificate(cert.raw).publicKey.export({ type: "spki", format: "der" }))
+                  .digest("hex");
+                return actual === options.spkiSha256
+                  ? undefined
+                  : Object.assign(new Error("The center certificate fingerprint does not match fleet-edge.json."), {
+                      code: "pin_mismatch",
+                    });
+              },
+            }
+          : {}),
         rejectUnauthorized: true,
       },
       () => {
