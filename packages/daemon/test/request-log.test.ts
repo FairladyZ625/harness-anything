@@ -798,3 +798,17 @@ test("request logs attribute the verified token person rather than the registere
   assert.equal(record.principalId, "person-request");
   assert.equal(JSON.stringify(record).includes("never-logged"), false);
 });
+
+test("retention prunes expired log files on sink open even without hitting rotation maxBytes", async (t) => {
+  const rootDir = tempRoot(t),
+    logDir = path.dirname(daemonRequestLogPath(rootDir)),
+    stale = path.join(logDir, "requests.jsonl.1");
+  mkdirSync(logDir, { recursive: true });
+  writeFileSync(stale, "stale-without-rotation\n", "utf8");
+  const eightDaysAgo = new Date(Date.now() - 8 * 86_400_000);
+  utimesSync(stale, eightDaysAgo, eightDaysAgo);
+  const log = openDaemonRequestLog({ resolveRootDir: () => rootDir });
+  log.record(entry({ opId: "op_open_prune" }));
+  await log.settle();
+  assert.equal(existsSync(stale), false, "aged log file must be pruned on sink open");
+});

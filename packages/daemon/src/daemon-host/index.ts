@@ -86,6 +86,13 @@ export { createJsonLineFrameReader, encodeJsonLineFrame, isJsonRpcRequestLike } 
 export { serveJsonRpcStream, type DaemonTransportConnection } from "./transport/json-rpc-stream.ts";
 export { createUnixSocketTransportServer, defaultUnixSocketPath } from "./transport/unix-socket.ts";
 export {
+  measureLocalRootStorage,
+  type LocalRootEntryClass,
+  type LocalRootStorageEntry,
+  type LocalRootStorageHighlight,
+  type LocalRootStorageReport,
+} from "./local-root-storage.ts";
+export {
   probeProcessGroup,
   reconcileProcessGroup,
   sweepOrphanedProcessGroup,

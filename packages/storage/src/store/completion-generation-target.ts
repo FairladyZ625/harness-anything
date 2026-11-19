@@ -2,7 +2,9 @@ import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/stor
 import { completionConversionStream } from "./completion-conversion-stream.ts";
 import { completionRetirementExecutions } from "@harness-anything/kernel/internal/domain/task-completion-generation-retirement.ts";
 import { retireCompletionExecutions } from "./completion-generation-retirement.ts";
+import { existsSync } from "node:fs";
 import path from "node:path";
+import { removeFileDurably } from "../durable-file.ts";
 import { stableStringify, sha256Bytes } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { makeTaskProjection } from "../projection/rebuildable-task-projection-factory.ts";
 import { resolveHarnessLayout } from "@harness-anything/kernel/internal/layout/index.ts";
@@ -127,9 +129,13 @@ export function verifyCompletionGeneration(source: SqliteEventStore, root: strin
     for (const outcome of outcomes)
       if (stableStringify(outcome) !== stableStringify(destination.outcome(outcome.opId)))
         throw new Error(`command outcome differs: ${outcome.opId}`);
+    const verificationProjectionPath = path.join(
+      resolveHarnessLayout(root).cacheRoot,
+      "completion-conversion-verification.sqlite",
+    );
     const projection = makeTaskProjection({
       rootDir: root,
-      projectionPath: path.join(resolveHarnessLayout(root).cacheRoot, "completion-conversion-verification.sqlite"),
+      projectionPath: verificationProjectionPath,
       eventStore: completionConversionStream(destination),
     });
     try {
@@ -151,6 +157,10 @@ export function verifyCompletionGeneration(source: SqliteEventStore, root: strin
       return { events: count, commandOutcomes: outcomes.length, projection: second };
     } finally {
       projection.close();
+      for (const suffix of ["", "-wal", "-shm"]) {
+        const artifact = `${verificationProjectionPath}${suffix}`;
+        if (existsSync(artifact)) removeFileDurably(artifact);
+      }
     }
   } finally {
     destination.close();

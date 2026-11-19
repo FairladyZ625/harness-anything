@@ -32,11 +32,8 @@ import {
 } from "./agent-entities.ts";
 
 import { makeAgentRuntimeStreamHub, type AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
-import {
-  pruneDispatchStreamArchive,
-  readFactEvidenceSources,
-  scheduleArchivedDispatchStreamCompaction,
-} from "./dispatch-stream-archive.ts";
+import { scheduleArchivedDispatchStreamCompaction } from "./dispatch-stream-archive.ts";
+import { reclaimLocalRootStorage } from "./local-root-storage.ts";
 import { createRuntimeOutcomeWaiters } from "./runtime-settlement.ts";
 
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -870,17 +867,16 @@ export async function openRepoWriterCell(
         restoringRuntimes = false;
       });
   });
-  // Retention first: pruning doomed streams before the compaction pass keeps it from rewriting
-  // files the same queue is about to delete.
-  schedule(() =>
-    pruneDispatchStreamArchive(
+  // Retention & terminal local-root reclamation first: archiving/pruning doomed streams before
+  // the compaction pass keeps it from rewriting files the same queue is about to delete.
+  schedule(() => {
+    reclaimLocalRootStorage({
       rootDir,
-      readEffectiveDispatchArchiveRetention(projection),
-      readFactEvidenceSources(projection),
-      Date.now(),
-      squadRecoveryDispatchIds,
-    ),
-  );
+      projection,
+      retention: readEffectiveDispatchArchiveRetention(projection),
+      recoveryDispatchIds: squadRecoveryDispatchIds,
+    });
+  });
   scheduleArchivedDispatchStreamCompaction(rootDir, schedule);
   schedule(() => squadCoordinator.reconcile());
   // The close-run reconciliation, once more at attach: failed reclaims and rejected Squad children get another chance.

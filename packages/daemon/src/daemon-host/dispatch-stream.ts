@@ -47,7 +47,12 @@ export function archiveDispatchStream(rootDir: string, dispatchId: string): void
   // New settlements always write a sidecar. If it is missing while the header advertises
   // tracking, the disposition write failed: fail closed instead of compacting the only copy.
   if (sidecar === null && summary?.header.evidenceTrackingVersion === 1) return;
+  const header = summary?.header ?? readDispatchStreamHeader(rootDir, dispatchId);
   archiveDispatchStreamUnchecked(rootDir, dispatchId);
+  if (header?.taskId)
+    removeDispatchLiveIndexEntries(rootDir, [
+      { dispatchId, taskId: header.taskId, runtimeSessionId: header.runtimeSessionId },
+    ]);
 }
 
 export { scrubProviderValue } from "../runtime-engine/secret-scrub.ts";

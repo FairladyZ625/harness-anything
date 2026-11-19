@@ -18,7 +18,7 @@ import {
 import { beginCliTiming, cliPhaseEnd, cliPhaseStart, daemonRequestTimer, finishCliTiming } from "./cli/timing.ts";
 import { isRetiredEntityExplain, taskExplainHelpOverlay } from "./cli/thin-command-explain.ts";
 import { parseTaskArtifactRunInvocation, runTaskArtifactCommand } from "./cli-task-artifact-run.ts";
-import { doctorInvocation, renderDoctorReport, runDoctor } from "./cli/thin-command-doctor.ts";
+import { doctorInvocation, renderDoctorReport, runDoctor, runDoctorStorage } from "./cli/thin-command-doctor.ts";
 import { parseAgentRollbackCommand, runAgentRollback } from "./cli-agent-rollback.ts";
 import { parseBackupRetentionInvocation, runBackupRetention } from "./cli/thin-command-backup-retention.ts";
 import { runDoctorHealth } from "./cli/thin-command-doctor-health.ts";
@@ -115,6 +115,7 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
     }
     if (invocation.mode === "commands")
       return renderDoctorReport(runDoctor(invocation.rootDir), argv.includes("--json"));
+    if (invocation.mode === "storage") return runDoctorStorage(invocation.rootDir, argv.includes("--json"));
     return runDoctorHealth(argv, emit);
   }
   if (command === "backup" && argv[firstCliCommandIndex(argv) + 1] === "retention") {

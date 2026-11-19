@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -82,6 +82,11 @@ test("offline target preserves missing-snapshot acceptance, every outcome, and e
     const result = verifyCompletionGeneration(source, targetRoot, plan);
     assert.equal(result.events, 4);
     assert.equal(result.commandOutcomes, 6);
+    assert.equal(
+      existsSync(path.join(targetRoot, ".harness", "cache", "completion-conversion-verification.sqlite")),
+      false,
+      "verification sqlite cache must be removed after verifyCompletionGeneration finishes",
+    );
     assert.throws(() => selectGenerationThree({ rootInput: targetRoot, repoId }), /upgrade is incomplete/);
     const target = openUnactivatedGenerationThreeEventStore({ repoId, rootInput: targetRoot });
     const projection = makeTaskProjection({ rootDir: targetRoot, eventStore: completionConversionStream(target) });

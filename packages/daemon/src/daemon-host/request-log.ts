@@ -170,6 +170,7 @@ export function openDaemonRequestLog(options: DaemonRequestLogOptions): DaemonRe
     await /* @gate-identity non-state/environment-io.3dd8b1ca6b76b91c */ mkdir(path.dirname(logPath), {
       recursive: true,
     });
+    await pruneAgedFiles(logPath);
     const handle = await openFile(logPath, "a");
     const sink = { handle, bytes: (await handle.stat()).size };
     sinks.set(logPath, sink);
