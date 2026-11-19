@@ -1,5 +1,5 @@
 import type net from "node:net";
-import { TransformStream } from "node:stream/web";
+import { TransformStream, type ReadableStreamDefaultReader } from "node:stream/web";
 import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { assertRuntimeCredentialEndpoint } from "./client/local-daemon-target.ts";
 import { consumeKnownError, readDaemonRegistry, type DaemonRegistryConnection } from "@harness-anything/kernel";
@@ -34,10 +34,13 @@ interface RemoteProxyRoute {
 }
 
 const { connectTimeoutMs, helloTimeoutMs } = daemonProtocolFleetPolicy.defaultValue.transport;
+const closedSentinel = Symbol("remote_proxy_closed");
 
 export function openRemoteProxyManager(userRoot: string): RemoteProxyManager {
   const connectors = new Map<string, RemoteEndpointConnector>(),
-    streamDetachers = new Set<() => void>();
+    streamDetachers = new Set<() => void>(),
+    streamClosers = new WeakMap<() => void, () => void>();
+  let closed = false;
   const isRemoteProxy = (repoId: string): boolean =>
     readDaemonRegistry({ userRoot }).repos.some(
       (candidate) => candidate.repoId === repoId && candidate.state === "enabled" && candidate.mode === "remote-proxy",
@@ -81,19 +84,36 @@ export function openRemoteProxyManager(userRoot: string): RemoteProxyManager {
       return connectorFor(remote).request(method, params);
     },
     stream: async (repoId, method, payload, callerSignal) => {
+      if (closed) throw remoteProxyStoppingError();
       const remote = resolveRoute(repoId),
         controller = new AbortController(),
         signal = callerSignal ? AbortSignal.any([controller.signal, callerSignal]) : controller.signal,
         channel = new TransformStream<JsonObject>(),
         reader = channel.readable.getReader(),
         writer = channel.writable.getWriter(),
-        first = Promise.withResolvers<JsonObject>();
-      let opened = false;
+        first = Promise.withResolvers<JsonObject>(),
+        interrupted = Promise.withResolvers<typeof closedSentinel>();
+      let opened = false,
+        detached = false,
+        settled = false,
+        proxyClosed = false;
+      const isDetached = () => detached || callerSignal?.aborted === true;
+      const closeStream = () => {
+        if (settled || isDetached() || proxyClosed) return;
+        proxyClosed = true;
+        controller.abort();
+        interrupted.resolve(closedSentinel);
+      };
       const detach = () => {
+        if (detached) return;
+        detached = true;
+        callerSignal?.removeEventListener("abort", detach);
         controller.abort();
         streamDetachers.delete(detach);
         void reader.cancel().catch(consumeKnownError);
       };
+      callerSignal?.addEventListener("abort", detach, { once: true });
+      streamClosers.set(detach, closeStream);
       streamDetachers.add(detach);
       void readDaemonStreamAt({
         socketPath: remote.connection.endpoint,
@@ -110,11 +130,18 @@ export function openRemoteProxyManager(userRoot: string): RemoteProxyManager {
       })
         .then(
           () => {
-            if (!opened) first.reject(streamInterrupted("Remote stream closed before its attach receipt."));
+            if (!signal.aborted && !proxyClosed) settled = true;
+            if (!opened)
+              first.reject(
+                proxyClosed && !isDetached()
+                  ? remoteProxyStoppingError()
+                  : streamInterrupted("Remote stream closed before its attach receipt."),
+              );
             return writer.close();
           },
           (error: unknown) => {
-            if (!opened) first.reject(classifyRemoteProxyError(error));
+            if (!opened)
+              first.reject(proxyClosed && !isDetached() ? remoteProxyStoppingError() : classifyRemoteProxyError(error));
             return writer.abort(error);
           },
         )
@@ -123,9 +150,21 @@ export function openRemoteProxyManager(userRoot: string): RemoteProxyManager {
         const initial = await first.promise;
         return {
           initial,
-          next: async () => {
-            const frame = await reader.read();
-            return frame.done ? null : frame.value;
+          next: () => {
+            if (isDetached()) return Promise.resolve(null);
+            if (settled) return drainReader(reader);
+            if (proxyClosed) return Promise.reject(remoteProxyStoppingError());
+            return Promise.race([reader.read(), interrupted.promise]).then((frame) => {
+              if (frame === closedSentinel) {
+                if (isDetached()) return null;
+                if (settled) return drainReader(reader);
+                throw remoteProxyStoppingError();
+              }
+              if (!frame.done) return frame.value;
+              if (isDetached() || settled) return null;
+              if (proxyClosed) throw remoteProxyStoppingError();
+              return null;
+            });
           },
           detach,
         };
@@ -151,7 +190,9 @@ export function openRemoteProxyManager(userRoot: string): RemoteProxyManager {
       }
     },
     close: () => {
-      for (const detach of [...streamDetachers]) detach();
+      closed = true;
+      for (const detach of [...streamDetachers]) streamClosers.get(detach)?.();
+      streamDetachers.clear();
       for (const connector of connectors.values()) connector.close();
       connectors.clear();
     },
@@ -224,6 +265,14 @@ function classifyRemoteProxyError(error: unknown): Error {
   if (daemonHelloFailureCode(error) !== null) return error as Error;
   const message = error instanceof Error ? error.message : String(error);
   return remoteProxyError("remote_proxy_unavailable", `Remote daemon is unavailable: ${message}`);
+}
+
+function drainReader(reader: ReadableStreamDefaultReader<JsonObject>): Promise<JsonObject | null> {
+  return reader.read().then((frame) => (frame.done ? null : frame.value));
+}
+
+function remoteProxyStoppingError(): Error {
+  return remoteProxyError("daemon_stopping", "The daemon is closing an unsettled remote stream.");
 }
 
 function remoteProxyError(code: string, message: string): Error {
