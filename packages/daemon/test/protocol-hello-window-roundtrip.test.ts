@@ -132,7 +132,9 @@ test("lifecycle reads require an advertised connection opt-in; previous peers ke
     readRuntimeSession: () => session,
     readRuntimeDispatch: () => null,
     readRuntimeInstallation: () => null,
-    readRuntimeSessionEventsByType: () => [],
+    readRuntimeSessionEventsByType: () => [
+      { type: "runtime_session_started", source: { kind: "node", nodeId: "edge-test" } },
+    ],
     readDispatchLifecycle: () => ({ status: "pending", watermark: 1, sourceRevision: 2 }),
   };
   const current = makeAgentRuntimeReadModel({ projection: projection as never, store: {} as never }).session({
@@ -183,7 +185,7 @@ test("lifecycle reads require an advertised connection opt-in; previous peers ke
   await call("protocol.dispatchLifecycle.enable");
   const next = await call("repo.agentRuntime.sessions.read", params);
   assert.deepEqual((next.session as JsonObject).lifecycle, current.session.lifecycle);
-  assert.equal((next.session as JsonObject).nodeId, "center");
+  assert.equal((next.session as JsonObject).nodeId, "edge-test");
   assert.doesNotThrow(() => parseDaemonReadResponse("repo.agentRuntime.sessions.read", next));
   assert.doesNotThrow(() => parseDaemonGuiReadResponse("repo.agentRuntime.sessions.read", next));
   const { PassThrough, Writable } = await import("node:stream"),

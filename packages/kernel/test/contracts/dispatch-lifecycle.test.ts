@@ -1027,23 +1027,22 @@ test("task writer admission spans instances and nodes and survives lease release
 
 test("runtime_dispatch_requested permission metadata folds into attempts and summaries with unknown fallback for history", () => {
   assert.ok(DISPATCH_LIFECYCLE_MODEL_VERSION >= 9);
+  const definitionSnapshot = {
+    schema: "agent-definition-snapshot/v1",
+    configVersion: 1,
+    instanceId: "instance-a",
+    installationId: "inst-install-perm",
+    kindId: "codex",
+    providerId: "openai",
+    model: "gpt-5.6-sol",
+    reasoningEffort: "high",
+    authMode: "subscription",
+  };
   const fullDispatchBase = {
     installationId: "inst-install-perm",
     dispatchKey: "perm-dispatch-key",
     definitionSnapshotRef: "artifact:runtime-definition/perm",
-    definitionSnapshot: {
-      schema: "agent-definition-snapshot/v1",
-      configVersion: 1,
-      instanceId: "instance-a",
-      installationId: "inst-install-perm",
-      kindId: "codex",
-      providerId: "openai",
-      model: "gpt-5.6-sol",
-      reasoningEffort: "high",
-      endpointKind: "official",
-      baseUrlHash: null,
-      authMode: "subscription",
-    },
+    definitionSnapshot: { ...definitionSnapshot, endpointKind: "official", baseUrlHash: null },
   };
   const historicalIds = {
     dispatchId: "dispatch-hist-perm",
@@ -1053,14 +1052,13 @@ test("runtime_dispatch_requested permission metadata folds into attempts and sum
   const historical = runtimeEvent({ t: "R" }, historicalIds, {
     dispatch: {
       ...fullDispatchBase,
-      definitionSnapshot: { ...fullDispatchBase.definitionSnapshot, baseUrl: null },
+      definitionSnapshot: { ...definitionSnapshot, baseUrl: null },
     },
   });
-  assert.deepEqual(validateAgentRuntimePayload("runtime_dispatch_requested", historical.payload), []);
+  assert.notDeepEqual(validateAgentRuntimePayload("runtime_dispatch_requested", historical.payload), []);
   assert.deepEqual(validateAgentRuntimeEvent(historical), []);
   assert.notDeepEqual(validateCurrentAgentRuntimeEvent(historical), []);
 
-  const { baseUrl: _baseUrl, ...definitionSnapshot } = fullDispatchBase.definitionSnapshot;
   for (const [endpointKind, baseUrlHash] of [
     ["official", null],
     ["custom", "sha256:0123456789abcdef"],
