@@ -115,7 +115,7 @@ function edgeSession(t: TestContext) {
       scope: "openid profile email offline_access",
     });
   }
-  return { service, loginTarget, state, resetRequests, stored: () => stored };
+  return { service, loginTarget, state, resetRequests, store, stored: () => stored };
 }
 
 test("Device login without verification_uri_complete keeps secrets private and binds the person after pending/slow-down", async (t) => {
@@ -467,4 +467,22 @@ test("a failed edge device authorization does not revoke the existing offline se
   assert.equal(active.resetRequests.includes(true), false);
   active.state.now += 61_000;
   assert.equal((await active.service.status(active.loginTarget)).authenticated, true);
+});
+
+test("a legacy edge session without an authority client id uses the five-minute renewal margin", async (t) => {
+  const active = edgeSession(t);
+  await active.service.beginDevice(active.loginTarget);
+  active.state.now += 1_000;
+  await active.service.pollDevice();
+
+  const session = JSON.parse(active.store.read()!) as {
+    authority: Record<string, unknown>;
+    expiresAt: number;
+  };
+  delete session.authority.clientId;
+  session.expiresAt = active.state.now + 120_000;
+  active.store.write(JSON.stringify(session));
+
+  assert.equal((await active.service.status(active.loginTarget)).authenticated, true);
+  assert.equal(active.state.issued, 2);
 });

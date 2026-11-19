@@ -163,7 +163,7 @@ test("edge binding health reads the selected login authority through fleet disco
     redirectUri: "http://127.0.0.1/callback",
   });
   assert.match(String(begun.authorizationUrl), /center\.example\/realms\/node-one/u, JSON.stringify(begun));
-  assert.deepEqual(revokedDevices, ["node-one"]);
+  assert.deepEqual(revokedDevices, []);
   assert.equal(
     (await request({ operation: "login-complete", repoId: "node-one", code: "code", state: begun.state }))
       .authenticated,
@@ -195,7 +195,11 @@ test("edge binding health reads the selected login authority through fleet disco
     ...binding,
     required: false,
   });
-  assert.deepEqual(revokedDevices, ["node-one"], "health and bootstrap-status must not revoke active device sessions");
+  assert.deepEqual(
+    revokedDevices,
+    [],
+    "login-begin, health, and bootstrap-status must not revoke active device sessions",
+  );
   assert.equal((await oidc.requireSession(path.join(root, "node-one"))).personId, "ordinary-person");
   assert.equal((await request({ operation: "session-lifetime", repoId: "node-one" })).code, "authorization_denied");
   session = undefined;

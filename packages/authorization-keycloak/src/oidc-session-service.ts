@@ -1238,7 +1238,12 @@ export class OidcSessionService {
   }
 
   #lapsing(session: StoredSession): boolean {
-    const marginMs = session.authority?.clientId?.startsWith("harness-node-")
+    const hasNodeClient = session.authority?.clientId?.startsWith("harness-node-") === true;
+    const hasLegacyNodeAuthority =
+      session.authority?.clientId === undefined &&
+      session.loginTarget !== undefined &&
+      Boolean(this.#host.readFleetEdgeConfig(session.loginTarget));
+    const marginMs = hasNodeClient || hasLegacyNodeAuthority
       ? nodeRenewalMarginMs
       : renewalMarginMs;
     return session.expiresAt - this.#ports.now() <= marginMs;
