@@ -123,7 +123,9 @@ export function workBriefsFromProjection(
       readonly scopePersonId?: string;
       readonly filterNodeId?: string;
     }) => WorkBriefAgendaPage;
-    /** 读者的 person id;缺省时不过滤(单仓单业主仍是全集,多业主仓必须传)。 */
+    /** Agenda viewer, independent of Work membership and the legacy root-owner lens. */
+    readonly viewerPersonId?: string;
+    /** Legacy root-owner lens when neither an explicit viewer nor a member scope is supplied. */
     readonly principalId?: string;
     readonly ciRuns?: readonly WorkBriefCiRun[];
     readonly now?: () => Date;
@@ -134,7 +136,7 @@ export function workBriefsFromProjection(
     byId = new Map(index.rows.map((row) => [row.taskId, row])),
     works = workIndexAtRead(index, input).works,
     personId = scopedPersonId(input),
-    viewerPersonId = input.principalId ?? personId,
+    viewerPersonId = input.viewerPersonId ?? input.principalId ?? personId,
     agendaPage: NonNullable<typeof input.agendaPage> =
       input.agendaPage ??
       ((query) => {
@@ -153,6 +155,7 @@ export function workBriefsFromProjection(
   for (const work of works) {
     if (
       personId === undefined &&
+      input.viewerPersonId === undefined &&
       input.principalId !== undefined &&
       rootPrincipal(input.projection, work.taskId) !== input.principalId
     )

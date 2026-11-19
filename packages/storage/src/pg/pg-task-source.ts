@@ -573,7 +573,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     ...pgEventQueries(options),
     ...pgRuntimeDispatchQueries(options),
     ...pgDispatchLifecycleQueries(options),
-    ...pgTaskIndexQueries(options, { read, list }),
+    ...pgTaskIndexQueries(options, { read, list }, now),
     ...pgRelationPortQueries(options),
     ...pgTaskEventQueries(options),
     ...pgValueQueries(options),

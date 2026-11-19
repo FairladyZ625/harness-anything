@@ -1,3 +1,8 @@
+import {
+  compareRuntimeDispatchPageKeys,
+  runtimeDispatchPageKey,
+  runtimeDispatchPageTimeKey,
+} from "@harness-anything/kernel/internal/domain/runtime-public-query.ts";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import type { TaskProjection } from "@harness-anything/kernel";
 import {
@@ -5,7 +10,7 @@ import {
   type CollaboratorScope,
 } from "@harness-anything/kernel/internal/domain/collaborator-scope.ts";
 import { requireSameProjectionCut } from "./projection-cut.ts";
-import { runtimeDispatchStartedAt, sourceNodeReader } from "./runtime-attribution.ts";
+import { sourceNodeReader } from "./runtime-attribution.ts";
 
 interface TokenUsageTotals {
   dispatches: number;
@@ -32,6 +37,7 @@ export function readCollaboratorTokenUsage(
   query: CollaboratorScope & { readonly startedAtGte: string; readonly startedAtLt?: string },
 ) {
   const { startedAtGte, startedAtLt } = query,
+    upper = startedAtLt === undefined ? undefined : runtimeDispatchPageTimeKey(startedAtLt),
     cut = projection.readCut(),
     sourceNode = sourceNodeReader(projection),
     persons = new Map<string | null, TokenUsageTotals>(),
@@ -45,10 +51,9 @@ export function readCollaboratorTokenUsage(
       ...(cursor ? { cursor } : {}),
     });
     for (const { event, metrics } of page.rows) {
-      const startedAt = runtimeDispatchStartedAt(event),
-        personId = event.actor.principal.personId ?? null,
+      if (upper !== undefined && runtimeDispatchPageKey(event).startedAt >= upper) break dispatchPages;
+      const personId = event.actor.principal.personId ?? null,
         nodeId = sourceNode(event.source);
-      if (startedAtLt !== undefined && Date.parse(startedAt) >= Date.parse(startedAtLt)) break dispatchPages;
       if (!matchesCollaboratorScope(query, [{ personId, nodeId }])) continue;
       const person = persons.get(personId) ?? emptyTotals(),
         node = nodes.get(nodeId) ?? emptyTotals();
@@ -67,12 +72,7 @@ export function readCollaboratorTokenUsage(
     }
     if (page.done) break;
     const next = page.nextCursor;
-    if (
-      next === null ||
-      (cursor !== undefined &&
-        (next.startedAt < cursor.startedAt ||
-          (next.startedAt === cursor.startedAt && next.dispatchId <= cursor.dispatchId)))
-    )
+    if (next === null || (cursor !== undefined && compareRuntimeDispatchPageKeys(next, cursor) <= 0))
       throw new Error("Token usage dispatch page cursor did not advance.");
     cursor = next;
   }

@@ -200,6 +200,10 @@ test("canonical Work, edge and Pin events produce a member's brief before and af
         [["task/bob-question", "Is rollout ready?"]],
       );
       assert.deepEqual(briefs[0]?.asks, agenda.awaitingYou);
+      const allBriefs = workBriefsFromProjection({ projection, viewerPersonId: bob, now }).briefs;
+      assert.deepEqual(allBriefs[0]?.asks, agenda.awaitingYou);
+      assert.equal(allBriefs[0]?.taskId, "shared-work");
+      assert.ok(allBriefs[0]?.openTasks.some(({ taskId }) => taskId === "alice-execution"));
       assert.equal(briefs[0]?.bucket, "waiting");
       assert.deepEqual(
         readAgendaAwaitsPage(projection, { ...scope, viewerPersonId: alice, filterNodeId: "center" }).awaitingYou,

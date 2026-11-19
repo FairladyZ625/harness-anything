@@ -12,7 +12,6 @@ import {
 } from "@harness-anything/kernel";
 import { serializeCanonicalEventUnchecked } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
-import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
 import { makeTaskEventReader } from "../../src/store/task-event-store-factory.ts";
 import {
   activateEmptyCanonicalGeneration,
@@ -24,6 +23,7 @@ import { createProjectionTables } from "../../src/projection/projection-tables.t
 import { listPinnedEntityRows } from "../../src/projection/rebuildable-task-projection-entities.ts";
 import { makeTaskEventStore, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
+import { alice, bob, first, migratedTaskPinBundle } from "./collaborator-ledger.events.fixture.ts";
 import { initRepo } from "./task-event-store.fixtures.ts";
 import { withTempStore, withTempStoreAsync } from "./helpers.ts";
 
@@ -97,14 +97,25 @@ test("cancellation retires each member's pin without retiring pins on ordinary t
       workspaceRevision: revision,
       occurredAt: "2026-11-19T02:00:00.000Z",
     });
-    const created = lifecycleFixture({ taskId }).events[0]!;
-    assert.equal(created.type, "task_created");
-    const initial = { ...created, ...envelope("person_alice") };
-    append({ event: initial, plan: taskLifecycleWritePlan(initial), blobs: [] });
+    append(migratedTaskPinBundle(taskId, ++revision));
+    const imported = [{ entityRef, pinnedAt: first, pinnedBy: alice }];
+    assert.deepEqual(projection.listPinnedEntities(alice), imported);
+    assert.deepEqual(projection.listPinnedEntities(bob), []);
+    assert.equal(projection.rebuild().watermark, revision);
+    assert.deepEqual(projection.listPinnedEntities(alice), imported);
+
+    append(compileEntityPinEvent({ ...envelope(bob), entityRef, pinned: false }));
+    assert.deepEqual(projection.listPinnedEntities(alice), imported);
+    append(compileEntityPinEvent({ ...envelope(alice), entityRef, pinned: false }));
+    assert.deepEqual(projection.listPinnedEntities(alice), []);
+    assert.equal(projection.rebuild().watermark, revision);
+    assert.deepEqual(projection.listPinnedEntities(alice), []);
+    const secondTask = "task-still-imported-pin";
+    append(migratedTaskPinBundle(secondTask, ++revision));
     const pin = (personId: string) => append(compileEntityPinEvent({ ...envelope(personId), entityRef, pinned: true }));
-    const transition = (status: "blocked" | "cancelled") => {
+    const transition = (status: "blocked" | "cancelled", target = taskId) => {
       const identity = envelope("person_alice"),
-        snapshot = projection.read(taskId).snapshot,
+        snapshot = projection.read(target).snapshot,
         command = {
           ...normalizeTaskLifecycleCommand(
             {
@@ -113,7 +124,7 @@ test("cancellation retires each member's pin without retiring pins on ordinary t
               source: identity.source,
               expectedRevision: snapshot.revision,
             },
-            { type: "TransitionTask", taskId, status, reason: "Personal pin lifecycle fixture" },
+            { type: "TransitionTask", taskId: target, status, reason: "Personal pin lifecycle fixture" },
           ),
           workspaceRevision: identity.workspaceRevision,
           eventId: identity.eventId,
@@ -124,6 +135,9 @@ test("cancellation retires each member's pin without retiring pins on ordinary t
       return event;
     };
     try {
+      assert.equal(projection.listPinnedEntities(alice).length, 1, "the migrated task occupies a personal slot");
+      transition("cancelled", secondTask);
+      assert.deepEqual(projection.listPinnedEntities(alice), []);
       for (const member of members) pin(member);
       transition("blocked");
       for (const member of members) assert.equal(projection.listPinnedEntities(member).length, 1);

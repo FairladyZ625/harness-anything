@@ -1,9 +1,18 @@
-import { compileDecisionWrite, type AgentRuntimeEventV1 } from "@harness-anything/kernel";
+import {
+  compileDecisionWrite,
+  MIGRATION_DOCUMENT_POLICY_ID,
+  MIGRATION_IMPORT_SOURCE,
+  migrationImportWritePlan,
+  type AgentRuntimeEventV1,
+  type MigrationImportEventV1,
+} from "@harness-anything/kernel";
 import {
   compileRelationCreatedEvent,
   relationEventWritePlan,
 } from "@harness-anything/kernel/internal/domain/relation-event.ts";
 import { canonicalEventWritePlan, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
+import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
+import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { decisionProposal } from "./task-event-store.fixtures.ts";
 import { relation } from "./relation-graph-projection.fixtures.ts";
 
@@ -65,7 +74,9 @@ export async function appendCollaboratorLedger(
   const historicalDispatchRevisions: number[] = [];
   for (const [id, personId, nodeId, at, total] of [
     ["live", alice, edgeA, "2026-11-19T02:00:00.000Z", null],
-    ["alice", alice, edgeA, first, 15],
+    ["alice", alice, edgeA, "2026-11-19T03:00:00Z", 15],
+    ["millis", alice, edgeA, first, 5],
+    ["later", alice, edgeA, "2026-11-19T03:00:00.1Z", 8],
     ["bob", bob, edgeB, second, 27],
   ] as const) {
     const runtimeSessionId = `billing-${id}-session`,
@@ -83,7 +94,7 @@ export async function appendCollaboratorLedger(
       type: "runtime_session_started",
       payload: { ...identity, launchGeneration: 1, attachable: false },
     });
-    if (id !== "bob") historicalDispatchRevisions.push(nextRevision());
+    if (id === "live" || id === "alice") historicalDispatchRevisions.push(nextRevision());
     await appendRuntime({
       ...envelope(`dispatch-${id}`, personId, nodeId, at),
       schema: "agent-runtime-event/v1",
@@ -92,7 +103,8 @@ export async function appendCollaboratorLedger(
         ...identity,
         dispatchId,
         dispatchKey: `billing-${id}-key`,
-        ...(id === "bob" ? { startedAt: at } : {}),
+        taskId: id === "millis" ? "billing-task-b" : "billing-task-a",
+        ...(id === "live" || id === "alice" ? {} : { startedAt: at }),
         definitionSnapshot: {
           schema: "agent-definition-snapshot/v1",
           configVersion: 1,
@@ -131,4 +143,40 @@ export async function appendCollaboratorLedger(
     });
   }
   return historicalDispatchRevisions;
+}
+
+export function migratedTaskPinBundle(taskId: string, revision: number): CanonicalWriteBundle {
+  const packagePath = `tasks/${taskId}-legacy`,
+    body = "# Imported task\n",
+    blob = { sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: "text/markdown", body },
+    task = lifecycleFixture({ taskId }).events[0]!.payload.task,
+    event: MigrationImportEventV1 = {
+      schema: "migration-import-event/v1",
+      type: "entity_migrated",
+      eventId: `migration-event-${taskId}`,
+      opId: `migration-op-${taskId}`,
+      workspaceRevision: revision,
+      actor: actor(alice),
+      source: MIGRATION_IMPORT_SOURCE,
+      occurredAt: first,
+      payload: {
+        generation: "v0",
+        migratedFrom: taskId,
+        entity: {
+          kind: "task",
+          provenance: "imported_snapshot",
+          task: { ...task, pinned: true, createdBy: actor(bob) },
+          originalStatus: task.status,
+          packagePath,
+          documentClaim: {
+            path: `${packagePath}/INDEX.md`,
+            sha256: blob.sha256,
+            size: blob.size,
+            mediaType: blob.mediaType,
+            policyId: MIGRATION_DOCUMENT_POLICY_ID,
+          },
+        },
+      },
+    };
+  return { event, plan: migrationImportWritePlan(event), blobs: [blob] };
 }

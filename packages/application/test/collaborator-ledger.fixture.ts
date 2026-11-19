@@ -64,27 +64,28 @@ export function assertCollaboratorLedger(projection: TaskProjectionQueries): voi
     },
   };
   const full = readCollaboratorTokenUsage(billing, { startedAtGte: first });
-  assert.equal(pages, 2);
-  assert.equal(full.totals.dispatches, 2);
-  assert.equal(full.totals.usageReportedDispatches, 2);
-  assert.equal(full.totals.totalTokens, 42);
+  assert.equal(pages, 4);
+  assert.equal(full.totals.dispatches, 4);
+  assert.equal(full.totals.usageReportedDispatches, 4);
+  assert.equal(full.totals.totalTokens, 55);
   assert.deepEqual(
     full.byPerson.map(({ personId, totalTokens }) => [personId, totalTokens]),
     [
-      [alice, 15],
+      [alice, 28],
       [bob, 27],
     ],
   );
   assert.deepEqual(
     full.byNode.map(({ nodeId, totalTokens }) => [nodeId, totalTokens]),
     [
-      [edgeA, 15],
+      [edgeA, 28],
       [edgeB, 27],
     ],
   );
   const bill = (scope: { scopePersonId?: string; filterNodeId?: string; startedAtLt?: string }) =>
     readCollaboratorTokenUsage(billing, { startedAtGte: first, ...scope }).totals.totalTokens;
-  assert.equal(bill({ filterNodeId: edgeA, startedAtLt: second }), 15);
+  assert.equal(bill({ filterNodeId: edgeA, startedAtLt: second }), 28);
+  assert.equal(bill({ filterNodeId: edgeA, startedAtLt: "2026-11-19T03:00:00.025Z" }), 20);
   assert.equal(bill({ filterNodeId: edgeB }), 27);
   assert.equal(bill({ scopePersonId: alice, filterNodeId: edgeB }), 0);
   assert.equal(bill({ scopePersonId: "person_unrelated" }), 0);

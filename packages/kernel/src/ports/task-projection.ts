@@ -287,7 +287,8 @@ export interface TaskProjection {
     decisionIds: readonly string[],
   ) => readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
   readonly readRuntimeDispatchPage: (query: {
-    /** Task-scoped history pages seek each task time index, never materialize its history. */
+    /** Task-scoped history pages seek each task time index, never materialize its history.
+     * Pages order by the UTC millisecond key of startedAt ?? occurredAt, then by dispatch ID. */
     readonly taskIds?: readonly string[];
     readonly startedAtGte: string;
     readonly cursor?: { readonly startedAt: string; readonly dispatchId: string };

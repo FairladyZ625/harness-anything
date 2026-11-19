@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import { isoTimestampMillisecondsSql } from "./iso-timestamp-sql.ts";
+import { isoTimestampMillisecondsKeySql, isoTimestampMillisecondsSql } from "./iso-timestamp-sql.ts";
 import {
   EVENT_SUMMARY_READ_INDEX_TRIGGERS_SQL,
   backfillEventSummaryReadIndex,
@@ -32,6 +32,10 @@ export const TASK_INDEX_TABLES_SQL = `
     CREATE INDEX IF NOT EXISTS task_snapshot_parent
       ON task_snapshot(json_extract(snapshot_json, '$.task.metadata.parentTaskId'));
     /* @gate-identity state-store/task.projection.task_package */ CREATE TABLE IF NOT EXISTS task_package (task_id TEXT PRIMARY KEY, package_path TEXT NOT NULL UNIQUE);`;
+
+export const sqliteDispatchPageTimeKey = isoTimestampMillisecondsKeySql(
+  "COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt'))",
+);
 
 export const REPOSITORY_READ_TABLES_SQL = `
     ${DISPATCH_LIFECYCLE_TABLES_SQL}
@@ -218,9 +222,12 @@ export const REPOSITORY_READ_TABLES_SQL = `
       json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.payload.dispatchId')
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
       AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
-    CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_activity ON event_index(
-      COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt')),
-      json_extract(event_json, '$.payload.dispatchId')
+    CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_activity_ms ON event_index(
+      ${sqliteDispatchPageTimeKey}, json_extract(event_json, '$.payload.dispatchId')
+    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
+    CREATE INDEX IF NOT EXISTS event_index_runtime_task_activity_ms ON event_index(
+      json_extract(event_json, '$.payload.taskId'), ${sqliteDispatchPageTimeKey}, json_extract(event_json, '$.payload.dispatchId')
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
       AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
     CREATE INDEX IF NOT EXISTS event_index_runtime_attempt_group ON event_index(

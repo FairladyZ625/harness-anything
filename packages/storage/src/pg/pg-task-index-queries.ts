@@ -1,3 +1,4 @@
+import { effectiveLeaseValue } from "../projection/rebuildable-task-projection-runtime.ts";
 import { taskAttribution } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
 import { assertPgTaskParentIndexReady } from "./pg-task-parent-index.ts";
 import type { TaskProjectionQueries, TaskLifecycleSnapshot, TaskIndexProjectionRow } from "@harness-anything/kernel";
@@ -77,6 +78,7 @@ export async function readScopedTaskIds(
 export function pgTaskIndexQueries(
   options: PgTaskProjectionSourceOptions,
   source: Pick<PgTaskProjectionSource, "read" | "list">,
+  now: () => string,
 ): PgTaskIndexQueries {
   const { scope } = options,
     readers = [...(scope.readers ?? [])],
@@ -206,7 +208,7 @@ export function pgTaskIndexQueries(
         let attribution = "";
         if (query.withAttribution) {
           values.push(options.repoId);
-          attribution = `,snapshot,${pgTaskAttributionColumns(values.length)}`;
+          attribution = `,snapshot,raw_lease,${pgTaskAttributionColumns(values.length)}`;
         }
         if (pageSize !== null) values.push(pageSize + 1);
         const result = await client.query<
@@ -235,7 +237,8 @@ export function pgTaskIndexQueries(
           values,
         );
         const visible = pageSize === null ? result.rows : result.rows.slice(0, pageSize),
-          rows = visible.flatMap((row) => indexRow(row));
+          at = now(),
+          rows = visible.flatMap((row) => indexRow(row, at));
         return {
           ...cut,
           schema: "task-index-projection/v1" as const,
@@ -257,6 +260,7 @@ export function pgTaskIndexQueries(
 
 interface PgIndexAttribution {
   readonly snapshot?: TaskLifecycleSnapshot;
+  readonly raw_lease?: TaskLifecycleSnapshot["lease"];
   readonly origin_node_id?: string | null;
   readonly latest_node_id?: string | null;
   readonly latest_person_id?: string | null;
@@ -281,6 +285,7 @@ function indexRow(
     readonly updated_at: string;
     readonly presentation_status: string | null;
   } & PgIndexAttribution,
+  now: string,
 ): ReturnType<TaskProjectionQueries["readTaskIndex"]>["rows"] {
   if (
     row.task_status === null ||
@@ -293,7 +298,7 @@ function indexRow(
     {
       ...(row.snapshot
         ? taskAttribution(
-            row.snapshot,
+            { ...row.snapshot, lease: effectiveLeaseValue(row.raw_lease ?? null, now) },
             row.origin_node_id ?? null,
             row.latest_node_id ?? null,
             row.latest_person_id ?? null,

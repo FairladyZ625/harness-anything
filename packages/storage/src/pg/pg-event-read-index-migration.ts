@@ -1,3 +1,4 @@
+import { isoTimestampMillisecondsKeySql } from "../projection/iso-timestamp-sql.ts";
 import type { Pool, PoolClient } from "pg";
 import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync-types.ts";
 import {
@@ -68,6 +69,7 @@ const eventReadFields = {
     ELSE v->>'taskId' END`,
 };
 const eventScope = "tenant_id,project_id,policy_epoch,repo_id";
+export const pgDispatchPageTimeKey = isoTimestampMillisecondsKeySql("dispatch_activity_at");
 const dispatchIndexes = [
   ["id", "dispatch_id,revision"],
   ["key", "dispatch_key,revision"],
@@ -83,7 +85,8 @@ const dispatchIndexes = [
   ["agent_session", "agent_id,runtime_session_id,dispatch_activity_at DESC,dispatch_id DESC"],
   ["squad_session", "squad_id,runtime_session_id,dispatch_activity_at DESC,dispatch_id DESC"],
   ["page", "dispatch_started_at,dispatch_id"],
-  ["activity_page", "dispatch_activity_at,dispatch_id"],
+  ["activity_page_ms", `${pgDispatchPageTimeKey},dispatch_id`],
+  ["task_activity_page_ms", `payload_task_id,${pgDispatchPageTimeKey},dispatch_id`],
   // "Newest dispatch for this task" without walking every dispatch the task ever had:
   // fleet overview reads one current dispatch per lease row. Effective time is
   // `startedAt ?? occurredAt`, matching the dispatch row's timestamp fallback.

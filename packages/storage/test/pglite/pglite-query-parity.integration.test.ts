@@ -4,7 +4,12 @@ import { appendBootstrapQueryFixture } from "../postgres/query-bootstrap.fixture
 import test from "node:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { relationIsCurrent, taskLifecycleWritePlan } from "@harness-anything/kernel";
+import {
+  compileEntityPinEvent,
+  relationIsCurrent,
+  taskLifecycleWritePlan,
+  type TaskEventV1,
+} from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
 import {
   canonicalEventWritePlan,
@@ -36,6 +41,7 @@ import {
   first,
   second,
   appendCollaboratorLedger,
+  migratedTaskPinBundle,
 } from "../store/collaborator-ledger.events.fixture.ts";
 import { runtimeProviderEvents } from "../runtime-provider-bytes.assertions.ts";
 
@@ -224,26 +230,43 @@ pgliteIntegrationSuite("complete synchronous query parity", () => {
             assert.deepEqual(involvement(bob), ["dec_AWAITS_BOB", "dec_BOB_ONLY"]);
             assert.deepEqual(involvement("person_unrelated"), []);
 
-            const firstPage = queries.readRuntimeDispatchPage({ startedAtGte: first, limit: 1 });
-            assert.deepEqual(firstPage.nextCursor, { startedAt: first, dispatchId: "billing-alice-dispatch" });
-            const secondPage = queries.readRuntimeDispatchPage({
-              startedAtGte: first,
-              limit: 1,
-              cursor: firstPage.nextCursor!,
-            });
-            assert.equal(secondPage.done, true);
-            const rows = [...firstPage.rows, ...secondPage.rows];
-            assert.deepEqual(
-              rows.map(({ event, metrics }) => [event.actor.principal.personId, event.source, metrics?.totalTokens]),
-              [
-                [alice, { kind: "node", nodeId: edgeA }, 15],
-                [bob, { kind: "node", nodeId: edgeB }, 27],
-              ],
-            );
-            assert.equal(
-              rows.reduce((total, row) => total + (row.metrics?.totalTokens ?? 0), 0),
-              42,
-            );
+            for (const taskIds of [undefined, ["billing-task-a", "billing-task-b"]]) {
+              const window = taskIds === undefined ? {} : { taskIds };
+              const rows = [];
+              const cursors = [];
+              let cursor: { startedAt: string; dispatchId: string } | undefined;
+              do {
+                const page = queries.readRuntimeDispatchPage({
+                  ...window,
+                  startedAtGte: first,
+                  limit: 1,
+                  ...(cursor ? { cursor } : {}),
+                });
+                rows.push(...page.rows);
+                cursors.push(page.nextCursor);
+                cursor = page.nextCursor ?? undefined;
+              } while (cursor && rows.length < 5);
+              assert.deepEqual(cursors, [
+                { startedAt: first, dispatchId: "billing-alice-dispatch" },
+                { startedAt: first, dispatchId: "billing-millis-dispatch" },
+                { startedAt: "2026-11-19T03:00:00.100Z", dispatchId: "billing-later-dispatch" },
+                null,
+              ]);
+              assert.deepEqual(
+                rows.map(({ event, metrics }) => [
+                  event.actor.principal.personId,
+                  event.source,
+                  event.payload.startedAt,
+                  metrics?.totalTokens,
+                ]),
+                [
+                  [alice, { kind: "node", nodeId: edgeA }, undefined, 15],
+                  [alice, { kind: "node", nodeId: edgeA }, first, 5],
+                  [alice, { kind: "node", nodeId: edgeA }, "2026-11-19T03:00:00.1Z", 8],
+                  [bob, { kind: "node", nodeId: edgeB }, second, 27],
+                ],
+              );
+            }
             assert.deepEqual(
               queries
                 .readRuntimeDispatchPage({ startedAtGte: second, limit: 1 })
@@ -256,6 +279,158 @@ pgliteIntegrationSuite("complete synchronous query parity", () => {
         }
       } finally {
         await embedded.drain();
+      }
+    });
+  });
+  test("personal migrated Pin agrees in SQLite and PGlite", async () => {
+    await withTempStoreAsync(async (rootDir) => {
+      initRepo(rootDir);
+      const repoId = "pglite-personal-pin-lease",
+        storage = {
+          backend: "pglite" as const,
+          dataDir: join(rootDir, "database"),
+          materialize: false,
+          scope: { tenantId: "personal-pin-lease", projectId: "personal-pin-lease", policyEpoch: 1 },
+        },
+        embedded = makeTaskEventStore({ repoId, rootDir, storage }),
+        sqlite = makeTaskEventStore({ repoId, rootDir });
+      let revision = 0;
+      const projection = makeTaskProjection({ rootDir, eventStore: sqlite }),
+        reader = makeTaskProjectionReader({ repoId, storage });
+      const append = (bundle: CanonicalWriteBundle) => {
+        embedded.append(bundle);
+        sqlite.append(bundle);
+        projection.apply(bundle.event, bundle.plan);
+      };
+      try {
+        const pinTaskId = "task-migrated-pin",
+          entityRef = `task/${pinTaskId}`;
+        append(migratedTaskPinBundle(pinTaskId, ++revision));
+        const readPins = () =>
+          reader.withSession((queries) => [queries.listPinnedEntities(alice), queries.listPinnedEntities(bob)]);
+        assert.deepEqual(readPins(), [[{ entityRef, pinnedAt: first, pinnedBy: alice }], []]);
+        for (const personId of [bob, alice]) {
+          append(
+            compileEntityPinEvent({
+              actor: { principal: { personId }, executor: null },
+              source: "local",
+              workspaceRevision: ++revision,
+              opId: `unpin-${personId}`,
+              eventId: `event-unpin-${personId}`,
+              occurredAt: first,
+              entityRef,
+              pinned: false,
+            }),
+          );
+          const expected = personId === alice ? [] : [{ entityRef, pinnedAt: first, pinnedBy: alice }];
+          assert.deepEqual(readPins(), [expected, []]);
+          assert.deepEqual(projection.listPinnedEntities(alice), expected);
+        }
+      } finally {
+        reader.close();
+        projection.close();
+        await embedded.drain();
+        await sqlite.drain();
+      }
+    });
+  });
+  test("task index selects the current operator across held and reserving lease expiry", async () => {
+    await withTempStoreAsync(async (rootDir) => {
+      initRepo(rootDir);
+      const repoId = "pglite-clocked-ownership",
+        storage = {
+          backend: "pglite" as const,
+          dataDir: join(rootDir, "database"),
+          materialize: false,
+          scope: { tenantId: "clocked-ownership", projectId: "clocked-ownership", policyEpoch: 1 },
+        },
+        embedded = makeTaskEventStore({ repoId, rootDir, storage }),
+        sqlite = makeTaskEventStore({ repoId, rootDir });
+      let at = "2026-08-11T00:45:00.000Z",
+        revision = 0;
+      const now = () => at,
+        local = makeTaskProjection({ rootDir, eventStore: sqlite, now }),
+        pg = makeTaskProjection({ rootDir, eventStore: embedded, storage, now }),
+        heldTask = "task-clocked-held",
+        reservingTask = "task-clocked-reserving",
+        operator = { principal: { personId: bob }, executor: null },
+        latestAt = "2026-08-11T00:44:00.000Z",
+        [created, started] = lifecycleFixture({ taskId: heldTask }).events;
+      assert.ok(created?.type === "task_created" && started?.type === "execution_started");
+      const appendTask = (original: TaskEventV1) => {
+        const event = {
+          ...original,
+          eventId: `event-clocked-${++revision}`,
+          opId: `op-clocked-${revision}`,
+          workspaceRevision: revision,
+        };
+        const bundle = { event, plan: taskLifecycleWritePlan(event), blobs: [] };
+        embedded.append(bundle);
+        sqlite.append(bundle);
+        local.apply(event, bundle.plan);
+      };
+      try {
+        appendTask(created);
+        appendTask(started);
+        appendTask({
+          ...started,
+          type: "task_amended",
+          actor: operator,
+          source: { kind: "node", nodeId: edgeB },
+          occurredAt: latestAt,
+          payload: {
+            task: { ...started.payload.task, title: "New operator activity" },
+            mutation: { command: "amend", reason: "Cross-node activity", fields: ["title"] },
+            documentClaims: [],
+          },
+        });
+        const reserving = lifecycleFixture({ taskId: reservingTask }).events[0]!;
+        assert.equal(reserving.type, "task_created");
+        if (reserving.type !== "task_created") throw new Error("Reservation fixture requires creation");
+        appendTask(reserving);
+        const expiresAt = started.payload.lease.expiresAt;
+        for (const projection of [local, pg]) {
+          projection.reserveLease(
+            {
+              ...started.payload.lease,
+              phase: "reserving",
+              taskId: reservingTask,
+              executionId: "execution-clocked-reserving",
+              actor: operator,
+              source: { kind: "node", nodeId: edgeB },
+              version: 0,
+            },
+            at,
+          );
+        }
+        const attribution = (projection: Pick<typeof local, "readTaskIndex">) =>
+          projection
+            .readTaskIndex({ withAttribution: true, taskIds: [heldTask, reservingTask] })
+            .rows.map(({ taskId, activeOrLatestPersonId, activeOrLatestNodeId, activeOrLatestActivityAt }) => [
+              taskId,
+              activeOrLatestPersonId,
+              activeOrLatestNodeId,
+              activeOrLatestActivityAt,
+            ]);
+        const acquiredAt = new Date(Date.parse(expiresAt) - started.payload.lease.ttlMs).toISOString();
+        const before = [
+          [heldTask, "person-owner", "center", acquiredAt],
+          [reservingTask, bob, edgeB, acquiredAt],
+        ];
+        assert.deepEqual(attribution(local), before);
+        assert.deepEqual(attribution(pg), before);
+        at = expiresAt;
+        const after = [
+          [heldTask, bob, edgeB, latestAt],
+          [reservingTask, "person-owner", "center", reserving.occurredAt],
+        ];
+        assert.deepEqual(attribution(local), after);
+        assert.deepEqual(attribution(pg), after);
+      } finally {
+        pg.close();
+        local.close();
+        await embedded.drain();
+        await sqlite.drain();
       }
     });
   });

@@ -15,11 +15,15 @@ import {
 import { assertRuntimeDispatchKeyIndexReady, assertRuntimeMemberIndexReady } from "./runtime-member-index.ts";
 import { prefixUpperBound } from "./document-read-range.ts";
 import { isoTimestampMillisecondsSql } from "./iso-timestamp-sql.ts";
+import { sqliteDispatchPageTimeKey } from "./projection-tables.ts";
 import { checkedPageLimit } from "./task-query-projection.ts";
 import { readArtifactEntityState } from "./artifact-entity-state-projection.ts";
 import { readEventList } from "./event-list-query.ts";
 import {
   assertRuntimeEventTypes,
+  compareRuntimeDispatchPageKeys,
+  runtimeDispatchPageKey,
+  runtimeDispatchPageTimeKey,
   privateRuntimeEventTypes,
   publicRuntimeDispatch,
 } from "@harness-anything/kernel/internal/domain/runtime-public-query.ts";
@@ -155,15 +159,14 @@ const RUNTIME_DISPATCH_MEMBER_SESSIONS_SQL = (member: "agentId" | "squadId", sco
       WHERE b.runtime_session_id=json_extract(d.event_json, '$.payload.runtimeSessionId')) AS taskIds
   FROM latest CROSS JOIN event_index d ON d.workspace_revision=latest.revision ORDER BY runtimeSessionId`;
 };
-const dispatchActivityAt =
-  "COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt'))";
 const dispatchId = "json_extract(event_json, '$.payload.dispatchId')";
-const RUNTIME_DISPATCH_PAGE_SQL = `
-  SELECT event_json FROM event_index INDEXED BY event_index_runtime_dispatch_activity
+const RUNTIME_DISPATCH_PAGE_SQL = (byTask: boolean) => `
+  SELECT event_json FROM event_index
   WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
     AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'
-    AND ${dispatchActivityAt} >= ? AND (${dispatchActivityAt}, ${dispatchId}) > (?, ?)
-  ORDER BY ${dispatchActivityAt}, ${dispatchId} LIMIT ?`;
+    ${byTask ? "AND json_extract(event_json, '$.payload.taskId') = ?" : ""}
+    AND ${sqliteDispatchPageTimeKey} >= ? AND (${sqliteDispatchPageTimeKey}, ${dispatchId}) > (?, ?)
+  ORDER BY ${sqliteDispatchPageTimeKey}, ${dispatchId} LIMIT ?`;
 const RUNTIME_OUTCOME_BY_DISPATCH_SQL = [
   "SELECT event_json FROM event_index",
   "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
@@ -464,37 +467,21 @@ export function repositoryEventQueries(
       withRead((db) => {
         if (!validateStorageReadWindow(pageLimit, storageReadPolicy.defaultValue.pageSizes.standard))
           throw new Error("runtime dispatch page requires a limit from 1 to 500");
-        const afterStartedAt = cursor?.startedAt ?? "",
-          afterDispatchId = cursor?.dispatchId ?? "",
+        const page = [
+            runtimeDispatchPageTimeKey(startedAtGte),
+            runtimeDispatchPageTimeKey(cursor?.startedAt ?? ""),
+            cursor?.dispatchId ?? "",
+            pageLimit + 1,
+          ] as const,
           raw =
             taskIds === undefined
-              ? queryRows(db, RUNTIME_DISPATCH_PAGE_SQL, startedAtGte, afterStartedAt, afterDispatchId, pageLimit + 1)
+              ? queryRows(db, RUNTIME_DISPATCH_PAGE_SQL(false), ...page)
               : taskIds
-                  .flatMap((taskId) =>
-                    queryRows(
-                      db,
-                      RUNTIME_LATEST_DISPATCH_BY_TASK_SQL.replace(
-                        "ORDER BY",
-                        `AND ${dispatchActivityAt} >= ? AND (${dispatchActivityAt}, ${dispatchId}) > (?, ?) ORDER BY`,
-                      )
-                        .replaceAll(" DESC", " ASC")
-                        .replace("LIMIT 1", "LIMIT ?"),
-                      taskId,
-                      startedAtGte,
-                      afterStartedAt,
-                      afterDispatchId,
-                      pageLimit + 1,
-                    ),
-                  )
-                  .sort((left, right) => {
-                    const a = JSON.parse(String(left.event_json)),
-                      b = JSON.parse(String(right.event_json));
-                    return (
-                      (a.payload.startedAt ?? a.occurredAt).localeCompare(b.payload.startedAt ?? b.occurredAt) ||
-                      a.payload.dispatchId.localeCompare(b.payload.dispatchId)
-                    );
-                  })
-                  .slice(0, pageLimit + 1),
+                  .flatMap((taskId) => queryRows(db, RUNTIME_DISPATCH_PAGE_SQL(true), taskId, ...page))
+                  .map((row) => ({ row, key: runtimeDispatchPageKey(JSON.parse(String(row.event_json))) }))
+                  .sort((left, right) => compareRuntimeDispatchPageKeys(left.key, right.key))
+                  .slice(0, pageLimit + 1)
+                  .map(({ row }) => row),
           done = raw.length <= pageLimit,
           rows = raw.slice(0, pageLimit).flatMap((row) => {
             const projected = projectedDispatch(db, row);
@@ -504,10 +491,7 @@ export function repositoryEventQueries(
         return {
           rows,
           done,
-          nextCursor:
-            !done && last
-              ? { startedAt: last.payload.startedAt ?? last.occurredAt, dispatchId: last.payload.dispatchId }
-              : null,
+          nextCursor: !done && last ? runtimeDispatchPageKey(last) : null,
         };
       }),
     readRuntimeDispatchesByMember: ({ agentId, squadId, personId, nodeId, limit }) =>

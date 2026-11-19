@@ -176,7 +176,7 @@ export function taskQueryApi(
         return {
           schema: "task-index-projection/v1" as const,
           status: cut.status,
-          ...readTaskIndexRows(db, query),
+          ...readTaskIndexRows(db, query, now()),
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
           warnings: !existed && cut.sourceRevision > 0 ? (["projection_missing"] as const) : [],

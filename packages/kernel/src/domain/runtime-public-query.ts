@@ -1,3 +1,4 @@
+import { normalizePersistedTimestamp } from "./timestamp.ts";
 import {
   agentRuntimeEventTypes,
   type AgentRuntimeEventType,
@@ -45,4 +46,24 @@ export function publicRuntimeSession(session: RuntimeSession): RuntimeSession {
 export function publicRuntimeInstallation(installation: RuntimeInstallation): Omit<RuntimeInstallation, "hostRef"> {
   const { hostRef: _hostRef, ...publicFields } = installation;
   return publicFields;
+}
+
+export function runtimeDispatchPageTimeKey(value: string): string {
+  return normalizePersistedTimestamp(value) ?? value;
+}
+
+export function runtimeDispatchPageKey(event: Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }>) {
+  return {
+    startedAt: runtimeDispatchPageTimeKey(event.payload.startedAt ?? event.occurredAt),
+    dispatchId: event.payload.dispatchId,
+  };
+}
+
+export function compareRuntimeDispatchPageKeys(
+  left: ReturnType<typeof runtimeDispatchPageKey>,
+  right: ReturnType<typeof runtimeDispatchPageKey>,
+): number {
+  if (left.startedAt !== right.startedAt) return left.startedAt < right.startedAt ? -1 : 1;
+  // SQLite BINARY and PostgreSQL C order the dispatch ID's encoded bytes.
+  return Buffer.compare(Buffer.from(left.dispatchId), Buffer.from(right.dispatchId));
 }
