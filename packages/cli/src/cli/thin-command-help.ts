@@ -42,6 +42,30 @@ export const clientLocalCommands = [
     ].join("\n"),
   },
   {
+    id: "fleet-center-export",
+    path: ["fleet", "center", "export"],
+    usage:
+      "ha fleet center export --root <path> --bundle <path> --repo <id> --writer-epoch <n> [--slots <path>] [--user-root <path>] [--daemon-id <id>] [--json]",
+    summary: "Stage blobs outside CENTER_MIGRATING freeze, drain RepoCell/Git outbox, and write relocation-bundle/v1.",
+    help: "    The manifest contains only bundle-relative paths and SHA-256 digests.",
+  },
+  {
+    id: "fleet-center-import",
+    path: ["fleet", "center", "import"],
+    usage:
+      "ha fleet center import --bundle <path> --destination <path> [--external-url <url>] [--login-url <url>] [--expected-final-revision <n>] [--expected-tip-hash <hash>] [--slots <path>] [--state-root <path>] [--user-root <path>] [--daemon-id <id>] [--repo <id>] [--json]",
+    summary: "Verify every relocation-bundle/v1 digest, rebind routing URLs, and advance writer epoch to oldEpoch + 1.",
+    help: "    A digest, repo, revision or tip mismatch removes the partially restored destination and slots copy.",
+  },
+  {
+    id: "fleet-center-retire",
+    path: ["fleet", "center", "retire"],
+    usage:
+      "ha fleet center retire --repo <id> --old-epoch <n> --final-revision <n> --tip-hash <hash> --new-external-url <url> --new-login-url <url> --spki-sha256 <hash> [--user-root <path>] [--json]",
+    summary: "Write the irreversible center-relocated.json tombstone and fence old-center writes.",
+    help: "    A restarted old center returns CENTER_MOVED with the tombstone routing fields.",
+  },
+  {
     id: "daemon-metrics",
     path: ["daemon", "metrics"],
     usage:

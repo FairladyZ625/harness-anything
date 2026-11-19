@@ -17,6 +17,7 @@ import {
 import type { StorageBackendConfig } from "./storage-backend.ts";
 import { requireExternalWriterEpochOpener } from "./sql-backend-adapters.ts";
 import { writerEpochStorage } from "./writer-epoch-storage.ts";
+import { throwIfWriterEpochRetired } from "./center-relocation-state.ts";
 
 type EpochRow = {
   readonly repo_id: string;
@@ -521,15 +522,53 @@ export function migrateLegacyWriterEpochDatabase(stateRoot: string): LegacyWrite
   }
 }
 
+function guardRetiredWriterEpoch(stateRoot: string, inner: PersistentWriterEpoch): PersistentWriterEpoch {
+  return {
+    acquire: (repoId, observedLedgerEpoch = 0) => {
+      if (!repoId) throw new WriterEpochError("writer_epoch_invalid", "repoId is required for writer epoch allocation");
+      throwIfWriterEpochRetired(stateRoot, repoId);
+      return inner.acquire(repoId, observedLedgerEpoch);
+    },
+    current: (repoId) => inner.current(repoId),
+    highWatermark: (repoId) => inner.highWatermark(repoId),
+    retireCurrent: (repoId) => inner.retireCurrent(repoId),
+    assert: (repoId, epoch, expectedHolderId) => {
+      throwIfWriterEpochRetired(stateRoot, repoId);
+      inner.assert(repoId, epoch, expectedHolderId);
+    },
+    withAppendFence: (repoId, epoch, expectedHolderId, operation) => {
+      throwIfWriterEpochRetired(stateRoot, repoId);
+      return inner.withAppendFence(repoId, epoch, expectedHolderId, operation);
+    },
+    withFollowerFence: (repoId, epoch, expectedHolderId, operation) => {
+      throwIfWriterEpochRetired(stateRoot, repoId);
+      return inner.withFollowerFence(repoId, epoch, expectedHolderId, operation);
+    },
+    ...(inner.withFollowerFenceAsync
+      ? {
+          withFollowerFenceAsync: (repoId, epoch, expectedHolderId, operation) => {
+            throwIfWriterEpochRetired(stateRoot, repoId);
+            return inner.withFollowerFenceAsync!(repoId, epoch, expectedHolderId, operation);
+          },
+        }
+      : {}),
+    close: () => inner.close(),
+  };
+}
+
 export function openPersistentWriterEpoch(options: {
   readonly stateRoot: string;
   readonly holderId?: string;
   readonly now?: () => string;
   readonly storage?: StorageBackendConfig;
   readonly storageByRepo?: Readonly<Record<string, StorageBackendConfig>>;
+  readonly initialEpochFloor?: number;
 }): PersistentWriterEpoch {
   if (options.storage?.backend === "postgres" || options.storage?.backend === "pglite")
-    return requireExternalWriterEpochOpener(options.storage.backend)({ ...options, storage: options.storage });
+    return guardRetiredWriterEpoch(
+      options.stateRoot,
+      requireExternalWriterEpochOpener(options.storage.backend)({ ...options, storage: options.storage }),
+    );
   /* @gate-identity state-store/execution.source.storage.src.writer-epoch.filesystem-store */ mkdirSync(
     options.stateRoot,
     { recursive: true },
@@ -550,7 +589,10 @@ export function openPersistentWriterEpoch(options: {
     if (!authority) {
       const storage = options.storageByRepo?.[repoId];
       if (storage?.backend === "postgres" || storage?.backend === "pglite") {
-        authority = requireExternalWriterEpochOpener(storage.backend)({ ...options, storage });
+        authority = guardRetiredWriterEpoch(
+          options.stateRoot,
+          requireExternalWriterEpochOpener(storage.backend)({ ...options, storage }),
+        );
         authorities.set(repoId, authority);
         return authority;
       }
@@ -561,12 +603,13 @@ export function openPersistentWriterEpoch(options: {
         repoId,
         holderId,
         now,
+        initialEpochFloor: options.initialEpochFloor,
       });
       authorities.set(repoId, authority);
     }
     return authority;
   };
-  return {
+  return guardRetiredWriterEpoch(options.stateRoot, {
     acquire: (repoId, observedLedgerEpoch = 0) => {
       if (!repoId) throw new WriterEpochError("writer_epoch_invalid", "repoId is required for writer epoch allocation");
       return authorityFor(repoId).acquire(repoId, observedLedgerEpoch);
@@ -592,7 +635,7 @@ export function openPersistentWriterEpoch(options: {
       for (const authority of authorities.values()) authority.close();
       authorities.clear();
     },
-  };
+  });
 }
 
 // Descriptor checks reuse one authority per state root for the life of this thread. A repo writer

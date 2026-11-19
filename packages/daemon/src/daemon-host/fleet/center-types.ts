@@ -1,14 +1,22 @@
-import type { ReplicaDeliveryLease } from "@harness-anything/storage";
+import {
+  centerMovedDetails,
+  type CenterMovedDetails,
+  type CenterRelocatedTombstoneV1,
+  type ReplicaDeliveryKey,
+  type ReplicaDeliveryLease,
+  type ReplicationSlotKey,
+  type WriterEpochLease,
+} from "@harness-anything/storage";
 import { type WriteReceiptDraft as WriteReceipt } from "@harness-anything/kernel";
 import type { DaemonHost } from "../daemon-host-types.ts";
-import type { WriterEpochLease } from "@harness-anything/storage";
 import { type FleetBlob, type FleetDescriptor, type FleetFrameV1 } from "./command-protocol.ts";
-import type { ReplicationSlotKey, ReplicaDeliveryKey } from "@harness-anything/storage";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import type { FleetDeviceLoginNotice, FleetLoginAuthority } from "./command-protocol.ts";
 import type { ReplicationFrame, ReplicationPeer } from "../../fleet-sync/fleet/protocol.ts";
 import type { ResourceBudget } from "./resource-budget.ts";
 import type { RuntimeExecutionPrincipal } from "../runtime-execution-credential.ts";
+
+export type { CenterMovedDetails, CenterRelocatedTombstoneV1 };
 
 export interface FleetCenterOptions {
   /** Persist one transport record per completed frame; the runtime wires this to the conn log. */
@@ -32,6 +40,9 @@ export interface FleetCenterOptions {
   > &
     Partial<Pick<DaemonHost, "readRepositoryMembers" | "unregisterFleetNode">>;
   readonly stateRoot: string;
+  readonly centerRepoId?: string;
+  readonly relocationRoot?: string;
+  readonly centerRelocated?: CenterRelocatedTombstoneV1;
   readonly writerEpochStateRoot?: string;
   readonly writerEpochLease?: (repoId: string) => WriterEpochLease;
   readonly key: string | Buffer;
@@ -199,11 +210,19 @@ export class FleetFault extends Error {
   readonly code: string;
   readonly retryable: boolean;
   readonly resumeOffset: number | null;
-  constructor(code: string, message: string, retryable = false, resumeOffset: number | null = null) {
+  readonly centerMoved?: CenterMovedDetails;
+  constructor(
+    code: string,
+    message: string,
+    retryable = false,
+    resumeOffset: number | null = null,
+    centerMoved?: CenterMovedDetails,
+  ) {
     super(message);
     this.code = code;
     this.retryable = retryable;
     this.resumeOffset = resumeOffset;
+    this.centerMoved = centerMoved ? centerMovedDetails(centerMoved) : undefined;
   }
 }
 

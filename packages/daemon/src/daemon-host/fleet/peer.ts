@@ -89,11 +89,18 @@ export class FleetRemoteError extends Error {
   readonly code: string;
   readonly retryable: boolean;
   readonly resumeOffset: number | null;
+  readonly centerMoved?: {
+    readonly newExternalUrl: string;
+    readonly newLoginUrl: string;
+    readonly newEpoch: number;
+    readonly spkiSha256: string;
+  };
   constructor(frame: Extract<FleetFrameV1, { schema: "fleet.error/v1" }>, versionWarning?: string | null) {
     super(`${frame.code}: ${frame.message}${versionWarning ? ` ${versionWarning}` : ""}`);
     this.code = frame.code;
     this.retryable = frame.retryable;
     this.resumeOffset = frame.resumeOffset;
+    this.centerMoved = frame.centerMoved;
   }
 }
 

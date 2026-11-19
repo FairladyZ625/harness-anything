@@ -3,6 +3,7 @@ import {
   type ReceiptDiagnostic,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
+import { centerMovedDetails, type CenterMovedDetails } from "@harness-anything/storage";
 export { diagnosticForError } from "./receipt-guidance.ts";
 import { type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { type RepoTaskAction } from "./repo-cell-types.ts";
@@ -20,11 +21,31 @@ export function formatRejectionExplanation(code: string, message: string): strin
   );
 }
 
+export function extractCenterMoved(error: unknown): CenterMovedDetails | undefined {
+  if (typeof error !== "object" || error === null || !("centerMoved" in error)) return undefined;
+  const candidate = error.centerMoved;
+  if (
+    typeof candidate !== "object" ||
+    candidate === null ||
+    !("newExternalUrl" in candidate) ||
+    !("newLoginUrl" in candidate) ||
+    !("newEpoch" in candidate) ||
+    !("spkiSha256" in candidate) ||
+    typeof candidate.newExternalUrl !== "string" ||
+    typeof candidate.newLoginUrl !== "string" ||
+    !Number.isSafeInteger(candidate.newEpoch) ||
+    typeof candidate.spkiSha256 !== "string"
+  )
+    return undefined;
+  return centerMovedDetails(candidate as CenterMovedDetails);
+}
+
 export function rejectHostAction(
   action: RepoTaskAction,
   errorCode: string,
   explanation: string,
   diagnostic?: ReceiptDiagnostic,
+  centerMoved?: CenterMovedDetails,
 ): WriteReceipt {
   return {
     outcome: "op_rejected",
@@ -34,7 +55,8 @@ export function rejectHostAction(
     evidence: `rejection:${errorCode}`,
     diagnostic: diagnostic ?? { kind: "failure", code: errorCode },
     rejectionExplanation: formatRejectionExplanation(errorCode, explanation),
-  };
+    ...(centerMoved === undefined ? {} : { centerMoved: centerMovedDetails(centerMoved) }),
+  } as WriteReceipt;
 }
 
 export function rejectPresetRun(runId: string, code: string, rejectionExplanation: string) {

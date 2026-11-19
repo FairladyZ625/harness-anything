@@ -106,6 +106,49 @@ export { applyCanonicalTree, revokeCanonicalTree } from "./canonical-tree-materi
 export { hydrateReplicaSeed } from "./fleet-replica-seed.ts";
 export { configureWriterEpochStorage } from "./writer-epoch-storage.ts";
 
+export {
+  exportCenterRelocation,
+  importCenterRelocation,
+  readRelocationManifest,
+  retireCenter,
+  stageCenterRelocation,
+  verifyRelocationBundle,
+  CenterMigratingError,
+  CenterMovedError,
+  centerMigratingPath,
+  centerMovedDetails,
+  centerMovedError,
+  centerRelocatedPath,
+  centerRelocatedRepoPath,
+  clearCenterMigrating,
+  enterCenterMigrating,
+  readCenterMigrating,
+  readCenterRelocated,
+  readWriterEpochRetirementSeal,
+  throwIfCenterMigrating,
+  throwIfCenterRelocated,
+  throwIfWriterEpochRetired,
+  writeCenterRelocated,
+  writerEpochRetirementSealPath,
+  writeWriterEpochRetirementSeal,
+} from "./center-relocation.ts";
+export type {
+  CenterMigratingStateV1,
+  CenterMovedDetails,
+  CenterRelocatedTombstoneV1,
+  WriterEpochRetirementSealV1,
+} from "./center-relocation-state.ts";
+export type {
+  CenterRelocationManifestV1,
+  ExportCenterRelocationInput,
+  ExportCenterRelocationRbacContext,
+  ImportCenterRelocationInput,
+  ImportCenterRelocationRbacContext,
+  RelocationBundleFileV1,
+  RelocationBundleManifestV1,
+  StageCenterRelocationInput,
+} from "./center-relocation.ts";
+
 export { openReplicaProjection } from "./replica-projection.ts";
 
 export {

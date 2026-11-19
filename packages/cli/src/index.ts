@@ -126,7 +126,11 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
     }
     return runBackupRetention(invocation);
   }
-  if (command === "daemon" || command === "gui") {
+  if (
+    command === "daemon" ||
+    command === "gui" ||
+    (command === "fleet" && argv[firstCliCommandIndex(argv) + 1] === "center")
+  ) {
     const { runDaemonControl } = await import("./daemon/control.ts");
     return runDaemonControl(argv, emit);
   }

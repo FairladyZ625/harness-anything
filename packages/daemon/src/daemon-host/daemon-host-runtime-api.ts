@@ -9,6 +9,8 @@ import {
   retainFleetCenterCertificatePaths,
   saveFleetCenterConfig,
 } from "./fleet-center-config.ts";
+import { readCenterRelocationRouting } from "./fleet/center-relocation-command.ts";
+import { readCenterRelocated, throwIfCenterMigrating, throwIfCenterRelocated } from "@harness-anything/storage";
 import { annotateHostingCredentialNotice } from "./hosting-credential-readiness.ts";
 import { requireExecutionActionScope } from "./runtime-execution-scope.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
@@ -123,10 +125,17 @@ export function createDaemonHostRuntimeApi(
     }
     return receipt;
   };
+  const guardCenterRelocation = (repoId: string, mutating: boolean): void => {
+    const userRoot = context.input?.userRoot;
+    if (typeof userRoot !== "string" || userRoot.length === 0) return;
+    throwIfCenterRelocated(userRoot, repoId);
+    if (mutating) throwIfCenterMigrating(userRoot, repoId);
+  };
   return {
     attach: async (repoId, runtimeSessionId, afterCursor, auth) => {
       context.requireHostMode(repoId, repoReadCommandTopology, auth);
       await context.attemptHostRecovery(repoId);
+      guardCenterRelocation(repoId, false);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
       await context.binding(cell.status().rootDir, auth);
       return cell.attach(runtimeSessionId, afterCursor, auth.connectionSignal);
@@ -136,6 +145,7 @@ export function createDaemonHostRuntimeApi(
       if (edgeReceipt) return edgeReceipt;
       context.requireHostMode(repoId, commandDescriptorForAction("runtime-run"), auth);
       await context.attemptHostRecovery(repoId);
+      guardCenterRelocation(repoId, true);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
       const receipt = await cell.spawnRuntime(
         payload,
@@ -151,6 +161,7 @@ export function createDaemonHostRuntimeApi(
       if (edgeReceipt) return edgeReceipt;
       context.requireHostMode(repoId, commandDescriptorForAction("runtime-cancel"), auth);
       await context.attemptHostRecovery(repoId);
+      guardCenterRelocation(repoId, true);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
       return cell.cancelRuntime(payload, await context.binding(cell.status().rootDir, auth, undefined, repoId));
     },
@@ -159,6 +170,7 @@ export function createDaemonHostRuntimeApi(
       if (edgeReceipt) return edgeReceipt;
       context.requireHostMode(repoId, commandDescriptorForAction("runtime-steer"), auth);
       await context.attemptHostRecovery(repoId);
+      guardCenterRelocation(repoId, true);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
       return cell.steerRuntime(payload, await context.binding(cell.status().rootDir, auth, undefined, repoId));
     },
@@ -167,12 +179,14 @@ export function createDaemonHostRuntimeApi(
       if (edgeReceipt) return edgeReceipt;
       context.requireHostMode(repoId, commandDescriptorForAction(`runtime-handoff-${String(payload.operation)}`), auth);
       await context.attemptHostRecovery(repoId);
+      guardCenterRelocation(repoId, true);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
       return cell.handoffRuntime(payload, await context.binding(cell.status().rootDir, auth, undefined, repoId));
     },
     batchRuntime: async (repoId, payload, auth) => {
       context.requireHostMode(repoId, commandDescriptorForAction("runtime-batch"), auth);
       await context.attemptHostRecovery(repoId);
+      guardCenterRelocation(repoId, true);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
       return orchestrateRuntimeBatch(
         payload,
@@ -212,6 +226,7 @@ export function createDaemonHostRuntimeApi(
     runtimeIngress: async (repoId, action, auth) => {
       context.requireHostMode(repoId, commandDescriptorForAction("runtime-run"), auth);
       await context.attemptHostRecovery(repoId);
+      guardCenterRelocation(repoId, true);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
       const receipt = await cell.runtimeIngress(
         action,
@@ -239,6 +254,7 @@ export function createDaemonHostRuntimeApi(
     terminalAttach: async (repoId, { sessionId, afterSeq, daemonGeneration }, auth) => {
       context.requireHostMode(repoId, repoReadCommandTopology, auth);
       await context.attemptHostRecovery(repoId);
+      guardCenterRelocation(repoId, false);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
       await context.binding(cell.status().rootDir, auth);
       return cell.terminal.attach(sessionId, afterSeq, daemonGeneration);
@@ -303,6 +319,7 @@ export function createDaemonHostRuntimeApi(
       throw context.hostCodedError("unsupported_command", `Unsupported terminal or catalog method: ${method}.`);
     },
     authorize: async (repoId, kind, auth, target) => {
+      guardCenterRelocation(repoId, false);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
       const binding = await context.binding(cell.status().rootDir, auth);
       if (binding.executionPrincipal)
@@ -331,7 +348,8 @@ export function createDaemonHostRuntimeApi(
         const config = readFleetCenterConfig(context.input.userRoot, context.input.daemonId);
         if (!config) return { ok: true, externalUrl: null };
         await authorizeCenterConfiguration(config.repoId, auth);
-        return { ok: true, externalUrl: config.externalUrl ?? null };
+        const importedRouting = readCenterRelocationRouting(config.stateRoot, config.repoId);
+        return { ok: true, externalUrl: config.externalUrl ?? importedRouting?.externalUrl ?? null };
       },
       readCenterState: async (auth) => {
         const config = readFleetCenterConfig(context.input.userRoot, context.input.daemonId);
@@ -445,9 +463,11 @@ export function createDaemonHostRuntimeApi(
               "rbac_listener_invalid",
               "The start carried no certificate and the login service has no listener certificate to reuse; configure the login listener first, or pass --key and --cert.",
             );
-          const externalUrl =
+          const stateRootForRouting = rawRequest.stateRoot ?? path.join(context.input.userRoot, "fleet"),
+            externalUrl =
               rawRequest.externalUrl ??
-              readFleetCenterConfig(context.input.userRoot, context.input.daemonId)?.externalUrl,
+              readFleetCenterConfig(context.input.userRoot, context.input.daemonId)?.externalUrl ??
+              readCenterRelocationRouting(stateRootForRouting, authorityRepoId)?.externalUrl,
             request = {
               ...rawRequest,
               keyPath: certificate.keyPath,
@@ -498,7 +518,8 @@ export function createDaemonHostRuntimeApi(
             },
           });
           await context.waitForWarming(authorityRepoId);
-          context.requiredCell(context.cells, context.warming, context.unavailable, authorityRepoId);
+          if (!context.input?.userRoot || readCenterRelocated(context.input.userRoot, authorityRepoId) === null)
+            context.requiredCell(context.cells, context.warming, context.unavailable, authorityRepoId);
           const replaced = context.fleetCenter !== null;
           if (context.fleetCenter) {
             const previous = context.fleetCenter;
