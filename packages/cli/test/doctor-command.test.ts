@@ -278,21 +278,30 @@ test("ha doctor storage measures localRoot breakdown in text and JSON without wr
     ".harness/store/generations/3/ledger.sqlite": "ledger",
     ".harness/cache/task.sqlite": "cache-bytes",
     ".harness/runtime/dispatches/archive/dispatch_111111111111111111111111.jsonl": "stream",
+    ".harness/runtime/retired-dispatches/legacy.jsonl": "unknown",
+    ".harness/requests/requests.jsonl": "log-line",
+    ".harness/requests/from-deli-ai-lab/note.md": "manual-note-bytes",
   });
   try {
     const jsonRun = await captureConsole(() => main(["doctor", "storage", "--root", root, "--json"]));
     assert.equal(jsonRun.exit, 0);
     const parsed = JSON.parse(jsonRun.lines[0]!);
     assert.equal(parsed.schema, "doctor-storage/v1");
+    assert.equal(parsed.byteMetric, "apparent-bytes");
     assert.equal(parsed.ok, true);
     assert.equal(parsed.byClass.authoritative.bytes, 6);
     assert.equal(parsed.byClass.derived.bytes, 11 + 6);
+    assert.equal(parsed.byClass.unrecognized.bytes, 7 + 8 + 17);
+    const reqHighlight = parsed.highlights.find((item: { path: string }) => item.path === "requests/requests.jsonl*");
+    assert.equal(reqHighlight?.bytes, 8);
+    assert.equal(reqHighlight?.files, 1);
 
     const textRun = await captureConsole(() => main(["doctor", "storage", "--root", root]));
     assert.equal(textRun.exit, 0);
     assert.match(textRun.lines.join("\n"), /doctor storage: \.harness/u);
     assert.match(textRun.lines.join("\n"), /\[authoritative\] store/u);
     assert.match(textRun.lines.join("\n"), /\[derived\] cache/u);
+    assert.match(textRun.lines.join("\n"), /\[unrecognized\] runtime.*\[mixed:/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

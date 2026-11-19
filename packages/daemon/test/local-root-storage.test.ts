@@ -37,9 +37,13 @@ import {
   readDispatchLiveIndex,
 } from "../src/daemon-host/dispatch-stream.ts";
 import { dispatchEvidenceStatePath, writeDispatchEvidenceState } from "../src/daemon-host/dispatch-evidence-state.ts";
-import { measureLocalRootStorage, reclaimLocalRootStorage } from "../src/daemon-host/local-root-storage.ts";
+import {
+  measureLocalRootStorage,
+  reclaimLocalRootStorage,
+  scheduleLocalRootReclamation,
+} from "../src/daemon-host/local-root-storage.ts";
 import type { RepoCellActionContext } from "../src/daemon-host/repo-cell-types.ts";
-import { runRuntimeHandoffAction } from "../src/daemon-host/runtime-handoff-store.ts";
+import { admitHandoffDispatch, runRuntimeHandoffAction } from "../src/daemon-host/runtime-handoff-store.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 
@@ -736,17 +740,17 @@ test("F2 regression: cancelled task handoff rollout survives attach reclamation 
 
     appendLifecycle(
       targetSource,
-      { type: "StartExecution", taskId: "task_cancel_handoff", executionId: "exec-2" },
+      { type: "StartExecution", taskId: "task_cancel_handoff", executionId: "exec-1" },
       {
         actorBinding: ownerActor,
-        deliveryBaseline: { kind: "commit", commitSha: "a".repeat(40) },
+        deliveryBaseline: { kind: "commit", commitSha: "0".repeat(40) },
         reservation: {
           taskId: "task_cancel_handoff",
-          executionId: "exec-2",
+          executionId: "exec-1",
           expiresAt: "2026-11-19T03:00:00.000Z",
           ttlMs: 3_600_000,
-          previousHolder: null,
-          reason: "initial_claim",
+          previousHolder: ownerActor,
+          reason: "reclaim_after_reinstate",
           version: 1,
         },
       },
@@ -760,6 +764,40 @@ test("F2 regression: cancelled task handoff rollout survives attach reclamation 
     ) as { readonly dataBase64?: string; readonly done?: boolean };
     assert.equal(claimed.done, true);
     assert.deepEqual(Buffer.from(claimed.dataBase64!, "base64"), rolloutBytes);
+
+    assert.doesNotThrow(() =>
+      admitHandoffDispatch(
+        cell,
+        {
+          resumedFromDispatchId: dispatchId,
+          handoffCheckpointId: dispatchId,
+          acceptedCommit: "a".repeat(40),
+          resumeProviderSessionId: nativeSessionId,
+          taskId: "task_cancel_handoff",
+          executionId: "exec-1",
+          kindId: "codex",
+        },
+        { actor: ownerActor, source: targetSource } as never,
+      ),
+    );
+
+    const reclaimAfterConsume = reclaimLocalRootStorage({
+      rootDir,
+      projection: {
+        read: (taskId) => projection.read(taskId),
+        readDispatchLifecycle: (query) => lifecycleReader(query),
+        readRuntimeDispatchByResumeSource: (id) => (id === dispatchId ? { dispatchId: "dispatch_resumed" } : null),
+        searchFacts: () => ({ status: "ready", watermark: rev, sourceRevision: rev, facts: [] }),
+      },
+      retention: { retentionDays: 60, retentionBytes: 0 },
+      nowMs: Date.parse("2026-11-19T00:30:00.000Z"),
+    });
+    assert.equal(reclaimAfterConsume.removedHandoffRollouts, 1);
+    assert.equal(fs.existsSync(path.join(rootDir, ".harness", "runtime-handoffs", dispatchId, "rollout.jsonl")), false);
+    assert.equal(
+      fs.existsSync(path.join(rootDir, ".harness", "runtime-handoffs", dispatchId, "checkpoint.json")),
+      true,
+    );
   } finally {
     projection.close();
     await eventStore.drain();
@@ -944,6 +982,84 @@ test("F5 regression: heavy single-task reclamation bounds per-turn dispatches, b
     });
     assert.equal(secondTurn.archivedDispatches, 35);
     assert.equal(readDispatchLiveIndex(rootDir, ["task_heavy"]).entries.length, 0);
+  } finally {
+    cleanup();
+  }
+});
+
+test("scheduleLocalRootReclamation interleaves bounded maintenance turns with normal writer work", async () => {
+  const { rootDir, cleanup } = createTestRepo("ha-local-storage-interleave-");
+  const recentIso = "2026-11-18T00:00:00.000Z";
+  const dispatchIds: string[] = [];
+  try {
+    for (let i = 0; i < 25; i += 1) {
+      const id = `dispatch_10${i.toString(16).padStart(22, "0")}`;
+      dispatchIds.push(id);
+      seedClosedDispatch(rootDir, id, "task_interleave", recentIso);
+      writeDispatchEvidenceState(rootDir, id, "not-required");
+    }
+    const lifecycleReader = lifecycleReadForSync(
+      dispatchIds.map((dispatchId) => ({
+        dispatchId,
+        runtimeSessionId: `runtime-${dispatchId}`,
+        attemptSettled: true,
+        groupSettled: true,
+        stopProof: "proven_stopped" as const,
+        outcome: "succeeded" as const,
+      })),
+    );
+    const projection: Pick<
+      TaskProjectionQueries,
+      "read" | "readDispatchLifecycle" | "readRuntimeDispatchByResumeSource" | "searchFacts"
+    > = {
+      read: () =>
+        ({ status: "ready", watermark: 1, sourceRevision: 1, snapshot: { task: { status: "done" } } }) as never,
+      readDispatchLifecycle: (query) => lifecycleReader(query),
+      readRuntimeDispatchByResumeSource: () => null,
+      searchFacts: () => ({ status: "ready", watermark: 1, sourceRevision: 1, facts: [] }),
+    };
+
+    const order: string[] = [];
+    const queue: { readonly label: string; readonly work: () => void | Promise<void> }[] = [];
+    let completed = false;
+    scheduleLocalRootReclamation({
+      rootDir,
+      projection: () => projection,
+      readRetention: () => ({ retentionDays: 60, retentionBytes: 0 }),
+      schedule: (work) => {
+        queue.push({ label: "reclaim-turn", work });
+      },
+      maxDispatchesPerTurn: 10,
+      onComplete: () => {
+        completed = true;
+        order.push("compaction-scheduled");
+      },
+    });
+    // Enqueue a normal writer operation right behind the first reclamation turn; it must execute
+    // BEFORE subsequent reclamation turns rather than starving behind all 25 streams.
+    queue.push({
+      label: "user-write",
+      work: () => {
+        order.push(`user-write(remaining=${readDispatchLiveIndex(rootDir, ["task_interleave"]).entries.length})`);
+      },
+    });
+
+    while (queue.length > 0) {
+      const next = queue.shift()!;
+      if (next.label === "reclaim-turn") order.push("reclaim-turn");
+      await next.work();
+    }
+
+    assert.equal(completed, true);
+    assert.deepEqual(order, [
+      "reclaim-turn",
+      "user-write(remaining=15)",
+      "reclaim-turn",
+      "reclaim-turn",
+      "reclaim-turn",
+      "compaction-scheduled",
+    ]);
+    assert.equal(readDispatchLiveIndex(rootDir, ["task_interleave"]).entries.length, 0);
   } finally {
     cleanup();
   }
