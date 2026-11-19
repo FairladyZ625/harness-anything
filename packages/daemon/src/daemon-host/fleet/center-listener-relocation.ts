@@ -113,10 +113,10 @@ export function openCenterRelocationEpochs(
         const moved = readListenerCenterRelocated(options, repoId);
         if (moved) throw centerMovedFleetFault(moved);
         if (readListenerCenterMigrating(options, repoId)) throw centerMigratingFleetFault(repoId);
-        const rootDir = options.host.status().repos.find((repo) => repo.repoId === repoId)?.rootDir;
+        const rootDir = options.host?.status?.().repos.find((repo) => repo.repoId === repoId)?.rootDir;
         return writerEpoch.acquire(repoId, readLedgerWriterEpoch(repoId, rootDir, options.storage?.[repoId]));
       });
-  for (const repo of options.host.status().repos) {
+  for (const repo of options.host?.status?.().repos ?? []) {
     if (repo.state === "attached" && readListenerCenterRelocated(options, repo.repoId) === null)
       ownedEpochs.set(repo.repoId, acquireWriterEpoch(repo.repoId));
   }

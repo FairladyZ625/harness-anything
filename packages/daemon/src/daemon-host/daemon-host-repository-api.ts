@@ -777,11 +777,12 @@ export function createDaemonHostRepositoryApi(
         forwardThroughPort =
           (!modeAdmission.ok && descriptor.admission["remote-edge"] === "via-center-forward") ||
           (action.kind === "doc-show" && auth.executionCredential !== undefined);
-      if (!forwardThroughPort) {
-        const moved = centerMovedError(context.input.userRoot, repoId);
+      const relocationUserRoot = context.input?.userRoot;
+      if (!forwardThroughPort && typeof relocationUserRoot === "string" && relocationUserRoot.length > 0) {
+        const moved = centerMovedError(relocationUserRoot, repoId);
         if (moved !== null)
           return context.rejectHostAction(action, "CENTER_MOVED", moved.message, undefined, moved.centerMoved);
-        if (command.commandClass !== "repo-read" && readCenterMigrating(context.input.userRoot, repoId) !== null)
+        if (command.commandClass !== "repo-read" && readCenterMigrating(relocationUserRoot, repoId) !== null)
           return context.rejectHostAction(
             action,
             "CENTER_MIGRATING",
@@ -816,7 +817,7 @@ export function createDaemonHostRepositoryApi(
             action,
             context.code(error),
             context.daemonErrorMessage(error),
-            context.diagnosticForError(error),
+            context.diagnosticForError?.(error),
             extractCenterMoved(error),
           );
         }

@@ -161,9 +161,10 @@ export async function performOpenRegistered(
       rootDir: repo.canonicalRoot,
       ...(progress ?? {}),
     };
-  context.input.recordLifecycle?.({ event: "repo_attach_started", ...lifecycle });
-  if (repo.mode !== "remote-edge") {
-    const moved = centerMovedError(context.input.userRoot, repo.repoId);
+  context.input?.recordLifecycle?.({ event: "repo_attach_started", ...lifecycle });
+  const relocationUserRoot = context.input?.userRoot;
+  if (repo.mode !== "remote-edge" && typeof relocationUserRoot === "string" && relocationUserRoot.length > 0) {
+    const moved = centerMovedError(relocationUserRoot, repo.repoId);
     if (moved !== null) throw moved;
   }
   let opened: RepoCell | undefined, publishedState: ReturnType<RepoCell["status"]>["state"] | undefined;

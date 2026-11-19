@@ -47,8 +47,10 @@ export function openDaemonWriterEpochs(input: {
       return authority;
     },
     writerEpochLease = (repoId: string, rootDir?: string): WriterEpochLease => {
-      throwIfCenterRelocated(input.userRoot, repoId);
-      throwIfCenterMigrating(input.userRoot, repoId);
+      if (typeof input.userRoot === "string" && input.userRoot.length > 0) {
+        throwIfCenterRelocated(input.userRoot, repoId);
+        throwIfCenterMigrating(input.userRoot, repoId);
+      }
       epoch(repoId);
       const existing = daemonWriterLeases.get(repoId);
       if (existing) return existing;
