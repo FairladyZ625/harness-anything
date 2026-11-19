@@ -73,7 +73,10 @@ test("relocation import verifies every digest, advances oldEpoch by one, and rem
     }
     rmSync(destination, { recursive: true, force: true });
     writeFileSync(path.join(payload, "ledger.sqlite-placeholder"), "tampered\n");
-    assert.throws(() => importCenterRelocation({ bundleDir: bundle, destinationRoot: destination, stateRoot }), /digest differs/u);
+    assert.throws(
+      () => importCenterRelocation({ bundleDir: bundle, destinationRoot: destination, stateRoot }),
+      /digest differs/u,
+    );
     assert.equal(readCenterRelocated(root), null);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -96,7 +99,8 @@ test("retire writes the irreversible tombstone and writer-epoch seal, and old wr
     assert.equal(readCenterRelocated(root)?.newEpoch, 5);
     assert.equal(tombstone.newEpoch, 5);
     assert.equal(
-      JSON.parse(readFileSync(path.join(root, "fleet", "writer-epochs", "center-test.retired.json"), "utf8")).retiredEpoch,
+      JSON.parse(readFileSync(path.join(root, "fleet", "writer-epochs", "center-test.retired.json"), "utf8"))
+        .retiredEpoch,
       4,
     );
     const authority = openPersistentWriterEpoch({ stateRoot: path.join(root, "fleet"), holderId: "old-center" });

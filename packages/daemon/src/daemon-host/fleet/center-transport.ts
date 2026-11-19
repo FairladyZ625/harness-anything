@@ -12,6 +12,7 @@ import { daemonBuildStamp } from "../build-identity.ts";
 import { writeFileDurably } from "@harness-anything/storage";
 import type { Delivery, FleetCenterOptions, SessionWindow, State, Upload } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
+import { centerMovedFleetFault } from "./center-listener-relocation.ts";
 import { ResourceBudgetExceeded } from "./resource-budget.ts";
 import { replicationSlotKey } from "@harness-anything/storage";
 import {
@@ -504,14 +505,7 @@ export async function serve(
   };
   const dispatch = async (frame: FleetFrameV1) => {
     try {
-      if (options.centerRelocated)
-        throw new FleetFault(
-          "CENTER_MOVED",
-          "The center has moved; repoint this edge before retrying.",
-          false,
-          null,
-          options.centerRelocated,
-        );
+      if (options.centerRelocated) throw centerMovedFleetFault(options.centerRelocated);
       if (nodeId === null) {
         if (frame.schema === "fleet.edge.join.status/v1") {
           if (!options.edgeJoinStatus)

@@ -1073,10 +1073,12 @@ const schemas: Readonly<Record<string, Check>> = {
       message: bodyText,
       retryable: (value) => typeof value === "boolean",
       resumeOffset: nullable(uint),
-      centerMoved: optionalShape(
-        { newExternalUrl: text, newLoginUrl: text, newEpoch: uint, spkiSha256: text },
-        ["newExternalUrl", "newLoginUrl", "newEpoch", "spkiSha256"],
-      ),
+      centerMoved: optionalShape({ newExternalUrl: text, newLoginUrl: text, newEpoch: uint, spkiSha256: text }, [
+        "newExternalUrl",
+        "newLoginUrl",
+        "newEpoch",
+        "spkiSha256",
+      ]),
     },
     ["schema", "messageId", "inReplyTo", "code", "message", "retryable", "resumeOffset"],
   ),

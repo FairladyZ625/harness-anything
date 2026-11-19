@@ -31,7 +31,6 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
 import {
   consumeKnownError,
@@ -49,11 +48,6 @@ import {
   type BaseBackupArchive,
   type BaseBackupMetadata,
 } from "@harness-anything/storage";
-import {
-  openPersistentWriterEpoch,
-  readLedgerWriterEpoch,
-  type PersistentWriterEpoch,
-} from "@harness-anything/storage";
 import { runtimeErrorCode, runtimeErrorMessage } from "../../runtime-engine/runtime-spawn-errors.ts";
 import {
   describeClaimMiss,
@@ -65,7 +59,12 @@ import {
 } from "./center-lease-claims.ts";
 import { digestId, immediate, loadState, mid, ownedUpload, serve, writeCenterDurableJson } from "./center-transport.ts";
 import { createHelloRateLimiter } from "./center-hello-guard.ts";
-import type { CenterRelocatedTombstoneV1, Delivery, FleetCenterOptions, FleetTlsCenter, SessionWindow } from "./center-types.ts";
+import {
+  createCenterNodePrincipals,
+  openCenterRelocationEpochs,
+  readListenerCenterRelocated,
+} from "./center-listener-relocation.ts";
+import type { Delivery, FleetCenterOptions, FleetTlsCenter, SessionWindow } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
 import { type FleetFrameV1 } from "./command-protocol.ts";
 import type { FleetOverviewResult } from "./fleet-overview-read.ts";
@@ -124,162 +123,24 @@ function awaitWithSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T
 export async function listenFleetTls(options: FleetCenterOptions): Promise<FleetTlsCenter> {
   /* @gate-identity non-state/environment-io.f4d8382218704581 */ mkdirSync(options.stateRoot, { recursive: true });
   const closing = new AbortController(),
-    centerRelocated =
-      options.centerRelocated ?? readCenterRelocated(options.relocationRoot ?? path.dirname(options.stateRoot));
+    centerRelocated = readListenerCenterRelocated(options);
   const nodeAdmission = createNodeRetirementAdmission();
   const deliveries = createFleetDeliveryDrain(options.onDeliverySettled);
   const resourceBudget = createResourceBudget(DOC_SHOW_BUDGET_LIMITS);
   const stateFile = path.join(options.stateRoot, "state.json"),
     state = loadState(stateFile),
     now = options.now ?? (() => new Date().toISOString()),
-    writerEpoch = openPersistentWriterEpoch({
-      stateRoot: options.writerEpochStateRoot ?? options.stateRoot,
-      holderId: options.writerId,
+    { writerEpoch, ownedEpochFor, currentEpochFor, drainAndCloseWriterEpochs } = openCenterRelocationEpochs(
+      options,
+      centerRelocated,
       now,
-      storageByRepo: options.storage,
-    }),
-    ownedEpochs = new Map<string, ReturnType<PersistentWriterEpoch["acquire"]>>(),
-    acquireWriterEpoch =
-      options.writerEpochLease ??
-      ((repoId: string) => {
-        if (centerRelocated)
-          throw new FleetFault(
-            "CENTER_MOVED",
-            "The center has moved; repoint this edge before retrying.",
-            false,
-            null,
-            centerRelocated,
-          );
-        const rootDir = options.host.status().repos.find((repo) => repo.repoId === repoId)?.rootDir;
-        return writerEpoch.acquire(repoId, readLedgerWriterEpoch(repoId, rootDir, options.storage?.[repoId]));
-      });
-  if (!centerRelocated)
-    for (const repo of options.host.status().repos)
-      if (repo.state === "attached") ownedEpochs.set(repo.repoId, acquireWriterEpoch(repo.repoId));
-  // A center must keep using the epoch it acquired, even after another center
-  // advances the shared state. Reading the latest row here would let a stale
-  // process silently adopt its successor's epoch and defeat fencing.
-  const ownedEpochFor = (repoId: string) => {
-      const owned = ownedEpochs.get(repoId);
-      if (owned) return owned;
-      const lease = acquireWriterEpoch(repoId);
-      ownedEpochs.set(repoId, lease);
-      return lease;
-    },
-    currentEpochFor = (repoId: string) => writerEpoch.current(repoId) ?? ownedEpochFor(repoId),
-    // dec_E610E1D99A39003886D1B5EE7C CH1: device admission and per-request person are independent.
-    readerAuth = async (node: { nodeId: string; repoId: string; accessToken?: string }) => {
-      nodeAdmission.assertOpen(node.nodeId);
-      const personId = await options.nodeOwner(node.nodeId);
-      if (!personId) throw new FleetFault("node_owner_unregistered", `Node ${node.nodeId} has no registered owner.`);
-      if (!node.accessToken || !options.verifyHuman)
-        throw new FleetFault("authentication_required", "Sign in on this device before using Fleet.");
-      try {
-        const principal = await options.verifyHuman({
-          transportKind: "fleet-tls",
-          nodePrincipal: { nodeId: node.nodeId, personId },
-          humanAccessToken: node.accessToken,
-        });
-        nodeAdmission.assertOpen(node.nodeId);
-        return principal;
-      } catch (error) {
-        if (typeof error === "object" && error !== null && "code" in error && typeof error.code === "string") {
-          // `daemon_error` is the Keycloak adapters' transport sentinel; a fleet session check that
-          // could not reach the identity authority is a retryable outage, not an unclassified fault.
-          const code = error.code === "daemon_error" ? "keycloak_unavailable" : error.code;
-          throw new FleetFault(code, error instanceof Error ? error.message : "Device session was rejected.");
-        }
-        throw error;
-      }
-    },
-    principalAuth = async (
-      node: { nodeId: string; repoId: string; accessToken?: string },
-      accessToken?: string,
-      executionCredential?: string,
-    ): Promise<DaemonAuthenticationContext> => {
-      const principal = await readerAuth({ ...node, accessToken: accessToken ?? node.accessToken });
-      if (!executionCredential) return principal;
-      if (!options.authenticateExecutionPrincipal)
-        throw new FleetFault("execution_credential_rejected", "Execution credential authentication is unavailable.");
-      const executionPrincipal = await options.authenticateExecutionPrincipal(executionCredential);
-      if (
-        executionPrincipal.repoId !== node.repoId ||
-        executionPrincipal.personId !== principal.oidcPrincipal?.personId
-      )
-        throw new FleetFault(
-          "execution_credential_rejected",
-          "Execution credential does not match this repository session.",
-        );
-      return { ...principal, executionCredential, executionPrincipal };
-    },
-    writerAuth = async (
-      node: { nodeId: string; repoId: string; accessToken?: string },
-      accessToken?: string,
-      executionCredential?: string,
-    ) => {
-      const lease = ownedEpochFor(node.repoId);
-      const principal = await principalAuth(node, accessToken, executionCredential);
-      nodeAdmission.assertOpen(node.nodeId);
-      return {
-        ...principal,
-        writerEpoch: lease.epoch,
-        withWriterEpochFence: <T>(operation: () => T) =>
-          writerEpoch.withAppendFence(node.repoId, lease.epoch, lease.holderId, operation),
-        writerEpochFence: {
-          schema: "harness-writer-epoch-fence/v1" as const,
-          stateRoot: options.writerEpochStateRoot ?? options.stateRoot,
-          repoId: node.repoId,
-          epoch: lease.epoch,
-          holderId: lease.holderId,
-        },
-      };
-    };
-  // The one repository admission port: verified request identity plus that person's grant on this
-  // repository (dec_66CE6F92 — a cross-cutting responsibility has a single implementation that
-  // callers reuse instead of copying).
-  const repoAdmission = async (node: { nodeId: string; repoId: string; accessToken?: string }) => {
-    const principal = await readerAuth(node),
-      decision = await options.host.authorize(node.repoId, "repository-read", principal);
-    if (decision.outcome !== "allowed")
-      throw new FleetFault("authorization_denied", "The request user may not read this repository.");
-    return principal;
-  };
-  const replicaAdmission = async (node: { nodeId: string; repoId: string; accessToken?: string }) => {
-    nodeAdmission.assertOpen(node.nodeId);
-    if (!options.verifyReplica) return repoAdmission(node);
-    const personId = await options.nodeOwner(node.nodeId);
-    if (!personId) throw new FleetFault("node_owner_unregistered", `Node ${node.nodeId} has no registered owner.`);
-    let machine: DaemonAuthenticationContext | null;
-    try {
-      machine = await options.verifyReplica({
-        transportKind: "fleet-tls",
-        nodePrincipal: { nodeId: node.nodeId, personId },
-        humanAccessToken: node.accessToken,
-      });
-    } catch (error) {
-      if (typeof error === "object" && error !== null && "code" in error && error.code === "daemon_error")
-        throw new FleetFault(
-          "keycloak_unavailable",
-          "The identity authority could not verify the replica credential.",
-          true,
-        );
-      throw error;
-    }
-    if (!machine) return repoAdmission(node);
-    const principal = machine.fleetReplicaPrincipal;
-    if (
-      !principal ||
-      principal.nodeId !== node.nodeId ||
-      principal.personId !== personId ||
-      principal.expiresAt <= Date.now()
-    )
-      throw new FleetFault("fleet_replica_credential_rejected", "The Fleet replica credential was rejected.");
-    nodeAdmission.assertOpen(node.nodeId);
-    const decision = await options.host.authorize(node.repoId, "repository-read", machine);
-    if (decision.outcome !== "allowed")
-      throw new FleetFault("authorization_denied", "The node owner may not read this repository.");
-    return machine;
-  };
+    ),
+    { readerAuth, writerAuth, repoAdmission, replicaAdmission } = createCenterNodePrincipals({
+      options,
+      nodeGate: nodeAdmission,
+      writerEpoch,
+      ownedEpochFor,
+    });
   const extracted = {
     get state() {
       return state;
@@ -1948,15 +1809,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       for (const socket of connections) socket.destroy();
       sessions.clear();
       await Promise.all([drained, backupsClosed]);
-      try {
-        for (const [repoId, owned] of ownedEpochs) {
-          const current = writerEpoch.current(repoId);
-          if (current?.epoch === owned.epoch && current.holderId === owned.holderId)
-            await options.host.settleMaterialization(repoId, "fleet center close");
-        }
-      } finally {
-        writerEpoch.close();
-      }
+      await drainAndCloseWriterEpochs();
     },
     replicaReceipt: () => {
       throw new Error("replica receipt is retired");
@@ -1987,27 +1840,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       ...(repoId === undefined ? {} : { repoId }),
     });
   }
-}
-
-function readCenterRelocated(userRoot: string): CenterRelocatedTombstoneV1 | null {
-  const file = path.join(path.resolve(userRoot), "fleet", "center-relocated.json");
-  if (!existsSync(file)) return null;
-  const value = JSON.parse(readFileSync(file, "utf8")) as Partial<CenterRelocatedTombstoneV1>;
-  if (
-    value.schema !== "center-relocated/v1" ||
-    typeof value.repoId !== "string" ||
-    !Number.isSafeInteger(value.finalRevision) ||
-    !Number.isSafeInteger(value.oldEpoch) ||
-    !Number.isSafeInteger(value.newEpoch) ||
-    value.newEpoch !== Number(value.oldEpoch) + 1 ||
-    typeof value.tipHash !== "string" ||
-    typeof value.newExternalUrl !== "string" ||
-    typeof value.newLoginUrl !== "string" ||
-    typeof value.spkiSha256 !== "string" ||
-    typeof value.relocatedAt !== "string"
-  )
-    throw new Error(`Center relocation tombstone at ${file} is invalid.`);
-  return value as CenterRelocatedTombstoneV1;
 }
 
 function fleetErrorCode(error: unknown): string | null {

@@ -592,7 +592,7 @@ function inventory(root: string): readonly string[] {
   return entries.sort((left, right) => left.key.localeCompare(right.key)).map(({ file }) => file);
 }
 
-function sha256File(file: string): string {
+export function sha256File(file: string): string {
   return localRuntimeStateFileSystem.withReadDescriptor(file, (descriptor) => {
     const hash = createHash("sha256"),
       buffer = Buffer.allocUnsafe(64 * 1024);

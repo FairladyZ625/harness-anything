@@ -1,15 +1,10 @@
-import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import { canonicalLedgerCut } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
 import type { HarnessLayoutInput } from "@harness-anything/kernel/internal/layout/index.ts";
-import {
-  localLedgerBackupFileSystem,
-  localRuntimeStateFileSystem,
-} from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
+import { localLedgerBackupFileSystem } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import { openPersistentWriterEpoch } from "./writer-epoch.ts";
 import {
-  readCenterRelocated,
   writeCenterRelocated,
   writeWriterEpochRetirementSeal,
   CenterMovedError,
@@ -17,6 +12,7 @@ import {
 } from "./center-relocation-state.ts";
 import {
   createLedgerBackup,
+  sha256File,
   stageLedgerBackup,
   type LedgerBackupRegistrationV1,
   type LedgerBackupStage,
@@ -119,9 +115,9 @@ export async function exportCenterRelocation(
 }
 
 export function readRelocationManifest(bundleDir: string): RelocationBundleManifestV1 {
-  const value = JSON.parse(localLedgerBackupFileSystem.read(path.join(bundleDir, "manifest.json"), "utf8")) as Partial<
-    RelocationBundleManifestV1
-  >;
+  const value = JSON.parse(
+    localLedgerBackupFileSystem.read(path.join(bundleDir, "manifest.json"), "utf8"),
+  ) as Partial<RelocationBundleManifestV1>;
   const finalRevision = value.finalRevision,
     writerEpoch = value.writerEpoch;
   if (
@@ -180,7 +176,8 @@ export function importCenterRelocation(input: ImportCenterRelocationInput): {
     throw new Error("relocation bundle finalRevision differs from the expected cut");
   if (input.expectedTipHash !== undefined && input.expectedTipHash !== manifest.tipHash)
     throw new Error("relocation bundle tipHash differs from the expected cut");
-  if (localLedgerBackupFileSystem.exists(input.destinationRoot)) throw new Error("relocation destination already exists");
+  if (localLedgerBackupFileSystem.exists(input.destinationRoot))
+    throw new Error("relocation destination already exists");
   const restoredRoot = path.resolve(input.destinationRoot);
   localLedgerBackupFileSystem.mkdir(restoredRoot, { recursive: true });
   try {
@@ -196,8 +193,10 @@ export function importCenterRelocation(input: ImportCenterRelocationInput): {
       throw new Error("restored relocation ledger cut differs from manifest");
     if (input.replicationSlotsPath) {
       const source = path.join(restoredRoot, "replication-slots.sqlite");
-      if (!localLedgerBackupFileSystem.exists(source)) throw new Error("relocation bundle is missing replication-slots.sqlite");
-      if (localLedgerBackupFileSystem.exists(input.replicationSlotsPath)) throw new Error("replication slots destination already exists");
+      if (!localLedgerBackupFileSystem.exists(source))
+        throw new Error("relocation bundle is missing replication-slots.sqlite");
+      if (localLedgerBackupFileSystem.exists(input.replicationSlotsPath))
+        throw new Error("replication slots destination already exists");
       localLedgerBackupFileSystem.mkdir(path.dirname(input.replicationSlotsPath), { recursive: true });
       localLedgerBackupFileSystem.copy(source, input.replicationSlotsPath);
     }
@@ -291,28 +290,19 @@ function verifyRelocationBundleAtRoot(root: string, manifest: RelocationBundleMa
 }
 
 function inventory(root: string): readonly string[] {
-  const files: string[] = [], walk = (directory: string): void => {
-    for (const name of localLedgerBackupFileSystem.readDirectory(directory)) {
-      const file = path.join(directory, name), stat = localLedgerBackupFileSystem.stat(file);
-      if (stat.isDirectory()) walk(file);
-      else files.push(file);
-    }
-  };
+  const files: string[] = [],
+    walk = (directory: string): void => {
+      for (const name of localLedgerBackupFileSystem.readDirectory(directory)) {
+        const file = path.join(directory, name),
+          stat = localLedgerBackupFileSystem.stat(file);
+        if (stat.isDirectory()) walk(file);
+        else files.push(file);
+      }
+    };
   walk(root);
-  return files.sort((left, right) => portable(path.relative(root, left)).localeCompare(portable(path.relative(root, right))));
-}
-
-function sha256File(file: string): string {
-  return localRuntimeStateFileSystem.withReadDescriptor(file, (descriptor) => {
-    const hash = createHash("sha256"),
-      buffer = Buffer.allocUnsafe(64 * 1024);
-    for (;;) {
-      const bytesRead = localLedgerBackupFileSystem.readChunk(descriptor, buffer, 0, buffer.byteLength, null);
-      if (bytesRead === 0) break;
-      hash.update(buffer.subarray(0, bytesRead));
-    }
-    return `sha256:${hash.digest("hex")}`;
-  });
+  return files.sort((left, right) =>
+    portable(path.relative(root, left)).localeCompare(portable(path.relative(root, right))),
+  );
 }
 
 function portable(value: string): string {
@@ -320,8 +310,11 @@ function portable(value: string): string {
 }
 
 export {
+  centerMovedDetails,
+  centerMovedError,
   centerRelocatedPath,
   readCenterRelocated,
+  throwIfCenterRelocated,
   writeCenterRelocated,
   writerEpochRetirementSealPath,
   writeWriterEpochRetirementSeal,

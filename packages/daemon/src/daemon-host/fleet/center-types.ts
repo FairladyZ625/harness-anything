@@ -1,30 +1,22 @@
-import type { ReplicaDeliveryLease } from "@harness-anything/storage";
+import {
+  centerMovedDetails,
+  type CenterMovedDetails,
+  type CenterRelocatedTombstoneV1,
+  type ReplicaDeliveryKey,
+  type ReplicaDeliveryLease,
+  type ReplicationSlotKey,
+  type WriterEpochLease,
+} from "@harness-anything/storage";
 import { type WriteReceiptDraft as WriteReceipt } from "@harness-anything/kernel";
 import type { DaemonHost } from "../daemon-host-types.ts";
-import type { WriterEpochLease } from "@harness-anything/storage";
 import { type FleetBlob, type FleetDescriptor, type FleetFrameV1 } from "./command-protocol.ts";
-import type { ReplicationSlotKey, ReplicaDeliveryKey } from "@harness-anything/storage";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import type { FleetDeviceLoginNotice, FleetLoginAuthority } from "./command-protocol.ts";
 import type { ReplicationFrame, ReplicationPeer } from "../../fleet-sync/fleet/protocol.ts";
 import type { ResourceBudget } from "./resource-budget.ts";
 import type { RuntimeExecutionPrincipal } from "../runtime-execution-credential.ts";
 
-export interface CenterMovedDetails {
-  readonly newExternalUrl: string;
-  readonly newLoginUrl: string;
-  readonly newEpoch: number;
-  readonly spkiSha256: string;
-}
-
-export interface CenterRelocatedTombstoneV1 extends CenterMovedDetails {
-  readonly schema: "center-relocated/v1";
-  readonly repoId: string;
-  readonly finalRevision: number;
-  readonly tipHash: string;
-  readonly oldEpoch: number;
-  readonly relocatedAt: string;
-}
+export type { CenterMovedDetails, CenterRelocatedTombstoneV1 };
 
 export interface FleetCenterOptions {
   /** Persist one transport record per completed frame; the runtime wires this to the conn log. */
@@ -229,7 +221,7 @@ export class FleetFault extends Error {
     this.code = code;
     this.retryable = retryable;
     this.resumeOffset = resumeOffset;
-    this.centerMoved = centerMoved;
+    this.centerMoved = centerMoved ? centerMovedDetails(centerMoved) : undefined;
   }
 }
 

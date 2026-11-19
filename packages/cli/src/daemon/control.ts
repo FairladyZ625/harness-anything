@@ -104,7 +104,8 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
     }
     // `return await`, not `return`: a bare return resolves the subcommand's rejection only after
     // this catch has let go, and a known coded error leaves the CLI as a bare stack, not a receipt.
-    if (command === "fleet") return await fleetControl(argv, at, userRoot, daemonId, finish);
+    if (command === "fleet" || argv[at] === "fleet")
+      return await dispatchFleetControl(argv, at, userRoot, daemonId, finish);
     if (command === "auto-claim") return await runNodeAutoClaimControl(argv, at, userRoot, daemonId, finish);
     const repoResult = await maybeRunDaemonRepoControl(command, argv, subcommand, userRoot, daemonId, finish);
     if (repoResult !== undefined) return repoResult;
@@ -176,8 +177,11 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
       2,
     );
   } catch (error) {
-    return finish(daemonFailure(`daemon-${command ?? "unknown"}`, code(error), message(error)), 1);
+    return finish(daemonFailure(controlFailureName(argv[at], command), code(error), message(error)), 1);
   }
+}
+function controlFailureName(domain: string | undefined, command: string | undefined): string {
+  return `${domain ?? "daemon"}-${command ?? "unknown"}`;
 }
 async function runNodeAutoClaimControl(
   argv: readonly string[],
@@ -350,34 +354,18 @@ async function fleetStatusControl(
   console.log(renderDaemonFleetStatus(result));
   return 0;
 }
-/**
- * The center-start payload, or the receipt fields that refuse the shape. The TLS certificate
- * pair is together-or-neither: an omitted pair makes the daemon reuse the login service
- * listener certificate, which is the only source a human user can be expected to have; half a
- * pair is a caller mistake and is refused here, before a transport is opened.
- */
-function fleetCenterStartPayload(
+async function dispatchFleetControl(
   argv: readonly string[],
-): { readonly payload: JsonObject } | { readonly code: string; readonly nextAction: string } {
-  const flag = (name: string) => daemonOption(argv, name),
-    key = flag("--key"),
-    cert = flag("--cert");
-  if ((key === undefined) !== (cert === undefined))
-    return {
-      code: "invalid_field",
-      nextAction: "Pass --key and --cert together, or neither to reuse the login service certificate.",
-    };
-  return {
-    payload: {
-      port: Number(flag("--port")),
-      ...(key === undefined ? {} : { keyPath: path.resolve(key), certPath: path.resolve(cert!) }),
-      repoId: flag("--repo"),
-      quotaBytes: Number(flag("--quota-bytes")),
-      ...(flag("--bind") ? { bind: flag("--bind") } : {}),
-      ...(flag("--external-url") ? { externalUrl: flag("--external-url") } : {}),
-      ...(flag("--state-root") ? { stateRoot: path.resolve(flag("--state-root")!) } : {}),
-    } as JsonObject,
-  };
+  at: number,
+  userRoot: string,
+  daemonId: string,
+  finish: ControlFinisher,
+): Promise<number> {
+  if (argv[at] === "fleet" && argv[at + 1] === "center") {
+    const { runFleetCenterRelocationControl } = await import("./fleet-center-relocation.ts");
+    return await runFleetCenterRelocationControl(argv, userRoot, finish);
+  }
+  return await fleetControl(argv, at, userRoot, daemonId, finish);
 }
 async function fleetControl(
   argv: readonly string[],
@@ -386,6 +374,7 @@ async function fleetControl(
   daemonId: string,
   finish: ControlFinisher,
 ): Promise<number> {
+  const { fleetCenterStartPayload } = await import("./fleet-center-relocation.ts");
   const status = argv[at + 2] === "status",
     center = argv[at + 2] === "center" && argv[at + 3] === "start",
     edge = argv[at + 2] === "edge" && argv[at + 3] === "sync",

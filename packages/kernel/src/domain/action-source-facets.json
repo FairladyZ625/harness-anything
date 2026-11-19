@@ -6605,6 +6605,12 @@
         "port": "packages/kernel/src/local/local-layout-file-system.ts#localLedgerBackupFileSystem.remove"
       },
       {
+        "candidateId": "action:packages/storage:packages/storage/src/center-relocation.ts#importCenterRelocation:a8446b6e47067ca3cfe735f40cbb9140",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/local/local-layout-file-system.ts#localLedgerBackupFileSystem.remove"
+      },
+      {
         "candidateId": "action:packages/storage:packages/storage/src/store/ledger-backup.ts#stageLedgerBackup:1497e662480d96fd8c30c2aa5208b0ea",
         "route": "daemon-local-state",
         "role": "technical-port",

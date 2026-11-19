@@ -26,14 +26,26 @@ export interface WriterEpochRetirementSealV1 {
   readonly retiredAt: string;
 }
 
+export function centerMovedDetails(details: CenterMovedDetails): CenterMovedDetails {
+  return {
+    newExternalUrl: details.newExternalUrl,
+    newLoginUrl: details.newLoginUrl,
+    newEpoch: details.newEpoch,
+    spkiSha256: details.spkiSha256,
+  };
+}
+
 export class CenterMovedError extends Error {
   readonly code = "CENTER_MOVED" as const;
   readonly details: CenterMovedDetails;
+  readonly centerMoved: CenterMovedDetails;
 
   constructor(details: CenterMovedDetails) {
+    const projected = centerMovedDetails(details);
     super("The center has moved; repoint this edge to the new center before retrying.");
     this.name = "CenterMovedError";
-    this.details = details;
+    this.details = projected;
+    this.centerMoved = projected;
   }
 }
 
@@ -87,4 +99,9 @@ export function writeWriterEpochRetirementSeal(userRoot: string, seal: WriterEpo
 export function centerMovedError(userRoot: string, repoId: string): CenterMovedError | null {
   const tombstone = readCenterRelocated(userRoot, repoId);
   return tombstone === null ? null : new CenterMovedError(tombstone);
+}
+
+export function throwIfCenterRelocated(userRoot: string, repoId: string): void {
+  const moved = centerMovedError(userRoot, repoId);
+  if (moved !== null) throw moved;
 }

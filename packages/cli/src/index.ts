@@ -126,13 +126,13 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
     }
     return runBackupRetention(invocation);
   }
-  if (command === "daemon" || command === "gui") {
+  if (
+    command === "daemon" ||
+    command === "gui" ||
+    (command === "fleet" && argv[firstCliCommandIndex(argv) + 1] === "center")
+  ) {
     const { runDaemonControl } = await import("./daemon/control.ts");
     return runDaemonControl(argv, emit);
-  }
-  if (command === "fleet" && argv[1] === "center") {
-    const { runCenterRelocationCommand } = await import("./center-relocation-command.ts");
-    return runCenterRelocationCommand(argv);
   }
   const parseStartedAt = cliPhaseStart(),
     parsed = parseThinCommand(explainHelpOverlay?.argv ?? argv);
