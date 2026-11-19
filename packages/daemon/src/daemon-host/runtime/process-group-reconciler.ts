@@ -140,6 +140,29 @@ export function probeProcessGroup(
 }
 
 /**
+ * Observe whether a recorded local process group is still running on this host.
+ * Unlike `probeProcessGroup`, this is a blocking observation for owner rulings only: it never
+ * yields a stop proof from a single PID, and without a Windows containment witness it probes
+ * leader process reachability.
+ */
+export function observeRecordedProcessGroup(
+  input: number | ProcessGroupIdentity,
+  deps: ProcessGroupReconcilerDeps = {},
+): ProviderGroupSweepVerdict {
+  const pid = groupPid(input);
+  if (!validGroupPid(pid)) return "unknown_unreachable";
+  const verdict = probeProcessGroup(input, deps);
+  if (verdict === "running") return "running";
+  if ((deps.platform ?? process.platform) === "win32" && verdict === "proven_stopped") return "proven_stopped";
+  try {
+    process.kill(pid, 0);
+    return "running";
+  } catch (error) {
+    return errorCode(error) === "EPERM" ? "running" : verdict;
+  }
+}
+
+/**
  * Stop an orphaned group and prove the stop with a second kill(-pid, 0) probe.
  * A successful SIGKILL request is not itself proof: the group may still contain writers.
  */

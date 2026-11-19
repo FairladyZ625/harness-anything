@@ -1117,6 +1117,102 @@ test(
   },
 );
 
+test(
+  "decision dispatch-review dispatches an amended digest once the prior digest's reviewer recorded its verdict",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, { autoSubmit: false });
+    const runDecision = (action: Parameters<typeof f.run>[0]) => f.cell().run(action, withPolicyGroup(owner, "admin"));
+    try {
+      await f.install();
+      const proposed = await runDecision({
+        kind: "decision-propose",
+        body: realizedDecisionBody("Recorded review releases the amended digest"),
+        jsonInput: JSON.stringify({
+          title: "Recorded review releases the amended digest",
+          question: "Should a recorded verdict release the amended Decision for review?",
+          riskTier: "high",
+          urgency: "high",
+          vertical: "software/coding",
+          preset: "standard-task",
+          decisionClass: "ordinary",
+          appliesTo: { modules: ["daemon"], productLines: [] },
+          chosen: [{ id: "CH1", text: "A recorded verdict finishes its review dispatch." }],
+          rejected: [
+            { id: "RJ1", text: "Wait for the runtime exit", whyNot: "A lost exit would block every revision." },
+          ],
+          claims: [{ id: "C1", text: "The amended cut is reviewed after the prior verdict.", loadBearing: true }],
+          fulfillments: [],
+        }),
+      });
+      assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
+      const decisionId = JSON.parse(String(proposed.evidence)).decisionId as string,
+        digest = JSON.parse(String((await runDecision({ kind: "decision-show", decisionId })).evidence)).decision
+          .currentReviewContentDigest as string,
+        first = await runDecision({ kind: "decision-dispatch-review", decisionId }),
+        step = dispatchesOf(first)[0]!,
+        reportRef = `decisions/decision-${decisionId}/artifacts/reports/${step.dispatchId}.md`,
+        packetRef = `decisions/decision-${decisionId}/artifacts/reports/${step.dispatchId}.json`;
+      assert.equal(first.outcome, "applied", JSON.stringify(first));
+      assert.equal(f.launches.length, 1);
+      mkdirSync(path.dirname(path.join(f.root, "harness", packetRef)), { recursive: true });
+      writeFileSync(path.join(f.root, "harness", reportRef), "# Review\n\nThe Decision needs a named correction.\n");
+      writeFileSync(
+        path.join(f.root, "harness", packetRef),
+        JSON.stringify({
+          reviewId: `review-${step.dispatchId}`,
+          reviewContentDigest: digest,
+          verdict: "changes_requested",
+          reason: "The proposal needs a named correction.",
+          findings: [{ findingId: "finding-1", text: "Name the correction before acceptance." }],
+          evidenceChecked: ["decision.md"],
+          reportRef,
+        }),
+      );
+      const reviewed = await runDecision({
+        kind: "decision-review",
+        decisionId,
+        fromFile: `harness/${packetRef}`,
+        executor: { kind: "agent", id: `runtime-session:${step.runtimeSessionId}` },
+      });
+      assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+      // The reviewer's runtime exit is never observed, as when it was lost across a daemon upgrade.
+      assert.equal(
+        f
+          .events()
+          .some(
+            (event) =>
+              (event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed") &&
+              event.payload.runtimeSessionId === step.runtimeSessionId,
+          ),
+        false,
+      );
+      const amended = await runDecision({
+        kind: "decision-amend",
+        decisionId,
+        reason: "Name the correction the recorded review requested.",
+        standingPolicy: false,
+        fulfillments: [],
+        sets: [],
+        appends: [],
+        body: realizedDecisionBody("Recorded review releases the amended digest, corrected"),
+      });
+      assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+      const amendedDigest = JSON.parse(String((await runDecision({ kind: "decision-show", decisionId })).evidence))
+        .decision.currentReviewContentDigest as string;
+      assert.notEqual(amendedDigest, digest);
+      const second = await runDecision({ kind: "decision-dispatch-review", decisionId, expectedDigest: amendedDigest });
+      assert.equal(second.outcome, "applied", JSON.stringify(second));
+      assert.equal(dispatchesOf(second)[0]!.outcome, "dispatched", JSON.stringify(second));
+      assert.equal(f.launches.length, 2, "the amended digest receives its own review");
+      const requested = f.events().filter((event) => event.type === "runtime_dispatch_requested");
+      assert.deepEqual(requested.at(-1)!.payload.reviewTarget, { kind: "decision", decisionId, digest: amendedDigest });
+    } finally {
+      await f.close();
+    }
+  },
+);
+
 test("active cut review lookup skips historical reviewer rows without dispatchKey", () => {
   const cell = {
       projection: {
