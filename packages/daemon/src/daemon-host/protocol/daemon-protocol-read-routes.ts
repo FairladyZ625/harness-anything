@@ -1,6 +1,7 @@
 import { optionalEnum, shape, type DaemonGuiRpcReadMethod } from "./daemon-protocol-results.ts";
 import { observeTailReadMethod } from "./daemon-protocol-observe-tail-read.ts";
 import {
+  DAEMON_CONTROL_RECEIPT_SCHEMA,
   DAEMON_USE_CASE_PROJECTION_SCHEMA,
   daemonAgendaPayloadShape,
   daemonArtifactsListPayloadShape,
@@ -52,6 +53,7 @@ export const daemonReadRoutes = Object.freeze([
     requiresRepo: false,
     params: shape({ payload: shape({ operationId: "string" }) }),
     commandClass: "repo-read",
+    outputSchemaId: DAEMON_CONTROL_RECEIPT_SCHEMA.id,
   },
   observeTailReadMethod,
   {

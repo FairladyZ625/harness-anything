@@ -589,9 +589,9 @@ test("validateAgentRuntimeTokenUsage accepts the aggregate and rejects corrupted
   }
 });
 
-test("repo.agentRuntime.tokenUsage and tokenUsageDetail are registered through the GUI read directory", () => {
+test("runtime token usage queries use the canonical repository-scoped read descriptors", () => {
   const facet = daemonReadRoutes.find(({ method }) => method === "repo.agentRuntime.tokenUsage");
-  assert.ok(facet, "repo.agentRuntime.tokenUsage must be in the GUI read directory");
+  assert.ok(facet);
   assert.equal(facet.requiresRepo, true);
   assert.deepEqual(
     validateDaemonRpcCall({
@@ -615,8 +615,8 @@ test("repo.agentRuntime.tokenUsage and tokenUsageDetail are registered through t
     ["params.payload.range must be one of today, 7d, 30d"],
   );
   const detailFacet = daemonReadRoutes.find(({ method }) => method === "repo.agentRuntime.tokenUsageDetail");
-  assert.ok(detailFacet, "repo.agentRuntime.tokenUsageDetail must be in the GUI read directory");
-  assert.equal(detailFacet.inputSchemaId, "gui.agent-runtime-token-usage-detail/v1");
+  assert.ok(detailFacet);
+  assert.equal(detailFacet.requiresRepo, true);
   assert.deepEqual(
     validateDaemonRpcCall({
       method: "repo.agentRuntime.tokenUsageDetail",

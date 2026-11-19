@@ -807,8 +807,8 @@ partitionedTest(
     const allGuiClientActions = inputs.constants.actionDeclarations.filter((action) =>
       (action.ontology?.sources ?? []).some((source) => source.role === "client" && isNonMainGui(source.candidateId)),
     );
-    // dec_9C43012EBB2754D7112F618F0D / dec_13B7B846B56BFA192533011B91 expose
-    // three existing actions; dec_86761D79CF16E14C4583890F59 registers their exact GUI sources.
+    // dec_89D06D7360CBEC09795F7B12EC adds four existing routes to the non-main GUI client census:
+    // runtime-instance-list, provider-list, provider-show, and provider-probe.
     assert.equal(allGuiClientActions.length, 86);
     const expectedGuiClientCount = allGuiClientActions
       .flatMap((action) => action.ontology?.sources ?? [])

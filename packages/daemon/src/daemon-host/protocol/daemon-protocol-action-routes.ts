@@ -11,6 +11,7 @@ import { taskCompletionRoutes, taskReworkRoutes } from "./entity-action-routes.t
 import {
   DAEMON_CONTROL_RECEIPT_SCHEMA,
   TERMINAL_CONTROL_RECEIPT_SCHEMA,
+  TERMINAL_DETACH_ACK_SCHEMA,
   TERMINAL_INPUT_ACK_SCHEMA,
 } from "./daemon-protocol-schema-ids.ts";
 
@@ -370,7 +371,7 @@ export const daemonActionRoutes = Object.freeze([
     "repo.terminal.detach",
     "terminal-detach",
     shape({ sessionId: "string", attachmentId: "string" }),
-    { read: true },
+    { read: true, outputSchemaId: TERMINAL_DETACH_ACK_SCHEMA.id },
   ),
   actionRpc(
     "terminal.terminate",

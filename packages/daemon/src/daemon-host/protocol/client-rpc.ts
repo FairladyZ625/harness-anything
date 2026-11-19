@@ -27,14 +27,15 @@ export function daemonClientFailureCode(error: unknown): string {
 /** Renderer views name the canonical RPC and the repository scope once. */
 export function scopedRpcParams<Method extends InteractiveRpcMethod>(
   method: Method,
-  input: object,
+  input: object | null | undefined,
 ): DaemonRpcMethodMap[Method]["params"] {
   const descriptor = interactiveRpcDescriptor(method);
   if (!descriptor) throw new DaemonProtocolContractError("method_not_allowed", `Unsupported RPC method: ${method}`);
-  const fields = descriptor.params.fields,
-    { repoId, ...rest } = input as { readonly repoId?: string },
+  const params = input ?? {},
+    fields = descriptor.params.fields,
+    { repoId, ...rest } = params as { readonly repoId?: string },
     scoped = Object.hasOwn(fields, "repo"),
-    payload = scoped ? rest : input;
+    payload = scoped ? rest : params;
   return {
     ...(scoped && (descriptor.requiresRepo || repoId !== undefined) ? { repo: { repoId } } : {}),
     ...(Object.hasOwn(fields, "payload") ? { payload } : payload),

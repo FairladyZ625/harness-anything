@@ -26,6 +26,7 @@ import {
   commandClassForAction,
   daemonActionRoutes,
   daemonProtocolCommands,
+  daemonReadRoutes,
   parseDaemonRpcParams,
 } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { isJsonObject, rejectSecretKeys } from "../src/daemon-host/protocol/json-rpc-types.ts";
@@ -948,6 +949,10 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
     daemonActionRoutes.find(({ method }) => method === "daemon.gui.control.request")?.outputSchemaId,
     "daemon-control-receipt/v1",
   );
+  assert.equal(
+    daemonReadRoutes.find(({ method }) => method === "daemon.gui.control.receipt")?.outputSchemaId,
+    "daemon-control-receipt/v1",
+  );
   for (const [method, actionKind, outputSchemaId] of [
     ["repo.terminal.spawn", "terminal-spawn", "terminal-control-receipt/v1"],
     ["repo.terminal.input", "terminal-input", "terminal-input-ack/v1"],
@@ -957,6 +962,9 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
     assert.equal(actionDeclarations.find(({ kind }) => kind === actionKind)?.receiptSettlement, "none", method);
     assert.equal(daemonActionRoutes.find((candidate) => candidate.method === method)?.outputSchemaId, outputSchemaId);
   }
+  const terminalDetach = daemonActionRoutes.find(({ method }) => method === "repo.terminal.detach");
+  assert.equal(terminalDetach?.commandClass, "repo-read");
+  assert.equal(terminalDetach?.outputSchemaId, "terminal-detach-ack/v1");
 });
 
 test("protocol descriptors preserve topology metadata without authorizing actions", () => {

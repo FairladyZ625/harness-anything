@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore } from "@harness-anything/storage";
+import { makeTaskEventReader } from "@harness-anything/storage";
 import { type AgentDefinitionSnapshot, type AgentRuntimeEventV1 } from "@harness-anything/kernel";
 import type { RuntimeInstanceSummary, RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
 import { dispatchStreamPath, readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
@@ -338,9 +338,9 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       ["provider_quota", "provider_quota"],
     );
     assert.equal(exhausted.rows[1]?.lifecycle?.groupPhase, "closed");
-    const exhaustionEvents = makeTaskEventStore({ repoId: "provider-fallback", rootDir: root })
-        .read()
-        .events.filter((event) => event.taskId === "task_provider_fallback_exhausted"),
+    const exhaustionEvents = (await readFixtureEvents("provider-fallback", root)).filter(
+        (event) => event.taskId === "task_provider_fallback_exhausted",
+      ),
       exhaustionReleases = exhaustionEvents.filter((event) => event.type === "lease_released");
     assert.deepEqual(
       exhaustionReleases.map((event) => event.actor.executor),
@@ -1319,14 +1319,12 @@ for (const recovery of ["reconcile", "adoption", "timer"] as const) {
       await openContext().reconcileFallback(dispatchId);
       await adoptRuntimes(openContext());
       assert.equal(notifications.length, 1, "settled groups do not notify twice");
-      const releases = makeTaskEventStore({ repoId, rootDir: root })
-        .read()
-        .events.filter(
-          (event) =>
-            event.taskId === taskId &&
-            event.type === "lease_released" &&
-            event.actor.executor?.id === `runtime-session:${stream.header.runtimeSessionId}`,
-        );
+      const releases = (await readFixtureEvents(repoId, root)).filter(
+        (event) =>
+          event.taskId === taskId &&
+          event.type === "lease_released" &&
+          event.actor.executor?.id === `runtime-session:${stream.header.runtimeSessionId}`,
+      );
       assert.equal(releases.length, 1, "only the matching runtime lease is released once");
     } finally {
       t.mock.timers.reset();
@@ -1334,6 +1332,15 @@ for (const recovery of ["reconcile", "adoption", "timer"] as const) {
       rmSync(root, { recursive: true, force: true });
     }
   });
+}
+
+async function readFixtureEvents(repoId: string, rootDir: string) {
+  const reader = makeTaskEventReader({ repoId, rootDir });
+  try {
+    return reader.read().events;
+  } finally {
+    await reader.drain();
+  }
 }
 
 async function installAgent(
