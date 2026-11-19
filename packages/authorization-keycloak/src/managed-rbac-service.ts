@@ -212,7 +212,6 @@ export class ManagedRbacService {
       writeConfig: (config) => this.#writeConfig(config),
       readCenterClientSecret: () => readFileSync(path.join(this.#root, "center-client-secret"), "utf8").trim(),
       writeCenterClientSecret: (secret) => writeManagedRbacCenterClientSecret(this.#root, secret),
-      syncRealm: () => this.#syncRealm(),
       requireRunningServices: () => this.#requireRunningManagedServices(),
       stopKeycloak: () => this.#stopKeycloakForRelocation(),
       restartKeycloak: () => this.#restartKeycloakAfterRelocation(),

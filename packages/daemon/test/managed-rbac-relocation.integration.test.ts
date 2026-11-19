@@ -167,9 +167,12 @@ test(
         headers: { authorization: `Bearer ${sourceToken}`, "content-type": "application/json" },
         body: JSON.stringify({
           username: user.username,
+          firstName: "Relocation",
+          lastName: "Human",
           email: "relocation-human@example.invalid",
           emailVerified: true,
           enabled: true,
+          requiredActions: [],
           attributes: { harness_person_id: [user.id] },
         }),
       });
@@ -198,8 +201,13 @@ test(
       { groupId: "admin", resource: "relocation-repo", userIds: [userId] },
       effectivePolicyGroupScopes(groups, admin.id),
     );
-    const sourceLogin = await passwordLogin(sourceConfig.url, user.username, user.password);
-    assert.equal(sourceLogin.ok, true, "the original human password authenticates before export");
+    const sourceLogin = await passwordLogin(sourceConfig.url, user.username, user.password),
+      sourceLoginFailure = sourceLogin.ok ? "" : await sourceLogin.text();
+    assert.equal(
+      sourceLogin.ok,
+      true,
+      `the original human password authenticates before export (HTTP ${sourceLogin.status}: ${sourceLoginFailure})`,
+    );
     const sourceDecision = await sourcePolicy.authorizePerson({
       adminAccessToken: sourceToken,
       personId: user.id,

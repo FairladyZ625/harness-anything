@@ -65,7 +65,6 @@ export interface ManagedRbacRelocationPorts {
   readonly writeConfig: (config: ManagedRbacConfig) => void;
   readonly readCenterClientSecret: () => string;
   readonly writeCenterClientSecret: (secret: string) => void;
-  readonly syncRealm: () => Promise<void>;
   readonly requireRunningServices: () => void;
   readonly stopKeycloak: () => Promise<void>;
   readonly restartKeycloak: () => Promise<void>;
@@ -420,7 +419,6 @@ export class ManagedRbacRelocationService {
       this.#ports.writeConfig(nextConfig);
       configCommitted = true;
       await this.#ports.restartKeycloak();
-      await this.#ports.syncRealm();
       succeeded = true;
       const cleanup = this.#ports.pruneListenerVersions(listener, config.listener);
       return {
