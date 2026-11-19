@@ -288,7 +288,6 @@ export interface DaemonHost {
       auth: DaemonAuthenticationContext,
     ) => Promise<Record<string, unknown>>;
     readonly edgeSync: (payload: JsonObject, auth: DaemonAuthenticationContext) => Promise<Record<string, unknown>>;
-    readonly edgeRepoint: (payload: JsonObject, auth: DaemonAuthenticationContext) => Promise<Record<string, unknown>>;
     readonly edgeRuntime: (payload: JsonObject, auth: DaemonAuthenticationContext) => Promise<Record<string, unknown>>;
   };
   readonly status: () => {

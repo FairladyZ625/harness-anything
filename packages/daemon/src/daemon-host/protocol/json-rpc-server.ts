@@ -599,8 +599,7 @@ export function createJsonRpcProtocolServer(options: {
       method === "daemon.fleet.center.read" ||
       method === "daemon.fleet.center.external-address.read" ||
       method === "daemon.fleet.center.external-address.set" ||
-      method === "daemon.fleet.edge.sync" ||
-      method === "daemon.fleet.edge.repoint"
+      method === "daemon.fleet.edge.sync"
     ) {
       try {
         const result =
@@ -612,9 +611,7 @@ export function createJsonRpcProtocolServer(options: {
                 ? await options.host.fleet.readCenterExternalAddress(options.authContext)
                 : method === "daemon.fleet.center.external-address.set"
                   ? await options.host.fleet.setCenterExternalAddress(params.payload, options.authContext)
-                  : method === "daemon.fleet.edge.sync"
-                    ? await options.host.fleet.edgeSync(params.payload, options.authContext)
-                    : await options.host.fleet.edgeRepoint(params.payload, options.authContext);
+              : await options.host.fleet.edgeSync(params.payload, options.authContext);
         return reply(method, result);
       } catch (error) {
         return reply(method, protocolFailure(method, error));

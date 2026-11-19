@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import type { IdentitySessionPort } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -196,7 +196,7 @@ test("edge connection changes do not select a different OIDC center", (t) => {
   assert.equal(existsSync(fleetEdgeConfigPath(active.userRoot, "edge-repo")), true);
 });
 
-test("clearing an edge center selection removes its disk file and process cache", (t) => {
+test("clearing an edge center selection tombstones its disk file and drops process state", (t) => {
   const active = fixture(t),
     selection = oidcCenterSelections(active.userRoot),
     authority = { url: "https://login.example", realm: "harness", clientId: "harness-gui" };
@@ -217,11 +217,11 @@ test("clearing an edge center selection removes its disk file and process cache"
   assert.ok(existsSync(file));
   assert.deepEqual(selection.read(active.edgeRoot), { issuer: active.edgeIssuer, authority });
   selection.clear(active.edgeRoot);
-  assert.equal(existsSync(file), false);
+  assert.equal(JSON.parse(readFileSync(file, "utf8")), null);
   assert.equal(selection.read(active.edgeRoot), undefined);
 });
 
-test("clearing all center selections removes every persisted and process entry", (t) => {
+test("clearing all center selections tombstones every persisted entry", (t) => {
   const active = fixture(t),
     selection = oidcCenterSelections(active.userRoot),
     authority = { url: "https://login.example", realm: "harness", clientId: "harness-gui" },
@@ -245,8 +245,8 @@ test("clearing all center selections removes every persisted and process entry",
   assert.deepEqual(selection.read(active.edgeRoot), value);
   assert.deepEqual(selection.read(undefined), { issuer: active.localIssuer, authority });
   selection.clearAll();
-  assert.equal(existsSync(edgeFile), false);
-  assert.equal(existsSync(localFile), false);
+  assert.equal(JSON.parse(readFileSync(edgeFile, "utf8")), null);
+  assert.equal(JSON.parse(readFileSync(localFile, "utf8")), null);
   assert.equal(selection.read(active.edgeRoot), undefined);
   assert.equal(selection.read(undefined), undefined);
 });

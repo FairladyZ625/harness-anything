@@ -163,7 +163,7 @@ export async function runWalSender(input: {
     if (page === null) {
       if (start.capabilities?.includes(REPOINT_RESUME_ONLY)) {
         await peer.send({ type: "replica.failure", code: "replication_resume_unavailable", message: reason });
-        throw Object.assign(new Error(reason), { code: "replication_resume_unavailable" });
+        throw new Error(reason);
       }
       if (position !== null) await peer.send({ type: "replica.resync", reason });
       input.onActivity?.("waiting_backup");

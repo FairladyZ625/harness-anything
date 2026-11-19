@@ -7,15 +7,15 @@ import { listenFleetTls, type FleetTlsCenter } from "./fleet/center.ts";
 import type { EdgeJoinAdmission, FleetCenterOptions } from "./fleet/center-types.ts";
 import type { KeycloakCenterAuthority } from "./transport/auth-context.ts";
 import { readReplicaGeneration, revokeReplicaView } from "../fleet-sync/fleet/replica-generation.ts";
-import { FleetRemoteError, readFleetRepositoryMetadataClient } from "./fleet/peer.ts";
+import { FleetRemoteError, readFleetLoginAuthorityClient, readFleetRepositoryMetadataClient } from "./fleet/peer.ts";
 import { failFleetReplicaSync, waitForFleetReplicaReady, waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
 import { readReplicaHealth } from "../fleet-sync/fleet/replica-health.ts";
 import { applyFleetMirrorCut, revokeFleetMirrorTree, withFleetMirrorLock } from "./fleet-edge-mirror.ts";
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
 import type { WriterEpochLease } from "@harness-anything/storage";
 import { hasDaemonGitFollower, readDaemonHarnessConfig } from "@harness-anything/storage";
-import { readFleetEdgeConfig, writeFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { daemonUserRoot } from "./client/local-daemon-target.ts";
+import { FleetEdgeConfigError, readFleetEdgeConfig, writeFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { parseFleetCenterExternalUrl, resolveFleetCursorSecret } from "./fleet-center-config.ts";
 import { mapListenerBindError, validateCertificateNames } from "./tls-listener-admission.ts";
 import { assertFleetEdgeRepositoryGit } from "./fleet-edge-git-preflight.ts";
@@ -348,7 +348,11 @@ export async function syncFleetEdgeMirror(
 
 export interface FleetEdgeRepointRequest {
   readonly userRoot: string;
-  readonly payload: FleetEdgeSyncRequest["payload"] & {
+  readonly workspaceRoot: string;
+  readonly payload: Pick<
+    FleetEdgeSyncRequest["payload"],
+    "host" | "port" | "caPath" | "servername" | "spkiSha256" | "nodeId" | "credential" | "repoId" | "timeoutMs"
+  > & {
     readonly spkiSha256: string;
   };
 }
@@ -362,29 +366,31 @@ export async function repointFleetEdgeMirror(
   const request = input.payload,
     previous = readFleetEdgeConfig(input.userRoot, request.repoId);
   if (!previous || previous.repoId !== request.repoId || previous.nodeId !== request.nodeId)
-    throw Object.assign(new Error("A matching fleet-edge.json is required before repoint."), {
-      code: "fleet_edge_config_invalid",
-    });
+    throw new FleetEdgeConfigError(
+      "fleet_edge_config_invalid",
+      "A matching fleet-edge.json is required before repoint.",
+    );
   if (!/^[a-f0-9]{64}$/u.test(request.spkiSha256))
-    throw Object.assign(new Error("--spki-sha256 requires a lowercase SHA-256 digest."), { code: "invalid_field" });
+    throw new FleetEdgeConfigError("invalid_field", "--spki-sha256 requires a lowercase SHA-256 digest.");
   const viewRoot = path.isAbsolute(previous.viewRoot)
       ? previous.viewRoot
-      : path.resolve(request.workspaceRoot, previous.viewRoot),
+      : path.resolve(input.workspaceRoot, previous.viewRoot),
     viewDir = path.join(viewRoot, "repos", request.repoId, "views", previous.nodeId),
     generation = readReplicaGeneration(viewDir),
     view = locateFleetMirrorView(viewRoot, request.repoId, previous.nodeId, { includeEntries: false });
   if (!generation || !view)
-    throw Object.assign(new Error("The edge has no durable replica cut to use for repoint."), {
-      code: "replica_unavailable",
-    });
+    throw new FleetEdgeConfigError("replica_unavailable", "The edge has no durable replica cut to use for repoint.");
   const lastAppliedRevision = generation.metadata.position.revision;
   if (view.revision !== lastAppliedRevision)
-    throw Object.assign(new Error("The edge replica cut is not internally consistent; retry after it settles."), {
-      code: "replica_cut_inconsistent",
-    });
+    throw new FleetEdgeConfigError(
+      "replica_cut_inconsistent",
+      "The edge replica cut is not internally consistent; retry after it settles.",
+    );
   const ledger = openSqliteEventStore({
-    databasePath: generation.ledgerPath, repoId: request.repoId,
-    generation: generation.metadata.ledgerGeneration, readOnly: true,
+    databasePath: generation.ledgerPath,
+    repoId: request.repoId,
+    generation: generation.metadata.ledgerGeneration,
+    readOnly: true,
   });
   let oldEpoch: number | undefined;
   try {
@@ -393,10 +399,12 @@ export async function repointFleetEdgeMirror(
     ledger.close();
   }
   if (oldEpoch === 0)
-    throw Object.assign(new Error("The edge has no recorded writer epoch. Sync with the old center before repointing."), {
-      code: "writer_epoch_unknown",
-    });
-  const deadline = AbortSignal.timeout(request.timeoutMs ?? 60_000);
+    throw new FleetEdgeConfigError(
+      "writer_epoch_unknown",
+      "The edge has no recorded writer epoch. Sync with the old center before repointing.",
+    );
+  const timeoutMs = request.timeoutMs ?? 60_000,
+    deadline = AbortSignal.timeout(timeoutMs);
   const metadataOptions = {
     hostname: request.host,
     port: request.port,
@@ -409,94 +417,94 @@ export async function repointFleetEdgeMirror(
     actionKind: "repository-read",
     resumePosition: generation.metadata.position,
     signal: deadline,
-    timeoutMs: request.timeoutMs,
+    timeoutMs,
   };
-  const head = await readFleetRepositoryMetadataClient({ ...metadataOptions, readAccessToken }).catch((error: unknown) => {
-    if (!(error instanceof FleetRemoteError) || error.code !== "authentication_required") throw error;
-    return readFleetRepositoryMetadataClient({
-      ...metadataOptions,
-      readRepointToken: async (authority) => {
-        if (!authority || authority.clientId !== `harness-node-${request.nodeId}`) throw error;
-        return requestFleetReplicaToken({
-          ...authority,
-          nodeId: request.nodeId,
-          credential: request.credential,
-          ca: authority.certificate ?? systemCaCertificates(),
-        });
-      },
-    });
-  });
-  if (head.actionAllowed !== true)
-    throw Object.assign(new Error("The new center denied repository-read for this node."), {
-      code: "authorization_denied",
-    });
+  const head = await readFleetRepositoryMetadataClient({ ...metadataOptions, readAccessToken }).catch(
+    (error: unknown) => {
+      if (!(error instanceof FleetRemoteError) || error.code !== "authentication_required") throw error;
+      return readFleetRepositoryMetadataClient({
+        ...metadataOptions,
+        readRepointToken: async (authority) => {
+          if (!authority) throw error;
+          return requestFleetReplicaToken({
+            ...authority,
+            nodeId: request.nodeId,
+            credential: request.credential,
+            ca: authority.certificate ?? systemCaCertificates(),
+          });
+        },
+      });
+    },
+  );
+  if (!head.actionAllowed)
+    throw new FleetEdgeConfigError("authorization_denied", "The new center denied repository-read for this node.");
   const lineage = head.lineage;
   if (!lineage || lineage.revision !== lastAppliedRevision || head.repoId !== previous.repoId)
-    throw Object.assign(new Error("The center did not confirm the requested replica position."), {
-      code: "replication_resume_unavailable",
-    });
+    throw new FleetEdgeConfigError(
+      "replication_resume_unavailable",
+      "The center did not confirm the requested replica position.",
+    );
   if (lineage.ledgerGeneration !== generation.metadata.ledgerGeneration)
-    throw Object.assign(new Error("The new center ledger generation does not match the edge replica."), {
-      code: "lineage_generation_mismatch",
-    });
+    throw new FleetEdgeConfigError(
+      "lineage_generation_mismatch",
+      "The new center ledger generation does not match the edge replica.",
+    );
   if (lineage.tipHash !== view.headDigest)
-    throw Object.assign(new Error("The new center history forks from the edge tip; repoint was refused."), {
-      code: "lineage_tip_mismatch",
-    });
+    throw new FleetEdgeConfigError(
+      "lineage_tip_mismatch",
+      "The new center history forks from the edge tip; repoint was refused.",
+    );
   if (head.writerEpoch <= oldEpoch)
-    throw Object.assign(new Error(`The new center writer epoch ${head.writerEpoch} is not greater than ${oldEpoch}.`), {
-      code: "writer_epoch_not_advanced",
-    });
+    throw new FleetEdgeConfigError(
+      "writer_epoch_not_advanced",
+      `The new center writer epoch ${head.writerEpoch} is not greater than ${oldEpoch}.`,
+    );
   if (head.replicationSequence === null || head.replicationSequence < generation.metadata.position.sequence)
-    throw Object.assign(new Error("The new center replication sequence is behind the edge cut."), {
-      code: "replication_sequence_behind",
-    });
+    throw new FleetEdgeConfigError(
+      "replication_sequence_behind",
+      "The new center replication sequence is behind the edge cut.",
+    );
   if (!lineage.resumeAvailable)
-    throw Object.assign(new Error("The new center cannot resume this replica sequence; full basebackup is not permitted."), {
-      code: "replication_resume_unavailable",
-    });
-  const loginAuthority = lineage.loginAuthority;
-  if (!loginAuthority?.url || !loginAuthority.realm || !loginAuthority.clientId)
-    throw Object.assign(new Error("The new center did not provide complete login authority metadata."), {
-      code: "login_authority_missing",
-    });
+    throw new FleetEdgeConfigError(
+      "replication_resume_unavailable",
+      "The new center cannot resume this replica sequence; full basebackup is not permitted.",
+    );
+  const loginAuthority = await readFleetLoginAuthorityClient({
+    hostname: request.host,
+    port: request.port,
+    ca: material(request.caPath, "--ca"),
+    ...(request.servername ? { servername: request.servername } : {}),
+    spkiSha256: request.spkiSha256,
+    nodeId: request.nodeId,
+    credential: request.credential,
+    signal: deadline,
+    timeoutMs,
+  });
   const current = readReplicaGeneration(viewDir);
   if (
     JSON.stringify(readFleetEdgeConfig(input.userRoot, request.repoId)) !== JSON.stringify(previous) ||
     current?.id !== generation.id ||
     current.metadata.position.sequence !== generation.metadata.position.sequence
   )
-    throw Object.assign(new Error("The edge config or replica advanced during preflight. Retry repoint."), {
-      code: "replica_cut_changed",
-    });
-  const selections = oidcCenterSelections(input.userRoot);
-  const config = {
-    repoId: request.repoId,
-    host: request.host,
-    port: request.port,
-    caPath: request.caPath,
-    ...(request.servername ? { servername: request.servername } : {}),
-    spkiSha256: request.spkiSha256,
-    nodeId: request.nodeId,
-    credential: request.credential,
-    writerEpoch: head.writerEpoch,
-    resumeOnly: true as const,
-    loginUrl: loginAuthority.url,
-    loginRealm: loginAuthority.realm,
-    ...(loginAuthority.servername ? { loginServername: loginAuthority.servername } : {}),
-    ...(loginAuthority.browserUrl ? { loginBrowserUrl: loginAuthority.browserUrl } : {}),
-    ...(loginAuthority.certificate ? { loginCertificate: loginAuthority.certificate } : {}),
+    throw new FleetEdgeConfigError(
+      "replica_cut_changed",
+      "The edge config or replica advanced during preflight. Retry repoint.",
+    );
+  const persistRequest: FleetEdgeSyncRequest["payload"] = {
+    ...request,
     viewRoot: previous.viewRoot,
     quotaBytes: previous.quotaBytes,
-    ...(previous.waitTimeoutMs === undefined ? {} : { waitTimeoutMs: previous.waitTimeoutMs }),
-    ...(previous.maxAgeMs === undefined ? {} : { maxAgeMs: previous.maxAgeMs }),
-    ...(previous.maxLagRevisions === undefined ? {} : { maxLagRevisions: previous.maxLagRevisions }),
+    workspaceRoot: input.workspaceRoot,
   };
-  selections.clearAll();
-  writeFleetEdgeConfig(input.userRoot, request.repoId, config);
+  oidcCenterSelections(input.userRoot).clearAll();
+  persistEdgeConnection(input.userRoot, persistRequest, loginAuthority, head.writerEpoch, true);
   onAdmitted?.();
   if (head.replicationSequence > generation.metadata.position.sequence)
-    await waitForFleetReplicaSequence({ viewRoot, repoId: previous.repoId, nodeId: previous.nodeId }, head.replicationSequence, deadline);
+    await waitForFleetReplicaSequence(
+      { viewRoot, repoId: previous.repoId, nodeId: previous.nodeId },
+      head.replicationSequence,
+      deadline,
+    );
   const applied = readReplicaGeneration(viewDir),
     activeConfig = readFleetEdgeConfig(input.userRoot, request.repoId);
   if (
@@ -538,6 +546,7 @@ function persistEdgeConnection(
   request: FleetEdgeSyncRequest["payload"],
   loginAuthority?: FleetEdgeSyncRequest["loginAuthority"],
   writerEpoch?: number,
+  resumeOnly?: true,
 ): void {
   const previous = readFleetEdgeConfig(userRoot, request.repoId);
   const loginUrl = loginAuthority?.url ?? previous?.loginUrl,
@@ -560,7 +569,7 @@ function persistEdgeConnection(
     ...(loginBrowserUrl ? { loginBrowserUrl } : {}),
     ...(loginCertificate ? { loginCertificate } : {}),
     ...(writerEpoch === undefined ? {} : { writerEpoch }),
-    ...(previous?.resumeOnly ? { resumeOnly: true as const } : {}),
+    ...(resumeOnly || previous?.resumeOnly ? { resumeOnly: true as const } : {}),
     viewRoot: request.viewRoot,
     quotaBytes: request.quotaBytes,
     ...(previous?.waitTimeoutMs !== undefined ? { waitTimeoutMs: previous.waitTimeoutMs } : {}),

@@ -3,7 +3,7 @@ import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/dom
 import { uploadFleetChange } from "./upload-client.ts";
 import { encodeFleetFrames, FleetTransferAssembler } from "./command-transfer.ts";
 import { tlsPeerIdentityOptions } from "../tls-ca-certificate.ts";
-import { checkServerIdentity, connect, type TLSSocket } from "node:tls";
+import { connect, type TLSSocket } from "node:tls";
 import { createHash, X509Certificate } from "node:crypto";
 import { isIP } from "node:net";
 import { randomUUID } from "node:crypto";
@@ -1076,35 +1076,38 @@ export async function probeFleetEdgeCenterAddress(options: {
   readonly servername?: string;
   readonly spkiSha256: string;
   readonly timeoutMs?: number;
+  readonly socket?: TLSSocket;
 }): Promise<void> {
   const hostname = options.hostname.replace(/^\[|\]$/gu, "");
-  const socket = await new Promise<TLSSocket>((resolve, reject) => {
-    const candidate = connect({
-      host: hostname,
-      port: options.port,
-      ...edgeJoinServername(hostname, options.servername),
-      rejectUnauthorized: false,
-    });
-    const unreachable = (cause?: unknown) =>
-      Object.assign(
-        new Error(
-          `Center address https://${options.hostname}:${options.port} is unreachable; check its DNS, routing, firewall, and port mapping.`,
-        ),
-        { code: "center_address_unreachable", ...(cause === undefined ? {} : { cause }) },
-      );
-    const timer = setTimeout(() => {
-      candidate.destroy();
-      reject(unreachable());
-    }, options.timeoutMs ?? 5_000);
-    candidate.once("secureConnect", () => {
-      clearTimeout(timer);
-      resolve(candidate);
-    });
-    candidate.once("error", (error) => {
-      clearTimeout(timer);
-      reject(unreachable(error));
-    });
-  });
+  const socket =
+    options.socket ??
+    (await new Promise<TLSSocket>((resolve, reject) => {
+      const candidate = connect({
+        host: hostname,
+        port: options.port,
+        ...edgeJoinServername(hostname, options.servername),
+        rejectUnauthorized: false,
+      });
+      const unreachable = (cause?: unknown) =>
+        Object.assign(
+          new Error(
+            `Center address https://${options.hostname}:${options.port} is unreachable; check its DNS, routing, firewall, and port mapping.`,
+          ),
+          { code: "center_address_unreachable", ...(cause === undefined ? {} : { cause }) },
+        );
+      const timer = setTimeout(() => {
+        candidate.destroy();
+        reject(unreachable());
+      }, options.timeoutMs ?? 5_000);
+      candidate.once("secureConnect", () => {
+        clearTimeout(timer);
+        resolve(candidate);
+      });
+      candidate.once("error", (error) => {
+        clearTimeout(timer);
+        reject(unreachable(error));
+      });
+    }));
   try {
     const peer = socket.getPeerCertificate(true);
     if (!peer.raw)
@@ -1117,7 +1120,7 @@ export async function probeFleetEdgeCenterAddress(options: {
         code: "pin_mismatch",
       });
   } finally {
-    socket.destroy();
+    if (!options.socket) socket.destroy();
   }
 }
 export async function createFleetMemberDeviceLink(options: FleetPeerOptions, repoIds: readonly string[]) {
@@ -1206,29 +1209,26 @@ function peerSocket(options: Omit<FleetPeerOptions, "repoId">): Promise<TLSSocke
         port: options.port,
         ca: options.ca,
         ...tlsPeerIdentityOptions(options.servername ?? "localhost"),
-        ...(options.spkiSha256
-          ? {
-              checkServerIdentity: (hostname: string, cert: import("node:tls").PeerCertificate) => {
-                const identityFailure = checkServerIdentity(hostname, cert);
-                if (identityFailure) return identityFailure;
-                const actual = createHash("sha256")
-                  .update(new X509Certificate(cert.raw).publicKey.export({ type: "spki", format: "der" }))
-                  .digest("hex");
-                return actual === options.spkiSha256
-                  ? undefined
-                  : Object.assign(new Error("The center certificate fingerprint does not match fleet-edge.json."), {
-                      code: "pin_mismatch",
-                    });
-              },
-            }
-          : {}),
         rejectUnauthorized: true,
       },
       () => {
-        finish(() => {
-          socket.setKeepAlive(true, 15_000);
-          resolve(socket);
-        });
+        const pinned = options.spkiSha256
+          ? probeFleetEdgeCenterAddress({
+              hostname: options.hostname ?? "127.0.0.1",
+              port: options.port,
+              ...(options.servername ? { servername: options.servername } : {}),
+              spkiSha256: options.spkiSha256,
+              socket,
+            })
+          : Promise.resolve();
+        void pinned.then(
+          () =>
+            finish(() => {
+              socket.setKeepAlive(true, 15_000);
+              resolve(socket);
+            }),
+          onError,
+        );
       },
     );
     const onError = (error: Error) => {
