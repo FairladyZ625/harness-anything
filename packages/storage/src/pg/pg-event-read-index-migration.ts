@@ -70,6 +70,10 @@ const eventReadFields = {
 };
 const eventScope = "tenant_id,project_id,policy_epoch,repo_id";
 export const pgDispatchPageTimeKey = isoTimestampMillisecondsKeySql("dispatch_activity_at");
+export const pgImportedTaskPinPredicate = `
+  event_type='entity_migrated'
+  AND ha_read_index_json(event_json)#>>'{payload,entity,kind}'='task'
+  AND ha_read_index_json(event_json)#>'{payload,entity,task,pinned}'='true'::jsonb`;
 const dispatchIndexes = [
   ["id", "dispatch_id,revision"],
   ["key", "dispatch_key,revision"],
@@ -298,6 +302,8 @@ export function eventReadIndexDdl(): readonly string[] {
       (tenant_id,project_id,policy_epoch,repo_id,fact_anchor_id,revision) WHERE fact_anchor_id IS NOT NULL`,
     `CREATE INDEX IF NOT EXISTS ha_events_type_time_revision ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,event_type,occurred_at,revision)`,
+    `CREATE INDEX IF NOT EXISTS ha_events_migrated_task_pin ON ha_events
+      (${eventScope},actor_person_id,revision) WHERE ${pgImportedTaskPinPredicate}`,
     ...dispatchIndexes.map(
       ([name, columns]) => `CREATE INDEX IF NOT EXISTS ha_events_dispatch_${name}
       ON ha_events (${eventScope},${columns}) WHERE event_schema='agent-runtime-event/v1' AND event_type='runtime_dispatch_requested'`,

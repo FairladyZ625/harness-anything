@@ -172,7 +172,8 @@ The canonical stream and document bytes stay unchanged. Replay admits historical
 envelopes whose principal lacks a person ID and records them as unattributed history without
 changing any pin set. A migrated Task/v2 with `pinned: true` seeds the migration actor's
 personal pin at the import revision, matching the original projected owner. Subsequent
-personal Unpin and shared retirement events can supersede that seed. Runtime replay accepts the historical `runtime-session/<id>` source and
+personal Unpin and shared retirement events can supersede that seed. A derived partial
+index isolates pinned imports from the rest of migration history. Runtime replay accepts the historical `runtime-session/<id>` source and
 resolves its node from the session launch. Current event admission still requires the current
 actor and source shapes. No ledger conversion or backfill is needed. Rebuilding the cache from
 accepted events applies the same rules to its full history.

@@ -1,3 +1,4 @@
+import { sqliteImportedTaskPinPredicate } from "./projection-tables.ts";
 import {
   personalPinsFromNewest,
   pinRetirementEventTypes,
@@ -201,17 +202,17 @@ export function listPinnedEntityRows(db: DatabaseSync, personId?: string): reado
     // fold the original import revision alongside the person's explicit Pin updates.
     const rows = queryRows<{ entity_ref: string; actor_person_id: string; occurred_at: string; event_type: string }>(
       db,
-      `WITH latest_pin AS MATERIALIZED (
-         SELECT CASE WHEN s.event_type='entity_migrated'
-                     THEN 'task/' || json_extract(e.event_json, '$.payload.entity.task.taskId')
-                     ELSE json_extract(e.event_json, '$.payload.entityRef') END AS entity_ref,
-                max(s.workspace_revision) AS revision
+      `WITH actions(entity_ref, revision) AS (
+         SELECT json_extract(e.event_json, '$.payload.entityRef'), s.workspace_revision
          FROM event_summary s INDEXED BY event_summary_type_revision
          CROSS JOIN event_index e ON e.workspace_revision=s.workspace_revision
-         WHERE s.actor_person_id=? AND s.event_type IN ('entity_pinned','entity_unpinned','entity_migrated')
-           AND (s.event_type<>'entity_migrated' OR (json_extract(e.event_json, '$.payload.entity.kind')='task'
-             AND json_type(e.event_json, '$.payload.entity.task.pinned')='true'))
-         GROUP BY entity_ref
+         WHERE s.actor_person_id=? AND s.event_type IN ('entity_pinned','entity_unpinned')
+         UNION ALL
+         SELECT 'task/' || json_extract(event_json, '$.payload.entity.task.taskId'), workspace_revision
+         FROM event_index
+         WHERE ${sqliteImportedTaskPinPredicate} AND json_extract(event_json,'$.actor.principal.personId')=?
+       ), latest_pin AS MATERIALIZED (
+         SELECT entity_ref, max(revision) AS revision FROM actions GROUP BY entity_ref
        )
        SELECT pin.entity_ref, s.actor_person_id, s.occurred_at, s.event_type
        FROM latest_pin pin
@@ -226,6 +227,7 @@ export function listPinnedEntityRows(db: DatabaseSync, personId?: string): reado
                FROM event_index e WHERE e.workspace_revision=ref.workspace_revision
              )='cancelled'))
        )`,
+      personId,
       personId,
       JSON.stringify(pinRetirementEventTypes),
     );

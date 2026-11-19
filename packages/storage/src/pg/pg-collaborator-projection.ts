@@ -4,7 +4,7 @@ import {
   personalPinsFromNewest,
   pinRetirementEventTypes,
 } from "@harness-anything/kernel/internal/domain/entity-pin-event.ts";
-import { assertPgEventReadIndexReady } from "./pg-event-read-index-migration.ts";
+import { assertPgEventReadIndexReady, pgImportedTaskPinPredicate } from "./pg-event-read-index-migration.ts";
 import type { PgTaskProjectionSourceOptions } from "./pg-task-source.ts";
 
 export async function readPgPersonalPins(
@@ -17,16 +17,16 @@ export async function readPgPersonalPins(
   const visibility = `(tenant_id,project_id,repo_id,policy_epoch)=($1,$2,$3,$4)
      AND (cardinality($5::text[])=0 OR readers && $5::text[]) AND revision <= $7`;
   const { rows } = await client.query<{ entity_ref: string; occurred_at: string; event_type: string }>(
-    `WITH latest_pin AS MATERIALIZED (
-       SELECT CASE WHEN event_type='entity_migrated' THEN 'task/' ||
-         (ha_read_index_json(event_json)#>>'{payload,entity,task,taskId}')
-         ELSE ha_read_index_json(event_json)#>>'{payload,entityRef}' END AS entity_ref,
-         max(revision) AS revision
+    `WITH actions(entity_ref, revision) AS (
+       SELECT ha_read_index_json(event_json)#>>'{payload,entityRef}', revision
        FROM ha_events
-       WHERE ${visibility} AND actor_person_id=$6 AND event_type IN ('entity_pinned','entity_unpinned','entity_migrated')
-         AND (event_type<>'entity_migrated' OR (ha_read_index_json(event_json)#>>'{payload,entity,kind}'='task'
-           AND ha_read_index_json(event_json)#>'{payload,entity,task,pinned}'='true'::jsonb))
-       GROUP BY 1
+       WHERE ${visibility} AND actor_person_id=$6 AND event_type IN ('entity_pinned','entity_unpinned')
+       UNION ALL
+       SELECT 'task/' || (ha_read_index_json(event_json)#>>'{payload,entity,task,taskId}'), revision
+       FROM ha_events
+       WHERE ${visibility} AND actor_person_id=$6 AND ${pgImportedTaskPinPredicate}
+     ), latest_pin AS MATERIALIZED (
+       SELECT entity_ref, max(revision) AS revision FROM actions GROUP BY entity_ref
      )
      SELECT pin.entity_ref, event.occurred_at, event.event_type
      FROM latest_pin pin

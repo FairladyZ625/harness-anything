@@ -37,6 +37,11 @@ export const sqliteDispatchPageTimeKey = isoTimestampMillisecondsKeySql(
   "COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt'))",
 );
 
+export const sqliteImportedTaskPinPredicate = `
+  json_extract(event_json,'$.type')='entity_migrated'
+  AND json_extract(event_json,'$.payload.entity.kind')='task'
+  AND json_type(event_json,'$.payload.entity.task.pinned')='true'`;
+
 export const REPOSITORY_READ_TABLES_SQL = `
     ${DISPATCH_LIFECYCLE_TABLES_SQL}
     /* @gate-identity state-store/task.projection.artifact_entity_state */ CREATE TABLE IF NOT EXISTS artifact_entity_state (
@@ -222,6 +227,9 @@ export const REPOSITORY_READ_TABLES_SQL = `
       json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.payload.dispatchId')
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
       AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
+    CREATE INDEX IF NOT EXISTS event_index_migrated_task_pin ON event_index(
+      json_extract(event_json,'$.actor.principal.personId'), workspace_revision
+    ) WHERE ${sqliteImportedTaskPinPredicate};
     CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_activity_ms ON event_index(
       ${sqliteDispatchPageTimeKey}, json_extract(event_json, '$.payload.dispatchId')
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
