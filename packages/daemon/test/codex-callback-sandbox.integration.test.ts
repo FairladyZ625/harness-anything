@@ -1,13 +1,16 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, watch } from "node:fs";
 import { createServer } from "node:http";
+import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
+import { runtimeSteering } from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
+import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instances.ts";
 import { startDaemon } from "../src/daemon-host/runtime.ts";
 import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
 import { commandDescriptorForAction } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
@@ -249,6 +252,204 @@ test(
     assert.match(committed, /Submitted from real Codex sandbox/u);
     assert.notEqual(execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(), headBefore);
     t.diagnostic(`Codex ${codex.stdout.trim()}; fresh show and resumed submit succeeded; daemon committed closeout`);
+  },
+);
+
+test(
+  "real Codex linked worktree workers git-add and commit across legacy and relay fresh/resume without touching parent worktree",
+  {
+    timeout: 180_000,
+    skip:
+      process.platform !== "darwin"
+        ? "requires macOS Seatbelt sandbox enforcement"
+        : codex.status !== 0
+          ? "requires installed Codex CLI with named permission profiles"
+          : false,
+  },
+  async (t) => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-codex-wt-sandbox-")),
+      relayDir = mkdtempSync(path.join("/tmp", "ha-wt-relay-")),
+      repo = path.join(parent, "repo"),
+      wt = path.join(repo, ".worktrees", "wt"),
+      userRoot = path.join(parent, "user"),
+      relaySocketPath = path.join(relayDir, "r.sock"),
+      outputs = new Map<string, string>();
+    const relayServer = createNetServer();
+    await new Promise<void>((resolve) => relayServer.listen(relaySocketPath, resolve));
+    const model = createServer(async (request, response) => {
+      let body = "";
+      for await (const chunk of request) body += chunk;
+      const parsed = JSON.parse(body) as { input: { type: string; call_id?: string; output?: string }[] },
+        markerMatch = /WT_PHASE:([A-Z_]+)/gu,
+        matches = [...body.matchAll(markerMatch)],
+        phase = (matches.at(-1)?.[1] ?? "LEGACY_FRESH").toLowerCase(),
+        callId = `call_${phase}`,
+        output = parsed.input.find((item) => item.type === "function_call_output" && item.call_id === callId);
+      if (output) outputs.set(phase, String(output.output));
+      const item = output
+        ? {
+            type: "message",
+            id: `message_${phase}`,
+            role: "assistant",
+            content: [{ type: "output_text", text: `WT_${phase}_DONE` }],
+          }
+        : {
+            type: "function_call",
+            call_id: callId,
+            name: "exec_command",
+            arguments: JSON.stringify({
+              cmd: `${shellQuote(process.execPath)} -e ${shellQuote(`
+                const { spawnSync } = require("node:child_process"), fs = require("node:fs"), path = require("node:path");
+                const file = ${JSON.stringify(`${phase}.txt`)};
+                fs.writeFileSync(file, ${JSON.stringify(`${phase}\n`)});
+                const add = spawnSync("git", ["add", file], { encoding: "utf8" });
+                const commit = spawnSync("git", ["-c", "user.email=t@t.com", "-c", "user.name=t", "commit", "-m", ${JSON.stringify(phase)}], { encoding: "utf8" });
+                let escapeError = "unexpected_success";
+                try {
+                  fs.writeFileSync(path.join(${JSON.stringify(repo)}, ${JSON.stringify(`escape-${phase}.txt`)}), "nope");
+                } catch (err) {
+                  escapeError = err && err.code ? err.code : String(err);
+                }
+                console.log("WT_GIT", add.status, commit.status, "ESCAPE", escapeError);
+                if (add.status !== 0 || commit.status !== 0) {
+                  console.error(add.stderr, commit.stderr);
+                  process.exitCode = 1;
+                }
+              `)}`,
+              max_output_tokens: 4000,
+              yield_time_ms: 30000,
+            }),
+          };
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      for (const event of [
+        { type: "response.created", response: { id: `response_${phase}` } },
+        { type: "response.output_item.done", item },
+        {
+          type: "response.completed",
+          response: { id: `response_${phase}`, usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } },
+        },
+      ])
+        response.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+      response.end();
+    });
+    t.after(async () => {
+      await new Promise<void>((resolve) => relayServer.close(() => resolve()));
+      await new Promise<void>((resolve, reject) => model.close((error) => (error ? reject(error) : resolve())));
+      rmSync(relayDir, { recursive: true, force: true });
+      rmSync(parent, { recursive: true, force: true });
+    });
+    await new Promise<void>((resolve) => model.listen(0, "127.0.0.1", resolve));
+    const address = model.address();
+    assert.ok(address && typeof address !== "string");
+
+    initIngressRepo(repo, process.getuid?.() ?? 0);
+    execFileSync("git", ["-C", repo, "worktree", "add", "-b", "wt-sandbox", wt]);
+
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => [
+        {
+          installationId: "codex-wt-fixture",
+          kindId: "codex",
+          executablePath: "codex",
+          version: codex.stdout.trim().replace("codex-cli ", ""),
+          observedAt: new Date().toISOString(),
+        },
+      ],
+      resolveCredential: () => "fixture-token",
+    });
+    store.create({
+      schemaVersion: 2,
+      instanceId: "codex-wt-sandbox",
+      name: "Codex Worktree Sandbox",
+      kindId: "codex",
+      installationId: "codex-wt-fixture",
+      providerId: "fixture",
+      models: ["gpt-5.4"],
+      defaultModel: "gpt-5.4",
+      enabled: true,
+      isolationState: "enforced",
+      permissionMode: "workspace-write",
+      codex: { baseUrl: `http://127.0.0.1:${address.port}/v1`, wireApi: "responses" },
+      auth: { mode: "api-key", credentialRef: "credential:v1:codex-wt-sandbox" },
+    });
+
+    const runCodex = (args: readonly string[], env: NodeJS.ProcessEnv, prompt: string) =>
+      new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve, reject) => {
+        const child = spawn("codex", [...args, "--skip-git-repo-check"], {
+          cwd: wt,
+          env,
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+        let stdout = "",
+          stderr = "";
+        child.stdout.on("data", (chunk) => {
+          stdout += chunk;
+        });
+        child.stderr.on("data", (chunk) => {
+          stderr += chunk;
+        });
+        child.on("error", reject);
+        child.on("close", (code) => resolve({ code, stdout, stderr }));
+        child.stdin.end(prompt);
+      });
+
+    const extractThreadId = (stdout: string): string => {
+      const started = stdout
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as { type?: string; thread_id?: string })
+        .find((event) => event.type === "thread.started");
+      assert.ok(started?.thread_id, `missing thread.started in ${stdout}`);
+      return started.thread_id;
+    };
+
+    const legacyFreshLaunch = await store.prepareLaunch("codex-wt-sandbox", {
+        cwd: wt,
+        repoRoot: repo,
+        prompt: "WT_PHASE:LEGACY_FRESH",
+      }),
+      legacyFreshRun = await runCodex(legacyFreshLaunch.args, legacyFreshLaunch.env, legacyFreshLaunch.prompt);
+    assert.equal(legacyFreshRun.code, 0, legacyFreshRun.stderr);
+    const legacyThread = extractThreadId(legacyFreshRun.stdout);
+
+    const legacySteer = runtimeSteering.codex;
+    assert.ok(legacySteer && legacySteer.strategy === "interrupt-resume");
+    const legacyResumedArgs = legacySteer.resumeArgs(legacyFreshLaunch.args, legacyThread);
+    assert.ok(legacyResumedArgs, "steer.resumeArgs must accept legacy writable_roots launch");
+    const legacyResumeRun = await runCodex(legacyResumedArgs, legacyFreshLaunch.env, "WT_PHASE:LEGACY_RESUME");
+    assert.equal(legacyResumeRun.code, 0, legacyResumeRun.stderr);
+
+    const relayFreshLaunch = await store.prepareLaunch("codex-wt-sandbox", {
+        cwd: wt,
+        repoRoot: repo,
+        prompt: "WT_PHASE:RELAY_FRESH",
+        callbackRelayPath: relaySocketPath,
+      }),
+      relayFreshRun = await runCodex(relayFreshLaunch.args, relayFreshLaunch.env, relayFreshLaunch.prompt);
+    assert.equal(relayFreshRun.code, 0, relayFreshRun.stderr);
+    const relayThread = extractThreadId(relayFreshRun.stdout);
+
+    const relayResumeLaunch = await store.prepareLaunch("codex-wt-sandbox", {
+        cwd: wt,
+        repoRoot: repo,
+        prompt: "WT_PHASE:RELAY_RESUME",
+        providerSessionId: relayThread,
+        callbackRelayPath: relaySocketPath,
+      }),
+      relayResumeRun = await runCodex(relayResumeLaunch.args, relayResumeLaunch.env, relayResumeLaunch.prompt);
+    assert.equal(relayResumeRun.code, 0, relayResumeRun.stderr);
+
+    for (const phase of ["legacy_fresh", "legacy_resume", "relay_fresh", "relay_resume"]) {
+      const output = outputs.get(phase);
+      assert.ok(output, `missing tool output for ${phase}`);
+      assert.match(output, /WT_GIT 0 0 ESCAPE (?:EPERM|EACCES)/u, `${phase}: ${output}`);
+      assert.equal(existsSync(path.join(repo, `escape-${phase}.txt`)), false);
+      assert.equal(existsSync(path.join(wt, `${phase}.txt`)), true);
+    }
+    const log = execFileSync("git", ["-C", wt, "log", "-n", "4", "--pretty=%s"], { encoding: "utf8" });
+    for (const phase of ["legacy_fresh", "legacy_resume", "relay_fresh", "relay_resume"])
+      assert.match(log, new RegExp(`^${phase}$`, "mu"));
   },
 );
 

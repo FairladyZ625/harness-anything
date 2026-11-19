@@ -132,6 +132,8 @@ export type RuntimeInstanceSummary = AgentRuntimeInstanceDto;
 /** What a spawner asks the machine instance store to prepare for one runtime launch. */
 export interface RuntimeLaunchRequest {
   readonly cwd: string;
+  /** Trusted repository root owning the dispatch, used to bound external linked-worktree Git metadata grants. */
+  readonly repoRoot?: string;
   readonly prompt: string;
   /** One daemon-computed Unix callback endpoint authorized for this dispatch only. */
   readonly callbackRelayPath?: string;
