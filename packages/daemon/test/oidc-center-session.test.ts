@@ -169,7 +169,7 @@ test("edge connection changes do not select a different OIDC center", (t) => {
       loginCertificate: "test-certificate",
     };
   writeFleetEdgeConfig(active.edgeRoot, edgeConfig);
-  selection.write(active.edgeRoot, { issuer: active.edgeIssuer, authority }, true);
+  selection.write(active.edgeRoot, { issuer: active.edgeIssuer, authority });
   writeFleetEdgeConfig(active.edgeRoot, {
     ...edgeConfig,
     viewRoot: "/tmp/new-view",
@@ -184,7 +184,7 @@ test("edge connection changes do not select a different OIDC center", (t) => {
   assert.equal(selection.read(active.edgeRoot), undefined, "a different repository target selects a new session");
 });
 
-test("clearing an edge center selection tombstones its disk file and drops process state", (t) => {
+test("clearing an edge center selection tombstones its disk file and reads as empty", (t) => {
   const active = fixture(t),
     selection = oidcCenterSelections(active.userRoot),
     authority = { url: "https://login.example", realm: "harness", clientId: "harness-gui" };
@@ -245,14 +245,10 @@ test("local repository selection retains its configured OIDC identity", (t) => {
     configFile = path.join(active.userRoot, "rbac", "config.json"),
     config = { url: "https://local-center.example", realm: "harness", clientId: "harness-gui" };
   writeFileSync(configFile, JSON.stringify(config));
-  selection.write(
-    active.localRoot,
-    {
-      issuer: active.localIssuer,
-      authority: { url: config.url, realm: config.realm, clientId: config.clientId },
-    },
-    true,
-  );
+  selection.write(active.localRoot, {
+    issuer: active.localIssuer,
+    authority: { url: config.url, realm: config.realm, clientId: config.clientId },
+  });
   writeFileSync(configFile, JSON.stringify({ ...config, lastCheckedAt: "2026-10-31T00:00:00Z" }));
   assert.deepEqual(selection.read(active.localRoot), {
     issuer: active.localIssuer,
