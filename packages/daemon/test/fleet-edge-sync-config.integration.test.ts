@@ -423,14 +423,15 @@ test(
     assert.ok(syncResponse && !Array.isArray(syncResponse) && "result" in syncResponse, JSON.stringify(syncResponse));
     assert.equal((syncResponse.result as Record<string, unknown>).ok, true, JSON.stringify(syncResponse.result));
     const connection = { ...readFleetEdgeConfig(e.edgeRoot)! };
-    assert.equal(await waitForFleetReplicaReady({
-      viewRoot: e.viewRoot,
-      repoId: "lease-repo",
-      nodeId: "node-one",
-    }), true);
-    const beforeGeneration = readReplicaGeneration(
-        path.join(e.viewRoot, "repos", "lease-repo", "views", "node-one"),
-      )!,
+    assert.equal(
+      await waitForFleetReplicaReady({
+        viewRoot: e.viewRoot,
+        repoId: "lease-repo",
+        nodeId: "node-one",
+      }),
+      true,
+    );
+    const beforeGeneration = readReplicaGeneration(path.join(e.viewRoot, "repos", "lease-repo", "views", "node-one"))!,
       priorRevision = beforeGeneration.metadata.position.revision,
       localMarker = path.join(e.edgeRoot, "harness", "operator-local.txt");
     writeFileSync(localMarker, "operator-owned state\n");
@@ -442,12 +443,7 @@ test(
     selection.write(e.edgeRoot, selectionValue);
     selection.read(e.edgeRoot);
     selection.write(undefined, selectionValue);
-    const oldSelectionFile = path.join(
-      e.edgeUser,
-      "rbac",
-      "oidc-centers",
-      `${selection.key(e.edgeRoot)}.json`,
-    );
+    const oldSelectionFile = path.join(e.edgeUser, "rbac", "oidc-centers", `${selection.key(e.edgeRoot)}.json`);
     const otherSelectionFile = path.join(e.edgeUser, "rbac", "oidc-centers", `${selection.key()}.json`),
       oldConfigIdentity = {
         repoId: connection.repoId,
@@ -498,17 +494,15 @@ test(
         nodeId: "node-one",
         credential: "secret-node-one",
         repoId: "lease-repo",
-        viewRoot: e.viewRoot,
-        quotaBytes: connection.quotaBytes,
         workspaceRoot: e.edgeRoot,
         servername: "localhost",
-        timeoutMs: 30_000,
+        repoint: true,
       };
     const repoint = async (payload: typeof repointPayload) => {
       const response = await e.rpc.handle({
         jsonrpc: "2.0",
         id: 771,
-        method: "daemon.fleet.edge.repoint",
+        method: "daemon.fleet.edge.sync",
         params: { payload },
       });
       assert.ok(response && !Array.isArray(response) && "result" in response, JSON.stringify(response));
@@ -540,9 +534,18 @@ test(
     loginProxy.setKeycloakFetch(f.owners.keycloak.fetch);
     assert.equal(forked.code, "lineage_tip_mismatch", JSON.stringify(forked));
     assert.equal(readFileSync(configFile, "utf8"), beforeRejected);
-    assert.deepEqual(readReplicaGeneration(path.join(e.viewRoot, "repos", "lease-repo", "views", "node-one")), beforeGeneration);
+    assert.deepEqual(
+      readReplicaGeneration(path.join(e.viewRoot, "repos", "lease-repo", "views", "node-one")),
+      beforeGeneration,
+    );
     assert.equal(
-      (await f.commandOn(replacement, "center-node", { kind: "task-create", taskId: "repoint-suffix", title: "Repoint suffix" })).outcome,
+      (
+        await f.commandOn(replacement, "center-node", {
+          kind: "task-create",
+          taskId: "repoint-suffix",
+          title: "Repoint suffix",
+        })
+      ).outcome,
       "applied",
     );
     const receipt = await repoint(repointPayload);
@@ -553,8 +556,8 @@ test(
     assert.equal(readFleetEdgeConfig(e.edgeRoot)?.writerEpoch, receipt.writerEpoch);
     assert.equal(readFleetEdgeConfig(e.edgeRoot)?.loginUrl, publishedAuthority.url);
     assert.equal(readFleetEdgeConfig(e.edgeRoot)?.loginRealm, publishedAuthority.realm);
-    assert.equal(existsSync(oldSelectionFile), false);
-    assert.equal(existsSync(otherSelectionFile), false);
+    assert.equal(JSON.parse(readFileSync(oldSelectionFile, "utf8")), null);
+    assert.equal(JSON.parse(readFileSync(otherSelectionFile, "utf8")), null);
     assert.equal(selection.read(e.edgeRoot, oldConfigIdentity), undefined);
     assert.equal(selection.read(undefined), undefined);
     const loginRequests: string[] = [],
@@ -583,13 +586,10 @@ test(
     assert.equal(readFleetEdgeConfig(e.edgeRoot)?.loginServername, publishedAuthority.servername);
     assert.equal(readFleetEdgeConfig(e.edgeRoot)?.loginCertificate, publishedAuthority.certificate);
     assert.equal(readFileSync(localMarker, "utf8"), "operator-owned state\n");
-    const afterGeneration = readReplicaGeneration(
-      path.join(e.viewRoot, "repos", "lease-repo", "views", "node-one"),
-    )!;
+    const afterGeneration = readReplicaGeneration(path.join(e.viewRoot, "repos", "lease-repo", "views", "node-one"))!;
     assert.equal(afterGeneration.id, beforeGeneration.id);
     assert.equal(afterGeneration.metadata.position.sequence, receipt.replicationSequence);
     assert.equal(readFleetEdgeConfig(e.edgeRoot)?.resumeOnly, undefined);
     assert.deepEqual(backupRepos, []);
-
   },
 );

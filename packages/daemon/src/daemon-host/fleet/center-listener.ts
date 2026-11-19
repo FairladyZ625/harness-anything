@@ -86,6 +86,7 @@ import { readFleetCenterGitMetadata } from "../fleet-edge-git-preflight.ts";
 import { createBaseBackupQueue } from "../../fleet-sync/fleet/basebackup-queue.ts";
 import { forwardingIntentForAction, forwardingIntentIssue } from "./forwarding-intent.ts";
 import { readFleetRepointLineage } from "./repoint-lineage.ts";
+import { fleetFrameBusinessOutcome } from "./frame-business-outcome.ts";
 /** The replication head poll interval: commit-to-edge latency floor versus idle reads. */
 const REPLICATION_HEAD_POLL_MS = 50;
 /** Edges treat three missed keepalives as a dead connection (peer.ts). */
@@ -929,7 +930,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
               storage: options.storage?.[a.repoId],
               position: frame.resumePosition,
               retentionWindowCommits,
-              loginAuthority: (await options.loginAuthority?.(nodeId)) ?? null,
             })
           : undefined;
       if (lineage) writerEpoch.assert(a.repoId, owned.epoch, owned.holderId);
@@ -1866,15 +1866,4 @@ function fleetErrorCode(error: unknown): string | null {
   return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
     ? error.code
     : null;
-}
-
-/** A delivered Fleet frame can carry a business rejection even though transport completion is ok. */
-export function fleetFrameBusinessOutcome(frame: {
-  readonly schema: string;
-  readonly code?: string | null;
-  readonly outcome?: string;
-}): { readonly ok: boolean; readonly code: string | null } {
-  if (frame.schema === "fleet.error/v1") return { ok: false, code: frame.code ?? "error" };
-  if (frame.outcome === "op_rejected") return { ok: false, code: "op_rejected" };
-  return { ok: true, code: null };
 }

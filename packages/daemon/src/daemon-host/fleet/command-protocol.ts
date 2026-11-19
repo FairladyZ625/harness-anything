@@ -162,7 +162,7 @@ export type FleetFrameV1 =
         repoId: string;
         actionKind?: string;
         taskId?: string;
-         resumePosition?: { readonly history: string; readonly sequence: number; readonly revision: number };
+        resumePosition?: { readonly history: string; readonly sequence: number; readonly revision: number };
       }
     >
   | Msg<
@@ -188,7 +188,6 @@ export type FleetFrameV1 =
           readonly tipHash: string | null;
           readonly revision: number;
           readonly resumeAvailable: boolean;
-          readonly loginAuthority: FleetLoginAuthority | null;
         };
       }
     >
@@ -438,10 +437,13 @@ const shape =
     Object.keys(value).length === Object.keys(fields).length &&
     Object.entries(fields).every(([key, check]) => Object.hasOwn(value, key) && check(value[key]));
 const loginAuthority: Check = (value) =>
-  optionalShape(
-    { url: text, realm: text, clientId: text, certificate: (v) => typeof v === "string", servername: text, browserUrl: text },
-    ["url", "realm", "clientId"],
-  )(value);
+  record(value) &&
+  Object.keys(value).length >= 3 &&
+  Object.keys(value).length <= 6 &&
+  typeof value.url === "string" &&
+  typeof value.realm === "string" &&
+  typeof value.clientId === "string" &&
+  Object.values(value).every((field) => typeof field === "string");
 const array =
   (check: Check, maximum: number = FLEET_PAGE_ROWS): Check =>
   (value) =>
@@ -918,7 +920,6 @@ const schemas: Readonly<Record<string, Check>> = {
         tipHash: nullable((value) => typeof value === "string" && /^sha256:[0-9a-f]{64}$/u.test(value)),
         revision: uint,
         resumeAvailable: boolean,
-        loginAuthority: nullable(loginAuthority),
       }),
     },
     [
