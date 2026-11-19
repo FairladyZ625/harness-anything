@@ -88,8 +88,8 @@ const rootPackage = readJson("package.json");
 const cliPackage = readJson("packages/cli/package.json");
 const rootTsconfig = readJson("tsconfig.json");
 if (rootPackage.engines?.node !== ">=24") record("root engines.node must remain >=24");
-if (rootPackage.dependencies?.effect !== "3.21.4")
-  record("effect version must remain 3.21.4 after task_01KWNFNGG9H41724SADGFSMEZ3");
+if (rootPackage.dependencies?.effect !== "3.22.5")
+  record("effect version must remain 3.22.5 after task_1c42ac38b39f79acea96c43bf5");
 if (cliPackage.dependencies?.["@effect/platform"] !== "0.96.2")
   record("@effect/platform version must remain 0.96.2 after task_01KWNFNGG9H41724SADGFSMEZ3");
 if (rootPackage.devDependencies?.typescript !== "5.9.3")

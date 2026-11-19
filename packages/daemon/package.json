@@ -69,7 +69,7 @@
     "@openrouter/sdk": "1.4.25",
     "@streamparser/json": "0.0.26",
     "cron-parser": "5.10.0",
-    "effect": "3.21.4",
+    "effect": "3.22.5",
     "node-pty": "1.2.0-beta.15",
     "smol-toml": "^1.9.1",
     "tar": "7.5.22",
