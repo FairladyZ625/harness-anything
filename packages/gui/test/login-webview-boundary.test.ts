@@ -239,13 +239,13 @@ test("certificate decisions bind the guest, the full origin, and the fingerprint
     first = authorize();
   // Guests of no grant never earn trust.
   assert.equal(
-    grants.certificateErrorDecision({ webContentsId: 1, url: "https://10.211.55.2:18544/", certificatePem: leaf }),
+    grants.decideCertificateError({ webContentsId: 1, url: "https://10.211.55.2:18544/", certificatePem: leaf }),
     "reject",
   );
   assert.equal(grants.bindGuestWebContents(1, {}), null);
   assert.equal(grants.bindGuestWebContents(1, sessionOf(first.partition))?.partition, first.partition);
   assert.equal(
-    grants.certificateErrorDecision({
+    grants.decideCertificateError({
       webContentsId: 1,
       url: "https://10.211.55.2:18544/realms/",
       certificatePem: leaf,
@@ -264,12 +264,12 @@ test("certificate decisions bind the guest, the full origin, and the fingerprint
     ["unparseable url", { webContentsId: 1, url: "not a url", certificatePem: leaf }],
   ];
   for (const [name, input] of refusals) {
-    assert.equal(grants.certificateErrorDecision(input), "reject", name);
+    assert.equal(grants.decideCertificateError(input), "reject", name);
   }
   // A destroyed guest stops earning trust even while the sign-in's grant is alive.
   grants.unbindGuestWebContents(1);
   assert.equal(
-    grants.certificateErrorDecision({ webContentsId: 1, url: "https://10.211.55.2:18544/", certificatePem: leaf }),
+    grants.decideCertificateError({ webContentsId: 1, url: "https://10.211.55.2:18544/", certificatePem: leaf }),
     "reject",
   );
 });
@@ -281,7 +281,7 @@ test("the sign-in settling releases the token and every certificate decision wit
   grants.release(first.partitionToken);
   assert.equal(grants.consumeWebviewAttachment({ partition: first.partitionToken, src: authorizationUrl }), null);
   assert.equal(
-    grants.certificateErrorDecision({ webContentsId: 3, url: "https://10.211.55.2:18544/", certificatePem: leaf }),
+    grants.decideCertificateError({ webContentsId: 3, url: "https://10.211.55.2:18544/", certificatePem: leaf }),
     "reject",
     "a released sign-in's certificate stays rejected",
   );

@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { X509Certificate } from "node:crypto";
 
@@ -41,7 +42,7 @@ export function resolveLoginListenerTrust(input: {
     typeof certificate === "string" ? certificate : input.readCertificateFile(certificateFile as string),
   );
   const targetUrl = (listener as Record<string, unknown>).targetUrl,
-    proxyTarget = targetUrl === undefined ? undefined : normalizeProxyTarget(targetUrl, origin);
+    proxyTarget = targetUrl === undefined ? undefined : validateProxyTarget(targetUrl, origin);
   return {
     origin,
     fingerprint256,
@@ -49,11 +50,16 @@ export function resolveLoginListenerTrust(input: {
   };
 }
 
-function normalizeProxyTarget(value: unknown, listenerOrigin: string): string | undefined {
-  if (typeof value !== "string") throw new Error("The login listener proxy target must be a URL.");
-  const target = new URL(value);
-  if (target.protocol !== "https:" || target.username || target.password || target.port === "0")
-    throw new Error("The login listener proxy target must be an HTTPS URL without credentials and with a valid port.");
+function validateProxyTarget(value: unknown, listenerOrigin: string): string | undefined {
+  assert.equal(typeof value, "string", "The login listener proxy target must be a URL.");
+  const target = new URL(value as string),
+    validHttpsTarget =
+      target.protocol === "https:" && !target.username && !target.password && target.port !== "0";
+  assert.equal(
+    validHttpsTarget,
+    true,
+    "The login listener proxy target must be an HTTPS URL without credentials and with a valid port.",
+  );
   return target.origin === listenerOrigin ? undefined : target.toString();
 }
 
@@ -134,7 +140,7 @@ export function createLoginWebviewGrants(
   readonly bindGuestWebContents: (webContentsId: number, session: object) => LoginWebviewAttachment | null;
   readonly unbindGuestWebContents: (webContentsId: number) => void;
   readonly release: (partitionToken: string) => void;
-  readonly certificateErrorDecision: (input: {
+  readonly decideCertificateError: (input: {
     readonly webContentsId: number;
     readonly url: string;
     readonly certificatePem: string;
@@ -181,13 +187,14 @@ export function createLoginWebviewGrants(
       grants.delete(partitionToken);
       record?.guestWebContentsIds.clear();
     },
-    certificateErrorDecision: ({ webContentsId, url, certificatePem }) => {
+    decideCertificateError: ({ webContentsId, url, certificatePem }) => {
       const record = [...grants.values()].find((grant) => grant.guestWebContentsIds.has(webContentsId));
+      const trust = record?.trust;
       const trusted =
-        record !== undefined &&
-        URL.parse(url)?.origin === record.trust.origin &&
-        matchesLoginCertificate(certificatePem, record.trust.fingerprint256);
-      return trusted ? "accept" : "reject";
+        trust !== undefined &&
+        URL.parse(url)?.origin === trust.origin &&
+        matchesLoginCertificate(certificatePem, trust.fingerprint256);
+      return ({ false: "reject", true: "accept" } as const)[String(trusted) as "false" | "true"];
     },
   };
 }

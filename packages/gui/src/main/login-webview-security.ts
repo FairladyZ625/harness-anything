@@ -102,7 +102,7 @@ export function createLoginWebviewSecurity(session: Pick<typeof electronSession,
         event.preventDefault();
         callback(
           !webContents.isDestroyed() &&
-            grants.certificateErrorDecision({
+            grants.decideCertificateError({
               webContentsId: webContents.id,
               url,
               certificatePem: certificate.data,
