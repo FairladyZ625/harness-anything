@@ -9,7 +9,7 @@ import { once } from "node:events";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer as createHttpsServer } from "node:https";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
@@ -23,6 +23,58 @@ import { readReplicaHealth, recordReplicaHealth } from "../src/fleet-sync/fleet/
 import { waitForFleetReplicaReady } from "../src/daemon-host/fleet/replica-sync.ts";
 import { fleetBaseBackupTrace } from "@harness-anything/storage";
 import { oidcCenterSelections } from "../src/daemon-host/oidc-center-selection.ts";
+
+async function listenFleetLoginProxy(
+  t: TestContext,
+  input: { readonly root: string; readonly keycloak: { readonly fetch: typeof fetch } },
+): Promise<{
+  readonly url: string;
+  readonly certificate: string;
+  readonly setKeycloakFetch: (fetcher: typeof fetch) => void;
+}> {
+  let keycloakFetch = input.keycloak.fetch,
+    loginUrl = "";
+  const certificate = readFileSync(path.join(input.root, "tls.crt"), "utf8"),
+    loginServer = createHttpsServer(
+      { key: readFileSync(path.join(input.root, "tls.key")), cert: certificate },
+      (request, response) => {
+        void (async () => {
+          let raw = "";
+          for await (const chunk of request) raw += String(chunk);
+          const answer = await keycloakFetch(`${loginUrl}${request.url}`, {
+            method: request.method,
+            headers: request.headers as Record<string, string>,
+            ...(raw === "" ? {} : { body: new URLSearchParams(raw) }),
+          });
+          response.statusCode = answer.status;
+          response.setHeader("content-type", "application/json");
+          response.end(Buffer.from(await answer.arrayBuffer()));
+        })().catch(() => {
+          response.statusCode = 500;
+          response.end("{}");
+        });
+      },
+    );
+  loginServer.listen(0, "127.0.0.1");
+  await once(loginServer, "listening");
+  const loginAddress = loginServer.address();
+  assert.ok(loginAddress && typeof loginAddress !== "string");
+  loginUrl = `https://localhost:${loginAddress.port}`;
+  t.after(
+    () =>
+      new Promise<void>((resolve) => {
+        loginServer.closeAllConnections();
+        loginServer.close(() => resolve());
+      }),
+  );
+  return {
+    url: loginUrl,
+    certificate,
+    setKeycloakFetch: (fetcher) => {
+      keycloakFetch = fetcher;
+    },
+  };
+}
 
 test(
   "a successful edge sync persists its connection and starts the resident stream",
@@ -180,45 +232,12 @@ test(
       undefined,
       { replicaAdmission: true },
     );
-    let loginUrl = "";
-    const loginServer = createHttpsServer(
-      { key: readFileSync(path.join(f.root, "tls.key")), cert: readFileSync(path.join(f.root, "tls.crt")) },
-      (request, response) => {
-        void (async () => {
-          let raw = "";
-          for await (const chunk of request) raw += String(chunk);
-          const answer = await f.owners.keycloak.fetch(`${loginUrl}${request.url}`, {
-            method: request.method,
-            headers: request.headers as Record<string, string>,
-            ...(raw === "" ? {} : { body: new URLSearchParams(raw) }),
-          });
-          response.statusCode = answer.status;
-          response.setHeader("content-type", "application/json");
-          response.end(Buffer.from(await answer.arrayBuffer()));
-        })().catch(() => {
-          response.statusCode = 500;
-          response.end("{}");
-        });
-      },
-    );
-    loginServer.listen(0, "127.0.0.1");
-    await once(loginServer, "listening");
-    const loginAddress = loginServer.address();
-    assert.ok(loginAddress && typeof loginAddress !== "string");
-    loginUrl = `https://localhost:${loginAddress.port}`;
-    const certificate = readFileSync(path.join(f.root, "tls.crt"), "utf8");
-    t.after(
-      () =>
-        new Promise<void>((resolve) => {
-          loginServer.closeAllConnections();
-          loginServer.close(() => resolve());
-        }),
-    );
+    const login = await listenFleetLoginProxy(t, f);
     publishedAuthority = {
-      url: loginUrl,
+      url: login.url,
       realm: "harness",
       clientId: "harness-node-node-one",
-      certificate,
+      certificate: login.certificate,
     };
     let machineTokenExchanges = 0;
     const keycloakFetch = f.owners.keycloak.fetch;
@@ -374,7 +393,15 @@ test(
   async (t) => {
     let publishedAuthority: import("../src/daemon-host/fleet/command-protocol.ts").FleetLoginAuthority | null = null;
     const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, () => publishedAuthority, true);
-    publishedAuthority = { url: f.owners.url, realm: "tenant-realm", clientId: "harness-node-node-one" };
+    const login = await listenFleetLoginProxy(t, f);
+    publishedAuthority = {
+      url: login.url,
+      realm: "harness",
+      clientId: "harness-node-node-one",
+      browserUrl: "https://relocated-browser.example.test",
+      servername: "localhost",
+      certificate: login.certificate,
+    };
     await f.command("center-node", { kind: "task-create", taskId: "repoint-base", title: "Repoint base" });
     const e = await fleetEdgeHostFixture(t, f),
       configFile = fleetEdgeConfigPath(e.edgeUser, "lease-repo"),
@@ -383,7 +410,7 @@ test(
         .update(new X509Certificate(certificate).publicKey.export({ type: "spki", format: "der" }))
         .digest("hex");
     writeFleetEdgeConfig(e.edgeUser, "lease-repo", { ...readFleetEdgeConfig(e.edgeUser, "lease-repo")!, spkiSha256 });
-    const initialConfig = readFleetEdgeConfig(e.edgeUser, "lease-repo")!;
+    const { waitTimeoutMs: _waitTimeoutMs, ...initialConfig } = readFleetEdgeConfig(e.edgeUser, "lease-repo")!;
     const syncResponse = await e.rpc.handle({
       jsonrpc: "2.0",
       id: 770,
@@ -452,12 +479,12 @@ test(
     await f.closeHost(f.host);
     const relocatedHost = await f.openHost();
     publishedAuthority = {
-      url: "https://relocated-login.example.test",
-      realm: "tenant-realm",
+      url: login.url,
+      realm: "harness",
       clientId: "harness-node-node-one",
       browserUrl: "https://relocated-browser.example.test",
-      servername: "relocated-login.example.test",
-      certificate: certificate.toString("utf8"),
+      servername: "localhost",
+      certificate: login.certificate,
     };
     const replacement = await f.openCenter(relocatedHost),
       repointPayload = {
@@ -494,7 +521,9 @@ test(
       forkPin = createHash("sha256")
         .update(new X509Certificate(readFileSync(forkCA)).publicKey.export({ type: "spki", format: "der" }))
         .digest("hex");
+    login.setKeycloakFetch(fork.owners.keycloak.fetch);
     const forked = await repoint({ ...repointPayload, port: fork.center.port, caPath: forkCA, spkiSha256: forkPin });
+    login.setKeycloakFetch(f.owners.keycloak.fetch);
     assert.equal(forked.code, "lineage_tip_mismatch", JSON.stringify(forked));
     assert.equal(readFileSync(configFile, "utf8"), beforeRejected);
     assert.deepEqual(readReplicaGeneration(path.join(e.viewRoot, "repos", "lease-repo", "views", "node-one")), beforeGeneration);
