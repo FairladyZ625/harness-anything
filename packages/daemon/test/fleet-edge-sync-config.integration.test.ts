@@ -32,7 +32,7 @@ async function listenFleetLoginProxy(
   readonly certificate: string;
   readonly setKeycloakFetch: (fetcher: typeof fetch) => void;
 }> {
-  let keycloakFetch = input.keycloak.fetch,
+  let keycloakFetch: typeof fetch | undefined,
     loginUrl = "";
   const certificate = readFileSync(path.join(input.root, "tls.crt"), "utf8"),
     loginServer = createHttpsServer(
@@ -41,7 +41,7 @@ async function listenFleetLoginProxy(
         void (async () => {
           let raw = "";
           for await (const chunk of request) raw += String(chunk);
-          const answer = await keycloakFetch(`${loginUrl}${request.url}`, {
+          const answer = await (keycloakFetch ?? input.keycloak.fetch)(`${loginUrl}${request.url}`, {
             method: request.method,
             headers: request.headers as Record<string, string>,
             ...(raw === "" ? {} : { body: new URLSearchParams(raw) }),
@@ -232,7 +232,7 @@ test(
       undefined,
       { replicaAdmission: true },
     );
-    const login = await listenFleetLoginProxy(t, f);
+    const login = await listenFleetLoginProxy(t, { root: f.root, keycloak: f.owners.keycloak });
     publishedAuthority = {
       url: login.url,
       realm: "harness",
@@ -392,15 +392,26 @@ test(
   { timeout: 180_000 },
   async (t) => {
     let publishedAuthority: import("../src/daemon-host/fleet/command-protocol.ts").FleetLoginAuthority | null = null;
-    const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, () => publishedAuthority, true);
-    const login = await listenFleetLoginProxy(t, f);
+    const f = await fleetNodeClaimFixture(
+      t,
+      undefined,
+      undefined,
+      undefined,
+      () => publishedAuthority,
+      true,
+      undefined,
+      undefined,
+      undefined,
+      { replicaAdmission: true },
+    );
+    const loginProxy = await listenFleetLoginProxy(t, { root: f.root, keycloak: f.owners.keycloak });
     publishedAuthority = {
-      url: login.url,
+      url: loginProxy.url,
       realm: "harness",
       clientId: "harness-node-node-one",
       browserUrl: "https://relocated-browser.example.test",
       servername: "localhost",
-      certificate: login.certificate,
+      certificate: loginProxy.certificate,
     };
     await f.command("center-node", { kind: "task-create", taskId: "repoint-base", title: "Repoint base" });
     const e = await fleetEdgeHostFixture(t, f),
@@ -479,12 +490,12 @@ test(
     await f.closeHost(f.host);
     const relocatedHost = await f.openHost();
     publishedAuthority = {
-      url: login.url,
+      url: loginProxy.url,
       realm: "harness",
       clientId: "harness-node-node-one",
       browserUrl: "https://relocated-browser.example.test",
       servername: "localhost",
-      certificate: login.certificate,
+      certificate: loginProxy.certificate,
     };
     const replacement = await f.openCenter(relocatedHost),
       repointPayload = {
@@ -515,15 +526,26 @@ test(
     const wrongPin = await repoint({ ...repointPayload, spkiSha256: "0".repeat(64) });
     assert.equal(wrongPin.code, "pin_mismatch", JSON.stringify(wrongPin));
     assert.equal(readFileSync(configFile, "utf8"), beforeRejected);
-    const fork = await fleetNodeClaimFixture(t, undefined, undefined, undefined, () => publishedAuthority, true);
+    const fork = await fleetNodeClaimFixture(
+      t,
+      undefined,
+      undefined,
+      undefined,
+      () => publishedAuthority,
+      true,
+      undefined,
+      undefined,
+      undefined,
+      { replicaAdmission: true },
+    );
     await fork.command("center-node", { kind: "task-create", taskId: "forked-base", title: "Forked base" });
     const forkCA = path.join(fork.root, "tls.crt"),
       forkPin = createHash("sha256")
         .update(new X509Certificate(readFileSync(forkCA)).publicKey.export({ type: "spki", format: "der" }))
         .digest("hex");
-    login.setKeycloakFetch(fork.owners.keycloak.fetch);
+    loginProxy.setKeycloakFetch(fork.owners.keycloak.fetch);
     const forked = await repoint({ ...repointPayload, port: fork.center.port, caPath: forkCA, spkiSha256: forkPin });
-    login.setKeycloakFetch(f.owners.keycloak.fetch);
+    loginProxy.setKeycloakFetch(f.owners.keycloak.fetch);
     assert.equal(forked.code, "lineage_tip_mismatch", JSON.stringify(forked));
     assert.equal(readFileSync(configFile, "utf8"), beforeRejected);
     assert.deepEqual(readReplicaGeneration(path.join(e.viewRoot, "repos", "lease-repo", "views", "node-one")), beforeGeneration);
@@ -544,11 +566,20 @@ test(
     assert.equal(selection.read(e.edgeRoot, oldConfigIdentity), undefined);
     assert.equal(selection.read(undefined), undefined);
     const loginRequests: string[] = [],
+      loginConfig = readFleetEdgeConfig(e.edgeRoot)!,
       identity = createIdentitySession(e.edgeUser, {
         fetch: (async (input) => {
           loginRequests.push(String(input));
           return Response.json({ issuer: `${publishedAuthority.url}/realms/${publishedAuthority.realm}` });
         }) as typeof fetch,
+        loginAuthority: async () => ({
+          url: loginConfig.loginUrl!,
+          realm: loginConfig.loginRealm!,
+          clientId: `harness-node-${loginConfig.nodeId}`,
+          ...(loginConfig.loginBrowserUrl ? { browserUrl: loginConfig.loginBrowserUrl } : {}),
+          ...(loginConfig.loginCertificate ? { certificate: loginConfig.loginCertificate } : {}),
+          ...(loginConfig.loginServername ? { servername: loginConfig.loginServername } : {}),
+        }),
       }),
       login = await identity.begin("http://127.0.0.1:43123/callback", e.edgeRoot);
     assert.equal(
