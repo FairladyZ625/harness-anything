@@ -105,6 +105,7 @@ test("local provider and Agent bindings overlay the shared capability and decisi
     ] as never;
     assert.deepEqual(
       resolveRuntimeInstanceCandidates({
+        requested: pinnedWorker.instance,
         agent: pinnedWorker,
         instances,
         sessions: [],
