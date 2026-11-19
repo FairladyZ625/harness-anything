@@ -63,6 +63,8 @@ export interface FleetLoginAuthority {
   readonly realm: string;
   readonly clientId: string;
   readonly certificate?: string;
+  readonly servername?: string;
+  readonly browserUrl?: string;
 }
 export type FleetTaskAction = Readonly<Record<string, unknown>> & { readonly kind: FleetTaskCommandKind };
 // Closed per-kind action surface: every field of a fleet task command must be
@@ -160,6 +162,7 @@ export type FleetFrameV1 =
         repoId: string;
         actionKind?: string;
         taskId?: string;
+         resumePosition?: { readonly history: string; readonly sequence: number; readonly revision: number };
       }
     >
   | Msg<
@@ -180,6 +183,13 @@ export type FleetFrameV1 =
         originPushUrls: readonly string[];
         defaultBranch: string | null;
         defaultBranchCommit: string | null;
+        lineage?: {
+          readonly ledgerGeneration: number;
+          readonly tipHash: string | null;
+          readonly revision: number;
+          readonly resumeAvailable: boolean;
+          readonly loginAuthority: FleetLoginAuthority | null;
+        };
       }
     >
   | Msg<"fleet.receipt.get/v1", { repoId: string; opId: string }>
@@ -428,12 +438,10 @@ const shape =
     Object.keys(value).length === Object.keys(fields).length &&
     Object.entries(fields).every(([key, check]) => Object.hasOwn(value, key) && check(value[key]));
 const loginAuthority: Check = (value) =>
-  record(value) &&
-  (Object.keys(value).length === 3 || Object.keys(value).length === 4) &&
-  typeof value.url === "string" &&
-  typeof value.realm === "string" &&
-  typeof value.clientId === "string" &&
-  (Object.keys(value).length === 3 || (Object.hasOwn(value, "certificate") && typeof value.certificate === "string"));
+  optionalShape(
+    { url: text, realm: text, clientId: text, certificate: (v) => typeof v === "string", servername: text, browserUrl: text },
+    ["url", "realm", "clientId"],
+  )(value);
 const array =
   (check: Check, maximum: number = FLEET_PAGE_ROWS): Check =>
   (value) =>
@@ -887,6 +895,7 @@ const schemas: Readonly<Record<string, Check>> = {
       includeGitMetadata: boolean,
       actionKind: (value) => typeof value === "string" && actionDeclarations.some((action) => action.kind === value),
       taskId: id,
+      resumePosition: shape({ history: text, sequence: uint, revision: uint }),
     },
     ["schema", "messageId", "repoId"],
   ),
@@ -904,6 +913,13 @@ const schemas: Readonly<Record<string, Check>> = {
       originPushUrls: array(text, 16),
       defaultBranch: nullable(text),
       defaultBranchCommit: nullable(gitCommitSha),
+      lineage: shape({
+        ledgerGeneration: uint,
+        tipHash: nullable((value) => typeof value === "string" && /^sha256:[0-9a-f]{64}$/u.test(value)),
+        revision: uint,
+        resumeAvailable: boolean,
+        loginAuthority: nullable(loginAuthority),
+      }),
     },
     [
       "schema",

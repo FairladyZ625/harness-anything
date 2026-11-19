@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { readRegularFileIfPresent } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
-import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { readFleetEdgeConfig, type FleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import type { OidcLoginAuthority } from "@harness-anything/kernel";
 
 export interface OidcCenterSelection {
@@ -10,23 +10,25 @@ export interface OidcCenterSelection {
   readonly authority: OidcLoginAuthority;
 }
 
+const selectionMemories = new Map<string, Map<string, OidcCenterSelection>>();
+const edgeIdentity = (edge: FleetEdgeConfig) => ({
+  repoId: edge.repoId,
+  host: edge.host,
+  port: edge.port,
+  caPath: edge.caPath,
+  ...(edge.servername ? { servername: edge.servername } : {}),
+});
+
 /** Discovery identifies a binding once; persisted selection lets a restarted daemon use sessions while its center is offline. */
 export function oidcCenterSelections(userRoot: string) {
   const directory = path.join(userRoot, "rbac", "oidc-centers"),
-    memory = new Map<string, OidcCenterSelection>();
+    memory = selectionMemories.get(path.resolve(userRoot)) ?? new Map<string, OidcCenterSelection>();
+  selectionMemories.set(path.resolve(userRoot), memory);
   const binding = (target?: string, identityOverride?: Readonly<Record<string, unknown>>): string => {
     const configFile = path.join(userRoot, "rbac", "config.json"),
       edge = target ? readFleetEdgeConfig(target) : null,
       config = edge ?? (existsSync(configFile) ? JSON.parse(readFileSync(configFile, "utf8")) : null),
-      targetIdentity = edge
-        ? {
-            repoId: edge.repoId,
-            host: edge.host,
-            port: edge.port,
-            caPath: edge.caPath,
-            ...(edge.servername ? { servername: edge.servername } : {}),
-          }
-        : null;
+      targetIdentity = edge ? edgeIdentity(edge) : null;
     const rawIdentity =
       identityOverride ??
       targetIdentity ??
@@ -59,6 +61,26 @@ export function oidcCenterSelections(userRoot: string) {
       .digest("hex");
   };
   return {
+    key(target?: string, identityOverride?: Readonly<Record<string, unknown>>): string {
+      return binding(target, identityOverride);
+    },
+    clear(target: string, replacement?: FleetEdgeConfig): void {
+      const keys = new Set([binding(target), ...(replacement ? [binding(target, edgeIdentity(replacement))] : [])]);
+      for (const key of keys) {
+        const file = path.join(directory, `${key}.json`);
+        if (existsSync(file))
+          /* @gate-identity state-store/runtime-instance.oidc-center-selection */ unlinkSync(file);
+        memory.delete(key);
+      }
+    },
+    clearAll(): void {
+      if (existsSync(directory))
+        /* @gate-identity state-store/runtime-instance.oidc-center-selection */ rmSync(directory, {
+          recursive: true,
+          force: true,
+        });
+      memory.clear();
+    },
     read(target?: string, identityOverride?: Readonly<Record<string, unknown>>): OidcCenterSelection | undefined {
       const key = binding(target, identityOverride),
         file = path.join(directory, `${key}.json`),

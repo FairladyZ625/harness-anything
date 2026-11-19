@@ -1,4 +1,5 @@
 import type { ReplicaSyncPhase } from "./replica-status.ts";
+import { REPOINT_RESUME_ONLY } from "./repoint-lineage.ts";
 import { createReadStream } from "node:fs";
 import {
   replicationCommitBytes,
@@ -160,6 +161,10 @@ export async function runWalSender(input: {
       page = read.page,
       reason = read.reason;
     if (page === null) {
+      if (start.capabilities?.includes(REPOINT_RESUME_ONLY)) {
+        await peer.send({ type: "replica.failure", code: "replication_resume_unavailable", message: reason });
+        throw Object.assign(new Error(reason), { code: "replication_resume_unavailable" });
+      }
       if (position !== null) await peer.send({ type: "replica.resync", reason });
       input.onActivity?.("waiting_backup");
       const resumeRequest = position === null ? pendingResumeSnapshot : undefined;
