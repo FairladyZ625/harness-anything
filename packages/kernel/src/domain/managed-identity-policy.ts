@@ -307,7 +307,7 @@ export const identitySessionLifetimePolicy = {
   ownerRef: "host",
   unit: "seconds",
   bounds:
-    "Default idle lifetime is six hours, minimum is five minutes, maximum is one year; offline and refresh-token defaults remain provider-compatible.",
+    "Default idle lifetime is six hours, minimum is five minutes, maximum is one year; offline sessions last 90 days and refresh tokens rotate with one previous-token reuse.",
   defaultValue: {
     defaultSeconds: 21_600,
     minimumSeconds: 300,
@@ -315,7 +315,7 @@ export const identitySessionLifetimePolicy = {
     offlineSessionIdleTimeout: 7_776_000,
     offlineSessionMaxLifespanEnabled: false,
     revokeRefreshToken: true,
-    refreshTokenMaxReuse: 0,
+    refreshTokenMaxReuse: 1,
   },
   version: 1,
   scope: "identity provider SSO session lifetime and realm representation",

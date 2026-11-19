@@ -89,6 +89,7 @@ interface CenterToken {
 
 /** A use this close to the access token's end renews it, so the token a request carries outlives the request. */
 const renewalMarginMs = 30_000;
+const nodeRenewalMarginMs = 300_000;
 /** 144 bits (>= 128 bits) of CSPRNG entropy encoded as printable URL-safe base64url. */
 const temporaryPasswordBytes = 18;
 
@@ -107,6 +108,7 @@ export class OidcSessionService {
   #centerTokenCache: CenterToken | undefined;
   #loginGeneration = 0;
   #sessionGeneration = 0;
+  #renewal: { readonly issuer: string; readonly refreshToken: string; readonly promise: Promise<SessionUse> } | undefined;
   #device: PendingDeviceLogin | undefined;
   readonly #deviceRequests = new Map<string, DeviceLoginRequest>();
   readonly #pendingAuthoritySyncTargets = new Set<string>();
@@ -210,7 +212,7 @@ export class OidcSessionService {
       await this.#closeDeviceGateway(previous);
       await this.#reportDevice(previous, false);
     }
-    const authority = authorityOverride ?? (await this.#loginAuthority(loginTarget, true)),
+    const authority = authorityOverride ?? (await this.#loginAuthority(loginTarget)),
       verifier = this.#ports.randomBytes(32).toString("base64url");
     let issuer: string;
     let response: Response;
@@ -483,7 +485,7 @@ export class OidcSessionService {
 
   /** Read the selected edge's public authority, independently of this daemon's signed-in session. */
   async bindingHealth(loginTarget: string): Promise<Record<string, unknown>> {
-    const authority = await this.#loginAuthority(loginTarget, false),
+    const authority = await this.#loginAuthority(loginTarget),
       response = await this.#fetchAuthority(
         authority,
         `${authority.url}/realms/${encodeURIComponent(authority.realm)}`,
@@ -1104,12 +1106,12 @@ export class OidcSessionService {
     return JSON.parse(readFileSync(file, "utf8")) as RbacConfig;
   }
 
-  async #loginAuthority(target?: string, resetSession = false): Promise<OidcLoginAuthority> {
+  async #loginAuthority(target?: string): Promise<OidcLoginAuthority> {
     if (target && this.#ports.loginAuthority) return this.#ports.loginAuthority(target);
     const edge = target ? this.#host.readFleetEdgeConfig(target) : null;
     if (edge) {
       const authority = await this.#host.readFleetLoginAuthorityClient({
-        resetSession,
+        resetSession: false,
         hostname: edge.host,
         port: edge.port,
         ca: readFileSync(edge.caPath),
@@ -1145,7 +1147,7 @@ export class OidcSessionService {
 
   async #centerIdentity(
     target?: string,
-    resetSession = false,
+    refreshAuthority = false,
     authorityOverride?: OidcLoginAuthority,
   ): Promise<{
     readonly authority: OidcLoginAuthority;
@@ -1153,10 +1155,10 @@ export class OidcSessionService {
     readonly sessionStore: OidcSessionStorePort;
   }> {
     const targetKey = target ?? "",
-      mustSync = resetSession || this.#pendingAuthoritySyncTargets.has(targetKey),
-      selected = mustSync ? undefined : this.#centers.read(target);
+      mustRefreshAuthority = refreshAuthority || this.#pendingAuthoritySyncTargets.has(targetKey),
+      selected = mustRefreshAuthority ? undefined : this.#centers.read(target);
     if (selected) return { ...selected, sessionStore: this.#sessionStore(selected.issuer, selected.authority.realm) };
-    const authority = authorityOverride ?? (await this.#loginAuthority(target, mustSync)),
+    const authority = authorityOverride ?? (await this.#loginAuthority(target)),
       issuer = await this.#issuer(authority);
     this.#centers.write(target, { authority, issuer });
     this.#pendingAuthoritySyncTargets.delete(targetKey);
@@ -1212,13 +1214,22 @@ export class OidcSessionService {
   }
 
   /** A use near or past the access token's end renews the session first. */
-  async #use(sessionStore: OidcSessionStorePort): Promise<SessionUse> {
+  #use(sessionStore: OidcSessionStorePort): Promise<SessionUse> {
     const session = this.#session(sessionStore);
-    if (!session || !this.#lapsing(session)) return { session };
-    return this.serialize(async () => {
+    if (!session || !this.#lapsing(session)) return Promise.resolve({ session });
+    const inFlight = this.#renewal;
+    if (inFlight && inFlight.issuer === session.issuer && inFlight.refreshToken === session.refreshToken)
+      return inFlight.promise;
+    const promise = this.serialize(async () => {
       // Uses that queued behind a renewal find the session it wrote and do not renew again.
       return this.#useCurrent(sessionStore);
     });
+    this.#renewal = { issuer: session.issuer, refreshToken: session.refreshToken, promise };
+    const clear = (): void => {
+      if (this.#renewal?.promise === promise) this.#renewal = undefined;
+    };
+    void promise.then(clear, clear);
+    return promise;
   }
 
   async #useCurrent(sessionStore: OidcSessionStorePort): Promise<SessionUse> {
@@ -1227,10 +1238,13 @@ export class OidcSessionService {
   }
 
   #lapsing(session: StoredSession): boolean {
-    return session.expiresAt - this.#ports.now() <= renewalMarginMs;
+    const marginMs = session.authority?.clientId?.startsWith("harness-node-")
+      ? nodeRenewalMarginMs
+      : renewalMarginMs;
+    return session.expiresAt - this.#ports.now() <= marginMs;
   }
 
-  /** One refresh grant per use: Keycloak refusing it ends the session here, and nothing retries. */
+  /** One refresh grant runs at a time; only an explicit invalid_grant ends the session. */
   async #renew(session: StoredSession, sessionStore: OidcSessionStorePort): Promise<SessionUse> {
     const generation = this.#sessionGeneration,
       edge = session.loginTarget ? this.#host.readFleetEdgeConfig(session.loginTarget) : null,
@@ -1267,10 +1281,16 @@ export class OidcSessionService {
           ? { expired: true }
           : {}),
       };
-    // Keycloak answers 400 once the session sat idle past its lifetime, was signed out, or had its token revoked.
     if (response.status === 400) {
-      sessionStore.delete();
-      return { session: undefined, rejected: true };
+      const rejection = (await response.json()) as { readonly error?: unknown };
+      if (rejection.error === "invalid_grant") {
+        sessionStore.delete();
+        return { session: undefined, rejected: true };
+      }
+      return {
+        session: undefined,
+        unavailable: unavailable(`Keycloak session renewal returned HTTP ${response.status}.`),
+      };
     }
     if (!response.ok)
       return {

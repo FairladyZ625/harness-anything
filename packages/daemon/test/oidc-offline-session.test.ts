@@ -6,6 +6,7 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { type OidcSessionPorts } from "@harness-anything/kernel";
+import { identitySessionLifetimePolicy } from "@harness-anything/kernel/internal/domain/managed-identity-policy.ts";
 import { localDefaultBinding } from "../src/daemon-host/daemon-host-binding.ts";
 
 // dec_F01770FD0DCF72683B7C4C7A47/CH6: the provider owns offline idle expiration.
@@ -18,18 +19,33 @@ function offlineFixture(refreshExpiresIn: number, t: TestContext) {
     JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external" }),
   );
   let stored: string | undefined;
-  const state = { now: Date.now(), reachable: true, discoveryReachable: true, revoked: false, refreshes: 0, serial: 0 };
+  const state = {
+    now: Date.now(),
+    reachable: true,
+    discoveryReachable: true,
+    revoked: false,
+    refreshes: 0,
+    serial: 0,
+    refreshError: undefined as string | undefined,
+    dropNextRefreshReply: false,
+    replayableRefreshToken: undefined as string | undefined,
+    replayBudget: 0,
+    latestRefreshToken: "",
+  };
   const authority = { url: "http://127.0.0.1:8080", realm: "isolated", clientId: "harness-node-a" },
     loginTarget = "/unused-offline-test-edge",
     issuer = `${authority.url}/realms/${authority.realm}`;
-  const issue = () =>
-    Response.json({
-      access_token: `x.${Buffer.from(JSON.stringify({ iss: issuer, serial: ++state.serial })).toString("base64url")}.x`,
-      refresh_token: `refresh-${state.serial}`,
+  const issue = () => {
+    const serial = ++state.serial;
+    state.latestRefreshToken = `refresh-${serial}`;
+    return Response.json({
+      access_token: `x.${Buffer.from(JSON.stringify({ iss: issuer, serial })).toString("base64url")}.x`,
+      refresh_token: state.latestRefreshToken,
       expires_in: 60,
       refresh_expires_in: refreshExpiresIn,
       scope: "openid profile email offline_access",
     });
+  };
   const ports: Partial<OidcSessionPorts> = {
     now: () => state.now,
     loginAuthority: async () => authority,
@@ -62,8 +78,19 @@ function offlineFixture(refreshExpiresIn: number, t: TestContext) {
       if (form.get("grant_type") !== "refresh_token") return issue();
       state.refreshes++;
       if (!state.reachable) throw new TypeError("isolated provider unavailable");
-      assert.equal(form.get("refresh_token"), `refresh-${state.serial}`, "persist the rotated refresh token");
-      if (state.revoked) return Response.json({ error: "invalid_grant" }, { status: 400 });
+      if (state.refreshError) return Response.json({ error: state.refreshError }, { status: 400 });
+      const requestedToken = form.get("refresh_token"),
+        isReplay = requestedToken === state.replayableRefreshToken && state.replayBudget > 0;
+      if (state.dropNextRefreshReply) {
+        state.dropNextRefreshReply = false;
+        state.replayableRefreshToken = requestedToken ?? undefined;
+        state.replayBudget = identitySessionLifetimePolicy.defaultValue.refreshTokenMaxReuse;
+        issue();
+        throw new TypeError("socket timed out after Keycloak rotated the refresh token");
+      }
+      if (state.revoked || (requestedToken !== state.latestRefreshToken && !isReplay))
+        return Response.json({ error: "invalid_grant" }, { status: 400 });
+      if (isReplay) state.replayBudget -= 1;
       return issue();
     },
   };
@@ -124,4 +151,35 @@ test("offline network failure preserves credentials and only admits an explicitl
   const refreshes = fixture.state.refreshes;
   assert.equal((await service.status(fixture.loginTarget)).authenticated, false);
   assert.equal(fixture.state.refreshes, refreshes, "do not retry a rejected refresh token");
+});
+
+test("offline refresh retries once after a successful rotation loses its response", async (t) => {
+  const fixture = offlineFixture(0, t),
+    service = fixture.open();
+  await service.beginDevice(fixture.loginTarget);
+  fixture.state.now += 1_000;
+  await service.pollDevice();
+  fixture.state.now += 60_000;
+  const before = fixture.store.read();
+  fixture.state.dropNextRefreshReply = true;
+  await assert.rejects(service.status(fixture.loginTarget), { code: "oidc_session_unavailable" });
+  assert.equal(fixture.store.read(), before, "a timeout must preserve the exact local session bytes");
+  assert.equal(JSON.parse(fixture.store.read()!).refreshToken, "refresh-1");
+  assert.equal((await service.status(fixture.loginTarget)).authenticated, true);
+  assert.equal(fixture.state.refreshes, 2);
+});
+
+test("a non-invalid_grant HTTP 400 preserves an offline session for a later renewal", async (t) => {
+  const fixture = offlineFixture(0, t),
+    service = fixture.open();
+  await service.beginDevice(fixture.loginTarget);
+  fixture.state.now += 1_000;
+  await service.pollDevice();
+  fixture.state.now += 60_000;
+  const before = fixture.store.read();
+  fixture.state.refreshError = "invalid_request";
+  await assert.rejects(service.status(fixture.loginTarget), { code: "oidc_session_unavailable" });
+  assert.equal(fixture.store.read(), before);
+  fixture.state.refreshError = undefined;
+  assert.equal((await service.status(fixture.loginTarget)).authenticated, true);
 });

@@ -7,7 +7,8 @@ import { identitySessionLifetimePolicy } from "@harness-anything/kernel/internal
  */
 export const sessionLifetimeBounds = Object.freeze({
   defaultSeconds: identitySessionLifetimePolicy.defaultValue.defaultSeconds,
-  // The access token itself lives five minutes; a shorter session would end before its first renewal.
+  // The shortest managed login-client access token lives five minutes.
+  // A shorter session would end before its first renewal.
   minimumSeconds: identitySessionLifetimePolicy.defaultValue.minimumSeconds,
   // Keycloak requires an absolute session length. A year never ends a session that is in use.
   maximumSeconds: identitySessionLifetimePolicy.defaultValue.maximumSeconds,

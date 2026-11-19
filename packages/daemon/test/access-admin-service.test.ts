@@ -705,7 +705,7 @@ test("the session lifetime is read from and written to the realm, within bounds,
     offlineSessionIdleTimeout: 90 * 24 * 60 * 60,
     offlineSessionMaxLifespanEnabled: false,
     revokeRefreshToken: true,
-    refreshTokenMaxReuse: 0,
+    refreshTokenMaxReuse: 1,
   });
   assert.deepEqual(await admin.run({ operation: "session-lifetime" }), {
     ok: true,
