@@ -41,7 +41,7 @@ export function resolveLoginListenerTrust(input: {
     typeof certificate === "string" ? certificate : input.readCertificateFile(certificateFile as string),
   );
   const targetUrl = (listener as Record<string, unknown>).targetUrl,
-    proxyTarget = targetUrl === undefined ? undefined : validateProxyTarget(targetUrl, origin);
+    proxyTarget = targetUrl === undefined ? undefined : normalizeProxyTarget(targetUrl, origin);
   return {
     origin,
     fingerprint256,
@@ -49,7 +49,7 @@ export function resolveLoginListenerTrust(input: {
   };
 }
 
-function validateProxyTarget(value: unknown, listenerOrigin: string): string | undefined {
+function normalizeProxyTarget(value: unknown, listenerOrigin: string): string | undefined {
   if (typeof value !== "string") throw new Error("The login listener proxy target must be a URL.");
   const target = new URL(value);
   if (target.protocol !== "https:" || target.username || target.password || target.port === "0")
