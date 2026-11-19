@@ -255,7 +255,6 @@ async function claimRaceFixture(t: TestContext) {
         name: "Race Agent",
         instructions: "Claim the occurrence but never run in this fixture.",
         runtimes: [{ type: "codex" }],
-        instance: definition.instanceId,
       },
     },
     owners.auth({ nodeId: "edge-alpha" }),

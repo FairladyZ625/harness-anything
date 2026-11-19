@@ -193,7 +193,6 @@ test(
         name: "Fleet reviewer",
         instructions: "Review the submitted cut.",
         runtimes: [{ type: "codex", model: definition.model }],
-        instance: definition.instanceId,
         role: "reviewer",
       },
     });
@@ -206,7 +205,6 @@ test(
         name: "Alternate fleet reviewer",
         instructions: "Review the submitted cut as the explicitly selected reviewer.",
         runtimes: [{ type: "codex" }],
-        instance: definition.instanceId,
         role: "reviewer",
       },
     });
@@ -452,7 +450,6 @@ test(
         name: "Fleet reviewer",
         instructions: "Review the submitted cut.",
         runtimes: [{ type: "codex", model: definition.model }],
-        instance: definition.instanceId,
         role: "reviewer",
       },
     });
