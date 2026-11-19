@@ -254,7 +254,7 @@ export function definitionSnapshot(
     ...(effectiveMcpPolicy === undefined ? {} : { mcpPolicy: effectiveMcpPolicy }),
     ...agentDefinitionSnapshotEndpoint(runtimeBaseUrl(config)),
     authMode: config.auth.mode,
-  };
+  } as unknown as AgentDefinitionSnapshot;
 }
 
 export function providerConfigDirectory(home: string, kindId: RuntimeInstanceKind): string {

@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
 import { agentRuntimeSessionGroupStatusWords } from "@harness-anything/kernel/internal/domain/client-view-status.ts";
-import { agentDefinitionSnapshotErrors } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
+import * as agentRuntimeDomain from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
+import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { validRuntimeInstanceTier } from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
 import type { RuntimeLiveness } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
@@ -26,7 +26,7 @@ import type {
   RuntimeLaunchPermissionMode,
 } from "@harness-anything/kernel";
 import type { RuntimeCapabilitySupport } from "../runtime-engine/runtime-inventory-types.ts";
-import { isRuntimeMcpPolicy, runtimeWebSearchModes } from "../runtime-engine/runtime-inventory.ts";
+import { isRuntimeMcpPolicy } from "../runtime-engine/runtime-inventory.ts";
 import {
   type ActorIdentity,
   type AgentDefinitionSnapshot,
@@ -38,6 +38,13 @@ import { validAgentRuntimeAttemptChain, type AgentRuntimeAttemptChainDto } from 
 import type { ProviderUnreachableEvidence } from "./protocol/task-dispatch-contract.ts";
 export type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 export type { AgentRuntimeTargetV1, RuntimeInstallationState } from "@harness-anything/kernel";
+
+const agentDefinitionSnapshotErrors = (
+  agentRuntimeDomain as typeof agentRuntimeDomain & {
+    readonly agentDefinitionSnapshotErrors?: (value: unknown) => readonly string[];
+  }
+).agentDefinitionSnapshotErrors;
+
 export interface AgentRuntimeInstallationDto {
   readonly installationId: string;
   readonly kindId: string;
@@ -769,9 +776,9 @@ function validPage(value: unknown): boolean {
   );
 }
 function validAgentDefinitionSnapshotDto(value: unknown): value is AgentDefinitionSnapshot {
-  return (
-    isAgentRuntimeContractRecord(value) &&
-    hasAgentRuntimeContractFields(
+  if (
+    !isAgentRuntimeContractRecord(value) ||
+    !hasAgentRuntimeContractFields(
       value,
       [
         "schema",
@@ -785,25 +792,58 @@ function validAgentDefinitionSnapshotDto(value: unknown): value is AgentDefiniti
         "authMode",
       ],
       ["baseUrl", "endpointKind", "baseUrlHash", "fast", "webSearch", "mcpPolicy"],
-    ) &&
-    agentDefinitionSnapshotErrors(value).length === 0
+    )
+  )
+    return false;
+  const errors = agentDefinitionSnapshotErrors?.(value);
+  return errors === undefined ? validCurrentAgentDefinitionSnapshot(value) : errors.length === 0;
+}
+
+function validCurrentAgentDefinitionSnapshot(value: Record<string, unknown>): boolean {
+  return (
+    !Object.hasOwn(value, "baseUrl") &&
+    value.schema === "agent-definition-snapshot/v1" &&
+    value.configVersion === 1 &&
+    typeof value.instanceId === "string" &&
+    value.instanceId.length > 0 &&
+    typeof value.installationId === "string" &&
+    value.installationId.length > 0 &&
+    typeof value.kindId === "string" &&
+    value.kindId.length > 0 &&
+    typeof value.providerId === "string" &&
+    value.providerId.length > 0 &&
+    typeof value.model === "string" &&
+    value.model.length > 0 &&
+    (value.reasoningEffort === null ||
+      (typeof value.reasoningEffort === "string" && value.reasoningEffort.length > 0)) &&
+    ["subscription", "api-key"].includes(String(value.authMode)) &&
+    ["official", "custom"].includes(String(value.endpointKind)) &&
+    (value.endpointKind === "official"
+      ? value.baseUrlHash === null
+      : typeof value.baseUrlHash === "string" && /^sha256:[0-9a-f]{16}$/u.test(value.baseUrlHash)) &&
+    (value.fast === undefined || typeof value.fast === "boolean") &&
+    (value.webSearch === undefined || ["disabled", "cached", "live"].includes(String(value.webSearch))) &&
+    (value.mcpPolicy === undefined || ["disabled", "inherit"].includes(String(value.mcpPolicy)))
   );
 }
 
 export function redactAgentDefinitionSnapshot(snapshot: AgentDefinitionSnapshot): AgentDefinitionSnapshot {
   const { baseUrl, ...safeSnapshot } = snapshot;
   return !Object.hasOwn(snapshot, "endpointKind")
-    ? { ...safeSnapshot, ...agentDefinitionSnapshotEndpoint(baseUrl) }
-    : safeSnapshot;
+    ? ({ ...safeSnapshot, ...agentDefinitionSnapshotEndpoint(baseUrl) } as unknown as AgentDefinitionSnapshot)
+    : (safeSnapshot as unknown as AgentDefinitionSnapshot);
 }
 
-export function agentDefinitionSnapshotEndpoint(
-  baseUrl: string | null | undefined,
-): Pick<AgentDefinitionSnapshot, "endpointKind" | "baseUrlHash"> {
+type AgentDefinitionSnapshotEndpoint = {
+  readonly endpointKind: "official" | "custom";
+  readonly baseUrlHash: string | null;
+};
+
+export function agentDefinitionSnapshotEndpoint(baseUrl: string | null | undefined): AgentDefinitionSnapshotEndpoint {
   if (baseUrl === null || baseUrl === undefined || baseUrl === "")
     return { endpointKind: "official", baseUrlHash: null };
   const normalizedBaseUrl = URL.canParse(baseUrl) ? new URL(baseUrl).toString() : baseUrl,
-    digest = createHash("sha256").update(normalizedBaseUrl).digest("hex").slice(0, 16);
+    digest = sha256Text(normalizedBaseUrl).slice(0, 16);
   return { endpointKind: "custom", baseUrlHash: `sha256:${digest}` };
 }
 
