@@ -3,11 +3,12 @@ import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
-import fs, { mkdtempSync, rmSync } from "node:fs";
+import fs, { mkdtempSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import {
   eventObjectTarget,
@@ -666,7 +667,7 @@ test("task writes keep aggregate CAS after runtime events advance the shared wor
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -698,7 +699,7 @@ test("task dispatch read accepts one bounded batch and degrades missing tasks pe
     assert.deepEqual(validateDaemonTaskDispatches(result), []);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -873,7 +874,7 @@ test("member totals use the same task-group normalization as the pre-paging sess
     }
   } finally {
     projection?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -886,7 +887,7 @@ async function withRuntime<T>(use: (fixture: ReturnType<typeof fixture>) => T | 
     return await use(current);
   } finally {
     current?.projection.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 }
 function fixture(rootDir: string) {
@@ -1179,7 +1180,7 @@ test("provider output publication does not scale full projection reads with line
   } finally {
     stream.close();
     projection.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1362,7 +1363,7 @@ function withMissingInstallationRuntime(
     use({ reads: makeAgentRuntimeReadModel({ store, projection }), store, projection, stream, rootDir });
   } finally {
     projection?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 }
 
