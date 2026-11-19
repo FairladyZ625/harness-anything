@@ -108,7 +108,9 @@ export class OidcSessionService {
   #centerTokenCache: CenterToken | undefined;
   #loginGeneration = 0;
   #sessionGeneration = 0;
-  #renewal: { readonly issuer: string; readonly refreshToken: string; readonly promise: Promise<SessionUse> } | undefined;
+  #renewal:
+    | { readonly issuer: string; readonly refreshToken: string; readonly promise: Promise<SessionUse> }
+    | undefined;
   #device: PendingDeviceLogin | undefined;
   readonly #deviceRequests = new Map<string, DeviceLoginRequest>();
   readonly #pendingAuthoritySyncTargets = new Set<string>();
@@ -1245,9 +1247,7 @@ export class OidcSessionService {
       session.authority?.clientId === undefined &&
       session.loginTarget !== undefined &&
       Boolean(this.#host.readFleetEdgeConfig(session.loginTarget));
-    const marginMs = hasNodeClient || hasLegacyNodeAuthority
-      ? nodeRenewalMarginMs
-      : renewalMarginMs;
+    const marginMs = hasNodeClient || hasLegacyNodeAuthority ? nodeRenewalMarginMs : renewalMarginMs;
     return session.expiresAt - this.#ports.now() <= marginMs;
   }
 
@@ -1256,7 +1256,9 @@ export class OidcSessionService {
     const generation = this.#sessionGeneration,
       edge = session.loginTarget ? this.#host.readFleetEdgeConfig(session.loginTarget) : null,
       authority =
-        edge && session.authority
+        edge &&
+        session.authority &&
+        (session.authority.clientId === undefined || session.authority.clientId.startsWith("harness-node-"))
           ? { ...session.authority, clientId: `harness-node-${edge.nodeId}`, clientSecret: edge.credential }
           : session.authority?.clientId
             ? (session.authority as OidcLoginAuthority)
