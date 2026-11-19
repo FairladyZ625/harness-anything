@@ -608,7 +608,6 @@ function overviewQuery(payload: Readonly<Record<string, unknown>>): {
   readonly afterRuntimeSessionId: string | null;
   readonly scope: Parameters<typeof readCollaboratorLiveFloor>[1] | null;
 } {
-  const allowedFields = ["taskId", "limit", "cursor", "scopePersonId", "filterNodeId"];
   const hasScope = payload.scopePersonId !== undefined || payload.filterNodeId !== undefined;
   const hasPage = payload.limit !== undefined;
   const validWidth =
@@ -616,7 +615,6 @@ function overviewQuery(payload: Readonly<Record<string, unknown>>): {
     (typeof payload.limit === "number" &&
       validateStorageReadWindow(payload.limit, storageReadPolicy.defaultValue.pageSizes.sessions));
   if (
-    Object.keys(payload).some((key) => !allowedFields.includes(key)) ||
     (hasScope &&
       (payload.taskId !== undefined ||
         hasPage ||

@@ -911,7 +911,7 @@
         "explain": "Closed JSON-RPC request parameter validator for `repo.triadic.agenda` pagination cursor, sourceLimit and viewer scope fields.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateAgendaQueryPayload:839097df10e9ea7e56c582289c4aadd7",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateAgendaQueryPayload:3a9a7edb4a5f7007c0432cbb49377793",
             "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateAgendaQueryPayload"
           }
         ]
@@ -919,10 +919,10 @@
       {
         "id": "daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateTaskDispatchesPayload",
         "symbol": "packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateTaskDispatchesPayload",
-        "explain": "Closed JSON-RPC request parameter validator for `repo.task.dispatches` taskId/taskIds batch selectors and `latestOnly` flag.",
+        "explain": "Closed JSON-RPC request parameter validator for `repo.task.dispatches` taskId/taskIds, member attribution, node attribution, and live-floor selectors.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateTaskDispatchesPayload:7c3a56515189cd277cddc0d49bbb2417",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateTaskDispatchesPayload:4089e6b368603f12a2a2415f680c30ca",
             "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateTaskDispatchesPayload"
           }
         ]
@@ -1010,7 +1010,7 @@
         "explain": "Wire-response validator for `repo.task.dispatches` dispatch history envelopes and kernel-projected `DispatchLifecycleSummary` shapes.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-results.ts#validateDaemonTaskDispatches:76f0e25194cccbe844fe3931ae0d3736",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-results.ts#validateDaemonTaskDispatches:8bb2b7fa27d4fdf542a646bc7dc76e85",
             "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-results.ts#validateDaemonTaskDispatches"
           }
         ]
@@ -3494,7 +3494,7 @@
         "explain": "Daemon exit wire-response validator for `daemon.fleet-overview/v1` envelopes, center build stamps, replica link states and event summaries carrying canonical attribution.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/fleet/fleet-overview-read.ts#validateFleetOverview:c16c3fe50c4bfabc65dc211520a23b0b",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/fleet/fleet-overview-read.ts#validateFleetOverview:dc893bee1e06eb6b448a9e944fca5465",
             "route": "packages/daemon/src/daemon-host/fleet/fleet-overview-read.ts#validateFleetOverview"
           }
         ]
@@ -3703,7 +3703,7 @@
         "explain": "JSON-RPC request parameter validator for `observe.tail` stream kind, direction, limit, field projection and cursor inputs.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-results.ts#validateObserveTailPayload:c915311c3d0efa655b852d8e65065771",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-results.ts#validateObserveTailPayload:e2ff33a2e7e5c3f014dc8a224bc5922b",
             "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-results.ts#validateObserveTailPayload"
           }
         ]
@@ -3758,7 +3758,7 @@
         "explain": "Top-level JSON-RPC 2.0 request envelope validator enforcing registered method names, secret-key hygiene and per-method parameter schemas.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateDaemonRpcCall:c5b6ad9ce505ca47ca271b93cac80022",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateDaemonRpcCall:215e253a4d923074e8f5034ce300c1b4",
             "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateDaemonRpcCall"
           }
         ]
@@ -3824,7 +3824,7 @@
         "explain": "Thin-protocol and Electron preload JSON-RPC query selector router and wire error-mapping adapter for `repo.tasks.list`, `repo.triadic.relationGraph` and `repo.artifacts.list`, enforcing relation selector field closure and delegating shared query constraints to kernel `queryPayloadValidation`.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-relation-query.ts#validateDaemonQueryPayload:2b273b6233945a03b0a651bb983243b4",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-relation-query.ts#validateDaemonQueryPayload:aa8d6fb2f99d77487d21088dc184dfb2",
             "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-relation-query.ts#validateDaemonQueryPayload"
           }
         ]
@@ -4484,8 +4484,19 @@
         "explain": "Telemetry DTO validator for `agent-runtime.token-usage/v1` aggregated token accounting payloads.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-token-usage.ts#validateAgentRuntimeTokenUsage:203f0bdf2e541616b1185744530ad559",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-token-usage.ts#validateAgentRuntimeTokenUsage:4c8848e729e8678312f461f2449ad6c4",
             "route": "packages/daemon/src/daemon-host/agent-runtime-token-usage.ts#validateAgentRuntimeTokenUsage"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/collaborator-token-usage-read.ts#validateCollaboratorTokenUsage",
+        "symbol": "packages/daemon/src/daemon-host/collaborator-token-usage-read.ts#validateCollaboratorTokenUsage",
+        "explain": "Closed response DTO validator for collaborator token usage grouped by person or node, including non-negative aggregates and source watermarks.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/collaborator-token-usage-read.ts#validateCollaboratorTokenUsage:d98097897bf7d8f795c889cc017e998f",
+            "route": "packages/daemon/src/daemon-host/collaborator-token-usage-read.ts#validateCollaboratorTokenUsage"
           }
         ]
       },

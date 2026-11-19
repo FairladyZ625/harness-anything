@@ -120,3 +120,23 @@ test("daemon query payload and RPC validation delegate shared facet rules to ker
     "repo.artifacts.list.payload.limit is invalid",
   ]);
 });
+
+test("runtime overview RPC closes collaborator scope selectors at the declared protocol boundary", () => {
+  const repo = { repoId: "repo-1" };
+  assert.deepEqual(
+    validateDaemonRpcCall({
+      method: "repo.agentRuntime.overview",
+      params: { repo, payload: { scopePersonId: "person-1", filterNodeId: "node-1" } },
+    }),
+    [],
+  );
+  assert.deepEqual(
+    validateDaemonRpcCall({
+      method: "repo.agentRuntime.overview",
+      params: { repo, payload: { scopePersonId: "person-1", hiddenSelector: "unexpected" } },
+    }),
+    [
+      'params.payload contains an unknown field "hiddenSelector"; allowed fields: "taskId", "limit", "cursor", "scopePersonId", "filterNodeId".',
+    ],
+  );
+});
