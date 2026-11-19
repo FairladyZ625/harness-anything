@@ -111,7 +111,7 @@ function modelVersion(db: DatabaseSync): number | undefined | null {
 }
 
 /** Inbox state of another model version is discarded and refolded from the event rows. */
-function ensureInboxModel(db: DatabaseSync): void {
+export function ensureInboxModel(db: DatabaseSync): void {
   const version = modelVersion(db);
   if (version === null || (version !== undefined && version !== INBOX_MODEL_VERSION)) {
     for (const table of INBOX_TABLES) runSql(db, `DROP TABLE IF EXISTS ${table}`);

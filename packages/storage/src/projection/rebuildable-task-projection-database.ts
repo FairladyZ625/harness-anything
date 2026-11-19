@@ -47,7 +47,7 @@ import {
 } from "./projection-tables.ts";
 import { ensureWorkspaceTaskCensus } from "./workspace-task-census.ts";
 import { catchUpDispatchLifecycle } from "./dispatch-lifecycle-projection.ts";
-import { catchUpInbox } from "./inbox-projection.ts";
+import { catchUpInbox, ensureInboxModel } from "./inbox-projection.ts";
 import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 import {
   closeProjectionConnection,
@@ -570,6 +570,7 @@ const CORE_DEFERRED_INDEXES: readonly string[] = [
 
 function coreTablesSql(deferred: boolean): string {
   return `
+  db.exec(`
     /* @gate-identity state-store/task.projection.archived_entity */ CREATE TABLE IF NOT EXISTS archived_entity (
       entity_kind TEXT NOT NULL,
       entity_id TEXT NOT NULL,
@@ -755,6 +756,7 @@ function finalizeRebuildDatabase(
 }
 
 function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgress): void {
+  ensureInboxModel(db);
   ensureRuntimeSessionExecutionNodeColumn(db);
   ensureEventSummaryReadIndexColumns(db);
   ensureLeaseTaskActiveColumn(db);
