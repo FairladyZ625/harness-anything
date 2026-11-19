@@ -15,6 +15,16 @@ export { openDeviceConfirmationGateway, type DeviceConfirmationGateway } from ".
 
 export { ManagedRbacService, type ManagedRbacPorts } from "./managed-rbac-service.ts";
 export {
+  type ManagedRbacRelocationExportOptions,
+  type ManagedRbacRelocationImportOptions,
+  type ManagedRbacRelocationBundle,
+  type ManagedRbacRelocationBundleInput,
+  type ManagedRbacRelocationEntry,
+  type ManagedRbacRelocationEntryName,
+  type ManagedRbacRelocationManifest,
+  type RelocationJsonValue,
+} from "./managed-rbac-relocation.ts";
+export {
   managedListenerProblem,
   readRegularListenerCertificateIfPresent,
 } from "./managed-rbac-listener-certificate.ts";
