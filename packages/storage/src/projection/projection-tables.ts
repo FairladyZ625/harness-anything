@@ -230,8 +230,9 @@ export const REPOSITORY_READ_TABLES_SQL = `
     CREATE INDEX IF NOT EXISTS event_index_migrated_task_pin ON event_index(
       json_extract(event_json,'$.actor.principal.personId'), workspace_revision
     ) WHERE ${sqliteImportedTaskPinPredicate};
+    -- Match the event type as well as the range so the planner can seek the ordered window.
     CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_activity_ms ON event_index(
-      ${sqliteDispatchPageTimeKey}, json_extract(event_json, '$.payload.dispatchId')
+      json_extract(event_json, '$.type'), ${sqliteDispatchPageTimeKey}, json_extract(event_json, '$.payload.dispatchId')
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
       AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
     CREATE INDEX IF NOT EXISTS event_index_runtime_task_activity_ms ON event_index(
