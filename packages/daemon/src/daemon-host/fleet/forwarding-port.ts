@@ -242,7 +242,7 @@ export function runtimeForwardingContext(
   return {
     request,
     centerWriteWaitMs,
-    runtimeReadPeer: { ...peer, timeoutMs: request.waitTimeoutMs },
+    runtimeReadPeer: { ...peer, timeoutMs: request.waitTimeoutMs ?? 5_000 },
     writePeer: { ...peer, timeoutMs: centerWriteWaitMs + 10_000 },
   };
 }

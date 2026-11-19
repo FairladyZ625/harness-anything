@@ -1,8 +1,10 @@
 import { consumeKnownError } from "@harness-anything/kernel";
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { runFleetReplicaStream, type FleetReplicaStreamOptions } from "./peer.ts";
 import { readReplicaGeneration } from "../../fleet-sync/fleet/replica-generation.ts";
 import { recordReplicaHealth, replicaFailure } from "../../fleet-sync/fleet/replica-health.ts";
 import { isDeterministicReplicaFailure, replicaRetryDelay } from "../../fleet-sync/fleet/replica-retry.ts";
+const DEFAULT_CONFIRM_TIMEOUT_MS = daemonProtocolFleetPolicy.defaultValue.fleet.replicationIdleTimeoutMs;
 export interface ReplicaSyncOptions extends Omit<FleetReplicaStreamOptions, "onApplied"> {
   readonly signal?: AbortSignal;
   /**
@@ -11,9 +13,10 @@ export interface ReplicaSyncOptions extends Omit<FleetReplicaStreamOptions, "onA
    * later replicated commit cannot block the stream that applies that commit.
    * Stopping the sync joins the active confirmation after withdrawing its sequence waiters.
    */
-  readonly onConfirmed?: (changedPaths?: readonly string[]) => void | Promise<void>;
+  readonly onConfirmed?: (changedPaths?: readonly string[], signal?: AbortSignal) => void | Promise<void>;
   readonly onConfirmedFailure?: (error: unknown) => void;
   readonly onFailure?: (error: unknown) => void;
+  readonly confirmTimeoutMs?: number;
 }
 type Waiter = { readonly sequence: number; readonly resolve: () => void; readonly reject: (error: unknown) => void };
 type ReadyWaiter = { readonly resolve: (ready: boolean) => void; readonly reject: (error: unknown) => void };
@@ -151,15 +154,23 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
       ...(syncFailure === null ? { lastHeartbeatAt: new Date().toISOString() } : {}),
     });
   streams.set(key, stream);
+  const confirmTimeoutMs = options.confirmTimeoutMs ?? DEFAULT_CONFIRM_TIMEOUT_MS;
   let failures = 0,
     deterministicFailures = 0,
     lastPosition: string | undefined,
     confirming = false,
     confirmAgain = false,
     confirmation: Promise<void> | undefined,
+    activeConfirmController: AbortController | null = null,
+    activeConfirmAbort: ((error: unknown) => void) | null = null,
     // null: the mirror must compare the whole cut. A new process cannot know what an earlier one
     // applied without materializing, and a failed or base-backup batch loses its path list.
     pendingChangedPaths: Set<string> | null = null;
+  const abortActiveConfirmation = (error: unknown, dropQueued: boolean): void => {
+    if (dropQueued) confirmAgain = false;
+    activeConfirmController?.abort(error);
+    activeConfirmAbort?.(error);
+  };
   const confirm = (): void => {
     if (!options.onConfirmed || options.signal?.aborted) return;
     if (confirming) {
@@ -168,26 +179,57 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
     }
     confirming = true;
     confirmation = (async () => {
-      do {
-        confirmAgain = false;
-        try {
-          // An empty set is a durable eventless ACK; the mirror can advance its marker without rescanning.
-          const changedPaths = pendingChangedPaths;
-          pendingChangedPaths = new Set();
+      try {
+        do {
+          confirmAgain = false;
+          const confirmController = new AbortController();
+          activeConfirmController = confirmController;
+          let timer: ReturnType<typeof setTimeout> | undefined;
           try {
-            await options.onConfirmed!(changedPaths ? [...changedPaths] : undefined);
+            // An empty set is a durable eventless ACK; the mirror can advance its marker without rescanning.
+            const changedPaths = pendingChangedPaths;
+            pendingChangedPaths = new Set();
+            const aborted = new Promise<never>((_resolve, reject) => {
+              activeConfirmAbort = reject;
+              if (Number.isFinite(confirmTimeoutMs) && confirmTimeoutMs > 0) {
+                timer = setTimeout(() => {
+                  const timeoutError = Object.assign(
+                    new Error(`replica confirmation timed out after ${confirmTimeoutMs}ms`),
+                    { code: "replica_confirm_timeout" },
+                  );
+                  confirmController.abort(timeoutError);
+                  reject(timeoutError);
+                }, confirmTimeoutMs);
+                timer.unref?.();
+              }
+            });
+            aborted.catch(consumeKnownError);
+            const run = Promise.resolve().then(() =>
+              options.onConfirmed!(changedPaths ? [...changedPaths] : undefined, confirmController.signal),
+            );
+            run.catch(consumeKnownError);
+            try {
+              await Promise.race([run, aborted]);
+            } catch (error) {
+              pendingChangedPaths = null;
+              throw error;
+            }
           } catch (error) {
-            pendingChangedPaths = null;
-            throw error;
+            consumeKnownError(error);
+            (options.onConfirmedFailure ?? ((cause) => console.error("[fleet-replica] confirmation failed", cause)))(
+              error,
+            );
+          } finally {
+            if (timer) clearTimeout(timer);
+            if (activeConfirmController === confirmController) {
+              activeConfirmController = null;
+              activeConfirmAbort = null;
+            }
           }
-        } catch (error) {
-          consumeKnownError(error);
-          (options.onConfirmedFailure ?? ((cause) => console.error("[fleet-replica] confirmation failed", cause)))(
-            error,
-          );
-        }
-      } while (confirmAgain && !options.signal?.aborted);
-      confirming = false;
+        } while (confirmAgain && !options.signal?.aborted);
+      } finally {
+        confirming = false;
+      }
     })();
   };
   try {
@@ -213,6 +255,8 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
       });
       if (options.signal?.aborted) return;
       const error = attempt.failed ? attempt.error : null;
+      // Release any hung confirmation tied to the dropped connection so reconnects can re-confirm.
+      abortActiveConfirmation(streamDown(error ?? new Error("replication stream ended")), true);
       const retryDelay = replicaRetryDelay(
         error,
         isDeterministicReplicaFailure(error) ? deterministicFailures++ : failures++,

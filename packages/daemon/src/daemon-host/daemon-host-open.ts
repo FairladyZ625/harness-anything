@@ -654,7 +654,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           runtime = runtimeOwnerFor(payload),
           result =
             operation === "reconcile"
-              ? (await runtime.reconcile(), { outcome: "applied" })
+              ? (await runtime.reconcile(requestAuth.connectionSignal), { outcome: "applied" })
               : await runtime.run(payload.method, payload.action, requestAuth.connectionSignal);
         return request.decorate ? request.decorate(payload, result) : result;
       },
@@ -1047,6 +1047,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     runtimeRecoveryWatch,
     runtimeDaemonRoute,
     scheduleScheduler,
+    onAutoClaimTrigger: extracted.onAutoClaimTrigger,
     forwardRuntime,
     migrateEdgeWorkspace,
     instances,
@@ -1532,7 +1533,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           else fleetVersionWarnings.set(repo.repoId, warning);
         },
         onRevoked: () => revokeFleetMirrorTree(rootDir),
-        onConfirmed: async (changedPaths) => {
+        onConfirmed: async (changedPaths, signal) => {
           applyFleetMirrorCut(viewRoot, config.repoId, rootDir, "pull", { changedPaths });
           await runReplicaConfirmedRound({
             reconcile: async () => {
@@ -1540,7 +1541,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
                 repoId: repo.repoId,
                 method: "repo.squad.control",
                 action: {},
-                auth: { transportKind: "unix-socket" },
+                auth: { transportKind: "unix-socket", ...(signal ? { connectionSignal: signal } : {}) },
                 operation: "reconcile",
               });
               if (!result)
@@ -1548,8 +1549,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             },
             observeRecovery: (failures) => runtimeRecoveryWatch.observe(config.repoId, failures, now()),
             triggers: [
-              () => autoClaimLoop.trigger("replica-confirmed"),
-              () => autoDispatchLoop.trigger("replica-confirmed"),
+              () => {
+                extracted.onAutoClaimTrigger("replica-confirmed");
+                return Promise.resolve();
+              },
             ],
           });
         },

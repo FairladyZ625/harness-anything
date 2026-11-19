@@ -636,11 +636,16 @@ export async function readFleetOperationalClient(
     readonly payload: Readonly<Record<string, unknown>>;
   },
 ): Promise<Readonly<Record<string, unknown>>> {
-  const session = await openPeer(options);
+  const signal =
+    options.signal && options.connectionSignal
+      ? AbortSignal.any([options.signal, options.connectionSignal])
+      : (options.signal ?? options.connectionSignal);
+  signal?.throwIfAborted();
+  const session = await openPeer({ ...options, ...(signal ? { signal } : {}) });
   const close = () => session.close();
-  options.connectionSignal?.addEventListener("abort", close, { once: true });
+  signal?.addEventListener("abort", close, { once: true });
   try {
-    options.connectionSignal?.throwIfAborted();
+    signal?.throwIfAborted();
     // Only the parked await has no response deadline. Authentication and ordinary reads
     // keep their existing bounds; disconnecting its caller closes the peer.
     const response = await session.request(
@@ -696,7 +701,7 @@ export async function readFleetOperationalClient(
           : "ready",
     } as unknown as Readonly<Record<string, unknown>>;
   } finally {
-    options.connectionSignal?.removeEventListener("abort", close);
+    signal?.removeEventListener("abort", close);
     session.close();
   }
 }
@@ -1169,7 +1174,13 @@ export async function readFleetLoginAuthorityClient(
   }
 }
 function peerSocket(options: Omit<FleetPeerOptions, "repoId">): Promise<TLSSocket> {
+  if (options.signal?.aborted)
+    return Promise.reject(
+      options.signal.reason instanceof Error ? options.signal.reason : new Error("Fleet connection cancelled"),
+    );
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const timeoutMs = options.timeoutMs ?? daemonProtocolFleetPolicy.defaultValue.fleet.helloTimeoutMs;
     const socket = connect(
       {
         host: options.hostname ?? "127.0.0.1",
@@ -1179,14 +1190,47 @@ function peerSocket(options: Omit<FleetPeerOptions, "repoId">): Promise<TLSSocke
         rejectUnauthorized: true,
       },
       () => {
-        socket.setKeepAlive(true, 15_000);
-        resolve(socket);
+        finish(() => {
+          socket.setKeepAlive(true, 15_000);
+          resolve(socket);
+        });
       },
     );
-    socket.once("error", (error) => {
-      socket.destroy();
-      reject(error);
-    });
+    const onError = (error: Error) => {
+      finish(() => {
+        socket.destroy();
+        reject(error);
+      });
+    };
+    const onAbort = () => {
+      const reason =
+        options.signal?.reason instanceof Error ? options.signal.reason : new Error("Fleet connection cancelled");
+      finish(() => {
+        socket.destroy(reason);
+        reject(reason);
+      });
+    };
+    const timer =
+      Number.isFinite(timeoutMs) && timeoutMs > 0
+        ? setTimeout(() => {
+            const error = new Error("Fleet connection timeout");
+            finish(() => {
+              socket.destroy(error);
+              reject(error);
+            });
+          }, timeoutMs)
+        : undefined;
+    timer?.unref?.();
+    const finish = (done: () => void) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      socket.removeListener("error", onError);
+      options.signal?.removeEventListener("abort", onAbort);
+      done();
+    };
+    socket.once("error", onError);
+    options.signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
 function waitForSocketDrain(socket: TLSSocket, signal?: AbortSignal): Promise<void> {

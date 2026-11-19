@@ -182,6 +182,7 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   readonly edgeRuntimeOwners: Map<string, ReturnType<typeof import("./fleet-edge-runtime.ts").openFleetEdgeRuntime>>;
   readonly runtimeDaemonRoute: RuntimeDaemonRoute;
   readonly scheduleScheduler: ReturnType<typeof makeScheduleScheduler>;
+  readonly onAutoClaimTrigger: DaemonHostRegistryContext["onAutoClaimTrigger"];
   readonly forwardRuntime: DaemonHostRegistryContext["forwardRuntime"];
   readonly migrateEdgeWorkspace: (repoId: string, oldRoot: string, newRoot: string) => Promise<void>;
   readonly instances: ReturnType<typeof openRuntimeInstanceStore>;

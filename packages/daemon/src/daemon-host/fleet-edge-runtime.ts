@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { readAllTaskDispatchPages } from "./dispatch-read.ts";
 import type * as RuntimeStatus from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
@@ -80,6 +81,7 @@ import type { FleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { assertFleetEdgeRepositoryGit } from "./fleet-edge-git-preflight.ts";
 import { publishSubmittedCut } from "./submitted-cut-publication.ts";
 import { taskPrBodyRenderer } from "./task-pr-body-render.ts";
+import { runtimeErrorCode } from "../runtime-engine/runtime-spawn-errors.ts";
 
 export interface FleetEdgeRuntimeRequest {
   readonly payload: FleetEdgeConfig & {
@@ -521,18 +523,27 @@ export function openFleetEdgeRuntime(input: {
         `Center did not accept Review ${`review-${review.dispatchId}`}: ${String(result.code ?? receiptOutcome)}.`,
       );
   };
+  const executionSignalContext = new AsyncLocalStorage<AbortSignal | undefined>();
+  const reviewSpawnContext = new AsyncLocalStorage<{
+    readonly runtimeInstanceId?: string;
+    readonly preferredRuntimeInstanceId?: string;
+    readonly agentId?: string;
+  }>();
   const readDispatchLifecycle: import("./runtime-spawn-types.ts").RemoteRuntimePersistence["readDispatchLifecycle"] =
     async (query) => {
       const { runtimeReadPeer, request } = context();
+      const connectionSignal = executionSignalContext.getStore();
       return (await readFleetOperationalClient({
         ...runtimeReadPeer,
         repoId: request.repoId,
         method: "repo.agentRuntime.lifecycle.read",
         payload: query,
+        ...(connectionSignal ? { connectionSignal } : {}),
       })) as unknown as import("@harness-anything/kernel").DispatchLifecycleRead;
     };
   const readTaskContext = async (taskId: string, purpose?: "settlement") => {
     const { runtimeReadPeer, request } = context();
+    const connectionSignal = executionSignalContext.getStore();
     return taskRuntimeContext(
       purpose === "settlement"
         ? await readReplica("repo.tasks.runtimeContext.read", { taskId })
@@ -541,6 +552,7 @@ export function openFleetEdgeRuntime(input: {
             repoId: request.repoId,
             method: "repo.tasks.runtimeContext.read",
             payload: { taskId },
+            ...(connectionSignal ? { connectionSignal } : {}),
           }),
       taskId,
     );
@@ -820,15 +832,48 @@ export function openFleetEdgeRuntime(input: {
             })),
             // The renderer captures projection inputs synchronously; await Git reads after
             // the replica's synchronous SQLite reader session has closed.
-            renderBody = await publication.renderBody;
+            renderBody = await publication.renderBody,
+            spawnHints = reviewSpawnContext.getStore(),
+            intentInstanceId =
+              current.task?.reviewDispatchIntent?.executionId === executionId
+                ? current.task.reviewDispatchIntent.runtimeInstanceId
+                : undefined,
+            candidateInstanceIds = resolveReviewPublicationInstanceCandidates({
+              implementationInstanceId: publication.instanceId,
+              selectedInstanceId: spawnHints?.runtimeInstanceId,
+              intentInstanceId,
+              preferredInstanceId: spawnHints?.preferredRuntimeInstanceId,
+              agentId: spawnHints?.agentId,
+              resolveAgent: (agentId) => trustedScheduleAgents.get(agentId) ?? mirroredAgentDeclaration(request, agentId),
+              localInstances: input.ports.runtimeInstances(),
+            }),
+            prepareDaemonGitEnvironment = input.ports.prepareDaemonGitEnvironment
+              ? async (_initialId: string, provider: "github" | "gitlab", repoId: string) => {
+                  for (const candidateId of candidateInstanceIds) {
+                    try {
+                      const env = await input.ports.prepareDaemonGitEnvironment(candidateId, provider, repoId);
+                      if (env !== null) return env;
+                    } catch (error) {
+                      // An implementation instance from another node or a removed local instance
+                      // must not block falling back to an instance configured on this node.
+                      if (runtimeErrorCode(error) === "runtime_instance_not_found") {
+                        consumeKnownError(error);
+                        continue;
+                      }
+                      throw error;
+                    }
+                  }
+                  return null;
+                }
+              : undefined;
           await publishSubmittedCut({
             rootDir: request.workspaceRoot,
             repoId: request.repoId,
             taskId,
             taskTitle: current.task!.title,
             submission,
-            ...(typeof publication.instanceId === "string" ? { instanceId: publication.instanceId } : {}),
-            prepareDaemonGitEnvironment: input.ports.prepareDaemonGitEnvironment,
+            ...(candidateInstanceIds[0] ? { instanceId: candidateInstanceIds[0] } : {}),
+            ...(prepareDaemonGitEnvironment ? { prepareDaemonGitEnvironment } : {}),
             ...(renderBody ? { renderBody } : {}),
           });
         }
@@ -1111,19 +1156,20 @@ export function openFleetEdgeRuntime(input: {
     return ready;
   };
   return {
-    reconcile: async () => {
-      const { request } = context();
+    reconcile: async (connectionSignal?: AbortSignal) =>
+      executionSignalContext.run(connectionSignal, async () => {
+        const { request } = context();
 
-      if (readDispatchStreamHeaders(request.workspaceRoot).length === 0) return;
-      await ensureReady();
-      const recovered = await spawner.adopt();
-      await schedule(async () => {
-        await squad.flushPublications();
-        await pullRuntimeReplica();
-      });
-      const failed = runtimeRecoveryError(recovered);
-      if (failed) throw failed;
-    },
+        if (readDispatchStreamHeaders(request.workspaceRoot).length === 0) return;
+        await ensureReady();
+        const recovered = await spawner.adopt();
+        await schedule(async () => {
+          await squad.flushPublications();
+          await pullRuntimeReplica();
+        });
+        const failed = runtimeRecoveryError(recovered);
+        if (failed) throw failed;
+      }),
     run: async (
       method: FleetEdgeRuntimeRequest["payload"]["method"],
       action: JsonObject,
@@ -1221,11 +1267,21 @@ export function openFleetEdgeRuntime(input: {
       if (method === "repo.agentRuntime.spawn") {
         const prepared = action.recovery === undefined ? null : await prepareEdgeRecoverySpawn(action);
         if (prepared?.replay) return prepared.replay;
-        const receipt = await spawner.spawn(
-          prepared?.payload ?? action,
-          await controlBinding(request),
-          null,
-          Boolean(prepared?.recovery),
+        const spawnPayload = prepared?.payload ?? action;
+        const binding = await controlBinding(request);
+        const receipt = await executionSignalContext.run(connectionSignal, () =>
+          reviewSpawnContext.run(
+            {
+              ...(typeof spawnPayload.runtimeInstanceId === "string"
+                ? { runtimeInstanceId: spawnPayload.runtimeInstanceId }
+                : {}),
+              ...(typeof spawnPayload.preferredRuntimeInstanceId === "string"
+                ? { preferredRuntimeInstanceId: spawnPayload.preferredRuntimeInstanceId }
+                : {}),
+              ...(typeof spawnPayload.agentId === "string" ? { agentId: spawnPayload.agentId } : {}),
+            },
+            () => spawner.spawn(spawnPayload, binding, null, Boolean(prepared?.recovery)),
+          ),
         );
         return prepared?.recovery ? { ...receipt, recovery: { ...prepared.recovery, replayed: false } } : receipt;
       }
@@ -1642,6 +1698,46 @@ function mirroredPlanContract(contractBody: string | null, taskId: string) {
       `Task ${taskId} plan scaffold is not resolvable from the mirrored package; run ha daemon fleet edge sync, then retry.`,
     );
   return { planContract: contract };
+}
+
+function resolveReviewPublicationInstanceCandidates(input: {
+  readonly implementationInstanceId: unknown;
+  readonly selectedInstanceId: string | undefined;
+  readonly intentInstanceId: string | undefined;
+  readonly preferredInstanceId: string | undefined;
+  readonly agentId: string | undefined;
+  readonly resolveAgent: (agentId: string) => RuntimeAgent;
+  readonly localInstances: readonly RuntimeInstanceSummary[];
+}): readonly string[] {
+  let agent: RuntimeAgent | undefined;
+  if (input.agentId) {
+    try {
+      agent = input.resolveAgent(input.agentId);
+    } catch (error) {
+      // A repository-authored reviewer may resolve only after worktree checkout.
+      consumeKnownError(error);
+    }
+  }
+  const enabledLocal = input.localInstances.filter((instance) => instance.enabled);
+  const configuredLocal = enabledLocal.filter((instance) => instance.hostingCredentialState === "configured");
+  const candidates = [
+    typeof input.implementationInstanceId === "string" ? input.implementationInstanceId : undefined,
+    input.selectedInstanceId,
+    input.intentInstanceId,
+    input.preferredInstanceId,
+    agent?.instance,
+    ...(agent?.preferredInstances ?? []),
+    ...configuredLocal.map((instance) => instance.instanceId),
+    ...enabledLocal.map((instance) => instance.instanceId),
+  ];
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+  for (const id of candidates) {
+    if (typeof id !== "string" || !id || seen.has(id)) continue;
+    seen.add(id);
+    ordered.push(id);
+  }
+  return ordered;
 }
 
 function edgeRuntimeError(code: string, message: string, retryable?: boolean): Error {
