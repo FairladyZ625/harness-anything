@@ -1153,6 +1153,32 @@ function validResult(ref: unknown, value: unknown, allowUnknownFields: boolean):
 export function validRuntimeLaunchPermissionMode(value: unknown): value is RuntimeLaunchPermissionMode {
   return typeof value === "string" && (runtimeLaunchPermissionModes as readonly string[]).includes(value);
 }
+export function clampPermissionMode(
+  ceiling: RuntimeLaunchPermissionMode | undefined,
+  requested: RuntimeLaunchPermissionMode,
+): RuntimeLaunchPermissionMode;
+export function clampPermissionMode(
+  ceiling: RuntimeLaunchPermissionMode | undefined,
+  requested: RuntimeLaunchPermissionMode | undefined,
+): RuntimeLaunchPermissionMode | undefined;
+/** Clamps a requested permission mode to an Agent's declared ceiling (`read-only < workspace-write < bypass`). */
+export function clampPermissionMode(
+  ceiling: RuntimeLaunchPermissionMode | undefined,
+  requested: RuntimeLaunchPermissionMode | undefined,
+): RuntimeLaunchPermissionMode | undefined {
+  if (ceiling === undefined) return requested;
+  if (requested === undefined) return ceiling;
+  return runtimeLaunchPermissionModes.indexOf(ceiling) <= runtimeLaunchPermissionModes.indexOf(requested)
+    ? ceiling
+    : requested;
+}
+/** Resolves a scheduled dispatch permission mode without exceeding the Agent's declared ceiling. */
+export function resolveScheduledPermissionMode(input: {
+  readonly agentPermissionMode?: RuntimeLaunchPermissionMode;
+  readonly scheduleDefault: RuntimeLaunchPermissionMode;
+}): RuntimeLaunchPermissionMode {
+  return clampPermissionMode(input.agentPermissionMode, input.scheduleDefault);
+}
 export function validRuntimePermissionModeSource(value: unknown): value is RuntimePermissionModeSource {
   return typeof value === "string" && (runtimePermissionModeSources as readonly string[]).includes(value);
 }

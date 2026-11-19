@@ -1,8 +1,10 @@
 export { consumeKnownError } from "./error-consumption.ts";
 export * from "./domain/index.ts";
 export {
+  clampPermissionMode,
   compareRuntimeActivity,
   latestRuntimeActivityAt,
+  resolveScheduledPermissionMode,
   runtimeArchiveText,
   runtimeDefinitionSnapshotArtifact,
   runtimeEventContentClaims,
@@ -10,6 +12,7 @@ export {
   runtimeSessionMissingOutcomeEvidence,
   sessionProvenance,
   unavailableSessionIdentity,
+  validRuntimeLaunchPermissionMode,
 } from "./domain/agent-runtime.ts";
 export type {
   AgentDefinitionSnapshot,
