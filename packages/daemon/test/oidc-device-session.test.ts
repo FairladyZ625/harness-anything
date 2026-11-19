@@ -98,9 +98,7 @@ function edgeSession(t: TestContext) {
       if (url.endsWith("/userinfo")) return Response.json({ sub: "edge-subject", harness_person_id: "person-edge" });
       const form = init?.body as URLSearchParams;
       if (form.get("grant_type") === "refresh_token")
-        return state.revoked
-          ? Response.json({ error: "invalid_grant" }, { status: 400 })
-          : issueTokens();
+        return state.revoked ? Response.json({ error: "invalid_grant" }, { status: 400 }) : issueTokens();
       state.revoked = false;
       return issueTokens();
     }) as typeof fetch,
