@@ -68,7 +68,7 @@ pgliteIntegrationSuite("reverse code-path trace index parity", () => {
           );
         }
         for (const [decisionId, modules] of [
-          ["dec_TRACE_A", ["packages/storage/", ".\\tools\\gates", ""]],
+          ["dec_TRACE_A", ["packages/storage/", ".\\tools\\gates"]],
           ["dec_TRACE_B", ["packages/storages"]],
         ] as const) {
           const draft = proposal(revision, decisionId);
