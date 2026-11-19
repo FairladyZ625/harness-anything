@@ -164,6 +164,39 @@ export function readAttestationPool(
   };
 }
 
+export interface SubmittedCloseoutAttentionInput {
+  readonly taskId: string;
+  readonly title: string;
+  readonly completionBlockerCode: string | null;
+  readonly completionNextAction: string | null;
+  readonly undischargedFactRefs?: readonly string[];
+}
+
+export interface SubmittedCloseoutAttention {
+  readonly blockerCode: string;
+  readonly nextAction: string;
+  readonly attentionTitle: string;
+  readonly summaryHint: string;
+}
+
+export function describeSubmittedCloseoutAttention(input: SubmittedCloseoutAttentionInput): SubmittedCloseoutAttention {
+  const uniqueFacts = [...new Set(input.undischargedFactRefs ?? [])],
+    blockerCode =
+      input.completionBlockerCode ?? (uniqueFacts.length > 0 ? "fact_retirement_undeclared" : "completion_pending"),
+    nextAction =
+      input.completionBlockerCode !== null && input.completionNextAction !== null
+        ? input.completionNextAction
+        : uniqueFacts.length > 0
+          ? `ha task complete ${input.taskId} ${uniqueFacts.map((factRef) => `--fact-holds "${factRef}:<rationale>"`).join(" ")}`
+          : (input.completionNextAction ?? `ha task complete ${input.taskId}`);
+  return {
+    blockerCode,
+    nextAction,
+    attentionTitle: `${input.title} — [${blockerCode}] ${nextAction}`,
+    summaryHint: `下一步 (${blockerCode}): ${nextAction}`,
+  };
+}
+
 export function readCollaboratorAgenda(
   projection: Parameters<typeof readCollaboratorDecisions>[0] &
     Pick<TaskProjection, "readTaskIndex" | "listPinnedEntities" | "listEntities">,
@@ -172,6 +205,7 @@ export function readCollaboratorAgenda(
   const personId = query.scopePersonId ?? query.viewerPersonId,
     awaits = readAgendaAwaitsPage(projection, query),
     tasks = listScopedTasks(projection, { ...query, scopePersonId: personId }),
+    openTasks = tasks.rows.filter(({ status }) => status !== "done" && status !== "cancelled"),
     decisions = readCollaboratorDecisions(projection, {
       scopePersonId: personId,
       ...(query.filterNodeId === undefined ? {} : { filterNodeId: query.filterNodeId }),
@@ -187,7 +221,8 @@ export function readCollaboratorAgenda(
     page: awaits.page,
     awaitingYou: awaits.awaitingYou,
     decisions: decisions.decisions,
-    tasks: tasks.rows.filter(({ status }) => status !== "done" && status !== "cancelled"),
+    tasks: openTasks,
+    submittedTasks: openTasks.filter(({ status }) => status === "submitted"),
   };
 }
 

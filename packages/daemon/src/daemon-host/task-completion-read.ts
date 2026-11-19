@@ -42,6 +42,14 @@ export function readCompletionContext(
   actor?: ActorIdentity,
 ): CompletionReadinessContext {
   const taskRead = projection.read(taskId),
+    contractPath = taskRead.packagePath ? `${taskRead.packagePath}/task-contract.json` : null,
+    contractDocument =
+      contractPath === null
+        ? null
+        : (projection.readDocument(contractPath).document ??
+          ((snapshot.task?.packageDisposition ?? "active") !== "active"
+            ? (projection.readDocumentHistory?.(contractPath).document ?? null)
+            : null)),
     unavailable: CompletionReadinessContext = {
       closeout: "missing",
       closeoutPath: "",
@@ -53,7 +61,7 @@ export function readCompletionContext(
     availability.blocker?.code === "projection_unknown" ||
     !snapshot.task ||
     !taskRead.packagePath ||
-    !projection.readDocument(`${taskRead.packagePath}/task-contract.json`).document
+    !contractDocument
   )
     return {
       closeout: "missing",

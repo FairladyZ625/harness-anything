@@ -822,6 +822,7 @@ test(
     // A low-tier code delivery still needs an accepted artifact before submission.
     const f = await fixture(false, true, true, false, false, {
       autoSubmit: false,
+      guiDelivery: true,
       closeoutProfile: "standard",
       create: { riskTier: "low" },
     });

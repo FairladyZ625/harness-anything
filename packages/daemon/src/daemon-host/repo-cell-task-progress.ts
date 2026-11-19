@@ -488,6 +488,7 @@ export function completionContext(
             actor: binding.actor,
             source: binding.source,
             now: cell.now(),
+            ...(binding.observedDocGitPaths === undefined ? {} : { observedGitPaths: binding.observedDocGitPaths }),
             nodeTaskMaterializationPolicy: cell.input.nodeTaskMaterializationPolicy,
             taskId,
           }).rows,

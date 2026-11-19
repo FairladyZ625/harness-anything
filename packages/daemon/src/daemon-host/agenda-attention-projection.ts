@@ -46,6 +46,7 @@ export function buildAttentionItems(input: {
   readonly answeredForYou: readonly AgendaAnsweredRow[];
   readonly awaitingRework: readonly AgendaTaskRow[];
   readonly awaitingAdjudication: readonly AgendaExecutionRow[];
+  readonly submittedCloseouts?: ReadonlyMap<string, { readonly attentionTitle: string }>;
   readonly awaitingDecision: readonly AgendaDecisionRow[];
   readonly awaitingRuling: readonly AgendaRulingRow[];
   readonly waitingOnOthers: readonly AgendaTaskRow[];
@@ -103,19 +104,20 @@ export function buildAttentionItems(input: {
           row.work?.taskId ?? null,
         ),
       ),
-      ...input.awaitingAdjudication.map((row) =>
-        add(
+      ...input.awaitingAdjudication.map((row) => {
+        const closeout = input.submittedCloseouts?.get(row.executionId);
+        return add(
           `execution/${row.executionId}`,
-          row.title,
-          "adjudication",
+          closeout?.attentionTitle ?? row.title,
+          closeout ? "needs-handling" : "adjudication",
           "mine",
           row.submittedAt,
           taskSource(row.taskId),
           "low",
           row.pinned,
           row.work?.taskId ?? null,
-        ),
-      ),
+        );
+      }),
       ...input.awaitingDecision.map((row) =>
         add(`decision/${row.decisionId}`, row.title, "decision", "mine", row.proposedAt, undefined, row.riskTier),
       ),

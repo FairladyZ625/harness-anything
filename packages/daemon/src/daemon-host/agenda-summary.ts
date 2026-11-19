@@ -75,6 +75,7 @@ export function renderAgendaSummary(
     readonly unanchoredWorks?: readonly { readonly taskId: string; readonly title: string }[];
     readonly undispatchedReviews?: readonly { readonly taskId: string; readonly title: string }[];
     readonly shapeSignals?: readonly { readonly taskId: string; readonly title: string; readonly next: string }[];
+    readonly submittedCloseouts?: ReadonlyMap<string, string>;
   },
 ): string {
   const workLabel = (row: AgendaTaskRow | AgendaExecutionRow) => (row.work ? ` [工作 ${row.work.title}]` : ""),
@@ -103,7 +104,8 @@ export function renderAgendaSummary(
       );
     },
     executionLine = (row: AgendaExecutionRow) =>
-      `- ${row.pinned ? "📌 " : ""}execution ${row.executionId} / ${row.taskId} ${row.title}${workLabel(row)}`,
+      `- ${row.pinned ? "📌 " : ""}execution ${row.executionId} / ${row.taskId} ${row.title}${workLabel(row)}` +
+      (groups.submittedCloseouts?.has(row.executionId) ? `\n  ${groups.submittedCloseouts.get(row.executionId)!}` : ""),
     decisionLine = (row: AgendaDecisionRow) => `- decision ${row.decisionId} ${row.title}`,
     rulingLine = (row: AgendaRulingRow) =>
       // 守卫升级不是提问:没有可答复的选项,处理命令已由 daemon 写进 reason。
@@ -200,7 +202,7 @@ export function renderAgendaSummary(
     ),
     section(
       "待派审",
-      "status=submitted 且有 submitted execution 的历史切面（评审走廊之前的提交）；免审切面按冻结契约完成，需审历史切面只能 supersede 或迁移合同",
+      "status=submitted 且有待收口 submitted execution（待合入 PR / 待补门禁证明 / 历史切面）；按行上下一步完成或返工",
       groups.awaitingAdjudication.map(executionLine),
     ),
     section(
