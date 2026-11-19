@@ -885,13 +885,14 @@ test(
       readAccessToken,
     );
     assert.equal(started.outcome, "applied", JSON.stringify(started));
-    git(edgeRoot, "checkout", "-B", taskId, "main");
-    writeFileSync(path.join(edgeRoot, "delivery.txt"), "declare-executor edge delivery\n");
-    git(edgeRoot, "add", "delivery.txt");
-    git(edgeRoot, "commit", "-qm", "feat: declare-executor delivery");
-    const frozen = git(edgeRoot, "rev-parse", "HEAD");
-    git(edgeRoot, "push", "-qu", "origin", `HEAD:refs/heads/${taskId}`);
-    git(edgeRoot, "checkout", "main");
+    const workerRoot = path.join(edgeRoot, ".worktrees", taskId);
+    git(edgeRoot, "worktree", "add", "-B", taskId, workerRoot, "main");
+    git(workerRoot, "config", "user.name", "Fleet Test");
+    git(workerRoot, "config", "user.email", "fleet@example.invalid");
+    writeFileSync(path.join(workerRoot, "delivery.txt"), "declare-executor edge delivery\n");
+    git(workerRoot, "add", "delivery.txt");
+    git(workerRoot, "commit", "-qm", "feat: declare-executor delivery");
+    const frozen = git(workerRoot, "rev-parse", "HEAD");
     for (const root of [f.repo, edgeRoot]) {
       const config = path.join(root, "harness", "harness.yaml");
       writeFileSync(
@@ -902,9 +903,9 @@ test(
         ),
       );
     }
-    mkdirSync(path.join(edgeRoot, "harness", packagePath), { recursive: true });
+    mkdirSync(path.join(workerRoot, "harness", packagePath), { recursive: true });
     writeFileSync(
-      path.join(edgeRoot, "harness", packagePath, "closeout.md"),
+      path.join(workerRoot, "harness", packagePath, "closeout.md"),
       "## Summary\nDeclared-executor delivery.\n## Verification\nHosted PR pre-publish.\n" +
         "## 摘要\n显式声明执行器交付。\n## 验证\n评审前预发布。\n",
     );
@@ -916,8 +917,8 @@ test(
     const submittedExecutionId = String(
       makeTaskEventReader({ repoId, rootDir: f.repo })
         .read()
-        .events.findLast((event) => event.type === "execution_submitted" && event.taskId === taskId)
-        ?.payload.execution.executionId,
+        .events.findLast((event) => event.type === "execution_submitted" && event.taskId === taskId)?.payload.execution
+        .executionId,
     );
     const declared = await f.host.run(
       repoId,
@@ -1019,7 +1020,9 @@ test(
     assert.equal(reviewerStarts, 0);
     assert.deepEqual(
       probedInstances,
-      selectedInstanceId === "unconfigured-instance" ? ["unconfigured-instance", "agy-yr"] : ["agy-yr", "unconfigured-instance"],
+      selectedInstanceId === "unconfigured-instance"
+        ? ["unconfigured-instance", "agy-yr"]
+        : ["agy-yr", "unconfigured-instance"],
     );
 
     // Positive path: with hosting credential configured on agy-yr, edge pre-publication succeeds and launches reviewer.

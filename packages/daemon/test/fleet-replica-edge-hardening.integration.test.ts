@@ -640,23 +640,18 @@ test(
 );
 
 test(
-  "a hung confirmation releases its confirming lock on timeout and connection drop so later revisions confirm",
+  "a hung confirmation releases its confirming lock on timeout so later revisions confirm",
   { timeout: 120_000 },
   async (t) => {
     const fixture = await fleetReplicationFixture(t);
     await seedCenterData(fixture, seededTask);
     await fixture.openCenter();
-    const viewRootTimeout = mkdtempSync(path.join(tmpdir(), "ha-harden-confirm-timeout-")),
-      viewRootDrop = mkdtempSync(path.join(tmpdir(), "ha-harden-confirm-drop-"));
-    t.after(() => {
-      rmSync(viewRootTimeout, { recursive: true, force: true });
-      rmSync(viewRootDrop, { recursive: true, force: true });
-    });
+    const viewRootTimeout = mkdtempSync(path.join(tmpdir(), "ha-harden-confirm-timeout-"));
+    t.after(() => rmSync(viewRootTimeout, { recursive: true, force: true }));
 
-    // 1. Timeout path: first confirmation hangs without listening to signal; confirmTimeoutMs releases the lock.
-    let timeoutCalls = 0;
-    const timeoutFailures: unknown[] = [],
-      timeoutSecondDone = Promise.withResolvers<void>();
+    let timeoutCalls = 0,
+      timeoutSecondConfirmed = false;
+    const timeoutFailures: unknown[] = [];
     startHardeningStream(t, fixture, viewRootTimeout, {
       confirmTimeoutMs: 80,
       onConfirmed: async () => {
@@ -664,7 +659,7 @@ test(
         if (call === 1) {
           await new Promise<never>(() => undefined);
         }
-        timeoutSecondDone.resolve();
+        timeoutSecondConfirmed = true;
       },
       onConfirmedFailure: (error) => timeoutFailures.push(error),
     });
@@ -674,10 +669,21 @@ test(
       30_000,
     );
     await pressure(fixture);
-    await timeoutSecondDone.promise;
+    await waitForState(() => timeoutSecondConfirmed, "later revision confirmation after timeout", 30_000);
     assert.ok(timeoutCalls >= 2, `expected later revision to re-trigger onConfirmed, got ${timeoutCalls}`);
+  },
+);
 
-    // 2. Connection-drop path: TLS/TCP disconnect during a hung confirmation releases the lock after reconnect.
+test(
+  "a hung confirmation releases its confirming lock on connection drop so later revisions confirm",
+  { timeout: 120_000 },
+  async (t) => {
+    const fixture = await fleetReplicationFixture(t);
+    await seedCenterData(fixture, seededTask);
+    await fixture.openCenter();
+    const viewRootDrop = mkdtempSync(path.join(tmpdir(), "ha-harden-confirm-drop-"));
+    t.after(() => rmSync(viewRootDrop, { recursive: true, force: true }));
+
     const liveSockets = new Set<Socket>(),
       relayServer = createServer((client) => {
         const upstream = connect(fixture.centerPort(), "127.0.0.1");
@@ -699,10 +705,10 @@ test(
     });
     const relayPort = (relayServer.address() as { port: number }).port;
     let dropCalls = 0,
-      sawAbortedSignal = false;
-    const dropFirstEntered = Promise.withResolvers<void>(),
-      dropSecondDone = Promise.withResolvers<void>(),
-      dropFailures: unknown[] = [];
+      sawAbortedSignal = false,
+      dropFirstEntered = false,
+      dropSecondConfirmed = false;
+    const dropFailures: unknown[] = [];
     const dropStream = startHardeningStream(t, fixture, viewRootDrop, {
       port: relayPort,
       confirmTimeoutMs: 60_000,
@@ -716,15 +722,15 @@ test(
             },
             { once: true },
           );
-          dropFirstEntered.resolve();
+          dropFirstEntered = true;
           // Intentionally ignore signal to verify the confirming lock releases even for non-cancellable callbacks.
           await new Promise<never>(() => undefined);
         }
-        dropSecondDone.resolve();
+        dropSecondConfirmed = true;
       },
       onConfirmedFailure: (error) => dropFailures.push(error),
     });
-    await dropFirstEntered.promise;
+    await waitForState(() => dropFirstEntered, "first confirmation to enter", 30_000);
     for (const socket of [...liveSockets]) socket.destroy();
     await waitForState(
       () =>
@@ -735,7 +741,7 @@ test(
     );
     assert.equal(sawAbortedSignal, true, "the confirmation abort signal fires on disconnect");
     await pressure(fixture);
-    await dropSecondDone.promise;
+    await waitForState(() => dropSecondConfirmed, "later revision confirmation after reconnect", 30_000);
     assert.ok(dropCalls >= 2, `expected later revision after reconnect to trigger onConfirmed, got ${dropCalls}`);
   },
 );

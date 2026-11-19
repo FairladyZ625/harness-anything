@@ -844,7 +844,8 @@ export function openFleetEdgeRuntime(input: {
               intentInstanceId,
               preferredInstanceId: spawnHints?.preferredRuntimeInstanceId,
               agentId: spawnHints?.agentId,
-              resolveAgent: (agentId) => trustedScheduleAgents.get(agentId) ?? mirroredAgentDeclaration(request, agentId),
+              resolveAgent: (agentId) =>
+                trustedScheduleAgents.get(agentId) ?? mirroredAgentDeclaration(request, agentId),
               localInstances: input.ports.runtimeInstances(),
             }),
             prepareDaemonGitEnvironment = input.ports.prepareDaemonGitEnvironment
