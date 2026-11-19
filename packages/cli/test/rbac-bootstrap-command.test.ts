@@ -725,6 +725,13 @@ test("edge join prepares its workspace root before reaching the daemon", async (
     if (!parsed.ok) return;
     assert.equal(parsed.command.action.workspaceRoot, workspaceRoot);
     assert.deepEqual(parseThinCommand([...root, ...command], userRoot), parsed);
+    const daemonRoot = path.join(userRoot, "daemon"),
+      combined = parseThinCommand(["--root", daemonRoot, ...command, ...root], userRoot);
+    assert.equal(combined.ok, true);
+    if (combined.ok) {
+      assert.equal(combined.command.rootDir, daemonRoot);
+      assert.equal(combined.command.action.workspaceRoot, workspaceRoot);
+    }
     // The autostart spawns the daemon from the invoking root as its cwd, so edge join creates the
     // missing --root before the first connection attempt; the request itself then fails offline.
     await assert.rejects(

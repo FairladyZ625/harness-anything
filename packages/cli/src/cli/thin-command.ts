@@ -55,7 +55,12 @@ import {
 } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { accepted, globalOption, nonEmpty, rejected, stripGlobals } from "./thin-command-flags.ts";
-import { clientLocalCommands, commandDomains, unsupportedCommandHint } from "./thin-command-help.ts";
+import {
+  clientLocalCommands,
+  commandDomains,
+  firstCliCommandIndex,
+  unsupportedCommandHint,
+} from "./thin-command-help.ts";
 import type { ThinHelpCatalogEntry, ThinHelpWorkEntry } from "./thin-command-help.ts";
 import { deriveInputDirectory } from "./thin-command-inputs.ts";
 import { parseRouted, parseStorageRoute } from "./thin-command-router.ts";
@@ -89,7 +94,12 @@ export function parseThinCommand(
     inputs = deriveInputDirectory(route);
   // `--root` is a global daemon target for every command, and also the edge join workspace
   // selector. Reintroduce it for the route-local parser after global stripping.
-  if (route?.id === "edge-join" && argv.includes("--root")) args.push("--root", globalOption(argv, "--root") ?? "");
+  if (route?.id === "edge-join" && argv.includes("--root")) {
+    const commandIndex = firstCliCommandIndex(argv),
+      commandArgs = commandIndex < 0 ? [] : argv.slice(commandIndex + route.path.length),
+      workspaceRoot = globalOption(commandArgs, "--root") ?? globalOption(argv, "--root");
+    args.push("--root", workspaceRoot ?? "");
+  }
   // Every accepted result names its route id, so the daemon-side logs can key the invocation by
   // the CLI command the user actually typed instead of the transport method it rode on.
   const declared = (result: ThinParseResult): ThinParseResult =>
