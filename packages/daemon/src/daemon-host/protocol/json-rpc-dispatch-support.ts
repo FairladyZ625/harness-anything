@@ -201,8 +201,8 @@ export function daemonStopRefusal(
   return null;
 }
 
-/** Previous closed decoders reject nested additions. Remove only this extension at the wire
- * boundary until 2026-12-07; internal readers always retain the canonical lifecycle DTO. */
+/** Previous closed decoders reject nested additions. Remove negotiated runtime-session fields at
+ * the wire boundary until 2026-12-07; internal readers always retain the current session DTO. */
 export function previousDispatchLifecycleReadResult<T>(method: string, result: T): T {
   if (
     ![
@@ -218,13 +218,17 @@ export function previousDispatchLifecycleReadResult<T>(method: string, result: T
     "effectivePermissionMode",
     "requestedPermissionMode",
     "permissionModeSource",
-  ]);
+  ]),
+    sessionRead = method === "repo.agentRuntime.overview" || method === "repo.agentRuntime.sessions.read";
   const project = (value: unknown): unknown => {
     if (Array.isArray(value)) return value.map(project);
     if (value === null || typeof value !== "object") return value;
     return Object.fromEntries(
       Object.entries(value)
-        .filter(([key]) => !hiddenKeys.has(key) || !("dispatchId" in value || "runtimeSessionId" in value))
+        .filter(([key]) => {
+          if (key === "nodeId") return !sessionRead || !("runtimeSessionId" in value);
+          return !hiddenKeys.has(key) || !("dispatchId" in value || "runtimeSessionId" in value);
+        })
         .map(([key, item]) => [key, project(item)]),
     );
   };

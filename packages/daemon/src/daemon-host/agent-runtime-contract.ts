@@ -185,7 +185,8 @@ export interface AgentRuntimeSessionDto {
   /** Absent only on previous-version peers; remove optionality 2026-12-07. */
   readonly lifecycle?: DispatchLifecycleSummary;
   readonly runtimeSessionId: string;
-  readonly nodeId: string | null;
+  /** Absent on previous peers that have not negotiated the session DTO extension. */
+  readonly nodeId?: string | null;
   readonly providerSessionId: string | null;
   readonly instanceId: string;
   readonly installationId: string;
@@ -615,7 +616,6 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
       value,
       [
         "runtimeSessionId",
-        "nodeId",
         "providerSessionId",
         "instanceId",
         "installationId",
@@ -637,13 +637,14 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
         "metrics",
         "context",
         "lifecycle",
+        "nodeId",
         "effectivePermissionMode",
         "requestedPermissionMode",
         "permissionModeSource",
       ],
     ) &&
     typeof value.runtimeSessionId === "string" &&
-    (value.nodeId === null || typeof value.nodeId === "string") &&
+    (value.nodeId === undefined || value.nodeId === null || typeof value.nodeId === "string") &&
     (value.providerSessionId === null || typeof value.providerSessionId === "string") &&
     [value.instanceId, value.installationId, value.definitionSnapshotRef].every(
       (item) => typeof item === "string" && item.length > 0,
