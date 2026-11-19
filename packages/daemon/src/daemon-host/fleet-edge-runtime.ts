@@ -522,7 +522,20 @@ export function openFleetEdgeRuntime(input: {
         `Center did not accept Review ${`review-${review.dispatchId}`}: ${String(result.code ?? receiptOutcome)}.`,
       );
   };
-  const executionSignalContext = new AsyncLocalStorage<AbortSignal | undefined>();
+  type ExecutionSignalScope = { signal: AbortSignal | undefined };
+  const executionSignalContext = new AsyncLocalStorage<ExecutionSignalScope>();
+  const withExecutionSignal = async <Result>(
+    signal: AbortSignal | undefined,
+    action: (scope: ExecutionSignalScope) => Promise<Result>,
+  ) => {
+    const scope = { signal };
+    try {
+      return await action(scope);
+    } finally {
+      // Child callbacks inherit the store, but the request owns its cancellation signal.
+      scope.signal = undefined;
+    }
+  };
   const reviewSpawnContext = new AsyncLocalStorage<{
     readonly runtimeInstanceId?: string;
     readonly preferredRuntimeInstanceId?: string;
@@ -531,7 +544,7 @@ export function openFleetEdgeRuntime(input: {
   const readDispatchLifecycle: import("./runtime-spawn-types.ts").RemoteRuntimePersistence["readDispatchLifecycle"] =
     async (query) => {
       const { runtimeReadPeer, request } = context();
-      const connectionSignal = executionSignalContext.getStore();
+      const connectionSignal = executionSignalContext.getStore()?.signal;
       return (await readFleetOperationalClient({
         ...runtimeReadPeer,
         repoId: request.repoId,
@@ -542,7 +555,7 @@ export function openFleetEdgeRuntime(input: {
     };
   const readTaskContext = async (taskId: string, purpose?: "settlement") => {
     const { runtimeReadPeer, request } = context();
-    const connectionSignal = executionSignalContext.getStore();
+    const connectionSignal = executionSignalContext.getStore()?.signal;
     return taskRuntimeContext(
       purpose === "settlement"
         ? await readReplica("repo.tasks.runtimeContext.read", { taskId })
@@ -1146,20 +1159,22 @@ export function openFleetEdgeRuntime(input: {
     return ready;
   };
   return {
-    reconcile: async (connectionSignal?: AbortSignal) =>
-      executionSignalContext.run(connectionSignal, async () => {
-        const { request } = context();
+    reconcile: async (signal?: AbortSignal) =>
+      withExecutionSignal(signal, (connectionSignal) =>
+        executionSignalContext.run(connectionSignal, async () => {
+          const { request } = context();
 
-        if (readDispatchStreamHeaders(request.workspaceRoot).length === 0) return;
-        await ensureReady();
-        const recovered = await spawner.adopt();
-        await schedule(async () => {
-          await squad.flushPublications();
-          await pullRuntimeReplica();
-        });
-        const failed = runtimeRecoveryError(recovered);
-        if (failed) throw failed;
-      }),
+          if (readDispatchStreamHeaders(request.workspaceRoot).length === 0) return;
+          await ensureReady();
+          const recovered = await spawner.adopt();
+          await schedule(async () => {
+            await squad.flushPublications();
+            await pullRuntimeReplica();
+          });
+          const failed = runtimeRecoveryError(recovered);
+          if (failed) throw failed;
+        }),
+      ),
     run: async (
       method: FleetEdgeRuntimeRequest["payload"]["method"],
       action: JsonObject,
@@ -1258,24 +1273,26 @@ export function openFleetEdgeRuntime(input: {
         const prepared = action.recovery === undefined ? null : await prepareEdgeRecoverySpawn(action);
         if (prepared?.replay) return prepared.replay;
         const spawnPayload = prepared?.payload ?? action;
-        const receipt = await executionSignalContext.run(connectionSignal, () =>
-          reviewSpawnContext.run(
-            {
-              ...(typeof spawnPayload.runtimeInstanceId === "string"
-                ? { runtimeInstanceId: spawnPayload.runtimeInstanceId }
-                : {}),
-              ...(typeof spawnPayload.preferredRuntimeInstanceId === "string"
-                ? { preferredRuntimeInstanceId: spawnPayload.preferredRuntimeInstanceId }
-                : {}),
-              ...(typeof spawnPayload.agentId === "string" ? { agentId: spawnPayload.agentId } : {}),
-            },
-            async () =>
-              spawner.spawn(
-                prepared?.payload ?? action,
-                await controlBinding(request),
-                null,
-                Boolean(prepared?.recovery),
-              ),
+        const receipt = await withExecutionSignal(connectionSignal, (connectionSignal) =>
+          executionSignalContext.run(connectionSignal, () =>
+            reviewSpawnContext.run(
+              {
+                ...(typeof spawnPayload.runtimeInstanceId === "string"
+                  ? { runtimeInstanceId: spawnPayload.runtimeInstanceId }
+                  : {}),
+                ...(typeof spawnPayload.preferredRuntimeInstanceId === "string"
+                  ? { preferredRuntimeInstanceId: spawnPayload.preferredRuntimeInstanceId }
+                  : {}),
+                ...(typeof spawnPayload.agentId === "string" ? { agentId: spawnPayload.agentId } : {}),
+              },
+              async () =>
+                spawner.spawn(
+                  prepared?.payload ?? action,
+                  await controlBinding(request),
+                  null,
+                  Boolean(prepared?.recovery),
+                ),
+            ),
           ),
         );
         return prepared?.recovery ? { ...receipt, recovery: { ...prepared.recovery, replayed: false } } : receipt;
