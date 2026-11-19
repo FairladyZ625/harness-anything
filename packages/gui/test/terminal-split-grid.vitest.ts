@@ -369,20 +369,24 @@ describe("terminal split panes (PLT-TerminalWorkspace W1)", () => {
     expect(writes).toEqual(["a", "b", "c", "d"]);
   });
 
-  // dec_89D06D7360CBEC09795F7B12EC/CH3: the same pane and real transport must recover after
-  // the old host emits its end frame, and an already-issued unary request must keep its old generation.
+  // dec_89D06D7360CBEC09795F7B12EC/CH3: reconnect the same pane through daemon shutdown and
+  // writer drain. An already-issued input request must keep its old generation.
   it.each(["Electron", "Browser"])(
-    "recovers a mounted %s pane across graceful terminal host shutdown",
+    "recovers a mounted %s pane across daemon shutdown with a draining writer",
     async (client) => {
       // Use the Node loader for the real servers. The renderer's Vite worker transform
       // treats PGlite's dynamically resolved worker URL as a browser asset.
       const loadNode = createRequire(import.meta.url);
-      const { startTerminalRestartFixture } = loadNode(
+      const { daemonFixtureFetch, startTerminalRestartFixture } = loadNode(
         "../../daemon/test/fixtures/terminal-restart.ts",
       ) as typeof import("../../daemon/test/fixtures/terminal-restart.ts");
       const { startBrowserGuiFixture } = loadNode(
         "../../cli/test/gui-browser-broker.fixture.ts",
       ) as typeof import("../../cli/test/gui-browser-broker.fixture.ts");
+      vi.stubEnv("HARNESS_EXECUTION_CREDENTIAL", undefined);
+      vi.stubEnv("HARNESS_DAEMON_RELAY", undefined);
+      vi.stubEnv("HARNESS_GUI_READONLY_DAEMON_USER_ROOT", undefined);
+      vi.stubGlobal("fetch", daemonFixtureFetch);
       const fixture = await startTerminalRestartFixture("repo-a");
       const release = Promise.withResolvers<void>();
       let held = false,
@@ -394,9 +398,6 @@ describe("terminal split panes (PLT-TerminalWorkspace W1)", () => {
         return true;
       };
       for (const [name, value] of Object.entries(fixture.env)) vi.stubEnv(name, value);
-      vi.stubEnv("HARNESS_EXECUTION_CREDENTIAL", undefined);
-      vi.stubEnv("HARNESS_DAEMON_RELAY", undefined);
-      vi.stubEnv("HARNESS_GUI_READONLY_DAEMON_USER_ROOT", undefined);
       const previousUrl = window.location.href,
         dom = (window as unknown as TestWindow).happyDOM;
       let broker: Awaited<ReturnType<typeof startBrowserGuiFixture>> | undefined;
@@ -429,11 +430,13 @@ describe("terminal split panes (PLT-TerminalWorkspace W1)", () => {
             "<!doctype html><title>Terminal restart</title>",
           );
           const url = new URL(broker.url);
+          const fetchOutsideBroker = globalThis.fetch;
           dom.setURL(url.href);
-          vi.stubGlobal("fetch", async (resource: string, init: RequestInit) => {
-            const call = JSON.parse(String(init.body)) as { method: string; params: unknown };
+          vi.stubGlobal("fetch", async (resource: RequestInfo | URL, init?: RequestInit) => {
+            if (resource !== "/rpc" && resource !== "/stream") return fetchOutsideBroker(resource, init);
+            const call = JSON.parse(String(init?.body)) as { method: string; params: unknown };
             const delayed = await hold(call.method, call.params);
-            const response = await fetchBrowserBroker(new URL(resource, url), init);
+            const response = await fetchBrowserBroker(new URL(resource, url), init ?? {});
             if (delayed) staleReply = await response.clone().json();
             return response;
           });
@@ -463,7 +466,15 @@ describe("terminal split panes (PLT-TerminalWorkspace W1)", () => {
         await expectOutput("a");
         await type("b");
         await expect.poll(() => held).toBe(true);
-        await act(async () => fixture.restart());
+        vi.spyOn(Math, "random").mockReturnValue(0);
+        const stoppingSince = performance.now();
+        const restarting = fixture.restart();
+        // Release on a wire observation. Six actual refusals at the lower jitter bound take
+        // at least 6.375 seconds and cross the ordinary five-attempt budget.
+        await expect.poll(fixture.countStoppingAttaches, { timeout: 12_000 }).toBeGreaterThanOrEqual(6);
+        expect(performance.now() - stoppingSince).toBeGreaterThanOrEqual(5_000);
+        fixture.releaseWrite();
+        await act(async () => restarting);
         await expectOutput("areattached:");
         expect(panes()[0]).toBe(pane);
         expect(fixture.attached).toMatchObject([
@@ -493,7 +504,7 @@ describe("terminal split panes (PLT-TerminalWorkspace W1)", () => {
         dom.setURL(previousUrl);
       }
     },
-    25_000,
+    45_000,
   );
 
   it("splits inside the active tab instead of opening a second tab", async () => {

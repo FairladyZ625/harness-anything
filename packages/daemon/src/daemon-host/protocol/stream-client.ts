@@ -1,3 +1,7 @@
+import {
+  daemonProtocolFleetPolicy,
+  daemonRuntimePolicy,
+} from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { clientRetryDelay } from "./client-retry.ts";
 import { DaemonProtocolContractError } from "./json-rpc-types.ts";
 import type { DaemonStreamMethod, DaemonStreamPayloadMap } from "./daemon-protocol.contract.ts";
@@ -15,6 +19,10 @@ export type StreamReader = (
   receive: (value: unknown) => void,
   signal: AbortSignal,
 ) => Promise<void>;
+
+const shutdownHandoffMs =
+  daemonRuntimePolicy.defaultValue.daemon.shutdownDeadlineMs +
+  daemonProtocolFleetPolicy.defaultValue.client.autostartReadyTimeoutMs;
 
 export function streamInterrupted(message: string): Error {
   return new DaemonProtocolContractError("daemon_stream_interrupted", message);
@@ -57,6 +65,7 @@ export async function consumeDaemonStream(input: {
     terminalGeneration = terminal?.daemonGeneration,
     attached = false,
     attempts = 0;
+  let handoffUntil: number | undefined;
   while (!input.signal.aborted) {
     let initial = true;
     const payload = terminal
@@ -97,7 +106,7 @@ export async function consumeDaemonStream(input: {
             } else {
               if (frame.seq <= terminalSeq) return;
               terminalSeq = frame.seq;
-              attempts = 0;
+              replenishRetries();
             }
             input.onValue(value);
             return;
@@ -139,12 +148,20 @@ export async function consumeDaemonStream(input: {
     const { error } = outcome;
     if (!attached || !(error instanceof DaemonProtocolContractError) || !isStreamUnavailableCode(error.code))
       throw error;
-    const delay = clientRetryDelay(attempts);
+    // Attach refusals from a draining daemon can persist through shutdown and successor startup.
+    // The first stopping signal opens one bounded handoff window, including subsequent socket gaps.
+    if (error.code === "daemon_stopping") handoffUntil ??= performance.now() + shutdownHandoffMs;
+    const remaining = handoffUntil === undefined ? undefined : Math.ceil(handoffUntil - performance.now());
+    const delay = clientRetryDelay(attempts, undefined, remaining);
     if (delay === null) throw new DaemonStreamLostError(error.message, attempts);
     attempts += 1;
     await (input.wait ?? waitForRetry)(delay, input.signal);
   }
 
+  function replenishRetries(): void {
+    attempts = 0;
+    handoffUntil = undefined;
+  }
   function checkCursor(next: RuntimeStreamCursor, reset: boolean): void {
     if (
       next.repoId !== input.repoId ||
@@ -157,7 +174,7 @@ export async function consumeDaemonStream(input: {
     checkCursor(frame.cursor, frame.type === "gap");
     if (!reset && cursor && sameRuntimeStream(frame.cursor, cursor) && frame.cursor.seq <= cursor.seq) return false;
     if (frame.cursor.seq > 0 && (!cursor || !sameRuntimeStream(frame.cursor, cursor) || frame.cursor.seq > cursor.seq))
-      attempts = 0;
+      replenishRetries();
     cursor = frame.cursor;
     return true;
   }

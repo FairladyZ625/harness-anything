@@ -58,7 +58,12 @@ type StreamState = {
   readonly events: AgentRuntimeAttachEvent[];
   readonly subscribers: Set<Subscriber>;
 };
-type Subscriber = { cursor: number; signal: AbortSignal; wake: (() => void) | null; detach: () => void };
+type Subscriber = {
+  cursor: number;
+  wake: (() => void) | null;
+  readonly cancelled: () => boolean;
+  readonly release: () => void;
+};
 
 export function makeAgentRuntimeStreamHub(input: {
   readonly repoId: string;
@@ -73,6 +78,7 @@ export function makeAgentRuntimeStreamHub(input: {
     >();
   const now = input.now ?? (() => new Date());
   let closed = false;
+  const isClosed = () => closed;
   const stateFor = (runtimeSessionId: string): StreamState => {
     let state = streams.get(runtimeSessionId);
     if (!state) {
@@ -88,17 +94,21 @@ export function makeAgentRuntimeStreamHub(input: {
   };
   return {
     attach: async (runtimeSessionId, afterCursor, signal) => {
+      if (signal?.aborted) return unsupported(runtimeSessionId);
+      if (closed) throw streamClosed();
       const session = await input.readSession(runtimeSessionId);
-      if (session === null) return unsupported(runtimeSessionId);
       const live =
+        session !== null &&
         session.outcome == null &&
         streams.get(runtimeSessionId)?.snapshot.outcome == null &&
         (await input.canAttach(session));
       const retained = streams.get(runtimeSessionId);
-      const outcome = retained?.snapshot.outcome ?? session.outcome ?? null;
+      const outcome = retained?.snapshot.outcome ?? session?.outcome ?? null;
       // Repository authorization already ran. Liveness admits fresh listeners, while a cursor
       // can finish a stream whose process exited during the disconnect.
-      if (closed || signal?.aborted || (outcome === null ? !live : afterCursor === undefined))
+      if (signal?.aborted) return unsupported(runtimeSessionId);
+      if (closed) throw streamClosed();
+      if (session === null || (outcome === null ? !live : afterCursor === undefined))
         return unsupported(runtimeSessionId);
       const state = retained ?? stateFor(runtimeSessionId);
       const { cursor } = state,
@@ -119,19 +129,27 @@ export function makeAgentRuntimeStreamHub(input: {
         events: initialEvents,
       } as const;
       if (outcome !== null) return { initial, next: async () => null, detach: () => undefined };
-      const controller = new AbortController();
+      let detached = false;
       const detach = () => {
-        controller.abort();
+        detached = true;
+        release();
+      };
+      const release = () => {
         signal?.removeEventListener("abort", detach);
         state.subscribers.delete(subscriber);
         subscriber.wake?.();
       };
-      const subscriber: Subscriber = { cursor: cursor.seq, signal: controller.signal, wake: null, detach };
+      const subscriber: Subscriber = {
+        cursor: cursor.seq,
+        wake: null,
+        cancelled: () => detached || signal?.aborted === true,
+        release,
+      };
       state.subscribers.add(subscriber);
       signal?.addEventListener("abort", detach, { once: true });
       return {
         initial,
-        next: () => nextEvent(runtimeSessionId, state, subscriber, now),
+        next: () => nextEvent(runtimeSessionId, state, subscriber, isClosed, now),
         detach,
       };
     },
@@ -177,7 +195,7 @@ export function makeAgentRuntimeStreamHub(input: {
     },
     close: () => {
       closed = true;
-      for (const state of streams.values()) for (const subscriber of state.subscribers) subscriber.detach();
+      for (const state of streams.values()) for (const subscriber of state.subscribers) subscriber.release();
       streams.clear();
       tokens.clear();
     },
@@ -188,10 +206,11 @@ async function nextEvent(
   runtimeSessionId: string,
   state: StreamState,
   subscriber: Subscriber,
+  isClosed: () => boolean,
   now: () => Date,
 ): Promise<AgentRuntimeAttachEvent | null> {
   for (;;) {
-    if (subscriber.signal.aborted) return null;
+    if (subscriber.cancelled()) return null;
     const oldest = state.events[0]?.cursor.seq ?? state.cursor.seq;
     if (subscriber.cursor + 1 < oldest) {
       subscriber.cursor = state.cursor.seq;
@@ -203,11 +222,15 @@ async function nextEvent(
       return next;
     }
     if (state.snapshot.outcome !== null) return null;
+    if (isClosed()) throw streamClosed();
     await new Promise<void>((resolve) => {
       subscriber.wake = resolve;
     });
     subscriber.wake = null;
   }
+}
+function streamClosed(): Error {
+  return runtimeStreamError("daemon_stopping", "The daemon is closing an unsettled runtime stream.");
 }
 function unsupported(runtimeSessionId: string): AgentRuntimeAttachSubscription {
   return {

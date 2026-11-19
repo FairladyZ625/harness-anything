@@ -1,52 +1,49 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
+import { waitForArrival, watchDirectoryArrival } from "../../../../tools/fixtures/event-arrival.ts";
 import { localUserDaemonEndpoint } from "../../src/daemon-host/client/local-daemon-target.ts";
-import type { DaemonHost } from "../../src/daemon-host/daemon-host.ts";
-import { createJsonRpcProtocolServer } from "../../src/daemon-host/protocol/json-rpc-server.ts";
-import type { JsonObject } from "../../src/daemon-host/protocol/json-rpc-types.ts";
+import { requestDaemonJsonRpcAt } from "../../src/daemon-host/client/local-json-rpc-client.ts";
+import { daemonConnLogFileStem } from "../../src/daemon-host/conn-log.ts";
+import { readDaemonLifecycleRecords } from "../../src/daemon-host/lifecycle-log.ts";
+import { startDaemon } from "../../src/daemon-host/runtime.ts";
 import { openTerminalHost } from "../../src/daemon-host/terminal-host.ts";
-import { createUnixSocketTransportServer } from "../../src/daemon-host/transport/unix-socket.ts";
+import { createWriterRequestQueue } from "../../src/daemon-host/writer-request-queue.ts";
+import { rosterRepo } from "../daemon-host-recovery.fixture.ts";
+
+export { fetch as daemonFixtureFetch } from "undici";
 
 export async function startTerminalRestartFixture(repoId: string) {
+  const { signInPolicyTestUser } = await import("../keycloak-policy.fixtures.ts");
+  const { openBootstrappedRepoCell, registerBootstrappedDaemonRepo } = await import("../repo-settings.fixture.ts");
   const parent = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-terminal-restart-"))),
     rootDir = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     daemonId = "terminal-restart",
     socketPath = localUserDaemonEndpoint(userRoot, daemonId),
+    logDir = path.join(userRoot, "logs"),
     writes: Array<{ generation: number; utf8: string }> = [],
     attached: Array<{ generation: number; afterSeq: number; daemonGeneration?: number }> = [],
-    ended = Promise.withResolvers<JsonObject>();
-  mkdirSync(rootDir);
-  mkdirSync(userRoot);
-  writeFileSync(
-    path.join(userRoot, "registry.json"),
-    JSON.stringify({
-      schema: "harness-daemon-registry/v2",
-      connections: [{ id: "local", kind: "local", displayName: "This device", state: "enabled" }],
-      repos: [
-        {
-          repoId,
-          canonicalRoot: rootDir,
-          displayName: "Terminal restart",
-          authoredBranch: "main",
-          mode: "local",
-          connectionId: "local",
-          state: "enabled",
-          registeredAt: "2026-11-19T00:00:00.000Z",
-        },
-      ],
-    }),
-  );
+    releaseWrite = Promise.withResolvers<void>();
+  rosterRepo(rootDir, repoId);
+  signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
+  await registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  const writer = createWriterRequestQueue({
+    repoId,
+    abortInFlightOnClose: false,
+    terminateAborted: async (error) => {
+      throw error;
+    },
+  });
 
   let namespace: string | null = null;
-  function startHost(generation: number) {
-    const terminal = openTerminalHost({
+  function makeTerminal(generation: number) {
+    return openTerminalHost({
       repoId,
       rootDir,
       daemonGeneration: generation,
+      registryFilePath: path.join(parent, "terminal-sessions.json"),
       platform: "linux",
       resolveTerminalEnvironment: () => ({}),
       tmux: {
@@ -76,51 +73,73 @@ export async function startTerminalRestartFixture(repoId: string) {
         } as ReturnType<NonNullable<Parameters<typeof openTerminalHost>[0]["spawnPty"]>>;
       },
     });
-    const host = {
-      read: async () => terminal.list(),
-      terminalAttach: async (_repoId, { sessionId, afterSeq, daemonGeneration }) => {
-        attached.push({ generation, afterSeq, daemonGeneration });
-        return terminal.attach(sessionId, afterSeq, daemonGeneration);
-      },
-      terminalAction: async (_repoId, method, payload) => {
-        if (method === "repo.terminal.input") return terminal.input(payload);
-        if (method === "repo.terminal.detach") return terminal.detach(payload);
-        throw new Error(`Unexpected action ${method}`);
-      },
-    } satisfies Pick<DaemonHost, "read" | "terminalAttach" | "terminalAction">;
-    const transport = createUnixSocketTransportServer({
-      daemonId,
-      socketPath,
-      createProtocolServer: (authContext, emit, _connectionId, connectionSignal) =>
-        createJsonRpcProtocolServer({
-          host: host as DaemonHost,
-          build: { loadedBuildId: null, commit: null, builtAt: null },
-          authContext: { ...authContext, connectionSignal },
-          emit: async (method, params) => {
-            await emit(method, params);
-            if (generation === 7 && method === "repo.terminal.attach.frame.end") ended.resolve(params);
-          },
-        }),
-    });
-    return { terminal, transport };
   }
 
-  let active = startHost(7),
-    listening = false;
-  async function stopListening() {
-    if (!listening) return;
-    listening = false;
-    await active.transport.stop();
+  async function startHost(generation: number, terminal: ReturnType<typeof makeTerminal>) {
+    const daemon = await startDaemon({
+      daemonId,
+      userRoot,
+      buildSupersessionEnabled: false,
+      openCell: async (input) => {
+        const cell = await openBootstrappedRepoCell(input);
+        return {
+          ...cell,
+          terminal: {
+            ...cell.terminal,
+            list: terminal.list,
+            attach: (sessionId, afterSeq, daemonGeneration) => {
+              attached.push({ generation, afterSeq, daemonGeneration });
+              return terminal.attach(sessionId, afterSeq, daemonGeneration);
+            },
+            input: terminal.input,
+            detach: terminal.detach,
+          },
+          close: async () => {
+            try {
+              await terminal.close();
+              if (generation === 7) await writer.close();
+            } finally {
+              await cell.close();
+            }
+          },
+        };
+      },
+    });
+    assert.ok("stop" in daemon, "the isolated daemon must own its socket");
+    try {
+      await waitForArrival(() => {
+        const result = readDaemonLifecycleRecords(userRoot, daemonId, "current-generation").find(
+          ({ event }) => event === "repo_attach_completed" || event === "repo_attach_failed",
+        );
+        if (!result) return null;
+        assert.equal(result.event, "repo_attach_completed", JSON.stringify(result));
+        return result;
+      }, watchDirectoryArrival(logDir));
+      const list = await requestDaemonJsonRpcAt(
+        socketPath,
+        "repo.terminal.sessions.list",
+        { repo: { repoId } },
+        2_000,
+        5_000,
+      );
+      assert.equal(list.schema, "terminal-session-list/v1", JSON.stringify(list));
+      return daemon;
+    } catch (error) {
+      await daemon.stop();
+      throw error;
+    }
   }
-  const { sessionId } = active.terminal.spawn({
+
+  const terminal = makeTerminal(7);
+  const { sessionId } = terminal.spawn({
     backend: "tmux",
     idempotencyKey: "restart",
     shellProfileId: "sh",
     cwd: { scope: "repo-root" },
   });
   assert.ok(sessionId);
-  await active.transport.start();
-  listening = true;
+  let active = await startHost(7, terminal),
+    restarting: Promise<void> | undefined;
   return {
     rootDir,
     parent,
@@ -133,24 +152,36 @@ export async function startTerminalRestartFixture(repoId: string) {
       HARNESS_DAEMON_REPO_ID: repoId,
       HARNESS_DAEMON_ENDPOINT: socketPath,
     },
-    restart: async () => {
-      await active.terminal.close();
-      try {
-        const end = await Promise.race([ended.promise, delay(5_000, undefined, { ref: false })]);
-        assert.deepEqual(end, { code: "daemon_stopping" });
-      } finally {
-        await stopListening();
-      }
-      active = startHost(8);
-      await active.transport.start();
-      listening = true;
+    countStoppingAttaches: () => {
+      const files = readdirSync(logDir).filter((name) => name.startsWith(daemonConnLogFileStem(daemonId)));
+      return files
+        .flatMap((file) => readFileSync(path.join(logDir, file), "utf8").split("\n").slice(0, -1))
+        .map((line) => JSON.parse(line))
+        .filter(({ method, code }) => method === "repo.terminal.attach" && code === "daemon_stopping").length;
+    },
+    releaseWrite: releaseWrite.resolve,
+    restart: () => {
+      const write = writer.request("in-flight", "terminal-restart", undefined, false, async (request) => {
+        request.markDispatched();
+        await releaseWrite.promise;
+      });
+      restarting = (async () => {
+        await active.stop();
+        await write;
+        active = await startHost(8, makeTerminal(8));
+      })();
+      return restarting;
     },
     close: async () => {
+      releaseWrite.resolve();
       try {
-        await stopListening();
-        await active.terminal.close();
+        await restarting;
       } finally {
-        rmSync(parent, { recursive: true, force: true });
+        try {
+          await active.stop();
+        } finally {
+          rmSync(parent, { recursive: true, force: true });
+        }
       }
     },
   };

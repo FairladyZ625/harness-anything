@@ -979,15 +979,15 @@ export function createJsonRpcProtocolServer(options: {
     try {
       for (;;) {
         const next = await subscription.next().then(
-          (event) => (event ? { event } : { end: {} }),
-          (error: unknown) => ({ event: undefined, end: { code: rpcServerErrorCode(error) } }),
+          (event) => (event === null ? ({ done: true, end: {} } as const) : ({ done: false, event } as const)),
+          (error: unknown) => ({ done: true, end: { code: rpcServerErrorCode(error) } }) as const,
         );
         if (streamServerClosed || signal?.aborted) return;
-        if (next.event) await options.emit(eventMethod, next.event);
-        else {
+        if (next.done) {
           await options.emit(`${eventMethod}.end`, next.end);
           return;
         }
+        await options.emit(eventMethod, next.event);
       }
     } finally {
       subscription.detach();

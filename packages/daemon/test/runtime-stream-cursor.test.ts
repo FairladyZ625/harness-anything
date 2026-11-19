@@ -6,6 +6,7 @@ import type { RuntimeSession } from "@harness-anything/kernel";
 import { makeAgentRuntimeStreamHub } from "../src/daemon-host/agent-runtime-stream.ts";
 import { consumeDaemonStream, streamInterrupted } from "../src/daemon-host/protocol/stream-client.ts";
 import { clientRetryDelay } from "../src/daemon-host/protocol/client-retry.ts";
+import { DaemonProtocolContractError } from "../src/daemon-host/protocol/json-rpc-types.ts";
 import { emptyRuntimeSnapshot, runtimeCursor } from "./fixtures/runtime-stream.ts";
 
 const sessionId = "runtime-session";
@@ -65,6 +66,37 @@ test("a lagging subscription replaces its snapshot, resumes after its sequence, 
   } finally {
     hub.close();
   }
+});
+
+test("closing the hub interrupts a live reader and lets a settled reader finish", async () => {
+  const hub = makeHub();
+  const controller = new AbortController();
+  const live = await hub.attach("live");
+  const settled = await hub.attach("settled");
+  const cancelled = await hub.attach("cancelled", undefined, controller.signal);
+  const interrupted = assert.rejects(live.next(), { code: "daemon_stopping" });
+  const cancelledRead = cancelled.next();
+  const exit = hub.publish("settled", { type: "exit", outcome: "succeeded" });
+  hub.close();
+  controller.abort();
+
+  await interrupted;
+  assert.equal(await cancelledRead, null);
+  assert.deepEqual(await settled.next(), exit);
+  assert.equal(await settled.next(), null);
+});
+
+test("an attach whose repository read outlives hub shutdown reports daemon_stopping", async () => {
+  const session = Promise.withResolvers<RuntimeSession | null>();
+  const hub = makeAgentRuntimeStreamHub({
+    repoId: "repo-a",
+    readSession: () => session.promise,
+    canAttach: () => true,
+  });
+  const attaching = hub.attach(sessionId);
+  hub.close();
+  session.resolve(null);
+  await assert.rejects(attaching, { code: "daemon_stopping" });
 });
 
 test("an authorized resume crosses process exit and then reaches EOF", async () => {
@@ -166,6 +198,58 @@ test("stream backoff has jitter, a ceiling and a finite retry budget", () => {
     Array.from({ length: 6 }, (_, i) => clientRetryDelay(i, 0.5)),
     [187, 375, 750, 1500, 3000, null],
   );
+});
+
+test("a shutdown retry window expires across stopping, missing sockets and repo warming", async (t) => {
+  let elapsed = 0,
+    requests = 0;
+  t.mock.method(performance, "now", () => elapsed);
+  t.mock.method(Math, "random", () => 0);
+  await assert.rejects(
+    consumeDaemonStream({
+      method: "repo.terminal.attach",
+      repoId: "repo-a",
+      payload: { sessionId, afterSeq: 0 },
+      signal: new AbortController().signal,
+      wait: async (delay) => {
+        assert.ok(delay > 0 && delay <= 5_000);
+        elapsed += delay;
+      },
+      read: async (_payload, receive) => {
+        requests++;
+        if (requests === 1) receive({ ok: true, sessionId, daemonGeneration: 1, outputSeq: 0 });
+        if (requests > 21) assert.fail("shutdown refusals renewed the retry window");
+        const code = requests < 7 ? "daemon_stopping" : requests % 2 === 0 ? "daemon_unavailable" : "repo_warming";
+        throw new DaemonProtocolContractError(code, "test handoff");
+      },
+      onValue: () => undefined,
+    }),
+    { code: "daemon_stream_lost", attempts: 20 },
+  );
+  assert.equal(elapsed, 40_000);
+  assert.equal(requests, 21);
+});
+
+test("explicit cancellation stops retries during the shutdown window", async () => {
+  const controller = new AbortController();
+  let requests = 0;
+  await consumeDaemonStream({
+    method: "repo.terminal.attach",
+    repoId: "repo-a",
+    payload: { sessionId, afterSeq: 0 },
+    signal: controller.signal,
+    wait: async (_delay, signal) => {
+      assert.equal(signal, controller.signal);
+      controller.abort();
+    },
+    read: async (_payload, receive) => {
+      requests++;
+      receive({ ok: true, sessionId, daemonGeneration: 1, outputSeq: 0 });
+      throw new DaemonProtocolContractError("daemon_stopping", "test handoff");
+    },
+    onValue: () => undefined,
+  });
+  assert.equal(requests, 1);
 });
 
 test("empty replacement epochs exhaust retries and an applied frame replenishes the budget", async () => {
