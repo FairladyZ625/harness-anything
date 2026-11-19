@@ -1009,43 +1009,59 @@ test("scheduleLocalRootReclamation interleaves bounded maintenance turns with no
       seedClosedDispatch(rootDir, id, "task_interleave", recentIso);
       writeDispatchEvidenceState(rootDir, id, "not-required");
     }
+    const order: string[] = [];
+    const queue: { readonly label: string; readonly work: () => void | Promise<void> }[] = [];
+    const shardPath = dispatchLiveIndexPath(rootDir, "task_interleave");
+    const initialShard = readFileSync(shardPath);
+    const liveDispatchId = "dispatch_100000000000000000000019";
+    const expired = Array.from({ length: 35 }, (_, index) => {
+      const id = `dispatch_${index.toString(16).padStart(8, "0")}aa${"0".repeat(14)}`;
+      seedClosedDispatch(rootDir, id, null, "2020-01-01T00:00:00.000Z");
+      archiveDispatchStream(rootDir, id);
+      return dispatchStreamPath(rootDir, id);
+    });
+    const shardPaths = Array.from({ length: 25 }, (_, index) => {
+      const task = `task_other_${index}`;
+      const id = `dispatch_20${index.toString(16).padStart(22, "0")}`;
+      seedClosedDispatch(rootDir, id, task, recentIso);
+      dispatchIds.push(id);
+      return dispatchLiveIndexPath(rootDir, task);
+    });
     const lifecycleReader = lifecycleReadForSync(
       dispatchIds.map((dispatchId) => ({
         dispatchId,
         runtimeSessionId: `runtime-${dispatchId}`,
         attemptSettled: true,
         groupSettled: true,
-        stopProof: "proven_stopped" as const,
-        outcome: "succeeded" as const,
+        stopProof: "proven_stopped",
+        outcome: "succeeded",
       })),
     );
-    const projection: Pick<
-      TaskProjectionQueries,
-      "read" | "readDispatchLifecycle" | "readRuntimeDispatchByResumeSource" | "searchFacts"
-    > = {
-      read: () =>
-        ({ status: "ready", watermark: 1, sourceRevision: 1, snapshot: { task: { status: "done" } } }) as never,
-      readDispatchLifecycle: (query) => lifecycleReader(query),
-      readRuntimeDispatchByResumeSource: () => null,
-      searchFacts: () => ({ status: "ready", watermark: 1, sourceRevision: 1, facts: [] }),
-    };
-
-    const order: string[] = [];
-    const queue: { readonly label: string; readonly work: () => void | Promise<void> }[] = [];
-    const shardPath = dispatchLiveIndexPath(rootDir, "task_interleave");
-    const initialShard = readFileSync(shardPath);
-    const liveDispatchId = "dispatch_100000000000000000000019";
-    let completed = false;
+    const facts = Array.from({ length: 1000 }, (_, index) => ({
+      evidenceSource: `.harness/runtime/dispatches/archive/dispatch_${index.toString(16).padStart(8, "0")}${index === 0 ? "aa" : "bb"}*.jsonl`,
+    })) as ReturnType<TaskProjectionQueries["searchFacts"]>["facts"];
+    let factReads = 0,
+      watermark = 1;
     scheduleLocalRootReclamation({
       rootDir,
-      projection: () => projection,
+      projection: () => ({
+        read: () =>
+          ({ status: "ready", watermark, sourceRevision: watermark, snapshot: { task: { status: "done" } } }) as never,
+        readDispatchLifecycle: lifecycleReader,
+        readRuntimeDispatchByResumeSource: () => null,
+        searchFacts: () => {
+          factReads += 1;
+          return { status: "ready", watermark, sourceRevision: watermark, facts };
+        },
+        readCut: () => ({ status: "ready", watermark, sourceRevision: watermark }),
+        readEventList: () => ({ rows: [], hasMore: false, nextCursor: null }),
+      }),
       readRetention: () => ({ retentionDays: 60, retentionBytes: 0 }),
       schedule: (work) => {
         queue.push({ label: "reclaim-turn", work });
       },
       maxDispatchesPerTurn: 10,
       onComplete: () => {
-        completed = true;
         order.push("compaction-scheduled");
       },
     });
@@ -1063,21 +1079,38 @@ test("scheduleLocalRootReclamation interleaves bounded maintenance turns with no
       },
     });
 
+    const remainingExpired = () => expired.filter((file) => existsSync(file)).length;
+    const remainingShards = () =>
+      shardPaths.filter((file) => JSON.parse(readFileSync(file, "utf8")).entries.length > 0).length;
+    let interleavedWithExpiry = false;
     while (queue.length > 0) {
       const next = queue.shift()!;
-      if (next.label === "reclaim-turn") order.push("reclaim-turn");
+      const oldExpired = remainingExpired(),
+        oldShards = remainingShards();
       await next.work();
+      assert.ok(oldShards - remainingShards() <= 10, "index rewrites must fit in a writer turn");
+      assert.ok(oldExpired - remainingExpired() <= 10, "archive deletions must fit in a writer turn");
+      if (oldExpired !== remainingExpired() && !interleavedWithExpiry) {
+        interleavedWithExpiry = true;
+        queue.unshift({
+          label: "ordinary-write-during-expiry",
+          work: () => {
+            assert.ok(remainingExpired() > 1, "ordinary write runs before the archive sweep ends");
+            watermark += 1;
+            order.push("write-during-expiry");
+          },
+        });
+      }
     }
 
-    assert.equal(completed, true);
-    assert.deepEqual(order, [
-      "reclaim-turn",
-      "user-write(remaining=15)",
-      "reclaim-turn",
-      "reclaim-turn",
-      "reclaim-turn",
-      "compaction-scheduled",
-    ]);
+    assert.equal(factReads, 1);
+    assert.match(order[0]!, /^user-write\(remaining=/u);
+    assert.deepEqual(order.slice(1), ["write-during-expiry", "compaction-scheduled"]);
+    assert.equal(remainingShards(), 0);
+    assert.deepEqual(
+      expired.filter((file) => existsSync(file)),
+      [expired[0]],
+    );
     assert.deepEqual(
       readDispatchLiveIndex(rootDir, ["task_interleave"]).entries.map(({ dispatchId }) => dispatchId),
       [liveDispatchId],

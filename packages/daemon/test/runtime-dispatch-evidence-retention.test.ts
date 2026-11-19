@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -128,6 +128,54 @@ test("an archive failure after an initial success rewrites the disposition to pe
   const removed = purgeRepoCache(fixture.canonical);
   assert.equal(removed.includes(".harness/runtime/dispatches"), false, JSON.stringify(removed));
   assert.equal(existsSync(streamPath), true);
+});
+
+test("the settled stream keeps its bytes when replacing the not-required sidecar fails", async (context) => {
+  const fixture = workerGitFixture(context, "forensics-stale-sidecar", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, {
+      finalText: "delivered",
+      providerOutcome: "succeeded",
+      toolCallObserved: true,
+    }),
+    stream = fixtureStream(fixture, runtime),
+    settleContext = workerSettlementContext(
+      fixture,
+      async () => ({}),
+      "delivered",
+      git(fixture.worker, "rev-parse", "HEAD").trim(),
+    ),
+    sidecar = dispatchEvidenceStatePath(fixture.canonical, runtime.dispatchId),
+    backup = `${sidecar}.original`;
+  stream.appendProviderEvent(
+    { type: "thread.started", thread_id: "provider-stale-sidecar" },
+    "2026-11-05T00:00:01.000Z",
+  );
+  settleContext.input.remote = {
+    archive: async () => {
+      assert.equal(readDispatchEvidenceState(fixture.canonical, runtime.dispatchId), "not-required");
+      renameSync(sidecar, backup);
+      mkdirSync(sidecar);
+      throw new Error("injected archive publication failure");
+    },
+  } as never;
+  const append = runtime.stream.appendEvidenceState!;
+  context.mock.method(runtime.stream, "appendEvidenceState", (...args: Parameters<typeof append>) => {
+    // The durable replacement has already failed. Restore the old disposition before the
+    // append, reproducing a filesystem that kept the old file while permitting JSONL writes.
+    rmdirSync(sidecar);
+    renameSync(backup, sidecar);
+    append(...args);
+  });
+  context.mock.method(console, "error", () => undefined);
+  await publishExit(settleContext, runtime, 0);
+
+  const live = dispatchStreamPath(fixture.canonical, runtime.dispatchId),
+    bytes = readFileSync(live);
+  assert.equal(readDispatchEvidenceState(fixture.canonical, runtime.dispatchId), "not-required");
+  assert.equal(readDispatchStreamSummary(fixture.canonical, runtime.dispatchId)?.evidenceState, "pending");
+  archiveDispatchStream(fixture.canonical, runtime.dispatchId);
+  assert.equal(dispatchStreamPath(fixture.canonical, runtime.dispatchId), live);
+  assert.deepEqual(readFileSync(live), bytes);
 });
 
 test("a post-archive settlement failure rewrites the disposition to pending", async (context) => {

@@ -19,6 +19,7 @@ import {
   readFactEvidenceSources,
   scheduleArchivedDispatchStreamCompaction,
 } from "../src/daemon-host/dispatch-stream-archive.ts";
+import { scheduleLocalRootReclamation } from "../src/daemon-host/local-root-storage.ts";
 
 const ROOT = tmpdir();
 
@@ -152,7 +153,9 @@ test("startup compaction queues only local archives and leaves live streams alon
       liveBefore = readFileSync(livePath),
       jobs: (() => void | Promise<void>)[] = [];
 
-    scheduleArchivedDispatchStreamCompaction(rootDir, (work) => jobs.push(work));
+    scheduleArchivedDispatchStreamCompaction(rootDir, (work) => {
+      jobs.push(work);
+    });
     assert.equal(jobs.length, 1);
     assert.equal(readDispatchStream(rootDir, liveId)?.header.transcriptCompactionVersion, undefined);
     assert.deepEqual(readFileSync(livePath), liveBefore);
@@ -468,6 +471,102 @@ test("retention removes stored sidecars with their stream and preserves pending 
     assert.equal(existsSync(storedSidecar), false, "a stored disposition is reclaimed with its stream");
     assert.equal(existsSync(pendingStream), true, "pending evidence is never pruned");
     assert.equal(existsSync(pendingSidecar), true, "the pending disposition stays with its stream");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("archive maintenance keeps a pending record that outlived a stale not-required sidecar", () => {
+  const rootDir = mkdtempSync(path.join(ROOT, "ha-dispatch-stale-sidecar-")),
+    dispatchId = "dispatch_999999999999999999999999";
+  try {
+    const { file } = archiveStreamFixture(rootDir, dispatchId, 120, "Unpublished evidence.");
+    const live = path.join(path.dirname(path.dirname(file)), path.basename(file));
+    // Simulate a stream moved by an older daemon that relied only on the sidecar.
+    renameSync(file, live);
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "evidence_state", state: "pending" });
+    renameSync(live, file);
+    writeDispatchEvidenceState(rootDir, dispatchId, "not-required");
+    const before = readFileSync(file),
+      jobs: (() => void)[] = [];
+    scheduleArchivedDispatchStreamCompaction(rootDir, (work) => {
+      jobs.push(work);
+    });
+    while (jobs.length > 0) jobs.shift()!();
+    pruneDispatchStreamArchive(
+      rootDir,
+      { retentionDays: 60, retentionBytes: 1 },
+      [],
+      Date.parse("2026-10-24T00:00:00Z"),
+    );
+    assert.deepEqual(readFileSync(file), before);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a Fact recorded between expiry turns protects the remaining archive without a second Fact scan", () => {
+  const rootDir = mkdtempSync(path.join(ROOT, "ha-dispatch-fact-between-turns-"));
+  try {
+    const files = Array.from(
+      { length: 12 },
+      (_, index) =>
+        archiveStreamFixture(rootDir, `dispatch_${index.toString(16).padStart(24, "0")}`, 120, "Possible evidence.")
+          .file,
+    );
+    const jobs: (() => void)[] = [];
+    let factReads = 0,
+      watermark = 1;
+    scheduleLocalRootReclamation({
+      rootDir,
+      schedule: (work) => {
+        jobs.push(work);
+      },
+      maxDispatchesPerTurn: 3,
+      readRetention: () => ({ retentionDays: 60, retentionBytes: 0 }),
+      projection: () => ({
+        read: () => {
+          throw new Error("no task reads expected");
+        },
+        readDispatchLifecycle: () => {
+          throw new Error("no live streams");
+        },
+        readRuntimeDispatchByResumeSource: () => null,
+        readCut: () => ({ status: "ready", watermark, sourceRevision: watermark }),
+        searchFacts: () => {
+          factReads += 1;
+          return { status: "ready", watermark, sourceRevision: watermark, facts: [] };
+        },
+        readEventList: ({ type, limit }) => {
+          assert.equal(type, "fact_recorded");
+          assert.equal(limit, 1);
+          return {
+            rows: [
+              {
+                revision: 2,
+                type,
+                actor: { personId: "person_test", executorId: null },
+                schema: "test",
+                eventId: "fact-2",
+                opId: "fact-2",
+                occurredAt: "2026-10-24T00:00:00.000Z",
+                entityRefs: [],
+              },
+            ],
+            hasMore: false,
+            nextCursor: null,
+          };
+        },
+      }),
+    });
+    const survivors = () => files.filter((file) => existsSync(file));
+    while (jobs.length && survivors().length === files.length) jobs.shift()!();
+    const remaining = survivors();
+    assert.ok(remaining.length < files.length && remaining.length > 0, "the expiry pass has started but can yield");
+    watermark = 2;
+    while (jobs.length) jobs.shift()!();
+    assert.deepEqual(survivors(), remaining);
+    assert.equal(factReads, 1);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

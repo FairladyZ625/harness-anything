@@ -3,16 +3,18 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
   appendRuntimeWorkerRecord,
   archiveDispatchStream,
+  dispatchStreamPath,
   openDispatchStream,
   readDispatchStream,
 } from "../src/daemon-host/dispatch-stream.ts";
+import { writeDispatchEvidenceState } from "../src/daemon-host/dispatch-evidence-state.ts";
 import { attachReceiptAcceptance } from "@harness-anything/kernel";
 import { validateDaemonGuiCommandReceipt } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { adoptRuntimes } from "../src/daemon-host/runtime-spawn-adoption.ts";
@@ -30,6 +32,63 @@ import {
 } from "./dispatch-lifecycle-read.fixtures.ts";
 
 const binding = { actor: { principal: { personId: "operator" }, executor: null }, source: "local" as const };
+
+test("restart adoption archives only owned streams with durable evidence", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-adoption-archive-"));
+  try {
+    for (const scenario of ["pending", "stored", "linked"] as const) {
+      await t.test(scenario, async () => {
+        const rootDir = path.join(root, scenario),
+          external = path.join(root, "external"),
+          dispatchId = "dispatch_acacacacacacacacacacacac",
+          runtimeSessionId = "runtime_acacacacacacacacacacacac";
+        openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "dispatch-op-settled");
+        writeDispatchEvidenceState(rootDir, dispatchId, scenario === "stored" ? "stored" : "not-required");
+        if (scenario === "pending")
+          appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "evidence_state", state: "pending" });
+        const live = dispatchStreamPath(rootDir, dispatchId);
+        const archive = path.join(path.dirname(live), "archive");
+        if (scenario === "linked") {
+          mkdirSync(external);
+          symlinkSync(external, archive, process.platform === "win32" ? "junction" : "dir");
+        }
+        const raw = readFileSync(live);
+        const recovery = await adoptRuntimes({
+          input: { rootDir, runtimeInstances: () => [{ instanceId: "instance-1" }] },
+          requiredRuntimeProjection: () => ({
+            readDispatchLifecycle: lifecycleReadFor([
+              {
+                runtimeSessionId,
+                dispatchId,
+                instanceId: "instance-1",
+                owner: "local",
+                attemptSettled: true,
+                groupSettled: true,
+                process: "exited",
+                stopProof: "proven_stopped",
+              },
+            ]),
+            readRuntimeSession: () => liveSession(runtimeSessionId),
+          }),
+          processes: new Map(),
+          exiting: new Set(),
+          runtimeSpawnError,
+        } as unknown as RuntimeSpawnerContext);
+        assert.equal(recovery[0]?.outcome, "settled", scenario);
+        if (scenario === "stored") {
+          assert.equal(existsSync(live), false, "durable evidence permits archival");
+          assert.equal(existsSync(path.join(archive, path.basename(live))), true);
+        } else {
+          assert.equal(existsSync(live), true, `${scenario} must stay in the original directory`);
+          assert.deepEqual(readFileSync(live), raw, scenario);
+          assert.equal(existsSync(path.join(archive, path.basename(live))), false, scenario);
+        }
+      });
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("adoption cannot settle a launch that still owns its model slot before PID registration", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-launch-adoption-race-")),

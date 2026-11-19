@@ -1,7 +1,9 @@
-import { mkdir, open, readdir, rename, rm, stat, type FileHandle } from "node:fs/promises";
+import { constants, lstatSync } from "node:fs";
+import { mkdir, open, readdir, rename, rm, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { consumeKnownError, resolveHarnessLayout } from "@harness-anything/kernel";
 import { daemonLogDefaultMaxBytes } from "./lifecycle-log.ts";
+import { resolveOwnedLocalDirectory } from "./local-root-paths.ts";
 // Classification lives here rather than at the dispatch point: the schema registry names the
 // protocol server as a writer, so schema-closure imports it without node_modules and it must stay
 // clear of anything that reaches into the kernel.
@@ -19,6 +21,7 @@ const requestLogDirName = "requests";
 const requestLogFileName = "requests.jsonl";
 const defaultKeptDays = 7;
 const dayMs = 86_400_000;
+type LogLayout = ReturnType<typeof resolveHarnessLayout>;
 
 export interface DaemonWriteTiming {
   /** Wall time spent waiting for the single writer, excluding its execution. */
@@ -115,7 +118,7 @@ export function openDaemonRequestLog(options: DaemonRequestLogOptions): DaemonRe
   const openFile = options.openFile ?? open;
   // resolveHarnessLayout walks the filesystem for harness.yaml; hold the resolved path per repo so
   // that cost is paid once instead of on every request.
-  const logPaths = new Map<string, string>();
+  const layouts = new Map<string, LogLayout>();
   const sinks = new Map<string, { handle: FileHandle; bytes: number }>();
   let reportedFailure = false;
   let settled = false;
@@ -124,9 +127,9 @@ export function openDaemonRequestLog(options: DaemonRequestLogOptions): DaemonRe
   return {
     record: (entry) => {
       if (settled) return;
-      const logPath = resolveLogPath(entry.repoId);
-      if (!logPath) return;
-      chain = chain.then(() => writeRequestLogLine(logPath, `${JSON.stringify(buildRecord(entry, now()))}\n`));
+      const layout = resolveLogLayout(entry.repoId);
+      if (!layout) return;
+      chain = chain.then(() => writeRequestLogLine(layout, `${JSON.stringify(buildRecord(entry, now()))}\n`));
     },
     settle: async () => {
       settled = true;
@@ -144,18 +147,19 @@ export function openDaemonRequestLog(options: DaemonRequestLogOptions): DaemonRe
     },
   };
 
-  async function writeRequestLogLine(logPath: string, line: string): Promise<void> {
+  async function writeRequestLogLine(layout: LogLayout, line: string): Promise<void> {
+    const logPath = path.join(layout.localRoot, requestLogDirName, requestLogFileName);
     try {
       let sink = sinks.get(logPath);
-      if (!sink) sink = await openSink(logPath);
+      if (!sink) sink = await openSink(layout, logPath);
       if (sink.bytes + Buffer.byteLength(line) > maxBytes) {
         // Shift the generation chain and keep writing to the live file. Retention is age-based,
         // so rotation itself never deletes: the old count ceiling dropped the oldest files on
         // every rotation, capping retention at ~1.5 days of canonical traffic and deleting live
         // records within it.
         await closeSink(logPath, sink);
-        await rotate(logPath);
-        sink = await openSink(logPath);
+        await rotate(layout);
+        sink = await openSink(layout, logPath);
       }
       sink.bytes += (await sink.handle.write(line, null, "utf8")).bytesWritten;
     } catch (error) {
@@ -169,12 +173,18 @@ export function openDaemonRequestLog(options: DaemonRequestLogOptions): DaemonRe
     }
   }
 
-  async function openSink(logPath: string): Promise<{ handle: FileHandle; bytes: number }> {
-    await /* @gate-identity non-state/environment-io.3dd8b1ca6b76b91c */ mkdir(path.dirname(logPath), {
-      recursive: true,
-    });
-    await pruneAgedFiles(logPath);
-    const handle = await openFile(logPath, "a");
+  async function openSink(layout: LogLayout, logPath: string): Promise<{ handle: FileHandle; bytes: number }> {
+    const directory = ownedLogDirectory(layout, true);
+    await /* @gate-identity non-state/environment-io.3dd8b1ca6b76b91c */ mkdir(directory, { recursive: true });
+    const target = path.join(ownedLogDirectory(layout), requestLogFileName);
+    const file = lstatSync(target, { throwIfNoEntry: false });
+    if (file && !file.isFile()) throw new Error(`Request log is not an owned regular file: ${target}`);
+    await pruneAgedFiles(layout);
+    if (ownedLogDirectory(layout) !== directory) throw new Error(`Request log directory moved: ${directory}`);
+    const handle = await openFile(
+      target,
+      constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | (constants.O_NOFOLLOW ?? 0),
+    );
     const sink = { handle, bytes: (await handle.stat()).size };
     sinks.set(logPath, sink);
     return sink;
@@ -191,60 +201,59 @@ export function openDaemonRequestLog(options: DaemonRequestLogOptions): DaemonRe
 
   // Shift generations without deleting: the live file keeps receiving records and readers follow
   // it as the newest; deletion happens only through age-based pruning below.
-  async function rotate(logPath: string): Promise<void> {
-    const directory = path.dirname(logPath),
-      base = path.basename(logPath),
-      pattern = new RegExp(`^${escapeRegExp(base)}\\.(\\d+)$`, "u");
-    let names: string[];
-    try {
-      names = await readdir(directory);
-    } catch (error) {
-      consumeKnownError(error);
-      return;
+  async function rotate(layout: LogLayout): Promise<void> {
+    const directory = ownedLogDirectory(layout);
+    const generations = (await readdir(directory, { withFileTypes: true }))
+      .flatMap((entry) => {
+        const { name } = entry;
+        const index = Number(name.slice(requestLogFileName.length + 1));
+        return Number.isSafeInteger(index) && index > 0 && name === `${requestLogFileName}.${index}` && entry.isFile()
+          ? [index]
+          : [];
+      })
+      .sort((left, right) => right - left);
+    for (const index of [...generations, 0]) {
+      if (ownedLogDirectory(layout) !== directory) return;
+      const source = path.join(directory, index === 0 ? requestLogFileName : `${requestLogFileName}.${index}`);
+      const target = path.join(directory, `${requestLogFileName}.${index + 1}`);
+      if (!lstatSync(source, { throwIfNoEntry: false })?.isFile()) continue;
+      const replaced = lstatSync(target, { throwIfNoEntry: false });
+      if (replaced) throw new Error(`Request log generation is occupied: ${target}`);
+      await renameIfExists(source, target);
     }
-    const highest = names.reduce((max, name) => Math.max(max, Number(pattern.exec(name)?.[1] ?? 0)), 0);
-    for (let index = highest; index >= 1; index -= 1)
-      await renameIfExists(path.join(directory, `${base}.${index}`), path.join(directory, `${base}.${index + 1}`));
-    await renameIfExists(logPath, `${logPath}.1`);
   }
 
   // A file's last write time is its honest age: generations are size-rolled, not day-stamped, so
   // the modification clock — not a file count — decides what falls outside the retention window.
-  async function pruneAgedFiles(logPath: string): Promise<void> {
-    const directory = path.dirname(logPath),
-      base = path.basename(logPath),
-      pattern = new RegExp(`^${escapeRegExp(base)}(?:\\.\\d+)?$`, "u"),
+  async function pruneAgedFiles(layout: LogLayout): Promise<void> {
+    const directory = ownedLogDirectory(layout),
       cutoff = now().getTime() - keptDays * dayMs;
-    let names: string[];
-    try {
-      names = await readdir(directory);
-    } catch (error) {
-      consumeKnownError(error);
-      return;
-    }
-    for (const name of names) {
-      if (base === requestLogFileName ? !isDaemonRequestLogFileName(name) : !pattern.test(name)) continue;
-      try {
-        const age = (await stat(path.join(directory, name))).mtimeMs;
-        if (age < cutoff)
-          await /* @gate-identity non-state/environment-io.69b1169ea4d01ff3 */ rm(path.join(directory, name), {
-            force: true,
-          });
-      } catch (error) {
-        consumeKnownError(error);
-      }
+    for (const name of await readdir(directory)) {
+      if (!isDaemonRequestLogFileName(name)) continue;
+      if (ownedLogDirectory(layout) !== directory) return;
+      const target = path.join(directory, name);
+      const info = lstatSync(target, { throwIfNoEntry: false });
+      if (info?.isFile() && info.mtimeMs < cutoff)
+        await /* @gate-identity non-state/environment-io.69b1169ea4d01ff3 */ rm(target, { force: true });
     }
   }
 
-  function resolveLogPath(repoId: string): string | undefined {
-    const cached = logPaths.get(repoId);
+  function resolveLogLayout(repoId: string): LogLayout | undefined {
+    const cached = layouts.get(repoId);
     if (cached) return cached;
     const rootDir = options.resolveRootDir(repoId);
     if (!rootDir) return undefined;
-    const logPath = daemonRequestLogPath(rootDir);
-    logPaths.set(repoId, logPath);
-    return logPath;
+    const layout = resolveHarnessLayout(rootDir);
+    layouts.set(repoId, layout);
+    return layout;
   }
+}
+
+function ownedLogDirectory(layout: LogLayout, allowMissing = false): string {
+  const directory = resolveOwnedLocalDirectory(layout, [requestLogDirName], allowMissing);
+  if (directory === null)
+    throw new Error(`Request log directory is outside its physical boundary: ${layout.localRoot}`);
+  return directory;
 }
 
 function buildRecord(entry: DaemonRequestLogEntry, at: Date): DaemonRequestLogRecord {
@@ -286,10 +295,6 @@ function commandClassOrNull(command: string): string | null {
     consumeKnownError(error);
     return null;
   }
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function renameIfExists(from: string, to: string): Promise<void> {

@@ -9,11 +9,7 @@ import {
 } from "@harness-anything/kernel";
 import { removeFileDurably } from "../../../storage/src/durable-file.ts";
 import { readDispatchEvidenceState, removeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
-import {
-  archiveDispatchStreams,
-  removeDispatchLiveIndexEntries,
-  type DispatchLiveIndexEntry,
-} from "./dispatch-stream.ts";
+import { archiveDispatchStreams, removeDispatchLiveIndexEntries } from "./dispatch-stream.ts";
 import {
   isStrictRealChild,
   ownedSubdirectoryOrAbsent,
@@ -21,7 +17,7 @@ import {
   resolveOwnedLocalRoot,
 } from "./local-root-paths.ts";
 import {
-  pruneDispatchStreamArchive,
+  pruneDispatchStreamArchiveSteps,
   tryReadFactEvidenceSources,
   type DispatchArchiveRetention,
 } from "./dispatch-stream-archive.ts";
@@ -32,6 +28,7 @@ import {
   classifyLocalRootLeaf,
   type LocalRootLeafClass,
 } from "./repo-cache-purge.ts";
+import { directoryEntries, scheduleMaintenance, type MaintenanceSchedule } from "./local-maintenance.ts";
 import { isDaemonRequestLogFileName } from "./request-log.ts";
 import { readHandoffCheckpoint, reclaimableHandoffRolloutReason } from "./runtime-handoff-store.ts";
 
@@ -192,17 +189,18 @@ export function reclaimLocalRootStorage(input: {
       recoverySet: new Set(input.recoveryDispatchIds ?? []),
       liveRuntimeSessionIds: input.liveRuntimeSessionIds,
       doneTaskCache,
-      batch: readLiveDispatchIds(ownedLocalRoot).slice(
-        0,
-        Math.max(1, input.maxDispatches ?? DISPATCH_LIFECYCLE_PAGE_LIMIT),
-      ),
+      batch: [...readLiveDispatchIds(ownedLocalRoot)]
+        .filter((id): id is string => id !== null)
+        .slice(0, Math.max(1, input.maxDispatches ?? DISPATCH_LIFECYCLE_PAGE_LIMIT)),
       compactArchived: true,
     });
-  const sweep = sweepLocalRootStorage(layout.rootDir, ownedLocalRoot, input, doneTaskCache);
+  const steps = sweepLocalRootStorage(layout.rootDir, ownedLocalRoot, input, doneTaskCache);
+  let sweep = steps.next();
+  while (!sweep.done) sweep = steps.next();
   return {
-    ...sweep,
+    ...sweep.value,
     archivedDispatches: dispatchResult.archived,
-    skippedReason: dispatchResult.skippedReason ?? sweep.skippedReason,
+    skippedReason: dispatchResult.skippedReason ?? sweep.value.skippedReason,
   };
 }
 
@@ -211,126 +209,124 @@ type StorageSweepInput = Pick<
   "projection" | "retention" | "nowMs" | "recoveryDispatchIds"
 >;
 
-function sweepLocalRootStorage(
+function* sweepLocalRootStorage(
   rootDir: string,
   ownedLocalRoot: string,
   input: StorageSweepInput,
   doneTaskCache: Map<string, boolean>,
-): Omit<LocalRootReclaimResult, "archivedDispatches"> {
-  const removedOrphanSidecars = pruneOrphanEvidenceSidecars(rootDir, ownedLocalRoot),
-    removedHandoffRollouts = pruneRetiredHandoffRollouts(rootDir, ownedLocalRoot, input.projection, doneTaskCache),
-    removedStaleCacheFiles = pruneStaleDerivedFiles(ownedLocalRoot);
+  canDeleteArchive?: (factWatermark: number) => boolean,
+): Generator<void, Omit<LocalRootReclaimResult, "archivedDispatches">> {
+  const removedOrphanSidecars = yield* pruneOrphanEvidenceSidecars(rootDir, ownedLocalRoot);
+  const removedHandoffRollouts = yield* pruneRetiredHandoffRollouts(
+    rootDir,
+    ownedLocalRoot,
+    input.projection,
+    doneTaskCache,
+  );
+  const removedStaleCacheFiles = pruneStaleDerivedFiles(ownedLocalRoot);
 
   let archivePruned = false,
     skippedReason: string | null = null;
   const ownedDispatchesDir = resolveOwnedDirectory(ownedLocalRoot, "runtime", "dispatches");
   if (ownedDispatchesDir === null || ownedSubdirectoryOrAbsent(ownedDispatchesDir, "archive") !== null) {
-    const factSources = tryReadFactEvidenceSources(input.projection);
-    if (factSources.status !== "ready") {
-      skippedReason = "fact projection pending";
-    } else {
-      if (ownedDispatchesDir !== null) {
-        pruneDispatchStreamArchive(
-          rootDir,
-          input.retention,
-          factSources.sources,
-          input.nowMs ?? Date.now(),
-          input.recoveryDispatchIds ?? [],
-        );
-      }
+    const facts = tryReadFactEvidenceSources(input.projection);
+    if (facts.status === "ready") {
+      yield* pruneDispatchStreamArchiveSteps(
+        rootDir,
+        input.retention,
+        facts.sources,
+        input.nowMs ?? Date.now(),
+        input.recoveryDispatchIds ?? [],
+        canDeleteArchive === undefined ? undefined : () => canDeleteArchive(facts.watermark),
+      );
       archivePruned = true;
+    } else {
+      skippedReason = "fact projection pending";
     }
   }
 
-  return {
-    removedOrphanSidecars,
-    removedHandoffRollouts,
-    removedStaleCacheFiles,
-    archivePruned,
-    skippedReason,
-  };
+  return { removedOrphanSidecars, removedHandoffRollouts, removedStaleCacheFiles, archivePruned, skippedReason };
 }
 
-/**
- * Schedule post-adoption local-root reclamation across bounded writer turns so heavy tasks with
- * thousands of settled dispatches never monopolize the single-writer queue or rewrite transcripts
- * synchronously before `scheduleArchivedDispatchStreamCompaction` interleaves them.
- *
- * Enumerate candidates once. Commit index removals in one pass over the latest task shards so
- * another writer can insert entries between archive turns without losing them.
- */
+/** Schedule post-adoption reclamation on the repository writer, one bounded batch at a time. */
 export function scheduleLocalRootReclamation(input: {
   readonly rootDir: string;
-  readonly projection: () => Pick<
-    TaskProjectionQueries,
-    "read" | "readDispatchLifecycle" | "readRuntimeDispatchByResumeSource" | "searchFacts"
-  >;
+  readonly projection: () => StorageSweepInput["projection"] & Pick<TaskProjectionQueries, "readCut" | "readEventList">;
   readonly readRetention: () => DispatchArchiveRetention;
-  readonly schedule: (work: () => void | Promise<void>) => void;
+  readonly schedule: MaintenanceSchedule;
   readonly ownerNodeId?: string;
   readonly recoveryDispatchIds?: readonly string[];
   readonly maxDispatchesPerTurn?: number;
   readonly onComplete?: () => void;
 }): void {
-  const layout = resolveHarnessLayout(input.rootDir),
-    recoverySet = new Set(input.recoveryDispatchIds ?? []),
-    doneTaskCache = new Map<string, boolean>(),
-    indexRemovals: DispatchLiveIndexEntry[] = [],
-    batchSize = Math.max(1, input.maxDispatchesPerTurn ?? DISPATCH_LIFECYCLE_PAGE_LIMIT);
-  let dispatchIds: readonly string[] | undefined,
-    offset = 0;
-  const finish = (): void => {
-    input.schedule(() => {
-      const ownedLocalRoot = resolveOwnedLocalRoot(layout);
-      if (ownedLocalRoot !== null) {
-        const dispatches = resolveOwnedDirectory(ownedLocalRoot, "runtime", "dispatches");
-        if (dispatches !== null && resolveOwnedDirectory(dispatches, "live-index") !== null)
-          removeDispatchLiveIndexEntries(layout.rootDir, indexRemovals);
-        sweepLocalRootStorage(
-          layout.rootDir,
-          ownedLocalRoot,
-          {
-            projection: input.projection(),
-            retention: input.readRetention(),
-            recoveryDispatchIds: input.recoveryDispatchIds,
-          },
-          doneTaskCache,
-        );
-      }
-      input.onComplete?.();
-    });
-  };
-  const enqueueTurn = (): void => {
-    input.schedule(() => {
-      const ownedLocalRoot = resolveOwnedLocalRoot(layout);
-      if (ownedLocalRoot === null) return finish();
-      dispatchIds ??= readLiveDispatchIds(ownedLocalRoot);
-      const batch = dispatchIds.slice(offset, offset + batchSize);
-      offset += batch.length;
+  const layout = resolveHarnessLayout(input.rootDir);
+  const batchSize = Math.max(
+    1,
+    Math.min(input.maxDispatchesPerTurn ?? DISPATCH_LIFECYCLE_PAGE_LIMIT, DISPATCH_LIFECYCLE_PAGE_LIMIT),
+  );
+  function* reclaim(): Generator<void | "turn"> {
+    const ownedLocalRoot = resolveOwnedLocalRoot(layout);
+    if (ownedLocalRoot === null) return;
+    const dispatchIds: string[] = [];
+    // Snapshot candidates before moving files; renames can otherwise change the open directory cursor.
+    for (const id of readLiveDispatchIds(ownedLocalRoot)) {
+      if (id !== null) dispatchIds.push(id);
+      yield;
+    }
+    const owner = dispatchOwnerForNode(input.ownerNodeId),
+      recoverySet = new Set(input.recoveryDispatchIds ?? []),
+      doneTaskCache = new Map<string, boolean>(),
+      indexRemovals = new Map<string, Set<string>>();
+    for (let offset = 0; offset < dispatchIds.length; offset += batchSize) {
+      yield "turn";
+      if (resolveOwnedLocalRoot(layout) !== ownedLocalRoot) return;
       const result = archiveSettledDispatchStreams({
         rootDir: layout.rootDir,
         ownedLocalRoot,
         projection: input.projection(),
-        owner: dispatchOwnerForNode(input.ownerNodeId),
+        owner,
         recoverySet,
         doneTaskCache,
-        batch,
+        batch: dispatchIds.slice(offset, offset + batchSize),
         compactArchived: false,
         indexRemovals,
       });
-      if (result.skippedReason === null && offset < dispatchIds.length) enqueueTurn();
-      else finish();
-    });
-  };
-  enqueueTurn();
+      if (result.skippedReason !== null) break;
+    }
+    if (dispatchIds.length > 0) yield "turn";
+    for (const [taskId, ids] of indexRemovals) {
+      removeDispatchLiveIndexEntries(layout.rootDir, taskId, ids);
+      yield;
+    }
+    if (resolveOwnedLocalRoot(layout) !== ownedLocalRoot) return;
+    const projection = input.projection();
+    let verifiedThrough = -1;
+    yield* sweepLocalRootStorage(
+      layout.rootDir,
+      ownedLocalRoot,
+      { projection, retention: input.readRetention(), recoveryDispatchIds: input.recoveryDispatchIds },
+      doneTaskCache,
+      (factWatermark) => {
+        const cut = projection.readCut();
+        if (cut.status !== "ready" || cut.watermark < factWatermark) return false;
+        if (cut.watermark === factWatermark || cut.watermark === verifiedThrough) return true;
+        // A normal write may advance the cut. A newer recorded Fact invalidates the protection
+        // snapshot, so end this pass before deleting against a stale set of references.
+        const newest = projection.readEventList({ type: "fact_recorded", limit: 1 }).rows[0];
+        if (newest && newest.revision > factWatermark) return false;
+        verifiedThrough = cut.watermark;
+        return true;
+      },
+    );
+  }
+  scheduleMaintenance(input.schedule, reclaim(), batchSize, input.onComplete);
 }
 
-function readLiveDispatchIds(ownedLocalRoot: string): readonly string[] {
+function* readLiveDispatchIds(ownedLocalRoot: string): Generator<string | null> {
   const directory = resolveOwnedDirectory(ownedLocalRoot, "runtime", "dispatches");
-  if (directory === null) return [];
-  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) =>
-    entry.isFile() && dispatchFilePattern.test(entry.name) ? [entry.name.slice(0, -6)] : [],
-  );
+  if (directory === null) return;
+  for (const entry of directoryEntries(directory))
+    yield entry.isFile() && dispatchFilePattern.test(entry.name) ? entry.name.slice(0, -6) : null;
 }
 
 function archiveSettledDispatchStreams(input: {
@@ -343,7 +339,7 @@ function archiveSettledDispatchStreams(input: {
   readonly doneTaskCache: Map<string, boolean>;
   readonly batch: readonly string[];
   readonly compactArchived: boolean;
-  readonly indexRemovals?: DispatchLiveIndexEntry[];
+  readonly indexRemovals?: Map<string, Set<string>>;
 }): { readonly archived: number; readonly skippedReason: string | null } {
   const ownedDispatchesDir = resolveOwnedDirectory(input.ownedLocalRoot, "runtime", "dispatches");
   if (ownedDispatchesDir === null) return { archived: 0, skippedReason: null };
@@ -392,52 +388,55 @@ function archiveSettledDispatchStreams(input: {
   return { archived, skippedReason: null };
 }
 
-function pruneOrphanEvidenceSidecars(rootDir: string, ownedLocalRoot: string): number {
-  const ownedDispatchesDir = resolveOwnedDirectory(ownedLocalRoot, "runtime", "dispatches");
-  if (ownedDispatchesDir === null) return 0;
-  const archiveSubdir = ownedSubdirectoryOrAbsent(ownedDispatchesDir, "archive");
-  if (archiveSubdir === null) return 0;
-  const presentStreams = new Set<string>();
-  for (const directory of [ownedDispatchesDir, ...(archiveSubdir === "absent" ? [] : [archiveSubdir])]) {
-    for (const name of readdirSync(directory)) {
-      const match = dispatchFilePattern.exec(name);
-      if (match && readOwnedRegularFileStat(directory, name)) presentStreams.add(`dispatch_${match[1]}`);
-    }
-  }
+function* pruneOrphanEvidenceSidecars(rootDir: string, ownedLocalRoot: string): Generator<void, number> {
+  const directory = resolveOwnedDirectory(ownedLocalRoot, "runtime", "dispatches");
+  if (directory === null) return 0;
   let removed = 0;
-  for (const name of readdirSync(ownedDispatchesDir)) {
-    const match = evidenceSidecarPattern.exec(name);
-    if (!match || !readOwnedRegularFileStat(ownedDispatchesDir, name)) continue;
-    const dispatchId = `dispatch_${match[1]}`;
-    if (presentStreams.has(dispatchId)) continue;
-    if (readDispatchEvidenceState(rootDir, dispatchId) === "pending") continue;
-    removeDispatchEvidenceState(rootDir, dispatchId);
-    removed += 1;
+  for (const entry of directoryEntries(directory)) {
+    if (resolveOwnedDirectory(ownedLocalRoot, "runtime", "dispatches") !== directory) return removed;
+    const archive = ownedSubdirectoryOrAbsent(directory, "archive");
+    if (archive === null) return removed;
+    const match = evidenceSidecarPattern.exec(entry.name);
+    if (entry.isFile() && match && readOwnedRegularFileStat(directory, entry.name)) {
+      const dispatchId = `dispatch_${match[1]}`,
+        stream = `${dispatchId}.jsonl`;
+      if (
+        !readOwnedRegularFileStat(directory, stream) &&
+        (archive === "absent" || !readOwnedRegularFileStat(archive, stream)) &&
+        readDispatchEvidenceState(rootDir, dispatchId) !== "pending"
+      ) {
+        removeDispatchEvidenceState(rootDir, dispatchId);
+        removed += 1;
+      }
+    }
+    yield;
   }
   return removed;
 }
 
-function pruneRetiredHandoffRollouts(
+function* pruneRetiredHandoffRollouts(
   rootDir: string,
   ownedLocalRoot: string,
   projection: Pick<TaskProjectionQueries, "read" | "readRuntimeDispatchByResumeSource">,
   doneTaskCache: Map<string, boolean>,
-): number {
+): Generator<void, number> {
   const ownedHandoffsRoot = resolveOwnedDirectory(ownedLocalRoot, "runtime-handoffs");
   if (ownedHandoffsRoot === null) return 0;
   let removed = 0;
-  for (const name of readdirSync(ownedHandoffsRoot)) {
-    if (!dispatchIdPattern.test(name)) continue;
-    const ownedEntryDir = resolveOwnedDirectory(ownedHandoffsRoot, name);
-    if (ownedEntryDir === null) continue;
-    const rolloutFile = readOwnedRegularFileStat(ownedEntryDir, "rollout.jsonl"),
-      checkpointFile = readOwnedRegularFileStat(ownedEntryDir, "checkpoint.json");
-    if (!rolloutFile || !checkpointFile) continue;
-    const checkpoint = readHandoffCheckpoint(rootDir, name);
-    if (!checkpoint) continue;
-    if (reclaimableHandoffRolloutReason(checkpoint, projection, doneTaskCache) === null) continue;
-    removeFileDurably(rolloutFile.path);
-    removed += 1;
+  for (const entry of directoryEntries(ownedHandoffsRoot)) {
+    if (resolveOwnedDirectory(ownedLocalRoot, "runtime-handoffs") !== ownedHandoffsRoot) return removed;
+    if (entry.isDirectory() && dispatchIdPattern.test(entry.name)) {
+      const directory = resolveOwnedDirectory(ownedHandoffsRoot, entry.name);
+      const rollout = directory && readOwnedRegularFileStat(directory, "rollout.jsonl");
+      if (rollout && readOwnedRegularFileStat(directory, "checkpoint.json")) {
+        const checkpoint = readHandoffCheckpoint(rootDir, entry.name);
+        if (checkpoint && reclaimableHandoffRolloutReason(checkpoint, projection, doneTaskCache) !== null) {
+          removeFileDurably(rollout.path);
+          removed += 1;
+        }
+      }
+    }
+    yield;
   }
   return removed;
 }
