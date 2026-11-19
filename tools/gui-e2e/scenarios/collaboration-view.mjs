@@ -173,7 +173,7 @@ export async function seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence
           taskId: lease.taskId,
           type: "execution_started",
           actor: lease.actor,
-          source: "local",
+          source: lease.source,
           occurredAt,
           payload: {
             task,
