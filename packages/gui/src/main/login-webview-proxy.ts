@@ -1,16 +1,16 @@
 import { connect, createServer, type Server } from "node:net";
 
 /**
- * Keeps the browser origin separate from the loopback SSH reverse-forward target. CONNECT is the
+ * Keeps the browser origin separate from the configured connection target. CONNECT is the
  * only supported proxy operation and the upstream target is fixed from signed edge configuration.
  */
 export async function openLoginProxy(targetUrl: string, browserOrigin: string): Promise<Server> {
   const target = new URL(targetUrl),
     targetPort = Number(target.port || 443),
-    targetHost = target.hostname,
+    targetHost = target.hostname.replace(/^\[|\]$/gu, ""),
     browser = new URL(browserOrigin);
   if (browser.protocol !== "https:") throw new Error("The login browser origin must use HTTPS.");
-  const expectedAuthority = browser.host;
+  const expectedAuthority = `${browser.hostname}:${browser.port || 443}`;
   const proxy = createServer((client) => {
     let header = Buffer.alloc(0);
     const reject = () => {

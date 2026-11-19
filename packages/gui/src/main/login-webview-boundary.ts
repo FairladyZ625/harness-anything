@@ -11,7 +11,7 @@ import { X509Certificate } from "node:crypto";
 export interface LoginListenerTrust {
   readonly origin: string;
   readonly fingerprint256: string;
-  /** SSH reverse target, when the browser origin must stay on the center hostname. */
+  /** Configured connection target when its origin differs from the browser-facing issuer. */
   readonly proxyTarget?: string;
 }
 
@@ -34,17 +34,14 @@ export function resolveLoginListenerTrust(input: {
   if (typeof hostname !== "string" || (typeof certificateFile !== "string" && typeof certificate !== "string"))
     return null;
   if (!Number.isInteger(port) || (port as number) < 1 || (port as number) > 65_535) return null;
-  const origin = `https://${hostname.toLowerCase()}:${port}`;
+  const origin = `https://${hostname.toLowerCase()}${port === 443 ? "" : `:${port}`}`;
   if (new URL(input.authorizationUrl).origin !== origin) return null;
   // A configured certificate that cannot be read or parsed fails the sign-in with its own error.
   const fingerprint256 = certificateFingerprint256(
     typeof certificate === "string" ? certificate : input.readCertificateFile(certificateFile as string),
   );
-  const targetUrl = (listener as Record<string, unknown>).targetUrl;
-  const proxyTarget =
-    targetUrl === undefined || (typeof targetUrl === "string" && new URL(targetUrl).origin === origin)
-      ? undefined
-      : validateProxyTarget(targetUrl);
+  const targetUrl = (listener as Record<string, unknown>).targetUrl,
+    proxyTarget = targetUrl === undefined ? undefined : validateProxyTarget(targetUrl, origin);
   return {
     origin,
     fingerprint256,
@@ -52,17 +49,25 @@ export function resolveLoginListenerTrust(input: {
   };
 }
 
-function validateProxyTarget(value: unknown): string {
+function validateProxyTarget(value: unknown, listenerOrigin: string): string | undefined {
   if (typeof value !== "string") throw new Error("The login listener proxy target must be a URL.");
   const target = new URL(value);
-  if (target.protocol !== "https:" || !["127.0.0.1", "localhost"].includes(target.hostname))
-    throw new Error("The login listener proxy target must be a loopback HTTPS URL.");
-  return target.toString();
+  if (target.protocol !== "https:" || target.username || target.password || target.port === "0")
+    throw new Error("The login listener proxy target must be an HTTPS URL without credentials and with a valid port.");
+  return target.origin === listenerOrigin ? undefined : target.toString();
 }
 
 /** The leaf is the first certificate in the file, which is the certificate the listener serves. */
 export function certificateFingerprint256(pem: string): string {
   return new X509Certificate(pem).fingerprint256;
+}
+
+export function matchesLoginCertificate(certificatePem: string, fingerprint256: string): boolean {
+  try {
+    return certificateFingerprint256(certificatePem) === fingerprint256;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -177,14 +182,10 @@ export function createLoginWebviewGrants(
     decideCertificateError: ({ webContentsId, url, certificatePem }) => {
       const record = [...grants.values()].find((grant) => grant.guestWebContentsIds.has(webContentsId));
       if (!record) return false;
-      try {
-        return (
-          new URL(url).origin === record.trust.origin &&
-          certificateFingerprint256(certificatePem) === record.trust.fingerprint256
-        );
-      } catch {
-        return false;
-      }
+      return (
+        URL.parse(url)?.origin === record.trust.origin &&
+        matchesLoginCertificate(certificatePem, record.trust.fingerprint256)
+      );
     },
   };
 }
