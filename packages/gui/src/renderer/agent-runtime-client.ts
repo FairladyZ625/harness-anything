@@ -102,7 +102,7 @@ export const agentRuntimeClient = {
   ): Promise<AgentRuntimeOverviewResult> => {
     const readPage = async (facets: { readonly limit?: number; readonly cursor?: string }) =>
       checked(
-        await requestGuiRead("repo.agentRuntime.overview", {
+        await invoke("repo.agentRuntime.overview", {
           repoId,
           ...(taskId ? { taskId } : {}),
           ...facets,

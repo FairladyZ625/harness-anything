@@ -1,6 +1,6 @@
 import { isRendererRecord, rendererReadError } from "./result-validation.ts";
 import type { GovernedEntityRow } from "./graph/governedEntities.ts";
-import { invoke, requestGuiRead } from "./api-client-invoke.ts";
+import { invoke } from "./api-client-invoke.ts";
 import type { DaemonGuiReadPayloadMap } from "@harness-anything/daemon/protocol";
 
 /**
@@ -120,7 +120,7 @@ export async function readGovernedEntityRows(
   repoId: string,
   scope: DaemonGuiReadPayloadMap["repo.entity.rows.read"] = {},
 ): Promise<readonly GovernedEntityRow[]> {
-  const result = await requestGuiRead("repo.entity.rows.read", { repoId, ...scope });
+  const result = await invoke("repo.entity.rows.read", { repoId, ...scope });
   if (!isRendererRecord(result) || result.schema !== "entity-row-list/v1" || !Array.isArray(result.rows))
     throw rendererReadError(result, "Entity row bridge returned an invalid result.");
   return result.rows as readonly GovernedEntityRow[];
