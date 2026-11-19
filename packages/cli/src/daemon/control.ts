@@ -387,7 +387,7 @@ async function fleetControl(
           ? "daemon-fleet-edge-sync"
           : repoint
             ? "daemon-fleet-edge-repoint"
-          : "daemon-fleet";
+            : "daemon-fleet";
   const flag = (name: string) => daemonOption(argv, name),
     reject = (errorCode: string, nextAction: string) => finish(daemonFailure(command, errorCode, nextAction), 2);
   if (status) return await fleetStatusControl(argv, userRoot, daemonId, finish);
