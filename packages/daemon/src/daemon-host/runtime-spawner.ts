@@ -16,9 +16,12 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { type AgentRuntimeEventV1, type CanonicalEventStore } from "@harness-anything/kernel";
 import {
+  clampPermissionMode,
+  resolveScheduledPermissionMode,
   runtimeDefinitionSnapshotArtifact,
   runtimeSessionIdFromActor,
   submissionDigest,
+  validRuntimeLaunchPermissionMode,
   type AuthorizationDecision,
   type RuntimePermissionModeSource,
 } from "@harness-anything/kernel";
@@ -705,7 +708,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                   ? agentRuntimeTargetForKind(agent.runtimes, runtimeInstance.kindId)?.effort
                   : undefined),
               configuredPermissionMode = runtimeInstance?.permissionMode ?? undefined,
-              declaredPermissionMode = permissionMode ?? agent?.permissionMode,
+              requestedDispatchPermissionMode = validRuntimeLaunchPermissionMode(permissionMode)
+                ? permissionMode
+                : undefined,
+              declaredPermissionMode =
+                permissionMode !== undefined && requestedDispatchPermissionMode === undefined
+                  ? permissionMode
+                  : clampPermissionMode(agent?.permissionMode, requestedDispatchPermissionMode),
               effectivePermissionMode = declaredPermissionMode ?? configuredPermissionMode,
               declaredMcpPolicy = mcpPolicy ?? agent?.mcpPolicy,
               effectiveMcpPolicy = runtimeInstance
@@ -933,7 +942,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       requestedPermissionMode =
         permissionMode === undefined ? null : (runtimePermissionMode(permissionMode, declaredKindId) ?? null),
       permissionModeSource: RuntimePermissionModeSource =
-        permissionMode !== undefined
+        permissionMode !== undefined &&
+        (agent?.permissionMode === undefined || launchedPermissionMode === requestedPermissionMode)
           ? "dispatch"
           : agent?.permissionMode !== undefined
             ? "agent"
@@ -1638,8 +1648,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         undefined,
         onPrepared,
       ),
-    spawnScheduled: (scheduled: TrustedScheduleSpawn, binding: RuntimeBinding) =>
-      spawnAttempt(
+    spawnScheduled: (scheduled: TrustedScheduleSpawn, binding: RuntimeBinding) => {
+      const agentPermissionMode = input.resolveAgent?.(scheduled.agentId)?.permissionMode,
+        scheduledPermissionMode = resolveScheduledPermissionMode({
+          ...(agentPermissionMode === undefined ? {} : { agentPermissionMode }),
+          scheduleDefault: "bypass",
+        });
+      return spawnAttempt(
         {
           agentId: scheduled.agentId,
           prompt: scheduled.mission,
@@ -1650,14 +1665,15 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               : { scope: "repo-relative", path: path.relative(input.rootDir, scheduled.cwd) },
           ...(scheduled.effort ? { effort: scheduled.effort } : {}),
           ...(scheduled.fast === undefined ? {} : { fast: scheduled.fast }),
-          // Narrower modes refuse every shell call headless; detect states its no-write boundary in the mission.
-          permissionMode: "bypass",
+          // Honor declared Agent ceilings; only undeclared scheduled Agents take the headless bypass default.
+          ...(agentPermissionMode === undefined ? { permissionMode: scheduledPermissionMode } : {}),
         },
         binding,
         undefined,
         scheduled,
         undefined,
-      ),
+      );
+    },
     /** The same trusted-schedule channel for a caller-assembled payload: a scheduled Squad run's
      * leader turns carry the squad decision protocol, so their spawn comes from the coordinator. */
     spawnScheduledCoordinated: (

@@ -944,3 +944,210 @@ test(
     }
   },
 );
+
+test("scheduled single-agent runs honor declared permissionMode ceilings across detect, remediate, and zcode fail-closed", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-schedule-perm-ceiling-"));
+  const preparedRequests: Array<{
+    readonly instanceId: string;
+    readonly permissionMode: string | undefined;
+    readonly prompt: string;
+  }> = [];
+  const exits = new Map<number, (code: number | null) => void>();
+  let nextPid = 4400;
+  let launchCount = 0;
+  try {
+    git(root, "init", "-q");
+    git(root, "config", "user.name", "Schedule Permission Test");
+    git(root, "config", "user.email", "schedule-perm@example.invalid");
+    git(root, "commit", "--allow-empty", "-qm", "base");
+    const cell = await openRepoCell({
+      repoId: workspaceId("schedule-perm-ceiling"),
+      rootDir: canonicalRoot(root),
+      ownerId: "schedule-perm-test",
+      keycloakSession: async () => actor.keycloakAuthorization!.session!,
+      runtimeDaemonRoute: {
+        userRoot: path.join(root, ".daemon"),
+        daemonId: "schedule-perm-test",
+        endpoint: path.join(root, ".daemon", "daemon.sock"),
+      },
+      runtimeInstances: () => [
+        {
+          schemaVersion: 2,
+          instanceId: definition.instanceId,
+          name: "Schedule Codex Bypass",
+          kindId: definition.kindId,
+          installationId: definition.installationId,
+          providerId: definition.providerId,
+          models: [definition.model],
+          defaultModel: definition.model,
+          enabled: true,
+          permissionMode: "bypass",
+          codex: {},
+          authMode: definition.authMode,
+          authState: "configured",
+          authReadiness: { status: "ready", code: null, hint: null },
+          isolationState: "enforced",
+        },
+        {
+          schemaVersion: 2,
+          instanceId: "zcode-schedule",
+          name: "Schedule ZCode",
+          kindId: "zcode",
+          installationId: "installation-zcode",
+          providerId: "zai",
+          models: ["glm-5"],
+          defaultModel: "glm-5",
+          enabled: true,
+          permissionMode: "bypass",
+          zcode: {},
+          authMode: "subscription",
+          authState: "configured",
+          authReadiness: { status: "ready", code: null, hint: null },
+          isolationState: "enforced",
+        },
+      ],
+      prepareRuntimeLaunch: async (instanceId, request) => {
+        preparedRequests.push({ instanceId, permissionMode: request.permissionMode, prompt: request.prompt });
+        const isZcode = instanceId === "zcode-schedule";
+        return {
+          definition: isZcode
+            ? {
+                ...definition,
+                instanceId,
+                kindId: "zcode",
+                installationId: "installation-zcode",
+                providerId: "zai",
+                model: "glm-5",
+              }
+            : definition,
+          installation: {
+            installationId: isZcode ? "installation-zcode" : definition.installationId,
+            kindId: isZcode ? "zcode" : definition.kindId,
+            executablePath: isZcode ? "/opt/test/zcode" : "/opt/test/codex",
+            version: "1.0.0",
+            observedAt: "2026-08-26T00:00:00.000Z",
+          },
+          executablePath: isZcode ? "/opt/test/zcode" : "/opt/test/codex",
+          args: [],
+          env: {},
+          cwd: request.cwd,
+          prompt: request.prompt,
+        };
+      },
+      runtimeLaunch: () => {
+        launchCount += 1;
+        const pid = nextPid++;
+        return {
+          pid,
+          onOutput: () => undefined,
+          onErrorOutput: () => undefined,
+          onExit: (listener) => {
+            exits.set(pid, listener);
+          },
+          terminate: () => undefined,
+        };
+      },
+    });
+    try {
+      for (const [id, permissionMode, instanceId, runtimeType] of [
+        ["readonly-codex", "read-only", definition.instanceId, "codex"],
+        ["workspace-codex", "workspace-write", definition.instanceId, "codex"],
+        ["readonly-zcode", "read-only", "zcode-schedule", "zcode"],
+      ] as const) {
+        const installed = await cell.run(
+          {
+            kind: "agent-install",
+            declaration: {
+              schema: "agent-declaration/v1",
+              id,
+              name: id,
+              instructions: "Respect declared permissionMode ceiling.",
+              runtimes: [{ type: runtimeType }],
+              instance: instanceId,
+              permissionMode,
+            },
+          },
+          actor,
+        );
+        assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+      }
+
+      for (const [index, entry] of [
+        { scheduleId: "ro-detect", mode: "detect", agentId: "readonly-codex", expected: "read-only" },
+        { scheduleId: "ro-remediate", mode: "remediate", agentId: "readonly-codex", expected: "read-only" },
+        { scheduleId: "ws-remediate", mode: "remediate", agentId: "workspace-codex", expected: "workspace-write" },
+      ].entries()) {
+        const created = await cell.run(
+          {
+            kind: "schedule-create",
+            scheduleId: entry.scheduleId,
+            name: entry.scheduleId,
+            mode: entry.mode,
+            everyMs: 300_000,
+            agentId: entry.agentId,
+            mission: `Run ${entry.scheduleId}.`,
+            idempotencyKey: `create-${entry.scheduleId}`,
+          },
+          actor,
+        );
+        assert.equal(created.outcome, "applied", JSON.stringify(created));
+        const started = await cell.run(
+          { kind: "schedule-run-now", scheduleId: entry.scheduleId, idempotencyKey: `run-${entry.scheduleId}` },
+          actor,
+        );
+        assert.equal(started.outcome, "applied", JSON.stringify(started));
+        const prepared = preparedRequests[index]!;
+        assert.equal(prepared.permissionMode, entry.expected, `${entry.scheduleId} preparedPermissionMode`);
+        const activeRun = (
+          started as unknown as {
+            readonly schedule: { readonly status: { readonly activeRun: { readonly runtimeSessionId: string } } };
+          }
+        ).schedule.status.activeRun;
+        const { session } = await cell.read("repo.agentRuntime.sessions.read", {
+          runtimeSessionId: activeRun.runtimeSessionId,
+        });
+        assert.equal(session?.effectivePermissionMode, entry.expected);
+        assert.equal(session?.permissionModeSource, "agent");
+        if (entry.expected === "read-only") assert.match(prepared.prompt, /# Read-only Dispatch Contract/u);
+      }
+      assert.equal(launchCount, 3);
+
+      const zcodeCreated = await cell.run(
+        {
+          kind: "schedule-create",
+          scheduleId: "ro-zcode-detect",
+          name: "ZCode Read-only Detect",
+          mode: "detect",
+          everyMs: 300_000,
+          agentId: "readonly-zcode",
+          mission: "Fail closed instead of silently widening to bypass.",
+          idempotencyKey: "create-ro-zcode-detect",
+        },
+        actor,
+      );
+      assert.equal(zcodeCreated.outcome, "applied", JSON.stringify(zcodeCreated));
+      const zcodeRun = (await cell.run(
+        { kind: "schedule-run-now", scheduleId: "ro-zcode-detect", idempotencyKey: "run-ro-zcode-detect" },
+        actor,
+      )) as unknown as {
+        readonly outcome: string;
+        readonly code?: string;
+        readonly schedule: {
+          readonly status: {
+            readonly activeRun: unknown;
+            readonly lastRun: { readonly outcome: string; readonly detail?: string } | null;
+          };
+        };
+      };
+      assert.equal(launchCount, 3, "zcode must fail closed before launching a process");
+      assert.equal(zcodeRun.code, "zcode_unattended_permission_mode_unsupported");
+      assert.equal(zcodeRun.schedule.status.activeRun, null);
+      assert.equal(zcodeRun.schedule.status.lastRun?.outcome, "failed");
+      assert.match(zcodeRun.schedule.status.lastRun?.detail ?? "", /zcode_unattended_permission_mode_unsupported/u);
+    } finally {
+      await cell.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

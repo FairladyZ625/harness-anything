@@ -246,7 +246,8 @@ async function dispatchClaimedReceipt(
     linkDispatch: (linked) => runInternal({ kind: "schedule-dispatch-link", ...linked }, binding),
     settleFailure: (failed) => runInternal({ kind: "schedule-settle", ...failed }, binding),
   });
-  if (dispatched.kind === "spawn-failed") return { ...dispatched.receipt, code: "schedule_dispatch_failed" };
+  if (dispatched.kind === "spawn-failed")
+    return { ...dispatched.receipt, code: scheduleDispatchFailureCode(dispatched.error) };
   if (dispatched.kind === "spawn-unapplied")
     return {
       ...dispatched.receipt,
@@ -477,7 +478,7 @@ export async function dispatchClaimedSchedule<
         claimFence: active.claimFence,
         outcome: "failed",
         endedAt: input.now(),
-        detail: [error instanceof Error ? error.message : String(error), cleanup.detail].filter(Boolean).join(" "),
+        detail: [codedScheduleDispatchError(error), cleanup.detail].filter(Boolean).join(" "),
         idempotencyKey: `${input.idempotencyKey}:dispatch-failed`,
       });
       return { kind: "spawn-failed", error, receipt } as const;
@@ -529,7 +530,7 @@ export async function dispatchClaimedSchedule<
       claimFence: active.claimFence,
       outcome: "failed",
       endedAt: input.now(),
-      detail: [error instanceof Error ? error.message : String(error), cleanup.detail].filter(Boolean).join(" "),
+      detail: [codedScheduleDispatchError(error), cleanup.detail].filter(Boolean).join(" "),
       idempotencyKey: `${input.idempotencyKey}:dispatch-failed`,
     });
     return { kind: "spawn-failed", error, receipt } as const;
@@ -548,6 +549,26 @@ export async function dispatchClaimedSchedule<
       idempotencyKey: `${input.idempotencyKey}:dispatch`,
     });
   return { kind: "linked", receipt, dispatchId, runtimeSessionId } as const;
+}
+
+function dispatchErrorCode(error: unknown): string | null {
+  return error !== null &&
+    typeof error === "object" &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    error.code.length > 0
+    ? error.code
+    : null;
+}
+
+function scheduleDispatchFailureCode(error: unknown): string {
+  return dispatchErrorCode(error) ?? "schedule_dispatch_failed";
+}
+
+function codedScheduleDispatchError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error),
+    code = dispatchErrorCode(error);
+  return code && !message.includes(code) ? `${code}: ${message}` : message;
 }
 
 function resolveScheduleAction(rootDir: string, action: RepoTaskAction): RepoTaskAction {

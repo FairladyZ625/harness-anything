@@ -579,3 +579,146 @@ test("historical runtime_dispatch_requested without permission fields projects a
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("dispatch overrides and scheduled Squads never exceed declared Agent permissionMode ceilings", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-perm-ceiling-"));
+  const repoId = workspaceId("perm-ceiling");
+  const owner = withPolicyGroup(
+    { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" as const },
+    "admin",
+  );
+  const installation: RuntimeInstallationWitness = {
+    installationId: "installation-codex",
+    kindId: "codex",
+    executablePath: "/opt/witnessed/codex",
+    version: "1.0.0",
+    observedAt: "2026-11-18T00:00:00.000Z",
+  };
+  const preparedModes: Array<{ readonly prompt: string; readonly permissionMode: string | undefined }> = [];
+  try {
+    initGitRepo(root);
+    const cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(root),
+      ownerId: "perm-ceiling-owner",
+      runtimeDaemonRoute: {
+        userRoot: path.join(root, ".daemon-user-root"),
+        daemonId: "perm-ceiling",
+        endpoint: path.join(root, ".daemon.sock"),
+      },
+      runtimeInstances: () => [makeInstance("inst-bypass", "bypass")],
+      prepareRuntimeLaunch: (instanceId, request) => {
+        preparedModes.push({ prompt: request.prompt, permissionMode: request.permissionMode });
+        return {
+          definition: makeDefinition(instanceId),
+          installation,
+          protocolFamily: "codex",
+          executablePath: installation.executablePath,
+          args: ["exec", "--json", "-"],
+          env: {},
+          cwd: request.cwd,
+          prompt: request.prompt,
+        };
+      },
+      runtimeLaunch: () => ({
+        pid: 125,
+        onOutput: () => undefined,
+        onErrorOutput: () => undefined,
+        onExit: () => undefined,
+        terminate: () => undefined,
+      }),
+    });
+    try {
+      await installOrUpdateAgent(cell, owner, "ro-leader", "inst-bypass", "read-only");
+      await installOrUpdateAgent(cell, owner, "ro-worker", "inst-bypass", "read-only");
+      await installOrUpdateAgent(cell, owner, "bypass-leader", "inst-bypass", "bypass");
+
+      const directClamped = await cell.spawnRuntime(
+        {
+          agentId: "ro-leader",
+          cwd: { scope: "repo-root" },
+          prompt: "Attempt bypass escalation on read-only agent.",
+          permissionMode: "bypass",
+          dispatchKey: "direct-clamped-bypass",
+        },
+        owner,
+      );
+      assert.equal(directClamped.outcome, "applied", JSON.stringify(directClamped));
+      assert.equal(preparedModes.at(-1)?.permissionMode, "read-only");
+      const directSession = await rpcCall(cell, repoId, "repo.agentRuntime.sessions.read", {
+        runtimeSessionId: String(directClamped.runtimeSessionId),
+      });
+      assert.equal((directSession.session as Record<string, unknown>).effectivePermissionMode, "read-only");
+      assert.equal((directSession.session as Record<string, unknown>).requestedPermissionMode, "bypass");
+      assert.equal((directSession.session as Record<string, unknown>).permissionModeSource, "agent");
+
+      for (const [squadId, leader, workers] of [
+        ["ro-squad", "ro-leader", ["ro-worker"]],
+        ["open-squad", "bypass-leader", ["ro-worker"]],
+      ] as const) {
+        const installedSquad = await cell.run(
+          {
+            kind: "squad-install",
+            declaration: {
+              schema: "squad-declaration/v1",
+              id: squadId,
+              name: squadId,
+              leader,
+              workers: [...workers],
+              leaderTurnBudget: 2,
+              roster: "Observe and report.",
+            },
+          },
+          owner,
+        );
+        assert.equal(installedSquad.outcome, "applied", JSON.stringify(installedSquad));
+      }
+
+      const remediateSquadSchedule = await cell.run(
+        {
+          kind: "schedule-create",
+          scheduleId: "squad-ro-remediate",
+          name: "Squad RO Remediate",
+          mode: "remediate",
+          everyMs: 300_000,
+          squadId: "ro-squad",
+          mission: "Honor read-only leader ceiling in remediate.",
+          idempotencyKey: "create-squad-ro-remediate",
+        },
+        owner,
+      );
+      assert.equal(remediateSquadSchedule.outcome, "applied", JSON.stringify(remediateSquadSchedule));
+      const remediateStarted = await cell.run(
+        { kind: "schedule-run-now", scheduleId: "squad-ro-remediate", idempotencyKey: "run-squad-ro-remediate" },
+        owner,
+      );
+      assert.equal(remediateStarted.outcome, "applied", JSON.stringify(remediateStarted));
+      assert.equal(preparedModes.at(-1)?.permissionMode, "read-only");
+
+      const detectSquadSchedule = await cell.run(
+        {
+          kind: "schedule-create",
+          scheduleId: "squad-bypass-detect",
+          name: "Squad Bypass Detect",
+          mode: "detect",
+          everyMs: 300_000,
+          squadId: "open-squad",
+          mission: "Detect clamps bypass leader to read-only.",
+          idempotencyKey: "create-squad-bypass-detect",
+        },
+        owner,
+      );
+      assert.equal(detectSquadSchedule.outcome, "applied", JSON.stringify(detectSquadSchedule));
+      const detectStarted = await cell.run(
+        { kind: "schedule-run-now", scheduleId: "squad-bypass-detect", idempotencyKey: "run-squad-bypass-detect" },
+        owner,
+      );
+      assert.equal(detectStarted.outcome, "applied", JSON.stringify(detectStarted));
+      assert.equal(preparedModes.at(-1)?.permissionMode, "read-only");
+    } finally {
+      await cell.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
