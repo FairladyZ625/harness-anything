@@ -19,6 +19,7 @@ import {
 import { canonicalLedgerCut } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
 import { resolveLedgerGitLayout, ledgerAuthoredPath, ledgerGitPath } from "./ledger-git-layout.ts";
 import {
+  alignFollowerIndex,
   localGitObjectRefStore,
   localGitObjectRefStoreAsync,
   localGitWorktreeSettlement,
@@ -93,13 +94,21 @@ export function publishConvertedGeneration(input: {
   const { revision, cut, files, directories, checkpoint } = snapshot,
     baseline = captureConversionBaseline(input.rootInput, ledger.rootDir, parent, files),
     commit = publishFollowerCut(ledger.rootDir, authoredRef, parent, checkpoint, cut, files);
-  localGitWorktreeSettlement.index(ledger.rootDir, files);
   if (
     !worktreeMatchesBaseline(ledger.rootDir, baseline, files) ||
     settleWorktree(layout, ledger.rootDir, files, baseline).conflicts.length > 0
   )
     throw new TaskEventStoreError("publication_indeterminate", "authored worktree has concurrent edits");
   settleWorktreeDirectories(ledger.rootDir, directories);
+  alignFollowerIndex({
+    repoRoot: ledger.rootDir,
+    authoredRef,
+    authoredPrefix: ledger.authoredPrefix,
+    head: commit,
+    previous: commit === parent ? `${commit}^` : parent,
+    ...(commit === parent ? { visibility: files } : {}),
+    retiredLegacyPaths: new Set(retiredLegacy.map((file) => file.delete)),
+  });
   return { commitSha: commit, revision, changed: commit !== parent };
 }
 
@@ -648,7 +657,7 @@ export function captureConversionBaseline(
   parent: string,
   files: readonly PublicationFile[],
 ): ReadonlyMap<string, string> {
-  const baseline = new Map(captureGitBaseline(repoRoot, parent, files));
+  const baseline = new Map(captureGitBaseline(repoRoot, parent, files).worktree);
   const drafts: { path: string; mode: string | null; sha256: string | null; preservedPath: string | null }[] = [];
   for (const file of files) {
     const target = "target" in file ? file.target : "delete" in file ? file.delete : null;
@@ -709,11 +718,12 @@ function buildBaselineFromTree(
   );
 }
 
-export function captureGitBaseline(
-  repoRoot: string,
-  commit: string,
-  files: readonly PublicationFile[],
-): ReadonlyMap<string, string> {
+type GitBaseline = {
+  readonly worktree: ReadonlyMap<string, string>;
+  readonly tree: ReadonlyMap<string, { readonly mode: string; readonly oid: string }>;
+};
+
+export function captureGitBaseline(repoRoot: string, commit: string, files: readonly PublicationFile[]): GitBaseline {
   const targets = gitBaselineTargets(files),
     tree = new Map(
       localGitObjectRefStore.listTree(repoRoot, commit, targets).map((entry) => [entry.target, entry] as const),
@@ -726,14 +736,14 @@ export function captureGitBaseline(
         return entry ? [{ target, size: entry.size, oid: entry.oid }] : [];
       }),
     );
-  return buildBaselineFromTree(targets, tree, bodies);
+  return { worktree: buildBaselineFromTree(targets, tree, bodies), tree };
 }
 
 export async function captureGitBaselineAsync(
   repoRoot: string,
   commit: string,
   files: readonly PublicationFile[],
-): Promise<ReadonlyMap<string, string>> {
+): Promise<GitBaseline> {
   const targets = gitBaselineTargets(files),
     tree = new Map(
       (await localGitObjectRefStoreAsync.listTree(repoRoot, commit, targets)).map(
@@ -748,7 +758,7 @@ export async function captureGitBaselineAsync(
         return entry ? [{ target, size: entry.size, oid: entry.oid }] : [];
       }),
     );
-  return buildBaselineFromTree(targets, tree, bodies);
+  return { worktree: buildBaselineFromTree(targets, tree, bodies), tree };
 }
 
 export function worktreeMatchesBaseline(

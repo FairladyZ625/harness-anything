@@ -158,6 +158,8 @@ export interface RepoCellAutoClaimAssignment {
 }
 
 export interface RepoCellBinding {
+  /** Git candidate names observed before entering the local document write turn. */
+  readonly observedDocGitPaths?: readonly string[] | null;
   /** Worker-local session lifetime; stripped at every transport/persistence boundary. */
   readonly retainAuthorization?: () => () => void;
   /** Daemon-established node identity for references to host-local files; never accepted from the Action. */

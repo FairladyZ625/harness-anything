@@ -62,6 +62,7 @@ export type PostgresTaskEventStoreRequest =
     }
   | { readonly operation: "head" }
   | { readonly operation: "document-paths"; readonly paths: readonly string[] }
+  | { readonly operation: "document-retirement-revision"; readonly path: string }
   | { readonly operation: "prune"; readonly beforeSequence: number; readonly writerFence: PostgresWriterFence }
   | { readonly operation: "stream" }
   | { readonly operation: "batch"; readonly cursor: string | null; readonly maxItems: number }
@@ -203,6 +204,8 @@ export function makePostgresTaskEventStore(options: PostgresTaskEventCapabilityO
         );
       case "head":
         return readHead();
+      case "document-retirement-revision":
+        return (await executePostgresRead(pool, scope, request.operation, { ...request, repoId })) as number | null;
       case "entity-declarations":
         return withPostgresTransaction(
           pool,

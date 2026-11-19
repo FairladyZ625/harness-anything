@@ -1,7 +1,8 @@
 import { commandInterceptionNeedsFiles } from "./runtime-command-interception-files.ts";
 import { isNonEmptyString } from "@harness-anything/kernel/internal/domain/contract-validation.ts";
 import { commandInterceptionHook, type CommandInterceptions } from "./runtime-command-interceptions.ts";
-import { existsSync, readFileSync } from "node:fs";
+import { isUtf8 } from "node:buffer";
+import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { commandInterceptionIssues, consumeKnownError } from "@harness-anything/kernel";
 import {
@@ -117,6 +118,213 @@ export function launchEnvironment(
   };
 }
 
+export const maxLinkedWorktreeGitMetadataBytes = 4096;
+
+const ignorableGitMetadataErrorCodes = new Set([
+  "EACCES",
+  "EINVAL",
+  "EISDIR",
+  "ELOOP",
+  "ENAMETOOLONG",
+  "ENOENT",
+  "ENOTDIR",
+  "ENXIO",
+  "EPERM",
+]);
+
+export interface LinkedWorktreeGitMetadataFs {
+  readonly lstatSync: (
+    path: string,
+    options: { readonly throwIfNoEntry: false },
+  ) =>
+    | {
+        readonly isDirectory: () => boolean;
+        readonly isFile: () => boolean;
+        readonly isSymbolicLink: () => boolean;
+        readonly size: number;
+      }
+    | undefined;
+  readonly statSync: (
+    path: string,
+    options: { readonly throwIfNoEntry: false },
+  ) => { readonly isDirectory: () => boolean } | undefined;
+  readonly readFileSync: (path: string) => Uint8Array;
+  readonly realpathSync: (path: string) => string;
+}
+
+const defaultGitMetadataFs: LinkedWorktreeGitMetadataFs = {
+  lstatSync,
+  statSync,
+  readFileSync,
+  realpathSync: realpathSync.native,
+};
+
+function isIgnorableGitMetadataError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof (error as { readonly code?: unknown }).code === "string" &&
+    ignorableGitMetadataErrorCodes.has((error as { readonly code: string }).code)
+  );
+}
+
+function boundedRegularFileSize(filePath: string, fs: LinkedWorktreeGitMetadataFs): number | null {
+  if (!filePath || filePath.includes("\0")) return null;
+  const entry = fs.lstatSync(filePath, { throwIfNoEntry: false });
+  if (entry === undefined || !entry.isFile() || entry.isSymbolicLink()) return null;
+  return entry.size > 0 && entry.size <= maxLinkedWorktreeGitMetadataBytes ? entry.size : null;
+}
+
+function readBoundedSingleLineFile(filePath: string, fs: LinkedWorktreeGitMetadataFs): string | null {
+  if (boundedRegularFileSize(filePath, fs) === null) return null;
+  const bytes = Buffer.from(fs.readFileSync(filePath));
+  if (
+    bytes.byteLength === 0 ||
+    bytes.byteLength > maxLinkedWorktreeGitMetadataBytes ||
+    bytes.includes(0) ||
+    !isUtf8(bytes)
+  )
+    return null;
+  const line = bytes
+    .toString("utf8")
+    .replace(/\r?\n$/u, "")
+    .trim();
+  if (!line || /[\r\n\0]/u.test(line)) return null;
+  return line;
+}
+
+function realDirectoryPath(directoryPath: string, fs: LinkedWorktreeGitMetadataFs): string | null {
+  if (!directoryPath || directoryPath.includes("\0")) return null;
+  if (fs.statSync(directoryPath, { throwIfNoEntry: false })?.isDirectory() !== true) return null;
+  const resolved = fs.realpathSync(directoryPath);
+  return fs.statSync(resolved, { throwIfNoEntry: false })?.isDirectory() === true ? resolved : null;
+}
+
+function realNonSymlinkDirectoryPath(directoryPath: string, fs: LinkedWorktreeGitMetadataFs): string | null {
+  if (!directoryPath || directoryPath.includes("\0")) return null;
+  const normalized = path.resolve(directoryPath),
+    entry = fs.lstatSync(normalized, { throwIfNoEntry: false });
+  if (entry === undefined || !entry.isDirectory() || entry.isSymbolicLink()) return null;
+  const resolved = fs.realpathSync(normalized);
+  return fs.statSync(resolved, { throwIfNoEntry: false })?.isDirectory() === true ? resolved : null;
+}
+
+function realBoundedRegularFilePath(filePath: string, fs: LinkedWorktreeGitMetadataFs): string | null {
+  if (boundedRegularFileSize(filePath, fs) === null) return null;
+  const resolved = fs.realpathSync(filePath);
+  return boundedRegularFileSize(resolved, fs) === null ? null : resolved;
+}
+
+function isPathWithinOrEqual(parent: string, candidate: string): boolean {
+  const relative = path.relative(parent, candidate);
+  return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+function isGitCommonDirectory(directoryPath: string, fs: LinkedWorktreeGitMetadataFs): boolean {
+  return (
+    path.basename(directoryPath) === ".git" &&
+    fs.lstatSync(path.join(directoryPath, ".git"), { throwIfNoEntry: false }) === undefined &&
+    boundedRegularFileSize(path.join(directoryPath, "HEAD"), fs) !== null &&
+    realNonSymlinkDirectoryPath(path.join(directoryPath, "objects"), fs) !== null &&
+    realNonSymlinkDirectoryPath(path.join(directoryPath, "refs"), fs) !== null &&
+    realNonSymlinkDirectoryPath(path.join(directoryPath, "worktrees"), fs) !== null
+  );
+}
+
+function findEnclosingGitRoot(realCwd: string, fs: LinkedWorktreeGitMetadataFs): string | null {
+  let cursor = path.dirname(realCwd);
+  for (;;) {
+    if (fs.lstatSync(path.join(cursor, ".git"), { throwIfNoEntry: false }) !== undefined) return cursor;
+    const parent = path.dirname(cursor);
+    if (parent === cursor) return null;
+    cursor = parent;
+  }
+}
+
+function uniqueNonEmptyPaths(paths: readonly string[]): readonly string[] {
+  const seen = new Set<string>();
+  for (const candidate of paths) {
+    const trimmed = candidate.trim();
+    if (trimmed) seen.add(trimmed);
+  }
+  return [...seen];
+}
+
+/**
+ * Resolve external metadata directories (`gitdir` and `commondir`) for a linked Git worktree
+ * so Codex `workspace-write` can write `index.lock`, refs, and objects without opening the
+ * canonical parent worktree. When `repoRoot` is supplied, `commondir` must match `<repoRoot>/.git`
+ * and `gitdir` must live directly under `<commondir>/worktrees/<name>`; without `repoRoot`,
+ * `commondir` must still be a pure `.git` directory whose parent repository directly encloses `cwd`.
+ * Non-git directories, single-checkout `.git/` directories inside `cwd`, oversized (> 4096B) or
+ * unreadable metadata files, and out-of-bounds pointers fail closed to `[]`.
+ */
+export function resolveLinkedWorktreeGitRoots(
+  cwd: string,
+  repoRoot?: string,
+  fs: LinkedWorktreeGitMetadataFs = defaultGitMetadataFs,
+): readonly string[] {
+  if (!cwd || cwd.includes("\0") || !path.isAbsolute(cwd)) return [];
+  if (repoRoot !== undefined && (!repoRoot || repoRoot.includes("\0") || !path.isAbsolute(repoRoot))) return [];
+  try {
+    const realCwd = realDirectoryPath(cwd, fs);
+    if (!realCwd) return [];
+    let trustedCommonDir: string | null = null;
+    if (repoRoot !== undefined) {
+      const realRepoRoot = realDirectoryPath(repoRoot, fs);
+      if (!realRepoRoot || realRepoRoot === realCwd) return [];
+      trustedCommonDir = realNonSymlinkDirectoryPath(path.join(realRepoRoot, ".git"), fs);
+      if (
+        !trustedCommonDir ||
+        path.dirname(trustedCommonDir) !== realRepoRoot ||
+        !isGitCommonDirectory(trustedCommonDir, fs)
+      )
+        return [];
+    }
+    const realDotGit = realBoundedRegularFilePath(path.join(realCwd, ".git"), fs);
+    if (!realDotGit || path.dirname(realDotGit) !== realCwd) return [];
+    const dotGitLine = readBoundedSingleLineFile(realDotGit, fs);
+    if (!dotGitLine) return [];
+    const gitdirPointer = /^gitdir:\s*(.+)$/u.exec(dotGitLine)?.[1]?.trim();
+    if (!gitdirPointer) return [];
+    const realGitDir = realNonSymlinkDirectoryPath(path.resolve(realCwd, gitdirPointer), fs);
+    if (!realGitDir || boundedRegularFileSize(path.join(realGitDir, "HEAD"), fs) === null) return [];
+    const commonPointer = readBoundedSingleLineFile(path.join(realGitDir, "commondir"), fs);
+    if (!commonPointer) return [];
+    const realCommonDir = realNonSymlinkDirectoryPath(path.resolve(realGitDir, commonPointer), fs);
+    if (!realCommonDir || !isGitCommonDirectory(realCommonDir, fs)) return [];
+    if (trustedCommonDir !== null) {
+      if (realCommonDir !== trustedCommonDir) return [];
+    } else {
+      const ownerRepoRoot = path.dirname(realCommonDir);
+      if (
+        ownerRepoRoot === realCommonDir ||
+        realCwd === ownerRepoRoot ||
+        findEnclosingGitRoot(realCwd, fs) !== ownerRepoRoot
+      )
+        return [];
+    }
+    if (isPathWithinOrEqual(realCommonDir, realCwd) || isPathWithinOrEqual(realGitDir, realCwd)) return [];
+    // A real linked worktree's administrative directory always lives directly under
+    // `<commondir>/worktrees/<name>` and records a `gitdir` backlink to `<cwd>/.git`.
+    const realWorktreesDir = realNonSymlinkDirectoryPath(path.join(realCommonDir, "worktrees"), fs);
+    if (!realWorktreesDir || path.dirname(realGitDir) !== realWorktreesDir) return [];
+    const backlinkPointer = readBoundedSingleLineFile(path.join(realGitDir, "gitdir"), fs);
+    if (!backlinkPointer) return [];
+    const realBacklink = realBoundedRegularFilePath(path.resolve(realGitDir, backlinkPointer), fs);
+    if (realBacklink !== realDotGit) return [];
+    const roots: string[] = [];
+    for (const candidate of [realGitDir, realCommonDir]) {
+      if (!isPathWithinOrEqual(realCwd, candidate) && !roots.includes(candidate)) roots.push(candidate);
+    }
+    return roots;
+  } catch (error) {
+    if (!isIgnorableGitMetadataError(error)) throw error;
+    return [];
+  }
+}
+
 export function launchArgs(
   config: RuntimeInstanceConfig,
   model: string,
@@ -130,6 +338,7 @@ export function launchArgs(
   commandInterceptions: CommandInterceptions = [],
   commandInterceptionArgs: readonly string[] = [],
   mcpPolicy: RuntimeMcpPolicy | undefined = undefined,
+  writableRoots: readonly string[] = [],
 ): string[] {
   // Never trust a literal caller: a persisted tier is re-validated here as well as on the
   // write path, so a hand-edited instance file cannot enable hosted search on a provider
@@ -158,7 +367,9 @@ export function launchArgs(
     permission = permissionMode
       ? ((providerSessionId ? launch.resumePermissionArgs : undefined)?.[permissionMode] ??
         launch.permissionArgs[permissionMode])
-      : [];
+      : [],
+    codexWritableRoots =
+      config.kindId === "codex" && permissionMode === "workspace-write" ? uniqueNonEmptyPaths(writableRoots) : [];
   if (commandInterceptions.length && declaration.capabilities.commandInterception !== "supported")
     throw runtimeInstanceError(
       "runtime_command_interception_unsupported",
@@ -221,8 +432,16 @@ export function launchArgs(
     if (token === "$prompt") return [prompt];
     // A CLI --sandbox override selects Codex's legacy policy and discards named profiles.
     // The callback profile replaces that block for both fresh and resumed launches.
-    if (token === "$permission")
-      return config.kindId === "codex" && callbackRelayPath && callbackProfileParent ? [] : permission;
+    if (token === "$permission") {
+      if (config.kindId === "codex" && callbackRelayPath && callbackProfileParent) return [];
+      return codexWritableRoots.length > 0
+        ? [
+            ...permission,
+            "--config",
+            `sandbox_workspace_write.writable_roots=[${codexWritableRoots.map(tomlString).join(",")}]`,
+          ]
+        : permission;
+    }
     if (token === "$callback-relay-socket")
       // Exact socket rules require Codex's managed proxy; an empty domain allowlist
       // keeps ordinary network access denied rather than enabling direct networking.
@@ -233,7 +452,14 @@ export function launchArgs(
             "--config",
             `permissions.harness-callback-relay.extends=${tomlString(callbackProfileParent)}`,
             ...(permissionMode === "workspace-write"
-              ? ["--config", 'permissions.harness-callback-relay.filesystem={":slash_tmp"="deny",":tmpdir"="deny"}']
+              ? [
+                  "--config",
+                  `permissions.harness-callback-relay.filesystem={${[
+                    '":slash_tmp"="deny"',
+                    '":tmpdir"="deny"',
+                    ...codexWritableRoots.map((root) => `${tomlString(root)}="write"`),
+                  ].join(",")}}`,
+                ]
               : []),
             "--config",
             "features.network_proxy=true",

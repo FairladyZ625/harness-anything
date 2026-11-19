@@ -80,6 +80,7 @@ import {
   launchArgs,
   launchEnvironment,
   providerSubscriptionReadiness,
+  resolveLinkedWorktreeGitRoots,
 } from "./agent-runtime-launch-config.ts";
 import {
   resolveRuntimeMcpPolicy,
@@ -811,6 +812,10 @@ export function openRuntimeInstanceStore(input: {
               path.join(instancesRoot, config.instanceId, "hooks", requiredRuntimeSessionId(request.runtimeSessionId)),
             )
           : null,
+      codexWritableRoots =
+        config.kindId === "codex" && permissionMode === "workspace-write"
+          ? resolveLinkedWorktreeGitRoots(request.cwd, request.repoRoot)
+          : [],
       args = launchArgs(
         config,
         model,
@@ -824,6 +829,7 @@ export function openRuntimeInstanceStore(input: {
         request.commandInterceptions,
         nativeInterceptionFiles?.args,
         mcpPolicy,
+        codexWritableRoots,
       ),
       definition = definitionSnapshot(config, model, effort, fast, mcpPolicy),
       // ACP agents take the model through the session handshake (a configOptions selector),

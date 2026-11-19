@@ -175,6 +175,7 @@ export interface SqliteEventStore {
     documentPath: string,
     includeTerminalPreimage?: boolean,
   ) => SqliteDocumentHead | "retired" | undefined;
+  readonly readDocumentRetirementRevision: (documentPath: string) => number | null;
   readonly directoryClaims: () => readonly NonNullable<
     ReturnType<
       typeof import("@harness-anything/kernel/internal/ports/canonical-document-claims.ts").canonicalOwnedDirectories

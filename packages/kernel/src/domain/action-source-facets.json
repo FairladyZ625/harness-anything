@@ -809,12 +809,12 @@
         "role": "support"
       },
       {
-        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-system.ts#gitBlobOidBytes:812a9aec8f696d1fbc70e065f9227005",
+        "candidateId": "action:packages/storage:packages/storage/src/store/git-follower-index.ts#gitBlobOid:e4e835551478e2c37cc6041e347924ee",
         "route": "repository-read",
         "role": "support"
       },
       {
-        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-system.ts#gitBlobOidBytes:f5f96c3e99c5a146a95626f18159dea2",
+        "candidateId": "action:packages/storage:packages/storage/src/store/git-follower-index.ts#gitBlobOid:70dfa0cd572587a4158a30f122c96156",
         "route": "repository-read",
         "role": "support"
       },
@@ -6131,6 +6131,12 @@
         "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgTaskQueryReader.executeCanonical"
       },
       {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.readDocumentRetirementRevision:a7fa7cda6400b334953bd2d3113b9e07",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgTaskQueryReader.executeCanonical"
+      },
+      {
         "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.queryEvents:73bfb3f8aba2319eaa9741a8ddce8bb2",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -6801,12 +6807,6 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/storage/src/store/local-version-control-system.ts#localGitWorktreeSettlement.deleteVisible.remove"
-      },
-      {
-        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-system.ts#localGitWorktreeSettlement.index:386acfac256b11365f3a27a84cfcc8a9",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/storage/src/store/local-version-control-system.ts#localGitWorktreeSettlement.index.publish"
       },
       {
         "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-system.ts#removeNode:006fcbc69a35b6efbfd9e12f1165999c",

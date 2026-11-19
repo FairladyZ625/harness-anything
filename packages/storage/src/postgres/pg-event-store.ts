@@ -73,6 +73,7 @@ export type PostgresReadOperation =
   | "head"
   | "events"
   | "event"
+  | "document-retirement-revision"
   | "outcome"
   | "content-blob"
   | "content-blob-range"
@@ -121,6 +122,15 @@ export async function executePostgresRead(
           return readEvents(client, scope, payload as ReadEventsPayload, cut?.confirmedRevision ?? 0);
         case "event":
           return readEvent(client, scope, payload as ReadEventPayload, cut?.confirmedRevision ?? 0);
+        case "document-retirement-revision": {
+          const { path } = payload as { path: string };
+          const result = await client.query<{ revision: string }>(
+            "SELECT revision FROM ha_document_heads WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 " +
+              "AND policy_epoch=$4 AND path=$5 AND sha256 IS NULL AND revision <= $6",
+            [scope.tenantId, scope.projectId, repoId, scope.policyEpoch, path, cut?.confirmedRevision ?? 0],
+          );
+          return result.rows[0] ? Number(result.rows[0].revision) : null;
+        }
         case "outcome":
           return readOutcome(client, scope, payload as ReadOutcomePayload, cut?.confirmedSequence ?? 0);
         case "content-blob":

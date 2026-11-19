@@ -44,6 +44,7 @@ import {
 import { deriveActionResult } from "@harness-anything/application/internal/commands/entity-action-catalog-executor.ts";
 import { executeVerticalScriptAction, publishExecutedVerticalScript } from "./vertical-script-actions.ts";
 import { readBeforeWriteQueue, readsAuthoredWorktree } from "./write-queue-external-reads.ts";
+import { discoverDocCandidateGitPaths } from "./doc-sync-candidate-scanner.ts";
 import { inspectScheduleProjection } from "@harness-anything/application/internal/queries/schedule-projection.ts";
 import { resolveDecisionReviewAction } from "./repo-cell-action-parse.ts";
 import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
@@ -665,16 +666,44 @@ export function makeRepoCellCommandRunner(
     const needsWorktree = readsAuthoredWorktree(action, binding.source, context.projection);
     const runAfterWorktreeReady = async () => {
       const pending = needsWorktree ? settleAuthoredMaterialization(context.store, action.kind) : null,
-        failure = pending
+        failedSettlement = pending
           ? await pending.then(
               () => null,
               (error: unknown) => ({ error }),
             )
           : null;
+      const preparation =
+        failedSettlement ??
+        (() => {
+          if (
+            action.kind !== "doc-submit" ||
+            binding.source !== "local" ||
+            (Array.isArray(action.paths) && action.paths.length > 0)
+          )
+            return {};
+          try {
+            return {
+              observedDocGitPaths: discoverDocCandidateGitPaths({
+                rootDir: context.rootDir,
+                projection: context.projection,
+                store: context.store,
+                ...(typeof action.taskId === "string" ? { taskId: action.taskId } : {}),
+              }),
+            };
+          } catch (error) {
+            return { error };
+          }
+        })();
       return enqueuePublication((authorizationDecision) => {
         // Admission owns the error response even when an earlier disk preparation failed.
-        if (failure) throw failure.error;
-        return context.executeAction(action, authorizationDecision ? { ...binding, authorizationDecision } : binding);
+        if ("error" in preparation) throw preparation.error;
+        return context.executeAction(action, {
+          ...binding,
+          ...(authorizationDecision ? { authorizationDecision } : {}),
+          ...(preparation.observedDocGitPaths === undefined
+            ? {}
+            : { observedDocGitPaths: preparation.observedDocGitPaths }),
+        });
       });
     };
     const receipt = await runAfterWorktreeReady();
