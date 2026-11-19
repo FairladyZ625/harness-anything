@@ -1,3 +1,4 @@
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import type { TaskProjection } from "@harness-anything/kernel";
 import {
   matchesCollaboratorScope,
@@ -36,7 +37,11 @@ export function readCollaboratorTokenUsage(
     totals = emptyTotals();
   let cursor: NonNullable<ReturnType<TaskProjection["readRuntimeDispatchPage"]>["nextCursor"]> | undefined;
   dispatchPages: for (;;) {
-    const page = projection.readRuntimeDispatchPage({ startedAtGte, limit: 500, ...(cursor ? { cursor } : {}) });
+    const page = projection.readRuntimeDispatchPage({
+      startedAtGte,
+      limit: storageReadPolicy.defaultValue.pageSizes.standard,
+      ...(cursor ? { cursor } : {}),
+    });
     for (const { event, metrics } of page.rows) {
       const startedAt = event.payload.startedAt ?? event.occurredAt,
         personId = event.actor.principal.personId ?? null,

@@ -1,3 +1,5 @@
+import { decisionEventTypes } from "@harness-anything/kernel/internal/domain/decision-event-types.ts";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import type { TaskProjection, TaskProjectionListQuery } from "@harness-anything/kernel";
 import type { DecisionListFilters } from "@harness-anything/kernel/internal/ports/decision-projection-model.ts";
 import type { EventListQuery } from "@harness-anything/kernel/internal/domain/event-list.ts";
@@ -88,9 +90,9 @@ export function readCollaboratorDecisions(
     (filterNodeId === undefined ||
       projection.readEventList({
         entity: `decision/${decisionId}`,
-        type: "decision_proposed",
+        type: decisionEventTypes[0],
         nodeId: filterNodeId,
-        limit: 1,
+        limit: storageReadPolicy.defaultValue.pageSizes.one,
       }).rows.length !== 0);
   const decisions: ReturnType<TaskProjection["listDecisions"]>["decisions"][number][] = [];
   let cursor = filters.cursor;

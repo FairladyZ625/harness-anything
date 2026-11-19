@@ -1,3 +1,4 @@
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { scopedPersonId, type CollaboratorScope } from "@harness-anything/kernel/internal/domain/collaborator-scope.ts";
 import {
   drainCursorPagesSync,
@@ -82,7 +83,12 @@ export function todoRelations(
   query: Pick<TaskRelationQuery, "source" | "target" | "relationType">,
 ): readonly RelationGraphEdgeRow[] {
   return drainCursorPagesSync((facets) => {
-    const read = projection.readRelationQuery({ ...query, state: "active", limit: 100, ...facets });
+    const read = projection.readRelationQuery({
+      ...query,
+      state: "active",
+      limit: storageReadPolicy.defaultValue.pageSizes.standard,
+      ...facets,
+    });
     return { ...read, page: { nextCursor: read.page?.nextCursor ?? null } };
   }, "entity relations").flatMap((page) => page.rows);
 }

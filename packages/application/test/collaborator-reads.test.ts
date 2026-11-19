@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { TaskIndexProjectionRow, TaskProjection } from "@harness-anything/kernel";
@@ -112,7 +113,12 @@ test("decision involvement includes the proposer and the target of an active awa
       };
     },
     readRelationQuery: (query: object) => {
-      assert.deepEqual(query, { target: `person/${bob}`, relationType: "awaits", state: "active", limit: 100 });
+      assert.deepEqual(query, {
+        target: `person/${bob}`,
+        relationType: "awaits",
+        state: "active",
+        limit: storageReadPolicy.defaultValue.pageSizes.standard,
+      });
       return { ...cut, rows: [{ sourceRef: "decision/waiting" }], page: null };
     },
     readTaskIndex: () => ({ ...cut, rows: [row("bob-review", "Sign", bob, null, "in_review", first)], warnings: [] }),
