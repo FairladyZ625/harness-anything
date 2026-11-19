@@ -278,6 +278,7 @@ function explainRequestRefs(command: ThinCommand): readonly string[] | undefined
 }
 
 export function receiptExitCode(receipt: Record<string, unknown>): number {
+  if (receipt.command === "edge-join" && receipt.state !== "synced") return 1;
   if (Number.isInteger(receipt.exitCode)) return Number(receipt.exitCode);
   if (receipt.ok === true) return 0;
   // Explanation sets are read receipts without an ok flag; their schema-validated mode "failure"

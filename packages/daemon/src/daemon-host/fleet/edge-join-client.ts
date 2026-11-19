@@ -10,11 +10,15 @@ import { writeFileDurably } from "@harness-anything/storage";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../client/fleet-edge-config.ts";
 import { runProcessExitAsync, runProcessTextAsync } from "../process-port.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
-import type { OidcLoginAuthority } from "@harness-anything/kernel";
+import { consumeKnownError, type OidcLoginAuthority } from "@harness-anything/kernel";
 import { decodeEdgeJoinLink } from "./edge-join.ts";
 import { probeFleetEdgeCenterAddress, requestFleetEdgeJoinPinned, requestFleetEdgeJoinStatusPinned } from "./peer.ts";
 import { fetchWithTlsCa, systemCaCertificates } from "../tls-ca-certificate.ts";
-import { fleetEdgeRepositoryGitFailure, isSupportedFleetGitRemote } from "../fleet-edge-git-preflight.ts";
+import {
+  fleetEdgeRepositoryGitFailure,
+  isSupportedFleetGitRemote,
+  normalizeFleetGitRemote,
+} from "../fleet-edge-git-preflight.ts";
 
 const DEFAULT_QUOTA_FRACTION = daemonProtocolFleetPolicy.defaultValue.fleet.edgeJoinQuotaFraction;
 
@@ -102,7 +106,20 @@ export async function joinFleetEdge(
     ...(link.loginBrowserUrl ? { browserUrl: link.loginBrowserUrl } : {}),
     ...(link.loginCertificate ? { certificate: link.loginCertificate } : {}),
   };
-  const loginTarget = edgeWorkspaceRoot(link.repoIds[0]!, request.workspaceRoot, ports.homeDir ?? homedir());
+  const base = request.workspaceRoot
+    ? path.resolve(request.workspaceRoot)
+    : path.join(ports.homeDir ?? homedir(), "harness-edge");
+  if (request.workspaceRoot && link.repoIds.length > 1 && isInsideGitWorkspace(base))
+    throw Object.assign(new Error("Choose a parent directory outside any Git checkout for a multi-repository join."), {
+      code: "edge_join_workspace_inside_git",
+    });
+  const firstRepoId = link.repoIds[0]!,
+    nestedRoot = path.join(base, firstRepoId),
+    existingCheckout =
+      request.workspaceRoot && link.repoIds.length === 1 && hasGitMarker(base) && !hasGitMarker(nestedRoot)
+        ? base
+        : undefined,
+    loginTarget = existingCheckout ?? nestedRoot;
   const center = new URL(link.centerOrigin),
     centerServername = link.centerServername ?? center.hostname,
     centerProbe = Promise.resolve().then(() =>
@@ -172,13 +189,14 @@ export async function joinFleetEdge(
       if ((error as { code?: string }).code !== "already_consumed") throw error;
       const status = await (ports.status ?? requestFleetEdgeJoinStatusPinned)(address);
       if (status.state !== "consumed" || !status.nodeId) throw error;
-      const saved = link.repoIds
-        .map((repoId) =>
-          readFleetEdgeConfig(edgeWorkspaceRoot(repoId, request.workspaceRoot, ports.homeDir ?? homedir())),
-        )
+      const recoveryRoots = link.repoIds.map((repoId) => path.join(base, repoId));
+      if (existingCheckout) recoveryRoots.unshift(existingCheckout);
+      const saved = recoveryRoots
+        .map(readFleetEdgeConfig)
         .find(
           (config) =>
             config !== null &&
+            link.repoIds.includes(config.repoId) &&
             config.nodeId === status.nodeId &&
             config.host === center.hostname &&
             config.port === port &&
@@ -205,12 +223,13 @@ export async function joinFleetEdge(
     }[];
 
   for (const repository of admitted.repositories) {
-    const root = edgeWorkspaceRoot(repository.repoId, request.workspaceRoot, ports.homeDir ?? homedir()),
+    const originUrl = request.originUrls?.[repository.repoId],
+      root = await resolveJoinWorkspace(base, existingCheckout, repository, originUrl),
       caPath = path.join(root, "fleet-center-ca.pem"),
       report = (phase: EdgeJoinRepositoryProgress["phase"]) =>
         ports.onProgress?.({ joinId: admitted.joinId, repository: { repoId: repository.repoId, phase } });
     report("workspace");
-    const workspaceFailure = await prepareJoinWorkspace(root, repository, request.originUrls?.[repository.repoId]);
+    const workspaceFailure = await prepareJoinWorkspace(root, repository, originUrl);
     if (workspaceFailure !== null) {
       const failedWorkspace = workspaceFailure;
       report("failed");
@@ -218,7 +237,9 @@ export async function joinFleetEdge(
         repoId: repository.repoId,
         workspaceRoot: root,
         ok: false,
-        ...edgeJoinSyncFailure(repository.repoId, failedWorkspace),
+        ...(failedWorkspace.needsOrigin
+          ? { code: failedWorkspace.code, error: { code: failedWorkspace.code, hint: failedWorkspace.message } }
+          : edgeJoinSyncFailure(repository.repoId, failedWorkspace)),
         ...(failedWorkspace.needsOrigin === true ? { needsOrigin: true } : {}),
         ...(failedWorkspace.defaultBranch ? { defaultBranch: failedWorkspace.defaultBranch } : {}),
         ...(failedWorkspace.centerOrigin ? { centerOrigin: failedWorkspace.centerOrigin } : {}),
@@ -273,7 +294,7 @@ export async function joinFleetEdge(
       continue;
     }
     report("sync");
-    const synced = await ports.sync({
+    const synced = await syncWithSessionKeepalive(ports, root, {
       repoId: repository.repoId,
       workspaceRoot: root,
       host: center.hostname,
@@ -324,6 +345,30 @@ export async function joinFleetEdge(
     nodeId: admitted.nodeId,
     personId: admitted.personId,
   };
+}
+
+async function syncWithSessionKeepalive(
+  ports: EdgeJoinClientPorts,
+  root: string,
+  payload: JsonObject,
+): Promise<Record<string, unknown>> {
+  let refreshing = false;
+  const timer = setInterval(() => {
+    if (refreshing) return;
+    refreshing = true;
+    void ports
+      .session(root)
+      .catch(consumeKnownError)
+      .finally(() => {
+        refreshing = false;
+      });
+  }, 4 * 60_000);
+  timer.unref();
+  try {
+    return await ports.sync(payload);
+  } finally {
+    clearInterval(timer);
+  }
 }
 
 function edgeJoinSyncFailure(repoId: string, error: unknown): { readonly code: string; readonly error: JsonObject } {
@@ -385,22 +430,18 @@ async function prepareJoinWorkspace(
   readonly defaultBranch?: string;
   readonly centerOrigin?: string;
 } | null> {
-  /* @gate-identity non-state/environment-io.6cc0d5c726eb11a2 */ mkdirSync(root, { recursive: true });
-  const hasGit = existsSync(path.join(root, ".git"));
+  const hasGit = hasGitMarker(root);
   if (!repository.originUrl) {
     if (!hasGit) await prepareWorkspace(root, repository.harnessYaml, repository.defaultBranch ?? "main");
     return null;
   }
 
-  if (!hasGit && readdirSync(root).length > 0)
+  if (!hasGit && existsSync(root) && readdirSync(root).length > 0)
     return {
       code: "edge_workspace_not_empty",
       message: `The workspace ${root} contains files and cannot be cloned over. Move those files or choose an empty workspace, then retry.`,
     };
-  const currentOrigin = hasGit
-    ? await runProcessTextAsync("git", ["-C", root, "remote", "get-url", "origin"]).catch(() => "")
-    : "";
-  if (currentOrigin.trim()) {
+  if (hasGit && (await gitOrigin(root))) {
     ensureCenterLayout(root, repository.harnessYaml);
     return null;
   }
@@ -415,7 +456,6 @@ async function prepareJoinWorkspace(
     ...(repository.originAddress ? { centerOrigin: repository.originAddress } : {}),
   };
   if (!originUrl) {
-    if (hasGit) ensureCenterLayout(root, repository.harnessYaml);
     return {
       code: "edge_origin_missing",
       message: `${root} needs a Git origin that can reach the center repository. Enter a reachable Git address; it will be checked before cloning.`,
@@ -426,7 +466,7 @@ async function prepareJoinWorkspace(
   if (addressFailure) return { ...addressFailure, ...needsOrigin };
   if (hasGit) {
     try {
-      await runProcessTextAsync("git", ["-C", root, "remote", "add", "origin", originUrl]);
+      await runProcessTextAsync("git", ["-C", root, "remote", "add", "--", "origin", originUrl]);
     } catch {
       return {
         code: "edge_origin_add_failed",
@@ -480,8 +520,8 @@ async function validateFleetOriginAddress(
     };
   const result = await runProcessExitAsync(
     "git",
-    ["ls-remote", "--exit-code", "--heads", trimmed, `refs/heads/${defaultBranch}`],
-    rootDir,
+    ["ls-remote", "--exit-code", "--heads", "--", trimmed, `refs/heads/${defaultBranch}`],
+    existsSync(rootDir) ? rootDir : undefined,
     { ...process.env, GIT_TERMINAL_PROMPT: "0" },
     undefined,
     undefined,
@@ -523,17 +563,47 @@ async function probeLoginAddress(authority: OidcLoginAuthority): Promise<void> {
   }
 }
 
-function edgeWorkspaceRoot(repoId: string, requestedRoot: string | undefined, homeDir: string): string {
-  if (!requestedRoot) return path.join(homeDir, "harness-edge", repoId);
-  const base = path.resolve(requestedRoot);
-  return path.join(base, repoId);
+function hasGitMarker(root: string): boolean {
+  return existsSync(path.join(root, ".git"));
+}
+
+function isInsideGitWorkspace(root: string): boolean {
+  let directory = root;
+  for (;;) {
+    if (hasGitMarker(directory)) return true;
+    const parent = path.dirname(directory);
+    if (parent === directory) return false;
+    directory = parent;
+  }
+}
+
+async function gitOrigin(root: string): Promise<string> {
+  const result = await runProcessExitAsync("git", ["remote", "get-url", "origin"], root);
+  return result.exitCode === 0 ? result.stdout.trim() : "";
+}
+
+async function resolveJoinWorkspace(
+  base: string,
+  existingCheckout: string | undefined,
+  repository: { readonly repoId: string; readonly originUrl: string | null },
+  originUrl: string | undefined,
+): Promise<string> {
+  const nested = path.join(base, repository.repoId);
+  if (!existingCheckout) return nested;
+  if (path.basename(existingCheckout) === repository.repoId) return existingCheckout;
+  const currentOrigin = normalizeFleetGitRemote(await gitOrigin(existingCheckout), existingCheckout);
+  return currentOrigin &&
+    (currentOrigin === repository.originUrl ||
+      (originUrl && currentOrigin === normalizeFleetGitRemote(originUrl, existingCheckout)))
+    ? existingCheckout
+    : nested;
 }
 
 /** A remote-edge registration needs the center's layout file inside a Git repository with a branch. */
 async function prepareWorkspace(root: string, harnessYaml: string, defaultBranch: string): Promise<void> {
   ensureCenterLayout(root, harnessYaml);
   // A local-only center has no history to clone; keep the branch empty rather than creating a forked commit.
-  if (existsSync(path.join(root, ".git"))) return;
+  if (hasGitMarker(root)) return;
   const git = (...args: readonly string[]) => runProcessTextAsync("git", ["-C", root, ...args]);
   await git("init", "-q", "-b", defaultBranch);
   await git("add", "harness/harness.yaml");

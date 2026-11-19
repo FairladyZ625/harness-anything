@@ -5,6 +5,7 @@ import {
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { decodeEdgeJoinLink } from "@harness-anything/daemon/internal/fleet/edge-join";
 import { parseDecision } from "./thin-command-decision.ts";
 import { parseDoc } from "./thin-command-doc.ts";
 import { parseFact } from "./thin-command-fact.ts";
@@ -100,6 +101,28 @@ function parseEdgeJoin(
     return rejected("missing_field", "Use ha edge join <invite-link>.", json);
   const flags = readFlags("edge-join", args.slice(3), inputs);
   if (!flags.ok) return rejected(flags.code, flags.nextAction, json);
+  const origins = flags.many.get("--origin");
+  const originUrls = new Map<string, string>();
+  if (origins) {
+    let repoIds: readonly string[];
+    try {
+      ({ repoIds } = decodeEdgeJoinLink(link));
+    } catch {
+      return rejected("edge_join_invalid", "Use a valid edge invitation link.", json);
+    }
+    for (const value of origins) {
+      const qualified = /^([a-z][a-z0-9-]{0,62})=(.*)$/su.exec(value),
+        repoId = qualified?.[1] ?? (repoIds.length === 1 ? repoIds[0] : undefined),
+        url = (qualified?.[2] ?? value).trim();
+      if (!repoId || !repoIds.includes(repoId) || !url || originUrls.has(repoId))
+        return rejected(
+          "invalid_field",
+          "Supply one --origin <repoId=url> per invited repository (or <url> for a single repository).",
+          json,
+        );
+      originUrls.set(repoId, url);
+    }
+  }
   return accepted(
     rootDir,
     undefined,
@@ -108,6 +131,7 @@ function parseEdgeJoin(
       kind: "rbac-bootstrap",
       operation: "edge-join",
       link,
+      ...(origins ? { originUrls: Object.fromEntries(originUrls) } : {}),
       ...(flags.one.get("--root") ? { workspaceRoot: path.resolve(flags.one.get("--root")!) } : {}),
       ...(flags.one.get("--quota-bytes") ? { quotaBytes: Number(flags.one.get("--quota-bytes")) } : {}),
     },

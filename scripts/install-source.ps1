@@ -1,6 +1,7 @@
 #Requires -Version 5.1
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$PSNativeCommandUseErrorActionPreference = $false
 
 $repoUrl = if ($env:HARNESS_REPO_URL) { $env:HARNESS_REPO_URL } else { 'https://github.com/FairladyZ625/harness-anything.git' }
 $installRoot = if ($env:HARNESS_INSTALL_ROOT) { $env:HARNESS_INSTALL_ROOT } else { Join-Path $HOME '.local\share\harness-anything' }
@@ -14,8 +15,8 @@ Usage: install-source.ps1 [--offline|--no-pull|-Offline|-NoPull] [--ref <commit>
 
   --offline, --no-pull  Build the existing checkout without contacting the remote.
                         Fails when the checkout does not exist yet.
-  --ref <commit>        Require HEAD to be <commit>. A failed pull is tolerated only
-                        when the checkout already points at that commit.
+  --ref <commit>        Install exactly this commit. With network access, fetch it
+                        and detach HEAD if needed and the checkout is clean.
   -h, --help, -Help     Show this help.
 '@ | Write-Output
 }
@@ -56,6 +57,30 @@ function Invoke-Checked {
   }
 }
 
+function Invoke-DownloadWithRetry {
+  param([string]$Label, [scriptblock]$Action)
+  $delay = 1
+  for ($attempt = 1; $attempt -le 4; $attempt++) {
+    & $Action $attempt | Out-Host
+    if ($LASTEXITCODE -eq 0) { return $true }
+    if ($attempt -lt 4) {
+      [Console]::Error.WriteLine("$Label failed. Retrying in $delay seconds (retry $attempt/3).")
+      Start-Sleep -Seconds $delay
+      $delay *= 2
+    }
+  }
+  return $false
+}
+
+function Invoke-GitDownload {
+  param([string]$Label, [string[]]$Arguments)
+  Invoke-DownloadWithRetry $Label {
+    param($attempt)
+    $config = if ($attempt -gt 1) { @('-c', 'http.version=HTTP/1.1') }
+    & $gitCmd.Source @config @Arguments
+  }
+}
+
 $gitCmd = Get-Command git -ErrorAction SilentlyContinue
 $nodeCmd = Get-Command node -ErrorAction SilentlyContinue
 $npmCmd = Get-Command npm.cmd -ErrorAction SilentlyContinue
@@ -87,47 +112,42 @@ if (-not (Test-Path (Join-Path $installRoot '.git'))) {
     [Console]::Error.WriteLine('Run the installer once with network access, or copy an existing checkout to that path first.')
     exit 1
   }
-  Invoke-Checked $gitCmd.Source @('clone', $repoUrl, $installRoot)
-} elseif ($pullMode -eq 'pull') {
-  & $gitCmd.Source -C $installRoot pull --ff-only
-  if ($LASTEXITCODE -ne 0) {
-    $localHead = (& $gitCmd.Source -C $installRoot rev-parse HEAD 2>$null | Select-Object -First 1)
-    if ($LASTEXITCODE -ne 0) { $localHead = '' }
-    $requestedSha = ''
-    if ($expectedRef) {
-      $requestedSha = (& $gitCmd.Source -C $installRoot rev-parse --verify --quiet "$expectedRef^{commit}" 2>$null | Select-Object -First 1)
-      if ($LASTEXITCODE -ne 0) { $requestedSha = '' }
-    }
-    if ($expectedRef -and $requestedSha -and ($localHead -eq $requestedSha)) {
-      [Console]::Error.WriteLine("")
-      [Console]::Error.WriteLine("Pull failed, but $installRoot is already at $expectedRef; continuing with the local source.")
-    } else {
-      [Console]::Error.WriteLine("")
-      [Console]::Error.WriteLine("Cannot update $installRoot from $repoUrl.")
-      if ($expectedRef) {
-        $reqDisplay = if ($requestedSha) { $requestedSha } else { '<not present>' }
-        $headDisplay = if ($localHead) { $localHead } else { '<unknown>' }
-        [Console]::Error.WriteLine("Requested --ref $expectedRef resolves to $reqDisplay; local HEAD is $headDisplay.")
-      }
-      [Console]::Error.WriteLine('The checkout is not at the requested commit, so the installer stopped before building unexpected code.')
-      [Console]::Error.WriteLine('If the source was synced another way, rerun with --offline (or --ref <commit> when HEAD already is that commit).')
-      exit 1
-    }
+  if (-not (Invoke-GitDownload 'Git clone' @('clone', '--', $repoUrl, $installRoot))) { exit 1 }
+} elseif (($pullMode -eq 'pull') -and -not $expectedRef) {
+  if (-not (Invoke-GitDownload 'Git pull' @('-C', $installRoot, 'pull', '--ff-only'))) {
+    [Console]::Error.WriteLine("Cannot update $installRoot. If the source was synced another way, rerun with --offline.")
+    exit 1
   }
 }
 
 Push-Location $installRoot
 try {
   if ($expectedRef) {
-    $expectedSha = (& $gitCmd.Source rev-parse --verify --quiet "$expectedRef^{commit}" | Select-Object -First 1)
-    if ($LASTEXITCODE -ne 0 -or -not $expectedSha) {
-      [Console]::Error.WriteLine("Requested --ref $expectedRef is not present in $installRoot; fetch or merge it first.")
-      exit 1
-    }
+    $expectedSha = (& $gitCmd.Source rev-parse --verify --quiet --end-of-options "$expectedRef^{commit}" | Select-Object -First 1)
+    if ($LASTEXITCODE -ne 0) { $expectedSha = '' }
     $actualSha = (& $gitCmd.Source rev-parse HEAD | Select-Object -First 1)
-    if ($LASTEXITCODE -ne 0 -or ($actualSha -ne $expectedSha)) {
-      [Console]::Error.WriteLine("Install root HEAD is $actualSha, but --ref requires $expectedRef ($expectedSha).")
-      exit 1
+    if ($LASTEXITCODE -ne 0) { throw 'Could not read the source checkout HEAD.' }
+    if ($actualSha -ne $expectedSha) {
+      if ($pullMode -eq 'off') {
+        [Console]::Error.WriteLine("Offline install requires HEAD at $expectedRef. Current HEAD is $actualSha.")
+        exit 1
+      }
+      $checkoutStatus = & $gitCmd.Source status --porcelain
+      if ($LASTEXITCODE -ne 0) { throw 'Could not read the source checkout status.' }
+      if ($checkoutStatus) {
+        [Console]::Error.WriteLine("Cannot switch to ${expectedRef}: $installRoot has local changes. Commit or remove them, then retry.")
+        exit 1
+      }
+      $fetchRef = if ($expectedSha) { $expectedSha } else { $expectedRef }
+      if (Invoke-GitDownload 'Git fetch' @('fetch', '--no-tags', '--', 'origin', $fetchRef)) {
+        $expectedSha = (& $gitCmd.Source rev-parse --verify 'FETCH_HEAD^{commit}' | Select-Object -First 1)
+        if ($LASTEXITCODE -ne 0) { throw 'Could not resolve the fetched commit.' }
+      } elseif (-not $expectedSha) {
+        exit 1
+      } else {
+        [Console]::Error.WriteLine("Using the local commit $expectedSha after fetch failed.")
+      }
+      Invoke-Checked $gitCmd.Source @('checkout', '--detach', $expectedSha)
     }
   }
 
@@ -163,11 +183,32 @@ process.stdout.write(hash.digest("hex"));
     Write-Output ("Dependencies unchanged ({0}); skipping npm ci." -f $depsDigest.Substring(0, [Math]::Min(12, $depsDigest.Length)))
   } else {
     Write-Output 'Installing dependencies. The Electron runtime downloads separately and a first run can take several minutes; later runs reuse the caches.'
-    Invoke-Checked $npmCmd.Source @('ci', '--no-audit', '--no-fund')
+    $previousSkip = $env:ELECTRON_SKIP_BINARY_DOWNLOAD
+    try {
+      $env:ELECTRON_SKIP_BINARY_DOWNLOAD = '1'
+      Invoke-Checked $npmCmd.Source @('ci', '--no-audit', '--no-fund')
+    } finally {
+      $env:ELECTRON_SKIP_BINARY_DOWNLOAD = $previousSkip
+    }
     Set-Content -Path $depsStamp -Value "$depsDigest`n" -NoNewline -Encoding ASCII
   }
 
-  Invoke-Checked $nodeCmd.Source @('node_modules/electron/install.js')
+  $electronInstall = { & $nodeCmd.Source 'node_modules/electron/install.js' }
+  if (-not (Invoke-DownloadWithRetry 'Electron download' $electronInstall)) {
+    if ($env:ELECTRON_MIRROR -or $env:npm_config_electron_mirror -or $env:npm_package_config_electron_mirror) {
+      throw 'Electron download failed with the configured mirror.'
+    }
+    [Console]::Error.WriteLine('Electron default download failed. Retrying with https://npmmirror.com/mirrors/electron/.')
+    $previousMirror = $env:ELECTRON_MIRROR
+    try {
+      $env:ELECTRON_MIRROR = 'https://npmmirror.com/mirrors/electron/'
+      if (-not (Invoke-DownloadWithRetry 'Electron mirror download' $electronInstall)) {
+        throw 'Electron download failed with the fallback mirror.'
+      }
+    } finally {
+      $env:ELECTRON_MIRROR = $previousMirror
+    }
+  }
   # Upgrade step: daemon, CLI and GUI are built together. A running Electron window keeps the
   # bundle it started with, so `ha gui` must be restarted after this block; rebuilding only the
   # CLI leaves the old GUI contract to reject new daemon fields.
