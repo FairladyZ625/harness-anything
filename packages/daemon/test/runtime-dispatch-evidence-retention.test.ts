@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -23,6 +23,7 @@ import { purgeRepoCache } from "../src/daemon-host/repo-cache-purge.ts";
 import { publishExit } from "./runtime-spawn-settlement.fixtures.ts";
 import {
   fixtureTaskId,
+  fixtureArtifacts,
   git,
   workerGitFixture,
   workerSettlementContext,
@@ -198,6 +199,79 @@ test("the settled stream keeps its bytes when replacing the not-required sidecar
   const summary = readDispatchStreamSummary(fixture.canonical, runtime.dispatchId);
   assert.equal(summary?.evidenceState, null, "the terminal record can mask the marker from the bounded summary");
   assert.equal(summary?.terminalOutcome?.payload.outcome, "failed", "the full terminal remains visible");
+  archiveDispatchStream(fixture.canonical, runtime.dispatchId);
+  assert.equal(dispatchStreamPath(fixture.canonical, runtime.dispatchId), live);
+  assert.deepEqual(readFileSync(live), bytes);
+});
+
+test("an awaiting-ruling archive failure keeps its stream when the pending sidecar replacement fails", async (context) => {
+  const fixture = workerGitFixture(context, "forensics-awaiting-ruling-archive-failure", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, {
+      finalText: "awaiting an owner ruling",
+    }),
+    artifacts = fixtureArtifacts(fixture),
+    stream = fixtureStream(fixture, runtime),
+    settleContext = workerSettlementContext(fixture, async () => ({})),
+    rulingPath = path.join(
+      fixture.worker,
+      "harness",
+      "tasks",
+      `${fixtureTaskId}-fixture`,
+      "artifacts",
+      "rulings",
+      `${runtime.dispatchId}.md`,
+    ),
+    sidecar = dispatchEvidenceStatePath(fixture.canonical, runtime.dispatchId),
+    backup = `${sidecar}.original`;
+  mkdirSync(path.dirname(rulingPath), { recursive: true });
+  writeFileSync(rulingPath, artifacts.body);
+  stream.appendProviderEvent(
+    { type: "thread.started", thread_id: "provider-awaiting-ruling-archive-failure" },
+    "2026-11-05T00:00:01.000Z",
+  );
+  stream.appendProviderEvent(
+    { type: "item.completed", item: { type: "agent_message", text: "p".repeat(40 * 1024) } },
+    "2026-11-05T00:00:02.000Z",
+  );
+  settleContext.input.remote = {
+    archive: async () => {
+      assert.equal(readDispatchEvidenceState(fixture.canonical, runtime.dispatchId), "not-required");
+      renameSync(sidecar, backup);
+      mkdirSync(sidecar);
+      throw new Error("injected archive publication failure");
+    },
+  } as never;
+  const appendEvidenceState = runtime.stream.appendEvidenceState!;
+  context.mock.method(runtime.stream, "appendEvidenceState", (...args: Parameters<typeof appendEvidenceState>) => {
+    rmdirSync(sidecar);
+    renameSync(backup, sidecar);
+    appendEvidenceState(...args);
+  });
+  const appendTerminalOutcome = runtime.stream.appendTerminalOutcome!;
+  context.mock.method(runtime.stream, "appendTerminalOutcome", (...args: Parameters<typeof appendTerminalOutcome>) => {
+    appendRuntimeWorkerRecord(fixture.canonical, runtime.dispatchId, {
+      kind: "provider_event",
+      occurredAt: args[1],
+      event: {
+        type: "model.streaming",
+        turnId: "turn-tail-filler",
+        payload: { kind: "reasoning_delta", delta: "g".repeat(128 * 1024) },
+      },
+    });
+    appendTerminalOutcome(...args);
+  });
+  context.mock.method(console, "error", () => undefined);
+  await publishExit(settleContext, runtime, 2);
+
+  const live = dispatchStreamPath(fixture.canonical, runtime.dispatchId),
+    bytes = readFileSync(live),
+    summary = readDispatchStreamSummary(fixture.canonical, runtime.dispatchId),
+    terminal = summary?.terminalOutcome;
+  assert.equal(readDispatchEvidenceState(fixture.canonical, runtime.dispatchId), "not-required");
+  assert.equal(summary?.evidenceState, null, "the bounded summary cannot see the pending stream record");
+  assert.equal(terminal?.payload.outcome, "failed");
+  assert.equal(terminal?.payload.reasonCode, "runtime_archive_failed");
+  assert.equal(terminal?.payload.attempt?.classification, "awaiting_ruling");
   archiveDispatchStream(fixture.canonical, runtime.dispatchId);
   assert.equal(dispatchStreamPath(fixture.canonical, runtime.dispatchId), live);
   assert.deepEqual(readFileSync(live), bytes);

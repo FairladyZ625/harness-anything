@@ -148,6 +148,7 @@ test("a normal success and an owner-ruling wait keep no evidence snapshot", () =
     );
     assert.equal(dispatchForensicsRequired("stopped", "worker_stop"), true);
     assert.equal(dispatchForensicsRequired("unknown", "completed_without_final_text"), true);
+    assert.equal(dispatchForensicsRequired("failed", "awaiting_ruling"), true);
     assert.equal(dispatchForensicsRequired("cancelled", "worker_stop"), false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

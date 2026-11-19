@@ -3,7 +3,9 @@ import path from "node:path";
 import * as Order from "effect/Order";
 import * as SortedSet from "effect/SortedSet";
 import { resolveHarnessLayout, type TaskProjectionQueries } from "@harness-anything/kernel";
+import type { FactEventV1 } from "@harness-anything/kernel/internal/domain/fact-event.ts";
 import type { FactProjectionSearchRead } from "@harness-anything/kernel/internal/ports/projection-reads.ts";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { compactDispatchStreamArchive } from "./dispatch-stream-compaction.ts";
 import { removeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
 import { resolveOwnedLocalDirectory } from "./local-root-paths.ts";
@@ -13,6 +15,7 @@ import { withReadOnlyFile } from "../../../storage/src/durable-file.ts";
 
 const dispatchFilePattern = /^dispatch_[a-f0-9]{24}\.jsonl$/u;
 const factEvidencePageSize = 64;
+const evidenceCreationEvent: FactEventV1["type"] = "fact_recorded";
 
 /** The repository's dispatch-archive retention policy. A limit of 0 disables that limit. */
 export interface DispatchArchiveRetention {
@@ -198,7 +201,9 @@ function factEvidenceNames(prefixes: ReadonlySet<string>, dispatchId: string): b
  * to answer on a projection that is not at the canonical cut: pruning against a short list of
  * evidence sources would delete streams live facts still name, so the caller skips the pass.
  */
-export function tryReadFactEvidenceSources(projection: Pick<TaskProjectionQueries, "searchFacts">):
+export function tryReadFactEvidenceSources(
+  projection: Pick<TaskProjectionQueries, "searchFacts" | "readCut" | "readEventList">,
+):
   | {
       readonly status: "ready";
       readonly sources: Iterable<string>;
@@ -209,12 +214,24 @@ export function tryReadFactEvidenceSources(projection: Pick<TaskProjectionQuerie
   const read = projection.searchFacts({ limit: factEvidencePageSize });
   if (read.status !== "ready")
     return { status: "pending", watermark: read.watermark, sourceRevision: read.sourceRevision };
-  const watermark = read.watermark,
-    sourceRevision = read.sourceRevision;
+  const watermark = read.watermark;
   let complete = false;
+  let verifiedThrough = -1;
+  function factEvidenceUnchanged(): boolean {
+    const cut = projection.readCut();
+    if (cut.status !== "ready" || cut.watermark < watermark) return false;
+    if (cut.watermark === verifiedThrough) return true;
+    const newestFact = projection.readEventList({
+      type: evidenceCreationEvent,
+      limit: storageReadPolicy.defaultValue.pageSizes.one,
+    }).rows[0];
+    if (newestFact && newestFact.revision > watermark) return false;
+    verifiedThrough = cut.watermark;
+    return true;
+  }
   function* sources(): Generator<string> {
     let page: FactProjectionSearchRead = read;
-    while (page.status === "ready" && page.watermark === watermark && page.sourceRevision === sourceRevision) {
+    while (page.status === "ready" && page.watermark >= watermark && factEvidenceUnchanged()) {
       for (const fact of page.facts) yield fact.evidenceSource;
       const cursor = page.page?.nextCursor;
       if (cursor === undefined || cursor === null) {
@@ -228,11 +245,13 @@ export function tryReadFactEvidenceSources(projection: Pick<TaskProjectionQuerie
     status: "ready",
     sources: sources(),
     watermark,
-    isReady: () => complete,
+    isReady: () => complete && factEvidenceUnchanged(),
   };
 }
 
-export function readFactEvidenceSources(projection: Pick<TaskProjectionQueries, "searchFacts">): readonly string[] {
+export function readFactEvidenceSources(
+  projection: Pick<TaskProjectionQueries, "searchFacts" | "readCut" | "readEventList">,
+): readonly string[] {
   const read = tryReadFactEvidenceSources(projection);
   if (read.status !== "ready")
     throw new Error(

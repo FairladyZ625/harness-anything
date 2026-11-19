@@ -301,10 +301,12 @@ const evidenceSource = (reference: string): string => `.harness/runtime/dispatch
 /** The prune reads every Fact row's source at the caller's projection cut; only that field matters. */
 function factsAt(
   ...facts: readonly { readonly evidenceSource: string; readonly archived?: boolean }[]
-): Pick<TaskProjectionQueries, "searchFacts"> {
+): Pick<TaskProjectionQueries, "searchFacts" | "readCut" | "readEventList"> {
   return {
     searchFacts: () => ({ status: "ready", facts, watermark: 0, sourceRevision: 0 }),
-  } as unknown as Pick<TaskProjectionQueries, "searchFacts">;
+    readCut: () => ({ status: "ready", watermark: 0, sourceRevision: 0 }),
+    readEventList: () => ({ rows: [], hasMore: false, nextCursor: null }),
+  };
 }
 
 test("retention never deletes an archived stream that immutable fact evidence names", () => {
@@ -363,7 +365,9 @@ test("a pending Fact projection refuses to authorise a prune instead of reading 
     const stream = archiveStreamFixture(rootDir, dispatchId, 120, "Expired but evidence may name it."),
       pending = {
         searchFacts: () => ({ status: "pending", facts: [], watermark: 1, sourceRevision: 2 }),
-      } as unknown as Pick<TaskProjectionQueries, "searchFacts">;
+        readCut: () => ({ status: "pending", watermark: 1, sourceRevision: 2 }),
+        readEventList: () => ({ rows: [], hasMore: false, nextCursor: null }),
+      };
     assert.throws(() => readFactEvidenceSources(pending), /not at the canonical cut/u);
     assert.equal(existsSync(stream.file), true, "the prune never ran, so nothing was deleted");
   } finally {
@@ -541,18 +545,21 @@ test("a Fact recorded between expiry turns protects the remaining archive withou
           assert.equal(type, "fact_recorded");
           assert.equal(limit, 1);
           return {
-            rows: [
-              {
-                revision: 2,
-                type,
-                actor: { personId: "person_test", executorId: null },
-                schema: "test",
-                eventId: "fact-2",
-                opId: "fact-2",
-                occurredAt: "2026-10-24T00:00:00.000Z",
-                entityRefs: [],
-              },
-            ],
+            rows:
+              watermark === 1
+                ? []
+                : [
+                    {
+                      revision: 2,
+                      type,
+                      actor: { personId: "person_test", executorId: null },
+                      schema: "test",
+                      eventId: "fact-2",
+                      opId: "fact-2",
+                      occurredAt: "2026-10-24T00:00:00.000Z",
+                      entityRefs: [],
+                    },
+                  ],
             hasMore: false,
             nextCursor: null,
           };

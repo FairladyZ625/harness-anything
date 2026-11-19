@@ -17,7 +17,8 @@ export function dispatchForensicsRequired(
 ): boolean {
   return (
     evidenceRequired ||
-    (classification !== "awaiting_ruling" && (outcome === "failed" || outcome === "stopped" || outcome === "unknown"))
+    outcome === "failed" ||
+    (classification !== "awaiting_ruling" && (outcome === "stopped" || outcome === "unknown"))
   );
 }
 

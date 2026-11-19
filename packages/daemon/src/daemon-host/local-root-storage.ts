@@ -7,8 +7,6 @@ import {
   type DispatchLifecycleView,
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
-import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
-import type { FactEventV1 } from "@harness-anything/kernel/internal/domain/fact-event.ts";
 import { removeFileDurably } from "../../../storage/src/durable-file.ts";
 import { readDispatchEvidenceState, removeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
 import { archiveDispatchStreams, removeDispatchLiveIndexEntries } from "./dispatch-stream.ts";
@@ -78,7 +76,6 @@ export interface LocalRootReclaimResult {
 const dispatchFilePattern = /^dispatch_([a-f0-9]{24})\.jsonl$/u;
 const evidenceSidecarPattern = /^dispatch_([a-f0-9]{24})\.evidence-state\.json$/u;
 const dispatchIdPattern = /^dispatch_[a-f0-9]{24}$/u;
-const evidenceCreationEvent: FactEventV1["type"] = "fact_recorded";
 const verificationCacheSuffixes = ["", "-wal", "-shm"] as const;
 
 function emptyClassTotals(): Record<LocalRootEntryClass, { bytes: number; files: number }> {
@@ -161,7 +158,7 @@ export function reclaimLocalRootStorage(input: {
   readonly rootDir: string;
   readonly projection: Pick<
     TaskProjectionQueries,
-    "read" | "readDispatchLifecycle" | "readRuntimeDispatchByResumeSource" | "searchFacts"
+    "read" | "readDispatchLifecycle" | "readRuntimeDispatchByResumeSource" | "searchFacts" | "readCut" | "readEventList"
   >;
   readonly retention: DispatchArchiveRetention;
   readonly nowMs?: number;
@@ -217,7 +214,6 @@ function* sweepLocalRootStorage(
   ownedLocalRoot: string,
   input: StorageSweepInput,
   doneTaskCache: Map<string, boolean>,
-  canDeleteArchive?: (factWatermark: number) => boolean,
 ): Generator<void, Omit<LocalRootReclaimResult, "archivedDispatches">> {
   const removedOrphanSidecars = yield* pruneOrphanEvidenceSidecars(rootDir, ownedLocalRoot);
   const removedHandoffRollouts = yield* pruneRetiredHandoffRollouts(
@@ -240,7 +236,7 @@ function* sweepLocalRootStorage(
         facts.sources,
         input.nowMs ?? Date.now(),
         input.recoveryDispatchIds ?? [],
-        () => facts.isReady() && (canDeleteArchive === undefined || canDeleteArchive(facts.watermark)),
+        facts.isReady,
       );
       if (facts.isReady()) archivePruned = true;
       else skippedReason = "fact projection changed during evidence scan";
@@ -304,26 +300,11 @@ export function scheduleLocalRootReclamation(input: {
     }
     if (resolveOwnedLocalRoot(layout) !== ownedLocalRoot) return;
     const projection = input.projection();
-    let verifiedThrough = -1;
     yield* sweepLocalRootStorage(
       layout.rootDir,
       ownedLocalRoot,
       { projection, retention: input.readRetention(), recoveryDispatchIds: input.recoveryDispatchIds },
       doneTaskCache,
-      (factWatermark) => {
-        const cut = projection.readCut();
-        if (cut.status !== "ready" || cut.watermark < factWatermark) return false;
-        if (cut.watermark === factWatermark || cut.watermark === verifiedThrough) return true;
-        // A normal write may advance the cut. A newer recorded Fact invalidates the protection
-        // snapshot, so end this pass before deleting against a stale set of references.
-        const newest = projection.readEventList({
-          type: evidenceCreationEvent,
-          limit: storageReadPolicy.defaultValue.pageSizes.one,
-        }).rows[0];
-        if (newest && newest.revision > factWatermark) return false;
-        verifiedThrough = cut.watermark;
-        return true;
-      },
     );
   }
   scheduleMaintenance(input.schedule, reclaim(), batchSize, input.onComplete);

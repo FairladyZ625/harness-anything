@@ -17,6 +17,7 @@ import test from "node:test";
 import {
   applyTransition,
   compileFactWrite,
+  compileTaskProgress,
   DISPATCH_LIFECYCLE_PAGE_LIMIT,
   emptyTaskLifecycleSnapshot,
   normalizeTaskLifecycleCommand,
@@ -317,7 +318,12 @@ test("F3 regression: reclaimLocalRootStorage preserves canonical ledger replay, 
 
     const queryAdapter: Pick<
       TaskProjectionQueries,
-      "read" | "readDispatchLifecycle" | "readRuntimeDispatchByResumeSource" | "searchFacts"
+      | "read"
+      | "readDispatchLifecycle"
+      | "readRuntimeDispatchByResumeSource"
+      | "searchFacts"
+      | "readCut"
+      | "readEventList"
     > = {
       read: (taskId) => projection.read(taskId),
       readDispatchLifecycle: (query) => lifecycleReader(query),
@@ -333,6 +339,8 @@ test("F3 regression: reclaimLocalRootStorage preserves canonical ledger replay, 
           } as never,
         ],
       }),
+      readCut: () => ({ status: "ready", watermark: 2, sourceRevision: 2 }),
+      readEventList: () => ({ rows: [], hasMore: false, nextCursor: null }),
     };
 
     const result = reclaimLocalRootStorage({
@@ -497,6 +505,8 @@ test("F1 regression: legacy abnormal failed stream without sidecar, unproven-sto
         readDispatchLifecycle: (query) => lifecycleReader(query),
         readRuntimeDispatchByResumeSource: () => null,
         searchFacts: () => ({ status: "ready", watermark: 1, sourceRevision: 1, facts: [] }),
+        readCut: () => ({ status: "ready", watermark: 1, sourceRevision: 1 }),
+        readEventList: () => ({ rows: [], hasMore: false, nextCursor: null }),
       },
       retention: { retentionDays: 60, retentionBytes: 0 },
       nowMs,
@@ -730,6 +740,8 @@ test("F2 regression: cancelled task handoff rollout survives attach reclamation 
         readDispatchLifecycle: (query) => lifecycleReader(query),
         readRuntimeDispatchByResumeSource: () => null,
         searchFacts: () => ({ status: "ready", watermark: rev, sourceRevision: rev, facts: [] }),
+        readCut: () => ({ status: "ready", watermark: rev, sourceRevision: rev }),
+        readEventList: () => ({ rows: [], hasMore: false, nextCursor: null }),
       },
       retention: { retentionDays: 60, retentionBytes: 0 },
       nowMs: Date.parse("2026-11-19T00:15:00.000Z"),
@@ -802,6 +814,8 @@ test("F2 regression: cancelled task handoff rollout survives attach reclamation 
         readDispatchLifecycle: (query) => lifecycleReader(query),
         readRuntimeDispatchByResumeSource: (id) => (id === dispatchId ? { dispatchId: "dispatch_resumed" } : null),
         searchFacts: () => ({ status: "ready", watermark: rev, sourceRevision: rev, facts: [] }),
+        readCut: () => ({ status: "ready", watermark: rev, sourceRevision: rev }),
+        readEventList: () => ({ rows: [], hasMore: false, nextCursor: null }),
       },
       retention: { retentionDays: 60, retentionBytes: 0 },
       nowMs: Date.parse("2026-11-19T00:30:00.000Z"),
@@ -862,7 +876,12 @@ test("F4 regression: root and intermediate directory symlinks never traverse or 
 
     const doneProjection: Pick<
       TaskProjectionQueries,
-      "read" | "readDispatchLifecycle" | "readRuntimeDispatchByResumeSource" | "searchFacts"
+      | "read"
+      | "readDispatchLifecycle"
+      | "readRuntimeDispatchByResumeSource"
+      | "searchFacts"
+      | "readCut"
+      | "readEventList"
     > = {
       read: () =>
         ({ status: "ready", watermark: 1, sourceRevision: 1, snapshot: { task: { status: "done" } } }) as never,
@@ -878,6 +897,8 @@ test("F4 regression: root and intermediate directory symlinks never traverse or 
       ]),
       readRuntimeDispatchByResumeSource: () => ({ event: {} }) as never,
       searchFacts: () => ({ status: "ready", watermark: 1, sourceRevision: 1, facts: [] }),
+      readCut: () => ({ status: "ready", watermark: 1, sourceRevision: 1 }),
+      readEventList: () => ({ rows: [], hasMore: false, nextCursor: null }),
     };
 
     const rootSymMeasure = measureLocalRootStorage(rootSymRepo.rootDir);
@@ -958,7 +979,12 @@ test("F5 regression: heavy single-task reclamation bounds per-turn dispatches, b
     );
     const projection: Pick<
       TaskProjectionQueries,
-      "read" | "readDispatchLifecycle" | "readRuntimeDispatchByResumeSource" | "searchFacts"
+      | "read"
+      | "readDispatchLifecycle"
+      | "readRuntimeDispatchByResumeSource"
+      | "searchFacts"
+      | "readCut"
+      | "readEventList"
     > = {
       read: () =>
         ({ status: "ready", watermark: 1, sourceRevision: 1, snapshot: { task: { status: "done" } } }) as never,
@@ -971,6 +997,8 @@ test("F5 regression: heavy single-task reclamation bounds per-turn dispatches, b
         factReads += 1;
         return { status: "ready", watermark: 1, sourceRevision: 1, facts: [] };
       },
+      readCut: () => ({ status: "ready", watermark: 1, sourceRevision: 1 }),
+      readEventList: () => ({ rows: [], hasMore: false, nextCursor: null }),
     };
 
     const firstTurn = reclaimLocalRootStorage({
@@ -1259,6 +1287,128 @@ test("scheduled reclamation pages a real SQLite Fact projection between ordinary
   }
 });
 
+test("scheduled reclamation completes SQLite Fact paging across an ordinary task-progress write", async () => {
+  const { rootDir, cleanup } = createTestRepo("ha-local-storage-progress-pages-");
+  const eventStore = makeTaskEventStore({ rootDir, repoId: "fact-progress-page-reclaim-test" });
+  const projection = makeTaskProjection({ rootDir, eventStore });
+  try {
+    assert.equal(projection.readCut().status, "ready");
+    const taskId = "task_progress_page_interleave",
+      executionId = "execution_progress_page_interleave",
+      lifecycleEvents = lifecycleFixture({ taskId, executionId }).events.slice(0, 2);
+    for (const event of lifecycleEvents) {
+      const plan = taskLifecycleWritePlan(event);
+      eventStore.append({ event, plan, blobs: [] });
+      projection.apply(event, plan);
+    }
+    const database = new DatabaseSync(projection.path),
+      seed = database.prepare(
+        "INSERT INTO fact(task_id,fact_id,ref,statement,evidence_source,observed_at,confidence,memory_class,op_id,workspace_revision,row_json) VALUES (NULL,?,?,?,?,?,?,?,?,0,?)",
+      ),
+      search = database.prepare("INSERT INTO fact_fts(fact_id,statement,evidence_source) VALUES (?,?,?)");
+    try {
+      database.exec("BEGIN");
+      for (let index = 0; index < 65; index += 1) {
+        const occurredAt = "2026-11-19T00:00:00.000Z",
+          factId = `F-${index.toString().padStart(8, "0")}`,
+          evidenceSource = `.harness/runtime/dispatches/archive/dispatch_${index.toString(16).padStart(24, "0")}.jsonl`,
+          statement = `Fact ${index}: ${"evidence detail ".repeat(12)}`,
+          row = {
+            schema: "fact-row/v1",
+            ref: `fact/${factId}`,
+            factId,
+            statement,
+            evidenceSource,
+            observedAt: occurredAt,
+            confidence: "high",
+            memoryClass: "semantic",
+            memoryTags: [],
+            provenance: [],
+            actor: { principal: { personId: "fact-progress-page-test" }, executor: null },
+            source: "local",
+            occurredAt,
+            workspaceRevision: 0,
+            archived: false,
+          };
+        seed.run(
+          factId,
+          `fact/${factId}`,
+          statement,
+          evidenceSource,
+          occurredAt,
+          "high",
+          "semantic",
+          `op-fact-progress-page-${index}`,
+          JSON.stringify(row),
+        );
+        search.run(factId, statement, evidenceSource);
+      }
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    } finally {
+      database.close();
+    }
+
+    const expiringDispatchId = `dispatch_${(65).toString(16).padStart(24, "0")}`;
+    seedClosedDispatch(rootDir, expiringDispatchId, null, "2020-01-01T00:00:00.000Z");
+    archiveDispatchStream(rootDir, expiringDispatchId);
+
+    const maintenanceQueue: (() => void | Promise<void>)[] = [];
+    let factPages = 0,
+      writerRan = false;
+    scheduleLocalRootReclamation({
+      rootDir,
+      projection: () => ({
+        ...projection,
+        searchFacts: (filters) => {
+          const result = projection.searchFacts(filters);
+          factPages += 1;
+          assert.ok(result.facts.length <= 64, "each Fact query stays within the page limit");
+          return result;
+        },
+      }),
+      readRetention: () => ({ retentionDays: 60, retentionBytes: 0 }),
+      schedule: (work) => maintenanceQueue.push(work),
+      maxDispatchesPerTurn: 10,
+    });
+    maintenanceQueue.push(() => {
+      assert.equal(factPages, 1, "the ordinary writer interleaves after the first Fact page read");
+      const actor = { principal: { personId: "person-owner" }, executor: null } as const,
+        progress = compileTaskProgress({
+          taskId,
+          executionId,
+          packagePath: projection.read(taskId).packagePath!,
+          text: "ordinary non-Fact write between Fact pages",
+          evidence: [],
+          currentDocument: null,
+          activeLease: null,
+          startRecoveryAvailable: false,
+          asOwner: true,
+          taskCreatedBy: { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } },
+          actor,
+          source: "local",
+          eventId: "event-progress-page-interleave",
+          opId: "op-progress-page-interleave",
+          workspaceRevision: 3,
+          occurredAt: "2026-11-19T00:00:01.000Z",
+        });
+      eventStore.append(progress);
+      projection.apply(progress.event, progress.plan);
+      writerRan = true;
+    });
+
+    while (maintenanceQueue.length > 0) await maintenanceQueue.shift()!();
+    assert.equal(writerRan, true);
+    assert.equal(factPages, 2, "both pages finish without restarting the Fact scan");
+    assert.equal(existsSync(dispatchStreamPath(rootDir, expiringDispatchId)), false);
+  } finally {
+    projection.close();
+    cleanup();
+  }
+});
+
 test("reclaimLocalRootStorage fails closed when projections are pending and isolates independent edge localRoots", () => {
   const edgeA = createTestRepo("ha-local-edge-a-");
   const edgeB = createTestRepo("ha-local-edge-b-");
@@ -1272,12 +1422,19 @@ test("reclaimLocalRootStorage fails closed when projections are pending and isol
 
     const pendingProjection: Pick<
       TaskProjectionQueries,
-      "read" | "readDispatchLifecycle" | "readRuntimeDispatchByResumeSource" | "searchFacts"
+      | "read"
+      | "readDispatchLifecycle"
+      | "readRuntimeDispatchByResumeSource"
+      | "searchFacts"
+      | "readCut"
+      | "readEventList"
     > = {
       read: () => ({ status: "pending", watermark: 0, sourceRevision: 1 }) as never,
       readDispatchLifecycle: () => ({ status: "pending", watermark: 0, sourceRevision: 1 }),
       readRuntimeDispatchByResumeSource: () => null,
       searchFacts: () => ({ status: "pending", watermark: 0, sourceRevision: 1 }),
+      readCut: () => ({ status: "pending", watermark: 0, sourceRevision: 1 }),
+      readEventList: () => ({ rows: [], hasMore: false, nextCursor: null }),
     };
 
     const skipped = reclaimLocalRootStorage({
@@ -1292,7 +1449,12 @@ test("reclaimLocalRootStorage fails closed when projections are pending and isol
 
     const readyProjection: Pick<
       TaskProjectionQueries,
-      "read" | "readDispatchLifecycle" | "readRuntimeDispatchByResumeSource" | "searchFacts"
+      | "read"
+      | "readDispatchLifecycle"
+      | "readRuntimeDispatchByResumeSource"
+      | "searchFacts"
+      | "readCut"
+      | "readEventList"
     > = {
       read: () => ({ status: "ready", watermark: 1, sourceRevision: 1, snapshot: { task: null } }) as never,
       readDispatchLifecycle: lifecycleReadForSync([
@@ -1307,6 +1469,8 @@ test("reclaimLocalRootStorage fails closed when projections are pending and isol
       ]),
       readRuntimeDispatchByResumeSource: () => null,
       searchFacts: () => ({ status: "ready", watermark: 1, sourceRevision: 1, facts: [] }),
+      readCut: () => ({ status: "ready", watermark: 1, sourceRevision: 1 }),
+      readEventList: () => ({ rows: [], hasMore: false, nextCursor: null }),
     };
 
     const reclaimed = reclaimLocalRootStorage({
