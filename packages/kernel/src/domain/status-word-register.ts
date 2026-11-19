@@ -6,6 +6,7 @@ import { closeoutStatusWordRegister } from "./status-word-register-closeout.ts";
 import { squadRunStatusWordRegister } from "./status-word-register-squad.ts";
 import { authoredDocumentStatusWordRegister } from "./status-word-register-authored-document.ts";
 import { dispatchStatusWordRegister } from "./status-word-register-dispatch.ts";
+import { inboxStatusWordRegister } from "./status-word-register-inbox.ts";
 
 /** Ordered cross-entity status registrations, assembled from bounded domains. */
 export const statusWordRegister: readonly StatusWordRegistration[] = [
@@ -28,6 +29,7 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     meaning,
     divergence: "entity-scoped" as const,
   })),
+  ...inboxStatusWordRegister,
   {
     word: "scheduled",
     entity: "RuntimeSession",

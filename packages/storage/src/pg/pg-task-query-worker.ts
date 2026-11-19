@@ -15,6 +15,7 @@ import { initializePgTerminalMaterialization } from "./pg-query-model-materializ
 import { rebuildPgProjection } from "./pg-task-event-materialize.ts";
 import { backfillPgArtifactDocuments } from "./pg-artifact-timeline.ts";
 import { backfillPgDispatchLifecycle } from "./pg-dispatch-lifecycle.ts";
+import { backfillPgInbox } from "./pg-inbox.ts";
 import { maintainPgRelationCycleAuditPage } from "./pg-relation-cycle-audit.ts";
 import { backfillPgRelationReaderIndexPage } from "./pg-relation-queries.ts";
 import {
@@ -56,6 +57,7 @@ interface PgQueryWorkerRequest {
     | "warm-indexes"
     | "artifact-backfill"
     | "dispatch-lifecycle-backfill"
+    | "inbox-backfill"
     | "relation-cycle-maintenance"
     | "epoch"
     | "replication";
@@ -438,6 +440,19 @@ function startWorker(
           await withPostgresTransaction(
             pool,
             (client) => backfillPgDispatchLifecycle(client, input.scope, input.repoId),
+            input.scope,
+          ),
+        );
+        return;
+      }
+      if (request.op === "inbox-backfill") {
+        if (sessionClient) throw new Error("inbox backfill cannot run inside a projection read session");
+        respond(
+          request.id,
+          input.state,
+          await withPostgresTransaction(
+            pool,
+            (client) => backfillPgInbox(client, input.scope, input.repoId),
             input.scope,
           ),
         );

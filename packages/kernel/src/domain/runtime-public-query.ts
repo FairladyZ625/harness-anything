@@ -6,6 +6,7 @@ import {
   type RuntimeInstallation,
   type RuntimeSession,
 } from "./agent-runtime.ts";
+import { inboxEventTypes } from "./inbox.ts";
 
 /** Binding and installation observations are control metadata; public activity uses their projected rows. */
 export const privateRuntimeEventTypes = [
@@ -13,6 +14,8 @@ export const privateRuntimeEventTypes = [
   "runtime_session_provider_bound",
   "runtime_session_task_bound",
   "runtime_squad_run_observed",
+  // Inbox wakeups are read through the Inbox projection, never through session activity.
+  ...inboxEventTypes,
 ] as const;
 
 /** Validate a runtime event type filter before it becomes SQL; empty or unknown filters fail closed. */

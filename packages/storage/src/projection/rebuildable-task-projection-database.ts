@@ -47,6 +47,7 @@ import {
 } from "./projection-tables.ts";
 import { ensureWorkspaceTaskCensus } from "./workspace-task-census.ts";
 import { catchUpDispatchLifecycle } from "./dispatch-lifecycle-projection.ts";
+import { catchUpInbox } from "./inbox-projection.ts";
 import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 import {
   closeProjectionConnection,
@@ -768,6 +769,7 @@ function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgres
   ensureRuntimeMemberIndex(db, onValidationProgress);
   backfillEventSummaryReadIndex(db, onValidationProgress);
   catchUpDispatchLifecycle(db, onValidationProgress);
+  catchUpInbox(db);
   backfillRuntimeSessionBindings(db, onValidationProgress);
   ensureArtifactTimelineBackfill(db);
   createTaskRelationProjectionTable(db);

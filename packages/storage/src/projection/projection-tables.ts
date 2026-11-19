@@ -8,6 +8,7 @@ import {
 import { ensureRuntimeMemberIndex } from "./runtime-member-index.ts";
 import { ensureWorkspaceTaskCensus } from "./workspace-task-census.ts";
 import { catchUpDispatchLifecycle, DISPATCH_LIFECYCLE_TABLES_SQL } from "./dispatch-lifecycle-projection.ts";
+import { catchUpInbox, INBOX_TABLES_SQL } from "./inbox-projection.ts";
 /**
  * Reverse code-path trace keys (dec_9979850C7CE87C17271D78E4D1 CH2). SQLite normalizes task executions
  * into `entity_projection` (`executions: []` in `task_snapshot.snapshot_json`), so execution submission
@@ -59,6 +60,7 @@ export const sqliteImportedTaskPinPredicate = `
 
 export const REPOSITORY_READ_BASE_TABLES_SQL = `
     ${DISPATCH_LIFECYCLE_TABLES_SQL}
+    ${INBOX_TABLES_SQL}
     /* @gate-identity state-store/task.projection.artifact_entity_state */ CREATE TABLE IF NOT EXISTS artifact_entity_state (
       entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL, state_json TEXT NOT NULL,
       PRIMARY KEY(entity_kind, entity_id)
@@ -277,4 +279,5 @@ export function createProjectionTables(
   ensureRuntimeMemberIndex(db, onValidationProgress);
   backfillEventSummaryReadIndex(db, onValidationProgress);
   catchUpDispatchLifecycle(db, onValidationProgress);
+  catchUpInbox(db);
 }
