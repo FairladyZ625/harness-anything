@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -16,7 +16,7 @@ import { createLocalGuiServiceBridge } from "../../gui/src/main/local-compositio
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell, registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
-import { startBrowserGuiBroker } from "../../cli/src/cli/gui-browser-broker.ts";
+import { startBrowserGuiFixture } from "../../cli/test/gui-browser-broker.fixture.ts";
 
 // dec_89D06D7360CBEC09795F7B12EC/CH3: lose an applied receipt at the socket, after the
 // real writer accepted it. Every entry point retransmits the same request to that writer.
@@ -87,13 +87,11 @@ test("CLI, Electron composition, and Browser broker replay one committed write a
     originalDaemonId = process.env.HARNESS_DAEMON_ID;
   process.env.HARNESS_DAEMON_USER_ROOT = userRoot;
   process.env.HARNESS_DAEMON_ID = daemonId;
-  let broker: Awaited<ReturnType<typeof startBrowserGuiBroker>> | undefined;
+  let broker: Awaited<ReturnType<typeof startBrowserGuiFixture>> | undefined;
   try {
     server.listen(socketPath);
     await once(server, "listening");
-    mkdirSync(path.join(parent, "dist"));
-    writeFileSync(path.join(parent, "dist/index.html"), "<!doctype html><title>Local retry</title>");
-    broker = await startBrowserGuiBroker(parent, rootDir);
+    broker = await startBrowserGuiFixture(parent, rootDir, "<!doctype html><title>Local retry</title>");
     const url = new URL(broker.url),
       token = new URLSearchParams(url.hash.slice(1)).get("access_token"),
       exec = promisify(execFile),

@@ -25,6 +25,7 @@ import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/clien
 import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import { makeAgentRuntimeStreamHub } from "../../daemon/test/fixtures/runtime-stream.ts";
 import type { RuntimeSession } from "@harness-anything/kernel";
+import { startBrowserGuiFixture } from "./gui-browser-broker.fixture.ts";
 import {
   daemonId,
   environment,
@@ -92,8 +93,6 @@ test("headless Chromium receives the hub snapshot and releases its socket on abo
   try {
     mkdirSync(userRoot);
     mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
-    mkdirSync(path.join(parent, "dist"));
-    writeFileSync(path.join(parent, "dist/index.html"), "<!doctype html><title>Stream</title>");
     writeFileSync(
       path.join(userRoot, "registry.json"),
       JSON.stringify({
@@ -119,7 +118,7 @@ test("headless Chromium receives the hub snapshot and releases its socket on abo
     await once(server, "listening");
     const first = hub.publish(sessionId, { type: "activity", activity: "message", content: "snapshot activity" });
     for (let seq = 0; seq < 32; seq++) hub.publish(sessionId, { type: "heartbeat" });
-    broker = await startBrowserGuiBroker(parent, parent);
+    broker = await startBrowserGuiFixture(parent, parent, "<!doctype html><title>Stream</title>");
     browser = await chromium.launch({
       executablePath: chromiumExecutable(parent),
       headless: true,
@@ -211,9 +210,7 @@ test("headless Chromium receives the hub snapshot and releases its socket on abo
 test("browser GUI broker opens on exact loopback and rejects cross-origin RPC", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-browser-broker-")),
     guiPackageRoot = path.join(root, "packages/gui");
-  mkdirSync(path.join(guiPackageRoot, "dist"), { recursive: true });
-  writeFileSync(path.join(guiPackageRoot, "dist/index.html"), "<!doctype html><title>GUI</title>");
-  const broker = await startBrowserGuiBroker(guiPackageRoot, root);
+  const broker = await startBrowserGuiFixture(guiPackageRoot, root, "<!doctype html><title>GUI</title>");
   try {
     const url = new URL(broker.url),
       token = new URLSearchParams(url.hash.slice(1)).get("access_token");
