@@ -6983,6 +6983,24 @@
         "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-runtime.ts#openFleetEdgeRuntime.reconcile:5b3bd69ac1f9b9094e89a6db54a3ec2e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-runtime.ts#openFleetEdgeRuntime.run.receipt:9034d3ee2daae438a013fb13c965daab",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-runtime.ts#openFleetEdgeRuntime.run.receipt:1459b3858c0fb8b9d4747af85836ca05",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/writer-supervisor.ts#openWriterSupervisor.supervisor.request.publishFleetBackupTrace:ab204b255ca0ec0fe00ab13fb8c27e3d",
         "route": "daemon-local-state",
         "role": "technical-port",
