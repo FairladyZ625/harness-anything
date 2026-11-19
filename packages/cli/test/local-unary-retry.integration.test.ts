@@ -137,12 +137,18 @@ test("CLI, Electron composition, and Browser broker replay one committed write a
       assert.equal(packets.length, 2);
       assert.deepEqual(packets[0], packets[1]);
     }
-    assert.equal(
-      makeTaskEventReader({ rootDir, repoId })
-        .read()
-        .events.filter((event) => event.type === "task_created").length,
-      3,
-    );
+    const reader = makeTaskEventReader({ rootDir, repoId });
+    try {
+      assert.deepEqual(
+        reader
+          .read()
+          .events.filter((event) => event.type === "task_bootstrapped")
+          .map((event) => event.payload.task.title),
+        ["CLI retry", "Electron retry", "Browser retry"],
+      );
+    } finally {
+      await reader.drain();
+    }
   } finally {
     await broker?.close();
     if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()));
