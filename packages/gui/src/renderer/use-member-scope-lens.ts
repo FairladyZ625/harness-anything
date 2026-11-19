@@ -189,9 +189,11 @@ export function useMemberScopeContext(input: {
   const allowedMembers = adminState?.isRepoAdmin === true ? lensMembers : EMPTY_LENS_MEMBERS;
   const [selection, setSelection] = useState<{ key: string; personId: string | null } | null>(null);
   const selected = selection?.key === accessKey ? selection : null;
-  const defaultScope = view === "overview" || view === "todos" ? currentPersonId : null;
+  const personalLanding = view === "overview" || view === "todos";
+  // Retain the personal read while the effective topology is unknown.
+  const defaultScope = personalLanding && (collaborative !== false || canUseGlobalLens) ? currentPersonId : null;
   const selectedPersonId = canUseGlobalLens ? selected?.personId : undefined;
-  const scopePersonId = canUseGlobalLens && selectedPersonId === undefined ? defaultScope : (selectedPersonId ?? null);
+  const scopePersonId = selectedPersonId === undefined ? defaultScope : selectedPersonId;
 
   return {
     identityPending: auth !== undefined && snapshot === null,

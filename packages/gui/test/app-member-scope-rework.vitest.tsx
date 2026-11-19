@@ -1679,6 +1679,7 @@ describe("rework regressions: mixed two-member isolation, sessions consistency, 
     );
     expect(nonAdminApp.container.querySelector('[data-testid="repo-mode-badge-local"]')).toBeNull();
     expect(briefRequests).toContainEqual({ repoId: "repo-test", scopePersonId: "person_alice" });
+    expect(briefRequests.every(({ scopePersonId }) => scopePersonId === "person_alice")).toBe(true);
     await clickSidebarNav(nonAdminApp.container, "待办清单");
     await flushMicroAndTimers();
     expect(nonAdminApp.container.querySelector<HTMLSelectElement>('[data-testid="todos-scope"]')?.value).toBe("mine");
