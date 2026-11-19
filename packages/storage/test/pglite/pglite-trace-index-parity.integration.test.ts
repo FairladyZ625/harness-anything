@@ -76,7 +76,11 @@ pgliteIntegrationSuite("reverse code-path trace index parity", () => {
             compileDecisionWrite({
               event: {
                 ...draft,
-                payload: { ...draft.payload, appliesTo: { modules: [...modules], productLines: [] } },
+                payload: {
+                  ...draft.payload,
+                  appliesTo: { modules: [...modules], productLines: [] },
+                  provenance: fact(revision).payload.provenance,
+                },
               },
               currentDecision: null,
               currentRelations: [],
