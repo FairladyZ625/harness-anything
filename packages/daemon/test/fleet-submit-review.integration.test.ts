@@ -893,6 +893,8 @@ test(
     git(workerRoot, "add", "delivery.txt");
     git(workerRoot, "commit", "-qm", "feat: declare-executor delivery");
     const frozen = git(workerRoot, "rev-parse", "HEAD");
+    await catchUpReplica(replica);
+    assert.equal(applyFleetMirrorCut(viewRoot, repoId, workerRoot, "pull").outcome, "applied");
     for (const root of [f.repo, edgeRoot]) {
       const config = path.join(root, "harness", "harness.yaml");
       writeFileSync(
@@ -903,7 +905,6 @@ test(
         ),
       );
     }
-    mkdirSync(path.join(workerRoot, "harness", packagePath), { recursive: true });
     writeFileSync(
       path.join(workerRoot, "harness", packagePath, "closeout.md"),
       "## Summary\nDeclared-executor delivery.\n## Verification\nHosted PR pre-publish.\n" +
