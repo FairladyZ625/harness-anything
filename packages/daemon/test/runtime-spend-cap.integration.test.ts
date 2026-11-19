@@ -22,7 +22,8 @@ const definition: AgentDefinitionSnapshot = {
   providerId: "openai",
   model: "gpt-5.6-sol",
   reasoningEffort: "high",
-  baseUrl: "https://api.example.test/",
+  endpointKind: "custom",
+  baseUrlHash: "sha256:289d412cd8961bf0",
   authMode: "api-key",
 };
 const installation: RuntimeInstallationWitness = {

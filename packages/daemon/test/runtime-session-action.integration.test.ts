@@ -66,7 +66,8 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
       providerId: "openai",
       model: "gpt-5.6-sol",
       reasoningEffort: "high",
-      baseUrl: null,
+      endpointKind: "official",
+      baseUrlHash: null,
       authMode: "subscription",
     } as const;
   served.keycloak.permit(

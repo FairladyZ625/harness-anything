@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  validateAgentRuntimeEvent,
   validateAgentRuntimePayload,
   validateCurrentAgentRuntimeEvent,
   type AgentRuntimeEventV1,
@@ -1039,7 +1040,8 @@ test("runtime_dispatch_requested permission metadata folds into attempts and sum
       providerId: "openai",
       model: "gpt-5.6-sol",
       reasoningEffort: "high",
-      baseUrl: null,
+      endpointKind: "official",
+      baseUrlHash: null,
       authMode: "subscription",
     },
   };
@@ -1048,9 +1050,55 @@ test("runtime_dispatch_requested permission metadata folds into attempts and sum
     runtimeSessionId: "session-hist-perm",
     attemptGroupId: "group-hist-perm",
   };
-  const historical = runtimeEvent({ t: "R" }, historicalIds, { dispatch: fullDispatchBase });
+  const historical = runtimeEvent({ t: "R" }, historicalIds, {
+    dispatch: {
+      ...fullDispatchBase,
+      definitionSnapshot: { ...fullDispatchBase.definitionSnapshot, baseUrl: null },
+    },
+  });
   assert.deepEqual(validateAgentRuntimePayload("runtime_dispatch_requested", historical.payload), []);
-  assert.deepEqual(validateCurrentAgentRuntimeEvent(historical), []);
+  assert.deepEqual(validateAgentRuntimeEvent(historical), []);
+  assert.notDeepEqual(validateCurrentAgentRuntimeEvent(historical), []);
+
+  const { baseUrl: _baseUrl, ...definitionSnapshot } = fullDispatchBase.definitionSnapshot;
+  for (const [endpointKind, baseUrlHash] of [
+    ["official", null],
+    ["custom", "sha256:0123456789abcdef"],
+  ] as const) {
+    const current = runtimeEvent(
+      { t: "R" },
+      {
+        dispatchId: `dispatch-${endpointKind}-endpoint`,
+        runtimeSessionId: `session-${endpointKind}-endpoint`,
+        attemptGroupId: `group-${endpointKind}-endpoint`,
+      },
+      {
+        dispatch: {
+          ...fullDispatchBase,
+          definitionSnapshot: { ...definitionSnapshot, endpointKind, baseUrlHash },
+        },
+      },
+    );
+    assert.deepEqual(validateAgentRuntimePayload("runtime_dispatch_requested", current.payload), []);
+    assert.deepEqual(validateCurrentAgentRuntimeEvent(current), []);
+  }
+  for (const snapshot of [
+    { ...definitionSnapshot },
+    { ...definitionSnapshot, endpointKind: "custom", baseUrlHash: null },
+    { ...definitionSnapshot, endpointKind: "official", baseUrlHash: "sha256:0123456789abcdef" },
+    { ...definitionSnapshot, endpointKind: "custom", baseUrlHash: "sha256:0123456789abcdef", baseUrl: null },
+  ]) {
+    const current = runtimeEvent(
+      { t: "R" },
+      {
+        dispatchId: "dispatch-invalid-endpoint",
+        runtimeSessionId: "session-invalid-endpoint",
+        attemptGroupId: "group-invalid-endpoint",
+      },
+      { dispatch: { ...fullDispatchBase, definitionSnapshot: snapshot } },
+    );
+    assert.notDeepEqual(validateCurrentAgentRuntimeEvent(current), []);
+  }
 
   const historicalStep = reduceDispatchLifecycle(null, historical);
   assert.equal(historicalStep.kind, "applied");

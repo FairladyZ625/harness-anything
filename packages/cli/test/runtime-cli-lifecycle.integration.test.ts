@@ -22,6 +22,8 @@ import {
   taskQueryGuidance,
 } from "@harness-anything/daemon/internal/runtime-spawn-mission";
 import { safePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { writeFleetEdgeConfig } from "@harness-anything/daemon/internal/client/fleet-edge-config";
+import { registerDaemonRepo } from "@harness-anything/storage";
 import { runCommandThroughDaemon } from "../src/daemon/client.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 import {
@@ -56,6 +58,36 @@ test("dispatch JSONL reads ignore only an unterminated tail record", (context) =
   assert.deepEqual(readDispatchRecords(root, dispatchId), [JSON.parse(record)]);
   writeFileSync(stream, `${record}\n{"kind":}\n`);
   assert.throws(() => readDispatchRecords(root, dispatchId), SyntaxError);
+});
+
+test("runtime instance CLI list returns the node identity for the current Fleet edge repository", async (context) => {
+  const { root, userRoot, parent, env } = createRuntimeFixture(context),
+    repoId = "runtime-cli";
+  registerDaemonRepo({
+    canonicalRoot: root,
+    repoId,
+    mode: "remote-edge",
+    userRoot,
+    createConvenienceLinks: false,
+  });
+  writeFleetEdgeConfig(root, {
+    repoId,
+    host: "center.example.invalid",
+    port: 7443,
+    caPath: path.join(parent, "fleet.crt"),
+    nodeId: "edge-runtime-node",
+    credential: "test-fleet-credential",
+    viewRoot: path.join(parent, "view"),
+    quotaBytes: 1_048_576,
+  });
+
+  const receipt = run(root, env, ["runtime", "instance", "list", "--all"]);
+  assert.equal(receipt.nodeId, "edge-runtime-node");
+  assert.equal(
+    (receipt.instances as readonly { readonly providerHealth: { readonly nodeId: string } }[])[0]!.providerHealth
+      .nodeId,
+    "edge-runtime-node",
+  );
 });
 
 test(

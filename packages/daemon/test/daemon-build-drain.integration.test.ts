@@ -815,7 +815,8 @@ test(
         providerId: "openai",
         model: "codex-model",
         reasoningEffort: null,
-        baseUrl: null,
+        endpointKind: "official",
+        baseUrlHash: null,
         authMode: "subscription",
       },
       instance = {
@@ -1120,7 +1121,8 @@ test(
         providerId: "openai",
         model: "codex-model",
         reasoningEffort: null,
-        baseUrl: null,
+        endpointKind: "official",
+        baseUrlHash: null,
         authMode: "subscription",
       },
       instance = {
@@ -1342,7 +1344,8 @@ test(
         providerId: "openai",
         model: "codex-model",
         reasoningEffort: null,
-        baseUrl: null,
+        endpointKind: "official",
+        baseUrlHash: null,
         authMode: "subscription",
       },
       instance = {

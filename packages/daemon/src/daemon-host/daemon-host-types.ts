@@ -195,6 +195,7 @@ export interface DaemonHost {
     method: string,
     payload: JsonObject,
     auth: DaemonAuthenticationContext,
+    repoId?: string,
   ) => Promise<JsonObject>;
   readonly decisionProvider: (
     method: string,

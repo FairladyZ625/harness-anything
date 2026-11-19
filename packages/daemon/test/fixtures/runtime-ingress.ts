@@ -22,7 +22,8 @@ export const definition: AgentDefinitionSnapshot = {
   model: "gpt-5.6-sol",
   reasoningEffort: "high",
   fast: false,
-  baseUrl: "https://api.example.test/",
+  endpointKind: "custom",
+  baseUrlHash: "sha256:289d412cd8961bf0",
   authMode: "api-key",
 };
 export const installation: RuntimeInstallationWitness = {

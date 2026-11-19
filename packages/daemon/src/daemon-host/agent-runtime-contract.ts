@@ -1,4 +1,8 @@
 import { agentRuntimeSessionGroupStatusWords } from "@harness-anything/kernel/internal/domain/client-view-status.ts";
+import {
+  agentDefinitionSnapshotErrors,
+  agentDefinitionSnapshotEndpoint,
+} from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import { validRuntimeInstanceTier } from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
 import type { RuntimeLiveness } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
@@ -181,6 +185,7 @@ export interface AgentRuntimeSessionDto {
   /** Absent only on previous-version peers; remove optionality 2026-12-07. */
   readonly lifecycle?: DispatchLifecycleSummary;
   readonly runtimeSessionId: string;
+  readonly nodeId: string | null;
   readonly providerSessionId: string | null;
   readonly instanceId: string;
   readonly installationId: string;
@@ -610,6 +615,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
       value,
       [
         "runtimeSessionId",
+        "nodeId",
         "providerSessionId",
         "instanceId",
         "installationId",
@@ -637,6 +643,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
       ],
     ) &&
     typeof value.runtimeSessionId === "string" &&
+    (value.nodeId === null || typeof value.nodeId === "string") &&
     (value.providerSessionId === null || typeof value.providerSessionId === "string") &&
     [value.instanceId, value.installationId, value.definitionSnapshotRef].every(
       (item) => typeof item === "string" && item.length > 0,
@@ -648,7 +655,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
     (value.context === undefined || validSessionContext(value.context)) &&
     typeof value.definitionSnapshotPersisted === "boolean" &&
     (value.definitionSnapshot === null ||
-      (isAgentDefinitionSnapshot(value.definitionSnapshot) &&
+      (validAgentDefinitionSnapshotDto(value.definitionSnapshot) &&
         value.definitionSnapshot.instanceId === value.instanceId &&
         value.definitionSnapshot.installationId === value.installationId)) &&
     (!value.definitionSnapshotPersisted || value.definitionSnapshot !== null) &&
@@ -762,7 +769,7 @@ function validPage(value: unknown): boolean {
     (value.remainingCount === null || (Number.isInteger(value.remainingCount) && (value.remainingCount as number) >= 0))
   );
 }
-export function isAgentDefinitionSnapshot(value: unknown): value is AgentDefinitionSnapshot {
+function validAgentDefinitionSnapshotDto(value: unknown): value is AgentDefinitionSnapshot {
   return (
     isAgentRuntimeContractRecord(value) &&
     hasAgentRuntimeContractFields(
@@ -776,25 +783,19 @@ export function isAgentDefinitionSnapshot(value: unknown): value is AgentDefinit
         "providerId",
         "model",
         "reasoningEffort",
-        "baseUrl",
         "authMode",
       ],
-      ["fast", "webSearch", "mcpPolicy"],
+      ["baseUrl", "endpointKind", "baseUrlHash", "fast", "webSearch", "mcpPolicy"],
     ) &&
-    value.schema === "agent-definition-snapshot/v1" &&
-    value.configVersion === 1 &&
-    [value.instanceId, value.installationId, value.providerId, value.model].every(
-      (item) => typeof item === "string" && item.length > 0,
-    ) &&
-    typeof value.kindId === "string" &&
-    value.kindId.length > 0 &&
-    (value.reasoningEffort === null || typeof value.reasoningEffort === "string") &&
-    (value.fast === undefined || typeof value.fast === "boolean") &&
-    (value.webSearch === undefined || (runtimeWebSearchModes as readonly string[]).includes(String(value.webSearch))) &&
-    (value.mcpPolicy === undefined || isRuntimeMcpPolicy(value.mcpPolicy)) &&
-    (value.baseUrl === null || typeof value.baseUrl === "string") &&
-    ["subscription", "api-key"].includes(String(value.authMode))
+    agentDefinitionSnapshotErrors(value).length === 0
   );
+}
+
+export function redactAgentDefinitionSnapshot(snapshot: AgentDefinitionSnapshot): AgentDefinitionSnapshot {
+  const { baseUrl, ...safeSnapshot } = snapshot;
+  return !Object.hasOwn(snapshot, "endpointKind")
+    ? { ...safeSnapshot, ...agentDefinitionSnapshotEndpoint(baseUrl) }
+    : safeSnapshot;
 }
 function validAssociation(value: unknown): value is AgentRuntimeAssociationDto {
   return (

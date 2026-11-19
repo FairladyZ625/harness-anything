@@ -357,7 +357,8 @@ function definition(instanceId: string, model: string): AgentDefinitionSnapshot 
     providerId: "openai",
     model,
     reasoningEffort: null,
-    baseUrl: null,
+    endpointKind: "official",
+    baseUrlHash: null,
     authMode: "subscription",
   };
 }

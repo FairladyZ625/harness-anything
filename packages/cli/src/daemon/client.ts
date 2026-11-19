@@ -19,6 +19,7 @@ import {
   daemonIdFromEnv,
   daemonRegistryUnreadableCode,
   daemonUserRoot,
+  readRegisteredRepos,
   resolveLocalDaemonEndpoint,
   resolveLocalDaemonTarget,
 } from "@harness-anything/daemon/internal/client/local-daemon-target";
@@ -237,6 +238,13 @@ export async function runCommandThroughDaemon(
       daemonId = daemonIdFromEnv(env),
       { kind: _kind, ...inputPayload } = command.action,
       socketPath = repoScopedDaemonEndpoint(env, command, userRoot, daemonId);
+    const runtimeRepoId =
+      command.method === "daemon.runtimeInstance.list"
+        ? env.HARNESS_DAEMON_REPO_ID?.trim() ||
+          (await readRegisteredRepos(userRoot)).find(
+            (repo) => canonicalRoot(repo.canonicalRoot, true) === canonicalRoot(command.rootDir, true),
+          )?.repoId
+        : undefined;
     if (inputPayload.apiKeyStdin !== undefined || inputPayload.apiKeyFile !== undefined)
       assertRuntimeCredentialEndpoint(socketPath);
     const { runtimeCredentialInput } = await import("../cli/runtime-credential-input.ts"),
@@ -246,7 +254,10 @@ export async function runCommandThroughDaemon(
         requestLocalDaemonJsonRpcForTarget(
           { userRoot, daemonId, socketPath, invokingCommand: command.id },
           command.method,
-          { payload: payload as JsonObject },
+          {
+            ...(runtimeRepoId === undefined ? {} : { repo: { repoId: runtimeRepoId } }),
+            payload: payload as JsonObject,
+          },
           75,
         ),
       () => cliDaemonServeLaunch(userRoot, daemonId),

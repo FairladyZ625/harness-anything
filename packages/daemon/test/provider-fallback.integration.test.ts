@@ -1466,7 +1466,8 @@ function definition(instanceId: string, model: string, kind: "codex" | "devin" =
     model,
     reasoningEffort: null,
     fast: false,
-    baseUrl: null,
+    endpointKind: "official",
+    baseUrlHash: null,
     authMode: "subscription",
   };
 }

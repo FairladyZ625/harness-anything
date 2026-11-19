@@ -473,7 +473,8 @@ for (const forceTerminate of [false, true])
               providerId: "openai",
               model: "codex-model",
               reasoningEffort: null,
-              baseUrl: null,
+              endpointKind: "official",
+              baseUrlHash: null,
               authMode: "subscription",
             },
             installation: {

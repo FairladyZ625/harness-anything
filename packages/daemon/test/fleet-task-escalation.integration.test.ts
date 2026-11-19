@@ -36,7 +36,8 @@ test(
         providerId: "openai",
         model: "gpt-5.6-sol",
         reasoningEffort: "high",
-        baseUrl: null,
+        endpointKind: "official",
+        baseUrlHash: null,
         authMode: "subscription",
       },
       runtimeInstallation: RuntimeInstallationWitness = {

@@ -121,7 +121,8 @@ test("a launch refused after preparation returns the temp scope prepareLaunch mi
             model: "gpt-5.6-sol",
             reasoningEffort: null,
             fast: false,
-            baseUrl: null,
+            endpointKind: "official",
+            baseUrlHash: null,
             authMode: "subscription",
           },
           installation: {

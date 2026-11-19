@@ -33,7 +33,8 @@ test(
         providerId: "openai",
         model: "deepseek-flash",
         reasoningEffort: null,
-        baseUrl: null,
+        endpointKind: "official",
+        baseUrlHash: null,
         authMode: "subscription",
       };
     const launchRequests: { readonly prompt: string; readonly providerSessionId: string | undefined }[] = [],

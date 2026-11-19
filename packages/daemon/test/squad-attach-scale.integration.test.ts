@@ -362,7 +362,8 @@ function scaleEvents(
           providerId: "scale-provider",
           model: "scale-model",
           reasoningEffort: null,
-          baseUrl: null,
+          endpointKind: "official",
+          baseUrlHash: null,
           authMode: "subscription",
         },
         squadRun: {

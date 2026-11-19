@@ -562,7 +562,15 @@ export function createJsonRpcProtocolServer(options: {
               code: "repo_namespace_unknown",
             });
         }
-        return reply(method, await options.host.runtimeInstance(method, params.payload, options.authContext));
+        return reply(
+          method,
+          await options.host.runtimeInstance(
+            method,
+            params.payload,
+            options.authContext,
+            params.repo === undefined ? undefined : repoIdFromParams(params),
+          ),
+        );
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }

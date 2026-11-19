@@ -22,7 +22,8 @@ export const definition: AgentDefinitionSnapshot = {
   model: "gpt-5.6-sol",
   reasoningEffort: "high",
   fast: true,
-  baseUrl: null,
+  endpointKind: "official",
+  baseUrlHash: null,
   authMode: "subscription",
 };
 

@@ -47,7 +47,8 @@ const definition: AgentDefinitionSnapshot = {
   providerId: "openai",
   model: "gpt-5.6-sol",
   reasoningEffort: "high",
-  baseUrl: "https://api.example.test/",
+  endpointKind: "custom",
+  baseUrlHash: "sha256:289d412cd8961bf0",
   authMode: "api-key",
 };
 const definitionForNotice: AgentDefinitionSnapshot = {
@@ -58,7 +59,8 @@ const definitionForNotice: AgentDefinitionSnapshot = {
   providerId: "openai",
   model: "gpt-5.6-sol",
   reasoningEffort: null,
-  baseUrl: null,
+  endpointKind: "official",
+  baseUrlHash: null,
   authMode: "subscription",
 };
 
@@ -77,7 +79,8 @@ test("runtime spawn maps the GUI Claude kind to a canonical claude-compatible in
       providerId: "anthropic",
       model: "claude-fable-5",
       reasoningEffort: null,
-      baseUrl: null,
+      endpointKind: "official",
+      baseUrlHash: null,
       authMode: "subscription",
     };
     const claudeInstallation: RuntimeInstallationWitness = {
@@ -177,7 +180,8 @@ test("runtime spawn rejects unattended zcode modes that require a permission cli
         providerId: "zai",
         model: "glm-5",
         reasoningEffort: null,
-        baseUrl: null,
+        endpointKind: "official",
+        baseUrlHash: null,
       },
       zcodeInstallation: RuntimeInstallationWitness = {
         installationId: zcodeDefinition.installationId,

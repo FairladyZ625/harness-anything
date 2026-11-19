@@ -18,6 +18,7 @@ import {
   agentRuntimeSessionGroupStatusWords,
   agentRuntimeUnattributedGroupKeys,
   coded,
+  redactAgentDefinitionSnapshot,
   type AgentRuntimeEventsResult,
   type AgentRuntimeInstallationDto,
   type AgentRuntimeOverviewResult,
@@ -41,6 +42,7 @@ import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 import { readRuntimeSessionContextOccupancy } from "./context-occupancy.ts";
 import { runtimeSessionSettlement } from "./runtime-settlement.ts";
 import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
+import { writeSourceNodeId } from "@harness-anything/kernel/internal/domain/write-source.ts";
 
 /** Attach is an interactive stream: both writer and query entry points consume processAlive.
  * Installation support is transport inventory, never an alternative process/lifecycle judgment. */
@@ -87,13 +89,13 @@ export function makeAgentRuntimeReadModel(input: {
     installation: RuntimeInstallation | null | undefined,
     definition: { readonly snapshot: AgentDefinitionSnapshot | null; readonly persisted: boolean },
     detail: { readonly attemptChain?: boolean; readonly context?: boolean },
-    _dispatch: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> | null,
+    dispatch: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> | null,
   ): AgentRuntimeSessionDto => {
     const observedSession = publicRuntimeSession(session),
       lifecycle = dispatchLifecycleSummary(
         input.projection.readDispatchLifecycle({ by: "session", runtimeSessionId: session.runtimeSessionId }),
       ),
-      eventPermission = dispatchPermissionEvidence(_dispatch?.payload),
+      eventPermission = dispatchPermissionEvidence(dispatch?.payload),
       permissions = {
         effectivePermissionMode:
           lifecycle.effectivePermissionMode !== "unknown"
@@ -106,12 +108,15 @@ export function makeAgentRuntimeReadModel(input: {
             : eventPermission.permissionModeSource,
       },
       providerUnreachable = lifecycle.policy?.processAlive ? (session.providerUnreachable ?? null) : null,
-      outcome = input.projection
-        .readRuntimeSessionEventsByType(session.runtimeSessionId, ["runtime_session_outcome_observed"])
-        .findLast(
-          (event): event is Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }> =>
-            event.schema === "agent-runtime-event/v1" && event.type === "runtime_session_outcome_observed",
-        ),
+      sessionEvents = input.projection.readRuntimeSessionEventsByType(session.runtimeSessionId, [
+        "runtime_session_started",
+        "runtime_session_outcome_observed",
+      ]),
+      startedEvent = sessionEvents.findLast((event) => event.type === "runtime_session_started"),
+      outcome = sessionEvents.findLast(
+        (event): event is Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }> =>
+          event.type === "runtime_session_outcome_observed",
+      ),
       metrics = outcome?.payload.runtimeMetrics,
       occupancy =
         detail.context === true && input.rootDir !== undefined
@@ -126,6 +131,7 @@ export function makeAgentRuntimeReadModel(input: {
           };
     return {
       runtimeSessionId: session.runtimeSessionId,
+      nodeId: writeSourceNodeId(startedEvent?.source) ?? writeSourceNodeId(dispatch?.source),
       providerSessionId: session.providerSessionId,
       instanceId: session.instanceId,
       installationId: session.installationId,
@@ -176,7 +182,10 @@ export function makeAgentRuntimeReadModel(input: {
   const definitionFor = (
     dispatch: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> | null | undefined,
   ): { readonly snapshot: AgentDefinitionSnapshot | null; readonly persisted: boolean } => ({
-    snapshot: dispatch?.payload.definitionSnapshot ?? null,
+    snapshot:
+      dispatch?.payload.definitionSnapshot === undefined
+        ? null
+        : redactAgentDefinitionSnapshot(dispatch.payload.definitionSnapshot),
     persisted: dispatch !== null && dispatch !== undefined,
   });
   // Git-style short-id resolution for `ha runtime status <id>`: an exact id reads directly; a

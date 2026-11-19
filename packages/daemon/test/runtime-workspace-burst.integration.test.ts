@@ -52,7 +52,8 @@ test(
         providerId: "openai",
         model: "codex-model",
         reasoningEffort: null,
-        baseUrl: null,
+        endpointKind: "official",
+        baseUrlHash: null,
         authMode: "subscription" as const,
       },
       installation = {
