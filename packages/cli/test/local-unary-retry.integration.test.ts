@@ -98,18 +98,23 @@ test("CLI, Electron composition, and Browser broker replay one committed write a
       token = new URLSearchParams(url.hash.slice(1)).get("access_token"),
       exec = promisify(execFile),
       electron = createLocalGuiServiceBridge();
-    const cli = await exec(process.execPath, [
-      path.resolve("packages/cli/src/index.ts"),
-      "--root",
-      rootDir,
-      "--json",
-      "task",
-      "create",
-      "--title",
-      "CLI retry",
-      "--idempotency-key",
-      "cli-retry",
-    ]);
+    const { HARNESS_ACTOR: _testActor, ...operatorEnv } = process.env;
+    const cli = await exec(
+      process.execPath,
+      [
+        path.resolve("packages/cli/src/index.ts"),
+        "--root",
+        rootDir,
+        "--json",
+        "task",
+        "create",
+        "--title",
+        "CLI retry",
+        "--idempotency-key",
+        "cli-retry",
+      ],
+      { env: operatorEnv },
+    );
     assert.equal(JSON.parse(cli.stdout).ok, true, cli.stdout);
     const electronReply = await electron.invoke("repo.task.create", {
       repo: { repoId },
