@@ -831,7 +831,7 @@ test(
               name: "Edge reviewer",
               instructions: "Review the frozen delivery.",
               role: "reviewer",
-              runtimes: [],
+              runtimes: [{ type: "codex", model: definition.model }],
             },
           },
           localAuthFixture(),
