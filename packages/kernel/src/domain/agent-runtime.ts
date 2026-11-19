@@ -17,6 +17,13 @@ import {
 import type { EntityDocumentJsonSchema } from "./entity-json-schema.ts";
 import { deriveRelationId, type EntityRelationRecord } from "./entity-relation.ts";
 import { timestamp } from "./timestamp.ts";
+import {
+  inboxEventTypes,
+  inboxPayloadFields,
+  isInboxEventType,
+  validateInboxEventPayload,
+  type InboxEventPayloads,
+} from "./inbox.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 
 export class RuntimeSessionAdoptionStaleError extends Error {
@@ -43,6 +50,7 @@ export const agentRuntimeEventTypes = [
   "runtime_dispatch_outcome_unknown",
   "runtime_handoff_exported",
   "runtime_handoff_revoked",
+  ...inboxEventTypes,
 ] as const;
 
 export function runtimeTaskExecutionRelation(runtimeSessionId: string, taskId: string): EntityRelationRecord {
@@ -367,7 +375,7 @@ function runtimeActivityTime(stamp: string): number {
   return time;
 }
 
-interface RuntimePayloads {
+interface RuntimePayloads extends InboxEventPayloads {
   readonly runtime_squad_run_observed: Readonly<SquadRunObservation>;
   readonly runtime_installation_observed: {
     readonly installationId: string;
@@ -511,6 +519,7 @@ const envelopeFields = [
   "payload",
 ] as const;
 const payloadFields: Record<AgentRuntimeEventType, readonly string[]> = {
+  ...inboxPayloadFields,
   runtime_squad_run_observed: [],
   runtime_installation_observed: [
     "installationId",
@@ -630,6 +639,7 @@ function validateAgentRuntimePayloadFields(
     (!/^[a-f0-9]{40}$/u.test(String(value.commit)) || !/^[a-f0-9]{64}$/u.test(String(value.sha256)))
   )
     return ["runtime handoff audit binding is invalid"];
+  if (isInboxEventType(type)) return validateInboxEventPayload(type, value);
   const ids = acceptedFields.filter((field) => /(?:Id|Key)$/u.test(field));
   if (ids.some((field) => !isNonEmptyString(value[field]))) return ["agent runtime payload identity is invalid"];
   if (
@@ -939,7 +949,8 @@ export function reduceRuntimeSession(
     event.type === "runtime_dispatch_outcome_unknown" ||
     event.type === "runtime_handoff_exported" ||
     event.type === "runtime_handoff_revoked" ||
-    event.type === "runtime_installation_observed"
+    event.type === "runtime_installation_observed" ||
+    isInboxEventType(event.type)
   )
     return current;
   const sessionId = runtimeSessionId(event);

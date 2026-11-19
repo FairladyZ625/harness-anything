@@ -18,6 +18,7 @@ import type { FactEventV1 } from "../domain/fact-event.ts";
 import type { LeaseV1 } from "../domain/execution.ts";
 import type { TaskEventV1 } from "../domain/task-lifecycle.contract.ts";
 import type { DispatchLifecycleQuery, DispatchLifecycleRead } from "../domain/dispatch-lifecycle.ts";
+import type { InboxQuery, InboxRead } from "../domain/inbox.ts";
 import type { FrozenWritePlan } from "../domain/write-chain.contract.ts";
 import type {
   ArtifactTimelineQuery,
@@ -399,6 +400,8 @@ export interface TaskProjection {
       // Internal projection joins can address an entire result set. The wire query remains bounded.
       | { readonly by: "dispatch-batch"; readonly dispatchIds: readonly string[] },
   ) => DispatchLifecycleRead;
+  /** The single Inbox read port (dec_7CE3162BF9BFB157DAB9F9B6C0 CH1): item, dedupe, and ordered queues. */
+  readonly readInbox: (query: InboxQuery) => InboxRead;
   readonly admitFact: (event: FactEventV1) => void;
   readonly readFact: (factId: string) => FactProjectionRead;
   readonly searchFacts: (filters: FactSearchFilters) => FactProjectionSearchRead;
