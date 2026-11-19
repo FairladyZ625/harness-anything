@@ -141,6 +141,9 @@ export interface TaskAttribution {
   readonly activeOrLatestPersonId: string | null;
   readonly originNodeId: string | null;
   readonly activeOrLatestNodeId: string | null;
+}
+
+export interface TaskActivityAttribution extends TaskAttribution {
   readonly originActivityAt: string | null;
   readonly activeOrLatestActivityAt: string | null;
 }
@@ -151,10 +154,10 @@ export function taskAttribution(
   latestNodeId: string | null,
   latestPersonId: string | null,
   latestAt: string | null,
-  originAt: string | null,
-): TaskAttribution {
+  // Only the attributed task index carries activity timestamps.
+  originAt?: string | null,
+): TaskAttribution & Partial<TaskActivityAttribution> {
   const createdByPersonId = snapshot.task?.createdBy.principal.personId ?? null,
-    originActivityAt = originAt,
     lease = snapshot.lease,
     holder = leaseIsEffective(lease) ? lease : null,
     personId = holder ? holder.actor.principal.personId : latestAt === null ? createdByPersonId : latestPersonId,
@@ -162,13 +165,17 @@ export function taskAttribution(
   return {
     createdByPersonId,
     originNodeId,
-    originActivityAt,
     activeOrLatestPersonId: personId,
     activeOrLatestNodeId: nodeId,
-    activeOrLatestActivityAt:
-      holder && (personId !== latestPersonId || nodeId !== latestNodeId)
-        ? new Date(Date.parse(holder.expiresAt) - holder.ttlMs).toISOString()
-        : (latestAt ?? originActivityAt),
+    ...(originAt === undefined
+      ? {}
+      : {
+          originActivityAt: originAt,
+          activeOrLatestActivityAt:
+            holder && (personId !== latestPersonId || nodeId !== latestNodeId)
+              ? new Date(Date.parse(holder.expiresAt) - holder.ttlMs).toISOString()
+              : (latestAt ?? originAt),
+        }),
   };
 }
 

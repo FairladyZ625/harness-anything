@@ -337,7 +337,6 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             latest_node_id: string | null;
             latest_person_id: string | null;
             latest_at: string | null;
-            origin_at: string | null;
           }>(
             `SELECT task_id, package_path, generation, workspace_revision::text, snapshot, ${pgTaskAttributionColumns(repoParameter)}, created_at::text, completed_at::text, updated_at::text, ${presentation} AS presentation_status FROM ha_task_snapshots
            WHERE ${where.join(" AND ")} ORDER BY ${query.pinnedFirst ? "task_pinned DESC, " : ""}task_id${limitParameter === null ? "" : ` LIMIT $${limitParameter}`}`,
@@ -365,7 +364,6 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
               row.latest_node_id,
               row.latest_person_id,
               row.latest_at,
-              row.origin_at,
             ),
             snapshot: query.presentationStatus
               ? presentSnapshot(hydrated[index]!, row.presentation_status)

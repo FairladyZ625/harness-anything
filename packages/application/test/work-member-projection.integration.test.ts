@@ -119,6 +119,12 @@ test("canonical Work, edge and Pin events produce a member's brief before and af
       const active = projection.readTaskIndex({ taskIds: ["bob-handoff"], withAttribution: true }).rows[0]!;
       assert.equal(active.activeOrLatestPersonId, alice);
       assert.equal(active.activeOrLatestNodeId, null);
+      assert.ok(active.originActivityAt);
+      assert.ok(active.activeOrLatestActivityAt);
+      const listed = projection.list({ taskIds: ["bob-handoff"] }).rows[0]!;
+      assert.equal(listed.activeOrLatestPersonId, alice);
+      assert.equal(Object.hasOwn(listed, "originActivityAt"), false);
+      assert.equal(Object.hasOwn(listed, "activeOrLatestActivityAt"), false);
       assert.equal(
         workspaceScopeFromProjection(projection, { rootTaskId: "shared-work", ...scope }).counts.executing,
         0,

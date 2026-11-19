@@ -1,4 +1,4 @@
-import type { TaskAttribution } from "../domain/canonical-event-summary.ts";
+import type { TaskActivityAttribution, TaskAttribution } from "../domain/canonical-event-summary.ts";
 import type * as ReadSet from "../domain/task-read-set.ts";
 import type { LeaseChangeReason, TaskLifecycleSnapshot } from "../domain/task-lifecycle.contract.ts";
 import type { CanonicalEventV1, DocumentState } from "../domain/doc-sync.contract.ts";
@@ -87,7 +87,7 @@ export function drainCursorPagesSync<Page extends { readonly page: CursorPageRec
   }
 }
 
-export interface TaskIndexProjectionRow extends Partial<TaskAttribution> {
+export interface TaskIndexProjectionRow extends Partial<TaskActivityAttribution> {
   readonly supersededBy: string | null;
   readonly taskId: string;
   readonly title: string;

@@ -121,7 +121,6 @@ export function listProjection(
               facts?.latest_node_id ?? null,
               facts?.latest_person_id ?? null,
               facts?.latest_at ?? null,
-              facts?.origin_at ?? null,
             ),
             snapshot: snapshots.get(row.task_id)!,
           };
@@ -172,7 +171,6 @@ export function readTaskListAtCut(
           facts?.latest_node_id ?? null,
           facts?.latest_person_id ?? null,
           facts?.latest_at ?? null,
-          facts?.origin_at ?? null,
         ),
         snapshot: query.presentationStatus
           ? presentSnapshot(snapshots.get(row.task_id)!, row.presentation_status)

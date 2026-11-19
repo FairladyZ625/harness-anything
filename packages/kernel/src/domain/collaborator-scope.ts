@@ -1,4 +1,4 @@
-import type { TaskAttribution } from "./canonical-event-summary.ts";
+import type { TaskActivityAttribution, TaskAttribution } from "./canonical-event-summary.ts";
 
 export interface CollaboratorScope {
   readonly scopePersonId?: string;
@@ -53,7 +53,7 @@ export function taskMatchesCollaboratorActivity(
 
 export function collaboratorTaskActivityAt(
   scope: CollaboratorScope,
-  task: Partial<TaskAttribution> & { readonly updatedAt: string },
+  task: Partial<TaskActivityAttribution> & { readonly updatedAt: string },
 ): string | null {
   if (matchesCollaboratorScope(scope, [taskOperator(task)])) return task.activeOrLatestActivityAt ?? task.updatedAt;
   if (matchesCollaboratorScope(scope, [taskOrigin(task)])) return task.originActivityAt ?? task.updatedAt;
