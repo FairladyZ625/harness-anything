@@ -60,7 +60,9 @@ function validateProxyTarget(value: unknown, listenerOrigin: string): string | u
     true,
     "The login listener proxy target must be an HTTPS URL without credentials and with a valid port.",
   );
-  return target.origin === listenerOrigin ? undefined : target.toString();
+  return ({ false: target.toString(), true: undefined } as const)[
+    String(target.origin === listenerOrigin) as "false" | "true"
+  ];
 }
 
 /** The leaf is the first certificate in the file, which is the certificate the listener serves. */
