@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import { makeTaskEventReader, makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { type TaskProjection } from "@harness-anything/kernel";
 import { runDocAction } from "../src/daemon-host/doc-sync-actions.ts";
@@ -45,7 +46,7 @@ test("a selection submit accepts two authored paths with identical content", asy
     assert.equal(readFileSync(path.join(rootDir, "harness/context/two.md"), "utf8"), body);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -97,7 +98,7 @@ test("a selection submit applies prose after its heading is rewritten", async ()
     );
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -145,7 +146,7 @@ test("a selection submit applies eligible prose and reports an unrelated deletio
     assert.equal(readFileSync(path.join(rootDir, "harness/context/eligible.md"), "utf8"), "# Eligible\n");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -231,7 +232,7 @@ test("a runtime session with multiple matching held executions rejects with exac
     assert.equal(rejected.outcome, "op_rejected");
     assert.equal(rejected.code, "lease_conflict");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -412,7 +413,7 @@ test("path and confirmed full submits ride the repository prose channel when ano
     assert.equal(unnamed.outcome, "applied", JSON.stringify(unnamed));
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -502,7 +503,7 @@ test("a runtime actor with a lapsed lease is told the release and re-enter recov
     assert.ok(["applied", "pending"].includes(String(reentered.outcome)), JSON.stringify(reentered));
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -556,7 +557,7 @@ test("a submit whose only candidate is a deleted canonical document names the re
     assert.equal(shown.code, "document_not_found");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -602,7 +603,7 @@ test("doc retire accepts the workspace spelling in the nested ledger layout", as
     assert.equal(shown.code, "document_not_found");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -714,7 +715,7 @@ test("a runtime actor's post-submit doc sync names the before-submit order, not 
     assert.doesNotMatch(rejected.rejectionExplanation ?? "", /acquire the task lease/u);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -864,6 +865,6 @@ test("the named release-and-re-enter recovery terminates for a bound runtime ses
     assert.equal(eventStore.readEvent(String(recovered.opId))?.schema, "doc-event/v1");
   } finally {
     await store?.drain();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

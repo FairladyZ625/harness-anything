@@ -1,19 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { getEntityKindContract } from "@harness-anything/kernel";
 import {
@@ -100,7 +92,7 @@ test("Agent and Squad entities prepare, list, inspect, and replace declarations 
       (error: unknown) => (error as { code?: string }).code === "agent_not_found",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -122,7 +114,7 @@ test("Squad install rejects the canonical blank roster scaffold", async () => {
       (error: unknown) => (error as { readonly code?: unknown }).code === "roster_placeholder",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -158,7 +150,7 @@ test("runtime kind is an open identifier: third-party runtimes validate while tr
       [{ type: "opencode" }],
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -187,7 +179,7 @@ test("preferredInstances is an ordered unique list of instance slugs and survive
     // A soft preference is not a hard pin: dispatch still has a fallback when it is unavailable.
     assert.equal(installed.instance, undefined);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -211,9 +203,9 @@ test("agent validate reports skill paths dispatch cannot resolve", async () => {
       report.issues.map(({ code }) => code),
       ["agent_skill_not_found"],
     );
-    assert.match(report.issues.map(({ message }) => message).join("\n"), /skills\/not-there/u);
+    assert.match(report.issues.map(({ message }) => message).join("\n"), /skills[\\/]not-there/u);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -233,7 +225,7 @@ test("agent install refuses a declaration whose skills are absent instead of fai
       install({ rootDir, kind: "agent-install", packageSource: path.join(source, "dangling-install") }),
       (error: unknown) => {
         assert.equal((error as { code?: string }).code, "agent_skill_not_found");
-        assert.match(String((error as Error).message), /skills\/self-iteration/u);
+        assert.match(String((error as Error).message), /skills[\\/]self-iteration/u);
         return true;
       },
     );
@@ -242,7 +234,7 @@ test("agent install refuses a declaration whose skills are absent instead of fai
       (error: unknown) => (error as { code?: string }).code === "agent_not_found",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -264,7 +256,7 @@ test("direct authored-file writes never enter the canonical Agent read surface",
       (error: unknown) => (error as { code?: string }).code === "agent_not_found",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -310,7 +302,7 @@ test("install preparation repairs a stored declaration rejected by the current s
     assert.equal(prepared.report.changed, true);
     assert.equal(prepared.declaration.id, "glm-5-3");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -420,7 +412,7 @@ test("Agent skill discovery scans user and project roots and returns absolute se
     ].sort((left, right) => left.id.localeCompare(right.id) || left.path.localeCompare(right.path));
     assert.deepEqual(discoverAgentSkills({ rootDir, userHome }), expected);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -434,7 +426,7 @@ test("Agent skill discovery does not index nested skills embedded inside a catal
     writeFileSync(path.join(nestedSkill, "SKILL.md"), "# old skill\n");
     assert.deepEqual(discoverAgentSkills({ rootDir, userHome }), []);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -448,7 +440,7 @@ test("Agent skill discovery requires the exact SKILL.md manifest name", () => {
     writeFileSync(path.join(malformedSkill, "skill.md"), "# wrong case\n");
     assert.deepEqual(discoverAgentSkills({ rootDir, userHome }), []);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -487,7 +479,7 @@ test("Agent skills accept project-relative and absolute references and fail clos
         /add SKILL\.md/u.test(String((error as Error).message)),
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -530,7 +522,7 @@ test("Agent install admits only declarations a runtime instance can run", async 
         /ha runtime instance list/u.test(String((error as Error).message)),
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -626,7 +618,7 @@ test("an unpinned Agent installs with several compatible instances and a declare
       },
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -691,7 +683,7 @@ test("entity validation names every malformed manifest and refuses squads that r
       (error: unknown) => (error as { code?: string }).code === "squad_agent_not_found",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -798,7 +790,7 @@ test("the GUI entity projection lists closed rows and reads closed declarations"
     );
   } finally {
     projection?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -865,7 +857,7 @@ test("the GUI read contract carries the reviewer role and stays closed to the Ke
     );
   } finally {
     projection?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1048,7 +1040,7 @@ test("Squad dispatch resolution selects one declared worker and rejects outsider
       (error: unknown) => (error as { code?: string }).code === "squad_member_ambiguous",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1079,7 +1071,7 @@ test("GUI declaration writes validate before installing and preserve roster byte
     );
     assert.equal(existsSync(path.join(rootDir, "harness", "agents", "Bad ID.json")), false);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1148,7 +1140,7 @@ test("single-file declaration sources validate and install like package director
       ["missing_manifest"],
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1260,7 +1252,7 @@ test("an old-shape stored declaration rejects dispatch with the reinstall comman
       { type: "claude", model: "GLM-5.3[1m]" },
     ]);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1310,7 +1302,7 @@ test("install and validate warn when a valid declaration leaves the instance cho
       })) as { warnings?: readonly unknown[] };
     assert.deepEqual(preferredReport.warnings ?? [], []);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1338,6 +1330,6 @@ test("Agent install rejects a different model with a shared version prefix", asy
         /ha runtime instance list/u.test(String((error as Error).message)),
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

@@ -1,10 +1,11 @@
 // harness-test-tier: integration
 import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
 import { currentGateRun, isTaskEvent, resolveHarnessLayout } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
@@ -113,12 +114,12 @@ async function fixture(script: string, metadata: unknown, mixed = false) {
       events,
       close: async () => {
         await cell.close();
-        rmSync(root, { recursive: true, force: true });
+        removeTempRepository(root);
       },
     };
   } catch (error) {
     await cell.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
     throw error;
   }
 }

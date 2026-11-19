@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
 import { DOC_SYNC_INLINE_MAX_BYTES, DOC_POLICY_ID, parseDocWriteIntent, sha256Text } from "@harness-anything/kernel";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../storage/test/store/canonical-generation.fixtures.ts";
@@ -71,7 +72,7 @@ test("HTML research documents are eligible, submit as opaque text, and become cl
     );
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -150,7 +151,7 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
     assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -260,7 +261,7 @@ test("large projections do not expand dirty or missing-path candidate scans", as
     }
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -361,7 +362,7 @@ test("scanner routes multi-megabyte JSONL to artifact add without reading it and
     );
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -445,7 +446,7 @@ test("batch submit commits eligible candidates and reports blocked rows instead 
     );
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -483,7 +484,7 @@ test("blocked-only submit names the scanner-first machine-region recovery", asyn
     assert.match(String(rejected.summary), /requiredRoute=typed-machine-writer/u);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -521,7 +522,7 @@ test("selected doc-sync paths are authored-relative candidates and zero-write su
     assert.match(String((clean as Record<string, unknown>).summary), /applied count: 0/u);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -548,7 +549,7 @@ test("repo-relative doc-sync selection works when the authored root is its own l
     assert.equal(repoRelative.outcome, "no_changes", JSON.stringify(repoRelative));
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -604,7 +605,7 @@ test("task-scoped doc sync derives every dirty candidate from the task id", asyn
     assert.equal(mixed.code, "invalid_command");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -664,7 +665,7 @@ test("doc retire deletes one projected document and returns an auditable retirem
     );
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -733,7 +734,7 @@ test("doc retire retires several documents in one event and rejects a batch nami
     }
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -763,7 +764,7 @@ test("doc retire refuses to discard a locally modified canonical document", asyn
     assert.equal(readFileSync(path.join(rootDir, "harness", logical), "utf8"), "# Local edit that must survive\n");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -829,7 +830,7 @@ test("doc retire refuses a document the canonical projection never claimed, even
     assert.equal(git(rootDir, "ls-tree", "--name-only", "HEAD", `harness/${logical}`), `harness/${logical}`);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -872,7 +873,7 @@ test("new non-textual artifacts are directly eligible while binary replacement o
     assert.equal(blocked.detail?.unresolvedTouches[0]?.requiredRoute, "typed-binary-content");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -915,7 +916,7 @@ test("retired people files are ordinary documents while typed writable routes re
     assert.equal(stray.detail?.unresolvedTouches[0]?.requiredRoute, "canonical-event");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -964,7 +965,7 @@ test("a committed DocEvent reports pending with its stable receipt id until L2 r
     projection.close();
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1041,7 +1042,7 @@ test("materialize reports an already settled SQLite follower without inventing a
     assert.equal(git(rootDir, "diff", "--name-only"), "");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1122,7 +1123,7 @@ test("the SQLite worktree follower preserves a caller edit and recovers from its
     assert.equal(readFileSync(path.join(rootDir, "harness", logical), "utf8"), canonical);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1154,7 +1155,7 @@ test("an authored branch advanced outside the daemon remains an ancestor of the 
     assert.match(git(rootDir, "log", "-1", "--format=%s"), /^harness sqlite outbox /u);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
