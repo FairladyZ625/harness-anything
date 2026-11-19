@@ -1213,6 +1213,11 @@
             "cli-todo-show"
           ]
         },
+        "command:trace": {
+          "measurements": [
+            "cli-trace"
+          ]
+        },
         "command:vertical-kind-list": {
           "measurements": [
             "cli-vertical-kind-list"

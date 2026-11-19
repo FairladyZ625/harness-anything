@@ -7,6 +7,7 @@ import {
 } from "./pg-event-read-index-migration.ts";
 import { readIndexDdl } from "./pg-read-index-migration.ts";
 import { taskParentIndexDdl } from "./pg-task-parent-index.ts";
+import { traceIndexDdl } from "./pg-trace-index.ts";
 import { decisionReadStatusDdl } from "./pg-decision-read-status.ts";
 import { decisionSearchDdl } from "./pg-decision-search-schema.ts";
 import { decisionIndexDdl } from "./pg-decision-index-migration.ts";
@@ -331,6 +332,7 @@ export function projectionDdl(): readonly string[] {
     // range, not a scan of every task the repository ever had.
     "CREATE INDEX IF NOT EXISTS ha_task_snapshots_scope_revision ON ha_task_snapshots (tenant_id, project_id, workspace_revision DESC)",
     ...taskParentIndexDdl(),
+    ...traceIndexDdl(),
     "CREATE INDEX IF NOT EXISTS ha_task_snapshots_status_updated_v2 ON ha_task_snapshots (tenant_id,project_id,policy_epoch,task_status,updated_at DESC,task_id)",
     "DROP INDEX IF EXISTS ha_task_snapshots_status_updated",
     ...PG_REBUILDABLE_PROJECTION_TABLES.map(

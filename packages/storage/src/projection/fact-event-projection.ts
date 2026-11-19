@@ -47,7 +47,29 @@ export function createFactProjectionTables(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS fact_observed_id_page ON fact(observed_at DESC, fact_id ASC);
     CREATE INDEX IF NOT EXISTS fact_confidence_page ON fact(confidence, observed_at DESC, task_id ASC, fact_id ASC);
     CREATE INDEX IF NOT EXISTS fact_memory_class_page ON fact(memory_class, observed_at DESC, task_id ASC, fact_id ASC);
+    CREATE INDEX IF NOT EXISTS fact_observed_commit ON fact(${FACT_OBSERVED_COMMIT_SQL});
+    CREATE INDEX IF NOT EXISTS fact_evidence_source ON fact(evidence_source);
   `);
+}
+
+/** Reverse trace readers repeat this expression verbatim so SQLite matches its index. */
+const FACT_OBSERVED_COMMIT_SQL = "json_extract(row_json, '$.observedCommit')";
+
+/** `<path>`, `<path>:<line…>` and `<path>#<anchor>` evidence sources as index-backed equality and ranges. */
+function evidenceSourcePathClause(paths: readonly string[], values: string[]): string {
+  const terms: string[] = [];
+  for (const path of paths) {
+    terms.push("fact.evidence_source = ?");
+    values.push(path);
+    for (const [low, high] of [
+      [":", ";"],
+      ["#", "$"],
+    ] as const) {
+      terms.push("(fact.evidence_source >= ? AND fact.evidence_source < ?)");
+      values.push(`${path}${low}`, `${path}${high}`);
+    }
+  }
+  return terms.length === 0 ? "0" : `(${terms.join(" OR ")})`;
 }
 
 export function readFactAdmissionState(db: DatabaseSync, event: FactEventV1) {
@@ -328,6 +350,11 @@ export function searchFactRowsPage(
     where.push("fact.observed_at <= ?");
     values.push(filters.observedBefore);
   }
+  if (filters.observedCommits !== undefined) {
+    where.push(`${FACT_OBSERVED_COMMIT_SQL.replace("row_json", "fact.row_json")} IN (SELECT value FROM json_each(?))`);
+    values.push(JSON.stringify(filters.observedCommits));
+  }
+  if (filters.evidenceSourcePaths !== undefined) where.push(evidenceSourcePathClause(filters.evidenceSourcePaths, values));
   const paged = filters.limit !== undefined || filters.cursor !== undefined;
   const pageLimit = filters.limit === undefined ? (paged ? 100 : null) : checkedFactPageLimit(filters.limit);
   const fetchLimit = pageLimit === null ? null : pageLimit + 1;

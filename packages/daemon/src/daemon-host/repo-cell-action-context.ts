@@ -85,6 +85,7 @@ import {
   wipSnapshotEntries as wipSnapshotEntriesImpl,
 } from "./repo-cell-task-query.ts";
 import { graphView as graphViewImpl } from "@harness-anything/application/internal/queries/repo-cell-graph-view.ts";
+import { traceView as traceViewImpl } from "./repo-cell-trace-view.ts";
 import {
   listEvents as listEventsImpl,
   showEvent as showEventImpl,
@@ -298,6 +299,7 @@ export function createRepoCellActionContext(bindings: {
     reviewTask: bind(reviewTaskImpl),
     taskReadSet: bind(taskReadSetImpl),
     graphView: bind(graphViewImpl),
+    traceView: bind(traceViewImpl),
     taskListQueryFromAction: (_action: RepoTaskAction) => unavailableTaskQuery(),
     relationQueryFromAction: (_action: RepoTaskAction) => unavailableTaskQuery(),
     queryRead: (): TaskQueryReadModel => unavailableTaskQuery(),

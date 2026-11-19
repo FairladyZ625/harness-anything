@@ -1,6 +1,45 @@
 import type { DatabaseSync } from "node:sqlite";
+import { queryRows } from "./rebuildable-task-projection-sql.ts";
+
+/** `appliesTo.modules` entry → repository-relative prefix: `\` to `/`, one leading `./`, no trailing `/`. */
+const moduleExpression = (value: string) => {
+  const slashed = `replace(trim(${value}), char(92), '/')`;
+  return `rtrim(CASE WHEN substr(${slashed}, 1, 2) = './' THEN substr(${slashed}, 3) ELSE ${slashed} END, '/')`;
+};
+const appliesModuleRows = (owner: string, from: string) =>
+  `SELECT module_prefix, decision_id FROM (SELECT ${moduleExpression("module.value")} AS module_prefix, ${owner} AS decision_id` +
+  ` FROM ${from} WHERE module.type = 'text') WHERE module_prefix <> ''`;
+const refillAppliesModules = `
+    DELETE FROM decision_applies_module WHERE decision_id = NEW.decision_id;
+    INSERT OR IGNORE INTO decision_applies_module(module_prefix, decision_id)
+      ${appliesModuleRows("NEW.decision_id", "json_each(NEW.applies_json, '$.modules') AS module")};`;
+/**
+ * dec_9979850C7CE87C17271D78E4D1 CH2: path → governing decision lookups probe this prefix table
+ * instead of decoding every decision's applies JSON. Triggers own the derivation for every writer;
+ * a projection that predates the triggers is filled once, in the same DDL batch that creates them.
+ */
+const DECISION_APPLIES_MODULE_SQL = `
+    /* @gate-identity state-store/task.projection.decision_applies_module */ CREATE TABLE IF NOT EXISTS decision_applies_module (
+      module_prefix TEXT NOT NULL,
+      decision_id TEXT NOT NULL,
+      PRIMARY KEY(module_prefix, decision_id)
+    ) WITHOUT ROWID;
+    CREATE INDEX IF NOT EXISTS decision_applies_module_owner ON decision_applies_module(decision_id);
+    CREATE TRIGGER IF NOT EXISTS decision_applies_module_insert AFTER INSERT ON decision
+    BEGIN${refillAppliesModules}
+    END;
+    CREATE TRIGGER IF NOT EXISTS decision_applies_module_update AFTER UPDATE OF applies_json ON decision
+    BEGIN${refillAppliesModules}
+    END;
+    CREATE TRIGGER IF NOT EXISTS decision_applies_module_delete AFTER DELETE ON decision
+    BEGIN
+      DELETE FROM decision_applies_module WHERE decision_id = OLD.decision_id;
+    END;`;
 
 export function createDecisionProjectionTables(db: DatabaseSync): void {
+  const appliesModulesIndexed =
+    queryRows(db, "SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = 'decision_applies_module_insert'")
+      .length > 0;
   /* @gate-identity state-store/task.source.storage.src.projection.decision-projection-schema.sqlite-database */ db.exec(`
     /* @gate-identity state-store/task.projection.decision */ CREATE TABLE IF NOT EXISTS decision (
       decision_id TEXT PRIMARY KEY,
@@ -95,5 +134,12 @@ export function createDecisionProjectionTables(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS decision_content_pin_owner ON decision_content_pin(decision_id, workspace_revision);
     CREATE INDEX IF NOT EXISTS decision_review_event_owner
       ON decision_review_event(decision_id, workspace_revision);
+    ${DECISION_APPLIES_MODULE_SQL}
+    ${
+      appliesModulesIndexed
+        ? ""
+        : `INSERT OR IGNORE INTO decision_applies_module(module_prefix, decision_id)
+      ${appliesModuleRows("decision.decision_id", "decision, json_each(decision.applies_json, '$.modules') AS module")};`
+    }
   `);
 }

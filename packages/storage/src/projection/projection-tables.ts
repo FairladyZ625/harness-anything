@@ -8,6 +8,16 @@ import {
 import { ensureRuntimeMemberIndex } from "./runtime-member-index.ts";
 import { ensureWorkspaceTaskCensus } from "./workspace-task-census.ts";
 import { catchUpDispatchLifecycle, DISPATCH_LIFECYCLE_TABLES_SQL } from "./dispatch-lifecycle-projection.ts";
+/**
+ * Reverse code-path trace keys (dec_9979850C7CE87C17271D78E4D1 CH2). A first-parent merge names the
+ * branch tip it merged, which is the latest submitted cut: the rework tail execution has no
+ * submission yet, so the key falls back one execution. Readers repeat these expressions verbatim so
+ * SQLite matches the expression indexes; PostgreSQL derives the same two keys as stored columns.
+ */
+export const TASK_SUBMISSION_COMMIT_SQL =
+  "COALESCE(json_extract(snapshot_json, '$.executions[#-1].submission.commitSha'), " +
+  "json_extract(snapshot_json, '$.executions[#-2].submission.commitSha'))";
+export const TASK_EXTERNAL_COMMIT_SQL = "json_extract(snapshot_json, '$.externalResolution.commitSha')";
 /** Shared query tables in the center projection and its full physical replica. */
 export const TASK_INDEX_TABLES_SQL = `
     /* @gate-identity state-store/task.projection.task_snapshot */ CREATE TABLE IF NOT EXISTS task_snapshot (
@@ -31,6 +41,8 @@ export const TASK_INDEX_TABLES_SQL = `
       WHERE package_disposition = 'active';
     CREATE INDEX IF NOT EXISTS task_snapshot_parent
       ON task_snapshot(json_extract(snapshot_json, '$.task.metadata.parentTaskId'));
+    CREATE INDEX IF NOT EXISTS task_snapshot_submission_commit ON task_snapshot(${TASK_SUBMISSION_COMMIT_SQL});
+    CREATE INDEX IF NOT EXISTS task_snapshot_external_commit ON task_snapshot(${TASK_EXTERNAL_COMMIT_SQL});
     /* @gate-identity state-store/task.projection.task_package */ CREATE TABLE IF NOT EXISTS task_package (task_id TEXT PRIMARY KEY, package_path TEXT NOT NULL UNIQUE);`;
 
 const dispatchActivityAt =

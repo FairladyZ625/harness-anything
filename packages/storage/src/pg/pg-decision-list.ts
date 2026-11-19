@@ -52,6 +52,10 @@ export async function listPgDecisionRows(
   // Summary readers require the new cut before returning any result.
   const filterValue = summary ? "COALESCE(list_summary,value)" : "value";
   if (filters.module) where.push(`${filterValue}->'appliesTo'->'modules' ? ${bind(filters.module)}`);
+  // Generated, normalized prefix set (pg-trace-index.ts); overlap is not leakproof, so under forced
+  // RLS it filters the decision_state index range rather than probing the GIN.
+  if (filters.modulePrefixes !== undefined)
+    where.push(`applies_modules && ${bind([...filters.modulePrefixes])}::text[]`);
   if (filters.productLine) where.push(`${filterValue}->'appliesTo'->'productLines' ? ${bind(filters.productLine)}`);
   if (filters.legacyId) {
     const match = /^E([1-9][0-9]*)$/u.exec(filters.legacyId);

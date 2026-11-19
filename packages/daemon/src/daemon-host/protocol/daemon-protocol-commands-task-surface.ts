@@ -882,6 +882,27 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     ],
   }),
   defineEdgeReplicaQueryOnlyReadCommand({
+    id: "trace",
+    phase: "W3",
+    path: ["trace", "<path>"],
+    summary:
+      "Trace one repository path back to the ledger: first-parent merges that touched it and their Tasks, " +
+      "governing Decisions with rejected redlines (whyNot), Facts anchored to it, and unmerged task branches " +
+      "that also change it. --limit is 1–200 commits (default 20). Center cells without a Git worktree report git unavailable.",
+    method: "repo.task.read",
+    positional: "path",
+    positionalInputs: [{ name: "<path>", pathKind: "non-path", pathReader: "none" }],
+    inputs: [
+      cliInput(
+        "--limit",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", regex: "^(?:[1-9]|[1-9][0-9]|1[0-9]{2}|200)$", format: "<integer; 1..200>" },
+      ),
+    ],
+  }),
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "task-read-set",
     repositoryRead: true,
     phase: "Governed-Entity-W2-B",

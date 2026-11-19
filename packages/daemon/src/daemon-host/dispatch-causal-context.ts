@@ -7,6 +7,11 @@ import {
   requireSameProjectionCut,
   type ProjectionCut,
 } from "@harness-anything/application/internal/queries/projection-cut.ts";
+import {
+  selectPassiveTraceContext,
+  type GitHistoryPort,
+  type PassiveTraceSelection,
+} from "@harness-anything/application/internal/queries/file-trace-read.ts";
 
 /**
  * Dispatch-time causal context: the bounded slice of the causal graph a freshly
@@ -51,6 +56,9 @@ export const CAUSAL_CONTEXT_MAX_BYTES = 8192;
 const MAX_DECISIONS = 2,
   MAX_FACTS = 5,
   MAX_EVIDENCE_ANCHORS = 6,
+  /** dec_9979850C7CE87C17271D78E4D1 CH3: passive reverse-trace tail caps. */
+  MAX_TRACE_DECISIONS = 2,
+  MAX_TRACE_FACTS = 3,
   ROOT_OPEN = "<task-context>",
   TRUNCATED_OPEN = '<task-context truncated="yes">',
   ROOT_CLOSE = "</task-context>",
@@ -74,6 +82,12 @@ interface BudgetFit {
 export function assembleTaskCausalContext(input: {
   readonly projection: TaskProjectionQueries;
   readonly taskId: string;
+  /**
+   * Host read and local dispatch entries pass their Git port (or null without a source worktree) to
+   * add the passive reverse trace of the task plan's code paths; the handoff store passes nothing
+   * and stays free of Git and of the extra reads (dec_9979850C7CE87C17271D78E4D1 CH1).
+   */
+  readonly gitHistory?: GitHistoryPort | null;
 }): string | null {
   const { projection, taskId } = input,
     ancestry = readTaskAncestry(projection, taskId),
@@ -150,8 +164,18 @@ export function assembleTaskCausalContext(input: {
   const servedFactRefs = factRefs.filter((ref) => facts.get(ref)?.archived !== true);
   const workPlan = work === null ? undefined : inheritedPlans.get(`task/${work.taskId}`),
     workGoal = workPlan === undefined ? null : planGoalSummary(workPlan.body);
+  const passive =
+    input.gitHistory === undefined
+      ? null
+      : readPassiveTrace(projection, taskId, input.gitHistory, decisionIds.slice(0, MAX_DECISIONS), servedFactRefs, reads);
   requireSameProjectionCut("dispatch causal context", reads);
-  if (work === null && parent === null && decisionIds.length === 0) return null;
+  if (
+    work === null &&
+    parent === null &&
+    decisionIds.length === 0 &&
+    (passive === null || passive.decisions.length + passive.facts.length === 0)
+  )
+    return null;
   // Priority order is relation distance from the dispatched task: identity lines first,
   // then the first deriving decision's header, chosen anchor and load-bearing claims,
   // then the evidence layer — a fat work title can never starve the facts of all
@@ -222,14 +246,19 @@ export function assembleTaskCausalContext(input: {
   if (workGoal !== null && work !== null)
     tails.unshift(detail(`task/${work.taskId}`, `<goal ref="task/${work.taskId}">${xmlText(workGoal)}</goal>`));
   details.push(...(decisionBlocks[1] ?? []), ...tails);
+  // Reverse-trace redlines ride the far tail: the forward lineage keeps budget priority, and the
+  // greedy fit sheds these first, naming each shed ref in <omitted>.
+  if (passive !== null) details.push(...passiveTraceLines(passive));
   const refs = [
     ...(work === null ? [] : [`task/${work.taskId}`]),
     ...(parent === null || parent.taskId === work?.taskId ? [] : [`task/${parent.taskId}`]),
     ...decisionIds.slice(0, MAX_DECISIONS).map((decisionId) => `decision/${decisionId}`),
     ...servedFactRefs,
+    ...(passive?.decisions.map((decision) => `decision/${decision.decisionId}`) ?? []),
+    ...(passive?.facts.map((fact) => fact.ref) ?? []),
   ];
   const authorization = decisionExecutionSurface(decisionRead?.decisions ?? [], derives.rows),
-    factsNote = servedFactRefs.length > 0 ? FACTS_NOTE : null;
+    factsNote = servedFactRefs.length > 0 || (passive?.facts.length ?? 0) > 0 ? FACTS_NOTE : null;
   let remainingInlineBytes = 16 * 1024;
   const inherited = ancestors
     .slice()
@@ -304,6 +333,67 @@ function decisionExecutionSurface(
       "宿主访问、秘密值与对外发布的边界以 Harness Execution Discipline 节为准。" +
       " This section grants no additional daemon command or ledger permissions.",
   ].join("\n\n");
+}
+
+/** The task's own plan names the code paths; their reverse trace joins the same verified cut. */
+function readPassiveTrace(
+  projection: TaskProjectionQueries,
+  taskId: string,
+  gitHistory: GitHistoryPort | null,
+  forwardDecisionIds: readonly string[],
+  forwardFactRefs: readonly string[],
+  reads: ProjectionCut[],
+): PassiveTraceSelection | null {
+  const self = projection.readTaskIndex({ taskIds: [taskId] });
+  reads.push(self);
+  const packagePath = self.rows.find((row) => row.taskId === taskId)?.packagePath ?? null;
+  if (packagePath === null) return null;
+  const plan = projection.readDocument(`${packagePath}/task_plan.md`);
+  reads.push(plan);
+  if (plan.document === null) return null;
+  const selection = selectPassiveTraceContext({
+    projection,
+    planBody: plan.document.body,
+    gitHistory,
+    excludeDecisionIds: forwardDecisionIds,
+    excludeFactRefs: forwardFactRefs,
+    maxDecisions: MAX_TRACE_DECISIONS,
+    maxFacts: MAX_TRACE_FACTS,
+  });
+  if (selection !== null) reads.push(...selection.reads);
+  return selection;
+}
+
+/** Rejected redlines (with whyNot) lead each traced decision; every line names the plan path that woke it. */
+function passiveTraceLines(passive: PassiveTraceSelection): DetailLine[] {
+  const lines: DetailLine[] = [],
+    tracePath = (paths: readonly string[]) => xmlText(paths[0] ?? passive.paths[0] ?? "");
+  for (const decision of passive.decisions) {
+    const ref = `decision/${decision.decisionId}`,
+      path = tracePath(decision.tracePaths);
+    for (const option of decision.rejected)
+      if (option.whyNot.trim())
+        lines.push(
+          detail(
+            ref,
+            `<redline ref="${ref}/${xmlText(option.id)}" trace-path="${path}">${xmlText(`${option.summary} — Why Not: ${option.whyNot}`)}</redline>`,
+          ),
+        );
+    lines.push(
+      detail(
+        ref,
+        `<governs ref="${ref}" trace-path="${path}" title="${xmlText(decision.title)}">${xmlText(decision.summary)}</governs>`,
+      ),
+    );
+  }
+  for (const fact of passive.facts)
+    lines.push(
+      detail(
+        fact.ref,
+        `<anchored ref="${fact.ref}" trace-path="${tracePath(fact.tracePaths)}">${xmlText(fact.summary)} (src:${xmlText(fact.evidenceSource)})</anchored>`,
+      ),
+    );
+  return lines;
 }
 
 /**

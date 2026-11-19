@@ -157,6 +157,13 @@ export function pgTaskIndexQueries(
           values.push(query.taskIds);
           where.push(`task_id=ANY($${values.length}::text[])`);
         }
+        // Stored trace keys (pg-trace-index.ts): leakproof equality, one partial index per key.
+        if (query.submissionCommitShas !== undefined) {
+          values.push(query.submissionCommitShas);
+          where.push(
+            `(submission_commit_sha=ANY($${values.length}::text[]) OR external_commit_sha=ANY($${values.length}::text[]))`,
+          );
+        }
         if (query.changedAfterRevision !== undefined) {
           values.push(query.changedAfterRevision);
           where.push(`workspace_revision>$${values.length}`);
@@ -227,16 +234,20 @@ export function pgTaskIndexQueries(
             package_path: string | null;
             updated_at: string;
             presentation_status: string | null;
+            submission_commit_sha?: string | null;
+            external_commit_sha?: string | null;
           } & PgIndexAttribution
         >(
           `SELECT task_id,task_title,task_status,task_pinned,parent_task_id,task_work_kind,task_risk_tier,
              task_urgency,task_class,task_superseded_by,task_package_disposition,package_path,updated_at::text,
+             ${query.submissionCommitShas === undefined ? "" : "submission_commit_sha,external_commit_sha,"}
              ${presentation} AS presentation_status${attribution} FROM ha_task_snapshots
              WHERE ${where.join(" AND ")} ORDER BY task_id
              ${pageSize === null ? "" : `LIMIT $${values.length}`}`,
           values,
         );
         const visible = pageSize === null ? result.rows : result.rows.slice(0, pageSize),
+          at = now(),
           at = now(),
           rows = visible.flatMap((row) => indexRow(row, at));
         return {

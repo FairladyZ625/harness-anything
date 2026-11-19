@@ -33,6 +33,20 @@ export type {
 } from "@harness-anything/kernel";
 import { prepareQuery, queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
 import { isRelationFreshness } from "./relation-freshness-columns.ts";
+import { TASK_EXTERNAL_COMMIT_SQL, TASK_SUBMISSION_COMMIT_SQL } from "./projection-tables.ts";
+
+interface TraceCommitSnapshot {
+  readonly executions?: readonly { readonly submission?: { readonly commitSha?: string | null } | null }[];
+  readonly externalResolution?: { readonly commitSha?: string | null } | null;
+}
+
+/** The JSON twin of TASK_SUBMISSION_COMMIT_SQL / TASK_EXTERNAL_COMMIT_SQL, in that order. */
+function traceCommitKeys(snapshot: TraceCommitSnapshot): readonly string[] {
+  const executions = snapshot.executions ?? [],
+    submitted = executions.at(-1)?.submission?.commitSha ?? executions.at(-2)?.submission?.commitSha ?? null,
+    external = snapshot.externalResolution?.commitSha ?? null;
+  return [...new Set([submitted, external].filter((sha): sha is string => typeof sha === "string" && sha !== ""))];
+}
 
 /** SQL query implementation for the rebuildable task projection. */
 export interface NarrowTaskRow {
@@ -191,6 +205,14 @@ export function readTaskIndexRows(
     where.push("task_snapshot.task_id IN (SELECT value FROM json_each(?))");
     values.push(JSON.stringify(query.taskIds));
   }
+  if (query.submissionCommitShas !== undefined) {
+    // One indexed probe per key; the UNION keeps each branch on its own expression index.
+    where.push(
+      `task_snapshot.task_id IN (SELECT task_id FROM task_snapshot WHERE ${TASK_SUBMISSION_COMMIT_SQL} IN (SELECT value FROM json_each(?))` +
+        ` UNION SELECT task_id FROM task_snapshot WHERE ${TASK_EXTERNAL_COMMIT_SQL} IN (SELECT value FROM json_each(?)))`,
+    );
+    values.push(JSON.stringify(query.submissionCommitShas), JSON.stringify(query.submissionCommitShas));
+  }
   if (query.slug !== undefined) {
     where.push(`${field("$.task.metadata.slug")} = ?`);
     values.push(query.slug);
@@ -238,7 +260,7 @@ export function readTaskIndexRows(
         )
       : null,
     projected = visible.flatMap((row) => {
-      let snapshot: Parameters<typeof taskAttribution>[0];
+      let snapshot: Parameters<typeof taskAttribution>[0] & TraceCommitSnapshot;
       try {
         snapshot = JSON.parse(row.snapshot_json) as typeof snapshot;
       } catch {
@@ -275,6 +297,9 @@ export function readTaskIndexRows(
           taskClass: task.taskClass,
           packageDisposition: task.packageDisposition ?? "active",
           packagePath: row.package_path,
+          ...(query.submissionCommitShas === undefined
+            ? {}
+            : { submissionCommitShas: traceCommitKeys(snapshot) }),
           updatedAt: row.updated_at,
         },
       ];
@@ -791,6 +816,14 @@ export function listTaskRowsNarrow(
   if (query.taskIds !== undefined) {
     where.push("task_snapshot.task_id IN (SELECT value FROM json_each(?))");
     values.push(JSON.stringify(query.taskIds));
+  }
+  if (query.submissionCommitShas !== undefined) {
+    // One indexed probe per key; the UNION keeps each branch on its own expression index.
+    where.push(
+      `task_snapshot.task_id IN (SELECT task_id FROM task_snapshot WHERE ${TASK_SUBMISSION_COMMIT_SQL} IN (SELECT value FROM json_each(?))` +
+        ` UNION SELECT task_id FROM task_snapshot WHERE ${TASK_EXTERNAL_COMMIT_SQL} IN (SELECT value FROM json_each(?)))`,
+    );
+    values.push(JSON.stringify(query.submissionCommitShas), JSON.stringify(query.submissionCommitShas));
   }
   if (query.cursor !== undefined) {
     if (query.pinnedFirst) {

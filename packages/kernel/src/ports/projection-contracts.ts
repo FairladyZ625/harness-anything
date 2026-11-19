@@ -73,6 +73,10 @@ export interface FactSearchFilters {
   readonly memoryClass?: FactMemoryClass;
   readonly observedAfter?: string;
   readonly observedBefore?: string;
+  /** Exact full commit SHAs a Fact was recorded against (`observedCommit`); index-backed. */
+  readonly observedCommits?: readonly string[];
+  /** Repository paths: matches `evidenceSource` equal to a path or beginning `<path>:` / `<path>#`. */
+  readonly evidenceSourcePaths?: readonly string[];
   readonly limit?: number;
   readonly cursor?: string;
 }
@@ -194,6 +198,8 @@ export interface TaskProjectionListQuery {
   /** Aggregate consumers need decision lineage, not every historical incoming runtime edge. */
   readonly decisionRelationsOnly?: boolean;
   readonly taskIds?: readonly string[];
+  /** Tasks whose latest submitted cut or external resolution is one of these full commit SHAs. */
+  readonly submissionCommitShas?: readonly string[];
   readonly presentationStatus?: boolean;
   /** Attach the canonical creator, origin node and current or latest operator to index rows. */
   readonly withAttribution?: boolean;
