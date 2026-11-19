@@ -8,6 +8,7 @@ import { isMap, isSeq, parseDocument } from "yaml";
 import type { EntityDocumentJsonSchema, EntityJsonSchemaNode } from "./entity-json-schema.ts";
 import { gateAppliesTo, gateWitnessMappingIssues, type GateWitnessMappingV1 } from "./completion-contract.ts";
 import { validateEntityJsonSchema } from "./entity-json-schema.ts";
+import { runtimeAgentBindingsSchema } from "./runtime-agent-bindings.ts";
 import {
   DEFAULT_RESTORE_DRILL_RETENTION,
   DEFAULT_WORKTREE_SETUP_STEP_TIMEOUT_MS,
@@ -34,6 +35,7 @@ import {
   type DeclaredSettingsFields,
   type SettingsCliInputField,
   type SettingsFieldDeclaration,
+  type SettingsFieldOwnership,
   type SettingsLocale,
 } from "./settings-field-declarations.ts";
 
@@ -65,8 +67,16 @@ export {
 };
 
 export const SETTINGS_ID = "repository";
+const settingsRootOwners = new Map<string, Set<SettingsFieldOwnership>>();
+for (const { path, ownership } of SETTINGS_FIELD_DECLARATIONS) {
+  const root = path[0]!, owners = settingsRootOwners.get(root) ?? new Set<SettingsFieldOwnership>();
+  owners.add(ownership);
+  settingsRootOwners.set(root, owners);
+}
 export const SETTINGS_FIELD_OWNERSHIP = Object.freeze(
-  Object.fromEntries(SETTINGS_FIELD_DECLARATIONS.map(({ path, ownership }) => [path[0], ownership])),
+  Object.fromEntries(
+    [...settingsRootOwners].map(([root, owners]) => [root, owners.size === 1 ? [...owners][0]! : "mixed"]),
+  ),
 );
 
 export type RepositorySettingsV1 = Readonly<
@@ -207,6 +217,8 @@ export function writeRepositorySettingsFacet(body: string, settings: RepositoryS
  * arbitrarily deep.
  */
 export const RETIRED_SETTINGS_PATHS = Object.freeze([
+  ["runtime", "allowedInstances"],
+  ["decisions", "provider"],
   ["workerPermissions", "ciRead"],
   ["workerPermissions", "artifactRead"],
   ["workerPermissions", "push"],
@@ -346,7 +358,10 @@ function insertDeclaredSchema(root: MutableObjectSchema, declaration: SettingsFi
       return;
     }
     const existing = parent.properties[segment] as MutableObjectSchema | undefined;
-    if (existing?.type === "object") parent = existing;
+    if (existing?.type === "object") {
+      if (existing["x-settings-ownership"] !== declaration.ownership) delete existing["x-settings-ownership"];
+      parent = existing;
+    }
     else {
       const nested: MutableObjectSchema = {
         type: "object",
@@ -403,6 +418,8 @@ function declaredFieldSchema(declaration: SettingsFieldDeclaration): EntityJsonS
       return { ...gateSettingsSchema(), ...common };
     case "command-interceptions":
       return { ...commandInterceptionsSchema, ...common };
+    case "runtime-agent-bindings":
+      return { ...runtimeAgentBindingsSchema, ...common };
   }
 }
 
@@ -508,6 +525,7 @@ function readDeclaredField(authored: Readonly<SettingsRecord>, declaration: Sett
     case "boolean":
       return value;
     case "command-interceptions":
+    case "runtime-agent-bindings":
       return value;
     case "string-array":
       if (!Array.isArray(value))

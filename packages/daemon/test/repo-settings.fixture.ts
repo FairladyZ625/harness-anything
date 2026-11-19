@@ -26,7 +26,6 @@ import {
   readLedgerWriterEpoch,
   type WriterEpochFenceDescriptor,
 } from "@harness-anything/storage";
-import { initialRuntimeInstanceSettings } from "../src/daemon-host/runtime-spawn-allowlist.ts";
 import type { DaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { policyTestCenter, provisionPolicyTestRepository, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 
@@ -135,9 +134,7 @@ export function seedSettingsEvent(input: {
     return settleSeeded(store, fixtureKey, input.keepOpen);
   }
   const documentBody = settingsBase(rootDir),
-    parsed = readSettingsFacet(documentBody),
-    settings =
-      input.runtimeInstances === undefined ? parsed : initialRuntimeInstanceSettings(parsed, input.runtimeInstances),
+    settings = readSettingsFacet(documentBody),
     digest = createHash("sha256").update(`${repoId}\0${documentBody}`).digest("hex");
   store.append(
     compileSettingsChangedEvent({
@@ -270,9 +267,7 @@ export async function settleSettingsEvent(input: {
     stream = store.read();
   if (!stream.events.some((event) => event.schema === "settings-event/v1")) {
     const documentBody = settingsBase(rootDir),
-      parsed = readSettingsFacet(documentBody),
-      seededSettings =
-        input.runtimeInstances === undefined ? parsed : initialRuntimeInstanceSettings(parsed, input.runtimeInstances),
+      seededSettings = readSettingsFacet(documentBody),
       digest = createHash("sha256").update(`${repoId}\0${documentBody}`).digest("hex");
     store.append(
       compileSettingsChangedEvent({

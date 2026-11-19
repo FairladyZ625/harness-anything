@@ -64,7 +64,7 @@ export interface RuntimeInstanceSelection {
 export interface RuntimeInstanceRank {
   readonly tier: number;
   readonly rowIndex: number;
-  /** Index in `preferredInstances`; `MAX_SAFE_INTEGER` when the declaration does not list it. */
+  /** Index in the local Agent preference list, or `MAX_SAFE_INTEGER` when unlisted. */
   readonly preferenceIndex: number;
   /** Exact spelling, case-insensitive spelling, or no match (3, 2, 0). */
   readonly modelTier: 0 | 2 | 3;
@@ -179,7 +179,7 @@ export function selectedRuntimeInstance(input: {
   if (input.resumedSession)
     return selection("resumed-session", `The resumed provider session runs on instance ${input.selected}.`);
   if (input.agent?.instance === input.selected)
-    return selection("declared-instance", `Agent ${input.agent.id} declares instance ${input.selected}.`);
+    return selection("declared-instance", `Local settings pin Agent ${input.agent.id} to instance ${input.selected}.`);
   const strategy = input.agent?.selectionStrategy ?? input.selectionStrategy;
   if (strategy !== undefined)
     return selection(
@@ -189,7 +189,7 @@ export function selectedRuntimeInstance(input: {
   if (preferenceIndex !== -1)
     return selection(
       "declared-preference",
-      `Agent ${input.agent!.id} lists instance ${input.selected} at preferredInstances[${String(preferenceIndex)}]; ` +
+      `Local settings prefer instance ${input.selected} for Agent ${input.agent!.id} at preferredInstances[${String(preferenceIndex)}]; ` +
         "it is enabled, compatible, and ready on this node.",
     );
   if (declaredModel !== undefined && tier === 3 && modelSeparated)
@@ -285,9 +285,9 @@ export function agentRuntimeAmbiguityWarning(input: {
       `Agent ${agent.id} can dispatch to ${String(candidates.length)} enabled instances ` +
       `(${candidates.join(", ")}) and does not name one; ` +
       (input.selected === undefined
-        ? "dispatch would fall back to runtime-row then repository allowed-instance order. "
+        ? "dispatch uses runtime-row and node-local catalog order. "
         : `this dispatch took ${input.selected}. `) +
-      "Pin one with the `instance` field, or state an order with `preferredInstances`; run ha runtime " +
+      "Use runtimeAgentBindings in settings.local.json to pin an instance or set preferredInstances. Run ha runtime " +
       "instance list to see the enabled instances.",
   };
 }

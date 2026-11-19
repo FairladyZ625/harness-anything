@@ -18,6 +18,7 @@ import {
 import type { TaskDispatchRow } from "./protocol/task-dispatch-contract.ts";
 import type { RepoCell, RepoCellBinding } from "./repo-cell-types.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
+import { selectDecisionProvider } from "./decision-provider-doctor.ts";
 import { decisionAdvisoryFromProvider, openDecisionAnnotationStore } from "./decision-annotations.ts";
 import { appendIncidentActionReceipt, readIncidentActionReceipt } from "./decision-incident-receipt.ts";
 import type { DaemonTaskRuntimeContextResult } from "./protocol/daemon-protocol-runtime-context.ts";
@@ -140,11 +141,12 @@ export function openDecisionPointExecutor(input: {
         ]),
         vertical = verticalRead.declaration,
         decisions = settingsRead.settings.decisions,
-        providerId = decisions?.provider,
         enabledPoints = decisions?.enabledPoints ?? [];
       const decisionContract = vertical.decisions;
-      if (!decisionContract || !providerId || enabledPoints.length === 0) return;
-      const provider = input.providers.list().find((candidate) => candidate.providerId === providerId);
+      if (!decisionContract || enabledPoints.length === 0) return;
+      const provider = selectDecisionProvider(input.providers.list(), decisions?.provider),
+        providerId = decisions?.provider ?? provider?.providerId;
+      if (providerId === undefined) return;
 
       const eventFields = {
           outcome: event.payload.outcome,

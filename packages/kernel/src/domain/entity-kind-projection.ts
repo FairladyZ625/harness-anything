@@ -2,6 +2,8 @@ import { dropRetiredSettingsWalFlush, normalizeHistoricalSettingsRoles } from ".
 import { projectScheduleHistory } from "./schedule.ts";
 import { deriveRelationId } from "./entity-relation.ts";
 import { parseEntityJsonSchema } from "./entity-json-schema.ts";
+import { withoutLegacyAgentInstanceBindings } from "./agent-squad-schema.ts";
+import { withoutRetiredSettings } from "./event-shape-migration-event.ts";
 import type { EntityKindContract } from "./entity-kind-registry.ts";
 
 export type EntityProjectionContract = Pick<
@@ -49,7 +51,11 @@ export function interpretEntityValue(
   value: unknown,
   label = `${contract.kind} declaration`,
 ): InterpretedEntityValue {
-  const parsed = parseEntityJsonSchema(contract.schema, value, label);
+  const parsed = parseEntityJsonSchema(
+    contract.schema,
+    contract.kind === "agent" ? withoutLegacyAgentInstanceBindings(value) : value,
+    label,
+  );
   if (!isEntityRecord(parsed)) throw new Error(`${label} must be an object`);
   const id = parsed[contract.id.field];
   if (typeof id !== "string") throw new Error(`${label} has no string identity`);
@@ -152,7 +158,9 @@ export function interpretEmbeddedEntityProjections(
       // 下一次代际转换跑过 settings-roles 与 settings-wal-flush 迁移后删除此读取规范化。
       const value =
         contract.kind === "settings"
-          ? dropRetiredSettingsWalFlush(normalizeHistoricalSettingsRoles(payload[source.payloadField]))
+          ? withoutRetiredSettings(
+              dropRetiredSettingsWalFlush(normalizeHistoricalSettingsRoles(payload[source.payloadField])),
+            )
           : contract.kind === "schedule"
             ? projectScheduleHistory(payload[source.payloadField])
             : payload[source.payloadField];

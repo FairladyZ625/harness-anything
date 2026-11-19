@@ -3,7 +3,7 @@ import { presetRuntimeDefaults, presetUserRoot } from "@harness-anything/preset/
 import type { AgentSkillDeclarationV1 } from "@harness-anything/kernel";
 import { mergeRepositorySkills, resolveAgentSkills } from "./agent-skills.ts";
 import { runtimeErrorCode, runtimeSpawnError } from "../runtime-engine/runtime-spawn-errors.ts";
-import type { RuntimeBinding, RuntimeSpawnerInput } from "./runtime-spawn-types.ts";
+import type { RuntimeAgent, RuntimeBinding, RuntimeSpawnerInput } from "./runtime-spawn-types.ts";
 
 /** Resolve the dispatch identity and its prompt resources in the worker's checkout. */
 export function resolveDispatchAgent(
@@ -27,7 +27,7 @@ export function resolveDispatchAgent(
           })())
         : null,
     delegatedBy = squad?.worker ? squad.leader : null,
-    agent =
+    declaration =
       squad?.worker ??
       squad?.leader ??
       (agentId
@@ -36,6 +36,7 @@ export function resolveDispatchAgent(
             throw runtimeSpawnError("agent_not_found", `Agent ${agentId} is unavailable.`);
           })())
         : null),
+    agent = declaration ? applyLocalAgentBinding(input, declaration) : null,
     resolvedSkills = agent ? resolveDispatchSkills(input, agent) : [],
     preset = agent?.preset
       ? (() => {
@@ -56,6 +57,16 @@ export function resolveDispatchAgent(
         })()
       : undefined;
   return { squad, delegatedBy, agent, resolvedSkills, preset };
+}
+
+export function applyLocalAgentBinding(
+  input: Pick<RuntimeSpawnerInput, "readSettings">,
+  agent: RuntimeAgent,
+): RuntimeAgent {
+  const binding = input.readSettings?.().runtimeAgentBindings?.find(({ agentId }) => agentId === agent.id);
+  if (!binding) return agent;
+  const { agentId: _agentId, ...selection } = binding;
+  return { ...agent, ...selection };
 }
 
 /**

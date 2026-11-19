@@ -13,8 +13,8 @@ for (const role of ["worker", "reviewer", "commander"] as const)
     assert.equal(agent.role, role);
     assert.deepEqual(agent.skills, []);
     assert.deepEqual(agent.runtimes, []);
-    assert.equal(agent.instance, undefined);
-    assert.equal(agent.preferredInstances, undefined);
+    assert.equal(Object.hasOwn(agent, "instance"), false);
+    assert.equal(Object.hasOwn(agent, "preferredInstances"), false);
     assert.equal(agent.preset, undefined);
     assert.equal(agent.permissionMode, undefined);
     assert.deepEqual(agent.prompts ?? [], []);

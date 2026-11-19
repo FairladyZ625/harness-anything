@@ -19,6 +19,7 @@ import { runPresetAction } from "@harness-anything/preset";
 import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import { SETTINGS_DECLARATION_RUNTIME, SettingsDeclarationError, type LocalSettingsV1 } from "@harness-anything/kernel";
 import {
+  mergeRepositoryLocalSettings,
   settingsLastChanged,
   settingsPrincipalRefusal,
   settingsSingletonRevision,
@@ -83,10 +84,11 @@ export function makeSettingsActionRuntime(
         receipt = cell.receiptForOperation(opId, binding);
       return replayReceipt(receipt, settingsState.read(), localChanged, targetRef);
     }
-    // Node policy is strictly local even when authored YAML carries formatting drift. It must not
-    // turn that unrelated drift into a shared Settings write. Mixed repository edits use the normal compiler.
+    // Local provider selection and node policy must not publish a shared Settings change.
     if (
-      action.taskMaterializationPolicy !== undefined &&
+      (action.taskMaterializationPolicy !== undefined ||
+        Object.hasOwn(action, "runtimeAllowedInstances") ||
+        Object.hasOwn(action, "decisionsProvider")) &&
       local !== null &&
       Object.keys(action).every(
         (field) =>
@@ -220,9 +222,7 @@ function mergedSettings(
   local: LocalSettingsV1 | null,
   settingsState: Pick<RepoCellSettingsState, "readLocal">,
 ): SettingsV1 {
-  // The local file's schema marker is dropped: the merged view keeps the repository settings schema.
-  const { schema: _localSchema, ...localValue } = local ?? settingsState.readLocal();
-  return { ...repository, ...localValue };
+  return mergeRepositoryLocalSettings(repository, local ?? settingsState.readLocal());
 }
 
 /** The action's local-only fields (locale, GUI deadlines) applied onto this machine's local settings; null when it names none. */

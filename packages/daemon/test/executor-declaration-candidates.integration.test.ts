@@ -105,11 +105,7 @@ test("declare-executor traces the authoring dispatch across executions and never
     git(rootDir, "worktree", "add", "--quiet", "--detach", workerRoot);
     cell = await openRuntimeStubCell(rootDir, repoId, processes);
     const fixtureSettings = await cell.read("repo.settings.read");
-    assert.deepEqual(
-      fixtureSettings.settings.runtime?.allowedInstances,
-      ["review-runtime"],
-      JSON.stringify(fixtureSettings),
-    );
+    assert.equal(fixtureSettings.settings.runtime?.allowedInstances, undefined, JSON.stringify(fixtureSettings));
     const person = { personId: "person-owner" },
       owner = withPolicyGroup(
         withPolicyGroup({ actor: { principal: person, executor: null }, source: "local" as const }, "maintainer"),
@@ -354,11 +350,7 @@ test("declare-executor refuses when the lineage only ever hosted reviewer dispat
     writeSettingsFixture(rootDir);
     cell = await openRuntimeStubCell(rootDir, repoId, processes);
     const fixtureSettings = await cell.read("repo.settings.read");
-    assert.deepEqual(
-      fixtureSettings.settings.runtime?.allowedInstances,
-      ["review-runtime"],
-      JSON.stringify(fixtureSettings),
-    );
+    assert.equal(fixtureSettings.settings.runtime?.allowedInstances, undefined, JSON.stringify(fixtureSettings));
     const person = { personId: "person-owner" },
       owner = withPolicyGroup(
         withPolicyGroup({ actor: { principal: person, executor: null }, source: "local" as const }, "maintainer"),

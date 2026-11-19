@@ -11,6 +11,7 @@ import {
 } from "./task-wip-policy.ts";
 import { DEFAULT_TODO_SOFT_LIMIT } from "./todo-soft-limit.ts";
 import type { OntologyPolicyDeclaration } from "./ontology-source.ts";
+import type { RuntimeAgentBinding } from "./runtime-agent-bindings.ts";
 
 export type SettingsFieldOwnership = "repository" | "local";
 export type SettingsFieldValueKind =
@@ -20,7 +21,8 @@ export type SettingsFieldValueKind =
   | "boolean"
   | "string-array"
   | "gate-mappings"
-  | "command-interceptions";
+  | "command-interceptions"
+  | "runtime-agent-bindings";
 
 export interface SettingsFieldActionDeclaration {
   readonly field: string;
@@ -376,13 +378,13 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
   }),
   defineSettingsField({
     path: ["decisions", "provider"],
-    ownership: repository,
+    ownership: local,
     valueKind: "string",
     defaultValue: undefined,
     optional: true,
     pattern: settingValuePattern,
     description: "Decisions provider used by enabled advisory decision points.",
-    effect: "Only the named provider may receive enabled decision-point inputs; unset keeps all points dormant.",
+    effect: "Only the named provider may receive enabled decision-point inputs; unset selects the first enabled provider on this node.",
     group: "decisions",
     action: { field: "decisionsProvider", type: "string" },
     cli: { name: "--decisions-provider", kind: "single" },
@@ -741,7 +743,7 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
   }),
   defineSettingsField({
     path: ["runtime", "allowedInstances"],
-    ownership: repository,
+    ownership: local,
     valueKind: "string-array",
     defaultValue: undefined,
     optional: true,
@@ -759,6 +761,39 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     },
     noneMeansEmpty: true,
     yamlStyle: "block-list",
+  }),
+  defineSettingsField({
+    path: ["runtime", "allowedKinds"],
+    ownership: repository,
+    valueKind: "string-array",
+    defaultValue: undefined,
+    optional: true,
+    pattern: settingValuePattern,
+    uniqueItems: true,
+    description: "Runtime kinds available to this repository across nodes.",
+    effect: "An explicit list restricts dispatch to those runtime kinds.",
+    group: "schedules-nodes",
+  }),
+  defineSettingsField({
+    path: ["runtime", "allowedModels"],
+    ownership: repository,
+    valueKind: "string-array",
+    defaultValue: undefined,
+    optional: true,
+    uniqueItems: true,
+    description: "Runtime models available to this repository across nodes.",
+    effect: "An explicit list restricts dispatch to those runtime models.",
+    group: "schedules-nodes",
+  }),
+  defineSettingsField({
+    path: ["runtimeAgentBindings"],
+    ownership: local,
+    valueKind: "runtime-agent-bindings",
+    defaultValue: undefined,
+    optional: true,
+    description: "Instance pins and ordered preferences for individual Agents on this node.",
+    effect: "A binding changes the instance selection for that Agent in this repository.",
+    group: "schedules-nodes",
   }),
   defineSettingsField({
     path: ["runtime", "commandInterceptions"],
@@ -1016,7 +1051,9 @@ type DeclaredValue<Declaration extends SettingsFieldDeclaration> = Declaration["
           ? readonly GateWitnessMappingV1[]
           : Declaration["valueKind"] extends "command-interceptions"
             ? readonly CommandInterception[]
-            : string;
+            : Declaration["valueKind"] extends "runtime-agent-bindings"
+              ? readonly RuntimeAgentBinding[]
+              : string;
 
 type DeclaredPath<Path extends readonly string[], Value, Optional extends boolean> = Path extends readonly [
   infer Head extends string,
@@ -1052,7 +1089,10 @@ export type DeclaredSettingsFields<Ownership extends SettingsFieldOwnership> = U
 >;
 
 export function settingsFieldLabel(actionField: string): string {
-  const declaration = SETTINGS_FIELD_DECLARATIONS.find(({ action }) => action?.field === actionField);
+  const declarations: readonly SettingsFieldDeclaration[] = SETTINGS_FIELD_DECLARATIONS;
+  const declaration = declarations.find(
+    (candidate) => (candidate as SettingsFieldDeclaration).action?.field === actionField,
+  );
   if (!declaration) throw new Error(`Unknown Settings action field ${actionField}.`);
   return `settings.${declaration.path.join(".")}`;
 }

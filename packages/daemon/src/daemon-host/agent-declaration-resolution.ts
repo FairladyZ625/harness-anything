@@ -1,6 +1,9 @@
 import { readAnyBundledAgentDeclaration, readBundledAgentDeclaration } from "@harness-anything/preset";
 import { openEntityStore } from "@harness-anything/storage";
-import type { AgentState } from "@harness-anything/kernel/internal/domain/agent-squad-schema.ts";
+import {
+  withoutLegacyAgentInstanceBindings,
+  type AgentState,
+} from "@harness-anything/kernel/internal/domain/agent-squad-schema.ts";
 import {
   consumeKnownError,
   entitySlug,
@@ -15,7 +18,9 @@ export type ProjectedAgentDeclaration = AgentDeclarationV1 & {
 
 /** Projection metadata is not part of the authored declaration schema. */
 export function readProjectedAgentDeclaration(value: unknown): ProjectedAgentDeclaration {
-  const { lifecycleState, retirement, ...declaration } = value as ProjectedAgentDeclaration;
+  const { lifecycleState, retirement, ...declaration } = withoutLegacyAgentInstanceBindings(
+    value,
+  ) as ProjectedAgentDeclaration;
   return {
     ...parseAgentDeclarationV1(declaration),
     ...(lifecycleState === undefined ? {} : { lifecycleState }),

@@ -19,3 +19,39 @@ test("remote dispatch resources do not require a local task projection", async (
   );
   assert.deepEqual(resources, [[], [], ["remote-instance"], []]);
 });
+
+test("shared runtime capabilities restrict admission by node kind and model", async () => {
+  const instances = [
+      { instanceId: "private-openai", kindId: "codex", models: ["model-a", "model-b"], enabled: true },
+      { instanceId: "private-zcode", kindId: "zcode", models: ["model-b"], enabled: true },
+    ] as never,
+    [, admitted, allowedInstanceIds] = await resolveRuntimeDispatchResources(
+      {
+        readSettings: () => ({ runtime: { allowedKinds: ["codex"], allowedModels: ["model-b"] } }) as never,
+        runtimeInstances: () => instances,
+      },
+      undefined,
+      null,
+    );
+  assert.deepEqual(
+    admitted.map(({ instanceId, models }) => ({ instanceId, models })),
+    [
+      { instanceId: "private-openai", models: ["model-b"] },
+      { instanceId: "private-zcode", models: ["model-b"] },
+    ],
+  );
+  assert.deepEqual(allowedInstanceIds, ["private-openai"]);
+});
+
+test("an explicitly empty model capability list admits no node instances", async () => {
+  const [, instances, allowedInstanceIds] = await resolveRuntimeDispatchResources(
+    {
+      readSettings: () => ({ runtime: { allowedModels: [] } }) as never,
+      runtimeInstances: () => [{ instanceId: "private-openai", kindId: "codex", models: ["model-a"] }] as never,
+    },
+    undefined,
+    null,
+  );
+  assert.deepEqual(instances.map(({ models }) => models), [[]]);
+  assert.deepEqual(allowedInstanceIds, []);
+});
