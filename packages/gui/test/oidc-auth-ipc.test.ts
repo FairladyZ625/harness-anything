@@ -485,6 +485,7 @@ async function signInWithWebview(partitionToken: string | null): Promise<{
               address: "10.211.55.2",
               hostname: "10.211.55.2",
               port: 18544,
+              targetUrl: "https://10.144.144.2:7545/",
               certificateFile: path.join(import.meta.dirname, "fixtures", "login-listener-leaf.pem"),
               certificateKeyFile: "/fixtures/unused.key",
             },
@@ -516,6 +517,10 @@ test("a listener-backed sign-in opens its page in the granted login webview and 
   assert.equal(login.trace.inputs[0]?.authorizationUrl, listenerAuthorizationUrl);
   assert.equal(login.trace.inputs[0]?.callbackOrigin, `http://127.0.0.1:${login.redirectPort()}`);
   assert.equal((login.trace.inputs[0]?.listenerReply as { listener?: { port?: number } })?.listener?.port, 18544);
+  assert.equal(
+    (login.trace.inputs[0]?.listenerReply as { listener?: { targetUrl?: string } })?.listener?.targetUrl,
+    "https://10.144.144.2:7545/",
+  );
   assert.equal(login.trace.released, 1, "the grant is released once the sign-in settles");
 });
 

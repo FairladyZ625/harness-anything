@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
-import { session, type App, type WebContents } from "electron";
+import type { App, session as electronSession, WebContents } from "electron";
 import {
   createLoginWebviewGrants,
   isAllowedLoginRequest,
+  matchesLoginCertificate,
   resolveLoginListenerTrust,
   type LoginWebviewAttachment,
 } from "./login-webview-boundary.ts";
@@ -16,7 +17,7 @@ import { closeLoginProxy, openLoginProxy } from "./login-webview-proxy.ts";
  * together — no other session is ever touched, and Chromium's hostname-keyed certificate cache
  * cannot outlive the partition because the name is never reused.
  */
-export function createLoginWebviewSecurity(): {
+export function createLoginWebviewSecurity(session: Pick<typeof electronSession, "fromPartition">): {
   /** Sign-in port: mint the isolated partition for a listener-backed login, or null for none. */
   readonly openLoginWebview: (input: {
     readonly authorizationUrl: string;
@@ -50,32 +51,47 @@ export function createLoginWebviewSecurity(): {
       // request-layer origin allowlist that keeps a cached certificate acceptance from ever being
       // exercised outside the listener origin and the loopback callback.
       const loginSession = session.fromPartition(grant.partition);
-      const proxy = trust.proxyTarget === undefined ? null : await openLoginProxy(trust.proxyTarget, trust.origin);
+      let active = true;
+      let proxy: Awaited<ReturnType<typeof openLoginProxy>> | null = null;
       try {
-        if (proxy) {
+        if (trust.proxyTarget !== undefined) {
+          proxy = await openLoginProxy(trust.proxyTarget, trust.origin);
           const address = proxy.address();
           if (address === null || typeof address === "string") throw new Error("The login proxy did not bind a port.");
+          // Chromium may already trust the upstream leaf. Pin it on every proxied TLS connection.
+          // The request filter below scopes this hostname-only hook to the full browser origin.
+          const hostname = new URL(trust.origin).hostname.replace(/^\[|\]$/gu, "");
+          loginSession.setCertificateVerifyProc((request, callback) => {
+            const matches = request.hostname.replace(/^\[|\]$/gu, "") === hostname;
+            callback(
+              active && matches && matchesLoginCertificate(request.certificate.data, trust.fingerprint256) ? 0 : -2,
+            );
+          });
           await loginSession.setProxy({
             proxyRules: `http=127.0.0.1:${address.port};https=127.0.0.1:${address.port}`,
           });
         }
       } catch (error) {
-        await closeLoginProxy(proxy);
         grants.release(grant.partitionToken);
+        await closeLoginProxy(proxy);
         throw error;
       }
       loginSession.setPermissionCheckHandler(() => false);
       loginSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
       loginSession.on("will-download", (event) => event.preventDefault());
       loginSession.webRequest.onBeforeRequest((details, callback) => {
-        callback({ cancel: !isAllowedLoginRequest(details.url, allowedOrigins) });
+        callback({ cancel: !active || !isAllowedLoginRequest(details.url, allowedOrigins) });
       });
       return {
         partitionToken: grant.partitionToken,
         release: async () => {
+          active = false;
           grants.release(grant.partitionToken);
-          await loginSession.setProxy({ mode: "direct" });
-          await closeLoginProxy(proxy);
+          try {
+            await loginSession.setProxy({ mode: "direct" });
+          } finally {
+            await closeLoginProxy(proxy);
+          }
         },
       };
     },
@@ -85,23 +101,25 @@ export function createLoginWebviewSecurity(): {
         // the rejection they get without any listener at all.
         event.preventDefault();
         callback(
-          grants.decideCertificateError({
-            webContentsId: webContents.id,
-            url,
-            certificatePem: certificate.data,
-          }),
+          !webContents.isDestroyed() &&
+            grants.decideCertificateError({
+              webContentsId: webContents.id,
+              url,
+              certificatePem: certificate.data,
+            }) === "accept",
         );
       });
     },
     consumeWebviewAttachment: (params) => grants.consumeWebviewAttachment(params),
     attachGuest: (guest) => {
-      const attachment = grants.bindGuestWebContents(guest.id, guest.session);
+      const guestId = guest.id;
+      const attachment = grants.bindGuestWebContents(guestId, guest.session);
       if (!attachment) return false;
       guest.setWindowOpenHandler(() => ({ action: "deny" }));
       guest.on("will-navigate", (event, url) => {
         if (!isAllowedLoginRequest(url, attachment.allowedOrigins)) event.preventDefault();
       });
-      guest.once("destroyed", () => grants.unbindGuestWebContents(guest.id));
+      guest.once("destroyed", () => grants.unbindGuestWebContents(guestId));
       return true;
     },
   };

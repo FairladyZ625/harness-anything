@@ -24,7 +24,6 @@ import {
 } from "./project-windows.ts";
 import { darwinAppMenuTemplate } from "./darwin-app-menu.ts";
 import { ensureApplicationsFolder } from "./darwin-applications-folder.ts";
-import { APP_COMMAND_CHANNEL, type AppNavigationCommand } from "../api/app-command-contract.ts";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell } from "electron";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
@@ -76,6 +75,7 @@ import { registerFirstRunIpcHandlers } from "./first-run-ipc.ts";
 import { DESKTOP_FIRST_RUN_UPDATED_CHANNEL, type DesktopSetupFailure } from "../api/first-run-contract.ts";
 import { desktopRuntimePaths, desktopFirstRunReport, runDesktopSetup } from "./desktop-first-run.ts";
 import { registerUpdaterIpc } from "./update-service.ts";
+import { bindMainWindowAppCommand } from "./main-window-app-command.ts";
 // electron-updater is CommonJS: a named import breaks direct source launches under Node ESM
 // type stripping ("Named export 'autoUpdater' not found"); default-import and destructure.
 import electronUpdater from "electron-updater";
@@ -172,7 +172,7 @@ function trackMainWindowReadiness(mainWindow: BrowserWindow, loadPromise: Promis
 }
 
 /** Per-sign-in login webview boundary; created once so its certificate-error handler is, too. */
-const loginWebviewSecurity = createLoginWebviewSecurity();
+const loginWebviewSecurity = createLoginWebviewSecurity(session);
 
 export function createMainWindow(initialRepoId?: string): BrowserWindow {
   const preloadPath = path.join(resolveGuiPackageRoot(), "dist-electron/electron-preload.cjs");
@@ -223,11 +223,7 @@ export function createMainWindow(initialRepoId?: string): BrowserWindow {
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: evaluateWindowOpenRequest().action }));
   // 鼠标侧键(Windows/Linux):OS 把侧键转成 app-command 而不是 DOM mousedown 3/4,
   // 这里把它转发给 renderer 的统一导航历史;macOS 侧键走 DOM,不会重复触发。
-  mainWindow.on("app-command", (_event, command) => {
-    const navigation: AppNavigationCommand | null =
-      command === "browser-backward" ? "back" : command === "browser-forward" ? "forward" : null;
-    if (navigation) mainWindow.webContents.send(APP_COMMAND_CHANNEL, navigation);
-  });
+  bindMainWindowAppCommand(mainWindow);
   // 单文档应用:窗口只可停在入口文档上。dev 态同源任意路径(Markdown 外链的绝对
   // 路径会解析到 dev origin 之下)同样拒绝 —— 那会把窗口带离应用,落在 dev server
   // 的 404 白屏上(task_89d324b5 详情面外链白屏的壳侧成因;渲染层拦截是根修)。
@@ -695,7 +691,9 @@ async function resolveRequestedDaemonTarget(
 function toProjectWindowEntry(mainWindow: BrowserWindow): ProjectWindowRegistryEntry {
   return {
     webContentsId: mainWindow.webContents.id,
-    focus: () => focusDesktopWindow(mainWindow),
+    focus: () => {
+      if (!mainWindow.isDestroyed()) focusDesktopWindow(mainWindow);
+    },
     onClosed: (listener) => mainWindow.once("closed", listener),
   };
 }
