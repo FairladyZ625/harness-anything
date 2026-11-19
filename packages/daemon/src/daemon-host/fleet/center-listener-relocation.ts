@@ -1,8 +1,10 @@
 import path from "node:path";
 import {
   openPersistentWriterEpoch,
+  readCenterMigrating,
   readCenterRelocated,
   readLedgerWriterEpoch,
+  type CenterMigratingStateV1,
   type PersistentWriterEpoch,
   type WriterEpochLease,
 } from "@harness-anything/storage";
@@ -11,8 +13,26 @@ import type { CenterMovedDetails, CenterRelocatedTombstoneV1, FleetCenterOptions
 import { FleetFault } from "./center-types.ts";
 import type { createNodeRetirementAdmission } from "./node-retirement.ts";
 
-export function readListenerCenterRelocated(options: FleetCenterOptions): CenterRelocatedTombstoneV1 | null {
-  return options.centerRelocated ?? readCenterRelocated(options.relocationRoot ?? path.dirname(options.stateRoot));
+function listenerRelocationRoot(options: FleetCenterOptions): string {
+  return options.relocationRoot ?? path.dirname(options.stateRoot);
+}
+
+export function readListenerCenterRelocated(
+  options: FleetCenterOptions,
+  repoId?: string,
+): CenterRelocatedTombstoneV1 | null {
+  if (options.centerRelocated) {
+    if (repoId === undefined || options.centerRelocated.repoId === repoId) return options.centerRelocated;
+  }
+  return readCenterRelocated(listenerRelocationRoot(options), repoId ?? options.centerRepoId);
+}
+
+export function readListenerCenterMigrating(
+  options: FleetCenterOptions,
+  repoId: string | undefined,
+): CenterMigratingStateV1 | null {
+  if (!repoId) return null;
+  return readCenterMigrating(listenerRelocationRoot(options), repoId);
 }
 
 export function centerMovedFleetFault(details: CenterMovedDetails): FleetFault {
@@ -25,9 +45,18 @@ export function centerMovedFleetFault(details: CenterMovedDetails): FleetFault {
   );
 }
 
+export function centerMigratingFleetFault(repoId: string): FleetFault {
+  return new FleetFault(
+    "CENTER_MIGRATING",
+    `Center repository ${repoId} is freezing and draining writes for controlled relocation; retry after cutover.`,
+    true,
+    null,
+  );
+}
+
 export function openCenterRelocationEpochs(
   options: FleetCenterOptions,
-  centerRelocated: CenterRelocatedTombstoneV1 | null,
+  _centerRelocated: CenterRelocatedTombstoneV1 | null,
   now: () => string,
 ): {
   readonly writerEpoch: PersistentWriterEpoch;
@@ -45,17 +74,22 @@ export function openCenterRelocationEpochs(
     acquireWriterEpoch =
       options.writerEpochLease ??
       ((repoId: string) => {
-        if (centerRelocated) throw centerMovedFleetFault(centerRelocated);
+        const moved = readListenerCenterRelocated(options, repoId);
+        if (moved) throw centerMovedFleetFault(moved);
+        if (readListenerCenterMigrating(options, repoId)) throw centerMigratingFleetFault(repoId);
         const rootDir = options.host.status().repos.find((repo) => repo.repoId === repoId)?.rootDir;
         return writerEpoch.acquire(repoId, readLedgerWriterEpoch(repoId, rootDir, options.storage?.[repoId]));
       });
-  if (!centerRelocated)
-    for (const repo of options.host.status().repos)
-      if (repo.state === "attached") ownedEpochs.set(repo.repoId, acquireWriterEpoch(repo.repoId));
+  for (const repo of options.host.status().repos) {
+    if (repo.state === "attached" && readListenerCenterRelocated(options, repo.repoId) === null)
+      ownedEpochs.set(repo.repoId, acquireWriterEpoch(repo.repoId));
+  }
   // A center must keep using the epoch it acquired, even after another center
   // advances the shared state. Reading the latest row here would let a stale
   // process silently adopt its successor's epoch and defeat fencing.
   const ownedEpochFor = (repoId: string) => {
+      const moved = readListenerCenterRelocated(options, repoId);
+      if (moved) throw centerMovedFleetFault(moved);
       const owned = ownedEpochs.get(repoId);
       if (owned) return owned;
       const acquired = acquireWriterEpoch(repoId);
@@ -86,6 +120,8 @@ export function createCenterNodePrincipals(input: {
   const { options, nodeGate, writerEpoch, ownedEpochFor } = input;
   // dec_E610E1D99A39003886D1B5EE7C CH1: device admission and per-request person are independent.
   const readerAuth = async (node: { nodeId: string; repoId: string; accessToken?: string }) => {
+      const moved = readListenerCenterRelocated(options, node.repoId);
+      if (moved) throw centerMovedFleetFault(moved);
       nodeGate.assertOpen(node.nodeId);
       const personId = await options.nodeOwner(node.nodeId);
       if (!personId) throw new FleetFault("node_owner_unregistered", `Node ${node.nodeId} has no registered owner.`);
@@ -134,9 +170,11 @@ export function createCenterNodePrincipals(input: {
       accessToken?: string,
       executionCredential?: string,
     ) => {
+      if (readListenerCenterMigrating(options, node.repoId)) throw centerMigratingFleetFault(node.repoId);
       const acquired = ownedEpochFor(node.repoId);
       const principal = await principalAuth(node, accessToken, executionCredential);
       nodeGate.assertOpen(node.nodeId);
+      if (readListenerCenterMigrating(options, node.repoId)) throw centerMigratingFleetFault(node.repoId);
       return {
         ...principal,
         writerEpoch: acquired.epoch,
@@ -162,6 +200,8 @@ export function createCenterNodePrincipals(input: {
       return principal;
     },
     replicaAdmission = async (node: { nodeId: string; repoId: string; accessToken?: string }) => {
+      const moved = readListenerCenterRelocated(options, node.repoId);
+      if (moved) throw centerMovedFleetFault(moved);
       nodeGate.assertOpen(node.nodeId);
       if (!options.verifyReplica) return repoAdmission(node);
       const personId = await options.nodeOwner(node.nodeId);

@@ -490,6 +490,8 @@ export const writeReceiptFields = generatedWriteReceiptFields,
     "steerTarget",
     // A fenced task-dispatch recovery returns its recovery receipt through the same spawn.
     "recovery",
+    // Retired center write rejection carries structured relocation routing fields.
+    "centerMoved",
   ];
 
 const runtimeHandoffCheckpointFields = [

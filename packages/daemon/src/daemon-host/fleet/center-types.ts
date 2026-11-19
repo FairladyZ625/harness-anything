@@ -40,6 +40,7 @@ export interface FleetCenterOptions {
   > &
     Partial<Pick<DaemonHost, "readRepositoryMembers" | "unregisterFleetNode">>;
   readonly stateRoot: string;
+  readonly centerRepoId?: string;
   readonly relocationRoot?: string;
   readonly centerRelocated?: CenterRelocatedTombstoneV1;
   readonly writerEpochStateRoot?: string;

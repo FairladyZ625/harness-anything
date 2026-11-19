@@ -12,7 +12,12 @@ import { daemonBuildStamp } from "../build-identity.ts";
 import { writeFileDurably } from "@harness-anything/storage";
 import type { Delivery, FleetCenterOptions, SessionWindow, State, Upload } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
-import { centerMovedFleetFault } from "./center-listener-relocation.ts";
+import {
+  centerMigratingFleetFault,
+  centerMovedFleetFault,
+  readListenerCenterMigrating,
+  readListenerCenterRelocated,
+} from "./center-listener-relocation.ts";
 import { ResourceBudgetExceeded } from "./resource-budget.ts";
 import { replicationSlotKey } from "@harness-anything/storage";
 import {
@@ -505,7 +510,27 @@ export async function serve(
   };
   const dispatch = async (frame: FleetFrameV1) => {
     try {
-      if (options.centerRelocated) throw centerMovedFleetFault(options.centerRelocated);
+      const frameRepoId = "repoId" in frame && typeof frame.repoId === "string" ? frame.repoId : undefined;
+      if (frameRepoId !== undefined) {
+        const moved = readListenerCenterRelocated(options, frameRepoId);
+        if (moved) throw centerMovedFleetFault(moved);
+        const writeSchema =
+          frame.schema === "fleet.doc.submit/v1" ||
+          frame.schema === "fleet.task.command/v1" ||
+          frame.schema === "fleet.schedule.command/v1" ||
+          frame.schema === "fleet.runtime.event/v1" ||
+          frame.schema === "fleet.runtime.archive/v1" ||
+          frame.schema.startsWith("fleet.upload.");
+        if (writeSchema && readListenerCenterMigrating(options, frameRepoId))
+          throw centerMigratingFleetFault(frameRepoId);
+      } else if (options.centerRelocated) {
+        const hasAttachedSibling = options.host
+          .status()
+          .repos.some(
+            (repo) => repo.state === "attached" && readListenerCenterRelocated(options, repo.repoId) === null,
+          );
+        if (!hasAttachedSibling) throw centerMovedFleetFault(options.centerRelocated);
+      }
       if (nodeId === null) {
         if (frame.schema === "fleet.edge.join.status/v1") {
           if (!options.edgeJoinStatus)

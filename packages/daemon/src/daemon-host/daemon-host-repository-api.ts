@@ -19,7 +19,8 @@ import { decisionProviderDoctorCheck } from "./decision-provider-doctor.ts";
 import { hostedCredentialDoctorCheck } from "./hosting-credential-readiness.ts";
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { registerDaemonRepo } from "@harness-anything/storage";
+import { centerMovedError, readCenterMigrating, registerDaemonRepo } from "@harness-anything/storage";
+import { extractCenterMoved } from "./daemon-host-errors.ts";
 import {
   readDaemonRegistry,
   getExecutableEntityAction,
@@ -776,6 +777,17 @@ export function createDaemonHostRepositoryApi(
         forwardThroughPort =
           (!modeAdmission.ok && descriptor.admission["remote-edge"] === "via-center-forward") ||
           (action.kind === "doc-show" && auth.executionCredential !== undefined);
+      if (!forwardThroughPort) {
+        const moved = centerMovedError(context.input.userRoot, repoId);
+        if (moved !== null)
+          return context.rejectHostAction(action, "CENTER_MOVED", moved.message, undefined, moved.centerMoved);
+        if (command.commandClass !== "repo-read" && readCenterMigrating(context.input.userRoot, repoId) !== null)
+          return context.rejectHostAction(
+            action,
+            "CENTER_MIGRATING",
+            `Center repository ${repoId} is freezing and draining writes for controlled relocation; retry after cutover.`,
+          );
+      }
       if (!modeAdmission.ok && !forwardThroughPort)
         return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
       if (forwardThroughPort) {
@@ -800,7 +812,13 @@ export function createDaemonHostRepositoryApi(
         } catch (error) {
           if (context.code(error) === "local_transport_required" && !modeAdmission.ok)
             return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
-          return context.rejectHostAction(action, context.code(error), context.daemonErrorMessage(error));
+          return context.rejectHostAction(
+            action,
+            context.code(error),
+            context.daemonErrorMessage(error),
+            context.diagnosticForError(error),
+            extractCenterMoved(error),
+          );
         }
         if (!modeAdmission.ok) return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
       }
@@ -941,6 +959,7 @@ export function createDaemonHostRepositoryApi(
           context.code(error),
           context.daemonErrorMessage(error),
           context.diagnosticForError(error),
+          extractCenterMoved(error),
         );
       }
     },

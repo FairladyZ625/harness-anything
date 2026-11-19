@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { observeDaemonOperation } from "./daemon-operation.ts";
+import { centerMovedError } from "@harness-anything/storage";
 import {
   consumeKnownError,
   readDaemonRegistry,
@@ -161,6 +162,10 @@ export async function performOpenRegistered(
       ...(progress ?? {}),
     };
   context.input.recordLifecycle?.({ event: "repo_attach_started", ...lifecycle });
+  if (repo.mode !== "remote-edge") {
+    const moved = centerMovedError(context.input.userRoot, repo.repoId);
+    if (moved !== null) throw moved;
+  }
   let opened: RepoCell | undefined, publishedState: ReturnType<RepoCell["status"]>["state"] | undefined;
   try {
     opened = await context.openCell({

@@ -6,7 +6,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { activateEmptyCanonicalGeneration, makeTaskEventStore } from "@harness-anything/storage";
+import {
+  activateEmptyCanonicalGeneration,
+  closeSqliteEventStoresUnder,
+  makeTaskEventStore,
+} from "@harness-anything/storage";
 import { main } from "../src/index.ts";
 
 function captureCli(argv: readonly string[]): Promise<{
@@ -46,7 +50,7 @@ async function createGitSourceRepo(root: string, repoId: string): Promise<void> 
   await store.drain();
 }
 
-test("ha fleet center export, retire, and import route through daemon control without touching a live daemon", async () => {
+test("ha fleet center export, retire, and import route through daemon control, verify lineage flags, and rebind center routing", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-cli-center-reloc-")),
     source = path.join(root, "source"),
     bundle = path.join(root, "bundle"),
@@ -69,6 +73,8 @@ test("ha fleet center export, retire, and import route through daemon control wi
       bundle,
       "--repo",
       "reloc-cli",
+      "--user-root",
+      oldUserRoot,
       "--writer-epoch",
       "3",
       "--json",
@@ -107,6 +113,52 @@ test("ha fleet center export, retire, and import route through daemon control wi
     assert.equal(retired.exitCode, 0, retired.stdout.join("\n"));
     assert.equal(JSON.parse(retired.stdout[0]!).tombstone.newEpoch, 4);
 
+    // Lineage mismatch flags fail closed before writing destination.
+    const wrongRevision = await captureCli([
+      "fleet",
+      "center",
+      "import",
+      "--bundle",
+      bundle,
+      "--destination",
+      restored,
+      "--user-root",
+      newUserRoot,
+      "--repo",
+      "reloc-cli",
+      "--expected-final-revision",
+      "999",
+      "--json",
+    ]);
+    assert.equal(wrongRevision.exitCode, 1);
+    assert.equal(JSON.parse(wrongRevision.stdout[0]!).ok, false);
+
+    const wrongTip = await captureCli([
+      "fleet",
+      "center",
+      "import",
+      "--bundle",
+      bundle,
+      "--destination",
+      restored,
+      "--user-root",
+      newUserRoot,
+      "--repo",
+      "reloc-cli",
+      "--expected-tip-hash",
+      `sha256:${"f".repeat(64)}`,
+      "--json",
+    ]);
+    assert.equal(wrongTip.exitCode, 1);
+    assert.equal(JSON.parse(wrongTip.stdout[0]!).ok, false);
+
+    // Pre-seed newUserRoot/rbac/config.json to verify --login-url rebinding.
+    mkdirSync(path.join(newUserRoot, "rbac"), { recursive: true });
+    writeFileSync(
+      path.join(newUserRoot, "rbac", "config.json"),
+      `${JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external", url: "https://old-login.example.invalid" })}\n`,
+    );
+
     const imported = await captureCli([
       "fleet",
       "center",
@@ -119,11 +171,49 @@ test("ha fleet center export, retire, and import route through daemon control wi
       newUserRoot,
       "--repo",
       "reloc-cli",
+      "--external-url",
+      "https://center2.example.invalid:9443",
+      "--login-url",
+      "https://login2.example.invalid:8443",
+      "--expected-final-revision",
+      String(exportReceipt.manifest.finalRevision),
+      "--expected-tip-hash",
+      exportReceipt.manifest.tipHash,
       "--json",
     ]);
     assert.equal(imported.exitCode, 0, imported.stdout.join("\n"));
-    const importReceipt = JSON.parse(imported.stdout[0]!) as { readonly newEpoch: number };
+    const importReceipt = JSON.parse(imported.stdout[0]!) as {
+      readonly newEpoch: number;
+      readonly externalUrl?: string;
+      readonly loginUrl?: string;
+      readonly nextAction: string;
+    };
     assert.equal(importReceipt.newEpoch, 4);
+    assert.equal(importReceipt.externalUrl, "https://center2.example.invalid:9443");
+    assert.equal(importReceipt.loginUrl, "https://login2.example.invalid:8443");
+    assert.match(importReceipt.nextAction, /--external-url https:\/\/center2\.example\.invalid:9443/u);
+    assert.match(importReceipt.nextAction, /--login-url https:\/\/login2\.example\.invalid:8443/u);
+    assert.match(importReceipt.nextAction, /--epoch 4/u);
+
+    const routing = JSON.parse(
+      readFileSync(path.join(newUserRoot, "fleet", "center-routing", "reloc-cli.json"), "utf8"),
+    ) as {
+      readonly schema: string;
+      readonly repoId: string;
+      readonly externalUrl: string;
+      readonly loginUrl: string;
+      readonly writerEpoch: number;
+    };
+    assert.equal(routing.schema, "center-routing/v1");
+    assert.equal(routing.repoId, "reloc-cli");
+    assert.equal(routing.externalUrl, "https://center2.example.invalid:9443");
+    assert.equal(routing.loginUrl, "https://login2.example.invalid:8443");
+    assert.equal(routing.writerEpoch, 4);
+
+    const rbacConfig = JSON.parse(readFileSync(path.join(newUserRoot, "rbac", "config.json"), "utf8")) as {
+      readonly url: string;
+    };
+    assert.equal(rbacConfig.url, "https://login2.example.invalid:8443");
 
     const manifestPath = path.join(bundle, "manifest.json"),
       manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
@@ -145,6 +235,7 @@ test("ha fleet center export, retire, and import route through daemon control wi
     assert.equal(tampered.exitCode, 1);
     assert.equal(JSON.parse(tampered.stdout[0]!).ok, false);
   } finally {
+    closeSqliteEventStoresUnder(root);
     rmSync(root, { recursive: true, force: true });
   }
 });

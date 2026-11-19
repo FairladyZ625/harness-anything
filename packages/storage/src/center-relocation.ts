@@ -1,13 +1,16 @@
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import { canonicalLedgerCut } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
-import type { HarnessLayoutInput } from "@harness-anything/kernel/internal/layout/index.ts";
+import { resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel/internal/layout/index.ts";
 import { localLedgerBackupFileSystem } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import { openPersistentWriterEpoch } from "./writer-epoch.ts";
 import {
+  CenterMigratingError,
+  CenterMovedError,
+  clearCenterMigrating,
+  enterCenterMigrating,
   writeCenterRelocated,
   writeWriterEpochRetirementSeal,
-  CenterMovedError,
   type CenterRelocatedTombstoneV1,
 } from "./center-relocation-state.ts";
 import {
@@ -17,7 +20,8 @@ import {
   type LedgerBackupRegistrationV1,
   type LedgerBackupStage,
 } from "./store/ledger-backup.ts";
-import { writeFileDurably } from "./durable-file.ts";
+import { resolveActiveGeneration, sqliteLedgerPath } from "./store/sqlite-event-store.ts";
+import { removeFileDurably, writeFileDurably } from "./durable-file.ts";
 
 export interface RelocationBundleFileV1 {
   readonly path: string;
@@ -42,15 +46,30 @@ export interface StageCenterRelocationInput {
   readonly bundleDir: string;
 }
 
+export interface ExportCenterRelocationRbacContext {
+  readonly bundleDir: string;
+  readonly payloadRbacDir: string;
+  readonly repoId: string;
+  readonly writerEpoch: number;
+}
+
+export interface ImportCenterRelocationRbacContext {
+  readonly bundleDir: string;
+  readonly payloadRbacDir: string;
+  readonly manifest: RelocationBundleManifestV1;
+}
+
 export interface ExportCenterRelocationInput extends StageCenterRelocationInput {
   readonly repoId: string;
   readonly writerEpoch: number;
+  readonly userRoot?: string;
   readonly stateRoot?: string;
   readonly replicationSlotsPath?: string;
   readonly registration?: Omit<LedgerBackupRegistrationV1, "repoId" | "writerEpoch">;
   readonly now?: Date;
   readonly stage?: LedgerBackupStage;
   readonly freezeAndDrain?: () => void | Promise<void>;
+  readonly exportRbacBundle?: (context: ExportCenterRelocationRbacContext) => void | Promise<void>;
 }
 
 export interface ImportCenterRelocationInput {
@@ -63,6 +82,14 @@ export interface ImportCenterRelocationInput {
   readonly replicationSlotsPath?: string;
   readonly writerHolderId?: string;
   readonly now?: () => string;
+  readonly importRbacBundle?: (context: ImportCenterRelocationRbacContext) => void | Promise<void>;
+}
+
+const REPLICATION_SLOTS_BUNDLE_PATH = "replication-slots.sqlite";
+const RBAC_BUNDLE_PREFIX = "rbac/";
+
+function bundleSidecarEntry(entryPath: string): boolean {
+  return entryPath === REPLICATION_SLOTS_BUNDLE_PATH || entryPath.startsWith(RBAC_BUNDLE_PREFIX);
 }
 
 export function stageCenterRelocation(input: StageCenterRelocationInput): LedgerBackupStage {
@@ -74,44 +101,65 @@ export async function exportCenterRelocation(
 ): Promise<{ readonly manifest: RelocationBundleManifestV1; readonly stage: LedgerBackupStage }> {
   if (!Number.isSafeInteger(input.writerEpoch) || input.writerEpoch < 1)
     throw new Error("writerEpoch must be a positive safe integer.");
-  const stage = input.stage ?? stageCenterRelocation(input);
-  await input.freezeAndDrain?.();
-  // The freeze callback is intentionally run before the second capture. Callers that own a
-  // writer queue can therefore freeze and drain between the stage and the short final copy.
-  createLedgerBackup({
-    rootInput: input.rootInput,
-    backupDir: input.bundleDir,
-    stage,
-    now: input.now,
-    registration: input.registration
-      ? { ...input.registration, repoId: input.repoId, writerEpoch: input.writerEpoch }
-      : undefined,
-  });
-  if (input.replicationSlotsPath && localLedgerBackupFileSystem.exists(input.replicationSlotsPath)) {
-    const target = path.join(input.bundleDir, "payload", "replication-slots.sqlite");
-    localLedgerBackupFileSystem.mkdir(path.dirname(target), { recursive: true });
-    localLedgerBackupFileSystem.copy(input.replicationSlotsPath, target);
+  // Phase 1 (outside CENTER_MIGRATING freeze): bulk-copy live objects and working tree.
+  const stage = input.stage ?? stageCenterRelocation(input),
+    resolvedBundleDir = path.resolve(input.bundleDir),
+    payloadRoot = path.join(resolvedBundleDir, "payload");
+  if (input.userRoot) enterCenterMigrating(input.userRoot, input.repoId, input.writerEpoch, input.now);
+  try {
+    // Phase 2 (inside CENTER_MIGRATING freeze): drain RepoCell + Git outbox, then capture delta + VACUUM INTO.
+    await input.freezeAndDrain?.();
+    createLedgerBackup({
+      rootInput: input.rootInput,
+      backupDir: resolvedBundleDir,
+      stage,
+      now: input.now,
+      registration: input.registration
+        ? { ...input.registration, repoId: input.repoId, writerEpoch: input.writerEpoch }
+        : undefined,
+    });
+    const slotsSource =
+      input.replicationSlotsPath ??
+      (input.stateRoot
+        ? path.join(path.resolve(input.stateRoot), REPLICATION_SLOTS_BUNDLE_PATH)
+        : input.userRoot
+          ? path.join(path.resolve(input.userRoot), "fleet", REPLICATION_SLOTS_BUNDLE_PATH)
+          : undefined);
+    if (slotsSource && localLedgerBackupFileSystem.exists(slotsSource)) {
+      const target = path.join(payloadRoot, REPLICATION_SLOTS_BUNDLE_PATH);
+      localLedgerBackupFileSystem.mkdir(path.dirname(target), { recursive: true });
+      localLedgerBackupFileSystem.copy(slotsSource, target);
+    }
+    if (input.exportRbacBundle) {
+      await input.exportRbacBundle({
+        bundleDir: resolvedBundleDir,
+        payloadRbacDir: path.join(payloadRoot, "rbac"),
+        repoId: input.repoId,
+        writerEpoch: input.writerEpoch,
+      });
+    }
+    const observed = readBundleHead(payloadRoot, input.repoId),
+      files = inventory(payloadRoot).map((file) => ({
+        path: portable(path.relative(payloadRoot, file)),
+        size: localLedgerBackupFileSystem.stat(file).size,
+        sha256: sha256File(file),
+      })),
+      manifest: RelocationBundleManifestV1 = {
+        schema: "relocation-bundle/v1",
+        repoId: input.repoId,
+        finalRevision: observed.finalRevision,
+        tipHash: observed.tipHash,
+        writerEpoch: input.writerEpoch,
+        createdAt: (input.now ?? new Date()).toISOString(),
+        files,
+      };
+    // `createLedgerBackup` writes a source-rooted manifest. Replace it with the relocation contract,
+    // whose only paths are relative to the bundle root and therefore portable across operating systems.
+    writeFileDurably(path.join(resolvedBundleDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, 0o600);
+    return { manifest, stage };
+  } finally {
+    if (input.userRoot) clearCenterMigrating(input.userRoot, input.repoId);
   }
-  const payloadRoot = path.join(input.bundleDir, "payload"),
-    observed = readBundleHead(payloadRoot, input.repoId),
-    files = inventory(payloadRoot).map((file) => ({
-      path: portable(path.relative(payloadRoot, file)),
-      size: localLedgerBackupFileSystem.stat(file).size,
-      sha256: sha256File(file),
-    })),
-    manifest: RelocationBundleManifestV1 = {
-      schema: "relocation-bundle/v1",
-      repoId: input.repoId,
-      finalRevision: observed.finalRevision,
-      tipHash: observed.tipHash,
-      writerEpoch: input.writerEpoch,
-      createdAt: (input.now ?? new Date()).toISOString(),
-      files,
-    };
-  // `createLedgerBackup` writes a source-rooted manifest. Replace it with the relocation contract,
-  // whose only paths are relative to the bundle root and therefore portable across operating systems.
-  writeFileDurably(path.join(input.bundleDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, 0o600);
-  return { manifest, stage };
 }
 
 export function readRelocationManifest(bundleDir: string): RelocationBundleManifestV1 {
@@ -164,12 +212,13 @@ export function verifyRelocationBundle(bundleDir: string): RelocationBundleManif
   return manifest;
 }
 
-export function importCenterRelocation(input: ImportCenterRelocationInput): {
+export async function importCenterRelocation(input: ImportCenterRelocationInput): Promise<{
   readonly manifest: RelocationBundleManifestV1;
   readonly newEpoch: number;
   readonly restoredRoot: string;
-} {
-  const manifest = verifyRelocationBundle(input.bundleDir);
+}> {
+  const resolvedBundleDir = path.resolve(input.bundleDir),
+    manifest = verifyRelocationBundle(resolvedBundleDir);
   if (input.expectedRepoId !== undefined && input.expectedRepoId !== manifest.repoId)
     throw new Error("relocation bundle repoId differs from the requested repository");
   if (input.expectedFinalRevision !== undefined && input.expectedFinalRevision !== manifest.finalRevision)
@@ -178,28 +227,55 @@ export function importCenterRelocation(input: ImportCenterRelocationInput): {
     throw new Error("relocation bundle tipHash differs from the expected cut");
   if (localLedgerBackupFileSystem.exists(input.destinationRoot))
     throw new Error("relocation destination already exists");
-  const restoredRoot = path.resolve(input.destinationRoot);
+
+  const slotsEntry = manifest.files.find((entry) => entry.path === REPLICATION_SLOTS_BUNDLE_PATH);
+  if (input.replicationSlotsPath !== undefined) {
+    if (!slotsEntry) throw new Error("relocation bundle is missing replication-slots.sqlite");
+    if (localLedgerBackupFileSystem.exists(input.replicationSlotsPath))
+      throw new Error("replication slots destination already exists");
+  }
+
+  const restoredRoot = path.resolve(input.destinationRoot),
+    workspaceEntries = manifest.files.filter((entry) => !bundleSidecarEntry(entry.path));
+  let copiedSlotsPath: string | null = null;
   localLedgerBackupFileSystem.mkdir(restoredRoot, { recursive: true });
   try {
-    for (const entry of manifest.files) {
-      const source = path.join(input.bundleDir, "payload", entry.path),
+    for (const entry of workspaceEntries) {
+      const source = path.join(resolvedBundleDir, "payload", entry.path),
         target = path.join(restoredRoot, entry.path);
       localLedgerBackupFileSystem.mkdir(path.dirname(target), { recursive: true });
       localLedgerBackupFileSystem.copy(source, target);
     }
-    verifyRelocationBundleAtRoot(restoredRoot, manifest);
+    verifyEntriesAtRoot(restoredRoot, workspaceEntries);
     const restoredHead = readBundleHead(restoredRoot, manifest.repoId);
     if (restoredHead.finalRevision !== manifest.finalRevision || restoredHead.tipHash !== manifest.tipHash)
       throw new Error("restored relocation ledger cut differs from manifest");
-    if (input.replicationSlotsPath) {
-      const source = path.join(restoredRoot, "replication-slots.sqlite");
-      if (!localLedgerBackupFileSystem.exists(source))
-        throw new Error("relocation bundle is missing replication-slots.sqlite");
-      if (localLedgerBackupFileSystem.exists(input.replicationSlotsPath))
-        throw new Error("replication slots destination already exists");
-      localLedgerBackupFileSystem.mkdir(path.dirname(input.replicationSlotsPath), { recursive: true });
-      localLedgerBackupFileSystem.copy(source, input.replicationSlotsPath);
+
+    const defaultSlotsDestination = path.join(path.resolve(input.stateRoot), REPLICATION_SLOTS_BUNDLE_PATH),
+      slotsDestination =
+        input.replicationSlotsPath !== undefined
+          ? path.resolve(input.replicationSlotsPath)
+          : slotsEntry && !localLedgerBackupFileSystem.exists(defaultSlotsDestination)
+            ? defaultSlotsDestination
+            : null;
+    if (slotsEntry && slotsDestination !== null) {
+      const source = path.join(resolvedBundleDir, "payload", REPLICATION_SLOTS_BUNDLE_PATH);
+      localLedgerBackupFileSystem.mkdir(path.dirname(slotsDestination), { recursive: true });
+      localLedgerBackupFileSystem.copy(source, slotsDestination);
+      copiedSlotsPath = slotsDestination;
+      const stat = localLedgerBackupFileSystem.stat(slotsDestination);
+      if (stat.size !== slotsEntry.size || sha256File(slotsDestination) !== slotsEntry.sha256)
+        throw new Error(`restored relocation digest differs: ${REPLICATION_SLOTS_BUNDLE_PATH}`);
     }
+
+    if (input.importRbacBundle) {
+      await input.importRbacBundle({
+        bundleDir: resolvedBundleDir,
+        payloadRbacDir: path.join(resolvedBundleDir, "payload", "rbac"),
+        manifest,
+      });
+    }
+
     const authority = openPersistentWriterEpoch({
       stateRoot: input.stateRoot,
       holderId: input.writerHolderId,
@@ -208,13 +284,14 @@ export function importCenterRelocation(input: ImportCenterRelocationInput): {
       initialEpochFloor: manifest.writerEpoch,
     });
     try {
-      const lease = authority.acquire(manifest.repoId, manifest.writerEpoch);
-      return { manifest, newEpoch: lease.epoch, restoredRoot };
+      const acquired = authority.acquire(manifest.repoId, manifest.writerEpoch);
+      return { manifest, newEpoch: acquired.epoch, restoredRoot };
     } finally {
       authority.close();
     }
   } catch (error) {
     localLedgerBackupFileSystem.remove(restoredRoot);
+    if (copiedSlotsPath !== null) removeFileDurably(copiedSlotsPath);
     throw error;
   }
 }
@@ -253,10 +330,27 @@ export function retireCenter(input: {
   return tombstone;
 }
 
-function readBundleHead(payloadRoot: string, repoId: string): { finalRevision: number; tipHash: string } {
+function selectBundleLedgerPath(payloadRoot: string, repoId: string): string {
+  const generationsDir = path.join(resolveHarnessLayout(payloadRoot).localRoot, "store", "generations");
+  if (localLedgerBackupFileSystem.exists(generationsDir)) {
+    // Upgraded repositories retain historical generation SQLite files alongside generation 3;
+    // always resolve the active generation pointer instead of picking lexicographically first.
+    const activeGeneration = resolveActiveGeneration({ rootInput: payloadRoot, repoId }),
+      ledgerFile = sqliteLedgerPath(payloadRoot, activeGeneration);
+    if (!localLedgerBackupFileSystem.exists(ledgerFile))
+      throw new Error(`relocation bundle active generation ${String(activeGeneration)} is missing ledger.sqlite`);
+    return ledgerFile;
+  }
   const candidates = inventory(payloadRoot).filter((file) => path.basename(file) === "ledger.sqlite");
   if (candidates.length === 0) throw new Error("relocation bundle does not contain ledger.sqlite");
-  const database = new DatabaseSync(candidates[0]!, { readOnly: true });
+  if (candidates.length > 1)
+    throw new Error("relocation bundle has multiple ledger.sqlite files without an active generation layout");
+  return candidates[0]!;
+}
+
+function readBundleHead(payloadRoot: string, repoId: string): { finalRevision: number; tipHash: string } {
+  const ledgerFile = selectBundleLedgerPath(payloadRoot, repoId),
+    database = new DatabaseSync(ledgerFile, { readOnly: true });
   try {
     const metadata = database.prepare("SELECT repo_id, revision FROM ledger_meta WHERE singleton=1").get() as
         | { repo_id?: unknown; revision?: unknown }
@@ -280,8 +374,8 @@ function readBundleHead(payloadRoot: string, repoId: string): { finalRevision: n
   }
 }
 
-function verifyRelocationBundleAtRoot(root: string, manifest: RelocationBundleManifestV1): void {
-  for (const entry of manifest.files) {
+function verifyEntriesAtRoot(root: string, entries: readonly RelocationBundleFileV1[]): void {
+  for (const entry of entries) {
     const file = path.join(root, entry.path),
       stat = localLedgerBackupFileSystem.stat(file);
     if (stat.size !== entry.size || sha256File(file) !== entry.sha256)
@@ -310,13 +404,21 @@ function portable(value: string): string {
 }
 
 export {
+  centerMigratingPath,
   centerMovedDetails,
   centerMovedError,
   centerRelocatedPath,
+  centerRelocatedRepoPath,
+  clearCenterMigrating,
+  enterCenterMigrating,
+  readCenterMigrating,
   readCenterRelocated,
+  readWriterEpochRetirementSeal,
+  throwIfCenterMigrating,
   throwIfCenterRelocated,
+  throwIfWriterEpochRetired,
   writeCenterRelocated,
   writerEpochRetirementSealPath,
   writeWriterEpochRetirementSeal,
 } from "./center-relocation-state.ts";
-export { CenterMovedError };
+export { CenterMigratingError, CenterMovedError };

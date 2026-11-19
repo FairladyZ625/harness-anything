@@ -1809,7 +1809,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       for (const socket of connections) socket.destroy();
       sessions.clear();
       await Promise.all([drained, backupsClosed]);
-      await drainAndCloseWriterEpochs();
+      try {
+        await drainAndCloseWriterEpochs();
+      } finally {
+        replicationSlots.close();
+      }
     },
     replicaReceipt: () => {
       throw new Error("replica receipt is retired");

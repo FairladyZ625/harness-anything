@@ -5,6 +5,7 @@ import { localSystemBinding, withDaemonWriterEpochFence } from "./daemon-host-bi
 import {
   openPersistentWriterEpoch,
   readLedgerWriterEpoch,
+  throwIfCenterMigrating,
   throwIfCenterRelocated,
   type PersistentWriterEpoch,
   type WriterEpochFenceDescriptor,
@@ -47,6 +48,7 @@ export function openDaemonWriterEpochs(input: {
     },
     writerEpochLease = (repoId: string, rootDir?: string): WriterEpochLease => {
       throwIfCenterRelocated(input.userRoot, repoId);
+      throwIfCenterMigrating(input.userRoot, repoId);
       epoch(repoId);
       const existing = daemonWriterLeases.get(repoId);
       if (existing) return existing;
