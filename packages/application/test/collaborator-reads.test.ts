@@ -130,6 +130,7 @@ test("decision involvement includes the proposer and the target of an active awa
     ["authored"],
   );
   assert.equal(readCollaboratorDecisions(projection, { involvement: "all" }).decisions.length, 3);
+  assert.deepEqual(readAttestationPool(projection, { involvement: "mine" }).tasks, []);
   assert.deepEqual(
     readAttestationPool(projection, query).tasks.map(({ taskId }) => taskId),
     ["bob-review"],

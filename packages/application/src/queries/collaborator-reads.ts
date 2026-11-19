@@ -47,15 +47,30 @@ export interface CollaboratorDecisionQuery extends DecisionListFilters, Collabor
   readonly involvement?: DecisionInvolvement;
 }
 
+function involvementPersonId(query: CollaboratorDecisionQuery): string | undefined {
+  return (
+    scopedPersonId(query) ??
+    (query.involvement === "mine"
+      ? query.viewerPersonId
+      : typeof query.involvement === "object"
+        ? query.involvement.personId
+        : undefined)
+  );
+}
+
 export function readCollaboratorDecisions(
   projection: Pick<TaskProjection, "listDecisions" | "readRelationQuery" | "readEventList">,
   query: CollaboratorDecisionQuery = {},
 ): ReturnType<TaskProjection["listDecisions"]> {
-  const { viewerPersonId, involvement, filterNodeId, filterPersonId, scopePersonId, ...filters } = query,
-    personId =
-      scopePersonId ??
-      filterPersonId ??
-      (involvement === "mine" ? viewerPersonId : typeof involvement === "object" ? involvement.personId : undefined);
+  const {
+      viewerPersonId: _viewer,
+      involvement,
+      filterNodeId,
+      filterPersonId: _person,
+      scopePersonId: _scope,
+      ...filters
+    } = query,
+    personId = involvementPersonId(query);
   if (personId === undefined && filterNodeId === undefined && involvement !== "mine")
     return projection.listDecisions(filters);
   const awaits = new Set(
@@ -113,33 +128,41 @@ export function readAttestationPool(
   projection: Parameters<typeof readCollaboratorDecisions>[0] & Pick<TaskProjection, "readTaskIndex">,
   query: CollaboratorDecisionQuery = {},
 ) {
-  const decisions = readCollaboratorDecisions(projection, { ...query, state: "proposed" }),
+  const personId = involvementPersonId(query),
+    decisions = readCollaboratorDecisions(projection, { ...query, state: "proposed" }),
     tasks = listScopedTasks(projection, {
       ...query,
-      ...(query.involvement === "mine" && query.viewerPersonId !== undefined
-        ? { filterPersonId: scopedPersonId(query) ?? query.viewerPersonId }
-        : typeof query.involvement === "object"
-          ? { filterPersonId: scopedPersonId(query) ?? query.involvement.personId }
-          : {}),
+      ...(personId === undefined ? {} : { scopePersonId: personId }),
     });
   return {
     ...requireSameProjectionCut("attestation pool", [decisions, tasks]),
     decisions: decisions.decisions,
     decisionPage: decisions.page ?? null,
-    tasks: tasks.rows.filter(({ status }) => status === "submitted" || status === "in_review"),
+    tasks:
+      query.involvement === "mine" && personId === undefined
+        ? []
+        : tasks.rows.filter(({ status }) => status === "submitted" || status === "in_review"),
   };
 }
 
 export function readCollaboratorAgenda(projection: TaskProjection, query: CollaboratorViewer) {
   const personId = query.scopePersonId ?? query.viewerPersonId,
     tasks = listScopedTasks(projection, { ...query, scopePersonId: personId }),
-    decisions = readCollaboratorDecisions(projection, { ...query, scopePersonId: personId, state: "proposed" });
+    decisions = readCollaboratorDecisions(projection, { ...query, scopePersonId: personId, state: "proposed" }),
+    awaitingYou = todoRelations(projection, { target: `person/${personId}`, relationType: "awaits" });
   return {
     ...requireSameProjectionCut("collaborator agenda", [tasks, decisions]),
     personId,
     pinnedEntities: readPersonalPins(projection, query),
     todos: readViewerTodos(projection, { ...query, viewerPersonId: personId }).filter(({ open }) => open),
-    awaitingYou: todoRelations(projection, { target: `person/${personId}`, relationType: "awaits" }),
+    awaitingYou:
+      query.filterNodeId === undefined
+        ? awaitingYou
+        : awaitingYou.filter(
+            ({ workspaceRevision }) =>
+              workspaceRevision !== null &&
+              writeSourceNodeId(projection.readEventWitness(workspaceRevision)?.source) === query.filterNodeId,
+          ),
     decisions: decisions.decisions,
     tasks: tasks.rows.filter(({ status }) => status !== "done" && status !== "cancelled"),
   };

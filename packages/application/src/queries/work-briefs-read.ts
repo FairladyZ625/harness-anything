@@ -114,6 +114,7 @@ export function workBriefsFromProjection(
       readonly limit?: number;
       readonly cursor?: string;
       readonly scopePersonId?: string;
+      readonly filterNodeId?: string;
     }) => WorkBriefAgendaPage;
     /** 读者的 person id;缺省时不过滤(单仓单业主仍是全集,多业主仓必须传)。 */
     readonly principalId?: string;
@@ -126,7 +127,10 @@ export function workBriefsFromProjection(
     byId = new Map(index.rows.map((row) => [row.taskId, row])),
     works = workIndexAtRead(index, input).works,
     personId = scopedPersonId(input),
-    asksByWork = asksByWorkRoot(input.projection, works, input.agendaPage, personId ?? input.principalId, personId),
+    asksByWork = asksByWorkRoot(input.projection, works, input.agendaPage, personId ?? input.principalId, {
+      ...(personId === undefined ? {} : { scopePersonId: personId }),
+      ...(input.filterNodeId === undefined ? {} : { filterNodeId: input.filterNodeId }),
+    }),
     latestRunByBranch = new Map<string, WorkBriefCiRun>();
   for (const run of input.ciRuns ?? []) if (!latestRunByBranch.has(run.branch)) latestRunByBranch.set(run.branch, run);
   const briefs: WorkBrief[] = [];
@@ -251,7 +255,7 @@ function asksByWorkRoot(
     readonly scopePersonId?: string;
   }) => WorkBriefAgendaPage,
   principalId: string | undefined,
-  selectedPersonId?: string,
+  scope: CollaboratorScope,
 ): ReadonlyMap<string, WorkBriefAwaitsRow[]> {
   // 「等你」行的扫取:沿服务端游标排空到末页,与 #3869 的关系图完整读同一策略
   // (cursorStep,同步壳见 ./paginated-read.ts);重复游标表示异常循环,抛错且不发布
@@ -264,7 +268,7 @@ function asksByWorkRoot(
             agendaPage({
               limit: AGENDA_SWEEP_PAGE_SIZE,
               ...facets,
-              ...(selectedPersonId === undefined ? {} : { scopePersonId: selectedPersonId }),
+              ...scope,
             }),
           "work briefs agenda sweep",
         ).flatMap((page) => page.awaitingYou);
