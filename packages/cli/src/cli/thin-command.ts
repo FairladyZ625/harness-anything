@@ -89,11 +89,7 @@ export function parseThinCommand(
     inputs = deriveInputDirectory(route);
   // `--root` is a global daemon target for every command, and also the edge join workspace
   // selector. Reintroduce it for the route-local parser after global stripping.
-  if (route?.id === "edge-join") {
-    const commandIndex = argv.findIndex((value, index) => value === "edge" && argv[index + 1] === "join"),
-      rootIndex = argv.findIndex((value, index) => value === "--root" && index > commandIndex);
-    if (commandIndex >= 0 && rootIndex >= 0) args.push("--root", argv[rootIndex + 1] ?? "");
-  }
+  if (route?.id === "edge-join" && argv.includes("--root")) args.push("--root", globalOption(argv, "--root") ?? "");
   // Every accepted result names its route id, so the daemon-side logs can key the invocation by
   // the CLI command the user actually typed instead of the transport method it rode on.
   const declared = (result: ThinParseResult): ThinParseResult =>

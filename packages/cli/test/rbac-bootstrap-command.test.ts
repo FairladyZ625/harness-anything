@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { parseThinCommand } from "../src/cli/thin-command.ts";
+import { parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { awaitDeviceLogin } from "../src/daemon/device-login.ts";
 import { runCommandThroughDaemon } from "../src/daemon/client.ts";
@@ -328,7 +328,7 @@ test("edge join maps repeated origin flags to invited repositories", () => {
   const single = encodeEdgeJoinLink({ ...invite, repoIds: ["repo-a"] });
   const bare = parseThinCommand(["edge", "join", single, "--origin", first], "/edge");
   assert.equal(bare.ok, true);
-  if (bare.ok) assert.deepEqual(bare.command.action.originUrls, { "repo-a": first });
+  if (bare.ok) assert.deepEqual(bare.command.action.originUrls, { "*": first });
   const link = encodeEdgeJoinLink(invite);
   const multiple = parseThinCommand(
     ["edge", "join", link, "--origin", `repo-a=${first}`, "--origin", `repo-b=${second}`],
@@ -336,12 +336,18 @@ test("edge join maps repeated origin flags to invited repositories", () => {
   );
   assert.equal(multiple.ok, true);
   if (multiple.ok) assert.deepEqual(multiple.command.action.originUrls, { "repo-a": first, "repo-b": second });
-  for (const invalid of [[first], [`unknown=${first}`], [`repo-a=${first}`, `repo-a=${second}`], ["repo-a="]]) {
+  for (const invalid of [[first, second], [`repo-a=${first}`, `repo-a=${second}`], ["repo-a="]]) {
     assert.equal(
       parseThinCommand(["edge", "join", link, ...invalid.flatMap((value) => ["--origin", value])], "/edge").ok,
       false,
     );
   }
+  const help = renderThinHelp([], "edge", "ha edge join <link>");
+  assert.match(
+    help,
+    /--root.*Parent directory for the repositories, or an existing checkout for a single-repository invitation/u,
+  );
+  assert.match(help, /--origin.*May be repeated/u);
 });
 
 test("edge join only exits successfully after syncing and renders partial repository results", () => {
@@ -712,10 +718,13 @@ test("edge join prepares its workspace root before reaching the daemon", async (
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-edge-join-root-")),
     workspaceRoot = path.join(userRoot, "edge", "workspace");
   try {
-    const parsed = parseThinCommand(["edge", "join", "harness-edge://join/test", "--root", workspaceRoot], userRoot);
+    const command = ["edge", "join", "harness-edge://join/test"],
+      root = ["--root", workspaceRoot],
+      parsed = parseThinCommand([...command, ...root], userRoot);
     assert.equal(parsed.ok, true);
     if (!parsed.ok) return;
     assert.equal(parsed.command.action.workspaceRoot, workspaceRoot);
+    assert.deepEqual(parseThinCommand([...root, ...command], userRoot), parsed);
     // The autostart spawns the daemon from the invoking root as its cwd, so edge join creates the
     // missing --root before the first connection attempt; the request itself then fails offline.
     await assert.rejects(

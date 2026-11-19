@@ -1071,15 +1071,28 @@ export const agentProtocolCommands = Object.freeze([
       expires: "2026-12-07",
     },
     inputs: [
-      cliInput("--root", "single", false, { code: "invalid_field" }, {
-        field: "workspaceRoot",
-        pathKind: "host-path",
-        description: "Parent directory for the repositories, or an existing checkout for a single-repository invitation.",
-      }),
-      cliInput("--origin", "repeated", false, { code: "invalid_field" }, {
-        pathKind: "non-path",
-        description: "Git address as <url> for a single repository or <repoId=url> per repository. May be repeated.",
-      }),
+      cliInput(
+        "--root",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          field: "workspaceRoot",
+          pathKind: "host-path",
+          description:
+            "Parent directory for the repositories, or an existing checkout for a single-repository invitation.",
+        },
+      ),
+      cliInput(
+        "--origin",
+        "repeated",
+        false,
+        { code: "invalid_field" },
+        {
+          pathKind: "non-path",
+          description: "Git address as <url> for a single repository or <repoId=url> per repository. May be repeated.",
+        },
+      ),
       cliInput(
         "--quota-bytes",
         "single",

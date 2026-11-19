@@ -61,8 +61,10 @@ function Invoke-DownloadWithRetry {
   param([string]$Label, [scriptblock]$Action)
   $delay = 1
   for ($attempt = 1; $attempt -le 4; $attempt++) {
-    & $Action $attempt | Out-Host
-    if ($LASTEXITCODE -eq 0) { return $true }
+    $output = & $Action $attempt
+    $downloadExitCode = $LASTEXITCODE
+    $output | Out-Host
+    if ($downloadExitCode -eq 0) { return $true }
     if ($attempt -lt 4) {
       [Console]::Error.WriteLine("$Label failed. Retrying in $delay seconds (retry $attempt/3).")
       Start-Sleep -Seconds $delay
@@ -90,7 +92,7 @@ if (-not $gitCmd -or -not $nodeCmd -or -not $npmCmd) {
   exit 1
 }
 
-$nodeVersionText = ((& $nodeCmd.Source --version) | Select-Object -First 1)
+$nodeVersionText = (& $nodeCmd.Source --version)
 if ($LASTEXITCODE -ne 0 -or $nodeVersionText -notmatch '^v(\d+)\.') {
   [Console]::Error.WriteLine('Harness Anything requires Node.js 24 or newer.')
   exit 1
@@ -123,10 +125,14 @@ if (-not (Test-Path (Join-Path $installRoot '.git'))) {
 Push-Location $installRoot
 try {
   if ($expectedRef) {
-    $expectedSha = (& $gitCmd.Source rev-parse --verify --quiet --end-of-options "$expectedRef^{commit}" | Select-Object -First 1)
-    if ($LASTEXITCODE -ne 0) { $expectedSha = '' }
-    $actualSha = (& $gitCmd.Source rev-parse HEAD | Select-Object -First 1)
-    if ($LASTEXITCODE -ne 0) { throw 'Could not read the source checkout HEAD.' }
+    $expectedOutput = @(& $gitCmd.Source rev-parse --verify --quiet --end-of-options "$expectedRef^{commit}")
+    $gitExitCode = $LASTEXITCODE
+    $expectedSha = if ($expectedOutput.Count -gt 0) { [string]$expectedOutput[0] } else { '' }
+    if ($gitExitCode -ne 0) { $expectedSha = '' }
+    $actualOutput = @(& $gitCmd.Source rev-parse HEAD)
+    $gitExitCode = $LASTEXITCODE
+    $actualSha = if ($actualOutput.Count -gt 0) { [string]$actualOutput[0] } else { '' }
+    if ($gitExitCode -ne 0 -or -not $actualSha) { throw 'Could not read the source checkout HEAD.' }
     if ($actualSha -ne $expectedSha) {
       if ($pullMode -eq 'off') {
         [Console]::Error.WriteLine("Offline install requires HEAD at $expectedRef. Current HEAD is $actualSha.")
@@ -140,8 +146,10 @@ try {
       }
       $fetchRef = if ($expectedSha) { $expectedSha } else { $expectedRef }
       if (Invoke-GitDownload 'Git fetch' @('fetch', '--no-tags', '--', 'origin', $fetchRef)) {
-        $expectedSha = (& $gitCmd.Source rev-parse --verify 'FETCH_HEAD^{commit}' | Select-Object -First 1)
-        if ($LASTEXITCODE -ne 0) { throw 'Could not resolve the fetched commit.' }
+        $fetchedOutput = @(& $gitCmd.Source rev-parse --verify 'FETCH_HEAD^{commit}')
+        $gitExitCode = $LASTEXITCODE
+        $expectedSha = if ($fetchedOutput.Count -gt 0) { [string]$fetchedOutput[0] } else { '' }
+        if ($gitExitCode -ne 0 -or -not $expectedSha) { throw 'Could not resolve the fetched commit.' }
       } elseif (-not $expectedSha) {
         exit 1
       } else {

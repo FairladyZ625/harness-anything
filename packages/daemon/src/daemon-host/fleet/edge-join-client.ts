@@ -22,6 +22,16 @@ import {
 
 const DEFAULT_QUOTA_FRACTION = daemonProtocolFleetPolicy.defaultValue.fleet.edgeJoinQuotaFraction;
 
+class EdgeJoinRequestError extends Error {
+  readonly code: "edge_join_workspace_inside_git" | "edge_origin_invalid";
+
+  constructor(code: EdgeJoinRequestError["code"], message: string) {
+    super(message);
+    this.name = "EdgeJoinRequestError";
+    this.code = code;
+  }
+}
+
 /** One repository's stage inside a running join; observation only, it never steers the join. */
 export interface EdgeJoinRepositoryProgress {
   readonly repoId: string;
@@ -109,10 +119,36 @@ export async function joinFleetEdge(
   const base = request.workspaceRoot
     ? path.resolve(request.workspaceRoot)
     : path.join(ports.homeDir ?? homedir(), "harness-edge");
-  if (request.workspaceRoot && link.repoIds.length > 1 && isInsideGitWorkspace(base))
-    throw Object.assign(new Error("Choose a parent directory outside any Git checkout for a multi-repository join."), {
-      code: "edge_join_workspace_inside_git",
-    });
+  if (request.workspaceRoot && link.repoIds.length > 1) {
+    let directory = base;
+    for (;;) {
+      if (hasGitMarker(directory))
+        throw new EdgeJoinRequestError(
+          "edge_join_workspace_inside_git",
+          "Choose a parent directory outside any Git checkout for a multi-repository join.",
+        );
+      const parent = path.dirname(directory);
+      if (parent === directory) break;
+      directory = parent;
+    }
+  }
+  const originUrls = request.originUrls ? { ...request.originUrls } : undefined;
+  if (originUrls && Object.hasOwn(originUrls, "*")) {
+    if (link.repoIds.length !== 1)
+      throw new EdgeJoinRequestError(
+        "edge_origin_invalid",
+        "Use a repository-qualified --origin for every repository in a multi-repository invitation.",
+      );
+    if (Object.hasOwn(originUrls, link.repoIds[0]!))
+      throw new EdgeJoinRequestError("edge_origin_invalid", "Only one --origin may be supplied for a repository.");
+    originUrls[link.repoIds[0]!] = originUrls["*"]!;
+    delete originUrls["*"];
+  }
+  if (originUrls && Object.keys(originUrls).some((repoId) => !link.repoIds.includes(repoId)))
+    throw new EdgeJoinRequestError(
+      "edge_origin_invalid",
+      "An origin address names a repository outside this invitation.",
+    );
   const firstRepoId = link.repoIds[0]!,
     nestedRoot = path.join(base, firstRepoId),
     existingCheckout =
@@ -223,7 +259,8 @@ export async function joinFleetEdge(
     }[];
 
   for (const repository of admitted.repositories) {
-    const originUrl = request.originUrls?.[repository.repoId],
+    const originUrl =
+        originUrls && Object.hasOwn(originUrls, repository.repoId) ? originUrls[repository.repoId] : undefined,
       root = await resolveJoinWorkspace(base, existingCheckout, repository, originUrl),
       caPath = path.join(root, "fleet-center-ca.pem"),
       report = (phase: EdgeJoinRepositoryProgress["phase"]) =>
@@ -432,7 +469,10 @@ async function prepareJoinWorkspace(
 } | null> {
   const hasGit = hasGitMarker(root);
   if (!repository.originUrl) {
-    if (!hasGit) await prepareWorkspace(root, repository.harnessYaml, repository.defaultBranch ?? "main");
+    if (!hasGit) {
+      /* @gate-identity non-state/environment-io.6cc0d5c726eb11a2 */ mkdirSync(root, { recursive: true });
+      await prepareWorkspace(root, repository.harnessYaml, repository.defaultBranch ?? "main");
+    }
     return null;
   }
 
@@ -462,7 +502,7 @@ async function prepareJoinWorkspace(
       ...needsOrigin,
     };
   }
-  const addressFailure = await validateFleetOriginAddress(root, originUrl, repository.defaultBranch);
+  const addressFailure = await validateFleetOriginAddress(process.cwd(), originUrl, repository.defaultBranch);
   if (addressFailure) return { ...addressFailure, ...needsOrigin };
   if (hasGit) {
     try {
@@ -521,7 +561,7 @@ async function validateFleetOriginAddress(
   const result = await runProcessExitAsync(
     "git",
     ["ls-remote", "--exit-code", "--heads", "--", trimmed, `refs/heads/${defaultBranch}`],
-    existsSync(rootDir) ? rootDir : undefined,
+    rootDir,
     { ...process.env, GIT_TERMINAL_PROMPT: "0" },
     undefined,
     undefined,
@@ -565,16 +605,6 @@ async function probeLoginAddress(authority: OidcLoginAuthority): Promise<void> {
 
 function hasGitMarker(root: string): boolean {
   return existsSync(path.join(root, ".git"));
-}
-
-function isInsideGitWorkspace(root: string): boolean {
-  let directory = root;
-  for (;;) {
-    if (hasGitMarker(directory)) return true;
-    const parent = path.dirname(directory);
-    if (parent === directory) return false;
-    directory = parent;
-  }
 }
 
 async function gitOrigin(root: string): Promise<string> {

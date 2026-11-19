@@ -545,13 +545,20 @@ test("join validates origin before creating directories and reuses a matching ch
 
   const checkout = path.join(root, "existing-clone");
   git("clone", "-q", origin, checkout);
-  const reuse = await joinFleetEdge(
-    { ...request, workspaceRoot: checkout },
-    { ...ports, join: async () => admitted },
-  );
+  const reuse = await joinFleetEdge({ ...request, workspaceRoot: checkout }, { ...ports, join: async () => admitted });
   assert.equal(reuse.state, "synced");
   assert.equal((reuse.repositories as Array<Record<string, unknown>>)[0]?.workspaceRoot, checkout);
   assert.equal(existsSync(path.join(checkout, "repo-a")), false);
+
+  const namedCheckout = path.join(root, "repo-a");
+  execFileSync("git", ["init", "-q", namedCheckout]);
+  const namedReuse = await joinFleetEdge(
+    { ...request, workspaceRoot: namedCheckout },
+    { ...ports, join: async () => admitted },
+  );
+  assert.equal(namedReuse.state, "partial", "a matching repository directory name selects the existing checkout");
+  assert.equal((namedReuse.repositories as Array<Record<string, unknown>>)[0]?.workspaceRoot, namedCheckout);
+  assert.equal(existsSync(path.join(namedCheckout, "repo-a")), false);
 
   const encoded = encodeEdgeJoinLink({ ...invite.link, repoIds: ["repo-a", "repo-b"] });
   for (const workspaceRoot of [checkout, path.join(checkout, "harness")]) {
@@ -564,6 +571,20 @@ test("join validates origin before creating directories and reuses a matching ch
     );
   }
   assert.equal(existsSync(path.join(checkout, "harness", "repo-a")), false);
+  await assert.rejects(
+    joinFleetEdge(
+      { ...request, originUrls: { "outside-invitation": alternateOrigin } },
+      { ...ports, session: async () => assert.fail("reject an origin outside the invitation before login") },
+    ),
+    { code: "edge_origin_invalid" },
+  );
+  await assert.rejects(
+    joinFleetEdge(
+      { ...request, originUrls: { "*": alternateOrigin, "repo-a": alternateOrigin } },
+      { ...ports, session: async () => assert.fail("reject duplicate single-repository origins before login") },
+    ),
+    { code: "edge_origin_invalid" },
+  );
 
   t.mock.timers.enable({ apis: ["setInterval"] });
   const syncing = Promise.withResolvers<void>(),
