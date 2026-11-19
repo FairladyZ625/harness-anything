@@ -3,9 +3,11 @@ import {
   constants as fsConstants,
   existsSync,
   fstatSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readSync,
+  renameSync,
   readdirSync,
   readFileSync,
   statSync,
@@ -31,23 +33,97 @@ import { scrubProviderValue } from "../runtime-engine/secret-scrub.ts";
 import { dispatchProviderActivity, type DispatchProviderActivity } from "./dispatch-activity.ts";
 import { providerReconnectFromFrame } from "./runtime-provider-fault.ts";
 
-import { archiveDispatchStream as archiveDispatchStreamUnchecked } from "./dispatch-stream-archive.ts";
-import { readDispatchEvidenceState, removeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
+import {
+  dispatchForensicsRequired,
+  readDispatchEvidenceState,
+  removeDispatchEvidenceState,
+} from "./dispatch-evidence-state.ts";
+import { compactDispatchStreamArchive } from "./dispatch-stream-compaction.ts";
+import { resolveOwnedLocalDirectory } from "./local-root-paths.ts";
+
+/**
+ * Single authority for whether a dispatch stream is still the only copy of an abnormal run.
+ * A pending stream record can postdate the sidecar if its replacement failed.
+ * Without a disposition, tracked streams and abnormal legacy outcomes fail closed.
+ */
+export function mustPreserveDispatch(rootDir: string, dispatchId: string, file?: string): boolean {
+  const state = readDispatchEvidenceState(rootDir, dispatchId);
+  if (state === "pending") return true;
+  const summary =
+    file === undefined ? readDispatchStreamSummary(rootDir, dispatchId) : readDispatchStreamSummaryAt(file, dispatchId);
+  if (summary?.evidenceState === "pending") return true;
+  if (state === "not-required" && summary?.header.evidenceTrackingVersion === 1) {
+    const terminal = summary.terminalOutcome;
+    if (
+      terminal === null ||
+      dispatchForensicsRequired(terminal.payload.outcome, terminal.payload.attempt?.classification)
+    )
+      return true;
+  }
+  if (state !== null) return false;
+  if (summary?.header.evidenceTrackingVersion === 1) return true;
+  if (summary === null || summary.terminalOutcome === null) return false;
+  const outcome = summary.terminalOutcome.payload.outcome,
+    classification = summary.terminalOutcome.payload.attempt?.classification;
+  return outcome !== "succeeded" && classification !== "awaiting_ruling";
+}
+
+/**
+ * Batch-archive settled streams and rewrite each touched task's `live-index` shard at most once.
+ */
+export function archiveDispatchStreams(
+  rootDir: string,
+  dispatchIds: readonly string[],
+  options?: { readonly compact?: boolean; readonly indexRemovals?: Map<string, Set<string>> },
+): readonly string[] {
+  const archivedIds: string[] = [],
+    indexRemovals = options?.indexRemovals ?? new Map<string, Set<string>>(),
+    compact = options?.compact !== false;
+  for (const dispatchId of dispatchIds) {
+    const archived = moveDispatchStreamToArchive(rootDir, dispatchId, compact);
+    if (archived === null) continue;
+    archivedIds.push(dispatchId);
+    const header = readDispatchStreamHeaderAt(archived, dispatchId);
+    if (header?.taskId)
+      indexRemovals.set(header.taskId, (indexRemovals.get(header.taskId) ?? new Set()).add(dispatchId));
+  }
+  if (options?.indexRemovals === undefined)
+    for (const [taskId, ids] of indexRemovals) removeDispatchLiveIndexEntries(rootDir, taskId, ids);
+  return archivedIds;
+}
+
+/** Resolve both physical roots before reading evidence or moving a terminal stream. */
+function moveDispatchStreamToArchive(rootDir: string, dispatchId: string, compact: boolean): string | null {
+  assertDispatchId(dispatchId);
+  const name = `${dispatchId}.jsonl`;
+  const layout = resolveHarnessLayout(rootDir);
+  const directory = resolveOwnedLocalDirectory(layout, ["runtime", "dispatches"]);
+  const archive = resolveOwnedLocalDirectory(layout, ["runtime", "dispatches", "archive"], true);
+  if (directory === null || archive === null) return null;
+
+  const live = path.join(directory, name),
+    archived = path.join(archive, name);
+  const liveStat = lstatSync(live, { throwIfNoEntry: false });
+  const archivedStat = lstatSync(archived, { throwIfNoEntry: false });
+  if (archivedStat && !archivedStat.isFile()) return null;
+  if (liveStat) {
+    if (!liveStat.isFile() || mustPreserveDispatch(rootDir, dispatchId, live)) return null;
+    /* @gate-identity state-store/execution.dispatch-stream */ mkdirSync(archive, {
+      recursive: true,
+      mode: 0o700,
+    });
+    /* @gate-identity state-store/execution.dispatch-stream */ renameSync(live, archived);
+  } else if (!archivedStat || mustPreserveDispatch(rootDir, dispatchId, archived)) return null;
+  if (compact) compactDispatchStreamArchive(archived, dispatchId);
+  return archived;
+}
 
 /**
  * The guarded archive entry every settlement/adoption/fallback caller uses. A stream whose
- * evidence copy is still `pending` is not renamed or compacted: the raw live bytes are the
- * only recoverable copy until the canonical artifact write end accepts the snapshot.
+ * evidence copy is still `pending` or abnormal legacy is not renamed or compacted.
  */
 export function archiveDispatchStream(rootDir: string, dispatchId: string): void {
-  const sidecar = readDispatchEvidenceState(rootDir, dispatchId);
-  if (sidecar === "pending") return;
-  const summary = readDispatchStreamSummary(rootDir, dispatchId);
-  if (summary?.evidenceState === "pending") return;
-  // New settlements always write a sidecar. If it is missing while the header advertises
-  // tracking, the disposition write failed: fail closed instead of compacting the only copy.
-  if (sidecar === null && summary?.header.evidenceTrackingVersion === 1) return;
-  archiveDispatchStreamUnchecked(rootDir, dispatchId);
+  archiveDispatchStreams(rootDir, [dispatchId]);
 }
 
 export { scrubProviderValue } from "../runtime-engine/secret-scrub.ts";
@@ -397,10 +473,7 @@ export function removeDispatchStream(rootDir: string, dispatchId: string): void 
   readLimitWarnings.delete(target);
   writeLimitWarnings.delete(target);
   if (existsSync(target)) /* @gate-identity state-store/execution.dispatch-stream */ unlinkSync(target);
-  if (header?.taskId)
-    removeDispatchLiveIndexEntries(rootDir, [
-      { dispatchId, taskId: header.taskId, runtimeSessionId: header.runtimeSessionId },
-    ]);
+  if (header?.taskId) removeDispatchLiveIndexEntries(rootDir, header.taskId, new Set([dispatchId]));
   removeDispatchEvidenceState(rootDir, dispatchId);
 }
 
@@ -439,22 +512,22 @@ export function rebuildDispatchLiveIndex(rootDir: string, taskIds: readonly stri
   return rebuilt;
 }
 
-export function removeDispatchLiveIndexEntries(rootDir: string, removals: readonly DispatchLiveIndexEntry[]): void {
-  const byTask = new Map<string, Set<string>>();
-  for (const removal of removals) {
-    byTask.set(removal.taskId, (byTask.get(removal.taskId) ?? new Set()).add(removal.dispatchId));
-  }
-  for (const [taskId, dispatchIds] of byTask) {
-    const stored = readStoredDispatchLiveIndex(dispatchLiveIndexPath(rootDir, taskId), taskId);
-    if (!stored) continue;
-    const entries = stored.entries.filter((entry) => !dispatchIds.has(entry.dispatchId));
-    if (entries.length !== stored.entries.length) writeDispatchLiveIndex(rootDir, taskId, dispatchLiveIndex(entries));
-  }
+export function removeDispatchLiveIndexEntries(
+  rootDir: string,
+  taskId: string,
+  dispatchIds: ReadonlySet<string>,
+): void {
+  if (resolveOwnedLocalDirectory(resolveHarnessLayout(rootDir), ["runtime", "dispatches", "live-index"]) === null)
+    return;
+  const stored = readStoredDispatchLiveIndex(dispatchLiveIndexPath(rootDir, taskId), taskId);
+  if (!stored) return;
+  const entries = stored.entries.filter((entry) => !dispatchIds.has(entry.dispatchId));
+  if (entries.length !== stored.entries.length) writeDispatchLiveIndex(rootDir, taskId, { ...stored, entries });
 }
 
 export function readDispatchStreamHeader(rootDir: string, dispatchId: string): DispatchStreamHeader | null {
-  const target = dispatchStreamPath(rootDir, dispatchId);
-  return readDispatchStreamHeaderAt(target, dispatchId);
+  const target = ownedDispatchStream(rootDir, dispatchId);
+  return target === null ? null : readDispatchStreamHeaderAt(target, dispatchId);
 }
 
 function readDispatchStreamHeaderAt(target: string, dispatchId: string): DispatchStreamHeader | null {
@@ -483,7 +556,11 @@ function readDispatchStreamHeaderAt(target: string, dispatchId: string): Dispatc
  * scans proportional to stream count rather than provider transcript size.
  */
 export function readDispatchStreamSummary(rootDir: string, dispatchId: string): DispatchStreamSummary | null {
-  const target = dispatchStreamPath(rootDir, dispatchId);
+  const target = ownedDispatchStream(rootDir, dispatchId);
+  return target === null ? null : readDispatchStreamSummaryAt(target, dispatchId);
+}
+
+function readDispatchStreamSummaryAt(target: string, dispatchId: string): DispatchStreamSummary | null {
   const descriptor = openDispatchStreamForRead(target);
   if (descriptor === null) return null;
   const stat = fstatSync(descriptor);
@@ -628,11 +705,12 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
 }
 
 export function readDispatchStreamHeaders(rootDir: string, includeArchived = false): readonly DispatchStreamHeader[] {
-  const root = dispatchStreamRoot(resolveHarnessLayout(rootDir));
-  return (includeArchived ? [root, path.join(root, "archive")] : [root]).flatMap((directory) => {
-    if (!statSync(directory, { throwIfNoEntry: false })?.isDirectory()) return [];
-    return readdirSync(directory)
-      .filter((name) => /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(name))
+  const layout = resolveHarnessLayout(rootDir);
+  return (includeArchived ? [[], ["archive"]] : [[]]).flatMap((segments) => {
+    const directory = resolveOwnedLocalDirectory(layout, ["runtime", "dispatches", ...segments]);
+    if (directory === null) return [];
+    return readdirSync(directory, { withFileTypes: true })
+      .flatMap((entry) => (entry.isFile() && /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(entry.name) ? [entry.name] : []))
       .map((name) => readDispatchStreamHeaderAt(path.join(directory, name), name.slice(0, -6)))
       .filter((header): header is DispatchStreamHeader => header !== null);
   });
@@ -848,6 +926,18 @@ export function dispatchStreamPath(rootDir: string, dispatchId: string): string 
     archived = archivedDispatchStreamPath(rootDir, dispatchId);
   return existsSync(archived) && !existsSync(live) ? archived : live;
 }
+function ownedDispatchStream(rootDir: string, dispatchId: string): string | null {
+  assertDispatchId(dispatchId);
+  const layout = resolveHarnessLayout(rootDir);
+  for (const segments of [[], ["archive"]]) {
+    const directory = resolveOwnedLocalDirectory(layout, ["runtime", "dispatches", ...segments]);
+    if (directory === null) return null;
+    const target = path.join(directory, `${dispatchId}.jsonl`);
+    const stat = lstatSync(target, { throwIfNoEntry: false });
+    if (stat) return stat.isFile() ? target : null;
+  }
+  return null;
+}
 function liveDispatchStreamPath(rootDir: string, dispatchId: string): string {
   return dispatchStreamPathForLayout(resolveHarnessLayout(rootDir), dispatchId);
 }
@@ -893,7 +983,7 @@ function writeDispatchLiveIndex(rootDir: string, taskId: string, index: Dispatch
   writeFileDurably(target, `${JSON.stringify(index, null, 2)}\n`, 0o600);
 }
 function readStoredDispatchLiveIndex(target: string, taskId: string): DispatchLiveIndex | null {
-  if (!existsSync(target) || !statSync(target).isFile()) return null;
+  if (!lstatSync(target, { throwIfNoEntry: false })?.isFile()) return null;
   try {
     const parsed: unknown = JSON.parse(readFileSync(target, "utf8"));
     if (!isDispatchIndexRecord(parsed) || parsed.schema !== liveIndexSchema) return null;

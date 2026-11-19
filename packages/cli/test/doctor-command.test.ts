@@ -139,10 +139,11 @@ test("doctor scans preset templates and kernel rejection commands", () => {
   }
 });
 
-test("ha doctor defaults to health mode and keeps commands mode explicit", () => {
+test("ha doctor defaults to health mode and keeps commands and storage modes explicit", () => {
   const bare = doctorInvocation(["doctor"]),
     health = doctorInvocation(["doctor", "health", "--json", "--root", "/tmp"]),
-    commands = doctorInvocation(["doctor", "commands", "--root", "/tmp"]);
+    commands = doctorInvocation(["doctor", "commands", "--root", "/tmp"]),
+    storage = doctorInvocation(["doctor", "storage", "--json", "--root", "/tmp"]);
   assert.ok(bare.ok);
   if (bare.ok) assert.equal(bare.mode, "health");
   assert.ok(health.ok);
@@ -152,6 +153,8 @@ test("ha doctor defaults to health mode and keeps commands mode explicit", () =>
   }
   assert.ok(commands.ok);
   if (commands.ok) assert.equal(commands.mode, "commands");
+  assert.ok(storage.ok);
+  if (storage.ok) assert.equal(storage.mode, "storage");
   assert.equal(doctorInvocation(["doctor", "bogus"]).ok, false);
 });
 
@@ -187,7 +190,7 @@ test("ha doctor rejects unexpected arguments as a usage failure", async () => {
   const { exit, lines } = await captureConsole(() => main(["doctor", "bogus", "--root", repoRoot]));
   assert.equal(exit, 2);
   assert.match(lines[0] ?? "", /code=invalid_field/u);
-  assert.match(lines[0] ?? "", /ha doctor \[commands\|health\]/u);
+  assert.match(lines[0] ?? "", /ha doctor \[commands\|health\|storage\]/u);
 });
 
 test("ha doctor smoke-runs against the repository's own authored docs", async () => {
@@ -267,4 +270,39 @@ test("doctor renders replica cuts and preserves failures in text and JSON", asyn
   assert.equal(json.exit, 1);
   assert.deepEqual(JSON.parse(json.lines[0]!).currentCut, receipt.currentCut);
   assert.equal(JSON.parse(json.lines[0]!).ok, false);
+});
+
+test("ha doctor storage measures localRoot breakdown in text and JSON without writes", async () => {
+  const root = fixtureRepo({
+    "harness/harness.yaml": "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    ".harness/store/generations/3/ledger.sqlite": "ledger",
+    ".harness/cache/task.sqlite": "cache-bytes",
+    ".harness/runtime/dispatches/archive/dispatch_111111111111111111111111.jsonl": "stream",
+    ".harness/runtime/retired-dispatches/legacy.jsonl": "unknown",
+    ".harness/requests/requests.jsonl": "log-line",
+    ".harness/requests/from-deli-ai-lab/note.md": "manual-note-bytes",
+  });
+  try {
+    const jsonRun = await captureConsole(() => main(["doctor", "storage", "--root", root, "--json"]));
+    assert.equal(jsonRun.exit, 0);
+    const parsed = JSON.parse(jsonRun.lines[0]!);
+    assert.equal(parsed.schema, "doctor-storage/v1");
+    assert.equal(parsed.byteMetric, "apparent-bytes");
+    assert.equal(parsed.ok, true);
+    assert.equal(parsed.byClass.authoritative.bytes, 6);
+    assert.equal(parsed.byClass.derived.bytes, 11 + 6);
+    assert.equal(parsed.byClass.unrecognized.bytes, 7 + 8 + 17);
+    const reqHighlight = parsed.highlights.find((item: { path: string }) => item.path === "requests/requests.jsonl*");
+    assert.equal(reqHighlight?.bytes, 8);
+    assert.equal(reqHighlight?.files, 1);
+
+    const textRun = await captureConsole(() => main(["doctor", "storage", "--root", root]));
+    assert.equal(textRun.exit, 0);
+    assert.match(textRun.lines.join("\n"), /doctor storage: \.harness/u);
+    assert.match(textRun.lines.join("\n"), /\[authoritative\] store/u);
+    assert.match(textRun.lines.join("\n"), /\[derived\] cache/u);
+    assert.match(textRun.lines.join("\n"), /\[unrecognized\] runtime.*\[mixed:/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

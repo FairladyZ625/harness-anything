@@ -125,15 +125,15 @@ export const clientLocalCommands = [
   {
     id: "doctor",
     path: ["doctor"],
-    usage: "ha doctor [commands|health] [--root <path>] [--json]",
+    usage: "ha doctor [commands|health|storage] [--root <path>] [--json]",
     summary:
-      "Report repository health (default), or validate ha command references in authored Markdown docs " +
-      "with `ha doctor commands`.",
+      "Report repository health (default), local .harness storage breakdown (`ha doctor storage`), or validate " +
+      "ha command references in authored Markdown docs with `ha doctor commands`.",
     help: [
-      "    Scans harness/context, harness/governance, AGENTS.md, CLAUDE.md, .agents/, and docs-release/ for",
+      "    `commands` scans harness/context, harness/governance, AGENTS.md, CLAUDE.md, .agents/, and docs-release/ for",
       "    ha commands in code fences and inline code spans, then parses each through the same descriptor",
-      "    pipeline the CLI runs. Read-only: no daemon contact, no writes. Exits 1 with one",
-      "    file:line — command — reason line per stale reference; invocations containing <placeholders> skip.",
+      "    pipeline the CLI runs. `storage` measures localRoot subdirectories (authoritative vs derived vs unrecognized).",
+      "    Read-only: no daemon contact, no writes. `commands` exits 1 with one file:line — command — reason line per stale reference.",
     ].join("\n"),
   },
 ] as const;

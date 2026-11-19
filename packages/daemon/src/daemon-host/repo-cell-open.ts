@@ -32,11 +32,8 @@ import {
 } from "./agent-entities.ts";
 
 import { makeAgentRuntimeStreamHub, type AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
-import {
-  pruneDispatchStreamArchive,
-  readFactEvidenceSources,
-  scheduleArchivedDispatchStreamCompaction,
-} from "./dispatch-stream-archive.ts";
+import { scheduleArchivedDispatchStreamCompaction } from "./dispatch-stream-archive.ts";
+import { scheduleLocalRootReclamation } from "./local-root-storage.ts";
 import { createRuntimeOutcomeWaiters } from "./runtime-settlement.ts";
 
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -863,25 +860,31 @@ export async function openRepoWriterCell(
     void recoveryWork
       .run(() => runtimeSpawner.adopt())
       .then(
-        () => undefined,
-        (error: unknown) => console.error("[runtime-recovery]", error),
+        (recoveryResults) => {
+          if (state === "closed") return;
+          const adoptionProtectedIds = recoveryResults.flatMap((entry) =>
+            entry.outcome !== "settled" && entry.dispatchId !== null ? [entry.dispatchId] : [],
+          );
+          scheduleLocalRootReclamation({
+            rootDir,
+            projection: () => projection,
+            readRetention: () => readEffectiveDispatchArchiveRetention(projection),
+            schedule,
+            recoveryDispatchIds: [...squadRecoveryDispatchIds, ...adoptionProtectedIds],
+            onComplete: () => {
+              if (state !== "closed") scheduleArchivedDispatchStreamCompaction(rootDir, schedule);
+            },
+          });
+        },
+        (error: unknown) => {
+          console.error("[runtime-recovery]", error);
+          if (state !== "closed") scheduleArchivedDispatchStreamCompaction(rootDir, schedule);
+        },
       )
       .finally(() => {
         restoringRuntimes = false;
       });
   });
-  // Retention first: pruning doomed streams before the compaction pass keeps it from rewriting
-  // files the same queue is about to delete.
-  schedule(() =>
-    pruneDispatchStreamArchive(
-      rootDir,
-      readEffectiveDispatchArchiveRetention(projection),
-      readFactEvidenceSources(projection),
-      Date.now(),
-      squadRecoveryDispatchIds,
-    ),
-  );
-  scheduleArchivedDispatchStreamCompaction(rootDir, schedule);
   schedule(() => squadCoordinator.reconcile());
   // The close-run reconciliation, once more at attach: failed reclaims and rejected Squad children get another chance.
   schedule(() =>

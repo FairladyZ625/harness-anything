@@ -44,7 +44,7 @@ export function createFactProjectionTables(db: DatabaseSync): void {
       op_id TEXT PRIMARY KEY, fact_id TEXT NOT NULL, domain_types_json TEXT NOT NULL,
       rationale TEXT NOT NULL, workspace_revision INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS fact_task_page ON fact(task_id, observed_at DESC, fact_id ASC);
-    CREATE INDEX IF NOT EXISTS fact_observed_page ON fact(observed_at DESC, task_id ASC, fact_id ASC);
+    CREATE INDEX IF NOT EXISTS fact_observed_id_page ON fact(observed_at DESC, fact_id ASC);
     CREATE INDEX IF NOT EXISTS fact_confidence_page ON fact(confidence, observed_at DESC, task_id ASC, fact_id ASC);
     CREATE INDEX IF NOT EXISTS fact_memory_class_page ON fact(memory_class, observed_at DESC, task_id ASC, fact_id ASC);
   `);
@@ -289,7 +289,7 @@ export function listFactDomainTypeRows(db: DatabaseSync): readonly FactDomainTyp
 }
 
 /** Paged variant of the Fact search: the unparameterized filters keep returning every match;
- * an explicit limit/cursor pages over the same (observed_at DESC, task_id, fact_id) order. */
+ * an explicit limit/cursor pages over the same (observed_at DESC, fact_id) order. */
 export function searchFactRowsPage(
   db: DatabaseSync,
   filters: FactSearchFilters,
@@ -329,17 +329,27 @@ export function searchFactRowsPage(
     values.push(filters.observedBefore);
   }
   const paged = filters.limit !== undefined || filters.cursor !== undefined;
-  if (filters.cursor !== undefined) {
-    const cursor = decodeFactCursor(filters.cursor);
-    where.push("(fact.observed_at < ? OR fact.observed_at = ? AND fact.fact_id > ?)");
-    values.push(cursor[0]!, cursor[0]!, cursor[1]!);
-  }
   const pageLimit = filters.limit === undefined ? (paged ? 100 : null) : checkedFactPageLimit(filters.limit);
-  const whereSql = where.length ? ` WHERE ${where.join(" AND ")}` : "",
-    limitSql = pageLimit === null ? "" : " LIMIT ?",
-    sql = `${factRowSelect}${whereSql} ORDER BY observed_at DESC, fact_id${limitSql}`;
-  if (pageLimit !== null) values.push(String(pageLimit + 1));
-  const records = queryRows<FactRecord>(db, sql, ...values);
+  const fetchLimit = pageLimit === null ? null : pageLimit + 1;
+  const readRecords = (range: string[], parameters: string[], limit: number | null) => {
+    const clauses = [...where, ...range],
+      whereSql = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "",
+      limitSql = limit === null ? "" : " LIMIT ?";
+    return queryRows<FactRecord>(
+      db,
+      `${factRowSelect}${whereSql} ORDER BY observed_at DESC, fact_id${limitSql}`,
+      ...values,
+      ...parameters,
+      ...(limit === null ? [] : [String(limit)]),
+    );
+  };
+  const records = (() => {
+    if (filters.cursor === undefined || fetchLimit === null) return readRecords([], [], fetchLimit);
+    const [observedAt, factId] = decodeFactCursor(filters.cursor);
+    const ties = readRecords(["fact.observed_at = ? AND fact.fact_id > ?"], [observedAt, factId], fetchLimit);
+    if (ties.length === fetchLimit) return ties;
+    return [...ties, ...readRecords(["fact.observed_at < ?"], [observedAt], fetchLimit - ties.length)];
+  })();
   const visible = pageLimit === null ? records : records.slice(0, pageLimit),
     rows = decodeFactRows(db, visible);
   if (pageLimit === null) return { rows };

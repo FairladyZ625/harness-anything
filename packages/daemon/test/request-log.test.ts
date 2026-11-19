@@ -9,6 +9,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -639,6 +640,52 @@ test("retention is age-based: files older than kept days are pruned on the next 
   assert.ok(survivors.includes("fresh-generation-marker"), "the fresh generation survived");
 });
 
+test("the first request preserves linked directories and refuses a linked live log", async (t) => {
+  for (const entryName of [".harness", "requests", "requests.jsonl"]) {
+    const skip =
+      entryName === "requests.jsonl" && process.platform === "win32"
+        ? "requires POSIX file-symbolic-link semantics"
+        : false;
+    await t.test(entryName, { skip }, async (t) => {
+      const rootDir = tempRoot(t);
+      const external = tempRoot(t);
+      const externalLog = daemonRequestLogPath(external);
+      const localLog = daemonRequestLogPath(rootDir);
+      mkdirSync(path.dirname(externalLog), { recursive: true });
+      const staleLog = `${externalLog}.1`;
+      writeFileSync(staleLog, "other node's expired generation\n");
+      writeFileSync(externalLog, "other node's current generation\n");
+      const old = new Date(Date.now() - 8 * 86_400_000);
+      utimesSync(staleLog, old, old);
+      const link =
+        entryName === ".harness"
+          ? path.dirname(path.dirname(localLog))
+          : entryName === "requests"
+            ? path.dirname(localLog)
+            : localLog;
+      const target =
+        entryName === ".harness"
+          ? path.dirname(path.dirname(externalLog))
+          : entryName === "requests"
+            ? path.dirname(externalLog)
+            : externalLog;
+      mkdirSync(path.dirname(link), { recursive: true });
+      symlinkSync(
+        target,
+        link,
+        entryName === "requests.jsonl" ? "file" : process.platform === "win32" ? "junction" : "dir",
+      );
+      const failures: unknown[] = [];
+      const log = openDaemonRequestLog({ resolveRootDir: () => rootDir, onFailure: (error) => failures.push(error) });
+      log.record(entry({}));
+      await log.settle();
+      assert.equal(failures.length, 1, "first open must reject the link");
+      assert.equal(readFileSync(staleLog, "utf8"), "other node's expired generation\n");
+      assert.equal(readFileSync(externalLog, "utf8"), "other node's current generation\n");
+    });
+  }
+});
+
 test("a repository sink keeps one descriptor for many records and closes it on settle", async (t) => {
   const rootDir = tempRoot(t);
   const counts = { open: 0, write: 0, close: 0 };
@@ -797,4 +844,18 @@ test("request logs attribute the verified token person rather than the registere
   const record = readRecords(rootDir)[0];
   assert.equal(record.principalId, "person-request");
   assert.equal(JSON.stringify(record).includes("never-logged"), false);
+});
+
+test("retention prunes expired log files on sink open even without hitting rotation maxBytes", async (t) => {
+  const rootDir = tempRoot(t),
+    logDir = path.dirname(daemonRequestLogPath(rootDir)),
+    stale = path.join(logDir, "requests.jsonl.1");
+  mkdirSync(logDir, { recursive: true });
+  writeFileSync(stale, "stale-without-rotation\n", "utf8");
+  const eightDaysAgo = new Date(Date.now() - 8 * 86_400_000);
+  utimesSync(stale, eightDaysAgo, eightDaysAgo);
+  const log = openDaemonRequestLog({ resolveRootDir: () => rootDir });
+  log.record(entry({ opId: "op_open_prune" }));
+  await log.settle();
+  assert.equal(existsSync(stale), false, "aged log file must be pruned on sink open");
 });

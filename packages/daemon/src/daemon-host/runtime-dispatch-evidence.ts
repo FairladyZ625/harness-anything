@@ -5,6 +5,7 @@ import { consumeKnownError } from "@harness-anything/kernel";
 import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import { withReadOnlyFile } from "../../../storage/src/durable-file.ts";
 import { dispatchStreamPath } from "./dispatch-stream.ts";
+import { dispatchForensicsRequired } from "./dispatch-evidence-state.ts";
 import { readDeepSeekSessionTranscript } from "../runtime-engine/runtime-spawn-deepseek-session.ts";
 import { scrubProviderValue } from "../runtime-engine/secret-scrub.ts";
 import type { DispatchExitClassification } from "./runtime-fallback-contract.ts";
@@ -56,22 +57,6 @@ export interface DispatchForensicsInput {
   readonly request: DispatchForensicsRequest;
   /** An existing marker (the dispatch's `needs_attention` incident receipt) asks for evidence. */
   readonly evidenceRequired?: boolean;
-}
-
-type DowngradedOutcome = DispatchForensicsInput["outcome"];
-
-// The explicit marker is the dispatch's existing `needs_attention` incident receipt; the rest is
-// the ordinary abnormal set. A worker that stopped to ask the owner is the one deliberate stop:
-// its question is already a durable ruling artifact, so retaining every waiting turn would be noise.
-export function dispatchForensicsRequired(
-  outcome: DowngradedOutcome,
-  classification: DispatchExitClassification,
-  evidenceRequired = false,
-): boolean {
-  return (
-    evidenceRequired ||
-    (classification !== "awaiting_ruling" && (outcome === "failed" || outcome === "stopped" || outcome === "unknown"))
-  );
 }
 
 /**

@@ -1,11 +1,21 @@
-import { mkdirSync, readdirSync, readSync, renameSync, statSync, unlinkSync } from "node:fs";
+import { lstatSync, readSync, unlinkSync } from "node:fs";
 import path from "node:path";
+import * as Order from "effect/Order";
+import * as SortedSet from "effect/SortedSet";
 import { resolveHarnessLayout, type TaskProjectionQueries } from "@harness-anything/kernel";
+import type { FactEventV1 } from "@harness-anything/kernel/internal/domain/fact-event.ts";
+import type { FactProjectionSearchRead } from "@harness-anything/kernel/internal/ports/projection-reads.ts";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { compactDispatchStreamArchive } from "./dispatch-stream-compaction.ts";
-import { readDispatchEvidenceState, removeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
+import { removeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
+import { resolveOwnedLocalDirectory } from "./local-root-paths.ts";
+import { mustPreserveDispatch } from "./dispatch-stream.ts";
+import { directoryEntries, scheduleMaintenance, type MaintenanceSchedule } from "./local-maintenance.ts";
 import { withReadOnlyFile } from "../../../storage/src/durable-file.ts";
 
-type Schedule = (work: () => void | Promise<void>) => void;
+const dispatchFilePattern = /^dispatch_[a-f0-9]{24}\.jsonl$/u;
+const factEvidencePageSize = 64;
+const evidenceCreationEvent: FactEventV1["type"] = "fact_recorded";
 
 /** The repository's dispatch-archive retention policy. A limit of 0 disables that limit. */
 export interface DispatchArchiveRetention {
@@ -20,42 +30,25 @@ interface ArchivedStream {
   readonly startedAtMs: number;
 }
 
-/** Move a terminal stream out of the directory enumerated by live-runtime reads. */
-export function archiveDispatchStream(rootDir: string, dispatchId: string): void {
-  const { live, archived } = streamPaths(rootDir, dispatchId);
-  if (statSync(live, { throwIfNoEntry: false })?.isFile()) {
-    /* @gate-identity state-store/execution.dispatch-stream-archive */ mkdirSync(path.dirname(archived), {
-      recursive: true,
-      mode: 0o700,
-    });
-    /* @gate-identity state-store/execution.dispatch-stream-archive */ renameSync(live, archived);
-  } else if (!statSync(archived, { throwIfNoEntry: false })?.isFile()) return;
-  compactDispatchStreamArchive(archived, dispatchId);
-}
-
-/** Queue one local terminal archive at a time so existing writer work can run between files. */
-export function scheduleArchivedDispatchStreamCompaction(rootDir: string, schedule: Schedule): void {
-  const root = dispatchRoot(rootDir),
-    archive = path.join(root, "archive");
-  if (!statSync(archive, { throwIfNoEntry: false })?.isDirectory()) return;
-  const dispatchIds = readdirSync(archive)
-    .filter((name) => /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(name))
-    .map((name) => name.slice(0, -6))
-    .sort();
-  let nextIndex = 0;
-  const enqueueNext = (): void => {
-    const dispatchId = dispatchIds[nextIndex++];
-    if (!dispatchId) return;
-    schedule(() => {
-      try {
-        const archived = path.join(archive, `${dispatchId}.jsonl`);
-        if (statSync(archived, { throwIfNoEntry: false })?.isFile()) compactDispatchStreamArchive(archived, dispatchId);
-      } finally {
-        enqueueNext();
+/** Queue one archive entry at a time so existing writer work can run between files. */
+export function scheduleArchivedDispatchStreamCompaction(rootDir: string, schedule: MaintenanceSchedule): void {
+  const layout = resolveHarnessLayout(rootDir);
+  const archive = ownedArchiveDirectory(layout);
+  if (archive === null) return;
+  function* compact(): Generator<void> {
+    if (archive === null || ownedArchiveDirectory(layout) !== archive) return;
+    for (const entry of directoryEntries(archive)) {
+      if (ownedArchiveDirectory(layout) !== archive) return;
+      if (entry.isFile() && dispatchFilePattern.test(entry.name)) {
+        const file = path.join(archive, entry.name),
+          dispatchId = entry.name.slice(0, -6);
+        if (lstatSync(file, { throwIfNoEntry: false })?.isFile() && !mustPreserveDispatch(rootDir, dispatchId, file))
+          compactDispatchStreamArchive(file, dispatchId);
       }
-    });
-  };
-  enqueueNext();
+      yield;
+    }
+  }
+  scheduleMaintenance(schedule, compact(), 1);
 }
 
 /**
@@ -82,71 +75,78 @@ export function pruneDispatchStreamArchive(
   nowMs: number = Date.now(),
   recoveryDispatchIds: readonly string[] = [],
 ): void {
-  if (retention.retentionDays <= 0 && retention.retentionBytes <= 0) return;
-  const msPerDay = 86_400_000,
-    streams = archivedDispatchStreams(rootDir),
-    protectedPrefixes = factEvidenceDispatchPrefixes(evidenceSources),
-    protectedRecoveryIds = new Set(recoveryDispatchIds),
-    pendingEvidence = new Set(
-      streams
-        .filter((stream) => readDispatchEvidenceState(rootDir, stream.dispatchId) === "pending")
-        .map((stream) => stream.dispatchId),
-    ),
-    doomed = new Set<string>();
-  if (retention.retentionDays > 0)
-    for (const stream of streams)
-      if (
-        !factEvidenceNames(protectedPrefixes, stream.dispatchId) &&
-        !protectedRecoveryIds.has(stream.dispatchId) &&
-        !pendingEvidence.has(stream.dispatchId) &&
-        nowMs - stream.startedAtMs > retention.retentionDays * msPerDay
-      )
-        doomed.add(stream.dispatchId);
-  if (retention.retentionBytes > 0) {
-    // Oldest first (streams are startedAt-sorted). Protected streams still occupy disk, so their
-    // bytes stay in the total; a cap those bytes alone exceed cannot be satisfied without
-    // deleting evidence, and the archive stays over it rather than doing that.
-    let total = streams.reduce((sum, stream) => sum + (doomed.has(stream.dispatchId) ? 0 : stream.sizeBytes), 0);
-    for (const stream of streams) {
-      if (total <= retention.retentionBytes) break;
-      if (
-        doomed.has(stream.dispatchId) ||
-        factEvidenceNames(protectedPrefixes, stream.dispatchId) ||
-        protectedRecoveryIds.has(stream.dispatchId) ||
-        pendingEvidence.has(stream.dispatchId)
-      )
-        continue;
-      total -= stream.sizeBytes;
-      doomed.add(stream.dispatchId);
-    }
-  }
-  for (const stream of streams) {
-    if (!doomed.has(stream.dispatchId)) continue;
-    // Re-check before deleting, like the compaction pass above: a dispatch purge may have taken
-    // the file between the enumeration and this delete; either way the next pass re-enumerates.
-    if (statSync(stream.file, { throwIfNoEntry: false })?.isFile())
-      /* @gate-identity state-store/execution.dispatch-stream-archive */ unlinkSync(stream.file);
-    // A retained stream's sidecar is not independent evidence. Remove the stored/not-required
-    // disposition with the stream it describes; a pending disposition was never doomed above.
-    removeDispatchEvidenceState(rootDir, stream.dispatchId);
+  for (const _ of pruneDispatchStreamArchiveSteps(rootDir, retention, evidenceSources, nowMs, recoveryDispatchIds)) {
+    // Offline callers already own the entire turn.
   }
 }
 
-function archivedDispatchStreams(rootDir: string): readonly ArchivedStream[] {
-  const archive = path.join(dispatchRoot(rootDir), "archive");
-  if (!statSync(archive, { throwIfNoEntry: false })?.isDirectory()) return [];
-  return readdirSync(archive)
-    .filter((name) => /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(name))
-    .map((name) => {
-      const file = path.join(archive, name),
-        stat = statSync(file, { throwIfNoEntry: false }),
-        startedAtMs = stat?.isFile() ? archivedStartedAtMs(file) : NaN;
-      return stat?.isFile() && Number.isFinite(startedAtMs)
-        ? { dispatchId: name.slice(0, -6), file, sizeBytes: stat.size, startedAtMs }
-        : null;
-    })
-    .filter((stream): stream is ArchivedStream => stream !== null)
-    .sort((left, right) => left.startedAtMs - right.startedAtMs || left.dispatchId.localeCompare(right.dispatchId));
+export function* pruneDispatchStreamArchiveSteps(
+  rootDir: string,
+  retention: DispatchArchiveRetention,
+  evidenceSources: Iterable<string>,
+  nowMs: number,
+  recoveryDispatchIds: readonly string[],
+  canDelete: () => boolean = () => true,
+): Generator<void> {
+  const layout = resolveHarnessLayout(rootDir);
+  const archive = ownedArchiveDirectory(layout);
+  if (archive === null || (retention.retentionDays <= 0 && retention.retentionBytes <= 0)) return;
+  const prefixes = new Set<string>();
+  for (const source of evidenceSources) {
+    collectFactEvidencePrefixes(prefixes, source);
+    yield;
+  }
+  if (!canDelete()) return;
+
+  const protectedIds = new Set(recoveryDispatchIds),
+    expired: ArchivedStream[] = [];
+  const cutoff = nowMs - retention.retentionDays * 86_400_000;
+  let total = 0;
+  let oldestFirst = SortedSet.empty(
+    Order.make<ArchivedStream>(
+      (left, right) =>
+        Order.number(left.startedAtMs, right.startedAtMs) || Order.string(left.dispatchId, right.dispatchId),
+    ),
+  );
+  for (const entry of directoryEntries(archive)) {
+    if (ownedArchiveDirectory(layout) !== archive) return;
+    if (entry.isFile() && dispatchFilePattern.test(entry.name)) {
+      const file = path.join(archive, entry.name);
+      const stat = lstatSync(file, { throwIfNoEntry: false });
+      const startedAtMs = stat?.isFile() ? archivedStartedAtMs(file) : NaN;
+      if (stat && Number.isFinite(startedAtMs)) {
+        const dispatchId = entry.name.slice(0, -6);
+        total += stat.size;
+        if (!protectedIds.has(dispatchId) && !factEvidenceNames(prefixes, dispatchId)) {
+          const stream = { dispatchId, file, sizeBytes: stat.size, startedAtMs };
+          if (retention.retentionDays > 0 && startedAtMs < cutoff) expired.push(stream);
+          else if (retention.retentionBytes > 0) oldestFirst = SortedSet.add(oldestFirst, stream);
+        }
+      }
+    }
+    yield;
+  }
+
+  for (const candidates of [expired, oldestFirst]) {
+    for (const stream of candidates) {
+      if (candidates === oldestFirst && total <= retention.retentionBytes) return;
+      if (ownedArchiveDirectory(layout) !== archive || !canDelete()) return;
+      if (lstatSync(stream.file, { throwIfNoEntry: false })?.isFile()) {
+        if (!mustPreserveDispatch(rootDir, stream.dispatchId, stream.file)) {
+          /* @gate-identity state-store/execution.dispatch-stream-archive */ unlinkSync(stream.file);
+          removeDispatchEvidenceState(rootDir, stream.dispatchId);
+          total -= stream.sizeBytes;
+        }
+      } else {
+        total -= stream.sizeBytes;
+      }
+      yield;
+    }
+  }
+}
+
+function ownedArchiveDirectory(layout: ReturnType<typeof resolveHarnessLayout>): string | null {
+  return resolveOwnedLocalDirectory(layout, ["runtime", "dispatches", "archive"]);
 }
 
 /** Read the age signal from the stream's own header line; the header is written by this daemon. */
@@ -176,20 +176,21 @@ function archivedStartedAtMs(file: string): number {
  * the last id into a non-hex string and silently drop it. Cut each entry at its first wildcard
  * instead — a glob naming an id prefix protects every id that starts with it.
  */
-function factEvidenceDispatchPrefixes(evidenceSources: readonly string[]): readonly string[] {
-  const prefixes = new Set<string>();
-  for (const source of evidenceSources)
-    for (const match of source.matchAll(/dispatches\/archive\/dispatch_([a-f0-9*,{}]+)/gu)) {
-      for (const entry of match[1]!.replace(/[{}]/gu, "").split(",")) {
-        const prefix = entry.split("*")[0]!;
-        if (/^[a-f0-9]{8,24}$/u.test(prefix)) prefixes.add(prefix);
-      }
+function collectFactEvidencePrefixes(prefixes: Set<string>, source: string): void {
+  for (const match of source.matchAll(/dispatches\/archive\/dispatch_([a-f0-9*,{}]+)/gu)) {
+    for (const entry of match[1]!.replace(/[{}]/gu, "").split(",")) {
+      const prefix = entry.split("*")[0]!;
+      if (/^[a-f0-9]{8,24}$/u.test(prefix)) prefixes.add(prefix);
     }
-  return [...prefixes];
+  }
 }
 
-function factEvidenceNames(prefixes: readonly string[], dispatchId: string): boolean {
-  return prefixes.some((prefix) => dispatchId.startsWith(`dispatch_${prefix}`));
+function factEvidenceNames(prefixes: ReadonlySet<string>, dispatchId: string): boolean {
+  const id = dispatchId.slice("dispatch_".length);
+  for (let length = 8; length <= id.length; length += 1) {
+    if (prefixes.has(id.slice(0, length))) return true;
+  }
+  return false;
 }
 
 /**
@@ -200,25 +201,65 @@ function factEvidenceNames(prefixes: readonly string[], dispatchId: string): boo
  * to answer on a projection that is not at the canonical cut: pruning against a short list of
  * evidence sources would delete streams live facts still name, so the caller skips the pass.
  */
-export function readFactEvidenceSources(projection: Pick<TaskProjectionQueries, "searchFacts">): readonly string[] {
-  const read = projection.searchFacts({});
+export function tryReadFactEvidenceSources(
+  projection: Pick<TaskProjectionQueries, "searchFacts" | "readCut" | "readEventList">,
+):
+  | {
+      readonly status: "ready";
+      readonly sources: Iterable<string>;
+      readonly watermark: number;
+      readonly isReady: () => boolean;
+    }
+  | { readonly status: "pending"; readonly watermark: number; readonly sourceRevision: number } {
+  const read = projection.searchFacts({ limit: factEvidencePageSize });
+  if (read.status !== "ready")
+    return { status: "pending", watermark: read.watermark, sourceRevision: read.sourceRevision };
+  const watermark = read.watermark;
+  let complete = false;
+  let verifiedThrough = -1;
+  function factEvidenceUnchanged(): boolean {
+    const cut = projection.readCut();
+    if (cut.status !== "ready" || cut.watermark < watermark) return false;
+    if (cut.watermark === verifiedThrough) return true;
+    const newestFact = projection.readEventList({
+      type: evidenceCreationEvent,
+      limit: storageReadPolicy.defaultValue.pageSizes.one,
+    }).rows[0];
+    if (newestFact && newestFact.revision > watermark) return false;
+    verifiedThrough = cut.watermark;
+    return true;
+  }
+  function* sources(): Generator<string> {
+    let page: FactProjectionSearchRead = read;
+    while (page.status === "ready" && page.watermark >= watermark && factEvidenceUnchanged()) {
+      for (const fact of page.facts) yield fact.evidenceSource;
+      const cursor = page.page?.nextCursor;
+      if (cursor === undefined || cursor === null) {
+        complete = true;
+        return;
+      }
+      page = projection.searchFacts({ limit: factEvidencePageSize, cursor });
+    }
+  }
+  return {
+    status: "ready",
+    sources: sources(),
+    watermark,
+    isReady: () => complete && factEvidenceUnchanged(),
+  };
+}
+
+export function readFactEvidenceSources(
+  projection: Pick<TaskProjectionQueries, "searchFacts" | "readCut" | "readEventList">,
+): readonly string[] {
+  const read = tryReadFactEvidenceSources(projection);
   if (read.status !== "ready")
     throw new Error(
       `fact projection is not at the canonical cut (watermark ${read.watermark}, source revision ` +
         `${read.sourceRevision}); refusing to prune the dispatch archive against a partial evidence list`,
     );
-  return read.facts.map((fact) => fact.evidenceSource);
-}
-
-function streamPaths(rootDir: string, dispatchId: string): { readonly live: string; readonly archived: string } {
-  if (!/^dispatch_[a-f0-9]{24}$/u.test(dispatchId)) throw new Error("dispatch id is invalid");
-  const root = dispatchRoot(rootDir);
-  return {
-    live: path.join(root, `${dispatchId}.jsonl`),
-    archived: path.join(root, "archive", `${dispatchId}.jsonl`),
-  };
-}
-
-function dispatchRoot(rootDir: string): string {
-  return path.join(resolveHarnessLayout(rootDir).localRoot, "runtime", "dispatches");
+  const sources = [...read.sources];
+  if (!read.isReady())
+    throw new Error(`fact projection page sequence changed at watermark ${read.watermark}; refusing to prune`);
+  return sources;
 }

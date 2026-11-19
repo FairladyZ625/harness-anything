@@ -11,6 +11,7 @@ import {
   verifyHandoffPacketDigest,
   type HandoffPacketV1,
   type RuntimeSession,
+  type TaskProjectionQueries,
   type TaskV2,
   type WriteReceiptDraft,
   type WriteSource,
@@ -52,6 +53,30 @@ export function readHandoffCheckpoint(rootDir: string, dispatchId: string): Runt
   if (!/^dispatch_[a-f0-9]{24}$/u.test(dispatchId)) return null;
   const file = path.join(directory(rootDir, dispatchId), "checkpoint.json");
   return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as RuntimeHandoffCheckpoint) : null;
+}
+
+export type ReclaimableHandoffRolloutReason = "revoked" | "consumed" | "task_done";
+
+/**
+ * Single handoff authority for whether a retained `rollout.jsonl` can NEVER be claimed again.
+ * A `cancelled` task can be reinstated (`cancelled -> planned -> active`), so only explicit
+ * revocation, durable consumption (`resumedFromDispatchId`), or irreversible task completion
+ * (`done`, which has no outgoing transitions) yields a non-null reclamation reason.
+ */
+export function reclaimableHandoffRolloutReason(
+  checkpoint: Pick<RuntimeHandoffCheckpoint, "dispatchId" | "taskId" | "revokedAt">,
+  projection: Pick<TaskProjectionQueries, "read" | "readRuntimeDispatchByResumeSource">,
+  doneTaskCache?: Map<string, boolean>,
+): ReclaimableHandoffRolloutReason | null {
+  if (typeof checkpoint.revokedAt === "string" && checkpoint.revokedAt.length > 0) return "revoked";
+  if (projection.readRuntimeDispatchByResumeSource(checkpoint.dispatchId) !== null) return "consumed";
+  if (typeof checkpoint.taskId !== "string" || checkpoint.taskId.length === 0) return null;
+  const cached = doneTaskCache?.get(checkpoint.taskId);
+  if (cached !== undefined) return cached ? "task_done" : null;
+  const read = projection.read(checkpoint.taskId);
+  const done = read.status === "ready" && read.snapshot.task?.status === "done";
+  doneTaskCache?.set(checkpoint.taskId, done);
+  return done ? "task_done" : null;
 }
 
 /** Runs only under the center RepoCell write queue. Payloads are never canonical document claims. */

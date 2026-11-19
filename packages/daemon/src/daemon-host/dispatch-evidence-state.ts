@@ -1,12 +1,26 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { DispatchEvidenceState } from "@harness-anything/kernel/internal/domain/operational-status.ts";
+import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import { consumeKnownError, resolveHarnessLayout } from "@harness-anything/kernel";
 import { removeFileDurably, writeFileDurably } from "../../../storage/src/durable-file.ts";
+import type { DispatchExitClassification } from "./runtime-fallback-contract.ts";
 
 export type { DispatchEvidenceState };
 
 const stateSchema = "dispatch-evidence-state/v1" as const;
+
+export function dispatchForensicsRequired(
+  outcome: DispatchAttemptOutcome,
+  classification: DispatchExitClassification | undefined,
+  evidenceRequired = false,
+): boolean {
+  return (
+    evidenceRequired ||
+    outcome === "failed" ||
+    (classification !== "awaiting_ruling" && (outcome === "stopped" || outcome === "unknown"))
+  );
+}
 
 /**
  * The one durable disposition of a dispatch's evidence copy. It is a small sidecar beside the
@@ -26,7 +40,7 @@ export function dispatchEvidenceStatePath(rootDir: string, dispatchId: string): 
 /** A missing or unreadable sidecar is `null`; new streams treat that as fail-closed. */
 export function readDispatchEvidenceState(rootDir: string, dispatchId: string): DispatchEvidenceState | null {
   const file = dispatchEvidenceStatePath(rootDir, dispatchId);
-  if (!existsSync(file)) return null;
+  if (!lstatSync(file, { throwIfNoEntry: false })?.isFile()) return null;
   try {
     const value: unknown = JSON.parse(readFileSync(file, "utf8"));
     if (value === null || typeof value !== "object") return null;
@@ -59,5 +73,5 @@ export function writeDispatchEvidenceState(
 
 export function removeDispatchEvidenceState(rootDir: string, dispatchId: string): void {
   const file = dispatchEvidenceStatePath(rootDir, dispatchId);
-  if (statSync(file, { throwIfNoEntry: false })?.isFile()) removeFileDurably(file);
+  if (lstatSync(file, { throwIfNoEntry: false })?.isFile()) removeFileDurably(file);
 }

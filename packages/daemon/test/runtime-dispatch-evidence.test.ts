@@ -5,12 +5,9 @@ import { zstdCompressSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { dispatchForensicsRequired } from "../src/daemon-host/dispatch-evidence-state.ts";
 import { dispatchStreamPath, openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
-import {
-  captureDispatchForensics,
-  dispatchForensicsRequired,
-  type DispatchForensicsInput,
-} from "../src/daemon-host/runtime-dispatch-evidence.ts";
+import { captureDispatchForensics, type DispatchForensicsInput } from "../src/daemon-host/runtime-dispatch-evidence.ts";
 
 const dispatchId = "dispatch_0123456789abcdef01234567",
   runtimeSessionId = "runtime-forensics",
@@ -151,6 +148,7 @@ test("a normal success and an owner-ruling wait keep no evidence snapshot", () =
     );
     assert.equal(dispatchForensicsRequired("stopped", "worker_stop"), true);
     assert.equal(dispatchForensicsRequired("unknown", "completed_without_final_text"), true);
+    assert.equal(dispatchForensicsRequired("failed", "awaiting_ruling"), true);
     assert.equal(dispatchForensicsRequired("cancelled", "worker_stop"), false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

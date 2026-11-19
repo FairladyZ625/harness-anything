@@ -42,6 +42,7 @@ const doctorLocalRoots: readonly string[] = [
     ["doctor"],
     ["doctor", "commands"],
     ["doctor", "health"],
+    ["doctor", "storage"],
     ["restore"],
     ["events", "tail"],
     ["version"],
@@ -73,16 +74,66 @@ const doctorDocDirs = [
 export function doctorInvocation(
   argv: readonly string[],
 ):
-  | { readonly ok: true; readonly mode: "health" | "commands"; readonly rootDir: string }
+  | { readonly ok: true; readonly mode: "health" | "commands" | "storage"; readonly rootDir: string }
   | { readonly ok: false; readonly reason: string } {
   const rest = stripGlobals(argv),
     args = rest.slice(rest.indexOf("doctor") + 1),
     rootDir = path.resolve(globalOption(argv, "--root") ?? process.cwd());
-  if (args.length > 1 || (args.length === 1 && !["commands", "health"].includes(args[0]!)))
-    return { ok: false, reason: "Use ha doctor [commands|health] [--root <path>] [--json]." };
+  if (args.length > 1 || (args.length === 1 && !["commands", "health", "storage"].includes(args[0]!)))
+    return { ok: false, reason: "Use ha doctor [commands|health|storage] [--root <path>] [--json]." };
   return existsSync(rootDir)
-    ? { ok: true, mode: args[0] === "commands" ? "commands" : "health", rootDir }
+    ? {
+        ok: true,
+        mode: args[0] === "commands" ? "commands" : args[0] === "storage" ? "storage" : "health",
+        rootDir,
+      }
     : { ok: false, reason: `--root ${rootDir} does not exist.` };
+}
+
+export async function runDoctorStorage(rootDir: string, json: boolean): Promise<number> {
+  const { measureLocalRootStorage } = await import("@harness-anything/daemon");
+  const report = measureLocalRootStorage(rootDir);
+  if (json) {
+    console.log(JSON.stringify({ ...report, ok: true }));
+    return 0;
+  }
+  if (!report.exists) {
+    console.log(`doctor storage: ${report.localRoot} does not exist.`);
+    return 0;
+  }
+  const formatBytes = (bytes: number): string => {
+    if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(2)} GiB`;
+    if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
+    if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+    return `${bytes} B`;
+  };
+  const lines = [
+    `doctor storage: ${report.relativeLocalRoot} (${formatBytes(report.totalBytes)} apparent, ${report.totalFiles} files)`,
+    `  authoritative: ${formatBytes(report.byClass.authoritative.bytes)} (${report.byClass.authoritative.files} files)`,
+    `  derived:       ${formatBytes(report.byClass.derived.bytes)} (${report.byClass.derived.files} files)`,
+    `  unrecognized:  ${formatBytes(report.byClass.unrecognized.bytes)} (${report.byClass.unrecognized.files} files)`,
+    ...report.entries.map((entry) => {
+      const nonZeroClasses = (["authoritative", "derived", "unrecognized"] as const).filter(
+        (kind) => entry.byClass[kind].files > 0,
+      );
+      const mixedNote =
+        nonZeroClasses.length > 1
+          ? ` [mixed: ${nonZeroClasses.map((kind) => `${kind}=${formatBytes(entry.byClass[kind].bytes)}`).join(", ")}]`
+          : "";
+      return `  [${entry.classification}] ${entry.name}\t${formatBytes(entry.bytes)}\t(${entry.files} files)${mixedNote}`;
+    }),
+    ...(report.highlights.length > 0
+      ? [
+          "  highlights:",
+          ...report.highlights.map(
+            (item) =>
+              `    [${item.classification}] ${item.path}\t${formatBytes(item.bytes)}\t(${item.files} files) — ${item.note}`,
+          ),
+        ]
+      : []),
+  ];
+  console.log(lines.join("\n"));
+  return 0;
 }
 
 export function renderDoctorReport(report: DoctorReport, json: boolean): number {
