@@ -187,6 +187,8 @@ export function readInboxRows(
   }
   if (!(inboxQueueStatuses as readonly string[]).includes(query.status))
     throw new Error(`inbox queue status is not a queue: ${String(query.status)}`);
+  if (query.consumerKind === "interactive_watch" && (typeof query.inboxId !== "string" || query.inboxId.length === 0))
+    throw new Error("interactive watch Inbox reads require a targeted inboxId");
   const limit = inboxPageLimit(query.limit),
     parameters: (string | number)[] = [query.consumerKind, query.status, inboxQueueCursor(query.cursor)],
     inboxClause = query.inboxId === undefined ? "" : " AND inbox_id = ?";

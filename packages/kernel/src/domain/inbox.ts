@@ -238,7 +238,7 @@ export function reduceInboxItem(current: InboxItem | null, event: InboxEvent): I
         dedupeKey: payload.dedupeKey,
         taskId: payload.taskId,
         agentId: payload.agentId,
-        senderPersonId: event.actor.principal?.personId ?? payload.senderPersonId ?? null,
+        senderPersonId: event.actor.principal?.personId ?? null,
         workId: payload.workId ?? null,
         lane: payload.lane ?? null,
         correlationId: payload.correlationId ?? null,
@@ -388,20 +388,30 @@ export function evaluateInboxConsumption(
   return { kind: "claim" };
 }
 
+interface InboxQueueReadOptions {
+  readonly by: "queue";
+  readonly status: InboxQueueStatus;
+  readonly limit?: number;
+  /** The `enqueuedRevision` of the last item on the previous page. */
+  readonly cursor?: string;
+}
+
+export type InboxQueueQuery =
+  | (InboxQueueReadOptions & {
+      readonly consumerKind: "interactive_watch";
+      /** Interactive watch reads are explicitly targeted to one recipient Inbox. */
+      readonly inboxId: string;
+    })
+  | (InboxQueueReadOptions & {
+      readonly consumerKind: "unattended_dispatch" | "quarantined_external";
+      /** Omitted: the cross-inbox queue for this consumer kind. */
+      readonly inboxId?: string;
+    });
+
 export type InboxQuery =
   | { readonly by: "item"; readonly inboxId: string; readonly itemId: string }
   | { readonly by: "dedupe"; readonly inboxId: string; readonly dedupeKey: string }
-  | {
-      readonly by: "queue";
-      readonly status: InboxQueueStatus;
-      /** Required to keep unattended dispatch, interactive watch and quarantine consumers isolated. */
-      readonly consumerKind: InboxConsumerKind;
-      /** Omitted: the cross-inbox queue in enqueue order for this consumer kind. */
-      readonly inboxId?: string;
-      readonly limit?: number;
-      /** The `enqueuedRevision` of the last item on the previous page. */
-      readonly cursor?: string;
-    };
+  | InboxQueueQuery;
 
 export type InboxRead =
   | { readonly status: "pending"; readonly watermark: number; readonly sourceRevision: number }
@@ -479,7 +489,8 @@ function enqueuedIssues(value: Readonly<Record<string, unknown>>): readonly stri
   // R4 hard gate: until verified host isolation exists, external input is recorded, never executed.
   const externalIngress = value.source === "external_ingress",
     consumerKind =
-      value.consumerKind ?? (value.admission === "quarantined_external" ? "quarantined_external" : "unattended_dispatch");
+      value.consumerKind ??
+      (value.admission === "quarantined_external" ? "quarantined_external" : "unattended_dispatch");
   if (
     externalIngress !== (value.admission === "quarantined_external") ||
     externalIngress !== (consumerKind === "quarantined_external") ||

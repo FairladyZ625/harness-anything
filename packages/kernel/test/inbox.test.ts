@@ -115,10 +115,7 @@ test("inbox payload contract rejects unknown fields, mismatched targets, and unb
   assert.notDeepEqual(validateCurrentAgentRuntimeEvent(enqueued(1, { inboxId: "queue:task_a" })), []);
   assert.notDeepEqual(validateCurrentAgentRuntimeEvent(enqueued(1, { sourceEpoch: -1 })), []);
   assert.notDeepEqual(validateCurrentAgentRuntimeEvent(enqueued(1, { dedupeKey: "x".repeat(513) })), []);
-  assert.notDeepEqual(
-    validateCurrentAgentRuntimeEvent(enqueued(1, { consumerKind: "other" as never })),
-    [],
-  );
+  assert.notDeepEqual(validateCurrentAgentRuntimeEvent(enqueued(1, { consumerKind: "other" as never })), []);
   assert.notDeepEqual(validateCurrentAgentRuntimeEvent(enqueued(1, { minRevision: -1 })), []);
   assert.notDeepEqual(
     validateCurrentAgentRuntimeEvent(enqueued(1, { requiredBlobSha256s: Array(17).fill("a".repeat(64)) })),
@@ -151,7 +148,11 @@ test("person Inbox supports peer envelopes without task binding and normalizes c
   });
   assert.deepEqual(validateCurrentAgentRuntimeEvent(peer), []);
   const item = applied(null, peer);
-  assert.equal(item.senderPersonId, "person-inbox", "the event envelope is authoritative over optional payload metadata");
+  assert.equal(
+    item.senderPersonId,
+    "person-inbox",
+    "the event envelope is authoritative over optional payload metadata",
+  );
   assert.equal(item.taskId, null);
   assert.equal(item.agentId, null);
   assert.equal(item.workId, "work-a2a");

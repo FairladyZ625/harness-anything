@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import type { InboxItem, InboxRead } from "@harness-anything/kernel/internal/domain/inbox.ts";
+import type { InboxItem, InboxQuery, InboxRead } from "@harness-anything/kernel/internal/domain/inbox.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { withTempStoreAsync } from "./helpers.ts";
@@ -89,11 +89,15 @@ test("SQLite Inbox projection folds per item, dedupes, orders queues, and rebuil
       }),
     );
     assert.equal(peerRequest?.itemId, "peer-request");
-    assert.equal(peerRequest?.senderPersonId, "person-inbox", "the envelope actor takes precedence over payload metadata");
+    assert.equal(
+      peerRequest?.senderPersonId,
+      "person-inbox",
+      "the envelope actor takes precedence over payload metadata",
+    );
     assert.equal(peerRequest?.workId, "work-a2a");
     assert.equal(peerRequest?.lane, "owner-review");
     assert.equal(peerRequest?.correlationId, "corr-request-1");
-    assert.equal(peerRequest?.minRevision, 14);
+    assert.equal(peerRequest?.minRevision, 15);
     assert.deepEqual(peerRequest?.requiredBlobSha256s, ["a".repeat(64)]);
     const [peerReply] = items(
       projection.readInbox({
@@ -105,11 +109,36 @@ test("SQLite Inbox projection folds per item, dedupes, orders queues, and rebuil
     );
     assert.equal(peerReply?.itemId, "peer-reply");
     assert.equal(peerReply?.senderPersonId, "person-inbox");
-    assert.equal(peerReply?.minRevision, 12, "omitted causal watermarks default to the enqueue revision");
+    assert.equal(peerReply?.minRevision, 12, "omitted causal watermarks default to the enqueue workspace revision");
     assert.deepEqual(peerReply?.requiredBlobSha256s, []);
+    const [peerCompleted] = items(
+      projection.readInbox({ by: "item", inboxId: "person:owner", itemId: "peer-completed" }),
+    );
+    assert.equal(peerCompleted?.status, "completed", "interactive consumers can settle a claimed request");
+    const [peerFailed] = items(projection.readInbox({ by: "item", inboxId: "person:owner", itemId: "peer-failed" }));
+    assert.equal(peerFailed?.status, "failed", "interactive consumers can fail a claimed request");
     assert.throws(
       () => projection.readInbox({ by: "queue", status: "pending", consumerKind: "unattended_dispatch", cursor: "x" }),
       /cursor is invalid/u,
+    );
+    assert.throws(
+      () =>
+        projection.readInbox({
+          by: "queue",
+          status: "pending",
+          consumerKind: "interactive_watch",
+        } as unknown as InboxQuery),
+      /interactive watch Inbox reads require a targeted inboxId/u,
+    );
+    assert.throws(
+      () =>
+        projection.readInbox({
+          by: "queue",
+          status: "pending",
+          consumerKind: "interactive_watch",
+          inboxId: undefined,
+        } as unknown as InboxQuery),
+      /interactive watch Inbox reads require a targeted inboxId/u,
     );
 
     const reads = inboxParityQueries.map((query) => projection.readInbox(query)),

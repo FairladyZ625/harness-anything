@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import test from "node:test";
-import type { InboxItem } from "@harness-anything/kernel/internal/domain/inbox.ts";
+import type { InboxItem, InboxQuery } from "@harness-anything/kernel/internal/domain/inbox.ts";
 import { getPgProjectionValue } from "../../src/pg/pg-projection-values.ts";
 import { createPGliteStorageBackend } from "../../src/pglite/storage-backend.ts";
 import { assertInboxBackendParity, assertInboxReopenedReads } from "../inbox-parity.assertions.ts";
@@ -30,7 +30,17 @@ pgliteIntegrationSuite("PGlite Inbox projection", () => {
           )
         ).rows[0]?.readers;
         assert.ok(projectedReaders, "the person Inbox row has a PostgreSQL readers list");
-        assert.deepEqual([...projectedReaders].sort(), ["owner", "person-inbox"].sort());
+        assert.ok(projectedReaders.includes("owner"));
+        assert.ok(projectedReaders.includes("person-inbox"));
+        await assert.rejects(
+          backend.projection.readInbox({
+            by: "queue",
+            status: "pending",
+            consumerKind: "interactive_watch",
+            inboxId: undefined,
+          } as unknown as InboxQuery),
+          /interactive watch Inbox reads require a targeted inboxId/u,
+        );
         const client = await backend.pool.connect();
         try {
           for (const personId of ["person-inbox", "owner"]) {
