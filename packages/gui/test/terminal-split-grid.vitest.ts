@@ -16,10 +16,12 @@ vi.mock("../src/renderer/components/terminal/TerminalPane.tsx", () => ({
   TerminalPane: ({
     output,
     onFit,
+    onInput,
     onSelectionChange,
   }: {
     readonly output: string;
     readonly onFit: (c: number, r: number) => void;
+    readonly onInput: (text: string) => void;
     readonly onSelectionChange: (text: string) => void;
   }) => {
     terminalPaneMock.onSelectionChange = onSelectionChange;
@@ -27,6 +29,7 @@ vi.mock("../src/renderer/components/terminal/TerminalPane.tsx", () => ({
       "data-testid": "terminal-pane",
       "data-output": output,
       onClick: () => onFit(120, 40),
+      onKeyDown: (event) => onInput(event.key),
     });
   },
 }));
@@ -91,7 +94,7 @@ function stubBridge(initial: readonly Row[]) {
       stops.set(sessionId, stop);
       return stop;
     }),
-    sendTerminalInput: vi.fn(async () => ({ schema: "terminal-input-ack/v1", ok: true, acceptedThrough: 1 })),
+    sendTerminalInput: vi.fn(async (_payload: Row) => inputAck(1)),
     resizeTerminal: vi.fn(async (payload: Row) => controlReceipt(String(payload.sessionId))),
     detachTerminal: vi.fn(async () => ({ schema: "terminal-detach-ack/v1", ok: true, state: "detached" })),
     terminateTerminal: vi.fn(async () => controlReceipt("s-restore")),
@@ -106,6 +109,9 @@ function stubBridge(initial: readonly Row[]) {
     "repo.terminal.attach": "attachTerminal",
   });
   return { bridge, stops };
+}
+function inputAck(acceptedThrough: number) {
+  return { schema: "terminal-input-ack/v1", ok: true, acceptedThrough };
 }
 function controlReceipt(sessionId: string): Row {
   return {
@@ -232,7 +238,95 @@ function storedSnapshot(): string {
   return window.localStorage.getItem(layoutKey) ?? "";
 }
 
+async function mountDurablePane() {
+  const { bridge } = stubBridge([
+    sessionRow({ requestedBackend: "tmux", backend: "tmux", durability: "daemon-restart" }),
+  ]);
+  let acceptedThrough = 0;
+  const writes: string[] = [];
+  const beforeAck = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+  bridge.sendTerminalInput.mockImplementation(async ({ clientSeq, utf8 }) => {
+    const seq = Number(clientSeq);
+    if (seq > acceptedThrough + 1) throw new Error(`terminal_input_gap: Expected clientSeq ${acceptedThrough + 1}`);
+    if (seq > acceptedThrough) {
+      writes.push(String(utf8));
+      acceptedThrough = seq;
+    }
+    const ack = inputAck(acceptedThrough);
+    await beforeAck();
+    return ack;
+  });
+  mountView();
+  await flush();
+  const [pane] = panes();
+  const terminal = pane.querySelector<HTMLElement>('[data-testid="terminal-pane"]')!;
+  const [, onValue] = bridge.attachTerminal.mock.calls[0];
+  const output = (seq: number, utf8: string) =>
+    onValue({ schema: "terminal-attach-event/v1", sessionId: "s-restore", seq, kind: "output", utf8 });
+  await act(async () => output(2, "before\n"));
+  const reattach = (daemonGeneration: number) =>
+    act(async () => {
+      onValue({
+        schema: "terminal-attach/v1",
+        ok: true,
+        sessionId: "s-restore",
+        attachmentId: `reattach-${daemonGeneration}`,
+        daemonGeneration,
+        status: "gap",
+        replayFromSeq: 1,
+        outputSeq: 0,
+      });
+      if (daemonGeneration === 8) {
+        acceptedThrough = 0;
+        output(1, "after\n");
+      }
+    });
+  const type = (key: string) =>
+    act(async () => {
+      terminal.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    });
+  return { input: bridge.sendTerminalInput, terminal, type, reattach, beforeAck, writes };
+}
+
 describe("terminal split panes (PLT-TerminalWorkspace W1)", () => {
+  it("continues input on a same-generation gap and starts at one after a daemon restart", async () => {
+    const { input, terminal, type, reattach, writes } = await mountDurablePane();
+    await type("a");
+    await reattach(7);
+    await type("b");
+    expect(writes).toEqual(["a", "b"]);
+    await reattach(8);
+    expect(terminal.dataset.output).toBe("before\nafter\n");
+    await type("c");
+    await type("d");
+    expect(input.mock.calls.map(([payload]) => payload.clientSeq)).toEqual([1, 2, 1, 2]);
+    expect(writes).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("lets the new daemon generation take input while an old acknowledgement is still pending", async () => {
+    const { input, type, reattach, beforeAck, writes } = await mountDurablePane();
+    await type("a");
+    const oldAck = Promise.withResolvers<void>();
+    beforeAck.mockReturnValueOnce(oldAck.promise);
+    await type("b");
+    await type("x");
+    expect(writes).toEqual(["a", "b"]);
+
+    await reattach(8);
+    await type("c");
+    const beforeOldAck = [...writes];
+    await act(async () => oldAck.resolve());
+    await type("d");
+    expect(beforeOldAck).toEqual(["a", "b", "c"]);
+    expect(input.mock.calls.map(([payload]) => [payload.utf8, payload.clientSeq])).toEqual([
+      ["a", 1],
+      ["b", 2],
+      ["c", 1],
+      ["d", 2],
+    ]);
+    expect(writes).toEqual(["a", "b", "c", "d"]);
+  });
+
   it("splits inside the active tab instead of opening a second tab", async () => {
     const { bridge } = stubBridge([sessionRow()]);
     mountView();

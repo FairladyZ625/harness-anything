@@ -542,6 +542,7 @@ test("a TMUX registry restores a live session and attach uses the existing names
     killed: string[] = [],
     firstLaunches: RecordedLaunch[] = [],
     restoredLaunches: RecordedLaunch[] = [],
+    restoredWrites: string[] = [],
     registry = path.join(root, ".harness", "generated", "terminal-sessions.json");
   let output: ((utf8: string) => void) | undefined;
   try {
@@ -562,6 +563,7 @@ test("a TMUX registry restores a live session and attach uses the existing names
       }),
       namespace = Array.isArray(firstLaunches[0]?.args) ? String(firstLaunches[0].args[4]) : "";
     assert.equal(live.has(namespace), true);
+    assert.equal(first.input({ sessionId: spawned.sessionId!, clientSeq: 1, utf8: "first input" }).acceptedThrough, 1);
     await first.close();
     assert.equal(live.has(namespace), true, "daemon close must leave the TMUX server alive");
     assert.equal(statSync(registry).mode & 0o777, 0o600);
@@ -572,8 +574,11 @@ test("a TMUX registry restores a live session and attach uses the existing names
         rootDir: root,
         daemonGeneration: 15,
         tmux: controller,
-        spawnPty: recordingPtySpawner(restoredLaunches, live, false, (listener) => {
-          output = listener;
+        spawnPty: recordingPtySpawner(restoredLaunches, live, false, {
+          onOutput: (listener) => {
+            output = listener;
+          },
+          onInput: (utf8) => restoredWrites.push(utf8),
         }),
       }),
       row = terminalRows(restored)[0];
@@ -596,6 +601,14 @@ test("a TMUX registry restores a live session and attach uses the existing names
     const frame = await pending;
     assert.equal(frame?.seq, 1);
     assert.equal(frame?.utf8, "first frame after daemon restart");
+    assert.throws(() => restored.input({ sessionId: spawned.sessionId!, clientSeq: 2, utf8: "stale sequence" }), {
+      code: "terminal_input_gap",
+    });
+    assert.deepEqual(restoredWrites, []);
+    const nextInput = { sessionId: spawned.sessionId!, clientSeq: 1, utf8: "first input after daemon restart" };
+    assert.equal(restored.input(nextInput).acceptedThrough, 1);
+    assert.equal(restored.input(nextInput).acceptedThrough, 1);
+    assert.deepEqual(restoredWrites, [nextInput.utf8]);
     const ahead = restored.attach(spawned.sessionId!, 325, 15);
     assert.equal(ahead.initial.status, "gap");
     assert.equal((await ahead.next())?.seq, 1);
@@ -662,7 +675,10 @@ function recordingPtySpawner(
   launches: RecordedLaunch[],
   live?: Set<string>,
   recordEnvironment = false,
-  registerOutput?: (listener: (utf8: string) => void) => void,
+  io?: {
+    readonly onOutput: (listener: (utf8: string) => void) => void;
+    readonly onInput: (utf8: string) => void;
+  },
 ): never {
   return ((file: string, args: readonly string[] | string, options: Record<string, unknown>) => {
     const argv = typeof args === "string" ? args : [...args];
@@ -671,14 +687,14 @@ function recordingPtySpawner(
     let exit: ((value: { readonly exitCode: number }) => void) | undefined;
     return {
       onData: (listener: (utf8: string) => void) => {
-        registerOutput?.(listener);
+        io?.onOutput(listener);
         return { dispose: () => undefined };
       },
       onExit: (listener: (value: { readonly exitCode: number }) => void) => {
         exit = listener;
         return { dispose: () => undefined };
       },
-      write: () => undefined,
+      write: (utf8: string) => io?.onInput(utf8),
       resize: () => undefined,
       kill: () => {
         exit?.({ exitCode: 0 });

@@ -149,8 +149,7 @@ export function TerminalView({
   const onSessionExitRef = useRef(onSessionExit);
   onSessionExitRef.current = onSessionExit;
   const exitedSessions = useRef(new Set<string>());
-  const ackSeq = useRef(new Map<string, number>()),
-    inflight = useRef(new Map<string, Promise<void>>());
+  const terminalInputs = useRef(new Map<string, ReturnType<typeof newTerminalInput>>());
   const initialised = useRef(new Set<string>());
   const [error, setError] = useState<string | null>(null),
     [confirmId, setConfirmId] = useState<string | null>(null);
@@ -238,14 +237,24 @@ export function TerminalView({
           row.sessionId,
           afterSeq,
           (value) => {
-            if (!isInitial(value) && value.kind === "exit" && !exitedSessions.current.has(row.sessionId)) {
+            const initial = isInitial(value);
+            if (initial) {
+              const previous = terminalInputs.current.get(row.sessionId);
+              // A restored tmux session keeps its id but starts a new input sequence.
+              if (
+                previous &&
+                (previous.daemonGeneration === undefined || previous.daemonGeneration === value.daemonGeneration)
+              )
+                previous.daemonGeneration = value.daemonGeneration;
+              else terminalInputs.current.set(row.sessionId, newTerminalInput(value.daemonGeneration));
+            } else if (value.kind === "exit" && !exitedSessions.current.has(row.sessionId)) {
               exitedSessions.current.add(row.sessionId);
               onSessionExitRef.current?.(row.sessionId);
             }
             setTabs((current) =>
               current.map((tab) => {
                 if (tab.sessionId !== row.sessionId) return tab;
-                if (!isInitial(value)) return reduceTerminalStream(tab, value);
+                if (!initial) return reduceTerminalStream(tab, value);
                 return applyTerminalAttachment(tab, value, t("terminal.view.replayGap"));
               }),
             );
@@ -465,17 +474,17 @@ export function TerminalView({
   );
   const send = useCallback(
     (sessionId: string, utf8: string) => {
-      const tail = inflight.current.get(sessionId) ?? Promise.resolve();
-      const next = tail
+      const input = terminalInputs.current.get(sessionId) ?? newTerminalInput();
+      terminalInputs.current.set(sessionId, input);
+      input.tail = input.tail
         .then(async () => {
-          const seq = (ackSeq.current.get(sessionId) ?? 0) + 1;
-          ackSeq.current.set(sessionId, await terminalClient.input(repoId, sessionId, seq, utf8));
+          if (terminalInputs.current.get(sessionId) !== input) return;
+          input.acceptedThrough = await terminalClient.input(repoId, sessionId, input.acceptedThrough + 1, utf8);
         })
         .catch((cause: unknown) => {
           consumeKnownError(cause);
-          setError(message(cause));
+          if (terminalInputs.current.get(sessionId) === input) setError(message(cause));
         });
-      inflight.current.set(sessionId, next);
     },
     [repoId],
   );
@@ -779,6 +788,9 @@ function isInitial(
   value: TerminalAttachInitial | import("../terminal-model.ts").TerminalStreamFrame,
 ): value is TerminalAttachInitial {
   return value.schema === "terminal-attach/v1";
+}
+function newTerminalInput(daemonGeneration?: number) {
+  return { daemonGeneration, acceptedThrough: 0, tail: Promise.resolve() };
 }
 function message(value: unknown): string {
   return value instanceof Error ? value.message : String(value);
