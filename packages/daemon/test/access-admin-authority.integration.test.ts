@@ -193,22 +193,21 @@ test("registered edges read only their current repository's member directory wit
     members: [],
   });
   for (const method of ["repo.agenda.read", "repo.works.briefs.read", "repo.workspace.scope.read"]) {
-    await assert.rejects(
-      requestDaemonJsonRpcAt(
-        running.endpoint,
-        method,
-        {
-          repo: { repoId: "repo-a" },
-          payload: {
-            scopePersonId: "repo-admin",
-            ...(method === "repo.workspace.scope.read" ? { rootTaskId: "task-cross-member" } : {}),
-          },
+    const result = await requestDaemonJsonRpcAt(
+      running.endpoint,
+      method,
+      {
+        repo: { repoId: "repo-a" },
+        payload: {
+          scopePersonId: "repo-admin",
+          ...(method === "repo.workspace.scope.read" ? { rootTaskId: "task-cross-member" } : {}),
         },
-        1_000,
-        15_000,
-      ),
-      { code: "authorization_denied" },
+      },
+      1_000,
+      15_000,
     );
+    assert.equal(result.ok, false, method);
+    assert.equal(result.code, "authorization_denied", `${method}: ${String(result.rejectionExplanation)}`);
   }
   assert.equal(existsSync(path.join(edgeUserRoot, "rbac/config.json")), false);
 

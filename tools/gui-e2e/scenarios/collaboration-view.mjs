@@ -350,7 +350,7 @@ export default {
     assert.match(detailText, /中心尚未收到此节点的构建提交/u);
     // 详情底部的读面声明渲染为人话图例,不再露出 key=value 调试串。
     const notesText = await page.getByTestId("collaboration-read-notes").innerText();
-    assert.match(notesText, /事件按任务当前租约归属节点/u, "the notes legend is humanized");
+    assert.match(notesText, /事件按 canonical 台账写入来源（event\.source）归属节点/u, "the notes legend is humanized");
     assert.doesNotMatch(notesText, /events-attribution=/u, "no raw key=value debug strings");
     // 抽屉面板会盖住右侧节点卡:交互前先收起,等退出动画结束。
     await page.getByTestId("collaboration-node-details-close").click();
