@@ -622,6 +622,10 @@ function openSqliteEventStoreInternal(
     eventIdentityAtRevision: (revision) => readEventIdentity(query, "revision", revision),
     documentHead: (documentPath, includeTerminalPreimage) =>
       readDocumentHead(query, documentPath, includeTerminalPreimage),
+    readDocumentRetirementRevision: (documentPath) => {
+      const row = query("SELECT revision FROM document_head WHERE path=? AND sha256 IS NULL", [documentPath]).at(0);
+      return row ? Number(row.revision) : null;
+    },
     directoryClaims: () => readSqliteDirectoryClaims(query),
     documentHeads: () =>
       query("SELECT path, sha256, size, node_kind FROM document_head ORDER BY path").map((row) => ({

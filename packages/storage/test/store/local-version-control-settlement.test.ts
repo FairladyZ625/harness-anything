@@ -4,7 +4,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { localGitWorktreeSettlement } from "../../src/store/local-version-control-system.ts";
+import { alignFollowerIndex, localGitWorktreeSettlement } from "../../src/store/local-version-control-system.ts";
 import { withTempStore } from "./helpers.ts";
 
 function git(repoRoot: string, ...args: readonly string[]): string {
@@ -60,8 +60,21 @@ test("a rejected owner cannot replace, delete, create directories or regress the
     const repoRoot = ledger(rootDir),
       target = path.join(repoRoot, "state.md"),
       stale = new Error("stale owner");
+    writeFileSync(target, "old");
+    git(repoRoot, "add", "state.md");
+    git(repoRoot, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "--quiet", "--message=base");
     writeFileSync(target, "successor");
     git(repoRoot, "add", "state.md");
+    git(
+      repoRoot,
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@example.invalid",
+      "commit",
+      "--quiet",
+      "--message=successor",
+    );
     const before = readFileSync(path.join(repoRoot, ".git/index")),
       withFence = () => {
         throw stale;
@@ -71,7 +84,17 @@ test("a rejected owner cannot replace, delete, create directories or regress the
         () => localGitWorktreeSettlement.deleteVisible(repoRoot, ["state.md"], { withFence }),
         () => localGitWorktreeSettlement.visible(repoRoot, [{ directory: "old-directory" }], { withFence }),
         () => localGitWorktreeSettlement.retireEmptyDirectories(repoRoot, ["empty"], withFence),
-        () => localGitWorktreeSettlement.index(repoRoot, [{ target: "state.md", body: "old" }], false, withFence),
+        () =>
+          alignFollowerIndex(
+            {
+              repoRoot,
+              authoredRef: git(repoRoot, "symbolic-ref", "HEAD"),
+              authoredPrefix: "",
+              previous: "HEAD",
+              head: "HEAD^",
+            },
+            withFence,
+          ),
       ];
     mkdirSync(path.join(repoRoot, "empty"));
     for (const operation of operations) assert.throws(operation, (error) => error === stale);

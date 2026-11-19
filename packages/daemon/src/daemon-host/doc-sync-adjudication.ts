@@ -244,6 +244,7 @@ export function scannerSubmit(input: Input): DocCandidateScan {
     source: input.binding.source,
     now: input.now(),
     worktreeRevision: input.store.followerStatus().worktree.cut?.revision ?? 0,
+    ...(input.binding.observedDocGitPaths === undefined ? {} : { observedGitPaths: input.binding.observedDocGitPaths }),
     nodeTaskMaterializationPolicy: input.nodeTaskMaterializationPolicy,
     ...(!taskScoped ? { selection: input.action.paths as string[] } : {}),
     ...(typeof input.action.taskId === "string" ? { taskId: input.action.taskId } : {}),

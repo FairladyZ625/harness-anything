@@ -12,11 +12,13 @@ import type {
 import { createDurableFollowerPublisher } from "./durable-follower-publisher.ts";
 import { resolveLedgerGitLayout, ledgerGitPath, ledgerAuthoredPath } from "./ledger-git-layout.ts";
 import {
+  alignFollowerIndex,
+  alignFollowerIndexAsync,
   localGitObjectRefStore,
   localGitObjectRefStoreAsync,
   localGitWorktreeSettlement,
-  localGitWorktreeSettlementAsync,
 } from "./local-version-control-system.ts";
+import type { FollowerIndexCut } from "./git-follower-index.ts";
 import {
   activateEmptyCanonicalGeneration,
   openSqliteEventStore,
@@ -182,6 +184,21 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
     );
   };
 
+  const unpublishedWorktreePreimage = (
+    parent: string,
+    manifestBytes: Buffer | null,
+    worktreeManifestNode: ReturnType<typeof readWorktreeManifestNode>,
+  ): string | null => {
+    if (settledWorktreeRevision !== null || !options.readMaterializationDocuments) return null;
+    const gitRevision = peekFollowerManifestRevision(manifestBytes) ?? 0,
+      diskRevision =
+        worktreeManifestNode?.mode === "100644" ? (peekFollowerManifestRevision(worktreeManifestNode.bytes) ?? 0) : 0;
+    if (gitRevision <= diskRevision) return null;
+    // A cut can already have removed a path from Git while its preimage is still on disk.
+    const previous = sqlite.gitOutboxState().publishedCommitSha ?? `${parent}^`;
+    return previous === parent ? null : previous;
+  };
+
   const planSqlitePublicationSnapshot = (inputSnapshot: {
     readonly currentLedger: ReturnType<typeof resolveLedgerGitLayout>;
     readonly parent: string;
@@ -252,8 +269,11 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
         kind: "publish" as const,
         accepted,
         verifiedRevision,
+        worktreeRevision,
+        publishedCommit: outbox.publishedCommitSha,
         closure,
         files,
+        legacy: inputSnapshot.legacy,
         snapshotBaselines,
         heldWorktreeBaseline,
         layout,
@@ -349,60 +369,94 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
     };
   };
 
-  const finishWorktreeSettlement = (inputFinish: {
-    readonly layout: ReturnType<typeof resolveHarnessLayout>;
-    readonly currentLedger: ReturnType<typeof resolveLedgerGitLayout>;
-    readonly files: readonly (PublicationWrite | PublicationDelete)[];
-    readonly baseline: ReadonlyMap<string, string>;
-    readonly commit: string;
-    readonly directories: FollowerDirectorySettlement;
-    readonly restoreMissing: boolean;
-    readonly snapshotBaselines: ReadonlyMap<string, SqliteOutboxBaseline>;
-    readonly accepted: ReturnType<typeof cut>;
-  }): MaterializationReceipt => {
-    const settled = settleFollowerWorktree(
-      inputFinish.layout,
-      inputFinish.currentLedger,
-      inputFinish.files,
-      inputFinish.baseline,
-      inputFinish.commit,
-      inputFinish.directories,
-      inputFinish.restoreMissing,
-      inputFinish.snapshotBaselines,
-      inputFinish.accepted.revision,
-    );
+  type PublishedSnapshot = Extract<ReturnType<typeof planSqlitePublicationSnapshot>, { readonly kind: "publish" }>;
+  const finishWorktreeSettlement = (
+    currentLedger: ReturnType<typeof resolveLedgerGitLayout>,
+    snapshot: PublishedSnapshot,
+    commit: string,
+    settled: ReturnType<typeof settleFollowerWorktree>,
+  ): MaterializationReceipt => {
     const skipped = new Set(settled.conflicts);
     for (const [target, settledBytes] of worktreeConflicts)
-      if (authoredNodeFingerprint(readAuthoredNode(`${inputFinish.currentLedger.rootDir}/${target}`)) === settledBytes)
+      if (authoredNodeFingerprint(readAuthoredNode(`${currentLedger.rootDir}/${target}`)) === settledBytes)
         worktreeConflicts.delete(target);
-    for (const file of inputFinish.files) {
+    for (const file of snapshot.files) {
       const target = "target" in file ? file.target : file.delete;
       if (skipped.has(target)) worktreeConflicts.set(target, settledFingerprint(file));
       else worktreeConflicts.delete(target);
     }
-    settledWorktreeRevision = inputFinish.accepted.revision;
-    recordPublishedOutbox(inputFinish.accepted.revision, inputFinish.commit, true);
+    settledWorktreeRevision = snapshot.accepted.revision;
+    recordPublishedOutbox(snapshot.accepted.revision, commit, true);
     const conflicts = [...worktreeConflicts.keys()].sort();
     follower = {
       git: follower.git,
       worktree:
         conflicts.length === 0
-          ? { status: "verified", cut: inputFinish.accepted, commitSha: inputFinish.commit, conflicts }
+          ? { status: "verified", cut: snapshot.accepted, commitSha: commit, conflicts }
           : {
               status: "pending",
-              cut: inputFinish.accepted,
-              commitSha: inputFinish.commit,
+              cut: snapshot.accepted,
+              commitSha: commit,
               reason: "authored worktree has concurrent edits",
               conflicts,
             },
     };
     return {
       status: "visible",
-      commitSha: ledgerCommitSha(options.repoId, inputFinish.commit),
+      commitSha: ledgerCommitSha(options.repoId, commit),
       settlements: settled.settlements,
-      conflicts: conflicts.map((target) => ledgerAuthoredPath(inputFinish.currentLedger, target)),
+      conflicts: conflicts.map((target) => ledgerAuthoredPath(currentLedger, target)),
     };
   };
+
+  const indexCut = (
+    currentLedger: ReturnType<typeof resolveLedgerGitLayout>,
+    currentRef: string,
+    snapshot: PublishedSnapshot,
+    parent: string,
+    commit: string,
+    tree: NonNullable<FollowerIndexCut["transition"]>["tree"],
+  ): FollowerIndexCut => ({
+    repoRoot: currentLedger.rootDir,
+    authoredRef: currentRef,
+    authoredPrefix: currentLedger.authoredPrefix,
+    head: commit,
+    previous:
+      commit !== parent
+        ? parent
+        : (snapshot.publishedCommit ?? (snapshot.verifiedRevision > snapshot.worktreeRevision ? `${parent}^` : null)),
+    ...(commit === parent ? { visibility: snapshot.files } : { transition: { files: snapshot.files, tree } }),
+    ...(snapshot.legacy.length === 0
+      ? {}
+      : { retiredLegacyPaths: new Set(snapshot.legacy.map((file) => file.delete)) }),
+    ...(settledWorktreeRevision === null
+      ? {
+          ownedDocuments: (targets) =>
+            new Set(
+              targets.filter((target) => sqlite.documentHead(ledgerAuthoredPath(currentLedger, target)) !== undefined),
+            ),
+        }
+      : {}),
+  });
+
+  const settleSnapshot = (
+    currentLedger: ReturnType<typeof resolveLedgerGitLayout>,
+    snapshot: PublishedSnapshot,
+    baseline: ReadonlyMap<string, string>,
+    commit: string,
+    restoreMissing: boolean,
+  ) =>
+    settleFollowerWorktree(
+      snapshot.layout,
+      currentLedger,
+      snapshot.files,
+      baseline,
+      commit,
+      snapshot.directories,
+      restoreMissing,
+      snapshot.snapshotBaselines,
+      snapshot.accepted.revision,
+    );
 
   const skipByNodePolicyReceipt = (restoreMissing: boolean): MaterializationReceipt | null => {
     if (options.storage?.nodeTaskMaterializationPolicy !== "none" || restoreMissing) return null;
@@ -438,6 +492,7 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
             ),
       worktreeManifestNode = readWorktreeManifestNode(currentLedger),
       legacy = settledWorktreeRevision === null ? legacyRetirements(currentLedger, null) : [],
+      diskPreimage = unpublishedWorktreePreimage(parent, manifestBytes, worktreeManifestNode),
       parentTreePaths = shouldListParentTreePaths(
         manifestBytes,
         worktreeManifestNode,
@@ -445,7 +500,12 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
         parent,
         restoreMissing,
       )
-        ? listParentTreePaths(currentLedger, currentRef, parent)
+        ? [
+            ...new Set([
+              ...listParentTreePaths(currentLedger, currentRef, parent),
+              ...(diskPreimage ? listParentTreePaths(currentLedger, currentRef, diskPreimage) : []),
+            ]),
+          ]
         : undefined,
       snapshot = planSqlitePublicationSnapshot({
         currentLedger,
@@ -459,12 +519,13 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
       });
     if (snapshot.kind !== "publish") return handleEmptyOrCurrentSnapshot(snapshot, parent, preview);
     certified = { commit: parent, revision: snapshot.verifiedRevision };
-    const baseline = mergePublicationBaseline(
-      currentLedger,
-      captureGitBaseline(currentLedger.rootDir, parent, snapshot.files),
-      snapshot.closure,
-      snapshot.heldWorktreeBaseline,
-    );
+    const gitBaseline = captureGitBaseline(currentLedger.rootDir, parent, snapshot.files),
+      baseline = mergePublicationBaseline(
+        currentLedger,
+        gitBaseline.worktree,
+        snapshot.closure,
+        snapshot.heldWorktreeBaseline,
+      );
     if (preview)
       return buildPreviewReceipt(
         currentLedger,
@@ -487,18 +548,11 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
       },
     );
     markGitCutVerified(snapshot.accepted, commit);
-    localGitWorktreeSettlement.index(currentLedger.rootDir, snapshot.files, false, options.withFollowerFence);
-    return finishWorktreeSettlement({
-      layout: snapshot.layout,
-      currentLedger,
-      files: snapshot.files,
-      baseline,
-      commit,
-      directories: snapshot.directories,
-      restoreMissing,
-      snapshotBaselines: snapshot.snapshotBaselines,
-      accepted: snapshot.accepted,
-    });
+    const index = indexCut(currentLedger, currentRef, snapshot, parent, commit, gitBaseline.tree);
+    if (commit !== parent) alignFollowerIndex(index, options.withFollowerFence);
+    const settled = settleSnapshot(currentLedger, snapshot, baseline, commit, restoreMissing);
+    if (commit === parent) alignFollowerIndex(index, options.withFollowerFence);
+    return finishWorktreeSettlement(currentLedger, snapshot, commit, settled);
   };
 
   const runFinalizeRefsAsync = async (refUpdate: {
@@ -541,23 +595,6 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
     );
   };
 
-  const runUpdateIndexAsync = async (
-    repoRoot: string,
-    files: readonly (PublicationWrite | PublicationDelete)[],
-    skipWorktree = false,
-  ): Promise<void> => {
-    if (files.length === 0) return;
-    if (options.withFollowerFenceAsync) {
-      await options.withFollowerFenceAsync(() => localGitWorktreeSettlementAsync.index(repoRoot, files, skipWorktree));
-      return;
-    }
-    if (options.withFollowerFence) {
-      localGitWorktreeSettlement.index(repoRoot, files, skipWorktree, options.withFollowerFence);
-      return;
-    }
-    await localGitWorktreeSettlementAsync.index(repoRoot, files, skipWorktree);
-  };
-
   const publishFollowerAsync = async (
     restoreMissing = false,
     preview = false,
@@ -567,7 +604,8 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
     if (skipped) return skipped;
     const currentLedger = ledger(),
       currentRef = authoredRef(),
-      parent = await localGitObjectRefStoreAsync.resolveCommit(currentLedger.rootDir, currentRef),
+      // The published ledger revision does not prove the current head of the Git branch.
+      parent = await localGitObjectRefStoreAsync.resolveBranchCommit(currentLedger.rootDir, currentRef),
       manifestBytes =
         certified?.commit === parent
           ? null
@@ -578,6 +616,7 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
             ),
       worktreeManifestNode = readWorktreeManifestNode(currentLedger),
       legacy = settledWorktreeRevision === null ? await legacyRetirementsAsync(currentLedger, null) : [],
+      diskPreimage = unpublishedWorktreePreimage(parent, manifestBytes, worktreeManifestNode),
       parentTreePaths = shouldListParentTreePaths(
         manifestBytes,
         worktreeManifestNode,
@@ -585,7 +624,12 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
         parent,
         restoreMissing,
       )
-        ? await listParentTreePathsAsync(currentLedger, currentRef, parent)
+        ? [
+            ...new Set([
+              ...(await listParentTreePathsAsync(currentLedger, currentRef, parent)),
+              ...(diskPreimage ? await listParentTreePathsAsync(currentLedger, currentRef, diskPreimage) : []),
+            ]),
+          ]
         : undefined,
       snapshot = planSqlitePublicationSnapshot({
         currentLedger,
@@ -599,12 +643,13 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
       });
     if (snapshot.kind !== "publish") return handleEmptyOrCurrentSnapshot(snapshot, parent, preview);
     certified = { commit: parent, revision: snapshot.verifiedRevision };
-    const baseline = mergePublicationBaseline(
-      currentLedger,
-      await captureGitBaselineAsync(currentLedger.rootDir, parent, snapshot.files),
-      snapshot.closure,
-      snapshot.heldWorktreeBaseline,
-    );
+    const gitBaseline = await captureGitBaselineAsync(currentLedger.rootDir, parent, snapshot.files),
+      baseline = mergePublicationBaseline(
+        currentLedger,
+        gitBaseline.worktree,
+        snapshot.closure,
+        snapshot.heldWorktreeBaseline,
+      );
     if (preview)
       return buildPreviewReceipt(
         currentLedger,
@@ -627,18 +672,13 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
       },
     );
     markGitCutVerified(snapshot.accepted, commit);
-    await runUpdateIndexAsync(currentLedger.rootDir, snapshot.files, false);
-    return finishWorktreeSettlement({
-      layout: snapshot.layout,
-      currentLedger,
-      files: snapshot.files,
-      baseline,
-      commit,
-      directories: snapshot.directories,
-      restoreMissing,
-      snapshotBaselines: snapshot.snapshotBaselines,
-      accepted: snapshot.accepted,
-    });
+    const index = indexCut(currentLedger, currentRef, snapshot, parent, commit, gitBaseline.tree);
+    if (commit !== parent)
+      await alignFollowerIndexAsync(index, options.withFollowerFence, options.withFollowerFenceAsync);
+    const settled = settleSnapshot(currentLedger, snapshot, baseline, commit, restoreMissing);
+    if (commit === parent)
+      await alignFollowerIndexAsync(index, options.withFollowerFence, options.withFollowerFenceAsync);
+    return finishWorktreeSettlement(currentLedger, snapshot, commit, settled);
   };
 
   function recordPublishedOutbox(revision: number, commitSha: string | null, clearBaselines: boolean): void {
@@ -662,6 +702,7 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
     checkpoint: () => Math.min(follower.git.cut?.revision ?? 0, follower.worktree.cut?.revision ?? 0),
     onHealthChange: options.onMaterializationHealthChange,
     onFailure: (reason) => {
+      certified = null;
       const pending = pendingFollower(reason);
       follower = {
         git:

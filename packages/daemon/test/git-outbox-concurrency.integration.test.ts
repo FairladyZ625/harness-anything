@@ -677,3 +677,123 @@ test(
     }
   },
 );
+
+test(
+  "DM-4: queued doc-submit cannot recreate a retirement from unmaterialized bytes",
+  { timeout: 60_000 },
+  async (t) => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-doc-retire-cut-")),
+      rootDir = canonicalRoot(path.join(parent, "repo"), true),
+      repoId = workspaceId("doc-retire-cut"),
+      originalPath = process.env.PATH ?? "",
+      logical = "context/retirement.md",
+      authored = path.join(rootDir, "harness", logical),
+      retireQueued = Promise.withResolvers<void>(),
+      releaseRetire = Promise.withResolvers<void>();
+    mkdirSync(rootDir);
+    initRepo(rootDir);
+    const { binDir, armFile, enteredFile, releaseFile } = pauseGitPublication(parent, rootDir, "update-index");
+    let cell: Awaited<ReturnType<typeof openRepoWriterCell>> | undefined;
+    let lock: Awaited<ReturnType<typeof acquireWorkspaceLock>> | undefined;
+    let reader: ReturnType<typeof makeTaskEventReader> | undefined;
+    try {
+      process.env.PATH = [binDir, originalPath].join(path.delimiter);
+      provisionPolicyTestRepository(repoId);
+      const fence = fixtureFence(repoId, rootDir, path.join(parent, "epochs"));
+      await settleSettingsEvent({ repoId, rootDir, writerEpochFence: fence });
+      lock = await acquireWorkspaceLock(rootDir);
+      cell = await openRepoWriterCell(
+        { repoId, rootDir, ownerId: "doc-retire-cut", defaultWriterEpochFence: fence },
+        lock,
+      );
+      const writer = cell,
+        binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
+        submit = { kind: "doc-submit", paths: [logical] } as const,
+        oldBody = "# Retired preimage\n";
+      mkdirSync(path.dirname(authored), { recursive: true });
+      writeFileSync(authored, oldBody);
+      const seeded = await writer.run(submit, binding);
+      assert.equal(seeded.outcome, "applied", JSON.stringify(seeded));
+      await waitForFixturePublication(writer, seeded.opId, binding);
+      reader = makeTaskEventReader({ repoId, rootDir });
+      const retired = withRepoCellWriteSlot(
+        async (work) => {
+          await releaseRetire.promise;
+          return await work();
+        },
+        () => writer.run({ kind: "doc-retire", paths: [logical], reason: "superseded" }, binding, t.signal),
+        retireQueued.resolve,
+      );
+      await Promise.race([retireQueued.promise, retired.then((result) => assert.fail(JSON.stringify(result)))]);
+      const submitQueued = Promise.withResolvers<void>(),
+        submitted = withRepoCellWriteSlot(
+          async (work) => {
+            await waitForArrival(() => (existsSync(enteredFile) ? true : null), watchFileArrival(enteredFile));
+            return await work();
+          },
+          () => writer.run(submit, binding, t.signal),
+          submitQueued.resolve,
+        );
+      await Promise.race([submitQueued.promise, submitted.then((result) => assert.fail(JSON.stringify(result)))]);
+      writeFileSync(armFile, "armed");
+      releaseRetire.resolve();
+      const retirement = await retired;
+      assert.equal(retirement.status, "accepted_durable", JSON.stringify(retirement));
+      const blocked = await submitted;
+      assert.equal(readFileSync(authored, "utf8"), oldBody);
+      assert.equal(blocked.code, "materialization_failed", JSON.stringify(blocked));
+      assert.match(blocked.rejectionExplanation ?? "", /retry/iu);
+      assert.equal(reader.currentCut().revision, retirement.revision);
+      assert.equal((await writer.run({ kind: "doc-show", path: logical }, binding)).code, "document_not_found");
+
+      writeFileSync(releaseFile, "release");
+      await waitForFixturePublication(writer, retirement.opId, binding);
+      assert.equal(existsSync(authored), false);
+      const absent = await writer.run(submit, binding);
+      assert.equal(absent.code, "document_not_found", JSON.stringify(absent));
+      assert.equal(reader.currentCut().revision, retirement.revision);
+      writeFileSync(authored, "# Authored after retirement\n");
+      const recreated = await writer.run(submit, binding);
+      assert.equal(recreated.status, "accepted_durable", JSON.stringify(recreated));
+    } finally {
+      releaseRetire.resolve();
+      writeFileSync(releaseFile, "release");
+      await cell?.close();
+      await reader?.drain();
+      await lock?.close();
+      process.env.PATH = originalPath;
+      closeWriterEpochFenceDescriptors();
+      rmSync(parent, { recursive: true, force: true });
+    }
+  },
+);
+
+test("doc status accepts a Git candidate inventory larger than Node's default pipe buffer", async (t) => {
+  const rootDir = canonicalRoot(mkdtempSync(path.join(tmpdir(), "ha-doc-large-status-"))),
+    repoId = workspaceId("doc-large-status"),
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  initRepo(rootDir);
+  provisionPolicyTestRepository(repoId);
+  const fence = fixtureFence(repoId, rootDir, path.join(rootDir, ".harness", "epochs"));
+  await settleSettingsEvent({ repoId, rootDir, writerEpochFence: fence });
+  const lock = await acquireWorkspaceLock(rootDir);
+  const cell = await openRepoWriterCell(
+    { repoId, rootDir, ownerId: "doc-large-status", defaultWriterEpochFence: fence },
+    lock,
+  );
+  try {
+    const oid = git(rootDir, "rev-parse", "HEAD:harness/.gitattributes"),
+      prefix = `harness/.ha-visible-fixture/${"x".repeat(132)}`,
+      index = Array.from({ length: 7_000 }, (_, i) => `100644 ${oid}\t${prefix}/row-${i}.md\0`).join("");
+    execFileSync("git", ["-C", rootDir, "update-index", "-z", "--index-info"], { input: index });
+    const status = ["-C", rootDir, "--no-optional-locks", "status", "--porcelain=v1", "-z", "--", "harness"];
+    assert.throws(() => execFileSync("git", status), { code: "ENOBUFS" });
+    const receipt = await cell.run({ kind: "doc-status", paths: [] }, binding);
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+  } finally {
+    await cell.close();
+    await lock.close();
+    closeWriterEpochFenceDescriptors();
+  }
+});

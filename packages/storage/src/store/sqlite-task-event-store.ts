@@ -47,6 +47,7 @@ export interface SqliteAppendPreparation {
 export interface SqliteCanonicalEventStore extends CanonicalEventStore {
   readonly append: (bundle: CanonicalWriteBundle, preparation?: SqliteAppendPreparation) => CanonicalEventAppendReceipt;
   readonly readCommandOutcome: (opId: string) => SqliteCommandOutcome | null;
+  readonly readDocumentRetirementRevision: SqliteEventStore["readDocumentRetirementRevision"];
   /** Drops replication-log rows below the sequence; the writer's retention call, never a reader's. */
   readonly pruneReplicationLog: (beforeSequence: number) => void;
   readonly gitOutboxState?: SqliteEventStore["gitOutboxState"];
@@ -349,6 +350,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       if (gitFollower) await gitFollower.settlePendingMaterialization(context);
     },
     readCommandOutcome: sqlite.readCommandOutcome,
+    readDocumentRetirementRevision: sqlite.readDocumentRetirementRevision,
     ledgerMetadata: sqlite.metadata,
     followerStatus: () => (gitFollower ? gitFollower.followerStatus() : outboxFallbackStatus()),
     gitOutboxState: sqlite.gitOutboxState,

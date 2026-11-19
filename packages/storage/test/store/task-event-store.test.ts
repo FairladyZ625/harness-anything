@@ -69,7 +69,7 @@ test(
     const baseline = captureGitBaseline(rootDir, "HEAD", [
       { target: "linked.md", mode: "120000", body: "destination.md" },
       { delete: "absent.md" },
-    ]);
+    ]).worktree;
     assert.match(baseline.get("linked.md")!, /^120000:/u);
     assert.equal(baseline.get("absent.md"), "missing");
   },

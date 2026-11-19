@@ -14,11 +14,13 @@ import { readNodeMaterializationDocuments, requireTaskMaterializationMetadata } 
 import { createDurableFollowerPublisher } from "../store/durable-follower-publisher.ts";
 import { ledgerAuthoredPath, ledgerGitPath, resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
 import {
+  alignFollowerIndex,
+  alignFollowerIndexAsync,
   localGitObjectRefStore,
   localGitObjectRefStoreAsync,
   localGitWorktreeSettlement,
-  localGitWorktreeSettlementAsync,
 } from "../store/local-version-control-system.ts";
+import type { FollowerIndexCut } from "../store/git-follower-index.ts";
 import { projectionManagedPath, restoreCanonicalDocumentSelection } from "../store/sqlite-task-event-materialize.ts";
 import {
   certifiedFollowerRevisionFromManifest,
@@ -199,6 +201,31 @@ export function attachPgGitFollower(context: PgGitFollowerMountContext): PgGitFo
       });
   };
 
+  const indexCut = (
+    ledger: ReturnType<typeof resolveLedgerGitLayout>,
+    authoredRef: string,
+    parent: string,
+    commit: string,
+    files: readonly (PublicationWrite | { readonly delete: string })[],
+  ): FollowerIndexCut => ({
+    repoRoot: ledger.rootDir,
+    authoredRef,
+    authoredPrefix: ledger.authoredPrefix,
+    head: commit,
+    previous: commit === parent ? git.commitSha : parent,
+    ...(commit === parent ? { visibility: files } : {}),
+    ...(git.commitSha === null
+      ? {
+          ownedDocuments: (targets) =>
+            new Set(
+              [...knownDocumentPaths(targets.map((target) => ledgerAuthoredPath(ledger, target)))].map((logical) =>
+                ledgerGitPath(ledger, logical),
+              ),
+            ),
+        }
+      : {}),
+  });
+
   const publishConfirmedFollower = (
     request?: Parameters<CanonicalEventStore["materialize"]>[0],
   ): ReturnType<CanonicalEventStore["materialize"]> => {
@@ -232,7 +259,7 @@ export function attachPgGitFollower(context: PgGitFollowerMountContext): PgGitFo
           withFence: options.withFollowerFence,
         });
       if (prepared.materializeTree)
-        localGitWorktreeSettlement.index(ledger.rootDir, files, false, options.withFollowerFence);
+        alignFollowerIndex(indexCut(ledger, authoredRef, parent, commit, files), options.withFollowerFence);
       finalizePgWorktreeManifest(ledger, commit, prepared.cut, files, prepared.materializeTree);
     }
     return buildPgReceipt(prepared.settlements, prepared.conflicts);
@@ -278,22 +305,6 @@ export function attachPgGitFollower(context: PgGitFollowerMountContext): PgGitFo
     );
   };
 
-  const runUpdateIndexAsync = async (
-    repoRoot: string,
-    files: readonly (PublicationWrite | { readonly delete: string })[],
-  ): Promise<void> => {
-    if (files.length === 0) return;
-    if (options.withFollowerFenceAsync) {
-      await options.withFollowerFenceAsync(() => localGitWorktreeSettlementAsync.index(repoRoot, files, false));
-      return;
-    }
-    if (options.withFollowerFence) {
-      localGitWorktreeSettlement.index(repoRoot, files, false, options.withFollowerFence);
-      return;
-    }
-    await localGitWorktreeSettlementAsync.index(repoRoot, files, false);
-  };
-
   const publishConfirmedFollowerAsync = async (
     request?: Parameters<CanonicalEventStore["materialize"]>[0],
   ): Promise<ReturnType<CanonicalEventStore["materialize"]>> => {
@@ -332,7 +343,12 @@ export function attachPgGitFollower(context: PgGitFollowerMountContext): PgGitFo
           killpoint: options.killpoint,
           finalizeRefs: runFinalizeRefsAsync,
         });
-      if (prepared.materializeTree) await runUpdateIndexAsync(ledger.rootDir, files);
+      if (prepared.materializeTree)
+        await alignFollowerIndexAsync(
+          indexCut(ledger, authoredRef, parent, commit, files),
+          options.withFollowerFence,
+          options.withFollowerFenceAsync,
+        );
       finalizePgWorktreeManifest(ledger, commit, prepared.cut, files, prepared.materializeTree);
     }
     return buildPgReceipt(prepared.settlements, prepared.conflicts);
