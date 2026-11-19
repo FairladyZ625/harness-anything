@@ -7,6 +7,8 @@ import { isDeterministicReplicaFailure, replicaRetryDelay } from "../../fleet-sy
 const DEFAULT_CONFIRM_TIMEOUT_MS = daemonProtocolFleetPolicy.defaultValue.fleet.replicationIdleTimeoutMs;
 export interface ReplicaSyncOptions extends Omit<FleetReplicaStreamOptions, "onApplied"> {
   readonly signal?: AbortSignal;
+  /** Daemon lifetime ends confirmation work even when an edge stream is being drained. */
+  readonly shutdownSignal?: AbortSignal;
   /**
    * Runs after acknowledged positions, outside the receiver: confirmations coalesce into at most one
    * run in flight plus one queued. The receiver never waits for it, so work that itself waits for a
@@ -178,7 +180,7 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
     activeConfirmAbort?.(error);
   };
   const confirm = (): void => {
-    if (!options.onConfirmed || options.signal?.aborted) return;
+    if (!options.onConfirmed || options.signal?.aborted || options.shutdownSignal?.aborted) return;
     if (confirming) {
       confirmAgain = true;
       return;
@@ -190,13 +192,20 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
           confirmAgain = false;
           const confirmController = new AbortController();
           activeConfirmController = confirmController;
-          let timer: ReturnType<typeof setTimeout> | undefined;
+          let timer: ReturnType<typeof setTimeout> | undefined, onShutdown: (() => void) | undefined;
           try {
             // An empty set is a durable eventless ACK; the mirror can advance its marker without rescanning.
             const changedPaths = pendingChangedPaths;
             pendingChangedPaths = new Set();
             const aborted = new Promise<never>((_resolve, reject) => {
               activeConfirmAbort = reject;
+              onShutdown = () => {
+                const reason = options.shutdownSignal?.reason ?? new Error("daemon closed");
+                confirmController.abort(reason);
+                reject(reason);
+              };
+              if (options.shutdownSignal?.aborted) onShutdown();
+              else options.shutdownSignal?.addEventListener("abort", onShutdown, { once: true });
               if (Number.isFinite(confirmTimeoutMs)) {
                 const timeoutError = new ReplicaConfirmTimeoutError(confirmTimeoutMs);
                 timer = setTimeout(
@@ -222,17 +231,19 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
             }
           } catch (error) {
             consumeKnownError(error);
-            (options.onConfirmedFailure ?? ((cause) => console.error("[fleet-replica] confirmation failed", cause)))(
-              error,
-            );
+            if (!options.shutdownSignal?.aborted)
+              (options.onConfirmedFailure ?? ((cause) => console.error("[fleet-replica] confirmation failed", cause)))(
+                error,
+              );
           } finally {
             if (timer) clearTimeout(timer);
+            if (onShutdown) options.shutdownSignal?.removeEventListener("abort", onShutdown);
             if (activeConfirmController === confirmController) {
               activeConfirmController = null;
               activeConfirmAbort = null;
             }
           }
-        } while (confirmAgain && !options.signal?.aborted);
+        } while (confirmAgain && !options.signal?.aborted && !options.shutdownSignal?.aborted);
       } finally {
         confirming = false;
       }

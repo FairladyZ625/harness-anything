@@ -154,6 +154,56 @@ test("stop joins the active confirmation and drops queued confirmations", { time
 });
 
 test(
+  "daemon shutdown cancels pending confirmation work without reporting a close failure",
+  { timeout: 120_000 },
+  async (t) => {
+    const fixture = await fleetReplicationFixture(t);
+    await seedCenterData(fixture, seededTask);
+    await fixture.openCenter();
+    const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-harden-shutdown-confirm-")),
+      streamController = new AbortController(),
+      shutdownController = new AbortController(),
+      entered = Promise.withResolvers<void>();
+    t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+    const running = runFleetReplicaSync({
+      hostname: "127.0.0.1",
+      port: fixture.centerPort(),
+      ca: fixture.cert,
+      servername: "localhost",
+      nodeId: "edge-one",
+      credential: "secret-edge-one",
+      readAccessToken: async () => "device-token-edge-one",
+      repoId: replicationRepoId,
+      viewRoot,
+      diskQuotaBytes: 64 * 1024 * 1024,
+      signal: streamController.signal,
+      shutdownSignal: shutdownController.signal,
+      confirmTimeoutMs: 60_000,
+      onConfirmed: async () => {
+        entered.resolve();
+        await new Promise<never>((_resolve, reject) =>
+          shutdownController.signal.addEventListener("abort", () => reject(new Error("daemon closed")), {
+            once: true,
+          }),
+        );
+      },
+      onConfirmedFailure: (error) => {
+        throw error;
+      },
+    });
+    t.after(async () => {
+      shutdownController.abort(new Error("daemon closed"));
+      streamController.abort();
+      await running;
+    });
+    await entered.promise;
+    shutdownController.abort(new Error("daemon closed"));
+    streamController.abort();
+    await running;
+  },
+);
+
+test(
   "stop releases a confirmation waiting for a future replica sequence before joining it",
   { timeout: 120_000 },
   async (t) => {

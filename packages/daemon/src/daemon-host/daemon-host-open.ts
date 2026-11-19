@@ -1528,6 +1528,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         viewRoot,
         diskQuotaBytes: config.quotaBytes,
         signal: controller.signal,
+        shutdownSignal: closeController.signal,
         onVersionWarning: (warning) => {
           if (warning === null) fleetVersionWarnings.delete(repo.repoId);
           else fleetVersionWarnings.set(repo.repoId, warning);
