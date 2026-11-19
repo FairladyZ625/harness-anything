@@ -92,7 +92,7 @@ test(
       assert.equal(repointMissing.status, 2);
       assert.equal(repointMissing.receipt.command, "daemon-fleet-edge-repoint");
       assert.equal(repointMissing.receipt.code, "missing_field");
-      assert.match(String(repointMissing.receipt.rejectionExplanation), /--spki-sha256/u);
+      assert.match(String(repointMissing.receipt.nextAction), /--spki-sha256/u);
       const help = spawnSync(process.execPath, [cli, "daemon", "fleet", "center", "start", "--help"], {
         encoding: "utf8",
       });
