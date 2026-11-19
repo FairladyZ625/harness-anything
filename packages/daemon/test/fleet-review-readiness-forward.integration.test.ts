@@ -126,6 +126,10 @@ test(
       mode: "remote-edge",
       createConvenienceLinks: false,
     });
+    // Registration makes the edge config visible to OIDC. Persist the fixture's center selection
+    // for that binding before exercising forward() with a session service without discovery overrides.
+    const edgeSession = await edge.host.manageRbac({ operation: "session", repoId }, localAuthFixture());
+    assert.equal(edgeSession.authenticated, true);
     git(f.repo, "commit", "--allow-empty", "-qm", "advance center default branch");
     git(f.repo, "push", "-q", "origin", branch);
     const oidc = createIdentitySession(edge.edgeUser, { fetch: f.owners.keycloak.fetch }),
