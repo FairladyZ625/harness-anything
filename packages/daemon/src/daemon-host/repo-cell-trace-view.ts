@@ -9,11 +9,16 @@ import {
   type GitHistoryOutcome,
   type GitHistoryPort,
 } from "@harness-anything/application/internal/queries/file-trace-read.ts";
-import type { QueryAction, QueryBinding, WorkQueryCell } from "@harness-anything/application/internal/queries/query-ports.ts";
+import type {
+  QueryAction,
+  QueryBinding,
+  WorkQueryCell,
+} from "@harness-anything/application/internal/queries/query-ports.ts";
 import { runGitHistoryLog } from "./process-port.ts";
 
 /** A valid repository whose HEAD has no commit yet has, truthfully, no history for any path. */
-const UNBORN_HEAD = /does not have any commits yet|bad default revision 'HEAD'|unknown revision or path not in the working tree.*HEAD/iu;
+const UNBORN_HEAD =
+  /does not have any commits yet|bad default revision 'HEAD'|unknown revision or path not in the working tree.*HEAD/iu;
 
 /**
  * Host adapter for the application GitHistoryPort (dec_9979850C7CE87C17271D78E4D1 CH1/CH3): every

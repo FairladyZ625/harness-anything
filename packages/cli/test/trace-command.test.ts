@@ -16,7 +16,10 @@ test("ha trace sends the raw path and --limit before or after it on the shared r
     assert.deepEqual(parsed.command.action, { kind: "trace", path: "packages\\daemon\\src\\x.ts", limit: 15 });
   }
   const bare = parseThinCommand(["trace", "tools/gates/cost-budget.json"]);
-  assert.equal(bare.ok && JSON.stringify(bare.command.action), JSON.stringify({ kind: "trace", path: "tools/gates/cost-budget.json" }));
+  assert.equal(
+    bare.ok && JSON.stringify(bare.command.action),
+    JSON.stringify({ kind: "trace", path: "tools/gates/cost-budget.json" }),
+  );
 });
 
 test("ha trace refuses a missing path and an out-of-range limit locally", () => {
@@ -96,12 +99,27 @@ test("ha trace renders history, redlines with whyNot, anchored facts, collisions
   });
   const rendered = renderCliReceipt(receipt(evidence));
   assert.equal(rendered.stream, "stdout");
-  assert.match(rendered.text, /=== Causal Trace: packages\/daemon\/src\/daemon-host\/fact-observed-commit\.ts \(cut: rev 180\) ===/u);
-  assert.match(rendered.text, /\[1\] Touch History \(1 commits\)\n {2}• PR #3809 \(bbbbbbbbb\) -> task_c91624aa9991224b22edd39472 \[done\]/u);
+  assert.match(
+    rendered.text,
+    /=== Causal Trace: packages\/daemon\/src\/daemon-host\/fact-observed-commit\.ts \(cut: rev 180\) ===/u,
+  );
+  assert.match(
+    rendered.text,
+    /\[1\] Touch History \(1 commits\)\n {2}• PR #3809 \(bbbbbbbbb\) -> task_c91624aa9991224b22edd39472 \[done\]/u,
+  );
   assert.match(rendered.text, /\[2\] Governing Decisions & Redlines \(1\)/u);
-  assert.match(rendered.text, /✗ RJ3 \(PROHIBITED\): Maintain static code-doc-anchors\.json\n {6}Why Not: Static anchors conflict\./u);
-  assert.match(rendered.text, /\[3\] Anchored Facts \(1\)\n {2}• F-300F8791 \[architecture\.invariant; evidence_source @ 0603933f\]/u);
-  assert.match(rendered.text, /\[4\] Active Branch Collisions \(1\)\n {2}• task_cccccccccccccccccccccccccc \[active\]/u);
+  assert.match(
+    rendered.text,
+    /✗ RJ3 \(PROHIBITED\): Maintain static code-doc-anchors\.json\n {6}Why Not: Static anchors conflict\./u,
+  );
+  assert.match(
+    rendered.text,
+    /\[3\] Anchored Facts \(1\)\n {2}• F-300F8791 \[architecture\.invariant; evidence_source @ 0603933f\]/u,
+  );
+  assert.match(
+    rendered.text,
+    /\[4\] Active Branch Collisions \(1\)\n {2}• task_cccccccccccccccccccccccccc \[active\]/u,
+  );
   assert.doesNotMatch(rendered.text, /Git history unavailable/u);
   const offline = renderCliReceipt(
     receipt({

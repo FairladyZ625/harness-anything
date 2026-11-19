@@ -49,7 +49,11 @@ test("decision_applies_module triggers normalize, refresh and delete module pref
     db.prepare("DELETE FROM decision WHERE decision_id = 'dec_B'").run();
     assert.deepEqual(prefixes(db), ["apps/web=dec_A"]);
     assert.match(
-      plan(db, "SELECT decision_id FROM decision_applies_module WHERE module_prefix IN (SELECT value FROM json_each(?))", "[]"),
+      plan(
+        db,
+        "SELECT decision_id FROM decision_applies_module WHERE module_prefix IN (SELECT value FROM json_each(?))",
+        "[]",
+      ),
       /SEARCH decision_applies_module USING (?:PRIMARY KEY|COVERING INDEX)/u,
     );
   } finally {
@@ -114,7 +118,9 @@ test("trace lookups on tasks and facts are expression-index searches, never tabl
       }),
     );
     const keys = db
-      .prepare(`SELECT ${TASK_SUBMISSION_COMMIT_SQL} AS submitted, ${TASK_EXTERNAL_COMMIT_SQL} AS external FROM task_snapshot`)
+      .prepare(
+        `SELECT ${TASK_SUBMISSION_COMMIT_SQL} AS submitted, ${TASK_EXTERNAL_COMMIT_SQL} AS external FROM task_snapshot`,
+      )
       .get();
     assert.deepEqual(
       { submitted: keys?.submitted, external: keys?.external },

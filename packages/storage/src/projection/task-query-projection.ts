@@ -297,9 +297,7 @@ export function readTaskIndexRows(
           taskClass: task.taskClass,
           packageDisposition: task.packageDisposition ?? "active",
           packagePath: row.package_path,
-          ...(query.submissionCommitShas === undefined
-            ? {}
-            : { submissionCommitShas: traceCommitKeys(snapshot) }),
+          ...(query.submissionCommitShas === undefined ? {} : { submissionCommitShas: traceCommitKeys(snapshot) }),
           updatedAt: row.updated_at,
         },
       ];

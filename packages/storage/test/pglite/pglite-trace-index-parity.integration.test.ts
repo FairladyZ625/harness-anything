@@ -74,7 +74,10 @@ pgliteIntegrationSuite("reverse code-path trace index parity", () => {
           const draft = proposal(revision, decisionId);
           append(
             compileDecisionWrite({
-              event: { ...draft, payload: { ...draft.payload, appliesTo: { modules: [...modules], productLines: [] } } },
+              event: {
+                ...draft,
+                payload: { ...draft.payload, appliesTo: { modules: [...modules], productLines: [] } },
+              },
               currentDecision: null,
               currentRelations: [],
               currentDocument: null,
@@ -88,7 +91,11 @@ pgliteIntegrationSuite("reverse code-path trace index parity", () => {
           reader.withSession((queries) => {
             for (const modulePrefixes of [TRACE_PREFIXES, ["tools/gates"], ["packages/storages"], ["missing"]]) {
               const oracle = projection.listDecisions({ modulePrefixes });
-              assert.deepEqual(queries.listDecisions({ modulePrefixes }), oracle, `modules ${modulePrefixes.join(",")}`);
+              assert.deepEqual(
+                queries.listDecisions({ modulePrefixes }),
+                oracle,
+                `modules ${modulePrefixes.join(",")}`,
+              );
             }
             assert.deepEqual(
               projection.listDecisions({ modulePrefixes: TRACE_PREFIXES }).decisions.map((row) => row.decisionId),

@@ -38,7 +38,10 @@ export type GitHistoryOutcome =
 /** Host-implemented Git reads. Each method call is exactly one child process. */
 export interface GitHistoryPort {
   /** `git log -m --first-parent --name-only` over up to MAX_TRACED_FILES paths in one process. */
-  readonly readPathHistory: (input: { readonly paths: readonly string[]; readonly maxCommits: number }) => GitHistoryOutcome;
+  readonly readPathHistory: (input: {
+    readonly paths: readonly string[];
+    readonly maxCommits: number;
+  }) => GitHistoryOutcome;
   /** Commits on local `task_*` branches not yet reachable from HEAD that touch one path. */
   readonly readBranchCollisions?: (input: { readonly path: string; readonly maxCommits: number }) => GitHistoryOutcome;
 }

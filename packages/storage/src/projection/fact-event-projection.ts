@@ -354,7 +354,8 @@ export function searchFactRowsPage(
     where.push(`${FACT_OBSERVED_COMMIT_SQL.replace("row_json", "fact.row_json")} IN (SELECT value FROM json_each(?))`);
     values.push(JSON.stringify(filters.observedCommits));
   }
-  if (filters.evidenceSourcePaths !== undefined) where.push(evidenceSourcePathClause(filters.evidenceSourcePaths, values));
+  if (filters.evidenceSourcePaths !== undefined)
+    where.push(evidenceSourcePathClause(filters.evidenceSourcePaths, values));
   const paged = filters.limit !== undefined || filters.cursor !== undefined;
   const pageLimit = filters.limit === undefined ? (paged ? 100 : null) : checkedFactPageLimit(filters.limit);
   const fetchLimit = pageLimit === null ? null : pageLimit + 1;

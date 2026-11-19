@@ -63,7 +63,13 @@ function fixture(options: { readonly revision?: (call: string) => number } = {})
       calls.push({ method: "readTaskIndex", args: query });
       const rows = [
         { taskId: TASK_A, title: "Restore observed commit", status: "done", packagePath: "tasks/a" },
-        { taskId: TASK_B, title: "Squashed fix", status: "done", packagePath: "tasks/b", submissionCommitShas: [SQUASH] },
+        {
+          taskId: TASK_B,
+          title: "Squashed fix",
+          status: "done",
+          packagePath: "tasks/b",
+          submissionCommitShas: [SQUASH],
+        },
         { taskId: TASK_C, title: "Concurrent edit", status: "active", packagePath: "tasks/c" },
       ];
       return {
@@ -78,7 +84,14 @@ function fixture(options: { readonly revision?: (call: string) => number } = {})
       return {
         ...at("readTaskRelationsByTargets"),
         rows: refs.includes(`task/${TASK_A}`)
-          ? [{ sourceRef: "decision/dec_LINEAGE/CH1", targetRef: `task/${TASK_A}`, state: "active", direction: "directed" }]
+          ? [
+              {
+                sourceRef: "decision/dec_LINEAGE/CH1",
+                targetRef: `task/${TASK_A}`,
+                state: "active",
+                direction: "directed",
+              },
+            ]
           : [],
       };
     },
@@ -117,7 +130,12 @@ function port(overrides: Partial<GitHistoryPort> = {}) {
       return {
         availability: "available",
         stdout: gitLog([
-          { sha: MERGE, parents: `${PARENT} ${"4".repeat(40)}`, subject: `Merge pull request #3809 from o/${TASK_A}`, files: [PATH] },
+          {
+            sha: MERGE,
+            parents: `${PARENT} ${"4".repeat(40)}`,
+            subject: `Merge pull request #3809 from o/${TASK_A}`,
+            files: [PATH],
+          },
           { sha: SQUASH, parents: PARENT, subject: "fix(daemon): keep observed commit (#3805)", files: [PATH] },
         ]),
       };
@@ -135,9 +153,25 @@ function port(overrides: Partial<GitHistoryPort> = {}) {
 }
 
 test("trace paths normalize to repository-relative POSIX form and reject escapes", () => {
-  assert.deepEqual(normalizeTraceTargetPath("packages\\daemon\\src\\a.ts"), { ok: true, path: "packages/daemon/src/a.ts" });
+  assert.deepEqual(normalizeTraceTargetPath("packages\\daemon\\src\\a.ts"), {
+    ok: true,
+    path: "packages/daemon/src/a.ts",
+  });
   assert.deepEqual(normalizeTraceTargetPath("  ././tools/gates/x.mjs "), { ok: true, path: "tools/gates/x.mjs" });
-  for (const raw of ["", "   ", "../outside.ts", "a/../b.ts", "/etc/passwd", "C:\\evil.ts", "c:/evil.ts", "a//b.ts", "a/./b.ts", 42, null, "a\0b"]) {
+  for (const raw of [
+    "",
+    "   ",
+    "../outside.ts",
+    "a/../b.ts",
+    "/etc/passwd",
+    "C:\\evil.ts",
+    "c:/evil.ts",
+    "a//b.ts",
+    "a/./b.ts",
+    42,
+    null,
+    "a\0b",
+  ]) {
     const result = normalizeTraceTargetPath(raw);
     assert.equal(result.ok, false, JSON.stringify(raw));
     if (!result.ok) assert.equal(result.code, "invalid_trace_path");
@@ -169,7 +203,9 @@ test("plan path extraction deduplicates, strips line anchors, skips ledger paths
 });
 
 test("parseGitHistory keeps full SHAs, PR numbers, task ids and touched files", () => {
-  const [merge, squash] = parseGitHistory(port().gitHistory.readPathHistory({ paths: [PATH], maxCommits: 2 }).stdout as string);
+  const [merge, squash] = parseGitHistory(
+    port().gitHistory.readPathHistory({ paths: [PATH], maxCommits: 2 }).stdout as string,
+  );
   assert.equal(merge?.commitSha, MERGE);
   assert.equal(merge?.prNumber, 3809);
   assert.equal(merge?.taskId, TASK_A);
@@ -181,7 +217,12 @@ test("parseGitHistory keeps full SHAs, PR numbers, task ids and touched files", 
 test("ha trace resolves tasks by merge subject and by indexed submission SHA, with redlines, facts and collisions", () => {
   const { projection, calls } = fixture(),
     { gitHistory, invocations } = port(),
-    result = traceFileCausalHistory({ projection, path: "packages\\daemon\\src\\daemon-host\\fact-observed-commit.ts", limit: "15", gitHistory });
+    result = traceFileCausalHistory({
+      projection,
+      path: "packages\\daemon\\src\\daemon-host\\fact-observed-commit.ts",
+      limit: "15",
+      gitHistory,
+    });
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.path, PATH);
@@ -202,7 +243,9 @@ test("ha trace resolves tasks by merge subject and by indexed submission SHA, wi
       ["dec_LINEAGE", "superseded", [TASK_A], null],
     ],
   );
-  assert.deepEqual(result.decisions[0]?.rejected, [{ id: "RJ1", summary: "static anchors", whyNot: "Static file anchors rot." }]);
+  assert.deepEqual(result.decisions[0]?.rejected, [
+    { id: "RJ1", summary: "static anchors", whyNot: "Static file anchors rot." },
+  ]);
   assert.deepEqual(
     result.facts.map((entry) => [entry.factId, entry.matchReason]),
     [
@@ -212,7 +255,14 @@ test("ha trace resolves tasks by merge subject and by indexed submission SHA, wi
     "archived facts never surface",
   );
   assert.deepEqual(result.activeTasks, [
-    { taskId: TASK_C, title: "Concurrent edit", status: "active", branch: TASK_C, commits: 2, matchReason: "branch_diff" },
+    {
+      taskId: TASK_C,
+      title: "Concurrent edit",
+      status: "active",
+      branch: TASK_C,
+      commits: 2,
+      matchReason: "branch_diff",
+    },
   ]);
   // Exactly two Git processes for `ha trace`: one batched history and one collision radar.
   assert.deepEqual(
@@ -271,7 +321,10 @@ test("git failures surface as structured unavailability while projection-only lo
     ["dec_MODULE", "dec_PLAIN"],
   );
   const centerCell = traceFileCausalHistory({ projection, path: PATH, gitHistory: null });
-  assert.equal(centerCell.ok && centerCell.git.availability === "unavailable" && centerCell.git.reason, "git_worktree_unavailable");
+  assert.equal(
+    centerCell.ok && centerCell.git.availability === "unavailable" && centerCell.git.reason,
+    "git_worktree_unavailable",
+  );
 });
 
 test("invalid paths and limits are rejected before any Git process or projection read", () => {
@@ -295,7 +348,10 @@ test("invalid paths and limits are rejected before any Git process or projection
 test("reads from different projection cuts fail closed", () => {
   const { projection } = fixture({ revision: (method) => (method === "searchFacts" ? 8 : 7) }),
     { gitHistory } = port();
-  assert.throws(() => traceFileCausalHistory({ projection, path: PATH, gitHistory }), /multiple event projection cuts/u);
+  assert.throws(
+    () => traceFileCausalHistory({ projection, path: PATH, gitHistory }),
+    /multiple event projection cuts/u,
+  );
 });
 
 test("passive dispatch trace batches every plan path into one Git process and dedupes the forward context", () => {

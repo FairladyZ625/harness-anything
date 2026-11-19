@@ -4,7 +4,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { parseBranchCollisions, parseGitHistory } from "@harness-anything/application/internal/queries/file-trace-read.ts";
+import {
+  parseBranchCollisions,
+  parseGitHistory,
+} from "@harness-anything/application/internal/queries/file-trace-read.ts";
 import { runGitHistoryLog, runProcessText } from "../src/daemon-host/process-port.ts";
 import { makeWorkspaceGitHistoryPort } from "../src/daemon-host/repo-cell-trace-view.ts";
 

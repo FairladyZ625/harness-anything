@@ -1,5 +1,4 @@
 import type { DatabaseSync } from "node:sqlite";
-import { queryRows } from "./rebuildable-task-projection-sql.ts";
 
 /** `appliesTo.modules` entry → repository-relative prefix: `\` to `/`, one leading `./`, no trailing `/`. */
 const moduleExpression = (value: string) => {
@@ -16,15 +15,16 @@ const refillAppliesModules = `
 /**
  * dec_9979850C7CE87C17271D78E4D1 CH2: path → governing decision lookups probe this prefix table
  * instead of decoding every decision's applies JSON. Triggers own the derivation for every writer;
- * a projection that predates the triggers is filled once, in the same DDL batch that creates them.
+ * a projection that predates the triggers is filled once before creating them inside the DDL batch.
  */
-const DECISION_APPLIES_MODULE_SQL = `
+const DECISION_APPLIES_MODULE_TABLE_SQL = `
     /* @gate-identity state-store/task.projection.decision_applies_module */ CREATE TABLE IF NOT EXISTS decision_applies_module (
       module_prefix TEXT NOT NULL,
       decision_id TEXT NOT NULL,
       PRIMARY KEY(module_prefix, decision_id)
     ) WITHOUT ROWID;
-    CREATE INDEX IF NOT EXISTS decision_applies_module_owner ON decision_applies_module(decision_id);
+    CREATE INDEX IF NOT EXISTS decision_applies_module_owner ON decision_applies_module(decision_id);`;
+const DECISION_APPLIES_MODULE_TRIGGER_SQL = `
     CREATE TRIGGER IF NOT EXISTS decision_applies_module_insert AFTER INSERT ON decision
     BEGIN${refillAppliesModules}
     END;
@@ -37,9 +37,6 @@ const DECISION_APPLIES_MODULE_SQL = `
     END;`;
 
 export function createDecisionProjectionTables(db: DatabaseSync): void {
-  const appliesModulesIndexed =
-    queryRows(db, "SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = 'decision_applies_module_insert'")
-      .length > 0;
   /* @gate-identity state-store/task.source.storage.src.projection.decision-projection-schema.sqlite-database */ db.exec(`
     /* @gate-identity state-store/task.projection.decision */ CREATE TABLE IF NOT EXISTS decision (
       decision_id TEXT PRIMARY KEY,
@@ -134,12 +131,12 @@ export function createDecisionProjectionTables(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS decision_content_pin_owner ON decision_content_pin(decision_id, workspace_revision);
     CREATE INDEX IF NOT EXISTS decision_review_event_owner
       ON decision_review_event(decision_id, workspace_revision);
-    ${DECISION_APPLIES_MODULE_SQL}
-    ${
-      appliesModulesIndexed
-        ? ""
-        : `INSERT OR IGNORE INTO decision_applies_module(module_prefix, decision_id)
-      ${appliesModuleRows("decision.decision_id", "decision, json_each(decision.applies_json, '$.modules') AS module")};`
-    }
+    ${DECISION_APPLIES_MODULE_TABLE_SQL}
+    INSERT OR IGNORE INTO decision_applies_module(module_prefix, decision_id)
+      ${appliesModuleRows(
+        "decision.decision_id",
+        "decision, json_each(decision.applies_json, '$.modules') AS module",
+      )} AND NOT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = 'decision_applies_module_insert');
+    ${DECISION_APPLIES_MODULE_TRIGGER_SQL}
   `);
 }

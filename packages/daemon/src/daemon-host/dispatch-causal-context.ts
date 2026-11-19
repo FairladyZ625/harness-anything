@@ -167,7 +167,14 @@ export function assembleTaskCausalContext(input: {
   const passive =
     input.gitHistory === undefined
       ? null
-      : readPassiveTrace(projection, taskId, input.gitHistory, decisionIds.slice(0, MAX_DECISIONS), servedFactRefs, reads);
+      : readPassiveTrace(
+          projection,
+          taskId,
+          input.gitHistory,
+          decisionIds.slice(0, MAX_DECISIONS),
+          servedFactRefs,
+          reads,
+        );
   requireSameProjectionCut("dispatch causal context", reads);
   if (
     work === null &&

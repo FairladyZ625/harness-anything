@@ -1015,19 +1015,37 @@ test("conflicting inherited restrictions remain visible in ancestor order", () =
 const TRACE_PLAN_PATH = "packages/daemon/src/daemon-host/fact-observed-commit.ts",
   TRACE_MERGE = "9".repeat(40);
 
-function tracedProjection(options: { readonly chosenText?: string; readonly whyNot?: string; readonly workTitle?: string } = {}) {
+function tracedProjection(
+  options: { readonly chosenText?: string; readonly whyNot?: string; readonly workTitle?: string } = {},
+) {
   return stub({
     readTaskIndex: (query: { taskIds?: string[] }) => ({
       ...cut(),
       rows: [
-        { taskId: "task_root", title: options.workTitle ?? "Work", taskClass: "work", parentTaskId: null, packagePath: "tasks/root" },
-        { taskId: "task_leaf", title: "Leaf", taskClass: "standard", parentTaskId: "task_root", packagePath: "tasks/leaf" },
-      ].filter((row) => query?.taskIds === undefined || query.taskIds.length === 0 || query.taskIds.includes(row.taskId)),
+        {
+          taskId: "task_root",
+          title: options.workTitle ?? "Work",
+          taskClass: "work",
+          parentTaskId: null,
+          packagePath: "tasks/root",
+        },
+        {
+          taskId: "task_leaf",
+          title: "Leaf",
+          taskClass: "standard",
+          parentTaskId: "task_root",
+          packagePath: "tasks/leaf",
+        },
+      ].filter(
+        (row) => query?.taskIds === undefined || query.taskIds.length === 0 || query.taskIds.includes(row.taskId),
+      ),
     }),
     readDocument: (docPath: string) => ({
       ...cut(),
       document: {
-        body: docPath.startsWith("tasks/leaf") ? `# Leaf\n\nEdit \`${TRACE_PLAN_PATH}\`.\n` : "# Root\n\n## Goal\n\nKeep redlines.\n",
+        body: docPath.startsWith("tasks/leaf")
+          ? `# Leaf\n\nEdit \`${TRACE_PLAN_PATH}\`.\n`
+          : "# Root\n\n## Goal\n\nKeep redlines.\n",
         workspaceRevision: 1,
         blobSha256: "b".repeat(64),
         size: 10,
@@ -1043,7 +1061,13 @@ function tracedProjection(options: { readonly chosenText?: string; readonly whyN
           question: "q",
           appliesTo: { modules: ["packages/daemon/src/"], productLines: [] },
           chosen: [{ id: "CH4", text: options.chosenText ?? "Capture HEAD at fact record time" }],
-          rejected: [{ id: "RJ3", text: "Static code-doc-anchors.json", whyNot: options.whyNot ?? "Static anchors rot & conflict." }],
+          rejected: [
+            {
+              id: "RJ3",
+              text: "Static code-doc-anchors.json",
+              whyNot: options.whyNot ?? "Static anchors rot & conflict.",
+            },
+          ],
           claims: [],
         },
       ],
@@ -1078,7 +1102,11 @@ const tracedGit = (calls: string[][]) => ({
 
 test("passive reverse trace appends redlines and anchored facts with trace-path, only when a host Git port is supplied", () => {
   const calls: string[][] = [],
-    block = assembleTaskCausalContext({ projection: tracedProjection(), taskId: "task_leaf", gitHistory: tracedGit(calls) });
+    block = assembleTaskCausalContext({
+      projection: tracedProjection(),
+      taskId: "task_leaf",
+      gitHistory: tracedGit(calls),
+    });
   assert.ok(block !== null);
   assertLineGrammar(block);
   assert.deepEqual(calls, [[TRACE_PLAN_PATH]], "one batched Git history read per dispatch");
@@ -1090,16 +1118,26 @@ test("passive reverse trace appends redlines and anchored facts with trace-path,
     block,
     /<governs ref="decision\/dec_REDLINE" trace-path="[^"]+" title="Observed commit anchors">Capture HEAD at fact record time<\/governs>/u,
   );
-  assert.match(block, /<anchored ref="fact\/F-0000BEEF" trace-path="[^"]+">observedCommit is captured on record \(src:[^)]+\)<\/anchored>/u);
+  assert.match(
+    block,
+    /<anchored ref="fact\/F-0000BEEF" trace-path="[^"]+">observedCommit is captured on record \(src:[^)]+\)<\/anchored>/u,
+  );
   assert.match(block, /<refs>task\/task_root decision\/dec_REDLINE fact\/F-0000BEEF<\/refs>/u);
   const redline = block.indexOf("<redline"),
     governs = block.indexOf("<governs");
-  assert.ok(block.indexOf("<work") < redline && redline < governs, "forward lineage first, redline before its decision line");
+  assert.ok(
+    block.indexOf("<work") < redline && redline < governs,
+    "forward lineage first, redline before its decision line",
+  );
   const handoff = assembleTaskCausalContext({ projection: tracedProjection(), taskId: "task_leaf" });
   assert.ok(handoff !== null);
   assert.doesNotMatch(handoff, /trace-path=/u, "the handoff store passes no port and stays Git-free");
   const center = assembleTaskCausalContext({ projection: tracedProjection(), taskId: "task_leaf", gitHistory: null });
-  assert.match(center ?? "", /<redline ref="decision\/dec_REDLINE\/RJ3"/u, "module-scoped redlines need no Git worktree");
+  assert.match(
+    center ?? "",
+    /<redline ref="decision\/dec_REDLINE\/RJ3"/u,
+    "module-scoped redlines need no Git worktree",
+  );
 });
 
 test("an oversized reverse trace is shed whole under the 8192-byte cap and never splits a UTF-8 character", () => {
@@ -1117,7 +1155,11 @@ test("an oversized reverse trace is shed whole under the 8192-byte cap and never
   const bytes = backgroundByteLength(block);
   assert.ok(bytes <= CAUSAL_CONTEXT_MAX_BYTES, `background is ${bytes} bytes`);
   assert.match(block, /^<task-context truncated="yes">/u);
-  assert.match(block, /<omitted>[^<]*decision\/dec_REDLINE[^<]*<\/omitted>/u, "the shed redline is named, not silently lost");
+  assert.match(
+    block,
+    /<omitted>[^<]*decision\/dec_REDLINE[^<]*<\/omitted>/u,
+    "the shed redline is named, not silently lost",
+  );
   const background = block.slice(0, block.indexOf("</task-context>") + "</task-context>".length);
   assert.equal(Buffer.from(background, "utf8").toString("utf8"), background);
   assert.doesNotMatch(background, /\uFFFD/u, "no half character");
