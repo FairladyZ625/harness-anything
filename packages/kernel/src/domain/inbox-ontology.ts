@@ -28,6 +28,8 @@ export const inboxPolicies = [
       inboxSource("INBOX_TEXT_LIMIT:eb151f03d98158007b488536b00f7417"),
       inboxSource("INBOX_SUMMARY_LIMIT:e6e6093fc4dce229ecd75abcef9891e3"),
       inboxSource("enqueuedIssues:b52c34440b99f9ecbadad1ba19b4a5a1"),
+      inboxSource("enqueuedIssues.consumerKind:610cfd0bf7fd352a34dc7f040d91a4c1"),
+      inboxSource("reduceInboxItem.item.consumerKind:19b8d7be33270534fffa4e6841d73c43"),
     ].map((candidateId) => ({ candidateId, route: "readInbox" })),
   },
   {
@@ -62,6 +64,7 @@ export const inboxPolicies = [
     sources: [
       inboxSource("reduceInboxItem.item.status:d91a350dc6eb2c6f420694fcd95c75f1"),
       inboxSource("enqueuedIssues:1fea5df76694395d7b799c3b236d1508"),
+      inboxSource("enqueuedIssues.consumerKind:610cfd0bf7fd352a34dc7f040d91a4c1"),
     ].map((candidateId) => ({ candidateId, route: "readInbox" })),
   },
 ] as const satisfies readonly OntologyPolicyDeclaration[];

@@ -146,6 +146,8 @@ async function readQueue(
 ): Promise<{ readonly items: readonly InboxItem[]; readonly nextCursor: string | null }> {
   if (!(inboxQueueStatuses as readonly string[]).includes(query.status))
     throw new Error(`inbox queue status is not a queue: ${String(query.status)}`);
+  if (query.consumerKind === "interactive_watch" && (typeof query.inboxId !== "string" || query.inboxId.length === 0))
+    throw new Error("interactive watch Inbox reads require a targeted inboxId");
   const limit = inboxPageLimit(query.limit),
     consumerPrefix = `${query.consumerKind}:${query.status}:`,
     values: unknown[] = [
