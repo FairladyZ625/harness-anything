@@ -524,7 +524,7 @@ test("interleaved Programs bind through their own query owner on shared source f
   left.releaseQueries();
 });
 
-test("equal recursion keys do not identify deeply captured source proofs", () => {
+test("separate descriptor evaluators preserve deeply captured source proofs with equal recursion keys", () => {
   const file = "packages/daemon/src/nested.ts";
   const { rootDir } = makeRepo({
     [file]: `
@@ -538,7 +538,6 @@ function enter(callable) { if (true) callable(); }`,
   try {
     const [record, idle, inner, outer, entry] = graph.modules.get(file).sourceFile.statements;
     const site = sourceSite(graph, record.body.statements[0].expression);
-    const evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true });
     const bind = (fn, expression, env) => graph.internEnv([[fn.parameters[0], { expression, env }]]);
     const envs = [idle, record, idle].map((implementation) => {
       const captured = bind(inner, implementation.name, EMPTY_ENV);
@@ -548,9 +547,7 @@ function enter(callable) { if (true) callable(); }`,
     assert.equal(sourceFrameKey(graph, entry, envs[0]), sourceFrameKey(graph, entry, envs[1]));
     assert.notEqual(envs[0], envs[1]);
     assert.deepEqual(
-      envs.map((env) =>
-        processSourceSites(graph, entry, { evaluator, env, targets: [site], targetOnly: true }).has(site),
-      ),
+      envs.map((env) => processSourceSites(graph, entry, { env, targets: [site], targetOnly: true }).has(site)),
       [false, true, false],
     );
   } finally {
