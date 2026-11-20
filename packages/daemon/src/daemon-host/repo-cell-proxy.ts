@@ -287,6 +287,15 @@ export async function openRepoCellProxy(
       return supervisor.bootstrapReceipt() as RepoCell["bootstrapReceipt"];
     },
     run,
+    recordReviewDispatchFailure: (taskId, failure, binding) =>
+      run(
+        {
+          kind: "task-amend",
+          taskId,
+          patches: [{ field: "reviewDispatchFailure", value: JSON.stringify(failure) }],
+        },
+        binding,
+      ),
     presetRun: (action, binding) => supervisor.request("presetRun", { action }, binding),
     spawnRuntime: (payload, binding) => supervisor.request("spawnRuntime", payload, binding),
     handoffRuntime: (payload, binding) => supervisor.request("handoffRuntime", payload, binding),
