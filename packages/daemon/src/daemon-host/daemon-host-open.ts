@@ -652,14 +652,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   ): Promise<void> {
     const cell = centerReviewTarget(candidate),
       binding = await hostBinding(cell.status().rootDir, { transportKind: "unix-socket" }, null, candidate.repoId),
-      receipt = await cell.lifecycleAction(
-        {
-          kind: "task-amend",
-          taskId: candidate.taskId,
-          patches: [{ field: "reviewDispatchFailure", value: JSON.stringify(failure) }],
-        },
-        binding,
-      );
+      receipt = await cell.recordReviewDispatchFailure(candidate.taskId, failure, binding);
     if (!["applied", "no_changes"].includes(String(receipt.outcome)))
       throw Object.assign(new Error(`The Center rejected review-dispatch state for task ${candidate.taskId}.`), {
         code: typeof receipt.code === "string" ? receipt.code : "review_dispatch_state_rejected",

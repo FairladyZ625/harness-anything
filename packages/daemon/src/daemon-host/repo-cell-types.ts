@@ -22,6 +22,7 @@ import type {
   RepositorySettingsV1,
   SettingsV1,
   TaskProjection,
+  TaskReviewDispatchFailureV1,
   assertCurrentWriter,
 } from "@harness-anything/kernel";
 import type { PresetRunReceiptV1, createPresetProcessService } from "@harness-anything/preset";
@@ -385,6 +386,11 @@ export interface RepoCell {
     signal?: AbortSignal,
     onExecutionStart?: () => void,
     queueObservation?: RepoCellQueueObservation,
+  ) => Promise<WriteReceipt | SquadControlResult>;
+  readonly recordReviewDispatchFailure: (
+    taskId: string,
+    failure: TaskReviewDispatchFailureV1 | null,
+    binding: RepoCellBinding,
   ) => Promise<WriteReceipt | SquadControlResult>;
   readonly presetRun: (
     action: RepoTaskAction,

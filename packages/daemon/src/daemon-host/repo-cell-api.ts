@@ -1221,6 +1221,15 @@ export function createRepoCellApi(
       scheduleOccurrenceSettlementOwner(context.projection, dispatchId),
     hasBuiltinExecutor: async (claimFence) => builtinRuns.has(claimFence),
     run: runCommand,
+    recordReviewDispatchFailure: (taskId, failure, binding) =>
+      runCommand(
+        {
+          kind: "task-amend",
+          taskId,
+          patches: [{ field: "reviewDispatchFailure", value: JSON.stringify(failure) }],
+        },
+        binding,
+      ),
     presetRun,
     spawnRuntime,
     cancelRuntime,
