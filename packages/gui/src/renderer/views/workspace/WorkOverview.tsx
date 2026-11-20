@@ -198,8 +198,7 @@ export function WorkOverview({
           </ActionRow>
         ))}
         {lanes.consents.map((item) => {
-          const task = submitted.find(({ taskId }) => taskId === item.taskId) ?? null,
-            approved = task?.reviews?.filter((review) => review.verdict === "approved").at(-1);
+          const task = submitted.find(({ taskId }) => taskId === item.taskId) ?? null;
           return (
             <ActionRow
               key={`${item.taskId}:consent`}
@@ -211,8 +210,8 @@ export function WorkOverview({
             >
               <button
                 type="button"
-                disabled={!task || !approved || !onConsent}
-                onClick={() => task && approved && onConsent?.(task, approved.reviewId)}
+                disabled={!task || !onConsent}
+                onClick={() => task && onConsent?.(task, item.reviewId)}
                 className={`${actionButton} border-status-submitted/45 bg-status-submitted/15 text-status-submitted`}
               >
                 {t("views.workspace.hero.consent")}

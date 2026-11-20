@@ -11,9 +11,11 @@ import {
   type TaskProjection,
 } from "@harness-anything/kernel";
 import type { CompletionGateWitnessV1 } from "@harness-anything/kernel/internal/domain/completion-gate-witness.ts";
+import type { ReviewV1 } from "@harness-anything/kernel/internal/domain/review.ts";
 import { personalPinsFromNewest } from "@harness-anything/kernel/internal/domain/entity-pin-event.ts";
 import {
   describeSubmittedCloseoutAttention,
+  projectTaskCloseoutActions,
   readAttestationPool,
   readCollaboratorAgenda,
   readCollaboratorArtifacts,
@@ -526,6 +528,20 @@ test("attestation candidates project the actual witness on current active cuts",
     page = { limit: 5, cursor: null, nextCursor: "next" };
   assert.equal(needsPerson.closeoutAssessment.gates[0]?.status, "missing");
   assert.equal(override.closeoutAssessment.gates[0]?.status, "missing");
+  const project = (row: typeof needsPerson) => ({
+    ...row,
+    closeoutAssessment: projectTaskCloseoutActions(row.snapshot, row.snapshotAvailability, row.closeoutAssessment),
+  });
+  assert.equal(
+    project(candidate("denied", "active", "fail", false)).closeoutAssessment.gates[0]?.attestation,
+    undefined,
+  );
+  assert.equal(project(candidate("old", "done", "fail", true)).closeoutAssessment.gates[0]?.attestation, undefined);
+  const ambiguous = {
+    ...needsPerson.snapshot,
+    executions: [...needsPerson.snapshot.executions, ...override.snapshot.executions],
+  };
+  assert.equal(project({ ...needsPerson, snapshot: ambiguous }).closeoutAssessment.gates[0]?.attestation, undefined);
   const result = readAttestationPool({
     page,
     rows: [
@@ -535,7 +551,7 @@ test("attestation candidates project the actual witness on current active cuts",
       candidate("old", "done", "fail", true),
       candidate("submitted", "submitted", "fail", false),
       candidate("in-review", "in_review", "fail", false),
-    ],
+    ].map(project),
   });
   assert.equal(result.page, page);
   assert.deepEqual(
@@ -545,6 +561,40 @@ test("attestation candidates project the actual witness on current active cuts",
   assert.deepEqual(
     result.rows.slice(0, 2).map(({ closeoutAssessment }) => closeoutAssessment.gates[0]?.status),
     ["signoff_missing", "failed"],
+  );
+  assert.deepEqual(
+    result.rows.slice(0, 2).map(({ closeoutAssessment }) => closeoutAssessment.gates[0]?.attestation),
+    [
+      { mode: "approve", adapterId: "local-command", executionId: "execution-needs-person" },
+      { mode: "override", adapterId: "local-command", executionId: "execution-override" },
+    ],
+  );
+
+  const reviewCut = candidate("consent", "in_review", "pass", false),
+    execution = { ...reviewCut.snapshot.executions[0]!, submittedAt: first },
+    currentReview: ReviewV1 = {
+      schema: "review/v1",
+      taskId: "consent",
+      verdict: "approved",
+      reviewId: "review-current",
+      executionId: execution.executionId,
+      iteration: execution.iteration,
+      commitSha: execution.submission!.commitSha,
+      reviewedAt: second,
+      actor: actor(alice),
+      capabilityRef: "reviewer@1",
+      reason: "Approved in the fixture.",
+      evidenceChecked: [],
+      contentDigest: `sha256:${"a".repeat(64)}`,
+      submissionDigest: submissionDigest(execution.submission!),
+    },
+    oldReview = { ...currentReview, reviewId: "review-old", executionId: "execution-old" },
+    snapshot = { ...reviewCut.snapshot, executions: [execution], reviews: [currentReview, oldReview] },
+    assessment = closeoutReadiness(snapshot, reviewCut.snapshotAvailability);
+  assert.equal(assessment.blocker, "consent");
+  assert.equal(
+    projectTaskCloseoutActions(snapshot, reviewCut.snapshotAvailability, assessment).consentReviewId,
+    currentReview.reviewId,
   );
 });
 

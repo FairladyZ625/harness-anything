@@ -299,7 +299,7 @@ describe("terminal renderer control", () => {
     const rows = [
       { sessionId: "old", status: "running", attachable: true },
       { sessionId: "gone", status: "exited", attachable: false },
-      { sessionId: "restored", status: "running", attachable: true },
+      { sessionId: "restored", status: "unknown", attachable: true },
     ];
     expect(mostRecentAttachableTerminal(rows)?.sessionId).toBe("restored");
     expect(mostRecentAttachableTerminal(rows.map((row) => ({ ...row, attachable: false })))).toBeNull();

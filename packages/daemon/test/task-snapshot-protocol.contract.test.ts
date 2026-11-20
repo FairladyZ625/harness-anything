@@ -85,6 +85,7 @@ const row = {
     { id: "submit", available: false, reason: "unknown" },
     { id: "review", available: false, reason: "unknown" },
     { id: "complete", available: false, reason: "unknown" },
+    { id: "archive", available: false, reason: "unknown" },
   ],
   phase: { index: null, reason: "phase_unresolved", steps: ["planned", "active", "submitted", "in_review", "done"] },
   risk: { flagged: true },
@@ -197,6 +198,32 @@ test("retired finding fields are rejected by the closed closeout assessment cont
 
 test("task snapshot protocol accepts audited gate witnesses", () => {
   assert.deepEqual(validateDaemonTaskSnapshotList(list), []);
+});
+
+test("task snapshot protocol carries closeout capabilities with a closed shape", () => {
+  // dec_89D06D7360CBEC09795F7B12EC/CH3 keeps the GUI on the projected action targets.
+  const capability = { mode: "approve", adapterId: "manual-attest", executionId: "execution-repoint" },
+    gate = { gateId: "manual", status: "missing", ok: false, attestation: capability },
+    assessment = {
+      readiness: "incomplete",
+      blocker: "consent",
+      executionId: "execution-repoint",
+      consentReviewId: "review-current",
+      gates: [gate],
+    },
+    validate = (closeoutAssessment: unknown) =>
+      validateDaemonTaskSnapshotList({ ...list, rows: [{ ...row, closeoutAssessment }] });
+  assert.deepEqual(validate(assessment), []);
+  for (const changed of [
+    { ...assessment, consentReviewId: "" },
+    { ...assessment, executionId: undefined },
+    { ...assessment, blocker: "execution" },
+    { ...assessment, gates: [{ ...gate, status: "passed", ok: true }] },
+    { ...assessment, gates: [{ ...gate, attestation: { ...capability, mode: "pass" } }] },
+    { ...assessment, gates: [{ ...gate, attestation: { ...capability, executionId: "" } }] },
+    { ...assessment, gates: [{ ...gate, attestation: { ...capability, extra: true } }] },
+  ])
+    assert.notDeepEqual(validate(changed), []);
 });
 
 test("task snapshot protocol accepts historical reviews without findings and validates new review arrays", () => {

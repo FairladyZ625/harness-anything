@@ -5749,6 +5749,30 @@
     },
     "sources": [
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/host-environment-io.ts#writeHostEnvironmentFile:5aaa157fa2d3b319d38f729c5da71f4c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.writeFile"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/host-environment-io.ts#writeHostEnvironmentFile:c9fa86afc112c9fd8abc25963cee8369",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/host-environment-io.ts#createHostScratchDirectory.close:73928a4a1ca47a7e4d7a178459b23b56",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-lock.ts#releaseWriterLockFile:03ea1db88e94424b2363882862d93f66",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-instance-selection.ts#createRuntimeInstanceDispatchState.deactivate:09fe6f9969c5b6e690a47d9ac2fb188a",
         "route": "daemon-local-state",
         "role": "support"
@@ -8048,12 +8072,6 @@
         "port": "packages/daemon/src/daemon-host/repo-cell-command-run.ts#makeRepoCellCommandRunner.run"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-command-witness.ts#collectCommandWitness:518cd50c995fbd3b7439ee72129b9edf",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-command.ts#withServerMeta.eventId:5e8932d5c3cf1264c7612c5743388ea6",
         "route": "daemon-local-state",
         "role": "support"
@@ -8092,18 +8110,6 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-lock.ts#acquireWorkspaceLock:40cd7c19cc5ce15809235b9b48edbbf2:2",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-lock.ts#acquireWorkspaceLock.close:40cd7c19cc5ce15809235b9b48edbbf2",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-open.ts#openRepoWriterCell.runtimeStream.publish.event:92a3a573a762a2333f765a67fb7ea700",
@@ -8389,18 +8395,6 @@
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/worktree-setup.ts#runWorktreeSetup:61281e14453f8ca854c046dcbe3e234b",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/worktree-setup.ts#runWorktreeSetup:920128437d8e33f5273386243858ad52",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/worktree-setup.ts#cleanupWorktreeSetup:e91e535ebf85abcb7a8e4c6db27aadfe",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
@@ -13440,12 +13434,6 @@
         "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.MessagePort.on"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet/walreceiver.ts#writeTransferState:99c99a58a7da7a823798323eaa27f47d",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.writeFile"
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet/walreceiver.ts#clearStagedSnapshots:8140ef33989aeaa09cbc19985d9b6358",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -13492,12 +13480,6 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet/center-listener.ts#listenFleetTls.onReplicationStart.source.backup:48e37d3543fe10bb12e76cad7c8a9ad3",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
       },
       {
         "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.externalUrl.open:d0a0697684a7c606a6f301cfb1a82bff",
@@ -14740,7 +14722,7 @@
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/AwaitsAnswerPanel.tsx#AnswerForm:47858823f94f6d0cc4b96e1e63f88f20",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/AwaitsAnswerPanel.tsx#AnswerForm:58d16e0be1b746128bb838b84e1a5fe9",
         "route": "relation.unrelate",
         "role": "client",
         "port": "packages/gui/src/renderer/awaits-answer.ts#useAwaitsAnswer.submit"
@@ -15794,13 +15776,13 @@
         "port": "packages/gui/src/renderer/views/AgentSquadView.tsx#AgentSquadView.dispatch"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/AwaitsAnswerPanel.tsx#AnswerForm:3b517f68afc7d3972ed9aff33d781e4e",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/AwaitsAnswerPanel.tsx#AnswerForm:1289f8936c574ab69fba9022acf0a53b",
         "route": "agentRuntime.spawn",
         "role": "client",
         "port": "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#AgendaContinuation.run"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/AwaitsAnswerPanel.tsx#AnswerForm:3b517f68afc7d3972ed9aff33d781e4e:2",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/AwaitsAnswerPanel.tsx#AnswerForm:1289f8936c574ab69fba9022acf0a53b:2",
         "route": "agentRuntime.spawn",
         "role": "client",
         "port": "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#AgendaContinuation.run"
@@ -16492,11 +16474,6 @@
         "role": "support"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/migration-import-oracle-rebuild.ts#createMigrationPlanningWorkspace.close:261cebc1e21b04320c714f73b90a2613",
-        "route": "migrate-import",
-        "role": "effect"
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/migration-import-oracle-rebuild.ts#createMigrationPlanningWorkspace:d76c6782e1fa06539620c15bc31170ca",
         "route": "migrate-import",
         "role": "effect"
@@ -16505,11 +16482,6 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/migration-import-oracle-rebuild.ts#inspectMigrationSourceEvents:822c868439e35cb32b61d3696351ba1d",
         "route": "migrate-import",
         "role": "support"
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/migration-import-oracle-rebuild.ts#rebuildEventOracle:518cd50c995fbd3b7439ee72129b9edf",
-        "route": "migrate-import",
-        "role": "effect"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/migration-import-oracle-rebuild.ts#removeAuthored:d3f80696c35ed76fe4e5cca8c63ae2be",

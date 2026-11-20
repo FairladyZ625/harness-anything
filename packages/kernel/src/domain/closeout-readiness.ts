@@ -25,6 +25,11 @@ export interface CloseoutGateResult {
   readonly status: CloseoutGateStatus;
   readonly ok: boolean | null;
   readonly detail?: string;
+  readonly attestation?: {
+    readonly mode: "approve" | "override";
+    readonly adapterId: string;
+    readonly executionId: string;
+  };
 }
 export type CloseoutBlocker =
   | "execution"
@@ -38,6 +43,7 @@ export interface CloseoutAssessment {
   readonly readiness: CloseoutReadiness;
   readonly executionId?: string;
   readonly blocker?: CloseoutBlocker;
+  readonly consentReviewId?: string;
   readonly gates: readonly CloseoutGateResult[];
 }
 export interface CloseoutProjectionAvailability {

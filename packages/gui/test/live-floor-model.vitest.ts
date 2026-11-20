@@ -445,6 +445,7 @@ describe("live floor model", () => {
         task({
           taskId: "task-consent",
           closeoutBlocker: "consent",
+          consentTarget: { reviewId: "review-current", executionId: "exe-current" },
           gates: [
             { name: "g1", ok: true, status: "pass" },
             { name: "g2", ok: true, status: "pass" },

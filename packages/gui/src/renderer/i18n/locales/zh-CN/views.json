@@ -2218,6 +2218,7 @@
   "views.settingsView.retryLocalFiles": "重试物化",
   "views.agenda.answerRecorded": "答复已落库 · ",
   "views.agenda.wakeFailed": "续跑派工失败",
+  "views.agenda.wakeTargetUnavailable": "此任务当前没有可用的派工目标。",
   "views.agenda.waking": "派工续跑中",
   "views.agenda.wakeStarted": "新会话已启动",
   "views.agenda.wakePending": "派工回执待确认",

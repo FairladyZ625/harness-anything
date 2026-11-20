@@ -35,8 +35,10 @@ function adaptProjectionRow(
     // 签发总池按 status 区分 failed/missing(ok 三态压平了这一层),原样透传。
     status: gate.status,
     ...(gate.detail ? { detail: gate.detail } : {}),
+    ...(gate.attestation ? { attestation: gate.attestation } : {}),
   }));
   const blocking = row.blockingAssessment;
+  const { consentReviewId, executionId: closeoutExecutionId } = row.closeoutAssessment;
   const coordinationStatus = row.coordinationStatus;
   return {
     taskId: row.taskId,
@@ -102,6 +104,9 @@ function adaptProjectionRow(
     lastKnownAt: row.updatedAt,
     gates,
     ...(row.closeoutAssessment.blocker ? { closeoutBlocker: row.closeoutAssessment.blocker } : {}),
+    ...(consentReviewId && closeoutExecutionId
+      ? { consentTarget: { reviewId: consentReviewId, executionId: closeoutExecutionId } }
+      : {}),
     // undefined(旧 daemon 未投影)与 null(daemon 判不在流水线)是两个事实,原样透传:
     // 折叠成同一个值会让消费方把「旧构建」当「daemon 已判」走错分支。
     deliveryStage: row.deliveryStage,

@@ -41,7 +41,7 @@ export const completionGateOverrideJudgment = {
   explain: "Offer override remediation only for a declared non-manual failed/missing gate.",
   consumers: [
     "packages/kernel/src/domain/completion-readiness.ts",
-    "packages/gui/src/renderer/model/attestation-pool.ts",
+    "packages/application/src/queries/collaborator-reads.ts",
   ],
   sources: [
     {

@@ -1,6 +1,7 @@
 import { readTodos, readViewerTodos } from "@harness-anything/application/internal/queries/todo-read.ts";
 import {
   describeSubmittedCloseoutAttention,
+  projectTaskCloseoutActions,
   readCollaboratorAgenda,
   readCollaboratorTaskPage,
   readAttestationPool,
@@ -444,7 +445,11 @@ export function makeTaskQueryReadModel(input: {
           coordinationStatus = task
             ? workspaceTaskStatus({ status: task.status, blockingState: blockingAssessment.state })
             : ("unknown" as const),
-          closeoutAssessment = closeout(snapshot, snapshotAvailability, undefined, undefined, rootDir),
+          closeoutAssessment = projectTaskCloseoutActions(
+            snapshot,
+            snapshotAvailability,
+            closeout(snapshot, snapshotAvailability, undefined, undefined, rootDir),
+          ),
           deliveryStage = taskDeliveryStage({
             status: coordinationStatus,
             snapshot,
@@ -1034,6 +1039,12 @@ export function makeTaskQueryReadModel(input: {
         // 终态源的提问已随源实体收口(任务做完/取消、决策已裁决),不再等读者处理。
         if (request === null || relation === null || sourceIsTerminal(edge.sourceRef)) return [];
         const source = resolveEntitySummary(edge.sourceRef);
+        // A fresh continuation is offered for the implementation phase. Resume
+        // targets come from the separate dispatch projection on the selected row.
+        const wakeTaskId =
+          source.kind === "task" && ["planned", "active", "blocked"].includes(source.status)
+            ? edge.sourceRef.slice("task/".length)
+            : undefined;
         return [
           {
             relationId: edge.relationId,
@@ -1041,6 +1052,7 @@ export function makeTaskQueryReadModel(input: {
             sourceRef: edge.sourceRef,
             title: source.title,
             status: source.status,
+            ...(wakeTaskId ? { wakeTaskId } : {}),
             personId: edge.targetRef.slice("person/".length),
             ...request,
             askedAt: relation.entity.createdAt,

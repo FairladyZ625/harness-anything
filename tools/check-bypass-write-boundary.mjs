@@ -4,6 +4,7 @@ import { stateResidencyBaseline } from "./gate-allowlists/state-residency-baseli
 import { NON_STATE_IO_CATEGORY, nonStateIoDeclarations } from "./gate-allowlists/non-state-io.mjs";
 import { loadStateAuthoritySnapshot } from "./gates/ontology-gate-lib.mjs";
 import { scanBypassWriteCalls } from "./gates/state-residency.mjs";
+import { hostEnvironmentFiles, hostEnvironmentIoPorts } from "../packages/kernel/src/domain/host-environment-io.ts";
 
 export { scanBypassWriteCalls };
 
@@ -11,6 +12,7 @@ export function checkBypassWriteBoundary(root = process.cwd(), options = {}) {
   const contracts = options.contracts ?? loadStateAuthoritySnapshot(root).stateStores;
   const baseline = options.baseline ?? stateResidencyBaseline;
   const environmentIoDeclarations = options.nonStateIoDeclarations ?? nonStateIoDeclarations;
+  const environmentPorts = options.hostEnvironmentIoPorts ?? hostEnvironmentIoPorts;
   const stores = contracts.flatMap(({ kind, stateStores }) =>
     (stateStores ?? []).map((store) => ({ ...store, owner: kind })),
   );
@@ -30,6 +32,15 @@ export function checkBypassWriteBoundary(root = process.cwd(), options = {}) {
   const seenNonState = new Map();
   const seenStores = new Set();
   const seenStoreTables = new Set();
+  const seenPortEffects = new Set();
+  const portEffects = new Map();
+  for (const port of environmentPorts) {
+    for (const api of port.effects) {
+      const key = `${port.module}#${port.scope}#${api}`;
+      if (portEffects.has(key)) fail(key, "duplicate Ontology host I/O effect");
+      portEffects.set(key, port);
+    }
+  }
   const nonStateById = new Map();
   for (const declaration of environmentIoDeclarations) {
     if (nonStateById.has(declaration.id)) fail(declaration.id, "duplicate non-state I/O declaration");
@@ -46,9 +57,37 @@ export function checkBypassWriteBoundary(root = process.cwd(), options = {}) {
     // takes precedence, so a wrong marker cannot silently fall back to that name.
     const owners = finding.identity ? [byId.get(finding.identity)].filter(Boolean) : [];
     const store = owners.length === 1 ? owners[0] : undefined;
+    const portKey = `${finding.path}#${finding.portScope}#${finding.api}`,
+      port = portEffects.get(portKey);
     let message;
     let allowed = false;
-    if (finding.nonStateIdentity) {
+    if (finding.kind === "host-file") {
+      allowed =
+        finding.hostFile !== null &&
+        Object.hasOwn(hostEnvironmentFiles, finding.hostFile) &&
+        hostEnvironmentFiles[finding.hostFile].owner === finding.path &&
+        !finding.nonStateIdentity &&
+        !finding.identity;
+      message = allowed
+        ? `declared host checkpoint ${finding.hostFile}`
+        : "host checkpoint is not owned by this module";
+    } else if (port) {
+      if (
+        seenPortEffects.has(portKey) ||
+        finding.kind !== "write" ||
+        finding.medium !== "filesystem" ||
+        finding.nonStateIdentity ||
+        (finding.identity ?? undefined) !== port.stateStore ||
+        (port.stateStore !== undefined && (!store || mediumMismatch(finding, store) !== undefined))
+      ) {
+        message = "host I/O effect is duplicated or does not match its Ontology port and state ownership";
+      } else {
+        seenPortEffects.add(portKey);
+        if (store) seenStores.add(store.id);
+        allowed = true;
+        message = `declared host I/O port ${port.module}#${port.scope}`;
+      }
+    } else if (finding.nonStateIdentity) {
       const declaration = nonStateById.get(finding.nonStateIdentity);
       if (
         declaration &&
@@ -99,6 +138,8 @@ export function checkBypassWriteBoundary(root = process.cwd(), options = {}) {
       message: message ?? `owned by ${store.owner}/${store.id}`,
     });
   }
+  for (const key of portEffects.keys())
+    if (!seenPortEffects.has(key)) fail(key, "declared Ontology host I/O effect is missing");
   for (const declaration of environmentIoDeclarations) {
     const count = seenNonState.get(declaration.id) ?? 0;
     if (count === 0) fail(declaration.id, "non-state I/O declaration is stale and must be removed");

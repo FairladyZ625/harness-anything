@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { CheckCircle, ClockCounterClockwise, WarningCircle, XCircle } from "@phosphor-icons/react";
 import type { GateResult, GateStatus, TaskRow } from "../../model/types.ts";
-import { taskGateAttestations } from "../../model/attestation-pool.ts";
 import { gateReasonKey } from "../../model/task-stuck.ts";
 import type { TaskMutationFeedback } from "../../task-actions.ts";
 import { t } from "../../i18n/index.tsx";
@@ -120,15 +119,7 @@ export function AttestFeedbackRow({ feedback }: { readonly feedback: TaskMutatio
   );
 }
 
-/**
- * 收口页签的 Gate 签注卡:按投影状态动态渲染每个完成门(判据见
- * model/attestation-pool.ts,与 kernel 四形态同一条)。manual-attest 缺见证与
- * 自动已 pass 的 signoff_missing 给【打勾签注】+ 评语(approve,评语走 note);
- * 契约声明 allowOverride 的自动门 failed(豁免已记录失败)或 missing(本 cut
- * 未取得自动见证)给【特批放行】(override,理由走 rationale,trim 后 ≥10 字符,
- * 两种对象各配说明)。waived 是人为放行不是自动通过,单独标注;done/历史接受与
- * 未声明 allowOverride 的门只读展示。行内展开,不出全局模态。
- */
+/** Render the attestation action projected alongside each judged gate. */
 export function TaskGateAttestCard({
   task,
   feedback,
@@ -144,10 +135,7 @@ export function TaskGateAttestCard({
   ) => Promise<TaskMutationFeedback>;
 }) {
   const [openGate, setOpenGate] = useState<string | null>(null);
-  const attestations = taskGateAttestations(task),
-    approveGateIds = new Set(attestations.gates.map(({ gateId }) => gateId)),
-    overrideGateIds = new Set(attestations.breakGlass.map(({ gateId }) => gateId)),
-    attestFeedback = feedback?.kind === "attest" ? feedback : undefined,
+  const attestFeedback = feedback?.kind === "attest" ? feedback : undefined,
     pending = attestFeedback?.state === "pending";
 
   if (task.gates.length === 0)
@@ -162,9 +150,7 @@ export function TaskGateAttestCard({
       <h3 className="ui-body font-semibold text-text">Gate assessment · 签注</h3>
       <div className="mt-3 grid gap-2">
         {task.gates.map((gate) => {
-          const signable = approveGateIds.has(gate.name),
-            overridable = overrideGateIds.has(gate.name),
-            mode: GateAttestMode | null = signable ? "approve" : overridable ? "override" : null,
+          const mode = gate.attestation?.mode,
             waived = gate.status === "waived";
           return (
             <div

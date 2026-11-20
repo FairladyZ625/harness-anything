@@ -31,7 +31,7 @@ const RANK_OF: Record<ProjectedStatus, number> = {
   unknown: 5,
 };
 
-const CAPABILITY_IDS: readonly TaskCapabilityId[] = ["start", "progress", "submit", "review", "complete"];
+const CAPABILITY_IDS: readonly TaskCapabilityId[] = ["start", "progress", "submit", "review", "complete", "archive"];
 
 /**
  * Mirrors the kernel `taskPhase` judgment (task-board-projection.ts) for the same

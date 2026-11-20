@@ -73,12 +73,31 @@ function poolTask(overrides: Partial<TaskRow> & { readonly taskId: string }): Ta
 }
 
 describe("attestation pool lane derivation", () => {
+  it("requires the server capability even when a frozen manual gate looks actionable", () => {
+    const task = poolTask({
+      taskId: "task-no-attestation-capability",
+      iteration: 0,
+      gates: [{ name: "ux-signoff", ok: false, status: "missing" }],
+      executions: [
+        submittedExecution("task-no-attestation-capability", [{ gateId: "ux-signoff", adapterId: "manual-attest" }]),
+      ],
+    });
+    expect(taskGateAttestations(task)).toEqual({ gates: [], breakGlass: [] });
+  });
+
   it("routes a missing manual-attest gate to the sign-off lane with the frozen adapter", () => {
     const task = poolTask({
       taskId: "task-manual",
       iteration: 0,
-      gates: [{ name: "ux-signoff", ok: null, status: "missing", detail: "current execution cut has no gate witness" }],
-      executions: [submittedExecution("task-manual", [{ gateId: "ux-signoff", adapterId: "manual-attest" }])],
+      gates: [
+        {
+          name: "ux-signoff",
+          ok: null,
+          status: "missing",
+          detail: "current execution cut has no gate witness",
+          attestation: { mode: "approve", adapterId: "manual-attest", executionId: "execution-task-manual" },
+        },
+      ],
     });
     expect(taskGateAttestations(task)).toEqual({
       gates: [
@@ -106,10 +125,10 @@ describe("attestation pool lane derivation", () => {
           name: "e2e",
           ok: false,
           status: "signoff_missing",
+          attestation: { mode: "approve", adapterId: "local-command", executionId: "execution-task-dual" },
           detail: "the automated witness passed; the mandatory human signoff is missing",
         },
       ],
-      executions: [submittedExecution("task-dual", [{ gateId: "e2e", adapterId: "local-command" }])],
     });
     expect(taskGateAttestations(task)).toEqual({
       gates: [
@@ -128,9 +147,14 @@ describe("attestation pool lane derivation", () => {
     const task = poolTask({
       taskId: "task-ci",
       iteration: 0,
-      gates: [{ name: "ci-gate", ok: false, status: "failed", detail: "current execution cut did not pass" }],
-      executions: [
-        submittedExecution("task-ci", [{ gateId: "ci-gate", adapterId: "github-actions", allowOverride: true }]),
+      gates: [
+        {
+          name: "ci-gate",
+          ok: false,
+          status: "failed",
+          detail: "current execution cut did not pass",
+          attestation: { mode: "override", adapterId: "local-command", executionId: "execution-task-ci" },
+        },
       ],
     });
     const lanes = taskGateAttestations(task);
@@ -140,7 +164,7 @@ describe("attestation pool lane derivation", () => {
         gateId: "ci-gate",
         mode: "override",
         gateStatus: "failed",
-        adapterId: "github-actions",
+        adapterId: "local-command",
       }),
     ]);
   });
@@ -149,9 +173,14 @@ describe("attestation pool lane derivation", () => {
     const task = poolTask({
       taskId: "task-unavailable",
       iteration: 0,
-      gates: [{ name: "e2e", ok: null, status: "missing", detail: "runner unreachable; no gate witness" }],
-      executions: [
-        submittedExecution("task-unavailable", [{ gateId: "e2e", adapterId: "local-command", allowOverride: true }]),
+      gates: [
+        {
+          name: "e2e",
+          ok: null,
+          status: "missing",
+          detail: "runner unreachable; no gate witness",
+          attestation: { mode: "override", adapterId: "local-command", executionId: "execution-task-unavailable" },
+        },
       ],
     });
     const lanes = taskGateAttestations(task);
@@ -234,11 +263,21 @@ describe("attestation pool lane derivation", () => {
     expect(taskGateAttestations(task).gates).toEqual([]);
   });
 
-  it("passes through only the consent blocker as pending consent", () => {
-    expect(taskConsentPending(poolTask({ taskId: "task-c", closeoutBlocker: "consent" }))).toEqual({
+  it("passes through the projected review target as pending consent", () => {
+    expect(
+      taskConsentPending(
+        poolTask({
+          taskId: "task-c",
+          closeoutBlocker: "consent",
+          consentTarget: { reviewId: "review-c", executionId: "execution-current-cut" },
+        }),
+      ),
+    ).toEqual({
       taskId: "task-c",
       taskTitle: "task-c",
+      reviewId: "review-c",
     });
+    expect(taskConsentPending(poolTask({ taskId: "task-c", closeoutBlocker: "consent" }))).toBeNull();
     expect(taskConsentPending(poolTask({ taskId: "task-r", closeoutBlocker: "review" }))).toBeNull();
     expect(taskConsentPending(poolTask({ taskId: "task-n" }))).toBeNull();
   });
@@ -248,16 +287,27 @@ describe("attestation pool lane derivation", () => {
       poolTask({
         taskId: "task-a",
         iteration: 0,
-        gates: [{ name: "ux-signoff", ok: null, status: "missing" }],
-        executions: [submittedExecution("task-a", [{ gateId: "ux-signoff", adapterId: "manual-attest" }])],
+        gates: [
+          {
+            name: "ux-signoff",
+            ok: null,
+            status: "missing",
+            attestation: { mode: "approve", adapterId: "manual-attest", executionId: "execution-task-a" },
+          },
+        ],
         closeoutBlocker: "consent",
+        consentTarget: { reviewId: "review-a", executionId: "execution-current-cut" },
       }),
       poolTask({
         taskId: "task-b",
         iteration: 0,
-        gates: [{ name: "ci-gate", ok: false, status: "failed" }],
-        executions: [
-          submittedExecution("task-b", [{ gateId: "ci-gate", adapterId: "local-command", allowOverride: true }]),
+        gates: [
+          {
+            name: "ci-gate",
+            ok: false,
+            status: "failed",
+            attestation: { mode: "override", adapterId: "local-command", executionId: "execution-task-b" },
+          },
         ],
       }),
     ]);

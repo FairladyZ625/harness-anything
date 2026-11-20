@@ -1,4 +1,3 @@
-export { canOverrideGate } from "./domain/completion-gate-policy.ts";
 export {
   gateMappingDrafts,
   validateGateMappingDraftRows,

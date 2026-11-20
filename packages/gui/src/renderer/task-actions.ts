@@ -291,10 +291,8 @@ export function useTaskActions(repoId: string) {
           opId: "awaiting-receipt",
           hint: "正在记录终审批准…",
         });
-        // Consent names the reviewed cut's own execution — by review time the lease is already
-        // released, so an id-less consent would ask the daemon to infer (it refuses; it must).
-        const executionId = (task.reviews ?? []).find((review) => review.reviewId === reviewId)?.executionId;
-        if (executionId === undefined)
+        const target = task.consentTarget;
+        if (target?.reviewId !== reviewId)
           return publish(task.taskId, {
             state: "error",
             kind: "consent",
@@ -306,7 +304,7 @@ export function useTaskActions(repoId: string) {
           await harnessClient.consentReview({
             repoId,
             taskId: task.taskId,
-            executionId,
+            executionId: target.executionId,
             reviewId,
           }),
         );

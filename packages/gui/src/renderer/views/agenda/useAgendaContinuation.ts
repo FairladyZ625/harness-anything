@@ -5,6 +5,7 @@ import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client
 import { runtimeCommandClient } from "../../runtime-command-client.ts";
 import { submitRuntimeSpawn, type RuntimeSpawnSettlement } from "../../runtime-control.ts";
 import { readAllTaskDispatches } from "../../task-dispatch-client.ts";
+import { t } from "../../i18n/index.tsx";
 
 export interface AgendaContinuation {
   readonly read: UseQueryResult<Awaited<ReturnType<typeof readAllTaskDispatches>>, Error>;
@@ -36,6 +37,10 @@ export function useAgendaContinuation(repoId: string, taskId: string | null): Ag
       if (findResume && result?.state !== "pending") {
         const refreshed = await read.refetch({ throwOnError: true });
         resumeDispatchId = refreshed.data?.dispatches.findLast((row) => row.resume)?.resume?.dispatchId;
+      }
+      if (!resumeDispatchId && freshTaskId === null && result?.state !== "pending") {
+        setError(t("views.agenda.wakeTargetUnavailable"));
+        return;
       }
       const settled = await submitRuntimeSpawn(
         {

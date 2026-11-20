@@ -67,7 +67,8 @@ describe("useTaskActions consent write channel", () => {
       lastKnownAt: "2026-10-24T00:00:00.000Z",
       gates: [],
       docs: [],
-      reviews: [review("execution-reviewed-cut", "review-final")],
+      consentTarget: { reviewId: "review-final", executionId: "execution-reviewed-cut" },
+      reviews: [review("execution-old-cut", "review-old")],
     } as TaskRow;
     const consent = vi.fn(async () => receipt());
     vi.spyOn(harnessClient, "consentReview").mockImplementation(consent);
@@ -96,6 +97,11 @@ describe("useTaskActions consent write channel", () => {
         reviewId: "review-final",
       });
       expect(settled?.state).toBe("success");
+      await act(async () => {
+        settled = await actions!.consentReview(task, "review-old");
+      });
+      expect(settled?.code).toBe("review_not_found");
+      expect(consent).toHaveBeenCalledTimes(1);
     } finally {
       await act(async () => root.unmount());
       container.remove();

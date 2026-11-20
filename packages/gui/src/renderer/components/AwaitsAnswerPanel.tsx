@@ -199,9 +199,8 @@ export function AnswerForm({
   const taskId = row.sourceRef.startsWith("task/") ? row.sourceRef.slice(5) : null;
   const continuation = useAgendaContinuation(repoId, taskId);
   const [autoWake, setAutoWake] = useState(true);
-  const canWake =
-    taskId !== null &&
-    (Boolean(continuation.resume) || row.status === "planned" || row.status === "active" || row.status === "blocked");
+  const wakeTaskId = row.wakeTaskId ?? null;
+  const canWake = continuation.resume !== undefined || wakeTaskId !== null;
 
   const risk: ApprovalRisk = row.askKind === "consent" ? "protected" : row.askKind === "acceptance" ? "high" : "medium";
 
@@ -289,7 +288,7 @@ export function AnswerForm({
                     reason,
                     canWake && autoWake
                       ? async () => {
-                          await continuation.run(undefined, taskId, true);
+                          await continuation.run(undefined, wakeTaskId, true);
                         }
                       : undefined,
                   );
@@ -327,7 +326,7 @@ export function AnswerForm({
         continuation={continuation}
         recorded={done}
         onNavigateEntity={onNavigateEntity ?? (() => onClose?.())}
-        onRetry={() => void continuation.run(undefined, taskId, true)}
+        onRetry={() => void continuation.run(undefined, wakeTaskId, true)}
       />
       <div className="flex justify-end gap-2">
         {feedback?.state === "conflict" && (
