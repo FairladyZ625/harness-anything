@@ -15,7 +15,7 @@ import { definition } from "./schedule-actions.fixtures.ts";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 
 test(
-  "forward returns Git-behind diagnostics for accepted submit and manual review receipts",
+  "forward returns Git divergence diagnostics for accepted submit and manual review receipts",
   { timeout: 120_000 },
   async (t) => {
     const installation = {
@@ -130,12 +130,12 @@ test(
     // for that binding before exercising forward() with a session service without discovery overrides.
     const edgeSession = await edge.host.manageRbac({ operation: "session", repoId }, localAuthFixture());
     assert.equal(edgeSession.authenticated, true);
+    git(edge.edgeRoot, "commit", "--allow-empty", "-qm", "unpushed edge commit");
     git(f.repo, "commit", "--allow-empty", "-qm", "advance center default branch");
     git(f.repo, "push", "-q", "origin", branch);
     const oidc = createIdentitySession(edge.edgeUser, { fetch: f.owners.keycloak.fetch }),
-      behindPattern = new RegExp(`Node node-one:.*behind the center ${branch} by [1-9][0-9]* commits?`, "u"),
-      ffPattern = new RegExp(`merge --ff-only origin/${branch}`, "u"),
-      warningPattern = new RegExp(`edge_default_branch_behind.*merge --ff-only origin/${branch}`, "u");
+      divergencePattern = new RegExp(`Node node-one:.*has 1 commit not present in origin/${branch}`, "u"),
+      warningPattern = new RegExp(`edge_default_branch_diverged.*origin/${branch}`, "u");
     for (const action of [
       { kind: "task-submit", taskId, executionId },
       { kind: "task-dispatch-review", taskIds: [taskId] },
@@ -160,11 +160,10 @@ test(
       }[];
       assert.equal(failures?.length, 1, JSON.stringify(receipt));
       assert.equal(failures[0]!.executionId, executionId);
-      assert.equal(failures[0]!.code, "edge_default_branch_behind");
-      assert.match(failures[0]!.message, behindPattern);
-      assert.match(failures[0]!.message, ffPattern);
+      assert.equal(failures[0]!.code, "edge_default_branch_diverged");
+      assert.match(failures[0]!.message, divergencePattern);
       assert.match(String(receipt.warnings), warningPattern);
-      assert.match(String(receipt.summary), /edge_default_branch_behind/u);
+      assert.match(String(receipt.summary), /edge_default_branch_diverged/u);
       const shown = await f.host.run(repoId, { kind: "task-show", taskId }, localAuthFixture()),
         snapshot = JSON.parse(String(shown.evidence));
       assert.deepEqual(

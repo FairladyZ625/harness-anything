@@ -884,6 +884,8 @@ test(
     git(fixture.repo, "remote", "set-head", "origin", branch);
     git(fixture.root, "clone", "-q", remote, edgeRoot);
     git(edgeRoot, "branch", `--set-upstream-to=origin/${branch}`);
+    // The checkout tracks its seed config, but runtime and mirrored ledger files are local.
+    writeFileSync(path.join(edgeRoot, ".git/info/exclude"), "/harness/\n/.harness/\n/.worktrees/\n");
     await catchUpReplica({
       readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
@@ -921,12 +923,14 @@ test(
     });
     fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId, edgeRoot);
     const launchedIn: string[] = [],
+      launchedFrom: string[] = [],
       edgeHost = await openDaemonHost({
         daemonId: "fleet-worker-edge",
         userRoot: edgeUserRoot,
         runtimeDiscover: () => [installation],
         runtimeLaunch: (prepared) => {
           launchedIn.push(prepared.cwd);
+          launchedFrom.push(git(prepared.cwd, "rev-parse", "HEAD"));
           const runtime = runtimeProcessFixture(t);
           let output: ((chunk: string) => void) | null = null;
           return {
@@ -954,7 +958,8 @@ test(
     fixture.track(() => edgeHost.close());
     await edgeHost.attachmentsSettled();
     await registerFixtureRuntimeInstance(edgeHost, repoId, localAuth, codexInstance, { allowHost: fixture.host });
-    const oldRoot = edgeRoot,
+    const originalHead = git(edgeRoot, "rev-parse", "HEAD"),
+      oldRoot = edgeRoot,
       oldViewRoot = viewRoot;
     const claimUnknownHandoff = () =>
       edgeHost.fleet.edgeRuntime(
@@ -991,7 +996,8 @@ test(
     );
     git(fixture.repo, "push", "-q", "origin", branch);
     git(fixture.repo, "fetch", "-q", "origin");
-    await assert.rejects(claimUnknownHandoff(), { code: "edge_default_branch_behind" });
+    const remoteHead = git(fixture.repo, "rev-parse", `origin/${branch}`);
+    assert.notEqual(originalHead, remoteHead);
 
     const movedRoot = path.join(fixture.root, "worker-edge-moved"),
       movedViewRoot = `${movedRoot}-view`;
@@ -1020,8 +1026,7 @@ test(
       centerAfterMigration.replicationSequence,
     );
 
-    git(edgeRoot, "fetch", "-q", "origin");
-    git(edgeRoot, "merge", "--ff-only", `origin/${branch}`);
+    assert.equal(git(edgeRoot, "status", "--porcelain"), "");
     const matchingHandoff = await claimUnknownHandoff();
     assert.equal(matchingHandoff.code, "runtime_handoff_owner_mismatch", JSON.stringify(matchingHandoff));
     git(edgeRoot, "remote", "set-url", "--push", "origin", path.join(fixture.root, "wrong-push.git"));
@@ -1046,6 +1051,8 @@ test(
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     const worktree = path.join(edgeRoot, ".worktrees", taskId);
     assert.deepEqual(launchedIn, [worktree], "the worker runs in the migrated task worktree");
+    assert.deepEqual(launchedFrom, [remoteHead], "the worktree starts at the published default branch");
+    assert.equal(git(edgeRoot, "rev-parse", `refs/heads/${branch}`), originalHead);
     assert.equal(
       path.dirname(path.dirname(launchedIn[0] ?? "")),
       edgeRoot,
