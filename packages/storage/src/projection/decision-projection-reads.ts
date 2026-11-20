@@ -473,7 +473,8 @@ function readDecisionSummaries(db: DatabaseSync, pageSql: string, args: readonly
   }>(
     db,
     `SELECT d.decision_id,d.state,d.title,d.question,d.risk_tier,d.urgency,d.proposed_at,d.workspace_revision,d.list_options_json
-     FROM (${pageSql}) selected CROSS JOIN decision d ON d.decision_id=selected.decision_id`,
+     FROM (${pageSql}) selected CROSS JOIN decision d ON d.decision_id=selected.decision_id
+     ORDER BY d.legacy_number IS NULL, d.legacy_number, d.decision_sort_key, d.decision_id`,
     ...args,
   ).map((row): DecisionListSummaryRow => {
     const id = row.decision_id,

@@ -303,6 +303,21 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
       "retirement candidates. Its resumable 64-event catch-up preserves canonical bytes; follower cold " +
       "materialization reads only the partial working-set index, including blocked directory retirements.",
   },
+  {
+    kind: "read-conclusion",
+    name: "projection.decision-list-summaries",
+    fields: [
+      "decision.list_options_json",
+      "decision.review_summary_json",
+      "ha_decisions.list_summary",
+      "ha_decisions.review_summary",
+    ],
+    attachRequired: false,
+    conclusion:
+      "SQLite expands and backfills schema 38 to 39 in one projection transaction. " +
+      "PostgreSQL generation 5 adds both columns and backfills up to 64 owners per transaction. " +
+      "Canonical events and content blobs remain byte-identical.",
+  },
 ]);
 
 const registeredRetiredFields = new Set(

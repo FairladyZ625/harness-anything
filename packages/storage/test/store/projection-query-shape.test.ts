@@ -496,6 +496,20 @@ test("decision pages preserve the legacy id order while seeking both indexed blo
       fromPlain.rows.map(({ decisionId }) => decisionId),
       expected.filter((decisionId) => legacyOrder(decisionId, "dec_10") > 0).slice(0, 2),
     );
+
+    const summary = listDecisionRowsPage(db, { limit: 5 }, "summary"),
+      nextCursor = summary.page?.nextCursor;
+    assert.equal(nextCursor, encodePageCursor([expected[4]!]));
+    const nextSummary = listDecisionRowsPage(db, { limit: 5, cursor: nextCursor! }, "summary");
+    assert.deepEqual(
+      [...summary.rows, ...nextSummary.rows].map(({ decisionId }) => decisionId),
+      expected.slice(0, 10),
+    );
+    assert.match(
+      counted.reads().at(-1)!.sql,
+      /ORDER BY d\.legacy_number IS NULL, d\.legacy_number, d\.decision_sort_key, d\.decision_id$/u,
+    );
+
     db.prepare("DELETE FROM decision WHERE decision_id = ?").run("dec_E2_shape-a");
     const afterDeletedLegacyCursor = listDecisionRowsPage(db, {
       limit: 2,
