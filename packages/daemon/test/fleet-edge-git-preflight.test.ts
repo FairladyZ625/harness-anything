@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -163,39 +163,64 @@ test("center local-only Git mode is explicit and unreadable center facts fail cl
   }
 });
 
-test("edge Git preflight rejects a default branch behind the center head", async () => {
+// dec_F2B3E7513E532E9B32B88A9A76/CH2
+test("edge Git preflight distinguishes a behind checkout from unsafe Git state", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-edge-git-behind-")),
     center = path.join(root, "center"),
     edge = path.join(root, "edge"),
     origin = path.join(root, "origin.git");
-  try {
-    git(root, "init", "--bare", "-q", origin);
-    git(root, "init", "-b", "main", "-q", center);
-    git(center, "remote", "add", "origin", origin);
-    commit(center, "initial");
-    git(center, "push", "-q", "-u", "origin", "main");
-    git(origin, "symbolic-ref", "HEAD", "refs/heads/main");
-    git(root, "clone", "-q", origin, edge);
-    commit(center, "center advances");
-    git(center, "push", "-q", "origin", "main");
-    git(center, "fetch", "-q", "origin");
-    const centerGit = await readFleetCenterGitMetadata(center);
-    await assert.rejects(
-      assertFleetEdgeRepositoryGit({ rootDir: edge, center: centerGit, operation: "runtime dispatch" }),
-      (error: unknown) => {
-        assert.equal((error as FleetEdgeGitPreflightError).code, "edge_default_branch_behind");
-        assert.match(String(error), /fetch origin main/u);
-        return true;
-      },
-    );
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "--bare", "-b", "main", "-q", origin);
+  git(root, "init", "-b", "main", "-q", center);
+  git(center, "remote", "add", "origin", origin);
+  writeFileSync(path.join(center, "tracked.txt"), "original\n");
+  git(center, "add", "tracked.txt");
+  commit(center, "initial");
+  git(center, "push", "-q", "-u", "origin", "main");
+  git(root, "clone", "-q", origin, edge);
+  const original = git(edge, "rev-parse", "HEAD");
+  commit(center, "center advances");
+  git(center, "push", "-q", "origin", "main");
+  const centerGit = await readFleetCenterGitMetadata(center),
+    preflight = () => assertFleetEdgeRepositoryGit({ rootDir: edge, center: centerGit, operation: "runtime dispatch" });
+
+  await t.test("allows a clean behind root and leaves its branch in place", async () => {
+    assert.equal(git(edge, "status", "--porcelain"), "");
+    await preflight();
+    assert.equal(git(edge, "rev-parse", "refs/remotes/origin/main"), centerGit.defaultBranchCommit);
+    assert.equal(git(edge, "rev-parse", "refs/heads/main"), original);
+    assert.equal(git(edge, "status", "--porcelain"), "");
+  });
+
+  await t.test("refuses a behind root with tracked or untracked changes", async (t) => {
+    const tracked = path.join(edge, "tracked.txt"),
+      untracked = path.join(edge, "new.txt");
+    t.after(() => {
+      git(edge, "restore", "tracked.txt");
+      rmSync(untracked, { force: true });
+    });
+    writeFileSync(tracked, "edited\n");
+    await assert.rejects(preflight, { code: "edge_root_checkout_dirty" });
+    git(edge, "restore", "tracked.txt");
+    writeFileSync(untracked, "untracked\n");
+    await assert.rejects(preflight, { code: "edge_root_checkout_dirty" });
+  });
+
+  await t.test("surfaces unpushed divergence on accepted review receipts", async (t) => {
+    t.after(() => {
+      git(edge, "reset", "--hard", original);
+    });
+    commit(edge, "local divergence");
+    await assert.rejects(preflight, {
+      code: "edge_default_branch_diverged",
+      message: /has 1 commit not present in origin\/main/u,
+    });
     const candidate = {
-        taskId: "task-review-behind",
-        executionId: "execution-review-behind",
-        dispatchKey: "review:behind",
+        taskId: "task-review-diverged",
+        executionId: "execution-review-diverged",
+        dispatchKey: "review:diverged",
       },
       failures: unknown[] = [],
-      preflight = () =>
-        assertFleetEdgeRepositoryGit({ rootDir: edge, center: centerGit, operation: "runtime dispatch" }),
       diagnostic = (error: unknown) =>
         reviewDispatchDiagnostic({
           code: (error as FleetEdgeGitPreflightError).code,
@@ -212,11 +237,11 @@ test("edge Git preflight rejects a default branch behind the center head", async
         },
       });
       const result = withReviewDispatchFailures({ command, outcome: "applied" }, observed.failures);
-      assert.match(String(result.warnings), /edge_default_branch_behind.*merge --ff-only origin\/main/u);
+      assert.match(String(result.warnings), /edge_default_branch_diverged.*origin\/main/u);
       assert.equal(result.outcome, "applied");
     }
     assert.equal(failures.length, 2);
-    git(edge, "merge", "--ff-only", "origin/main");
+    git(edge, "reset", "--hard", original);
     const recovered = await preflightNodeReviewDispatch({
       candidates: [candidate],
       preflight,
@@ -227,7 +252,22 @@ test("edge Git preflight rejects a default branch behind the center head", async
       },
     });
     assert.deepEqual(recovered.failures, []);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+  });
+
+  await t.test("allows published commits ahead of the center and refuses any unpushed main commit", async () => {
+    git(edge, "merge", "--ff-only", "origin/main");
+    commit(edge, "published advance");
+    git(edge, "push", "-q", "origin", "main");
+    await preflight();
+    commit(edge, "unpushed advance");
+    await assert.rejects(preflight, { code: "edge_default_branch_diverged" });
+  });
+
+  await t.test("refuses a fetched origin missing the center commit even when the commit exists locally", async () => {
+    git(edge, "push", "-q", "--force", "origin", `${original}:refs/heads/main`);
+    await assert.rejects(preflight, {
+      code: "edge_origin_mismatch",
+      message: /default branch history does not contain the center head/u,
+    });
+  });
 });
