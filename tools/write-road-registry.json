@@ -74,7 +74,10 @@
         "fleet.upload.finish/v1"
       ],
       "authority": "packages/daemon/src/daemon-host/fleet-edge-write.ts",
-      "evidence": ["packages/daemon/src/daemon-host/fleet-edge-write.ts", "packages/daemon/src/daemon-host/fleet/peer.ts"]
+      "evidence": [
+        "packages/daemon/src/daemon-host/fleet-edge-write.ts",
+        "packages/daemon/src/daemon-host/fleet/peer.ts"
+      ]
     },
     {
       "id": "fleet.center-write",
@@ -89,7 +92,10 @@
         "fleet.upload.finish/v1"
       ],
       "authority": "packages/daemon/src/daemon-host/fleet/center-listener.ts",
-      "evidence": ["packages/daemon/src/daemon-host/fleet/center-listener.ts", "packages/daemon/src/daemon-host/fleet/command-protocol.ts"]
+      "evidence": [
+        "packages/daemon/src/daemon-host/fleet/center-listener.ts",
+        "packages/daemon/src/daemon-host/fleet/command-protocol.ts"
+      ]
     }
   ],
   "physicalWriteFiles": [
@@ -121,6 +127,7 @@
     "packages/daemon/src/daemon-host/fleet/walreceiver.ts",
     "packages/daemon/src/daemon-host/lifecycle-log.ts",
     "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts",
+    "packages/authorization-keycloak/src/managed-rbac-relocation.ts",
     "packages/authorization-keycloak/src/managed-rbac-service.ts",
     "packages/authorization-builtin/src/builtin-session-service.ts",
     "packages/authorization-builtin/src/state.ts",

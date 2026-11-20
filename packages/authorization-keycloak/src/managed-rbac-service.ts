@@ -50,31 +50,24 @@ import {
 } from "./managed-rbac-listener-certificate.ts";
 import { stopManagedPostgresOrphan } from "./managed-postgres-orphan.ts";
 import { stopManagedKeycloakOrphan } from "./managed-keycloak-orphan.ts";
+import {
+  ManagedRbacRelocationService,
+  writeManagedRbacCenterClientSecret,
+  type ManagedRbacConfig,
+  type ManagedRbacManagedConfig,
+  type ManagedRbacRelocationExportOptions,
+  type ManagedRbacRelocationImportOptions,
+  type ManagedRbacSupportedPlatform,
+} from "./managed-rbac-relocation.ts";
 
 export const managedRbacVersions = Object.freeze({
   keycloak: "26.7.3",
   java: "21.0.12.1+1",
   postgres: "18.3.0",
 });
+const relocationCliTimeoutMs = 30 * 60_000;
 
-type SupportedPlatform = "darwin-arm64" | "darwin-x64" | "linux-x64" | "win32-arm64" | "win32-x64";
-interface ManagedRbacConfig {
-  readonly schema: "harness-managed-rbac/v1";
-  readonly mode: "managed" | "external";
-  readonly url: string;
-  readonly realm: string;
-  readonly clientId: string;
-  readonly versions: typeof managedRbacVersions;
-  readonly installedPlatform?: SupportedPlatform;
-  readonly installedAt?: string;
-  readonly postgresPort?: number;
-  readonly managementPort?: number;
-  readonly listener?: ManagedRbacListener;
-  readonly listenerGeneration?: string;
-  readonly certificateMode?: CertificateMode;
-  /** An operator stopped the managed services; a daemon start leaves them down until they are started again. */
-  readonly stopped?: boolean;
-}
+type SupportedPlatform = ManagedRbacSupportedPlatform;
 
 interface Artifact {
   readonly name: "keycloak" | "java" | "postgres";
@@ -199,6 +192,34 @@ export class ManagedRbacService {
     return listener
       ? { certificateFile: listener.certificateFile, certificateKeyFile: listener.certificateKeyFile }
       : null;
+  }
+
+  exportRelocationBundle(input: ManagedRbacRelocationExportOptions): Promise<Record<string, unknown>> {
+    const exported = this.#lifecycle.then(() => this.#relocationService().exportBundle(input));
+    this.#lifecycle = exported.catch(consumeKnownError);
+    return exported;
+  }
+
+  importRelocationBundle(input: ManagedRbacRelocationImportOptions): Promise<Record<string, unknown>> {
+    const imported = this.#lifecycle.then(() => this.#relocationService().importBundle(input));
+    this.#lifecycle = imported.catch(consumeKnownError);
+    return imported;
+  }
+
+  #relocationService(): ManagedRbacRelocationService {
+    return new ManagedRbacRelocationService(this.#root, {
+      readConfig: () => this.#readManagedConfig(),
+      writeConfig: (config) => this.#writeConfig(config),
+      readCenterClientSecret: () => readFileSync(path.join(this.#root, "center-client-secret"), "utf8").trim(),
+      writeCenterClientSecret: (secret) => writeManagedRbacCenterClientSecret(this.#root, secret),
+      requireRunningServices: () => this.#requireRunningManagedServices(),
+      stopKeycloak: () => this.#stopKeycloakForRelocation(),
+      restartKeycloak: () => this.#restartKeycloakAfterRelocation(),
+      runKeycloakCli: (args, config) => this.#runKeycloakCli(args, config),
+      prepareListenerMaterial: (request, config, certificateMode) =>
+        this.#prepareListenerMaterial(request, config, { kind: "uploaded", certificateMode }),
+      pruneListenerVersions: (active, previous) => this.#pruneListenerVersions(active, previous),
+    });
   }
 
   async #run(request: ManagedRbacRequest, ownerRecovery: boolean): Promise<Record<string, unknown>> {
@@ -1336,6 +1357,55 @@ export class ManagedRbacService {
     return { ok: true, command: "rbac-configure", mode: "external", url: normalizedUrl, realm: request.realm };
   }
 
+  #requireRunningManagedServices(): void {
+    if (!this.#children.has("postgres") || !this.#children.has("keycloak"))
+      throw managedRbacError(
+        "rbac_not_running",
+        "Relocation requires the managed PostgreSQL and Keycloak services to be running.",
+      );
+  }
+
+  async #stopKeycloakForRelocation(): Promise<void> {
+    this.#stopping = true;
+    this.#cancelRestart();
+    await this.#stopChild("keycloak");
+    this.#stopping = false;
+  }
+
+  async #restartKeycloakAfterRelocation(): Promise<void> {
+    this.#stopping = false;
+    await this.#startKeycloak();
+    await this.#waitUntilReady();
+  }
+
+  async #runKeycloakCli(args: readonly string[], config: ManagedRbacManagedConfig): Promise<void> {
+    const keycloakHome = path.join(this.#root, "runtime", "keycloak"),
+      javaHome = javaHomePath(this.#root, this.#ports.platform),
+      keycloak = managedExecutable(this.#root, "runtime/keycloak/bin/kc.sh", this.#ports.platform),
+      environment: NodeJS.ProcessEnv = {
+        ...process.env,
+        JAVA_HOME: javaHome,
+        KC_DB: "postgres",
+        KC_DB_URL: `jdbc:postgresql://127.0.0.1:${config.postgresPort}/postgres`,
+        KC_DB_USERNAME: "postgres",
+        KC_DB_PASSWORD: this.#postgresPassword(),
+        KC_BOOTSTRAP_ADMIN_USERNAME: "harness-bootstrap",
+        KC_BOOTSTRAP_ADMIN_PASSWORD: readOrCreateSecret(path.join(this.#root, "bootstrap-admin-password")),
+      },
+      [command, commandArgs] = windowsBatchLaunch(keycloak, args, this.#ports.platform),
+      result = await this.#host.runProcessExitAsync(
+        command,
+        commandArgs,
+        keycloakHome,
+        environment,
+        undefined,
+        undefined,
+        { timeoutMs: relocationCliTimeoutMs, maxBuffer: 16 * 1024 * 1024 },
+      );
+    if (result.exitCode !== 0)
+      throw managedRbacError("rbac_relocation_cli_failed", `Keycloak ${args[0]} exited with code ${result.exitCode}.`);
+  }
+
   async #backup(request: ManagedRbacRequest): Promise<Record<string, unknown>> {
     if (!request.backupDir) throw managedRbacError("rbac_backup_dir_required", "Backup requires --backup-dir.");
     if (existsSync(request.backupDir))
@@ -1404,11 +1474,11 @@ export class ManagedRbacService {
     return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as ManagedRbacConfig) : undefined;
   }
 
-  #readManagedConfig(): ManagedRbacConfig & { readonly postgresPort: number; readonly managementPort: number } {
+  #readManagedConfig(): ManagedRbacManagedConfig {
     const config = this.#readConfig();
     if (config.mode !== "managed" || !config.postgresPort || !config.managementPort)
       throw managedRbacError("rbac_managed_config_invalid", "Managed RBAC configuration is missing service ports.");
-    return config as ManagedRbacConfig & { readonly postgresPort: number; readonly managementPort: number };
+    return config as ManagedRbacManagedConfig;
   }
 
   #writeConfig(config: ManagedRbacConfig): void {
