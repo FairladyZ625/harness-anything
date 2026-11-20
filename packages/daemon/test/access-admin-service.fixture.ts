@@ -5,7 +5,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { TestContext } from "node:test";
 import { AccessAdminService, type AccessAdminRequest } from "../src/daemon-host/access-admin-service.ts";
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { managedRbacReceiptJournal } from "../src/daemon-host/access-admin-state.ts";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { saveFleetCenterConfig } from "../src/daemon-host/fleet-center-config.ts";

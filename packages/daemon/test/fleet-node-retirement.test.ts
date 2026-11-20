@@ -6,7 +6,7 @@ import { createReplicaStatusTracker } from "../src/daemon-host/fleet/replica-sta
 import { renderCliReceipt } from "@harness-anything/cli/internal/cli/receipt-render-registry";
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { AccessAdminService } from "../src/daemon-host/access-admin-service.ts";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { managedRbacReceiptJournal } from "../src/daemon-host/access-admin-state.ts";

@@ -1,4 +1,4 @@
-import { createKeycloakUi, type AuthorizationKeycloakUi } from "@harness-anything/authorization-keycloak-gui";
+import { createKeycloakUi, type AuthorizationKeycloakUi } from "@harness-anything/authorization/keycloak-gui";
 import { t, type MessageKey } from "./i18n/index.tsx";
 import { formatTime } from "./model/time.ts";
 import { Button } from "./components/primitives/Button.tsx";
@@ -64,4 +64,4 @@ export const {
   roleLabel,
   sessionDuration,
 } = keycloakUi;
-export type { AccessScope } from "@harness-anything/authorization-keycloak-gui";
+export type { AccessScope } from "@harness-anything/authorization/keycloak-gui";

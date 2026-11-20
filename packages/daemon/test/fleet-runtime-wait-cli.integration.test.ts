@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
-import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import { managedRbacSessionStore } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";

@@ -23,8 +23,8 @@ import {
   artifactManifest,
   ManagedRbacService,
   managedRbacVersions,
-} from "@harness-anything/authorization-keycloak/managed-rbac-service";
-import type { ManagedRbacHost } from "../../authorization-keycloak/src/managed-host.ts";
+} from "@harness-anything/authorization/keycloak/managed-rbac-service";
+import type { ManagedRbacHost } from "../../authorization/src/keycloak/managed-host.ts";
 import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
 import { validateCertificateNames } from "../src/daemon-host/tls-listener-admission.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";

@@ -24,7 +24,7 @@ import { parseTypeScript, walkTypeScriptFiles } from "./ontology-gate-lib.mjs";
 
 export { bindArguments, EMPTY_ENV, isFunctionNode, memberName, unwrap };
 
-const sourceRoots = ["packages/daemon/src", "packages/authorization-keycloak/src", "packages/application/src"];
+const sourceRoots = ["packages/daemon/src", "packages/authorization/src/keycloak", "packages/application/src"];
 const maxEvaluationDepth = 12;
 // A request travels through many frames before its effect; provenance is memoized per frame.
 const maxProvenanceDepth = 64;
@@ -35,8 +35,8 @@ const nonServerRoots = [
   "packages/gui/",
   "packages/cli/",
   "packages/dsh-plugin/",
-  "packages/authorization-gui/",
-  "packages/authorization-keycloak-gui/",
+  "packages/authorization/src/gui/",
+  "packages/authorization/src/keycloak-gui/",
   "tools/",
 ];
 

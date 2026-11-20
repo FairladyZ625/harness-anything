@@ -4,7 +4,7 @@ import type {
   AccessEffectivePermissionsReply,
   AccessGrant,
   AccessRejection,
-} from "@harness-anything/authorization-gui/access-admin-contract";
+} from "../gui/access-admin-contract.ts";
 import { createAccessModel } from "./access-model.js";
 import type { AccessScope } from "./access-model.js";
 import { createActionDetails } from "./ActionDetails.js";

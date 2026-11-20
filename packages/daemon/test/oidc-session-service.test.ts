@@ -8,7 +8,7 @@ import { createServer as createHttpsServer } from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import { managedRbacSessionStore } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { type OidcSessionPorts, type OidcLoginAuthority } from "@harness-anything/kernel";
 import { evaluateKeycloakPerson } from "../src/daemon-host/repo-cell-authorization.ts";

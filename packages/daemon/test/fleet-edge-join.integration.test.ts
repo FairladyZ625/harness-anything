@@ -18,7 +18,7 @@ import {
   readFleetEdgeConfig,
   writeFleetEdgeConfig,
 } from "../src/daemon-host/client/fleet-edge-config.ts";
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { keycloakNodeRegistry } from "../src/daemon-host/fleet-center-admission.ts";
 import { AccessAdminService } from "../src/daemon-host/access-admin-service.ts";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";

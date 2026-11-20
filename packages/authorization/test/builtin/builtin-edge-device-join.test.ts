@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { IdentitySessionPort, OidcLoginAuthority } from "@harness-anything/kernel";
-import { BuiltinIdentitySession } from "../src/index.ts";
+import { BuiltinIdentitySession } from "../../src/builtin/index.ts";
 
 test("builtin edge sessions delegate device login, transient poll retries, and bind before fleet-edge.json exists", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-edge-delegate-")),

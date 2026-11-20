@@ -7,7 +7,7 @@ import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { ManagedRbacLifecycleEvent } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import type { ManagedRbacLifecycleEvent } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { managedShutdownFixture, type ManagedShutdownFixtureOptions } from "./managed-rbac-shutdown.fixture.ts";
 
 async function availablePort() {

@@ -1,12 +1,12 @@
 import { useCallback, useState } from "react";
-import type { OidcAuthApi } from "@harness-anything/authorization-gui/oidc-auth-contract";
+import type { OidcAuthApi } from "../gui/oidc-auth-contract.ts";
 import type {
   AccessAdminApi,
   AccessDevice,
   AccessReceipt,
   AccessRejection,
   EdgeJoinIssued,
-} from "@harness-anything/authorization-gui/access-admin-contract";
+} from "../gui/access-admin-contract.ts";
 import { createAccessModel } from "./access-model.js";
 import { createAccessParts } from "./AccessParts.js";
 import type { KeycloakUiHost } from "./ui-host.js";

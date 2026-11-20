@@ -133,7 +133,7 @@
       "packages/application/src/queries/evidence-payload.ts#decodeEvidencePayload",
       "packages/application/src/queries/task-index-query.ts#decodeCursor",
       "packages/application/src/task-lifecycle-service.ts#releaseReservation",
-      "packages/authorization-keycloak/src/managed-rbac-service.ts##restartManaged",
+      "packages/authorization/src/keycloak/managed-rbac-service.ts##restartManaged",
       "packages/cli/src/cli-render.ts#contractMigrationDryRunSummary",
       "packages/cli/src/cli-runtime-batch.ts#runRuntimeBatch",
       "packages/cli/src/cli-runtime-wait.ts#readDaemonSubscription",

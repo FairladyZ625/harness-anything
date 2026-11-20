@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { keycloakNodeRegistry, prepareFleetCenterAdmission } from "../src/daemon-host/fleet-center-admission.ts";
 import { validateCertificateNames } from "../src/daemon-host/tls-listener-admission.ts";
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { fakeKeycloak, keycloakRealm, keycloakUrl } from "./keycloak.fixtures.ts";
 
 test("the node registry asks Keycloak who a node is and whether its credential is its own", async () => {

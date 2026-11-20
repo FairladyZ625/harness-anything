@@ -10,7 +10,7 @@ import { createInterface } from "node:readline";
 import test from "node:test";
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
-import { managedRbacVersions } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import { managedRbacVersions } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 
 for (const mode of ["managed", "external"] as const) {
   for (const status of [200, 503, "rpc-error"] as const) {

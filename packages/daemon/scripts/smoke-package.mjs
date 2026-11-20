@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -13,7 +14,11 @@ const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-package-"));
 const consumer = path.join(parent, "consumer");
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("HARNESS_")));
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-const emissionOnlyPackages = new Set(["@harness-anything/cli", "@harness-anything/application"]);
+const emissionOnlyPackages = new Set([
+  "@harness-anything/cli",
+  "@harness-anything/application",
+  "@harness-anything/authorization",
+]);
 function run(command, args, cwd = repository) {
   console.log(JSON.stringify({ command, args, cwd }));
   const result = spawnSync(command, args, { cwd, env, encoding: "utf8", timeout: 180_000 });
@@ -38,7 +43,7 @@ try {
     // Required package-policy prepack hooks type-check these same build scripts.
     // Keep normal builds where noCheck changes declaration output (kernel, preset, storage).
     if (name !== "@harness-anything/daemon") {
-      const emissionOnly = emissionOnlyPackages.has(name) || name.startsWith("@harness-anything/authorization-");
+      const emissionOnly = emissionOnlyPackages.has(name);
       run(
         npm,
         emissionOnly
@@ -66,6 +71,9 @@ try {
     "packing must not rewrite the daemon dist build-id mid-run",
   );
   run(npm, ["install", "--no-audit", "--no-fund", ...tarballs], consumer);
+  assert.throws(() => createRequire(path.join(consumer, "package.json")).resolve("react"), {
+    code: "MODULE_NOT_FOUND",
+  });
   const cli = path.join(consumer, "node_modules/@harness-anything/cli/dist/cli/src/index.js");
   const cliArgs = ["--user-root", path.join(parent, "cli-user"), "--daemon-id", "cli-smoke", "--json"];
   run(process.execPath, [cli, "daemon", "start", "--service", ...cliArgs], consumer);

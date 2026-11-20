@@ -28,7 +28,7 @@ function sourceCopy(t) {
   mkdirSync(path.join(dir, "packages"));
   for (const entry of readdirSync(path.join(repoRoot, "packages"))) {
     const target = path.join(dir, "packages", entry);
-    if (["daemon", "authorization-keycloak", "application"].includes(entry)) {
+    if (["daemon", "authorization", "application"].includes(entry)) {
       cpSync(path.join(repoRoot, "packages", entry, "src"), path.join(target, "src"), { recursive: true });
       cpSync(path.join(repoRoot, "packages", entry, "package.json"), path.join(target, "package.json"));
     } else symlinkSync(path.join(repoRoot, "packages", entry), target, "dir");

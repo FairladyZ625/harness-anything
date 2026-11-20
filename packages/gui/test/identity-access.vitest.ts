@@ -3,9 +3,9 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { OidcAuthApi } from "@harness-anything/authorization-gui/oidc-auth-contract";
-import { identityProviderOf } from "@harness-anything/authorization-gui/identity-presentation";
-import type { AuthorizationUiComponents } from "@harness-anything/authorization-gui/ui-component-contract";
+import type { OidcAuthApi } from "@harness-anything/authorization/gui/oidc-auth-contract";
+import { identityProviderOf } from "@harness-anything/authorization/gui/identity-presentation";
+import type { AuthorizationUiComponents } from "@harness-anything/authorization/gui/ui-component-contract";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { IdentityAccessView } from "../src/renderer/views/IdentityAccessView.tsx";
 import { requestAccountLogin, resetAccountLoginRequestForTest } from "../src/renderer/account-login-request.ts";

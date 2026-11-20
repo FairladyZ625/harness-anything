@@ -465,7 +465,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "runtime-instance",
     id: "runtime-instance.builtin-identity",
-    module: "packages/authorization-builtin/src/state.ts",
+    module: "packages/authorization/src/builtin/state.ts",
     kind: "filesystem-store",
     role: "authority",
   },

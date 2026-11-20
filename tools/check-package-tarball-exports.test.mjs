@@ -44,6 +44,22 @@ test("accepts wildcard export targets present in the tarball", async () => {
   });
 });
 
+test("rejects a packed manifest that drops declared subpath exports", async () => {
+  await withFixtureRepo((root) => {
+    writePackage(root, "incomplete", {
+      exports: { "./server": "./dist/server.js" },
+      publishConfig: { exports: { "./server": "./dist/server.js", "./ui": "./dist/ui.js" } },
+      files: ["dist", "package.json"],
+    });
+    writeFileSync(path.join(root, "packages/incomplete/dist/server.js"), "export {};\n");
+    writeFileSync(path.join(root, "packages/incomplete/dist/ui.js"), "export {};\n");
+
+    const result = runCheck(root);
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /packed exports differ from publishConfig\.exports/u);
+  });
+});
+
 test("rejects missing exports and bin targets", async () => {
   await withFixtureRepo((root) => {
     writePackage(root, "bad", {

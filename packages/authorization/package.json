@@ -1,0 +1,81 @@
+{
+  "name": "@harness-anything/authorization",
+  "version": "0.1.0",
+  "description": "Built-in and Keycloak authorization providers, desktop contracts, and authorization views for Harness Anything.",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "homepage": "https://github.com/FairladyZ625/harness-anything#readme",
+  "bugs": {
+    "url": "https://github.com/FairladyZ625/harness-anything/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FairladyZ625/harness-anything.git",
+    "directory": "packages/authorization"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "package.json"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      "./builtin": "./dist/builtin/index.js",
+      "./builtin/internal/state": "./dist/builtin/state.js",
+      "./keycloak": "./dist/keycloak/index.js",
+      "./keycloak/internal/keycloak-policy-adapter": "./dist/keycloak/keycloak-policy-adapter.js",
+      "./keycloak/internal/keycloak-login-client": "./dist/keycloak/keycloak-login-client.js",
+      "./keycloak/managed-rbac-service": "./dist/keycloak/managed-rbac-service.js",
+      "./keycloak/managed-rbac-listener-certificate": "./dist/keycloak/managed-rbac-listener-certificate.js",
+      "./keycloak/keycloak-session-lifetime": "./dist/keycloak/keycloak-session-lifetime.js",
+      "./keycloak/oidc-session-helpers": "./dist/keycloak/oidc-session-helpers.js",
+      "./keycloak/oidc-fleet-principal": "./dist/keycloak/oidc-fleet-principal.js",
+      "./gui": "./dist/gui/index.js",
+      "./gui/access-admin-contract": "./dist/gui/access-admin-contract.js",
+      "./gui/edge-join-entry-contract": "./dist/gui/edge-join-entry-contract.js",
+      "./gui/identity-presentation": "./dist/gui/identity-presentation.js",
+      "./gui/oidc-auth-contract": "./dist/gui/oidc-auth-contract.js",
+      "./gui/ui-component-contract": "./dist/gui/ui-component-contract.js",
+      "./keycloak-gui": "./dist/keycloak-gui/index.js"
+    }
+  },
+  "exports": {
+    "./builtin": "./src/builtin/index.ts",
+    "./builtin/internal/state": "./src/builtin/state.ts",
+    "./keycloak": "./src/keycloak/index.ts",
+    "./keycloak/internal/keycloak-policy-adapter": "./src/keycloak/keycloak-policy-adapter.ts",
+    "./keycloak/internal/keycloak-login-client": "./src/keycloak/keycloak-login-client.ts",
+    "./keycloak/managed-rbac-service": "./src/keycloak/managed-rbac-service.ts",
+    "./keycloak/managed-rbac-listener-certificate": "./src/keycloak/managed-rbac-listener-certificate.ts",
+    "./keycloak/keycloak-session-lifetime": "./src/keycloak/keycloak-session-lifetime.ts",
+    "./keycloak/oidc-session-helpers": "./src/keycloak/oidc-session-helpers.ts",
+    "./keycloak/oidc-fleet-principal": "./src/keycloak/oidc-fleet-principal.ts",
+    "./gui": "./src/gui/index.ts",
+    "./gui/access-admin-contract": "./src/gui/access-admin-contract.ts",
+    "./gui/edge-join-entry-contract": "./src/gui/edge-join-entry-contract.ts",
+    "./gui/identity-presentation": "./src/gui/identity-presentation.ts",
+    "./gui/oidc-auth-contract": "./src/gui/oidc-auth-contract.ts",
+    "./gui/ui-component-contract": "./src/gui/ui-component-contract.ts",
+    "./keycloak-gui": "./src/keycloak-gui/index.ts"
+  },
+  "scripts": {
+    "build:publish": "tsc -p tsconfig.publish.json",
+    "prepack": "npm run build:publish && node ../../tools/package-exports-lifecycle.mjs prepare",
+    "postpack": "node ../../tools/package-exports-lifecycle.mjs restore"
+  },
+  "dependencies": {
+    "@harness-anything/kernel": "0.1.0"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  }
+}

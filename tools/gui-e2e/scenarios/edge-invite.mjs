@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import {
   readFleetCenterConfig,
   saveFleetCenterConfig,

@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import type { IpcMainInvokeEvent } from "electron";
 import { validateDaemonRpcCall } from "@harness-anything/daemon/protocol/validation";
-import { ACCESS_ADMIN_CHANNEL, type AccessAdminApi } from "@harness-anything/authorization-gui/access-admin-contract";
+import { ACCESS_ADMIN_CHANNEL, type AccessAdminApi } from "@harness-anything/authorization/gui/access-admin-contract";
 import { accessAdminParams, registerAccessAdminIpc } from "../src/main/access-admin-ipc.ts";
 import { accessAdminPreloadApi, fleetAdminFromAccess } from "../src/preload/access-admin-preload.ts";
 
@@ -400,7 +400,7 @@ test("edge-join-create carries SSH transport and target to the daemon unchanged 
 });
 
 const rendererRoot = path.resolve(import.meta.dirname, "../src/renderer"),
-  keycloakUiRoot = path.resolve(import.meta.dirname, "../../authorization-keycloak-gui/src"),
+  keycloakUiRoot = path.resolve(import.meta.dirname, "../../authorization/src/keycloak-gui"),
   pageSources = [
     path.join(rendererRoot, "views/IdentityAccessView.tsx"),
     path.join(rendererRoot, "authorization-ui.tsx"),

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import ts from "typescript";
+import { authorizationImportViolation } from "./check-c4-architecture.mjs";
 import { entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
 import { listWorktreeFiles } from "./gates/git.mjs";
 import { auditCacheDriverImports, cacheDriverAdapterCandidates } from "./gates/cache-driver-import-boundary.mjs";
@@ -264,7 +265,7 @@ function hasDirectRepoFixtureImport(text) {
 }
 
 function packageSourceRootFromPath(rel) {
-  const match = /^(packages\/.+?\/src)\//u.exec(rel);
+  const match = /^(packages\/(?:authorization\/src\/[^/]+|.+?\/src))\//u.exec(rel);
   return match?.[1];
 }
 
@@ -379,6 +380,13 @@ for (const file of packageSourceFiles) {
 
   const imports = [...text.matchAll(importPattern)].map((match) => match[1] ?? match[2] ?? match[3]);
 
+  if (!isTestOrFixture) {
+    for (const specifier of imports) {
+      const violation = authorizationImportViolation(rel, specifier, resolveImport(file, specifier));
+      if (violation) record(file, violation);
+    }
+  }
+
   if (!rel.startsWith("packages/storage/src/") && !isTestOrFixture) {
     for (const specifier of imports) {
       if (databaseDriverPattern.test(specifier))
@@ -471,9 +479,9 @@ for (const file of packageSourceFiles) {
       // Application pure use cases/CQRS handlers must not pull daemon, storage, keycloak,
       // or process/network/thread/pty runtime modules.
       if (
-        /packages\/(?:daemon|storage|authorization-keycloak)\//.test(target) ||
-        /^@harness-anything\/(?:daemon|storage|authorization-keycloak)(?:\/|$)/.test(specifier) ||
-        /^@harness-anything\/(?:daemon|storage|authorization-keycloak)(?:\/|$)/.test(target) ||
+        /packages\/(?:daemon|storage|authorization)\//.test(target) ||
+        /^@harness-anything\/(?:daemon|storage|authorization)(?:\/|$)/.test(specifier) ||
+        /^@harness-anything\/(?:daemon|storage|authorization)(?:\/|$)/.test(target) ||
         /^(?:node:)?(?:child_process|http|http2|https|net|tls|worker_threads)(?:\/|$)/.test(specifier) ||
         /^(?:ws|undici|node-pty)(?:\/|$)/.test(specifier)
       ) {

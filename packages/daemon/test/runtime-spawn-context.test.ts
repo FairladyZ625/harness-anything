@@ -6,7 +6,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { daemonCliBinDirectory, prepareBoundRuntimeLaunch } from "../src/daemon-host/runtime-spawn-context.ts";
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { fakeKeycloak, keycloakRealm, keycloakUrl } from "./keycloak.fixtures.ts";
 import type { RuntimeSpawnerInput } from "../src/daemon-host/runtime-spawn-types.ts";
 import { resolveDispatchCwd } from "../src/daemon-host/runtime-resume-admission.ts";

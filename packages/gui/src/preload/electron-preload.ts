@@ -57,7 +57,7 @@ import {
   OIDC_BOOTSTRAP_ADMIN_CHANNEL,
   type EmbeddedLoginPage,
   type OidcAuthApi,
-} from "@harness-anything/authorization-gui/oidc-auth-contract";
+} from "@harness-anything/authorization/gui/oidc-auth-contract";
 import {
   CONNECTION_PROBE_CHANNEL,
   CONNECTION_REGISTER_CHANNEL,

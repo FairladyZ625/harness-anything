@@ -4,7 +4,7 @@ import type {
   AccessGroupsReply,
   AccessPolicyGroup,
   AccessRejection,
-} from "@harness-anything/authorization-gui/access-admin-contract";
+} from "../gui/access-admin-contract.ts";
 import { createAccessModel } from "./access-model.js";
 import type { MessageKey } from "./ui-host.js";
 import { createActionDetails } from "./ActionDetails.js";

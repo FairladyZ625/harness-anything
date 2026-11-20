@@ -6,7 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccessAdminService } from "../../daemon/src/daemon-host/access-admin-service.ts";
 import type { DaemonHost } from "../../daemon/src/daemon-host/daemon-host-types.ts";
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { managedRbacReceiptJournal } from "../../daemon/src/daemon-host/access-admin-state.ts";
 import { createIdentitySession } from "../../daemon/src/daemon-host/authorization-provider.ts";
 import { createJsonRpcProtocolServer } from "../../daemon/src/daemon-host/protocol/json-rpc-server.ts";
@@ -20,8 +20,8 @@ import {
   keycloakUserRoot,
   signOutAt,
 } from "../../daemon/test/keycloak.fixtures.ts";
-import type { AccessAdminApi } from "@harness-anything/authorization-gui/access-admin-contract";
-import type { OidcAuthApi } from "@harness-anything/authorization-gui/oidc-auth-contract";
+import type { AccessAdminApi } from "@harness-anything/authorization/gui/access-admin-contract";
+import type { OidcAuthApi } from "@harness-anything/authorization/gui/oidc-auth-contract";
 import { registerAccessAdminIpc } from "../src/main/access-admin-ipc.ts";
 import { accessAdminPreloadApi } from "../src/preload/access-admin-preload.ts";
 import type { RepoMode } from "../src/renderer/components/RepoModeBadge.tsx";

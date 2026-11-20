@@ -6,11 +6,11 @@ import test from "node:test";
 import { policyActionDeclarations, disableDaemonRepo, unbindDaemonRepo } from "@harness-anything/kernel";
 import { AccessAdminService } from "../src/daemon-host/access-admin-service.ts";
 import { requireAuthorizedFleetAction } from "../src/daemon-host/host-action-authorization.ts";
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import {
   alignSessionLifetime,
   sessionLifetimeBounds,
-} from "@harness-anything/authorization-keycloak/keycloak-session-lifetime";
+} from "@harness-anything/authorization/keycloak/keycloak-session-lifetime";
 import { managedRbacReceiptJournal } from "../src/daemon-host/access-admin-state.ts";
 import { fleetCenterConfigPath } from "../src/daemon-host/fleet-center-config.ts";
 import { keycloakIssuer, keycloakRealm, keycloakUrl, keycloakSessionStore } from "./keycloak.fixtures.ts";

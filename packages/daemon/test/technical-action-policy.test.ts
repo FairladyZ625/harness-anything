@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { actionDeclarations, deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
-import { BuiltinPolicyAdapter } from "@harness-anything/authorization-builtin";
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { BuiltinPolicyAdapter } from "@harness-anything/authorization/builtin";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { readPolicyMetadata } from "@harness-anything/application/queries";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 

@@ -17,8 +17,8 @@ import type {
   AccessPolicyGroup,
   AccessReceipt,
   AccessRejection,
-} from "@harness-anything/authorization-gui/access-admin-contract";
-import type { OidcAuthApi } from "@harness-anything/authorization-gui/oidc-auth-contract";
+} from "../gui/access-admin-contract.ts";
+import type { OidcAuthApi } from "../gui/oidc-auth-contract.ts";
 import type { AccessScope } from "./access-model.js";
 export type { KeycloakUiHost } from "./ui-host.js";
 export type { AccessScope } from "./access-model.js";
@@ -79,12 +79,12 @@ export interface AuthorizationKeycloakUi {
   readonly isPermissionRefusal: (rejection: AccessRejection) => boolean;
   readonly grantsByPerson: (
     people: readonly { readonly personId: string; readonly username: string }[],
-    grants: readonly import("@harness-anything/authorization-gui/access-admin-contract").AccessGrant[],
+    grants: readonly import("../gui/access-admin-contract.ts").AccessGrant[],
     repoId?: string,
   ) => readonly {
     readonly personId: string;
     readonly username: string;
-    readonly grants: readonly import("@harness-anything/authorization-gui/access-admin-contract").AccessGrant[];
+    readonly grants: readonly import("../gui/access-admin-contract.ts").AccessGrant[];
   }[];
   readonly roleLabel: (id: string, displayName?: string) => string;
   readonly sessionDuration: (seconds: number) => string;

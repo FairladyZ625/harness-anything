@@ -6,10 +6,10 @@ import type { DaemonRpcMethodMap, DaemonRpcResult, DaemonStreamMethod } from "@h
 import type { FirstRunApi } from "../api/first-run-contract.ts";
 import type { ArtifactOpenApi } from "../api/artifact-open-contract.ts";
 import type { ConnectionAdminApi, RepoAdminApi } from "../api/connection-admin-contract.ts";
-import type { OidcAuthApi } from "@harness-anything/authorization-gui/oidc-auth-contract";
-import type { AccessAdminApi } from "@harness-anything/authorization-gui/access-admin-contract";
+import type { OidcAuthApi } from "@harness-anything/authorization/gui/oidc-auth-contract";
+import type { AccessAdminApi } from "@harness-anything/authorization/gui/access-admin-contract";
 import type { FleetAdminApi } from "../api/fleet-admin-contract.ts";
-import type { AuthorizationUiComponents } from "@harness-anything/authorization-gui/ui-component-contract";
+import type { AuthorizationUiComponents } from "@harness-anything/authorization/gui/ui-component-contract";
 import type { CenterSettingsApi } from "../api/center-settings-contract.ts";
 import type { LocalDocApi } from "../api/local-doc-contract.ts";
 import type { UpdateApi } from "../api/update-contract.ts";

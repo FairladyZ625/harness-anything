@@ -15,16 +15,13 @@ const canonicalPackages = [
   "storage",
   "application",
   "preset",
-  "authorization-builtin",
-  "authorization-keycloak",
-  "authorization-gui",
-  "authorization-keycloak-gui",
+  "authorization",
   "dsh-plugin",
   "daemon",
   "cli",
   "gui",
 ];
-const privateCanonicalPackages = new Set(["authorization-gui", "authorization-keycloak-gui", "dsh-plugin"]);
+const privateCanonicalPackages = new Set(["dsh-plugin"]);
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), "check-c4-architecture-"));
@@ -421,16 +418,16 @@ test("prints a JSON explanation for the requested source file", () => {
   assert.ok(explanation.plane.forbiddenTargets.includes("daemon-host"));
 });
 
-test("explains authorization-builtin as a modeled C4 endpoint and passes the complete CLI gate", () => {
+test("explains authorization as a modeled C4 endpoint and passes the complete CLI gate", () => {
   const result = spawnSync(
     process.execPath,
-    [checkerPath, "--explain", "packages/authorization-builtin/src/builtin-policy-adapter.ts", "--json"],
+    [checkerPath, "--explain", "packages/authorization/src/builtin/builtin-policy-adapter.ts", "--json"],
     { cwd: repoRoot, encoding: "utf8" },
   );
 
   assert.equal(result.status, 0, result.stderr);
   const explanation = JSON.parse(result.stdout);
-  assert.equal(explanation.package.id, "authorization-builtin");
+  assert.equal(explanation.package.id, "authorization");
   assert.equal(explanation.package.status, "modeled");
   assert.deepEqual(explanation.package.allowedTargets, ["kernel"]);
   assert.ok(explanation.package.forbiddenTargets.includes("daemon"));
@@ -443,6 +440,49 @@ test("explains authorization-builtin as a modeled C4 endpoint and passes the com
   const parsed = JSON.parse(cliCheck.stdout);
   assert.equal(parsed.ok, true);
   assert.equal(parsed.scope, "all");
+});
+
+test("rejects authorization slice edges through package exports and relative paths", async (t) => {
+  const root = await fixture(t);
+  await seedClosedWorldPackages(root, {
+    daemon: { dependencies: { "@harness-anything/authorization": "0.1.0" } },
+    gui: { dependencies: { "@harness-anything/authorization": "0.1.0" } },
+    authorization: {
+      exports: {
+        "./builtin": "./src/builtin/index.ts",
+        "./keycloak": "./src/keycloak/index.ts",
+        "./keycloak-gui": "./src/keycloak-gui/index.ts",
+        "./keycloak/managed-rbac-service": "./src/keycloak/service.ts",
+      },
+    },
+  });
+  await source(root, "authorization", "src/builtin/index.ts", "export {};\n");
+  await source(root, "authorization", "src/keycloak/index.ts", "export {};\n");
+  await source(root, "authorization", "src/keycloak/service.ts", "export {};\n");
+  await source(root, "authorization", "src/gui/index.ts", "export {};\n");
+  await source(root, "authorization", "src/keycloak-gui/index.ts", 'import "../gui/index.ts";\n');
+  await source(root, "daemon", "src/daemon-host/index.ts", 'import "@harness-anything/authorization/builtin";\n');
+  await source(root, "gui", "src/renderer/entry.ts", 'import "@harness-anything/authorization/keycloak-gui";\n');
+  const valid = await checkArchitecture(root);
+  assert.equal(valid.ok, true, valid.violations.join("\n"));
+
+  await source(root, "daemon", "src/daemon-host/index.ts", 'import "@harness-anything/authorization/keycloak-gui";\n');
+  await source(root, "gui", "src/renderer/entry.ts", 'import("../../../authorization/src/keycloak/service.ts");\n');
+  await source(root, "authorization", "src/keycloak-gui/index.ts", 'import "../keycloak/service.ts";\n');
+  const blocked = await checkArchitecture(root);
+  assert.equal(blocked.ok, false);
+  assert.match(
+    blocked.violations.join("\n"),
+    /authorization boundary: daemon must not import @harness-anything\/authorization\/keycloak-gui/u,
+  );
+  assert.match(
+    blocked.violations.join("\n"),
+    /authorization boundary: gui must not import \.\.\/\.\.\/\.\.\/authorization\/src\/keycloak\/service\.ts/u,
+  );
+  assert.match(
+    blocked.violations.join("\n"),
+    /authorization boundary: keycloak-gui must not import \.\.\/keycloak\/service\.ts/u,
+  );
 });
 
 // dec_04A9211B073F29F0FC1E1CA573 CH3 & dec_7C93DEBCFB2D1A94C6FA07AAAD CH2
@@ -472,11 +512,10 @@ test("reconciles package.json internal dependencies against AST imports and C4 r
   const root = await fixture(t);
   await seedClosedWorldPackages(root, {
     cli: { dependencies: { "@harness-anything/application": "0.1.0", "@harness-anything/preset": "0.1.0" } },
-    gui: {
-      dependencies: { "@harness-anything/authorization-gui": "0.1.0" },
-      devDependencies: { "@harness-anything/authorization-keycloak-gui": "0.1.0" },
-    },
-    storage: { devDependencies: { "@harness-anything/authorization-keycloak": "0.1.0" } },
+    authorization: { private: true },
+    gui: { dependencies: { "@harness-anything/authorization": "0.1.0" } },
+    daemon: { devDependencies: { "@harness-anything/authorization": "0.1.0" } },
+    storage: { devDependencies: { "@harness-anything/daemon": "0.1.0" } },
   });
   await source(root, "application", "src/index.ts", 'import "@harness-anything/kernel";\n');
 
@@ -493,12 +532,12 @@ test("reconciles package.json internal dependencies against AST imports and C4 r
   );
   assert.ok(
     result.violations.some((m) =>
-      m.includes("public package must not declare private @harness-anything/authorization-gui"),
+      m.includes("public package must not declare private @harness-anything/authorization"),
     ),
   );
   assert.ok(
     result.violations.some((m) =>
-      m.includes("devDependencies.@harness-anything/authorization-keycloak-gui is a ghost internal dependency"),
+      m.includes("devDependencies.@harness-anything/authorization is a ghost internal dependency"),
     ),
   );
   assert.ok(
@@ -512,9 +551,11 @@ test("reconciles package.json internal dependencies against AST imports and C4 r
   );
 
   await seedClosedWorldPackages(root, {
-    gui: { devDependencies: { "@harness-anything/authorization-gui": "0.1.0" } },
+    authorization: { private: true, exports: { "./gui": "./src/gui/index.ts" } },
+    gui: { devDependencies: { "@harness-anything/authorization": "0.1.0" } },
   });
-  await source(root, "gui", "src/index.ts", 'import "@harness-anything/authorization-gui";\n');
+  await source(root, "authorization", "src/gui/index.ts", "export {};\n");
+  await source(root, "gui", "src/index.ts", 'import "@harness-anything/authorization/gui";\n');
   const validPrivateBundle = await checkArchitecture(root);
   assert.equal(validPrivateBundle.ok, true, validPrivateBundle.violations.join("\n"));
 });

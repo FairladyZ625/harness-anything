@@ -2,7 +2,7 @@ import {
   ACCESS_ADMIN_CHANNEL,
   type AccessAdminApi,
   type AccessAdminRequest,
-} from "@harness-anything/authorization-gui/access-admin-contract";
+} from "@harness-anything/authorization/gui/access-admin-contract";
 import type { FleetAdminApi } from "../api/fleet-admin-contract.ts";
 
 const accessAdminAskRegistry = new WeakMap<

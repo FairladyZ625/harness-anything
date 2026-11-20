@@ -10,7 +10,7 @@ import {
 
 test("production path policy classifies source, tests, and non-source files consistently", () => {
   assert.deepEqual(classifyPath("packages/kernel/src/domain/task.ts"), { module: "kernel", kind: "production" });
-  assert.deepEqual(classifyPath("packages/authorization-builtin/src/index.ts"), {
+  assert.deepEqual(classifyPath("packages/authorization/src/builtin/index.ts"), {
     module: "identity-rbac",
     kind: "production",
   });
@@ -34,6 +34,20 @@ test("production numstat counts classified source and reports unclassified produ
       unclassified: ["packages/unregistered/src/task.ts"],
     },
   );
+});
+
+test("a package move still counts deleted authorization source from the comparison base", () => {
+  const result = productionDeltaFromNumstat([
+    { addedText: "0", deletedText: "4", filePath: "packages/authorization-builtin/src/index.ts" },
+    { addedText: "4", deletedText: "0", filePath: "packages/authorization/src/builtin/index.ts" },
+  ]);
+  assert.equal(result.added, 4);
+  assert.equal(result.deleted, 4);
+  assert.deepEqual(
+    result.changed.map(({ module }) => module),
+    ["identity-rbac", "identity-rbac"],
+  );
+  assert.deepEqual(result.unclassified, []);
 });
 
 test("production numstat rejects binary source and malformed line counts", () => {

@@ -192,6 +192,14 @@ const guiRendererRestrictedImportPatterns = [
   "**/main/**",
   "**/preload/**",
 ];
+const guiRendererAuthorizationBoundary = {
+  group: ["builtin", "keycloak"].flatMap((part) => [
+    `@harness-anything/authorization/${part}`,
+    `@harness-anything/authorization/${part}/**`,
+    `**/authorization/src/${part}/**`,
+  ]),
+  message: "GUI renderer must use the desktop authorization subpaths.",
+};
 const guiRendererRestrictedImportSourcePattern = String.raw`(?:^electron$|@harness-anything\/(?:application|kernel)(?:\/|$)|(?:^|\/)(?:packages\/)?(?:application|kernel)(?:\/|$)|(?:^|\/)(?:main|preload)(?:\/|$))`;
 const guiIpcRestrictedSyntax = [
   {
@@ -357,6 +365,7 @@ export default tseslint.config(
               group: guiRendererRestrictedImportPatterns,
               message: guiBridgeOnlyMessage,
             },
+            guiRendererAuthorizationBoundary,
           ],
         },
       ],

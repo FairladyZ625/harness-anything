@@ -52,8 +52,8 @@ test("package policy derives a newly public workspace from its manifest instead 
 test("package policy keeps a private workspace out of the npm publish set", async () => {
   await withFixtureRepo((root) => {
     writeValidFixture(root);
-    writeJson(root, "packages/authorization-keycloak-gui/package.json", {
-      name: "@harness-anything/authorization-keycloak-gui",
+    writeJson(root, "packages/dsh-plugin/package.json", {
+      name: "@harness-anything/dsh-plugin",
       version: "0.0.1",
       private: true,
       publishConfig: { access: "public" },
@@ -64,7 +64,7 @@ test("package policy keeps a private workspace out of the npm publish set", asyn
     assert.notEqual(result.status, 0);
     assert.match(
       result.stderr,
-      /packages\/authorization-keycloak-gui\/package\.json must not define publishConfig before the npm publish decision/u,
+      /packages\/dsh-plugin\/package\.json must not define publishConfig before the npm publish decision/u,
     );
   });
 });
@@ -74,7 +74,7 @@ test("package policy rejects a public workspace that depends on a private worksp
     writeValidFixture(root);
     makeDaemonPublicReady(root);
     const daemon = JSON.parse(readFileSync(path.join(root, "packages/daemon/package.json"), "utf8"));
-    daemon.dependencies = { "@harness-anything/authorization-keycloak": "0.0.1" };
+    daemon.dependencies = { "@harness-anything/authorization": "0.0.1" };
     writeJson(root, "packages/daemon/package.json", daemon);
 
     const result = runCheck(root);
@@ -82,7 +82,7 @@ test("package policy rejects a public workspace that depends on a private worksp
     assert.notEqual(result.status, 0);
     assert.match(
       result.stderr,
-      /public workspace @harness-anything\/daemon declares dependencies\.@harness-anything\/authorization-keycloak but @harness-anything\/authorization-keycloak is private/u,
+      /public workspace @harness-anything\/daemon declares dependencies\.@harness-anything\/authorization but @harness-anything\/authorization is private/u,
     );
   });
 });
@@ -200,9 +200,7 @@ function writeValidFixture(root) {
     ["packages/kernel/package.json", "@harness-anything/kernel"],
     ["packages/storage/package.json", "@harness-anything/storage"],
     ["packages/application/package.json", "@harness-anything/application"],
-    ["packages/authorization-keycloak/package.json", "@harness-anything/authorization-keycloak"],
-    ["packages/authorization-gui/package.json", "@harness-anything/authorization-gui"],
-    ["packages/authorization-keycloak-gui/package.json", "@harness-anything/authorization-keycloak-gui"],
+    ["packages/authorization/package.json", "@harness-anything/authorization"],
     ["packages/dsh-plugin/package.json", "@harness-anything/dsh-plugin"],
     ["packages/daemon/package.json", "@harness-anything/daemon"],
     ["packages/gui/package.json", "@harness-anything/gui"],

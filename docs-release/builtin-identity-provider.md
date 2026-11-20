@@ -13,7 +13,7 @@ Teams, additional accounts, node credentials, edge join, Fleet center/edge trans
 Install the Keycloak provider package when collaboration is needed:
 
 ```bash
-npm install --global @harness-anything/authorization-keycloak@0.1.0
+npm install --global @harness-anything/authorization@0.1.0
 ```
 
 The package supplies the Keycloak-backed provider. Your deployment still supplies and configures the Keycloak service and realm. The provider keeps the same daemon, GUI, and authorization ports; only the selected identity provider changes.

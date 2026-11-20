@@ -5,7 +5,7 @@ import type {
   EdgeJoinCreateInput,
   EdgeJoinStatusReply,
   EdgeJoinSummary,
-} from "@harness-anything/authorization-gui/access-admin-contract";
+} from "@harness-anything/authorization/gui/access-admin-contract";
 import { guiHostBridge } from "./gui-transport.ts";
 import { isRendererRecord, rendererReadError } from "./result-validation.ts";
 

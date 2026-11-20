@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { BuiltinPolicyAdapter } from "@harness-anything/authorization-builtin";
+import { BuiltinPolicyAdapter } from "@harness-anything/authorization/builtin";
 import { readAgentSkillsGui } from "../src/daemon-host/agent-skills.ts";
 import { createRepoCellApi, repoCellSynchronousRead } from "../src/daemon-host/repo-cell-api.ts";
 import { daemonReadRoutes } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";

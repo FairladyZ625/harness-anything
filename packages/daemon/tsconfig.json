@@ -22,7 +22,7 @@
       "path": "../storage"
     },
     {
-      "path": "../authorization-builtin"
+      "path": "../authorization"
     },
     {
       "path": "../application"

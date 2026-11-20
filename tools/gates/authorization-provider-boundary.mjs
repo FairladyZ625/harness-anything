@@ -6,7 +6,14 @@ import { pathToFileURL } from "node:url";
 import { loadOntologyClosureSnapshot } from "./ontology-gate-lib.mjs";
 
 const SOURCE_ROOTS = ["packages/"];
-const PROVIDER_PACKAGE_PREFIX = "packages/authorization-keycloak";
+// dec_5B243AC66763BD6D25B0DE2E86/CH1 preserves the provider ownership within the package.
+const providerRoots = ["packages/authorization/src/keycloak/", "packages/authorization/src/keycloak-gui/"];
+const providerPackageFiles = new Set(["packages/authorization/package.json", "packages/authorization/README.md"]);
+const compositionEntrypoints = new Map([
+  ["packages/daemon/src/daemon-host/authorization-provider.ts", "@harness-anything/authorization/keycloak"],
+  ["packages/gui/src/renderer/authorization-ui.tsx", "@harness-anything/authorization/keycloak-gui"],
+]);
+const importSpecifier = /^\s*(?:\}|(?:import|export)\s+.+)\s+from\s+["']([^"']+)["'];?\s*$/u;
 const EXEMPTED_TEST_PATH = /(?:^|\/)(?:test|tests|__tests__|fixtures?)(?:\/|\.)|\.(?:test|spec)\.[cm]?[jt]sx?$/u;
 const PROVIDER_MARKER =
   /keycloak|\badmin-cli\b|realm_access|keycloak_unavailable|keycloak-user:|\/realms\/|\/admin\/(?:[^"'\s]+\/console\/|serverinfo\b)|\brealm[_-]?role\b|\bclient(?:id|secret)\b/iu;
@@ -23,6 +30,10 @@ export function providerLineFingerprint(file, sourceLine) {
   return createHash("sha256").update(`${file}\0${sourceLine.trim()}`).digest("hex");
 }
 
+function providerOwnsFile(file) {
+  return providerPackageFiles.has(file) || providerRoots.some((prefix) => file.startsWith(prefix));
+}
+
 export function findProviderBoundaryViolations(diffText, waivedFingerprints = [], sourceReferences = new Set()) {
   const errors = [];
   // dec_04A9211B073F29F0FC1E1CA573 CH2/CH3: a physical move may change indentation,
@@ -30,9 +41,7 @@ export function findProviderBoundaryViolations(diffText, waivedFingerprints = []
   // one-for-one within the same consumer package; provider packages cannot lend rows.
   const removed = new Map();
   const consumer = (name) =>
-    name.startsWith(PROVIDER_PACKAGE_PREFIX) || EXEMPTED_TEST_PATH.test(name)
-      ? null
-      : /^packages\/([^/]+)\//u.exec(name)?.[1];
+    providerOwnsFile(name) || EXEMPTED_TEST_PATH.test(name) ? null : /^packages\/([^/]+)\//u.exec(name)?.[1];
   let previous = "";
   for (const line of String(diffText).split(/\r?\n/u)) {
     if (line.startsWith("--- a/")) previous = line.slice(6);
@@ -53,10 +62,10 @@ export function findProviderBoundaryViolations(diffText, waivedFingerprints = []
     }
     if (!line.startsWith("+") || line.startsWith("+++")) continue;
     if (!SOURCE_ROOTS.some((root) => file.startsWith(root))) continue;
-    const isProviderPackage =
-      file.startsWith(`${PROVIDER_PACKAGE_PREFIX}/`) || file.startsWith(`${PROVIDER_PACKAGE_PREFIX}-`);
-    if (isProviderPackage || EXEMPTED_TEST_PATH.test(file)) continue;
+    if (providerOwnsFile(file) || EXEMPTED_TEST_PATH.test(file)) continue;
     const sourceLine = line.slice(1);
+    const entrypoint = compositionEntrypoints.get(file);
+    if (entrypoint && entrypoint === importSpecifier.exec(sourceLine)?.[1]) continue;
     // A registered source location is an ontology reference, never a provider implementation.
     const reference =
       /^\s*(?:(?:"(?:symbol|candidateId|route|port)"|symbol|candidateId|route|port):\s*)?"([^"\n]+)"[,]?\s*$/u.exec(
@@ -104,7 +113,7 @@ export function findStaleFingerprints(fingerprints, sourceFiles) {
 function governedSourceFiles(rootDir) {
   return execFileSync("git", ["ls-files", "--", ...SOURCE_ROOTS], { cwd: rootDir, encoding: "utf8" })
     .split("\n")
-    .filter((file) => file && !file.startsWith(PROVIDER_PACKAGE_PREFIX) && !EXEMPTED_TEST_PATH.test(file))
+    .filter((file) => file && !providerOwnsFile(file) && !EXEMPTED_TEST_PATH.test(file))
     .map((file) => ({ file, text: readFileSync(path.join(rootDir, file), "utf8") }));
 }
 

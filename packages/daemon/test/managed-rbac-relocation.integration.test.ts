@@ -7,8 +7,8 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
-import { ManagedRbacService, managedRbacVersions } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
+import { ManagedRbacService, managedRbacVersions } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
 

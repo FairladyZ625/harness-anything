@@ -377,9 +377,9 @@
         "tools/gates/test/authorization-provider-boundary.test.mjs",
         "tools/gate-allowlists/authorization-provider-boundary.json"
       ],
-      "authoritySource": ["task_db161f5e92d9a6d2d414b462e4"],
+      "authoritySource": ["task_db161f5e92d9a6d2d414b462e4", "decision/dec_5B243AC66763BD6D25B0DE2E86#CH1"],
       "consumerScope": [
-        "new Keycloak symbols, REST paths, errors, and realm-specific fields outside authorization-keycloak provider packages"
+        "new Keycloak symbols, REST paths, errors, and realm-specific fields outside the Keycloak provider subdomains"
       ],
       "githubContext": {
         "requiredContexts": ["quick-gates"],
@@ -1976,6 +1976,7 @@
       "authoritySource": [
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d1",
         "decision/dec_D90F19C8AAAF39747F8F0D6698#CH8",
+        "decision/dec_5B243AC66763BD6D25B0DE2E86#CH1",
         "package.json:workspaces",
         "packages/*/package.json"
       ],
@@ -1983,6 +1984,7 @@
         "cross-package import statements under packages/**",
         "runtime import file graph under packages/** and tools/** (value imports, value re-exports, side-effect/dynamic imports)",
         "workspace package dependency graph and delivery-package direction",
+        "authorization provider and desktop subpath boundaries",
         "SQL statements, database drivers, and storage backend branches outside packages/storage"
       ],
       "githubContext": {
@@ -2043,10 +2045,11 @@
       "authoritySource": [
         "decision/dec_04A9211B073F29F0FC1E1CA573#CH1",
         "decision/dec_04A9211B073F29F0FC1E1CA573#CH3",
-        "decision/dec_7C93DEBCFB2D1A94C6FA07AAAD#CH2"
+        "decision/dec_7C93DEBCFB2D1A94C6FA07AAAD#CH2",
+        "decision/dec_5B243AC66763BD6D25B0DE2E86#CH1"
       ],
       "consumerScope": [
-        "closed-world 12 workspace packages under packages/*/package.json",
+        "closed-world nine workspace packages under packages/*/package.json",
         "four-way reconciliation of C4 relations, package manifests, source AST imports, and model.c4 plus all four daemon planes; dec_04A9211B073F29F0FC1E1CA573 CH3"
       ],
       "githubContext": {
@@ -3592,7 +3595,10 @@
       "category": "release-policy",
       "tier": "pr-required",
       "tierReason": null,
-      "authoritySource": ["decision/dec_22C3C58447E7520DA3E6FACD5E#CH1"],
+      "authoritySource": [
+        "decision/dec_22C3C58447E7520DA3E6FACD5E#CH1",
+        "decision/dec_5B243AC66763BD6D25B0DE2E86#CH1"
+      ],
       "consumerScope": ["published workspace package exports and executable targets"],
       "githubContext": {
         "requiredContexts": ["package-policy"],
@@ -3603,7 +3609,7 @@
         "allowed": false,
         "location": null,
         "adrOrDecisionRequired": false,
-        "notes": "Every declared target must be present in the generated npm tarball."
+        "notes": "Packed exports must match publishConfig.exports when declared, and every packed export and bin target must exist."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -4431,9 +4437,7 @@
         "packages/cli/src/**",
         "packages/storage/src/**",
         "packages/preset/src/**",
-        "packages/authorization-builtin/src/**",
-        "packages/authorization-keycloak/src/**",
-        "packages/authorization-gui/src/**",
+        "packages/authorization/src/**",
         "tools/check-status-vocabulary.mjs",
         "tools/generate-daemon-status-vocabulary.mjs",
         "tools/check-status-vocabulary.test.mjs",

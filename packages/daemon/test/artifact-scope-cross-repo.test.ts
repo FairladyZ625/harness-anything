@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { writeDaemonRegistryRepo } from "@harness-anything/kernel/daemon-registry";
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { migrateCompletion } from "@harness-anything/preset/internal/preset-resolver";
 import { readArtifactActionScopes } from "../src/daemon-host/authorization-provider.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";

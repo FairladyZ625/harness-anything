@@ -4,7 +4,10 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { readManagedRbacRelocationBundle, writeManagedRbacRelocationBundle } from "../src/managed-rbac-relocation.ts";
+import {
+  readManagedRbacRelocationBundle,
+  writeManagedRbacRelocationBundle,
+} from "../../src/keycloak/managed-rbac-relocation.ts";
 
 test("relocation bundle hashes realm credentials, center secret, and optional edge journal", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-relocation-")),

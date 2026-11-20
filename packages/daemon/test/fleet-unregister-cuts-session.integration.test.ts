@@ -6,7 +6,7 @@ import { sha256Bytes } from "@harness-anything/kernel";
 import type { FleetTlsCenter } from "../src/daemon-host/fleet/center.ts";
 import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/daemon-host/fleet/command-protocol.ts";
 import { managedRbacReceiptJournal } from "../src/daemon-host/access-admin-state.ts";
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { signInAt } from "./keycloak.fixtures.ts";
 import { createNodeRetirement } from "../src/daemon-host/fleet/node-retirement.ts";
 import { AccessAdminService } from "../src/daemon-host/access-admin-service.ts";

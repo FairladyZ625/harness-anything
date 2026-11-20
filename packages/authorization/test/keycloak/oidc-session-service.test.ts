@@ -4,9 +4,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { OidcSessionService } from "../../src/keycloak/oidc-session-service.ts";
 import type { OidcLoginAuthority, OidcSessionPorts } from "@harness-anything/kernel";
-import type { KeycloakEdgeLogin, KeycloakSessionHost } from "../src/session-host.ts";
+import type { KeycloakEdgeLogin, KeycloakSessionHost } from "../../src/keycloak/session-host.ts";
 
 interface RefreshRequest {
   readonly clientId: string | null;

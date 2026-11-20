@@ -26,9 +26,9 @@ import test from "node:test";
 import {
   managedListenerProblem,
   readRegularListenerCertificateIfPresent,
-} from "@harness-anything/authorization-keycloak";
-import { managedRbacVersions } from "@harness-anything/authorization-keycloak/managed-rbac-service";
-import type { ListenerWriteStage } from "../../authorization-keycloak/src/managed-rbac-listener-certificate.ts";
+} from "@harness-anything/authorization/keycloak";
+import { managedRbacVersions } from "@harness-anything/authorization/keycloak/managed-rbac-service";
+import type { ListenerWriteStage } from "../../authorization/src/keycloak/managed-rbac-listener-certificate.ts";
 import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
 import { validateCertificateNames } from "../src/daemon-host/tls-listener-admission.ts";
 

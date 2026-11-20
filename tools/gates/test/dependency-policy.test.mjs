@@ -51,9 +51,9 @@ test("G31 rejects lock drift and undeclared dependency changes", () => {
 });
 
 test("G31 identifies the dependency surface from changed paths", () => {
-  for (const filePath of ["package.json", "package-lock.json", "packages/authorization-gui/package.json"])
+  for (const filePath of ["package.json", "package-lock.json", "packages/authorization/package.json"])
     assert.equal(hasDependencyChange([filePath]), true, filePath);
-  for (const filePath of ["packages/authorization-gui/src/index.ts", "docs/package.json.md", "package.json.bak"])
+  for (const filePath of ["packages/authorization/src/gui/index.ts", "docs/package.json.md", "package.json.bak"])
     assert.equal(hasDependencyChange([filePath]), false, filePath);
 });
 

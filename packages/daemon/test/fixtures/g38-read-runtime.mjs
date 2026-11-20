@@ -1,7 +1,7 @@
 // Compose the production read handlers/executors over the measured backend. Writer-resident
 // reads may await Git or policy work; invoking those via the query-only worker's synchronous
 // session would reject before the read runs, which is not a cost measurement.
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { fakeKeycloak } from "../keycloak.fixtures.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";

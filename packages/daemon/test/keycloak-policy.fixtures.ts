@@ -6,7 +6,7 @@ import {
   type ActorIdentity,
   type BasePolicyGroupId,
 } from "@harness-anything/kernel";
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 
 // Compile the bundled vertical so the runtime Artifact kind scopes are registered before the

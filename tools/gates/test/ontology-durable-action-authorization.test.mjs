@@ -27,7 +27,7 @@ import { replaceSourceOnce, runGit } from "./helpers.mjs";
 import { sourceWitness } from "./authorization-source-fixture.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
-const tracedPackages = ["daemon", "authorization-keycloak", "application"];
+const tracedPackages = ["daemon", "authorization", "application"];
 const inputs = await baselineAuthorizationInputs();
 
 const partitionValue = process.env.HARNESS_TEST_PARTITION;
@@ -496,7 +496,7 @@ partitionedTest("a branch skips authorization only when the authorization port i
     (dir) =>
       edit(
         dir,
-        "packages/authorization-keycloak/src/oidc-session-service.ts",
+        "packages/authorization/src/keycloak/oidc-session-service.ts",
         "!(await this.#bootstrapRequired(await this.#centerToken()))",
         "loginTarget !== undefined",
       ),

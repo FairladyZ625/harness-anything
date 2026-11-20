@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import { managedRbacSessionStore } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import type { OidcLoginAuthority } from "@harness-anything/kernel";
 import { writeDaemonRegistryRepo } from "@harness-anything/kernel/daemon-registry";

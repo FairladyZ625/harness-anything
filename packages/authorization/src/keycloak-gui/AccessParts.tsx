@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { AccessReceipt, AccessRejection } from "@harness-anything/authorization-gui/access-admin-contract";
+import type { AccessReceipt, AccessRejection } from "../gui/access-admin-contract.ts";
 import { createAccessModel } from "./access-model.js";
 import type { StatusTone } from "./ui-host.js";
 import type { KeycloakUiHost } from "./ui-host.js";

@@ -4,7 +4,7 @@ import { taskPrPublicationNote } from "../src/daemon-host/runtime-spawn-mission.
 import { latestSquadStates } from "./squad-run-state.fixture.ts";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { BuiltinPolicyAdapter, builtinAuthorityUrl } from "@harness-anything/authorization-builtin";
+import { BuiltinPolicyAdapter, builtinAuthorityUrl } from "@harness-anything/authorization/builtin";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";

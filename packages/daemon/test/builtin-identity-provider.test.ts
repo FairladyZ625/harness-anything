@@ -8,8 +8,8 @@ import {
   BuiltinIdentitySession,
   BuiltinIdentityManagement,
   userRootFromBuiltinUrl,
-} from "@harness-anything/authorization-builtin";
-import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+} from "@harness-anything/authorization/builtin";
+import { managedRbacSessionStore } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { AccessAdminService } from "../src/daemon-host/access-admin-service.ts";
 import {
   createAuthorizationProvider,
