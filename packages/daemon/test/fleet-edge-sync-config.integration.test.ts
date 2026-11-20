@@ -28,6 +28,7 @@ import {
   readFleetRepositoryMetadataClient,
 } from "../src/daemon-host/fleet/peer.ts";
 import { runtimeForwardingContext } from "../src/daemon-host/fleet/forwarding-port.ts";
+import { runFleetEdgeTask } from "../src/daemon-host/fleet-edge-task.ts";
 
 async function listenFleetLoginProxy(
   t: TestContext,
@@ -613,6 +614,16 @@ test(
       }),
       (error: unknown) => error instanceof Error && "code" in error && error.code === "pin_mismatch",
     );
+    const taskReceipt = await runFleetEdgeTask({
+      payload: {
+        ...loginConfig,
+        caPath: path.join(f.root, "tls.crt"),
+        spkiSha256: "0".repeat(64),
+        workspaceRoot: e.edgeRoot,
+        action: { kind: "task-create", taskId: "pin-rejected", title: "Pin rejected" },
+      },
+    });
+    assert.equal(taskReceipt.code, "pin_mismatch");
     await assert.rejects(
       readFleetRepositoryMetadataClient({
         ...runtimePeer,

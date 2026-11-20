@@ -436,10 +436,10 @@ test(
         "--ca",
         fixture.ca,
         "--spki-sha256",
-        spkiSha256,
+        "0".repeat(64),
       ]);
       assert.equal(servernameProbe.status, 1, JSON.stringify(servernameProbe));
-      assert.equal(servernameProbe.receipt.code, "writer_epoch_not_advanced", JSON.stringify(servernameProbe));
+      assert.equal(servernameProbe.receipt.code, "pin_mismatch", JSON.stringify(servernameProbe));
       writeFleetEdgeConfig(fixture.edgeUser, "fleet-demo", originalEdgeConfig);
       assert.equal(
         existsSync(
