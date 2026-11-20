@@ -64,18 +64,23 @@ export function oidcCenterSelections(userRoot: string) {
       .update(JSON.stringify([target ?? null, identity]))
       .digest("hex");
   };
-  function write(target: string | undefined, selection: OidcCenterSelection | null): void {
+  function write(
+    target: string | undefined,
+    selection: OidcCenterSelection | null,
+    identityOverride?: Readonly<Record<string, unknown>>,
+    clearAll = false,
+  ): void {
     if (selection) {
       /* @gate-identity state-store/runtime-instance.oidc-center-selection */ mkdirSync(directory, {
         recursive: true,
         mode: 0o700,
       });
     } else if (!existsSync(directory)) return;
-    const files = selection
-      ? [path.join(directory, `${binding(target)}.json`)]
-      : readdirSync(directory)
+    const files = clearAll
+      ? readdirSync(directory)
           .filter((entry) => entry.endsWith(".json"))
-          .map((entry) => path.join(directory, entry));
+          .map((entry) => path.join(directory, entry))
+      : [path.join(directory, `${binding(target, identityOverride)}.json`)];
     const stored = selection ? persistedSelection(selection) : null;
     for (const file of files) {
       const temporary = `${file}.tmp`;
@@ -88,7 +93,7 @@ export function oidcCenterSelections(userRoot: string) {
     }
   }
   return {
-    clearAll: write.bind(undefined, undefined, null),
+    clearAll: write.bind(undefined, undefined, null, undefined, true),
     key: binding,
     read(target?: string, identityOverride?: Readonly<Record<string, unknown>>): OidcCenterSelection | undefined {
       const key = binding(target, identityOverride),
