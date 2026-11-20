@@ -115,7 +115,8 @@ export async function seedGuiE2eDeliverySessions(rootDir, repoId, writerFence, p
             providerId: "openai",
             model: "gpt-e2e",
             reasoningEffort: null,
-            baseUrl: null,
+            endpointKind: "official",
+            baseUrlHash: null,
             authMode: "subscription",
           },
         });

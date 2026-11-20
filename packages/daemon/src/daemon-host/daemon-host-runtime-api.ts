@@ -82,6 +82,24 @@ export function createDaemonHostRuntimeApi(
     codedError: context.hostCodedError,
   });
   let centerStarting = false;
+  const runtimeNodeId = (repoId?: string): string => {
+    if (repoId === undefined) return "center";
+    const repo = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
+      (candidate) => candidate.repoId === repoId,
+    );
+    if (!repo)
+      throw context.hostCodedError("repo_namespace_unknown", `Unknown runtime repository namespace: ${repoId}.`);
+    if (repo.mode !== "remote-edge") return "center";
+    if (repo.canonicalRoot === null)
+      throw context.hostCodedError("repo_namespace_unknown", `Runtime repository ${repoId} has no local root.`);
+    const edge = readFleetEdgeConfig(repo.canonicalRoot);
+    if (edge === null || edge.repoId !== repoId)
+      throw context.hostCodedError(
+        "fleet_edge_config_missing",
+        `Fleet edge configuration for repository ${repoId} is unavailable or mismatched.`,
+      );
+    return edge.nodeId;
+  };
   const authorizeCenterConfiguration = async (repoId: string, auth: Parameters<typeof context.binding>[1]) => {
     const authorityRepo = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
       (repo): repo is typeof repo & { readonly canonicalRoot: string } =>
@@ -658,8 +676,9 @@ export function createDaemonHostRuntimeApi(
       },
     },
     system: context.system,
-    runtimeInstance: async (method, payload, auth) => {
+    runtimeInstance: async (method, payload, auth, repoId) => {
       const operation = method.replace("daemon.runtimeInstance.", ""),
+        nodeId = runtimeNodeId(repoId),
         actionKind =
           operation === "hostingCredential.set" || operation === "hostingCredential.unset"
             ? `runtime-instance-${operation === "hostingCredential.set" ? "hosting-credential-set" : "hosting-credential-unset"}`
@@ -696,8 +715,8 @@ export function createDaemonHostRuntimeApi(
           ? {
               ...instance,
               providerHealth: {
-                nodeId: context.input.daemonId,
                 ...context.runtimePorts.runtimeProviderHealth.get(instance.instanceId),
+                nodeId,
               },
             }
           : value;
@@ -730,6 +749,7 @@ export function createDaemonHostRuntimeApi(
                 .join("\n");
       return {
         ...receipt,
+        ...(operation === "list" ? { nodeId } : {}),
         ...(instances === undefined ? {} : { instances }),
         ...(instance === undefined ? {} : { instance }),
         ...(summary === undefined ? {} : { summary }),

@@ -66,7 +66,8 @@ const binding: RepoCellBinding = withPolicyGroup({ actor, source: "local" as con
     providerId: "openai",
     model: "causal-model",
     reasoningEffort: "high",
-    baseUrl: "https://api.example.test/",
+    endpointKind: "custom",
+    baseUrlHash: "sha256:289d412cd8961bf0",
     authMode: "api-key",
   },
   installation: RuntimeInstallationWitness = {

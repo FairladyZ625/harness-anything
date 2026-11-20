@@ -1,12 +1,18 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openDaemonHost } from "@harness-anything/daemon/client";
+import { registerDaemonRepo } from "@harness-anything/storage";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import { discoverRuntimeInstallations } from "../src/daemon-host/agent-runtime-installation-discovery.ts";
 import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instance-store.ts";
+import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instance-types.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
@@ -24,8 +30,12 @@ async function listed(host: Awaited<ReturnType<typeof openDaemonHost>>, payload:
   const receipt = (await host.runtimeInstance("daemon.runtimeInstance.list", payload, auth)) as Record<string, unknown>;
   assert.equal(receipt.ok, true, JSON.stringify(receipt));
   return receipt as {
+    readonly nodeId: string;
     readonly installations: readonly Record<string, unknown>[];
-    readonly instances: readonly { readonly authReadiness: { readonly code: string | null } }[];
+    readonly instances: readonly {
+      readonly authReadiness: { readonly code: string | null };
+      readonly providerHealth?: { readonly nodeId: string };
+    }[];
   };
 }
 
@@ -52,6 +62,7 @@ test("runtime instance list serves the recorded observations instead of re-witne
         observedAt: codexWitness.observedAt,
       },
     ]);
+    assert.equal((await listed(host, { all: true })).nodeId, "center");
     assert.equal(discoveries, 1, "the first list records the machine's installations");
     discoveries = 0;
     for (let round = 0; round < 5; round += 1) {
@@ -82,6 +93,7 @@ test("runtime instance list serves the recorded observations instead of re-witne
     discoveries = 0;
     const read = await listed(host, { all: true });
     assert.equal(discoveries, 0);
+    assert.equal(read.nodeId, "center");
     // A list that is not asked to probe reports the cached readiness; probing would have replaced
     // this code with the process-backed result.
     assert.equal(read.instances[0]!.authReadiness.code, "runtime_auth_not_checked");
@@ -89,6 +101,118 @@ test("runtime instance list serves the recorded observations instead of re-witne
     // --probe keeps its meaning: observe the machine, then verify authentication against it.
     await listed(host, { all: true, probe: true });
     assert.equal(discoveries, 1, "--probe still refreshes the witness snapshot");
+  } finally {
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("runtime instance list scopes its node identity to the selected Fleet edge repository", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-list-edge-node-")),
+    userRoot = path.join(parent, "user"),
+    repoRoot = path.join(parent, "repo"),
+    repoId = "runtime-list-edge";
+  mkdirSync(userRoot, { recursive: true });
+  mkdirSync(path.join(repoRoot, "harness"), { recursive: true });
+  writeFileSync(path.join(repoRoot, "harness", "harness.yaml"), "schema: harness-anything/v1\n", "utf8");
+  writeFileSync(path.join(parent, "fleet.crt"), "test fleet certificate\n", "utf8");
+  execFileSync("git", ["-C", repoRoot, "init", "-q", "-b", "main"]);
+  execFileSync("git", ["-C", repoRoot, "config", "user.name", "Runtime List Test"]);
+  execFileSync("git", ["-C", repoRoot, "config", "user.email", "runtime-list@example.invalid"]);
+  execFileSync("git", ["-C", repoRoot, "add", "harness/harness.yaml"]);
+  execFileSync("git", ["-C", repoRoot, "commit", "-qm", "initialize harness repository"]);
+  const host = await openDaemonHost({
+    daemonId: "runtime-list-edge-node",
+    userRoot,
+    runtimeDiscover: () => [codexWitness],
+  });
+  try {
+    registerDaemonRepo({
+      canonicalRoot: repoRoot,
+      repoId,
+      mode: "remote-edge",
+      userRoot,
+      createConvenienceLinks: false,
+    });
+    writeFleetEdgeConfig(repoRoot, {
+      repoId,
+      host: "center.example.invalid",
+      port: 7443,
+      caPath: path.join(parent, "fleet.crt"),
+      nodeId: "edge-runtime-node",
+      credential: "test-fleet-credential",
+      viewRoot: path.join(parent, "view"),
+      quotaBytes: 1_048_576,
+    });
+    const created = (await host.runtimeInstance(
+      "daemon.runtimeInstance.create",
+      {
+        instanceId: "codex-edge-node",
+        name: "Codex edge node",
+        kindId: "codex",
+        installationId: codexWitness.installationId,
+        providerId: "openai",
+        models: ["gpt-5.6-sol"],
+        authMode: "subscription",
+      },
+      auth,
+    )) as Record<string, unknown>;
+    assert.equal(created.ok, true, JSON.stringify(created));
+    const listedOnEdge = (await host.runtimeInstance(
+      "daemon.runtimeInstance.list",
+      { all: true },
+      auth,
+      repoId,
+    )) as Record<string, unknown>;
+    assert.equal(listedOnEdge.nodeId, "edge-runtime-node");
+    assert.equal(
+      (listedOnEdge.instances as readonly { readonly providerHealth: { readonly nodeId: string } }[])[0]!.providerHealth
+        .nodeId,
+      "edge-runtime-node",
+    );
+    let forwardedRepoId: string | undefined;
+    const server = createJsonRpcProtocolServer({
+      host: {
+        status: () => ({
+          daemonId: "runtime-list-edge-node",
+          pid: process.pid,
+          startedAt: "2026-11-19T00:00:00.000Z",
+          entry: "test",
+          build: daemonBuildStamp(),
+          connections: [],
+          repos: [{ repoId, state: "enabled", mode: "remote-edge" }],
+          summary: "test daemon",
+        }),
+        runtimeInstance: async (
+          _method: string,
+          _payload: Record<string, unknown>,
+          _auth: unknown,
+          scopedRepoId?: string,
+        ) => {
+          forwardedRepoId = scopedRepoId;
+          return { ok: true, nodeId: scopedRepoId === undefined ? "center" : "edge-runtime-node" };
+        },
+      } as never,
+      build: daemonBuildStamp(),
+      authContext: auth,
+      emit: async () => undefined,
+    });
+    await server.handle({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "protocol.hello",
+      params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
+    });
+    const response = await server.handle({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "daemon.runtimeInstance.list",
+      params: { repo: { repoId }, payload: { all: true } },
+    });
+    assert.ok(response && !Array.isArray(response) && "result" in response);
+    const receipt = response.result as Record<string, unknown>;
+    assert.equal(forwardedRepoId, repoId);
+    assert.equal(receipt.nodeId, "edge-runtime-node");
   } finally {
     await host.close();
     rmSync(parent, { recursive: true, force: true });

@@ -42,6 +42,7 @@ import type { DaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { parseProviderFrame } from "../src/daemon-host/runtime-spawn-provider-frames.ts";
 import { consumeProviderLine } from "../src/daemon-host/runtime-spawn-provider-stream.ts";
 import { validateAgentRuntimeSession } from "../src/daemon-host/agent-runtime-contract.ts";
+import { agentDefinitionSnapshotEndpoint } from "../src/daemon-host/agent-runtime-snapshot.ts";
 import {
   archiveDispatchStream,
   dispatchStreamPath,
@@ -101,7 +102,11 @@ test("runtime read facets expose safe overview/session/events through the shared
       reads.overview({ taskId: "task-runtime" }).sessions.map(({ runtimeSessionId }) => runtimeSessionId),
       ["runtime-session"],
     );
-    assert.deepEqual(overview.sessions[0]?.definitionSnapshot, definition);
+    assert.equal(overview.sessions[0]?.nodeId, "center");
+    assert.equal(overview.sessions[0]?.definitionSnapshot?.endpointKind, "custom");
+    assert.match(overview.sessions[0]?.definitionSnapshot?.baseUrlHash ?? "", /^sha256:[0-9a-f]{16}$/u);
+    assert.equal(Object.hasOwn(overview.sessions[0]!.definitionSnapshot!, "baseUrl"), false);
+    assert.equal(JSON.stringify(overview.sessions[0]?.definitionSnapshot).includes("runtime.example"), false);
     assert.equal(overview.sessions[0]?.definitionSnapshotPersisted, true);
     assert.deepEqual(secretKeys(overview), []);
     assert.deepEqual(
@@ -142,10 +147,48 @@ test("historical runtime sessions with no snapshot event degrade without failing
     assert.deepEqual(validateAgentRuntimeOverview(overview), []);
   }));
 
+test("runtime session reads redact a historical custom endpoint before returning its snapshot", () =>
+  withRuntime(({ store, projection }) => {
+    const legacyBaseUrl = "https://private-old-relay.example.invalid/anthropic/",
+      source = projection.readRuntimeDispatch("runtime-session")!;
+    const historicalDispatch = {
+      ...source,
+      payload: {
+        ...source.payload,
+        definitionSnapshot: {
+          authMode: "api-key",
+          configVersion: 1,
+          installationId: definition.installationId,
+          instanceId: definition.instanceId,
+          kindId: definition.kindId,
+          model: definition.model,
+          providerId: definition.providerId,
+          reasoningEffort: definition.reasoningEffort,
+          schema: "agent-definition-snapshot/v1",
+          baseUrl: legacyBaseUrl,
+        },
+      },
+    } as typeof source;
+    const historicalProjection = new Proxy(projection, {
+      get: (target, property, receiver) => {
+        if (property === "readRuntimeDispatch") return () => historicalDispatch;
+        const value = Reflect.get(target, property, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const session = makeAgentRuntimeReadModel({ store, projection: historicalProjection }).session({
+      runtimeSessionId: "runtime-session",
+    }).session;
+    assert.equal(session.definitionSnapshot?.endpointKind, "custom");
+    assert.match(session.definitionSnapshot?.baseUrlHash ?? "", /^sha256:[0-9a-f]{16}$/u);
+    assert.equal(Object.hasOwn(session.definitionSnapshot!, "baseUrl"), false);
+    assert.equal(JSON.stringify(session.definitionSnapshot).includes(legacyBaseUrl), false);
+  }));
+
 test("runtime lifecycle ignores local process evidence for local and remote owners", (t) =>
   withRuntime(({ rootDir, store, projection }) => {
     const dispatchId = "dispatch_abcdefabcdefabcdefabcdef",
-      projectionForDispatch = (source?: { readonly kind: "node"; readonly nodeId: string }) =>
+      projectionForDispatch = (startedSource?: { readonly kind: "node"; readonly nodeId: string }) =>
         new Proxy(projection, {
           get: (target, property, receiver) => {
             const rewriteDispatch = (
@@ -154,7 +197,6 @@ test("runtime lifecycle ignores local process evidence for local and remote owne
               dispatch.payload.runtimeSessionId === "runtime-session"
                 ? {
                     ...dispatch,
-                    source: source ?? dispatch.source,
                     payload: { ...dispatch.payload, dispatchId },
                   }
                 : dispatch;
@@ -163,6 +205,14 @@ test("runtime lifecycle ignores local process evidence for local and remote owne
                 const dispatch = target.readRuntimeDispatch(runtimeSessionId, snapshotRef);
                 return dispatch ? rewriteDispatch(dispatch) : null;
               };
+            if (property === "readRuntimeSessionEventsByType")
+              return (runtimeSessionId: string, types: readonly AgentRuntimeEventV1["type"][]) =>
+                target.readRuntimeSessionEventsByType(runtimeSessionId, types).map((event) => {
+                  if (event.type === "runtime_dispatch_requested") return rewriteDispatch(event);
+                  if (event.type === "runtime_session_started" && startedSource !== undefined)
+                    return { ...event, source: startedSource };
+                  return event;
+                });
             const value = Reflect.get(target, property, receiver);
             return typeof value === "function" ? value.bind(target) : value;
           },
@@ -175,10 +225,12 @@ test("runtime lifecycle ignores local process evidence for local and remote owne
       });
     const lifecycle = localReads.overview({}).sessions[0]?.lifecycle;
     assert.equal(lifecycle?.displayStatus, "running");
+    assert.equal(localReads.session({ runtimeSessionId: "runtime-session" }).session.nodeId, "center");
     assert.equal(
       remoteReads.session({ runtimeSessionId: "runtime-session" }).session.lifecycle?.displayStatus,
       "running",
     );
+    assert.equal(remoteReads.session({ runtimeSessionId: "runtime-session" }).session.nodeId, "another-edge");
 
     openDispatchStream(rootDir, {
       dispatchId,
@@ -1015,7 +1067,7 @@ const definition: AgentDefinitionSnapshot = {
   providerId: "openai",
   model: "gpt-5.6-sol",
   reasoningEffort: "high",
-  baseUrl: "https://runtime.example/v1",
+  ...agentDefinitionSnapshotEndpoint("https://runtime.example/v1"),
   authMode: "api-key",
 };
 function secretKeys(value: unknown, found: string[] = []): string[] {
@@ -1209,12 +1261,25 @@ test("an installation-backed session DTO extends the previous wire shape with a 
     assert.deepEqual(session, {
       lifecycle: session.lifecycle,
       runtimeSessionId: "runtime-historical",
+      nodeId: "center",
       providerSessionId: null,
       instanceId: "instance-historical",
       installationId: "installation-present",
       kindId: "claude",
       definitionSnapshotRef: "artifact:runtime-definition/test",
-      definitionSnapshot: historicalDefinition("installation-present"),
+      definitionSnapshot: {
+        authMode: "subscription",
+        configVersion: 1,
+        endpointKind: "official",
+        baseUrlHash: null,
+        installationId: "installation-present",
+        instanceId: "instance-historical",
+        kindId: "claude",
+        model: "claude-opus",
+        providerId: "anthropic",
+        reasoningEffort: null,
+        schema: "agent-definition-snapshot/v1",
+      },
       definitionSnapshotPersisted: true,
       liveness: "live",
       semanticState: "running",
@@ -1416,7 +1481,8 @@ function events(installationId: string): readonly AgentRuntimeEventV1[] {
 function historicalDefinition(installationId: string): AgentDefinitionSnapshot {
   return {
     authMode: "subscription",
-    baseUrl: null,
+    endpointKind: "official",
+    baseUrlHash: null,
     configVersion: 1,
     installationId,
     instanceId: "instance-historical",

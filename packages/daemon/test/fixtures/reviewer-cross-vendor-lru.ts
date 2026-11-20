@@ -163,7 +163,8 @@ export async function createMultiVendorHarness() {
           model: request.model ?? config.defaultModel,
           reasoningEffort: null,
           fast: false,
-          baseUrl: null,
+          endpointKind: "official",
+          baseUrlHash: null,
           authMode: "subscription",
         } satisfies AgentDefinitionSnapshot,
         installation: {

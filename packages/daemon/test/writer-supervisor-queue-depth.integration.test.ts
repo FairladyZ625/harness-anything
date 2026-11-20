@@ -38,7 +38,8 @@ test("writer supervisor observes internal runtime work draining to zero", { time
       providerId: "openai",
       model: "codex-model",
       reasoningEffort: null,
-      baseUrl: null,
+      endpointKind: "official",
+      baseUrlHash: null,
       authMode: "subscription" as const,
     },
     installation = {

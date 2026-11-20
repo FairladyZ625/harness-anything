@@ -27,7 +27,8 @@ test("a provider-rejected local resume leaves its source available for another a
     providerId: "openai",
     model: "gpt-5.6-sol",
     reasoningEffort: "high",
-    baseUrl: null,
+    endpointKind: "official",
+    baseUrlHash: null,
     authMode: "subscription",
   };
   const dispatchId = "dispatch_0123456789abcdef01234567";
@@ -132,7 +133,8 @@ test("a rejected task resume keeps its primary error when lease stop proof is un
       providerId: "openai",
       model: "gpt-5.6-sol",
       reasoningEffort: "high",
-      baseUrl: null,
+      endpointKind: "official",
+      baseUrlHash: null,
       authMode: "subscription",
     };
   try {

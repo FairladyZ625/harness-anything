@@ -24,7 +24,7 @@ import type {
   RuntimeLaunchPermissionMode,
 } from "@harness-anything/kernel";
 import type { RuntimeCapabilitySupport } from "../runtime-engine/runtime-inventory-types.ts";
-import { isRuntimeMcpPolicy, runtimeWebSearchModes } from "../runtime-engine/runtime-inventory.ts";
+import { isRuntimeMcpPolicy } from "../runtime-engine/runtime-inventory.ts";
 import {
   type ActorIdentity,
   type AgentDefinitionSnapshot,
@@ -36,6 +36,7 @@ import { validAgentRuntimeAttemptChain, type AgentRuntimeAttemptChainDto } from 
 import type { ProviderUnreachableEvidence } from "./protocol/task-dispatch-contract.ts";
 export type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 export type { AgentRuntimeTargetV1, RuntimeInstallationState } from "@harness-anything/kernel";
+
 export interface AgentRuntimeInstallationDto {
   readonly installationId: string;
   readonly kindId: string;
@@ -181,6 +182,8 @@ export interface AgentRuntimeSessionDto {
   /** Absent only on previous-version peers; remove optionality 2026-12-07. */
   readonly lifecycle?: DispatchLifecycleSummary;
   readonly runtimeSessionId: string;
+  /** Absent on previous peers that have not negotiated the session DTO extension. */
+  readonly nodeId?: string | null;
   readonly providerSessionId: string | null;
   readonly instanceId: string;
   readonly installationId: string;
@@ -631,12 +634,14 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
         "metrics",
         "context",
         "lifecycle",
+        "nodeId",
         "effectivePermissionMode",
         "requestedPermissionMode",
         "permissionModeSource",
       ],
     ) &&
     typeof value.runtimeSessionId === "string" &&
+    (value.nodeId === undefined || value.nodeId === null || typeof value.nodeId === "string") &&
     (value.providerSessionId === null || typeof value.providerSessionId === "string") &&
     [value.instanceId, value.installationId, value.definitionSnapshotRef].every(
       (item) => typeof item === "string" && item.length > 0,
@@ -648,7 +653,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
     (value.context === undefined || validSessionContext(value.context)) &&
     typeof value.definitionSnapshotPersisted === "boolean" &&
     (value.definitionSnapshot === null ||
-      (isAgentDefinitionSnapshot(value.definitionSnapshot) &&
+      (validAgentDefinitionSnapshotDto(value.definitionSnapshot) &&
         value.definitionSnapshot.instanceId === value.instanceId &&
         value.definitionSnapshot.installationId === value.installationId)) &&
     (!value.definitionSnapshotPersisted || value.definitionSnapshot !== null) &&
@@ -762,10 +767,10 @@ function validPage(value: unknown): boolean {
     (value.remainingCount === null || (Number.isInteger(value.remainingCount) && (value.remainingCount as number) >= 0))
   );
 }
-export function isAgentDefinitionSnapshot(value: unknown): value is AgentDefinitionSnapshot {
-  return (
-    isAgentRuntimeContractRecord(value) &&
-    hasAgentRuntimeContractFields(
+function validAgentDefinitionSnapshotDto(value: unknown): value is AgentDefinitionSnapshot {
+  if (
+    !isAgentRuntimeContractRecord(value) ||
+    !hasAgentRuntimeContractFields(
       value,
       [
         "schema",
@@ -776,26 +781,43 @@ export function isAgentDefinitionSnapshot(value: unknown): value is AgentDefinit
         "providerId",
         "model",
         "reasoningEffort",
-        "baseUrl",
         "authMode",
       ],
-      ["fast", "webSearch", "mcpPolicy"],
-    ) &&
+      ["baseUrl", "endpointKind", "baseUrlHash", "fast", "webSearch", "mcpPolicy"],
+    )
+  )
+    return false;
+  return validCurrentAgentDefinitionSnapshot(value);
+}
+
+function validCurrentAgentDefinitionSnapshot(value: Record<string, unknown>): boolean {
+  return (
+    !Object.hasOwn(value, "baseUrl") &&
     value.schema === "agent-definition-snapshot/v1" &&
     value.configVersion === 1 &&
-    [value.instanceId, value.installationId, value.providerId, value.model].every(
-      (item) => typeof item === "string" && item.length > 0,
-    ) &&
+    typeof value.instanceId === "string" &&
+    value.instanceId.length > 0 &&
+    typeof value.installationId === "string" &&
+    value.installationId.length > 0 &&
     typeof value.kindId === "string" &&
     value.kindId.length > 0 &&
-    (value.reasoningEffort === null || typeof value.reasoningEffort === "string") &&
+    typeof value.providerId === "string" &&
+    value.providerId.length > 0 &&
+    typeof value.model === "string" &&
+    value.model.length > 0 &&
+    (value.reasoningEffort === null ||
+      (typeof value.reasoningEffort === "string" && value.reasoningEffort.length > 0)) &&
+    ["subscription", "api-key"].includes(String(value.authMode)) &&
+    ["official", "custom"].includes(String(value.endpointKind)) &&
+    (value.endpointKind === "official"
+      ? value.baseUrlHash === null
+      : typeof value.baseUrlHash === "string" && /^sha256:[0-9a-f]{16}$/u.test(value.baseUrlHash)) &&
     (value.fast === undefined || typeof value.fast === "boolean") &&
-    (value.webSearch === undefined || (runtimeWebSearchModes as readonly string[]).includes(String(value.webSearch))) &&
-    (value.mcpPolicy === undefined || isRuntimeMcpPolicy(value.mcpPolicy)) &&
-    (value.baseUrl === null || typeof value.baseUrl === "string") &&
-    ["subscription", "api-key"].includes(String(value.authMode))
+    (value.webSearch === undefined || ["disabled", "cached", "live"].includes(String(value.webSearch))) &&
+    (value.mcpPolicy === undefined || ["disabled", "inherit"].includes(String(value.mcpPolicy)))
   );
 }
+
 function validAssociation(value: unknown): value is AgentRuntimeAssociationDto {
   return (
     isAgentRuntimeContractRecord(value) &&

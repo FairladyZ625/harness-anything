@@ -13,6 +13,7 @@ import {
   runtimeDefinitionSnapshotArtifact,
   type AgentDefinitionSnapshot,
 } from "@harness-anything/kernel";
+import { agentDefinitionSnapshotEndpoint } from "../src/daemon-host/agent-runtime-snapshot.ts";
 import { resolveAgentRuntimeDeclaration } from "../src/daemon-host/agent-declaration-resolution.ts";
 import { type RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
 import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
@@ -28,18 +29,19 @@ import { TASK_WIP_LIMIT_ENV } from "../src/daemon-host/task-wip-settings.ts";
 
 import { grantTestPolicyGroups, revokeTestPolicyActions } from "./keycloak-policy.fixtures.ts";
 
-const definition: AgentDefinitionSnapshot = {
-  schema: "agent-definition-snapshot/v1",
-  configVersion: 1,
-  instanceId: "codex-review",
-  installationId: "installation-codex",
-  kindId: "codex",
-  providerId: "openai",
-  model: "gpt-5.6-sol",
-  reasoningEffort: "high",
-  baseUrl: "https://api.example.test/",
-  authMode: "api-key",
-};
+const baseUrl = "https://api.example.test/",
+  definition: AgentDefinitionSnapshot = {
+    schema: "agent-definition-snapshot/v1",
+    configVersion: 1,
+    instanceId: "codex-review",
+    installationId: "installation-codex",
+    kindId: "codex",
+    providerId: "openai",
+    model: "gpt-5.6-sol",
+    reasoningEffort: "high",
+    ...agentDefinitionSnapshotEndpoint(baseUrl),
+    authMode: "api-key",
+  };
 const installation: RuntimeInstallationWitness = {
   installationId: definition.installationId,
   kindId: definition.kindId,
@@ -94,7 +96,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           permissionMode: "bypass",
           codex: {
             reasoningEffort: definition.reasoningEffort,
-            baseUrl: definition.baseUrl,
+            baseUrl,
             baseUrlConfigured: true,
             wire_api: null,
             requires_openai_auth: null,
@@ -716,7 +718,8 @@ test(
         providerId: "openai",
         model: "codex-model",
         reasoningEffort: null,
-        baseUrl: null,
+        endpointKind: "official",
+        baseUrlHash: null,
         authMode: "subscription",
       };
     const eventuallyValue = <T>(read: () => T | null | Promise<T | null>, ..._rest: unknown[]): Promise<T> =>

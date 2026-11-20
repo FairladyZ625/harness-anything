@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  validateAgentRuntimeEvent,
   validateAgentRuntimePayload,
   validateCurrentAgentRuntimeEvent,
   type AgentRuntimeEventV1,
@@ -1026,31 +1027,76 @@ test("task writer admission spans instances and nodes and survives lease release
 
 test("runtime_dispatch_requested permission metadata folds into attempts and summaries with unknown fallback for history", () => {
   assert.ok(DISPATCH_LIFECYCLE_MODEL_VERSION >= 9);
+  const definitionSnapshot = {
+    schema: "agent-definition-snapshot/v1",
+    configVersion: 1,
+    instanceId: "instance-a",
+    installationId: "inst-install-perm",
+    kindId: "codex",
+    providerId: "openai",
+    model: "gpt-5.6-sol",
+    reasoningEffort: "high",
+    authMode: "subscription",
+  };
   const fullDispatchBase = {
     installationId: "inst-install-perm",
     dispatchKey: "perm-dispatch-key",
     definitionSnapshotRef: "artifact:runtime-definition/perm",
-    definitionSnapshot: {
-      schema: "agent-definition-snapshot/v1",
-      configVersion: 1,
-      instanceId: "instance-a",
-      installationId: "inst-install-perm",
-      kindId: "codex",
-      providerId: "openai",
-      model: "gpt-5.6-sol",
-      reasoningEffort: "high",
-      baseUrl: null,
-      authMode: "subscription",
-    },
+    definitionSnapshot: { ...definitionSnapshot, endpointKind: "official", baseUrlHash: null },
   };
   const historicalIds = {
     dispatchId: "dispatch-hist-perm",
     runtimeSessionId: "session-hist-perm",
     attemptGroupId: "group-hist-perm",
   };
-  const historical = runtimeEvent({ t: "R" }, historicalIds, { dispatch: fullDispatchBase });
-  assert.deepEqual(validateAgentRuntimePayload("runtime_dispatch_requested", historical.payload), []);
-  assert.deepEqual(validateCurrentAgentRuntimeEvent(historical), []);
+  const historical = runtimeEvent({ t: "R" }, historicalIds, {
+    dispatch: {
+      ...fullDispatchBase,
+      definitionSnapshot: { ...definitionSnapshot, baseUrl: null },
+    },
+  });
+  assert.notDeepEqual(validateAgentRuntimePayload("runtime_dispatch_requested", historical.payload), []);
+  assert.deepEqual(validateAgentRuntimeEvent(historical), []);
+  assert.notDeepEqual(validateCurrentAgentRuntimeEvent(historical), []);
+
+  for (const [endpointKind, baseUrlHash] of [
+    ["official", null],
+    ["custom", "sha256:0123456789abcdef"],
+  ] as const) {
+    const current = runtimeEvent(
+      { t: "R" },
+      {
+        dispatchId: `dispatch-${endpointKind}-endpoint`,
+        runtimeSessionId: `session-${endpointKind}-endpoint`,
+        attemptGroupId: `group-${endpointKind}-endpoint`,
+      },
+      {
+        dispatch: {
+          ...fullDispatchBase,
+          definitionSnapshot: { ...definitionSnapshot, endpointKind, baseUrlHash },
+        },
+      },
+    );
+    assert.deepEqual(validateAgentRuntimePayload("runtime_dispatch_requested", current.payload), []);
+    assert.deepEqual(validateCurrentAgentRuntimeEvent(current), []);
+  }
+  for (const snapshot of [
+    { ...definitionSnapshot },
+    { ...definitionSnapshot, endpointKind: "custom", baseUrlHash: null },
+    { ...definitionSnapshot, endpointKind: "official", baseUrlHash: "sha256:0123456789abcdef" },
+    { ...definitionSnapshot, endpointKind: "custom", baseUrlHash: "sha256:0123456789abcdef", baseUrl: null },
+  ]) {
+    const current = runtimeEvent(
+      { t: "R" },
+      {
+        dispatchId: "dispatch-invalid-endpoint",
+        runtimeSessionId: "session-invalid-endpoint",
+        attemptGroupId: "group-invalid-endpoint",
+      },
+      { dispatch: { ...fullDispatchBase, definitionSnapshot: snapshot } },
+    );
+    assert.notDeepEqual(validateCurrentAgentRuntimeEvent(current), []);
+  }
 
   const historicalStep = reduceDispatchLifecycle(null, historical);
   assert.equal(historicalStep.kind, "applied");

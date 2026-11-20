@@ -91,7 +91,8 @@ for (const selectionStrategy of ["sticky", "lru"] as const)
                   providerId: "openai",
                   model: "pool-model",
                   reasoningEffort: null,
-                  baseUrl: null,
+                  endpointKind: "official",
+                  baseUrlHash: null,
                   authMode: "subscription",
                 } satisfies AgentDefinitionSnapshot,
                 installation: {

@@ -153,7 +153,8 @@ async function overviewDispatchReads(
         providerId: "openai",
         model: "gpt-5.6-sol",
         reasoningEffort: "high",
-        baseUrl: null,
+        endpointKind: "official",
+        baseUrlHash: null,
         authMode: "subscription",
       } as const,
       actor = { principal: { personId: "person-overview-scale" }, executor: null } as const,
@@ -260,7 +261,8 @@ function runtimeEvents(): readonly AgentRuntimeEventV1[] {
       providerId: "openai",
       model: "gpt-5.6-sol",
       reasoningEffort: "high",
-      baseUrl: null,
+      endpointKind: "official",
+      baseUrlHash: null,
       authMode: "subscription",
     } as const;
   return [

@@ -22,7 +22,8 @@ if (process.argv.includes("--service")) {
     providerId: "openai",
     model: "codex-model",
     reasoningEffort: null,
-    baseUrl: null,
+    endpointKind: "official",
+    baseUrlHash: null,
     authMode: "subscription" as const,
   };
   const instance = {

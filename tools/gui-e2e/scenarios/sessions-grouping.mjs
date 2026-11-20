@@ -194,7 +194,8 @@ const definitionSnapshot = (instanceId, installationId) => ({
   providerId: "openai",
   model: "gpt-e2e",
   reasoningEffort: null,
-  baseUrl: null,
+  endpointKind: "official",
+  baseUrlHash: null,
   authMode: "subscription",
 });
 

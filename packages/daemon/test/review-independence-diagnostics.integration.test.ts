@@ -262,7 +262,8 @@ test("a lightweight child bare-invocation execution closes without a review disp
           providerId: "openai",
           model: "review-model",
           reasoningEffort: "medium",
-          baseUrl: null,
+          endpointKind: "official",
+          baseUrlHash: null,
           authMode: "subscription",
         },
         installation: {
@@ -838,7 +839,8 @@ test("review binding permits independent runtimes but still rejects the executio
             providerId: "openai",
             model: "review-model",
             reasoningEffort: "medium",
-            baseUrl: null,
+            endpointKind: "official",
+            baseUrlHash: null,
             authMode: "subscription",
           },
           installation: {

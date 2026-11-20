@@ -1,6 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import childProcess from "node:child_process";
+import { createHash } from "node:crypto";
 import { syncBuiltinESMExports } from "node:module";
 import { PassThrough } from "node:stream";
 import {
@@ -18,6 +19,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
+import { runtimeDefinitionSnapshotArtifact } from "@harness-anything/kernel";
 import { credentialPort, runCredentialCommand } from "../src/daemon-host/agent-runtime-credential-port.ts";
 import {
   discoverRuntimeInstallations,
@@ -364,7 +366,7 @@ test("Codex sidecar launch materializes the complete non-secret provider config 
       enabled: true,
       codex: {
         reasoningEffort: "xhigh",
-        baseUrl: "http://127.0.0.1:1/v1",
+        baseUrl: "https://private-relay.example.invalid/v1",
         wireApi: "responses",
         requiresOpenAiAuth: true,
         httpHeaders: { "X-Harness-Probe": "present", "X-Static-Route": "sidecar" },
@@ -376,6 +378,13 @@ test("Codex sidecar launch materializes the complete non-secret provider config 
     for (const directory of [stateRoot, ...["home", "tmp", "run"].map((name) => path.join(stateRoot, name))])
       chmodSync(directory, 0o755);
     const launch = await store.prepareLaunch("codex-api", { cwd: "/workspace/repo", prompt: "Inspect" });
+    const snapshot = runtimeDefinitionSnapshotArtifact(launch.definition).body;
+    assert.equal(launch.definition.endpointKind, "custom");
+    assert.equal(
+      launch.definition.baseUrlHash,
+      `sha256:${createHash("sha256").update(new URL("https://private-relay.example.invalid/v1").toString()).digest("hex").slice(0, 16)}`,
+    );
+    assert.doesNotMatch(snapshot, /private-relay\.example\.invalid/u);
     assert.equal(resolvedReference, "keychain:harness/codex-api");
     assert.deepEqual(launch.installation, observed);
     assert.equal(launch.executablePath, observed.executablePath);
@@ -398,7 +407,7 @@ test("Codex sidecar launch materializes the complete non-secret provider config 
     if (process.platform !== "win32") assert.equal(statSync(codexConfig).mode & 0o777, 0o600);
     assert.equal(
       text,
-      `model_provider = "codex_local_access"\nmodel_reasoning_effort = "xhigh"\nallow_login_shell = false\ncli_auth_credentials_store = "file"\n${process.platform === "win32" ? 'windows.sandbox = "unelevated"\n' : ""}\n[model_providers."codex_local_access"]\nname = "codex_local_access"\nbase_url = "http://127.0.0.1:1/v1"\nwire_api = "responses"\nrequires_openai_auth = true\nhttp_headers = { "X-Harness-Probe" = "present", "X-Static-Route" = "sidecar" }\nexperimental_bearer_token = "instance-secret"\n`,
+      `model_provider = "codex_local_access"\nmodel_reasoning_effort = "xhigh"\nallow_login_shell = false\ncli_auth_credentials_store = "file"\n${process.platform === "win32" ? 'windows.sandbox = "unelevated"\n' : ""}\n[model_providers."codex_local_access"]\nname = "codex_local_access"\nbase_url = "https://private-relay.example.invalid/v1"\nwire_api = "responses"\nrequires_openai_auth = true\nhttp_headers = { "X-Harness-Probe" = "present", "X-Static-Route" = "sidecar" }\nexperimental_bearer_token = "instance-secret"\n`,
     );
     assert.match(text, /experimental_bearer_token = "instance-secret"/u);
     assert.doesNotMatch(JSON.stringify(launch), /instance-secret/u);

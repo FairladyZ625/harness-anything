@@ -105,9 +105,13 @@ export interface AgentDefinitionSnapshot {
   readonly webSearch?: RuntimeWebSearchMode;
   /** Effective host MCP inheritance policy resolved for the launch. */
   readonly mcpPolicy?: RuntimeMcpPolicy;
-  readonly baseUrl: string | null;
+  readonly endpointKind: "official" | "custom";
+  readonly baseUrlHash?: string | null;
+  /** Historical event compatibility only. New dispatches omit this field. */
+  readonly baseUrl?: string | null;
   readonly authMode: "subscription" | "api-key";
 }
+
 export interface RuntimeKind {
   readonly kindId: string;
   readonly protocolFamily: RuntimeProtocolFamily;
@@ -552,6 +556,9 @@ const payloadFields: Record<AgentRuntimeEventType, readonly string[]> = {
 };
 export function validateAgentRuntimePayload(type: AgentRuntimeEventType, value: unknown): readonly string[] {
   return validateAgentRuntimePayloadFields(type, value, false);
+}
+export function agentDefinitionSnapshotErrors(value: unknown): readonly string[] {
+  return validDefinitionSnapshot(value, false) ? [] : ["runtime definition snapshot is invalid"];
 }
 function validateAgentRuntimePayloadFields(
   type: AgentRuntimeEventType,
@@ -1108,7 +1115,8 @@ function validCapabilities(value: unknown): boolean {
   );
 }
 function validDefinitionSnapshot(value: unknown, allowUnknownFields: boolean): value is AgentDefinitionSnapshot {
-  const required = [
+  const record = isRecord(value) ? value : null,
+    required = [
       "schema",
       "configVersion",
       "instanceId",
@@ -1117,14 +1125,27 @@ function validDefinitionSnapshot(value: unknown, allowUnknownFields: boolean): v
       "providerId",
       "model",
       "reasoningEffort",
-      "baseUrl",
       "authMode",
     ],
-    allowed = [...required, "fast", "webSearch", "mcpPolicy"];
+    allowed = [...required, "endpointKind", "baseUrlHash", "fast", "webSearch", "mcpPolicy"],
+    historicalBaseUrl =
+      allowUnknownFields &&
+      record !== null &&
+      Object.hasOwn(record, "baseUrl") &&
+      !Object.hasOwn(record, "endpointKind") &&
+      (record.baseUrl === null || isNonEmptyString(record.baseUrl)),
+    endpointKind = record?.endpointKind,
+    baseUrlHash = record?.baseUrlHash,
+    endpointFieldsValid =
+      (endpointKind === "official" && baseUrlHash === null) ||
+      (endpointKind === "custom" && typeof baseUrlHash === "string" && /^sha256:[0-9a-f]{16}$/u.test(baseUrlHash)),
+    snapshotShapeValid =
+      historicalBaseUrl || (record !== null && !Object.hasOwn(record, "baseUrl") && endpointFieldsValid);
   return (
     isRecord(value) &&
     required.every((field) => Object.hasOwn(value, field)) &&
     (allowUnknownFields || Object.keys(value).every((field) => allowed.includes(field))) &&
+    snapshotShapeValid &&
     value.schema === "agent-definition-snapshot/v1" &&
     value.configVersion === 1 &&
     [value.instanceId, value.installationId, value.providerId, value.model].every(isNonEmptyString) &&
@@ -1133,7 +1154,6 @@ function validDefinitionSnapshot(value: unknown, allowUnknownFields: boolean): v
     (value.fast === undefined || typeof value.fast === "boolean") &&
     (value.webSearch === undefined || ["disabled", "cached", "live"].includes(String(value.webSearch))) &&
     (value.mcpPolicy === undefined || ["disabled", "inherit"].includes(String(value.mcpPolicy))) &&
-    (value.baseUrl === null || isNonEmptyString(value.baseUrl)) &&
     ["subscription", "api-key"].includes(String(value.authMode))
   );
 }

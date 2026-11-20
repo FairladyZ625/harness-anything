@@ -173,7 +173,8 @@ export async function generateCenterLedger({
       providerId: "openai",
       model: "synthetic-model",
       reasoningEffort: "low",
-      baseUrl: null,
+      endpointKind: "official",
+      baseUrlHash: null,
       authMode: "subscription",
     };
     const definitionSnapshotRef = "artifact:runtime-definition/center-bench";

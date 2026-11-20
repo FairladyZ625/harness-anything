@@ -47,7 +47,8 @@ function openRuntimeStubCell(rootDir: string, repoId: string, processes: Spawned
           providerId: "openai",
           model: "review-model",
           reasoningEffort: "medium",
-          baseUrl: null,
+          endpointKind: "official",
+          baseUrlHash: null,
           authMode: "subscription",
         },
         installation: {

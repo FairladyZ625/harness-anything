@@ -25,7 +25,8 @@ const definition: AgentDefinitionSnapshot = {
   providerId: "openai",
   model: "gpt-5.6-sol",
   reasoningEffort: "high",
-  baseUrl: "https://api.example.test/",
+  endpointKind: "custom",
+  baseUrlHash: "sha256:289d412cd8961bf0",
   authMode: "subscription",
 };
 test("task-bound spawn exit keeps its released execution visible after a v12 cache restart", async () => {

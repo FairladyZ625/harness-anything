@@ -921,7 +921,8 @@ async function openFixture(
           providerId: "openai",
           model: "stub-model",
           reasoningEffort: null,
-          baseUrl: null,
+          endpointKind: "official",
+          baseUrlHash: null,
           authMode: "subscription",
         },
         installation: {

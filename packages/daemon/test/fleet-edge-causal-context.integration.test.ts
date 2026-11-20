@@ -207,7 +207,8 @@ test(
         providerId: "openai",
         model: "causal-edge-model",
         reasoningEffort: "high",
-        baseUrl: null,
+        endpointKind: "official",
+        baseUrlHash: null,
         authMode: "subscription",
       },
       runtimeInstallation: RuntimeInstallationWitness = {

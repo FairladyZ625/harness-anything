@@ -12,7 +12,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import type { AgentDefinitionSnapshot, RuntimeMcpPolicy } from "@harness-anything/kernel";
+import { agentDefinitionSnapshotEndpoint } from "./agent-runtime-snapshot.ts";
+import { type AgentDefinitionSnapshot, type RuntimeMcpPolicy } from "@harness-anything/kernel";
 import { resolveRuntimeMcpPolicy, runtimeSupportsMcpPolicy } from "../runtime-engine/runtime-permissions.ts";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { writeFileDurably } from "../../../storage/src/durable-file.ts";
@@ -251,9 +252,9 @@ export function definitionSnapshot(
     fast,
     ...(webSearch === null ? {} : { webSearch }),
     ...(effectiveMcpPolicy === undefined ? {} : { mcpPolicy: effectiveMcpPolicy }),
-    baseUrl: runtimeBaseUrl(config) ?? null,
+    ...agentDefinitionSnapshotEndpoint(runtimeBaseUrl(config)),
     authMode: config.auth.mode,
-  };
+  } as unknown as AgentDefinitionSnapshot;
 }
 
 export function providerConfigDirectory(home: string, kindId: RuntimeInstanceKind): string {
