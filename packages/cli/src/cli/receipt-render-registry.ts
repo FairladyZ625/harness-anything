@@ -149,6 +149,11 @@ function renderCliReceiptBase(
     return { stream: receipt.ok === true ? "stdout" : "stderr", text: String(receipt.summary) };
   const schemaRenderer = typeof receipt.schema === "string" ? schemaRenderers.get(receipt.schema) : undefined;
   if (schemaRenderer) return { stream: "stdout", text: schemaRenderer(receipt, explainRequestRefs) };
+  if (receipt.command === "edge-join" && Array.isArray(receipt.repositories))
+    return {
+      stream: receipt.state === "synced" ? "stdout" : "stderr",
+      text: renderEdgeJoinReceipt(receipt.state, receipt.repositories.filter(isRecord)),
+    };
   const preOutcomeRenderer =
     typeof receipt.command === "string" ? preOutcomeCommandRenderers.get(receipt.command) : undefined;
   if (preOutcomeRenderer) return { stream: "stdout", text: preOutcomeRenderer(receipt) };
@@ -172,6 +177,29 @@ function renderCliReceiptBase(
   if (commandRenderer) return { stream: "stdout", text: commandRenderer(receipt) };
   if (Array.isArray(receipt.dispatches)) return { stream: "stdout", text: renderDispatches(receipt.dispatches) };
   return { stream: "stdout", text: renderSuccessfulReceipt(receipt) };
+}
+
+function renderEdgeJoinReceipt(state: unknown, repositories: readonly Record<string, unknown>[]): string {
+  const lines = [`edge-join: ${String(state)}`];
+  const missingOrigins: string[] = [];
+  for (const row of repositories) {
+    const repoId = String(row.repoId),
+      workspace = nonEmptyText(row.workspaceRoot);
+    if (row.ok === true) {
+      lines.push(`  ${repoId}: synced${workspace ? ` (${workspace})` : ""}`);
+      continue;
+    }
+    const error = humanError(row);
+    lines.push(`  ${repoId}: ${error.code}${workspace ? ` (${workspace})` : ""}`, `    ${error.hint}`);
+    if (typeof row.centerOrigin === "string") lines.push(`    Center Git origin: ${row.centerOrigin}`);
+    if (row.needsOrigin === true) missingOrigins.push(`--origin "${repoId}=<reachable-git-url>"`);
+  }
+  if (missingOrigins.length)
+    lines.push(
+      `Retry: ha edge join "<invite-link>" ${missingOrigins.join(" ")}`,
+      "Use the original --root and --quota-bytes options if supplied.",
+    );
+  return lines.join("\n");
 }
 
 function renderReviewRework(receipt: Record<string, unknown>): string {

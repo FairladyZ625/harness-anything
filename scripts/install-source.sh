@@ -13,10 +13,43 @@ Usage: install-source.sh [--offline|--no-pull] [--ref <commit>]
 
   --offline, --no-pull  Build the existing checkout without contacting the remote.
                         Fails when the checkout does not exist yet.
-  --ref <commit>        Require HEAD to be <commit>. A failed pull is tolerated only
-                        when the checkout already points at that commit.
+  --ref <commit>        Install exactly this commit. With network access, fetch it
+                        and detach HEAD if needed and the checkout is clean.
   -h, --help            Show this help.
 EOF
+}
+
+retry_download() {
+  local label=$1 action=$2 attempt=1 delay=1 status=0
+  shift 2
+  while :; do
+    if "$action" "$attempt" "$@"; then
+      return 0
+    else
+      status=$?
+    fi
+    if [ "$attempt" -eq 4 ]; then
+      return "$status"
+    fi
+    printf '%s failed. Retrying in %s seconds (retry %s/3).\n' "$label" "$delay" "$attempt" >&2
+    sleep "$delay"
+    attempt=$((attempt + 1))
+    delay=$((delay * 2))
+  done
+}
+
+git_download() {
+  local attempt=$1
+  shift
+  if [ "$attempt" -eq 1 ]; then
+    git "$@"
+  else
+    git -c http.version=HTTP/1.1 "$@"
+  fi
+}
+
+electron_download() {
+  node node_modules/electron/install.js
 }
 
 while [ "$#" -gt 0 ]; do
@@ -55,43 +88,41 @@ if [ "$node_major" -lt 24 ]; then
 fi
 
 mkdir -p "$(dirname "$install_root")"
-if [ ! -d "$install_root/.git" ]; then
+if [ ! -e "$install_root/.git" ]; then
   if [ "$pull_mode" = off ]; then
     printf 'Cannot install offline: %s is not a git checkout.\n' "$install_root" >&2
     printf '%s\n' 'Run the installer once with network access, or copy an existing checkout to that path first.' >&2
     exit 1
   fi
-  git clone "$repo_url" "$install_root"
-elif [ "$pull_mode" = pull ]; then
-  if ! git -C "$install_root" pull --ff-only; then
-    local_head=$(git -C "$install_root" rev-parse HEAD 2>/dev/null || true)
-    requested_sha=
-    if [ -n "$expected_ref" ]; then
-      requested_sha=$(git -C "$install_root" rev-parse --verify --quiet "$expected_ref^{commit}" 2>/dev/null || true)
-    fi
-    if [ -n "$expected_ref" ] && [ -n "$requested_sha" ] && [ "$local_head" = "$requested_sha" ]; then
-      printf '\nPull failed, but %s is already at %s; continuing with the local source.\n' "$install_root" "$expected_ref" >&2
-    else
-      printf '\nCannot update %s from %s.\n' "$install_root" "$repo_url" >&2
-      if [ -n "$expected_ref" ]; then
-        printf 'Requested --ref %s resolves to %s; local HEAD is %s.\n' "$expected_ref" "${requested_sha:-<not present>}" "${local_head:-<unknown>}" >&2
-      fi
-      printf '%s\n' 'The checkout is not at the requested commit, so the installer stopped before building unexpected code.' >&2
-      printf '%s\n' 'If the source was synced another way, rerun with --offline (or --ref <commit> when HEAD already is that commit).' >&2
-      exit 1
-    fi
+  retry_download 'Git clone' git_download clone -- "$repo_url" "$install_root"
+elif [ "$pull_mode" = pull ] && [ -z "$expected_ref" ]; then
+  if ! retry_download 'Git pull' git_download -C "$install_root" pull --ff-only; then
+    printf 'Cannot update %s. If the source was synced another way, rerun with --offline.\n' "$install_root" >&2
+    exit 1
   fi
 fi
 cd "$install_root"
 if [ -n "$expected_ref" ]; then
-  if ! expected_sha=$(git rev-parse --verify --quiet "$expected_ref^{commit}"); then
-    printf 'Requested --ref %s is not present in %s; fetch or merge it first.\n' "$expected_ref" "$install_root" >&2
-    exit 1
-  fi
+  expected_sha=$(git rev-parse --verify --quiet --end-of-options "$expected_ref^{commit}" || true)
   actual_sha=$(git rev-parse HEAD)
   if [ "$actual_sha" != "$expected_sha" ]; then
-    printf 'Install root HEAD is %s, but --ref requires %s (%s).\n' "$actual_sha" "$expected_ref" "$expected_sha" >&2
-    exit 1
+    if [ "$pull_mode" = off ]; then
+      printf 'Offline install requires HEAD at %s. Current HEAD is %s.\n' "$expected_ref" "$actual_sha" >&2
+      exit 1
+    fi
+    checkout_status=$(git status --porcelain)
+    if [ -n "$checkout_status" ]; then
+      printf 'Cannot switch to %s: %s has local changes. Commit or remove them, then retry.\n' "$expected_ref" "$install_root" >&2
+      exit 1
+    fi
+    if retry_download 'Git fetch' git_download fetch --no-tags -- origin "${expected_sha:-$expected_ref}"; then
+      expected_sha=$(git rev-parse --verify 'FETCH_HEAD^{commit}')
+    elif [ -z "$expected_sha" ]; then
+      exit 1
+    else
+      printf 'Using the local commit %s after fetch failed.\n' "$expected_sha" >&2
+    fi
+    git checkout --detach "$expected_sha"
   fi
 fi
 
@@ -116,10 +147,17 @@ if [ -d node_modules ] && [ -f "$deps_stamp" ] && [ "$(cat "$deps_stamp")" = "$d
   printf 'Dependencies unchanged (%s); skipping npm ci.\n' "${deps_digest:0:12}"
 else
   printf '%s\n' 'Installing dependencies. The Electron runtime downloads separately and a first run can take several minutes; later runs reuse the caches.'
-  npm ci
+  ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci
   printf '%s\n' "$deps_digest" > "$deps_stamp"
 fi
-node node_modules/electron/install.js
+if ! retry_download 'Electron download' electron_download; then
+  if [ -n "${ELECTRON_MIRROR:-}${NPM_CONFIG_ELECTRON_MIRROR:-}${npm_config_electron_mirror:-}${npm_package_config_electron_mirror:-}" ]; then
+    printf '%s\n' 'Electron download failed with the configured mirror.' >&2
+    exit 1
+  fi
+  printf '%s\n' 'Electron default download failed. Retrying with https://npmmirror.com/mirrors/electron/.' >&2
+  ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ retry_download 'Electron mirror download' electron_download
+fi
 # Upgrade step: daemon, CLI and GUI are built together. A running Electron window keeps the
 # bundle it started with, so `ha gui` must be restarted after this block; rebuilding only the
 # CLI leaves the old GUI contract to reject new daemon fields.

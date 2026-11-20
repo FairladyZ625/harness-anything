@@ -372,7 +372,7 @@ test("SSH-reverse sign-in exposes the center browser's Keycloak device page sepa
   assert.equal(result.browserApprovalUri, result.verificationUri);
 });
 
-test("missing origin offers an ls-remote checked address and clones the center head before registration", async (t) => {
+test("join validates origin before creating directories and reuses a matching checkout", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-edge-join-origin-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const certFile = path.join(root, "center.pem"),
@@ -501,11 +501,13 @@ test("missing origin offers an ls-remote checked address and clones the center h
 
   const missing = await joinFleetEdge(request, ports),
     missingRow = (missing.repositories as Array<Record<string, unknown>>)[0]!;
+  assert.equal(missing.ok, true);
+  assert.equal(missing.state, "partial");
   assert.equal(missingRow.code, "edge_origin_missing");
   assert.equal(missingRow.needsOrigin, true);
   assert.equal(missingRow.defaultBranch, "main");
   assert.equal(missingRow.centerOrigin, centerGit.originAddress);
-  assert.equal(existsSync(path.join(workspace, ".git")), false, "the incomplete workspace stays empty for clone");
+  assert.equal(existsSync(workspace), false, "missing origin does not create an empty directory");
   assert.deepEqual(order, [], "an unconfigured workspace is not registered or synced");
 
   const unreachable = await joinFleetEdge(
@@ -515,12 +517,12 @@ test("missing origin offers an ls-remote checked address and clones the center h
     unreachableRow = (unreachable.repositories as Array<Record<string, unknown>>)[0]!;
   assert.equal(unreachableRow.code, "edge_origin_unreachable");
   assert.equal(unreachableRow.needsOrigin, true);
-  assert.equal(existsSync(path.join(workspace, ".git")), false, "failed ls-remote does not create a checkout");
+  assert.equal(existsSync(workspace), false, "failed ls-remote does not create a checkout");
 
   const unsupported = await joinFleetEdge({ ...request, originUrls: { "repo-a": "ext::sh -c id" } }, ports),
     unsupportedRow = (unsupported.repositories as Array<Record<string, unknown>>)[0]!;
   assert.equal(unsupportedRow.code, "edge_origin_invalid");
-  assert.equal(existsSync(path.join(workspace, ".git")), false, "unsupported Git helpers are refused before execution");
+  assert.equal(existsSync(workspace), false, "unsupported Git helpers are refused before execution");
 
   const joined = await joinFleetEdge({ ...request, originUrls: { "repo-a": alternateOrigin } }, ports);
   assert.deepEqual(admissionEvents, [
@@ -540,6 +542,78 @@ test("missing origin offers an ls-remote checked address and clones the center h
   assert.equal(git("-C", workspace, "remote", "get-url", "origin"), alternateOrigin);
   assert.equal(git("-C", workspace, "log", "-1", "--format=%s"), "center base");
   assert.equal(existsSync(path.join(workspace, "harness", "harness.yaml")), true);
+
+  const checkout = path.join(root, "existing-clone");
+  git("clone", "-q", origin, checkout);
+  const reuse = await joinFleetEdge({ ...request, workspaceRoot: checkout }, { ...ports, join: async () => admitted });
+  assert.equal(reuse.state, "synced");
+  assert.equal((reuse.repositories as Array<Record<string, unknown>>)[0]?.workspaceRoot, checkout);
+  assert.equal(existsSync(path.join(checkout, "repo-a")), false);
+
+  const namedCheckout = path.join(root, "repo-a");
+  execFileSync("git", ["init", "-q", namedCheckout]);
+  const namedReuse = await joinFleetEdge(
+    { ...request, workspaceRoot: namedCheckout },
+    { ...ports, join: async () => admitted },
+  );
+  assert.equal(namedReuse.state, "partial", "a matching repository directory name selects the existing checkout");
+  assert.equal((namedReuse.repositories as Array<Record<string, unknown>>)[0]?.workspaceRoot, namedCheckout);
+  assert.equal(existsSync(path.join(namedCheckout, "repo-a")), false);
+
+  const encoded = encodeEdgeJoinLink({ ...invite.link, repoIds: ["repo-a", "repo-b"] });
+  for (const workspaceRoot of [checkout, path.join(checkout, "harness")]) {
+    await assert.rejects(
+      joinFleetEdge(
+        { link: encoded, workspaceRoot },
+        { ...ports, join: async () => assert.fail("reject a nested workspace before admission") },
+      ),
+      { code: "edge_join_workspace_inside_git" },
+    );
+  }
+  assert.equal(existsSync(path.join(checkout, "harness", "repo-a")), false);
+  await assert.rejects(
+    joinFleetEdge(
+      { ...request, originUrls: { "outside-invitation": alternateOrigin } },
+      { ...ports, session: async () => assert.fail("reject an origin outside the invitation before login") },
+    ),
+    { code: "edge_origin_invalid" },
+  );
+  await assert.rejects(
+    joinFleetEdge(
+      { ...request, originUrls: { "*": alternateOrigin, "repo-a": alternateOrigin } },
+      { ...ports, session: async () => assert.fail("reject duplicate single-repository origins before login") },
+    ),
+    { code: "edge_origin_invalid" },
+  );
+
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const syncing = Promise.withResolvers<void>(),
+    finish = Promise.withResolvers<Record<string, unknown>>(),
+    refreshedRoots: string[] = [];
+  const pending = joinFleetEdge(
+    { ...request, workspaceRoot: checkout },
+    {
+      ...ports,
+      join: async () => admitted,
+      session: async (rootDir) => {
+        refreshedRoots.push(rootDir);
+        return ports.session(rootDir);
+      },
+      sync: () => {
+        syncing.resolve();
+        return finish.promise;
+      },
+    },
+  );
+  await syncing.promise;
+  t.mock.timers.tick(239_999);
+  assert.deepEqual(refreshedRoots, [checkout]);
+  t.mock.timers.tick(1);
+  assert.deepEqual(refreshedRoots, [checkout, checkout]);
+  finish.resolve({ ok: true });
+  assert.equal((await pending).state, "synced");
+  t.mock.timers.tick(240_000);
+  assert.deepEqual(refreshedRoots, [checkout, checkout], "the keepalive ends with the sync");
 });
 
 test("ssh-reverse writes the login authority before the first sync", async (t) => {

@@ -5,6 +5,7 @@ import {
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { edgeJoinFields, edgeJoinOrigins } from "./thin-command-edge-join.ts";
 import { parseDecision } from "./thin-command-decision.ts";
 import { parseDoc } from "./thin-command-doc.ts";
 import { parseFact } from "./thin-command-fact.ts";
@@ -29,18 +30,6 @@ type RoutedParser = (
 ) => ThinParseResult;
 
 type SuccessfulFlags = Extract<ReturnType<typeof readFlags>, { ok: true }>;
-
-function edgeJoinFields(f: SuccessfulFlags): Record<string, unknown> {
-  return {
-    ...(f.one.get("--join-mode") ? { joinMode: f.one.get("--join-mode") } : {}),
-    ...(f.one.get("--join-id") ? { joinId: f.one.get("--join-id") } : {}),
-    ...(f.many.get("--join-repo") ? { repoIds: f.many.get("--join-repo") } : {}),
-    ...(f.many.get("--join-group") ? { groupIds: f.many.get("--join-group") } : {}),
-    ...(f.one.get("--node-label") ? { nodeLabel: f.one.get("--node-label") } : {}),
-    ...(f.one.get("--transport") ? { transport: f.one.get("--transport") } : {}),
-    ...(f.one.get("--ssh-target") ? { sshTarget: f.one.get("--ssh-target") } : {}),
-  };
-}
 
 const parseProviderRoute: RoutedParser = (route, args, rootDir, _repoId, json, inputs) =>
   parseProvider(route, args, rootDir, json, inputs);
@@ -100,6 +89,14 @@ function parseEdgeJoin(
     return rejected("missing_field", "Use ha edge join <invite-link>.", json);
   const flags = readFlags("edge-join", args.slice(3), inputs);
   if (!flags.ok) return rejected(flags.code, flags.nextAction, json);
+  const origins = flags.many.get("--origin"),
+    originUrls = edgeJoinOrigins(origins);
+  if (origins && !originUrls)
+    return rejected(
+      "invalid_field",
+      "Supply one --origin <repoId=url> per invited repository (or <url> for a single repository).",
+      json,
+    );
   return accepted(
     rootDir,
     undefined,
@@ -108,6 +105,7 @@ function parseEdgeJoin(
       kind: "rbac-bootstrap",
       operation: "edge-join",
       link,
+      ...(originUrls ? { originUrls } : {}),
       ...(flags.one.get("--root") ? { workspaceRoot: path.resolve(flags.one.get("--root")!) } : {}),
       ...(flags.one.get("--quota-bytes") ? { quotaBytes: Number(flags.one.get("--quota-bytes")) } : {}),
     },

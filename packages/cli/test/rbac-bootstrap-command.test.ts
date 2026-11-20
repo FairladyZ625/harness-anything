@@ -4,10 +4,12 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { parseThinCommand } from "../src/cli/thin-command.ts";
+import { parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { awaitDeviceLogin } from "../src/daemon/device-login.ts";
 import { runCommandThroughDaemon } from "../src/daemon/client.ts";
+import { receiptExitCode } from "../src/index.ts";
+import { encodeEdgeJoinLink } from "@harness-anything/daemon/internal/fleet/edge-join";
 
 test("device polling follows pending replies and ends at the device deadline", async () => {
   let polls = 0;
@@ -308,6 +310,72 @@ test("ha edge join is one operation of the managed RBAC surface and accepts a qu
   assert.match(refusal.text, /identity_plugin_required/u);
   assert.match(refusal.text, /Keycloak/u);
   assert.match(refusal.text, /builtin-identity-provider\.md#keycloak-plugin/u);
+});
+
+test("edge join maps repeated origin flags to invited repositories", () => {
+  const invite = {
+    version: 2 as const,
+    joinId: "join-123",
+    centerOrigin: "https://center.example",
+    repoIds: ["repo-a", "repo-b"],
+    spkiSha256: "a".repeat(64),
+    loginUrl: "https://login.example",
+    loginRealm: "harness",
+    loginClientId: "edge-client",
+  };
+  const first = "https://git.example/a.git?x=y",
+    second = "git@git.example:repo-b.git";
+  const single = encodeEdgeJoinLink({ ...invite, repoIds: ["repo-a"] });
+  const bare = parseThinCommand(["edge", "join", single, "--origin", first], "/edge");
+  assert.equal(bare.ok, true);
+  if (bare.ok) assert.deepEqual(bare.command.action.originUrls, { "*": first });
+  const link = encodeEdgeJoinLink(invite);
+  const multiple = parseThinCommand(
+    ["edge", "join", link, "--origin", `repo-a=${first}`, "--origin", `repo-b=${second}`],
+    "/edge",
+  );
+  assert.equal(multiple.ok, true);
+  if (multiple.ok) assert.deepEqual(multiple.command.action.originUrls, { "repo-a": first, "repo-b": second });
+  for (const invalid of [[first, second], [`repo-a=${first}`, `repo-a=${second}`], ["repo-a="]]) {
+    assert.equal(
+      parseThinCommand(["edge", "join", link, ...invalid.flatMap((value) => ["--origin", value])], "/edge").ok,
+      false,
+    );
+  }
+  const help = renderThinHelp([], "edge", "ha edge join <link>");
+  assert.match(
+    help,
+    /--root.*Parent directory for the repositories, or an existing checkout for a single-repository invitation/u,
+  );
+  assert.match(help, /--origin.*May be repeated/u);
+});
+
+test("edge join only exits successfully after syncing and renders partial repository results", () => {
+  const receipt = {
+    ok: true,
+    command: "edge-join",
+    state: "partial",
+    repositories: [
+      { repoId: "repo-ready", workspaceRoot: "/edge/ready", ok: true },
+      {
+        repoId: "repo-missing",
+        ok: false,
+        needsOrigin: true,
+        code: "edge_origin_missing",
+        centerOrigin: "https://git.example/repo-missing.git",
+        error: { hint: "Supply a reachable Git address." },
+      },
+    ],
+  };
+  assert.equal(receiptExitCode(receipt), 1);
+  assert.equal(receiptExitCode({ ...receipt, state: "synced" }), 0);
+  const rendered = renderCliReceipt(receipt);
+  assert.equal(rendered.stream, "stderr");
+  assert.match(rendered.text, /edge-join: partial/u);
+  assert.match(rendered.text, /repo-ready: synced/u);
+  assert.match(rendered.text, /repo-missing:.*edge_origin_missing/u);
+  assert.match(rendered.text, /https:\/\/git\.example\/repo-missing\.git/u);
+  assert.match(rendered.text, /ha edge join.*--origin.*repo-missing=/u);
 });
 
 test("ha bootstrap parses one external Keycloak through the same command", () => {
@@ -650,10 +718,20 @@ test("edge join prepares its workspace root before reaching the daemon", async (
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-edge-join-root-")),
     workspaceRoot = path.join(userRoot, "edge", "workspace");
   try {
-    const parsed = parseThinCommand(["edge", "join", "harness-edge://join/test", "--root", workspaceRoot], userRoot);
+    const command = ["edge", "join", "harness-edge://join/test"],
+      root = ["--root", workspaceRoot],
+      parsed = parseThinCommand([...command, ...root], userRoot);
     assert.equal(parsed.ok, true);
     if (!parsed.ok) return;
     assert.equal(parsed.command.action.workspaceRoot, workspaceRoot);
+    assert.deepEqual(parseThinCommand([...root, ...command], userRoot), parsed);
+    const daemonRoot = path.join(userRoot, "daemon"),
+      combined = parseThinCommand(["--root", daemonRoot, ...command, ...root], userRoot);
+    assert.equal(combined.ok, true);
+    if (combined.ok) {
+      assert.equal(combined.command.rootDir, daemonRoot);
+      assert.equal(combined.command.action.workspaceRoot, workspaceRoot);
+    }
     // The autostart spawns the daemon from the invoking root as its cwd, so edge join creates the
     // missing --root before the first connection attempt; the request itself then fails offline.
     await assert.rejects(
