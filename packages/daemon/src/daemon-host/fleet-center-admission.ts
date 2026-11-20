@@ -361,8 +361,8 @@ export interface FleetEdgeRepointRequest {
 export async function repointFleetEdgeMirror(
   input: FleetEdgeRepointRequest,
   withReplicaSyncFence: <T>(repoId: string, operation: () => Promise<T>) => Promise<T>,
-  readAccessToken?: () => Promise<string | undefined>,
   onAdmitted?: () => void,
+  readAccessToken?: () => Promise<string | undefined>,
 ): Promise<Record<string, unknown>> {
   const run = () => repointFleetEdgeMirrorFenced(input, readAccessToken, onAdmitted);
   return withReplicaSyncFence(input.payload.repoId, run);

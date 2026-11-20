@@ -641,10 +641,6 @@ export function createDaemonHostRuntimeApi(
               payload: repointPayload as FleetEdgeRepointRequest["payload"],
             },
             context.withReplicaSyncFence,
-            async () => {
-              const session = await context.oidc.bind(auth, edgeRoot, true);
-              return session.oidcPrincipal?.accessToken;
-            },
             () => context.startReplicaSyncsFor(request.repoId),
           );
         }
