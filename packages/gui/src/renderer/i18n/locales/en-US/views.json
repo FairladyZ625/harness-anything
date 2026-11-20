@@ -1689,7 +1689,7 @@
   "views.settingsView.reviewIndependenceEffect": "execution: another session may review, even the same person's. principal: only another person's agents.",
   "views.settingsView.reviewPathReviewersEffect": "`<agent> <path>` per entry; trailing / covers a directory, otherwise one file. No entry means no lane.",
   "views.settingsView.decisionReviewRequirementEffect": "A decision at a selected risk level cannot be accepted until it has an approved, up-to-date review.",
-  "views.settingsView.decisionsProviderEffect": "Only the named provider may receive enabled decision-point inputs; unset keeps all points dormant.",
+  "views.settingsView.decisionsProviderEffect": "Named provider receives decision-point inputs; unset uses the first enabled provider on this node.",
   "views.settingsView.decisionsEnabledPointsEffect": "Only points whose declaration digest still matches this binding are evaluated after settlement.",
   "views.settingsView.reviewReturnBudgetEffect": "A task sent back more times than this goes to a person instead of another review round.",
   "views.settingsView.taskScaffoldEffect": "New task packages are generated with this file's additions and replacements.",
