@@ -6,7 +6,9 @@ import {
 } from "./runtime-dispatch-owner-evidence.ts";
 import { auditedOrphanTerminal } from "./runtime-orphan-recovery.ts";
 import { createHash } from "node:crypto";
-import { sameWriteSource, sha256Text } from "@harness-anything/kernel";
+import { sameWriteSource, sha256Text, type AgentRuntimeEventV1 } from "@harness-anything/kernel";
+import { dispatchFallbackStateWords } from "@harness-anything/kernel/internal/domain/operational-status.ts";
+import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
 import { daemonMethodPayloadFields } from "./protocol/daemon-protocol-commands.ts";
 import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-types.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "../runtime-engine/runtime-spawn-errors.ts";
@@ -223,6 +225,56 @@ export async function cancelRuntime(
   const stopAlreadyProven = attempt?.attempt.stopProof === "proven_stopped";
   if (stopAlreadyProven) context.dispatchState?.deactivate(runtimeSessionId);
   if (attempt?.policy.attemptSettled) {
+    if (attempt.policy.fallbackPending && !attempt.policy.groupSettled && attempt.attempt.outcome !== null) {
+      const projection = context.requiredRuntimeProjection(context.input),
+        terminal = projection
+          .readRuntimeSessionEventsByType(runtimeSessionId, ["runtime_session_outcome_observed"])
+          .findLast(
+            (event): event is Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }> =>
+              event.type === "runtime_session_outcome_observed" &&
+              event.payload.dispatchId === attempt.attempt.dispatchId &&
+              event.payload.outcome === attempt.attempt.outcome,
+          );
+      if (!terminal?.payload.attempt)
+        throw runtimeSpawnError("runtime_event_missing", "Pending fallback terminal publication is missing.");
+      const currentSession = context.requiredRuntimeProjection(context.input).readRuntimeSession(runtimeSessionId),
+        { fallbackSchedule: _fallbackSchedule, ...settledAttempt } = terminal.payload.attempt,
+        resultRef = currentSession?.resultRef ?? terminal.payload.resultRef,
+        { reasonCode: _terminalReasonCode, ...terminalPayload } = terminal.payload,
+        payload = {
+          ...terminalPayload,
+          ...(currentSession?.outcome !== null && currentSession?.outcome !== undefined
+            ? {
+                outcome: currentSession.outcome,
+                exitCode: currentSession.exitCode,
+                resultRef,
+                ...(currentSession.reasonCode ? { reasonCode: currentSession.reasonCode } : {}),
+              }
+            : {}),
+          attempt: { ...settledAttempt, fallbackState: dispatchFallbackStateWords[2] },
+        },
+        resultBody = readCanonicalRuntimeResult(context.requiredRuntimeStore(context.input), resultRef);
+      const settlement = await context.publishRuntimeEvent(
+        "runtime_session_outcome_observed",
+        payload,
+        opId,
+        binding,
+        resultBody,
+      );
+      if (!settlement?.event && settlement?.receipt?.outcome !== "no_changes")
+        throw runtimeSpawnError(
+          "runtime_event_rejected",
+          `Fallback exhaustion was not accepted (${String(settlement?.receipt?.code ?? settlement?.receipt?.outcome ?? "missing receipt")}).`,
+        );
+      const settled = await readDispatchLifecycle(context, {
+        by: "dispatch",
+        dispatchIds: [attempt.attempt.dispatchId],
+      });
+      const lifecycleReadyStatus = "ready";
+      if (settled.status !== lifecycleReadyStatus || !settled.rows[0]?.policy.groupSettled)
+        throw runtimeSpawnError("dispatch_lifecycle_pending", "Fallback exhaustion did not close the dispatch group.");
+      return context.controlReceipt(opId, runtimeSessionId, "already-exited");
+    }
     return context.controlReceipt(opId, runtimeSessionId, "already-exited");
   }
   // Missing control transport does not prove the process tree stopped.

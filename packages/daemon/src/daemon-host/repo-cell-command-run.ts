@@ -23,7 +23,7 @@ import {
   bindVerifiedExecutorClaim,
   withAuthorizationDecision,
 } from "./repo-cell-authorization.ts";
-import { cellErrorCode } from "./repo-cell-errors.ts";
+import { cellErrorCode, edgeTaskConsentScopeMismatch } from "./repo-cell-errors.ts";
 import type {
   RepoCellBinding,
   RepoCellContinuationWrite,
@@ -84,14 +84,35 @@ function failAction(
       contract ? action : undefined,
     );
   const result = contract ? deriveActionResult(contract, action, receipt) : receipt;
-  return authorizationDecision
-    ? withAuthorizationDecision(
-        result,
-        authorizationDecision,
-        result.unmetCriteria ?? [],
-        result.rejectionExplanation ?? (error instanceof Error ? error.message : String(error)),
-      )
-    : (result as WriteReceipt);
+  const explained = explainEdgeTaskConsentScopeMismatch(result, action, binding, error);
+  if (!authorizationDecision) return explained as WriteReceipt;
+  return withAuthorizationDecision(
+    explained,
+    authorizationDecision,
+    explained.unmetCriteria ?? [],
+    explained.rejectionExplanation ?? (error instanceof Error ? error.message : String(error)),
+  );
+}
+
+function explainEdgeTaskConsentScopeMismatch(
+  receipt: WriteReceiptDraft,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  error: unknown,
+): WriteReceiptDraft {
+  const scopeMismatch = edgeTaskConsentScopeMismatch({
+      actionKind: action.kind,
+      code: cellErrorCode(error),
+      source: binding.source,
+      ...(typeof action.taskId === "string" ? { taskId: action.taskId } : {}),
+      ...(typeof action.executionId === "string" ? { executionId: action.executionId } : {}),
+      ...(typeof action.reviewId === "string" ? { reviewId: action.reviewId } : {}),
+      cause: error instanceof Error ? error.message : String(error),
+    }),
+    explained = scopeMismatch
+      ? { ...receipt, diagnostic: scopeMismatch.diagnostic, rejectionExplanation: scopeMismatch.explanation }
+      : receipt;
+  return explained;
 }
 
 // Task write actions address an existing task, so a unique prefix gets the read faces' git-style
@@ -217,11 +238,17 @@ export function makeRepoCellCommandRunner(
               readTask: (taskId) => context.projection.read(taskId).snapshot.task,
               binding: { ...requested.binding, artifactKindResolver },
             });
-          return withAuthorizationDecision(
+          const failure = explainEdgeTaskConsentScopeMismatch(
             context.failed(actionId, error),
+            requested.action,
+            requested.binding,
+            error,
+          );
+          return withAuthorizationDecision(
+            failure,
             decision,
             [],
-            error instanceof Error ? error.message : String(error),
+            failure.rejectionExplanation ?? (error instanceof Error ? error.message : String(error)),
           );
         }
       };

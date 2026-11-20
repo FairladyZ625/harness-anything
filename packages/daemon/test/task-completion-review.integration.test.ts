@@ -666,6 +666,60 @@ test("consent refuses an approved review while another review dispatch on the cu
   }
 });
 
+test("consent ignores a failed reviewer dispatch only after its pending retry group is cancelled", async () => {
+  const f = await fixture(1, true, false, false, false, {
+    closeoutProfile: "standard",
+    providerRoundBackoffBaseSeconds: 60,
+  });
+  try {
+    await f.install();
+    assert.equal((await f.run({ kind: "task-dispatch-review", taskIds: [taskId] })).outcome, "applied");
+    const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
+    assert.ok(dispatch?.type === "runtime_dispatch_requested");
+    await f.awaitOutcome(dispatch.payload.runtimeSessionId);
+
+    const pending = await f
+      .cell()
+      .readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatch.payload.dispatchId] });
+    assert.ok(pending.status === "ready");
+    assert.equal(pending.rows[0]?.groupPhase, "waiting_backoff");
+    assert.equal(pending.rows[0]?.attempt.outcome, "failed");
+
+    await recordReview(
+      f,
+      "independent-reviewer",
+      "review-independent-approved",
+      "approved",
+      executionId,
+      undefined,
+      [],
+    );
+    const consentOf = () =>
+      f.run({ kind: "task-review-consent", taskId, executionId, reviewId: "review-independent-approved" });
+    const refused = (await consentOf()) as Receipt;
+    assert.equal(refused.code, "review_dispatch_unsettled", JSON.stringify(refused));
+
+    await f.cancel(dispatch.payload.runtimeSessionId);
+    const closed = await f.cell().readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatch.payload.dispatchId] });
+    assert.ok(closed.status === "ready");
+    assert.equal(closed.rows[0]?.groupPhase, "closed");
+    const exhaustion = f
+      .events()
+      .findLast(
+        (event) =>
+          event.type === "runtime_session_outcome_observed" &&
+          event.payload.runtimeSessionId === dispatch.payload.runtimeSessionId,
+      );
+    assert.ok(exhaustion?.type === "runtime_session_outcome_observed");
+    assert.equal(exhaustion.payload.attempt?.fallbackState, "exhausted");
+
+    const consented = await consentOf();
+    assert.equal(consented.outcome, "applied", JSON.stringify(consented));
+  } finally {
+    await f.close();
+  }
+});
+
 /**
  * The canonical terminal events recorded for one session, in ledger order. `runtime_session_cancelled`
  * already reduces liveness to `exited` (agent-runtime.ts:907-916), so the `runtime_session_exited` that
