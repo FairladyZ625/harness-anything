@@ -45,7 +45,7 @@ import { appendRuntimeWorkerRecord } from "../src/daemon-host/dispatch-stream.ts
 import type { RuntimeLauncher } from "../src/daemon-host/runtime-spawn-types.ts";
 import { latestSquadStates } from "./squad-run-state.fixture.ts";
 import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
+import { waitForArrival, waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
 
 const actor = { principal: { personId: "person-latch" }, executor: null } as const;
 
@@ -844,10 +844,13 @@ test(
           .outcome,
         "applied",
       );
-      const scheduledState = [...latestSquadStates(rootDir).values()].find(
-        (candidate) => candidate.subject.kind === "schedule-occurrence" && candidate.subject.scheduleId === scheduleId,
-      );
-      assert.ok(scheduledState?.leaderTurns[0], "scheduled Squad leader is active before latch recovery");
+      const scheduledState = await waitForDurableValue(() => {
+        const state = [...latestSquadStates(rootDir).values()].find(
+          (candidate) =>
+            candidate.subject.kind === "schedule-occurrence" && candidate.subject.scheduleId === scheduleId,
+        );
+        return state?.leaderTurns[0] ? state : null;
+      });
 
       const createdTask = await cell.run(
         { kind: "task-create", taskId, title: "Squad run after latch recovery", presetId: "docs-task" },
