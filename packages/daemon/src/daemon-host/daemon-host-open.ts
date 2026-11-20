@@ -1689,8 +1689,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         continue;
       }
       activeRemoteEdges.add(repo.repoId);
+      // Recording the center epoch for repoint preflight does not change the active transport.
+      const { writerEpoch: _writerEpoch, ...streamConfig } = config;
       const running = replicaSyncControllers.get(repo.repoId),
-        connection = JSON.stringify([rootDir, config]);
+        connection = JSON.stringify([rootDir, streamConfig]);
       if (running?.config === connection) continue;
       fleetVersionWarnings.delete(repo.repoId);
       running?.controller.abort();
