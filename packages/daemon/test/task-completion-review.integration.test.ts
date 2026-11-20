@@ -666,7 +666,7 @@ test("consent refuses an approved review while another review dispatch on the cu
   }
 });
 
-test("consent ignores a failed reviewer dispatch only after its pending retry group is cancelled", async () => {
+test("consent ignores a failed reviewer dispatch only after its pending retry group is cancelled", async (t) => {
   const f = await fixture(1, true, false, false, false, {
     closeoutProfile: "standard",
     providerRoundBackoffBaseSeconds: 60,
@@ -699,7 +699,7 @@ test("consent ignores a failed reviewer dispatch only after its pending retry gr
     const refused = (await consentOf()) as Receipt;
     assert.equal(refused.code, "review_dispatch_unsettled", JSON.stringify(refused));
 
-    await f.cancel(dispatch.payload.runtimeSessionId);
+    const cancelReceipt = await f.cancel(dispatch.payload.runtimeSessionId);
     const closed = await f.cell().readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatch.payload.dispatchId] });
     assert.ok(closed.status === "ready");
     assert.equal(closed.rows[0]?.groupPhase, "closed");
@@ -714,6 +714,8 @@ test("consent ignores a failed reviewer dispatch only after its pending retry gr
     assert.equal(exhaustion.payload.attempt?.fallbackState, "exhausted");
 
     const consented = await consentOf();
+    t.diagnostic(JSON.stringify({ refused, cancelReceipt, consented }));
+    assert.equal((cancelReceipt as Receipt).detail, "already-exited", JSON.stringify(cancelReceipt));
     assert.equal(consented.outcome, "applied", JSON.stringify(consented));
   } finally {
     await f.close();
