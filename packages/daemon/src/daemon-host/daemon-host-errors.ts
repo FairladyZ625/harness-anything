@@ -2,11 +2,13 @@ import {
   normalizeDomainError,
   type ReceiptDiagnostic,
   type WriteReceiptDraft as WriteReceipt,
+  type WriteSource,
 } from "@harness-anything/kernel";
 import { centerMovedDetails, type CenterMovedDetails } from "@harness-anything/storage";
 export { diagnosticForError } from "./receipt-guidance.ts";
 import { type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { type RepoTaskAction } from "./repo-cell-types.ts";
+import { explainEdgeTaskConsentScopeMismatch } from "./repo-cell-task-consent-errors.ts";
 import { scrubSecretText } from "../runtime-engine/secret-scrub.ts";
 
 /** Keep execution fences intact while telling CLI and GUI callers where to act. */
@@ -46,8 +48,9 @@ export function rejectHostAction(
   explanation: string,
   diagnostic?: ReceiptDiagnostic,
   centerMoved?: CenterMovedDetails,
+  source: WriteSource = "local",
 ): WriteReceipt {
-  return {
+  const receipt: WriteReceipt = {
     outcome: "op_rejected",
     opId: `rejected:${action.kind}`,
     code: errorCode,
@@ -56,7 +59,8 @@ export function rejectHostAction(
     diagnostic: diagnostic ?? { kind: "failure", code: errorCode },
     rejectionExplanation: formatRejectionExplanation(errorCode, explanation),
     ...(centerMoved === undefined ? {} : { centerMoved: centerMovedDetails(centerMoved) }),
-  } as WriteReceipt;
+  };
+  return explainEdgeTaskConsentScopeMismatch(receipt, action, source, explanation);
 }
 
 export function rejectPresetRun(runId: string, code: string, rejectionExplanation: string) {

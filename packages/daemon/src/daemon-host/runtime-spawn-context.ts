@@ -107,7 +107,12 @@ export interface RuntimeSpawnerContext {
   /** Stops a runtime whose provider-reported consumption passed its frozen token limit and
    * settles the terminal outcome; a no-op once cancellation or settlement owns the runtime. */
   readonly enforceSpendCap: (active: ActiveRuntime) => Promise<void>;
-  readonly controlReceipt: (opId: string, runtimeSessionId: string, detail?: string) => JsonObject;
+  readonly controlReceipt: (
+    opId: string,
+    runtimeSessionId: string,
+    detail?: string,
+    settlementReceipt?: JsonObject,
+  ) => JsonObject;
   readonly captureErrorOutput: (active: ActiveRuntime, chunk: string) => void;
   readonly prepareDaemonGitEnvironment: (
     instanceId: string,

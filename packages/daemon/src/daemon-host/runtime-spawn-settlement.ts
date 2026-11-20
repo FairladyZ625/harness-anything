@@ -1305,9 +1305,10 @@ export function controlReceipt(
   opId: string,
   runtimeSessionId: string,
   detail = "cancelled",
+  settlementReceipt?: JsonObject,
 ): JsonObject {
   if (context.input.remote) {
-    const centerReceipt = context.input.remote.runtimeControlReceipt?.(runtimeSessionId);
+    const centerReceipt = context.input.remote.runtimeControlReceipt?.(runtimeSessionId) ?? settlementReceipt;
     if (centerReceipt) {
       const outcome = centerReceipt.outcome;
       return {

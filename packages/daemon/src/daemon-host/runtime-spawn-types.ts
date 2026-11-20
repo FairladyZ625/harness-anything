@@ -1,6 +1,6 @@
 import type { OrphanRuntimeRecoveryAudit } from "@harness-anything/kernel/internal/domain/orphan-runtime-recovery.ts";
 import type { SquadDispatchSelection } from "./agent-entities.ts";
-import type { DispatchLifecycleQuery, DispatchLifecycleRead } from "@harness-anything/kernel";
+import type { DispatchLifecycleQuery, DispatchLifecycleRead, DispatchLifecycleView } from "@harness-anything/kernel";
 import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import type { FleetRuntimeDispatchContext } from "./fleet/command-protocol.ts";
@@ -36,7 +36,7 @@ import type {
   RuntimeLaunchRequest,
 } from "./agent-runtime-instances.ts";
 import type { AgentRuntimeStreamHub, AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
-import { type DispatchStreamWriter } from "./dispatch-stream.ts";
+import { type DispatchStreamWriter, type DispatchTerminalOutcome } from "./dispatch-stream.ts";
 import { type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import { type JsonObject } from "./protocol/json-rpc-types.ts";
 import { type RuntimeMcpPolicy, type RuntimePermissionMode } from "../runtime-engine/runtime-permissions.ts";
@@ -424,6 +424,9 @@ export interface RemoteRuntimePersistence {
   readonly readDispatchLifecycle: (query: DispatchLifecycleQuery) => Promise<DispatchLifecycleRead>;
   /** Read the canonical dispatch owner when a daemon-local stream is unavailable. */
   readonly readRuntimeDispatch: (runtimeSessionId: string) => Promise<RuntimeDispatchOwnerEvidence | null>;
+  readonly readFallbackExhaustion: (
+    attempt: DispatchLifecycleView["attempt"],
+  ) => Promise<Pick<DispatchTerminalOutcome, "payload" | "body">>;
   readonly publish: (draft: {
     readonly type: AgentRuntimeEventV1["type"];
     readonly payload: Readonly<Record<string, unknown>>;

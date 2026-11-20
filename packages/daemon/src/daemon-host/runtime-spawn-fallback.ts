@@ -29,7 +29,12 @@ import type {
 import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { consumeKnownError, type AgentRuntimeEventV1, type DispatchLifecycleView } from "@harness-anything/kernel";
+import {
+  consumeKnownError,
+  type AgentRuntimeEventV1,
+  type DispatchLifecycleView,
+  type TaskProjectionQueries,
+} from "@harness-anything/kernel";
 import { readDispatchLifecycle } from "./runtime-dispatch-admission.ts";
 import { runtimeErrorCode, runtimeErrorMessage, runtimeSpawnError } from "../runtime-engine/runtime-spawn-errors.ts";
 import type { RuntimeAgent, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
@@ -484,6 +489,43 @@ export async function settleFallbackAttempt(
   );
 }
 
+type RuntimeOutcome = Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }>["payload"];
+
+function exhaustFallback(attempt: NonNullable<RuntimeOutcome["attempt"]>, reason = attempt.reason) {
+  const { fallbackSchedule: _schedule, ...settled } = attempt;
+  return { ...settled, reason, fallbackState: "exhausted" as const };
+}
+
+/** Cancellation may have no spool. Reuse the accepted terminal claims from the repository cut. */
+export function readFallbackExhaustion(
+  projection: Pick<TaskProjectionQueries, "readRuntimeSession" | "readRuntimeSessionEventsByType">,
+  readResult: (ref: string) => string,
+  { runtimeSessionId, dispatchId, outcome }: DispatchLifecycleView["attempt"],
+): Pick<DispatchTerminalOutcome, "payload" | "body"> {
+  const terminal = projection
+    .readRuntimeSessionEventsByType(runtimeSessionId, ["runtime_session_outcome_observed"])
+    .findLast(
+      (event): event is Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }> =>
+        event.type === "runtime_session_outcome_observed" &&
+        event.payload.dispatchId === dispatchId &&
+        event.payload.outcome === outcome,
+    );
+  if (!terminal?.payload.attempt)
+    throw runtimeSpawnError("runtime_event_missing", "Pending fallback terminal publication is missing.");
+  const session = projection.readRuntimeSession(runtimeSessionId),
+    { reasonCode: _observedReasonCode, ...observed } = terminal.payload,
+    resultRef = session?.resultRef ?? observed.resultRef,
+    reasonCode = session?.outcome != null ? session.reasonCode : terminal.payload.reasonCode;
+  const payload = {
+    ...observed,
+    resultRef,
+    ...(session?.outcome != null ? { outcome: session.outcome, exitCode: session.exitCode } : {}),
+    ...(reasonCode ? { reasonCode } : {}),
+    attempt: exhaustFallback(terminal.payload.attempt),
+  };
+  return { payload, body: readResult(resultRef) };
+}
+
 /** Timers only wake the scheduler; the center's current leaf and accepted schedule authorize launch. */
 export async function scheduleFallbackContinuation(args: {
   readonly context: RuntimeSpawnerContext;
@@ -691,7 +733,6 @@ export async function scheduleFallbackContinuation(args: {
           const terminal = stream.terminalOutcome;
           if (!terminal?.payload.attempt)
             throw runtimeSpawnError("runtime_event_missing", "Fallback terminal publication is missing.");
-          const { fallbackSchedule: _schedule, ...attempt } = terminal.payload.attempt;
           const exhausted = {
             ...terminal,
             reason,
@@ -700,7 +741,7 @@ export async function scheduleFallbackContinuation(args: {
               ...(runtimeErrorCode(error) === "execution_budget_exceeded"
                 ? { reasonCode: "execution_budget_exceeded" }
                 : {}),
-              attempt: { ...attempt, reason, fallbackState: "exhausted" as const },
+              attempt: exhaustFallback(terminal.payload.attempt, reason),
             },
           };
           writer.appendTerminalOutcome(exhausted, input.now());

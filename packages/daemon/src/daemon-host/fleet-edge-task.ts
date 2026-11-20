@@ -3,6 +3,7 @@ import { readAgentEntityDeclarationSource } from "./agent-entities.ts";
 import { fleetMirrorTaskPaths } from "./fleet-edge-mirror.ts";
 import { readEdgeRuntimeRepository } from "./fleet-edge-runtime-read.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { explainEdgeTaskConsentScopeMismatch } from "./repo-cell-task-consent-errors.ts";
 import { daemonUserRoot } from "./client/local-daemon-target.ts";
 // Edge-side product write path: routes one `ha task ...` write command through
 // the fleet TLS channel, attaches to the center's wait queue for as long as the
@@ -350,6 +351,7 @@ export async function runFleetEdgeTask(
 ): Promise<Record<string, unknown>> {
   const payload = input.payload;
   const signal = input.signal;
+  const source = { kind: "node", nodeId: payload.nodeId } as const;
   let action = payload.action;
   const readOnly = commandDescriptorForAction(action.kind).commandClass === "repo-read";
   const credential = payload.credential;
@@ -735,7 +737,7 @@ export async function runFleetEdgeTask(
           }
         : {}),
     } as Record<string, unknown>;
-  });
+  }).then((receipt) => explainEdgeTaskConsentScopeMismatch(receipt, action, source));
 
   // PUSHING_DOCS_AND_TRANSITION: gather this task's dirty registered-harness prose
   // (doc-sync-allowed routes only, inside the canonical task package), upload the

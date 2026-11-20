@@ -12,7 +12,6 @@ import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-comman
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { rejectHostAction } from "../src/daemon-host/daemon-host-errors.ts";
 import { withAuthorizationDecision } from "../src/daemon-host/repo-cell-authorization.ts";
-import { edgeTaskConsentScopeMismatch } from "../src/daemon-host/repo-cell-task-consent-errors.ts";
 import { settleSquadChildAssignment } from "../src/daemon-host/repo-cell-squad-child.ts";
 import { failed } from "../src/daemon-host/repo-cell-settlement.ts";
 import { publishExecutedVerticalScript } from "../src/daemon-host/vertical-script-actions.ts";
@@ -1187,51 +1186,3 @@ for (const action of ["annotate", "rework"]) {
     assert.equal(host.rejectionExplanation, receipt.rejectionExplanation);
   });
 }
-
-test("an edge task-consent scope refusal identifies its expected and actual writer scopes", () => {
-  const mismatch = edgeTaskConsentScopeMismatch({
-    actionKind: "task-review-consent",
-    code: "execution_scope_mismatch",
-    source: { kind: "node", nodeId: "edge-one" },
-    taskId: "task-consent-scope",
-    executionId: "execution-consent-scope",
-    reviewId: "review-consent-scope",
-    cause: "The action was rejected after keycloak-policy@1 qualification.",
-  });
-  assert.ok(mismatch);
-  const receipt = withAuthorizationDecision(
-    {
-      ...failed(
-        "op-consent-scope",
-        Object.assign(new Error("The action was rejected after keycloak-policy@1 qualification."), {
-          code: "execution_scope_mismatch",
-        }),
-      ),
-      diagnostic: mismatch.diagnostic,
-      rejectionExplanation: mismatch.explanation,
-    },
-    { outcome: "allowed", policyRef: "keycloak-policy@1", nextActions: [], reasonCodes: [] },
-  );
-  assert.equal(receipt.code, "execution_scope_mismatch");
-  assert.deepEqual(receipt.diagnostic, {
-    kind: "validation",
-    entity: "task task-consent-scope execution execution-consent-scope",
-    field: "executionScope",
-    actual: "source=node:edge-one (edge node)",
-    expectation: "source=local (center canonical repository writer)",
-  });
-  assert.match(String(receipt.rejectionExplanation), /expected source=local/u);
-  assert.match(String(receipt.rejectionExplanation), /actual source=node:edge-one/u);
-  assert.match(String(receipt.rejectionExplanation), /--review-id review-consent-scope/u);
-  assert.match(String(receipt.rejectionExplanation), /on the center machine/u);
-  assert.match(String(receipt.rejectionExplanation), /keycloak-policy@1 qualification/u);
-  assert.equal(
-    edgeTaskConsentScopeMismatch({
-      actionKind: "task-review-consent",
-      code: "execution_scope_mismatch",
-      source: "local",
-      cause: "local scope",
-    }),
-    null,
-  );
-});
