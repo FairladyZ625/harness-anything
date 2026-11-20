@@ -1,0 +1,271 @@
+{
+  "sources": {
+    "daemon-local-state": [
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.close:faa3c695f4e1175c03f21e5ed3bb0993",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/preset/src/preset-process-service.ts#createPresetProcessService.terminate",
+        "order": 9
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.save:29be47d1c7f7ca8fa45b89107a12c0c2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
+        "order": 11
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.save:57fc34dd65211fa5f29c06f796ef5426",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync",
+        "order": 10
+      }
+    ],
+    "package-assets-build": [
+      {
+        "candidateId": "action:packages/preset:packages/preset/scripts/copy-assets.mjs#<module>:d3f80696c35ed76fe4e5cca8c63ae2be",
+        "route": "npm:preset:build",
+        "role": "effect",
+        "order": 3
+      }
+    ],
+    "preset-convert-local": [
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-installation.ts#migrateCompletion:0ac5cab11bcff02c805c2ddd1cecb615",
+        "route": "daemon:bin",
+        "role": "effect",
+        "order": 2
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-installation.ts#migrateCompletion:5535d30042790a22e300952c2e147890",
+        "route": "daemon:bin",
+        "role": "effect",
+        "order": 0
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-installation.ts#migrateCompletion:927172585d9464981ff77215d43c8625",
+        "route": "daemon:bin",
+        "role": "effect",
+        "order": 1
+      }
+    ],
+    "preset-install": [
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-installation.ts#installPresetPackage:0c08b02f1e7550e9c9efa1e8e98e6d65",
+        "route": "preset-install",
+        "role": "effect",
+        "order": 1
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-installation.ts#installPresetPackage:5c4bdd9423ada368122ab55bba739197",
+        "route": "preset-install",
+        "role": "effect",
+        "order": 2
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-installation.ts#installPresetPackage:91c36f004207172cde661a1bbc3da04b",
+        "route": "preset-install",
+        "role": "effect",
+        "order": 0
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-system.ts#presetActionError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "preset-install",
+        "role": "support",
+        "order": 3
+      }
+    ],
+    "preset-run-start": [
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.change:9ed029f63b572194006569587c274b7e",
+        "route": "preset-run-start",
+        "role": "support",
+        "order": 1
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.cleanup:851ad1db5f4ecca97808863fae1fb5de",
+        "route": "preset-run-start",
+        "role": "effect",
+        "order": 2
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.execute.child:5ce03f5039713c895f0be0aa8bacedeb",
+        "route": "preset-run-start",
+        "role": "effect",
+        "order": 6
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.execute.complete:0cd918daac5a9e04b08b142de26b7cdb",
+        "route": "preset-run-start",
+        "role": "support",
+        "order": 11
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.execute.complete:851ad1db5f4ecca97808863fae1fb5de",
+        "route": "preset-run-start",
+        "role": "effect",
+        "order": 10
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.execute.complete:b0882ff847e72b50e4d8de686c3e0df7",
+        "route": "preset-run-start",
+        "role": "effect",
+        "order": 9
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.execute.stop:20a0615b5fc91ccdafaec2b291d5bbc7",
+        "route": "preset-run-start",
+        "role": "effect",
+        "order": 7
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.execute:1001e68248e3a3daf737fed52401ca3a",
+        "route": "preset-run-start",
+        "role": "effect",
+        "order": 8
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.execute:15099d455741efaf63e10c394c212828",
+        "route": "preset-run-start",
+        "role": "effect",
+        "order": 5
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.execute:73969ea8cf9f94fc66cb05f0167aa0e8",
+        "route": "preset-run-start",
+        "role": "effect",
+        "order": 4
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.start:6eea0c7543eae53872c1f4cd23a96f63",
+        "route": "preset-run-start",
+        "role": "effect",
+        "order": 0
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.terminate:b146750ba1f7cc929ab5731923b3bcad",
+        "route": "preset-run-start",
+        "role": "support",
+        "order": 3
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#digest:1c107c83f41f1f7d666c242def97ac5a",
+        "route": "preset-run-start",
+        "role": "support",
+        "order": 12
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#presetProcessError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "preset-run-start",
+        "role": "support",
+        "order": 13
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-runtime.ts#createRuntime.resolveInternal.entrypoints:ee49327a6f93e3550c2ea209b30d77cb",
+        "route": "preset-run-start",
+        "role": "support",
+        "order": 14
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-runtime.ts#createRuntime.resolveInternal:4d16ac635e409351adbc24f66b08d3fc",
+        "route": "preset-run-start",
+        "role": "effect",
+        "order": 15
+      }
+    ],
+    "preset-seed": [
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-bootstrap.ts#bootstrapFailure:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "preset-seed",
+        "role": "support",
+        "order": 0
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/scaffold-overlay.ts#scaffoldContentHash:98350a69023f5557ad3864aab246cd81",
+        "route": "preset-seed",
+        "role": "support",
+        "order": 1
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/scaffold-overlay.ts#scaffoldFailure:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "preset-seed",
+        "role": "support",
+        "order": 2
+      }
+    ],
+    "preset-uninstall": [
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-installation.ts#uninstallPresetPackage:f95f2bef64349fd3229689ec2ae67260",
+        "route": "preset-uninstall",
+        "role": "effect",
+        "order": 0
+      }
+    ],
+    "repository-read": [
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-package.ts#decodePackage.packageDigest:c2153be6e881a654a8ea6ee24a667756",
+        "route": "repository-read",
+        "role": "support",
+        "order": 33
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-package.ts#decodePackage.packageDigest:dd43758b9a1b4eb5b7340107be33db57",
+        "route": "repository-read",
+        "role": "support",
+        "order": 34
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-resolver-common.ts#resolverContentHash:98350a69023f5557ad3864aab246cd81",
+        "route": "repository-read",
+        "role": "support",
+        "order": 35
+      }
+    ],
+    "script-run": [
+      {
+        "candidateId": "action:packages/preset:packages/preset/assets/software-coding/scripts/architecture-init.mjs#<module>:fc4f8ffb9a53c635cd14d7753aec96e0",
+        "route": "script-run",
+        "role": "script",
+        "order": 2
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/assets/software-coding/scripts/architecture-snapshot.mjs#<module>:b16820eb861bd4a53de14d0c4a2d4998",
+        "route": "script-run",
+        "role": "script",
+        "order": 3
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/assets/software-coding/scripts/decision-conformance-check.mjs#<module>:2d7238efe74415911f45745b02191fe4",
+        "route": "script-run",
+        "role": "script",
+        "order": 4
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/assets/software-coding/scripts/repository-audit.mjs#<module>:062ad33c94ca1906074a6ef9bc3042e8",
+        "route": "script-run",
+        "role": "script",
+        "order": 5
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/assets/software-coding/scripts/runtime.mjs#run:8592dd3603ca99e0bc994caff5309b0e",
+        "route": "script-run",
+        "role": "script",
+        "order": 6
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/assets/software-coding/scripts/runtime.mjs#sha:ed35f90e307750d3519268d2434125b0",
+        "route": "script-run",
+        "role": "support",
+        "order": 8
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/assets/software-coding/scripts/runtime.mjs#waitAtTestBlocker:4feac07c99d91fe57ddd6a2aa417c95c",
+        "route": "script-run",
+        "role": "script",
+        "order": 7
+      }
+    ]
+  }
+}

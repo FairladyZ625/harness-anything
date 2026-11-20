@@ -1,0 +1,235 @@
+{
+  "sources": {
+    "assignment-migrate": [
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/assignment-migration-action.ts#runAssignmentMigrationAction:ef6ed4cd9cf801668581af3a2b5b8950",
+        "route": "assignment-migrate",
+        "role": "effect",
+        "order": 1
+      }
+    ],
+    "daemon-local-state": [
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/decision-review-awaits.ts#runRelation.opId:f3220783d57d4b8cee48a2565021b256",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1163
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#executableAction:640630fcf885f9920926519a0012de0f",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1173
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.compileAction.eventId:a29f1d8dc5945125c2c24bf5941ea324",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1171
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.repinAll.bundles.memberOpId:9b2b428560348c799a5f73e79ca031b4",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1169
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run:b9a8c648637d40233464c7c470ec9cc9",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1168
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run:f47ce2f25bf225a6d17659c6febb0754",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1167
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.runCompiled:3b1bdf80285f54671a38f4aa9448f454",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1166
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.runEntityWrite.appended:5ca10d09f5449f58673022183be08681",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append",
+        "order": 1170
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#resolveActionCriterion:08a06fa1f7e195c18289260d0cb24fd6",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1172
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-receipts.ts#previewReceipt.opId:a29f1d8dc5945125c2c24bf5941ea324",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1174
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-relation.ts#derivedRelationOperationId:d6e1a7e93d14804ffeb33a2fa9ae904c",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1175
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-runtime-session.ts#commitRuntimeSessionBundle.appended:aca15e02146445d36e47128025d8565d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append",
+        "order": 423
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-runtime-session.ts#rejectRuntimeSessionAction:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1176
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-write-helpers.ts#reject:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1177
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-pin-action.ts#runEntityPinAction.compiled.eventId:a29f1d8dc5945125c2c24bf5941ea324",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1178
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/fact-archive-document.ts#archiveAllFacts.bundles.memberOpId:64725725ff1c16481a0bdc3af5cca7da",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1179
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/task-witness-action.ts#runTaskWitnessAction.compiled.eventId:a29f1d8dc5945125c2c24bf5941ea324",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1219
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/terminal-awaits-retirement.ts#retireAwaitsInitiatedBy.opId:cccf30449f9ce3be8cdbb6d07b19ac0d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update",
+        "order": 885
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/decision-service.ts#makeDecisionService.record.appended:0d96d4f5d7a756bd529666dd7878b819",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append",
+        "order": 240
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/fact-service.ts#makeFactService.record.appended:0d96d4f5d7a756bd529666dd7878b819",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append",
+        "order": 241
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/task-lifecycle-service.ts#makeTaskLifecycleService.executeInternal:521816cc1a3527f62031e0b042727ea9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/application/src/task-lifecycle-service.ts#EventStorePort.append",
+        "order": 242
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/task-lifecycle-service.ts#planned:d132352a9aa80621aa573b0a6935dc15",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/application/src/task-lifecycle-service.ts#planned.write",
+        "order": 245
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/task-lifecycle-service.ts#plannedPublication:d132352a9aa80621aa573b0a6935dc15",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/application/src/task-lifecycle-service.ts#plannedPublication.write",
+        "order": 244
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/task-lifecycle-service.ts#renewTaskLease:9529e391bab453b3bd43508db235116e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/application/src/task-lifecycle-service.ts#EventStorePort.append",
+        "order": 243
+      }
+    ],
+    "decision-repin": [
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.repinAll:f62e63de0d5257051d2b5b71ac126b0d",
+        "route": "decision-repin",
+        "role": "effect",
+        "order": 1
+      }
+    ],
+    "entity-pin": [
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-pin-action.ts#runEntityPinAction.appended:45d7f1624d843b4db4ce2ba40a15919d",
+        "route": "entity-pin",
+        "role": "effect",
+        "order": 2
+      }
+    ],
+    "fact-archive": [
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/fact-archive-document.ts#archiveAllFacts:f62e63de0d5257051d2b5b71ac126b0d",
+        "route": "fact-archive",
+        "role": "effect",
+        "order": 0
+      }
+    ],
+    "relation-relate": [
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-relation.ts#executeRelationAction:5f11e18294d5c688445b459ccef26f23",
+        "route": "relation-relate",
+        "role": "effect",
+        "order": 4
+      }
+    ],
+    "relation-unrelate": [
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-relation.ts#executeRelationAction:fed58a5b10375bfd6f6c955229608358",
+        "route": "relation-unrelate",
+        "role": "effect",
+        "order": 3
+      }
+    ],
+    "task-submit": [
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/submission-artifacts.ts#createSubmissionArtifactReader:a90fd32eb02c5973cfcf0c346fb48244",
+        "route": "task-submit",
+        "role": "support",
+        "order": 17
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/submission-artifacts.ts#resolveSubmissionArtifact:a90fd32eb02c5973cfcf0c346fb48244",
+        "route": "task-submit",
+        "role": "support",
+        "order": 19
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/submission-artifacts.ts#verifyAcceptedContent:891cf706fc2f3e7e9e9d4577001c173f",
+        "route": "task-submit",
+        "role": "support",
+        "order": 18
+      }
+    ],
+    "task-witness-rerun": [
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/task-witness-action.ts#runTaskWitnessAction.appended:45d7f1624d843b4db4ce2ba40a15919d",
+        "route": "task-witness-rerun",
+        "role": "effect",
+        "order": 0
+      }
+    ]
+  }
+}

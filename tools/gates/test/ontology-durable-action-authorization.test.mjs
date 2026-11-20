@@ -36,7 +36,7 @@ let partitionTestOrdinal = 0;
 // update this map; their measured durations are recorded by the test runner.
 const authorizationTestPartitionAssignments = [
   4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 4, 3, 3, 4, 1, 1, 2, 3, 4, 1, 4, 3, 2, 4, 2, 1, 3, 1, 4, 1, 3, 4,
-  4, 4, 2, 3,
+  4, 4, 2, 3, 2,
 ];
 function partitionedTest(name, testFn) {
   const ordinal = partitionTestOrdinal++;
@@ -76,6 +76,7 @@ function worktreeCopy(t) {
     kernel = path.join(dir, "packages", "kernel");
   unlinkSync(kernel);
   cpSync(path.join(repoRoot, "packages/kernel/src"), path.join(kernel, "src"), { recursive: true });
+  cpSync(path.join(repoRoot, "packages/kernel/schemas"), path.join(kernel, "schemas"), { recursive: true });
   cpSync(path.join(repoRoot, "packages/kernel/package.json"), path.join(kernel, "package.json"));
   writeFileSync(
     path.join(dir, "package.json"),
@@ -1365,4 +1366,27 @@ partitionedTest("descriptor rows reject a source service whose allowed-decision 
       "if (false)",
     ),
   );
+});
+
+partitionedTest("authorization rejects a foreign route in a package action shard", async (t) => {
+  const root = worktreeCopy(t);
+  const file = path.join(root, "packages/kernel/src/domain/action-source-facets/gui.json");
+  const shard = JSON.parse(readFileSync(file, "utf8"));
+  const [source] = shard.sources["task-submit"];
+  const baseline = inputs.constants.actionDeclarations.find(({ kind }) => kind === "task-submit");
+  assert.equal(
+    baseline.ontology.sources.find(({ candidateId }) => candidateId === source.candidateId).route,
+    source.route,
+  );
+
+  source.route = "task-start";
+  writeFileSync(file, JSON.stringify(shard));
+  await assert.rejects(loadAuthorizationInputs(root), (error) => {
+    assert.equal(
+      error.message,
+      "task-submit: ontology source route task-start does not resolve to its owning authorization descriptor",
+    );
+    t.diagnostic(error.message);
+    return true;
+  });
 });

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
 import { publicWorkspacePackages } from "./public-workspaces.mjs";
+import { ontologyFacetShardFiles } from "./refresh-ontology-facets.mjs";
 
 const root = process.cwd();
 const violations = [];
@@ -84,6 +85,11 @@ for (const { directory: packageDir, manifest: sourceManifest } of publicWorkspac
     const binTargets =
       typeof packedManifest.bin === "string" ? [packedManifest.bin] : Object.values(packedManifest.bin ?? {});
     for (const target of binTargets) checkTarget(packageName, entries, "bin", target);
+    if (packageName === "@harness-anything/kernel") {
+      const domain = path.join(root, packageDir, "src/domain");
+      for (const file of ontologyFacetShardFiles(domain))
+        checkTarget(packageName, entries, "ontology facet", `./dist/domain/${file}`);
+    }
   } catch (error) {
     violations.push(
       `${sourceManifest.name ?? packageDir} npm pack failed: ${error instanceof Error ? error.message : String(error)}`,

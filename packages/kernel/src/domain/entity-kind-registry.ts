@@ -151,17 +151,7 @@ import {
 } from "./managed-identity-policy.ts";
 import { guiQueryPacing } from "./gui-query-pacing.ts";
 import { taskLeaseGuidancePolicy, returnToPlannedJudgment } from "./task-lease-guidance.ts";
-import sourceContractFacets from "./source-contract-facets.json" with { type: "json" };
-
-const sourceContracts = sourceContractFacets as Readonly<
-  Record<
-    string,
-    {
-      readonly judgments: readonly import("./ontology-source.ts").OntologyJudgmentDeclaration[];
-      readonly contracts: readonly import("./ontology-source.ts").OntologySourceContract[];
-    }
-  >
->;
+import { sourceContractFacets } from "./source-contract-facets.ts";
 
 export type EntityStorageForm =
   | "lifecycle"
@@ -653,7 +643,7 @@ const baseEntityAction = (
 const withBaseEntityActions = <T extends readonly EntityKindContract[]>(contracts: T): T =>
   Object.freeze(
     contracts.map((contract) => {
-      const facets = sourceContracts[contract.kind];
+      const facets = sourceContractFacets[contract.kind];
       if (facets)
         contract = {
           ...contract,

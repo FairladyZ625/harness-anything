@@ -1,0 +1,96 @@
+{
+  "sources": {
+    "daemon-local-state": [
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/broker.ts#createBrokerManager.ensure.request:ed8d1cdbfacaf044773a0d5175a3b034",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/dsh-plugin/src/broker.ts#BrokerSubprocessHandle.terminate",
+        "order": 276
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/broker.ts#createBrokerManager.ensure.request:ed8d1cdbfacaf044773a0d5175a3b034:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/dsh-plugin/src/broker.ts#BrokerSubprocessHandle.terminate",
+        "order": 277
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/broker.ts#createBrokerManager.stop:5d467dab5c849c9669afac189312f894",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/dsh-plugin/src/broker.ts#BrokerSubprocessHandle.terminate",
+        "order": 275
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/broker.ts#createBrokerManager.stop:938c43ee07199275e1ad41b50fb9c29c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/dsh-plugin/src/broker.ts#BrokerSubprocessHandle.terminate",
+        "order": 274
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/broker.ts#launchBroker.consume:091eae55504ffef47b14fe609a113a13",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/dsh-plugin/src/broker.ts#launchBroker.settle",
+        "order": 270
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/broker.ts#launchBroker:091eae55504ffef47b14fe609a113a13",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/dsh-plugin/src/broker.ts#launchBroker.settle",
+        "order": 271
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/broker.ts#launchBroker:2336dd38d8735fdb1b6263c47c0f9f24",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/dsh-plugin/src/broker.ts#launchBroker.settle",
+        "order": 272
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/broker.ts#launchBroker:aa29e40aaab4d42ffc292ade26ff607a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/dsh-plugin/src/broker.ts#launchBroker.settle",
+        "order": 273
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/broker.ts#spawnCli:610f77f8452d71b64159b1fa956427af",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/dsh-plugin/src/broker.ts#BrokerSubprocessRuntime.spawn",
+        "order": 269
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/client.ts#createSnapshotStore.subscribe:f1bc38fa56c8370d3616f2b68139bd99",
+        "route": "daemon-local-state",
+        "role": "support",
+        "order": 278
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/index.ts#apply.subprocess.spawn:ed069afd182fe623906493ff8f538007",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/dsh-plugin/src/broker.ts#BrokerSubprocessRuntime.spawn",
+        "order": 279
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/tutorial.ts#writeClipboard:31009dd16199cd5c3f6763ea7e4b8224",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.dom.d.ts#ParentNode.append",
+        "order": 280
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/tutorial.ts#writeClipboard:8c7583f0fca5a090482a707655dccd1f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.dom.d.ts#ChildNode.remove",
+        "order": 281
+      }
+    ]
+  }
+}

@@ -1,4 +1,4 @@
-import actionSourceFacets from "./action-source-facets.json" with { type: "json" };
+import { actionSourceFacets } from "./action-source-facets.ts";
 
 /** Presentation is declared beside the action; policy evaluation does not consume it. */
 export const actionPresentation = {
@@ -297,9 +297,16 @@ const policyTierFor = (executionClass: ActionExecutionClass): ActionPolicyTier =
         ? "maintainer"
         : "admin";
 
-const sourceFacets = actionSourceFacets as Readonly<
-  Record<string, import("./ontology-source.ts").OntologyActionSources>
->;
+// Artifact actions are declared by their entity catalog. Their call sites still
+// participate in closure and authorization audits alongside protocol actions.
+export const artifactActionSourceDeclarations = Object.freeze(
+  artifactActionIngressKinds.flatMap((kind) => {
+    const facet = actionSourceFacets[kind];
+    return facet?.sources.length
+      ? [{ kind, executionClass: "repo-write" as const, ontology: { owner: facet.owner, sources: facet.sources } }]
+      : [];
+  }),
+);
 
 const declare = (
   kind: keyof typeof actionPresentation,
@@ -316,7 +323,7 @@ const declare = (
     policyTier: policyTierFor(executionClass),
     receiptSettlement: "none",
     ...overrides,
-    ...(sourceFacets[kind] ? { ontology: sourceFacets[kind] } : {}),
+    ...(actionSourceFacets[kind] ? { ontology: actionSourceFacets[kind] } : {}),
   });
 
 const canonical = (
