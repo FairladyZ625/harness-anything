@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import type { IdentitySessionPort } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -169,7 +169,7 @@ test("edge connection changes do not select a different OIDC center", (t) => {
       loginCertificate: "test-certificate",
     };
   writeFleetEdgeConfig(active.edgeRoot, edgeConfig);
-  selection.write(active.edgeRoot, { issuer: active.edgeIssuer, authority }, true);
+  selection.write(active.edgeRoot, { issuer: active.edgeIssuer, authority });
   writeFleetEdgeConfig(active.edgeRoot, {
     ...edgeConfig,
     viewRoot: "/tmp/new-view",
@@ -184,20 +184,46 @@ test("edge connection changes do not select a different OIDC center", (t) => {
   assert.equal(selection.read(active.edgeRoot), undefined, "a different repository target selects a new session");
 });
 
+test("clearing all center selections tombstones every persisted entry", (t) => {
+  const active = fixture(t),
+    selection = oidcCenterSelections(active.userRoot),
+    authority = { url: "https://login.example", realm: "harness", clientId: "harness-gui" },
+    value = { issuer: active.edgeIssuer, authority };
+  writeFleetEdgeConfig(active.edgeRoot, {
+    repoId: "edge-repo",
+    host: "center",
+    port: 7443,
+    caPath: "/tmp/center-ca.pem",
+    nodeId: "edge-node",
+    credential: "machine-credential",
+    viewRoot: "/tmp/view",
+    quotaBytes: 100,
+    loginUrl: authority.url,
+    loginRealm: authority.realm,
+  });
+  selection.write(active.edgeRoot, value);
+  selection.write(undefined, { issuer: active.localIssuer, authority });
+  const edgeFile = path.join(active.userRoot, "rbac", "oidc-centers", `${selection.key(active.edgeRoot)}.json`),
+    localFile = path.join(active.userRoot, "rbac", "oidc-centers", `${selection.key()}.json`);
+  assert.deepEqual(selection.read(active.edgeRoot), value);
+  assert.deepEqual(selection.read(undefined), { issuer: active.localIssuer, authority });
+  selection.clearAll();
+  assert.equal(JSON.parse(readFileSync(edgeFile, "utf8")), null);
+  assert.equal(JSON.parse(readFileSync(localFile, "utf8")), null);
+  assert.equal(selection.read(active.edgeRoot), undefined);
+  assert.equal(selection.read(undefined), undefined);
+});
+
 test("local repository selection retains its configured OIDC identity", (t) => {
   const active = fixture(t),
     selection = oidcCenterSelections(active.userRoot),
     configFile = path.join(active.userRoot, "rbac", "config.json"),
     config = { url: "https://local-center.example", realm: "harness", clientId: "harness-gui" };
   writeFileSync(configFile, JSON.stringify(config));
-  selection.write(
-    active.localRoot,
-    {
-      issuer: active.localIssuer,
-      authority: { url: config.url, realm: config.realm, clientId: config.clientId },
-    },
-    true,
-  );
+  selection.write(active.localRoot, {
+    issuer: active.localIssuer,
+    authority: { url: config.url, realm: config.realm, clientId: config.clientId },
+  });
   writeFileSync(configFile, JSON.stringify({ ...config, lastCheckedAt: "2026-10-31T00:00:00Z" }));
   assert.deepEqual(selection.read(active.localRoot), {
     issuer: active.localIssuer,

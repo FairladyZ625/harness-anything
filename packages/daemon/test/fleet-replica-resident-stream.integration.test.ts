@@ -789,6 +789,14 @@ test(
     link.release();
     assert.equal(await initialReady, true, "runtime readiness waits for the first durable replica ACK");
     await converged("initial convergence");
+    const confirmation = new AbortController(),
+      confirming = waitForFleetReplicaSequence(
+        { ...view, requireStreamConfirmation: true },
+        mirrorSequence(),
+        confirmation.signal,
+      );
+    confirmation.abort(new Error("the new stream has yet to acknowledge this cut"));
+    await assert.rejects(confirming, /the new stream has yet to acknowledge this cut/u);
     // The stream is held behind the center's head; sync asks the center for it and waits for it.
     link.hold();
     await pressure(fixture, 2);

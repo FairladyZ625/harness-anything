@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fleetFrameBusinessOutcome } from "../src/daemon-host/fleet/center-listener.ts";
+import { fleetFrameBusinessOutcome } from "../src/daemon-host/fleet/frame-business-outcome.ts";
 
 test("a delivered Fleet business rejection is not a successful outcome", () => {
   assert.deepEqual(fleetFrameBusinessOutcome({ schema: "fleet.task.result/v1", outcome: "op_rejected" }), {

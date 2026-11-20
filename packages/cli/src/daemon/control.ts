@@ -32,6 +32,7 @@ import { ensureCliDaemonRunning } from "./autostart.ts";
 import { firstCliCommandIndex } from "../cli/command-index.ts";
 import { daemonFailure, daemonOption } from "./control-support.ts";
 import { assessDaemonStatus, status } from "./control-status.ts";
+import { fleetRepointControl } from "./fleet-repoint-control.ts";
 const fleetNumber = { port: /^(?:0|[1-9][0-9]{0,4})$/u, quota: /^[1-9][0-9]{0,15}$/u };
 type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
 type ControlFinisher = (receipt: Record<string, unknown>, exitCode: number) => number;
@@ -170,7 +171,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
         "unsupported_command",
         [
           "Use daemon projection rebuild, daemon repo register|update,",
-          "daemon connection add|update|remove|probe, fleet status, fleet center start, fleet edge sync,",
+          "daemon connection add|update|remove|probe, fleet status, fleet center start, fleet edge sync|repoint,",
           "service install|uninstall|status, start --service, status [--diagnostics], metrics, top, slo, or stop.",
         ].join(" "),
       ),
@@ -365,6 +366,9 @@ async function dispatchFleetControl(
     const { runFleetCenterRelocationControl } = await import("./fleet-center-relocation.ts");
     return await runFleetCenterRelocationControl(argv, userRoot, finish);
   }
+  if (argv[at + 2] === "status") return await fleetStatusControl(argv, userRoot, daemonId, finish);
+  if (argv[at + 2] === "edge" && argv[at + 3] === "repoint")
+    return await fleetRepointControl(argv, userRoot, daemonId, finish);
   return await fleetControl(argv, at, userRoot, daemonId, finish);
 }
 async function fleetControl(
@@ -375,19 +379,11 @@ async function fleetControl(
   finish: ControlFinisher,
 ): Promise<number> {
   const { fleetCenterStartPayload } = await import("./fleet-center-relocation.ts");
-  const status = argv[at + 2] === "status",
-    center = argv[at + 2] === "center" && argv[at + 3] === "start",
+  const center = argv[at + 2] === "center" && argv[at + 3] === "start",
     edge = argv[at + 2] === "edge" && argv[at + 3] === "sync",
-    command = status
-      ? "daemon-fleet-status"
-      : center
-        ? "daemon-fleet-center-start"
-        : edge
-          ? "daemon-fleet-edge-sync"
-          : "daemon-fleet";
+    command = center ? "daemon-fleet-center-start" : edge ? "daemon-fleet-edge-sync" : "daemon-fleet";
   const flag = (name: string) => daemonOption(argv, name),
     reject = (errorCode: string, nextAction: string) => finish(daemonFailure(command, errorCode, nextAction), 2);
-  if (status) return await fleetStatusControl(argv, userRoot, daemonId, finish);
   if (!center && !edge)
     return reject(
       "unsupported_command",
@@ -412,7 +408,7 @@ async function fleetControl(
         daemonId,
       })
     : null;
-  const edgeConfig = edge ? readFleetEdgeConfig(edgeTarget!.canonicalRoot) : null;
+  const edgeConfig = edgeTarget && readFleetEdgeConfig(edgeTarget.canonicalRoot);
   const edgeFlags = {
     host: "--host",
     port: "--port",
@@ -439,6 +435,7 @@ async function fleetControl(
     host: edgeValue("host"),
     port: Number(edgeValue("port")),
     caPath: path.resolve(String(edgeValue("caPath"))),
+    spkiSha256: edgeConfig?.spkiSha256,
     nodeId: edgeValue("nodeId"),
     credential,
     repoId: edgeTarget!.repoId,

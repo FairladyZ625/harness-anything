@@ -66,7 +66,7 @@ test(
       ) as Record<string, string[]>;
       assert.deepEqual(
         capabilities.daemon?.filter((id) => id.startsWith("daemon-fleet")),
-        ["daemon-fleet-center-start", "daemon-fleet-edge-sync"],
+        ["daemon-fleet-center-start", "daemon-fleet-edge-repoint", "daemon-fleet-edge-sync"],
       );
       assert.equal(run(fixture, "center", ["daemon", "start", "--service"]).ok, true);
       register(fixture);
@@ -87,6 +87,11 @@ test(
       const missing = maybeRun(fixture, "center", ["daemon", "fleet", "center", "start"]);
       assert.equal(missing.status, 2);
       assert.equal(missing.receipt.code, "missing_field");
+      const repointMissing = maybeRun(fixture, "center", ["daemon", "fleet", "edge", "repoint"]);
+      assert.equal(repointMissing.status, 2);
+      assert.equal(repointMissing.receipt.command, "daemon-fleet-edge-repoint");
+      assert.equal(repointMissing.receipt.code, "missing_field");
+      assert.match(String(repointMissing.receipt.nextAction), /--spki-sha256/u);
       const help = spawnSync(process.execPath, [cli, "daemon", "fleet", "center", "start", "--help"], {
         encoding: "utf8",
       });

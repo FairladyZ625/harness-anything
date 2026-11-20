@@ -302,6 +302,7 @@ export async function joinFleetEdge(
       host: center.hostname,
       port,
       servername: centerServername,
+      spkiSha256: link.spkiSha256,
       caPath,
       nodeId: admitted.nodeId,
       credential: admitted.credential,
