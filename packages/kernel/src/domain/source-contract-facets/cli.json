@@ -26,18 +26,6 @@
         "order": 10
       },
       {
-        "id": "cli/src/cli/receipt-render-registry.ts#WriteReceipt",
-        "symbol": "packages/cli/src/cli/receipt-render-registry.ts#allowedInstancesLine",
-        "explain": "WriteReceipt: Formats allowed runtime instances already certified by the receipt.",
-        "sources": [
-          {
-            "candidateId": "judgment:packages/cli:packages/cli/src/cli/receipt-render-registry.ts#allowedInstancesLine:72e650fe42867b663826461f617f2911",
-            "route": "packages/cli/src/cli/receipt-render-registry.ts#allowedInstancesLine"
-          }
-        ],
-        "order": 12
-      },
-      {
         "id": "cli/src/cli/thin-command-doctor-health.ts#DoctorCheck",
         "symbol": "packages/cli/src/cli/thin-command-doctor-health.ts#isDoctorCheck",
         "explain": "DoctorCheck: Health response shape guard before presentation.",
