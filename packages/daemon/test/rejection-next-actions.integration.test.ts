@@ -12,7 +12,7 @@ import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-comman
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { rejectHostAction } from "../src/daemon-host/daemon-host-errors.ts";
 import { withAuthorizationDecision } from "../src/daemon-host/repo-cell-authorization.ts";
-import { edgeTaskConsentScopeMismatch } from "../src/daemon-host/repo-cell-errors.ts";
+import { edgeTaskConsentScopeMismatch } from "../src/daemon-host/repo-cell-task-consent-errors.ts";
 import { settleSquadChildAssignment } from "../src/daemon-host/repo-cell-squad-child.ts";
 import { failed } from "../src/daemon-host/repo-cell-settlement.ts";
 import { publishExecutedVerticalScript } from "../src/daemon-host/vertical-script-actions.ts";

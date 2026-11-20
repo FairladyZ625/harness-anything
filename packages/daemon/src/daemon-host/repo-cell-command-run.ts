@@ -23,7 +23,8 @@ import {
   bindVerifiedExecutorClaim,
   withAuthorizationDecision,
 } from "./repo-cell-authorization.ts";
-import { cellErrorCode, edgeTaskConsentScopeMismatch } from "./repo-cell-errors.ts";
+import { cellErrorCode } from "./repo-cell-errors.ts";
+import { edgeTaskConsentScopeMismatch } from "./repo-cell-task-consent-errors.ts";
 import type {
   RepoCellBinding,
   RepoCellContinuationWrite,
