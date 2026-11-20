@@ -196,31 +196,6 @@ test("edge connection changes do not select a different OIDC center", (t) => {
   assert.equal(existsSync(fleetEdgeConfigPath(active.userRoot, "edge-repo")), true);
 });
 
-test("clearing an edge center selection tombstones its disk file and reads as empty", (t) => {
-  const active = fixture(t),
-    selection = oidcCenterSelections(active.userRoot),
-    authority = { url: "https://login.example", realm: "harness", clientId: "harness-gui" };
-  writeFleetEdgeConfig(active.edgeRoot, {
-    repoId: "edge-repo",
-    host: "center",
-    port: 7443,
-    caPath: "/tmp/center-ca.pem",
-    nodeId: "edge-node",
-    credential: "machine-credential",
-    viewRoot: "/tmp/view",
-    quotaBytes: 100,
-    loginUrl: authority.url,
-    loginRealm: authority.realm,
-  });
-  selection.write(active.edgeRoot, { issuer: active.edgeIssuer, authority });
-  const file = path.join(active.userRoot, "rbac", "oidc-centers", `${selection.key(active.edgeRoot)}.json`);
-  assert.ok(existsSync(file));
-  assert.deepEqual(selection.read(active.edgeRoot), { issuer: active.edgeIssuer, authority });
-  selection.clear(active.edgeRoot);
-  assert.equal(JSON.parse(readFileSync(file, "utf8")), null);
-  assert.equal(selection.read(active.edgeRoot), undefined);
-});
-
 test("clearing all center selections tombstones every persisted entry", (t) => {
   const active = fixture(t),
     selection = oidcCenterSelections(active.userRoot),

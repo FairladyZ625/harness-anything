@@ -6,7 +6,6 @@ import {
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 import { readFleetEdgeConfig } from "@harness-anything/daemon/internal/client/fleet-edge-config";
-import { isDaemonUnreachable } from "@harness-anything/daemon/internal/client/daemon-autostart";
 import { daemonFailure, daemonOption } from "./control-support.ts";
 
 export async function fleetRepointControl(
@@ -23,11 +22,10 @@ export async function fleetRepointControl(
   if (missing.length > 0) return reject("missing_field", `Add ${missing.join(" ")} before repointing the edge center.`);
 
   const port = Number(flag("--port")),
-    timeoutMs = flag("--timeout-ms") ? Number(flag("--timeout-ms")) : 60_000;
+    timeout = flag("--timeout-ms") ?? "60000";
   if (!/^(?:0|[1-9][0-9]{0,4})$/u.test(String(flag("--port"))) || port > 65535)
     return reject("invalid_field", "Use a TCP port from 0 to 65535.");
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1)
-    return reject("invalid_field", "Use a positive integer for --timeout-ms.");
+  if (!/^[1-9][0-9]{0,9}$/u.test(timeout)) return reject("invalid_field", "Use a positive integer for --timeout-ms.");
   if (!/^[a-f0-9]{64}$/u.test(String(flag("--spki-sha256"))))
     return reject("invalid_field", "Use a lowercase SHA-256 digest for --spki-sha256.");
 
@@ -54,28 +52,16 @@ export async function fleetRepointControl(
       viewRoot: path.resolve(edge.viewRoot),
       quotaBytes: edge.quotaBytes,
       workspaceRoot: target.canonicalRoot,
-      timeoutMs,
+      timeoutMs: Number(timeout),
       ...(servername ? { servername } : {}),
       repoint: true,
     } as JsonObject;
 
-  try {
-    const result = await requestDaemonJsonRpcAt(
-      target.socketPath ?? localUserDaemonEndpoint(userRoot, daemonId),
-      "daemon.fleet.edge.sync",
-      { payload },
-      75,
-    );
-    return finish(result, result.ok === true ? 0 : 1);
-  } catch (error) {
-    if (!isDaemonUnreachable(error)) throw error;
-    return finish(
-      daemonFailure(
-        command,
-        "daemon_unavailable",
-        `Start the resident daemon with \`ha daemon start --service\`, then retry ${command.replace("daemon-", "ha daemon ").replaceAll("-", " ")}.`,
-      ),
-      1,
-    );
-  }
+  const result = await requestDaemonJsonRpcAt(
+    target.socketPath ?? localUserDaemonEndpoint(userRoot, daemonId),
+    "daemon.fleet.edge.sync",
+    { payload },
+    75,
+  );
+  return finish(result, result.ok === true ? 0 : 1);
 }

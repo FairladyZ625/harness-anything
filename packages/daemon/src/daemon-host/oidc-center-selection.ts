@@ -18,6 +18,11 @@ const edgeIdentity = (edge: FleetEdgeConfig) => ({
   ...(edge.servername ? { servername: edge.servername } : {}),
 });
 
+function persistedSelection(selection: OidcCenterSelection): OidcCenterSelection {
+  const { clientSecret: _secret, ...authority } = selection.authority;
+  return { issuer: selection.issuer, authority };
+}
+
 /** Discovery identifies a binding once; persisted selection lets a restarted daemon use sessions while its center is offline. */
 export function oidcCenterSelections(userRoot: string) {
   const directory = path.join(userRoot, "rbac", "oidc-centers");
@@ -57,48 +62,11 @@ export function oidcCenterSelections(userRoot: string) {
       .update(JSON.stringify([target ?? null, identity]))
       .digest("hex");
   };
-  const writeSelection = (
-    target: string | undefined,
-    selection: OidcCenterSelection | null,
-    identityOverride?: Readonly<Record<string, unknown>>,
-    clearAll = false,
-  ): void => {
-    if (clearAll) {
-      if (!existsSync(directory)) return;
-    } else {
-      /* @gate-identity state-store/runtime-instance.oidc-center-selection */ mkdirSync(directory, {
-        recursive: true,
-        mode: 0o700,
-      });
-    }
-    const files = clearAll
-      ? readdirSync(directory)
-          .filter((entry) => entry.endsWith(".json"))
-          .map((entry) => path.join(directory, entry))
-      : [path.join(directory, `${binding(target, identityOverride)}.json`)];
-    const { clientSecret: _secret, ...authority } = selection?.authority ?? {};
-    const stored = selection ? { issuer: selection.issuer, authority } : null;
-    for (const file of files) {
-      const temporary = `${file}.tmp`;
-      /* @gate-identity state-store/runtime-instance.oidc-center-selection */ writeFileSync(
-        temporary,
-        JSON.stringify(stored),
-        { mode: 0o600 },
-      );
-      /* @gate-identity state-store/runtime-instance.oidc-center-selection */ renameSync(temporary, file);
-    }
-  };
   return {
-    key(target?: string, identityOverride?: Readonly<Record<string, unknown>>): string {
-      return binding(target, identityOverride);
-    },
-    clear(target: string, replacement?: FleetEdgeConfig): void {
-      writeSelection(target, null);
-      if (replacement) writeSelection(target, null, edgeIdentity(replacement));
-    },
     clearAll(): void {
-      writeSelection(undefined, null, undefined, true);
+      this.write(undefined, null);
     },
+    key: binding,
     read(target?: string, identityOverride?: Readonly<Record<string, unknown>>): OidcCenterSelection | undefined {
       const key = binding(target, identityOverride),
         file = path.join(directory, `${key}.json`);
@@ -106,8 +74,28 @@ export function oidcCenterSelections(userRoot: string) {
       const selection = JSON.parse(readFileSync(file, "utf8")) as OidcCenterSelection | null;
       return selection === null ? undefined : selection;
     },
-    write(target: string | undefined, selection: OidcCenterSelection): void {
-      writeSelection(target, selection);
+    write(target: string | undefined, selection: OidcCenterSelection | null): void {
+      if (selection) {
+        /* @gate-identity state-store/runtime-instance.oidc-center-selection */ mkdirSync(directory, {
+          recursive: true,
+          mode: 0o700,
+        });
+      } else if (!existsSync(directory)) return;
+      const files = selection
+        ? [path.join(directory, `${binding(target)}.json`)]
+        : readdirSync(directory)
+            .filter((entry) => entry.endsWith(".json"))
+            .map((entry) => path.join(directory, entry));
+      const stored = selection ? persistedSelection(selection) : null;
+      for (const file of files) {
+        const temporary = `${file}.tmp`;
+        /* @gate-identity state-store/runtime-instance.oidc-center-selection */ writeFileSync(
+          temporary,
+          JSON.stringify(stored),
+          { mode: 0o600 },
+        );
+        /* @gate-identity state-store/runtime-instance.oidc-center-selection */ renameSync(temporary, file);
+      }
     },
   };
 }

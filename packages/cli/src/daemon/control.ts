@@ -366,6 +366,9 @@ async function dispatchFleetControl(
     const { runFleetCenterRelocationControl } = await import("./fleet-center-relocation.ts");
     return await runFleetCenterRelocationControl(argv, userRoot, finish);
   }
+  if (argv[at + 2] === "status") return await fleetStatusControl(argv, userRoot, daemonId, finish);
+  if (argv[at + 2] === "edge" && argv[at + 3] === "repoint")
+    return await fleetRepointControl(argv, userRoot, daemonId, finish);
   return await fleetControl(argv, at, userRoot, daemonId, finish);
 }
 async function fleetControl(
@@ -376,21 +379,11 @@ async function fleetControl(
   finish: ControlFinisher,
 ): Promise<number> {
   const { fleetCenterStartPayload } = await import("./fleet-center-relocation.ts");
-  const status = argv[at + 2] === "status",
-    center = argv[at + 2] === "center" && argv[at + 3] === "start",
+  const center = argv[at + 2] === "center" && argv[at + 3] === "start",
     edge = argv[at + 2] === "edge" && argv[at + 3] === "sync",
-    command = status
-      ? "daemon-fleet-status"
-      : center
-        ? "daemon-fleet-center-start"
-        : edge
-          ? "daemon-fleet-edge-sync"
-          : "daemon-fleet";
+    command = center ? "daemon-fleet-center-start" : edge ? "daemon-fleet-edge-sync" : "daemon-fleet";
   const flag = (name: string) => daemonOption(argv, name),
     reject = (errorCode: string, nextAction: string) => finish(daemonFailure(command, errorCode, nextAction), 2);
-  if (status) return await fleetStatusControl(argv, userRoot, daemonId, finish);
-  if (argv[at + 2] === "edge" && argv[at + 3] === "repoint")
-    return fleetRepointControl(argv, userRoot, daemonId, finish);
   if (!center && !edge)
     return reject(
       "unsupported_command",

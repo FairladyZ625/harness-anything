@@ -404,14 +404,15 @@ test(
       undefined,
       { replicaAdmission: true },
     );
-    const loginProxy = await listenFleetLoginProxy(t, { root: f.root, keycloak: f.owners.keycloak });
+    const oldLoginProxy = await listenFleetLoginProxy(t, { root: f.root, keycloak: f.owners.keycloak }),
+      loginProxy = await listenFleetLoginProxy(t, { root: f.root, keycloak: f.owners.keycloak });
     publishedAuthority = {
-      url: loginProxy.url,
+      url: oldLoginProxy.url,
       realm: "harness",
       clientId: "harness-node-node-one",
-      browserUrl: "https://relocated-browser.example.test",
+      browserUrl: "https://old-browser.example.test",
       servername: "localhost",
-      certificate: loginProxy.certificate,
+      certificate: oldLoginProxy.certificate,
     };
     await f.command("center-node", { kind: "task-create", taskId: "repoint-base", title: "Repoint base" });
     const e = await fleetEdgeHostFixture(t, f),
@@ -431,6 +432,7 @@ test(
     assert.ok(syncResponse && !Array.isArray(syncResponse) && "result" in syncResponse, JSON.stringify(syncResponse));
     assert.equal((syncResponse.result as Record<string, unknown>).ok, true, JSON.stringify(syncResponse.result));
     const connection = { ...readFleetEdgeConfig(e.edgeUser, "lease-repo")! };
+    assert.equal(connection.loginUrl, oldLoginProxy.url);
     assert.equal(await waitForFleetReplicaReady({
       viewRoot: e.viewRoot,
       repoId: "lease-repo",
