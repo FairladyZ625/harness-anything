@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
+import builtinCatalogData from "./model-pricing-catalog.json" with { type: "json" };
 import { parseModelPricingCatalog, type ModelPricingCatalog } from "./model-pricing-catalog.ts";
 
 /** Version of the synchronized public price catalog. */
@@ -31,9 +31,7 @@ function pricesFromCatalog(catalog: ModelPricingCatalog): ModelPriceTable {
   return { exact, folded: new Map([...exact].map(([id, price]) => [id.toLowerCase(), price])) };
 }
 
-const builtinCatalog = parseModelPricingCatalog(
-    JSON.parse(readFileSync(new URL("./model-pricing-catalog.json", import.meta.url), "utf8")),
-  ),
+const builtinCatalog = parseModelPricingCatalog(builtinCatalogData),
   exactAliases: ReadonlyMap<string, string> = new Map([
     ["opus", "claude-opus-5-5"],
     ["sonnet", "claude-sonnet-5-5"],
