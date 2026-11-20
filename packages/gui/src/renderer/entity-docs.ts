@@ -1102,7 +1102,17 @@ export const CURATED_ENTITY_DOC_GROUPS: readonly EntityDocGroup[] = [
     id: "runtime",
     title: "执行与运行时",
     summary: "工作怎么被执行、复核、会话化与编排。",
-    docs: [executionDoc, reviewDoc, runtimeSessionDoc, runtimeInstanceDoc, agentDoc, squadDoc, scheduleDoc, peerRequestDoc, hostDoc],
+    docs: [
+      executionDoc,
+      reviewDoc,
+      runtimeSessionDoc,
+      runtimeInstanceDoc,
+      agentDoc,
+      squadDoc,
+      scheduleDoc,
+      peerRequestDoc,
+      hostDoc,
+    ],
   },
   {
     id: "catalog",
