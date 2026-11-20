@@ -237,6 +237,9 @@ export async function cancelRuntime(
           );
       if (!terminal?.payload.attempt)
         throw runtimeSpawnError("runtime_event_missing", "Pending fallback terminal publication is missing.");
+      const exhaustedFallbackState = dispatchFallbackStateWords.find((state) => state === "exhausted");
+      if (exhaustedFallbackState === undefined)
+        throw runtimeSpawnError("runtime_event_missing", "The exhausted fallback state is unavailable.");
       const currentSession = context.requiredRuntimeProjection(context.input).readRuntimeSession(runtimeSessionId),
         { fallbackSchedule: _fallbackSchedule, ...settledAttempt } = terminal.payload.attempt,
         resultRef = currentSession?.resultRef ?? terminal.payload.resultRef,
@@ -251,7 +254,7 @@ export async function cancelRuntime(
                 ...(currentSession.reasonCode ? { reasonCode: currentSession.reasonCode } : {}),
               }
             : {}),
-          attempt: { ...settledAttempt, fallbackState: dispatchFallbackStateWords[2] },
+          attempt: { ...settledAttempt, fallbackState: exhaustedFallbackState },
         },
         resultBody = readCanonicalRuntimeResult(context.requiredRuntimeStore(context.input), resultRef);
       const settlement = await context.publishRuntimeEvent(
@@ -270,8 +273,9 @@ export async function cancelRuntime(
         by: "dispatch",
         dispatchIds: [attempt.attempt.dispatchId],
       });
-      const lifecycleReadyStatus = "ready";
-      if (settled.status !== lifecycleReadyStatus || !settled.rows[0]?.policy.groupSettled)
+      const settledRows = readyDispatchLifecycle(settled, context.runtimeSpawnError);
+      const [settledRow] = settledRows;
+      if (!settledRow?.policy.groupSettled)
         throw runtimeSpawnError("dispatch_lifecycle_pending", "Fallback exhaustion did not close the dispatch group.");
       return context.controlReceipt(opId, runtimeSessionId, "already-exited");
     }
