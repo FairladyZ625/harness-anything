@@ -4,11 +4,7 @@ import { beforeAll, afterEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { createElement } from "react";
-import {
-  AgentCard,
-  agentDeclarationFrom,
-  agentDraftFrom,
-} from "../src/renderer/components/runtime/AgentCard.tsx";
+import { AgentCard, agentDeclarationFrom, agentDraftFrom } from "../src/renderer/components/runtime/AgentCard.tsx";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 /** A node-local instance binding must not narrow or enter the shared capability declaration. */
@@ -49,7 +45,10 @@ const codexReview = {
 
 const mounted: { root: Root; container: HTMLElement }[] = [];
 
-async function renderAgentCard(localBinding: string, runtimes: readonly { readonly type: string }[]): Promise<HTMLElement> {
+async function renderAgentCard(
+  localBinding: string,
+  runtimes: readonly { readonly type: string }[],
+): Promise<HTMLElement> {
   return renderAgentCardProps(localBinding, runtimes, {});
 }
 
