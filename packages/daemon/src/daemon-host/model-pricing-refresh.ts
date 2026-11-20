@@ -1,5 +1,4 @@
 import { readFile } from "node:fs/promises";
-import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import { hostEnvironmentFilePath, writeHostEnvironmentFile } from "./host-environment-io.ts";
 import { createModelPricingCatalog, parseModelPricingCatalog } from "../runtime-engine/model-pricing-catalog.ts";
 import { installModelPricingCatalog } from "../runtime-engine/agent-runtime-model-pricing.ts";
@@ -16,7 +15,10 @@ interface ModelPricingCache {
   readonly catalog: ModelPricingCatalog;
 }
 
-function parseModelPricingCache(value: unknown): ModelPricingCache | null {
+type CacheReadResult = { readonly ok: true; readonly value: unknown } | { readonly ok: false };
+type CacheParseResult = { readonly ok: true; readonly cache: ModelPricingCache } | { readonly ok: false };
+
+function parseModelPricingCache(value: unknown): CacheParseResult | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const cache = value as Partial<ModelPricingCache>;
   if (
@@ -27,13 +29,26 @@ function parseModelPricingCache(value: unknown): ModelPricingCache | null {
     return null;
   try {
     return {
-      schema: MODEL_PRICING_CACHE_SCHEMA,
-      fetchedAt: cache.fetchedAt,
-      catalog: parseModelPricingCatalog(cache.catalog),
+      ok: true,
+      cache: {
+        schema: MODEL_PRICING_CACHE_SCHEMA,
+        fetchedAt: cache.fetchedAt,
+        catalog: parseModelPricingCatalog(cache.catalog),
+      },
     };
-  } catch (error) {
-    consumeKnownError(error);
-    return null;
+  } catch {
+    return { ok: false };
+  }
+}
+
+async function readModelPricingCache(userRoot: string): Promise<CacheReadResult> {
+  try {
+    return {
+      ok: true,
+      value: JSON.parse(await readFile(hostEnvironmentFilePath("modelPricingCache", userRoot), "utf8")) as unknown,
+    };
+  } catch {
+    return { ok: false };
   }
 }
 
@@ -42,16 +57,14 @@ export async function loadModelPricingCache(input: {
   readonly now?: () => Date;
   readonly install?: (catalog: unknown) => void;
 }): Promise<{ readonly catalog: ModelPricingCatalog; readonly ageMs: number } | null> {
-  let value: unknown;
-  try {
-    value = JSON.parse(await readFile(hostEnvironmentFilePath("modelPricingCache", input.userRoot), "utf8")) as unknown;
-  } catch (error) {
-    consumeKnownError(error);
-    return null;
-  }
-  const cache = parseModelPricingCache(value);
-  if (!cache) return null;
-  return { catalog: cache.catalog, ageMs: (input.now ?? (() => new Date()))().getTime() - Date.parse(cache.fetchedAt) };
+  const read = await readModelPricingCache(input.userRoot);
+  if (!read.ok) return null;
+  const parsed = parseModelPricingCache(read.value);
+  if (!parsed?.ok) return null;
+  return {
+    catalog: parsed.cache.catalog,
+    ageMs: (input.now ?? (() => new Date()))().getTime() - Date.parse(parsed.cache.fetchedAt),
+  };
 }
 
 export async function refreshModelPricingCatalog(
@@ -96,8 +109,8 @@ export async function initializeModelPricingCatalog(input: {
   }
   try {
     await refreshModelPricingCatalog(input);
-  } catch (error) {
-    consumeKnownError(error);
+  } catch {
+    return MODEL_PRICING_REFRESH_INTERVAL_MS;
   }
   return MODEL_PRICING_REFRESH_INTERVAL_MS;
 }
@@ -114,14 +127,14 @@ export function startModelPricingRefresh(input: {
     timer = setTimeout(() => void initialize(), delay);
     timer.unref();
   };
-  const initialize = async () => {
-    try {
-      const delay = await initializeModelPricingCatalog(input);
-      if (!stopped) schedule(delay);
-    } catch (error) {
-      consumeKnownError(error);
-      if (!stopped) schedule(MODEL_PRICING_REFRESH_INTERVAL_MS);
-    }
+  const initialize = () => {
+    void initializeModelPricingCatalog(input)
+      .then((delay) => {
+        if (!stopped) schedule(delay);
+      })
+      .catch(() => {
+        if (!stopped) schedule(MODEL_PRICING_REFRESH_INTERVAL_MS);
+      });
   };
   void initialize();
   return () => {

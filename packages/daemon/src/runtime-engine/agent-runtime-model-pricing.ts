@@ -1,4 +1,3 @@
-import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import builtinCatalogData from "./model-pricing-catalog.json" with { type: "json" };
 import { parseModelPricingCatalog, type ModelPricingCatalog } from "./model-pricing-catalog.ts";
 
@@ -57,13 +56,9 @@ export function normalizeModelPricingKey(model: string): string | null {
   let candidate = model.trim();
   if (!candidate) return null;
   if (candidate.startsWith("[")) {
-    let tuple: unknown;
-    try {
-      tuple = JSON.parse(candidate) as unknown;
-    } catch (error) {
-      consumeKnownError(error);
-      return null;
-    }
+    const parsed = parseModelPricingTuple(candidate);
+    if (!parsed.ok) return null;
+    const tuple = parsed.value;
     if (!Array.isArray(tuple) || tuple.length !== 2 || tuple.some((item) => typeof item !== "string")) return null;
     candidate = tuple[1] as string;
   }
@@ -77,6 +72,16 @@ export function normalizeModelPricingKey(model: string): string | null {
     candidate = candidate.replace(/-(?:\d{4}-\d{2}-\d{2}|\d{8}|\d{4})$/u, "");
   } while (candidate !== previous);
   return candidate ? candidate.toLowerCase() : null;
+}
+
+function parseModelPricingTuple(
+  candidate: string,
+): { readonly ok: true; readonly value: unknown } | { readonly ok: false } {
+  try {
+    return { ok: true, value: JSON.parse(candidate) as unknown };
+  } catch {
+    return { ok: false };
+  }
 }
 
 /** Exact match, case-folded match, then suffix normalization and a controlled alias set. */

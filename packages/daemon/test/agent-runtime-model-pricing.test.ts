@@ -272,15 +272,24 @@ test("a stale disk cache is not installed when the refresh fails", async () => {
 test("invalid cache and failed refresh leave the in-memory catalog unchanged", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-model-pricing-cache-invalid-"));
   try {
-    writeFileSync(hostEnvironmentFilePath("modelPricingCache", userRoot), JSON.stringify({ schema: "wrong" }));
     let installs = 0;
-    const nextRefresh = await initializeModelPricingCatalog({
-      userRoot,
-      install: () => (installs += 1),
-      now: () => new Date("2026-11-21T12:00:00.000Z"),
-      fetcher: async () => new Response("unavailable", { status: 503 }),
-    });
-    assert.equal(nextRefresh, MODEL_PRICING_REFRESH_INTERVAL_MS);
+    for (const contents of [
+      "not json",
+      JSON.stringify({
+        schema: "model-pricing-cache/v1",
+        fetchedAt: "2026-11-21T11:00:00.000Z",
+        catalog: { schema: "wrong" },
+      }),
+    ]) {
+      writeFileSync(hostEnvironmentFilePath("modelPricingCache", userRoot), contents);
+      const nextRefresh = await initializeModelPricingCatalog({
+        userRoot,
+        install: () => (installs += 1),
+        now: () => new Date("2026-11-21T12:00:00.000Z"),
+        fetcher: async () => new Response("unavailable", { status: 503 }),
+      });
+      assert.equal(nextRefresh, MODEL_PRICING_REFRESH_INTERVAL_MS);
+    }
     assert.equal(installs, 0);
     assert.deepEqual(modelPriceOf("gpt-6.2-sol"), {
       inputPerMillion: 2,
