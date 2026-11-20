@@ -128,11 +128,11 @@ describe("agent detail recent sessions stay inside the bounded scroll card", () 
   it("keeps the runtime constraint section rendered outside the session scroll area", async () => {
     const container = await renderAgentCardWithSessions(SESSION_COUNT);
     const bound = container.querySelector<HTMLElement>('[data-testid="agent-recent-sessions"]')!;
-    // Runtime 约束段仍在(实例选择器属于该段),且不在会话滚动容器里——
+    // Runtime 约束段仍在(模型选择器属于该段),且不在会话滚动容器里——
     // 滚动作用域只圈会话卡,不吞掉其余区块。
-    const instanceSelect = container.querySelector('[data-testid="agent-instance-select"]');
-    expect(instanceSelect).toBeTruthy();
-    const constraintSection = instanceSelect!.closest("section");
+    const modelSelect = container.querySelector('[data-testid="agent-runtime-model-codex"]');
+    expect(modelSelect).toBeTruthy();
+    const constraintSection = modelSelect!.closest("section");
     expect(constraintSection).toBeTruthy();
     expect(bound.contains(constraintSection!)).toBe(false);
     // 段头文案即 i18n 的 runtimeConstraint,确认选中段没有拿错。

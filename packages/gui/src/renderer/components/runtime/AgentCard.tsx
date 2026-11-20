@@ -183,6 +183,7 @@ export function AgentCard({
   const compatible = instances.filter(
     (instance) => instance.enabled && agentRuntimeKindMatches(draft.runtimes, instance.kindId),
   );
+  const localInstanceId = detail.instance;
   const patchRuntime = (
       kindId: string,
       value: Partial<{ readonly model: string; readonly effort: RuntimeEffort | "" }>,
@@ -195,9 +196,7 @@ export function AgentCard({
         runtimes: AgentDraft["runtimes"] = selected
           ? draft.runtimes.filter((target) => target.type !== kindId)
           : [...draft.runtimes, { type: kindId, model: "", effort: "" }];
-      patch({
-        runtimes,
-      });
+      patch({ runtimes });
     },
     modelsForKind = (kindId: string) => {
       return [
@@ -726,11 +725,11 @@ export function AgentCard({
             );
           })}
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            {detail.instance ? (
+            {localInstanceId ? (
               <EntityRefLink
-                entityRef={`provider/${detail.instance}`}
-                onNavigate={() => onSelectRuntime(detail.instance!)}
-                title={detail.instance}
+                entityRef={`provider/${localInstanceId}`}
+                onNavigate={() => onSelectRuntime(localInstanceId)}
+                title={localInstanceId}
                 className="font-mono ui-micro text-text-faint hover:text-accent hover:underline"
               />
             ) : null}
@@ -799,7 +798,6 @@ export function AgentCard({
               )}
             </div>
           )}
-          <p className="mt-2 ui-micro text-text-faint">{t("agentRuntime.runtimeConstraintNote")}</p>
         </Sect>
 
         {versionPanel}
