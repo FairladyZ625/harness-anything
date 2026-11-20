@@ -46,6 +46,11 @@ export function commitRuntimeSessionBundle(
   authorizationDecision: AuthorizationDecision,
   afterAppend: () => void,
 ): WriteReceipt {
+  if (authorizationDecision.outcome !== "allowed")
+    rejectRuntimeSessionAction(
+      "actor_unauthorized",
+      "Runtime session commit requires the center AuthorizationPort decision.",
+    );
   const appended = store.append(bundle);
   for (const preceding of bundle.preceding ?? []) projection.apply(preceding.event, preceding.plan);
   projection.apply(bundle.event);

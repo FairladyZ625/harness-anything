@@ -9,6 +9,10 @@ import path from "node:path";
 import test from "node:test";
 import { Worker } from "node:worker_threads";
 import {
+  commitRuntimeSessionBundle,
+  type RuntimeSessionBundle,
+} from "@harness-anything/application/internal/commands/entity-action-runtime-session.ts";
+import {
   createImmutableLegacyGenerationSnapshot,
   legacyGenerationSnapshotPath,
   makeTaskEventReader,
@@ -18,6 +22,9 @@ import {
   bindWriterGenerationToken,
   serializePersistedCanonicalEvent,
   sha256Text,
+  type AuthorizationDecision,
+  type CanonicalEventStore,
+  type TaskProjection,
   type WriteReceipt,
 } from "@harness-anything/kernel";
 import {
@@ -47,6 +54,23 @@ import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixture
 import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
 
 const actor = { principal: { personId: "person-latch" }, executor: null } as const;
+
+test("runtime session commits reject denied authorization before touching the store", () => {
+  let appends = 0;
+  assert.throws(
+    () =>
+      commitRuntimeSessionBundle(
+        { append: () => appends++ } as unknown as CanonicalEventStore,
+        {} as TaskProjection,
+        {} as RuntimeSessionBundle,
+        { outcome: "denied" } as unknown as AuthorizationDecision,
+        () => {},
+      ),
+    (error: unknown) =>
+      typeof error === "object" && error !== null && "code" in error && error.code === "actor_unauthorized",
+  );
+  assert.equal(appends, 0);
+});
 
 test("task identity lookup serves the projection's rows when it is caught up", () => {
   const reads = { count: 0 },
