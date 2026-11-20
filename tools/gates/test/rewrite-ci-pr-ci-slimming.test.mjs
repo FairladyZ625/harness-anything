@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { parse } from "yaml";
+import { AUTHORIZATION_CI_SHARD_COUNT } from "../authorization-ci-shards.mjs";
 import { parseGateWorkflow } from "../../gate-workflow-parser.mjs";
 import { selectGuiSmokeCommand } from "../../gui-e2e/run-smoke.mjs";
 import { parseManifestGateArgs, selectManifestGateIds } from "../../run-manifest-gates.mjs";
@@ -126,6 +128,40 @@ test("quick-gates keeps every gate while typecheck runs alone and the rest share
   assert.deepEqual(executed, declared, "the separate typecheck step plus the pool cover the same gate set as before");
 });
 
+test("the required quick-gates context depends on the pool and every durable authorization shard", () => {
+  const jobs = parse(workflowText).jobs;
+  const shard = jobs["authorization-shard"],
+    summary = jobs["authorization-summary"];
+  assert.deepEqual(
+    shard.strategy.matrix.shard,
+    Array.from({ length: AUTHORIZATION_CI_SHARD_COUNT }, (_, i) => i),
+  );
+  assert.equal(shard.strategy["fail-fast"], false);
+  assert.deepEqual(summary.needs, ["install", "quick-gates", "authorization-shard"]);
+  assert.equal(summary.name, "quick-gates");
+  assert.notEqual(jobs["quick-gates"].name, summary.name);
+  assert.match(summary.if, /^always\(\)/u);
+  for (const job of [shard, summary]) {
+    for (const event of ["pull_request", "merge_group", "push"]) assert.ok(job.if.includes(`== '${event}'`));
+  }
+  const producer = shard.steps.find((step) => step.env?.AUTHORIZATION_CI_MODE === "shard");
+  const collector = summary.steps.find((step) => step.run?.includes("--workflow-job authorization-summary "));
+  assert.ok(producer && collector);
+  assert.match(
+    collector.env.AUTHORIZATION_CI_MODE,
+    /needs\.install\.result == 'success' && needs\.quick-gates\.result == 'success' && needs\.authorization-shard\.result == 'success' && 'collect' \|\| 'blocked'/u,
+  );
+  assert.equal(producer.env.AUTHORIZATION_CI_DATE, collector.env.AUTHORIZATION_CI_DATE);
+  assert.equal(producer.env.AUTHORIZATION_BASE, collector.env.AUTHORIZATION_BASE);
+  for (const eventName of ["pull_request", "merge_group", "push"]) {
+    const gates = (job) => selectManifestGateIds(manifest, { workflowJob: job, eventName });
+    const gateId = "ontology-durable-action-authorization";
+    assert.ok(!gates("quick-gates").includes(gateId));
+    assert.deepEqual(gates("authorization-shard"), [gateId]);
+    assert.deepEqual(gates("authorization-summary"), [gateId]);
+  }
+});
+
 test("crlf-checkout runs one partition on PR and merge_group, four on main pushes", () => {
   assert.ok(workflowText.includes("fromJSON('[1]')"), "PR and merge_group expand a single partition");
   assert.ok(workflowText.includes("fromJSON('[1, 2, 3, 4]')"), "main pushes keep four partitions");
@@ -232,7 +268,9 @@ test("CH3 leaves the required PR evidence lanes intact and retires duplicate gat
   assert.ok(boundaryGates.length > 0);
   for (const gate of boundaryGates) {
     assert.ok(
-      gate.executionSurfaces.rewriteCi.pullRequestJobs.includes("quick-gates"),
+      gate.executionSurfaces.rewriteCi.pullRequestJobs.includes(
+        gate.id === "ontology-durable-action-authorization" ? "authorization-summary" : "quick-gates",
+      ),
       `${gate.id} must stay on the merged required PR lane`,
     );
     assert.deepEqual(gate.githubContext.requiredContexts, ["quick-gates"], `${gate.id} required context`);

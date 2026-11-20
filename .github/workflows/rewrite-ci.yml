@@ -53,7 +53,10 @@ jobs:
       gui: ${{ steps.surfaces.outputs.gui }}
       packagePolicy: ${{ steps.policy.outputs.packagePolicy }}
       costBudgetReads: ${{ steps.policy.outputs.costBudgetReads }}
+      authorizationDate: ${{ steps.authorization-date.outputs.date }}
     steps:
+      - id: authorization-date
+        run: echo "date=$(date -u +%F)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -145,6 +148,7 @@ jobs:
   # every gate command and verdict is unchanged. The documentation-only narrowing still applies to
   # the merged selection because the runner derives it from the same manifest localPathGlobs.
   quick-gates:
+    name: quick-gate-checks
     needs: install
     if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'push')
     permissions:
@@ -174,8 +178,8 @@ jobs:
       # different revision.
       #
       # typecheck writes packages/*/dist and tsbuildinfo, so it runs alone before the pool; the
-      # other 59 gates only read the tree or write mkdtemp roots. The pool is still one required
-      # context, so no branch-protection name moves for this job.
+      # other gates only read the tree or write mkdtemp roots. authorization-summary preserves the
+      # required context and requires this pool and the complete authorization proof.
       - name: Typecheck before the parallel gate pool
         run: npm run typecheck
       - name: Run quick and boundary PR gates
@@ -184,6 +188,76 @@ jobs:
           G38_PHASE: legacy
           NODE_OPTIONS: --max-old-space-size=4096
         run: node tools/run-manifest-gates.mjs --workflow-job quick-gates --github-groups --parallel 4 --exclude typecheck
+  # dec_88CAA23DE4907261D7ECB107ED/CH1: disjoint proof shards share one checkout, comparison
+  # base and UTC date. Client proofs are decided only after joining all planned server routes.
+  authorization-shard:
+    name: authorization-shard (${{ matrix.shard }})
+    needs: install
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'push')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
+      - name: Trace assigned durable authorization routes and sources
+        shell: bash
+        env:
+          AUTHORIZATION_CI_MODE: shard
+          AUTHORIZATION_CI_SHARD: ${{ matrix.shard }}
+          AUTHORIZATION_CI_DIR: ${{ runner.temp }}
+          AUTHORIZATION_CI_DATE: ${{ needs.install.outputs.authorizationDate }}
+          AUTHORIZATION_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || 'origin/main' }}
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: node tools/run-manifest-gates.mjs --workflow-job authorization-shard --changed-base "$AUTHORIZATION_BASE" --github-groups | awk -v proof="$AUTHORIZATION_CI_DIR/authorization-shard-$AUTHORIZATION_CI_SHARD.json" '/^AUTH_SHARD_PROOF / { if (++count > 1) exit 1; sub(/^AUTH_SHARD_PROOF /, ""); print > proof; next } { print } END { if (count != 1) exit 1 }'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: authorization-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/authorization-shard-${{ matrix.shard }}.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 1
+  authorization-summary:
+    name: quick-gates
+    needs: [install, quick-gates, authorization-shard]
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'push')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: authorization-shard-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/authorization
+      - name: Require the quick gate pool and the complete durable authorization verdict
+        env:
+          AUTHORIZATION_CI_MODE: ${{ needs.install.result == 'success' && needs.quick-gates.result == 'success' && needs.authorization-shard.result == 'success' && 'collect' || 'blocked' }}
+          AUTHORIZATION_CI_DIR: ${{ runner.temp }}/authorization
+          AUTHORIZATION_CI_DATE: ${{ needs.install.outputs.authorizationDate }}
+          AUTHORIZATION_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || 'origin/main' }}
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: node tools/run-manifest-gates.mjs --workflow-job authorization-summary --changed-base "$AUTHORIZATION_BASE" --github-groups
   fast-contract:
     name: fast-contract (${{ matrix.partition }})
     needs: install

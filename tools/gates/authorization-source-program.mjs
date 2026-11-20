@@ -44,6 +44,8 @@ export function createSourceProgram(rootDir, { anchorRoot, files, sourceFiles, s
       module: ts.ModuleKind.NodeNext,
       moduleResolution: ts.ModuleResolutionKind.NodeNext,
       target: ts.ScriptTarget.ES2022,
+      // A shard may import a TSX type without declaring that file as a witness root.
+      jsx: ts.JsxEmit.Preserve,
       strict: true,
       types: [],
       ...(Object.keys(workspacePaths).length > 0 ? { baseUrl: rootDir, paths: workspacePaths } : {}),

@@ -177,6 +177,8 @@
     "rewriteCi": {
       "pullRequestGateJobs": [
         "quick-gates",
+        "authorization-shard",
+        "authorization-summary",
         "fast-contract",
         "crlf-checkout",
         "integration-shard",
@@ -202,6 +204,8 @@
         "package-policy",
         "gui-build",
         "quick-gates",
+        "authorization-shard",
+        "authorization-summary",
         "clean-build",
         "platform-smoke-windows",
         "windows-first-run-windows",
@@ -4815,6 +4819,7 @@
       "tierReason": null,
       "authoritySource": [
         "task_6afb9b18781322b945d268d8f2",
+        "dec_88CAA23DE4907261D7ECB107ED/CH1",
         "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f3-actor-role-policy-是真实切片但不是单一授权模型"
       ],
       "consumerScope": [
@@ -4824,7 +4829,7 @@
       ],
       "githubContext": {
         "requiredContexts": ["quick-gates"],
-        "workflowJobs": ["quick-gates"],
+        "workflowJobs": ["authorization-shard", "authorization-summary"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4838,7 +4843,9 @@
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           "tools/gates/ontology-durable-action-authorization.mjs",
+          "tools/gates/authorization-ci-shards.mjs",
           "tools/gates/test/ontology-durable-action-authorization.test.mjs",
+          "tools/gates/test/ontology-durable-action-authorization-incremental.test.mjs",
           "tools/gate-manifest.json"
         ]
       },
@@ -4850,8 +4857,8 @@
           "script": null
         },
         "rewriteCi": {
-          "pullRequestJobs": ["quick-gates"],
-          "nonPullRequestJobs": ["quick-gates"]
+          "pullRequestJobs": ["authorization-shard", "authorization-summary"],
+          "nonPullRequestJobs": ["authorization-shard", "authorization-summary"]
         },
         "branchProtection": {
           "required": true,
@@ -4862,7 +4869,10 @@
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": ["tools/gates/test/ontology-durable-action-authorization.test.mjs"]
+        "evidence": [
+          "tools/gates/test/ontology-durable-action-authorization.test.mjs",
+          "tools/gates/test/ontology-durable-action-authorization-incremental.test.mjs"
+        ]
       }
     },
     {
