@@ -129,8 +129,7 @@ test("a real worktree dispatch hands the worker an openable path for every priva
 
   // The premise stands: the referenced files are absent under the worker root.
   assert.equal(existsSync(path.join(prepared!.cwd, standard)), false, "a worktree checks out no private ledger");
-  // And the delivered prompt carries the path that opens each one — the same `workerLedgerPath`
-  // port Required Skills uses, so one file never gets two different paths.
+  // The private read set uses the same sealed Skill path as Required Skills.
   assert.match(prompt, /# Private Ledger Paths \(read-only\)/u);
   const requiredSkill = /(?:^|\n)- agent-dev-standards: (.+)(?:\n|$)/u.exec(prompt)?.[1];
   assert.ok(requiredSkill, "Required Skills must name the selected skill");
@@ -169,9 +168,10 @@ test("a real worktree dispatch hands the worker an openable path for every priva
     `a script beside SKILL.md must be copied with the skill: ${copiedSkillScript}`,
   );
   const canonicalSkillScript = path.join(root, skillScript);
-  assert.equal(readFileSync(copiedSkillScript, "utf8"), readFileSync(canonicalSkillScript, "utf8"));
-  writeFileSync(copiedSkillScript, "worker mutation\n");
-  assert.equal(readFileSync(canonicalSkillScript, "utf8"), "# census.mjs\n", "the canonical script is only read");
+  const original = readFileSync(canonicalSkillScript, "utf8");
+  assert.equal(readFileSync(copiedSkillScript, "utf8"), original);
+  writeFileSync(canonicalSkillScript, "updated source script\n");
+  assert.equal(readFileSync(copiedSkillScript, "utf8"), original, "the worker keeps the sealed script bytes");
   assert.match(prompt, /Never copy one into this repository, never write through one/u);
   assert.match(prompt, /ha doc show --path <ledger path> --raw/u, "read-set locators name their opening command");
   // The isolated-test entry rides every coding dispatch whether or not anything names it —
