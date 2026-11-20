@@ -2378,7 +2378,7 @@
         "explain": "replayTaskLifecycleEvent: Replay input consistency and atomic bundle validation.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-replay.ts#assertReplay:688b85ddbad15e2ee282930efdfeada8",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-replay.ts#assertReplay:91bba8924f3c960bb7bb0dc936068b4d",
             "route": "packages/kernel/src/domain/task-lifecycle-replay.ts#assertReplay"
           }
         ],
@@ -2548,7 +2548,7 @@
         "consumers": [],
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-review-transitions.ts#complete.validate:4c5e9791fa4bef1bae0ed8c47c2ee8fb",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-review-transitions.ts#complete.validate:5fd4830ebab38fd8d2a0bbcf24f2e681",
             "route": "domain"
           }
         ],

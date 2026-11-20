@@ -574,13 +574,15 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
   // Replay checks compare the state the historical writer saw. When this task is already terminal
   // through a supersede, use the task recorded on the event (same replacement lineage) but keep the
   // pre-event iteration: review-return checks still need the iteration this event advances from.
-  const recorded = (event.payload as { readonly task?: TaskV2 }).task;
-  if (
-    snapshot.task?.supersededBy !== undefined &&
-    snapshot.task.supersededBy !== null &&
-    recorded?.supersededBy === snapshot.task.supersededBy
-  )
-    snapshot = { ...snapshot, task: { ...recorded, iteration: snapshot.task.iteration } };
+  const recorded = (event.payload as { readonly task?: TaskV2 }).task,
+    preEventTask = snapshot.task,
+    supersededLineageReplay =
+      preEventTask?.supersededBy !== undefined &&
+      preEventTask.supersededBy !== null &&
+      recorded !== undefined &&
+      recorded.supersededBy === preEventTask.supersededBy;
+  if (preEventTask && recorded && supersededLineageReplay)
+    snapshot = { ...snapshot, task: { ...recorded, iteration: preEventTask.iteration } };
   if (event.type === "code_doc_reconciled" || event.type === "code_doc_repointed") {
     // The retired envelope must still name its own task and execution; it owns no other state.
     if (event.payload.execution.taskId !== event.taskId || event.payload.task.taskId !== event.taskId)
@@ -971,7 +973,7 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
     event.type === "task_completed" &&
     (event.payload.siblingResolution || event.payload.externalResolution) &&
     (!snapshot.task ||
-      ["done", "cancelled"].includes(snapshot.task.status) ||
+      (!supersededLineageReplay && ["done", "cancelled"].includes(snapshot.task.status)) ||
       snapshot.lease ||
       event.payload.task.taskId !== event.taskId ||
       event.payload.task.status !== "done")
