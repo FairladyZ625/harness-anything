@@ -275,7 +275,7 @@ export const nodeTaskMaterializationPolicy = {
     "policy:packages/storage:packages/storage/src/storage-backend.ts#readNodeMaterializationDocuments:556bd90fc717033e0511b5a53b769ad9",
     "policy:packages/storage:packages/storage/src/store/sqlite-task-event-materialize.ts#closureFiles:89aa5d86146431326c9455e6a628d353",
     "policy:packages/storage:packages/storage/src/store/sqlite-git-outbox-publisher.ts#attachSqliteGitFollower.skipByNodePolicyReceipt:d5aab3bdfacd5f9ec794ed0598fd43ed",
-    "policy:packages/daemon:packages/daemon/src/daemon-host/daemon-host-repository-api.ts#createDaemonHostRepositoryApi.run:6b868d6ffe36f6a63f59a615fd91134b",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/daemon-host-repository-api.ts#createDaemonHostRepositoryApi.run:5bb3c44b8278704b9bdbb0b6090c4259",
     "policy:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-materialization.ts#reconcileFleetNodeMaterialization.result.request.reconcileNodePolicy:c5013c8bee363a83b667529a7565ec7e",
     "policy:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-mirror.ts#materializeFleetMirrorView:c14ca311a5add40e1dcb3097f2178730",
   ].map((candidateId) => ({ candidateId, route: "nodeTaskMaterializationPolicy" })),

@@ -1,10 +1,11 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createScheduleV1, type CanonicalEventV1, type ScheduleV1 } from "@harness-anything/kernel";
+import { fleetEdgeConfigPath, writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { compileScheduleRunEvent } from "@harness-anything/kernel/internal/domain/schedule-event";
 import {
   daemonActionRoutes,
@@ -523,23 +524,20 @@ test("availability follows occurrence node ownership, without a static assignmen
 });
 
 test("a remote-edge read resolves viewer node without a roster", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-schedules-edge-"));
+  const root = mkdtempSync(path.join(tmpdir(), "ha-schedules-edge-")),
+    userRoot = path.join(root, "user");
   try {
-    writeFileSync(
-      path.join(root, "fleet-edge.json"),
-      JSON.stringify({
-        schema: "fleet-edge-config/v1",
-        repoId: "schedule-gui",
-        host: "127.0.0.1",
-        port: 1,
-        caPath: "/tmp/ca.pem",
-        nodeId: "edge-one",
-        credential: "credential-edge-one",
-        viewRoot: path.join(root, "view"),
-        quotaBytes: 1024,
-      }),
-    );
-    const result = readSchedulesGui(guiContext({ mode: "remote-edge", rootDir: root }));
+    writeFleetEdgeConfig(userRoot, "schedule-gui", {
+      repoId: "schedule-gui",
+      host: "127.0.0.1",
+      port: 1,
+      caPath: "/tmp/ca.pem",
+      nodeId: "edge-one",
+      credential: "credential-edge-one",
+      viewRoot: path.join(root, "view"),
+      quotaBytes: 1024,
+    });
+    const result = readSchedulesGui(guiContext({ mode: "remote-edge", rootDir: root, userRoot }));
     assert.equal(result.repoMode, "remote-edge");
     assert.equal(result.viewerNodeId, "edge-one");
     const row = result.schedules[0]!;
@@ -556,6 +554,7 @@ test("a remote-edge read resolves viewer node without a roster", () => {
         guiContext({
           mode: "remote-edge",
           rootDir: root,
+          userRoot,
           projection: {
             ...guiContext().projection,
             listEntities: (kind) =>
@@ -610,14 +609,20 @@ test("a remote-center read keeps the catalog blockers instead of faking an execu
 });
 
 test("remote-edge reads propagate invalid edge configuration", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-schedules-edge-failure-"));
+  const root = mkdtempSync(path.join(tmpdir(), "ha-schedules-edge-failure-")),
+    userRoot = path.join(root, "user");
   try {
     assert.throws(
-      () => readSchedulesGui(guiContext({ mode: "remote-edge", rootDir: root })),
+      () => readSchedulesGui(guiContext({ mode: "remote-edge", rootDir: root, userRoot })),
       /requires fleet-edge.json/u,
     );
-    writeFileSync(path.join(root, "fleet-edge.json"), "{");
-    assert.throws(() => readSchedulesGui(guiContext({ mode: "remote-edge", rootDir: root })), /not valid JSON/u);
+    const configPath = fleetEdgeConfigPath(userRoot, "schedule-gui");
+    mkdirSync(path.dirname(configPath), { recursive: true });
+    writeFileSync(configPath, "{");
+    assert.throws(
+      () => readSchedulesGui(guiContext({ mode: "remote-edge", rootDir: root, userRoot })),
+      /not valid JSON/u,
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

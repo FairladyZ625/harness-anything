@@ -6,6 +6,7 @@ import path from "node:path";
 import type { TestContext } from "node:test";
 import { waitForArrival, watchDirectoryArrival } from "../../../../../tools/fixtures/event-arrival.ts";
 import { requestDaemonJsonRpcAt } from "../../../src/daemon-host/client/local-json-rpc-client.ts";
+import { writeFleetEdgeConfig } from "../../../src/daemon-host/client/fleet-edge-config.ts";
 import { applyFleetMirrorCut } from "../../../src/daemon-host/fleet-edge-mirror.ts";
 import { listenFleetTls } from "../../../src/daemon-host/fleet/center.ts";
 import { authenticateRuntimeExecutionPrincipal } from "../../../src/daemon-host/runtime-execution-credential.ts";
@@ -123,7 +124,6 @@ export async function settledIdentityFixture(t: TestContext, label: string) {
   git(edgeRoot, "config", "user.name", "Fleet Test");
   git(edgeRoot, "config", "user.email", "fleet@example.invalid");
   const config = {
-    schema: "fleet-edge-config/v1",
     host: "127.0.0.1",
     port: center.port,
     caPath: f.certFile,
@@ -135,7 +135,7 @@ export async function settledIdentityFixture(t: TestContext, label: string) {
     quotaBytes: 64 * 1024 * 1024,
     waitTimeoutMs: 5000,
   };
-  writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
+  writeFleetEdgeConfig(userRoot, repoId, config);
   await catchUpReplica({
     ...config,
     ca: f.cert,

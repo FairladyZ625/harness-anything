@@ -8896,7 +8896,7 @@
         "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-workspace-migration.ts#migrateFleetEdgeWorkspace:9e0e6e8d034c89ad1bfecda2c0623065",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-workspace-migration.ts#migrateFleetEdgeWorkspace:5b51f6c360fb6a6208b5efc7ba8111a7",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/daemon-host/oidc-center-selection.ts#oidcCenterSelections.write"

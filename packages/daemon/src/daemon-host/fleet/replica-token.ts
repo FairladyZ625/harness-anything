@@ -23,7 +23,7 @@ type ReplicaAccessConfig = Pick<
 /** Creates a reader for replica admission, preferring the current user session and then the node identity. */
 export function createFleetReplicaAccessTokenReader(input: {
   readonly config: ReplicaAccessConfig;
-  readonly workspaceRoot: string;
+  readonly configDir: string;
   readonly readUserAccessToken: () => Promise<string | undefined>;
 }): () => Promise<string | undefined> {
   let replicaLoginAuthority: OidcLoginAuthority | null | undefined;
@@ -49,7 +49,7 @@ export function createFleetReplicaAccessTokenReader(input: {
               ca: readFileSync(
                 path.isAbsolute(input.config.caPath)
                   ? input.config.caPath
-                  : path.resolve(input.workspaceRoot, input.config.caPath),
+                  : path.resolve(input.configDir, input.config.caPath),
               ),
               ...(input.config.servername ? { servername: input.config.servername } : {}),
               nodeId: input.config.nodeId,

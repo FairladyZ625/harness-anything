@@ -101,6 +101,7 @@ import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 export function createRepoCellActionContext(bindings: {
   readonly input: {
     readonly repoId: string;
+    readonly edgeConfig?: () => import("./client/fleet-edge-config.ts").FleetEdgeConfig | null;
     readonly nodeTaskMaterializationPolicy?: NodeTaskMaterializationPolicy;
     readonly runtimeDaemonRoute?: import("./runtime-spawn.ts").RuntimeDaemonRoute;
     readonly killpoint?: (point: EventPublicationKillpoint) => void;

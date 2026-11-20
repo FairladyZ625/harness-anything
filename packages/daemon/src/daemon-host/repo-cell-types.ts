@@ -560,6 +560,7 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly store: CanonicalEventStore;
   readonly input: {
     readonly repoId: string;
+    readonly edgeConfig?: () => import("./client/fleet-edge-config.ts").FleetEdgeConfig | null;
     readonly nodeTaskMaterializationPolicy?: NodeTaskMaterializationPolicy;
     readonly runtimeDaemonRoute?: import("./runtime-spawn.ts").RuntimeDaemonRoute;
     readonly killpoint?: (point: EventPublicationKillpoint) => void;
@@ -739,6 +740,7 @@ export interface RepoCellOpenInput {
   readonly storage?: DaemonStorageConfig;
   readonly repoId: WorkspaceId;
   readonly rootDir: CanonicalRoot;
+  readonly userRoot?: string;
   readonly ownerId: string;
   /** Supervisor-owned generation for physical isolate replacement, independent of wall-clock steps. */
   readonly writerGeneration?: number;

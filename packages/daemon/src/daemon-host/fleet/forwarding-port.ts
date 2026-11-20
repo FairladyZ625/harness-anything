@@ -14,7 +14,8 @@ import { unregisterFleetNodeClient } from "./peer.ts";
 import { text } from "../access-admin-utils.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
-import { readFleetEdgeConfig } from "../client/fleet-edge-config.ts";
+import { fleetEdgeConfigDir, readFleetEdgeConfig } from "../client/fleet-edge-config.ts";
+import { daemonUserRoot } from "../client/local-daemon-target.ts";
 import { localDefaultBinding } from "../daemon-host-binding.ts";
 import { executionCredentialRejected } from "../runtime-execution-credential.ts";
 import type { RepoTaskAction } from "../repo-cell-types.ts";
@@ -215,7 +216,9 @@ function runtimeLocation(
   return {
     ...config,
     workspaceRoot,
-    caPath: path.resolve(workspaceRoot, config.caPath),
+    caPath: path.isAbsolute(config.caPath)
+      ? config.caPath
+      : path.resolve(fleetEdgeConfigDir(edge.userRoot, repoId), config.caPath),
     viewRoot: path.resolve(workspaceRoot, config.viewRoot),
   };
 }
@@ -248,11 +251,16 @@ export function runtimeForwardingContext(
 }
 
 function registeredRemoteEdge(userRoot: string | undefined, repoId: string) {
-  const repo = readDaemonRegistry({ userRoot }).repos.find(
-    (candidate) => candidate.repoId === repoId && candidate.state === "enabled" && candidate.mode === "remote-edge",
-  );
+  const effectiveUserRoot = userRoot ?? daemonUserRoot(),
+    repo = readDaemonRegistry({ userRoot: effectiveUserRoot }).repos.find(
+      (candidate) => candidate.repoId === repoId && candidate.state === "enabled" && candidate.mode === "remote-edge",
+    );
   return repo?.canonicalRoot
-    ? { workspaceRoot: repo.canonicalRoot, config: readFleetEdgeConfig(repo.canonicalRoot) }
+    ? {
+        userRoot: effectiveUserRoot,
+        workspaceRoot: repo.canonicalRoot,
+        config: readFleetEdgeConfig(effectiveUserRoot, repoId),
+      }
     : null;
 }
 

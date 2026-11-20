@@ -23,6 +23,7 @@ import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { spawnCli } from "./fixtures/runtime-ingress.ts";
 import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
 import { readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
+import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { waitForLocalIdentityRetirement } from "./fixtures/fleet-settled-identity/local-identity.ts";
 
@@ -143,7 +144,7 @@ test(
       hostname: config.host,
       readAccessToken: f.owners.readAccessToken(config.nodeId),
     };
-    writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
+    writeFleetEdgeConfig(userRoot, repoId, config);
     await catchUpReplica({
       ...peer,
       diskQuotaBytes: config.quotaBytes,
@@ -498,7 +499,7 @@ test(
     git(f.root, "clone", remote, reviewRoot);
     const reviewConfig = { ...config, nodeId: "node-slow", viewRoot: reviewView };
     const { schema: _schema, ...reviewRoute } = reviewConfig;
-    writeFileSync(path.join(reviewRoot, "fleet-edge.json"), JSON.stringify(reviewConfig));
+    writeFleetEdgeConfig(reviewUser, repoId, reviewConfig);
     await catchUpReplica({
       ...peer,
       nodeId: "node-slow",

@@ -28,10 +28,11 @@ import {
   renameSync,
   realpathSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { readDaemonRegistry } from "../packages/kernel/src/daemon/registry.ts";
 import { resolveHarnessLayout } from "../packages/kernel/src/layout/index.ts";
 import { cmdShellInvocation } from "../packages/storage/src/store/cmd-command-line.ts";
 import { materialize } from "./readonly-checkout.mjs";
@@ -342,14 +343,30 @@ export function copyLayout(sourceRoot) {
   };
 }
 
-/** On a remote-edge mirror (`<projectRoot>/fleet-edge.json`), the workspace's own `<localRoot>`
- *  carries no replicated ledger (or only an empty pre-sync shell); the live generation-3 ledger,
- *  content-addressed objects, and warm projection live inside `<viewRoot>/repos/<repoId>/views/<nodeId>`
+/** On a remote-edge mirror (registered as `remote-edge` with `<userRoot>/fleet/edge/<repoId>/fleet-edge.json`),
+ *  the workspace's own `<localRoot>` carries no replicated ledger (or only an empty pre-sync shell); the live
+ *  generation-3 ledger, content-addressed objects, and warm projection live inside `<viewRoot>/repos/<repoId>/views/<nodeId>`
  *  under the published `fleet-basebackup/v3` pointer (`current.json`). Resolve that store read-only
  *  without ever reading, copying, or logging the edge machine credential. */
-export function resolveSourceDataRoot(sourceProjectRoot, localRoot) {
-  const edgeConfigPath = path.join(sourceProjectRoot, "fleet-edge.json");
-  if (!existsSync(edgeConfigPath)) return { dataLocalRoot: localRoot, replica: null };
+export function resolveSourceDataRoot(
+  sourceProjectRoot,
+  localRoot,
+  userRoot = process.env.HARNESS_DAEMON_USER_ROOT || path.join(homedir(), ".harness"),
+) {
+  const resolvedSource = existsSync(sourceProjectRoot)
+      ? realpathSync(sourceProjectRoot)
+      : path.resolve(sourceProjectRoot),
+    edgeRepo = readDaemonRegistry({ userRoot }).repos.find(
+      (repo) =>
+        repo.mode === "remote-edge" &&
+        repo.canonicalRoot !== null &&
+        (existsSync(repo.canonicalRoot) ? realpathSync(repo.canonicalRoot) : path.resolve(repo.canonicalRoot)) ===
+          resolvedSource,
+    );
+  const edgeConfigPath = edgeRepo
+    ? path.join(path.resolve(userRoot), "fleet", "edge", edgeRepo.repoId, "fleet-edge.json")
+    : null;
+  if (!edgeConfigPath || !existsSync(edgeConfigPath)) return { dataLocalRoot: localRoot, replica: null };
   let parsed;
   try {
     parsed = JSON.parse(readFileSync(edgeConfigPath, "utf8"));
@@ -400,9 +417,9 @@ export function resolveSourceDataRoot(sourceProjectRoot, localRoot) {
  *  certificate's repoId is checked against the registered one and attach fails closed with
  *  "generation 3 activation certificate differs". The copy therefore has to keep the identity it
  *  was written with — the id a node happens to use is not part of the data being reviewed. */
-export function copyRepoId(sourceRoot) {
+export function copyRepoId(sourceRoot, userRoot) {
   const layout = copyLayout(sourceRoot),
-    { dataLocalRoot } = resolveSourceDataRoot(layout.projectRoot, layout.localRoot),
+    { dataLocalRoot } = resolveSourceDataRoot(layout.projectRoot, layout.localRoot, userRoot),
     certificate = `${path.join(dataLocalRoot, "store", "generations", "3", "ledger.sqlite")}.activation.json`;
   if (!existsSync(certificate))
     throw new Error(`no generation-3 activation certificate at ${certificate}; the ledger would not attach`);
@@ -562,7 +579,7 @@ export async function snapshotRepository(sourceRoot, workspace, options = {}) {
   const layout = copyLayout(sourceRoot),
     sourceProjectRoot = layout.projectRoot,
     sourceLocalRoot = layout.localRoot,
-    { dataLocalRoot, replica } = resolveSourceDataRoot(sourceProjectRoot, sourceLocalRoot),
+    { dataLocalRoot, replica } = resolveSourceDataRoot(sourceProjectRoot, sourceLocalRoot, options.userRoot),
     workspaceLocalRoot = path.join(workspace, ...layout.localRootRelative.split("/")),
     storeGenerations = path.join(dataLocalRoot, "store", "generations");
   if (!existsSync(storeGenerations))

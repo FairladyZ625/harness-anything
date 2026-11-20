@@ -6,6 +6,11 @@ import test from "node:test";
 import { realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";
 import { fleetNodeClaimFixture, localAuthFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
+import {
+  fleetEdgeConfigDir,
+  readFleetEdgeConfig,
+  writeFleetEdgeConfig,
+} from "../src/daemon-host/client/fleet-edge-config.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 
 function evidence(receipt: Record<string, unknown>): Record<string, unknown> {
@@ -47,19 +52,19 @@ function proposal(title: string) {
   };
 }
 
-test("edge task forwarding resolves a relative CA from the registered workspace", { timeout: 90_000 }, async (t) => {
+test("edge task forwarding resolves a relative CA from the edge config directory", { timeout: 90_000 }, async (t) => {
   const f = await fleetNodeClaimFixture(t);
   const edge = await fleetEdgeHostFixture(t, f, {
-    beforeOpen: (edgeRoot) => {
-      const configPath = path.join(edgeRoot, "fleet-edge.json"),
-        config = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
-      writeFileSync(path.join(edgeRoot, "center-ca.pem"), readFileSync(path.join(f.root, "tls.crt")));
-      writeFileSync(configPath, JSON.stringify({ ...config, caPath: "center-ca.pem" }));
+    beforeOpen: (_edgeRoot, edgeUser) => {
+      const configDir = fleetEdgeConfigDir(edgeUser, "lease-repo"),
+        config = readFleetEdgeConfig(edgeUser, "lease-repo")!;
+      writeFileSync(path.join(configDir, "center-ca.pem"), readFileSync(path.join(f.root, "tls.crt")));
+      writeFleetEdgeConfig(edgeUser, "lease-repo", { ...config, caPath: "center-ca.pem" });
     },
   });
   const receipt = await edge.command({
     kind: "fact-record",
-    statement: "Relative CA paths use the registered workspace.",
+    statement: "Relative CA paths use the edge config directory.",
     evidenceSource: "test:fleet-authored-write",
     confidence: "high",
     memoryClass: "semantic",

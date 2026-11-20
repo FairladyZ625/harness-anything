@@ -144,13 +144,14 @@ test("observe.tail exposes the 3x3 mode matrix and advances only when the source
       "remote-center",
       "daemon-log",
     );
-    const edgeCut = await materializeCellReplica(rootDir, repoId, actor.principal.personId);
+    const edgeCut = await materializeCellReplica(rootDir, repoId, actor.principal.personId, userRoot);
     await cell.close();
     cell = undefined;
 
     cell = await openRepoCell({
       repoId,
       rootDir: canonicalRoot(rootDir),
+      userRoot,
       ownerId: "observe-tail-edge",
       mode: "remote-edge",
     });

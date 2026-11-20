@@ -11,6 +11,11 @@ import {
   runtimeForwardingIntent,
 } from "../src/daemon-host/fleet/forwarding-intent.ts";
 import { forward } from "../src/daemon-host/fleet/forwarding-port.ts";
+import {
+  fleetEdgeConfigDir,
+  fleetEdgeConfigPath,
+  writeFleetEdgeConfig,
+} from "../src/daemon-host/client/fleet-edge-config.ts";
 import { daemonProtocolCommands } from "../src/daemon-host/protocol/daemon-protocol-commands.ts";
 
 test("forwarding intent binds command identity, method and execution context", () => {
@@ -107,24 +112,18 @@ test("forwarding resolves workspace, view and CA again after registration moves"
     workspaces = [path.join(root, "old"), path.join(root, "new")];
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(userRoot);
-  for (const [index, workspace] of workspaces.entries()) {
-    mkdirSync(workspace);
-    writeFileSync(
-      path.join(workspace, "fleet-edge.json"),
-      JSON.stringify({
-        schema: "fleet-edge-config/v1",
-        repoId: "repo",
-        host: `center-${index}`,
-        port: 7443,
-        caPath: `ca-${index}.pem`,
-        nodeId: `node-${index}`,
-        credential: "fixture",
-        viewRoot: `view-${index}`,
-        quotaBytes: 65536,
-      }),
-    );
-  }
-  const register = (workspace: string) =>
+  for (const workspace of workspaces) mkdirSync(workspace);
+  const register = (index: number, workspace: string) => {
+    writeFleetEdgeConfig(userRoot, "repo", {
+      repoId: "repo",
+      host: `center-${index}`,
+      port: 7443,
+      caPath: `ca-${index}.pem`,
+      nodeId: `node-${index}`,
+      credential: "fixture",
+      viewRoot: `view-${index}`,
+      quotaBytes: 65536,
+    });
     writeFileSync(
       path.join(userRoot, "registry.json"),
       JSON.stringify({
@@ -144,10 +143,11 @@ test("forwarding resolves workspace, view and CA again after registration moves"
         ],
       }),
     );
+  };
   const requests: Record<string, unknown>[] = [],
     oidc = { bind: async (auth: unknown) => auth } as unknown as IdentitySessionPort;
   for (const [index, workspace] of workspaces.entries()) {
-    register(workspace);
+    register(index, workspace);
     await forward({
       userRoot,
       repoId: "repo",
@@ -161,7 +161,7 @@ test("forwarding resolves workspace, view and CA again after registration moves"
     });
     assert.equal(requests[index]?.workspaceRoot, workspace);
     assert.equal(requests[index]?.viewRoot, path.join(workspace, `view-${index}`));
-    assert.equal(requests[index]?.caPath, path.join(workspace, `ca-${index}.pem`));
+    assert.equal(requests[index]?.caPath, path.join(fleetEdgeConfigDir(userRoot, "repo"), `ca-${index}.pem`));
     assert.equal(requests[index]?.host, `center-${index}`);
     assert.equal(requests[index]?.nodeId, `node-${index}`);
   }
@@ -193,12 +193,9 @@ test("runtime forwarding resolves the live workspace and rejects non-local ingre
     workspaces = [path.join(root, "old"), path.join(root, "new")];
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(userRoot);
-  for (const [index, workspace] of workspaces.entries()) {
-    mkdirSync(workspace);
-    writeFileSync(
-      path.join(workspace, "fleet-edge.json"),
-      JSON.stringify({
-        schema: "fleet-edge-config/v1",
+  for (const workspace of workspaces) mkdirSync(workspace);
+  const register = (index: number, workspace: string) => {
+      writeFleetEdgeConfig(userRoot, "repo", {
         repoId: "repo",
         host: `center-${index}`,
         port: 7443,
@@ -207,10 +204,7 @@ test("runtime forwarding resolves the live workspace and rejects non-local ingre
         credential: "fixture",
         viewRoot: `view-${index}`,
         quotaBytes: 65536,
-      }),
-    );
-  }
-  const register = (workspace: string) =>
+      });
       writeFileSync(
         path.join(userRoot, "registry.json"),
         JSON.stringify({
@@ -229,10 +223,11 @@ test("runtime forwarding resolves the live workspace and rejects non-local ingre
             },
           ],
         }),
-      ),
+      );
+    },
     requests: Record<string, unknown>[] = [];
   for (const [index, workspace] of workspaces.entries()) {
-    register(workspace);
+    register(index, workspace);
     const receipt = await forward({
       userRoot,
       repoId: "repo",
@@ -246,7 +241,7 @@ test("runtime forwarding resolves the live workspace and rejects non-local ingre
     assert.equal(receipt?.outcome, "applied");
     assert.equal(requests[index]?.workspaceRoot, workspace);
     assert.equal(requests[index]?.viewRoot, path.join(workspace, `view-${index}`));
-    assert.equal(requests[index]?.caPath, path.join(workspace, `ca-${index}.pem`));
+    assert.equal(requests[index]?.caPath, path.join(fleetEdgeConfigDir(userRoot, "repo"), `ca-${index}.pem`));
     assert.equal(requests[index]?.host, `center-${index}`);
     assert.equal(requests[index]?.nodeId, `node-${index}`);
   }
@@ -260,22 +255,18 @@ test("runtime forwarding resolves the live workspace and rejects non-local ingre
       runRuntime: async () => assert.fail("Invalid edge configuration must never reach the runtime"),
     });
   // A registered edge must not fall back to local handling after its config vanishes or names another repo.
-  writeFileSync(
-    path.join(workspaces[1]!, "fleet-edge.json"),
-    JSON.stringify({
-      schema: "fleet-edge-config/v1",
-      repoId: "another-repo",
-      host: "center",
-      port: 7443,
-      caPath: "ca.pem",
-      nodeId: "node-1",
-      credential: "fixture",
-      viewRoot: "view",
-      quotaBytes: 65536,
-    }),
-  );
+  writeFleetEdgeConfig(userRoot, "repo", {
+    repoId: "another-repo",
+    host: "center",
+    port: 7443,
+    caPath: "ca.pem",
+    nodeId: "node-1",
+    credential: "fixture",
+    viewRoot: "view",
+    quotaBytes: 65536,
+  });
   await assert.rejects(invoke(), { code: "fleet_edge_config_invalid" });
-  unlinkSync(path.join(workspaces[1]!, "fleet-edge.json"));
+  unlinkSync(fleetEdgeConfigPath(userRoot, "repo"));
   await assert.rejects(invoke(), { code: "fleet_edge_config_invalid" });
   await assert.rejects(
     forward({
@@ -296,20 +287,16 @@ test("runtime forwarding carries the daemon lifetime into a started request and 
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(userRoot);
   mkdirSync(workspace);
-  writeFileSync(
-    path.join(workspace, "fleet-edge.json"),
-    JSON.stringify({
-      schema: "fleet-edge-config/v1",
-      repoId: "repo",
-      host: "center",
-      port: 7443,
-      caPath: "ca.pem",
-      nodeId: "node-one",
-      credential: "fixture",
-      viewRoot: "view",
-      quotaBytes: 65536,
-    }),
-  );
+  writeFleetEdgeConfig(userRoot, "repo", {
+    repoId: "repo",
+    host: "center",
+    port: 7443,
+    caPath: "ca.pem",
+    nodeId: "node-one",
+    credential: "fixture",
+    viewRoot: "view",
+    quotaBytes: 65536,
+  });
   writeFileSync(
     path.join(userRoot, "registry.json"),
     JSON.stringify({

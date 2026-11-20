@@ -15,6 +15,7 @@ type Fixture = Awaited<ReturnType<typeof fleetFixture>>;
 const sync = (f: Fixture, port: number, view: string) =>
   syncFleetEdgeMirror(
     {
+      userRoot: f.root,
       payload: {
         host: "127.0.0.1",
         port,

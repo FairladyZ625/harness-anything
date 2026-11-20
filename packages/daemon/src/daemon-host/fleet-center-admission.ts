@@ -15,6 +15,7 @@ import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
 import type { WriterEpochLease } from "@harness-anything/storage";
 import { hasDaemonGitFollower, readDaemonHarnessConfig } from "@harness-anything/storage";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { daemonUserRoot } from "./client/local-daemon-target.ts";
 import { parseFleetCenterExternalUrl } from "./fleet-center-config.ts";
 import { mapListenerBindError, validateCertificateNames } from "./tls-listener-admission.ts";
 import { assertFleetEdgeRepositoryGit } from "./fleet-edge-git-preflight.ts";
@@ -187,6 +188,7 @@ export async function startFleetCenterAdmission(
   }
 }
 export interface FleetEdgeSyncRequest {
+  readonly userRoot?: string;
   /** Center-published OIDC metadata used to repair an older edge config missing loginRealm. */
   readonly loginAuthority?: {
     readonly url: string;
@@ -262,9 +264,9 @@ export async function syncFleetEdgeMirror(
     center: head,
     operation: "edge sync",
   });
-  // The admitted connection becomes the workspace's fleet-edge.json, which the resident stream follows
+  // The admitted connection becomes the node's fleet-edge.json under userRoot, which the resident stream follows
   // (started or restarted by onAdmitted); sync then waits on that stream.
-  persistEdgeConnection(request, input.loginAuthority ?? head.loginAuthority);
+  persistEdgeConnection(input.userRoot ?? daemonUserRoot(), request, input.loginAuthority ?? head.loginAuthority);
   onAdmitted?.();
   const viewDir = path.join(request.viewRoot, "repos", request.repoId, "views", request.nodeId),
     replicaReady = await waitForFleetReplicaReady(request);
@@ -322,16 +324,17 @@ export async function syncFleetEdgeMirror(
 
 /** Keeps the operator's freshness tuning from an existing fleet-edge.json; an invalid one fails the sync. */
 function persistEdgeConnection(
+  userRoot: string,
   request: FleetEdgeSyncRequest["payload"],
   loginAuthority?: FleetEdgeSyncRequest["loginAuthority"],
 ): void {
-  const previous = readFleetEdgeConfig(request.workspaceRoot);
+  const previous = readFleetEdgeConfig(userRoot, request.repoId);
   const loginUrl =
       previous?.loginRealm === undefined && loginAuthority?.realm
         ? loginAuthority.url
         : (previous?.loginUrl ?? loginAuthority?.url),
     loginRealm = previous?.loginRealm ?? loginAuthority?.realm;
-  writeFleetEdgeConfig(request.workspaceRoot, {
+  writeFleetEdgeConfig(userRoot, request.repoId, {
     repoId: request.repoId,
     host: request.host,
     port: request.port,

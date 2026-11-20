@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { readRegularFileIfPresent } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
-import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { readFleetEdgeConfigForRoot } from "./client/fleet-edge-config.ts";
 import type { OidcLoginAuthority } from "@harness-anything/kernel";
 
 export interface OidcCenterSelection {
@@ -16,7 +16,7 @@ export function oidcCenterSelections(userRoot: string) {
     memory = new Map<string, OidcCenterSelection>();
   const binding = (target?: string, identityOverride?: Readonly<Record<string, unknown>>): string => {
     const configFile = path.join(userRoot, "rbac", "config.json"),
-      edge = target ? readFleetEdgeConfig(target) : null,
+      edge = !identityOverride && target ? readFleetEdgeConfigForRoot(userRoot, target) : null,
       config = edge ?? (existsSync(configFile) ? JSON.parse(readFileSync(configFile, "utf8")) : null),
       targetIdentity = edge
         ? {
@@ -69,8 +69,12 @@ export function oidcCenterSelections(userRoot: string) {
       memory.set(key, selection);
       return selection;
     },
-    write(target: string | undefined, selection: OidcCenterSelection): void {
-      const key = binding(target),
+    write(
+      target: string | undefined,
+      selection: OidcCenterSelection,
+      identityOverride?: Readonly<Record<string, unknown>>,
+    ): void {
+      const key = binding(target, identityOverride),
         { clientSecret: _secret, ...authority } = selection.authority,
         stored = { issuer: selection.issuer, authority };
       /* @gate-identity state-store/runtime-instance.oidc-center-selection */ mkdirSync(directory, {

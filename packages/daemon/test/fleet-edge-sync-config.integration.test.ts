@@ -11,7 +11,11 @@ import path from "node:path";
 import test from "node:test";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
-import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
+import {
+  fleetEdgeConfigPath,
+  readFleetEdgeConfig,
+  writeFleetEdgeConfig,
+} from "../src/daemon-host/client/fleet-edge-config.ts";
 import { readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
 import { readReplicaHealth } from "../src/fleet-sync/fleet/replica-health.ts";
 import { waitForFleetReplicaReady } from "../src/daemon-host/fleet/replica-sync.ts";
@@ -32,7 +36,7 @@ test(
       "applied",
     );
     const e = await fleetEdgeHostFixture(t, f, { writeEdgeConfig: false });
-    const configFile = path.join(e.edgeRoot, "fleet-edge.json");
+    const configFile = fleetEdgeConfigPath(e.edgeUser, "lease-repo");
     assert.equal(existsSync(configFile), false);
     const { schema: _schema, waitTimeoutMs: _wait, ...connection } = e.config;
     let id = 100;
@@ -52,14 +56,14 @@ test(
     const first = await edgeSync(connection);
     assert.equal(first.ok, true, JSON.stringify(first));
     assert.equal(first.outcome, "applied");
-    const persistedFirst = readFleetEdgeConfig(e.edgeRoot)!;
+    const persistedFirst = readFleetEdgeConfig(e.edgeUser, "lease-repo")!;
     const { loginUrl: _loginUrl, loginRealm: _loginRealm, ...persistedFirstConnection } = persistedFirst;
     assert.deepEqual(persistedFirstConnection, connection);
     assert.equal(persistedFirst.loginUrl, publishedAuthority.url);
     assert.equal(persistedFirst.loginRealm, publishedAuthority.realm);
     assert.equal(statSync(configFile).mode & 0o777, 0o600, "the file carries the machine credential");
 
-    writeFleetEdgeConfig(e.edgeRoot, {
+    writeFleetEdgeConfig(e.edgeUser, "lease-repo", {
       ...connection,
       loginUrl: f.owners.url,
       loginRealm: "harness",
@@ -81,7 +85,7 @@ test(
     const changed = { ...connection, quotaBytes: connection.quotaBytes * 2 };
     const second = await edgeSync(changed);
     assert.equal(second.ok, true, JSON.stringify(second));
-    const persisted = readFleetEdgeConfig(e.edgeRoot)!;
+    const persisted = readFleetEdgeConfig(e.edgeUser, "lease-repo")!;
     const {
       loginUrl: _changedLoginUrl,
       loginRealm: _changedLoginRealm,
@@ -113,14 +117,14 @@ test(
     let publishedAuthority: { readonly url: string; readonly realm: string; readonly clientId: string } | null = null;
     const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, () => publishedAuthority, true),
       e = await fleetEdgeHostFixture(t, f),
-      current = readFleetEdgeConfig(e.edgeRoot)!;
+      current = readFleetEdgeConfig(e.edgeUser, "lease-repo")!;
     publishedAuthority = {
       url: "https://login.example",
       realm: "tenant-realm",
       clientId: "harness-node-node-one",
     };
-    writeFleetEdgeConfig(e.edgeRoot, { ...current, loginUrl: f.owners.url });
-    const { waitTimeoutMs: _wait, loginUrl: _loginUrl, ...connection } = readFleetEdgeConfig(e.edgeRoot)!;
+    writeFleetEdgeConfig(e.edgeUser, "lease-repo", { ...current, loginUrl: f.owners.url });
+    const { waitTimeoutMs: _wait, loginUrl: _loginUrl, ...connection } = readFleetEdgeConfig(e.edgeUser, "lease-repo")!;
     const response = await e.rpc.handle({
       jsonrpc: "2.0",
       id: 201,
@@ -129,8 +133,8 @@ test(
     });
     assert.ok(response && !Array.isArray(response) && "result" in response, JSON.stringify(response));
     assert.equal((response.result as Record<string, unknown>).ok, true, JSON.stringify(response.result));
-    assert.equal(readFleetEdgeConfig(e.edgeRoot)?.loginUrl, publishedAuthority.url);
-    assert.equal(readFleetEdgeConfig(e.edgeRoot)?.loginRealm, publishedAuthority.realm);
+    assert.equal(readFleetEdgeConfig(e.edgeUser, "lease-repo")?.loginUrl, publishedAuthority.url);
+    assert.equal(readFleetEdgeConfig(e.edgeUser, "lease-repo")?.loginRealm, publishedAuthority.realm);
   },
 );
 
@@ -209,13 +213,17 @@ test(
 
     const edge = await fleetEdgeHostFixture(t, f, {
       humanSession: false,
-      beforeOpen: (edgeRoot) => {
-        const config = readFleetEdgeConfig(edgeRoot)!;
-        writeFleetEdgeConfig(edgeRoot, { ...config, loginUrl: "https://old-login.example" });
+      beforeOpen: (_edgeRoot, edgeUser) => {
+        const config = readFleetEdgeConfig(edgeUser, "lease-repo")!;
+        writeFleetEdgeConfig(edgeUser, "lease-repo", { ...config, loginUrl: "https://old-login.example" });
       },
     });
-    assert.equal(readFleetEdgeConfig(edge.edgeRoot)?.loginRealm, undefined, "the persisted config predates loginRealm");
-    assert.equal(readFleetEdgeConfig(edge.edgeRoot)?.loginUrl, "https://old-login.example");
+    assert.equal(
+      readFleetEdgeConfig(edge.edgeUser, "lease-repo")?.loginRealm,
+      undefined,
+      "the persisted config predates loginRealm",
+    );
+    assert.equal(readFleetEdgeConfig(edge.edgeUser, "lease-repo")?.loginUrl, "https://old-login.example");
     const ready = await waitForFleetReplicaReady({ viewRoot: edge.viewRoot, repoId: "lease-repo", nodeId: "node-one" });
     assert.equal(
       ready,
@@ -235,8 +243,8 @@ test(
       });
     assert.ok(sync && !Array.isArray(sync) && "result" in sync, JSON.stringify(sync));
     assert.equal((sync.result as Record<string, unknown>).ok, true, JSON.stringify(sync.result));
-    assert.equal(readFleetEdgeConfig(edge.edgeRoot)?.loginUrl, loginUrl);
-    assert.equal(readFleetEdgeConfig(edge.edgeRoot)?.loginRealm, "harness");
+    assert.equal(readFleetEdgeConfig(edge.edgeUser, "lease-repo")?.loginUrl, loginUrl);
+    assert.equal(readFleetEdgeConfig(edge.edgeUser, "lease-repo")?.loginRealm, "harness");
     assert.equal(
       await waitForFleetReplicaReady({ viewRoot: edge.viewRoot, repoId: "lease-repo", nodeId: "node-one" }),
       true,
@@ -265,7 +273,7 @@ test("a stale humanClientId cannot override the node-derived azp during edge syn
     }
     return response;
   }) as typeof fetch;
-  const { waitTimeoutMs: _wait, ...connection } = readFleetEdgeConfig(e.edgeRoot)!,
+  const { waitTimeoutMs: _wait, ...connection } = readFleetEdgeConfig(e.edgeUser, "lease-repo")!,
     sync = async () => {
       const response = await e.rpc.handle({
         jsonrpc: "2.0",
@@ -277,14 +285,14 @@ test("a stale humanClientId cannot override the node-derived azp during edge syn
       return "result" in response ? (response.result as Record<string, unknown>) : {};
     };
   writeFileSync(
-    path.join(e.edgeRoot, "fleet-edge.json"),
+    fleetEdgeConfigPath(e.edgeUser, "lease-repo"),
     JSON.stringify({ schema: "fleet-edge-config/v1", ...connection, humanClientId: "harness-gui" }),
   );
   const synced = await sync();
   assert.equal(observedAzp[0], "harness-node-node-one");
   assert.equal(synced.ok, true, JSON.stringify(synced));
   assert.equal(synced.outcome, "applied", JSON.stringify(synced));
-  const persisted = JSON.parse(readFileSync(path.join(e.edgeRoot, "fleet-edge.json"), "utf8")) as Record<
+  const persisted = JSON.parse(readFileSync(fleetEdgeConfigPath(e.edgeUser, "lease-repo"), "utf8")) as Record<
     string,
     unknown
   >;
@@ -322,7 +330,7 @@ test(
     execFileSync("git", ["clone", "--quiet", "--bare", wrongSource, wrongOrigin]);
     execFileSync("git", ["--git-dir", wrongOrigin, "symbolic-ref", "HEAD", `refs/heads/${centerBranch}`]);
     const e = await fleetEdgeHostFixture(t, f),
-      { waitTimeoutMs: _wait, ...connection } = readFleetEdgeConfig(e.edgeRoot)!;
+      { waitTimeoutMs: _wait, ...connection } = readFleetEdgeConfig(e.edgeUser, "lease-repo")!;
     execFileSync("git", ["-C", e.edgeRoot, "branch", "-M", centerBranch]);
     execFileSync("git", ["-C", e.edgeRoot, "remote", "add", "origin", wrongOrigin]);
     const response = await e.rpc.handle({

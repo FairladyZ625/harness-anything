@@ -438,8 +438,10 @@ function setupRoot(t: { after(callback: () => void): void }) {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-via-center-forward-"))),
     userRoot = path.join(root, "user");
   mkdirSync(userRoot);
+  const edgeConfigDir = path.join(userRoot, "fleet", "edge", "probe-repo");
+  mkdirSync(edgeConfigDir, { recursive: true });
   writeFileSync(
-    path.join(root, "fleet-edge.json"),
+    path.join(edgeConfigDir, "fleet-edge.json"),
     `${JSON.stringify({ schema: "fleet-edge-config/v1", repoId: "probe-repo", host: "center", port: 7443, caPath: "/fleet/ca.pem", nodeId: "edge-one", credential: "fixture-credential", viewRoot: "/view", quotaBytes: 65_536 })}\n`,
   );
   writeFileSync(

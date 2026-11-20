@@ -211,6 +211,7 @@ export function makeRepoReadRuntime(
       actionContext = createRepoCellActionContext({
         input: {
           repoId: input.repoId,
+          edgeConfig,
           get nodeTaskMaterializationPolicy() {
             return input.storage?.nodeTaskMaterializationPolicy;
           },
@@ -276,6 +277,7 @@ export function makeRepoReadRuntime(
         mode: input.mode ?? "local",
         input: {
           repoId: input.repoId,
+          edgeConfig,
           ...(input.runtimeInstances ? { runtimeInstances: input.runtimeInstances } : {}),
         },
         state: "attached",

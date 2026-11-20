@@ -1,14 +1,15 @@
-// Marks a workspace root as a remote-edge mirror and names the fleet channel
-// its write commands must take. Present in `<root>/fleet-edge.json`; it carries
-// the machine credential the center issued when the node was registered. The
-// repository selects the canonical center namespace. A successful
-// `ha daemon fleet edge sync` writes it; the resident replica stream reads it.
-import { existsSync, readFileSync } from "node:fs";
+// Marks a registered repository on an edge node as a remote-edge mirror and names the fleet
+// channel its write commands must take. Stored outside the business repository under
+// `<userRoot>/fleet/edge/<repoId>/fleet-edge.json`; it carries the machine credential the center
+// issued when the node was registered. The repository selects the canonical center namespace.
+// A successful `ha daemon fleet edge sync` writes it; the resident replica stream reads it.
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
+import { readDaemonRegistry } from "@harness-anything/kernel";
 // The durable-write helper is imported from its module, not the storage barrel: this file is
 // loaded by the thin CLI on every task read/write command, and the barrel pulls the whole
 // storage graph (pglite, pg, projections) into that process for one synchronous write.
-import { writeFileDurably } from "../../../../storage/src/durable-file.ts";
+import { removeFileDurably, writeFileDurably } from "../../../../storage/src/durable-file.ts";
 export interface FleetEdgeConfig {
   readonly repoId: string;
   readonly host: string;
@@ -36,11 +37,21 @@ export class FleetEdgeConfigError extends Error {
     this.code = code;
   }
 }
-export function fleetEdgeConfigPath(rootDir: string): string {
-  return path.join(rootDir, "fleet-edge.json");
+const SAFE_REPO_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u;
+
+export function fleetEdgeConfigDir(userRoot: string, repoId: string): string {
+  if (!SAFE_REPO_ID.test(repoId))
+    throw new FleetEdgeConfigError("fleet_edge_config_invalid", `Invalid fleet edge repository id: ${repoId}.`);
+  return path.join(path.resolve(userRoot), "fleet", "edge", repoId);
 }
-export function readFleetEdgeConfig(rootDir: string): FleetEdgeConfig | null {
-  const file = fleetEdgeConfigPath(rootDir);
+export function fleetEdgeConfigPath(userRoot: string, repoId: string): string {
+  return path.join(fleetEdgeConfigDir(userRoot, repoId), "fleet-edge.json");
+}
+export function fleetEdgeCaPath(userRoot: string, repoId: string): string {
+  return path.join(fleetEdgeConfigDir(userRoot, repoId), "fleet-center-ca.pem");
+}
+export function readFleetEdgeConfig(userRoot: string, repoId: string): FleetEdgeConfig | null {
+  const file = fleetEdgeConfigPath(userRoot, repoId);
   if (!existsSync(file)) return null;
   let value: unknown;
   try {
@@ -97,10 +108,46 @@ export function readFleetEdgeConfig(rootDir: string): FleetEdgeConfig | null {
   };
 }
 /** Writes the config a successful edge sync admitted; the file carries the node's machine credential. */
-export function writeFleetEdgeConfig(rootDir: string, config: FleetEdgeConfig): void {
+export function writeFleetEdgeConfig(userRoot: string, repoId: string, config: FleetEdgeConfig): void {
   writeFileDurably(
-    fleetEdgeConfigPath(rootDir),
+    fleetEdgeConfigPath(userRoot, repoId),
     `${JSON.stringify({ schema: "fleet-edge-config/v1", ...config }, null, 2)}\n`,
     0o600,
+  );
+}
+export function removeFleetEdgeConfig(userRoot: string, repoId: string): void {
+  for (const file of [fleetEdgeConfigPath(userRoot, repoId), fleetEdgeCaPath(userRoot, repoId)])
+    if (existsSync(file)) removeFileDurably(file);
+}
+function canonicalComparePath(target: string): string {
+  const resolved = path.resolve(target);
+  return existsSync(resolved) ? realpathSync.native(resolved) : resolved;
+}
+export function resolveFleetEdgeRepoIdForRoot(userRoot: string, rootDir: string): string | null {
+  const target = canonicalComparePath(rootDir),
+    matches = readDaemonRegistry({ userRoot }).repos.filter(
+      (repo) => repo.canonicalRoot !== null && canonicalComparePath(repo.canonicalRoot) === target,
+    ),
+    preferred =
+      matches.find((repo) => repo.state === "enabled" && repo.mode === "remote-edge") ??
+      matches.find((repo) => repo.mode === "remote-edge") ??
+      matches.find((repo) => repo.state === "enabled") ??
+      matches[0];
+  return preferred?.repoId ?? null;
+}
+export function readFleetEdgeConfigForRoot(userRoot: string, rootDir: string): FleetEdgeConfig | null {
+  const repoId = resolveFleetEdgeRepoIdForRoot(userRoot, rootDir);
+  return repoId === null ? null : readFleetEdgeConfig(userRoot, repoId);
+}
+export function hasAnyFleetEdgeConfig(userRoot: string): boolean {
+  const edgeRoot = path.join(path.resolve(userRoot), "fleet", "edge");
+  return (
+    existsSync(edgeRoot) &&
+    readdirSync(edgeRoot, { withFileTypes: true }).some(
+      (entry) =>
+        entry.isDirectory() &&
+        !entry.isSymbolicLink() &&
+        existsSync(path.join(edgeRoot, entry.name, "fleet-edge.json")),
+    )
   );
 }

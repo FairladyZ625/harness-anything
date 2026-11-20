@@ -681,7 +681,7 @@ export function signInAt(
         : (config.url ?? keycloakUrl),
     issuer = `${issuerBase}/realms/${realm}`,
     authority = { url: issuerBase, realm, clientId: "harness-gui" };
-  if (loginTarget) oidcCenterSelections(userRoot).write(loginTarget, { issuer, authority }, true);
+  if (loginTarget) oidcCenterSelections(userRoot).write(loginTarget, { issuer, authority });
   keycloakSessionStore(userRoot, issuer, realm).write(
     JSON.stringify({
       schema: "harness-oidc-session/v3",

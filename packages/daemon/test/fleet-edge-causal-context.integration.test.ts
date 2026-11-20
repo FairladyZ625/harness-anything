@@ -266,7 +266,7 @@ test(
       { allowHost: fixture.host },
     );
     await catchUp();
-    writeFleetEdgeConfig(edgeRoot, {
+    writeFleetEdgeConfig(edgeUserRoot, fixture.subject.repoId, {
       host: "127.0.0.1",
       port: center.port,
       caPath: fixture.certFile,

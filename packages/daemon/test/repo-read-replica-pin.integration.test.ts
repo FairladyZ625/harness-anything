@@ -17,6 +17,7 @@ test(
   { timeout: 120_000 },
   async (t) => {
     const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true),
+      userRoot = path.join(f.root, "pin-user"),
       viewRoot = path.join(f.root, "pin-view"),
       rootDir = path.join(f.root, "query-edge"),
       barrier = new Int32Array(new SharedArrayBuffer(12));
@@ -28,7 +29,7 @@ test(
     await f.center.close();
     await f.closeHost(f.host);
     mkdirSync(rootDir);
-    writeFleetEdgeConfig(rootDir, {
+    writeFleetEdgeConfig(userRoot, "lease-repo", {
       repoId: "lease-repo",
       host: "127.0.0.1",
       port: f.center.port,
@@ -39,7 +40,7 @@ test(
       quotaBytes: 64 * 1024 * 1024,
     });
     const client = openRepoReadClient(
-      { repoId: "lease-repo" as never, rootDir: rootDir as never, ownerId: "pin-test", mode: "remote-edge" },
+      { repoId: "lease-repo" as never, rootDir: rootDir as never, userRoot, ownerId: "pin-test", mode: "remote-edge" },
       (_url, options) =>
         new Worker(new URL("./fixtures/replica-read-pin-worker.ts", import.meta.url), {
           ...options,
@@ -100,6 +101,7 @@ test(
   { timeout: 120_000 },
   async (t) => {
     const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true),
+      userRoot = path.join(f.root, "cut-user"),
       viewRoot = path.join(f.root, "cut-view"),
       rootDir = path.join(f.root, "cut-edge"),
       barrier = new Int32Array(new SharedArrayBuffer(12));
@@ -113,7 +115,7 @@ test(
     await f.center.close();
     await f.closeHost(f.host);
     mkdirSync(rootDir);
-    writeFleetEdgeConfig(rootDir, {
+    writeFleetEdgeConfig(userRoot, "lease-repo", {
       repoId: "lease-repo",
       host: "127.0.0.1",
       port: f.center.port,
@@ -124,7 +126,7 @@ test(
       quotaBytes: 64 * 1024 * 1024,
     });
     const client = openRepoReadClient(
-      { repoId: "lease-repo" as never, rootDir: rootDir as never, ownerId: "cut-test", mode: "remote-edge" },
+      { repoId: "lease-repo" as never, rootDir: rootDir as never, userRoot, ownerId: "cut-test", mode: "remote-edge" },
       (_url, options) =>
         new Worker(new URL("./fixtures/replica-read-pin-worker.ts", import.meta.url), {
           ...options,
