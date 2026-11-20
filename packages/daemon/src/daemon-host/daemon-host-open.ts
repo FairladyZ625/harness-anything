@@ -630,7 +630,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
     onFailure: async (candidate, error, signal) => {
       if (signal.aborted || runtimeErrorCode(error) === "execution_scope_mismatch") return "continue" as const;
-      consumeKnownError(error);
       const failure = {
         executionId: candidate.executionId,
         dispatchKey: candidate.dispatchKey,
@@ -653,7 +652,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   ): Promise<void> {
     const cell = centerReviewTarget(candidate),
       binding = await hostBinding(cell.status().rootDir, { transportKind: "unix-socket" }, null, candidate.repoId),
-      receipt = await cell.run(
+      receipt = await cell.lifecycleAction(
         {
           kind: "task-amend",
           taskId: candidate.taskId,

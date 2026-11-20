@@ -849,7 +849,7 @@ export function createRepoCellApi(
       },
       binding,
       (authorizedBinding) => {
-        fallback?.assertCurrent();
+        fallback?.recheckReviewCut();
         if (authoredTask !== null) requireTaskPackageMaterialization(context, authoredTask);
         return context.runtimeSpawner.spawnTask(spawn, authorizedBinding, worktree, context.projection, progress);
       },

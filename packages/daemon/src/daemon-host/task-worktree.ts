@@ -385,44 +385,25 @@ async function ensurePinnedCommit(rootDir: string, branch: string, commit: strin
 export async function fetchPinnedReviewCommitFromOrigin(rootDir: string, commit: string): Promise<void> {
   if (!/^[0-9a-f]{40}$/u.test(commit))
     throw cellCodedError("review_checkout_commit_unavailable", "The frozen delivery commit is not a full Git SHA.");
-  const fetched = await runProcessExitAsync(
-      "git",
-      [
-        "-C",
-        rootDir,
-        "fetch",
-        "--refetch",
-        "--no-tags",
-        "--no-recurse-submodules",
-        "--no-write-fetch-head",
-        "--quiet",
-        "origin",
-        commit,
-      ],
-      undefined,
-      { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-      undefined,
-      undefined,
-      { timeoutMs: 30_000 },
-    ),
-    hasCommit =
-      fetched.exitCode === 0 &&
-      (
-        await runProcessExitAsync(
-          "git",
-          ["-C", rootDir, "cat-file", "-e", `${commit}^{commit}`],
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          { timeoutMs: 30_000 },
-        )
-      ).exitCode === 0;
-  if (!hasCommit)
+  try {
+    await reviewGit(
+      rootDir,
+      "fetch",
+      "--refetch",
+      "--no-tags",
+      "--no-recurse-submodules",
+      "--no-write-fetch-head",
+      "--quiet",
+      "origin",
+      commit,
+    );
+    await reviewGit(rootDir, "cat-file", "-e", `${commit}^{commit}`);
+  } catch {
     throw cellCodedError(
       "review_checkout_commit_unavailable",
       `The frozen delivery commit ${commit} is not reachable from origin; a reviewer must not inspect another commit.`,
     );
+  }
 }
 
 /** The reviewer's immutable checkout is separate from the task's mutable delivery worktree. */

@@ -200,7 +200,7 @@ export async function prepareCenterReviewFallback(
   cell: RepoCellOperationalContext,
   payload: JsonObject,
   binding: RepoCellBinding,
-): Promise<{ readonly commitSha: string | null; readonly assertCurrent: () => void }> {
+): Promise<{ readonly commitSha: string | null; readonly recheckReviewCut: () => void }> {
   const taskId = cell.requiredCellText(payload.taskId, "taskId"),
     executionId = cell.requiredCellText(payload.executionId, "executionId"),
     snapshot = cell.projection.read(taskId).snapshot,
@@ -210,13 +210,13 @@ export async function prepareCenterReviewFallback(
   if (!execution || !submission || !snapshot.task || binding.source !== "local" || payload.role !== "reviewer")
     throw cell.cellCodedError("execution_scope_mismatch", "Center fallback requires a current reviewer cut.");
   const submissionOpId = cell.projection.readTaskSubmissionOperation(taskId, executionId),
-    assertCurrent = () => {
+    recheckReviewCut = () => {
       requireSubmittedReviewCut(cell, taskId, execution, submissionOpId);
       const current = nodeReviewDispatchCandidate(cell, { taskId, centerFallback: true });
       if (current?.dispatchKey !== dispatchKey)
         throw cell.cellCodedError("execution_scope_mismatch", "The Center review candidate changed.");
     };
-  assertCurrent();
+  recheckReviewCut();
   const authorization = await authorizeTaskReviewSpawn(
     cell,
     payload,
@@ -227,9 +227,9 @@ export async function prepareCenterReviewFallback(
     throw cell.cellCodedError("authorization_denied", authorization.nextActions.join(" "));
   if (submission.commitSha !== null) {
     await fetchPinnedReviewCommitFromOrigin(cell.rootDir, submission.commitSha);
-    assertCurrent();
+    recheckReviewCut();
   }
-  return { commitSha: submission.commitSha, assertCurrent };
+  return { commitSha: submission.commitSha, recheckReviewCut };
 }
 
 /** Cut-review keys are qualified by reviewer so rerouting cannot reuse another reviewer's session. */
