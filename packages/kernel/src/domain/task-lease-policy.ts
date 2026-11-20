@@ -102,7 +102,7 @@ export const taskLeasePhasePolicy = {
     "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-replay.ts#assertReplay:b0feec1619d194d090128eacc33d72b3",
     "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-replay.ts#assertReplay:f2f364256c499a8bc33577a489af86d3",
     "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-replay.ts#assertReplay:0c163d818362965927649155f10269a3",
-    "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-replay.ts#assertReplay:771be71d257546e78452a7babe7b5c9a",
+    "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-replay.ts#assertReplay:db7329c6ef739251082d8881c0a1eee5",
     "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-review-transitions.ts#complete.validate:4e1e70527930ebab328f8c8eee80dc8c",
     "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-review-transitions.ts#complete.validate:4e1e70527930ebab328f8c8eee80dc8c:2",
     "policy:packages/kernel:packages/kernel/src/domain/task-progress-event.ts#progressLeaseRequiredMessage:c3897041a7efbfef59d7029ec082ef08",
