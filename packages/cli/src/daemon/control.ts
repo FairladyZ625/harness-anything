@@ -435,7 +435,7 @@ async function fleetControl(
     host: edgeValue("host"),
     port: Number(edgeValue("port")),
     caPath: path.resolve(String(edgeValue("caPath"))),
-    ...(edgeConfig?.spkiSha256 ? { spkiSha256: edgeConfig.spkiSha256 } : {}),
+    spkiSha256: edgeConfig?.spkiSha256,
     nodeId: edgeValue("nodeId"),
     credential,
     repoId: edgeTarget!.repoId,
