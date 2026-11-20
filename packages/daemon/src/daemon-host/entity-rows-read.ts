@@ -64,12 +64,7 @@ export function readDeclaredEntityRows(input: {
   const rows: EntityRowV1[] = [];
   for (const { kind, origin } of input.catalog.kinds) {
     if (origin !== "vertical") continue;
-    for (const row of readCollaboratorEntities(
-      { listEntities: (kind) => input.projection.listEntities(kind) },
-      kind,
-      input.scope,
-    ))
-      rows.push(entityRow(kind, row));
+    for (const row of readCollaboratorEntities(input.projection, kind, input.scope)) rows.push(entityRow(kind, row));
   }
   let runtimeInstances: readonly RuntimeInstanceSummary[] = [];
   try {

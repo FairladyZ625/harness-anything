@@ -664,7 +664,7 @@ export function createRepoCellApi(
       const scope = collaboratorScope(selector);
       const selected =
         scope.scopePersonId || scope.filterPersonId || scope.filterNodeId
-          ? readCollaboratorSchedules({ listEntities: (kind) => context.projection.listEntities(kind) }, scope)
+          ? readCollaboratorSchedules(context.projection, scope)
           : undefined;
       return { ...envelope, projection: readSchedulesGui(context, selected) };
     }
