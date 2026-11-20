@@ -1,12 +1,20 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import test from "node:test";
 import { appendRuntimeWorkerRecord, readDispatchStreamSummary } from "../src/daemon-host/dispatch-stream.ts";
+import { acquireWorkspaceLock } from "../src/daemon-host/repo-cell-lock.ts";
 import { makeScheduleScheduler } from "../src/daemon-host/schedule-scheduler.ts";
+import { activePhase } from "../src/daemon-host/squad-run-list.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { latestSquadStates } from "./squad-run-state.fixture.ts";
-import { assertChildrenClosed, binding, createSuiteHost, openFixture } from "./task-squad-orchestration.fixture.ts";
+import {
+  assertChildrenClosed,
+  binding,
+  createSuiteHost,
+  openFixture,
+  type HostBootstrapProbe,
+} from "./task-squad-orchestration.fixture.ts";
 
 const suiteHost = createSuiteHost("boundaries-shared");
 
@@ -128,9 +136,15 @@ test(
   "scheduler preserves a Squad occurrence through a second leader turn and reclaims its worktree",
   { timeout: 90_000 },
   async (t) => {
-    const fixture = await openFixture(t, "scheduled-squad", { host: suiteHost, startTaskSquad: false }),
+    const fixture = await openFixture(t, "scheduled-squad", { host: suiteHost }),
       scheduleId = "schedule-squad-e2e",
       initialProviderCount = fixture.providers.length;
+    assert.equal(
+      activePhase((await fixture.status()).status),
+      true,
+      "a concurrent task-bound Squad is active before scheduling the occurrence",
+    );
+    assert.equal(initialProviderCount, 1, "the task-bound Squad already owns its active initial leader");
     const created = await fixture.cell.run(
       {
         kind: "schedule-create",
@@ -221,5 +235,76 @@ test(
         : null;
     }, "the Squad terminal state settles its occurrence claim");
     assert.equal(existsSync(occurrenceCwd), false, "settlement reclaims the remediation occurrence worktree");
+    assert.equal(
+      activePhase((await fixture.status()).status),
+      true,
+      "settling the scheduled occurrence leaves the concurrent task-bound Squad active",
+    );
+  },
+);
+
+test(
+  "failed host installation closes the writer lock, cell, projection reader and temp directory for standalone and shared hosts",
+  { timeout: 90_000 },
+  async (t) => {
+    const verifyFailureCleanup = async (
+      run: (onResourcesOpened: (probe: HostBootstrapProbe) => void) => Promise<unknown>,
+    ) => {
+      let captured: HostBootstrapProbe | null = null,
+        projectionClosed = false;
+      await assert.rejects(
+        run((probe) => {
+          captured = probe;
+          assert.equal(existsSync(probe.parent), true);
+          assert.equal(existsSync(probe.lockPath), true);
+          assert.equal(probe.cell.status().state, "attached");
+          const originalClose = probe.taskProjection.close.bind(probe.taskProjection);
+          probe.taskProjection.close = () => {
+            projectionClosed = true;
+            originalClose();
+          };
+        }),
+      );
+      assert.ok(captured, "resources must open before squad-install fails");
+      const probe = captured as HostBootstrapProbe;
+      assert.throws(
+        () => probe.cell.status(),
+        /database is not open/u,
+        "writer cell store must close on bootstrap failure",
+      );
+      assert.equal(projectionClosed, true, "projection reader must close on bootstrap failure");
+      assert.equal(existsSync(probe.lockPath), false, "writer lock file must be removed");
+      assert.equal(existsSync(probe.parent), false, "temporary fixture directory must be removed");
+      mkdirSync(probe.root, { recursive: true });
+      try {
+        const relock = await acquireWorkspaceLock(probe.root);
+        await relock.close();
+      } finally {
+        rmSync(probe.parent, { recursive: true, force: true });
+      }
+    };
+
+    await verifyFailureCleanup((onResourcesOpened) =>
+      openFixture(t, "install-fail-standalone", {
+        squadWorkers: ["INVALID WORKER ID!"],
+        onResourcesOpened,
+      }),
+    );
+
+    await verifyFailureCleanup((onResourcesOpened) =>
+      createSuiteHost("install-fail-shared", {
+        squadWorkers: ["INVALID WORKER ID!"],
+        onResourcesOpened,
+      }).get(),
+    );
+
+    await verifyFailureCleanup((onResourcesOpened) =>
+      openFixture(t, "install-fail-shared-consumer", {
+        host: createSuiteHost("install-fail-shared-consumer", {
+          squadWorkers: ["INVALID WORKER ID!"],
+          onResourcesOpened,
+        }),
+      }),
+    );
   },
 );

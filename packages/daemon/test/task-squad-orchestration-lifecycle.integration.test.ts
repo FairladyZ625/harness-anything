@@ -2,7 +2,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
-import { assertChildrenClosed, binding, createSuiteHost, openFixture } from "./task-squad-orchestration.fixture.ts";
+import { evidence } from "./task-surface.fixtures.ts";
+import {
+  assertChildrenClosed,
+  binding,
+  createSuiteHost,
+  openFixture,
+  type Status,
+  type WorkerAttemptView,
+} from "./task-squad-orchestration.fixture.ts";
 
 const suiteHost = createSuiteHost("lifecycle-shared");
 
@@ -126,5 +134,54 @@ test(
     await fixture.waitStatus((state) => state.status === "converged");
     assertChildrenClosed(fixture, stageThree.workerAttempts);
     assert.deepEqual(await counted(), [fixture.taskId]);
+  },
+);
+
+test(
+  "shared suite host teardown cancels an active workers_running squad, runtimes and child tasks before lending the host",
+  { timeout: 90_000 },
+  async (t) => {
+    const cleanupHost = createSuiteHost("active-workers-cleanup");
+    let leakedSquadRunId = "",
+      leakedParentTaskId = "",
+      leakedWorkers: WorkerAttemptView[] = [];
+
+    await t.test("first case returns while two workers remain active", async (sub) => {
+      const first = await openFixture(sub, "leave-workers-active", { host: cleanupHost });
+      await first.plan(["a.txt"], ["b.txt"]);
+      const running = await first.waitStatus(
+        (state) => state.workerAttempts.length === 2 && state.workerAttempts.every((worker) => worker.runtimeSessionId),
+      );
+      assert.equal(running.status, "workers_running");
+      leakedSquadRunId = running.squadRunId;
+      leakedParentTaskId = first.taskId;
+      leakedWorkers = running.workerAttempts;
+    });
+
+    await t.test("next case receives a host with prior squad, runtimes, children and WIP settled", async (sub) => {
+      const second = await openFixture(sub, "after-active-workers", { host: cleanupHost });
+      const prior = evidence(
+        await second.cell.run({ kind: "squad-status", squadRunId: leakedSquadRunId }, binding),
+      ) as unknown as Status;
+      assert.equal(prior.status, "cancelled");
+      assert.ok(
+        prior.leaderTurns.every((turn) => turn.status !== "running"),
+        JSON.stringify(prior),
+      );
+      assert.ok(
+        prior.workerAttempts.every((worker) => worker.status !== "running"),
+        JSON.stringify(prior),
+      );
+      assertChildrenClosed(second, leakedWorkers);
+      const priorParent = second.task(leakedParentTaskId);
+      assert.equal(priorParent.snapshot.task?.status, "cancelled");
+      assert.equal(priorParent.snapshot.lease, null);
+      const wip = (await second.cell.read("repo.tasks.wip", {}, binding)).counted as Array<{ taskId: string }>;
+      assert.deepEqual(
+        wip.map((row) => row.taskId),
+        [second.taskId],
+        "prior active parent and child tasks must not leak WIP into the next shared-host case",
+      );
+    });
   },
 );
