@@ -200,7 +200,9 @@ test("a failed launch's temp reclaim surfaces its refusal instead of swallowing 
   }
 });
 
-test("the startup sweep treats only settled sessions as reclaimable and reports failures", async () => {
+test("the startup sweep treats only settled sessions as reclaimable and reports failures", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-sweep-settled-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   const settled = "runtime_0123456789abcdef01234567",
     live = "runtime_89abcdef0123456789abcdef",
     adopted = "runtime_aaaaaaaaaaaaaaaaaaaaaaaa",
@@ -218,6 +220,7 @@ test("the startup sweep treats only settled sessions as reclaimable and reports 
       exiting: new Set<string>([exiting]),
       processes: new Map([[adopted, { runtimeSessionId: adopted }]]),
       input: {
+        rootDir,
         listRuntimeTempSessionIds: () => [settled, live, adopted, neverRegistered, exiting],
         reclaimSettledRuntimeTempDirectories: (ids: readonly string[]) => {
           selected = ids;
@@ -269,14 +272,19 @@ test("the startup sweep treats only settled sessions as reclaimable and reports 
   }
 });
 
-test("the startup sweep point-reads only local temp directories regardless of session history", async () => {
+test("the startup sweep point-reads only local temp directories regardless of session history", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-sweep-local-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   const local = ["runtime_0123456789abcdef01234567", "runtime_89abcdef0123456789abcdef"],
-    pointReads: string[] = [];
+    pointReads: string[] = [],
+    snapshot = path.join(rootDir, ".harness", "runtime", "sealed-skills", local[1]!);
+  mkdirSync(snapshot, { recursive: true });
   let reclaimed: readonly string[] = [];
   const context = {
     exiting: new Set<string>(),
     processes: new Map(),
     input: {
+      rootDir,
       listRuntimeTempSessionIds: () => local,
       reclaimSettledRuntimeTempDirectories: (ids: readonly string[]) => {
         reclaimed = ids;
@@ -299,17 +307,21 @@ test("the startup sweep point-reads only local temp directories regardless of se
     }),
   };
   await sweepSettledRuntimeTempDirectories(context as never);
-  assert.deepEqual(pointReads, local, "the sweep point-reads lifecycle only for local temp directory names");
-  assert.deepEqual(reclaimed, local);
+  assert.deepEqual(pointReads.toSorted(), local, "each local session is read once, even with both types of scratch");
+  assert.deepEqual(reclaimed.toSorted(), local);
+  assert.equal(existsSync(snapshot), false, "settled Skill snapshot is reclaimed");
 });
 
-test("the startup sweep leaves every directory alone when the center read fails", async () => {
+test("the startup sweep leaves every directory alone when the center read fails", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-sweep-center-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   let reclaimCalled = false;
   const runtimeSessionId = "runtime_0123456789abcdef01234567",
     context = {
       exiting: new Set<string>(),
       processes: new Map(),
       input: {
+        rootDir,
         listRuntimeTempSessionIds: () => [runtimeSessionId],
         reclaimSettledRuntimeTempDirectories: () => {
           reclaimCalled = true;
