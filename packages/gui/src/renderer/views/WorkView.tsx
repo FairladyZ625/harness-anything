@@ -542,7 +542,12 @@ function WorkCard({
         attrs={{ "data-work-id": task.taskId }}
         title={focus}
         subtitle={size === "large" ? supplement : undefined}
-        aside={size === "tile" ? undefined : ago}
+        aside={
+          <span className="inline-flex items-center gap-1.5">
+            <StatusTag label="[work]" mono />
+            {size === "tile" ? null : ago}
+          </span>
+        }
         tone={reasons[0]?.tone}
         onOpen={onOpen}
         action={

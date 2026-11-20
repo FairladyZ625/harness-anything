@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { TabPanel } from "../components/primitives/EntryBoundary.tsx";
 import { SegBar } from "../components/primitives/SegBar";
+import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { Tabs } from "../components/primitives/Tabs";
 import { PinButton } from "../components/PinButton.tsx";
 import type { WorkspaceScopeRead } from "../../api/renderer-dto.ts";
@@ -319,6 +320,7 @@ export function WorkspaceView({
           <h1 className="min-w-0 flex-1 truncate text-[19px] font-semibold leading-snug text-text">
             {scope.root.title}
           </h1>
+          <StatusTag label="[work]" mono />
           {rootRow !== undefined && onSetTaskPin !== undefined ? (
             <PinButton
               compact

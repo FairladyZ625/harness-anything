@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { MagnifyingGlass, ArrowRight } from "@phosphor-icons/react";
 import { entityKindAxisVar } from "../graph/kindVisuals.ts";
 import { useImeKeyDown } from "./primitives/ime-composition.ts";
+import type { TaskRow } from "../model/types.ts";
+import { isWorkContainer } from "../model/work-collections.ts";
 
 /**
  * ⌘K 命令面板(REQ-GUI-01):跨实体搜索 + 快速跳转。
@@ -16,6 +18,7 @@ export interface PaletteEntry {
   sub?: string;
   /** 实体种类:内建 kind 或已注册 kind 读面上声明出来的 kind,没有清单。 */
   entity: string;
+  entityLabel?: string;
 }
 
 /** 一条通用搜索行:声明实体从这里进索引,不给每个 kind 加一个形参。 */
@@ -27,14 +30,20 @@ export interface PaletteRow {
 }
 
 export function buildPaletteIndex(
-  tasks: ReadonlyArray<{ taskId: string; title: string; coordinationStatus?: string }>,
+  tasks: ReadonlyArray<Pick<TaskRow, "taskId" | "title" | "taskClass" | "workId"> & { coordinationStatus?: string }>,
   decisions: ReadonlyArray<{ decisionId: string; title: string; state?: string }>,
   facts: ReadonlyArray<{ anchor: string; taskId?: string; text: string; category?: string; archived?: boolean }>,
   extra: ReadonlyArray<PaletteRow> = [],
 ): PaletteEntry[] {
   const entries: PaletteEntry[] = [];
   for (const t of tasks) {
-    entries.push({ ref: `task/${t.taskId}`, label: t.title, sub: t.coordinationStatus, entity: "task" });
+    entries.push({
+      ref: `task/${t.taskId}`,
+      label: t.title,
+      sub: t.coordinationStatus,
+      entity: "task",
+      ...(isWorkContainer(t) ? { entityLabel: "[work]" } : {}),
+    });
   }
   for (const d of decisions) {
     entries.push({ ref: `decision/${d.decisionId}`, label: d.title, sub: d.state, entity: "decision" });
@@ -167,7 +176,7 @@ export function CommandPalette({
                     background: `color-mix(in oklch, ${entityKindAxisVar(entry.entity)} 12%, transparent)`,
                   }}
                 >
-                  {entry.entity}
+                  {entry.entityLabel ?? entry.entity}
                 </span>
                 <span className="min-w-0 flex-1 truncate ui-meta text-text">{entry.label}</span>
                 {entry.sub && <span className="shrink-0 font-mono ui-micro text-text-faint">{entry.sub}</span>}

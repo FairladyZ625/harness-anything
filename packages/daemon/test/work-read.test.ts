@@ -48,6 +48,76 @@ const rows = [
   task("standalone", null, "active"),
 ];
 
+test("Work list, index and show count archived descendants through their whole subtree", (context) => {
+  const tree = receiptProjection([
+    task("root", null, "active", "work"),
+    task("group", "root", "active", "standard", undefined, "archived"),
+    task("deep-planned", "group", "planned", "standard", undefined, "archived"),
+    task("deep-done", "group", "done", "standard", undefined, "archived"),
+    task("empty-work", "root", "planned", "work"),
+  ]);
+  const listed = workListFromProjection(tree, {}).rows.find(({ taskId }) => taskId === "root")!,
+    indexed = workIndexFromProjection(tree).works.find(({ taskId }) => taskId === "root")!,
+    shown = workShowFromProjection(tree, { taskId: "root" });
+  context.diagnostic(
+    JSON.stringify({
+      list: [listed.status, listed.counts],
+      index: [indexed.status, indexed.counts],
+      show: [shown.root.status, shown.counts],
+    }),
+  );
+  assert.equal(listed.counts.planned, 1);
+  assert.deepEqual(listed.counts, { done: 1, executing: 0, pending: 0, blocked: 0, planned: 1, cancelled: 0 });
+  assert.deepEqual(indexed.counts, listed.counts);
+  assert.deepEqual(shown.counts, listed.counts);
+  assert.equal(indexed.status, shown.root.status);
+  assert.equal(listed.status, shown.root.status);
+  assert.equal(listed.taskCount, shown.scope.descendantCount);
+  assert.deepEqual(
+    shown.openTasks.map(({ taskId }) => taskId),
+    ["deep-planned"],
+  );
+});
+
+test("Work presentation derives terminal status from executable leaves below open containers", () => {
+  const tree = receiptProjection([
+    task("completed-root", null, "active", "work"),
+    task("completed-group", "completed-root", "active", "work"),
+    task("completed-leaf", "completed-group", "done", "standard", undefined, "archived"),
+    task("cancelled-root", null, "active", "work"),
+    task("cancelled-group", "cancelled-root", "done"),
+    task("cancelled-leaf", "cancelled-group", "cancelled"),
+  ]);
+  const listed = workListFromProjection(tree, { all: true }),
+    indexed = workIndexFromProjection(tree);
+  for (const [taskId, status] of [
+    ["completed-root", "done"],
+    ["cancelled-root", "cancelled"],
+  ] as const) {
+    const shown = workShowFromProjection(tree, { taskId });
+    assert.equal(listed.rows.find((work) => work.taskId === taskId)?.status, status);
+    assert.equal(indexed.works.find((work) => work.taskId === taskId)?.status, status);
+    assert.equal(shown.root.status, status);
+  }
+  assert.equal(workListFromProjection(tree, {}).count, 0);
+});
+
+test("a deep forest of nested Work roots rolls up each leaf to every containing Work", () => {
+  const size = 2_500;
+  const nested = Array.from({ length: size }, (_, index) =>
+    task(`work-${index}`, index === 0 ? null : `work-${index - 1}`, "active", "work"),
+  );
+  nested.push(task("archived-leaf", `work-${size - 1}`, "done", "standard", undefined, "archived"));
+  const tree = receiptProjection(nested);
+  const index = workIndexFromProjection(tree);
+  assert.equal(index.works.length, size);
+  assert.ok(index.works.every((row) => row.status === "done" && row.counts.done === 1));
+  assert.equal(index.works.find((row) => row.taskId === "work-0")?.taskCount, size);
+  assert.deepEqual(index.works.find((row) => row.taskId === "work-0")?.memberTaskIds, []);
+  assert.deepEqual(index.works.find((row) => row.taskId === `work-${size - 1}`)?.memberTaskIds, ["archived-leaf"]);
+  assert.equal(workShowFromProjection(tree, { taskId: "work-0" }).counts.done, 1);
+});
+
 function projection(plan: string | null = "# Work\n\n## Mission\n\n- Ship release two.\n- Keep the lanes green.\n") {
   return {
     readTaskIndex: () => ({ status: "ready", rows, watermark: 7, sourceRevision: 7, warnings: [] }),
@@ -114,7 +184,7 @@ test("work index assigns every task to the work root ha work list names; nested 
   );
 });
 
-test("work reads consume the kernel's presented root status while open and childless roots stay open", () => {
+test("work reads preserve explicit terminal and open childless root statuses", () => {
   const rows = [
     task("all-done", null, "done", "work"),
     task("done-group", "all-done", "done"),
@@ -240,6 +310,7 @@ function receiptProjection(rowsFor: typeof rows = rows, plans: Record<string, st
         limit?: number;
         presentationStatus?: boolean;
         parentTaskId?: string;
+        activePackagesOnly?: boolean;
       } = {},
     ) => {
       // Kernel contract (task-query-projection.ts): the SQL filters run on the raw event status,
@@ -248,6 +319,7 @@ function receiptProjection(rowsFor: typeof rows = rows, plans: Record<string, st
       const matched = rowsFor
         .filter(
           (row) =>
+            (!query.activePackagesOnly || row.packageDisposition === "active") &&
             (!query.workRootsOnly ||
               row.taskClass === "work" ||
               (row.parentTaskId === null && rowsFor.some((candidate) => candidate.parentTaskId === row.taskId))) &&

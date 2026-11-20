@@ -49,7 +49,7 @@ export function collectWork(tasks: readonly TaskRow[]): { groups: WorkGroup[]; i
   }
   for (const task of tasks) {
     const activity = latestActivity(task);
-    const leaf = !parents.has(task.taskId);
+    const leaf = !isWorkContainer(task) && !parents.has(task.taskId);
     const seen = new Set<string>();
     let current: TaskRow | undefined = task;
     while (current && !seen.has(current.taskId)) {
@@ -148,7 +148,7 @@ export function scopeWorkActivity(
   const counts: Record<string, number> = {};
   let leaves = 0;
   for (const member of matchingMembers) {
-    if (!allParents.has(member.taskId)) {
+    if (!isWorkContainer(member) && !allParents.has(member.taskId)) {
       leaves += 1;
       const status = member.canonicalStatus ?? member.coordinationStatus;
       counts[status] = (counts[status] ?? 0) + 1;
@@ -288,6 +288,11 @@ export interface WorkIndex {
 }
 
 export const NO_WORKS: WorkIndex = { ready: false, hasWorks: false, isWorkRoot: () => false, workOf: () => null };
+
+/** An adapted Work root belongs to itself. Declared Work is identifiable before the index arrives. */
+export function isWorkContainer(task: Pick<TaskRow, "taskId" | "taskClass" | "workId">): boolean {
+  return task.taskClass === "work" || task.workId === task.taskId;
+}
 
 /** Lookups over the daemon work index (`repo.works.index`); the GUI holds no work rule of its own. */
 export function workIndexOf(read: WorkIndexRead | undefined): WorkIndex {

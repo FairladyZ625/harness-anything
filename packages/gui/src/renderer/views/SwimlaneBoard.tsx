@@ -92,7 +92,7 @@ function laneLabelOf(
  * (task_8928cf1e)。lane 行序与单元格内序保持 W8 语义:组内 lastKnownAt 倒序。 */
 interface SwimlaneModel {
   readonly lanes: string[];
-  readonly labels: ReadonlyMap<string, string>;
+  readonly labels: ReadonlyMap<string, { readonly title: string; readonly work: boolean }>;
   readonly cells: ReadonlyMap<string, ReadonlyMap<SnapshotStatus, readonly TaskRow[]>>;
   readonly laneSizes: ReadonlyMap<string, number>;
   readonly totals: ReadonlyMap<SnapshotStatus, number>;
@@ -112,7 +112,7 @@ function buildSwimlaneModel(
   peopleById?: ReadonlyMap<string, string>,
 ): SwimlaneModel {
   const groups = new Map<string, TaskRow[]>();
-  const labels = new Map<string, string>();
+  const labels = new Map<string, { title: string; work: boolean }>();
   const totals = new Map<SnapshotStatus, number>(columns.map((status) => [status, 0]));
   for (const task of tasks) {
     const key = groupKeyOf(task, groupBy);
@@ -121,7 +121,10 @@ function buildSwimlaneModel(
       group = [];
       groups.set(key, group);
       // 代表 = 组内第一行(输入序),与旧实现的 tasks.find 首个命中同源。
-      labels.set(key, laneLabelOf(key, groupBy, task, nodeOwners, peopleById));
+      labels.set(key, {
+        title: laneLabelOf(key, groupBy, task, nodeOwners, peopleById),
+        work: groupBy === "root" && task.workId !== undefined,
+      });
     }
     group.push(task);
     const bucket = boardColumnOf(task);
@@ -273,6 +276,7 @@ function LaneRow({
   activeCell,
   highlighted,
   onPickCell,
+  onOpenWork,
 }: {
   lane: string;
   index: number;
@@ -284,8 +288,9 @@ function LaneRow({
   activeCell: ActiveCell | null;
   highlighted: string | null;
   onPickCell: (cell: ActiveCell) => void;
+  onOpenWork: (taskId: string) => void;
 }) {
-  const label = model.labels.get(lane) ?? lane;
+  const { title: label, work } = model.labels.get(lane)!;
   return (
     <div
       data-index={index}
@@ -298,8 +303,21 @@ function LaneRow({
           完整标签放 title 悬停,计数右对齐——不再等宽字体整段折断。 */}
       <div className="flex items-start gap-2 self-start px-1.5 pt-1.5">
         <p className="min-w-0 flex-1 line-clamp-2 ui-body leading-snug text-text" title={label}>
-          <TitleText title={label} />
+          {work ? (
+            <EntityRefLink
+              entityRef={`task/${lane}`}
+              onNavigate={() => onOpenWork(lane)}
+              title={label}
+              className="text-left text-accent hover:underline"
+              multiline
+            >
+              <TitleText title={label} />
+            </EntityRefLink>
+          ) : (
+            <TitleText title={label} />
+          )}
         </p>
+        {work && <StatusTag label="[work]" />}
         <span className="shrink-0 font-mono ui-body text-text-faint">{model.laneSizes.get(lane) ?? 0}</span>
       </div>
       {columns.map((status) => {
@@ -611,6 +629,7 @@ export function SwimlaneBoard({
                   activeCell={activeCell}
                   highlighted={highlight}
                   onPickCell={setActiveCell}
+                  onOpenWork={onSelect}
                 />
               ))}
             </div>
@@ -624,7 +643,7 @@ export function SwimlaneBoard({
         <DrilldownDrawer
           active={activeCell}
           tasks={activeTasks}
-          laneLabel={model.labels.get(activeCell.lane) ?? activeCell.lane}
+          laneLabel={model.labels.get(activeCell.lane)?.title ?? activeCell.lane}
           onSelect={onSelect}
           favorites={favorites}
           onToggleFavorite={onToggleFavorite}

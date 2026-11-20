@@ -7,6 +7,8 @@ export interface ThinCommand {
   readonly rootDir: SafePath;
   readonly repoId?: string;
   readonly json: boolean;
+  /** Presentation filter for task-list pages, applied to the closed action's result. */
+  readonly tasksOnly?: boolean;
   /** CLI-only transport metadata; never part of the closed Task Action input. */
   readonly pathCoordinate?: "workspace" | "task-artifact";
   /** CLI-only label for the `--plan-file` source the CLI already read; names it in diagnostics. */

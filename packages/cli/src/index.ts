@@ -23,6 +23,7 @@ import { parseAgentRollbackCommand, runAgentRollback } from "./cli-agent-rollbac
 import { parseBackupRetentionInvocation, runBackupRetention } from "./cli/thin-command-backup-retention.ts";
 import { runDoctorHealth } from "./cli/thin-command-doctor-health.ts";
 import { renderCliReceipt } from "./cli/receipt-render-registry.ts";
+import { presentTaskList } from "./cli/task-list-presentation.ts";
 import { withFactStatementGuidance, withTitleFocusGuidance } from "./cli/guidance-plane.ts";
 import {
   cliDispatchFailureCode,
@@ -162,7 +163,7 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
   let dispatchMeasured = false;
   let returnedReceipt: Record<string, unknown> | undefined;
   try {
-    const receipt = withTitleFocusGuidance(
+    let receipt = withTitleFocusGuidance(
       withFactStatementGuidance(
         typedCommand.action.kind === "agent-rollback"
           ? await runAgentRollback(
@@ -183,6 +184,10 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
       typedCommand.action,
     );
     returnedReceipt = receipt;
+    if (typedCommand.action.kind === "task-list")
+      receipt = await presentTaskList(receipt, typedCommand, (command) =>
+        runCommandThroughDaemon(command, undefined, undefined, daemonRequestTimer),
+      );
     dispatchMeasured = true;
     cliPhaseEnd("dispatch", dispatchStartedAt);
     const renderStartedAt = cliPhaseStart();
