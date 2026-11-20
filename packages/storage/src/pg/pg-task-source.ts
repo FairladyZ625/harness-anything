@@ -36,6 +36,7 @@ import type {
 } from "@harness-anything/kernel";
 import type {
   DecisionListFilters,
+  DecisionListSummaryRow,
   DecisionPageQuery,
 } from "@harness-anything/kernel/internal/ports/decision-projection-model.ts";
 import type { FactSearchFilters } from "@harness-anything/kernel/internal/ports/projection-contracts.ts";
@@ -109,7 +110,10 @@ export interface PgTaskProjectionSource
     readonly limit?: number;
   }) => Promise<TaskRelationProjectionRead>;
   readonly readDecisions: (decisionIds: readonly string[], withBody?: boolean) => Promise<DecisionProjectionListRead>;
-  readonly listDecisions: (filters?: DecisionListFilters) => Promise<DecisionProjectionListRead>;
+  readonly listDecisions: {
+    (filters: DecisionListFilters, selection: "summary"): Promise<DecisionProjectionListRead<DecisionListSummaryRow>>;
+    (filters?: DecisionListFilters, selection?: "review"): Promise<DecisionProjectionListRead>;
+  };
   readonly searchFacts: (filters: FactSearchFilters) => Promise<FactProjectionSearchRead>;
   readonly listDecisionAgendaPage: (query: DecisionPageQuery) => Promise<DecisionAgendaProjectionPageRead>;
   readonly currentLease: (taskId: string, now?: string) => Promise<LeaseV1 | null>;
@@ -558,16 +562,29 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
   const currentLease = (taskId: string, at = now()) => readLease("task_id", taskId, at);
   const currentLeaseForExecution = (executionId: string, at = now()) =>
     readLease("raw_lease->>'executionId'", executionId, at);
-  const listDecisions = (filters: DecisionListFilters = {}): Promise<DecisionProjectionListRead> =>
-    withPostgresTransaction(
+  function listDecisions(
+    filters: DecisionListFilters,
+    selection: "summary",
+  ): Promise<DecisionProjectionListRead<DecisionListSummaryRow>>;
+  function listDecisions(filters?: DecisionListFilters, selection?: "review"): Promise<DecisionProjectionListRead>;
+  function listDecisions(
+    filters: DecisionListFilters = {},
+    selection?: "summary" | "review",
+  ): Promise<DecisionProjectionListRead<DecisionListSummaryRow>> {
+    return withPostgresTransaction(
       options.pool,
       async (client) => {
         const cut = await readCutInTransaction(client, claims, readers, repoId);
-        return { ...cut, ...(await listPgDecisionRows(client, options.scope, repoId, filters)) };
+        const result =
+          selection === "summary"
+            ? await listPgDecisionRows(client, options.scope, repoId, filters, selection)
+            : await listPgDecisionRows(client, options.scope, repoId, filters, selection);
+        return { ...cut, ...result };
       },
       claims,
       { isolationLevel: "repeatable read" },
     );
+  }
   return {
     path,
     ...pgEventQueries(options),

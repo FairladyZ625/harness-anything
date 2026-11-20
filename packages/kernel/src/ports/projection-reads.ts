@@ -288,9 +288,9 @@ export interface DecisionProjectionRead {
   readonly watermark: number;
   readonly sourceRevision: number;
 }
-export interface DecisionProjectionListRead {
+export interface DecisionProjectionListRead<Row = DecisionProjectionRow> {
   readonly status: ReadSet.ReadSetProjectionCut["status"];
-  readonly decisions: readonly DecisionProjectionRow[];
+  readonly decisions: readonly Row[];
   readonly watermark: number;
   readonly sourceRevision: number;
   readonly page?: ProjectionPage;

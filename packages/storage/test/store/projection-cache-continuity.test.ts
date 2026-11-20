@@ -4,7 +4,6 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { taskLifecycleWritePlan } from "@harness-anything/kernel/internal/domain/task-lifecycle-publication.ts";
-import { taskProjectionSchemaVersion } from "../../src/projection/projection-schema.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync-types.ts";
@@ -13,6 +12,9 @@ import { sqliteLedgerPath } from "../../src/store/sqlite-event-store.ts";
 import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
 import { initRepo } from "./task-event-store.fixtures.ts";
 import { withTempStoreAsync } from "./helpers.ts";
+
+// Schema 38 can upgrade in place. These fixtures exercise the cache discard path.
+const rebuildRequiredSchemaVersion = 37;
 
 test("a real SQLite event gap blocks schema rebuild and preserves the cache bytes", async (t) => {
   const logged = t.mock.method(console, "error", () => undefined);
@@ -35,7 +37,7 @@ test("a real SQLite event gap blocks schema rebuild and preserves the cache byte
     const schema = new DatabaseSync(projection.path);
     schema
       .prepare("UPDATE projection_meta SET schema_version = ? WHERE singleton = 1")
-      .run(taskProjectionSchemaVersion - 1);
+      .run(rebuildRequiredSchemaVersion);
     schema.close();
     const retained = readFileSync(projection.path),
       missingEvent = events[1]!;
@@ -104,7 +106,7 @@ test("schema mismatch continuity validation reports monotonic progress before de
     const schema = new DatabaseSync(oldProjection.path);
     schema
       .prepare("UPDATE projection_meta SET schema_version = ?, watermark = ?, scanned_revision = ? WHERE singleton = 1")
-      .run(taskProjectionSchemaVersion - 1, 513, 513);
+      .run(rebuildRequiredSchemaVersion, 513, 513);
     schema.close();
 
     const rows = Array.from({ length: 513 }, (_, index) => ({ workspaceRevision: index + 1 })),

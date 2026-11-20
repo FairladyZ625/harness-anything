@@ -20,7 +20,9 @@ export function createDecisionProjectionTables(db: DatabaseSync): void {
       proposed_at TEXT NOT NULL,
       decided_at TEXT,
       provenance_json TEXT NOT NULL DEFAULT '[]',
-      workspace_revision INTEGER NOT NULL
+      workspace_revision INTEGER NOT NULL,
+      list_options_json TEXT NOT NULL DEFAULT '{"chosen":[],"rejected":[]}',
+      review_summary_json TEXT
     );
     /* @gate-identity state-store/task.projection.decision_option */ CREATE TABLE IF NOT EXISTS decision_option (
       decision_id TEXT NOT NULL,

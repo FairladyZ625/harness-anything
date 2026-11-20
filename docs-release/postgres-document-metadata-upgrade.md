@@ -234,6 +234,11 @@ lexeme truncation. Phrase evaluation reads only postings for the query's distinc
 its budget is query terms times their postings, including nonadjacent phrase candidates.
 Body postings retain the document repository and both head/blob reader sets.
 
+Schema initialization also adds `ha_decisions.list_summary` and `ha_decisions.review_summary`.
+The same management page fills missing summaries and refreshes search postings when needed.
+Current writers refresh summaries in the write transaction. Previous writers can mark a review
+summary pending when its inputs change.
+
 Before switching readers, use `backfillPgDecisionSearchPage(client, scope)` in a management
 transaction per page, until `done` is true. `processed` reports the number of owners handled;
 a zero `processed` count alone does not signal completion during concurrent writes. It locks at most 64 pending owners and computes

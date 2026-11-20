@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
-import { taskProjectionSchemaVersion } from "../../src/projection/projection-schema.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 import { memoryEventStore, reviewEvents } from "./task-owned-entity-projection.fixtures.ts";
 
@@ -43,9 +42,8 @@ test("task-owned reviews with the same local id remain visible in both task snap
 
     const stale = new DatabaseSync(projection.path);
     stale.prepare("DELETE FROM entity_projection WHERE entity_kind = 'review' AND task_id = ?").run("task-first");
-    stale
-      .prepare("UPDATE projection_meta SET schema_version = ? WHERE singleton = 1")
-      .run(taskProjectionSchemaVersion - 1);
+    // Schema 19 first scoped review rows by owner. A schema-18 cache must replay.
+    stale.prepare("UPDATE projection_meta SET schema_version = ? WHERE singleton = 1").run(18);
     stale.close();
 
     const rebuilt = makeTaskProjection({ rootDir, eventStore: memoryEventStore(events) });

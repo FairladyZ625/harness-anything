@@ -58,7 +58,9 @@ test("typed-core ready-cut result budgets at 100001 rows", async (t) => {
           [scope.tenantId, scope.projectId, scope.policyEpoch],
         );
         await client.query(
-          "UPDATE ha_decisions SET search_ready=true WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3",
+          `UPDATE ha_decisions SET search_ready=true,review_summary=(
+            SELECT review_summary FROM ha_decisions WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND decision_id='dec_000001')
+            WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3`,
           [scope.tenantId, scope.projectId, scope.policyEpoch],
         );
         assert.deepEqual(await backfillPgDecisionSearchPage(client, scope), { processed: 0, done: true });

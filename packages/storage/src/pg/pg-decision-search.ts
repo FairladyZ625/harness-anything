@@ -4,9 +4,39 @@ import type { DecisionDocumentState } from "@harness-anything/kernel/internal/do
 import { decisionDocumentProse } from "@harness-anything/kernel/internal/domain/decision-event.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { unicode61Positions, phraseMatches } from "./pg-text-search.ts";
+import { projectPgDecisionListReview } from "./pg-decision-review-summary.ts";
+import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
+import {
+  changedDecisionDocuments,
+  changedDecisionEvidenceRelations,
+} from "../projection/decision-projection-documents.ts";
+
+export async function projectPgDecisionReads(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  event: PersistedCanonicalEventV1,
+): Promise<void> {
+  const documentOwners = changedDecisionDocuments(event);
+  for (const id of documentOwners) await refreshPgDecisionSearch(client, scope, id);
+
+  const relationIds = changedDecisionEvidenceRelations(event);
+  if (relationIds.length === 0) return;
+  const edges = await client.query<{ readonly id: string }>(
+    `SELECT DISTINCT split_part(source_ref,'/',2) AS id FROM ha_relations
+      WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND relation_id=ANY($4::text[])
+      AND source_ref LIKE 'decision/%' AND relation_type IN ('evidenced-by','refuted-by')`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch, relationIds],
+  );
+  for (const { id } of edges.rows) if (!documentOwners.has(id)) await refreshPgDecisionSearch(client, scope, id, false);
+}
 
 /** Called only by projection writes/management backfill, inside their existing transaction. */
-export async function refreshPgDecisionSearch(client: PoolClient, scope: PgProjectionScope, id: string): Promise<void> {
+export async function refreshPgDecisionSearch(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  id: string,
+  withSearch = true,
+): Promise<void> {
   const keys = [scope.tenantId, scope.projectId, scope.policyEpoch],
     decision = (
       await client.query<{ value: DecisionDocumentState; readers: string[] }>(
@@ -15,6 +45,23 @@ export async function refreshPgDecisionSearch(client: PoolClient, scope: PgProje
       )
     ).rows[0];
   if (!decision) return;
+  const review = await projectPgDecisionListReview(client, scope, id, decision.value);
+  if (withSearch) await refreshSearchPositions(client, scope, id, decision);
+  await client.query(
+    `UPDATE ha_decisions SET search_ready=search_ready OR $5,review_summary=$6::jsonb,
+        list_summary=COALESCE(list_summary,ha_decision_list_summary(value))
+      WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND decision_id=$4`,
+    [...keys, id, withSearch, JSON.stringify(review)],
+  );
+}
+
+async function refreshSearchPositions(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  id: string,
+  decision: { readonly value: DecisionDocumentState; readonly readers: string[] },
+): Promise<void> {
+  const keys = [scope.tenantId, scope.projectId, scope.policyEpoch];
   const body = (
       await client.query<{ body: Buffer; repo_id: string; head_readers: string[]; blob_readers: string[] }>(
         `SELECT blob.body,head.repo_id,head.readers AS head_readers,blob.readers AS blob_readers FROM ha_document_heads head
@@ -69,10 +116,6 @@ export async function refreshPgDecisionSearch(client: PoolClient, scope: PgProje
       [...keys, decision.readers, id, serialized],
     );
   }
-  await client.query(
-    "UPDATE ha_decisions SET search_ready=true WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND decision_id=$4",
-    [...keys, id],
-  );
 }
 
 /** Each transaction locks at most 64 owners; processed=0 is the termination signal. */
@@ -80,12 +123,13 @@ export async function backfillPgDecisionSearchPage(
   client: PoolClient,
   scope: PgProjectionScope,
 ): Promise<{ readonly processed: number; readonly done: boolean }> {
-  const pending = await client.query<{ decision_id: string }>(
-    `SELECT decision_id FROM ha_decisions WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND NOT search_ready
+  const pending = await client.query<{ decision_id: string; search_ready: boolean }>(
+    `SELECT decision_id,search_ready FROM ha_decisions WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+      AND (NOT search_ready OR review_summary IS NULL OR list_summary IS NULL)
       ORDER BY decision_id LIMIT 64 FOR UPDATE`,
     [scope.tenantId, scope.projectId, scope.policyEpoch],
   );
-  for (const row of pending.rows) await refreshPgDecisionSearch(client, scope, row.decision_id);
+  for (const row of pending.rows) await refreshPgDecisionSearch(client, scope, row.decision_id, !row.search_ready);
   return {
     processed: pending.rows.length,
     done: pending.rows.length === 0 && (await finishPgDecisionReadBackfill(client, scope)),

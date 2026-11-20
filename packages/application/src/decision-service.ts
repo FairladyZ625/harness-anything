@@ -5,10 +5,12 @@ import {
   type CanonicalWriteBundle,
   type DecisionEventV1,
   type DecisionListFilters,
+  type DecisionProjectionListRead,
   type DecisionProjectionRow,
   type FrozenWritePlan,
   type TaskProjection,
 } from "@harness-anything/kernel";
+import type { DecisionListSummaryRow } from "@harness-anything/kernel/internal/ports/decision-projection-model.ts";
 import { FactServiceError } from "./fact-service.ts";
 
 export type DecisionWriteBundle = CanonicalWriteBundle & {
@@ -29,7 +31,7 @@ export interface DecisionService {
   readonly show: (selector: string) => ReturnType<TaskProjection["readDecision"]> & {
     readonly decision: DecisionProjectionRow;
   };
-  readonly list: (filters: DecisionListFilters) => ReturnType<TaskProjection["listDecisions"]>;
+  readonly list: TaskProjection["listDecisions"];
   readonly coverage: (decisionId: string) => ReturnType<TaskProjection["readDecisionCoverage"]>;
 }
 export function makeDecisionService(options: {
@@ -78,10 +80,19 @@ export function makeDecisionService(options: {
       documentSha256: event.payload.decisionDocumentClaim.sha256,
     };
   };
-  const list = (filters: DecisionListFilters) => options.projection.listDecisions(filters),
-    show = (selector: string) => {
+  function list(filters: DecisionListFilters, selection: "summary"): DecisionProjectionListRead<DecisionListSummaryRow>;
+  function list(filters: DecisionListFilters, selection?: "review"): DecisionProjectionListRead;
+  function list(
+    filters: DecisionListFilters,
+    selection?: "summary" | "review",
+  ): DecisionProjectionListRead<DecisionListSummaryRow> {
+    return selection === "summary"
+      ? options.projection.listDecisions(filters, selection)
+      : options.projection.listDecisions(filters, selection);
+  }
+  const show = (selector: string) => {
       const legacy = /^E[1-9][0-9]*$/u.test(selector),
-        matches = legacy ? options.projection.listDecisions({ legacyId: selector }) : null;
+        matches = legacy ? list({ legacyId: selector }, "summary") : null;
       if (matches?.status === "pending")
         throw new FactServiceError("content_not_ready", `Decision selector ${selector} is pending.`);
       if (matches && matches.decisions.length > 1)

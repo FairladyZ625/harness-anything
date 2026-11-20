@@ -26,6 +26,11 @@ import { withDatabase } from "./rebuildable-task-projection-database.ts";
 import { readDecisionDocumentState } from "./decision-projection-reads.ts";
 import { catchUpProjectionRound } from "./rebuildable-task-projection-reads.ts";
 import { readProjectionCut } from "./rebuildable-task-projection-sql.ts";
+import type {
+  DecisionListFilters,
+  DecisionListSummaryRow,
+} from "@harness-anything/kernel/internal/ports/decision-projection-model.ts";
+import type { DecisionProjectionListRead } from "@harness-anything/kernel/internal/ports/projection-reads.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "@harness-anything/kernel";
 
@@ -51,6 +56,24 @@ export function knowledgeQueryApi(
   | "readDecisionCoverage"
 > {
   const { eventStore, limit, projectionPath, readHead } = context;
+  function listDecisions(
+    filters: DecisionListFilters,
+    selection: "summary",
+  ): DecisionProjectionListRead<DecisionListSummaryRow>;
+  function listDecisions(filters: DecisionListFilters, selection?: "review"): DecisionProjectionListRead;
+  function listDecisions(
+    filters: DecisionListFilters,
+    selection?: "summary" | "review",
+  ): DecisionProjectionListRead<DecisionListSummaryRow> {
+    return withDatabase(projectionPath, readHead, (db) => {
+      const cut = readProjectionCut(db, readHead),
+        page =
+          selection === "summary"
+            ? listDecisionRowsPage(db, filters, selection)
+            : listDecisionRowsPage(db, filters, selection);
+      return { ...cut, decisions: page.rows, ...(page.page ? { page: page.page } : {}) };
+    });
+  }
   return {
     admitFact: (event) => {
       const round = catchUpProjectionRound(projectionPath, eventStore, limit);
@@ -150,18 +173,7 @@ export function knowledgeQueryApi(
           sourceRevision: cut.sourceRevision,
         };
       }),
-    listDecisions: (filters) =>
-      withDatabase(projectionPath, readHead, (db) => {
-        const cut = readProjectionCut(db, readHead),
-          page = listDecisionRowsPage(db, filters);
-        return {
-          status: cut.status,
-          decisions: page.rows,
-          watermark: cut.watermark,
-          sourceRevision: cut.sourceRevision,
-          ...(page.page ? { page: page.page } : {}),
-        };
-      }),
+    listDecisions,
     listDecisionAgendaPage: (query) =>
       withDatabase(projectionPath, readHead, (db) => {
         const cut = readProjectionCut(db, readHead),

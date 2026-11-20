@@ -77,12 +77,8 @@ test("Schedule definition and run view share one canonical stream and rebuild ex
       });
     }
 
-    // Version 38 indexes historical reviewer-qualified dispatch keys and drops the retired
-    // code/doc witness field; task_091649528317e9e2fb33849b87 added localeCompare-compatible
-    // indexed decision-list pagination. It stays at 38: pre-38 caches that still carry the retired
-    // witness rows are stripped at the read boundary, because forcing them through a replay inside
-    // attach does not survive the ready-watchdog at canonical scale.
-    assert.equal(taskProjectionSchemaVersion, 38);
+    // Version 39 expands the existing Decision projection with stored list and review summaries.
+    assert.equal(taskProjectionSchemaVersion, 39);
     assert.equal(projection.readCut().status, "ready");
     const definition = projection.readDocument("schedules/schedule-heartbeat.json").document,
       row = projection.getEntity("schedule", "schedule-heartbeat"),

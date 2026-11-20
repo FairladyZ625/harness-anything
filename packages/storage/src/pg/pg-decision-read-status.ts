@@ -6,6 +6,14 @@ import {
   postgresScopeRlsStatements,
 } from "../postgres/scope-schema.ts";
 
+export class PgDecisionBackfillPendingError extends Error {
+  readonly code = "projection_pending";
+
+  constructor(kind: "scalar" | "summary" | "review summary") {
+    super(`Decision ${kind} backfill is pending`);
+  }
+}
+
 /** A nullable count means an older scope has not completed management backfill. */
 export function decisionReadStatusDdl(): readonly string[] {
   const scope = "tenant_id,project_id,policy_epoch",
