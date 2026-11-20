@@ -270,8 +270,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     publishExit: (active, code, resumePublishedExit) =>
       runtimeSpawnerDelegates.publishExit(extracted, active, code, resumePublishedExit),
     enforceSpendCap: (active) => enforceRuntimeSpendCap(extracted, active),
-    controlReceipt: (opId, runtimeSessionId, detail) =>
-      runtimeSpawnerDelegates.controlReceipt(extracted, opId, runtimeSessionId, detail),
+    controlReceipt: (opId, runtimeSessionId, detail, settlementReceipt) =>
+      runtimeSpawnerDelegates.controlReceipt(extracted, opId, runtimeSessionId, detail, settlementReceipt),
     captureErrorOutput: (active, chunk) => runtimeSpawnerDelegates.captureErrorOutput(extracted, active, chunk),
     prepareDaemonGitEnvironment,
     settleFallback: (active, outcome, terminal) => settleFallbackAttempt(extracted, active, outcome, terminal),

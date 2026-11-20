@@ -23,7 +23,8 @@ import {
   bindVerifiedExecutorClaim,
   withAuthorizationDecision,
 } from "./repo-cell-authorization.ts";
-import { cellErrorCode } from "./repo-cell-errors.ts";
+import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
+import { explainEdgeTaskConsentScopeMismatch } from "./repo-cell-task-consent-errors.ts";
 import type {
   RepoCellBinding,
   RepoCellContinuationWrite,
@@ -83,15 +84,15 @@ function failAction(
       contract,
       contract ? action : undefined,
     );
-  const result = contract ? deriveActionResult(contract, action, receipt) : receipt;
-  return authorizationDecision
-    ? withAuthorizationDecision(
-        result,
-        authorizationDecision,
-        result.unmetCriteria ?? [],
-        result.rejectionExplanation ?? (error instanceof Error ? error.message : String(error)),
-      )
-    : (result as WriteReceipt);
+  const result = contract ? deriveActionResult(contract, action, receipt) : receipt,
+    explained = explainEdgeTaskConsentScopeMismatch(result, action, binding.source, cellErrorMessage(error));
+  if (!authorizationDecision) return explained as WriteReceipt;
+  return withAuthorizationDecision(
+    explained,
+    authorizationDecision,
+    explained.unmetCriteria ?? [],
+    explained.rejectionExplanation ?? (error instanceof Error ? error.message : String(error)),
+  );
 }
 
 // Task write actions address an existing task, so a unique prefix gets the read faces' git-style
@@ -217,11 +218,12 @@ export function makeRepoCellCommandRunner(
               readTask: (taskId) => context.projection.read(taskId).snapshot.task,
               binding: { ...requested.binding, artifactKindResolver },
             });
+          const failure = context.failed(actionId, error);
           return withAuthorizationDecision(
-            context.failed(actionId, error),
+            failure,
             decision,
             [],
-            error instanceof Error ? error.message : String(error),
+            failure.rejectionExplanation ?? (error instanceof Error ? error.message : String(error)),
           );
         }
       };
@@ -410,8 +412,9 @@ export function makeRepoCellCommandRunner(
               return controlled;
             }
             const executed = context.withHumanSummary(await execute(queuedDecision)),
+              explained = explainEdgeTaskConsentScopeMismatch(executed, action, binding.source),
               receipt = recordRejection(
-                queuedDecision ? withAuthorizationDecision(executed, queuedDecision) : (executed as WriteReceipt),
+                queuedDecision ? withAuthorizationDecision(explained, queuedDecision) : (explained as WriteReceipt),
               );
             if (recoveryCommand?.settlesLatch && receipt.outcome === "applied") {
               if (action.kind === "migrate-import" && action.dryRun !== true) {

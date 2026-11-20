@@ -1037,6 +1037,7 @@ export function createDaemonHostRepositoryApi(
           context.daemonErrorMessage(error),
           context.diagnosticForError(error),
           extractCenterMoved(error),
+          auth.nodePrincipal ? { kind: "node", nodeId: auth.nodePrincipal.nodeId } : "local",
         );
       }
     },

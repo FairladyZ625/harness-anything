@@ -7,6 +7,8 @@ import {
 import { auditedOrphanTerminal } from "./runtime-orphan-recovery.ts";
 import { createHash } from "node:crypto";
 import { sameWriteSource, sha256Text } from "@harness-anything/kernel";
+import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
+import { readFallbackExhaustion } from "./runtime-spawn-fallback.ts";
 import { daemonMethodPayloadFields } from "./protocol/daemon-protocol-commands.ts";
 import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-types.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "../runtime-engine/runtime-spawn-errors.ts";
@@ -223,7 +225,37 @@ export async function cancelRuntime(
   const stopAlreadyProven = attempt?.attempt.stopProof === "proven_stopped";
   if (stopAlreadyProven) context.dispatchState?.deactivate(runtimeSessionId);
   if (attempt?.policy.attemptSettled) {
-    return context.controlReceipt(opId, runtimeSessionId, "already-exited");
+    if (attempt.policy.fallbackPending && attempt.controlLeafDispatchId === attempt.attempt.dispatchId) {
+      const terminal = context.input.remote
+        ? await context.input.remote.readFallbackExhaustion(attempt.attempt)
+        : readFallbackExhaustion(
+            context.requiredRuntimeProjection(context.input),
+            (ref) => readCanonicalRuntimeResult(context.requiredRuntimeStore(context.input), ref),
+            attempt.attempt,
+          );
+      const settlement = await context.publishRuntimeEvent(
+        "runtime_session_outcome_observed",
+        terminal.payload,
+        opId,
+        binding,
+        terminal.body,
+      );
+      const settled = await readDispatchLifecycle(context, {
+        by: "dispatch",
+        dispatchIds: [attempt.attempt.dispatchId],
+      });
+      const settledRows = readyDispatchLifecycle(settled, context.runtimeSpawnError);
+      const [settledRow] = settledRows;
+      if (!settledRow?.policy.groupSettled)
+        throw runtimeSpawnError("dispatch_lifecycle_pending", "Fallback exhaustion did not close the dispatch group.");
+      return context.controlReceipt(opId, runtimeSessionId, "already-exited", settlement.receipt);
+    }
+    return context.controlReceipt(
+      opId,
+      runtimeSessionId,
+      "already-exited",
+      attempt.policy.groupSettled ? { outcome: "no_changes", status: "settled_no_write" } : undefined,
+    );
   }
   // Missing control transport does not prove the process tree stopped.
   if (attempt && attempt.attempt.outcome === null) {

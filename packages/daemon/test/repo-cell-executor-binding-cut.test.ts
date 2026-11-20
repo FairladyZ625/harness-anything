@@ -70,6 +70,39 @@ const action = {
   executor: runtimeActor.executor,
 } as const;
 
+test("the queued edge consent command preserves a returned scope refusal", async (t) => {
+  const context = contextFor(
+      Promise.resolve(),
+      () => null,
+      () => null,
+    ),
+    action = { kind: "task-review-consent", taskId, executionId, reviewId: "review-approved" },
+    source = { kind: "node", nodeId: "edge-one" } as const,
+    cause = "This cut requires the center writer.",
+    diagnostic = { kind: "failure", code: "execution_scope_mismatch" } as const;
+  for (const initial of [{}, { rejectionExplanation: cause, diagnostic }]) {
+    const receipt = await createRepoCellApi({
+      ...context,
+      store: { ...context.store, appendRejection: () => context.store.readCommandOutcome("op-runtime-first-write")! },
+      executeAction: async () => ({
+        outcome: "op_rejected",
+        opId: "op-consent-scope",
+        code: "execution_scope_mismatch",
+        ...initial,
+      }),
+    }).run(action, { ...binding, source });
+    t.diagnostic(JSON.stringify(receipt));
+    assert.equal(receipt.code, "execution_scope_mismatch");
+    assert.equal(receipt.diagnostic?.field, "executionScope");
+    assert.match(String(receipt.diagnostic?.expectation), /source=local/u);
+    assert.match(String(receipt.diagnostic?.actual), /source=node:edge-one/u);
+    assert.match(String(receipt.rejectionExplanation), /on the center machine/u);
+    assert.match(String(receipt.rejectionExplanation), /--review-id review-approved/u);
+    if ("rejectionExplanation" in initial)
+      assert.match(String(receipt.rejectionExplanation), /This cut requires the center writer/u);
+  }
+});
+
 test("runtime write authority follows its current lease after a new iteration", async (t) => {
   const nextExecutionId = "exec-runtime-next-iteration";
   for (const nextAction of [

@@ -12,8 +12,8 @@ import {
   publishExit as publishExitImpl,
   runtimeResultText as runtimeResultTextImpl,
   applied as appliedImpl,
-  controlReceipt as controlReceiptImpl,
 } from "./runtime-spawn-settlement.ts";
+export { controlReceipt } from "./runtime-spawn-settlement.ts";
 
 export const consumeChunk = (
   context: RuntimeSpawnerContext,
@@ -54,9 +54,3 @@ export const applied = (
   runtimeSessionId: string,
   dispatchId: string,
 ) => appliedImpl(context, event, publication, runtimeSessionId, dispatchId);
-export const controlReceipt = (
-  context: RuntimeSpawnerContext,
-  opId: string,
-  runtimeSessionId: string,
-  detail?: string,
-) => controlReceiptImpl(context, opId, runtimeSessionId, detail);

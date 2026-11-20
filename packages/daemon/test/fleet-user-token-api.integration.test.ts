@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { openSqliteEventStore } from "@harness-anything/storage";
 import { consent as validSnapshotConsent } from "../src/daemon-host/protocol/daemon-protocol-validate-entities.ts";
+import { runFleetEdgeTask } from "../src/daemon-host/fleet-edge-task.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import { fleetFixture, git, localAuthFixture, rawPeer } from "./fleet-tls-session.fixture.ts";
 import type { FleetFrameV1 } from "../src/daemon-host/fleet/command-protocol.ts";
@@ -132,6 +133,11 @@ for (const recovery of ["authorized-node", "center-personal-session"] as const)
               assert.deepEqual(result.receipt?.nextActions, [
                 `ha task review-consent ${taskId} --execution-id ${executionId} --review-id ${reviewId}`,
               ]);
+              const diagnostic = result.receipt?.diagnostic as Record<string, unknown>;
+              assert.equal(diagnostic?.field, "consentScope");
+              assert.match(String(diagnostic?.expectation), /consent scope/u);
+              assert.match(String(diagnostic?.actual), new RegExp(nodeId, "u"));
+              assert.match(String(diagnostic?.actual), /missing consent scope/u);
             }
           }
           return result.schema === "fleet.task.result/v1"
@@ -196,6 +202,53 @@ for (const recovery of ["authorized-node", "center-personal-session"] as const)
       });
     },
   );
+
+test("fleet forwards a legacy center consent refusal with the authenticated edge scope", async (t) => {
+  const fixture = await fleetFixture(t);
+  t.after(() => fixture.close());
+  const { nodeId, repoId, taskId, executionId } = fixture.subject,
+    cause = "This review cut can only be confirmed by the center writer.",
+    run = fixture.host.run;
+  t.mock.method(fixture.host, "run", async (...args: Parameters<typeof run>) =>
+    args[1].kind === "task-review-consent"
+      ? { outcome: "op_rejected", opId: "legacy-scope", code: "execution_scope_mismatch", rejectionExplanation: cause }
+      : run(...args),
+  );
+  const center = await fixture.center(),
+    reviewId = "review-edge-scope",
+    receipt = await runFleetEdgeTask(
+      {
+        payload: {
+          host: "127.0.0.1",
+          port: center.port,
+          caPath: fixture.certFile,
+          nodeId,
+          credential: "machine-secret",
+          repoId,
+          viewRoot: path.join(fixture.root, "scope-view"),
+          quotaBytes: 64 * 1024 * 1024,
+          action: { kind: "task-review-consent", taskId, executionId, reviewId },
+        },
+      },
+      fixture.owners.readAccessToken(nodeId),
+      "domain",
+    );
+  t.diagnostic(JSON.stringify(receipt));
+  assert.equal(receipt.outcome, "op_rejected");
+  assert.equal(receipt.code, "execution_scope_mismatch");
+  assert.deepEqual(receipt.diagnostic, {
+    kind: "validation",
+    entity: `task ${taskId} execution ${executionId}`,
+    field: "executionScope",
+    actual: `source=node:${nodeId} (edge node)`,
+    expectation: "source=local (center canonical repository writer)",
+  });
+  assert.match(String(receipt.rejectionExplanation), /This review cut can only be confirmed by the center writer/u);
+  assert.match(String(receipt.rejectionExplanation), /on the center machine/u);
+  assert.deepEqual(receipt.nextActions, [
+    `ha task review-consent ${taskId} --execution-id ${executionId} --review-id ${reviewId}`,
+  ]);
+});
 
 test("one BFF connection uses each request person without changing the node owner; revocation rejects writes", async (t) => {
   const fixture = await fleetFixture(t);

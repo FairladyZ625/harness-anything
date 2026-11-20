@@ -441,12 +441,8 @@ export async function proofFor(
     // issued-to client. Only the IdP-granted consent scope admits that client; device or execution
     // authority alone cannot consent. The client is responsible for displaying the current cut.
     const session = binding.keycloakAuthorization?.session;
-    if (
-      binding.executionPrincipal ||
-      (typeof command.source === "object" &&
-        command.source.kind === "node" &&
-        (!session?.azp || !session.scopes?.includes("consent")))
-    ) {
+    const node = typeof command.source === "object" && command.source.kind === "node" ? command.source.nodeId : null;
+    if (binding.executionPrincipal || (node !== null && (!session?.azp || !session.scopes?.includes("consent")))) {
       const retry = `ha task review-consent ${command.taskId} --execution-id ${command.executionId} --review-id ${command.reviewId}`;
       throw cellCriterionError(
         "human_confirmation_required",
@@ -458,6 +454,15 @@ export async function proofFor(
         "consent",
         "task-lifecycle-review-transitions/consent.validate",
         [retry],
+        {
+          kind: "validation",
+          entity: `task ${command.taskId} execution ${command.executionId}`,
+          field: "consentScope",
+          actual: binding.executionPrincipal
+            ? "runtime execution credential"
+            : `source=node:${node}, ${session?.azp ? `client=${session.azp}, missing consent scope` : "no personal client"}`,
+          expectation: "a personal session from a client granted the consent scope",
+        },
       );
     }
     // Consent confirms that this cut's reviews concluded: an approved review beside a lane that is

@@ -22,6 +22,7 @@ import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
 import { makeFleetSquadCoordinator } from "./fleet-squad-coordinator.ts";
 import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { readEdgeViewBlob, readEdgeRuntimeResult } from "./runtime-result-read.ts";
+import { readFallbackExhaustion } from "./runtime-spawn-fallback.ts";
 import { runRuntimeHandoff } from "./runtime-handoff.ts";
 import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import {
@@ -932,6 +933,16 @@ export function openFleetEdgeRuntime(input: {
         readRuntimeProjection(input.resolveLocation(), (projection) =>
           readRuntimeDispatchOwnerEvidence(projection, runtimeSessionId),
         ),
+      readFallbackExhaustion: (attempt) => {
+        const request = input.resolveLocation();
+        return readRuntimeProjection(request, (projection) =>
+          readFallbackExhaustion(
+            projection,
+            (ref) => readEdgeRuntimeResult(request.viewRoot, request.repoId, request.nodeId, ref),
+            attempt,
+          ),
+        );
+      },
       publish: async (draft) => {
         const { request, centerWriteWaitMs, writePeer } = context();
 
