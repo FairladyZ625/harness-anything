@@ -92,7 +92,7 @@ export function createDaemonHostRuntimeApi(
     if (repo.mode !== "remote-edge") return "center";
     if (repo.canonicalRoot === null)
       throw context.hostCodedError("repo_namespace_unknown", `Runtime repository ${repoId} has no local root.`);
-    const edge = readFleetEdgeConfig(repo.canonicalRoot);
+    const edge = readFleetEdgeConfig(context.input.userRoot, repoId);
     if (edge === null || edge.repoId !== repoId)
       throw context.hostCodedError(
         "fleet_edge_config_missing",

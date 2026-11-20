@@ -557,12 +557,22 @@ test("join validates origin before creating directories and reuses a matching ch
   assert.equal(git("-C", workspace, "log", "-1", "--format=%s"), "center base");
   assert.equal(existsSync(path.join(workspace, "harness", "harness.yaml")), true);
 
-  const checkout = path.join(root, "existing-clone");
+  const checkout = path.join(root, "existing-clone"),
+    checkoutUserRoot = path.join(root, "checkout-user");
   git("clone", "-q", origin, checkout);
-  const reuse = await joinFleetEdge({ ...request, workspaceRoot: checkout }, { ...ports, join: async () => admitted });
+  const reuse = await joinFleetEdge(
+    { ...request, workspaceRoot: checkout },
+    { ...ports, userRoot: checkoutUserRoot, join: async () => admitted },
+  );
   assert.equal(reuse.state, "synced");
   assert.equal((reuse.repositories as Array<Record<string, unknown>>)[0]?.workspaceRoot, checkout);
   assert.equal(existsSync(path.join(checkout, "repo-a")), false);
+  assert.equal(git("-C", checkout, "status", "--porcelain"), "", "joining an existing checkout keeps Git clean");
+  const checkoutConfig = readFleetEdgeConfig(checkoutUserRoot, "repo-a");
+  assert.ok(checkoutConfig);
+  assert.equal(checkoutConfig.nodeId, admitted.nodeId);
+  assert.equal(checkoutConfig.caPath, path.join(checkoutUserRoot, "fleet", "edge", "repo-a", "fleet-center-ca.pem"));
+  assert.deepEqual(readFileSync(checkoutConfig.caPath), cert);
 
   const namedCheckout = path.join(root, "repo-a");
   execFileSync("git", ["init", "-q", namedCheckout]);
