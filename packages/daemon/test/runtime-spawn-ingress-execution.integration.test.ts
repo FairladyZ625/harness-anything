@@ -4,7 +4,7 @@ import { seedBuiltinSchedules } from "../src/daemon-host/schedule-builtin-execut
 import { signInPolicyTestUser, withPolicyGroup, policyTestDeviceToken } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -962,7 +962,11 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
           receipt = await dispatch("frozen-cut-scanner", "runtime-readonly-attach-submitted");
         assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
         assert.equal(launchCount, launchesBeforeAttach + 1, "the read-only attach must launch its runtime");
-        assert.equal(launchedCwd, root, "a read-only attach reads the frozen round from the repository root");
+        assert.equal(
+          launchedCwd,
+          realpathSync(root),
+          "a read-only attach reads the frozen round from the repository root",
+        );
         assert.equal(launchedPermissionMode, "read-only", "the declaration's read-only mode must reach the launch");
         assert.match(launchedPrompt, /# Read-only Dispatch Contract/u);
         assert.equal(receipt.ledgerAccess, "unavailable", "the attach receipt must disclaim ledger write access");
