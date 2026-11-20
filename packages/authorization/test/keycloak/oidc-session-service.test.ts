@@ -13,6 +13,38 @@ interface RefreshRequest {
   readonly clientSecret: string | null;
 }
 
+test("center discovery publishes the TLS name and browser login route", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-oidc-discovery-"));
+  mkdirSync(path.join(root, "rbac"), { recursive: true });
+  writeFileSync(
+    path.join(root, "rbac", "config.json"),
+    JSON.stringify({
+      mode: "managed",
+      url: "https://keycloak-internal.example.test",
+      realm: "harness",
+      clientId: "harness-center",
+      servername: "keycloak-private.example.test",
+      listener: {
+        address: "0.0.0.0",
+        hostname: "login.example.test",
+        port: 9443,
+        certificateFile: path.join(root, "login.crt"),
+        certificateKeyFile: path.join(root, "login.key"),
+      },
+    }),
+  );
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const authority = new OidcSessionService(root, {} as KeycloakSessionHost).discovery("node-a");
+  assert.deepEqual(authority, {
+    url: "https://login.example.test:9443",
+    realm: "harness",
+    clientId: "harness-node-node-a",
+    servername: "login.example.test",
+    browserUrl: "https://login.example.test:9443",
+  });
+});
+
 function renewalFixture(
   t: TestContext,
   sessionAuthority: { readonly clientId?: string; readonly clientSecret?: string },

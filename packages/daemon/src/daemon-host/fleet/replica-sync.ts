@@ -7,7 +7,8 @@ import { readReplicaGeneration } from "../../fleet-sync/fleet/replica-generation
 import { recordReplicaHealth, replicaFailure } from "../../fleet-sync/fleet/replica-health.ts";
 import { isDeterministicReplicaFailure, replicaRetryDelay } from "../../fleet-sync/fleet/replica-retry.ts";
 const DEFAULT_CONFIRM_TIMEOUT_MS = daemonProtocolFleetPolicy.defaultValue.fleet.replicationIdleTimeoutMs;
-export interface ReplicaSyncOptions extends Omit<FleetReplicaStreamOptions, "onApplied"> {
+export interface ReplicaSyncOptions extends Omit<FleetReplicaStreamOptions, "onApplied" | "resumeOnly"> {
+  readonly resumeOnly?: boolean | (() => boolean | undefined);
   readonly signal?: AbortSignal;
   /** Daemon lifetime ends confirmation work even when an edge stream is being drained. */
   readonly shutdownSignal?: AbortSignal;
@@ -327,25 +328,29 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
     while (!options.signal?.aborted) {
       stream.down = null;
       stream.connection = new AbortController();
-      const attempt = await runSyncAttempt({
-        ...options,
-        signal: options.signal ? AbortSignal.any([options.signal, stream.connection.signal]) : stream.connection.signal,
-        onApplied: async (position, changedPaths) => {
-          if (streams.get(key) !== stream || options.signal?.aborted) return;
-          if (`${position.history}:${position.sequence}` !== lastPosition) {
-            failures = 0;
-            deterministicFailures = 0;
-          }
-          lastPosition = `${position.history}:${position.sequence}`;
-          if (!changedPaths) pendingChangedPaths = null;
-          else if (pendingChangedPaths) for (const changed of changedPaths) pendingChangedPaths.add(changed);
-          observe(null);
-          options.onReplicaHealthChange?.();
-          settle(key, position.sequence);
-          settleReady(key, true);
-          confirm();
-        },
-      });
+      const resumeOnly = typeof options.resumeOnly === "function" ? options.resumeOnly() : options.resumeOnly,
+        attempt = await runSyncAttempt({
+          ...options,
+          resumeOnly,
+          signal: options.signal
+            ? AbortSignal.any([options.signal, stream.connection.signal])
+            : stream.connection.signal,
+          onApplied: async (position, changedPaths) => {
+            if (streams.get(key) !== stream || options.signal?.aborted) return;
+            if (`${position.history}:${position.sequence}` !== lastPosition) {
+              failures = 0;
+              deterministicFailures = 0;
+            }
+            lastPosition = `${position.history}:${position.sequence}`;
+            if (!changedPaths) pendingChangedPaths = null;
+            else if (pendingChangedPaths) for (const changed of changedPaths) pendingChangedPaths.add(changed);
+            observe(null);
+            options.onReplicaHealthChange?.();
+            settle(key, position.sequence);
+            settleReady(key, true);
+            confirm();
+          },
+        });
       if (options.signal?.aborted) return;
       const error = attempt.failed ? attempt.error : null;
       // Release any hung confirmation tied to the dropped connection so reconnects can re-confirm.

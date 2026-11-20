@@ -23,6 +23,11 @@ import { readReplicaHealth, recordReplicaHealth } from "../src/fleet-sync/fleet/
 import { waitForFleetReplicaReady } from "../src/daemon-host/fleet/replica-sync.ts";
 import { fleetBaseBackupTrace } from "@harness-anything/storage";
 import { oidcCenterSelections } from "../src/daemon-host/oidc-center-selection.ts";
+import {
+  readFleetOperationalClient,
+  readFleetRepositoryMetadataClient,
+} from "../src/daemon-host/fleet/peer.ts";
+import { runtimeForwardingContext } from "../src/daemon-host/fleet/forwarding-port.ts";
 
 async function listenFleetLoginProxy(
   t: TestContext,
@@ -137,7 +142,9 @@ test(
       ...connection,
       loginUrl: f.owners.url,
       loginRealm: "harness",
-      loginBrowserUrl: f.owners.url,
+      loginServername: "ssh-login.edge.example.test",
+      loginBrowserUrl: "https://edge-browser.example.test",
+      loginCertificate: "ssh-edge-certificate",
     });
     f.owners.keycloak.interactiveSession(
       "person-one",
@@ -168,8 +175,10 @@ test(
     } = persisted;
     assert.deepEqual(persistedConnection, changed);
     assert.equal(persisted?.loginUrl, f.owners.url);
-    assert.equal(persisted?.loginRealm, "tenant-realm");
-    assert.equal(persisted?.loginBrowserUrl, undefined);
+    assert.equal(persisted?.loginRealm, "harness");
+    assert.equal(persisted?.loginServername, "ssh-login.edge.example.test");
+    assert.equal(persisted?.loginBrowserUrl, "https://edge-browser.example.test");
+    assert.equal(persisted?.loginCertificate, "ssh-edge-certificate");
     const listed = await e.command({ kind: "task-list" });
     const rows = listed.rows as Array<{ readonly taskId?: string }>;
     assert.deepEqual(
@@ -580,14 +589,6 @@ test(
           loginRequests.push(String(input));
           return Response.json({ issuer: `${publishedAuthority.url}/realms/${publishedAuthority.realm}` });
         }) as typeof fetch,
-        loginAuthority: async () => ({
-          url: loginConfig.loginUrl!,
-          realm: loginConfig.loginRealm!,
-          clientId: `harness-node-${loginConfig.nodeId}`,
-          ...(loginConfig.loginBrowserUrl ? { browserUrl: loginConfig.loginBrowserUrl } : {}),
-          ...(loginConfig.loginCertificate ? { certificate: loginConfig.loginCertificate } : {}),
-          ...(loginConfig.loginServername ? { servername: loginConfig.loginServername } : {}),
-        }),
       }),
       login = await identity.begin("http://127.0.0.1:43123/callback", e.edgeRoot);
     assert.equal(
@@ -599,6 +600,42 @@ test(
     assert.equal(readFleetEdgeConfig(e.edgeUser, "lease-repo")?.loginServername, publishedAuthority.servername);
     assert.equal(readFleetEdgeConfig(e.edgeUser, "lease-repo")?.loginCertificate, publishedAuthority.certificate);
     assert.equal(readFileSync(localMarker, "utf8"), "operator-owned state\n");
+    const runtimePeer = runtimeForwardingContext(
+      { ...loginConfig, workspaceRoot: e.edgeRoot, caPath: path.join(f.root, "tls.crt") },
+      async () => undefined,
+    ).runtimeReadPeer;
+    await assert.rejects(
+      readFleetOperationalClient({
+        ...runtimePeer,
+        spkiSha256: "0".repeat(64),
+        method: "repo.tasks.autoDispatchCandidates",
+        payload: {},
+      }),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "pin_mismatch",
+    );
+    await assert.rejects(
+      readFleetRepositoryMetadataClient({
+        ...runtimePeer,
+        spkiSha256: "0".repeat(64),
+        includeGitMetadata: true,
+      }),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "pin_mismatch",
+    );
+    const wrongPinConfig = { ...loginConfig, spkiSha256: "0".repeat(64) };
+    writeFleetEdgeConfig(e.edgeUser, "lease-repo", wrongPinConfig);
+    const blockedLoginRequests: string[] = [],
+      blockedIdentity = createIdentitySession(e.edgeUser, {
+        fetch: (async (request) => {
+          blockedLoginRequests.push(String(request));
+          return new Response("{}", { status: 200 });
+        }) as typeof fetch,
+      });
+    await assert.rejects(
+      blockedIdentity.begin("http://127.0.0.1:43123/callback", e.edgeRoot),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "pin_mismatch",
+    );
+    assert.deepEqual(blockedLoginRequests, []);
+    writeFleetEdgeConfig(e.edgeUser, "lease-repo", loginConfig);
     const afterGeneration = readReplicaGeneration(path.join(e.viewRoot, "repos", "lease-repo", "views", "node-one"))!;
     assert.equal(afterGeneration.id, beforeGeneration.id);
     assert.equal(afterGeneration.metadata.position.sequence, receipt.replicationSequence);

@@ -362,6 +362,16 @@ export async function repointFleetEdgeMirror(
   input: FleetEdgeRepointRequest,
   readAccessToken?: () => Promise<string | undefined>,
   onAdmitted?: () => void,
+  withReplicaSyncFence: <T>(repoId: string, operation: () => Promise<T>) => Promise<T>,
+): Promise<Record<string, unknown>> {
+  const run = () => repointFleetEdgeMirrorFenced(input, readAccessToken, onAdmitted);
+  return withReplicaSyncFence(input.payload.repoId, run);
+}
+
+async function repointFleetEdgeMirrorFenced(
+  input: FleetEdgeRepointRequest,
+  readAccessToken?: () => Promise<string | undefined>,
+  onAdmitted?: () => void,
 ): Promise<Record<string, unknown>> {
   const request = input.payload,
     previous = readFleetEdgeConfig(input.userRoot, request.repoId);
@@ -454,7 +464,14 @@ export async function repointFleetEdgeMirror(
       "lineage_tip_mismatch",
       "The new center history forks from the edge tip; repoint was refused.",
     );
-  if (head.writerEpoch <= oldEpoch)
+  const sameRepointTarget =
+    previous.resumeOnly === true &&
+    previous.host === request.host &&
+    previous.port === request.port &&
+    previous.caPath === request.caPath &&
+    previous.servername === request.servername &&
+    previous.spkiSha256 === request.spkiSha256;
+  if (head.writerEpoch < oldEpoch || (head.writerEpoch === oldEpoch && !sameRepointTarget))
     throw new FleetEdgeConfigError(
       "writer_epoch_not_advanced",
       `The new center writer epoch ${head.writerEpoch} is not greater than ${oldEpoch}.`,
@@ -497,7 +514,7 @@ export async function repointFleetEdgeMirror(
     workspaceRoot: input.workspaceRoot,
   };
   oidcCenterSelections(input.userRoot).clearAll();
-  persistEdgeConnection(input.userRoot, persistRequest, loginAuthority, head.writerEpoch, true);
+  persistEdgeConnection(input.userRoot, persistRequest, loginAuthority, head.writerEpoch, true, true);
   onAdmitted?.();
   // Even at the same sequence, the new stream must confirm it can resume before we lift the backup guard.
   await waitForFleetReplicaSequence(
@@ -547,13 +564,24 @@ function persistEdgeConnection(
   loginAuthority?: FleetEdgeSyncRequest["loginAuthority"],
   writerEpoch?: number,
   resumeOnly?: true,
+  replaceLoginAuthority = false,
 ): void {
   const previous = readFleetEdgeConfig(userRoot, request.repoId);
-  const loginUrl = loginAuthority?.url ?? previous?.loginUrl,
-    loginRealm = loginAuthority?.realm ?? previous?.loginRealm,
-    loginServername = loginAuthority ? loginAuthority.servername : previous?.loginServername,
-    loginBrowserUrl = loginAuthority ? loginAuthority.browserUrl : previous?.loginBrowserUrl,
-    loginCertificate = loginAuthority ? loginAuthority.certificate : previous?.loginCertificate;
+  const loginUrl = replaceLoginAuthority
+      ? loginAuthority?.url
+      : previous?.loginRealm === undefined && loginAuthority?.realm
+        ? loginAuthority.url
+        : (previous?.loginUrl ?? loginAuthority?.url),
+    loginRealm = replaceLoginAuthority ? loginAuthority?.realm : (previous?.loginRealm ?? loginAuthority?.realm),
+    loginServername = replaceLoginAuthority
+      ? loginAuthority?.servername
+      : (previous?.loginServername ?? loginAuthority?.servername),
+    loginBrowserUrl = replaceLoginAuthority
+      ? loginAuthority?.browserUrl
+      : (previous?.loginBrowserUrl ?? loginAuthority?.browserUrl),
+    loginCertificate = replaceLoginAuthority
+      ? loginAuthority?.certificate
+      : (previous?.loginCertificate ?? loginAuthority?.certificate);
   writeFleetEdgeConfig(userRoot, request.repoId, {
     repoId: request.repoId,
     host: request.host,

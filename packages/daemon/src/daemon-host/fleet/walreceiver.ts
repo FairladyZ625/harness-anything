@@ -388,8 +388,13 @@ export async function runWalReceiver(input: {
     const handshake = await peer.receive(signal);
     if (handshake.type === "replica.reject")
       throw Object.assign(new Error(handshake.message), { code: handshake.code });
-    if (handshake.type === "replica.resync" && handshake.reason === "authorization_denied")
-      await rejectUnauthorizedRead();
+    if (handshake.type === "replica.resync" && handshake.reason === "authorization_denied") {
+      if (!input.resumeOnly) await rejectUnauthorizedRead();
+      throw new ReplicationError(
+        "authorization_denied: The replacement center denied repository-read for this node.",
+        "authorization_denied",
+      );
+    }
     if (handshake.type !== "replica.accept")
       throw new ReplicationError("replication handshake acceptance required", "replica_protocol_error");
     if (handshake.taskEventShapeVersion > TASK_EVENT_SHAPE_COMPAT_VERSION)

@@ -45,7 +45,12 @@ import {
   type RuntimeInstallationWitness,
 } from "./agent-runtime-instances.ts";
 import { daemonBuildStamp, observeDaemonBuild } from "./build-identity.ts";
-import { fleetEdgeConfigDir, readFleetEdgeConfig, readFleetEdgeConfigForRoot } from "./client/fleet-edge-config.ts";
+import {
+  FleetEdgeConfigError,
+  fleetEdgeConfigDir,
+  readFleetEdgeConfig,
+  readFleetEdgeConfigForRoot,
+} from "./client/fleet-edge-config.ts";
 import {
   openNodeAutoClaimLoop,
   type NodeAutoClaimCandidate,
@@ -209,7 +214,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     replicaSyncControllers = new Map<
       string,
       { readonly controller: AbortController; readonly config: string; task: Promise<void> }
-    >();
+    >(),
+    replicaSyncFences = new Set<string>();
   const unavailable = new Map<string, RepoCellStatus>(),
     trackedRepoObservability = input.metricsEnabled
       ? instrumentTrackedRepoMaps({ cells, warming, unavailable })
@@ -795,6 +801,26 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       throw error;
     }
   }
+  async function withReplicaSyncFence<T>(repoId: string, operation: () => Promise<T>): Promise<T> {
+    if (replicaSyncFences.has(repoId))
+      throw new FleetEdgeConfigError(
+        "repoint_in_progress",
+        `A replica stream transition for ${repoId} is already active.`,
+      );
+    replicaSyncFences.add(repoId);
+    try {
+      const running = replicaSyncControllers.get(repoId);
+      if (running) {
+        running.controller.abort();
+        await running.task;
+        if (replicaSyncControllers.get(repoId) === running) replicaSyncControllers.delete(repoId);
+      }
+      return await operation();
+    } finally {
+      replicaSyncFences.delete(repoId);
+      startReplicaSyncs();
+    }
+  }
   const scheduleScheduler = makeScheduleScheduler({
     cells,
     now,
@@ -1224,6 +1250,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     replicaSyncTasks,
     replicaSyncControllers,
     startReplicaSyncs: () => startReplicaSyncs(),
+    startReplicaSyncsFor: (repoId) => startReplicaSyncs(repoId),
+    withReplicaSyncFence,
     settleControl,
     buildObserver,
     startInitialAttachments,
@@ -1418,6 +1446,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
                       : path.resolve(fleetEdgeConfigDir(input.userRoot, edge.repoId), edge.caPath),
                   ),
                   ...(edge.servername ? { servername: edge.servername } : {}),
+                  ...(edge.spkiSha256 ? { spkiSha256: edge.spkiSha256 } : {}),
                   nodeId: edge.nodeId,
                   credential: edge.credential,
                   repoId: edge.repoId,
@@ -1665,7 +1694,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       if (failure !== undefined) throw failure;
     },
   };
-  const startReplicaSyncs = (): void => {
+  const startReplicaSyncs = (admittedRepoId?: string): void => {
     if (closing) return;
     if (initialAttachments && !initialAttachmentsSettled) {
       if (!replicaSyncStartQueued) {
@@ -1689,8 +1718,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         continue;
       }
       activeRemoteEdges.add(repo.repoId);
+      if (replicaSyncFences.has(repo.repoId) && repo.repoId !== admittedRepoId) continue;
       // Recording the center epoch for repoint preflight does not change the active transport.
-      const { writerEpoch: _writerEpoch, ...streamConfig } = config;
+      const { writerEpoch: _writerEpoch, resumeOnly: _resumeOnly, ...streamConfig } = config;
       const running = replicaSyncControllers.get(repo.repoId),
         connection = JSON.stringify([rootDir, streamConfig]);
       if (running?.config === connection) continue;
@@ -1724,7 +1754,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         ca: readFileSync(caPath),
         ...(config.servername ? { servername: config.servername } : {}),
         ...(config.spkiSha256 ? { spkiSha256: config.spkiSha256 } : {}),
-        resumeOnly: config.resumeOnly,
+        resumeOnly: () => readFleetEdgeConfig(input.userRoot, repo.repoId)?.resumeOnly,
         nodeId: config.nodeId,
         credential: config.credential,
         repoId: config.repoId,

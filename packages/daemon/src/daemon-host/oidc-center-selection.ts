@@ -16,6 +16,7 @@ const edgeIdentity = (edge: FleetEdgeConfig) => ({
   port: edge.port,
   caPath: edge.caPath,
   ...(edge.servername ? { servername: edge.servername } : {}),
+  ...(edge.spkiSha256 ? { spkiSha256: edge.spkiSha256 } : {}),
 });
 
 function persistedSelection(selection: OidcCenterSelection): OidcCenterSelection {

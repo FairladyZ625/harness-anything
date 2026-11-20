@@ -40,7 +40,7 @@ export async function fleetRepointControl(
   if (!edge || edge.repoId !== target.repoId)
     return reject("fleet_edge_config_invalid", "A matching fleet-edge.json must exist before repoint.");
   const credential = flag("--credential") ?? edge.credential,
-    servername = flag("--servername") ?? edge.servername,
+    servername = flag("--servername") ?? flag("--host"),
     payload = {
       host: flag("--host"),
       port,

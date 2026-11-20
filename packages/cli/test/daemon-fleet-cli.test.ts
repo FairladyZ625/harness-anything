@@ -2,9 +2,13 @@
 import { fleetMirrorCutFile, locateFleetMirrorView } from "../../daemon/test/replica-catch-up.fixture.ts";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { localDaemonTargetKey } from "@harness-anything/daemon/internal/client/local-daemon-target";
-import { writeFleetEdgeConfig } from "@harness-anything/daemon/internal/client/fleet-edge-config";
+import {
+  readFleetEdgeConfig,
+  writeFleetEdgeConfig,
+} from "@harness-anything/daemon/internal/client/fleet-edge-config";
 import { signInProcessPolicyTestUser } from "../../daemon/test/keycloak-process-policy.fixtures.ts";
 import assert from "node:assert/strict";
+import { createHash, X509Certificate } from "node:crypto";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   existsSync,
@@ -411,6 +415,32 @@ test(
       ]);
       assert.equal(repaired.ok, true);
       assert.equal(retryReplicaPending(sync).ok, true);
+      const originalEdgeConfig = readFleetEdgeConfig(fixture.edgeUser, "fleet-demo")!,
+        spkiSha256 = createHash("sha256")
+          .update(new X509Certificate(readFileSync(fixture.cert)).publicKey.export({ type: "spki", format: "der" }))
+          .digest("hex");
+      writeFleetEdgeConfig(fixture.edgeUser, "fleet-demo", {
+        ...originalEdgeConfig,
+        servername: "old-center.example.test",
+        spkiSha256,
+      });
+      const servernameProbe = maybeRun(fixture, "edge", [
+        "daemon",
+        "fleet",
+        "edge",
+        "repoint",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        String(port),
+        "--ca",
+        fixture.ca,
+        "--spki-sha256",
+        spkiSha256,
+      ]);
+      assert.equal(servernameProbe.status, 1, JSON.stringify(servernameProbe));
+      assert.equal(servernameProbe.receipt.code, "writer_epoch_not_advanced", JSON.stringify(servernameProbe));
+      writeFleetEdgeConfig(fixture.edgeUser, "fleet-demo", originalEdgeConfig);
       assert.equal(
         existsSync(
           path.join(fixture.edgeUser, "fleet", localDaemonTargetKey(fixture.edgeUser, "default"), "center.json"),

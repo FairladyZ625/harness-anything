@@ -84,6 +84,7 @@ import { createHelloRateLimiter } from "./center-hello-guard.ts";
 import {
   closeableCenterReplicationSlots,
   createCenterNodePrincipals,
+  centerMovedFleetFault,
   openCenterRelocationEpochs,
   readListenerCenterRelocated,
 } from "./center-listener-relocation.ts";
@@ -543,6 +544,15 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         await peer.send({ type: "replica.resync", reason: "authorization_denied" });
         throw error;
       }
+      if (error instanceof FleetFault && error.code === "CENTER_MOVED") {
+        await peer.send({
+          type: "replica.reject",
+          code: error.code,
+          message: error.message,
+          centerBuildCommit: daemonBuildStamp().commit,
+          taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
+        });
+      }
       throw error;
     }
     const centerBuildCommit = daemonBuildStamp().commit;
@@ -882,6 +892,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const admitReplica = async (nodeId: string, repoId: string, accessToken?: string) => {
     if (!Number.isSafeInteger(options.replicaDiskQuotaBytes) || options.replicaDiskQuotaBytes! <= 0)
       throw new FleetFault("replica_quota_required", "Replica admission requires an explicit persistent disk quota.");
+    const moved = readListenerCenterRelocated(options, repoId);
+    if (moved) throw centerMovedFleetFault(moved);
     const a = await nodeContext(nodeId, repoId, accessToken);
     // The request user's repository-read authority admits this node's replica (CH1).
     const principal = await replicaAdmission(a),

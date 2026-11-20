@@ -644,7 +644,8 @@ export function createDaemonHostRuntimeApi(
               const session = await context.oidc.bind(auth, edgeRoot, true);
               return session.oidcPrincipal?.accessToken;
             },
-            () => context.startReplicaSyncs(),
+            () => context.startReplicaSyncsFor(request.repoId),
+            context.withReplicaSyncFence,
           );
         }
         const syncRequest = request as FleetEdgeSyncRequest["payload"],

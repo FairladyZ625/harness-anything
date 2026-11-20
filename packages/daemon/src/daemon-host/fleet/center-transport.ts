@@ -405,7 +405,8 @@ export async function serve(
           messageId: null,
           error,
         });
-      socket.destroy(error instanceof Error ? error : new Error(String(error)));
+      if (error instanceof FleetFault && error.code === "CENTER_MOVED") socket.end();
+      else socket.destroy(error instanceof Error ? error : new Error(String(error)));
     });
   };
   socket.on("data", (chunk) => {
