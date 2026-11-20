@@ -127,7 +127,7 @@ export function taskMutation(
         "Release criteria require the center AuthorizationPort decision.",
       );
     if (
-      foreignRuntimeDispatch
+      foreignRuntimeDispatch && !ownerRecovery
         ? !orphanRecovery
         : !sameHolder && !samePrincipalRecovery && !sessionHandoff && !ownerRecovery && !ownerForcedTakeover
     )
