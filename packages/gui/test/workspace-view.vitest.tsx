@@ -309,7 +309,14 @@ describe("overview narrative", () => {
           projectName="Harness"
           tasks={[
             row("task_gate", {
-              gates: [{ name: "human", ok: false, status: "missing" }],
+              gates: [
+                {
+                  name: "human",
+                  ok: false,
+                  status: "missing",
+                  attestation: { mode: "approve", adapterId: "manual-attest", executionId: "execution-1" },
+                },
+              ],
               iteration: 1,
               executions: [
                 {

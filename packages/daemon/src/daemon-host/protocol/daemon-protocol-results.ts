@@ -1151,6 +1151,7 @@ export interface AgendaAwaitsRow {
   readonly sourceRef: string;
   readonly title: string;
   readonly status: string;
+  readonly wakeTaskId?: string;
   readonly personId: string;
   readonly askKind: import("@harness-anything/kernel/internal/domain/task-blocking").AwaitsAskKind;
   readonly question: string;

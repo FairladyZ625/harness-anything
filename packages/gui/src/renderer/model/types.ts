@@ -63,6 +63,7 @@ export interface GateResult {
   readonly ok: boolean | null;
   readonly status?: GateStatus;
   readonly detail?: string;
+  readonly attestation?: TaskSnapshotProjectionRow["closeoutAssessment"]["gates"][number]["attestation"];
 }
 
 export type BlockingState = "blocked" | "clear" | "unknown";
@@ -162,6 +163,7 @@ interface TaskRowFields {
   waitingSince?: string;
   gates: readonly GateResult[];
   closeoutBlocker?: TaskSnapshotProjectionRow["closeoutAssessment"]["blocker"];
+  consentTarget?: { readonly reviewId: string; readonly executionId: string };
   snapshotAvailability?: TaskSnapshotProjectionRow["snapshotAvailability"];
   reviews?: TaskSnapshotProjectionRow["snapshot"]["reviews"];
   consents?: TaskSnapshotProjectionRow["snapshot"]["consents"];

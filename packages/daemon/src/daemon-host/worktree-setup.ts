@@ -26,6 +26,7 @@ import { posixShellFallback, runProcessExitAsync, runProcessTextAsync, startDeta
 import { nodeModulesSetupAdapter } from "./worktree-setup-node-modules.ts";
 import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import { resolveOwnedDirectory } from "./local-root-paths.ts";
+import { hostEnvironmentFilePath, writeHostEnvironmentFile } from "./host-environment-io.ts";
 import type { CanonicalEventStore } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 
 // dec_8B3FCCD256CAC5B0BF3CCEDE58 CH3: the repository declares in Settings `worktree.setup` what a fresh worktree
@@ -101,10 +102,7 @@ export async function runWorktreeSetup(input: WorktreeSetupInput): Promise<Workt
     const failure = await runStep(input, step, log);
     if (failure !== null) return { ok: false, step, position: index + 1, log, detail: failure };
     succeeded.push(step);
-    /* @gate-identity non-state/environment-io.584239915a9d403f */ writeFileSync(
-      path.join(directory, "succeeded.json"),
-      `${JSON.stringify(succeeded)}\n`,
-    );
+    await writeHostEnvironmentFile("worktreeSetupProgress", directory, `${JSON.stringify(succeeded)}\n`);
     ran.push(step);
   }
   return { ok: true, ran };
@@ -140,10 +138,7 @@ export async function cleanupWorktreeSetup(cwd: string, rootDir: string): Promis
     else kept.push(step);
   }
   if (kept.length !== succeeded.length)
-    /* @gate-identity non-state/environment-io.4a19b77cc94f5648 */ writeFileSync(
-      path.join(directory, "succeeded.json"),
-      `${JSON.stringify(kept)}\n`,
-    );
+    await writeHostEnvironmentFile("worktreeSetupProgress", directory, `${JSON.stringify(kept)}\n`);
 }
 
 async function runStep(input: WorktreeSetupInput, step: string, log: string): Promise<string | null> {
@@ -249,7 +244,7 @@ function setupDirectory(cwd: string): Promise<string> {
 }
 
 function readSucceeded(directory: string): string[] {
-  const file = path.join(directory, "succeeded.json");
+  const file = hostEnvironmentFilePath("worktreeSetupProgress", directory);
   return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as string[]) : [];
 }
 

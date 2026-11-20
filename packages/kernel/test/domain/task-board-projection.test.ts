@@ -164,6 +164,12 @@ test("complete is the kernel closeout readiness, not a status comparison", () =>
   assert.equal(reasonFor("complete", leased({ status: "in_review", closeoutReadiness: "ready" })), "lease_conflict");
 });
 
+test("archive requires an active native package with no effective execution lease", () => {
+  assert.equal(reasonFor("archive", row({ status: "done" })), null);
+  assert.equal(reasonFor("archive", leased({ status: "done" })), "lease_conflict");
+  assert.equal(reasonFor("archive", row({ status: "done", packageDisposition: "archived" })), "invalid_disposition");
+});
+
 test("no reason is free text: every word is a rejection code or a registered status word", () => {
   // The reviewer's rejection condition for this projection. A reason the renderer cannot map back
   // to the kernel is prose, and prose is what dec_8DCD52E9 froze 67 renderer judgments to stop.

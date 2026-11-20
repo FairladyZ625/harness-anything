@@ -192,6 +192,7 @@ export const taskCapabilityIdWords = Object.freeze([
   "submit",
   "review",
   "complete",
+  "archive",
 ] as const satisfies readonly TaskCapabilityId[]);
 
 export const taskCapabilityIdWordsAreExact: [TaskCapabilityId] extends [(typeof taskCapabilityIdWords)[number]]

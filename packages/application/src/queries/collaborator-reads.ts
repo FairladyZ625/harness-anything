@@ -22,6 +22,7 @@ import {
   type CloseoutSnapshot,
 } from "@harness-anything/kernel/internal/domain/closeout-readiness.ts";
 import { canOverrideGate } from "@harness-anything/kernel/internal/domain/completion-gate-policy.ts";
+import { approvedReviewHistoryForExecution } from "@harness-anything/kernel/internal/domain/review.ts";
 import type { EventListQuery } from "@harness-anything/kernel/internal/domain/event-list.ts";
 import {
   effectiveRepositoryMode,
@@ -181,40 +182,85 @@ export function readCollaboratorTaskPage(
   };
 }
 
-/** A task can still be active while its current execution has an accepted cut and gate receipts. */
+/** Offer attestation only against a single native cut and its actual gate judgments. */
+export function projectTaskCloseoutActions(
+  snapshot: CloseoutSnapshot,
+  availability: CloseoutProjectionAvailability,
+  assessment: CloseoutAssessment,
+): CloseoutAssessment {
+  const status = snapshot.task?.status;
+  if (
+    status === undefined ||
+    !isDomainStatus(status) ||
+    isTerminalStatus(status) ||
+    availability.gateWitnesses !== "known"
+  )
+    return assessment;
+  const cuts = currentExecutionCuts(snapshot),
+    cut = cuts.length === 1 ? cuts[0] : undefined,
+    submission = cut?.submission,
+    requirements = submission?.completionContract?.gates;
+  if (cut?.state !== "submitted" || !submission || !requirements) return assessment;
+  const consentReviewId =
+    assessment.blocker === "consent" &&
+    assessment.executionId === cut.executionId &&
+    status === "in_review" &&
+    availability.consents === "known"
+      ? approvedReviewHistoryForExecution(snapshot.reviews, cut).at(-1)?.reviewId
+      : undefined;
+  const byGateId = new Map(requirements.map((requirement) => [requirement.gateId, requirement]));
+  // An active task may already have an accepted cut and receipts. Its task-level
+  // readiness is still not_required, so bind only the gate rows to that cut.
+  const gates =
+    assessment.executionId === cut.executionId
+      ? assessment.gates
+      : gateResults(snapshot, availability, cut.executionId, submission, cut.iteration);
+  return {
+    ...assessment,
+    ...(consentReviewId ? { consentReviewId } : {}),
+    gates: gates.map((gate) => {
+      const requirement = byGateId.get(gate.gateId);
+      if (
+        !requirement ||
+        requirement.witness.kind === "historical" ||
+        isRetiredGateRequirement(gate.gateId, requirement)
+      )
+        return gate;
+      const manual = requirement.witness.kind === "manual",
+        mode =
+          gate.status === "signoff_missing" || (gate.status === "missing" && manual)
+            ? "approve"
+            : canOverrideGate(gate.status, requirement.allowOverride, manual)
+              ? "override"
+              : null;
+      return mode === null
+        ? gate
+        : { ...gate, attestation: { mode, executionId: cut.executionId, adapterId: requirement.witness.adapterId } };
+    }),
+  };
+}
+
 export function readAttestationPool<
   Row extends {
     readonly snapshot: CloseoutSnapshot;
-    readonly snapshotAvailability: CloseoutProjectionAvailability;
     readonly closeoutAssessment: CloseoutAssessment;
   },
   Page extends { readonly rows: readonly Row[] },
 >(page: Page & { readonly rows: readonly Row[] }) {
   return {
     ...page,
-    rows: page.rows.flatMap((row) => {
-      const { snapshot, snapshotAvailability, closeoutAssessment } = row,
+    rows: page.rows.filter((row) => {
+      const { snapshot, closeoutAssessment } = row,
         status = snapshot.task?.status;
-      if (status === undefined || !isDomainStatus(status) || isTerminalStatus(status)) return [];
-      if (status === "submitted" || status === "in_review" || closeoutAssessment.blocker === "consent") return [row];
-      const cuts = currentExecutionCuts(snapshot),
-        cut = cuts.length === 1 ? cuts[0] : undefined,
-        submission = cut?.submission;
-      if (cut === undefined || !submission) return [];
-      // The task-level readiness verdict leaves active gates unbound. Evaluate this execution
-      // explicitly so the pool displays the actual pass awaiting signoff or recorded failure.
-      const gates = gateResults(snapshot, snapshotAvailability, cut.executionId, submission, cut.iteration),
-        actionable = gates.some(({ gateId, status }) => {
-          const requirement = submission.completionContract?.gates.find((gate) => gate.gateId === gateId),
-            manual = requirement?.witness.adapterId === "manual-attest";
-          return (
-            !isRetiredGateRequirement(gateId, requirement) &&
-            (status === "signoff_missing" ||
-              (status === "missing" && manual) ||
-              canOverrideGate(status, requirement?.allowOverride, manual))
-          );
-        });
-      return actionable ? [{ ...row, closeoutAssessment: { ...closeoutAssessment, gates } }] : [];
+      return (
+        status !== undefined &&
+        isDomainStatus(status) &&
+        !isTerminalStatus(status) &&
+        (status === "submitted" ||
+          status === "in_review" ||
+          closeoutAssessment.blocker === "consent" ||
+          closeoutAssessment.gates.some(({ attestation }) => attestation !== undefined))
+      );
     }),
   };
 }

@@ -1406,6 +1406,7 @@ test("agenda lists awaits addressed to the reader first and moves the held task 
       sourceRef: "task/task_held",
       title: "task_held",
       status: "planned",
+      wakeTaskId: "task_held",
       personId: "owner",
       askKind: "acceptance",
       question: "请亲自上手验收总览页",

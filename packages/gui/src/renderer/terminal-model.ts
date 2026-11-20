@@ -29,10 +29,10 @@ export interface TerminalStreamFrame {
   readonly occurredAt: string;
 }
 
-export function mostRecentAttachableTerminal<T extends { readonly status: string; readonly attachable: boolean }>(
+export function mostRecentAttachableTerminal<T extends { readonly attachable: boolean }>(
   sessions: readonly T[],
 ): T | null {
-  return [...sessions].reverse().find((session) => session.status === "running" && session.attachable) ?? null;
+  return sessions.findLast(({ attachable }) => attachable) ?? null;
 }
 
 export function reduceTerminalStream(tab: TerminalTab, frame: TerminalStreamFrame): TerminalTab {

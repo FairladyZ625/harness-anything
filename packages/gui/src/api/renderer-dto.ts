@@ -7,7 +7,7 @@ export {
   gateGovernanceValue,
 } from "@harness-anything/kernel/browser";
 export type { GateMappingDraft, GateMappingIssue, GateMappingRowIssue } from "@harness-anything/kernel/browser";
-export { isMirrorQuotaValid, shouldExpireApproval, canOverrideGate } from "@harness-anything/kernel/browser";
+export { isMirrorQuotaValid, shouldExpireApproval } from "@harness-anything/kernel/browser";
 import type {
   DaemonGuiActionResult,
   DaemonGuiReadPayloadMap,

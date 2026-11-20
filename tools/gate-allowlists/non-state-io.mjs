@@ -332,26 +332,6 @@ export const nonStateIoDeclarations = Object.freeze([
     scope: "runWorktreeSetup",
   },
   {
-    id: "environment-io.584239915a9d403f",
-    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
-    category: "environment-io",
-    subtype: "worktree-setup",
-    reason:
-      "This worktree setup log, link, or mirror is derived from canonical repository/task data and recreated or discarded with the worktree. Signal: writeFileSync in runWorktreeSetup.",
-    api: "writeFileSync",
-    scope: "runWorktreeSetup",
-  },
-  {
-    id: "environment-io.4a19b77cc94f5648",
-    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
-    category: "environment-io",
-    subtype: "worktree-setup",
-    reason:
-      "This worktree setup log, link, or mirror is derived from canonical repository/task data and recreated or discarded with the worktree. Signal: writeFileSync in cleanupWorktreeSetup.",
-    api: "writeFileSync",
-    scope: "cleanupWorktreeSetup",
-  },
-  {
     id: "environment-io.2b5cb73c19477a59",
     path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
@@ -1282,26 +1262,6 @@ export const nonStateIoDeclarations = Object.freeze([
     scope: "listenFleetTls",
   },
   {
-    id: "environment-io.3a4b5c6d7e8f9012",
-    path: "packages/daemon/src/daemon-host/fleet/center-listener.ts",
-    category: "environment-io",
-    subtype: "fleet-replication-scratch",
-    reason:
-      "Writes temporary pin.json.tmp metadata for resumable basebackup snapshot cache; stores no durable domain state. Signal: writeFileSync in source.",
-    api: "writeFileSync",
-    scope: "source",
-  },
-  {
-    id: "environment-io.4b5c6d7e8f901234",
-    path: "packages/daemon/src/daemon-host/fleet/center-listener.ts",
-    category: "environment-io",
-    subtype: "fleet-replication-scratch",
-    reason:
-      "Atomically renames pin.json.tmp to pin.json for resumable basebackup snapshot cache; stores no durable domain state. Signal: renameSync in source.",
-    api: "renameSync",
-    scope: "source",
-  },
-  {
     id: "environment-io.6cc0d5c726eb11a2",
     path: "packages/daemon/src/daemon-host/fleet/edge-join-client.ts",
     category: "environment-io",
@@ -1382,26 +1342,6 @@ export const nonStateIoDeclarations = Object.freeze([
     scope: "runWalReceiver",
   },
   {
-    id: "environment-io.7a1c9e2b4d6f8012",
-    path: "packages/daemon/src/daemon-host/fleet/walreceiver.ts",
-    category: "environment-io",
-    subtype: "fleet-replication-scratch",
-    reason:
-      "Writes temporary transfer.json.tmp progress metadata for resumable snapshot download staging; stores no durable domain state. Signal: writeFile in writeTransferState.",
-    api: "writeFile",
-    scope: "writeTransferState",
-  },
-  {
-    id: "environment-io.8b2d0f3c5e7a9123",
-    path: "packages/daemon/src/daemon-host/fleet/walreceiver.ts",
-    category: "environment-io",
-    subtype: "fleet-replication-scratch",
-    reason:
-      "Atomically renames transfer.json.tmp to transfer.json for resumable snapshot download staging; stores no durable domain state. Signal: rename in writeTransferState.",
-    api: "rename",
-    scope: "writeTransferState",
-  },
-  {
     id: "environment-io.9c3e1a4d6f8b0234",
     path: "packages/daemon/src/daemon-host/fleet/walreceiver.ts",
     category: "environment-io",
@@ -1442,16 +1382,6 @@ export const nonStateIoDeclarations = Object.freeze([
     scope: "handle",
   },
   {
-    id: "environment-io.ef127f14027bb02f",
-    path: "packages/daemon/src/daemon-host/migration-import-oracle-rebuild.ts",
-    category: "environment-io",
-    subtype: "migration-oracle-scratch",
-    reason:
-      "Constructs and tears down an ephemeral OS temporary sandbox under tmpdir() to replay historical git revisions into an in-memory migration import oracle; deleted in finally with zero persistent state. Signal: rmSync in rebuildEventOracle.",
-    api: "rmSync",
-    scope: "rebuildEventOracle",
-  },
-  {
     id: "environment-io.6873cfbd268957bd",
     path: "packages/daemon/src/daemon-host/migration-import-oracle-rebuild.ts",
     category: "environment-io",
@@ -1489,16 +1419,6 @@ export const nonStateIoDeclarations = Object.freeze([
     reason:
       "Constructs and tears down an ephemeral OS temporary sandbox under tmpdir() to replay historical git revisions into an in-memory migration import oracle; deleted in finally with zero persistent state. Signal: writeFileSync in createMigrationPlanningWorkspace.",
     api: "writeFileSync",
-    scope: "createMigrationPlanningWorkspace",
-  },
-  {
-    id: "environment-io.c07c59eed7fad03a",
-    path: "packages/daemon/src/daemon-host/migration-import-oracle-rebuild.ts",
-    category: "environment-io",
-    subtype: "migration-oracle-scratch",
-    reason:
-      "Constructs and tears down an ephemeral OS temporary sandbox under tmpdir() to replay historical git revisions into an in-memory migration import oracle; deleted in finally with zero persistent state. Signal: rmSync in createMigrationPlanningWorkspace.",
-    api: "rmSync",
     scope: "createMigrationPlanningWorkspace",
   },
   {
@@ -1619,16 +1539,6 @@ export const nonStateIoDeclarations = Object.freeze([
     reason:
       "Materializes canonical task-package files into an ephemeral tmpdir() scratch directory for read-only completion gate witness command evaluation and removes it in finally; canonical task state remains in the ledger. Signal: mkdirSync in collectCommandWitness.",
     api: "mkdirSync",
-    scope: "collectCommandWitness",
-  },
-  {
-    id: "environment-io.8c352b21fa3e0324",
-    path: "packages/daemon/src/daemon-host/repo-cell-command-witness.ts",
-    category: "environment-io",
-    subtype: "completion-witness-scratch",
-    reason:
-      "Materializes canonical task-package files into an ephemeral tmpdir() scratch directory for read-only completion gate witness command evaluation and removes it in finally; canonical task state remains in the ledger. Signal: rmSync in collectCommandWitness.",
-    api: "rmSync",
     scope: "collectCommandWitness",
   },
   {

@@ -131,7 +131,7 @@ function projection(
     executionEvidence: [],
     board: { columnId: "review", rank: 1 },
     visibility: { archived: false, noise: false },
-    capabilities: [],
+    capabilities: status === "done" ? [{ id: "archive", available: true, reason: null }] : [],
     risk: { flagged: false },
     phase: { index: 0, reason: null, steps: ["planned", "active", "in_review", "done"] },
   } as TaskSnapshotProjectionRow;
@@ -808,6 +808,8 @@ describe("Agenda inline actions", () => {
   it("keeps archived recent delivery in quiet FYI, excluding it from active Outbox", () => {
     const archived = projection("received", "done", AT);
     archived.placement = { ...archived.placement, packageDisposition: "archived" };
+    archived.visibility = { archived: true, noise: true };
+    archived.capabilities = [{ id: "archive", available: false, reason: "invalid_disposition" }];
     seedTasks([archived, projection("next", "done", AT)]);
     render();
     chip("出件验收");
@@ -897,6 +899,20 @@ function resumeRead() {
 }
 
 describe("Agenda durable answer then outside-write continuation", () => {
+  it("offers a fresh wake only when agenda projects the target", async () => {
+    const spawn = runtime();
+    vi.spyOn(harnessClient, "retireRelation").mockResolvedValue(applied());
+    render(agenda({ awaitingYou: [ask("without-target")] }));
+    expect(find("agenda-current-card").querySelector('[role="switch"]')).toBeNull();
+    render(agenda({ awaitingYou: [ask("with-target", { wakeTaskId: "task_question" })] }));
+    expect(find("agenda-current-card").querySelector('[role="switch"]')).not.toBeNull();
+    input(find("awaits-answer-comment"), "Proceed");
+    click("awaits-answer-submit");
+    await settle(() =>
+      expect(spawn).toHaveBeenCalledWith("repo", expect.objectContaining({ taskId: "task_question" })),
+    );
+  });
+
   it.each([true, false])("awaits resumes only after applied, autoWake=%s", async (autoWake) => {
     resumeRead();
     const spawn = runtime();
@@ -1025,7 +1041,11 @@ describe("Agenda delivery acceptance", () => {
     );
     const archive = vi.spyOn(harnessClient, "archiveTasks").mockImplementation(async ({ taskIds }) => {
       for (const row of [a, b])
-        if (taskIds.includes(row.taskId)) row.placement = { ...row.placement, packageDisposition: "archived" };
+        if (taskIds.includes(row.taskId)) {
+          row.placement = { ...row.placement, packageDisposition: "archived" };
+          row.visibility = { archived: true, noise: true };
+          row.capabilities = [{ id: "archive", available: false, reason: "invalid_disposition" }];
+        }
       seedTasks([{ ...a }, { ...b }, other]);
       return applied();
     });
@@ -1042,14 +1062,30 @@ describe("Agenda delivery acceptance", () => {
     await settle(() => expect(selected()).toBe(batch ? "other" : "b"));
     expect(find("agenda-quiet-fyi").textContent).toContain("a");
   });
+  it("requires the projected archive capability for a completed delivery", () => {
+    const row = projection("unavailable-archive", "done", AT);
+    row.capabilities = [{ id: "archive", available: false, reason: "lease_conflict" }];
+    seedTasks([row]);
+    render();
+    chip("出件验收");
+    expect(selected()).toBe(row.taskId);
+    expect(host.querySelector('[data-testid="agenda-archive"]')).toBeNull();
+    expect(find("agenda-followup-title")).toBeTruthy();
+  });
   it("consents to the reviewed execution and sends rework reason with canonical cut", async () => {
     const row = projection("review", "in_review");
+    row.closeoutAssessment = {
+      ...row.closeoutAssessment,
+      blocker: "consent",
+      consentReviewId: "review_one",
+      executionId: "exe_reviewed",
+    };
     row.snapshot = {
       ...row.snapshot,
       reviews: [
         {
-          reviewId: "review_one",
-          executionId: "exe_reviewed",
+          reviewId: "review_old",
+          executionId: "exe_old",
           reviewedAt: AT,
           reason: "Approved",
           evidenceChecked: [],

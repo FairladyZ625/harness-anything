@@ -1,16 +1,4 @@
-import {
-  copyFile,
-  link,
-  mkdir,
-  open,
-  readdir,
-  readFile,
-  rename,
-  rm,
-  stat,
-  writeFile,
-  type FileHandle,
-} from "node:fs/promises";
+import { copyFile, link, mkdir, open, readdir, readFile, rename, rm, stat, type FileHandle } from "node:fs/promises";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -25,6 +13,7 @@ import {
 import { consumeKnownError, TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
 import { openReplicationCommitFile } from "../../fleet-sync/fleet/commit-file.ts";
 import { daemonBuildStamp } from "../build-identity.ts";
+import { hostEnvironmentFilePath, writeHostEnvironmentFile } from "../host-environment-io.ts";
 import {
   isBaseBackupMetadata,
   ReplicationError,
@@ -128,7 +117,7 @@ async function findResumableSnapshot(snapshotsRoot: string): Promise<{
     if (!entry.isDirectory()) continue;
     const snapshotDir = path.join(snapshotsRoot, entry.name);
     try {
-      const raw = await readFile(path.join(snapshotDir, "transfer.json"), "utf8");
+      const raw = await readFile(hostEnvironmentFilePath("fleetSnapshotTransfer", snapshotDir), "utf8");
       const parsed = JSON.parse(raw) as Partial<StagedSnapshotTransfer>;
       if (
         parsed.schema !== "fleet-snapshot-transfer/v1" ||
@@ -158,16 +147,6 @@ async function findResumableSnapshot(snapshotsRoot: string): Promise<{
     }
   }
   return null;
-}
-
-async function writeTransferState(transferFile: string, state: StagedSnapshotTransfer): Promise<void> {
-  const tmpFile = `${transferFile}.tmp`;
-  await /* @gate-identity non-state/environment-io.7a1c9e2b4d6f8012 */ writeFile(
-    tmpFile,
-    JSON.stringify(state),
-    "utf8",
-  );
-  await /* @gate-identity non-state/environment-io.8b2d0f3c5e7a9123 */ rename(tmpFile, transferFile);
 }
 
 async function clearStagedSnapshots(snapshotsRoot: string): Promise<void> {
@@ -498,7 +477,6 @@ export async function runWalReceiver(input: {
         if (frame.snapshotId) {
           const snapshotDir = path.join(snapshotsRoot, frame.snapshotId);
           const partFile = path.join(snapshotDir, "archive.part");
-          const transferFile = path.join(snapshotDir, "transfer.json");
           const resumeOffset = frame.resumeOffset ?? 0;
           if (resumeOffset > 0) {
             const currentStaged =
@@ -528,8 +506,14 @@ export async function runWalReceiver(input: {
           };
           let receivedBytes = resumeOffset;
           let lastFlushedBytes = resumeOffset;
+          const writeTransferState = (receivedBytes: number) =>
+            writeHostEnvironmentFile(
+              "fleetSnapshotTransfer",
+              snapshotDir,
+              JSON.stringify({ ...transferBase, receivedBytes }),
+            );
           if (resumeOffset === 0) {
-            await writeTransferState(transferFile, { ...transferBase, receivedBytes: 0 });
+            await writeTransferState(0);
           }
           if (resumeOffset > 0) {
             const truncateHandle = await /* @gate-identity non-state/environment-io.be503c6f8dae2456 */ open(
@@ -555,7 +539,7 @@ export async function runWalReceiver(input: {
                 await handle.writeFile(bytes);
                 receivedBytes += bytes.length;
                 if (receivedBytes - lastFlushedBytes >= SNAPSHOT_TRANSFER_FLUSH_BYTES) {
-                  await writeTransferState(transferFile, { ...transferBase, receivedBytes });
+                  await writeTransferState(receivedBytes);
                   lastFlushedBytes = receivedBytes;
                 }
               },
@@ -565,7 +549,7 @@ export async function runWalReceiver(input: {
             await handle.sync();
           } finally {
             if (receivedBytes !== lastFlushedBytes) {
-              await writeTransferState(transferFile, { ...transferBase, receivedBytes }).catch(() => undefined);
+              await writeTransferState(receivedBytes).catch(() => undefined);
             }
             await handle.close();
           }

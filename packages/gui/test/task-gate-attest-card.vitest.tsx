@@ -121,10 +121,14 @@ async function typeInto(textarea: HTMLTextAreaElement, value: string) {
 describe("TaskGateAttestCard", () => {
   it("attests a manual-attest gate with the typed note and passes an empty note as undefined", async () => {
     const attest = await mountCard(
-      cardTask(
-        [{ name: "ux-signoff", ok: null, status: "missing" }],
-        contractExecution("task-card", "ux-signoff", "manual-attest"),
-      ),
+      cardTask([
+        {
+          name: "ux-signoff",
+          ok: null,
+          status: "missing",
+          attestation: { mode: "approve", adapterId: "manual-attest", executionId: "execution-task-card" },
+        },
+      ]),
     );
     await act(async () => {
       byTestId("task-gate-approve-ux-signoff").click();
@@ -143,10 +147,14 @@ describe("TaskGateAttestCard", () => {
 
   it("signs with an empty note as undefined rather than an empty string", async () => {
     const attest = await mountCard(
-      cardTask(
-        [{ name: "ux-signoff", ok: null, status: "missing" }],
-        contractExecution("task-card", "ux-signoff", "manual-attest"),
-      ),
+      cardTask([
+        {
+          name: "ux-signoff",
+          ok: null,
+          status: "missing",
+          attestation: { mode: "approve", adapterId: "manual-attest", executionId: "execution-task-card" },
+        },
+      ]),
     );
     await act(async () => {
       byTestId("task-gate-approve-ux-signoff").click();
@@ -164,10 +172,14 @@ describe("TaskGateAttestCard", () => {
 
   it("offers the override entry only for contract-declared overridable gates and enforces the 10-char rationale", async () => {
     const attest = await mountCard(
-      cardTask(
-        [{ name: "ci-gate", ok: false, status: "failed" }],
-        contractExecution("task-card", "ci-gate", "github-actions", { allowOverride: true }),
-      ),
+      cardTask([
+        {
+          name: "ci-gate",
+          ok: false,
+          status: "failed",
+          attestation: { mode: "override", adapterId: "local-command", executionId: "execution-task-card" },
+        },
+      ]),
     );
     expect(document.querySelector('[data-testid="task-gate-approve-ci-gate"]')).toBeNull();
     await act(async () => {
@@ -192,17 +204,15 @@ describe("TaskGateAttestCard", () => {
 
   it("attests a signoff_missing gate (automated pass, missing dual-control signoff) as approve", async () => {
     const attest = await mountCard(
-      cardTask(
-        [
-          {
-            name: "e2e",
-            ok: false,
-            status: "signoff_missing",
-            detail: "the automated witness passed; the mandatory human signoff is missing",
-          },
-        ],
-        contractExecution("task-card", "e2e", "local-command", { mandatorySignoff: true }),
-      ),
+      cardTask([
+        {
+          name: "e2e",
+          ok: false,
+          status: "signoff_missing",
+          attestation: { mode: "approve", adapterId: "local-command", executionId: "execution-task-card" },
+          detail: "the automated witness passed; the mandatory human signoff is missing",
+        },
+      ]),
     );
     await act(async () => {
       byTestId("task-gate-approve-e2e").click();
@@ -221,10 +231,15 @@ describe("TaskGateAttestCard", () => {
 
   it("offers break-glass for a missing automated witness on an allowOverride gate with the no-receipt explanation", async () => {
     const attest = await mountCard(
-      cardTask(
-        [{ name: "e2e", ok: null, status: "missing", detail: "runner unreachable; no gate witness" }],
-        contractExecution("task-card", "e2e", "local-command", { allowOverride: true }),
-      ),
+      cardTask([
+        {
+          name: "e2e",
+          ok: null,
+          status: "missing",
+          detail: "runner unreachable; no gate witness",
+          attestation: { mode: "override", adapterId: "local-command", executionId: "execution-task-card" },
+        },
+      ]),
     );
     expect(document.querySelector('[data-testid="task-gate-approve-e2e"]')).toBeNull();
     await act(async () => {
@@ -324,10 +339,14 @@ describe("TaskGateAttestCard", () => {
 
   it("disables the CTA while an attest write is in flight", async () => {
     await mountCard(
-      cardTask(
-        [{ name: "ux-signoff", ok: null, status: "missing" }],
-        contractExecution("task-card", "ux-signoff", "manual-attest"),
-      ),
+      cardTask([
+        {
+          name: "ux-signoff",
+          ok: null,
+          status: "missing",
+          attestation: { mode: "approve", adapterId: "manual-attest", executionId: "execution-task-card" },
+        },
+      ]),
       { state: "pending", kind: "attest", opId: "op-inflight", hint: "正在提交打勾签注…" },
     );
     expect((byTestId("task-gate-approve-ux-signoff") as HTMLButtonElement).disabled).toBe(true);

@@ -14,6 +14,7 @@ import { commandClassForAction, commandDescriptorForAction } from "../protocol/d
 import { createFleetDeliveryDrain } from "../../fleet-sync/fleet/center-delivery-drain.ts";
 import { createResourceBudget, DOC_SHOW_BUDGET_LIMITS, ResourceBudgetExceeded } from "./resource-budget.ts";
 import { fetchWorkerDelivery } from "../runtime-worker-push.ts";
+import { hostEnvironmentFilePath, writeHostEnvironmentFile } from "../host-environment-io.ts";
 import { assertFleetDeliveryHolder, type FleetDeliveryTask } from "../fleet-task-delivery.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import { isSquadControlResult } from "../squad-control-result.ts";
@@ -352,7 +353,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         let loaded = false;
         if (snapEntry.isDirectory()) {
           try {
-            const raw = readFileSync(path.join(snapshotDir, "pin.json"), "utf8");
+            const raw = readFileSync(hostEnvironmentFilePath("fleetSnapshotPin", snapshotDir), "utf8");
             const pin = JSON.parse(raw) as Partial<SnapshotPinRecord>;
             const createdAtMs = typeof pin.createdAt === "string" ? Date.parse(pin.createdAt) : Number.NaN;
             const expiresAtMs = typeof pin.expiresAt === "string" ? Date.parse(pin.expiresAt) : Number.NaN;
@@ -674,47 +675,38 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             buildSignal,
           );
         })()
-          .then(
-            (built) => {
-              completed = true;
-              const createdAtMs = Date.now();
-              const expiresAtMs = createdAtMs + snapshotPinTtlMs;
-              cachedArchive.size = built.size;
-              cachedArchive.positionSequence = built.metadata.position.sequence;
-              cachedArchive.createdAtMs = createdAtMs;
-              cachedArchive.expiresAtMs = expiresAtMs;
-              const pinRecord: SnapshotPinRecord = {
-                schema: "fleet-snapshot-pin/v1",
-                snapshotId,
-                repoId: frame.repoId,
-                mode,
-                metadata: { ...built.metadata, readerProfile: null },
-                position: built.metadata.position,
-                size: built.size,
-                sha256: built.sha256,
-                archiveFile: path.basename(built.file),
-                ...(built.objects ? { objects: built.objects } : {}),
-                ...(built.objectCount !== undefined ? { objectCount: built.objectCount } : {}),
-                createdAt: new Date(createdAtMs).toISOString(),
-                expiresAt: new Date(expiresAtMs).toISOString(),
-              };
-              const pinTmp = path.join(directory, "pin.json.tmp");
-              const pinFile = path.join(directory, "pin.json");
-              /* @gate-identity non-state/environment-io.3a4b5c6d7e8f9012 */ writeFileSync(
-                pinTmp,
-                JSON.stringify(pinRecord),
-                "utf8",
-              );
-              /* @gate-identity non-state/environment-io.4b5c6d7e8f901234 */ renameSync(pinTmp, pinFile);
-              pinnedSnapshots.set(snapshotId, cachedArchive);
-              resolveArchive(built);
-              evictSnapshotsIfNeeded();
-            },
-            (error: unknown) => {
-              rejectArchive(error);
-              retireBackup(cachedArchive);
-            },
-          )
+          .then(async (built) => {
+            const createdAtMs = Date.now();
+            const expiresAtMs = createdAtMs + snapshotPinTtlMs;
+            cachedArchive.size = built.size;
+            cachedArchive.positionSequence = built.metadata.position.sequence;
+            cachedArchive.createdAtMs = createdAtMs;
+            cachedArchive.expiresAtMs = expiresAtMs;
+            const pinRecord: SnapshotPinRecord = {
+              schema: "fleet-snapshot-pin/v1",
+              snapshotId,
+              repoId: frame.repoId,
+              mode,
+              metadata: { ...built.metadata, readerProfile: null },
+              position: built.metadata.position,
+              size: built.size,
+              sha256: built.sha256,
+              archiveFile: path.basename(built.file),
+              ...(built.objects ? { objects: built.objects } : {}),
+              ...(built.objectCount !== undefined ? { objectCount: built.objectCount } : {}),
+              createdAt: new Date(createdAtMs).toISOString(),
+              expiresAt: new Date(expiresAtMs).toISOString(),
+            };
+            await writeHostEnvironmentFile("fleetSnapshotPin", directory, JSON.stringify(pinRecord));
+            completed = true;
+            pinnedSnapshots.set(snapshotId, cachedArchive);
+            resolveArchive(built);
+            evictSnapshotsIfNeeded();
+          })
+          .catch((error: unknown) => {
+            rejectArchive(error);
+            retireBackup(cachedArchive);
+          })
           .finally(() => {
             cachedArchive.building = false;
             releaseSlot?.(completed);

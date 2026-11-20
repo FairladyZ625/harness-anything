@@ -33,7 +33,7 @@ export function TerminalPaneCard(props: IDockviewPanelProps<{ readonly sessionId
   const panelId = props.api.id,
     sessionId = props.params.sessionId,
     tab = actions.session(sessionId),
-    interactive = tab?.state === "running" && tab.attachable && actions.canInput(sessionId),
+    interactive = tab?.attachable === true && actions.canInput(sessionId),
     focused = actions.focusedPanelId === panelId;
   const [dropZone, setDropZone] = useState<TerminalSplitDirection | null>(null);
   const [menu, setMenu] = useState<{ readonly x: number; readonly y: number } | null>(null);

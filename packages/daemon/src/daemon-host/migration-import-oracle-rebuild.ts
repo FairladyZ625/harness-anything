@@ -4,7 +4,6 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
   realpathSync,
@@ -13,7 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { markdownH1 } from "./migration-import-tasks.ts";
-import { tmpdir } from "node:os";
+import { createHostScratchDirectory } from "./host-environment-io.ts";
 import path from "node:path";
 import {
   makeTaskProjection,
@@ -207,9 +206,7 @@ export function inspectMigrationSourceEvents(sourceRoot: string): MigrationEvent
 }
 
 function rebuildEventOracle(sourceRoot: string, inspection: MigrationEventInspection): MigrationProjectionOracle {
-  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migration-oracle-")),
-    databasePath = path.join(scratch, "task.sqlite"),
-    sourceRevision = inspection.eventHeadRevision ?? inspection.events.at(-1)?.workspaceRevision ?? 0,
+  const sourceRevision = inspection.eventHeadRevision ?? inspection.events.at(-1)?.workspaceRevision ?? 0,
     readSourceBlob = sourceBlobReader(sourceRoot, inspection.syntheticBlobs),
     eventDigest = inspection.events.length
       ? (`sha256:${sha256Text(serializePersistedCanonicalEvent(inspection.events.at(-1)!))}` as const)
@@ -219,6 +216,8 @@ function rebuildEventOracle(sourceRoot: string, inspection: MigrationEventInspec
     event.schema !== "relation-event/v1" && event.schema !== "migration-import-event/v1"
       ? event
       : (eventShapeMigrations["relation-events-migrate"].rewrite(event, projection!)?.event ?? event);
+  const scratch = createHostScratchDirectory("migrationOracle"),
+    databasePath = path.join(scratch.directory, "task.sqlite");
   try {
     const eventStore = {
       readHead: () => (sourceRevision === 0 || eventDigest === null ? null : { revision: sourceRevision, eventDigest }),
@@ -241,7 +240,7 @@ function rebuildEventOracle(sourceRoot: string, inspection: MigrationEventInspec
       },
       readContentBlob: readSourceBlob,
     };
-    projection = makeTaskProjection({ rootDir: scratch, projectionPath: databasePath, eventStore });
+    projection = makeTaskProjection({ rootDir: scratch.directory, projectionPath: databasePath, eventStore });
     projection.rebuild();
     projection.close();
     projection = undefined;
@@ -262,8 +261,11 @@ function rebuildEventOracle(sourceRoot: string, inspection: MigrationEventInspec
         `${error instanceof Error ? error.message : String(error)}.`,
     );
   } finally {
-    projection?.close();
-    /* @gate-identity non-state/environment-io.ef127f14027bb02f */ rmSync(scratch, { recursive: true, force: true });
+    try {
+      projection?.close();
+    } finally {
+      scratch.close();
+    }
   }
 }
 
@@ -720,40 +722,40 @@ export function createMigrationPlanningWorkspace(sourceRoot: string): {
   readonly stage: (bundle: CanonicalWriteBundle) => void;
   readonly close: () => void;
 } {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "harness-migration-stage-")),
-    sourceLayout = resolveHarnessLayout(sourceRoot),
+  const sourceLayout = resolveHarnessLayout(sourceRoot),
     sourceAuthoredRoot = sourceLayout.authoredRoot,
     sourceLocalRoot = existsSync(sourceLayout.localRoot)
       ? realpathSync.native(sourceLayout.localRoot)
-      : sourceLayout.localRoot,
-    authoredRoot = resolveHarnessLayout(rootDir).authoredRoot;
-  /* @gate-identity non-state/environment-io.6873cfbd268957bd */ mkdirSync(path.dirname(authoredRoot), {
-    recursive: true,
-  });
-  if (existsSync(sourceAuthoredRoot))
-    /* @gate-identity non-state/environment-io.86fb0c028d105218 */ cpSync(
-      realpathSync.native(sourceAuthoredRoot),
-      authoredRoot,
-      {
-        recursive: true,
-        dereference: false,
-        filter: (source) => path.basename(source) !== ".git" && source !== sourceLocalRoot,
-      },
+      : sourceLayout.localRoot;
+  const { directory: rootDir, close } = createHostScratchDirectory("migrationPlanning");
+  try {
+    const authoredRoot = resolveHarnessLayout(rootDir).authoredRoot;
+    /* @gate-identity non-state/environment-io.6873cfbd268957bd */ mkdirSync(path.dirname(authoredRoot), {
+      recursive: true,
+    });
+    if (existsSync(sourceAuthoredRoot))
+      /* @gate-identity non-state/environment-io.86fb0c028d105218 */ cpSync(
+        realpathSync.native(sourceAuthoredRoot),
+        authoredRoot,
+        {
+          recursive: true,
+          dereference: false,
+          filter: (source) => path.basename(source) !== ".git" && source !== sourceLocalRoot,
+        },
+      );
+    else /* @gate-identity non-state/environment-io.32dc7fc6cbd587cd */ mkdirSync(authoredRoot, { recursive: true });
+    // Layout discovery must remain confined to this fresh scratch workspace.
+    const scratchConfig = path.join(authoredRoot, "harness.yaml");
+    removeAuthored(scratchConfig);
+    /* @gate-identity non-state/environment-io.e02399272b58363c */ writeFileSync(
+      scratchConfig,
+      "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
     );
-  else /* @gate-identity non-state/environment-io.32dc7fc6cbd587cd */ mkdirSync(authoredRoot, { recursive: true });
-  // Layout discovery must remain confined to this fresh scratch workspace.
-  const scratchConfig = path.join(authoredRoot, "harness.yaml");
-  removeAuthored(scratchConfig);
-  /* @gate-identity non-state/environment-io.e02399272b58363c */ writeFileSync(
-    scratchConfig,
-    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
-  );
-  return {
-    rootDir,
-    stage: (bundle) => stageAuthored(bundle, authoredRoot),
-    close: () =>
-      /* @gate-identity non-state/environment-io.c07c59eed7fad03a */ rmSync(rootDir, { recursive: true, force: true }),
-  };
+    return { rootDir, stage: (bundle) => stageAuthored(bundle, authoredRoot), close };
+  } catch (error) {
+    close();
+    throw error;
+  }
 }
 
 function stageAuthored(bundle: CanonicalWriteBundle, authoredRoot: string): void {

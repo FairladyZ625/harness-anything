@@ -2218,6 +2218,7 @@
   "views.settingsView.retryLocalFiles": "Retry materialization",
   "views.agenda.answerRecorded": "Answer recorded · ",
   "views.agenda.wakeFailed": "Dispatch failed",
+  "views.agenda.wakeTargetUnavailable": "The task has no available dispatch target.",
   "views.agenda.waking": "Dispatching",
   "views.agenda.wakeStarted": "Session started",
   "views.agenda.wakePending": "Dispatch receipt pending",

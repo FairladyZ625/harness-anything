@@ -193,6 +193,12 @@ test("agenda result schema rejects mistyped pin state and misgrouped awaiting ro
   assert.notDeepEqual(validateDaemonAgenda({ ...agenda, awaitingYou: [{ ...awaits, askKind: "ask" }] }), []);
   assert.notDeepEqual(validateDaemonAgenda({ ...agenda, awaitingYou: [{ ...awaits, sourceRef: "fact/F-1" }] }), []);
   assert.notDeepEqual(validateDaemonAgenda({ ...agenda, awaitingYou: [{ ...awaits, question: "" }] }), []);
+  assert.deepEqual(validateDaemonAgenda({ ...agenda, awaitingYou: [{ ...awaits, wakeTaskId: "task-held" }] }), []);
+  assert.notDeepEqual(
+    validateDaemonAgenda({ ...agenda, awaitingYou: [{ ...awaits, wakeTaskId: "different-task" }] }),
+    [],
+  );
+  assert.notDeepEqual(validateDaemonAgenda({ ...agenda, awaitingYou: [{ ...awaits, wakeTaskId: 1 }] }), []);
   const { askedBy: _omitAskedBy, ...withoutAskedBy } = awaits;
   assert.notDeepEqual(validateDaemonAgenda({ ...agenda, awaitingYou: [withoutAskedBy] }), []);
   // answeredForYou rows carry the answer text; an empty answer or a non-task/decision source is refused.

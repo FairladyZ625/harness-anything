@@ -1,4 +1,5 @@
 import { currentSubmittedExecutions, type CloseoutReadiness } from "./closeout-readiness.ts";
+import { leaseIsEffective } from "./execution.ts";
 import { isTerminalStatus, type DomainStatus } from "./lifecycle-status.ts";
 import type { BlockingAssessmentState } from "./task-blocking.ts";
 import { canStartExecution } from "./task-lifecycle-command-transitions.ts";
@@ -69,12 +70,10 @@ export interface TaskRisk {
 }
 
 /**
- * Actions a board row gates today. `start` / `submit` / `review` / `complete` are Task Action
- * catalog ids; `progress` is the `task-progress-append` policy action the control panel gates
- * alongside submit. The catalog's remaining ids (release, amend, archive, supersede, delete,
- * reopen, contract-migrate) are not board affordances and are not projected onto every row.
+ * Task Action catalog affordances exposed to board and Agenda rows. `progress` is the
+ * `task-progress-append` action and `archive` serves delivery acceptance in Agenda.
  */
-export const taskCapabilityIds = ["start", "progress", "submit", "review", "complete"] as const;
+export const taskCapabilityIds = ["start", "progress", "submit", "review", "complete", "archive"] as const;
 export type TaskCapabilityId = (typeof taskCapabilityIds)[number];
 
 /**
@@ -187,6 +186,7 @@ function capabilityReason(id: TaskCapabilityId, row: TaskBoardRowInput): TaskCap
   if (id === "start") return startReason(row, task.status);
   if (id === "progress" || id === "submit") return leaseHolderReason(row, task.status);
   if (id === "review") return reviewReason(row);
+  if (id === "archive") return leaseIsEffective(row.snapshot.lease) ? "lease_conflict" : null;
   return row.snapshot.lease !== null ? "lease_conflict" : completeReason(row);
 }
 

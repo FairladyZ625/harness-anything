@@ -85,10 +85,18 @@ function projection(taskId: string, status: "done" | "in_review"): TaskSnapshotP
     executionEvidence: [],
     board: { columnId: "review", rank: 1 },
     visibility: { archived: false, noise: false },
-    capabilities: [],
+    capabilities: status === "done" ? [{ id: "archive", available: true, reason: null }] : [],
     risk: { flagged: false },
     phase: { index: 0, reason: null, steps: ["planned", "active", "in_review", "done"] },
   } as TaskSnapshotProjectionRow;
+}
+function archivedProjection(row: TaskSnapshotProjectionRow): TaskSnapshotProjectionRow {
+  return {
+    ...row,
+    placement: { ...row.placement, packageDisposition: "archived" },
+    visibility: { archived: true, noise: true },
+    capabilities: [{ id: "archive", available: false, reason: "invalid_disposition" }],
+  };
 }
 const applied = (extra: object = {}): GuiActionResult => ({
   schema: "command-receipt/v2",
@@ -126,9 +134,8 @@ beforeEach(() => {
     projection("b_done", "done"),
     projection("c_next", "in_review"),
     projection("d_sibling", "done"),
-    projection("z_received", "done"),
+    archivedProjection(projection("z_received", "done")),
   ];
-  rows[4].placement = { ...rows[4].placement, packageDisposition: "archived" };
   cache.setQueryData(taskQueryKeys.list("repo"), read());
   vi.spyOn(harnessClient, "getTasks").mockImplementation(async () => read());
   vi.spyOn(harnessClient, "getWorkIndex").mockResolvedValue({
@@ -238,11 +245,7 @@ it.each([
       const answer = await new Promise<GuiActionResult>((resolve) => {
         finish = resolve;
       });
-      rows = rows.map((row) =>
-        taskIds.includes(row.taskId)
-          ? { ...row, placement: { ...row.placement, packageDisposition: "archived" } }
-          : row,
-      );
+      rows = rows.map((row) => (taskIds.includes(row.taskId) ? archivedProjection(row) : row));
       return answer;
     });
     await createFollowup(quietOpen);
@@ -294,9 +297,7 @@ it.each([false, true])("drops an archived snapshot from another window, quietOpe
   const archive = vi.spyOn(harnessClient, "archiveTasks");
   await createFollowup(quietOpen);
   await act(async () => {
-    rows = rows.map((row) =>
-      row.taskId === "b_done" ? { ...row, placement: { ...row.placement, packageDisposition: "archived" } } : row,
-    );
+    rows = rows.map((row) => (row.taskId === "b_done" ? archivedProjection(row) : row));
     await cache.invalidateQueries({ queryKey: taskQueryKeys.all("repo") });
   });
   await wait(() => expect(get("agenda-quiet-fyi").textContent).toContain("Delivery b_done"));

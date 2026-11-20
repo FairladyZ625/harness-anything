@@ -125,6 +125,7 @@
     "packages/daemon/src/fleet-sync/fleet/replica-generation.ts",
     "packages/storage/src/fleet-replication-slot.ts",
     "packages/daemon/src/daemon-host/fleet/walreceiver.ts",
+    "packages/daemon/src/daemon-host/host-environment-io.ts",
     "packages/daemon/src/daemon-host/lifecycle-log.ts",
     "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts",
     "packages/authorization-keycloak/src/managed-rbac-relocation.ts",

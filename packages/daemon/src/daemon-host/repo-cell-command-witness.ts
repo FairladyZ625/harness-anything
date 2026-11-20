@@ -1,5 +1,5 @@
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
-import { tmpdir, devNull } from "node:os";
+import { mkdirSync } from "node:fs";
+import { devNull } from "node:os";
 import path from "node:path";
 import { localGitObjectRefStore } from "@harness-anything/storage";
 import {
@@ -19,6 +19,7 @@ import {
   submissionArtifactPath,
 } from "@harness-anything/application/internal/commands/submission-artifacts.ts";
 import { runProcessTextAsync } from "./process-port.ts";
+import { createHostScratchDirectory } from "./host-environment-io.ts";
 
 /** Runs accepted package bytes against the exact submitted input, outside the single writer queue. */
 export async function collectCommandWitness(
@@ -64,7 +65,7 @@ export async function collectCommandWitness(
       `Gate ${requirement.gateId} names a subject absent from the frozen submission.`,
     );
   const anchors = subjects.map(({ file: _file, ...anchor }) => anchor);
-  let codeRoot: string | undefined, scratch: string | undefined;
+  let codeRoot: string | undefined, scratch: ReturnType<typeof createHostScratchDirectory> | undefined;
   try {
     if (submission.commitSha) {
       const candidates = [
@@ -82,10 +83,10 @@ export async function collectCommandWitness(
           "witness_unavailable",
           `Submitted commit ${submission.commitSha} is not available on this node.`,
         );
-      scratch = mkdtempSync(path.join(tmpdir(), "ha-witness-code-"));
-      codeRoot = path.join(scratch, "code");
+      scratch = createHostScratchDirectory("completionWitness");
+      codeRoot = path.join(scratch.directory, "code");
       /* @gate-identity non-state/environment-io.fce35847c1d968e8 */ mkdirSync(codeRoot);
-      const archive = path.join(scratch, "code.tar"),
+      const archive = path.join(scratch.directory, "code.tar"),
         env = { PATH: globalThis.process.env.PATH, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull };
       await runProcessTextAsync(
         "git",
@@ -93,7 +94,7 @@ export async function collectCommandWitness(
         root,
         env,
       );
-      await runProcessTextAsync("tar", ["-xf", archive, "-C", codeRoot], scratch, env);
+      await runProcessTextAsync("tar", ["-xf", archive, "-C", codeRoot], scratch.directory, env);
     }
     inputs["witness.json"] = Buffer.from(
       JSON.stringify({
@@ -172,7 +173,6 @@ export async function collectCommandWitness(
       ...produced,
     };
   } finally {
-    if (scratch)
-      /* @gate-identity non-state/environment-io.8c352b21fa3e0324 */ rmSync(scratch, { recursive: true, force: true });
+    scratch?.close();
   }
 }

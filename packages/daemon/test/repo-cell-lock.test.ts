@@ -176,6 +176,14 @@ test("concurrent dead-holder recovery must have one singleton winner", async (t)
   assert.equal(outcomes.filter((outcome) => outcome.claim === "acquired").length, 1);
 });
 
+test("an open failure is reported by the filesystem and cannot enter stale lock recovery", async (t) => {
+  const directory = mkdtempSync(path.join(tmpdir(), "ha-lock-no-parent-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const missing = canonicalRoot(path.join(directory, "repo"), true);
+  rmSync(directory, { recursive: true, force: true });
+  await assert.rejects(acquireWorkspaceLock(missing), { code: "ENOENT" });
+});
+
 test("a separate writer process keeps its workspace lock during candidate attach", async (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), "ha-external-writer-"));
   const root = canonicalRoot(dir);
