@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import test from "node:test";
 import { appendRuntimeWorkerRecord, readDispatchStreamSummary } from "../src/daemon-host/dispatch-stream.ts";
+import { canonicalRoot } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { acquireWorkspaceLock } from "../src/daemon-host/repo-cell-lock.ts";
 import { makeScheduleScheduler } from "../src/daemon-host/schedule-scheduler.ts";
 import { activePhase } from "../src/daemon-host/squad-run-list.ts";
@@ -306,5 +307,76 @@ test(
         }),
       }),
     );
+  },
+);
+
+test(
+  "shared suite host evicts and closes a host after reopen or teardown failure so the next case gets a clean host",
+  { timeout: 90_000 },
+  async (t) => {
+    const recoveryHost = createSuiteHost("reopen-eviction");
+    let brokenRoot = "",
+      brokenParent = "";
+
+    await t.test("reopen failure evicts the broken shared host and preserves the original error", async (sub) => {
+      const first = await openFixture(sub, "reopen-fails", { host: recoveryHost });
+      brokenRoot = first.root;
+      brokenParent = first.parent;
+      let heldLock: Awaited<ReturnType<typeof acquireWorkspaceLock>> | null = null;
+      try {
+        await assert.rejects(
+          () =>
+            first.reopen(async () => {
+              heldLock = await acquireWorkspaceLock(canonicalRoot(first.root));
+            }),
+          /Workspace writer lock is held/u,
+        );
+      } finally {
+        await heldLock?.close();
+      }
+      assert.equal(existsSync(brokenParent), false, "failed reopen must close and remove the evicted host");
+    });
+
+    await t.test("next shared case receives a fresh clean host and succeeds at task-create", async (sub) => {
+      const second = await openFixture(sub, "after-reopen-failure", { host: recoveryHost });
+      assert.notEqual(second.root, brokenRoot, "next case must not reuse the evicted host");
+      assert.equal(existsSync(second.parent), true);
+      const created = await second.cell.run(
+        { kind: "task-create", taskId: "task-clean-after-reopen-evict", title: "Clean host", presetId: "docs-task" },
+        binding,
+      );
+      assert.equal(created.outcome, "applied", JSON.stringify(created));
+    });
+
+    let cleanupFn: (() => Promise<void>) | null = null;
+    const third = await openFixture(
+      {
+        after: (fn) => {
+          cleanupFn = fn;
+        },
+      },
+      "teardown-fails",
+      { host: recoveryHost },
+    );
+    const teardownBrokenRoot = third.root,
+      teardownBrokenParent = third.parent;
+    await third.cell.close();
+    await assert.rejects(() => cleanupFn!(), /repo_unavailable/u);
+    assert.equal(existsSync(teardownBrokenParent), false, "failed teardown must evict and remove the dirty host");
+
+    await t.test("next shared case after teardown failure also gets a fresh clean host", async (sub) => {
+      const fourth = await openFixture(sub, "after-teardown-failure", { host: recoveryHost });
+      assert.notEqual(fourth.root, teardownBrokenRoot);
+      const created = await fourth.cell.run(
+        {
+          kind: "task-create",
+          taskId: "task-clean-after-teardown-evict",
+          title: "Clean host 2",
+          presetId: "docs-task",
+        },
+        binding,
+      );
+      assert.equal(created.outcome, "applied", JSON.stringify(created));
+    });
   },
 );

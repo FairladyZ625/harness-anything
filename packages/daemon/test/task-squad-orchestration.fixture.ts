@@ -169,7 +169,9 @@ type OrchestrationHost = {
   activeProviders: Provider[] | null;
   readonly taskProjection: ReturnType<typeof makeTaskProjectionReader>;
   readonly onActivity: (arrive: () => void) => () => boolean;
-  readonly reopen: () => Promise<void>;
+  readonly poisoned: boolean;
+  readonly reopen: (beforeOpen?: () => void | Promise<void>) => Promise<void>;
+  readonly evictAndClose: () => Promise<void>;
   readonly close: () => Promise<void>;
 };
 
@@ -191,7 +193,11 @@ export type SuiteHost = {
   readonly get: () => Promise<OrchestrationHost>;
 };
 
-async function createOrchestrationHost(slug: string, options: HostOptions = {}): Promise<OrchestrationHost> {
+async function createOrchestrationHost(
+  slug: string,
+  options: HostOptions = {},
+  onEvict?: () => void,
+): Promise<OrchestrationHost> {
   const { wipLimit, squadWorkers = ["one", "two"], onResourcesOpened } = options,
     template = ensureGitTemplate(),
     parent = mkdtempSync(path.join(tmpdir(), `ha-squad-e2e-${slug}-`)),
@@ -213,6 +219,7 @@ async function createOrchestrationHost(slug: string, options: HostOptions = {}):
   let activeProviders: Provider[] | null = null,
     cell: Awaited<ReturnType<typeof openOrchestrationCell>> | null = null,
     taskProjection: ReturnType<typeof makeTaskProjectionReader> | null = null,
+    poisoned = false,
     closed = false;
   const close = async () => {
     if (closed) return;
@@ -225,6 +232,48 @@ async function createOrchestrationHost(slug: string, options: HostOptions = {}):
     cell = null;
     if (openCell !== null) await openCell.close();
     rmSync(parent, { recursive: true, force: true });
+  };
+  const evictAndClose = async () => {
+    poisoned = true;
+    onEvict?.();
+    if (closed) return;
+    closed = true;
+    await Promise.all(
+      allProviders.flatMap((provider) =>
+        provider.process
+          ? [
+              (async () => {
+                try {
+                  await stopFixtureProcess(provider.process!);
+                } catch (error) {
+                  consumeKnownError(error);
+                }
+              })(),
+            ]
+          : [],
+      ),
+    );
+    if (taskProjection !== null) {
+      try {
+        taskProjection.close();
+      } catch (error) {
+        consumeKnownError(error);
+      }
+    }
+    const openCell = cell;
+    cell = null;
+    if (openCell !== null) {
+      try {
+        await openCell.close();
+      } catch (error) {
+        consumeKnownError(error);
+      }
+    }
+    try {
+      rmSync(parent, { recursive: true, force: true });
+    } catch (error) {
+      consumeKnownError(error);
+    }
   };
   try {
     cpSync(template.bare, bare, { recursive: true });
@@ -391,7 +440,8 @@ async function createOrchestrationHost(slug: string, options: HostOptions = {}):
       bare,
       repoId,
       get cell() {
-        return cell!;
+        if (cell === null) throw new Error("OrchestrationHost writer cell is closed.");
+        return cell;
       },
       allProviders,
       get activeProviders() {
@@ -402,23 +452,34 @@ async function createOrchestrationHost(slug: string, options: HostOptions = {}):
       },
       taskProjection,
       onActivity,
-      reopen: async () => {
-        const activeCell = cell;
-        cell = null;
-        if (activeCell !== null) await activeCell.close();
-        cell = await open();
+      get poisoned() {
+        return poisoned;
       },
+      reopen: async (beforeOpen?: () => void | Promise<void>) => {
+        try {
+          const activeCell = cell;
+          cell = null;
+          if (activeCell !== null) await activeCell.close();
+          await beforeOpen?.();
+          cell = await open();
+        } catch (error) {
+          await evictAndClose();
+          throw error;
+        }
+      },
+      evictAndClose,
       close,
     };
   } catch (error) {
-    await close();
+    await evictAndClose();
     throw error;
   }
 }
 
 export function createSuiteHost(slug: string, options?: HostOptions): SuiteHost {
   let settledHost: OrchestrationHost | null = null,
-    pending: Promise<OrchestrationHost> | null = null;
+    pending: Promise<OrchestrationHost> | null = null,
+    generation = 0;
   suiteClosers.push(async () => {
     const inFlight = pending;
     pending = null;
@@ -436,9 +497,18 @@ export function createSuiteHost(slug: string, options?: HostOptions): SuiteHost 
   return {
     get: () => {
       if (pending === null) {
-        const attempt = createOrchestrationHost(slug, options).then(
+        const hostSlug = generation === 0 ? slug : `${slug}-${generation + 1}`;
+        generation += 1;
+        let currentAttempt: Promise<OrchestrationHost> | null = null;
+        const evict = () => {
+          if (pending === currentAttempt) {
+            pending = null;
+            settledHost = null;
+          }
+        };
+        const attempt = createOrchestrationHost(hostSlug, options, evict).then(
           (host) => {
-            settledHost = host;
+            if (pending === attempt) settledHost = host;
             return host;
           },
           (error) => {
@@ -446,6 +516,7 @@ export function createSuiteHost(slug: string, options?: HostOptions): SuiteHost 
             throw error;
           },
         );
+        currentAttempt = attempt;
         pending = attempt;
       }
       return pending;
@@ -475,8 +546,11 @@ export async function openFixture(
     parentDispatchId: string | null = null,
     cleanedUp = false;
 
-  const status = async () =>
-    evidence(await host.cell.run({ kind: "squad-status", squadRunId }, binding)) as unknown as Status;
+  const status = async () => {
+    const receipt = await host.cell.run({ kind: "squad-status", squadRunId }, binding);
+    if (receipt.outcome === "op_rejected" || receipt.evidence === undefined) throw new Error(JSON.stringify(receipt));
+    return evidence(receipt) as unknown as Status;
+  };
   const task = (id: string) => host.taskProjection.withSession((query) => query.read(id));
   const sessionRunning = (runtimeSessionId: string) =>
     host.taskProjection.withSession(
@@ -492,6 +566,13 @@ export async function openFixture(
       await host.close();
       return;
     }
+    if (host.poisoned) {
+      if (host.activeProviders === providers) host.activeProviders = null;
+      await host.evictAndClose();
+      return;
+    }
+    let cleanupError: unknown = null,
+      hasCleanupError = false;
     try {
       if (squadRunId !== "") {
         const current = await status();
@@ -553,13 +634,30 @@ export async function openFixture(
         );
         assert.equal(closedTask.outcome, "applied", JSON.stringify(closedTask));
       }
-    } finally {
-      await Promise.all(
-        providers.flatMap((provider) => (provider.process ? [stopFixtureProcess(provider.process)] : [])),
-      );
       await host.cell.settlePendingMaterialization(`cleanup-${slug}`);
+    } catch (error) {
+      hasCleanupError = true;
+      cleanupError = error;
+    } finally {
       if (host.activeProviders === providers) host.activeProviders = null;
+      await Promise.all(
+        providers.flatMap((provider) =>
+          provider.process
+            ? [
+                (async () => {
+                  try {
+                    await stopFixtureProcess(provider.process!);
+                  } catch (error) {
+                    consumeKnownError(error);
+                  }
+                })(),
+              ]
+            : [],
+        ),
+      );
+      if (hasCleanupError) await host.evictAndClose();
     }
+    if (hasCleanupError) throw cleanupError;
   };
   t.after(cleanup);
 
@@ -695,7 +793,7 @@ export async function openFixture(
     waitStatus,
     until,
     parentDispatchId,
-    reopen: () => host.reopen(),
+    reopen: (beforeOpen?: () => void | Promise<void>) => host.reopen(beforeOpen),
     plan: async (first: string[], second: string[]) => {
       const state = await waitStatus((current) => current.leaderTurns.length >= 1);
       await finish(

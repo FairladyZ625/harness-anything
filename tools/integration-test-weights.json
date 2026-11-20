@@ -418,7 +418,7 @@
   "packages/daemon/test/task-review-dispatch.integration.test.ts": 114400,
   "packages/daemon/test/task-review-settlement-recovery.integration.test.ts": 19800,
   "packages/daemon/test/task-rework-instance-resolution.integration.test.ts": 51000,
-  "packages/daemon/test/task-squad-orchestration-boundaries.integration.test.ts": 29000,
+  "packages/daemon/test/task-squad-orchestration-boundaries.integration.test.ts": 38000,
   "packages/daemon/test/task-squad-orchestration-lifecycle.integration.test.ts": 39000,
   "packages/daemon/test/task-squad-orchestration.integration.test.ts": 31800,
   "packages/daemon/test/task-start-held-lease-preconditions.integration.test.ts": 4400,
