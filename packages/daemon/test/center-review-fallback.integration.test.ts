@@ -366,8 +366,7 @@ test(
   "a connected edge without a reviewer slot hands synced ledger evidence to Center",
   { timeout: 90_000 },
   async (t) => {
-    const f = await submitFromEdge(t, "ledger", true),
-      { repoId } = f.subject;
+    const f = await submitFromEdge(t, "ledger", true);
     assert.equal(f.cut.commitSha, null);
     assert.ok(f.cut.artifacts?.some((artifact) => artifact.path.endsWith("/artifacts/delivery.md")));
     const dispatch = await waitForDurableValue(() => f.reviewDispatch() ?? null);
