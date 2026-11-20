@@ -188,7 +188,10 @@ export function createDaemonHostRepositoryApi(
         );
       if (!cell.readNodeAutoDispatchCandidates)
         throw context.hostCodedError("repo_unavailable", `Repository ${repoId} cannot read node dispatch candidates.`);
-      const candidates = await cell.readNodeAutoDispatchCandidates(nodeId!, auth.connectionSignal);
+      const candidates = await cell.readNodeAutoDispatchCandidates(
+        { kind: "node", nodeId: nodeId! },
+        auth.connectionSignal,
+      );
       return { schema: "node-auto-dispatch-candidates/v1", candidates };
     },
     readNodeAutoClaimCandidates: async (repoId, auth) => {
@@ -852,6 +855,17 @@ export function createDaemonHostRepositoryApi(
               ["applied", "no_changes", "pending"].includes(String(forwarded.outcome))
             )
               context.onAutoClaimTrigger?.(`forwarded:${action.kind}`);
+            if (
+              ["applied", "no_changes", "pending"].includes(String(forwarded.outcome)) &&
+              (action.kind === "task-submit" ||
+                action.kind === "task-settle" ||
+                action.kind === "task-dispatch-review" ||
+                (action.kind === "task-amend" &&
+                  auth.transportKind === "fleet-tls" &&
+                  Array.isArray(action.patches) &&
+                  action.patches.some((patch) => patch?.field === "reviewDispatchFailure")))
+            )
+              context.triggerCenterReviewFallback?.(`forwarded:${action.kind}`);
             return forwarded as WriteReceiptDraft | SquadControlResult;
           }
         } catch (error) {
@@ -983,6 +997,17 @@ export function createDaemonHostRepositoryApi(
           action.kind === "task-submit"
         )
           void context.scheduleScheduler.refresh();
+        if (
+          ["applied", "no_changes", "pending"].includes(receipt.outcome) &&
+          (action.kind === "task-submit" ||
+            action.kind === "task-settle" ||
+            action.kind === "task-dispatch-review" ||
+            (action.kind === "task-amend" &&
+              auth.transportKind === "fleet-tls" &&
+              Array.isArray(action.patches) &&
+              action.patches.some((patch) => patch?.field === "reviewDispatchFailure")))
+        )
+          context.triggerCenterReviewFallback?.(action.kind);
         if (action.kind === "doctor-health" && receipt.outcome === "applied") {
           const health = receipt as typeof receipt & { checks: readonly DoctorCheck[] };
           const settings = (await cell.read("repo.settings.read", {}, undefined, auth.connectionSignal)).settings;

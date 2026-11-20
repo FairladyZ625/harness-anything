@@ -28,6 +28,7 @@ import { readTaskCompletion } from "./task-completion-read.ts";
 import { readReckoningSignals } from "@harness-anything/application/internal/queries/reckoning-signals.ts";
 import { readTaskRuntimeContext } from "./task-runtime-context-read.ts";
 import { enqueueRuntimePublication } from "./runtime-publication-queue.ts";
+import { prepareCenterReviewFallback } from "./task-review-dispatch.ts";
 import { isSquadControlCommand, isSquadControlResult, squadControlRejected } from "./squad-control-result.ts";
 
 import { readDecisionPointSettings } from "./decision-point-settings-read.ts";
@@ -850,6 +851,34 @@ export function createRepoCellApi(
       onExecutionStart,
     );
   };
+  const spawnCenterReview: RepoCell["spawnCenterReview"] = (payload, binding, queueObservation, onExecutionStart) =>
+    enqueueRuntimePublication(
+      context,
+      "runtime-run",
+      { kind: "runtime-spawn", ...payload, executionRuntimeIngress: { kind: "runtime-run", ...payload } },
+      binding,
+      async (authorizedBinding) => {
+        const { executor: _claim, ...spawn } = payload,
+          fallback = await prepareCenterReviewFallback(context.extracted, spawn, authorizedBinding),
+          worktree = await context.runtimeSpawner.prepareWorktree(spawn, fallback.commitSha);
+        if (worktree === null && fallback.commitSha !== null)
+          throw context.cellCodedError(
+            "review_checkout_commit_unavailable",
+            "Center review requires a pinned checkout.",
+          );
+        const authoredTask = worktree === null && typeof spawn.taskId === "string" ? spawn.taskId : null;
+        if (authoredTask !== null) {
+          await settleAuthoredMaterialization(context.store, "spawn runtime");
+          requireTaskPackageMaterialization(context, authoredTask);
+        }
+        const progress = await context.runtimeSpawner.prepareProgress(spawn, worktree);
+        fallback.recheckReviewCut();
+        if (authoredTask !== null) requireTaskPackageMaterialization(context, authoredTask);
+        return context.runtimeSpawner.spawnTask(spawn, authorizedBinding, worktree, context.projection, progress);
+      },
+      queueObservation,
+      onExecutionStart,
+    );
   const handoffRuntime: RepoCell["handoffRuntime"] = (payload, binding, queueObservation, onExecutionStart) =>
     runRuntimeHandoff({
       readDispatchLifecycle: (query) => context.projection.readDispatchLifecycle(query),
@@ -1214,8 +1243,18 @@ export function createRepoCellApi(
       scheduleOccurrenceSettlementOwner(context.projection, dispatchId),
     hasBuiltinExecutor: async (claimFence) => builtinRuns.has(claimFence),
     run: runCommand,
+    recordReviewDispatchFailure: (taskId, failure, binding) =>
+      runCommand(
+        {
+          kind: "task-amend",
+          taskId,
+          patches: [{ field: "reviewDispatchFailure", value: JSON.stringify(failure) }],
+        },
+        binding,
+      ),
     presetRun,
     spawnRuntime,
+    spawnCenterReview,
     cancelRuntime,
     steerRuntime,
     handoffRuntime,

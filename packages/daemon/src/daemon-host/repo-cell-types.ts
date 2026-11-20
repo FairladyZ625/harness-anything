@@ -22,6 +22,7 @@ import type {
   RepositorySettingsV1,
   SettingsV1,
   TaskProjection,
+  TaskReviewDispatchFailureV1,
   assertCurrentWriter,
 } from "@harness-anything/kernel";
 import type { PresetRunReceiptV1, createPresetProcessService } from "@harness-anything/preset";
@@ -385,6 +386,11 @@ export interface RepoCell {
     onExecutionStart?: () => void,
     queueObservation?: RepoCellQueueObservation,
   ) => Promise<WriteReceipt | SquadControlResult>;
+  readonly recordReviewDispatchFailure: (
+    taskId: string,
+    failure: TaskReviewDispatchFailureV1 | null,
+    binding: RepoCellBinding,
+  ) => Promise<WriteReceipt | SquadControlResult>;
   readonly presetRun: (
     action: RepoTaskAction,
     binding: RepoCellBinding,
@@ -397,6 +403,7 @@ export interface RepoCell {
     queueObservation?: RepoCellQueueObservation,
     onExecutionStart?: () => void,
   ) => Promise<JsonObject>;
+  readonly spawnCenterReview: RepoCell["spawnRuntime"];
   readonly handoffRuntime: (
     payload: JsonObject,
     binding: RepoCellBinding,
@@ -448,7 +455,7 @@ export interface RepoCell {
     signal?: AbortSignal,
   ) => Promise<readonly RepoCellAutoClaimAssignment[]>;
   readonly readNodeAutoDispatchCandidates?: (
-    nodeId: string,
+    query: import("./node-auto-dispatch.ts").NodeAutoDispatchQuery,
     signal?: AbortSignal,
   ) => Promise<readonly import("./node-auto-dispatch.ts").NodeAutoDispatchCandidate[]>;
   readonly workspaceSummary: () => Promise<DaemonGuiReadResultMap["repo.workspace.summary.read"]>;

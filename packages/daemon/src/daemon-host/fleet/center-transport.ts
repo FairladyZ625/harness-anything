@@ -133,7 +133,10 @@ export async function serve(
     const live = sessions.get(node);
     if (!live) return;
     live.delete(socket);
-    if (live.size === 0) sessions.delete(node);
+    if (live.size === 0) {
+      sessions.delete(node);
+      if (nodeId === node) options.onNodeDisconnected?.(node);
+    }
   };
   let replicationRepoId: string | null = null;
   const recordFailure = (error: unknown, fallback: string): void => {

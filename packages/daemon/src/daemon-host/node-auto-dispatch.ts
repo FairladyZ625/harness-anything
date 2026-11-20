@@ -3,12 +3,17 @@ import type { JsonObject } from "./protocol/json-rpc-types.ts";
 
 export type NodeAutoDispatchKind = "review" | "rework";
 
+export type NodeAutoDispatchQuery =
+  | { readonly kind: "node"; readonly nodeId: string }
+  | { readonly kind: "center-review-fallback" };
+
 export interface NodeAutoDispatchCandidate {
   readonly repoId: string;
   readonly taskId: string;
   readonly executionId: string;
   readonly kind: NodeAutoDispatchKind;
   readonly requiredNodeId: string;
+  readonly edgeDispatchFailed?: true;
   readonly dispatchKey: string;
   readonly payload: JsonObject;
   readonly fallbackPayload?: JsonObject;
@@ -72,7 +77,7 @@ export function openNodeAutoDispatchLoop(input: {
     candidate: NodeAutoDispatchCandidate,
     error: unknown,
     signal: AbortSignal,
-  ) => Promise<void> | void;
+  ) => Promise<void | "continue"> | void | "continue";
   readonly onSuccess?: (candidate: NodeAutoDispatchCandidate, signal: AbortSignal) => Promise<void> | void;
 }): NodeAutoDispatchLoop {
   const controllers = new Set<AbortController>();
@@ -96,7 +101,7 @@ export function openNodeAutoDispatchLoop(input: {
           spawned = await input.spawn(candidate, controller.signal);
           if (spawned) await spawned.completion;
         } catch (error) {
-          await input.onFailure?.(candidate, error, controller.signal);
+          if ((await input.onFailure?.(candidate, error, controller.signal)) === "continue") continue;
           throw error;
         }
         await input.onSuccess?.(candidate, controller.signal);

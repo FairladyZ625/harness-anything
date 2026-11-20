@@ -70,6 +70,7 @@ export interface RepoWriterRequestV1 {
     | "run"
     | "presetRun"
     | "spawnRuntime"
+    | "spawnCenterReview"
     | "cancelRuntime"
     | "steerRuntime"
     | "handoffRuntime"

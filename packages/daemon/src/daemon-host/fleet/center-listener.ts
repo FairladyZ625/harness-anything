@@ -1776,6 +1776,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       versionWarnings.delete(nodeId);
       for (const socket of sessions.get(nodeId) ?? []) socket.destroy();
       sessions.delete(nodeId);
+      options.onNodeDisconnected?.(nodeId);
       replicationSlots.removeNode(nodeId);
       replicaStatus.removeNode(nodeId);
       nodeSessions.removeNode(nodeId);
@@ -1785,6 +1786,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       if (!live) return;
       sessions.delete(nodeId);
       for (const socket of live) socket.destroy();
+      options.onNodeDisconnected?.(nodeId);
     },
     close: async () => {
       if (closed) return;

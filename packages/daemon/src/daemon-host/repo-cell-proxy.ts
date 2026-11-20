@@ -287,8 +287,25 @@ export async function openRepoCellProxy(
       return supervisor.bootstrapReceipt() as RepoCell["bootstrapReceipt"];
     },
     run,
+    recordReviewDispatchFailure: async (taskId, failure, binding) => {
+      if (closed) throw cellCodedError("repo_unavailable", "RepoCell is closed.");
+      await Promise.resolve();
+      if (closed) throw cellCodedError("repo_unavailable", "RepoCell is closed.");
+      return supervisor.request(
+        "run",
+        {
+          action: {
+            kind: "task-amend",
+            taskId,
+            patches: [{ field: "reviewDispatchFailure", value: JSON.stringify(failure) }],
+          },
+        },
+        binding,
+      );
+    },
     presetRun: (action, binding) => supervisor.request("presetRun", { action }, binding),
     spawnRuntime: (payload, binding) => supervisor.request("spawnRuntime", payload, binding),
+    spawnCenterReview: (payload, binding) => supervisor.request("spawnCenterReview", payload, binding),
     handoffRuntime: (payload, binding) => supervisor.request("handoffRuntime", payload, binding),
     cancelRuntime: (payload, binding) => supervisor.request("cancelRuntime", payload, binding),
     steerRuntime: (payload, binding) => supervisor.request("steerRuntime", payload, binding),
@@ -323,8 +340,8 @@ export async function openRepoCellProxy(
     readDispatchLifecycle: (queryValue, signal) => query("readDispatchLifecycle", [queryValue], undefined, signal),
     readEventWitness: (revision) => query("readEventWitness", [revision]),
     readNodeAutoClaimAssignments: (binding, signal) => query("readNodeAutoClaimAssignments", [], binding, signal),
-    readNodeAutoDispatchCandidates: (nodeId, signal) =>
-      query("readNodeAutoDispatchCandidates", [nodeId], undefined, signal),
+    readNodeAutoDispatchCandidates: (dispatchQuery, signal) =>
+      query("readNodeAutoDispatchCandidates", [dispatchQuery], undefined, signal),
     workspaceSummary: () => query("read", ["repo.workspace.summary.read", {}]),
     workspaceScope: (payload) => query("read", ["repo.workspace.scope.read", payload]),
     // File tails already use async I/O with a fixed byte/page budget. Only the ledger

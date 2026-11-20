@@ -382,6 +382,30 @@ async function ensurePinnedCommit(rootDir: string, branch: string, commit: strin
   );
 }
 
+export async function fetchPinnedReviewCommitFromOrigin(rootDir: string, commit: string): Promise<void> {
+  if (!/^[0-9a-f]{40}$/u.test(commit))
+    throw cellCodedError("review_checkout_commit_unavailable", "The frozen delivery commit is not a full Git SHA.");
+  try {
+    await reviewGit(
+      rootDir,
+      "fetch",
+      "--refetch",
+      "--no-tags",
+      "--no-recurse-submodules",
+      "--no-write-fetch-head",
+      "--quiet",
+      "origin",
+      commit,
+    );
+    await reviewGit(rootDir, "cat-file", "-e", `${commit}^{commit}`);
+  } catch {
+    throw cellCodedError(
+      "review_checkout_commit_unavailable",
+      `The frozen delivery commit ${commit} is not reachable from origin; a reviewer must not inspect another commit.`,
+    );
+  }
+}
+
 /** The reviewer's immutable checkout is separate from the task's mutable delivery worktree. */
 function pinnedReviewWorktreePath(rootDir: string, taskId: string, commit: string): string {
   return path.join(rootDir, ".worktrees", ".review", taskId, commit);
