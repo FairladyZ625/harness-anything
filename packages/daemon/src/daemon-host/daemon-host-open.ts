@@ -1574,7 +1574,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
                   latched !== null && changedPaths !== undefined && changedPaths.length === 0
                     ? undefined
                     : changedPaths,
-                materialized = applyFleetMirrorCut(viewRoot, config.repoId, rootDir, "pull", {
+                materialized = applyFleetMirrorCut(viewRoot, config.repoId, rootDir, "replica-confirmed", {
                   changedPaths: effectivePaths,
                 });
               if (materialized.outcome === "pull_blocked") throw pullBlockedMirrorError(materialized);

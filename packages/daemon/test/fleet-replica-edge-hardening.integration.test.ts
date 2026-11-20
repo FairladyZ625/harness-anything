@@ -261,13 +261,14 @@ test("a failing confirmation is reported and never fails the replication stream"
     "initial convergence",
     60_000,
   );
+  // The receiver can reach the center position while confirmation is still retrying.
+  await waitForState(() => confirmFailures.length >= 1, "confirmation reports its failure after retries", 60_000);
   await pressure(fixture, 3);
   await waitForState(
     () => readReplicaGeneration(viewDir)?.metadata.position.sequence === centerSequence(fixture),
     "convergence across failing confirmations",
     60_000,
   );
-  assert.ok(confirmFailures.length >= 1, "the confirmation failure was reported");
   assert.deepEqual(stream.failures, [], "confirmation failures are not stream failures");
   assert.deepEqual(
     confirmedPaths.filter((paths) => paths !== undefined),

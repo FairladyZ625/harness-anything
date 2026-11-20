@@ -422,7 +422,7 @@ export function applyFleetMirrorCut(
   viewRoot: string,
   repoId: string,
   workspaceRoot: string,
-  _trigger: FleetConflictTrigger,
+  trigger: FleetConflictTrigger | "replica-confirmed",
   context: {
     readonly viewId?: string;
     readonly taskId?: string | null;
@@ -444,12 +444,16 @@ export function applyFleetMirrorCut(
             includeEntries: false,
           }),
           result = materializeFleetMirrorView(workspaceRoot, current, projection, generation, context),
-          blocked = mirrorDirtyPathsConflictWithCanonical(
-            workspaceRoot,
-            current.ledgerGeneration,
-            projection,
-            result.dirtyPaths,
-          );
+          // Confirmation reports skipped canonical updates. Command-driven pulls preserve candidates
+          // and retain their applied outcome, including after a center write has already committed.
+          blocked =
+            trigger === "replica-confirmed" &&
+            mirrorDirtyPathsConflictWithCanonical(
+              workspaceRoot,
+              current.ledgerGeneration,
+              projection,
+              result.dirtyPaths,
+            );
         return { outcome: blocked ? ("pull_blocked" as const) : ("applied" as const), ...result, conflicts: [] };
       });
     } finally {
