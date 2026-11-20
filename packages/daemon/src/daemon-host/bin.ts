@@ -173,6 +173,10 @@ async function runResidentDaemon(
       });
     daemon = await startResident(true);
     if (!("stop" in daemon)) return finish(deferredServeReceipt(daemon, userRoot), 0);
+    if (!process.env.NODE_TEST_CONTEXT && process.env.HARNESS_DISABLE_MODEL_PRICING_REFRESH !== "1") {
+      const { startModelPricingRefresh } = await import("./model-pricing-refresh.ts");
+      startModelPricingRefresh({ userRoot });
+    }
     if (ownerPid !== null)
       ownerLivenessTimer = setInterval(() => {
         if (!processExists(ownerPid)) requestStop();

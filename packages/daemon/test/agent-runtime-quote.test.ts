@@ -85,6 +85,20 @@ test("unknown models fail closed instead of producing a zero-price quote", () =>
     assert.throws(() => quoteAgentRuntimeBudget({ model, inputTokens: 1 }), { code: "MODEL_UNPRICED" }, model);
 });
 
+test("quotes a provider tuple at the public DeepSeek rate while retaining the dispatched model ID", () => {
+  const model = '["deepseek-official","Deepseek-V4.1-Flash"]',
+    quote = quoteAgentRuntimeBudget({ model, inputTokens: 1_000_000, outputCapTokens: 100 });
+  assert.equal(quote.model, model);
+  assert.deepEqual(quote.pricing, {
+    version: modelPricingVersion,
+    inputPerMillion: 0.15,
+    cacheReadPerMillion: 0.003,
+    cacheWritePerMillion: 0.15,
+    outputPerMillion: 0.6,
+  });
+  assert.equal(quote.reserveMicros, String(Math.ceil((1_000_000 + REQUEST_OVERHEAD_TOKENS) * 0.15 + 100 * 0.6)));
+});
+
 test("quote input validation requires exactly one estimate and bounds output", () => {
   const valid = parseDaemonRpcParams("repo.agentRuntime.quote", {
     model: "gpt-6.1-sol",
