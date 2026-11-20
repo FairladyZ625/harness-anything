@@ -654,9 +654,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       binding = await hostBinding(cell.status().rootDir, { transportKind: "unix-socket" }, null, candidate.repoId),
       receipt = await cell.recordReviewDispatchFailure(candidate.taskId, failure, binding);
     if (!["applied", "no_changes"].includes(String(receipt.outcome)))
-      throw Object.assign(new Error(`The Center rejected review-dispatch state for task ${candidate.taskId}.`), {
-        code: typeof receipt.code === "string" ? receipt.code : "review_dispatch_state_rejected",
-      });
+      throw hostCodedError(
+        typeof receipt.code === "string" ? receipt.code : "review_dispatch_state_rejected",
+        `The Center rejected review-dispatch state for task ${candidate.taskId}.`,
+      );
   }
   function triggerCenterReviewFallback(reason: string): void {
     if (!fleetCenter || closeController.signal.aborted) return;
