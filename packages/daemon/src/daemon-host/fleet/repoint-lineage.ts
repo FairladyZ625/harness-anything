@@ -9,8 +9,25 @@ import {
   type ReplicationPosition,
 } from "@harness-anything/storage";
 import type { FleetFrameV1 } from "./command-protocol.ts";
+import type { ReplicationSource } from "./walsender.ts";
 
 export const REPOINT_RESUME_ONLY = "repoint-resume-only/v1";
+
+export function readReplicationPage(
+  source: Pick<ReplicationSource, "read">,
+  position: ReplicationPosition | null,
+): {
+  readonly page: ReturnType<ReplicationSource["read"]>;
+  readonly reason: string;
+} {
+  try {
+    return { page: position === null ? null : source.read(position), reason: "replication window unavailable" };
+  } catch (error) {
+    // A different history requires a new snapshot; every other read failure propagates.
+    if ((error as { readonly code?: unknown }).code !== "revision_conflict") throw error;
+    return { page: null, reason: "replication history mismatch" };
+  }
+}
 
 export async function readFleetRepointLineage(input: {
   readonly rootDir: string;
@@ -35,10 +52,12 @@ export async function readFleetRepointLineage(input: {
       const head = source.replicationPosition(),
         page =
           head.sequence - input.position.sequence <= input.retentionWindowCommits
-            ? source.replicationCommits(input.position, 1)
+            ? readReplicationPage({ read: (after) => source.replicationCommits(after, 1) }, input.position).page
             : null,
         resumeAvailable =
-          page !== null && (page.done || page.commits[0]?.position.sequence === input.position.sequence + 1);
+          page !== null &&
+          (page.head.sequence === input.position.sequence ||
+            page.commits[0]?.position.sequence === input.position.sequence + 1);
       return {
         replicationSequence: head.sequence,
         witness: {
