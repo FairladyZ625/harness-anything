@@ -61,7 +61,7 @@
     "packageLockVersions": [
       {
         "path": "node_modules/effect",
-        "version": "3.21.4",
+        "version": "3.22.5",
         "ref": "task_01KWNFNGG9H41724SADGFSMEZ3",
         "reason": "Effect version is pinned by the implementation contract."
       },

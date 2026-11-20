@@ -53,6 +53,6 @@
     "@harness-anything/daemon": "0.1.0",
     "@harness-anything/kernel": "0.1.0",
     "@harness-anything/preset": "0.1.0",
-    "effect": "3.21.4"
+    "effect": "3.22.5"
   }
 }

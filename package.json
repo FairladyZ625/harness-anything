@@ -126,7 +126,7 @@
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.11",
-    "effect": "3.21.4"
+    "effect": "3.22.5"
   },
   "overrides": {
     "esbuild": "0.28.1",
