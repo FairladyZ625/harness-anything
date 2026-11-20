@@ -149,7 +149,7 @@ test("the required quick-gates context depends on the pool and every durable aut
   assert.ok(producer && collector);
   assert.match(
     collector.env.AUTHORIZATION_CI_MODE,
-    /needs\.quick-gates\.result == 'success' && needs\.authorization-shard\.result == 'success' && 'collect' \|\| 'blocked'/u,
+    /needs\.install\.result == 'success' && needs\.quick-gates\.result == 'success' && needs\.authorization-shard\.result == 'success' && 'collect' \|\| 'blocked'/u,
   );
   assert.equal(producer.env.AUTHORIZATION_CI_DATE, collector.env.AUTHORIZATION_CI_DATE);
   assert.equal(producer.env.AUTHORIZATION_BASE, collector.env.AUTHORIZATION_BASE);
