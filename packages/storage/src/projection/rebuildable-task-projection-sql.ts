@@ -45,6 +45,9 @@ const stateDigestTables = [
 /** Disposable lookup and derived columns added after a table's state fingerprint was defined. */
 const stateDigestColumns: Partial<Record<(typeof stateDigestTables)[number][0], string>> = {
   event_index: "op_id,workspace_revision,task_id,event_json",
+  decision:
+    "decision_id,legacy_number,decision_sort_key,state,title,question,risk_tier,urgency,vertical,preset,decision_class," +
+    "applies_json,proposer_json,arbiter_json,proposed_at,decided_at,provenance_json,workspace_revision",
   // Freshness is derived from the other projected rows at the same cut (dec_E34C4284B48AFAF152D7BF1980).
   relation_edge:
     "relation_id,source_ref,target_ref,relation_type,state,target_observed_version,owner_ref,workspace_revision,updated_at,row_json",

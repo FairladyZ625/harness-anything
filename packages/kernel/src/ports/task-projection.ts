@@ -56,7 +56,7 @@ import type {
   TaskRelationQuery,
   VersionedRelationProjectionRow,
 } from "./projection-contracts.ts";
-import type { DecisionListFilters, DecisionPageQuery } from "./decision-projection-model.ts";
+import type { DecisionListFilters, DecisionListSummaryRow, DecisionPageQuery } from "./decision-projection-model.ts";
 import type { EntityFreshness, EntityVersion, EntityVersionWitness } from "../domain/entity-freshness.ts";
 
 export interface RuntimeSessionReadQuery {
@@ -408,7 +408,10 @@ export interface TaskProjection {
   readonly admitDecision: (event: DecisionEventV1) => void;
   readonly readDecision: (decisionId: string, withBody?: boolean) => DecisionProjectionRead;
   readonly readDecisions: (decisionIds: readonly string[], withBody?: boolean) => DecisionProjectionListRead;
-  readonly listDecisions: (filters: DecisionListFilters) => DecisionProjectionListRead;
+  readonly listDecisions: {
+    (filters: DecisionListFilters, selection: "summary"): DecisionProjectionListRead<DecisionListSummaryRow>;
+    (filters: DecisionListFilters, selection?: "review"): DecisionProjectionListRead;
+  };
   readonly listDecisionAgendaPage: (query: DecisionPageQuery) => DecisionAgendaProjectionPageRead;
   readonly readDecisionGraph: () => DecisionGraphProjectionRead;
   readonly readDecisionIncomingRelations: (decisionId: string) => DecisionGraphProjectionRead["edges"];

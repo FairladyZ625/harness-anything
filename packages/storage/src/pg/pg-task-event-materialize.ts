@@ -3,11 +3,7 @@ import { pgEventShapeReplayInput } from "./pg-event-shape-replay.ts";
 import { decideRawTaskLease } from "@harness-anything/kernel/internal/domain/task-lease-policy.ts";
 import { relationCreatedEventForReplay } from "@harness-anything/kernel/internal/domain/relation-event.ts";
 import { initializePgDecisionReadStatus } from "./pg-decision-read-status.ts";
-import {
-  canonicalDocumentClaims,
-  canonicalDocumentRetirements,
-} from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
-import { refreshPgDecisionSearch } from "./pg-decision-search.ts";
+import { projectPgDecisionReads } from "./pg-decision-search.ts";
 import { readVersionedRelationsInTransaction } from "./pg-relation-queries.ts";
 import {
   PG_OWN_DIRTY_RELATION_REFS_CTE,
@@ -173,15 +169,7 @@ async function materializeProjectionEvent(
   await storeEmbeddedRelations(client, scope, event, tables);
   if (!terminalMembershipReady) await initializePgTerminalMaterialization(client, scope, revision);
   await materializePgQueryModels(client, scope, { ...input, event }, snapshot);
-  const searchOwners = new Set<string>();
-  if (isDecisionEvent(event)) searchOwners.add(event.decisionId);
-  else if (isMigrationImportEvent(event) && event.payload.entity.kind === "decision")
-    searchOwners.add(event.payload.entity.decision.decisionId);
-  for (const claim of [...canonicalDocumentClaims(event), ...canonicalDocumentRetirements(event)]) {
-    const id = /^decisions\/decision-(dec_[A-Za-z0-9_-]+)\/decision[.]md$/u.exec(claim.path)?.[1];
-    if (id) searchOwners.add(id);
-  }
-  for (const id of searchOwners) await refreshPgDecisionSearch(client, scope, id);
+  await projectPgDecisionReads(client, scope, event);
   tables.add("ha_projection_values");
   await updateProjectionMeta(client, scope, revision, input.sourceHeadRevision ?? input.sourceRevision ?? revision);
   return { revision, taskId, snapshot, tables: [...tables].sort() };

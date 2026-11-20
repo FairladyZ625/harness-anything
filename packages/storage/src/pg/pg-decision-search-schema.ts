@@ -22,6 +22,8 @@ export function decisionSearchDdl(): readonly string[] {
     `ALTER TABLE ha_decisions ADD COLUMN IF NOT EXISTS search_ready boolean NOT NULL DEFAULT false`,
     `CREATE INDEX IF NOT EXISTS ha_decisions_search_pending ON ha_decisions
       (tenant_id,project_id,policy_epoch,decision_id) WHERE NOT search_ready`,
+    `CREATE INDEX IF NOT EXISTS ha_decisions_list_pending ON ha_decisions
+      (tenant_id,project_id,policy_epoch,decision_id) WHERE NOT search_ready OR review_summary IS NULL OR list_summary IS NULL`,
     `CREATE OR REPLACE FUNCTION ha_decision_search_invalidate() RETURNS trigger
       LANGUAGE plpgsql AS $function$ BEGIN NEW.search_ready := false; RETURN NEW; END $function$`,
     `CREATE OR REPLACE TRIGGER ha_decision_search_invalidate BEFORE INSERT OR UPDATE OF value,readers
@@ -41,5 +43,30 @@ export function decisionSearchDdl(): readonly string[] {
     `CREATE OR REPLACE TRIGGER ha_decision_document_search_delete AFTER DELETE
       ON ha_projection_values FOR EACH ROW WHEN (OLD.model='document')
       EXECUTE FUNCTION ha_decision_document_search_invalidate()`,
+    // Install independent triggers so an N-1 writer uses the same expansion. Moving an
+    // identical document between active and history preserves the review bytes.
+    `CREATE OR REPLACE FUNCTION ha_decision_document_review_invalidate() RETURNS trigger
+      LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$ BEGIN
+        UPDATE ha_decisions SET review_summary=NULL
+        WHERE tenant_id=NEW.tenant_id AND project_id=NEW.project_id AND policy_epoch=NEW.policy_epoch
+          AND decision_id=substring(NEW.entity_id from '^decisions/decision-(.*)/decision[.]md$')
+          AND review_summary->>'blobSha256' IS DISTINCT FROM NEW.document_metadata::jsonb->>'blobSha256'
+          AND review_summary IS NOT NULL;
+        RETURN NULL;
+      END $function$`,
+    `CREATE OR REPLACE TRIGGER ha_decision_document_review_invalidate AFTER INSERT OR UPDATE OF value
+      ON ha_projection_values FOR EACH ROW WHEN (NEW.model IN ('document','document-history')
+        AND NEW.entity_id LIKE 'decisions/decision-%/decision.md')
+      EXECUTE FUNCTION ha_decision_document_review_invalidate()`,
+    `CREATE OR REPLACE FUNCTION ha_decision_evidence_review_invalidate() RETURNS trigger
+      LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$ BEGIN
+        UPDATE ha_decisions SET review_summary=NULL
+        WHERE tenant_id=NEW.tenant_id AND project_id=NEW.project_id AND policy_epoch=NEW.policy_epoch
+          AND decision_id=split_part(NEW.source_ref,'/',2) AND review_summary IS NOT NULL;
+        RETURN NULL;
+      END $function$`,
+    `CREATE OR REPLACE TRIGGER ha_decision_evidence_review_invalidate AFTER INSERT OR UPDATE OF value,readers
+      ON ha_relations FOR EACH ROW WHEN (NEW.source_ref LIKE 'decision/%' AND NEW.relation_type IN ('evidenced-by','refuted-by'))
+      EXECUTE FUNCTION ha_decision_evidence_review_invalidate()`,
   ];
 }

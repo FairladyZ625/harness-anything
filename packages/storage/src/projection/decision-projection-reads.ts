@@ -1,4 +1,8 @@
-import { DEFAULT_DECISION_LIST_PAGE_SIZE } from "@harness-anything/kernel/internal/ports/decision-projection-model.ts";
+import {
+  DEFAULT_DECISION_LIST_PAGE_SIZE,
+  type DecisionListReview,
+  type DecisionListSummaryRow,
+} from "@harness-anything/kernel/internal/ports/decision-projection-model.ts";
 import type { DecisionDocumentState } from "@harness-anything/kernel";
 import type { DatabaseSync } from "node:sqlite";
 import type { SessionProvenanceV1 } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
@@ -32,7 +36,6 @@ import { ftsQuery } from "./fts-query.ts";
 import { queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
 import { checkedPageLimit, decodePageCursor, encodePageCursor, type ProjectionPage } from "./task-query-projection.ts";
 import { readRelationProjectionRows, readRelationProjectionRowsTargetingEntity } from "./relation-entity-projection.ts";
-import { activeMaterializationHolds } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 
 const decisionIdSortAlphabet = [
     ...new Set([..."-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz"].map((c) => c.toLowerCase())),
@@ -69,6 +72,22 @@ export function readDecisionRows(
   )
     throw new Error("decision collection read requires non-empty string ids");
   if (decisionIds.length === 0) return [];
+  return readDecisionCollection(
+    db,
+    "SELECT CAST(key AS INTEGER) AS request_order, value AS decision_id FROM json_each(?)",
+    [JSON.stringify(decisionIds)],
+    withBody,
+    false,
+  );
+}
+
+function readDecisionCollection(
+  db: DatabaseSync,
+  requestedDecisions: string,
+  values: readonly (string | number)[],
+  withBody: boolean,
+  withReview: boolean,
+): readonly DecisionProjectionRow[] {
   const bodyColumn = withBody ? "COALESCE(document.value_json, document_history.value_json)" : "NULL",
     bodyJoin =
       "LEFT JOIN document ON document.path = 'decisions/decision-' || decision.decision_id || '/decision.md' " +
@@ -76,7 +95,7 @@ export function readDecisionRows(
         ? "LEFT JOIN document_history ON document_history.path = 'decisions/decision-' || decision.decision_id || '/decision.md'"
         : "");
   const sql = `WITH requested_decisions(request_order, decision_id) AS MATERIALIZED (
-      SELECT CAST(key AS INTEGER), value FROM json_each(?)
+      ${requestedDecisions}
     )
     SELECT
       requested_decisions.request_order,
@@ -97,7 +116,10 @@ export function readDecisionRows(
       decision.provenance_json,
       decision.workspace_revision,
       ${bodyColumn} AS body_document_json,
-      document.path AS active_document_path,
+      ${withReview ? "decision.review_summary_json" : "NULL"} AS review_summary_json,
+      CASE WHEN decision.state IN ('rejected', 'superseded', 'outcome_retired') AND document.path IS NULL
+        AND NOT EXISTS (SELECT 1 FROM materialization_hold WHERE owner_ref = 'decision/' || decision.decision_id)
+        THEN 'dematerialized_terminal' ELSE 'materialized' END AS materialization_state,
       COALESCE((
         SELECT json_group_array(
           json_object('kind', kind, 'option_id', option_id, 'text', text, 'rationale', rationale)
@@ -165,9 +187,7 @@ export function readDecisionRows(
       ), '[]') AS relations_json
     FROM requested_decisions JOIN decision ON decision.decision_id = requested_decisions.decision_id ${bodyJoin}
     ORDER BY requested_decisions.request_order`;
-  return queryRows<DecisionCollectionRecord>(db, sql, JSON.stringify(decisionIds)).map((row) =>
-    decisionCollectionRow(db, row),
-  );
+  return queryRows<DecisionCollectionRecord>(db, sql, ...values).map((row) => decisionCollectionRow(row, withReview));
 }
 
 interface DecisionCollectionRecord extends ProjectionSqlRow {
@@ -188,7 +208,8 @@ interface DecisionCollectionRecord extends ProjectionSqlRow {
   readonly provenance_json: string;
   readonly workspace_revision: number;
   readonly body_document_json: string | null;
-  readonly active_document_path: string | null;
+  readonly review_summary_json: string | null;
+  readonly materialization_state: NonNullable<DecisionProjectionRow["materializationState"]>;
   readonly options_json: string;
   readonly claims_json: string;
   readonly consents_json: string;
@@ -200,7 +221,7 @@ interface DecisionCollectionRecord extends ProjectionSqlRow {
   readonly relations_json: string;
 }
 
-function decisionCollectionRow(db: DatabaseSync, row: DecisionCollectionRecord): DecisionProjectionRow {
+function decisionCollectionRow(row: DecisionCollectionRecord, withReview: boolean): DecisionProjectionRow {
   const decisionId = row.decision_id,
     state = row.state as DecisionState,
     legacyId = decisionLegacyId(decisionId),
@@ -222,7 +243,6 @@ function decisionCollectionRow(db: DatabaseSync, row: DecisionCollectionRecord):
     amendments = (JSON.parse(row.amendments_json) as string[]).map((value) => JSON.parse(value) as DecisionAmendmentV1),
     pins = (JSON.parse(row.pins_json) as string[]).map((value) => JSON.parse(value) as DecisionContentPinV1),
     body = row.body_document_json === null ? null : decisionBodyFromDocument(decisionId, row.body_document_json),
-    materializationState = decisionMaterializationState(db, row),
     reviews = (JSON.parse(row.reviews_json) as string[]).map((value) => JSON.parse(value) as DecisionReviewV1),
     reviewResponses = (JSON.parse(row.review_responses_json) as string[]).flatMap(
       (value) => JSON.parse(value) as DecisionReviewResponseV1[],
@@ -291,69 +311,16 @@ function decisionCollectionRow(db: DatabaseSync, row: DecisionCollectionRecord):
     ...(amendments.length ? { amendments } : {}),
     ...(pins.length ? { contentPins: pins } : {}),
     body,
-    materializationState,
+    ...(withReview
+      ? {
+          listReview:
+            row.review_summary_json === null ? null : (JSON.parse(row.review_summary_json) as DecisionListReview),
+        }
+      : {}),
+    materializationState: row.materialization_state,
     capabilities: decisionCapabilities(state),
     claimsOpen: decisionClaimsOpen(state),
   } as DecisionProjectionRow;
-}
-
-function decisionMaterializationState(
-  db: DatabaseSync,
-  row: DecisionCollectionRecord,
-): "materialized" | "dematerialized_terminal" {
-  if (!["rejected", "superseded", "outcome_retired"].includes(row.state)) return "materialized";
-  if (row.active_document_path !== null) return "materialized";
-  const relations = queryRows<{
-    readonly source_ref: string;
-    readonly target_ref: string;
-    readonly relation_type: string;
-    readonly state: string;
-  }>(
-    // A terminal Decision can be held by edges owned by another aggregate, so the owner-only
-    // relation JSON above is insufficient for this read-side verdict.
-    db,
-    "SELECT source_ref, target_ref, relation_type, state FROM relation_edge WHERE state = 'active' AND (source_ref = ? OR source_ref LIKE ? OR target_ref = ? OR target_ref LIKE ?)",
-    `decision/${row.decision_id}`,
-    `decision/${row.decision_id}/%`,
-    `decision/${row.decision_id}`,
-    `decision/${row.decision_id}/%`,
-  );
-  const normalizedRelations = relations.map((relation) => ({
-      source: relation.source_ref,
-      target: relation.target_ref,
-      type: relation.relation_type as never,
-      state: relation.state,
-    })),
-    refs = new Set(normalizedRelations.flatMap(({ source, target }) => [source, target])),
-    states = new Map<string, { readonly ref: string; readonly state: string; readonly kind: "decision" | "task" }>();
-  states.set(`decision/${row.decision_id}`, { ref: `decision/${row.decision_id}`, state: row.state, kind: "decision" });
-  for (const ref of refs) {
-    const decision = ref.match(/^decision\/([^/]+)(?:\/[^/]+)?$/u)?.[1],
-      task = ref.match(/^task\/(.+)$/u)?.[1];
-    if (decision) {
-      const value = queryRows<{ readonly state: string }>(
-        db,
-        "SELECT state FROM decision WHERE decision_id = ?",
-        decision,
-      )[0];
-      if (value)
-        states.set(`decision/${decision}`, { ref: `decision/${decision}`, state: value.state, kind: "decision" });
-    } else if (task) {
-      const value = queryRows<{ readonly status: string }>(
-        db,
-        "SELECT CASE WHEN package_disposition = 'archived' THEN 'archived' ELSE status END AS status FROM task_snapshot WHERE task_id = ?",
-        task,
-      )[0];
-      if (value) states.set(ref, { ref, state: value.status, kind: "task" });
-    }
-  }
-  return activeMaterializationHolds(
-    { ref: `decision/${row.decision_id}`, state: row.state, kind: "decision" },
-    normalizedRelations,
-    states,
-  ).length === 0
-    ? "dematerialized_terminal"
-    : "materialized";
 }
 
 /**
@@ -365,7 +332,18 @@ function decisionMaterializationState(
 export function listDecisionRowsPage(
   db: DatabaseSync,
   filters: DecisionListFilters,
-): { readonly rows: readonly DecisionProjectionRow[]; readonly page?: ProjectionPage } {
+  selection: "summary",
+): { readonly rows: readonly DecisionListSummaryRow[]; readonly page?: ProjectionPage };
+export function listDecisionRowsPage(
+  db: DatabaseSync,
+  filters: DecisionListFilters,
+  selection?: "review",
+): { readonly rows: readonly DecisionProjectionRow[]; readonly page?: ProjectionPage };
+export function listDecisionRowsPage(
+  db: DatabaseSync,
+  filters: DecisionListFilters,
+  selection?: "summary" | "review",
+): { readonly rows: readonly DecisionListSummaryRow[]; readonly page?: ProjectionPage } {
   const where: string[] = [],
     values: (string | number)[] = [];
   if (filters.search?.trim()) {
@@ -384,7 +362,7 @@ export function listDecisionRowsPage(
     where.push("EXISTS (SELECT 1 FROM json_each(decision.applies_json, '$.productLines') WHERE value=?)");
     values.push(filters.productLine);
   }
-  return listDecisionRowsPageFromIndex(db, filters, where, values);
+  return listDecisionRowsPageFromIndex(db, filters, where, values, selection);
 }
 
 function listDecisionRowsPageFromIndex(
@@ -392,7 +370,8 @@ function listDecisionRowsPageFromIndex(
   filters: DecisionListFilters,
   where: readonly string[],
   values: readonly (string | number)[],
-): { readonly rows: readonly DecisionProjectionRow[]; readonly page?: ProjectionPage } {
+  selection: "summary" | "review" | undefined,
+): { readonly rows: readonly DecisionListSummaryRow[]; readonly page?: ProjectionPage } {
   const paged = filters.limit !== undefined || filters.cursor !== undefined,
     pageLimit =
       filters.limit === undefined ? (paged ? DEFAULT_DECISION_LIST_PAGE_SIZE : null) : checkedPageLimit(filters.limit),
@@ -448,30 +427,71 @@ function listDecisionRowsPageFromIndex(
     queryValues.push(...values, plainBoundary, plainCursor, sqlLimit);
   }
 
-  const raw = queryRows<{ readonly decision_id: string }>(
-      db,
-      [
-        "SELECT decision_id FROM (",
-        branches.join(" UNION ALL "),
-        ") ORDER BY legacy_number IS NULL, legacy_number, decision_sort_key, tie LIMIT ?",
-      ].join(" "),
-      ...queryValues,
-      sqlLimit,
-    ),
-    pageIds = (pageLimit === null ? raw : raw.slice(0, pageLimit)).map(({ decision_id }) => decision_id),
-    last = pageIds.at(-1);
+  const pageSql = [
+      "SELECT decision_id FROM (",
+      branches.join(" UNION ALL "),
+      ") ORDER BY legacy_number IS NULL, legacy_number, decision_sort_key, tie LIMIT ?",
+    ].join(" "),
+    args = [...queryValues, sqlLimit],
+    raw =
+      selection === "summary"
+        ? readDecisionSummaries(db, pageSql, args)
+        : readDecisionCollection(
+            db,
+            `SELECT row_number() OVER () AS request_order, decision_id FROM (${pageSql})`,
+            args,
+            selection !== "review" && filters.withBody === true,
+            selection === "review",
+          ),
+    rows = pageLimit === null ? raw : raw.slice(0, pageLimit),
+    last = rows.at(-1);
   return {
-    rows: readDecisionRows(db, pageIds, filters.withBody === true),
+    rows,
     ...(pageLimit === null
       ? {}
       : {
           page: {
             limit: pageLimit,
             cursor: filters.cursor ?? null,
-            nextCursor: raw.length > pageLimit && last ? encodePageCursor([last]) : null,
+            nextCursor: raw.length > pageLimit && last ? encodePageCursor([last.decisionId]) : null,
           },
         }),
   };
+}
+
+function readDecisionSummaries(db: DatabaseSync, pageSql: string, args: readonly (string | number)[]) {
+  return queryRows<{
+    readonly decision_id: string;
+    readonly state: DecisionListSummaryRow["state"];
+    readonly title: string;
+    readonly question: string;
+    readonly risk_tier: DecisionListSummaryRow["riskTier"];
+    readonly urgency: DecisionListSummaryRow["urgency"];
+    readonly proposed_at: string;
+    readonly workspace_revision: number;
+    readonly list_options_json: string;
+  }>(
+    db,
+    `SELECT d.decision_id,d.state,d.title,d.question,d.risk_tier,d.urgency,d.proposed_at,d.workspace_revision,d.list_options_json
+     FROM (${pageSql}) selected CROSS JOIN decision d ON d.decision_id=selected.decision_id`,
+    ...args,
+  ).map((row): DecisionListSummaryRow => {
+    const id = row.decision_id,
+      legacyId = decisionLegacyId(id);
+    return {
+      decisionId: id,
+      ...(legacyId ? { legacyId } : {}),
+      path: `decisions/decision-${id}/decision.md`,
+      state: row.state,
+      title: row.title,
+      question: row.question,
+      riskTier: row.risk_tier,
+      urgency: row.urgency,
+      proposedAt: row.proposed_at,
+      workspaceRevision: Number(row.workspace_revision),
+      ...(JSON.parse(row.list_options_json) as Pick<DecisionListSummaryRow, "chosen" | "rejected">),
+    };
+  });
 }
 
 export function listDecisionAgendaRowsPage(
@@ -604,7 +624,7 @@ export function decisionAnchorIndex(db: DatabaseSync): ReadonlyMap<string, reado
 }
 
 export function readDecisionDocumentState(db: DatabaseSync, decisionId: string): DecisionDocumentState | null {
-  const row = readDecisionRow(db, decisionId);
+  const row = readDecisionRow(db, decisionId, false);
   if (!row) return null;
   const { body: _body, ...decision } = row;
   return decision;

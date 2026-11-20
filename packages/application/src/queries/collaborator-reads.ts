@@ -94,9 +94,9 @@ export function readCollaboratorDecisions(
       scopePersonId: _scope,
       ...filters
     } = query,
-    personId = involvementPersonId(query);
-  if (personId === undefined && filterNodeId === undefined && involvement !== "mine")
-    return projection.listDecisions(filters);
+    personId = involvementPersonId(query),
+    list = (page: DecisionListFilters) => projection.listDecisions(page, query.withBody ? "review" : undefined);
+  if (personId === undefined && filterNodeId === undefined && involvement !== "mine") return list(filters);
   const cut = projection.readCut(),
     awaits = new Set<string>();
   if (personId !== undefined)
@@ -127,7 +127,7 @@ export function readCollaboratorDecisions(
   let result: ReturnType<TaskProjection["listDecisions"]>;
   const visited = new Set(filters.cursor === undefined ? [] : [filters.cursor]);
   do {
-    result = projection.listDecisions({
+    result = list({
       ...filters,
       ...(cursor === undefined ? {} : { cursor }),
       ...(limit === undefined ? {} : { limit: limit - decisions.length }),

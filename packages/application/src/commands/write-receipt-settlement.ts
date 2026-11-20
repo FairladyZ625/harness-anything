@@ -2,6 +2,7 @@ import {
   actionDeclarations,
   attachReceiptAcceptance,
   isArtifactActionIngressKind,
+  isSha256Digest,
   waitForReceiptAcceptance,
   type CanonicalEventStore,
   type TaskProjection,
@@ -110,10 +111,25 @@ export function attachWriteReceiptAcceptance<R extends WriteReceiptDraft>(
   action: CommandAction,
   receipt: R,
 ): R & ReceiptAcceptanceFields {
+  const { store } = context;
+  // Fresh writes usually settle at the accepted head. The store already has its event digest,
+  // so settlement can certify that cut without serializing and hashing the whole event again.
+  const acceptanceStore: CanonicalEventStore =
+    action.kind !== "receipt-show" && receipt.cut
+      ? {
+          ...store,
+          publication(event) {
+            const { repoId, revision, headDigest } = store.currentCut();
+            return revision === event.workspaceRevision && isSha256Digest(headDigest)
+              ? { commitSha: null, cut: { repoId, revision, headDigest, opId: event.opId } }
+              : store.publication(event);
+          },
+        }
+      : store;
   return relationWorktreeSettlement(
     action,
-    attachReceiptAcceptance(receipt, context.store, context.projection),
-    context.store,
+    attachReceiptAcceptance(receipt, acceptanceStore, context.projection),
+    store,
   );
 }
 

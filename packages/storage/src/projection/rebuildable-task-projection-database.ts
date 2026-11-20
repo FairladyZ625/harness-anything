@@ -8,6 +8,7 @@ import {
   localRuntimeStateFileSystem,
 } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import { createDecisionProjectionTables } from "./decision-event-projection.ts";
+import { refreshDecisionListReview } from "./decision-projection-reducer.ts";
 import { backfillEventSummaryReadIndex, ensureEventSummaryReadIndexColumns } from "./event-summary-read-index.ts";
 import { ARTIFACT_TIMELINE_TABLES_SQL, ensureArtifactTimelineBackfill } from "./artifact-timeline-projection.ts";
 import { createFactProjectionTables } from "./fact-event-projection.ts";
@@ -336,14 +337,22 @@ function projectionDatabaseOwner(
     fingerprint = projectionFileFingerprint(projectionPath);
   };
   const initialize = (onValidationProgress?: ProjectionProgress) => {
-    open();
-    const observed = projectionSchemaVersion(db!);
-    if (observed !== null && observed !== taskProjectionSchemaVersion) {
+    try {
+      open();
+      const observed = projectionSchemaVersion(db!);
+      if (
+        observed !== null &&
+        observed !== taskProjectionSchemaVersion &&
+        !(observed === 38 && expandDecisionListColumns(db!, readHead()))
+      ) {
+        throw new ProjectionSchemaMismatchError(observed, projectionPath);
+      }
+      if (!schemaChecked || observed === null) createTables(db!, onValidationProgress);
+      schemaChecked = true;
+    } catch (error) {
       close();
-      throw new ProjectionSchemaMismatchError(observed, projectionPath);
+      throw error;
     }
-    if (!schemaChecked || observed === null) createTables(db!, onValidationProgress);
-    schemaChecked = true;
   };
   const use = <A>(operation: (database: DatabaseSync) => A, onValidationProgress?: ProjectionProgress): A => {
     // A query operation can call back into this same owner while its own `operation` is still
@@ -371,6 +380,29 @@ function projectionDatabaseOwner(
   const owner = { use, close };
   owners.set(projectionPath, owner);
   return owner;
+}
+
+/** Upgrade the previous cache at its existing cut. A full replay does work proportional to the ledger. */
+function expandDecisionListColumns(db: DatabaseSync, head: ReturnType<EventStreamPort["readHead"]>): boolean {
+  return transaction(db, () => {
+    if (projectionSchemaVersion(db) === taskProjectionSchemaVersion) return true;
+    const columns = new Set(queryRows<{ name: string }>(db, "PRAGMA table_info(decision)").map(({ name }) => name));
+    if (!columns.has("decision_sort_key")) return false;
+    assertLedgerIdentity(db, head);
+    if (!columns.has("list_options_json"))
+      runSql(
+        db,
+        `ALTER TABLE decision ADD COLUMN list_options_json TEXT NOT NULL DEFAULT '{"chosen":[],"rejected":[]}'`,
+      );
+    if (!columns.has("review_summary_json")) runSql(db, "ALTER TABLE decision ADD COLUMN review_summary_json TEXT");
+    for (const { decision_id: id } of queryRows<{ readonly decision_id: string }>(
+      db,
+      "SELECT decision_id FROM decision",
+    ))
+      refreshDecisionListReview(db, id);
+    runSql(db, "UPDATE projection_meta SET schema_version=? WHERE singleton=1", taskProjectionSchemaVersion);
+    return true;
+  });
 }
 function canonicalProjectionPath(inputPath: string): string {
   const resolved = path.resolve(inputPath),

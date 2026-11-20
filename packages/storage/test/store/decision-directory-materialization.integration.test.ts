@@ -18,6 +18,7 @@ import {
 } from "../../src/index.ts";
 import { resolveHarnessLayout } from "@harness-anything/kernel/internal/layout/index.ts";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
+import { decisionReviewState } from "@harness-anything/kernel/internal/ports/decision-projection-model.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 import { initRepo } from "./task-event-store.fixtures.ts";
 import { proposal, fact } from "./relation-graph-projection.fixtures.ts";
@@ -61,6 +62,15 @@ test("Decision retirement prunes empty shells and preserves unindexed legacy byt
       });
       store.append(proposed);
       projection.apply(proposed.event, proposed.plan);
+      const assertReviewCut = () => {
+        const summary = projection!.listDecisions({}, "review").decisions[0]!,
+          detail = projection!.readDecision(decisionId).decision!;
+        assert.equal(summary.body, null);
+        assert.ok(summary.listReview?.digest);
+        for (const requirement of ["all", "medium_and_high", "high", "off"] as const)
+          assert.deepEqual(decisionReviewState(summary, requirement), decisionReviewState(detail, requirement));
+      };
+      assertReviewCut();
       await store.settlePendingMaterialization?.("create Decision");
       assert.ok(existsSync(path.join(directory, "decision.md")));
       const current = reduceDecisionDocument(null, proposed.event),
@@ -101,6 +111,7 @@ test("Decision retirement prunes empty shells and preserves unindexed legacy byt
         });
       store.append({ ...reviewed, blobs: [...reviewed.blobs, { ...reportClaim, body: reportBody }] });
       projection.apply(reviewed.event, reviewed.plan);
+      assertReviewCut();
       await store.settlePendingMaterialization?.("create canonical review");
       assert.equal(readFileSync(path.join(root, reportPath), "utf8"), reportBody);
       const retired = compileDecisionWrite({
@@ -117,6 +128,7 @@ test("Decision retirement prunes empty shells and preserves unindexed legacy byt
       });
       store.append(retired);
       projection.apply(retired.event, retired.plan);
+      assertReviewCut();
       await store.settlePendingMaterialization?.("retire Decision");
       assert.equal(existsSync(directory), false, "incremental retirement removes the empty Decision directory");
       assert.equal(projection.readDocumentHistory(reportPath).document?.body, reportBody);

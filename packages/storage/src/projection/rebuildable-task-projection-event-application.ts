@@ -87,6 +87,7 @@ import {
 import { lifecycleDocumentPaths } from "@harness-anything/kernel/internal/domain/task-lifecycle-publication.ts";
 import { slugifyTaskTitle } from "@harness-anything/kernel/internal/layout/index.ts";
 import { refreshDecisionDocumentSearch } from "./decision-event-projection.ts";
+import { refreshDecisionListReviews } from "./decision-projection-reducer.ts";
 import { refreshTaskRelationProjection } from "./task-query-projection.ts";
 import type {
   EventContentPrefetch,
@@ -185,6 +186,7 @@ export function applyEvent(
 ): void {
   applyEventProjection(db, event, eventJson, readBlob);
   settleTerminalMaterializationForEvent(db, event);
+  refreshDecisionListReviews(db, event);
   refreshDirtyRelationFreshness(db);
 }
 

@@ -9,7 +9,11 @@ import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
 import { putPgProjectionValue } from "../../src/pg/pg-projection-values.ts";
 import { decisionProjectionDatabase, proposal } from "../store/relation-graph-projection.fixtures.ts";
 import { listDecisionRowsPage, reduceDecisionEvent } from "../../src/projection/decision-event-projection.ts";
-import { refreshDecisionDocumentSearch } from "../../src/projection/decision-projection-reducer.ts";
+import {
+  refreshDecisionDocumentSearch,
+  refreshDecisionListReview,
+} from "../../src/projection/decision-projection-reducer.ts";
+import { decisionReviewState } from "@harness-anything/kernel/internal/ports/decision-projection-model.ts";
 import { PG_PROJECTION_SCHEMA_VERSION } from "../../src/pg/pg-projection-schema.ts";
 import type { DocumentState } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 
@@ -69,6 +73,7 @@ export async function assertDecisionSearchEdges(pool: Pool, backend: string) {
         .prepare("INSERT INTO document(path,workspace_revision,value_json) VALUES(?,?,?)")
         .run(claim.path, index + 1, JSON.stringify(document));
       refreshDecisionDocumentSearch(sqlite, document);
+      refreshDecisionListReview(sqlite, id);
       await withPostgresTransaction(
         pool,
         async (client) => {
@@ -136,6 +141,18 @@ export async function assertDecisionSearchEdges(pool: Pool, backend: string) {
         `POSITION_PARITY ${JSON.stringify({ backend, queryBytes: Buffer.byteLength(sample.query), ids: actual.decisions.map((r) => r.decisionId) })}\n`,
       );
     }
+    assert.deepEqual(
+      (await pg.listDecisions({}, "summary")).decisions,
+      listDecisionRowsPage(sqlite, {}, "summary").rows,
+    );
+    const reviewSlice = await pg.listDecisions({}, "review");
+    assert.deepEqual(reviewSlice.decisions, listDecisionRowsPage(sqlite, {}, "review").rows);
+    for (const review of reviewSlice.decisions) {
+      const detail = await pg.readDecision(review.decisionId);
+      assert.ok(detail.decision?.body?.body);
+      assert.equal(review.body, null);
+      assert.deepEqual(decisionReviewState(review, "all"), decisionReviewState(detail.decision, "all"));
+    }
     for (const legacyId of ["E9007199254740992", "E9007199254740993"]) {
       for (const limit of [undefined, 10]) {
         const filters = { legacyId, ...(limit === undefined ? {} : { limit }) };
@@ -161,6 +178,15 @@ export async function assertDecisionSearchEdges(pool: Pool, backend: string) {
     assert.deepEqual((await hidden.listDecisions({ search: "cafe naive" })).decisions, []);
     await withPostgresTransaction(
       pool,
+      (client) =>
+        client.query("UPDATE ha_decisions SET readers=ARRAY['visible','hidden'] WHERE decision_id='dec_SEARCH_0'"),
+      scope,
+    );
+    const hiddenReview = (await hidden.listDecisions({}, "review")).decisions[0];
+    assert.equal(hiddenReview?.decisionId, "dec_SEARCH_0");
+    assert.equal(hiddenReview?.listReview, null, "visibility of a Decision must not expose its hidden document cut");
+    await withPostgresTransaction(
+      pool,
       async (client) => {
         await client.query(
           "UPDATE ha_decisions SET value=jsonb_set(value,'{title}','\"replacement\"') WHERE decision_id='dec_SEARCH_0'",
@@ -168,6 +194,7 @@ export async function assertDecisionSearchEdges(pool: Pool, backend: string) {
       },
       scope,
     );
+    await assert.rejects(() => pg.listDecisions({}, "review"), { code: "projection_pending" });
     await withPostgresTransaction(
       pool,
       async (client) => {
@@ -205,6 +232,14 @@ export async function assertDecisionSearchEdges(pool: Pool, backend: string) {
     assert.deepEqual(
       (await pg.listDecisions({ search: "replacement" })).decisions.map((r) => r.decisionId),
       ["dec_SEARCH_0"],
+    );
+    const refreshedReview = (await pg.listDecisions({}, "review")).decisions.find(
+      ({ decisionId }) => decisionId === "dec_SEARCH_0",
+    );
+    assert.ok(refreshedReview?.listReview?.digest);
+    assert.notEqual(
+      refreshedReview.listReview.digest,
+      reviewSlice.decisions.find(({ decisionId }) => decisionId === "dec_SEARCH_0")?.listReview?.digest,
     );
   } finally {
     sqlite.close();

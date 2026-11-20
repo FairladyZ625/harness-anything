@@ -14,6 +14,7 @@ import {
   readDecisionGraphRows,
   readDecisionRows,
 } from "../../src/projection/decision-event-projection.ts";
+import { refreshDecisionListReview } from "../../src/projection/decision-projection-reducer.ts";
 import {
   createFactProjectionTables,
   readFactGraphRows,
@@ -363,6 +364,65 @@ test("decision list reads every match without paging parameters and a constant n
     const seven = counted.executions() - four - before;
     context.diagnostic(`decision list page statements: 4 rows -> ${four}; 7 rows -> ${seven}`);
     assert.equal(seven, four, "the decision list read scales per page instead of per row set");
+  } finally {
+    db.close();
+  }
+});
+
+test("a thousand terminal Decision summaries use one scalar query with no document or relation reads", (t) => {
+  const counted = countingDatabase(),
+    { db } = counted;
+  try {
+    seed(db, 0, 1000);
+    const history = db.prepare("INSERT INTO document_history VALUES (?, 1, ?)"),
+      body = "# Decision\n\n" + "Long authored prose.\n".repeat(4096);
+    db.exec("BEGIN");
+    for (let n = 1; n <= 1000; n++) {
+      const decisionId = `dec_list_${String(n).padStart(4, "0")}`,
+        draft = proposal(n, decisionId),
+        compiled = compileDecisionWrite({
+          decisionReviewRequirement: "off",
+          event: { ...draft, payload: { ...draft.payload, body } },
+          currentDecision: null,
+          currentRelations: [],
+          currentDocument: null,
+        }),
+        claim = compiled.event.payload.decisionDocumentClaim;
+      reduceDecisionEvent(db, compiled.event);
+      history.run(
+        compiled.path,
+        JSON.stringify({
+          path: compiled.path,
+          body: compiled.body,
+          blobSha256: claim.sha256,
+          size: claim.size,
+          mediaType: claim.mediaType,
+          workspaceRevision: n,
+        }),
+      );
+      refreshDecisionListReview(db, decisionId);
+    }
+    db.exec("UPDATE decision SET state='rejected'; COMMIT");
+    const start = performance.now(),
+      before = counted.reads().length,
+      { rows } = listDecisionRowsPage(db, {}, "summary"),
+      reads = counted.reads().slice(before);
+    t.diagnostic(
+      JSON.stringify({
+        rows: rows.length,
+        statements: reads.length,
+        elapsedMs: performance.now() - start,
+        sql: [...new Set(reads.map(({ sql }) => sql))],
+      }),
+    );
+    assert.equal(rows.length, 1000);
+    assert.deepEqual(rows[0]?.chosen, [{ id: "CH1", text: "Use events" }]);
+    assert.deepEqual(rows[0]?.rejected, [{ id: "RJ1", text: "Use files", whyNot: "Files are not canonical." }]);
+    assert.equal(reads.length, 1);
+    assert.doesNotMatch(
+      reads[0]!.sql,
+      /\b(?:document|document_history|relation_edge|decision_option|decision_claim|decision_review_event|value_json)\b/u,
+    );
   } finally {
     db.close();
   }

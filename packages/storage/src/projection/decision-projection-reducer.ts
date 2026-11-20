@@ -1,11 +1,20 @@
 import type { DatabaseSync } from "node:sqlite";
-import { type DecisionEventV1 } from "@harness-anything/kernel/internal/domain/decision-event.ts";
-import type { DocumentState } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
+import type { DecisionEventV1 } from "@harness-anything/kernel/internal/domain/decision-event.ts";
+import type {
+  DocumentState,
+  PersistedCanonicalEventV1,
+} from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { assertDecisionAdmission, decisionState, fail } from "./decision-projection-admission.ts";
-import { readDecisionBody } from "./decision-projection-documents.ts";
-import { decisionIdSortKey, decisionLegacyNumber } from "./decision-projection-reads.ts";
+import {
+  changedDecisionDocuments,
+  changedDecisionEvidenceRelations,
+  decisionDocumentPattern,
+  projectDecisionListReview,
+  readDecisionBody,
+} from "./decision-projection-documents.ts";
+import { decisionIdSortKey, decisionLegacyNumber, readDecisionDocumentState } from "./decision-projection-reads.ts";
 import { applyEmbeddedRelationProjectionEvents } from "./relation-entity-projection.ts";
-import { prepareQuery, queryRows } from "./rebuildable-task-projection-sql.ts";
+import { prepareQuery, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 
 export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): void {
   assertDecisionAdmission(db, event);
@@ -232,10 +241,37 @@ function insertDecisionPin(db: DatabaseSync, event: DecisionEventV1): void {
 
 export function refreshDecisionDocumentSearch(db: DatabaseSync, document: DocumentState): void {
   const id =
-    /* @gate-identity state-store/task.source.storage.src.projection.decision-projection-reducer.sqlite-database */ /^decisions\/decision-(dec_[A-Za-z0-9_-]+)\/decision\.md$/u.exec(
+    /* @gate-identity state-store/task.source.storage.src.projection.decision-projection-reducer.sqlite-database */ decisionDocumentPattern.exec(
       document.path,
     )?.[1];
   if (id && decisionState(db, id)) refreshDecisionFts(db, id);
+}
+
+export function refreshDecisionListReview(db: DatabaseSync, id: string): void {
+  const decision = readDecisionDocumentState(db, id);
+  if (decision === null) return;
+  const body = readDecisionBody(db, id);
+  runSql(
+    db,
+    "UPDATE decision SET list_options_json=?,review_summary_json=? WHERE decision_id=?",
+    JSON.stringify({ chosen: decision.chosen, rejected: decision.rejected }),
+    body === null ? null : JSON.stringify(projectDecisionListReview(decision, body.body)),
+    id,
+  );
+}
+
+export function refreshDecisionListReviews(db: DatabaseSync, event: PersistedCanonicalEventV1): void {
+  const owners = changedDecisionDocuments(event),
+    relationIds = changedDecisionEvidenceRelations(event);
+  if (relationIds.length > 0)
+    for (const { owner_ref } of queryRows<{ readonly owner_ref: string }>(
+      db,
+      "SELECT owner_ref FROM relation_edge WHERE relation_id IN (SELECT value FROM json_each(?)) " +
+        "AND relation_type IN ('evidenced-by','refuted-by') AND owner_ref GLOB 'decision/*'",
+      JSON.stringify(relationIds),
+    ))
+      owners.add(owner_ref.slice("decision/".length));
+  for (const id of owners) refreshDecisionListReview(db, id);
 }
 
 function refreshDecisionFts(db: DatabaseSync, decisionId: string): void {

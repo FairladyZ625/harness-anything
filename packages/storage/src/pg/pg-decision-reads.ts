@@ -1,5 +1,8 @@
 import type { PoolClient } from "pg";
-import type { DecisionProjectionRow } from "@harness-anything/kernel/internal/ports/decision-projection-model.ts";
+import type {
+  DecisionListReview,
+  DecisionProjectionRow,
+} from "@harness-anything/kernel/internal/ports/decision-projection-model.ts";
 import type { EntityRelationRecord } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import { decisionDocumentProse } from "@harness-anything/kernel/internal/domain/decision-event.ts";
 import {
@@ -12,18 +15,30 @@ import {
 } from "@harness-anything/kernel/internal/domain/decision-board-projection.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { decisionLegacyId } from "../projection/decision-projection-reads.ts";
+import { PgDecisionBackfillPendingError } from "./pg-decision-read-status.ts";
+
+export interface PgDecisionReviewSummary {
+  readonly review: DecisionListReview | null;
+  readonly blobSha256: string | null;
+  readonly evidenceCount: number;
+}
 
 /** Batch body and relation metadata at the caller's transaction cut. */
 export async function readPgDecisionRows(
   client: PoolClient,
   scope: PgProjectionScope,
   _repoId: string,
-  rows: readonly { readonly decision_id: string; readonly value: Record<string, unknown> }[],
+  rows: readonly {
+    readonly decision_id: string;
+    readonly value: Record<string, unknown>;
+    readonly review_summary?: PgDecisionReviewSummary | null;
+  }[],
   withBody: boolean,
 ): Promise<readonly DecisionProjectionRow[]> {
   if (rows.length === 0) return [];
   const ids = rows.map((row) => row.decision_id),
     readers = [...(scope.readers ?? [])],
+    withReview = rows[0]!.review_summary !== undefined,
     relations = await client.query<{ value: Record<string, unknown> }>(
       `SELECT edge.value FROM unnest($4::text[]) AS requested(root)
        CROSS JOIN LATERAL (
@@ -46,7 +61,7 @@ export async function readPgDecisionRows(
         scope.tenantId,
         scope.projectId,
         scope.policyEpoch,
-        withBody ? ["document", "document-history"] : ["document"],
+        withBody || withReview ? ["document", "document-history"] : ["document"],
         ids.map((id) => `decisions/decision-${id}/decision.md`),
         readers,
       ],
@@ -54,7 +69,8 @@ export async function readPgDecisionRows(
   const activePaths = new Set(
       documents.rows.filter(({ model }) => model === "document").map(({ entity_id }) => entity_id),
     ),
-    bodyByPath = new Map<string, DecisionProjectionRow["body"]>();
+    bodyByPath = new Map<string, DecisionProjectionRow["body"]>(),
+    visiblePaths = new Set(documents.rows.map(({ entity_id }) => entity_id));
   if (withBody)
     for (const { entity_id, model, value } of documents.rows) {
       if (model === "document-history" && activePaths.has(entity_id)) continue;
@@ -72,21 +88,21 @@ export async function readPgDecisionRows(
   for (const { value: relation } of relations.rows) {
     const owner = relationOwnerRef(String(relation.source)),
       bucket = relationsByOwner.get(owner) ?? [];
-    bucket.push({
-      relation_id: relation.id,
-      source: relation.source,
-      target: relation.target,
-      type: relation.type,
-      direction: relation.direction,
-      strength: relation.strength,
-      origin: relation.origin,
-      rationale: relation.rationale,
-      state: relation.state,
-    } as EntityRelationRecord);
+    bucket.push(pgDecisionRelation(relation));
     relationsByOwner.set(owner, bucket);
   }
-  return rows.map(({ decision_id, value }) => {
-    const row = decisionProjectionRow(decision_id, value);
+  return rows.map(({ decision_id, value, review_summary }) => {
+    const row = decisionProjectionRow(decision_id, value),
+      relations = relationsByOwner.get(`decision/${decision_id}`) ?? [],
+      visibleDocument = visiblePaths.has(row.path);
+    if (withReview && visibleDocument && review_summary === null)
+      throw new PgDecisionBackfillPendingError("review summary");
+    const listReview =
+      visibleDocument &&
+      review_summary?.evidenceCount ===
+        relations.filter(({ type }) => type === "evidenced-by" || type === "refuted-by").length
+        ? review_summary.review
+        : null;
     return {
       ...row,
       materializationState:
@@ -94,9 +110,24 @@ export async function readPgDecisionRows(
           ? "dematerialized_terminal"
           : "materialized",
       body: bodyByPath.get(row.path) ?? null,
-      relations: relationsByOwner.get(`decision/${decision_id}`) ?? [],
+      relations,
+      ...(withReview ? { listReview } : {}),
     };
   });
+}
+
+export function pgDecisionRelation(relation: Record<string, unknown>): EntityRelationRecord {
+  return {
+    relation_id: relation.id,
+    source: relation.source,
+    target: relation.target,
+    type: relation.type,
+    direction: relation.direction,
+    strength: relation.strength,
+    origin: relation.origin,
+    rationale: relation.rationale,
+    state: relation.state,
+  } as EntityRelationRecord;
 }
 
 type DecisionDocumentShape = Record<string, unknown>;

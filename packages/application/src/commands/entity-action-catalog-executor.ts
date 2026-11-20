@@ -159,7 +159,7 @@ export function makeEntityActionCatalogExecutor(input: {
         });
       }
       if (action.kind === "decision-list") {
-        const read = decisions.list(decisionFilters(action));
+        const read = decisions.list(decisionFilters(action), "summary");
         return readReceipt("decision-list", { ...read, decisions: read.decisions.map(decisionSummary) });
       }
       if (action.kind === "decision-show") {
@@ -267,7 +267,7 @@ export function makeEntityActionCatalogExecutor(input: {
   };
 
   const repinAll = (action: CommandAction, binding: CommandBinding, opId: string): WriteReceipt => {
-    const ids = decisions.list({}).decisions.map(({ decisionId }) => decisionId),
+    const ids = decisions.list({}, "summary").decisions.map(({ decisionId }) => decisionId),
       initialRevision = input.store.readHead()?.revision ?? 0,
       existingOutcome = readAcceptedCommandOutcome(input.store, opId),
       authorizationDecision = decisionAuthorization(action, binding, opId, input),
