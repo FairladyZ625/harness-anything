@@ -113,7 +113,13 @@ import type { DaemonHost } from "./daemon-host-types.ts";
 import { openDaemonWriterEpochs } from "./daemon-host-writer-epoch.ts";
 import { requireAuthorizedFleetAction, requireAuthorizedHostAction } from "./host-action-authorization.ts";
 import { openFleetEdgeRuntime, type FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
-import { applyFleetMirrorCut, revokeFleetMirrorTree } from "./fleet-edge-mirror.ts";
+import {
+  applyFleetMirrorCut,
+  FleetMirrorError,
+  mirrorPathsFingerprint,
+  pullBlockedMirrorError,
+  revokeFleetMirrorTree,
+} from "./fleet-edge-mirror.ts";
 import type { FleetTlsCenter } from "./fleet/center.ts";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
 
@@ -1553,8 +1559,35 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         },
         onRevoked: () => revokeFleetMirrorTree(rootDir),
         onConfirmed: async (changedPaths, signal) => {
-          applyFleetMirrorCut(viewRoot, config.repoId, rootDir, "pull", { changedPaths });
           await runReplicaConfirmedRound({
+            materialize: () => {
+              const latched = runtimeRecoveryWatch.confirmFailure(config.repoId);
+              if (latched !== null && changedPaths !== undefined && changedPaths.length === 0) {
+                const previousFingerprint = runtimeRecoveryWatch.confirmDirtyFingerprint(config.repoId);
+                if (
+                  latched.dirtyPaths.length === 0 ||
+                  mirrorPathsFingerprint(rootDir, latched.dirtyPaths) === previousFingerprint
+                )
+                  throw new FleetMirrorError(latched.code, latched.message, latched.dirtyPaths);
+              }
+              const effectivePaths =
+                  latched !== null && changedPaths !== undefined && changedPaths.length === 0
+                    ? undefined
+                    : changedPaths,
+                materialized = applyFleetMirrorCut(viewRoot, config.repoId, rootDir, "replica-confirmed", {
+                  changedPaths: effectivePaths,
+                });
+              if (materialized.outcome === "pull_blocked") throw pullBlockedMirrorError(materialized);
+            },
+            observeConfirm: (failure) =>
+              runtimeRecoveryWatch.observeConfirm(
+                config.repoId,
+                failure,
+                now(),
+                failure !== null && failure !== "unchanged"
+                  ? mirrorPathsFingerprint(rootDir, failure.dirtyPaths)
+                  : null,
+              ),
             reconcile: async () => {
               const result = await forwardRuntime({
                 repoId: repo.repoId,
@@ -1575,12 +1608,16 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             ],
           });
         },
-        onConfirmedFailure: (error) =>
+        onConfirmedFailure: (error) => {
+          if (!runtimeRecoveryWatch.noteConfirmFailure(config.repoId, error)) return;
+          const failureCode = runtimeErrorCode(error);
           input.recordLifecycle?.({
             event: "replica_confirm_failed",
             repoId: repo.repoId,
+            ...(failureCode ? { code: failureCode } : {}),
             error: error instanceof Error ? error.message : String(error),
-          }),
+          });
+        },
         onFailure: (error) =>
           input.recordLifecycle?.({
             event: "replica_sync_failed",
@@ -1600,6 +1637,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       controller.abort();
       replicaSyncControllers.delete(repoId);
       fleetVersionWarnings.delete(repoId);
+      runtimeRecoveryWatch.observeConfirm(repoId, null, now());
     }
   };
   try {

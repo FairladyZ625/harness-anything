@@ -39,6 +39,7 @@ export async function fleetEdgeHostFixture(
     readonly waitForAttachments?: boolean;
     readonly runtimeLaunch?: Parameters<typeof openDaemonHost>[0]["runtimeLaunch"];
     readonly runtimeDiscover?: Parameters<typeof openDaemonHost>[0]["runtimeDiscover"];
+    readonly recordLifecycle?: Parameters<typeof openDaemonHost>[0]["recordLifecycle"];
     readonly viewRoot?: string;
     readonly personId?: string;
     readonly humanSession?: boolean;
@@ -170,6 +171,7 @@ export async function fleetEdgeHostFixture(
     ...(options.openCell ? { openCell: options.openCell } : {}),
     ...(options.runtimeLaunch ? { runtimeLaunch: options.runtimeLaunch } : {}),
     ...(options.runtimeDiscover ? { runtimeDiscover: options.runtimeDiscover } : {}),
+    ...(options.recordLifecycle ? { recordLifecycle: options.recordLifecycle } : {}),
     userRoot: edgeUser,
     oidc: createIdentitySession(edgeUser, {
       fetch,

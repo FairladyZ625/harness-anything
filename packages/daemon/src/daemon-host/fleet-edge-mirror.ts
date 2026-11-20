@@ -100,10 +100,40 @@ export interface FleetMirrorApplyResult {
 }
 export class FleetMirrorError extends Error {
   readonly code: string;
-  constructor(code: string, message: string) {
+  readonly dirtyPaths: readonly string[];
+  constructor(code: string, message: string, dirtyPaths: readonly string[] = []) {
     super(message);
     this.code = code;
+    this.dirtyPaths = dirtyPaths;
   }
+}
+
+export function pullBlockedMirrorError(
+  result: Pick<FleetMirrorApplyResult, "dirtyPaths" | "conflicts">,
+): FleetMirrorError {
+  const paths =
+    result.dirtyPaths.length > 0 ? result.dirtyPaths : result.conflicts.flatMap((conflict) => conflict.paths);
+  return new FleetMirrorError(
+    "pull_blocked",
+    paths.length > 0
+      ? `Local workspace changes conflict with canonical mirror paths: ${paths.join(", ")}`
+      : "Local workspace changes conflict with the canonical mirror cut.",
+    paths,
+  );
+}
+
+export function mirrorPathsFingerprint(workspaceRoot: string, paths: readonly string[]): string {
+  if (paths.length === 0) return "";
+  const root = materializedRoot(workspaceRoot);
+  return paths
+    .map((logical) => {
+      const target = path.join(root, ...logical.split("/")),
+        stat = lstatSync(target, { throwIfNoEntry: false });
+      if (!stat) return `${logical}:missing`;
+      if (!stat.isFile()) return `${logical}:nonfile:${String(stat.mode)}`;
+      return `${logical}:${sha256Bytes(readFileSync(target))}`;
+    })
+    .join("\n");
 }
 
 const objectPath = (generation: ReplicaGeneration, sha: string): string =>
@@ -392,7 +422,7 @@ export function applyFleetMirrorCut(
   viewRoot: string,
   repoId: string,
   workspaceRoot: string,
-  _trigger: FleetConflictTrigger,
+  trigger: FleetConflictTrigger | "replica-confirmed",
   context: {
     readonly viewId?: string;
     readonly taskId?: string | null;
@@ -413,12 +443,43 @@ export function applyFleetMirrorCut(
         const current = fleetMirrorViewAtProjection(view.viewDir, repoId, generation, projection, {
             includeEntries: false,
           }),
-          result = materializeFleetMirrorView(workspaceRoot, current, projection, generation, context);
-        return { outcome: "applied" as const, ...result, conflicts: [] };
+          result = materializeFleetMirrorView(workspaceRoot, current, projection, generation, context),
+          // Confirmation reports skipped canonical updates. Command-driven pulls preserve candidates
+          // and retain their applied outcome, including after a center write has already committed.
+          blocked =
+            trigger === "replica-confirmed" &&
+            mirrorDirtyPathsConflictWithCanonical(
+              workspaceRoot,
+              current.ledgerGeneration,
+              projection,
+              result.dirtyPaths,
+            );
+        return { outcome: blocked ? ("pull_blocked" as const) : ("applied" as const), ...result, conflicts: [] };
       });
     } finally {
       reader.close();
     }
+  });
+}
+
+function mirrorDirtyPathsConflictWithCanonical(
+  workspaceRoot: string,
+  ledgerGeneration: number,
+  projection: TaskProjectionQueries,
+  dirtyPaths: readonly string[],
+): boolean {
+  if (dirtyPaths.length === 0) return false;
+  const markerPath = path.join(resolveHarnessLayout(workspaceRoot).localRoot, "fleet-materialized.json"),
+    marker: {
+      readonly generation?: number;
+      readonly entries?: Record<string, string>;
+    } = existsSync(markerPath) ? JSON.parse(readFileSync(markerPath, "utf8")) : {},
+    markerEntries =
+      marker.generation === undefined || marker.generation === ledgerGeneration ? (marker.entries ?? {}) : {};
+  return dirtyPaths.some((logical) => {
+    const baseSha = markerEntries[logical],
+      canonicalSha = projection.readDocument(logical).document?.blobSha256;
+    return baseSha === undefined || baseSha !== canonicalSha;
   });
 }
 

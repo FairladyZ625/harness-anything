@@ -75,7 +75,7 @@ import {
 } from "./repo-all-purge.ts";
 import { removeFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { readPolicyMetadata } from "@harness-anything/application/queries";
-import { renderStuckRuntimeRecoveries } from "./runtime-recovery-watch.ts";
+import { renderReplicaConfirmFailure, renderStuckRuntimeRecoveries } from "./runtime-recovery-watch.ts";
 
 function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCellReadMethod {
   return (
@@ -1168,12 +1168,17 @@ export function createDaemonHostRepositoryApi(
           throw context.hostCodedError("replica_unavailable", `${method} has no edge replica query.`);
         const read = await cell.read(method, payload, readBinding, signal),
           at = context.now(),
-          stuck = method === "repo.agenda.read" ? context.runtimeRecoveryWatch.stuck(repoId, at) : [];
-        // Runtime recovery is this node's own work, so its stuck runtimes join the agenda here.
+          confirmFailure = method === "repo.agenda.read" ? context.runtimeRecoveryWatch.confirmFailure(repoId) : null,
+          stuck = method === "repo.agenda.read" ? context.runtimeRecoveryWatch.stuck(repoId, at) : [],
+          localAlerts = [
+            ...(confirmFailure ? [renderReplicaConfirmFailure(confirmFailure, at)] : []),
+            ...(stuck.length ? [renderStuckRuntimeRecoveries(stuck, at)] : []),
+          ];
+        // Replica confirmation blocks and stuck runtime recoveries are this node's own work, so they join the agenda here.
         return parseDaemonReadResult(
           method,
-          stuck.length && "summary" in read
-            ? { ...read, summary: `${renderStuckRuntimeRecoveries(stuck, at)}\n\n${String(read.summary)}` }
+          localAlerts.length && "summary" in read
+            ? { ...read, summary: `${localAlerts.join("\n\n")}\n\n${String(read.summary)}` }
             : read,
         );
       }
