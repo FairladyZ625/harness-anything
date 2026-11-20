@@ -19,8 +19,10 @@ const edgeIdentity = (edge: FleetEdgeConfig) => ({
 });
 
 function persistedSelection(selection: OidcCenterSelection): OidcCenterSelection {
-  const { clientSecret: _secret, ...authority } = selection.authority;
-  return { issuer: selection.issuer, authority };
+  const issuer = selection.issuer,
+    { clientSecret: _secret, ...authority } = selection.authority,
+    stored = { issuer, authority };
+  return stored;
 }
 
 /** Discovery identifies a binding once; persisted selection lets a restarted daemon use sessions while its center is offline. */
@@ -62,10 +64,31 @@ export function oidcCenterSelections(userRoot: string) {
       .update(JSON.stringify([target ?? null, identity]))
       .digest("hex");
   };
+  function write(target: string | undefined, selection: OidcCenterSelection | null): void {
+    if (selection) {
+      /* @gate-identity state-store/runtime-instance.oidc-center-selection */ mkdirSync(directory, {
+        recursive: true,
+        mode: 0o700,
+      });
+    } else if (!existsSync(directory)) return;
+    const files = selection
+      ? [path.join(directory, `${binding(target)}.json`)]
+      : readdirSync(directory)
+          .filter((entry) => entry.endsWith(".json"))
+          .map((entry) => path.join(directory, entry));
+    const stored = selection ? persistedSelection(selection) : null;
+    for (const file of files) {
+      const temporary = `${file}.tmp`;
+      /* @gate-identity state-store/runtime-instance.oidc-center-selection */ writeFileSync(
+        temporary,
+        JSON.stringify(stored),
+        { mode: 0o600 },
+      );
+      /* @gate-identity state-store/runtime-instance.oidc-center-selection */ renameSync(temporary, file);
+    }
+  }
   return {
-    clearAll(): void {
-      this.write(undefined, null);
-    },
+    clearAll: write.bind(undefined, undefined, null),
     key: binding,
     read(target?: string, identityOverride?: Readonly<Record<string, unknown>>): OidcCenterSelection | undefined {
       const key = binding(target, identityOverride),
@@ -74,28 +97,6 @@ export function oidcCenterSelections(userRoot: string) {
       const selection = JSON.parse(readFileSync(file, "utf8")) as OidcCenterSelection | null;
       return selection === null ? undefined : selection;
     },
-    write(target: string | undefined, selection: OidcCenterSelection | null): void {
-      if (selection) {
-        /* @gate-identity state-store/runtime-instance.oidc-center-selection */ mkdirSync(directory, {
-          recursive: true,
-          mode: 0o700,
-        });
-      } else if (!existsSync(directory)) return;
-      const files = selection
-        ? [path.join(directory, `${binding(target)}.json`)]
-        : readdirSync(directory)
-            .filter((entry) => entry.endsWith(".json"))
-            .map((entry) => path.join(directory, entry));
-      const stored = selection ? persistedSelection(selection) : null;
-      for (const file of files) {
-        const temporary = `${file}.tmp`;
-        /* @gate-identity state-store/runtime-instance.oidc-center-selection */ writeFileSync(
-          temporary,
-          JSON.stringify(stored),
-          { mode: 0o600 },
-        );
-        /* @gate-identity state-store/runtime-instance.oidc-center-selection */ renameSync(temporary, file);
-      }
-    },
+    write,
   };
 }

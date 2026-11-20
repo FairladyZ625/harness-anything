@@ -408,9 +408,7 @@ async function fleetControl(
         daemonId,
       })
     : null;
-  const edgeConfig = (edge ? readFleetEdgeConfig(edgeTarget!.canonicalRoot) : null) as
-    | (NonNullable<ReturnType<typeof readFleetEdgeConfig>> & { readonly spkiSha256?: string })
-    | null;
+  const edgeConfig = edgeTarget && readFleetEdgeConfig(edgeTarget.canonicalRoot);
   const edgeFlags = {
     host: "--host",
     port: "--port",
@@ -437,7 +435,7 @@ async function fleetControl(
     host: edgeValue("host"),
     port: Number(edgeValue("port")),
     caPath: path.resolve(String(edgeValue("caPath"))),
-    ...(edgeConfig?.spkiSha256 ? { spkiSha256: edgeConfig.spkiSha256 } : {}),
+    spkiSha256: edgeConfig?.spkiSha256,
     nodeId: edgeValue("nodeId"),
     credential,
     repoId: edgeTarget!.repoId,
