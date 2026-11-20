@@ -10423,7 +10423,7 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-control.ts#cancelRuntime.resultSha256:f55a7e963406acfe4ea0e843aceee270:2",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+        "port": "packages/kernel/src/integrity/stable-hash.ts#sha256Text"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-control.ts#enforceRuntimeSpendCap:a48ffbebb821cbbf655b0d95183d27dd",
