@@ -95,7 +95,6 @@ export async function openFleetCampaignFixture(options = {}) {
             name: "Campaign Agent",
             instructions: "Exercise the fleet schedule claim.",
             runtimes: [{ type: "codex" }],
-            instance: "stress-runtime",
           },
         },
         owners.auth(subject),

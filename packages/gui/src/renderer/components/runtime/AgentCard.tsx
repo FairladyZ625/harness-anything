@@ -41,8 +41,6 @@ export type AgentDraft = {
   readonly skills: readonly { readonly id: string; readonly path: string }[];
   readonly instructions: string;
   readonly prompts: readonly string[];
-  // Optional declaration facets the editor does not render controls for still round-trip.
-  readonly instance: string;
   readonly permissionMode: AgentDeclarationV1["permissionMode"] | "";
   readonly mcpPolicy: NonNullable<AgentDeclarationV1["mcpPolicy"]> | "";
   readonly selectionStrategy: NonNullable<AgentDeclarationV1["selectionStrategy"]> | "";
@@ -62,7 +60,6 @@ export const agentDraftFrom = (detail: AgentEntityDetail): AgentDraft => ({
   skills: detail.skills,
   instructions: detail.instructions,
   prompts: detail.prompts,
-  instance: detail.instance ?? "",
   permissionMode: detail.permissionMode ?? "",
   mcpPolicy: detail.mcpPolicy ?? "",
   selectionStrategy: detail.selectionStrategy ?? "",
@@ -86,7 +83,6 @@ export function agentDeclarationFrom(id: string, draft: AgentDraft): AgentDeclar
       ? { prompts: draft.prompts.map((prompt) => prompt.trim()).filter(Boolean) }
       : {}),
     ...(draft.preset.trim() ? { preset: draft.preset.trim() } : {}),
-    ...(draft.instance.trim() ? { instance: draft.instance.trim() } : {}),
     ...(draft.permissionMode ? { permissionMode: draft.permissionMode } : {}),
     ...(draft.mcpPolicy ? { mcpPolicy: draft.mcpPolicy } : {}),
     ...(draft.selectionStrategy ? { selectionStrategy: draft.selectionStrategy } : {}),
@@ -201,30 +197,12 @@ export function AgentCard({
           : [...draft.runtimes, { type: kindId, model: "", effort: "" }];
       patch({
         runtimes,
-        // A pinned instance only stays valid while its kind still matches a selected row.
-        instance:
-          draft.instance &&
-          instances.some(
-            (entry) =>
-              entry.enabled && entry.instanceId === draft.instance && agentRuntimeKindMatches(runtimes, entry.kindId),
-          )
-            ? draft.instance
-            : "",
       });
     },
     modelsForKind = (kindId: string) => {
-      // A resolved instance pin narrows that kind's model options to the pinned instance's own
-      // catalog: the union of every enabled instance of the kind lets a sibling instance's model
-      // ride the declaration, which the daemon rejects as agent_instance_incompatible. An
-      // unpinned kind — or a pin of a different kind — keeps the kind's full union.
-      const pinned = draft.instance
-        ? instances.find((entry) => entry.enabled && entry.instanceId === draft.instance && entry.kindId === kindId)
-        : undefined;
       return [
         ...new Set(
-          (pinned ? [pinned] : instances.filter((entry) => entry.enabled && entry.kindId === kindId)).flatMap(
-            (entry) => entry.models,
-          ),
+          instances.filter((entry) => entry.enabled && entry.kindId === kindId).flatMap((entry) => entry.models),
         ),
       ].sort();
     },
@@ -748,32 +726,11 @@ export function AgentCard({
             );
           })}
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <select
-              aria-label={t("agentRuntime.instanceAssignment")}
-              data-testid="agent-instance-select"
-              value={draft.instance}
-              onChange={(event) => patch({ instance: event.target.value })}
-              className="control"
-            >
-              <option value="">{t("agentRuntime.instanceAuto")}</option>
-              {compatible.map((entry) => (
-                <option key={entry.instanceId} value={entry.instanceId}>
-                  {entry.name} · {entry.defaultModel}
-                </option>
-              ))}
-              {/* A declared instance that no longer resolves stays visible so the pin is explicit,
-                  not silently rewritten — the daemon still rejects it as agent_instance_unavailable.
-                  The option itself carries no raw id (dead-entity-id gate); the link beside the
-                  select shows the pinned ref and stays navigable. */}
-              {draft.instance && !compatible.some((entry) => entry.instanceId === draft.instance) && (
-                <option value={draft.instance}>{t("agentRuntime.instanceUnavailable")}</option>
-              )}
-            </select>
-            {draft.instance ? (
+            {detail.instance ? (
               <EntityRefLink
-                entityRef={`provider/${draft.instance}`}
-                onNavigate={() => onSelectRuntime(draft.instance)}
-                title={draft.instance}
+                entityRef={`provider/${detail.instance}`}
+                onNavigate={() => onSelectRuntime(detail.instance!)}
+                title={detail.instance}
                 className="font-mono ui-micro text-text-faint hover:text-accent hover:underline"
               />
             ) : null}
