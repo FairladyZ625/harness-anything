@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { RepositoryMembersReply } from "@harness-anything/authorization-gui/access-admin-contract";
+import type { RepositoryMembersReply } from "@harness-anything/authorization/gui/access-admin-contract";
 import { consumeKnownError } from "../api/error-consumption.ts";
 import type { FleetOverviewNode } from "../api/renderer-dto.ts";
 import { guiHostBridge } from "./gui-transport.ts";

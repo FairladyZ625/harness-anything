@@ -7,13 +7,13 @@ import {
   keycloakLoginMappers,
   managedListenerProblem as readManagedListenerProblem,
   type KeycloakPolicyAdapterConfig,
-} from "@harness-anything/authorization-keycloak";
+} from "@harness-anything/authorization/keycloak";
 import {
   BuiltinIdentityManagement,
   BuiltinIdentitySession,
   BuiltinPolicyAdapter,
   userRootFromBuiltinUrl,
-} from "@harness-anything/authorization-builtin";
+} from "@harness-anything/authorization/builtin";
 import {
   artifactActionPoliciesByKind,
   normalizeHistoricalVerticalDocument,
@@ -48,7 +48,7 @@ export const createAuthorizationProvider = (
 };
 export { keycloakLoginAttributes, keycloakLoginMappers };
 
-import { OidcSessionService } from "@harness-anything/authorization-keycloak";
+import { OidcSessionService } from "@harness-anything/authorization/keycloak";
 import type { IdentitySessionPort, OidcSessionPorts } from "@harness-anything/kernel";
 import {
   hasAnyFleetEdgeConfig,
@@ -94,7 +94,7 @@ export function createIdentitySession(userRoot: string, ports: Partial<OidcSessi
     : external;
 }
 
-import { ManagedRbacService, type ManagedRbacPorts } from "@harness-anything/authorization-keycloak";
+import { ManagedRbacService, type ManagedRbacPorts } from "@harness-anything/authorization/keycloak";
 import { runProcessText, runProcessTextAsync, runProcessExitAsync } from "./process-port.ts";
 import { mapListenerBindError, validateCertificateNames } from "./tls-listener-admission.ts";
 import { managedRbacReceiptJournal } from "./access-admin-state.ts";

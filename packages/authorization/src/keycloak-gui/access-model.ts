@@ -1,8 +1,4 @@
-import type {
-  AccessPolicyGroup,
-  AccessReceipt,
-  AccessRejection,
-} from "@harness-anything/authorization-gui/access-admin-contract";
+import type { AccessPolicyGroup, AccessReceipt, AccessRejection } from "../gui/access-admin-contract.ts";
 import { identityGuiRejectionPolicy } from "@harness-anything/kernel/internal/domain/gui-interaction-policy.ts";
 import type { MessageKey } from "./ui-host.js";
 import type { KeycloakUiHost } from "./ui-host.js";
@@ -116,7 +112,7 @@ export function createAccessModel(host: KeycloakUiHost) {
   /** A row per known account, including accounts without a direct grant. */
   function grantsByPerson(
     people: readonly { readonly personId: string; readonly username: string }[],
-    grants: readonly import("@harness-anything/authorization-gui/access-admin-contract").AccessGrant[],
+    grants: readonly import("../gui/access-admin-contract.ts").AccessGrant[],
     repoId = "",
   ) {
     return people.map((person) => ({

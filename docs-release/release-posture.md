@@ -157,16 +157,15 @@ Current release boundaries are intentionally conservative:
 - The approved public-ready npm set is every workspace whose manifest is not
   `private`: `@harness-anything/kernel`, `@harness-anything/storage`,
   `@harness-anything/application`, `@harness-anything/preset`,
-  `@harness-anything/authorization-keycloak`, `@harness-anything/cli`,
+  `@harness-anything/authorization`, `@harness-anything/cli`,
   `@harness-anything/daemon`, and `@harness-anything/gui`, all under the
   `@harness-anything` organization owned by `lizeyu990625`. The release
   workflow derives that set from workspace metadata, in dependency order, and
   refuses a public package that depends on a private workspace.
-  `@harness-anything/authorization-gui` and
-  `@harness-anything/authorization-keycloak-gui` stay private build-only
-  dependencies of the GUI. Public-ready means the package policy and dry-run
-  contract allow publication; it does not claim that any package has been
-  published.
+  The authorization workspace exports the server providers and desktop
+  integration through separate subpaths. React is an optional peer for the
+  desktop views. Public-ready means the package policy and dry-run contract
+  allow publication.
 - `@harness-anything/daemon` owns the resident server, service process, runtime
   worker host, and the `harness-anything-daemon` bin. The CLI owns the
   `ha daemon start --service` control UX and autostart orchestration, which must

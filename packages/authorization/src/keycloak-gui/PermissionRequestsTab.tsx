@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AccessAdminApi, PermissionRequest } from "@harness-anything/authorization-gui/access-admin-contract";
+import type { AccessAdminApi, PermissionRequest } from "../gui/access-admin-contract.ts";
 import { createAccessParts } from "./AccessParts.js";
 import { createAccessModel } from "./access-model.js";
 import type { KeycloakUiHost } from "./ui-host.js";
@@ -89,7 +89,7 @@ export function createPermissionRequestsTab(host: KeycloakUiHost) {
         </form>
         {failure !== null && (
           <AccessNotice
-            rejection={failure as import("@harness-anything/authorization-gui/access-admin-contract").AccessRejection}
+            rejection={failure as import("../gui/access-admin-contract.ts").AccessRejection}
             origin="write"
           />
         )}

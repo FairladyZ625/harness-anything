@@ -49,14 +49,14 @@ test("rejects provider-specific role, client credentials, and admin REST paths",
 test("permits provider internals, test fixtures, and neutral authorization contracts", () => {
   assert.deepEqual(
     findProviderBoundaryViolations(
-      `+++ b/packages/authorization-keycloak/src/provider.ts\n+const realm = "main";\n+++ b/packages/daemon/test/auth.test.ts\n+const provider = "keycloak";\n+++ b/packages/application/src/authorization.ts\n+export interface AuthorizationPort { authorize(action: string): Promise<boolean> }`,
+      `+++ b/packages/authorization/src/keycloak/provider.ts\n+const realm = "main";\n+++ b/packages/daemon/test/auth.test.ts\n+const provider = "keycloak";\n+++ b/packages/application/src/authorization.ts\n+export interface AuthorizationPort { authorize(action: string): Promise<boolean> }`,
     ),
     [],
   );
 });
 
 test("registered ontology source references are data; implementation, labels and unregistered references remain forbidden", () => {
-  const symbol = "packages/authorization-keycloak/src/provider.ts#Provider.validate",
+  const symbol = "packages/authorization/src/keycloak/provider.ts#Provider.validate",
     refs = new Set([symbol]);
   assert.deepEqual(
     findProviderBoundaryViolations(
@@ -67,11 +67,11 @@ test("registered ontology source references are data; implementation, labels and
     [],
   );
   for (const [file, line] of [
-    ["facets.json", '"symbol": "packages/authorization-keycloak/src/other.ts#Other"'],
+    ["facets.json", '"symbol": "packages/authorization/src/keycloak/other.ts#Other"'],
     ["facets.json", '"explain": "Keycloak-specific behavior"'],
     ["facets.json", '"realm": "main"'],
     ["runtime.ts", `export const symbol = "${symbol}";`],
-    ["runtime.ts", 'import { Provider } from "@harness-anything/authorization-keycloak";'],
+    ["runtime.ts", 'import { Provider } from "@harness-anything/authorization/keycloak";'],
   ])
     assert.equal(
       findProviderBoundaryViolations(`+++ b/packages/kernel/src/domain/${file}\n+${line}`, [], refs).length,
@@ -80,20 +80,36 @@ test("registered ontology source references are data; implementation, labels and
     );
 });
 
-test("permits future Keycloak provider packages and neutral admin client names", () => {
+test("provider exemption stays inside the declared subdomains", () => {
   assert.deepEqual(
     findProviderBoundaryViolations(
-      `+++ b/packages/authorization-keycloak-enterprise/src/provider.ts\n+const realm = "main";\n+++ b/packages/gui/src/renderer/connection-data.ts\n+} from "./connection-admin-client.ts";\n+const path = "/admin/settings";`,
+      `+++ b/packages/authorization/src/keycloak-enterprise/provider.ts\n+const realm = "main";\n+++ b/packages/gui/src/renderer/connection-data.ts\n+} from "./connection-admin-client.ts";\n+const path = "/admin/settings";`,
     ),
-    [],
+    [
+      'packages/authorization/src/keycloak-enterprise/provider.ts: provider-specific realm field: const realm = "main";',
+    ],
+  );
+});
+
+test("allows provider entrypoint imports only at the composition files", () => {
+  const sourceLine = 'import { createKeycloakUi } from "@harness-anything/authorization/keycloak-gui";';
+  const local = 'const provider = "@harness-anything/authorization/keycloak-gui";';
+  const assembly = "packages/gui/src/renderer/authorization-ui.tsx";
+  const consumer = "packages/gui/src/renderer/view.ts";
+  assert.deepEqual(
+    findProviderBoundaryViolations(`+++ b/${assembly}\n+${sourceLine}\n+${local}\n+++ b/${consumer}\n+${sourceLine}`),
+    [
+      `${assembly}: Keycloak-specific symbol, error, or REST path: ${local}`,
+      `${consumer}: Keycloak-specific symbol, error, or REST path: ${sourceLine}`,
+    ],
   );
 });
 
 test("registered ActionDeclaration sources are data while unregistered references and implementation stay forbidden", () => {
   const candidateId =
-      "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-keycloak-orphan.ts#stopManagedKeycloakOrphan:dc09a0ed8053d8128f8604d698177512",
+      "action:packages/authorization:packages/authorization/src/keycloak/managed-keycloak-orphan.ts#stopManagedKeycloakOrphan:dc09a0ed8053d8128f8604d698177512",
     route = "rbac-bootstrap",
-    port = "packages/authorization-keycloak/src/managed-rbac-service.ts#ManagedRbacPorts.spawn",
+    port = "packages/authorization/src/keycloak/managed-rbac-service.ts#ManagedRbacPorts.spawn",
     fixture = "packages/daemon/test/daemon-host-keycloak-resume.test.ts",
     refs = new Set([candidateId, route, port, fixture]);
   assert.deepEqual(
@@ -122,13 +138,13 @@ test("registered ActionDeclaration sources are data while unregistered reference
   );
   assert.deepEqual(
     findProviderBoundaryViolations(
-      `+++ b/packages/kernel/src/domain/action-source-facets.json\n+"candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/unknown.ts#unknown"\n+"port": "packages/authorization-keycloak/src/managed-rbac-service.ts#Unregistered.port"\n+"explain": "Keycloak-specific implementation behavior"`,
+      `+++ b/packages/kernel/src/domain/action-source-facets.json\n+"candidateId": "action:packages/authorization:packages/authorization/src/keycloak/unknown.ts#unknown"\n+"port": "packages/authorization/src/keycloak/managed-rbac-service.ts#Unregistered.port"\n+"explain": "Keycloak-specific implementation behavior"`,
       [],
       refs,
     ),
     [
-      'packages/kernel/src/domain/action-source-facets.json: Keycloak-specific symbol, error, or REST path: "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/unknown.ts#unknown"',
-      'packages/kernel/src/domain/action-source-facets.json: Keycloak-specific symbol, error, or REST path: "port": "packages/authorization-keycloak/src/managed-rbac-service.ts#Unregistered.port"',
+      'packages/kernel/src/domain/action-source-facets.json: Keycloak-specific symbol, error, or REST path: "candidateId": "action:packages/authorization:packages/authorization/src/keycloak/unknown.ts#unknown"',
+      'packages/kernel/src/domain/action-source-facets.json: Keycloak-specific symbol, error, or REST path: "port": "packages/authorization/src/keycloak/managed-rbac-service.ts#Unregistered.port"',
       'packages/kernel/src/domain/action-source-facets.json: Keycloak-specific symbol, error, or REST path: "explain": "Keycloak-specific implementation behavior"',
     ],
   );
@@ -156,7 +172,7 @@ test("registered ActionDeclaration sources are data while unregistered reference
 
 test("registered Policy source references are data while unregistered references remain forbidden", () => {
   const source =
-    "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-service.ts#ManagedRbacService.attempt:11ab76e8d0c02192aa2b1be4c6731dd8";
+    "policy:packages/authorization:packages/authorization/src/keycloak/managed-rbac-service.ts#ManagedRbacService.attempt:11ab76e8d0c02192aa2b1be4c6731dd8";
   const route = "realm-readiness-attempts";
   const fixture = "packages/daemon/test/keycloak-policy-adapter.test.ts";
   assert.deepEqual(
@@ -190,7 +206,7 @@ test("registered Policy source references are data while unregistered references
 });
 
 test("registered Policy references never waive adjacent provider implementation", () => {
-  const source = "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/provider.ts#timeout:123";
+  const source = "policy:packages/authorization:packages/authorization/src/keycloak/provider.ts#timeout:123";
   const fixture = "packages/daemon/test/keycloak-policy-adapter.test.ts";
   const refs = new Set([source, "request", fixture]);
   for (const line of [
@@ -211,11 +227,11 @@ test("registered Policy references never waive adjacent provider implementation"
 test("keeps builtin provider shapes inside the tracked remediation boundary", () => {
   assert.deepEqual(
     findProviderBoundaryViolations(
-      `+++ b/packages/authorization-builtin/src/state.ts\n+readonly realm: "local";\n+clientId: "harness-center",\n+++ b/packages/authorization-keycloak-gui/src/ui-host.ts\n+export interface KeycloakUiHost { readonly realm: string }`,
+      `+++ b/packages/authorization/src/builtin/state.ts\n+readonly realm: "local";\n+clientId: "harness-center",\n+++ b/packages/authorization/src/keycloak-gui/ui-host.ts\n+export interface KeycloakUiHost { readonly realm: string }`,
     ),
     [
-      'packages/authorization-builtin/src/state.ts: provider-specific realm field: readonly realm: "local";',
-      'packages/authorization-builtin/src/state.ts: Keycloak-specific symbol, error, or REST path: clientId: "harness-center",',
+      'packages/authorization/src/builtin/state.ts: provider-specific realm field: readonly realm: "local";',
+      'packages/authorization/src/builtin/state.ts: Keycloak-specific symbol, error, or REST path: clientId: "harness-center",',
     ],
   );
 });
@@ -254,7 +270,7 @@ test("expires legacy waiver entries on their declared date", () => {
 
 test("rejects a line fingerprint whose waived source line no longer exists", () => {
   const line = 'export type IdentityProvider = "builtin" | "keycloak" | "unknown";';
-  const file = "packages/authorization-gui/src/identity-presentation.ts";
+  const file = "packages/authorization/src/gui/identity-presentation.ts";
   const live = providerLineFingerprint(file, line);
   const stale = providerLineFingerprint(file, "  // removed legacy line");
   assert.deepEqual(findStaleFingerprints([live], [{ file, text: `/** doc */\n  ${line}\n` }]), []);
@@ -282,8 +298,9 @@ test("provider relocation preserves exact same-package rows one-for-one", () => 
     1,
   );
   assert.equal(
-    findProviderBoundaryViolations(moved.replace("--- a/packages/daemon/", "--- a/packages/authorization-keycloak/"))
-      .length,
+    findProviderBoundaryViolations(
+      moved.replace("--- a/packages/daemon/", "--- a/packages/authorization/src/keycloak/"),
+    ).length,
     1,
   );
 });

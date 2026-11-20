@@ -13,7 +13,7 @@ import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
-import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import { managedRbacSessionStore } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
 import { daemonMethodAcceptsPayload } from "../src/daemon-host/protocol/daemon-protocol-rpc-validation.ts";
 import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";

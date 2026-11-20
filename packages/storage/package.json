@@ -87,7 +87,7 @@
     "tar": "7.5.22"
   },
   "devDependencies": {
-    "@harness-anything/authorization-keycloak": "0.1.0",
+    "@harness-anything/authorization": "0.1.0",
     "@types/pg": "^8.15.5"
   }
 }

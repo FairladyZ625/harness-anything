@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer } from "node:net";
 import { Pool } from "pg";
-import { ManagedRbacService } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import { ManagedRbacService } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { cloneOrInitPostgresCluster, ensureCachedPostgresBinaries } from "./pg-cluster-template.fixture.ts";
 
 export interface ManagedPostgresFixture {

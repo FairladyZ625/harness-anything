@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { BuiltinIdentitySession } from "@harness-anything/authorization-builtin";
+import { BuiltinIdentitySession } from "@harness-anything/authorization/builtin";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import type { IdentitySessionPort } from "@harness-anything/kernel";
 import { serveKeycloak } from "./keycloak.fixtures.ts";

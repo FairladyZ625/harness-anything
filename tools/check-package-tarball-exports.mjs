@@ -1,30 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
+import { publicWorkspacePackages } from "./public-workspaces.mjs";
 
 const root = process.cwd();
 const violations = [];
 const requestedPackages = new Set(process.argv.slice(2));
-
-function readJson(relativePath) {
-  return JSON.parse(readFileSync(path.join(root, relativePath), "utf8"));
-}
-
-function workspaceMemberDirs() {
-  const dirs = [];
-  for (const pattern of readJson("package.json").workspaces ?? []) {
-    if (!pattern.endsWith("/*")) {
-      dirs.push(pattern);
-      continue;
-    }
-    const parent = pattern.slice(0, -2);
-    for (const entry of readdirSync(path.join(root, parent), { withFileTypes: true }))
-      if (entry.isDirectory()) dirs.push(path.join(parent, entry.name));
-  }
-  return dirs;
-}
 
 function tarEntries(tarball) {
   const archive = gunzipSync(readFileSync(tarball));
@@ -83,14 +66,7 @@ function checkTarget(packageName, files, label, target) {
     violations.push(`${packageName} ${label} target ${target} is not in the npm pack tarball`);
 }
 
-for (const packageDir of workspaceMemberDirs()) {
-  let sourceManifest;
-  try {
-    sourceManifest = readJson(path.join(packageDir, "package.json"));
-  } catch {
-    continue;
-  }
-  if (sourceManifest.private === true) continue;
+for (const { directory: packageDir, manifest: sourceManifest } of publicWorkspacePackages(root)) {
   if (requestedPackages.size > 0 && !requestedPackages.has(sourceManifest.name) && !requestedPackages.has(packageDir))
     continue;
 
@@ -99,6 +75,9 @@ for (const packageDir of workspaceMemberDirs()) {
     const packedManifest = JSON.parse(entries.get("package.json")?.toString("utf8") ?? "null");
     if (!packedManifest) throw new Error("tarball does not contain package.json");
     const packageName = packedManifest.name ?? packageDir;
+    const publishExports = sourceManifest.publishConfig?.exports;
+    if (publishExports !== undefined && JSON.stringify(packedManifest.exports) !== JSON.stringify(publishExports))
+      violations.push(`${packageName} packed exports differ from publishConfig.exports`);
     const targets = [];
     collectTargets(packedManifest.exports, targets);
     for (const target of targets) checkTarget(packageName, entries, "exports", target);

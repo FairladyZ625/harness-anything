@@ -1,5 +1,5 @@
 // harness-test-tier: fast
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -30,7 +30,7 @@ import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rp
 import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import { executeRepoAction } from "../src/daemon-host/repo-cell-action-dispatch.ts";
 import { bindVerifiedExecutorClaim } from "../src/daemon-host/repo-cell-authorization.ts";
-import { BuiltinPolicyAdapter } from "@harness-anything/authorization-builtin";
+import { BuiltinPolicyAdapter } from "@harness-anything/authorization/builtin";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
 import { center, principal, executionLifecycle } from "./runtime-execution-credential.fixtures.ts";

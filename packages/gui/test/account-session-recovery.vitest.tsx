@@ -4,7 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { OidcAuthApi } from "@harness-anything/authorization-gui/oidc-auth-contract";
+import type { OidcAuthApi } from "@harness-anything/authorization/gui/oidc-auth-contract";
 import { AccessServiceTab } from "../src/renderer/authorization-ui.tsx";
 import { RepositoryReadNotice } from "../src/renderer/components/RepositoryReadNotice.tsx";
 

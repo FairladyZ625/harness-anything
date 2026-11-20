@@ -416,7 +416,7 @@ partitionedTest(
   "CI shards preserve the serial verdict when a multiplexed GUI client is mutated to call an unauthorized route",
   async (t) => {
     const dir = sourceCopy(t, {
-      copyPackages: ["gui", "daemon", "authorization-keycloak", "application", "kernel"],
+      copyPackages: ["gui", "daemon", "authorization", "application", "kernel"],
     });
     const file = "packages/gui/src/renderer/task-actions.ts";
     const only = [

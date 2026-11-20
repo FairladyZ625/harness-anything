@@ -1882,7 +1882,7 @@ test("a typed authority service must actually invoke the registered lifecycle ca
     source = action.ontology.sources.find((entry) => entry.candidateId.endsWith(":85833909ab835513f6a37d3d00ce0f77")),
     graph = mutatedDaemonGraph(
       source,
-      "packages/authorization-keycloak/src/oidc-session-service.ts",
+      "packages/authorization/src/keycloak/oidc-session-service.ts",
       "const result = await operation(),",
       "const result = undefined as unknown as T,",
     ),

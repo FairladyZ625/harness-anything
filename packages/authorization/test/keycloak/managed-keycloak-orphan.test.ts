@@ -4,8 +4,8 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { ManagedRbacHost } from "../src/managed-host.ts";
-import { stopManagedKeycloakOrphan } from "../src/managed-keycloak-orphan.ts";
+import type { ManagedRbacHost } from "../../src/keycloak/managed-host.ts";
+import { stopManagedKeycloakOrphan } from "../../src/keycloak/managed-keycloak-orphan.ts";
 
 function windowsOrphanHost(input: {
   readonly java: string;

@@ -1356,111 +1356,111 @@
     "contracts": [
       {
         "id": "managed-runtime-process-identity",
-        "symbol": "packages/authorization-keycloak/src/managed-keycloak-orphan.ts#matchesManagedKeycloakProcess",
+        "symbol": "packages/authorization/src/keycloak/managed-keycloak-orphan.ts#matchesManagedKeycloakProcess",
         "explain": "Host process inspection boundary: verify the configured executable, managed runtime home and process arguments before signaling a listener. This is operating-system identity evidence, not a domain authorization verdict.",
         "sources": [
           {
-            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-keycloak-orphan.ts#matchesManagedKeycloakProcess:819c2ed8b377ab8e7e28c3b4fd472bc1",
-            "route": "packages/authorization-keycloak/src/managed-keycloak-orphan.ts#matchesManagedKeycloakProcess"
+            "candidateId": "judgment:packages/authorization:packages/authorization/src/keycloak/managed-keycloak-orphan.ts#matchesManagedKeycloakProcess:819c2ed8b377ab8e7e28c3b4fd472bc1",
+            "route": "packages/authorization/src/keycloak/managed-keycloak-orphan.ts#matchesManagedKeycloakProcess"
           }
         ]
       },
       {
-        "id": "authorization-builtin/src/builtin-policy-adapter.ts#AuthorizationPolicyAdministrationPort",
-        "symbol": "packages/authorization-builtin/src/builtin-policy-adapter.ts#BuiltinPolicyAdapter.validatePolicyGroups",
+        "id": "authorization/src/builtin/builtin-policy-adapter.ts#AuthorizationPolicyAdministrationPort",
+        "symbol": "packages/authorization/src/builtin/builtin-policy-adapter.ts#BuiltinPolicyAdapter.validatePolicyGroups",
         "explain": "AuthorizationPolicyAdministrationPort: Provider inventory adapter and provider-specific scope error rendering; cycle/scope judgment is kernel-owned.",
         "sources": [
           {
-            "candidateId": "judgment:packages/authorization-builtin:packages/authorization-builtin/src/builtin-policy-adapter.ts#BuiltinPolicyAdapter.validatePolicyGroups:63a32b390e1371f562ccd56a8b310ac3",
-            "route": "packages/authorization-builtin/src/builtin-policy-adapter.ts#BuiltinPolicyAdapter.validatePolicyGroups"
+            "candidateId": "judgment:packages/authorization:packages/authorization/src/builtin/builtin-policy-adapter.ts#BuiltinPolicyAdapter.validatePolicyGroups:63a32b390e1371f562ccd56a8b310ac3",
+            "route": "packages/authorization/src/builtin/builtin-policy-adapter.ts#BuiltinPolicyAdapter.validatePolicyGroups"
           }
         ]
       },
       {
-        "id": "authorization-builtin/src/builtin-session-service.ts#StoredSession",
-        "symbol": "packages/authorization-builtin/src/builtin-session-service.ts#isStoredSession",
+        "id": "authorization/src/builtin/builtin-session-service.ts#StoredSession",
+        "symbol": "packages/authorization/src/builtin/builtin-session-service.ts#isStoredSession",
         "explain": "StoredSession: Private session-store decoding boundary.",
         "sources": [
           {
-            "candidateId": "judgment:packages/authorization-builtin:packages/authorization-builtin/src/builtin-session-service.ts#isStoredSession:55b6043b4cd1f351dfea86a5afb54708",
-            "route": "packages/authorization-builtin/src/builtin-session-service.ts#isStoredSession"
+            "candidateId": "judgment:packages/authorization:packages/authorization/src/builtin/builtin-session-service.ts#isStoredSession:55b6043b4cd1f351dfea86a5afb54708",
+            "route": "packages/authorization/src/builtin/builtin-session-service.ts#isStoredSession"
           }
         ]
       },
       {
         "id": "permission-request-command",
-        "symbol": "packages/authorization-keycloak-gui/src/PermissionRequestsTab.tsx#createPermissionRequestsTab.PermissionRequestsTab.decide",
+        "symbol": "packages/authorization/src/keycloak-gui/PermissionRequestsTab.tsx#createPermissionRequestsTab.PermissionRequestsTab.decide",
         "explain": "PermissionRequestsService: Permission-request decision command handler; it sends a decision and does not compute eligibility.",
         "sources": [
           {
-            "candidateId": "judgment:packages/authorization-keycloak-gui:packages/authorization-keycloak-gui/src/PermissionRequestsTab.tsx#createPermissionRequestsTab.PermissionRequestsTab.decide:fbeaf95edc5ea58ff32a1a43b735b1f0",
-            "route": "packages/authorization-keycloak-gui/src/PermissionRequestsTab.tsx#createPermissionRequestsTab.PermissionRequestsTab.decide"
+            "candidateId": "judgment:packages/authorization:packages/authorization/src/keycloak-gui/PermissionRequestsTab.tsx#createPermissionRequestsTab.PermissionRequestsTab.decide:fbeaf95edc5ea58ff32a1a43b735b1f0",
+            "route": "packages/authorization/src/keycloak-gui/PermissionRequestsTab.tsx#createPermissionRequestsTab.PermissionRequestsTab.decide"
           }
         ]
       },
       {
         "id": "oidc-policy-administration",
-        "symbol": "packages/authorization-keycloak/src/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.validatePolicyGroups",
+        "symbol": "packages/authorization/src/keycloak/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.validatePolicyGroups",
         "explain": "AuthorizationPolicyAdministrationPort: Maps kernel validatePolicyGroupScopes to the existing remote provider error wording; no provider-local group traversal remains.",
         "sources": [
           {
-            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.validatePolicyGroups:d966738134221933d73e7b7a7a3af7f3",
-            "route": "packages/authorization-keycloak/src/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.validatePolicyGroups"
+            "candidateId": "judgment:packages/authorization:packages/authorization/src/keycloak/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.validatePolicyGroups:d966738134221933d73e7b7a7a3af7f3",
+            "route": "packages/authorization/src/keycloak/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.validatePolicyGroups"
           }
         ]
       },
       {
         "id": "oidc-identity-verification",
-        "symbol": "packages/authorization-keycloak/src/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.validateUserAccessToken",
+        "symbol": "packages/authorization/src/keycloak/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.validateUserAccessToken",
         "explain": "AuthorizationDecisionPort: Remote identity/token verification and provider cache adapter, preserving provider status/errors.",
         "sources": [
           {
-            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.validateUserAccessToken:c00a156e5c7a4f3d61755088c57c0ce5",
-            "route": "packages/authorization-keycloak/src/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.validateUserAccessToken"
+            "candidateId": "judgment:packages/authorization:packages/authorization/src/keycloak/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.validateUserAccessToken:c00a156e5c7a4f3d61755088c57c0ce5",
+            "route": "packages/authorization/src/keycloak/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.validateUserAccessToken"
           }
         ]
       },
       {
         "id": "tls-listener-input",
-        "symbol": "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#validateListenerInput",
+        "symbol": "packages/authorization/src/keycloak/managed-rbac-listener-certificate.ts#validateListenerInput",
         "explain": "ListenerInput: Listener endpoint/certificate input validation.",
         "sources": [
           {
-            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#validateListenerInput:7dd561417008b6c6f4b8517147cebfe9",
-            "route": "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#validateListenerInput"
+            "candidateId": "judgment:packages/authorization:packages/authorization/src/keycloak/managed-rbac-listener-certificate.ts#validateListenerInput:7dd561417008b6c6f4b8517147cebfe9",
+            "route": "packages/authorization/src/keycloak/managed-rbac-listener-certificate.ts#validateListenerInput"
           }
         ]
       },
       {
         "id": "tls-listener-managed-path",
-        "symbol": "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#isManagedListenerPath",
+        "symbol": "packages/authorization/src/keycloak/managed-rbac-listener-certificate.ts#isManagedListenerPath",
         "explain": "ManagedListenerPath: Confirms a listener certificate or key path resides strictly within the managed listener directory without symlink traversal.",
         "sources": [
           {
-            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#isManagedListenerPath:a52f4be5ba2d1977e1aa5480b8a1deb3",
-            "route": "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#isManagedListenerPath"
+            "candidateId": "judgment:packages/authorization:packages/authorization/src/keycloak/managed-rbac-listener-certificate.ts#isManagedListenerPath:a52f4be5ba2d1977e1aa5480b8a1deb3",
+            "route": "packages/authorization/src/keycloak/managed-rbac-listener-certificate.ts#isManagedListenerPath"
           }
         ]
       },
       {
         "id": "tls-listener-contained-real-directory",
-        "symbol": "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#isContainedRealDirectory",
+        "symbol": "packages/authorization/src/keycloak/managed-rbac-listener-certificate.ts#isContainedRealDirectory",
         "explain": "ContainedRealDirectory: Confirms a listener subdirectory chain resolves strictly inside its real base directory with no symbolic link segments.",
         "sources": [
           {
-            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#isContainedRealDirectory:b7b766e90cab86880cdc423cf584a1a5",
-            "route": "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#isContainedRealDirectory"
+            "candidateId": "judgment:packages/authorization:packages/authorization/src/keycloak/managed-rbac-listener-certificate.ts#isContainedRealDirectory:b7b766e90cab86880cdc423cf584a1a5",
+            "route": "packages/authorization/src/keycloak/managed-rbac-listener-certificate.ts#isContainedRealDirectory"
           }
         ]
       },
       {
         "id": "tls-listener-certificate-validation",
-        "symbol": "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#validateCertificateChainAndKeyPair",
+        "symbol": "packages/authorization/src/keycloak/managed-rbac-listener-certificate.ts#validateCertificateChainAndKeyPair",
         "explain": "ListenerCertificateChainAndKeyPair: Validates the PEM chain and issuer path length constraints using normalized distinguished names, SubjectAltName coverage, and private key public-key match before activation.",
         "sources": [
           {
-            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#validateCertificateChainAndKeyPair:ef371efdaeb476e575b564881dd86b64",
-            "route": "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#validateCertificateChainAndKeyPair"
+            "candidateId": "judgment:packages/authorization:packages/authorization/src/keycloak/managed-rbac-listener-certificate.ts#validateCertificateChainAndKeyPair:ef371efdaeb476e575b564881dd86b64",
+            "route": "packages/authorization/src/keycloak/managed-rbac-listener-certificate.ts#validateCertificateChainAndKeyPair"
           }
         ]
       },
@@ -5842,8 +5842,8 @@
         "failureCodes": [],
         "explain": "Judge group graph and first unknown scope once; providers supply only their inventory and error wording.",
         "consumers": [
-          "packages/authorization-builtin/src/builtin-policy-adapter.ts",
-          "packages/authorization-keycloak/src/keycloak-policy-adapter.ts"
+          "packages/authorization/src/builtin/builtin-policy-adapter.ts",
+          "packages/authorization/src/keycloak/keycloak-policy-adapter.ts"
         ],
         "sources": [
           {

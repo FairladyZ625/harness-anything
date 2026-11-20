@@ -1,11 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type {
-  AccessAdminApi,
-  AccessRejection,
-  AccessSessionLifetimeReply,
-} from "@harness-anything/authorization-gui/access-admin-contract";
-import type { EmbeddedLoginPage, OidcAuthApi } from "@harness-anything/authorization-gui/oidc-auth-contract";
-import { identityProviderOf } from "@harness-anything/authorization-gui/identity-presentation";
+import type { AccessAdminApi, AccessRejection, AccessSessionLifetimeReply } from "../gui/access-admin-contract.ts";
+import type { EmbeddedLoginPage, OidcAuthApi } from "../gui/oidc-auth-contract.ts";
+import { identityProviderOf } from "../gui/identity-presentation.ts";
 import { createAccessModel } from "./access-model.js";
 import type { RepoMode } from "./ui-host.js";
 import { createAccessParts } from "./AccessParts.js";

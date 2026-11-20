@@ -7,9 +7,9 @@ import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { ManagedRbacService, managedRbacVersions } from "@harness-anything/authorization-keycloak/managed-rbac-service";
-import type { ManagedRbacHost } from "../../authorization-keycloak/src/managed-host.ts";
-import { stopManagedKeycloakOrphan } from "../../authorization-keycloak/src/managed-keycloak-orphan.ts";
+import { ManagedRbacService, managedRbacVersions } from "@harness-anything/authorization/keycloak/managed-rbac-service";
+import type { ManagedRbacHost } from "../../authorization/src/keycloak/managed-host.ts";
+import { stopManagedKeycloakOrphan } from "../../authorization/src/keycloak/managed-keycloak-orphan.ts";
 import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
 
 test("Windows orphan ownership requires the exact Keycloak home property", async () => {

@@ -306,49 +306,45 @@ test("daemon domain service actions and policies are closed under the shared ont
 test("application, builtin authorization and DSH remain closed in every ontology category", () => {
   const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
   const baseline = loadGateAllowlist("ontology-closure", { report: false }).candidates;
-  for (const owner of ["packages/application", "packages/authorization-builtin", "packages/dsh-plugin"]) {
+  for (const scope of ["packages/application/", "packages/authorization/src/builtin/", "packages/dsh-plugin/"]) {
     assertEmpty(
-      baseline.filter((row) => row.owner === owner),
-      owner,
+      baseline.filter((row) => row.path.startsWith(scope)),
+      scope,
     );
     for (const category of ["action", "judgment", "policy"]) {
-      const candidates = result.classified.filter(
-        (row) => row.category === category && row.file.startsWith(`${owner}/`),
-      );
-      assert.ok(candidates.length > 0, `${owner}/${category}`);
-      assertRegistered(candidates, `${owner}/${category}`);
+      const candidates = result.classified.filter((row) => row.category === category && row.file.startsWith(scope));
+      assert.ok(candidates.length > 0, `${scope}${category}`);
+      assertRegistered(candidates, `${scope}${category}`);
     }
   }
 });
 
 // dec_7E44897ECDCAEF2B92EC66A260/CH1: the final provider slice closes every authorization package.
-test("all authorization packages stay at zero ontology migration debt", () => {
+test("authorization subdomains stay at zero ontology migration debt", () => {
   const baseline = loadGateAllowlist("ontology-closure", { report: false }).candidates;
   assert.deepEqual(
-    baseline.filter((row) => row.owner.startsWith("packages/authorization-")),
+    baseline.filter((row) => row.owner === "packages/authorization"),
     [],
   );
   const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
-  for (const owner of ["packages/authorization-keycloak", "packages/authorization-keycloak-gui"]) {
-    assertEmpty(
-      baseline.filter((row) => row.owner === owner),
-      owner,
-    );
-    const candidates = result.classified.filter((row) => row.file.startsWith(`${owner}/`));
+  const policies = loadOntologyClosureSnapshot(repoRoot).kinds.flatMap((kind) => kind.policies ?? []);
+  for (const part of ["keycloak", "keycloak-gui"]) {
+    const scope = `packages/authorization/src/${part}/`;
+    const candidates = result.classified.filter((row) => row.file.startsWith(scope));
     assert.ok(
       candidates.some((row) => row.category === "action"),
-      owner,
+      scope,
     );
-    assertRegistered(candidates, owner);
-  }
-  const policies = loadOntologyClosureSnapshot(repoRoot).kinds.flatMap((kind) => kind.policies ?? []);
-  for (const owner of ["packages/authorization-keycloak", "packages/authorization-keycloak-gui"])
+    assertRegistered(candidates, scope);
     assert.ok(
-      policies.some((policy) => policy.sources.some((source) => source.candidateId.startsWith(`policy:${owner}:`))),
-      owner,
+      policies.some((policy) =>
+        policy.sources.some((source) => source.candidateId.startsWith(`policy:packages/authorization:${scope}`)),
+      ),
+      scope,
     );
+  }
   assert.deepEqual(
-    result.findings.filter((row) => row.file?.startsWith("packages/authorization-")),
+    result.findings.filter((row) => row.file?.startsWith("packages/authorization/")),
     [],
   );
 });
@@ -417,7 +413,7 @@ test("leaf Policy bindings preserve defaults and distinguish exact presentation 
     ["packages/kernel/src/domain/cli-operational-policy.ts", "outputLimit: 1_000_000", "outputLimit: 1_000_001"],
     ["packages/kernel/src/domain/cli-operational-policy.ts", "terminationGraceMs: 5_000", "terminationGraceMs: 5_001"],
     [
-      "packages/authorization-builtin/src/builtin-policy-adapter.ts",
+      "packages/authorization/src/builtin/builtin-policy-adapter.ts",
       'policyRef = "builtin-policy@1"',
       'policyRef = "builtin-policy@2"',
     ],
@@ -440,8 +436,8 @@ test("leaf Policy bindings preserve defaults and distinguish exact presentation 
       `${target}: ${from}`,
     );
   }
-  for (const owner of ["application", "authorization-builtin", "dsh-plugin"]) {
-    const target = `packages/${owner}/src/new-policy.ts`;
+  for (const sourceRoot of ["application/src", "authorization/src/builtin", "dsh-plugin/src"]) {
+    const target = `packages/${sourceRoot}/new-policy.ts`;
     assert.ok(
       audit(scanOntologyText(target, "const retryLimit = 3;"), { snapshot }).findings.some(
         ({ code }) => code === "ONTOLOGY_POLICY_UNDECLARED",
@@ -454,7 +450,7 @@ test("leaf action registrations remain exact and do not authorize a neighboring 
   const snapshot = loadOntologyClosureSnapshot(repoRoot);
   for (const target of [
     "packages/application/src/task-lifecycle-service.ts",
-    "packages/authorization-builtin/src/builtin-policy-adapter.ts",
+    "packages/authorization/src/builtin/builtin-policy-adapter.ts",
     "packages/dsh-plugin/src/broker.ts",
   ]) {
     const source = readFileSync(path.join(repoRoot, target), "utf8");

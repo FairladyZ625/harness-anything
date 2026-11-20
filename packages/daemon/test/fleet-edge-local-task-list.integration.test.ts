@@ -6,7 +6,7 @@ import test from "node:test";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import { managedRbacSessionStore } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { locateFleetMirrorView } from "../src/daemon-host/fleet-edge-mirror.ts";
 import { readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";

@@ -1,4 +1,4 @@
-import type { AccessAction, AccessPolicyGroup } from "@harness-anything/authorization-gui/access-admin-contract";
+import type { AccessAction, AccessPolicyGroup } from "../gui/access-admin-contract.ts";
 import { createAccessModel } from "./access-model.js";
 import type { MessageKey } from "./ui-host.js";
 import type { KeycloakUiHost } from "./ui-host.js";

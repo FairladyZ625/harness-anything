@@ -13,7 +13,7 @@ const SOURCE_FILE = /\.(?:[cm]?[jt]sx?)$/u;
 const DECLARATION_FILE = /\.d\.(?:ts|mts|cts)$/u;
 const BUILTINS = new Set(builtinModules.flatMap((name) => [name, `node:${name}`]));
 const FORBIDDEN_BUILTINS = new Set(["node:child_process", "node:http", "node:https", "node:net", "node:tls"]);
-const AUTHORIZATION_PACKAGE = "@harness-anything/authorization-keycloak";
+const KEYCLOAK_PROVIDER = "@harness-anything/authorization/keycloak";
 const WORKER_PATH = "packages/daemon/src/writer-cell/repo-writer-worker.ts";
 const SUPERVISOR_PATH = "packages/daemon/src/daemon-host/writer-supervisor.ts";
 const packageJsonCache = new Map();
@@ -781,9 +781,9 @@ function isWithin(root, candidate) {
 
 function isAuthorizationSpecifier(specifier) {
   return (
-    specifier === AUTHORIZATION_PACKAGE ||
-    specifier.startsWith(`${AUTHORIZATION_PACKAGE}/`) ||
-    /(?:^|[/\\])authorization-keycloak(?:[/\\]|$)/u.test(specifier)
+    specifier === KEYCLOAK_PROVIDER ||
+    specifier.startsWith(`${KEYCLOAK_PROVIDER}/`) ||
+    /(?:^|[/\\])authorization[/\\]src[/\\]keycloak(?:[/\\]|$)/u.test(specifier)
   );
 }
 

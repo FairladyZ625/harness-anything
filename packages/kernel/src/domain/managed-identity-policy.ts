@@ -44,7 +44,7 @@ export const builtinAuthorizationContractPolicy = {
   sources: [
     {
       candidateId:
-        "policy:packages/authorization-builtin:packages/authorization-builtin/src/builtin-policy-adapter.ts#BuiltinPolicyAdapter.policyRef:196006167e2921ac6350b76ee3660eb2",
+        "policy:packages/authorization:packages/authorization/src/builtin/builtin-policy-adapter.ts#BuiltinPolicyAdapter.policyRef:196006167e2921ac6350b76ee3660eb2",
       route: "BuiltinPolicyAdapter.policyRef",
     },
   ],
@@ -72,22 +72,22 @@ export const managedClientScopePolicy = {
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/keycloak-execution-credential.ts#issueRuntimeExecutionCredential.conflict.fullScopeAllowed:0da8b12f7d528ac733ac35cc5adba51b",
+        "policy:packages/authorization:packages/authorization/src/keycloak/keycloak-execution-credential.ts#issueRuntimeExecutionCredential.conflict.fullScopeAllowed:0da8b12f7d528ac733ac35cc5adba51b",
       route: "execution-client",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.syncLoginClients.body.fullScopeAllowed:0da8b12f7d528ac733ac35cc5adba51b",
+        "policy:packages/authorization:packages/authorization/src/keycloak/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.syncLoginClients.body.fullScopeAllowed:0da8b12f7d528ac733ac35cc5adba51b",
       route: "sync-login-clients",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/keycloak-policy-adapter.ts#nodeClientBody.fullScopeAllowed:0da8b12f7d528ac733ac35cc5adba51b",
+        "policy:packages/authorization:packages/authorization/src/keycloak/keycloak-policy-adapter.ts#nodeClientBody.fullScopeAllowed:0da8b12f7d528ac733ac35cc5adba51b",
       route: "node-client",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-fleet-principal.ts#verifyFleetReplica:6304026457eb14eba6d97cc059e37043",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-fleet-principal.ts#verifyFleetReplica:6304026457eb14eba6d97cc059e37043",
       route: "fleet-replica-client",
     },
   ],
@@ -136,32 +136,32 @@ export const identityLoginMapperPolicy = {
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/keycloak-login-client.ts#keycloakLoginMappers.config.claim.name:d239014622149bbe0f7db8ca0d9b995f",
+        "policy:packages/authorization:packages/authorization/src/keycloak/keycloak-login-client.ts#keycloakLoginMappers.config.claim.name:d239014622149bbe0f7db8ca0d9b995f",
       route: "person-claim-name",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/keycloak-login-client.ts#keycloakLoginMappers.config.access.token.claim:82bb09e63cb6fe2fde78270ec8a305c0",
+        "policy:packages/authorization:packages/authorization/src/keycloak/keycloak-login-client.ts#keycloakLoginMappers.config.access.token.claim:82bb09e63cb6fe2fde78270ec8a305c0",
       route: "access-token-claim",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/keycloak-login-client.ts#keycloakLoginMappers.config.introspection.token.claim:0aecfe3f7a8165ac9c336afd5dd20bd0",
+        "policy:packages/authorization:packages/authorization/src/keycloak/keycloak-login-client.ts#keycloakLoginMappers.config.introspection.token.claim:0aecfe3f7a8165ac9c336afd5dd20bd0",
       route: "introspection-claim",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/keycloak-login-client.ts#keycloakLoginMappers.config.userinfo.token.claim:42a6b021ba7b43f146e33f28f9a6c027",
+        "policy:packages/authorization:packages/authorization/src/keycloak/keycloak-login-client.ts#keycloakLoginMappers.config.userinfo.token.claim:42a6b021ba7b43f146e33f28f9a6c027",
       route: "userinfo-claim",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/keycloak-login-client.ts#keycloakLoginMappers.config.access.token.claim:82bb09e63cb6fe2fde78270ec8a305c0:2",
+        "policy:packages/authorization:packages/authorization/src/keycloak/keycloak-login-client.ts#keycloakLoginMappers.config.access.token.claim:82bb09e63cb6fe2fde78270ec8a305c0:2",
       route: "audience-access-token-claim",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/keycloak-login-client.ts#keycloakLoginMappers.config.introspection.token.claim:0aecfe3f7a8165ac9c336afd5dd20bd0:2",
+        "policy:packages/authorization:packages/authorization/src/keycloak/keycloak-login-client.ts#keycloakLoginMappers.config.introspection.token.claim:0aecfe3f7a8165ac9c336afd5dd20bd0:2",
       route: "audience-introspection-claim",
     },
   ],
@@ -215,32 +215,32 @@ export const managedAuthorizationSettingsPolicy = {
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.writeGrant.policyBody:19ef13564e5a566b8307c1dd41a33282",
+        "policy:packages/authorization:packages/authorization/src/keycloak/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.writeGrant.policyBody:19ef13564e5a566b8307c1dd41a33282",
       route: "write-user-policy",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.writeGrant.permissionBody.decisionStrategy:88b738b4062a8719fa16ab9a70be5f4a",
+        "policy:packages/authorization:packages/authorization/src/keycloak/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.writeGrant.permissionBody.decisionStrategy:88b738b4062a8719fa16ab9a70be5f4a",
       route: "write-scope-permission",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-service.ts#ManagedRbacService.realm.registrationAllowed:bd50abd830a8f2d418edc9d5401fa25e",
+        "policy:packages/authorization:packages/authorization/src/keycloak/managed-rbac-service.ts#ManagedRbacService.realm.registrationAllowed:bd50abd830a8f2d418edc9d5401fa25e",
       route: "managed-realm-registration",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-service.ts#ManagedRbacService.realm.loginWithEmailAllowed:c058058203b8e412bb9408fa460cdd66",
+        "policy:packages/authorization:packages/authorization/src/keycloak/managed-rbac-service.ts#ManagedRbacService.realm.loginWithEmailAllowed:c058058203b8e412bb9408fa460cdd66",
       route: "managed-realm-email-login",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-service.ts#ManagedRbacService.realm.clients.authorizationSettings.policyEnforcementMode:fff53ec11a2eed21ae46e34792a17af3",
+        "policy:packages/authorization:packages/authorization/src/keycloak/managed-rbac-service.ts#ManagedRbacService.realm.clients.authorizationSettings.policyEnforcementMode:fff53ec11a2eed21ae46e34792a17af3",
       route: "managed-realm-enforcement",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-service.ts#ManagedRbacService.realm.clients.authorizationSettings.decisionStrategy:88b738b4062a8719fa16ab9a70be5f4a",
+        "policy:packages/authorization:packages/authorization/src/keycloak/managed-rbac-service.ts#ManagedRbacService.realm.clients.authorizationSettings.decisionStrategy:88b738b4062a8719fa16ab9a70be5f4a",
       route: "managed-realm-decision",
     },
   ],
@@ -259,7 +259,7 @@ export const identityAdapterContractPolicy = {
   sources: [
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.policyRef:09dbf9fe210fa43b1527a87af69e2f51",
+        "policy:packages/authorization:packages/authorization/src/keycloak/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.policyRef:09dbf9fe210fa43b1527a87af69e2f51",
       route: "KeycloakPolicyAdapter.policyRef",
     },
   ],
@@ -291,12 +291,12 @@ export const identityAdminNotFoundPolicy = {
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/keycloak-policy-adapter.ts#KeycloakPolicyAdapter:beeec620dd307bea6e8a1aa6cafde6a1",
+        "policy:packages/authorization:packages/authorization/src/keycloak/keycloak-policy-adapter.ts#KeycloakPolicyAdapter:beeec620dd307bea6e8a1aa6cafde6a1",
       route: "policy-adapter-request",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-session-service.ts#OidcSessionService:c62cda2f2395b74884d702e41333b154",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-session-service.ts#OidcSessionService:c62cda2f2395b74884d702e41333b154",
       route: "oidc-session-request",
     },
   ],
@@ -329,7 +329,7 @@ export const identitySessionLifetimePolicy = {
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/keycloak-session-lifetime.ts#readRealm:2332317e09298fda487cf343418da5ab",
+        "policy:packages/authorization:packages/authorization/src/keycloak/keycloak-session-lifetime.ts#readRealm:2332317e09298fda487cf343418da5ab",
       route: "read-session-lifetime",
     },
   ],
@@ -358,12 +358,12 @@ export const identityDatabaseProcessPolicy = {
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-postgres-orphan.ts#stopManagedPostgresOrphan.status.timeoutMs:08b0a8a64d90c6ee0feb0e9b7d52b2ae",
+        "policy:packages/authorization:packages/authorization/src/keycloak/managed-postgres-orphan.ts#stopManagedPostgresOrphan.status.timeoutMs:08b0a8a64d90c6ee0feb0e9b7d52b2ae",
       route: "postmaster-status",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-postgres-orphan.ts#stopManagedPostgresOrphan.stopped.timeoutMs:1dc96c8131679014f87d9a57a5ed15c7",
+        "policy:packages/authorization:packages/authorization/src/keycloak/managed-postgres-orphan.ts#stopManagedPostgresOrphan.stopped.timeoutMs:1dc96c8131679014f87d9a57a5ed15c7",
       route: "postmaster-stop",
     },
   ],
@@ -400,17 +400,17 @@ export const identityHealthProbePolicy = {
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-service.ts#ManagedRbacService.timeoutMs:56d92d560ecf5a3d099f43ff3d944a05",
+        "policy:packages/authorization:packages/authorization/src/keycloak/managed-rbac-service.ts#ManagedRbacService.timeoutMs:56d92d560ecf5a3d099f43ff3d944a05",
       route: "postgres-password-timeout",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-service.ts#ManagedRbacService.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
+        "policy:packages/authorization:packages/authorization/src/keycloak/managed-rbac-service.ts#ManagedRbacService.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
       route: "realm-readiness-attempts",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-service.ts#ManagedRbacService:444a7d4a5f08c010d3afc5453b7b2c74",
+        "policy:packages/authorization:packages/authorization/src/keycloak/managed-rbac-service.ts#ManagedRbacService:444a7d4a5f08c010d3afc5453b7b2c74",
       route: "readiness-transport-failure",
     },
   ],
@@ -485,112 +485,112 @@ export const identityFleetPrincipalPolicy = {
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-fleet-principal.ts#verifyFleetReplica:621e48fb349350154c1a3a75b16ce355",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-fleet-principal.ts#verifyFleetReplica:621e48fb349350154c1a3a75b16ce355",
       route: "replica-person-claim",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-fleet-principal.ts#verifyFleetReplica:dd6d729651ac7208412449f017111cc8",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-fleet-principal.ts#verifyFleetReplica:dd6d729651ac7208412449f017111cc8",
       route: "replica-authorized-party-prefix",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-fleet-principal.ts#verifyFleetReplica:24ec1782c6a1e9389ec49c4e4dcb2931",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-fleet-principal.ts#verifyFleetReplica:24ec1782c6a1e9389ec49c4e4dcb2931",
       route: "replica-active-client",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-fleet-principal.ts#verifyFleetReplica.expiresAt:e045af9ed32118f09369d341cb005598",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-fleet-principal.ts#verifyFleetReplica.expiresAt:e045af9ed32118f09369d341cb005598",
       route: "replica-expiry",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-fleet-principal.ts#verifyFleetReplica:725386cf6e3d658dee8d3f3392235611",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-fleet-principal.ts#verifyFleetReplica:725386cf6e3d658dee8d3f3392235611",
       route: "replica-issuer-audience-subject",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-fleet-principal.ts#verifyFleetReplica:30e29ddea8bc2a6842b262d4145bcb11",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-fleet-principal.ts#verifyFleetReplica:30e29ddea8bc2a6842b262d4145bcb11",
       route: "replica-service-account-user",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-fleet-principal.ts#verifyFleetHuman.expiresAt:e045af9ed32118f09369d341cb005598",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-fleet-principal.ts#verifyFleetHuman.expiresAt:e045af9ed32118f09369d341cb005598",
       route: "human-expiry",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-fleet-principal.ts#verifyFleetHuman:fd6a2895863bd61c95ddcc5a58c26b31",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-fleet-principal.ts#verifyFleetHuman:fd6a2895863bd61c95ddcc5a58c26b31",
       route: "human-claim-allow-set",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-fleet-principal.ts#verifyFleetHuman:28e3b4de3f98154bf1fada85841cbbe7",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-fleet-principal.ts#verifyFleetHuman:28e3b4de3f98154bf1fada85841cbbe7",
       route: "human-user-admission",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-fleet-principal.ts#verifyFleetHuman.oidcPrincipal.scopes:1ac6358cc2420baea37828e3a9c321a1",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-fleet-principal.ts#verifyFleetHuman.oidcPrincipal.scopes:1ac6358cc2420baea37828e3a9c321a1",
       route: "human-scope-claim",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-fleet-principal.ts#verifyFleetReplica:3c00292c99094526975cfc12864891d3",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-fleet-principal.ts#verifyFleetReplica:3c00292c99094526975cfc12864891d3",
       route: "replica-subject-admission",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-fleet-principal.ts#verifyFleetReplica:e649db206808c65c1e8d77dfabf5ea82",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-fleet-principal.ts#verifyFleetReplica:e649db206808c65c1e8d77dfabf5ea82",
       route: "replica-issuer-audience-admission",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-fleet-principal.ts#verifyFleetReplica.expiresAt:9fd1608d86fb77a3076f5360af0fd07c",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-fleet-principal.ts#verifyFleetReplica.expiresAt:9fd1608d86fb77a3076f5360af0fd07c",
       route: "replica-expiry-claim",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-fleet-principal.ts#verifyFleetReplica:9dce64657266ee58331f551e1e9b66de",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-fleet-principal.ts#verifyFleetReplica:9dce64657266ee58331f551e1e9b66de",
       route: "replica-node-admission",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-fleet-principal.ts#verifyFleetReplica:5f39bfe29abb32fd1da1912d59bf7d88",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-fleet-principal.ts#verifyFleetReplica:5f39bfe29abb32fd1da1912d59bf7d88",
       route: "replica-client-admission",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-fleet-principal.ts#verifyFleetHuman.expiresAt:9fd1608d86fb77a3076f5360af0fd07c",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-fleet-principal.ts#verifyFleetHuman.expiresAt:9fd1608d86fb77a3076f5360af0fd07c",
       route: "human-expiry-claim",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-fleet-principal.ts#verifyFleetHuman:293755ba19218f23fd1b9a5f7037d496",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-fleet-principal.ts#verifyFleetHuman:293755ba19218f23fd1b9a5f7037d496",
       route: "human-principal-admission",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-fleet-principal.ts#verifyFleetHuman.oidcPrincipal.scopes:8be163445935bdbf95d76f1519487c09",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-fleet-principal.ts#verifyFleetHuman.oidcPrincipal.scopes:8be163445935bdbf95d76f1519487c09",
       route: "human-scopes-claim",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-fleet-principal.ts#verifyFleetReplica:3b6699eabdc29a89c26c0898e3b00b73",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-fleet-principal.ts#verifyFleetReplica:3b6699eabdc29a89c26c0898e3b00b73",
       route: "replica-person-claim-exclusion",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-fleet-principal.ts#verifyFleetReplica:728baf209d0fdcef106f02b8c303d3b2",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-fleet-principal.ts#verifyFleetReplica:728baf209d0fdcef106f02b8c303d3b2",
       route: "replica-node-client-rejection",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-fleet-principal.ts#verifyFleetHuman:4cc1983013e16bb63d078be74ec64880",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-fleet-principal.ts#verifyFleetHuman:4cc1983013e16bb63d078be74ec64880",
       route: "human-token-admission",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-fleet-principal.ts#verifyFleetHuman:e637fab66b81463bde5b27856ed33dfe",
+        "policy:packages/authorization:packages/authorization/src/keycloak/oidc-fleet-principal.ts#verifyFleetHuman:e637fab66b81463bde5b27856ed33dfe",
       route: "human-user-admission",
     },
   ],

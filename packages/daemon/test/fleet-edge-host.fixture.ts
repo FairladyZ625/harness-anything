@@ -9,7 +9,7 @@ import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { oidcCenterSelections } from "../src/daemon-host/oidc-center-selection.ts";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { type OidcSessionPorts } from "@harness-anything/kernel";
-import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import { managedRbacSessionStore } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
 import { commandDescriptorForAction } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";

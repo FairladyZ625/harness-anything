@@ -3,7 +3,7 @@ export const NON_STATE_IO_CATEGORY = "environment-io";
 export const nonStateIoDeclarations = Object.freeze([
   {
     id: "environment-io.773f1f24462e0efd",
-    path: "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-listener-certificate.ts",
     category: "environment-io",
     subtype: "certificate-material",
     reason:
@@ -13,7 +13,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.44f16540c48fcc72",
-    path: "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-listener-certificate.ts",
     category: "environment-io",
     subtype: "certificate-material",
     reason:
@@ -23,7 +23,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.580e80f3650a0879",
-    path: "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-listener-certificate.ts",
     category: "environment-io",
     subtype: "certificate-material",
     reason:
@@ -33,7 +33,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.778729626dd1b40c",
-    path: "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-listener-certificate.ts",
     category: "environment-io",
     subtype: "certificate-material",
     reason:
@@ -43,7 +43,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.8f59e38af283edd1",
-    path: "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-listener-certificate.ts",
     category: "environment-io",
     subtype: "certificate-material",
     reason:
@@ -53,7 +53,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.0437be7bf65098b0",
-    path: "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-listener-certificate.ts",
     category: "environment-io",
     subtype: "certificate-material",
     reason:
@@ -63,7 +63,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.64dd2033f7d1c003",
-    path: "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-listener-certificate.ts",
     category: "environment-io",
     subtype: "certificate-material",
     reason:
@@ -73,7 +73,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.ee9a148662221fb5",
-    path: "packages/authorization-keycloak/src/managed-rbac-service.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-service.ts",
     category: "environment-io",
     subtype: "keycloak-installation",
     reason:
@@ -83,7 +83,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.3095f85298fdb651",
-    path: "packages/authorization-keycloak/src/managed-rbac-service.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-service.ts",
     category: "environment-io",
     subtype: "keycloak-installation",
     reason:
@@ -93,7 +93,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.239ff21497907099",
-    path: "packages/authorization-keycloak/src/managed-rbac-service.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-service.ts",
     category: "environment-io",
     subtype: "keycloak-installation",
     reason:
@@ -103,7 +103,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.9c7724b3aea98a89",
-    path: "packages/authorization-keycloak/src/managed-rbac-service.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-service.ts",
     category: "environment-io",
     subtype: "keycloak-installation",
     reason:
@@ -113,7 +113,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.eb62b26beba48b5c",
-    path: "packages/authorization-keycloak/src/managed-rbac-service.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-service.ts",
     category: "environment-io",
     subtype: "keycloak-installation",
     reason:
@@ -123,7 +123,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.ee605250dd16e9ce",
-    path: "packages/authorization-keycloak/src/managed-rbac-service.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-service.ts",
     category: "environment-io",
     subtype: "keycloak-installation",
     reason:
@@ -133,7 +133,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.7d512e09128ade68",
-    path: "packages/authorization-keycloak/src/managed-rbac-service.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-service.ts",
     category: "environment-io",
     subtype: "keycloak-installation",
     reason:
@@ -143,7 +143,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.ab94576188dc15d2",
-    path: "packages/authorization-keycloak/src/managed-rbac-service.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-service.ts",
     category: "environment-io",
     subtype: "keycloak-installation",
     reason:
@@ -153,7 +153,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.333e4cba839e4439",
-    path: "packages/authorization-keycloak/src/managed-rbac-service.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-service.ts",
     category: "environment-io",
     subtype: "keycloak-installation",
     reason:
@@ -163,7 +163,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.065df41e6759b402",
-    path: "packages/authorization-keycloak/src/managed-rbac-service.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-service.ts",
     category: "environment-io",
     subtype: "keycloak-installation",
     reason:
@@ -173,7 +173,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.a4045c59c63fc3a2",
-    path: "packages/authorization-keycloak/src/managed-rbac-service.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-service.ts",
     category: "environment-io",
     subtype: "keycloak-installation",
     reason:
@@ -183,7 +183,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.7e05d05bacdd5d95",
-    path: "packages/authorization-keycloak/src/managed-rbac-service.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-service.ts",
     category: "environment-io",
     subtype: "keycloak-installation",
     reason:
@@ -193,7 +193,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.17c06ba5fde6715a",
-    path: "packages/authorization-keycloak/src/managed-rbac-service.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-service.ts",
     category: "environment-io",
     subtype: "keycloak-installation",
     reason:
@@ -203,7 +203,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.22a7d1ac88b4e2e2",
-    path: "packages/authorization-keycloak/src/managed-rbac-service.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-service.ts",
     category: "environment-io",
     subtype: "keycloak-installation",
     reason:
@@ -213,7 +213,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.4686678adb8578e2",
-    path: "packages/authorization-keycloak/src/managed-rbac-service.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-service.ts",
     category: "environment-io",
     subtype: "keycloak-installation",
     reason:
@@ -223,7 +223,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.5af6638f0933b9a3",
-    path: "packages/authorization-keycloak/src/managed-rbac-service.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-service.ts",
     category: "environment-io",
     subtype: "keycloak-installation",
     reason:
@@ -233,7 +233,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.3a20b668c42be8a5",
-    path: "packages/authorization-keycloak/src/managed-rbac-service.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-service.ts",
     category: "environment-io",
     subtype: "keycloak-installation",
     reason:
@@ -243,7 +243,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.0093cea5d2acccb9",
-    path: "packages/authorization-keycloak/src/managed-rbac-service.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-service.ts",
     category: "environment-io",
     subtype: "keycloak-installation",
     reason:
@@ -253,7 +253,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.020223a0282a302d",
-    path: "packages/authorization-keycloak/src/managed-rbac-service.ts",
+    path: "packages/authorization/src/keycloak/managed-rbac-service.ts",
     category: "environment-io",
     subtype: "keycloak-installation",
     reason:
