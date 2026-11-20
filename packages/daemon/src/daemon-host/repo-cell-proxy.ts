@@ -305,6 +305,7 @@ export async function openRepoCellProxy(
     },
     presetRun: (action, binding) => supervisor.request("presetRun", { action }, binding),
     spawnRuntime: (payload, binding) => supervisor.request("spawnRuntime", payload, binding),
+    spawnCenterReview: (payload, binding) => supervisor.request("spawnCenterReview", payload, binding),
     handoffRuntime: (payload, binding) => supervisor.request("handoffRuntime", payload, binding),
     cancelRuntime: (payload, binding) => supervisor.request("cancelRuntime", payload, binding),
     steerRuntime: (payload, binding) => supervisor.request("steerRuntime", payload, binding),

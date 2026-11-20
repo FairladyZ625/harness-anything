@@ -440,6 +440,7 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
         startedAtMs = monotonicMs(),
         runtimeWriteTurns: RuntimeWriteTurnTiming[] | undefined =
           request.method === "spawnRuntime" ||
+          request.method === "spawnCenterReview" ||
           request.method === "handoffRuntime" ||
           request.method === "cancelRuntime" ||
           request.method === "steerRuntime" ||
@@ -540,6 +541,14 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
           }
           case "spawnRuntime":
             value = await cell.spawnRuntime(request.payload as never, binding!, queueObservation, markExecutionStart);
+            break;
+          case "spawnCenterReview":
+            value = await cell.spawnCenterReview(
+              request.payload as never,
+              binding!,
+              queueObservation,
+              markExecutionStart,
+            );
             break;
           case "handoffRuntime":
             value = await cell.handoffRuntime(request.payload as never, binding!, queueObservation, markExecutionStart);
@@ -866,6 +875,7 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
   /** Writer methods whose queued turn has one stable command label rather than an action kind. */
   const writeQueueCommandForMethod: Partial<Record<RepoWriterRequestV1["method"], string>> = {
     spawnRuntime: "runtime-run",
+    spawnCenterReview: "runtime-run",
     handoffRuntime: "runtime-handoff-claim",
     cancelRuntime: "runtime-cancel",
     steerRuntime: "runtime-steer",

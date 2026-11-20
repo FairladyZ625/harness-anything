@@ -826,37 +826,6 @@ export function createRepoCellApi(
     // A dry-run preview is a read projection: it must not enter the publication
     // turn, acquire a lease, or append a dispatch event.
     if (spawn.dryRun === true) return context.runtimeSpawner.spawn(spawn, binding);
-    if (binding.centerReviewFallback)
-      return enqueueRuntimePublication(
-        context,
-        "runtime-run",
-        {
-          kind: "runtime-spawn",
-          ...payload,
-          executionRuntimeIngress: { kind: "runtime-run", ...payload },
-        },
-        binding,
-        async (authorizedBinding) => {
-          const fallback = await prepareCenterReviewFallback(context.extracted, spawn, authorizedBinding),
-            worktree = await context.runtimeSpawner.prepareWorktree(spawn, fallback.commitSha);
-          if (worktree === null && fallback.commitSha !== null)
-            throw context.cellCodedError(
-              "review_checkout_commit_unavailable",
-              "Center review requires a pinned checkout.",
-            );
-          const authoredTask = worktree === null && typeof spawn.taskId === "string" ? spawn.taskId : null;
-          if (authoredTask !== null) {
-            await settleAuthoredMaterialization(context.store, "spawn runtime");
-            requireTaskPackageMaterialization(context, authoredTask);
-          }
-          const progress = await context.runtimeSpawner.prepareProgress(spawn, worktree);
-          fallback.recheckReviewCut();
-          if (authoredTask !== null) requireTaskPackageMaterialization(context, authoredTask);
-          return context.runtimeSpawner.spawnTask(spawn, authorizedBinding, worktree, context.projection, progress);
-        },
-        queueObservation,
-        onExecutionStart,
-      );
     // A task dispatch's worktree checkout and setup finish first; the queue receives only the dispatch itself.
     const worktree = await context.runtimeSpawner.prepareWorktree(spawn);
     const authoredTask = worktree === null && typeof spawn.taskId === "string" ? spawn.taskId : null;
@@ -882,6 +851,34 @@ export function createRepoCellApi(
       onExecutionStart,
     );
   };
+  const spawnCenterReview: RepoCell["spawnCenterReview"] = (payload, binding, queueObservation, onExecutionStart) =>
+    enqueueRuntimePublication(
+      context,
+      "runtime-run",
+      { kind: "runtime-spawn", ...payload, executionRuntimeIngress: { kind: "runtime-run", ...payload } },
+      binding,
+      async (authorizedBinding) => {
+        const { executor: _claim, ...spawn } = payload,
+          fallback = await prepareCenterReviewFallback(context.extracted, spawn, authorizedBinding),
+          worktree = await context.runtimeSpawner.prepareWorktree(spawn, fallback.commitSha);
+        if (worktree === null && fallback.commitSha !== null)
+          throw context.cellCodedError(
+            "review_checkout_commit_unavailable",
+            "Center review requires a pinned checkout.",
+          );
+        const authoredTask = worktree === null && typeof spawn.taskId === "string" ? spawn.taskId : null;
+        if (authoredTask !== null) {
+          await settleAuthoredMaterialization(context.store, "spawn runtime");
+          requireTaskPackageMaterialization(context, authoredTask);
+        }
+        const progress = await context.runtimeSpawner.prepareProgress(spawn, worktree);
+        fallback.recheckReviewCut();
+        if (authoredTask !== null) requireTaskPackageMaterialization(context, authoredTask);
+        return context.runtimeSpawner.spawnTask(spawn, authorizedBinding, worktree, context.projection, progress);
+      },
+      queueObservation,
+      onExecutionStart,
+    );
   const handoffRuntime: RepoCell["handoffRuntime"] = (payload, binding, queueObservation, onExecutionStart) =>
     runRuntimeHandoff({
       readDispatchLifecycle: (query) => context.projection.readDispatchLifecycle(query),
@@ -1257,6 +1254,7 @@ export function createRepoCellApi(
       ),
     presetRun,
     spawnRuntime,
+    spawnCenterReview,
     cancelRuntime,
     steerRuntime,
     handoffRuntime,

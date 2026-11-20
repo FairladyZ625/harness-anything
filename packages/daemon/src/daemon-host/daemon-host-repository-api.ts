@@ -865,7 +865,7 @@ export function createDaemonHostRepositoryApi(
                   Array.isArray(action.patches) &&
                   action.patches.some((patch) => patch?.field === "reviewDispatchFailure")))
             )
-              context.triggerCenterReviewFallback(`forwarded:${action.kind}`);
+              context.triggerCenterReviewFallback?.(`forwarded:${action.kind}`);
             return forwarded as WriteReceiptDraft | SquadControlResult;
           }
         } catch (error) {
@@ -1007,7 +1007,7 @@ export function createDaemonHostRepositoryApi(
               Array.isArray(action.patches) &&
               action.patches.some((patch) => patch?.field === "reviewDispatchFailure")))
         )
-          context.triggerCenterReviewFallback(action.kind);
+          context.triggerCenterReviewFallback?.(action.kind);
         if (action.kind === "doctor-health" && receipt.outcome === "applied") {
           const health = receipt as typeof receipt & { checks: readonly DoctorCheck[] };
           const settings = (await cell.read("repo.settings.read", {}, undefined, auth.connectionSignal)).settings;

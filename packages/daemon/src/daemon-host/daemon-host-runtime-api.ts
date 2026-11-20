@@ -501,7 +501,7 @@ export function createDaemonHostRuntimeApi(
             host: context.host,
             buildDraining: context.input.buildDraining,
             onDeliverySettled: context.input.onRepoStatusChange,
-            onNodeDisconnected: () => context.triggerCenterReviewFallback("fleet-node-disconnected"),
+            onNodeDisconnected: () => context.triggerCenterReviewFallback?.("fleet-node-disconnected"),
             ...(context.input.authenticateExecutionPrincipal
               ? { authenticateExecutionPrincipal: context.input.authenticateExecutionPrincipal }
               : {}),
@@ -566,7 +566,7 @@ export function createDaemonHostRuntimeApi(
               throw error;
             }
             context.fleetCenter = started.center;
-            context.triggerCenterReviewFallback("fleet-center-started");
+            context.triggerCenterReviewFallback?.("fleet-center-started");
             await context.accessAdmin.resumeEdgeJoinTunnels(started.center.port);
             const externalAddressReachable = request.externalUrl
               ? await probeTlsAddress(request.externalUrl)

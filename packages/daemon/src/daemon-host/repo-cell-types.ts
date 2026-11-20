@@ -159,7 +159,6 @@ export interface RepoCellAutoClaimAssignment {
 }
 
 export interface RepoCellBinding {
-  readonly centerReviewFallback?: true;
   readonly orphanRecovery?: import("./runtime-spawn-types.ts").RuntimeBinding["orphanRecovery"];
   /** Git candidate names observed before entering the local document write turn. */
   readonly observedDocGitPaths?: readonly string[] | null;
@@ -404,6 +403,7 @@ export interface RepoCell {
     queueObservation?: RepoCellQueueObservation,
     onExecutionStart?: () => void,
   ) => Promise<JsonObject>;
+  readonly spawnCenterReview: RepoCell["spawnRuntime"];
   readonly handoffRuntime: (
     payload: JsonObject,
     binding: RepoCellBinding,

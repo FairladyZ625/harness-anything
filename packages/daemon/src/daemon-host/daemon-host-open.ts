@@ -619,7 +619,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       signal.throwIfAborted();
       if (!candidate.edgeDispatchFailed && fleetCenter?.inspectNode(candidate.requiredNodeId).online !== false)
         throw hostCodedError("execution_scope_mismatch", "The implementation node became available before fallback.");
-      const receipt = await cell.spawnRuntime(candidate.payload, { ...binding, centerReviewFallback: true }),
+      const receipt = await cell.spawnCenterReview(candidate.payload, binding),
         runtimeSessionId = typeof receipt.runtimeSessionId === "string" ? receipt.runtimeSessionId : null;
       if (!runtimeSessionId || !["applied", "no_changes"].includes(String(receipt.outcome)))
         throw runtimeSpawnError(
