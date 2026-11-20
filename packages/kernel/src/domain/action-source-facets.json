@@ -1660,11 +1660,6 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/node-auto-dispatch.ts#openNodeAutoDispatchLoop.scan:1397e1f18ee7ccdedfeee7755f3dbf23",
         "route": "runtime-run",
         "role": "effect"
-      },
-      {
-        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-runtime-session.ts#commitRuntimeSessionBundle.appended:aca15e02146445d36e47128025d8565d",
-        "route": "runtime-run",
-        "role": "effect"
       }
     ]
   },
@@ -8242,6 +8237,18 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.cancel"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-squad-coordinator.ts#makeRepoCellSquadCoordinator.settleScheduleOccurrence:8b957daca85e8bc6883841f7e8bbbb34",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-runtime-session.ts#commitRuntimeSessionBundle.appended:aca15e02146445d36e47128025d8565d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/squad-coordinator.ts#makeSquadCoordinator.spawnWorker.receipt:95c90577f2b2203f704299f02cbcc8be",
@@ -16728,13 +16735,7 @@
   },
   "schedule-settle": {
     "owner": "schedule",
-    "sources": [
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-squad-coordinator.ts#makeRepoCellSquadCoordinator.settleScheduleOccurrence:8b957daca85e8bc6883841f7e8bbbb34",
-        "route": "schedule-settle",
-        "role": "effect"
-      }
-    ]
+    "sources": []
   },
   "runtime-instance-hosting-credential-unset": {
     "owner": "runtime",

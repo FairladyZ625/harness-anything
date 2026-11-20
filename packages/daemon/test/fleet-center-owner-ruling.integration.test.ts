@@ -319,6 +319,7 @@ async function submitReviewerTask(
     owner,
   );
   assert.equal(evidence.outcome, "applied", JSON.stringify(evidence));
+  await waitForFleetPublication(fixture.host, repoId, evidence.opId, owner);
   const closeoutPath = path.join(fixture.repo, "harness", packagePath, "closeout.md"),
     closeout =
       "# Closeout\n\n## Summary\nFirst cut.\n\n## Verification\nChecked the evidence.\n\n## Residual Risk\nNone.\n\n## Same Mechanism Elsewhere\nReviewer settlement.\n";
