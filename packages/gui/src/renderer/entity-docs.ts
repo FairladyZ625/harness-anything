@@ -187,6 +187,17 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     statuses: [],
     actions: ["import", "pin", "unpin"],
   },
+  "peer-request": {
+    schemaId: "PeerRequest/v1",
+    refTemplate: "peer-request/{id}",
+    statuses: [
+      {
+        field: "state",
+        words: ["OPEN", "CLAIMED", "ANSWERED", "DONE", "REJECTED", "PROMOTED"],
+      },
+    ],
+    actions: [],
+  },
   person: {
     schemaId: "person/v1",
     refTemplate: "person/{id}",
