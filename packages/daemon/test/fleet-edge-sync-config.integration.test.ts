@@ -494,8 +494,11 @@ test(
         nodeId: "node-one",
         credential: "secret-node-one",
         repoId: "lease-repo",
+        viewRoot: connection.viewRoot,
+        quotaBytes: connection.quotaBytes,
         workspaceRoot: e.edgeRoot,
         servername: "localhost",
+        timeoutMs: 30_000,
         repoint: true,
       };
     const repoint = async (payload: typeof repointPayload) => {
