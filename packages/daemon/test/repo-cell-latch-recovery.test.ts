@@ -43,9 +43,8 @@ import { enqueueRuntimePublication } from "../src/daemon-host/runtime-publicatio
 import type { RepoCellApiContext } from "../src/daemon-host/repo-cell-types.ts";
 import { appendRuntimeWorkerRecord } from "../src/daemon-host/dispatch-stream.ts";
 import type { RuntimeLauncher } from "../src/daemon-host/runtime-spawn-types.ts";
-import { latestSquadStates } from "./squad-run-state.fixture.ts";
 import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { waitForArrival, waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
+import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
 
 const actor = { principal: { personId: "person-latch" }, executor: null } as const;
 
@@ -726,7 +725,8 @@ test(
               providerId: "openai",
               model: "stub-model",
               reasoningEffort: null,
-              baseUrl: null,
+              endpointKind: "official",
+              baseUrlHash: null,
               authMode: "subscription",
             },
             installation: {
@@ -839,18 +839,16 @@ test(
         ).outcome,
         "applied",
       );
-      assert.equal(
-        (await cell.run({ kind: "schedule-run-now", scheduleId, idempotencyKey: "run-schedule-before-latch" }, binding))
-          .outcome,
-        "applied",
+      const scheduled = await cell.run(
+        { kind: "schedule-run-now", scheduleId, idempotencyKey: "run-schedule-before-latch" },
+        binding,
       );
-      const scheduledState = await waitForDurableValue(() => {
-        const state = [...latestSquadStates(rootDir).values()].find(
-          (candidate) =>
-            candidate.subject.kind === "schedule-occurrence" && candidate.subject.scheduleId === scheduleId,
-        );
-        return state?.leaderTurns[0] ? state : null;
-      });
+      assert.equal(scheduled.outcome, "applied", JSON.stringify(scheduled));
+      const scheduledDispatchId = providers.at(-1)?.dispatchId;
+      assert.ok(
+        scheduledDispatchId,
+        `the schedule launched a durable leader runtime: ${JSON.stringify({ scheduled, dispatchIds: providers.map(({ dispatchId }) => dispatchId) })}`,
+      );
 
       const createdTask = await cell.run(
         { kind: "task-create", taskId, title: "Squad run after latch recovery", presetId: "docs-task" },
@@ -891,7 +889,7 @@ test(
 
       // Settle the pre-latch scheduled Squad occurrence through the replacement entityActionExecutor.
       await finishProvider(
-        scheduledState.leaderTurns[0].dispatchId,
+        scheduledDispatchId,
         JSON.stringify({
           schema: "squad-decision/v1",
           action: "converged",
