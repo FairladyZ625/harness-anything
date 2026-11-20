@@ -433,14 +433,15 @@ test(
     assert.equal((syncResponse.result as Record<string, unknown>).ok, true, JSON.stringify(syncResponse.result));
     const connection = { ...readFleetEdgeConfig(e.edgeUser, "lease-repo")! };
     assert.equal(connection.loginUrl, oldLoginProxy.url);
-    assert.equal(await waitForFleetReplicaReady({
-      viewRoot: e.viewRoot,
-      repoId: "lease-repo",
-      nodeId: "node-one",
-    }), true);
-    const beforeGeneration = readReplicaGeneration(
-        path.join(e.viewRoot, "repos", "lease-repo", "views", "node-one"),
-      )!,
+    assert.equal(
+      await waitForFleetReplicaReady({
+        viewRoot: e.viewRoot,
+        repoId: "lease-repo",
+        nodeId: "node-one",
+      }),
+      true,
+    );
+    const beforeGeneration = readReplicaGeneration(path.join(e.viewRoot, "repos", "lease-repo", "views", "node-one"))!,
       priorRevision = beforeGeneration.metadata.position.revision,
       localMarker = path.join(e.edgeRoot, "harness", "operator-local.txt");
     writeFileSync(localMarker, "operator-owned state\n");
