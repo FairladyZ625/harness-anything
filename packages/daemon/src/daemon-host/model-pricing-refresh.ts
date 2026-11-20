@@ -55,7 +55,6 @@ async function readModelPricingCache(userRoot: string): Promise<CacheReadResult>
 export async function loadModelPricingCache(input: {
   readonly userRoot: string;
   readonly now?: () => Date;
-  readonly install?: (catalog: unknown) => void;
 }): Promise<{ readonly catalog: ModelPricingCatalog; readonly ageMs: number } | null> {
   const read = await readModelPricingCache(input.userRoot);
   if (!read.ok) return null;

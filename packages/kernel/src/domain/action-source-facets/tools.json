@@ -3223,6 +3223,13 @@
         "order": 403
       },
       {
+        "candidateId": "action:tools:tools/sync-model-pricing.mjs#syncModelPricing:73cd1513c5eafe207b31a75253235498",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.writeFile",
+        "order": 414
+      },
+      {
         "candidateId": "action:tools:tools/sync-runtime-skills.mjs#syncRuntimeSkills:b679a07a153c8bae6e5cfc58bb200cb0",
         "route": "package-assets-build",
         "role": "technical-port",
@@ -3291,13 +3298,6 @@
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync",
         "order": 409
-      },
-      {
-        "candidateId": "action:tools:tools/sync-model-pricing.mjs#syncModelPricing:73cd1513c5eafe207b31a75253235498",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.writeFile",
-        "order": 414
       }
     ],
     "preset-install": [
