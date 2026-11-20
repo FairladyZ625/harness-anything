@@ -140,7 +140,13 @@ export function locateTaskTransitionDocument(input: {
     );
   const packagePath = task.packagePath,
     contractPath = `${packagePath}/task-contract.json`,
-    contractRead = input.projection.readDocument(contractPath);
+    activeContractRead = input.projection.readDocument(contractPath),
+    completedArchive =
+      task.snapshot.task.status === "done" && (task.snapshot.task.packageDisposition ?? "active") !== "active",
+    contractRead =
+      activeContractRead.document || !completedArchive
+        ? activeContractRead
+        : (input.projection.readDocumentHistory?.(contractPath) ?? activeContractRead);
   if (contractRead.watermark < contractRead.sourceRevision || !contractRead.document)
     throw transitionDocumentAccessError(
       "content_not_ready",

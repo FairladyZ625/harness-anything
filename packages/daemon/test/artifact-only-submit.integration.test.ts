@@ -276,22 +276,26 @@ test("a documentation amendment completes with newly accepted artifact paths on 
   mkdirSync(ledger);
   initRepo(ledger);
   const holder = withPolicyGroup(
-    { actor: { principal: { personId: "owner" }, executor: null }, source: "local" as const },
-    "admin",
-  );
+      { actor: { principal: { personId: "owner" }, executor: null }, source: "local" as const },
+      "admin",
+    ),
+    contributor = withPolicyGroup(
+      { actor: { principal: { personId: "author" }, executor: null }, source: "local" as const },
+      "contributor",
+    );
   const cell = await openBootstrappedRepoCell({
     repoId: workspaceId("doc-amend"),
     rootDir: canonicalRoot(rootDir),
     ownerId: "doc-amend-fixture",
   });
-  const run = async (action: Parameters<typeof cell.run>[0]) => {
-    let receipt = await cell.run(action, holder);
+  const run = async (action: Parameters<typeof cell.run>[0], binding = contributor) => {
+    let receipt = await cell.run(action, binding);
     for (let attempt = 0; receipt.outcome === "pending" && attempt < 4; attempt++) {
-      await waitForFixturePublication(cell, receipt.opId, holder);
-      receipt = await cell.run(action, holder);
+      await waitForFixturePublication(cell, receipt.opId, binding);
+      receipt = await cell.run(action, binding);
     }
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-    await waitForFixturePublication(cell, receipt.opId, holder);
+    await waitForFixturePublication(cell, receipt.opId, binding);
     return receipt;
   };
   try {
@@ -344,7 +348,7 @@ test("a documentation amendment completes with newly accepted artifact paths on 
     } finally {
       await reader.drain();
     }
-    await run({ kind: "task-complete", taskId, executionId });
+    await run({ kind: "task-complete", taskId, executionId }, holder);
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

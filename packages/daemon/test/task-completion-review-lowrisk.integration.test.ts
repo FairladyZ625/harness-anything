@@ -24,6 +24,7 @@ test("a review-exempt low-risk cut returns to rework and resumes its worker", as
   const f = await fixture(false, true, false, false, false, {
     autoSubmit: false,
     autoProviderSession: true,
+    guiDelivery: true,
     submitCommit: true,
     create: { riskTier: "low", presetId: "standard-task" },
   });

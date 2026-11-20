@@ -91,6 +91,12 @@ export function attachReceiptAcceptance<R extends WriteReceiptDraft>(
     follower.worktree.cut.revision >= acceptedCut.revision;
   const projected = projection.readCut();
   const visible = projected.watermark >= outcome.lastRevision;
+  const gitCommitSha = gitCoversAcceptance ? follower.git.commitSha : null;
+  // An artifact-only submission has no delivery commit even after its ledger event reaches Git.
+  const artifactOnlySubmission =
+    event.schema === "task-event/v1" &&
+    event.type === "execution_submitted" &&
+    event.payload.execution.submission?.commitSha === null;
   const { rejectionExplanation: _rejectionExplanation, ...acceptedReceipt } = receipt;
   return {
     ...acceptedReceipt,
@@ -109,7 +115,7 @@ export function attachReceiptAcceptance<R extends WriteReceiptDraft>(
     projection: { state: visible ? "verified" : "pending", cut: visible ? acceptedCut : null },
     git: {
       ...facet(follower.git, gitCoversAcceptance),
-      commitSha: gitCoversAcceptance ? follower.git.commitSha : null,
+      commitSha: gitCommitSha,
     },
     worktree: facet(follower.worktree, worktreeCoversAcceptance),
     replica: empty.replica,
@@ -130,7 +136,7 @@ export function attachReceiptAcceptance<R extends WriteReceiptDraft>(
       headDigest: acceptedCut.headDigest,
       opId: event.opId,
     },
-    commitSha: gitCoversAcceptance ? follower.git.commitSha : null,
+    commitSha: artifactOnlySubmission ? null : gitCommitSha,
   } as R & ReceiptAcceptanceFields;
 }
 

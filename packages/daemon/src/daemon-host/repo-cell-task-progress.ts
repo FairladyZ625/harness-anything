@@ -26,7 +26,7 @@ import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-type
 import {
   readCompletionContext,
   readCompletionDeliveryStatus,
-  factRetirementAssessment,
+  requireFactRetirementAssessment,
 } from "./task-completion-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
@@ -304,7 +304,7 @@ export async function completeTask(
     remaining = completionPreparationBlockers(refreshed.snapshot, executionId, preparedContext)[0];
   if (remaining && remaining.code !== "doc_sync_required")
     return cell.completionStopped(facadeOpId, refreshed.snapshot, executionId, remaining, []);
-  const retirement = factRetirementAssessment(cell.projection, taskId, factRetirementAttestations);
+  const retirement = requireFactRetirementAssessment(cell.projection, taskId, factRetirementAttestations);
   if (closeoutGates.factDisposition && !retirement.ready)
     return cell.completionStopped(
       facadeOpId,
@@ -334,7 +334,7 @@ export async function completeTask(
     );
     const blocker = completionBlockers(current.snapshot, executionId, completion)[0];
     if (!blocker) {
-      const retirement = factRetirementAssessment(cell.projection, taskId, factRetirementAttestations);
+      const retirement = requireFactRetirementAssessment(cell.projection, taskId, factRetirementAttestations);
       if (completion.closeoutGates?.factDisposition && !retirement.ready)
         return cell.completionStopped(
           facadeOpId,
@@ -488,6 +488,7 @@ export function completionContext(
             actor: binding.actor,
             source: binding.source,
             now: cell.now(),
+            ...(binding.observedDocGitPaths === undefined ? {} : { observedGitPaths: binding.observedDocGitPaths }),
             nodeTaskMaterializationPolicy: cell.input.nodeTaskMaterializationPolicy,
             taskId,
           }).rows,

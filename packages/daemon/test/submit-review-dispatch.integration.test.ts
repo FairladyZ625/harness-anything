@@ -144,26 +144,30 @@ test("a low-risk submit freezes no dispatch and never launches a reviewer", { ti
   try {
     await f.install();
     const submitted = await f.submit(),
-      next = (submitted as { readonly next?: readonly { readonly command?: string }[] }).next ?? [];
+      next = (submitted as { readonly next?: readonly { readonly command?: string }[] }).next ?? [],
+      transition = (submitted as { readonly transition?: { readonly from?: string; readonly to?: string } }).transition;
     assert.deepEqual(
       next.map((entry) => entry.command),
-      [`ha task complete ${taskId}`],
-      "an artifact-only low-risk submit names the one remaining step to done and has no branch to publish",
+      [],
+      "a zero-blocker artifact-only low-risk submit auto-completes to done with no manual step remaining",
     );
+    assert.deepEqual(transition, { from: "active/implementation", to: "done/review" });
     assert.equal(f.launches.length, 0, "low-risk submissions must not dispatch at submit");
     assert.equal(
       f.events().filter((event) => event.type === "runtime_dispatch_requested").length,
       0,
       "no reviewer dispatch event may be recorded for a low-risk cut",
     );
-    // The state a resuming agent reads must agree with the receipt instead of showing no next step.
+    // The state a resuming agent reads must agree with the auto-completed receipt.
     const shown = await f.run({ kind: "task-show", taskId }),
       evidence = JSON.parse(String(shown.evidence)) as {
+        readonly task: { readonly status: string };
         readonly completionBlocker: unknown;
         readonly completionNext: { readonly action?: string } | null;
       };
+    assert.equal(evidence.task.status, "done");
     assert.equal(evidence.completionBlocker, null);
-    assert.equal(evidence.completionNext?.action, `ha task complete ${taskId}`);
+    assert.equal(evidence.completionNext, null);
   } finally {
     await f.close();
   }

@@ -1,4 +1,5 @@
 import { readTodos } from "@harness-anything/application/internal/queries/todo-read.ts";
+import { describeSubmittedCloseoutAttention } from "@harness-anything/application/internal/queries/collaborator-reads.ts";
 import { activeCutReviewDispatches } from "./review-dispatch-state.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -20,6 +21,7 @@ import {
   taskBoardPlacement,
   taskCapabilities,
   taskCompletionAction,
+  taskCompletionNext,
   taskPhase,
   taskRisk,
   taskVisibility,
@@ -83,7 +85,7 @@ import {
   premiseReviewCommand,
 } from "@harness-anything/application/internal/queries/premise-review.ts";
 import { readIncidentActionReceipt } from "./decision-incident-receipt.ts";
-import { readCompletionContext } from "./task-completion-read.ts";
+import { factRetirementAssessment, readCompletionContext } from "./task-completion-read.ts";
 import {
   projectionCut,
   requireSameProjectionCut,
@@ -817,9 +819,48 @@ export function makeTaskQueryReadModel(input: {
             }
             return [...rows.values()].sort((left, right) => left.askedAt.localeCompare(right.askedAt));
           })(),
-      awaitingAdjudication: AgendaExecutionRow[] = awaitingExecutionRows(submitted?.rows ?? [])
+      awaitingAdjudication: AgendaExecutionRow[] = awaitingExecutionRows(submitted?.rows ?? [], true)
         .filter(({ taskId }) => assignmentFor(`task/${taskId}`))
         .sort(compareAwaitingExecutions),
+      submittedSourceByTask = new Map<string, AgendaSourceRow>((submitted?.rows ?? []).map((row) => [row.taskId, row])),
+      submittedCloseoutEntries = attentionOnly
+        ? []
+        : awaitingAdjudication.flatMap((row) => {
+            const source = submittedSourceByTask.get(row.taskId);
+            if (!source || typeof source.packagePath !== "string") return [];
+            const context = readCompletionContext(
+              projection,
+              row.taskId,
+              source.snapshot,
+              submitted?.status ?? "ready",
+              rootDir,
+            );
+            if (context.projectionStatus !== "ready") return [];
+            const { blocker } = taskCompletionNext(source.snapshot, context, row.executionId),
+              next = taskCompletionAction(source.snapshot, context);
+            const retirement =
+              blocker === null && context.closeoutGates?.factDisposition
+                ? factRetirementAssessment(projection, row.taskId, [])
+                : null;
+            const undischargedFactRefs =
+              retirement && !("unavailable" in retirement) ? retirement.undischarged.map(({ factRef }) => factRef) : [];
+            return [
+              [
+                row.executionId,
+                describeSubmittedCloseoutAttention({
+                  taskId: row.taskId,
+                  title: row.title,
+                  completionBlockerCode: blocker?.code ?? null,
+                  completionNextAction: blocker?.next.action ?? next?.action ?? null,
+                  undischargedFactRefs,
+                }),
+              ] as const,
+            ];
+          }),
+      submittedCloseouts = new Map(submittedCloseoutEntries),
+      submittedSummaryCloseouts = new Map(
+        submittedCloseoutEntries.map(([executionId, detail]) => [executionId, detail.summaryHint] as const),
+      ),
       underReview: AgendaExecutionRow[] = awaitingExecutionRows(inReview?.rows ?? [])
         .filter(({ taskId }) => assignmentFor(`task/${taskId}`))
         .sort(compareAwaitingExecutions),
@@ -1023,6 +1064,7 @@ export function makeTaskQueryReadModel(input: {
         awaitingRuling,
         awaitingRework,
         awaitingAdjudication,
+        submittedCloseouts,
         awaitingDecision,
         waitingOnOthers,
         stalled,
@@ -1090,6 +1132,7 @@ export function makeTaskQueryReadModel(input: {
         unanchoredWorks,
         undispatchedReviews,
         shapeSignals,
+        submittedCloseouts: submittedSummaryCloseouts,
         waitingOnOthers,
         dispatchable,
       }),
@@ -1528,13 +1571,14 @@ function unsubmittedDeliveryAttentionRows(
   });
 }
 /** Submitted execution rows that do not yet have an approved review for the current content cut. */
-function awaitingExecutionRows(rows: readonly AgendaSourceRow[]): AgendaExecutionRow[] {
+function awaitingExecutionRows(rows: readonly AgendaSourceRow[], includeApproved = false): AgendaExecutionRow[] {
   return rows.flatMap((row) =>
     row.snapshot.executions
       .filter(
         (execution) =>
           execution.state === "submitted" &&
-          !hasApprovedReviewForExecution(row.snapshot.reviews, execution, row.snapshot.reviewDispositions ?? []),
+          (includeApproved ||
+            !hasApprovedReviewForExecution(row.snapshot.reviews, execution, row.snapshot.reviewDispositions ?? [])),
       )
       .map((execution) => ({
         taskId: row.taskId,

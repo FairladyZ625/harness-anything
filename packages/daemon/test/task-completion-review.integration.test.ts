@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -248,33 +249,36 @@ test("medium tier preserves the repository's resolved consent gate", async () =>
 });
 
 test("a lightweight task's forward order upgrades the cut into the review corridor instead of deadlocking", async () => {
-  const f = await fixture(false, true, false, false, false, {
+  const f = await fixture(false, true, true, false, false, {
     autoSubmit: false,
+    guiDelivery: true,
     create: { riskTier: "low" },
   });
   try {
     await f.install();
-    // A task-package-artifact delivery: file the artifact, sync it, and anchor it in the closeout.
-    const report = `${f.packagePath}/artifacts/delivery.md`;
-    mkdirSync(path.dirname(path.join(f.root, "harness", report)), { recursive: true });
-    writeFileSync(path.join(f.root, "harness", report), "Lightweight delivery evidence.\n");
-    const synced = (await f.run({ kind: "doc-submit", taskId })) as Receipt;
-    assert.equal(synced.outcome, "applied", JSON.stringify(synced));
-    writeFileSync(
-      path.join(f.root, "harness", f.packagePath, "closeout.md"),
-      `# Closeout\n\n## Summary\n\nReviewed delivery artifact:${report}@${String(synced.revision)}\n\n` +
-        "## Verification\n\nREADME bytes checked.\n\n## Residual Risk\n\nNone.\n\n" +
-        "## Same Mechanism Elsewhere\n\nReview dispatch retry.\n",
-    );
-    const submitted = (await f.run({ kind: "task-submit", taskId, executionId })) as Receipt;
+    const submitted = (await f.submit()) as Receipt;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     assert.equal(f.launches.length, 0, "the lightweight submit itself dispatches no reviewer");
+    assert.equal(
+      (await taskStatus(f)).status,
+      "submitted",
+      "unmerged delivery keeps the review-exempt cut in submitted",
+    );
     // The forward order retired with the manual corridor: a review-lifted cut has no lane into
     // review, and dispatch-review says so instead of advising a nonexistent command.
     const advised = (await f.run({ kind: "task-dispatch-review", taskIds: [taskId] })) as Receipt;
     assert.equal(advised.outcome, "op_rejected", JSON.stringify(advised));
     assert.match(String(advised.rejectionExplanation), /has no automatic review requirement; its cut lifted review/u);
-    // The lifted profile completes straight off submitted; no verdict is owed.
+    const head = execFileSync("git", ["-C", path.join(f.root, ".worktrees", taskId), "rev-parse", "HEAD"], {
+      encoding: "utf8",
+    }).trim();
+    execFileSync("git", ["-C", f.root, "update-ref", "refs/remotes/origin/main", head]);
+    assert.equal(
+      ((await f.run({ kind: "task-annotate", taskId, executionId, note: `merge_commit_sha:${head}` })) as Receipt)
+        .outcome,
+      "applied",
+    );
+    // Once merged, the lifted profile completes straight off submitted; no verdict is owed.
     const completed = (await f.complete()) as Receipt;
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
     assert.equal((await taskStatus(f)).status, "done");

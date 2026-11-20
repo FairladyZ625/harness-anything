@@ -314,7 +314,11 @@ test("a changes_requested review recovered during runtime settlement uses the sa
 });
 
 test("a review-exempt low-risk takeover returns and hands over in one request", async () => {
-  const f = await fixture(false, true, true, false, false, { autoSubmit: false, create: { riskTier: "low" } });
+  const f = await fixture(false, true, true, false, false, {
+    autoSubmit: false,
+    guiDelivery: true,
+    create: { riskTier: "low" },
+  });
   try {
     await f.install();
     assert.equal((await f.submit()).outcome, "applied");

@@ -8,6 +8,7 @@ import {
   submissionDigest,
   sha256Text,
   stableStringify,
+  taskCompletionNext,
   type DocEventChange,
   type ExecutionV1,
   type SubmissionV1,
@@ -34,6 +35,8 @@ import { scrubProviderValue } from "./dispatch-stream.ts";
 import { taskExecutionPlacement } from "./task-execution-placement.ts";
 import { taskPrBodyRenderer } from "./task-pr-body-render.ts";
 import { readTaskRiskManifest } from "./task-risk-tier.ts";
+import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
+import { factRetirementAssessment, readCompletionContext } from "./task-completion-read.ts";
 
 import type { PreparedSubmissionDelivery } from "./submission-delivery.ts";
 import { preparedSubmission, type PreparedSubmissionAction } from "./submission-preparation.ts";
@@ -379,16 +382,91 @@ export async function continueSubmittedTask(
       enqueuePublication,
       event.payload.execution,
     ),
-    warnings = [...(receipt.warnings ?? []), ...review.warnings];
+    completion = await submittedCutCompletion(
+      cell,
+      event.taskId,
+      event.payload.execution.executionId,
+      receipt.opId,
+      principalBinding,
+      receipt,
+      enqueuePublication,
+    ),
+    warnings = [...(receipt.warnings ?? []), ...review.warnings],
+    previousTransition = (receipt as { readonly transition?: { readonly from?: string; readonly to?: string } })
+      .transition,
+    previousNext = (receipt as { readonly next?: readonly { readonly command?: string }[] }).next;
   return {
     ...receipt,
+    ...(completion.completed && previousTransition ? { transition: { ...previousTransition, to: "done/review" } } : {}),
+    ...(completion.completed && Array.isArray(previousNext)
+      ? {
+          next: previousNext.filter((entry) => entry.command !== `ha task complete ${event.taskId}`),
+        }
+      : {}),
     ...(warnings.length ? { warnings } : {}),
     steps: [
       ...((receipt as { readonly steps?: readonly WriteReceiptDraft[] }).steps ?? []),
       ...(executor ? [executor] : []),
       ...review.steps,
+      ...(completion.step ? [completion.step] : []),
     ],
   } as WriteReceiptDraft;
+}
+
+async function submittedCutCompletion(
+  cell: RepoCellOperationalContext,
+  taskId: string,
+  executionId: string,
+  submissionOpId: string,
+  principalBinding: RepoCellBinding,
+  receipt: WriteReceiptDraft,
+  enqueuePublication: RepoCellContinuationWrite,
+): Promise<{ readonly step: WriteReceiptDraft | null; readonly completed: boolean }> {
+  if (
+    receipt.warnings?.some((warning) => warning.startsWith("Task package has unsynchronized changes:")) ||
+    cell.projection.readTaskSubmissionOperation(taskId, executionId) !== submissionOpId
+  )
+    return { step: null, completed: false };
+  const read = await cell.service.read(taskId),
+    { snapshot } = read;
+  if (snapshot.task?.status === "done" && cell.projection.readTaskCompletion(taskId, executionId) !== null)
+    return { step: null, completed: true };
+  const execution = snapshot.executions.find(
+    (value) => value.executionId === executionId && value.iteration === snapshot.task?.iteration,
+  );
+  if (snapshot.task?.status !== "submitted" || execution?.state !== "submitted" || !execution.submission)
+    return { step: null, completed: false };
+  const context = readCompletionContext(
+      cell.projection,
+      taskId,
+      snapshot,
+      read.status,
+      cell.rootDir,
+      principalBinding.actor,
+    ),
+    { blocker } = taskCompletionNext(snapshot, context, executionId);
+  if (blocker !== null) return { step: null, completed: false };
+  if (context.closeoutGates?.factDisposition) {
+    const retirement = factRetirementAssessment(cell.projection, taskId, []);
+    if ("unavailable" in retirement || !retirement.ready) return { step: null, completed: false };
+  }
+  const completeAction: RepoTaskAction = { kind: "task-complete", taskId, executionId },
+    revision = cell.store.readHead()?.revision ?? snapshot.revision,
+    decision = await evaluateRepoCellAction({
+      action: completeAction,
+      binding: principalBinding,
+      actionId: cell.operationId(completeAction, principalBinding, cell.input.repoId, revision),
+      repoId: cell.input.repoId,
+      revision,
+      now: cell.now(),
+      readTask: (id) => cell.projection.read(id).snapshot.task,
+    });
+  if (decision.outcome !== "allowed") return { step: null, completed: false };
+  const step = await enqueuePublication(completeAction, {
+    ...principalBinding,
+    observedDocGitPaths: [],
+  });
+  return { step, completed: step.outcome === "applied" };
 }
 
 function riskTierCloseoutGates(

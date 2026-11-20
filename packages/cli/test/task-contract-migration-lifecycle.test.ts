@@ -80,8 +80,14 @@ test("submitted contract migration continues through the CLI without losing hist
   assert.equal(cli("doc", "sync", "--submit", "--task", taskId).outcome, "applied");
   assert.equal(cli("task", "submit", taskId, "--execution-id", "execution-new-contract").outcome, "applied");
   const after = show();
-  assert.equal(after.task.status, "submitted");
+  assert.equal(after.task.status, "done");
+  assert.equal(after.lease, null);
+  assert.equal(after.completionNext, null);
+  assert.equal(after.executions.length, 2);
   assert.deepEqual(after.executions[0], before.executions[0]);
+  assert.equal(after.executions[1].executionId, "execution-new-contract");
+  assert.equal(after.executions[1].state, "accepted");
+  assert.equal(after.executions[1].submission.commitSha, null);
   assert.deepEqual(after.reviews, before.reviews);
 });
 

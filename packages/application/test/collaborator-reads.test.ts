@@ -5,6 +5,7 @@ import test from "node:test";
 import type { TaskIndexProjectionRow, TaskProjection } from "@harness-anything/kernel";
 import { personalPinsFromNewest } from "@harness-anything/kernel/internal/domain/entity-pin-event.ts";
 import {
+  describeSubmittedCloseoutAttention,
   readAttestationPool,
   readCollaboratorAgenda,
   readCollaboratorArtifacts,
@@ -199,7 +200,15 @@ test("legacy ownerless todos remain in mine and an administrator's agenda uses t
     readCut: () => cut,
     readRelationQuery: () => ({ ...cut, rows: [], page: null }),
     listDecisions: () => ({ ...cut, decisions: [] }),
-    readTaskIndex: () => ({ ...cut, rows: [], warnings: [] }),
+    readTaskIndex: () => ({
+      ...cut,
+      rows: [
+        row("bob-submitted", "Submitted awaiting merge", bob, null, "submitted", second),
+        row("bob-active", "Active implementation", bob, null, "active", first),
+        row("alice-submitted", "Alice submitted", alice, null, "submitted", second),
+      ],
+      warnings: [],
+    }),
     listPinnedEntities: (personId: string) => [{ entityRef: `task/${personId}`, pinnedBy: personId, pinnedAt: first }],
   } as unknown as TaskProjection;
   assert.deepEqual(
@@ -212,6 +221,10 @@ test("legacy ownerless todos remain in mine and an administrator's agenda uses t
   );
   const agenda = readCollaboratorAgenda(projection, { viewerPersonId: alice, scopePersonId: bob });
   assert.equal(agenda.personId, bob);
+  assert.deepEqual(
+    agenda.submittedTasks.map(({ taskId }) => taskId),
+    ["bob-submitted"],
+  );
   assert.deepEqual(
     agenda.pinnedEntities.map(({ pinnedBy }) => pinnedBy),
     [bob],
@@ -316,4 +329,38 @@ test("token bill groups by the dispatch principal and source across pages", () =
       .totalTokens,
     0,
   );
+});
+
+test("describeSubmittedCloseoutAttention surfaces delivery, gate, fact retirement, and pending completion actions", () => {
+  const delivery = describeSubmittedCloseoutAttention({
+    taskId: "task-delivery",
+    title: "Unmerged low-risk PR",
+    completionBlockerCode: "delivery_missing",
+    completionNextAction: "Merge the delivery with node tools/pr-merge.mjs <PR-number-or-url>.",
+  });
+  assert.equal(delivery.blockerCode, "delivery_missing");
+  assert.match(delivery.attentionTitle, /Unmerged low-risk PR — \[delivery_missing\] Merge the delivery/u);
+  assert.match(delivery.summaryHint, /下一步 \(delivery_missing\): Merge the delivery/u);
+
+  const fact = describeSubmittedCloseoutAttention({
+    taskId: "task-fact",
+    title: "Fact disposition needed",
+    completionBlockerCode: null,
+    completionNextAction: "ha task complete task-fact",
+    undischargedFactRefs: ["fact/f1", "fact/f1", "fact/f2"],
+  });
+  assert.equal(fact.blockerCode, "fact_retirement_undeclared");
+  assert.equal(
+    fact.nextAction,
+    'ha task complete task-fact --fact-holds "fact/f1:<rationale>" --fact-holds "fact/f2:<rationale>"',
+  );
+
+  const pending = describeSubmittedCloseoutAttention({
+    taskId: "task-pending",
+    title: "Awaiting maintainer closeout",
+    completionBlockerCode: null,
+    completionNextAction: null,
+  });
+  assert.equal(pending.blockerCode, "completion_pending");
+  assert.equal(pending.nextAction, "ha task complete task-pending");
 });
