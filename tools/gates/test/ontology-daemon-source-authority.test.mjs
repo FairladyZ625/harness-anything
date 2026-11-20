@@ -188,7 +188,7 @@ test("local maintenance sources require exact technical ports and cannot claim a
 test("local credential lookup and runtime append remain typed ports, not action authority", () => {
   const kinds = ["runtime-run", "daemon-local-state"],
     runtimeAppendSource = inputs.constants.actionDeclarations
-      .find((action) => action.kind === "runtime-run")
+      .find((action) => action.kind === "daemon-local-state")
       .ontology.sources.find((source) =>
         source.candidateId.includes("entity-action-runtime-session.ts#commitRuntimeSessionBundle.appended:"),
       ),
@@ -197,7 +197,7 @@ test("local credential lookup and runtime append remain typed ports, not action 
       .ontology.sources.find((source) =>
         source.candidateId.includes("agent-runtime-credential-port.ts#credentialPort.resolve:"),
       );
-  assert.equal(runtimeAppendSource.route, "runtime-run");
+  assert.equal(runtimeAppendSource.route, "daemon-local-state");
   assert.equal(runtimeAppendSource.role, "technical-port");
   assert.equal(runtimeAppendSource.port, "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append");
   assert.equal(lookupSource.role, "technical-port");

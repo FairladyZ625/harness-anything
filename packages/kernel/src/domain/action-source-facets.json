@@ -1660,12 +1660,6 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/node-auto-dispatch.ts#openNodeAutoDispatchLoop.scan:1397e1f18ee7ccdedfeee7755f3dbf23",
         "route": "runtime-run",
         "role": "effect"
-      },
-      {
-        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-runtime-session.ts#commitRuntimeSessionBundle.appended:aca15e02146445d36e47128025d8565d",
-        "route": "runtime-run",
-        "role": "technical-port",
-        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
       }
     ]
   },
@@ -8249,6 +8243,12 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-runtime-session.ts#commitRuntimeSessionBundle.appended:aca15e02146445d36e47128025d8565d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/squad-coordinator.ts#makeSquadCoordinator.spawnWorker.receipt:95c90577f2b2203f704299f02cbcc8be",
