@@ -160,6 +160,16 @@ test("an agent dispatch preview carrying effort passes its validator", () => {
   };
   assert.deepEqual(validateAgentDispatchPreview({ ...preview, effort: "high" }), []);
   assert.deepEqual(validateAgentDispatchPreview({ ...preview, effort: null }), []);
+  assert.deepEqual(
+    validateAgentDispatchPreview({
+      ...preview,
+      effort: "high",
+      agentDeclarationDigest: `sha256:${"a".repeat(64)}`,
+      skillSnapshotDigest: `sha256:${"b".repeat(64)}`,
+    }),
+    [],
+  );
+  assert.notDeepEqual(validateAgentDispatchPreview({ ...preview, effort: "high", skillSnapshotDigest: "invalid" }), []);
 });
 
 test("a produced terminal op_rejected receipt passes its validator", () => {

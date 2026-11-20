@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { stripReviewPromptData } from "./review-path-matching.ts";
@@ -96,6 +96,7 @@ export function resolvePrivateLedgerReads(input: {
   readonly cwd: string;
   /** Source priority: declared prompts first, then instructions, then the mission. */
   readonly texts: readonly (string | null | undefined)[];
+  readonly snapshotPaths?: ReadonlyMap<string, string>;
 }): readonly PrivateLedgerRead[] {
   const authoredRoot = resolveHarnessLayout(input.rootDir).authoredRoot,
     // A cwd that contains the authored root resolves every relative reference already; only a
@@ -121,8 +122,11 @@ export function resolvePrivateLedgerReads(input: {
         // A file is opened, so it goes through the port that hands the worker a readable copy. A
         // directory is only listed: copying one is unbounded (`harness/tasks` is 2.4 GiB), so it
         // keeps its canonical absolute path.
-        if (entry?.isFile()) record(variant, workerLedgerPath(input.rootDir, input.cwd, target), false);
-        else if (entry?.isDirectory()) record(variant, path.resolve(target), true);
+        if (entry?.isFile()) {
+          const snapshotted =
+            input.snapshotPaths?.get(path.resolve(target)) ?? input.snapshotPaths?.get(realpathSync(target));
+          record(variant, snapshotted ?? workerLedgerPath(input.rootDir, input.cwd, target), false);
+        } else if (entry?.isDirectory()) record(variant, path.resolve(target), true);
       }
   }
   return [...reads.values()];

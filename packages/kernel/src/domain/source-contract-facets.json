@@ -3791,7 +3791,7 @@
         "explain": "Closed parameter validation for named RPC actions, including the terminal input generation and sequence.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateNamedActionPayload:43665ad0e0e19db93c16af0c9bf828e4",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateNamedActionPayload:81219fa1ea25d70597f8a27a4be522f0",
             "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateNamedActionPayload"
           }
         ]
@@ -4139,6 +4139,34 @@
         "explain": "At center dispatch admission a task has at most one implementation process without accepted stop proof, across all instances and nodes. Releasing the task lease does not release this process reservation.",
         "consumers": ["packages/daemon/src/daemon-host/runtime-dispatch-admission.ts"],
         "sources": []
+      },
+      {
+        "id": "dispatch-snapshot-fence",
+        "symbol": "packages/kernel/src/domain/agent-dispatch-identity.ts#verifyDispatchSnapshotFence",
+        "inputs": ["DispatchSnapshotFenceInput"],
+        "output": "DispatchSnapshotFenceResult",
+        "failureCodes": ["dispatch_snapshot_stale"],
+        "explain": "Verifies that formal runtime dispatch launch matches the Agent declaration and Skill directory content digests observed during dry-run preview before any provider process is spawned.",
+        "consumers": ["packages/daemon/src/daemon-host/runtime-spawner.ts"],
+        "sources": []
+      },
+      {
+        "id": "bare-provider-session-resume-identity",
+        "symbol": "packages/kernel/src/domain/agent-dispatch-identity.ts#verifyBareProviderSessionResumeIdentity",
+        "inputs": ["readonly PriorProviderSessionIdentity[]", "BareProviderSessionResumeRequest"],
+        "output": "BareProviderSessionResumeVerdict",
+        "failureCodes": [
+          "runtime_resume_session_not_found",
+          "runtime_resume_binding_mismatch",
+          "runtime_resume_agent_mismatch",
+          "runtime_resume_skill_mismatch"
+        ],
+        "explain": "Enforces that a bare providerSessionId resume preserves the recorded session owner, task, Agent declaration, and Skill snapshot identity unless routed through explicit handoff.",
+        "consumers": [
+          "packages/daemon/src/daemon-host/runtime-resume-admission.ts",
+          "packages/daemon/src/daemon-host/repo-cell-runtime-ingress.ts"
+        ],
+        "sources": []
       }
     ],
     "contracts": [
@@ -4148,7 +4176,7 @@
         "explain": "RuntimeSessionEntityV1: Accepted session/event identity and provenance fields.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:e207bd2ecb74c583e1bfb866c3728087",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:37a9eb7555ea634af54d9feb1193cb81",
             "route": "packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields"
           }
         ]
@@ -4244,10 +4272,10 @@
       {
         "id": "daemon/src/gui-s3-control.ts#validateAgentDispatchPreview",
         "symbol": "packages/daemon/src/daemon-host/gui-s3-control.ts#validateAgentDispatchPreview",
-        "explain": "GUI S3 control wire-response validator for `agent-dispatch-preview/v1` prompt and mission preview DTOs; dispatch admission stays in kernel/daemon spawner.",
+        "explain": "GUI S3 control wire-response validator for `agent-dispatch-preview/v1` prompt, mission, and optional Agent/Skill snapshot digest preview DTOs; dispatch admission stays in kernel/daemon spawner.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/gui-s3-control.ts#validateAgentDispatchPreview:607dbc6f63a432f731a59c9d37530697",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/gui-s3-control.ts#validateAgentDispatchPreview:9ea9c0ddc5edb98164048b00434ea693",
             "route": "packages/daemon/src/daemon-host/gui-s3-control.ts#validateAgentDispatchPreview"
           }
         ]
@@ -4579,6 +4607,17 @@
           {
             "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/runtime-resume-admission.ts#assertRuntimeHandoffLaunch:95854e73717c36aa78177c866b64eb85",
             "route": "packages/daemon/src/daemon-host/runtime-resume-admission.ts#assertRuntimeHandoffLaunch"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/runtime-resume-admission.ts#assertBareProviderSessionResumeIdentity",
+        "symbol": "packages/daemon/src/daemon-host/runtime-resume-admission.ts#assertBareProviderSessionResumeIdentity",
+        "explain": "Daemon projection/spool adapter loading prior session identities for bare providerSessionId resumes and delegating the continuity verdict to kernel `verifyBareProviderSessionResumeIdentity`.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/runtime-resume-admission.ts#assertBareProviderSessionResumeIdentity:e604054ab0b329de12543bea129a8631",
+            "route": "packages/daemon/src/daemon-host/runtime-resume-admission.ts#assertBareProviderSessionResumeIdentity"
           }
         ]
       },

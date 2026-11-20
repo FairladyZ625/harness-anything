@@ -143,7 +143,7 @@ export const dispatchLifecyclePolicies = [
       "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-action-routes.ts#daemonActionRoutes.mcpPolicy:7f9318b109c62120f4b0ba2305c64206",
       "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-action-routes.ts#runtimeInstanceMethods.params.payload.mcpPolicy:7f9318b109c62120f4b0ba2305c64206",
       "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-action-routes.ts#runtimeInstanceMethods.params.payload.mcpPolicy:90dba27cca667387b692c8f2bbf7339c",
-      "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateNamedActionPayload:ce14784aeccf7a41b80880f5f8458a99",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateNamedActionPayload:6eedd1565c328655ece2dd367650d422",
       "policy:packages/daemon:packages/daemon/src/runtime-engine/runtime-permissions.ts#resolveRuntimeMcpPolicy:530fe8a3cae5a7d85322a8c675c04852",
       "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-adoption.ts#adoptableMetadata:07f97fbfbfd0d7354baaca0be82565a6",
       "policy:packages/gui:packages/gui/src/preload/allowlist.ts#runtimeInstanceCreateProblem:2e92c6e8fa016915e95b3a2e519d3715",

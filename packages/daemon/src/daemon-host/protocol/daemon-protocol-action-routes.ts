@@ -252,6 +252,8 @@ export const daemonActionRoutes = Object.freeze([
       handoffEnabled: "boolean?",
       dispatchKey: "string",
       providerSessionId: "string?",
+      expectedAgentDeclarationDigest: "string?",
+      expectedSkillSnapshotDigest: "string?",
       // Fenced recovery of a stopped implementation dispatch: { dispatchId, executionId, expectedVersion? }.
       recovery: "json?",
       // Reviewer dispatches carry the canonical decision/task binding through the

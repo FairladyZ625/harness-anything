@@ -47,6 +47,7 @@ import { readIncidentActionReceipt } from "./decision-incident-receipt.ts";
 import { runtimeSpawnReceipt } from "../runtime-engine/runtime-spawn-receipt.ts";
 import { processGroupRecoveryHint, probeProcessGroup } from "./runtime/process-group-reconciler.ts";
 import { terminateRuntimeTree } from "./runtime-spawn-process.ts";
+import { reclaimSessionSkillSnapshot } from "./agent-skill-snapshot.ts";
 export { runtimeSpawnReceipt } from "../runtime-engine/runtime-spawn-receipt.ts";
 
 export async function publishExit(
@@ -55,7 +56,14 @@ export async function publishExit(
   code: number | null,
   _resumePublishedExit = false,
 ): Promise<void> {
-  if ("terminal" in active) return publishTerminalOutcome(context, active.terminal, active);
+  if ("terminal" in active) {
+    reclaimSessionSkillSnapshot(
+      context.input.rootDir,
+      active.attempt.runtimeSessionId,
+      readDispatchStream(context.input.rootDir, active.attempt.dispatchId)?.header.cwd,
+    );
+    return publishTerminalOutcome(context, active.terminal, active);
+  }
   if (active.exitSettlement) return active.exitSettlement;
   if (context.exiting.has(active.runtimeSessionId)) return;
   let resolveSettlement!: () => void, rejectSettlement!: (error: unknown) => void;
@@ -98,6 +106,7 @@ export async function publishExit(
       console.error(
         `[runtime-temp] ${active.instanceId}/${active.runtimeSessionId} could not be reclaimed: ${tempReclaimFailure.message}`,
       );
+    reclaimSessionSkillSnapshot(context.input.rootDir, active.runtimeSessionId, active.cwd);
     const cancelled = active.cancelRequested && !escalationStop,
       terminalBinding = runtimeSessionBinding(active.binding, active.runtimeSessionId),
       squadLeaderControl = active.squadId !== null && active.delegatedBy === null;

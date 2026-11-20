@@ -312,6 +312,10 @@ test("the settled-session sweep reclaims only settled per-run directories it own
 test("a repository sweep preserves another repository's live, settled and unregistered temp directories", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-two-repos-"));
   try {
+    const repoA = path.join(userRoot, "repo-a"),
+      repoB = path.join(userRoot, "repo-b");
+    mkdirSync(repoA);
+    mkdirSync(repoB);
     const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed], resolveCredential: () => "secret" });
     store.create({
       schemaVersion: 2,
@@ -329,13 +333,14 @@ test("a repository sweep preserves another repository's live, settled and unregi
     const ids = Array.from({ length: 6 }, (_, index) => `runtime_${String(index + 1).repeat(24)}`);
     for (const [index, runtimeSessionId] of ids.entries()) {
       await store.prepareLaunch("codex-shared", {
-        cwd: index < 3 ? "/workspace/repo-a" : "/workspace/repo-b",
+        cwd: index < 3 ? repoA : repoB,
         prompt: "Fixture",
         runtimeSessionId,
       });
       writeFileSync(path.join(sessionTemp(userRoot, "codex-shared", runtimeSessionId), "scratch"), "payload");
     }
     const sweep = (
+      rootDir: string,
       entries: {
         readonly runtimeSessionId: string;
         readonly attemptSettled?: boolean;
@@ -346,6 +351,7 @@ test("a repository sweep preserves another repository's live, settled and unregi
     ) =>
       sweepSettledRuntimeTempDirectories({
         input: {
+          rootDir,
           reclaimSettledRuntimeTempDirectories: store.reclaimSettledRuntimeTempDirectories,
           listRuntimeTempSessionIds: store.listRuntimeTempSessionIds,
           remote: {
@@ -361,10 +367,10 @@ test("a repository sweep preserves another repository's live, settled and unregi
         processes: new Map(),
         exiting: new Set(),
       } as never);
-    await sweep([]);
+    await sweep(repoA, []);
     for (const id of ids)
       assert.equal(existsSync(sessionTemp(userRoot, "codex-shared", id)), true, "empty repo owns none");
-    await sweep([
+    await sweep(repoA, [
       { runtimeSessionId: ids[0]!, process: "alive" },
       { runtimeSessionId: ids[1]!, attemptSettled: true, groupSettled: true, outcome: "succeeded" },
     ]);
@@ -374,7 +380,7 @@ test("a repository sweep preserves another repository's live, settled and unregi
         index !== 1,
         "A reclaims only its settled session; A/B live and orphan plus B settled stay",
       );
-    await sweep([
+    await sweep(repoB, [
       { runtimeSessionId: ids[3]!, process: "alive" },
       { runtimeSessionId: ids[4]!, attemptSettled: true, groupSettled: true, outcome: "failed" },
     ]);

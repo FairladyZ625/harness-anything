@@ -31,6 +31,17 @@ test("GUI resume spawn uses the dispatchId route", () => {
   assert.equal(parseDaemonRpcParams("repo.agentRuntime.spawn", params).ok, true);
 });
 
+test("resume admission accepts a single source selector", () => {
+  assert.throws(
+    () =>
+      resolveRuntimeResume({} as Parameters<typeof resolveRuntimeResume>[0], {
+        dispatchId: "dispatch_0123456789abcdef01234567",
+        providerSessionId: "fixture-session",
+      }),
+    { code: "invalid_runtime_spawn", message: "Choose one runtime resume source." },
+  );
+});
+
 test("resume admission distinguishes resumable, missing-session, and already-resumed dispatches", () => {
   const base = {
     dispatchId: "dispatch_0123456789abcdef01234567",

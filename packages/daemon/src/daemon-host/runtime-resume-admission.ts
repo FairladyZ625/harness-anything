@@ -1,11 +1,17 @@
-import { resolveHarnessLayout, validSquadDispatchContext } from "@harness-anything/kernel";
+import {
+  isSha256Digest,
+  resolveHarnessLayout,
+  validSquadDispatchContext,
+  verifyBareProviderSessionResumeIdentity,
+  type PriorProviderSessionIdentity,
+} from "@harness-anything/kernel";
 import { daemonMethodPayloadFields } from "./protocol/daemon-protocol-commands.ts";
 import { unknownFieldViolation } from "./protocol/json-rpc-types.ts";
 import { readHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { verifiedHandoffVersions } from "./runtime-handoff-native.ts";
 import path from "node:path";
 import type { SettingsV1, TaskProjection, TaskWorktreeBindingV1 } from "@harness-anything/kernel";
-import { readDispatchStream } from "./dispatch-stream.ts";
+import { readDispatchStream, readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "../runtime-engine/runtime-spawn-errors.ts";
 import { resolveRuntimeCwd } from "./runtime-spawn-mission.ts";
@@ -336,6 +342,8 @@ export function resolveRuntimeResume(
     throw runtimeSpawnError("invalid_runtime_spawn", `Runtime spawn payload contains an ${unknownField}`);
   if (payload.squadRun !== undefined && !validSquadDispatchContext(payload.squadRun))
     throw runtimeSpawnError("invalid_runtime_spawn", "Runtime spawn squadRun must be a valid Squad dispatch context.");
+  if (payload.providerSessionId !== undefined && (payload.dispatchId !== undefined || handoff !== undefined))
+    throw runtimeSpawnError("invalid_runtime_spawn", "Choose one runtime resume source.");
   const requestedDispatchId =
       payload.dispatchId === undefined ? undefined : requiredRuntimeSpawnText(payload.dispatchId, "dispatchId"),
     resumed = handoff
@@ -393,4 +401,109 @@ export function assertRuntimeHandoffLaunch(
       "runtime_handoff_version_unsupported",
       "Target Codex version has not been verified for native handoff.",
     );
+}
+
+export function parseDispatchSnapshotExpectations(payload: JsonObject): {
+  readonly expectedAgentDeclarationDigest?: string;
+  readonly expectedSkillSnapshotDigest?: string;
+} {
+  const expectedAgentDeclarationDigest =
+      payload.expectedAgentDeclarationDigest === undefined
+        ? undefined
+        : requiredRuntimeSpawnText(payload.expectedAgentDeclarationDigest, "expectedAgentDeclarationDigest"),
+    expectedSkillSnapshotDigest =
+      payload.expectedSkillSnapshotDigest === undefined
+        ? undefined
+        : requiredRuntimeSpawnText(payload.expectedSkillSnapshotDigest, "expectedSkillSnapshotDigest");
+  if (expectedAgentDeclarationDigest !== undefined && !isSha256Digest(expectedAgentDeclarationDigest))
+    throw runtimeSpawnError("invalid_runtime_spawn", "expectedAgentDeclarationDigest must be a sha256:<64hex> digest.");
+  if (expectedSkillSnapshotDigest !== undefined && !isSha256Digest(expectedSkillSnapshotDigest))
+    throw runtimeSpawnError("invalid_runtime_spawn", "expectedSkillSnapshotDigest must be a sha256:<64hex> digest.");
+  return {
+    ...(expectedAgentDeclarationDigest !== undefined ? { expectedAgentDeclarationDigest } : {}),
+    ...(expectedSkillSnapshotDigest !== undefined ? { expectedSkillSnapshotDigest } : {}),
+  };
+}
+
+/**
+ * Resolves the canonical (or local-spool) prior session identities bound to `providerSessionId`
+ * and enforces Agent, Skill snapshot, owner, and task continuity before any bare resume launch.
+ */
+export async function assertBareProviderSessionResumeIdentity(request: {
+  readonly input: RuntimeSpawnerInput;
+  readonly projection: TaskProjection | null;
+  readonly providerSessionId: string;
+  readonly personId: string;
+  readonly taskId: string | null;
+  readonly agentId: string | null;
+  readonly agentDeclarationDigest: string | null;
+  readonly skillSnapshotDigest: string | null;
+}): Promise<void> {
+  const { input, projection, providerSessionId } = request;
+  if (!input.remote && projection) assertNativeResumeNotExported(input.rootDir, providerSessionId, projection);
+  const priorIdentities: PriorProviderSessionIdentity[] = [];
+  if (input.remote) {
+    const sessions = await input.remote.readRuntimeSessions({ providerSessionId });
+    for (const session of sessions) {
+      const dispatch = await input.remote.readRuntimeDispatch(session.runtimeSessionId);
+      if (!dispatch) continue;
+      priorIdentities.push({
+        runtimeSessionId: session.runtimeSessionId,
+        personId: dispatch.actor.principal.personId,
+        taskId: dispatch.payload.taskId ?? null,
+        agentId: dispatch.payload.agentId ?? null,
+        ...(dispatch.payload.agentDeclarationDigest !== undefined
+          ? { agentDeclarationDigest: dispatch.payload.agentDeclarationDigest }
+          : {}),
+        ...(dispatch.payload.skillSnapshotDigest !== undefined
+          ? { skillSnapshotDigest: dispatch.payload.skillSnapshotDigest }
+          : {}),
+      });
+    }
+  } else if (projection) {
+    for (const session of projection.readRuntimeSessions({ providerSessionId })) {
+      const dispatch =
+        projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef) ??
+        projection.readLatestRuntimeDispatchBySession(session.runtimeSessionId);
+      if (!dispatch) continue;
+      priorIdentities.push({
+        runtimeSessionId: session.runtimeSessionId,
+        personId: dispatch.actor.principal.personId,
+        taskId: dispatch.payload.taskId ?? null,
+        agentId: dispatch.payload.agentId ?? null,
+        ...(dispatch.payload.agentDeclarationDigest !== undefined
+          ? { agentDeclarationDigest: dispatch.payload.agentDeclarationDigest }
+          : {}),
+        ...(dispatch.payload.skillSnapshotDigest !== undefined
+          ? { skillSnapshotDigest: dispatch.payload.skillSnapshotDigest }
+          : {}),
+      });
+    }
+  }
+  if (priorIdentities.length === 0) {
+    for (const header of readDispatchStreamHeaders(input.rootDir, true)) {
+      if (!header.binding) continue;
+      if (readDispatchStreamSummary(input.rootDir, header.dispatchId)?.providerSessionId !== providerSessionId)
+        continue;
+      priorIdentities.push({
+        runtimeSessionId: header.runtimeSessionId,
+        personId: header.binding.actor.principal.personId,
+        taskId: header.taskId ?? null,
+        agentId: header.agentId ?? null,
+        ...(header.agentDeclarationDigest !== undefined
+          ? { agentDeclarationDigest: header.agentDeclarationDigest }
+          : {}),
+        ...(header.skillSnapshotDigest !== undefined ? { skillSnapshotDigest: header.skillSnapshotDigest } : {}),
+      });
+    }
+  }
+  const verdict = verifyBareProviderSessionResumeIdentity(priorIdentities, {
+    providerSessionId,
+    personId: request.personId,
+    taskId: request.taskId,
+    agentId: request.agentId,
+    agentDeclarationDigest: request.agentDeclarationDigest,
+    skillSnapshotDigest: request.skillSnapshotDigest,
+  });
+  if (!verdict.ok) throw runtimeSpawnError(verdict.code, verdict.message);
 }

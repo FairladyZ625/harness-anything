@@ -12,6 +12,8 @@ export function runtimeDispatchRequestedPayload(
     | "attemptIndex"
     | "agentId"
     | "agentName"
+    | "agentDeclarationDigest"
+    | "skillSnapshotDigest"
     | "squadId"
     | "cwd"
     | "role"
@@ -26,6 +28,8 @@ export function runtimeDispatchRequestedPayload(
     readonly attemptGroupId: string;
     readonly attemptIndex: number;
     readonly agent?: { readonly id: string; readonly name: string };
+    readonly agentDeclarationDigest?: string | null;
+    readonly skillSnapshotDigest?: string | null;
     readonly squadId?: string;
     readonly cwd: string;
     readonly role?: string;
@@ -55,6 +59,8 @@ export function runtimeDispatchRequestedPayload(
     attemptGroupId: context.attemptGroupId,
     attemptIndex: context.attemptIndex,
     ...(context.agent ? { agentId: context.agent.id, agentName: context.agent.name } : {}),
+    ...(context.agentDeclarationDigest ? { agentDeclarationDigest: context.agentDeclarationDigest } : {}),
+    ...(context.skillSnapshotDigest ? { skillSnapshotDigest: context.skillSnapshotDigest } : {}),
     ...(context.squadId ? { squadId: context.squadId } : {}),
     cwd: context.cwd,
     ...(context.role ? { role: context.role } : {}),

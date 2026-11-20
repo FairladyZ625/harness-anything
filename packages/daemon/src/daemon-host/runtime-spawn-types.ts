@@ -437,7 +437,13 @@ export interface RemoteRuntimePersistence {
 export interface RuntimeDispatchOwnerEvidence {
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
-  readonly payload: { readonly dispatchId: string };
+  readonly payload: {
+    readonly dispatchId: string;
+    readonly taskId?: string;
+    readonly agentId?: string;
+    readonly agentDeclarationDigest?: string;
+    readonly skillSnapshotDigest?: string;
+  };
   readonly instanceId: string;
   readonly processGroupPid: number | null;
 }

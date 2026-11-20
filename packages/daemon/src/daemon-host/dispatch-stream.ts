@@ -171,6 +171,8 @@ export interface DispatchStreamHeader extends RuntimeResumeHeader {
   readonly role?: string;
   readonly agentId?: string;
   readonly agentName?: string;
+  readonly agentDeclarationDigest?: string;
+  readonly skillSnapshotDigest?: string;
   readonly delegatedByAgentId?: string;
   readonly delegatedByAgentName?: string;
   readonly squadId?: string;

@@ -965,11 +965,10 @@ test("a squad-delegated worker injects selected absolute skill paths into every 
       assert.equal(receipt.outcome, "applied", kindId);
     }
     for (const launch of launches) {
-      assert.match(
-        launch.prompt,
-        new RegExp(`# Required Skills[\\s\\S]*squad-witness: ${skillFile.replaceAll("\\", "\\\\")}`, "u"),
-        launch.kindId,
-      );
+      const injectedSkill = /(?:^|\n)- squad-witness: (.+)(?:\n|$)/u.exec(launch.prompt)?.[1];
+      assert.ok(injectedSkill, launch.kindId);
+      assert.match(injectedSkill, /runtime[/\\]sealed-skills[/\\][^/\\]+[/\\]squad-witness[/\\]SKILL\.md$/u);
+      assert.equal(readFileSync(injectedSkill, "utf8"), readFileSync(skillFile, "utf8"), launch.kindId);
       assert.equal(Object.hasOwn(launch.request, "skillRoot"), false);
       assert.equal(Object.hasOwn(launch.request, "skills"), false);
     }
@@ -1106,7 +1105,10 @@ test("Agent skill is really read by the provider from the absolute path in its f
       stream = JSON.stringify(dispatch),
       item = (witness.event as Record<string, unknown> | undefined)?.item as Record<string, unknown> | undefined;
     assert.equal(item?.skill_witness, true, stream);
-    assert.match(String(item?.prompt_witness), /^provider-witness: .*\/harness\/skills\/provider-witness\/SKILL\.md$/u);
+    assert.match(
+      String(item?.prompt_witness),
+      /^provider-witness: .*\/\.harness\/runtime\/sealed-skills\/[^/]+\/provider-witness\/SKILL\.md$/u,
+    );
     assert.match(stream, /"text":"provider-witness:true"/u);
     assert.doesNotMatch(stream, /SKILL_PROVIDER_WITNESS/u);
     context.diagnostic(`FINAL_RUNTIME_PROMPT_BEGIN\n${String(item?.final_prompt)}\nFINAL_RUNTIME_PROMPT_END`);

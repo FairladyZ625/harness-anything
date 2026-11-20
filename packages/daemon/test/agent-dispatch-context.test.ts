@@ -608,10 +608,10 @@ test("a portable Agent dispatches in a repository whose skills live in repositor
     assert.equal(launches, 1);
     assert.match(prompt!, /# Agent Identity: Portable Worker/u);
     assert.match(prompt!, /# Required Skills/u);
-    assert.ok(
-      prompt!.includes(`repo-local: ${path.join(root, "harness", "skills", "repo-local", "SKILL.md")}`),
-      `repository skill missing from the dispatch prompt:\n${prompt}`,
-    );
+    const repoLocalSkill = /(?:^|\n)- repo-local: (.+)(?:\n|$)/u.exec(prompt!)?.[1];
+    assert.ok(repoLocalSkill, `repository skill missing from the dispatch prompt:\n${prompt}`);
+    assert.match(repoLocalSkill, /runtime[/\\]sealed-skills[/\\][^/\\]+[/\\]repo-local[/\\]SKILL\.md$/u);
+    assert.equal(readFileSync(repoLocalSkill, "utf8"), "# Repository skill\n");
 
     // A configured directory that does not resolve is still an error, never a silent skip.
     await createTask(cell, root, { taskId: "task_missing_skill", title: "Missing repository skill" });

@@ -6,9 +6,11 @@ import {
 import type { SquadDispatchContext } from "@harness-anything/kernel";
 import {
   DEFAULT_RUNTIME_STALL_TIMEOUT_MS,
+  computeAgentDeclarationDigest,
   dispatchOwnerForNode,
   dispatchAdmissionBlocker,
   sha256Text,
+  verifyDispatchSnapshotFence,
 } from "@harness-anything/kernel";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { readyDispatchLifecycle } from "./runtime-dispatch-admission.ts";
@@ -135,15 +137,22 @@ import {
 } from "./runtime-spawn-fallback.ts";
 import {
   resolveRuntimeResume,
+  assertBareProviderSessionResumeIdentity,
   assertNativeResumeNotExported,
   assertRuntimeHandoffLaunch,
   assertResumeAgent,
+  parseDispatchSnapshotExpectations,
   readOnlyAttachDispatch,
   prepareDispatchWorktree,
   projectedWorktreeBinding,
   resolveDispatchCwd,
   dispatchTaskPackageRoot,
 } from "./runtime-resume-admission.ts";
+import {
+  materializeDispatchSkillSnapshot,
+  prepareDispatchSkillSnapshot,
+  reclaimSessionSkillSnapshot,
+} from "./agent-skill-snapshot.ts";
 import { installHandoffRollout } from "./runtime-handoff-native.ts";
 import {
   reclaimReviewWorktree,
@@ -518,18 +527,48 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           : preparedWorktree,
         taskPackageRoot,
       );
-    const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
+    const snapshotExpectations = parseDispatchSnapshotExpectations(payload),
+      runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
       [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth] =
         await resolveRuntimeDispatchResources(input, input.remote, projection!, providerSessionId ?? undefined),
-      { squad, delegatedBy, agent, resolvedSkills, preset } = resolveDispatchAgent(
-        input,
-        binding,
-        cwd,
-        agentId,
-        squadId,
-        targetAgentId,
-      );
+      {
+        squad,
+        delegatedBy,
+        agent,
+        resolvedSkills: rawResolvedSkills,
+        preset,
+      } = resolveDispatchAgent(input, binding, cwd, agentId, squadId, targetAgentId);
     if (agent) assertAgentDispatchable(agent);
+    const agentDeclarationDigest = agent === null ? null : computeAgentDeclarationDigest(agent),
+      preparedSkillSnapshot =
+        agent === null
+          ? null
+          : prepareDispatchSkillSnapshot({
+              rootDir: input.rootDir,
+              cwd,
+              runtimeSessionId,
+              skills: rawResolvedSkills,
+            }),
+      skillSnapshotDigest = preparedSkillSnapshot?.skillSnapshotDigest ?? null,
+      resolvedSkills = preparedSkillSnapshot?.skills ?? [],
+      snapshotFence = verifyDispatchSnapshotFence({
+        ...snapshotExpectations,
+        actualAgentDeclarationDigest: agentDeclarationDigest,
+        actualSkillSnapshotDigest: skillSnapshotDigest,
+      });
+    if (!snapshotFence.ok) throw runtimeSpawnError(snapshotFence.code, snapshotFence.message);
+    if (providerSessionId && !requestedDispatchId && !handoff) {
+      await assertBareProviderSessionResumeIdentity({
+        input,
+        projection,
+        providerSessionId,
+        personId: binding.actor.principal.personId,
+        taskId,
+        agentId: agent?.id ?? null,
+        agentDeclarationDigest,
+        skillSnapshotDigest,
+      });
+    }
     // Every daemon-spawned runtime returns to that daemon. Task bindings constrain writes;
     // they do not determine whether the runtime needs a route or an authenticated principal.
     const unboundReadOnlyAgent =
@@ -802,6 +841,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 resolvePrivateLedgerReads({
                   rootDir: input.rootDir,
                   cwd,
+                  ...(preparedSkillSnapshot ? { snapshotPaths: preparedSkillSnapshot.sourceToSnapshotPath } : {}),
                   texts: dispatchLedgerReadTexts({
                     prompts: agent?.prompts ?? [],
                     instructions: agent?.instructions,
@@ -841,6 +881,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                   dispatchId: newDispatchId,
                   runtimeSessionId,
                   effort: selectedEffort ?? null,
+                  agentDeclarationDigest,
+                  skillSnapshotDigest,
                   prompt,
                   mission,
                 }
@@ -848,6 +890,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             let cloudRelay: Awaited<ReturnType<NonNullable<RuntimeSpawnerInput["prepareCloudRelay"]>>> | null = null;
             let prepared: Awaited<ReturnType<RuntimeSpawnerInput["prepareLaunch"]>> | null = null;
             if (!dryRun) {
+              if (preparedSkillSnapshot) materializeDispatchSkillSnapshot(preparedSkillSnapshot);
               const budgetMicros = selectedModel ? relayBudgetMicrosOf(selectedModel, dispatchUsageLimit) : null;
               try {
                 cloudRelay =
@@ -901,6 +944,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     try {
       selection = await selectRuntime();
     } catch (error) {
+      reclaimSessionSkillSnapshot(input.rootDir, runtimeSessionId, cwd);
       releaseModelSlot();
       throw error;
     }
@@ -1101,6 +1145,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         ...(onExitCommand ? { onExitCommand } : {}),
         ...(dispatchRole ? { role: dispatchRole } : {}),
         ...(agent ? { agentId: agent.id, agentName: agent.name } : {}),
+        ...(agentDeclarationDigest ? { agentDeclarationDigest } : {}),
+        ...(skillSnapshotDigest ? { skillSnapshotDigest } : {}),
         ...(squad ? { squadId: squad.squadId } : {}),
         publicationOwner,
         ...(parentRuntimeSessionId ? { parentRuntimeSessionId } : {}),
@@ -1141,6 +1187,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             attemptGroupId: fallbackAttempt?.attemptGroupId ?? newDispatchId,
             attemptIndex: fallbackAttempt?.attemptIndex ?? 0,
             ...(agent ? { agent } : {}),
+            ...(agentDeclarationDigest ? { agentDeclarationDigest } : {}),
+            ...(skillSnapshotDigest ? { skillSnapshotDigest } : {}),
             ...(squad ? { squadId: squad.squadId } : {}),
             cwd,
             ...(dispatchRole ? { role: dispatchRole } : {}),
@@ -1174,6 +1222,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       await cloudRelay?.close();
       cleanupCallbackRelay();
       reclaimFailedLaunchTempDirectory(input, runtimeInstanceId, runtimeSessionId);
+      reclaimSessionSkillSnapshot(input.rootDir, runtimeSessionId, cwd);
       if (role === "reviewer") {
         const reviewCleanupFailure = await reclaimReviewWorktree(input.rootDir, cwd);
         if (reviewCleanupFailure)

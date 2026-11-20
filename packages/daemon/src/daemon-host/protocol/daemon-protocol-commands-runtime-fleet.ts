@@ -136,6 +136,20 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
     cliInput("--on-exit", "single", false, { code: "invalid_field" }, { pathKind: "non-path", requires: ["--detach"] }),
     cliInput("--no-stream", "boolean", false, { code: "invalid_field" }, { conflictsWith: ["--detach"] }),
     cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { conflictsWith: ["--on-exit"] }),
+    cliInput(
+      "--expected-agent-digest",
+      "single",
+      false,
+      { code: "invalid_field" },
+      { pathKind: "non-path", regex: "^sha256:[0-9a-f]{64}$", conflictsWith: ["--dry-run"] },
+    ),
+    cliInput(
+      "--expected-skill-digest",
+      "single",
+      false,
+      { code: "invalid_field" },
+      { pathKind: "non-path", regex: "^sha256:[0-9a-f]{64}$", conflictsWith: ["--dry-run"] },
+    ),
   ],
 });
 

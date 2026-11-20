@@ -86,7 +86,7 @@ test("a task-worktree dispatch hands the worker only paths under its own root, l
   assert.match(probe.prompt, new RegExp(`^Worker repository root: ${escapeRegExp(worktree)}$`, "mu"));
   const reviewSkillLine = probe.prompt.split("\n").find((line) => line.startsWith("- review: "));
   assert.ok(reviewSkillLine, probe.prompt);
-  assert.match(reviewSkillLine!, /ledger-files[/\\]skills[/\\]review[/\\]SKILL\.md$/u);
+  assert.match(reviewSkillLine!, /runtime[/\\]sealed-skills[/\\][^/\\]+[/\\]review[/\\]SKILL\.md$/u);
   assert.doesNotMatch(probe.prompt, /Canonical repository root/u);
   assert.deepEqual(
     probe.prompt

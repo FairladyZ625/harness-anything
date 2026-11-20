@@ -4,13 +4,12 @@ import type { AgentSkillDeclarationV1 } from "@harness-anything/kernel";
 import { mergeRepositorySkills, resolveAgentSkills } from "./agent-skills.ts";
 import { runtimeErrorCode, runtimeSpawnError } from "../runtime-engine/runtime-spawn-errors.ts";
 import type { RuntimeBinding, RuntimeSpawnerInput } from "./runtime-spawn-types.ts";
-import { workerLedgerPath } from "./worktree-setup.ts";
 
 /** Resolve the dispatch identity and its prompt resources in the worker's checkout. */
 export function resolveDispatchAgent(
   input: RuntimeSpawnerInput,
   binding: RuntimeBinding,
-  cwd: string,
+  _cwd: string,
   agentId: string | undefined,
   squadId: string | undefined,
   targetAgentId: string | undefined,
@@ -36,7 +35,7 @@ export function resolveDispatchAgent(
             throw runtimeSpawnError("agent_not_found", `Agent ${agentId} is unavailable.`);
           })())
         : null),
-    resolvedSkills = agent ? resolveDispatchSkills(input, cwd, agent) : [],
+    resolvedSkills = agent ? resolveDispatchSkills(input, agent) : [],
     preset = agent?.preset
       ? (() => {
           if (!input.readSettings)
@@ -65,14 +64,13 @@ export function resolveDispatchAgent(
  */
 function resolveDispatchSkills(
   input: RuntimeSpawnerInput,
-  cwd: string,
   agent: { readonly id: string; readonly skills?: readonly AgentSkillDeclarationV1[] },
 ) {
   try {
     return resolveAgentSkills({
       rootDir: input.rootDir,
       skills: mergeRepositorySkills(agent.skills, input.readSettings?.().runtime.agentSkills),
-    }).map((skill) => ({ ...skill, skillFile: workerLedgerPath(input.rootDir, cwd, skill.skillFile) }));
+    });
   } catch (error) {
     const code = runtimeErrorCode(error);
     if (code !== "agent_skill_not_found" && code !== "agent_skill_manifest_missing") throw error;
