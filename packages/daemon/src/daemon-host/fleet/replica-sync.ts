@@ -82,16 +82,20 @@ const settleReady = (key: string, ready: boolean): void => {
  * It waits across resident stream reconnects; the caller's signal owns the wait budget.
  */
 export function waitForFleetReplicaSequence(
-  options: Pick<ReplicaSyncOptions, "viewRoot" | "repoId" | "nodeId">,
+  options: Pick<ReplicaSyncOptions, "viewRoot" | "repoId" | "nodeId"> & {
+    readonly requireStreamConfirmation?: true;
+  },
   sequence: number,
   signal?: AbortSignal,
 ): Promise<void> {
-  const current = readReplicaGeneration(`${options.viewRoot}/repos/${options.repoId}/views/${options.nodeId}`);
   if (signal?.aborted) return Promise.reject(signal.reason);
   const key = syncKey(options),
     stream = streams.get(key);
   if (!stream) return Promise.reject(new FleetReplicaStreamDownError("replica stream is not running"));
-  if (current && current.metadata.position.sequence >= sequence) return Promise.resolve();
+  if (!options.requireStreamConfirmation) {
+    const current = readReplicaGeneration(`${options.viewRoot}/repos/${options.repoId}/views/${options.nodeId}`);
+    if (current && current.metadata.position.sequence >= sequence) return Promise.resolve();
+  }
   return new Promise<void>((resolve, reject) => {
     const pending = waiters.get(key) ?? new Set<Waiter>();
     const waiter: Waiter = {
@@ -257,6 +261,7 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
         ...options,
         signal: options.signal ? AbortSignal.any([options.signal, stream.connection.signal]) : stream.connection.signal,
         onApplied: async (position, changedPaths) => {
+          if (streams.get(key) !== stream || options.signal?.aborted) return;
           if (`${position.history}:${position.sequence}` !== lastPosition) {
             failures = 0;
             deterministicFailures = 0;

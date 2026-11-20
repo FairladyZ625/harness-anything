@@ -482,30 +482,30 @@ export async function repointFleetEdgeMirror(
   oidcCenterSelections(input.userRoot).clearAll();
   persistEdgeConnection(persistRequest, loginAuthority, head.writerEpoch, true);
   onAdmitted?.();
-  if (head.replicationSequence > generation.metadata.position.sequence)
-    await waitForFleetReplicaSequence(
-      { viewRoot, repoId: previous.repoId, nodeId: previous.nodeId },
-      head.replicationSequence,
-      deadline,
-    );
+  // Even at the same sequence, the new stream must confirm it can resume before we lift the backup guard.
+  await waitForFleetReplicaSequence(
+    { viewRoot, repoId: previous.repoId, nodeId: previous.nodeId, requireStreamConfirmation: true },
+    head.replicationSequence,
+    deadline,
+  );
   const applied = readReplicaGeneration(viewDir),
     activeConfig = readFleetEdgeConfig(input.workspaceRoot);
   if (
-    applied &&
-    applied.metadata.position.sequence >= head.replicationSequence &&
-    activeConfig?.resumeOnly === true &&
-    activeConfig.writerEpoch === head.writerEpoch &&
-    activeConfig.repoId === request.repoId &&
-    activeConfig.nodeId === request.nodeId &&
-    activeConfig.host === request.host &&
-    activeConfig.port === request.port &&
-    activeConfig.caPath === request.caPath &&
-    activeConfig.spkiSha256 === request.spkiSha256
-  ) {
-    const { resumeOnly: _resumeOnly, ...steadyConfig } = activeConfig;
-    writeFleetEdgeConfig(input.workspaceRoot, steadyConfig);
-    onAdmitted?.();
-  }
+    !applied ||
+    applied.metadata.position.sequence < head.replicationSequence ||
+    activeConfig?.resumeOnly !== true ||
+    activeConfig.writerEpoch !== head.writerEpoch ||
+    activeConfig.repoId !== request.repoId ||
+    activeConfig.nodeId !== request.nodeId ||
+    activeConfig.host !== request.host ||
+    activeConfig.port !== request.port ||
+    activeConfig.caPath !== request.caPath ||
+    activeConfig.spkiSha256 !== request.spkiSha256
+  )
+    throw new FleetEdgeConfigError("replica_cut_changed", "The edge changed while the new center was catching up.");
+  const { resumeOnly: _resumeOnly, ...steadyConfig } = activeConfig;
+  writeFleetEdgeConfig(input.workspaceRoot, steadyConfig);
+  onAdmitted?.();
   return {
     schema: "command-receipt/v2",
     ok: true,
