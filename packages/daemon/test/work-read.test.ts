@@ -102,6 +102,33 @@ test("Work presentation derives terminal status from executable leaves below ope
   assert.equal(workListFromProjection(tree, {}).count, 0);
 });
 
+test("Work collections read archived descendants of a live root without loading unrelated history", () => {
+  const selectedIds = new Set<string>();
+  const tree = receiptProjection(
+    [
+      task("root", null, "active"),
+      task("archived-group", "root", "active", "standard", undefined, "archived"),
+      task("archived-leaf", "archived-group", "planned", "standard", undefined, "archived"),
+      ...Array.from({ length: 128 }, (_, index) =>
+        task(`historical-${index}`, null, "active", "work", undefined, "archived"),
+      ),
+    ],
+    {},
+    (selected) => {
+      for (const row of selected) selectedIds.add(row.taskId);
+    },
+  );
+  const list = workListFromProjection(tree, {});
+  const index = workIndexFromProjection(tree);
+  assert.deepEqual(
+    list.rows.map(({ taskId }) => taskId),
+    ["root"],
+  );
+  assert.equal(list.rows[0]?.counts.planned, 1);
+  assert.equal(index.works[0]?.counts.planned, 1);
+  assert.deepEqual([...selectedIds].sort(), ["archived-group", "archived-leaf", "root"]);
+});
+
 test("a deep forest of nested Work roots rolls up each leaf to every containing Work", () => {
   const size = 2_500;
   const nested = Array.from({ length: size }, (_, index) =>
@@ -293,7 +320,11 @@ test("work show names the goal, subtree counts and open tasks, and the renderer 
 // could join, read from the same work-root rule `ha work list` uses. The rows are the kernel index
 // shape, so this also pins that the receipt reads titles, not ids alone. `plans` maps a work root's
 // task id to its task_plan.md body; a root without an entry has no readable plan.
-function receiptProjection(rowsFor: typeof rows = rows, plans: Record<string, string> = {}) {
+function receiptProjection(
+  rowsFor: typeof rows = rows,
+  plans: Record<string, string> = {},
+  observeRows: (selected: typeof rows) => void = () => {},
+) {
   const byId = new Map(rowsFor.map((row) => [row.taskId, row]));
   return {
     read: (taskId: string) =>
@@ -311,14 +342,30 @@ function receiptProjection(rowsFor: typeof rows = rows, plans: Record<string, st
         presentationStatus?: boolean;
         parentTaskId?: string;
         activePackagesOnly?: boolean;
+        scopeRootTaskId?: string;
       } = {},
     ) => {
       // Kernel contract (task-query-projection.ts): the SQL filters run on the raw event status,
       // `limit` pages the task-id order and never ranks, and `presentationStatus` only swaps the
       // displayed status for the subtree-derived one.
+      const scope = new Set<string>();
+      if (query.scopeRootTaskId !== undefined) {
+        const pending = [query.scopeRootTaskId];
+        for (const id of pending) {
+          if (scope.has(id)) continue;
+          scope.add(id);
+          for (const row of rowsFor) if (row.parentTaskId === id) pending.push(row.taskId);
+        }
+        let ancestor = byId.get(query.scopeRootTaskId)?.parentTaskId;
+        while (ancestor && !scope.has(ancestor)) {
+          scope.add(ancestor);
+          ancestor = byId.get(ancestor)?.parentTaskId;
+        }
+      }
       const matched = rowsFor
         .filter(
           (row) =>
+            (query.scopeRootTaskId === undefined || scope.has(row.taskId)) &&
             (!query.activePackagesOnly || row.packageDisposition === "active") &&
             (!query.workRootsOnly ||
               row.taskClass === "work" ||
@@ -332,9 +379,11 @@ function receiptProjection(rowsFor: typeof rows = rows, plans: Record<string, st
             ? { ...row, status: row.presentedStatus }
             : row,
         );
+      const selected = query.limit === undefined ? matched : matched.slice(0, query.limit);
+      observeRows(selected);
       return {
         status: "ready" as const,
-        rows: query.limit === undefined ? matched : matched.slice(0, query.limit),
+        rows: selected,
         watermark: 7,
         sourceRevision: 7,
         warnings: [],

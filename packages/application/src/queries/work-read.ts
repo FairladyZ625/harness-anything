@@ -13,6 +13,7 @@ import type {
 } from "@harness-anything/kernel";
 import { isTerminalStatus, isWorkRoot } from "@harness-anything/kernel";
 import type { QueryAction, QueryBinding, WorkQueryCell } from "./query-ports.ts";
+import { requireSameProjectionCut } from "./projection-cut.ts";
 import {
   taskChildren,
   workPresentationStatus,
@@ -204,7 +205,27 @@ export function workIndexFromProjection(projection: TaskProjection, scope: Colla
 }
 
 export function readWorkTasks(projection: TaskProjection, scope: CollaboratorScope) {
-  return projection.readTaskIndex(hasWorkLens(scope) ? { withAttribution: true } : {});
+  const attribution = hasWorkLens(scope) ? { withAttribution: true } : {},
+    roots = projection.readTaskIndex({ activePackagesOnly: true, workRootsOnly: true, ...attribution }),
+    rows = new Map<string, TaskIndexProjectionRow>();
+  // A live Work may own archived descendants. Read through the parent index starting at
+  // each live root so standalone archive history never enters the collection.
+  const outerFirst = roots.rows.toSorted(
+    (left, right) => Number(left.parentTaskId !== null) - Number(right.parentTaskId !== null),
+  );
+  for (const root of outerFirst) {
+    if (rows.has(root.taskId)) continue;
+    const subtree = projection.readTaskIndex({ scopeRootTaskId: root.taskId, ...attribution });
+    requireSameProjectionCut("work collection", [roots, subtree]);
+    const children = taskChildren(subtree.rows),
+      pending = [root];
+    for (const row of pending) {
+      if (rows.has(row.taskId)) continue;
+      rows.set(row.taskId, row);
+      for (const child of children.get(row.taskId) ?? []) pending.push(child);
+    }
+  }
+  return { ...roots, rows: [...rows.values()] };
 }
 
 export function workIndexAtRead(read: TaskIndexProjectionRead, scope: CollaboratorScope) {
