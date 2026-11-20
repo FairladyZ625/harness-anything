@@ -12,6 +12,22 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
   ...consumerStatusWordRegister,
   ...gateRunStatusWordRegister,
   ...dispatchStatusWordRegister,
+  ...(
+    [
+      ["OPEN", "A peer request is awaiting its first claim."],
+      ["CLAIMED", "A peer request is held by one claimant until its lease expires."],
+      ["ANSWERED", "A peer request received its structured answer."],
+      ["DONE", "A peer request was marked complete by its claimant."],
+      ["REJECTED", "A peer request was explicitly rejected."],
+      ["PROMOTED", "A peer request was promoted to its bound task."],
+    ] as const
+  ).map(([word, meaning]) => ({
+    word,
+    entity: "PeerRequest" as const,
+    field: "state",
+    meaning,
+    divergence: "entity-scoped" as const,
+  })),
   {
     word: "scheduled",
     entity: "RuntimeSession",
