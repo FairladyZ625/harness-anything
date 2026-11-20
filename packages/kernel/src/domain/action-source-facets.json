@@ -1148,7 +1148,7 @@
         "port": "packages/gui/src/preload/electron-preload.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-runtime-client.ts#agentRuntimeClient.overview.readPage:c8758d70191f4398b24c301a8546385a",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-runtime-client.ts#agentRuntimeClient.overview.readPage:c2193ca7a4cb1fa81fa9e2f108cdf742",
         "route": "runtime-status",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -1538,7 +1538,7 @@
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/artifacts-client.ts#artifactsClient.list.pages.value:18c09979afdcd6f26efb3b18516f503b",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/artifacts-client.ts#artifactsClient.list.pages.value:c98e40361be451f807c7f6dda022f5ea",
         "route": "artifacts.list",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
@@ -1556,7 +1556,7 @@
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/entity-kind-catalog-client.ts#readGovernedEntityRows.result:eb8940c867e354819aeaffa6ad56f959",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/entity-kind-catalog-client.ts#readGovernedEntityRows.result:28cfd28765597a0160124d26600f3315",
         "route": "entity.rows.read",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"

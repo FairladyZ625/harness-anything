@@ -80,7 +80,7 @@ export async function readPgEntityOrigins(
        WHERE ref.tenant_id=$1 AND ref.project_id=$2 AND ref.policy_epoch=$3 AND ref.repo_id=$4
          AND (cardinality($5::text[])=0 OR event.readers && $5::text[])
          AND ref.entity_ref=$6 || '/' || requested.id
-         AND event.event_type IN ('entity_upserted','entity_reference_declared','schedule_created')
+         AND event.event_type IN ('entity_upserted','entity_reference_declared','entity_content_observed','schedule_created')
        ORDER BY ref.revision LIMIT 1
      ) origin ON true`,
     [
