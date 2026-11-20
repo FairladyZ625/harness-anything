@@ -462,6 +462,10 @@ function runInstall(fixture, args, env = {}) {
     encoding: "utf8",
     env: {
       ...process.env,
+      ELECTRON_MIRROR: "",
+      NPM_CONFIG_ELECTRON_MIRROR: "",
+      npm_config_electron_mirror: "",
+      npm_package_config_electron_mirror: "",
       PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ""}`,
       HARNESS_INSTALL_ROOT: fixture.installRoot,
       HARNESS_NPM_PREFIX: fixture.npmPrefix,
