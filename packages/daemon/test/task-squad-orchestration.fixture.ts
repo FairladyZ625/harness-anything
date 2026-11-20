@@ -1,16 +1,12 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after } from "node:test";
 import { BuiltinPolicyAdapter, builtinAuthorityUrl } from "@harness-anything/authorization/builtin";
-import {
-  consumeKnownError,
-  dispatchLifecycleSummary,
-  isExecutionWipTask,
-  isTerminalStatus,
-} from "@harness-anything/kernel";
+import { dispatchLifecycleSummary, isExecutionWipTask, isTerminalStatus } from "@harness-anything/kernel";
 import { makeTaskProjectionReader } from "@harness-anything/storage";
 import { appendRuntimeWorkerRecord, readDispatchStreamHeader } from "../src/daemon-host/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
@@ -100,9 +96,12 @@ let gitTemplate: { readonly dir: string; readonly root: string; readonly bare: s
 const suiteClosers: Array<() => Promise<void>> = [];
 
 after(async () => {
-  await Promise.all(suiteClosers.map((close) => close()));
-  if (gitTemplate !== null) rmSync(gitTemplate.dir, { recursive: true, force: true });
-  rmSync(identityRoot, { recursive: true, force: true });
+  const failures: unknown[] = [];
+  await Promise.all(suiteClosers.map((close) => tryCleanup(failures, close)));
+  const template = gitTemplate;
+  if (template !== null) await tryCleanup(failures, () => rmSync(template.dir, { recursive: true, force: true }));
+  await tryCleanup(failures, () => rmSync(identityRoot, { recursive: true, force: true }));
+  if (failures.length > 0) throw failures[0];
 });
 
 function ensureGitTemplate(): { readonly root: string; readonly bare: string } {
@@ -124,9 +123,8 @@ function ensureGitTemplate(): { readonly root: string; readonly bare: string } {
   return gitTemplate;
 }
 
-export async function stopFixtureProcess(child: ReturnType<typeof spawn>): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
+function signalFixtureProcess(child: ReturnType<typeof spawn>): boolean {
+  if (child.exitCode !== null || child.signalCode !== null) return false;
   if (child.pid && process.platform !== "win32") {
     try {
       process.kill(-child.pid, "SIGKILL");
@@ -136,7 +134,26 @@ export async function stopFixtureProcess(child: ReturnType<typeof spawn>): Promi
   } else {
     child.kill("SIGKILL");
   }
-  await closed;
+  return true;
+}
+
+export async function stopFixtureProcess(child: ReturnType<typeof spawn>): Promise<void> {
+  // A successful signal delivers close asynchronously. A rejected signal needs no listener.
+  if (signalFixtureProcess(child)) await once(child, "close", { signal: AbortSignal.timeout(10_000) });
+}
+
+async function tryCleanup(failures: unknown[], step: () => void | Promise<void>): Promise<void> {
+  try {
+    await step();
+  } catch (error) {
+    failures.push(error);
+  }
+}
+
+async function stopFixtureProviders(providers: readonly Provider[], failures: unknown[]): Promise<void> {
+  await Promise.all(
+    providers.map(({ process: child }) => child && tryCleanup(failures, () => stopFixtureProcess(child))),
+  );
 }
 
 // Exercise the real single writer and durable storage directly. Supervisor/reader RPC and
@@ -154,7 +171,7 @@ export const openOrchestrationCell = async (input: Parameters<typeof openRepoWri
   try {
     return await openRepoWriterCell({ keycloakCenter: localCenter, ...input, defaultWriterEpochFence: fence }, lock);
   } catch (error) {
-    await lock.close();
+    await tryCleanup([error], () => lock.close());
     throw error;
   }
 };
@@ -169,9 +186,9 @@ type OrchestrationHost = {
   activeProviders: Provider[] | null;
   readonly taskProjection: ReturnType<typeof makeTaskProjectionReader>;
   readonly onActivity: (arrive: () => void) => () => boolean;
-  readonly poisoned: boolean;
+  readonly closed: boolean;
   readonly reopen: (beforeOpen?: () => void | Promise<void>) => Promise<void>;
-  readonly evictAndClose: () => Promise<void>;
+  readonly evictAndClose: (failures: unknown[]) => Promise<never>;
   readonly close: () => Promise<void>;
 };
 
@@ -219,61 +236,27 @@ async function createOrchestrationHost(
   let activeProviders: Provider[] | null = null,
     cell: Awaited<ReturnType<typeof openOrchestrationCell>> | null = null,
     taskProjection: ReturnType<typeof makeTaskProjectionReader> | null = null,
-    poisoned = false,
     closed = false;
-  const close = async () => {
+  const closeResources = async (failures: unknown[]) => {
     if (closed) return;
     closed = true;
-    await Promise.all(
-      allProviders.flatMap((provider) => (provider.process ? [stopFixtureProcess(provider.process)] : [])),
-    );
-    taskProjection?.close();
-    const openCell = cell;
-    cell = null;
-    if (openCell !== null) await openCell.close();
-    rmSync(parent, { recursive: true, force: true });
-  };
-  const evictAndClose = async () => {
-    poisoned = true;
     onEvict?.();
-    if (closed) return;
-    closed = true;
-    await Promise.all(
-      allProviders.flatMap((provider) =>
-        provider.process
-          ? [
-              (async () => {
-                try {
-                  await stopFixtureProcess(provider.process!);
-                } catch (error) {
-                  consumeKnownError(error);
-                }
-              })(),
-            ]
-          : [],
-      ),
-    );
-    if (taskProjection !== null) {
-      try {
-        taskProjection.close();
-      } catch (error) {
-        consumeKnownError(error);
-      }
-    }
+    activeProviders = null;
+    await stopFixtureProviders(allProviders, failures);
     const openCell = cell;
     cell = null;
-    if (openCell !== null) {
-      try {
-        await openCell.close();
-      } catch (error) {
-        consumeKnownError(error);
-      }
-    }
-    try {
-      rmSync(parent, { recursive: true, force: true });
-    } catch (error) {
-      consumeKnownError(error);
-    }
+    await tryCleanup(failures, () => taskProjection?.close());
+    await tryCleanup(failures, () => openCell?.close());
+    await tryCleanup(failures, () => rmSync(parent, { recursive: true, force: true }));
+  };
+  const close = async () => {
+    const failures: unknown[] = [];
+    await closeResources(failures);
+    if (failures.length > 0) throw failures[0];
+  };
+  const evictAndClose = async (failures: unknown[]): Promise<never> => {
+    await closeResources(failures);
+    throw failures[0];
   };
   try {
     cpSync(template.bare, bare, { recursive: true });
@@ -318,7 +301,7 @@ async function createOrchestrationHost(
           provider.exit = listener;
         },
         terminate: () => {
-          void stopFixtureProcess(child);
+          signalFixtureProcess(child);
         },
         terminateTree: () => stopFixtureProcess(child),
       };
@@ -452,8 +435,8 @@ async function createOrchestrationHost(
       },
       taskProjection,
       onActivity,
-      get poisoned() {
-        return poisoned;
+      get closed() {
+        return closed;
       },
       reopen: async (beforeOpen?: () => void | Promise<void>) => {
         try {
@@ -463,63 +446,38 @@ async function createOrchestrationHost(
           await beforeOpen?.();
           cell = await open();
         } catch (error) {
-          await evictAndClose();
-          throw error;
+          await evictAndClose([error]);
         }
       },
       evictAndClose,
       close,
     };
   } catch (error) {
-    await evictAndClose();
-    throw error;
+    return evictAndClose([error]);
   }
 }
 
 export function createSuiteHost(slug: string, options?: HostOptions): SuiteHost {
-  let settledHost: OrchestrationHost | null = null,
-    pending: Promise<OrchestrationHost> | null = null,
+  let current: Promise<OrchestrationHost> | null = null,
     generation = 0;
   suiteClosers.push(async () => {
-    const inFlight = pending;
-    pending = null;
-    if (inFlight !== null) {
-      try {
-        await inFlight;
-      } catch (error) {
-        consumeKnownError(error);
-      }
-    }
-    const activeHost = settledHost;
-    settledHost = null;
-    if (activeHost !== null) await activeHost.close();
+    const host = await current;
+    await host?.close();
   });
   return {
     get: () => {
-      if (pending === null) {
-        const hostSlug = generation === 0 ? slug : `${slug}-${generation + 1}`;
-        generation += 1;
-        let currentAttempt: Promise<OrchestrationHost> | null = null;
+      if (current === null) {
+        const hostGeneration = ++generation;
+        const hostSlug = hostGeneration === 1 ? slug : `${slug}-${hostGeneration}`;
         const evict = () => {
-          if (pending === currentAttempt) {
-            pending = null;
-            settledHost = null;
-          }
+          if (generation === hostGeneration) current = null;
         };
-        const attempt = createOrchestrationHost(hostSlug, options, evict).then(
-          (host) => {
-            if (pending === attempt) settledHost = host;
-            return host;
-          },
-          (error) => {
-            if (pending === attempt) pending = null;
-            throw error;
-          },
-        );
-        currentAttempt = attempt;
-        pending = attempt;
+        current = createOrchestrationHost(hostSlug, options, evict).catch((error) => {
+          evict();
+          throw error;
+        });
       }
-      return pending;
+      return current;
     },
   };
 }
@@ -566,13 +524,8 @@ export async function openFixture(
       await host.close();
       return;
     }
-    if (host.poisoned) {
-      if (host.activeProviders === providers) host.activeProviders = null;
-      await host.evictAndClose();
-      return;
-    }
-    let cleanupError: unknown = null,
-      hasCleanupError = false;
+    if (host.closed) return;
+    const failures: unknown[] = [];
     try {
       if (squadRunId !== "") {
         const current = await status();
@@ -636,28 +589,11 @@ export async function openFixture(
       }
       await host.cell.settlePendingMaterialization(`cleanup-${slug}`);
     } catch (error) {
-      hasCleanupError = true;
-      cleanupError = error;
-    } finally {
-      if (host.activeProviders === providers) host.activeProviders = null;
-      await Promise.all(
-        providers.flatMap((provider) =>
-          provider.process
-            ? [
-                (async () => {
-                  try {
-                    await stopFixtureProcess(provider.process!);
-                  } catch (error) {
-                    consumeKnownError(error);
-                  }
-                })(),
-              ]
-            : [],
-        ),
-      );
-      if (hasCleanupError) await host.evictAndClose();
+      failures.push(error);
     }
-    if (hasCleanupError) throw cleanupError;
+    if (host.activeProviders === providers) host.activeProviders = null;
+    await stopFixtureProviders(providers, failures);
+    if (failures.length > 0) await host.evictAndClose(failures);
   };
   t.after(cleanup);
 
@@ -722,7 +658,7 @@ export async function openFixture(
     assert.equal(started.outcome, "completed", JSON.stringify(started));
     squadRunId = String(evidence(started).squadRunId);
   } catch (error) {
-    await cleanup();
+    await tryCleanup([error], cleanup);
     throw error;
   }
 

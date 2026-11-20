@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import test from "node:test";
 import { appendRuntimeWorkerRecord, readDispatchStreamSummary } from "../src/daemon-host/dispatch-stream.ts";
@@ -14,6 +15,7 @@ import {
   binding,
   createSuiteHost,
   openFixture,
+  stopFixtureProcess,
   type HostBootstrapProbe,
 } from "./task-squad-orchestration.fixture.ts";
 
@@ -378,5 +380,57 @@ test(
       );
       assert.equal(created.outcome, "applied", JSON.stringify(created));
     });
+  },
+);
+
+test(
+  "a provider stop failure after logical cleanup rejects teardown and evicts the shared host",
+  { timeout: 90_000 },
+  async (t) => {
+    const host = createSuiteHost("provider-stop-eviction");
+    let cleanup!: () => Promise<void>;
+    const first = await openFixture({ after: (fn) => (cleanup = fn) }, "provider-stop-denied", { host });
+    const firstCell = first.cell;
+    const provider = first.providers[0]!;
+    assert.ok(provider.process);
+    // Leave a real child for fixture teardown after the daemon stops the runtime's own process.
+    const leftover = spawn("git", ["hash-object", "--stdin"], {
+      detached: true,
+      stdio: ["pipe", "ignore", "ignore"],
+    });
+    provider.process = leftover;
+    try {
+      assert.ok(leftover.pid);
+      const stopError = Object.assign(new Error("provider stop denied"), { code: "EPERM" });
+      const denyStop = () => {
+        assert.equal(first.task(first.taskId).snapshot.task?.status, "cancelled");
+        throw stopError;
+      };
+      const kill = process.kill.bind(process);
+      const signalMock =
+        process.platform === "win32"
+          ? t.mock.method(leftover, "kill", denyStop)
+          : t.mock.method(process, "kill", (pid, signal) => {
+              if (pid === -leftover.pid! && signal === "SIGKILL") denyStop();
+              return kill(pid, signal);
+            });
+      try {
+        await assert.rejects(cleanup, (error) => error === stopError);
+      } finally {
+        signalMock.mock.restore();
+      }
+      assert.throws(() => firstCell.status(), /database is not open/u);
+      assert.equal(existsSync(first.parent), false, "failed provider stop must close and remove the evicted host");
+    } finally {
+      await stopFixtureProcess(leftover);
+    }
+
+    const second = await openFixture(t, "after-provider-stop-denied", { host });
+    assert.notEqual(second.root, first.root);
+    const created = await second.cell.run(
+      { kind: "task-create", taskId: "task-clean-after-provider-stop", title: "Clean host", presetId: "docs-task" },
+      binding,
+    );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
   },
 );
