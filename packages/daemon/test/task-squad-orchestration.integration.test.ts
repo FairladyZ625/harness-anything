@@ -1,163 +1,21 @@
 // harness-test-tier: integration
-import { makeScheduleScheduler } from "../src/daemon-host/schedule-scheduler.ts";
-import { taskPrPublicationNote } from "../src/daemon-host/runtime-spawn-mission.ts";
-import { latestSquadStates } from "./squad-run-state.fixture.ts";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { BuiltinPolicyAdapter, builtinAuthorityUrl } from "@harness-anything/authorization/builtin";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import test, { after } from "node:test";
-import { makeTaskEventReader, makeTaskProjectionReader } from "@harness-anything/storage";
-import { openRepoWriterCell } from "../src/daemon-host/repo-cell-open.ts";
-import { acquireWorkspaceLock } from "../src/daemon-host/repo-cell-lock.ts";
-import { isExecutionWipTask } from "@harness-anything/kernel";
-import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
-import type { RuntimeLauncher } from "../src/daemon-host/runtime-spawn-types.ts";
-import type { SquadRunReadResult } from "../src/daemon-host/squad-run-contract.ts";
-type WorkerAttempt = SquadRunReadResult["run"]["workerAttempts"][number];
-import {
-  appendRuntimeWorkerRecord,
-  readDispatchStreamHeader,
-  readDispatchStreamSummary,
-} from "../src/daemon-host/dispatch-stream.ts";
-import { fixtureFence, settleSettingsEvent, waitForFixturePublication } from "./repo-settings.fixture.ts";
-import { evidence, git } from "./task-surface.fixtures.ts";
-import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
+import test from "node:test";
+import { makeTaskEventReader } from "@harness-anything/storage";
+import { readDispatchStreamHeader } from "../src/daemon-host/dispatch-stream.ts";
+import { taskPrPublicationNote } from "../src/daemon-host/runtime-spawn-mission.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { waitForFixturePublication } from "./repo-settings.fixture.ts";
+import { latestSquadStates } from "./squad-run-state.fixture.ts";
+import { git } from "./task-surface.fixtures.ts";
+import { assertChildrenClosed, binding, createSuiteHost, openFixture } from "./task-squad-orchestration.fixture.ts";
 
-const identityRoot = mkdtempSync(path.join(tmpdir(), "ha-squad-identity-")),
-  identityProvider = new BuiltinPolicyAdapter({ userRoot: identityRoot }),
-  owner = identityProvider.addUser({
-    username: "squad-owner",
-    personId: "squad-owner",
-    displayName: "Squad Owner",
-    email: "squad-owner@example.invalid",
-    password: "fixture-password",
-  }),
-  accessToken = "squad-fixture-owner-session",
-  centerToken = identityProvider.issueCenterToken(),
-  identityUrl = builtinAuthorityUrl(identityRoot);
-identityProvider.registerSession(accessToken, {
-  personId: owner.personId,
-  subject: owner.userId,
-  expiresAt: Date.now() + 3_600_000,
-  sessionExpiresAt: null,
-  roles: ["admin"],
-});
-after(() => rmSync(identityRoot, { recursive: true, force: true }));
-const localCenter = async () => ({
-  url: identityUrl,
-  realm: "local",
-  clientId: "harness-center",
-  accessToken: centerToken,
-  provider: identityProvider,
-});
-const binding = {
-  actor: { principal: { personId: owner.personId }, executor: { kind: "agent" as const, id: "coordinator" } },
-  source: "local" as const,
-  keycloakAuthorization: {
-    session: {
-      provider: identityProvider,
-      personId: owner.personId,
-      accessToken,
-      url: identityUrl,
-      realm: "local",
-      clientId: "harness-center",
-    },
-    center: localCenter,
-  },
-};
-type Provider = {
-  prompt: string;
-  cwd: string;
-  dispatchId: string;
-  sessionId: string;
-  output?: (chunk: string) => void;
-  exit?: (code: number | null) => void;
-  process?: ReturnType<typeof spawn>;
-};
-type WorkerAttemptView = Pick<
-  WorkerAttempt,
-  "dispatchId" | "runtimeSessionId" | "taskId" | "executionId" | "worktree" | "rejection"
->;
-type Status = {
-  squadRunId: string;
-  status: string;
-  error: string | null;
-  leaderTurns: Array<{ dispatchId: string; runtimeSessionId: string }>;
-  workerAttempts: WorkerAttemptView[];
-  workerCallbackCount: number;
-  pendingLeaderCallbackCount: number;
-};
-
-async function stopFixtureProcess(child: ReturnType<typeof spawn>): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
-  if (child.pid && process.platform !== "win32") {
-    try {
-      process.kill(-child.pid, "SIGKILL");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-    }
-  } else {
-    child.kill("SIGKILL");
-  }
-  await closed;
-}
-
-test("a leader batch outside summary windows fans out after writer restart", { timeout: 90_000 }, async (t) => {
-  // A complete mission exceeds the 16 KiB summary head; provider output moves its
-  // recovery snapshot outside the 128 KiB tail before the writer is replaced.
-  const fixture = await openFixture(t, "large-control-recovery", false, undefined, "Mission context.\n".repeat(2_000)),
-    initial = await fixture.status(),
-    leader = initial.leaderTurns[0]!;
-  for (let index = 0; index < 48; index += 1)
-    appendRuntimeWorkerRecord(fixture.root, leader.dispatchId, {
-      kind: "provider_event",
-      event: { type: "item.started", item: { type: "reasoning", text: "x".repeat(4_096) } },
-    });
-  assert.equal(
-    readDispatchStreamSummary(fixture.root, leader.dispatchId)?.records.some((row) => row.kind === "squad_run_state"),
-    false,
-    "the fixture must put the complete control snapshots outside the diagnostic summary",
-  );
-  await fixture.finish(
-    leader.dispatchId,
-    JSON.stringify({
-      schema: "runtime-batch/v1",
-      dispatches: [{ to: "one", prompt: realizedTaskPlan("Recovered worker mission"), ownedPaths: ["a.txt"] }],
-    }),
-    0,
-    true,
-  );
-  await fixture.reopen();
-  await fixture.until(async () => {
-    const rows = (await fixture.cell.read("repo.task.dispatches", { taskId: fixture.taskId })).dispatches;
-    return rows.some((row) => row.dispatchId === leader.dispatchId && row.outcome === "succeeded") ? true : null;
-  }, "the adopted leader publishes its batch outcome");
-  await fixture.cell.settlePendingMaterialization("leader outcome fans out");
-  const running = await fixture.status();
-  assert.equal(running.workerAttempts.length, 1, JSON.stringify(running));
-  const worker = running.workerAttempts[0]!;
-  assert.ok(worker.dispatchId && worker.runtimeSessionId && worker.taskId, JSON.stringify(worker));
-  assert.equal(worker.rejection, null);
-  const childRows = (await fixture.cell.read("repo.task.dispatches", { taskId: worker.taskId })).dispatches;
-  assert.ok(childRows.some((row) => row.dispatchId === worker.dispatchId));
-  await fixture.finish(worker.dispatchId, "Recovered worker completed");
-  const callback = await fixture.waitStatus((state) => state.leaderTurns.length === 2);
-  await fixture.finish(
-    callback.leaderTurns[1]!.dispatchId,
-    JSON.stringify({ schema: "squad-decision/v1", action: "converged", report: "# Recovered squad\nWorker verified." }),
-  );
-  const settled = await fixture.waitStatus((state) => state.status === "converged");
-  assertChildrenClosed(fixture, settled.workerAttempts);
-  t.diagnostic(JSON.stringify({ squadRunId: settled.squadRunId, leader, worker, status: settled.status }));
-});
+const suiteHost = createSuiteHost("delivery-shared");
 
 test("canonical squad dispatch rows expose the run owner for leaders and children", { timeout: 90_000 }, async (t) => {
-  const fixture = await openFixture(t, "canonical-run-owner");
+  const fixture = await openFixture(t, "canonical-run-owner", { host: suiteHost });
   await fixture.plan(["a.txt"], ["b.txt"]);
   const running = await fixture.waitStatus(
     (state) => state.workerAttempts.length === 2 && state.workerAttempts.every((worker) => worker.runtimeSessionId),
@@ -196,6 +54,96 @@ test("canonical squad dispatch rows expose the run owner for leaders and childre
     "only the run owner row carries the child list; a worker row must not fan out",
   );
 });
+
+for (const restart of [false, true])
+  test(
+    `targeted task publishes while same-squad child stays local (restart=${restart})`,
+    { timeout: 90_000 },
+    async (t) => {
+      // Each independent repository has its own identity in the shared fixture realm.
+      const fixture = await openFixture(t, `publication-owner-${restart}`, restart ? {} : { host: suiteHost });
+      await fixture.plan(["a.txt"], ["b.txt"]);
+      const running = await fixture.waitStatus(
+        (state) => state.workerAttempts.length === 2 && state.workerAttempts.every((w) => w.runtimeSessionId),
+      );
+      const child = running.workerAttempts[0],
+        taskId = "task_direct-targeted",
+        created = await fixture.cell.run(
+          {
+            kind: "task-create",
+            taskId,
+            title: "Direct targeted",
+            presetId: "standard-task",
+          },
+          binding,
+        );
+      assert.equal(created.outcome, "applied");
+      await waitForFixturePublication(fixture.cell, created.opId, binding);
+      await realizeTaskPlanFixture(fixture.root, String((created as Record<string, unknown>).packagePath), (planPath) =>
+        fixture.cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+      );
+      assert.equal((await fixture.cell.run({ kind: "task-start", taskId }, binding)).outcome, "applied");
+      // Starting a repository-diff task materializes its task-named publication branch.
+      const cwd = path.join(fixture.root, ".worktrees", taskId);
+      const direct = await fixture.cell.spawnRuntime(
+        {
+          runtimeInstanceId: "stub",
+          agentId: "leader",
+          targetAgentId: "one",
+          taskId,
+          cwd: { scope: "repo-relative", path: `.worktrees/${taskId}` },
+          prompt: "Deliver the directly targeted task.",
+          dispatchKey: "direct-targeted",
+        },
+        binding,
+      );
+      const childHeader = readDispatchStreamHeader(fixture.root, child.dispatchId!)!,
+        directHeader = readDispatchStreamHeader(fixture.root, String(direct.dispatchId))!;
+      assert.equal(childHeader.squadId, "squad");
+      assert.equal(directHeader.squadId, childHeader.squadId);
+      assert.equal(childHeader.publicationOwner, "commander");
+      assert.equal(directHeader.publicationOwner, "runtime");
+      for (const directory of [
+        fixture.providers.find((provider) => provider.dispatchId === child.dispatchId)!.cwd,
+        cwd,
+      ]) {
+        writeFileSync(path.join(directory, "a.txt"), "delivery\n");
+        git(directory, "add", "a.txt");
+        git(directory, "commit", "-qm", "feat: targeted delivery");
+      }
+      await fixture.finish(child.dispatchId!, "child delivery", 0, restart);
+      await fixture.finish(String(direct.dispatchId), "direct delivery", 0, restart);
+      if (restart) await fixture.reopen();
+      await fixture.waitStatus((state) => state.workerCallbackCount >= 1);
+      // The child callback only proves the child outcome event projected. The targeting dispatch
+      // settles on its own process exit (scheduled after provider.exit returns), so wait for its
+      // canonical outcome before asserting the row or reading its settlement report.
+      await fixture.until(
+        async () =>
+          ((await fixture.cell.read("repo.task.dispatches", { taskId })).dispatches[0]?.outcome ?? null) !== null
+            ? true
+            : null,
+        "targeting dispatch records a terminal outcome",
+      );
+      await fixture.cell.settlePendingMaterialization("publication owner");
+      const rows = (await fixture.cell.read("repo.task.dispatches", { taskId })).dispatches;
+      assert.equal(rows[0]?.outcome, "succeeded");
+      const childRows = (await fixture.cell.read("repo.task.dispatches", { taskId: child.taskId! })).dispatches;
+      assert.equal(childRows[0]?.outcome, "succeeded");
+      assert.equal(
+        readFileSync(path.join(fixture.root, "harness", childRows[0].reportPath!), "utf8").trim(),
+        `child delivery\n\nTask ${child.taskId} is not submitted: runtime success and task submission are separate states. ` +
+          `The owner can recover this delivered closeout with: ha task submit ${child.taskId} --as-owner`,
+      );
+      const report = readFileSync(path.join(fixture.root, "harness", rows[0].reportPath!), "utf8");
+      assert.match(report, new RegExp(`Worker branch pushed at settlement: ${taskId} @`, "u"));
+      assert.equal(
+        git(fixture.bare, "for-each-ref", "--format=%(objectname)", `refs/heads/${taskId}`),
+        git(cwd, "rev-parse", "HEAD"),
+      );
+      assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", `refs/heads/${child.taskId}`), "");
+    },
+  );
 
 test(
   "squad children submit independently, resume one leader and integrate a verified local-remote delivery",
@@ -385,783 +333,3 @@ test(
     assert.equal(fixture.providers.length, launches, "reopening the center must not dispatch another leader");
   },
 );
-
-test(
-  "scheduler preserves a Squad occurrence through a second leader turn and reclaims its worktree",
-  { timeout: 90_000 },
-  async (t) => {
-    const fixture = await openFixture(t, "scheduled-squad"),
-      scheduleId = "schedule-squad-e2e",
-      initialProviderCount = fixture.providers.length;
-    const created = await fixture.cell.run(
-      {
-        kind: "schedule-create",
-        scheduleId,
-        name: "Scheduled Squad",
-        mode: "remediate",
-        everyMs: 300_000,
-        squadId: "squad",
-        mission: "Inspect the scheduled Squad path and converge.",
-        idempotencyKey: "create-scheduled-squad",
-      },
-      binding,
-    );
-    assert.equal(created.outcome, "applied", JSON.stringify(created));
-    const started = await fixture.cell.run(
-      { kind: "schedule-run-now", scheduleId, idempotencyKey: "run-scheduled-squad" },
-      binding,
-    );
-    assert.equal(started.outcome, "applied", JSON.stringify(started));
-    const state = [...latestSquadStates(fixture.root).values()].find(
-      (candidate) => candidate.subject.kind === "schedule-occurrence" && candidate.subject.scheduleId === scheduleId,
-    );
-    assert.ok(state, "the schedule claim creates a persisted Squad state");
-    assert.equal(state.subject.kind, "schedule-occurrence");
-    assert.equal(state.scheduleRuntime?.mode, "remediate");
-    const scheduleRuntime = state.scheduleRuntime;
-    assert.ok(scheduleRuntime?.worktree, "remediate occurrence worktree is retained with the run state");
-    const occurrenceCwd = scheduleRuntime.worktree.cwd;
-    assert.equal(existsSync(occurrenceCwd), true);
-    const activeSchedule = (await fixture.cell.run({ kind: "schedule-show", scheduleId }, binding)) as unknown as {
-      readonly schedule: { readonly status: { readonly activeRun: { readonly claimFence: string } | null } };
-    };
-    assert.equal(activeSchedule.schedule.status.activeRun?.claimFence, state.subject.claimFence);
-    const duplicate = await fixture.cell.run(
-      { kind: "schedule-run-now", scheduleId, idempotencyKey: "run-scheduled-squad-again" },
-      binding,
-    );
-    assert.equal(duplicate.code, "schedule_single_flight_active");
-    assert.equal(
-      fixture.providers.length,
-      initialProviderCount + 1,
-      "the active occurrence owns one initial leader dispatch",
-    );
-    const scheduler = makeScheduleScheduler({
-      cells: new Map([[fixture.repoId, fixture.cell]]),
-      localBinding: () => binding,
-      // Drive recovery explicitly; automatic cadence must not race this manual occurrence.
-      setTimer: () => ({ unref() {} }) as ReturnType<typeof setTimeout>,
-      clearTimer: () => {},
-    });
-    t.after(async () => scheduler.close());
-    await scheduler.start();
-    await fixture.finish(state.leaderTurns[0]!.dispatchId, "Leader returned an invalid decision; retry this turn.");
-    await fixture.until(
-      () => (latestSquadStates(fixture.root).get(state.squadRunId)?.leaderTurns.length === 2 ? true : null),
-      "an invalid first decision dispatches a second leader under the same claim",
-    );
-    await scheduler.refresh();
-    const stillActive = (await fixture.cell.run({ kind: "schedule-show", scheduleId }, binding)) as unknown as {
-      readonly schedule: { readonly status: { readonly activeRun: { readonly claimFence: string } | null } };
-    };
-    assert.equal(
-      stillActive.schedule.status.activeRun?.claimFence,
-      state.subject.claimFence,
-      "scheduler recovery must leave Squad settlement to the coordinator after leader one exits",
-    );
-    assert.equal(existsSync(occurrenceCwd), true, "the second leader still owns its occurrence worktree");
-    const secondLeader = latestSquadStates(fixture.root).get(state.squadRunId)!.leaderTurns[1]!;
-    await fixture.finish(
-      secondLeader.dispatchId,
-      JSON.stringify({ schema: "squad-decision/v1", action: "converged", report: "Schedule Squad converged." }),
-    );
-    await fixture.until(
-      () => (latestSquadStates(fixture.root).get(state.squadRunId)?.phase === "converged" ? true : null),
-      "the scheduled Squad reaches a terminal converged state",
-    );
-    await fixture.until(async () => {
-      const receipt = (await fixture.cell.run({ kind: "schedule-show", scheduleId }, binding)) as unknown as {
-        readonly schedule: {
-          readonly status: {
-            readonly activeRun: unknown;
-            readonly lastRun: { readonly outcome: string } | null;
-          };
-        };
-      };
-      return receipt.schedule.status.activeRun === null && receipt.schedule.status.lastRun?.outcome === "succeeded"
-        ? true
-        : null;
-    }, "the Squad terminal state settles its occurrence claim");
-    assert.equal(existsSync(occurrenceCwd), false, "settlement reclaims the remediation occurrence worktree");
-  },
-);
-
-for (const restart of [false, true])
-  test(
-    `targeted task publishes while same-squad child stays local (restart=${restart})`,
-    { timeout: 90_000 },
-    async (t) => {
-      // Each independent repository has its own identity in the shared fixture realm.
-      const fixture = await openFixture(t, `publication-owner-${restart}`);
-      await fixture.plan(["a.txt"], ["b.txt"]);
-      const running = await fixture.waitStatus(
-        (state) => state.workerAttempts.length === 2 && state.workerAttempts.every((w) => w.runtimeSessionId),
-      );
-      const child = running.workerAttempts[0],
-        taskId = "task_direct-targeted",
-        created = await fixture.cell.run(
-          {
-            kind: "task-create",
-            taskId,
-            title: "Direct targeted",
-            presetId: "standard-task",
-          },
-          binding,
-        );
-      assert.equal(created.outcome, "applied");
-      await waitForFixturePublication(fixture.cell, created.opId, binding);
-      await realizeTaskPlanFixture(fixture.root, String((created as Record<string, unknown>).packagePath), (planPath) =>
-        fixture.cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
-      );
-      assert.equal((await fixture.cell.run({ kind: "task-start", taskId }, binding)).outcome, "applied");
-      // Starting a repository-diff task materializes its task-named publication branch.
-      const cwd = path.join(fixture.root, ".worktrees", taskId);
-      const direct = await fixture.cell.spawnRuntime(
-        {
-          runtimeInstanceId: "stub",
-          agentId: "leader",
-          targetAgentId: "one",
-          taskId,
-          cwd: { scope: "repo-relative", path: `.worktrees/${taskId}` },
-          prompt: "Deliver the directly targeted task.",
-          dispatchKey: "direct-targeted",
-        },
-        binding,
-      );
-      const childHeader = readDispatchStreamHeader(fixture.root, child.dispatchId!)!,
-        directHeader = readDispatchStreamHeader(fixture.root, String(direct.dispatchId))!;
-      assert.equal(childHeader.squadId, "squad");
-      assert.equal(directHeader.squadId, childHeader.squadId);
-      assert.equal(childHeader.publicationOwner, "commander");
-      assert.equal(directHeader.publicationOwner, "runtime");
-      for (const directory of [
-        fixture.providers.find((provider) => provider.dispatchId === child.dispatchId)!.cwd,
-        cwd,
-      ]) {
-        writeFileSync(path.join(directory, "a.txt"), "delivery\n");
-        git(directory, "add", "a.txt");
-        git(directory, "commit", "-qm", "feat: targeted delivery");
-      }
-      await fixture.finish(child.dispatchId!, "child delivery", 0, restart);
-      await fixture.finish(String(direct.dispatchId), "direct delivery", 0, restart);
-      if (restart) await fixture.reopen();
-      await fixture.waitStatus((state) => state.workerCallbackCount >= 1);
-      // The child callback only proves the child outcome event projected. The targeting dispatch
-      // settles on its own process exit (scheduled after provider.exit returns), so wait for its
-      // canonical outcome before asserting the row or reading its settlement report.
-      await fixture.until(
-        async () =>
-          ((await fixture.cell.read("repo.task.dispatches", { taskId })).dispatches[0]?.outcome ?? null) !== null
-            ? true
-            : null,
-        "targeting dispatch records a terminal outcome",
-      );
-      await fixture.cell.settlePendingMaterialization("publication owner");
-      const rows = (await fixture.cell.read("repo.task.dispatches", { taskId })).dispatches;
-      assert.equal(rows[0]?.outcome, "succeeded");
-      const childRows = (await fixture.cell.read("repo.task.dispatches", { taskId: child.taskId! })).dispatches;
-      assert.equal(childRows[0]?.outcome, "succeeded");
-      assert.equal(
-        readFileSync(path.join(fixture.root, "harness", childRows[0].reportPath!), "utf8").trim(),
-        `child delivery\n\nTask ${child.taskId} is not submitted: runtime success and task submission are separate states. ` +
-          `The owner can recover this delivered closeout with: ha task submit ${child.taskId} --as-owner`,
-      );
-      const report = readFileSync(path.join(fixture.root, "harness", rows[0].reportPath!), "utf8");
-      assert.match(report, new RegExp(`Worker branch pushed at settlement: ${taskId} @`, "u"));
-      assert.equal(
-        git(fixture.bare, "for-each-ref", "--format=%(objectname)", `refs/heads/${taskId}`),
-        git(cwd, "rev-parse", "HEAD"),
-      );
-      assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", `refs/heads/${child.taskId}`), "");
-    },
-  );
-
-for (const ending of ["cancelled", "failed"] as const)
-  test(`squad ${ending} closes child tasks and releases their WIP slots`, { timeout: 90_000 }, async (t) => {
-    const fixture = await openFixture(t, `child-closeout-${ending}`);
-    const beforeWip = await fixture.cell.read("repo.tasks.wip", {}, binding);
-    await fixture.plan(["a.txt"], ["b.txt"]);
-    const running = await fixture.waitStatus(
-      (state) => state.workerAttempts.length === 2 && state.workerAttempts.every((w) => w.runtimeSessionId),
-    );
-    for (const child of running.workerAttempts)
-      assert.equal(fixture.task(child.taskId!).snapshot.task?.status, "active");
-    if (ending === "cancelled") {
-      const receipt = await fixture.cell.run({ kind: "squad-cancel", squadRunId: running.squadRunId }, binding);
-      assert.equal(receipt.phase, "cancelled", JSON.stringify(receipt));
-    } else {
-      for (const child of running.workerAttempts) await fixture.finish(child.dispatchId!, "completed");
-      const resumed = await fixture.waitStatus((state) => state.leaderTurns.length === 2);
-      await fixture.finish(
-        resumed.leaderTurns[1].dispatchId,
-        JSON.stringify({ schema: "squad-decision/v1", action: "converged" }),
-      );
-      await fixture.waitStatus((state) => state.status === "failed");
-      assert.equal((await fixture.status()).status, "failed");
-    }
-    assertChildrenClosed(fixture, running.workerAttempts);
-    const afterWip = await fixture.cell.read("repo.tasks.wip", {}, binding);
-    assert.equal(afterWip.counted.length, beforeWip.counted.length, "total WIP returns to the pre-stage count");
-    await fixture.reopen();
-    assertChildrenClosed(fixture, running.workerAttempts);
-  });
-
-function assertChildrenClosed(fixture: Awaited<ReturnType<typeof openFixture>>, children: readonly WorkerAttempt[]) {
-  for (const child of children) {
-    const row = fixture.task(child.taskId!),
-      task = row.snapshot.task!;
-    assert.equal(task.status, "cancelled", `child ${child.taskId} must end with its run`);
-    assert.equal(row.snapshot.lease, null);
-    assert.equal(
-      isExecutionWipTask({
-        taskId: task.taskId,
-        title: task.title,
-        status: task.status,
-        taskClass: task.taskClass,
-        packageDisposition: task.packageDisposition ?? "active",
-        hasCloseoutEvidence: false,
-        hasOwnExecution: true,
-        directChildCount: 0,
-      }),
-      false,
-      "settled child must release WIP",
-    );
-  }
-}
-
-test("failed child wakes the leader with the failure after its sibling settles", { timeout: 90_000 }, async (t) => {
-  const fixture = await openFixture(t, "failure");
-  await fixture.plan(["a.txt"], ["b.txt"]);
-  const running = await fixture.waitStatus(
-    (state) => state.workerAttempts.length === 2 && state.workerAttempts.every((w) => w.runtimeSessionId),
-  );
-  await fixture.finish(running.workerAttempts[0].dispatchId!, "child could not complete", 1);
-  await fixture.waitStatus((state) => state.workerCallbackCount === 1);
-  assert.equal((await fixture.status()).leaderTurns.length, 1);
-  await fixture.finish(running.workerAttempts[1].dispatchId!, "sibling completed");
-  const resumed = await fixture.waitStatus((state) => state.leaderTurns.length === 2);
-  const leader = fixture.providers.find((p) => p.dispatchId === resumed.leaderTurns[1].dispatchId)!;
-  assert.match(leader.prompt, /failed/u);
-  await fixture.finish(
-    leader.dispatchId,
-    JSON.stringify({
-      schema: "squad-decision/v1",
-      action: "converged",
-      report: "# Failure review\n\nChild failed; delivery is incomplete.",
-    }),
-  );
-  await fixture.waitStatus((state) => state.status === "converged");
-  assertChildrenClosed(fixture, running.workerAttempts);
-});
-
-test(
-  "ended stage assignments release their WIP slot before the next stage admits a worker",
-  { timeout: 90_000 },
-  async (t) => {
-    // The limit fits the active parent plus one running assignment; a still-active
-    // ended-stage assignment would exhaust it and reject the next stage's worker.
-    const fixture = await openFixture(t, "stage-wip-release", false, 2);
-    const counted = async () =>
-      ((await fixture.cell.read("repo.tasks.wip", {}, binding)).counted as Array<{ taskId: string }>)
-        .map((row) => row.taskId)
-        .sort();
-    const dispatchStage = (turn: { dispatchId: string }, to: string, owned: string[]) =>
-      fixture.finish(
-        turn.dispatchId,
-        JSON.stringify({
-          schema: "runtime-batch/v1",
-          dispatches: [{ to, prompt: realizedTaskPlan(`stage ${to}`), ownedPaths: owned }],
-        }),
-      );
-    await dispatchStage((await fixture.status()).leaderTurns[0], "one", ["a.txt"]);
-    const stageOne = await fixture.waitStatus(
-      (state) => state.workerAttempts.length === 1 && state.workerAttempts[0].runtimeSessionId !== null,
-    );
-    const first = stageOne.workerAttempts[0];
-    assert.ok(first.taskId);
-    assert.equal(fixture.task(first.taskId!).snapshot.task?.status, "active");
-    assert.deepEqual(await counted(), [fixture.taskId, first.taskId!].sort());
-    await fixture.finish(first.dispatchId!, "stage one delivered");
-    const secondTurn = await fixture.waitStatus((state) => state.leaderTurns.length === 2);
-    const settledFirst = fixture.task(first.taskId!);
-    assert.equal(settledFirst.snapshot.task?.status, "cancelled", "ended stage assignment must leave the worktable");
-    assert.equal(settledFirst.snapshot.lease, null);
-    assert.deepEqual(await counted(), [fixture.taskId]);
-    await dispatchStage(secondTurn.leaderTurns[1], "two", ["b.txt"]);
-    const stageTwo = await fixture.waitStatus(
-      (state) => state.workerAttempts.length === 2 && state.workerAttempts[1].runtimeSessionId !== null,
-    );
-    const second = stageTwo.workerAttempts[1];
-    assert.ok(second.taskId);
-    assert.equal(fixture.task(second.taskId!).snapshot.task?.status, "active");
-    assert.deepEqual(await counted(), [fixture.taskId, second.taskId!].sort());
-    await fixture.finish(second.dispatchId!, "stage two delivered");
-    const thirdTurn = await fixture.waitStatus((state) => state.leaderTurns.length === 3);
-    assert.equal(fixture.task(second.taskId!).snapshot.task?.status, "cancelled");
-    assert.deepEqual(await counted(), [fixture.taskId]);
-    await dispatchStage(thirdTurn.leaderTurns[2], "one", ["a.txt"]);
-    const stageThree = await fixture.waitStatus(
-      (state) => state.workerAttempts.length === 3 && state.workerAttempts[2].runtimeSessionId !== null,
-    );
-    const third = stageThree.workerAttempts[2];
-    assert.ok(third.taskId);
-    assert.deepEqual(await counted(), [fixture.taskId, third.taskId!].sort());
-    await fixture.finish(third.dispatchId!, "stage three delivered");
-    const finalTurn = await fixture.waitStatus((state) => state.leaderTurns.length === 4);
-    await fixture.finish(
-      finalTurn.leaderTurns[3].dispatchId,
-      JSON.stringify({
-        schema: "squad-decision/v1",
-        action: "converged",
-        report: "# Stages\n\nThree sequential stages each released their assignment slot.",
-      }),
-    );
-    await fixture.waitStatus((state) => state.status === "converged");
-    assertChildrenClosed(fixture, stageThree.workerAttempts);
-    assert.deepEqual(await counted(), [fixture.taskId]);
-  },
-);
-
-test("overlapping worker declarations reject the second child before execution", { timeout: 90_000 }, async (t) => {
-  const fixture = await openFixture(t, "overlap");
-  await fixture.plan(["src/"], ["SRC/a.txt"]);
-  const state = await fixture.waitStatus(
-    (value) => value.workerAttempts.length === 2 && value.workerAttempts[1].rejection !== null,
-  );
-  assert.ok(state.workerAttempts[0].runtimeSessionId);
-  assert.match(state.workerAttempts[1].rejection ?? "", /Ownership conflict/u);
-  assert.equal(state.workerAttempts[1].taskId, null);
-  assert.equal(state.workerAttempts[1].runtimeSessionId, null);
-  await fixture.finish(
-    state.workerAttempts[0].dispatchId!,
-    "first child completed\n```bash\ncloseout/submission/review/consent\n```",
-  );
-  const resumed = await fixture.waitStatus((value) => value.leaderTurns.length === 2);
-  const callback = fixture.providers.find((provider) => provider.dispatchId === resumed.leaderTurns[1].dispatchId)!;
-  assert.match(callback.prompt, /worker_rejected/u);
-  assert.match(callback.prompt, /Ownership conflict/u);
-  assert.match(callback.prompt, /closeout\/submission\/review\/consent/u);
-  await fixture.finish(
-    resumed.leaderTurns[1].dispatchId,
-    JSON.stringify({
-      schema: "squad-decision/v1",
-      action: "converged",
-      report: "# Overlap\n\nConflicting child rejected.",
-    }),
-  );
-  await fixture.waitStatus((value) => value.status === "converged");
-});
-
-test(
-  "parent runtime delegation waits for accepted parent stop and retains its canonical lease",
-  { timeout: 90_000 },
-  async (t) => {
-    const fixture = await openFixture(t, "runtime-caller", true);
-    await fixture.plan(["a.txt"], ["b.txt"]);
-    const running = await fixture.waitStatus(
-      (state) => state.workerAttempts.length === 2 && state.workerAttempts.every((w) => w.runtimeSessionId),
-    );
-    for (const child of running.workerAttempts) {
-      assert.ok(child.taskId && child.executionId);
-      assert.equal(fixture.task(child.taskId).snapshot.task?.metadata?.parentTaskId, fixture.taskId);
-      await fixture.finish(child.dispatchId!, "runtime caller child delivery");
-    }
-    const resumed = await fixture.waitStatus(
-      (state) => state.leaderTurns.length === 2 && state.workerCallbackCount === 2,
-    );
-    assert.equal(resumed.pendingLeaderCallbackCount, 0, "same-cut child outcomes are consumed by one leader turn");
-    await fixture.finish(
-      resumed.leaderTurns[1].dispatchId,
-      JSON.stringify({
-        schema: "squad-decision/v1",
-        action: "converged",
-        report: "# Runtime caller\n\nChild plans published under the actual parent runtime identity.",
-      }),
-    );
-    await fixture.waitStatus((state) => state.status === "converged");
-    assertChildrenClosed(fixture, running.workerAttempts);
-    await fixture.finish(fixture.parentDispatchId!, "parent caller completed");
-  },
-);
-
-// Exercise the real single writer and durable storage directly. Supervisor/reader RPC and
-// their cold worker imports have separate integration coverage; this suite owns orchestration.
-const openOrchestrationCell = async (input: Parameters<typeof openRepoWriterCell>[0]) => {
-  await identityProvider.claimRepositoryOwner(centerToken, input.repoId, owner.personId);
-  const fence = fixtureFence(
-    input.repoId,
-    input.rootDir,
-    path.join(input.rootDir, ".harness", "fixture-writer-epochs"),
-    input.storage,
-  );
-  await settleSettingsEvent({ ...input, writerEpochFence: fence, runtimeInstances: input.runtimeInstances?.() });
-  const lock = await acquireWorkspaceLock(input.rootDir);
-  try {
-    return await openRepoWriterCell({ keycloakCenter: localCenter, ...input, defaultWriterEpochFence: fence }, lock);
-  } catch (error) {
-    await lock.close();
-    throw error;
-  }
-};
-
-async function openFixture(
-  t: { after(fn: () => Promise<void>): void },
-  slug: string,
-  runtimeCaller = false,
-  wipLimit?: number,
-  prompt?: string,
-) {
-  const parent = mkdtempSync(path.join(tmpdir(), `ha-squad-e2e-${slug}-`)),
-    root = path.join(parent, "repo"),
-    userRoot = path.join(parent, "user"),
-    repoId = workspaceId(`squad-e2e-${slug}`),
-    taskId = `task-squad-e2e-${slug}`,
-    providers: Provider[] = [],
-    // Every runtime launch and outcome wakes the waiters; a waiter drains the writer queue before it
-    // reads, so a coordinator reaction scheduled by that event is visible to the read it triggers.
-    activityWaiters = new Set<() => void>(),
-    wakeActivity = () => {
-      for (const wake of activityWaiters) wake();
-    },
-    onActivity = (arrive: () => void) => {
-      activityWaiters.add(arrive);
-      return () => activityWaiters.delete(arrive);
-    };
-  mkdirSync(root);
-  git(root, "init", "-q", "-b", "main");
-  git(root, "config", "user.name", "Task Surface Test");
-  git(root, "config", "user.email", "task-surface@example.invalid");
-  git(root, "commit", "--allow-empty", "-qm", "base");
-  const bare = path.join(parent, "remote.git");
-  git(parent, "init", "--bare", bare);
-  git(root, "remote", "add", "origin", bare);
-  mkdirSync(path.join(root, "harness"));
-  // Workers deliver repository commits; the parent task below delivers the Squad synthesis report.
-  writeFileSync(
-    path.join(root, "harness/harness.yaml"),
-    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings:\n  defaultVertical: software/coding\n  defaultPreset: standard-task\n  defaultProfile: baseline\n" +
-      (wipLimit === undefined ? "" : `  tasks:\n    wipLimit: ${wipLimit}\n`),
-  );
-  writeFileSync(path.join(root, ".gitignore"), "harness/\n.harness/\n.worktrees/\n");
-  git(root, "add", ".gitignore");
-  git(root, "commit", "-qm", "test: fixture boundaries");
-  const runtimeLaunch: RuntimeLauncher = (prepared, persistence) => {
-    // Git is already required by the fixture. Its stdin reader supplies a real PID
-    // without booting another JavaScript runtime for a process that only waits.
-    const child = spawn("git", ["hash-object", "--stdin"], {
-      detached: true,
-      stdio: ["pipe", "ignore", "ignore"],
-    });
-    if (!child.pid) throw new Error("fixture worker child did not expose a pid");
-    child.unref();
-    const provider: Provider = {
-      prompt: prepared.prompt,
-      cwd: prepared.cwd,
-      dispatchId: persistence.dispatchId,
-      sessionId: prepared.args[0] ?? `provider-${persistence.dispatchId}`,
-      process: child,
-    };
-    providers.push(provider);
-    queueMicrotask(wakeActivity);
-    return {
-      pid: child.pid,
-      onOutput: (listener) => {
-        provider.output = listener;
-        queueMicrotask(() =>
-          listener(JSON.stringify({ type: "thread.started", thread_id: provider.sessionId }) + "\n"),
-        );
-      },
-      onErrorOutput: () => undefined,
-      onExit: (listener) => {
-        provider.exit = listener;
-      },
-      terminate: () => {
-        void stopFixtureProcess(child);
-      },
-      terminateTree: () => stopFixtureProcess(child),
-    };
-  };
-  const open = () =>
-    openOrchestrationCell({
-      keycloakSession: async () => binding.keycloakAuthorization.session,
-      repoId,
-      rootDir: canonicalRoot(root),
-      ownerId: `squad-${slug}`,
-      runtimeDaemonRoute: {
-        userRoot,
-        daemonId: "test",
-        endpoint: path.join(parent, "socket"),
-      },
-      runtimeInstances: () => [
-        {
-          schemaVersion: 2,
-          instanceId: "stub",
-          name: "Stub",
-          kindId: "codex",
-          installationId: "installation-stub",
-          providerId: "openai",
-          models: ["stub-model"],
-          defaultModel: "stub-model",
-          enabled: true,
-          permissionMode: "workspace-write",
-          codex: {},
-          authMode: "subscription",
-          authState: "configured",
-          authReadiness: { status: "ready", code: null, hint: null },
-          isolationState: "enforced",
-        },
-      ],
-      prepareRuntimeLaunch: (instanceId, request) => ({
-        definition: {
-          schema: "agent-definition-snapshot/v1",
-          configVersion: 1,
-          instanceId,
-          installationId: "installation-stub",
-          kindId: "codex",
-          providerId: "openai",
-          model: "stub-model",
-          reasoningEffort: null,
-          endpointKind: "official",
-          baseUrlHash: null,
-          authMode: "subscription",
-        },
-        installation: {
-          installationId: "installation-stub",
-          kindId: "codex",
-          executablePath: "/fixture/stub",
-          version: "1.0.0",
-          observedAt: "2026-09-20T00:00:00.000Z",
-        },
-        executablePath: "/fixture/stub",
-        args: request.providerSessionId ? [request.providerSessionId] : [],
-        env: process.env,
-        cwd: request.cwd,
-        prompt: request.prompt,
-      }),
-      runtimeLaunch,
-      onRuntimeOutcome: () => {
-        wakeActivity();
-      },
-    });
-  let cell = await open();
-  const taskProjection = makeTaskProjectionReader({ rootDir: root });
-  t.after(async () => {
-    await Promise.all(
-      providers.flatMap((provider) => (provider.process ? [stopFixtureProcess(provider.process)] : [])),
-    );
-    taskProjection.close();
-    await cell.close();
-    rmSync(parent, { recursive: true, force: true });
-  });
-  await Promise.all(
-    [
-      ["leader", "commander"],
-      ["one", "worker"],
-      ["two", "worker"],
-    ].map(async ([id, role]) => {
-      const receipt = await cell.run(
-        {
-          kind: "agent-install",
-          declaration: {
-            schema: "agent-declaration/v1",
-            id,
-            name: id,
-            role,
-            instructions: "Perform the assigned role.",
-            runtimes: [{ type: "codex" }],
-          },
-        },
-        binding,
-      );
-      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-    }),
-  );
-  const installed = await cell.run(
-    {
-      kind: "squad-install",
-      declaration: {
-        schema: "squad-declaration/v1",
-        id: "squad",
-        name: "Squad",
-        leader: "leader",
-        workers: ["one", "two"],
-        leaderTurnBudget: 4,
-        roster: "Leader integrates two independent workers and writes artifacts/reports/{squadRunId}.md.",
-      },
-    },
-    binding,
-  );
-  assert.equal(installed.outcome, "applied", JSON.stringify(installed));
-  const created = await cell.run(
-    { kind: "task-create", taskId, title: "Squad mission", presetId: "docs-task" },
-    binding,
-  );
-  assert.equal(created.outcome, "applied", JSON.stringify(created));
-  await waitForFixturePublication(cell, created.opId, binding);
-  await realizeTaskPlanFixture(root, String((created as Record<string, unknown>).packagePath), (planPath) =>
-    cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
-  );
-  let squadBinding = binding,
-    parentDispatchId: string | null = null;
-  if (runtimeCaller) {
-    const executing = await cell.run({ kind: "task-start", taskId }, binding);
-    assert.equal(executing.outcome, "applied", JSON.stringify(executing));
-    const caller = await cell.spawnRuntime(
-      {
-        runtimeInstanceId: "stub",
-        agentId: "leader",
-        taskId,
-        cwd: { scope: "repo-root" },
-        prompt: "Coordinate the mission through squad-run.",
-        dispatchKey: "parent-caller",
-      },
-      binding,
-    );
-    parentDispatchId = String(caller.dispatchId);
-    squadBinding = {
-      ...binding,
-      actor: {
-        ...binding.actor,
-        executor: { kind: "agent", id: `runtime-session:${String(caller.runtimeSessionId)}` },
-      },
-    };
-    // The caller sends its delegation before exiting. Its authenticated request may retain the
-    // canonical parent lease, but a second process must not receive that checkout until it stops.
-    const parentProvider = providers.find((provider) => provider.dispatchId === parentDispatchId)!;
-    await stopFixtureProcess(parentProvider.process!);
-    await cell.runtimeIngress(
-      {
-        kind: "event",
-        type: "runtime_session_exited",
-        opId: "parent-caller-exited-before-squad",
-        payload: { runtimeSessionId: String(caller.runtimeSessionId) },
-      },
-      binding,
-    );
-  }
-  const started = await cell.run(
-    {
-      kind: "squad-run",
-      squadId: "squad",
-      taskId,
-      runtimeInstanceId: "stub",
-      cwd: { scope: "repo-root" },
-      ...(prompt ? { prompt } : {}),
-    },
-    squadBinding,
-  );
-  assert.equal(started.outcome, "completed", JSON.stringify(started));
-  const squadRunId = String(evidence(started).squadRunId);
-  const status = async () =>
-    evidence(await cell.run({ kind: "squad-status", squadRunId }, binding)) as unknown as Status;
-  const task = (id: string) => taskProjection.withSession((query) => query.read(id));
-  const finish = async (dispatchId: string, text: string, code = 0, offline = false) => {
-    const provider = providers.find((row) => row.dispatchId === dispatchId)!;
-    if (offline)
-      appendRuntimeWorkerRecord(root, dispatchId, {
-        kind: "process_started",
-        occurredAt: new Date().toISOString(),
-        pid: provider.process?.pid,
-      });
-    const events = [
-      ...(offline ? [{ type: "thread.started", thread_id: provider.sessionId }] : []),
-      {
-        type: "item.completed",
-        item: { id: "result", type: "agent_message", text },
-      },
-      { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } },
-    ];
-    if (offline) {
-      for (const event of events)
-        appendRuntimeWorkerRecord(root, dispatchId, {
-          kind: "provider_event",
-          occurredAt: new Date().toISOString(),
-          event,
-        });
-    } else {
-      // Preserve every frame in one output chunk, avoiding a repository queue task
-      // for each line of this already complete fixture result.
-      provider.output!(events.map((event) => JSON.stringify(event) + "\n").join(""));
-    }
-    await stopFixtureProcess(provider.process!);
-    appendRuntimeWorkerRecord(root, dispatchId, {
-      kind: "process_exit",
-      occurredAt: new Date().toISOString(),
-      exitCode: code,
-      signal: null,
-    });
-    if (!offline) provider.exit!(code);
-  };
-  const until = <T>(read: () => T | null | Promise<T | null>, label: string): Promise<T> =>
-    waitForArrival(async () => {
-      await cell.settlePendingMaterialization(label);
-      return read();
-    }, onActivity);
-  const waitStatus = (predicate: (state: Status) => unknown): Promise<Status> =>
-    until(async () => {
-      const current = await status();
-      if (predicate(current)) return current;
-      if (current.status === "failed") throw new Error(JSON.stringify(current));
-      return null;
-    }, "squad outcome waiter");
-  return {
-    parent,
-    root,
-    bare,
-    repoId,
-    taskId,
-    squadRunId,
-    get cell() {
-      return cell;
-    },
-    providers,
-    status,
-    task,
-    finish,
-    waitStatus,
-    until,
-    parentDispatchId,
-    reopen: async () => {
-      await cell.close();
-      cell = await open();
-    },
-    plan: async (first: string[], second: string[]) => {
-      const state = await waitStatus((current) => current.leaderTurns.length >= 1);
-      await finish(
-        state.leaderTurns[0].dispatchId,
-        JSON.stringify({
-          schema: "runtime-batch/v1",
-          dispatches: [
-            { to: "one", prompt: realizedTaskPlan("worker mission one"), ownedPaths: first },
-            { to: "two", prompt: realizedTaskPlan("worker mission two"), ownedPaths: second },
-          ],
-        }),
-      );
-    },
-    submit: async (child: WorkerAttemptView, head: string, inferCommit = false) => {
-      await cell.settlePendingMaterialization("child closeout fixture");
-      const row = task(child.taskId!),
-        holder = {
-          ...binding,
-          actor: {
-            principal: binding.actor.principal,
-            executor: { kind: "agent" as const, id: `runtime-session:${child.runtimeSessionId}` },
-          },
-        };
-      writeFileSync(
-        path.join(root, "harness", row.packagePath!, "closeout.md"),
-        `# Closeout\n\n## Summary\n\nDelivered ${head}.\n\n## Verification\n\nCommitted child file contents inspected.\n\n## Residual Risk\n\nIntegration review remains.\n\n## Same Mechanism Elsewhere\n\nSibling delivery uses the same protocol.\n`,
-      );
-      const receipt = await cell.run(
-        {
-          kind: "task-submit",
-          taskId: child.taskId!,
-          executionId: child.executionId!,
-          ...(inferCommit ? {} : { commitSha: head }),
-        },
-        holder,
-      );
-      assert.equal(receipt.outcome, "applied", `real child submit: ${JSON.stringify(receipt)}`);
-    },
-  };
-}
