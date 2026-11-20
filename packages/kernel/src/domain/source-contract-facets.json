@@ -3788,10 +3788,10 @@
       {
         "id": "daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateNamedActionPayload",
         "symbol": "packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateNamedActionPayload",
-        "explain": "Closed parameter validation for named RPC actions, including the terminal input generation and sequence.",
+        "explain": "Closed parameter validation for named RPC actions, including separate runtime-cancel reason and ruling inputs.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateNamedActionPayload:81219fa1ea25d70597f8a27a4be522f0",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateNamedActionPayload:f3156c2ff1113e313d5583e5f34df3e1",
             "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateNamedActionPayload"
           }
         ]
@@ -4173,10 +4173,10 @@
       {
         "id": "kernel/src/domain/agent-runtime.ts#RuntimeSessionEntityV1.validateAgentRuntimePayloadFields",
         "symbol": "packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields",
-        "explain": "RuntimeSessionEntityV1: Accepted session/event identity and provenance fields.",
+        "explain": "RuntimeSessionEntityV1: Accepted session/event identity and provenance fields, including orphan-recovery audit shape.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:37a9eb7555ea634af54d9feb1193cb81",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:3cd87a106d436d4034920c0e0e201e19",
             "route": "packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields"
           }
         ]
