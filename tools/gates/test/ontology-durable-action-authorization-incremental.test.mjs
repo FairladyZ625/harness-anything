@@ -244,7 +244,8 @@ partitionedTest(
   () => {
     for (const file of [
       "packages/kernel/src/ports/authorization-port.ts",
-      "packages/kernel/src/domain/action-source-facets.json",
+      "packages/kernel/src/domain/action-source-facets/daemon.json",
+      "packages/kernel/src/domain/source-contract-facets/daemon.json",
       "packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts",
       ...["open", "api", "command", "action-context", "action-dispatch", "command-run"].map(
         (name) => `packages/daemon/src/daemon-host/repo-cell-${name}.ts`,

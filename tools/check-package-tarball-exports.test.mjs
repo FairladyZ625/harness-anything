@@ -85,6 +85,29 @@ test("skips private workspace packages", async () => {
   });
 });
 
+test("checks every kernel facet JSON file inside the tarball", async () => {
+  await withFixtureRepo((root) => {
+    writePackage(root, "kernel", {
+      name: "@harness-anything/kernel",
+      exports: { ".": "./dist/index.js" },
+      files: ["dist"],
+    });
+    writeFileSync(path.join(root, "packages/kernel/dist/index.js"), "export {};\n");
+    const action = "domain/action-source-facets/tools.json",
+      contract = "domain/source-contract-facets/kernel.json";
+    for (const file of [action, contract]) writeJson(root, `packages/kernel/src/${file}`, {});
+    writeJson(root, `packages/kernel/dist/${action}`, {});
+
+    const red = runCheck(root);
+    assert.equal(red.status, 1, red.stdout);
+    assert.match(red.stderr, /ontology facet target \.\/dist\/domain\/source-contract-facets\/kernel\.json/u);
+
+    writeJson(root, `packages/kernel/dist/${contract}`, {});
+    const green = runCheck(root);
+    assert.equal(green.status, 0, green.stderr);
+  });
+});
+
 function runCheck(root) {
   return spawnSync(process.execPath, [scriptPath], { cwd: root, encoding: "utf8" });
 }

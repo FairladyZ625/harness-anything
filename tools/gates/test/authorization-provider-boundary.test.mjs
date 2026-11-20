@@ -114,7 +114,7 @@ test("registered ActionDeclaration sources are data while unregistered reference
     refs = new Set([candidateId, route, port, fixture]);
   assert.deepEqual(
     findProviderBoundaryViolations(
-      `+++ b/packages/kernel/src/domain/action-source-facets.json\n+"candidateId": "${candidateId}",\n+"route": "${route}"`,
+      `+++ b/packages/kernel/src/domain/action-source-facets/authorization.json\n+"candidateId": "${candidateId}",\n+"route": "${route}"`,
       [],
       refs,
     ),
@@ -122,7 +122,7 @@ test("registered ActionDeclaration sources are data while unregistered reference
   );
   assert.deepEqual(
     findProviderBoundaryViolations(
-      `+++ b/packages/kernel/src/domain/action-source-facets.json\n+"port": "${port}"`,
+      `+++ b/packages/kernel/src/domain/action-source-facets/authorization.json\n+"port": "${port}"`,
       [],
       refs,
     ),
@@ -138,14 +138,14 @@ test("registered ActionDeclaration sources are data while unregistered reference
   );
   assert.deepEqual(
     findProviderBoundaryViolations(
-      `+++ b/packages/kernel/src/domain/action-source-facets.json\n+"candidateId": "action:packages/authorization:packages/authorization/src/keycloak/unknown.ts#unknown"\n+"port": "packages/authorization/src/keycloak/managed-rbac-service.ts#Unregistered.port"\n+"explain": "Keycloak-specific implementation behavior"`,
+      `+++ b/packages/kernel/src/domain/action-source-facets/authorization.json\n+"candidateId": "action:packages/authorization:packages/authorization/src/keycloak/unknown.ts#unknown"\n+"port": "packages/authorization/src/keycloak/managed-rbac-service.ts#Unregistered.port"\n+"explain": "Keycloak-specific implementation behavior"`,
       [],
       refs,
     ),
     [
-      'packages/kernel/src/domain/action-source-facets.json: Keycloak-specific symbol, error, or REST path: "candidateId": "action:packages/authorization:packages/authorization/src/keycloak/unknown.ts#unknown"',
-      'packages/kernel/src/domain/action-source-facets.json: Keycloak-specific symbol, error, or REST path: "port": "packages/authorization/src/keycloak/managed-rbac-service.ts#Unregistered.port"',
-      'packages/kernel/src/domain/action-source-facets.json: Keycloak-specific symbol, error, or REST path: "explain": "Keycloak-specific implementation behavior"',
+      'packages/kernel/src/domain/action-source-facets/authorization.json: Keycloak-specific symbol, error, or REST path: "candidateId": "action:packages/authorization:packages/authorization/src/keycloak/unknown.ts#unknown"',
+      'packages/kernel/src/domain/action-source-facets/authorization.json: Keycloak-specific symbol, error, or REST path: "port": "packages/authorization/src/keycloak/managed-rbac-service.ts#Unregistered.port"',
+      'packages/kernel/src/domain/action-source-facets/authorization.json: Keycloak-specific symbol, error, or REST path: "explain": "Keycloak-specific implementation behavior"',
     ],
   );
   assert.deepEqual(

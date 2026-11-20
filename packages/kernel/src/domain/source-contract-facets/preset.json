@@ -1,0 +1,295 @@
+{
+  "vertical-declaration": {
+    "contracts": [
+      {
+        "id": "preset/src/preset-assets.ts#loadCanonicalAssets",
+        "symbol": "packages/preset/src/preset-assets.ts#assertCanonicalVertical",
+        "explain": "loadCanonicalAssets: Canonical vertical package asset input boundary.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-assets.ts#assertCanonicalVertical:91bdb2c7b42fe06d38cd011e1c361928",
+            "route": "packages/preset/src/preset-assets.ts#assertCanonicalVertical"
+          }
+        ],
+        "order": 10
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateCompletionDeclaration",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateCompletionDeclaration",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateCompletionDeclaration:07f8a4a29ba19aa3e2d9f926bee9df6d",
+            "route": "packages/preset/src/preset-extension-model.ts#validateCompletionDeclaration"
+          }
+        ],
+        "order": 14
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateEntityFieldExtensionsShape",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateEntityFieldExtensionsShape",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateEntityFieldExtensionsShape:6c63dd4414f09af0e18cfe042ec41a31",
+            "route": "packages/preset/src/preset-extension-model.ts#validateEntityFieldExtensionsShape"
+          }
+        ],
+        "order": 18
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateExtensionInputShape",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateExtensionInputShape",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateExtensionInputShape:a14b367bcdc9ee86f4511d8adefd5651",
+            "route": "packages/preset/src/preset-extension-model.ts#validateExtensionInputShape"
+          }
+        ],
+        "order": 11
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateObjectKeys",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateObjectKeys",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateObjectKeys:e59f014ba68c9997419e322f9e5b54c6",
+            "route": "packages/preset/src/preset-extension-model.ts#validateObjectKeys"
+          }
+        ],
+        "order": 22
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateRepositoryScaffoldShape",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateRepositoryScaffoldShape",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateRepositoryScaffoldShape:58215455c7a016eed605dfc8d363d68c",
+            "route": "packages/preset/src/preset-extension-model.ts#validateRepositoryScaffoldShape"
+          }
+        ],
+        "order": 19
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateTemplateCatalog",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateTemplateCatalog",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateTemplateCatalog:f93279c396c2adb6204a197e4f87dfaa",
+            "route": "packages/preset/src/preset-extension-model.ts#validateTemplateCatalog"
+          }
+        ],
+        "order": 12
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateTemplateCatalogBodies",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateTemplateCatalogBodies",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateTemplateCatalogBodies:3cff72f3d7a70648737d0be76375bd02",
+            "route": "packages/preset/src/preset-extension-model.ts#validateTemplateCatalogBodies"
+          }
+        ],
+        "order": 13
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateTemplateCatalogShape",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateTemplateCatalogShape",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateTemplateCatalogShape:74030e26860112a185eb977444029098",
+            "route": "packages/preset/src/preset-extension-model.ts#validateTemplateCatalogShape"
+          }
+        ],
+        "order": 16
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateTemplateSelectionsShape",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateTemplateSelectionsShape",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateTemplateSelectionsShape:9df500219959b49e6660eb9d6bffb375",
+            "route": "packages/preset/src/preset-extension-model.ts#validateTemplateSelectionsShape"
+          }
+        ],
+        "order": 21
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateVerticalDefinition",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateVerticalDefinition",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateVerticalDefinition:b5c330f5f42c4b1e4a99b0db4ac3e2e5",
+            "route": "packages/preset/src/preset-extension-model.ts#validateVerticalDefinition"
+          }
+        ],
+        "order": 15
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateVerticalDefinitionShape",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateVerticalDefinitionShape",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateVerticalDefinitionShape:49789483b9dc4937b0256f2f63fd1c47",
+            "route": "packages/preset/src/preset-extension-model.ts#validateVerticalDefinitionShape"
+          }
+        ],
+        "order": 17
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateVerticalScriptsShape",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateVerticalScriptsShape",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateVerticalScriptsShape:03b873780e3262f0bf895baa53ac0b00",
+            "route": "packages/preset/src/preset-extension-model.ts#validateVerticalScriptsShape"
+          }
+        ],
+        "order": 20
+      },
+      {
+        "id": "preset/src/preset-installation.ts#installPresetPackage",
+        "symbol": "packages/preset/src/preset-installation.ts#assertInstallDirectory",
+        "explain": "installPresetPackage: Preset install directory filesystem boundary.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-installation.ts#assertInstallDirectory:1714ade9850352bafd4b74575f45fd17",
+            "route": "packages/preset/src/preset-installation.ts#assertInstallDirectory"
+          }
+        ],
+        "order": 23
+      },
+      {
+        "id": "preset/src/preset-package.ts#decodePackage",
+        "symbol": "packages/preset/src/preset-package.ts#validatePackagePolicy",
+        "explain": "decodePackage: Preset package declaration and action capability decoding.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-package.ts#validatePackagePolicy:ad1084cb50bdd4f6f76bc03db85a13da",
+            "route": "packages/preset/src/preset-package.ts#validatePackagePolicy"
+          }
+        ],
+        "order": 24
+      },
+      {
+        "id": "preset/src/preset-process-service.ts#PresetRunStartInput",
+        "symbol": "packages/preset/src/preset-process-service.ts#validateInputs",
+        "explain": "PresetRunStartInput: Script entrypoint input schema; process admission remains with its existing owner.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-process-service.ts#validateInputs:171c55512d98dbce9d2b15af4f2ec068",
+            "route": "packages/preset/src/preset-process-service.ts#validateInputs"
+          }
+        ],
+        "order": 25
+      },
+      {
+        "id": "preset/src/preset-repository-scaffold.ts#RepositoryScaffoldPlan",
+        "symbol": "packages/preset/src/preset-repository-scaffold.ts#assertRepositoryScaffoldPlanCurrent",
+        "explain": "RepositoryScaffoldPlan: Filesystem plan freshness check before materialization.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-repository-scaffold.ts#assertRepositoryScaffoldPlanCurrent:763221cadb82443870f8225d56464685",
+            "route": "packages/preset/src/preset-repository-scaffold.ts#assertRepositoryScaffoldPlanCurrent"
+          }
+        ],
+        "order": 26
+      },
+      {
+        "id": "preset/src/preset-resolver-common.ts#assertSupportedScriptInterpreter",
+        "symbol": "packages/preset/src/preset-resolver-common.ts#assertSupportedScriptInterpreter",
+        "explain": "assertSupportedScriptInterpreter: Interpreter declaration grammar at package decode.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-resolver-common.ts#assertSupportedScriptInterpreter:c9354940964e0a1a9c588af8959ac3ff",
+            "route": "packages/preset/src/preset-resolver-common.ts#assertSupportedScriptInterpreter"
+          }
+        ],
+        "order": 27
+      },
+      {
+        "id": "preset/src/preset-validation.ts#validatePresetPackage.validatePresetPackage",
+        "symbol": "packages/preset/src/preset-validation.ts#validatePresetPackage",
+        "explain": "validatePresetPackage: Validation report orchestration over the existing preset decoders.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-validation.ts#validatePresetPackage:a528b7ff73b82b856cc67b575731c011",
+            "route": "packages/preset/src/preset-validation.ts#validatePresetPackage"
+          }
+        ],
+        "order": 28
+      },
+      {
+        "id": "preset/src/preset-validation.ts#validatePresetPackage.validateVerticalSource",
+        "symbol": "packages/preset/src/preset-validation.ts#validateVerticalSource",
+        "explain": "validatePresetPackage: Validation report orchestration over the existing preset decoders.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-validation.ts#validateVerticalSource:b0b6cc863d1735732e42c2efaa33ebcb",
+            "route": "packages/preset/src/preset-validation.ts#validateVerticalSource"
+          }
+        ],
+        "order": 29
+      },
+      {
+        "id": "preset/src/preset.contract.ts#PresetManifestV3.validatePresetDocumentV1",
+        "symbol": "packages/preset/src/preset.contract.ts#validatePresetDocumentV1",
+        "explain": "PresetManifestV3: Manifest, document, snapshot and run receipt wire codecs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset.contract.ts#validatePresetDocumentV1:c5c57d13f1e9fe5a92abd5f3e42c2863",
+            "route": "packages/preset/src/preset.contract.ts#validatePresetDocumentV1"
+          }
+        ],
+        "order": 31
+      },
+      {
+        "id": "preset/src/preset.contract.ts#PresetManifestV3.validatePresetManifestV3",
+        "symbol": "packages/preset/src/preset.contract.ts#validatePresetManifestV3",
+        "explain": "PresetManifestV3: Manifest, document, snapshot and run receipt wire codecs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset.contract.ts#validatePresetManifestV3:657fb4679d2697a7d44878e05a4d763b",
+            "route": "packages/preset/src/preset.contract.ts#validatePresetManifestV3"
+          }
+        ],
+        "order": 30
+      },
+      {
+        "id": "preset/src/preset.contract.ts#PresetManifestV3.validatePresetRunReceiptV1",
+        "symbol": "packages/preset/src/preset.contract.ts#validatePresetRunReceiptV1",
+        "explain": "PresetManifestV3: Manifest, document, snapshot and run receipt wire codecs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset.contract.ts#validatePresetRunReceiptV1:ff11a5fd797f6d61c606f4a6275379f1",
+            "route": "packages/preset/src/preset.contract.ts#validatePresetRunReceiptV1"
+          }
+        ],
+        "order": 33
+      },
+      {
+        "id": "preset/src/preset.contract.ts#PresetManifestV3.validatePresetSnapshotV1",
+        "symbol": "packages/preset/src/preset.contract.ts#validatePresetSnapshotV1",
+        "explain": "PresetManifestV3: Manifest, document, snapshot and run receipt wire codecs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset.contract.ts#validatePresetSnapshotV1:9a537d3ae75637e0447842c4f36d3a51",
+            "route": "packages/preset/src/preset.contract.ts#validatePresetSnapshotV1"
+          }
+        ],
+        "order": 32
+      }
+    ],
+    "judgments": []
+  }
+}

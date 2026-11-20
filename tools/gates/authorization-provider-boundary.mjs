@@ -134,9 +134,6 @@ export function checkAuthorizationProviderBoundary(rootDir) {
   const today = new Date().toISOString().slice(0, 10);
   const fingerprints = allowlist.entries.lineFingerprints ?? [];
   const snapshot = loadOntologyClosureSnapshot(rootDir);
-  const actionSourceFacets = JSON.parse(
-    readFileSync(path.join(rootDir, "packages/kernel/src/domain/action-source-facets.json"), "utf8"),
-  );
   const sourceReferences = new Set([
     ...snapshot.kinds.flatMap((kind) => [
       ...(kind.judgments ?? []).flatMap((row) => [
@@ -157,12 +154,9 @@ export function checkAuthorizationProviderBoundary(rootDir) {
       ]),
     ]),
     ...snapshot.actions.flatMap((action) =>
-      (action.ontology?.sources ?? []).flatMap((source) => [source.candidateId, source.route]),
-    ),
-    ...Object.values(actionSourceFacets).flatMap((facet) =>
-      (facet.sources ?? [])
-        .filter((source) => ["technical-port", "client"].includes(source.role))
-        .map((source) => source.port),
+      (action.ontology?.sources ?? []).flatMap(({ candidateId, route, role, port }) =>
+        role === "technical-port" || role === "client" ? [candidateId, route, port] : [candidateId, route],
+      ),
     ),
   ]);
   return [

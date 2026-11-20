@@ -1,0 +1,2084 @@
+{
+  "actions": {
+    "access-manage": {
+      "owner": "access",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      },
+      "execution": {
+        "ingress": "access-manage",
+        "read": false
+      }
+    },
+    "access-password-change": {
+      "owner": "access",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      },
+      "execution": {
+        "ingress": "access-password-change",
+        "read": false
+      }
+    },
+    "agent-assign": {
+      "owner": "agent"
+    },
+    "agent-delete": {
+      "owner": "agent"
+    },
+    "agent-install": {
+      "owner": "agent"
+    },
+    "agent-retire": {
+      "owner": "agent"
+    },
+    "assignment-migrate": {
+      "owner": "relation"
+    },
+    "cli-local-effects": {
+      "owner": "cli",
+      "authority": "local-process",
+      "entries": {
+        "cli:ha": {
+          "file": "packages/cli/src/index.ts",
+          "bin": "ha"
+        }
+      },
+      "execution": {
+        "ingress": "cli:ha",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "caller-process"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "caller-process",
+          "refTemplate": "process:{pid}/owned-output"
+        }
+      },
+      "technical": true
+    },
+    "daemon-connection-add": {
+      "owner": "daemon",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      },
+      "execution": {
+        "ingress": "daemon-connection-add",
+        "read": false
+      }
+    },
+    "daemon-connection-probe": {
+      "owner": "daemon",
+      "execution": {
+        "ingress": "daemon-connection-probe",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      }
+    },
+    "daemon-connection-remove": {
+      "owner": "daemon",
+      "execution": {
+        "ingress": "daemon-connection-remove",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      }
+    },
+    "daemon-connection-update": {
+      "owner": "daemon",
+      "execution": {
+        "ingress": "daemon-connection-update",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      }
+    },
+    "daemon-control-request": {
+      "owner": "daemon",
+      "execution": {
+        "ingress": "daemon-control-request",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      }
+    },
+    "daemon-fleet-center-start": {
+      "owner": "daemon",
+      "execution": {
+        "ingress": "daemon-fleet-center-start",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      }
+    },
+    "daemon-fleet-edge-sync": {
+      "owner": "daemon"
+    },
+    "daemon-local-state": {
+      "owner": "daemon",
+      "authority": "local-process",
+      "entries": {
+        "daemon:bin": {
+          "file": "packages/daemon/src/daemon-host/bin.ts",
+          "bin": "harness-anything-daemon",
+          "builder": "packages/daemon/scripts/copy-assets.mjs"
+        }
+      },
+      "execution": {
+        "ingress": "daemon:bin",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "daemon-host",
+          "refTemplate": "node:{nodeId}/local-state"
+        }
+      },
+      "technical": true
+    },
+    "daemon-node-auto-claim": {
+      "owner": "daemon"
+    },
+    "daemon-repo-register": {
+      "owner": "daemon",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      },
+      "execution": {
+        "ingress": "daemon-repo-register",
+        "read": false
+      }
+    },
+    "daemon-repo-update": {
+      "owner": "daemon",
+      "execution": {
+        "ingress": "daemon-repo-update",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      }
+    },
+    "daemon-start": {
+      "execution": {
+        "ingress": "daemon-start",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      },
+      "owner": "daemon"
+    },
+    "daemon-stop": {
+      "owner": "daemon",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      },
+      "execution": {
+        "ingress": "daemon-stop",
+        "read": false
+      }
+    },
+    "decision-accept": {
+      "owner": "decision"
+    },
+    "decision-amend": {
+      "owner": "decision"
+    },
+    "decision-claim-add": {
+      "owner": "decision"
+    },
+    "decision-claim-fulfill": {
+      "owner": "decision"
+    },
+    "decision-defer": {
+      "owner": "decision"
+    },
+    "decision-dispatch-review": {
+      "owner": "decision"
+    },
+    "decision-override-review": {
+      "owner": "decision"
+    },
+    "decision-propose": {
+      "owner": "decision"
+    },
+    "decision-reckon": {
+      "owner": "decision"
+    },
+    "decision-reject": {
+      "owner": "decision"
+    },
+    "decision-repin": {
+      "owner": "decision"
+    },
+    "decision-respond-review": {
+      "owner": "decision"
+    },
+    "decision-retire": {
+      "owner": "decision"
+    },
+    "decision-transition": {
+      "owner": "decision"
+    },
+    "distill-candidate": {
+      "owner": "distill",
+      "execution": {
+        "ingress": "distill-candidate",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      }
+    },
+    "distill-promote": {
+      "owner": "fact"
+    },
+    "doc-materialize": {
+      "owner": "document",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      },
+      "execution": {
+        "ingress": "doc-materialize",
+        "read": false
+      }
+    },
+    "doc-retire": {
+      "owner": "document"
+    },
+    "doc-submit": {
+      "owner": "document"
+    },
+    "entity-archive": {
+      "owner": "entity"
+    },
+    "entity-delete": {
+      "owner": "entity"
+    },
+    "entity-import": {
+      "owner": "entity"
+    },
+    "entity-pin": {
+      "owner": "entity"
+    },
+    "entity-unpin": {
+      "owner": "entity"
+    },
+    "entity-update": {
+      "owner": "entity"
+    },
+    "fact-archive": {
+      "owner": "fact"
+    },
+    "fact-reclassify": {
+      "owner": "fact"
+    },
+    "fact-record": {
+      "owner": "fact"
+    },
+    "fact-type-register": {
+      "owner": "fact"
+    },
+    "fleet-overview-read": {
+      "owner": "fleet",
+      "execution": {
+        "ingress": "fleet-overview-read",
+        "read": true
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "canonical-ledger-cut"
+        },
+        "leasePolicy": {
+          "authority": "center-repo-cell"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "operation-id"
+        },
+        "artifactOwnership": {
+          "owner": "canonical",
+          "refTemplate": "center-repo-cell"
+        }
+      }
+    },
+    "ledger-backup": {
+      "owner": "ledger",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      },
+      "execution": {
+        "ingress": "ledger-backup",
+        "read": false
+      }
+    },
+    "ledger-restore-drill": {
+      "owner": "ledger",
+      "execution": {
+        "ingress": "ledger-restore-drill",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      }
+    },
+    "migrate-import": {
+      "owner": "migration"
+    },
+    "migrate-storage": {
+      "owner": "storage",
+      "authority": "local-process",
+      "entries": {
+        "daemon:bin": {
+          "file": "packages/daemon/src/daemon-host/bin.ts",
+          "bin": "harness-anything-daemon",
+          "builder": "packages/daemon/scripts/copy-assets.mjs"
+        }
+      },
+      "execution": {
+        "ingress": "daemon:bin",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "caller-process"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "caller-process",
+          "refTemplate": "process:{pid}/owned-output"
+        }
+      }
+    },
+    "package-assets-build": {
+      "owner": "distribution",
+      "authority": "package-script",
+      "entries": {
+        "npm:cli:build": {
+          "file": "packages/cli/scripts/copy-assets.mjs",
+          "script": "build"
+        },
+        "npm:preset:build": {
+          "file": "packages/preset/scripts/copy-assets.mjs",
+          "script": "build:publish"
+        },
+        "npm:gui:build": {
+          "file": "packages/gui/scripts/write-build-id.mjs",
+          "script": "build"
+        },
+        "npm:daemon:build": {
+          "file": "packages/daemon/scripts/copy-assets.mjs",
+          "script": "build"
+        }
+      },
+      "execution": {
+        "ingress": "npm:build",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "caller-process"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "caller-process",
+          "refTemplate": "process:{pid}/owned-output"
+        }
+      },
+      "technical": true
+    },
+    "people-delegate": {
+      "owner": "people"
+    },
+    "preset-convert-local": {
+      "owner": "preset",
+      "authority": "local-process",
+      "entries": {
+        "daemon:bin": {
+          "file": "packages/daemon/src/daemon-host/bin.ts",
+          "bin": "harness-anything-daemon",
+          "builder": "packages/daemon/scripts/copy-assets.mjs"
+        }
+      },
+      "execution": {
+        "ingress": "daemon:bin",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "caller-process"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "caller-process",
+          "refTemplate": "process:{pid}/owned-output"
+        }
+      },
+      "technical": true
+    },
+    "preset-install": {
+      "owner": "preset",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      },
+      "execution": {
+        "ingress": "preset-install",
+        "read": false
+      }
+    },
+    "preset-run-start": {
+      "owner": "preset",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "runtime-host"
+        },
+        "occurrenceClaim": {
+          "authority": "preset-run-id"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "runtime-local",
+          "refTemplate": "preset-run/{runId}"
+        }
+      },
+      "execution": {
+        "ingress": "preset-run-start",
+        "read": false
+      }
+    },
+    "preset-seed": {
+      "owner": "preset",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      },
+      "execution": {
+        "ingress": "preset-seed",
+        "read": false
+      }
+    },
+    "preset-uninstall": {
+      "owner": "preset",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      },
+      "execution": {
+        "ingress": "preset-uninstall",
+        "read": false
+      }
+    },
+    "preset-upgrade": {
+      "owner": "task"
+    },
+    "projection-rebuild": {
+      "execution": {
+        "ingress": "daemon-projection-rebuild",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      },
+      "owner": "projection"
+    },
+    "provider-create": {
+      "owner": "provider",
+      "execution": {
+        "ingress": "provider-create",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      }
+    },
+    "provider-delete": {
+      "owner": "provider",
+      "execution": {
+        "ingress": "provider-delete",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      }
+    },
+    "provider-list": {
+      "owner": "provider",
+      "execution": {
+        "ingress": "provider-list",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      }
+    },
+    "provider-probe": {
+      "owner": "provider",
+      "execution": {
+        "ingress": "provider-probe",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      }
+    },
+    "provider-show": {
+      "owner": "provider",
+      "execution": {
+        "ingress": "provider-show",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      }
+    },
+    "provider-update": {
+      "owner": "provider",
+      "execution": {
+        "ingress": "provider-update",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      }
+    },
+    "rbac-bootstrap": {
+      "owner": "rbac",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      },
+      "execution": {
+        "ingress": "rbac-bootstrap",
+        "read": false
+      }
+    },
+    "relation-reconfirm": {
+      "owner": "relation"
+    },
+    "relation-relate": {
+      "owner": "relation"
+    },
+    "relation-unrelate": {
+      "owner": "relation"
+    },
+    "repo-bootstrap": {
+      "owner": "repository",
+      "execution": {
+        "ingress": "repo-bootstrap",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      }
+    },
+    "repo-purge": {
+      "owner": "repository",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      },
+      "execution": {
+        "ingress": "repo-purge",
+        "read": false
+      }
+    },
+    "repo-unbind": {
+      "owner": "repository",
+      "execution": {
+        "ingress": "repo-unbind",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      }
+    },
+    "repository-read": {
+      "owner": "repository",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "canonical-ledger-cut"
+        },
+        "leasePolicy": {
+          "authority": "center-repo-cell"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "operation-id"
+        },
+        "artifactOwnership": {
+          "owner": "canonical",
+          "refTemplate": "center-repo-cell"
+        }
+      },
+      "execution": {
+        "ingress": "repository-read",
+        "read": true
+      }
+    },
+    "runtime-cancel": {
+      "owner": "runtime-session",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "runtime-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "runtime-local",
+          "refTemplate": "runtime-host"
+        }
+      },
+      "execution": {
+        "ingress": "runtime-cancel",
+        "read": false
+      }
+    },
+    "runtime-handoff-claim": {
+      "owner": "runtime-session",
+      "execution": {
+        "ingress": "runtime-handoff-claim",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      }
+    },
+    "runtime-handoff-export": {
+      "owner": "runtime-session",
+      "execution": {
+        "ingress": "runtime-handoff-export",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      }
+    },
+    "runtime-handoff-revoke": {
+      "owner": "runtime-session",
+      "execution": {
+        "ingress": "runtime-handoff-revoke",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      }
+    },
+    "runtime-incident-dismiss": {
+      "owner": "runtime-session",
+      "execution": {
+        "ingress": "runtime-incident-dismiss",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "incident-receipt-state"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "incident-disposition-claim"
+        },
+        "idempotency": {
+          "authority": "dispatch-disposition"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "dispatch/{dispatchId}"
+        }
+      }
+    },
+    "runtime-instance-create": {
+      "owner": "runtime-instance"
+    },
+    "runtime-instance-delete": {
+      "owner": "runtime-instance"
+    },
+    "runtime-instance-hosting-credential-set": {
+      "owner": "runtime",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "runtime-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "runtime-local",
+          "refTemplate": "runtime-host"
+        }
+      },
+      "execution": {
+        "ingress": "runtime-instance-hosting-credential-set",
+        "read": false
+      }
+    },
+    "runtime-instance-hosting-credential-unset": {
+      "owner": "runtime",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "runtime-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "runtime-local",
+          "refTemplate": "runtime-host"
+        }
+      },
+      "execution": {
+        "ingress": "runtime-instance-hosting-credential-unset",
+        "read": false
+      }
+    },
+    "runtime-instance-list": {
+      "owner": "runtime-instance",
+      "execution": {
+        "ingress": "runtime-instance-list",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "runtime-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "runtime-local",
+          "refTemplate": "runtime-host"
+        }
+      }
+    },
+    "runtime-instance-login": {
+      "owner": "runtime-instance",
+      "execution": {
+        "ingress": "runtime-instance-login",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "runtime-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "runtime-local",
+          "refTemplate": "runtime-host"
+        }
+      }
+    },
+    "runtime-instance-logout": {
+      "owner": "runtime-instance",
+      "execution": {
+        "ingress": "runtime-instance-logout",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "runtime-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "runtime-local",
+          "refTemplate": "runtime-host"
+        }
+      }
+    },
+    "runtime-instance-show": {
+      "owner": "runtime-instance",
+      "execution": {
+        "ingress": "runtime-instance-show",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "runtime-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "runtime-local",
+          "refTemplate": "runtime-host"
+        }
+      }
+    },
+    "runtime-instance-update": {
+      "owner": "runtime-instance"
+    },
+    "runtime-run": {
+      "owner": "runtime-session"
+    },
+    "runtime-spawn": {
+      "owner": "runtime-session",
+      "execution": {
+        "ingress": "runtime-spawn",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "runtime-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "runtime-local",
+          "refTemplate": "runtime-host"
+        }
+      }
+    },
+    "runtime-steer": {
+      "owner": "runtime-session",
+      "execution": {
+        "ingress": "runtime-steer",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "runtime-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "runtime-local",
+          "refTemplate": "runtime-host"
+        }
+      }
+    },
+    "schedule-create": {
+      "owner": "schedule"
+    },
+    "schedule-delete": {
+      "owner": "schedule"
+    },
+    "schedule-disable": {
+      "owner": "schedule"
+    },
+    "schedule-dispatch-link": {
+      "owner": "schedule"
+    },
+    "schedule-enable": {
+      "owner": "schedule"
+    },
+    "schedule-missed": {
+      "owner": "schedule"
+    },
+    "schedule-run-now": {
+      "owner": "schedule"
+    },
+    "schedule-settle": {
+      "owner": "schedule"
+    },
+    "schedule-update": {
+      "owner": "schedule"
+    },
+    "script-run": {
+      "owner": "script-execution",
+      "scriptManifest": "packages/preset/assets/software-coding/vertical.json"
+    },
+    "settings-update": {
+      "owner": "settings"
+    },
+    "squad-cancel": {
+      "owner": "squad"
+    },
+    "squad-delete": {
+      "owner": "squad"
+    },
+    "squad-install": {
+      "owner": "squad"
+    },
+    "squad-run": {
+      "owner": "squad"
+    },
+    "task-amend": {
+      "owner": "task"
+    },
+    "task-annotate": {
+      "owner": "task"
+    },
+    "task-archive": {
+      "owner": "task"
+    },
+    "task-artifact-add": {
+      "owner": "task"
+    },
+    "task-assign": {
+      "owner": "task"
+    },
+    "task-attest": {
+      "owner": "task"
+    },
+    "task-complete": {
+      "owner": "task"
+    },
+    "task-contract-migrate": {
+      "owner": "task"
+    },
+    "task-create": {
+      "owner": "task"
+    },
+    "task-declare-executor": {
+      "owner": "task"
+    },
+    "task-delete": {
+      "owner": "task"
+    },
+    "task-dispatch-review": {
+      "owner": "task"
+    },
+    "task-escalation-resolve": {
+      "owner": "task"
+    },
+    "task-progress-append": {
+      "owner": "task"
+    },
+    "task-release": {
+      "owner": "task"
+    },
+    "task-reopen": {
+      "owner": "task"
+    },
+    "task-review-consent": {
+      "owner": "task"
+    },
+    "task-review-execution": {
+      "owner": "task"
+    },
+    "task-rework": {
+      "owner": "task"
+    },
+    "task-start": {
+      "owner": "task"
+    },
+    "task-submit": {
+      "owner": "task"
+    },
+    "task-supersede": {
+      "owner": "task"
+    },
+    "task-transition": {
+      "owner": "task"
+    },
+    "task-unassign": {
+      "owner": "task"
+    },
+    "task-witness-rerun": {
+      "owner": "task"
+    },
+    "task-witness-run": {
+      "owner": "task"
+    },
+    "terminal-input": {
+      "owner": "terminal",
+      "execution": {
+        "ingress": "terminal-input",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "runtime-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "runtime-local",
+          "refTemplate": "runtime-host"
+        }
+      }
+    },
+    "terminal-resize": {
+      "owner": "terminal",
+      "execution": {
+        "ingress": "terminal-resize",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "runtime-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "runtime-local",
+          "refTemplate": "runtime-host"
+        }
+      }
+    },
+    "terminal-spawn": {
+      "owner": "terminal",
+      "execution": {
+        "ingress": "terminal-spawn",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "runtime-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "runtime-local",
+          "refTemplate": "runtime-host"
+        }
+      }
+    },
+    "terminal-terminate": {
+      "owner": "terminal",
+      "execution": {
+        "ingress": "terminal-terminate",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "runtime-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "runtime-local",
+          "refTemplate": "runtime-host"
+        }
+      }
+    },
+    "todo-add": {
+      "owner": "todo"
+    },
+    "todo-archive": {
+      "owner": "todo"
+    },
+    "todo-done": {
+      "owner": "todo"
+    },
+    "todo-promote": {
+      "owner": "todo"
+    },
+    "todo-relate": {
+      "owner": "todo"
+    },
+    "todo-reopen": {
+      "owner": "todo"
+    },
+    "vertical-declaration-migrate": {
+      "owner": "vertical-declaration"
+    },
+    "vertical-kind-publish-schema": {
+      "owner": "vertical"
+    },
+    "vertical-kind-retire": {
+      "owner": "vertical"
+    },
+    "vertical-kind-upsert": {
+      "owner": "vertical-declaration"
+    }
+  },
+  "sources": {
+    "access-manage": [
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/policy-groups.ts#assertAcyclicPolicyGroups.visit:7807a0e94b23574aa2522a8559e81c6e",
+        "route": "node-unregister",
+        "role": "support",
+        "order": 0
+      }
+    ],
+    "agent-assign": [
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/assignment-action-contract.ts#assignmentActionCompiler:bb9f151dcd5bdbdcf7a91d30887a9249",
+        "route": "agent-assign",
+        "role": "support",
+        "order": 2
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/assignment-action-contract.ts#subjectRef:ac227bf139ed834423171041a0db1259",
+        "route": "agent-assign",
+        "role": "support",
+        "order": 1
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/assignment-action-contract.ts#targetRef:a40f6cadd19ac254821e84e1bfb467f4",
+        "route": "agent-assign",
+        "role": "support",
+        "order": 0
+      }
+    ],
+    "agent-retire": [
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/agent-action-contract.ts#agentCriterionError.attributed:3a3001f8ae03125888fc1c0cfc3db357",
+        "route": "agent-retire",
+        "role": "support",
+        "order": 3
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/agent-action-contract.ts#agentCriterionError:c8274bba014f1045c705d06594560238",
+        "route": "agent-retire",
+        "role": "support",
+        "order": 4
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/agent-action-contract.ts#compileAgentRetireAction:0cfb2c9886f93f3ea6b4439b823ed8aa",
+        "route": "agent-retire",
+        "role": "support",
+        "order": 1
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/agent-action-contract.ts#compileAgentRetireAction:440d237e876b1ad8c0a39be06331c9b0",
+        "route": "agent-retire",
+        "role": "support",
+        "order": 2
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/agent-action-contract.ts#compileAgentRetireAction:4c7a3d2c41e53e97705fb6cc5809681f",
+        "route": "agent-retire",
+        "role": "support",
+        "order": 0
+      }
+    ],
+    "assignment-migrate": [
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/assignment-migration.ts#migrateTaskAssignments:8cf5888fc146d89e61d1b9bb9978d46b",
+        "route": "assignment-migrate",
+        "role": "support",
+        "order": 0
+      }
+    ],
+    "daemon-connection-add": [
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/daemon/registry.ts#remoteEndpointConnectionId:496e3eecd616f2dae1ac60b975384638",
+        "route": "daemon-connection-add",
+        "role": "support",
+        "order": 0
+      }
+    ],
+    "daemon-local-state": [
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/daemon/registry.ts#removeConvenienceLink:2602aaec206a89b38caaa7692e65a402",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
+        "order": 8
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/daemon/registry.ts#writeDaemonRegistry:3693aa0a954e4b5a4374158a526edc94",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync",
+        "order": 6
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/daemon/registry.ts#writeDaemonRegistry:83f636c16d98abd4813994d8dbdc64dc",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
+        "order": 7
+      }
+    ],
+    "daemon-repo-register": [
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/daemon/registry.ts#generateRepoId.suffix:1457d2df9527decf253c8fc0f29b3f57",
+        "route": "daemon-repo-register",
+        "role": "support",
+        "order": 0
+      }
+    ],
+    "doc-submit": [
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/authored-document.ts#replayError:794c7d1baab8d8cfc0f6ac34c1c3d7e9",
+        "route": "doc-sync-submit",
+        "role": "support",
+        "order": 0
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/transition-document-readiness.ts#transitionDocumentAccessLikeError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "doc-sync-submit",
+        "role": "support",
+        "order": 1
+      }
+    ],
+    "ledger-backup": [
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/local/local-layout-file-system.ts#localLedgerBackupFileSystem.remove:7dc766d5b1c412a2c5c94b5b2a7fcefa",
+        "route": "ledger-backup",
+        "role": "effect",
+        "order": 0
+      }
+    ],
+    "migrate-storage": [
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/local/local-layout-file-system.ts#localContentObjectFileSystem.replaceMany:a3b817611f2e76f6806c8312bba1c505",
+        "route": "daemon:bin",
+        "role": "effect",
+        "order": 2
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/local/local-layout-file-system.ts#localRuntimeStateFileSystem.createExclusiveText:c2082a12c1caf339f4242f5fff206552",
+        "route": "daemon:bin",
+        "role": "effect",
+        "order": 0
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/local/local-layout-file-system.ts#localRuntimeStateFileSystem.remove:de2c49f5c21a7f85a0f16f0f0dd2b92b",
+        "route": "daemon:bin",
+        "role": "effect",
+        "order": 1
+      }
+    ],
+    "relation-relate": [
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/relation-cycle.ts#findRelationCycleWitnesses:387d06c1643164ccef0f92e5b8a11617",
+        "route": "relation-relate",
+        "role": "support",
+        "order": 0
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/relation-event.ts#assertRelationAdmission:fce1313ac5f90023536bd5aab7ed5fd5",
+        "route": "relation-relate",
+        "role": "support",
+        "order": 1
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/relation-event.ts#relationAdmissionError:c7276d09bcd9207af88027c3719f181d",
+        "route": "relation-relate",
+        "role": "support",
+        "order": 2
+      }
+    ],
+    "repository-read": [
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/composition/receipt-acceptance.ts#waitForReceiptAcceptance.evaluate:cdcc6f3da464d7c0692005c7e58b1eac",
+        "route": "repository-read",
+        "role": "support",
+        "order": 20
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/composition/receipt-acceptance.ts#waitForReceiptAcceptance:1c2d7a9fa4c243108863f59bf2a988b8",
+        "route": "repository-read",
+        "role": "support",
+        "order": 19
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/composition/receipt-acceptance.ts#waitForReceiptAcceptance:89b5836d597147e646388532ec1aee04",
+        "route": "repository-read",
+        "role": "support",
+        "order": 18
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/artifact-entity.ts#canonicalArtifactUrl:d1bdf47632d5458de2ad7dfd41a88a89",
+        "route": "repository-read",
+        "role": "support",
+        "order": 21
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/entity-action-descriptor.ts#predicateToWhen:2b5cdefde36ec35ccd36cbb40f9814b3",
+        "route": "repository-read",
+        "role": "support",
+        "order": 22
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/entity-action-execution.ts#invalid:914517609d68bfa9d2ce5f4b20d47878",
+        "route": "repository-read",
+        "role": "support",
+        "order": 23
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/entity-kind-registry.ts#entityDocumentPath:1b532a6f9784d3e4cc75094f3b429311",
+        "route": "repository-read",
+        "role": "support",
+        "order": 26
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/entity-kind-registry.ts#requireEntityKindContract:43a985c090b2abf7215f02c0e4e3d51c",
+        "route": "repository-read",
+        "role": "support",
+        "order": 24
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/entity-kind-registry.ts#requireEntityStoreKindContract:cf12961cb8eb0de09d54434fe10dce31",
+        "route": "repository-read",
+        "role": "support",
+        "order": 25
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/schedule.ts#projectScheduleHistory.status.activeRun:2125e8d99abf9d0ceecd1293fbf40622",
+        "route": "repository-read",
+        "role": "support",
+        "order": 27
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/schedule.ts#projectScheduleHistory.status.lastRun:1a1e56fe8dc07b585554b1ac2a3844c4",
+        "route": "repository-read",
+        "role": "support",
+        "order": 28
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/task-blocking.ts#findCycleNodes.visit:7f29ad75524104b5c8d7386d7bf15338",
+        "route": "repository-read",
+        "role": "support",
+        "order": 29
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/write-chain.contract.ts#sameWriteTargets:10daf70335995703bbe5748c1c2e9e0a",
+        "route": "repository-read",
+        "role": "support",
+        "order": 30
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/integrity/stable-hash.ts#sha256Bytes:b46bd6134bb1a6e160a70fe1b0801eba",
+        "route": "repository-read",
+        "role": "support",
+        "order": 32
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/integrity/stable-hash.ts#sha256Text:5ea63ad6432789160ef1a2902c1ee081",
+        "route": "repository-read",
+        "role": "support",
+        "order": 31
+      }
+    ],
+    "runtime-run": [
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/execution-delegation.ts#invalid:9c488e6e4be306eebee2037df1754b78",
+        "route": "runtime-run",
+        "role": "support",
+        "order": 1
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/runtime-session-action-contract.ts#invalidRuntimeSessionAction.error:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "runtime-run",
+        "role": "support",
+        "order": 2
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/ports/runtime-execution-credential.ts#executionCredentialRejected:f6adfe894c0a4c63cbd374f09013d440",
+        "route": "runtime-run",
+        "role": "support",
+        "order": 3
+      }
+    ],
+    "schedule-create": [
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/schedule-action-contract.ts#reject:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "schedule-create",
+        "role": "support",
+        "order": 0
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/schedule-action-contract.ts#rejectCriterion:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "schedule-create",
+        "role": "support",
+        "order": 1
+      }
+    ],
+    "script-run": [
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/gate-run.ts#gateRunError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "script-run",
+        "role": "support",
+        "order": 0
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/skill-eval-gate.ts#skillEvalError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "script-run",
+        "role": "support",
+        "order": 1
+      }
+    ],
+    "squad-run": [
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/squad-action-contract.ts#squadCriterionError.attributed:3a3001f8ae03125888fc1c0cfc3db357",
+        "route": "squad-run",
+        "role": "support",
+        "order": 0
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/squad-action-contract.ts#squadCriterionError:c8274bba014f1045c705d06594560238",
+        "route": "squad-run",
+        "role": "support",
+        "order": 1
+      }
+    ],
+    "task-transition": [
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/task-action-state-transition.ts#stateTransition:91ca8ff68c6c1c8082f07ccc43684d9b",
+        "route": "task-transition",
+        "role": "support",
+        "order": 0
+      }
+    ],
+    "vertical-kind-upsert": [
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/artifact-action-declarations.ts#registerArtifactActionDeclarations:9909893928bfeb0ddb9f946ff5f99362",
+        "route": "vertical-kind-upsert",
+        "role": "support",
+        "order": 0
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/vertical-contract.ts#acceptVerticalRegistryCandidate:386a73e3378e5d0c5683124e19e992d6",
+        "route": "vertical-kind-upsert",
+        "role": "support",
+        "order": 1
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/vertical-declaration.ts#verticalError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "vertical-kind-upsert",
+        "role": "support",
+        "order": 2
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/schemas/vertical-definition.ts#decodeVerticalDefinition:8d10cde3f1fda028edeb2fc46e682f4f",
+        "route": "vertical-kind-upsert",
+        "role": "support",
+        "order": 3
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/schemas/vertical-definition.ts#outdatedVerticalDeclaration:a9fdcb6734340958b6e5ec1bb16b2ec0",
+        "route": "vertical-kind-upsert",
+        "role": "support",
+        "order": 4
+      }
+    ]
+  }
+}

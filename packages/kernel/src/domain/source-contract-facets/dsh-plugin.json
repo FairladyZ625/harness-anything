@@ -1,0 +1,19 @@
+{
+  "host": {
+    "contracts": [
+      {
+        "id": "dsh-plugin/src/client.ts#BrokerResponse",
+        "symbol": "packages/dsh-plugin/src/client.ts#isBrokerResponse",
+        "explain": "BrokerResponse: DSH broker response decoding.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/dsh-plugin:packages/dsh-plugin/src/client.ts#isBrokerResponse:9020a24b92256f57a8b812b45bc5329f",
+            "route": "packages/dsh-plugin/src/client.ts#isBrokerResponse"
+          }
+        ],
+        "order": 21
+      }
+    ],
+    "judgments": []
+  }
+}

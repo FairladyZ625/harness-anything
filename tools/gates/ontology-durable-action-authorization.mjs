@@ -284,9 +284,8 @@ export async function loadAuthorizationInputs(rootDir) {
   for (const [name, value] of Object.entries(kernel))
     (typeof value === "function" ? functions : constants)[name] = value;
   const actionDeclarations = withArtifactActionIngressDeclarations(
-    rootDir,
     kernel.actionDeclarations ?? [],
-    domainDeclarations?.artifactActionIngressKinds ?? kernel.artifactActionIngressKinds ?? [],
+    domainDeclarations?.artifactActionSourceDeclarations,
   );
   constants.actionDeclarations = actionDeclarations;
   constants.entityKindContracts = entityKinds?.entityKindContracts ?? [];

@@ -1,0 +1,72 @@
+{
+  "decision": {
+    "contracts": [
+      {
+        "id": "application/src/commands/decision-surface-actions.ts#validateDecisionPackages",
+        "symbol": "packages/application/src/commands/decision-surface-actions.ts#validateDecisionPackages",
+        "explain": "Repository scan adapter aggregating per-package `decision.md` frontmatter and projection parity diagnostics.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/application:packages/application/src/commands/decision-surface-actions.ts#validateDecisionPackages:716f3dfddac329d6340e8c0a98658329",
+            "route": "packages/application/src/commands/decision-surface-actions.ts#validateDecisionPackages"
+          }
+        ],
+        "order": 13
+      },
+      {
+        "id": "application/src/commands/decision-surface-actions.ts#validateOne",
+        "symbol": "packages/application/src/commands/decision-surface-actions.ts#validateOne",
+        "explain": "Single-package `decision.md` authored-file vs canonical Decision projection consistency inspector.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/application:packages/application/src/commands/decision-surface-actions.ts#validateOne:75ec792826972c8f8c4c29875b185939",
+            "route": "packages/application/src/commands/decision-surface-actions.ts#validateOne"
+          }
+        ],
+        "order": 14
+      },
+      {
+        "id": "application/src/decision-service.ts#DecisionService",
+        "symbol": "packages/application/src/decision-service.ts#makeDecisionService.coverage",
+        "explain": "DecisionService: Coverage projection readiness/error mapping; coverage itself is kernel-owned.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/application:packages/application/src/decision-service.ts#makeDecisionService.coverage:f7328ee042de80f6a96db86f14786c53",
+            "route": "packages/application/src/decision-service.ts#makeDecisionService.coverage"
+          }
+        ],
+        "order": 0
+      }
+    ],
+    "judgments": []
+  },
+  "task": {
+    "contracts": [
+      {
+        "id": "application/src/queries/work-topology-read.ts#assertSameCut",
+        "symbol": "packages/application/src/queries/work-topology-read.ts#assertSameCut",
+        "explain": "Projection watermark/sourceRevision consistency guard across paged `workTopologyFromProjection` index reads while preserving partial-status warnings.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/application:packages/application/src/queries/work-topology-read.ts#assertSameCut:241a4c20b06e16318968b63a54937320",
+            "route": "packages/application/src/queries/work-topology-read.ts#assertSameCut"
+          }
+        ],
+        "order": 54
+      },
+      {
+        "id": "application/src/task-lifecycle-service.ts#TaskLifecycleService",
+        "symbol": "packages/application/src/task-lifecycle-service.ts#assertWriteTargetDeclared",
+        "explain": "TaskLifecycleService: Frozen publication plan contract before calling an external writer.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/application:packages/application/src/task-lifecycle-service.ts#assertWriteTargetDeclared:6d6e54f96b487a102b48c78144a0f347",
+            "route": "packages/application/src/task-lifecycle-service.ts#assertWriteTargetDeclared"
+          }
+        ],
+        "order": 2
+      }
+    ],
+    "judgments": []
+  }
+}
