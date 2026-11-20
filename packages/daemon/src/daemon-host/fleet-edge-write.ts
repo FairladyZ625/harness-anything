@@ -1,6 +1,6 @@
 import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { randomUUID } from "node:crypto";
-import { runDaemonRetry } from "./daemon-retry.ts";
+import { exponentialBackoffMs, runDaemonRetry } from "./daemon-retry.ts";
 export { raceLifetime } from "./daemon-retry.ts";
 import { waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
 import {
@@ -37,8 +37,7 @@ const { edgeBackoffMinMs: BACKOFF_MIN_MS, edgeBackoffMaxMs: BACKOFF_MAX_MS } =
   daemonProtocolFleetPolicy.defaultValue.fleet;
 
 export function fleetEdgeBackoffMs(attempt: number): number {
-  const ceiling = Math.min(BACKOFF_MAX_MS, BACKOFF_MIN_MS * 2 ** attempt);
-  return Math.floor(Math.random() * ceiling) + 1;
+  return exponentialBackoffMs({ attempt, baseMs: BACKOFF_MIN_MS, maxMs: BACKOFF_MAX_MS });
 }
 
 function retryableEdgeError(error: unknown): boolean {

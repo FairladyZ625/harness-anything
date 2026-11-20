@@ -64,6 +64,7 @@ export interface RuntimeTerminalReplay {
 export interface RuntimeSpawnerContext {
   readonly dispatchState?: import("@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts").RuntimeInstanceDispatchState;
   readonly closed?: () => boolean;
+  readonly closeSignal?: AbortSignal;
   readonly input: RuntimeSpawnerInput;
   readonly requiredRuntimeStore: typeof requiredRuntimeStore;
   readonly requiredRuntimeProjection: typeof requiredRuntimeProjection;

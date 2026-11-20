@@ -2,6 +2,17 @@ import { setTimeout as delay } from "node:timers/promises";
 
 type Attempt<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: unknown };
 
+/** Single exponential full-jitter backoff calculator shared by daemon retry and fallback paths. */
+export function exponentialBackoffMs(options: {
+  readonly attempt: number;
+  readonly baseMs: number;
+  readonly maxMs: number;
+  readonly random?: number;
+}): number {
+  const ceiling = Math.min(Math.max(0, options.maxMs), Math.max(0, options.baseMs) * 2 ** Math.max(0, options.attempt));
+  return ceiling <= 0 ? 0 : Math.floor((options.random ?? Math.random()) * ceiling) + 1;
+}
+
 /** The callers declare retryable outcomes and a bounded delay, and own the operation identity. */
 export async function runDaemonRetry<T>(options: {
   readonly run: () => Promise<T>;

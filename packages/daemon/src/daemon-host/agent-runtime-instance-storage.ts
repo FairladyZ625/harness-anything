@@ -366,6 +366,8 @@ export function writeCodexConfig(
         : provider.requiresOpenAiAuth === undefined
           ? []
           : [`requires_openai_auth = ${provider.requiresOpenAiAuth}`]),
+      `request_max_retries = ${String(daemonRuntimePolicy.defaultValue.runtime.codexProviderRequestMaxRetries)}`,
+      `stream_max_retries = ${String(daemonRuntimePolicy.defaultValue.runtime.codexProviderStreamMaxRetries)}`,
       ...(headers
         ? [
             [

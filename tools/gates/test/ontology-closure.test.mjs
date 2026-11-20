@@ -1696,6 +1696,11 @@ test("daemon runtime Policy owns concrete defaults and consumers have no leaf bu
       windowsProcessGroupTimeoutMs: 15_000,
       continuationConclusionLimit: 8_192,
       outcomeRecheckMs: 5_000,
+      sameSessionFaultMaxRetries: 2,
+      sameSessionFaultBackoffBaseMs: 500,
+      sameSessionFaultBackoffMaxMs: 4_000,
+      codexProviderRequestMaxRetries: 4,
+      codexProviderStreamMaxRetries: 5,
       cloudDispatchRelay: {
         maxBodyBytes: 2 * 1024 * 1024,
         maxResponseBytes: 8 * 1024 * 1024,

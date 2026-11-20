@@ -290,6 +290,8 @@ export interface DispatchStreamWriter {
           readonly notBeforeAt: string;
           readonly waitStartedAt?: string;
           readonly nextProvider: { readonly instance: string; readonly model?: string };
+          readonly sameSessionResume?: boolean;
+          readonly providerSessionId?: string;
         }
       | { readonly state: "dispatched"; readonly nextDispatchId: string; readonly nextRuntimeSessionId: string }
       | { readonly state: "exhausted"; readonly reason: string },
@@ -743,6 +745,7 @@ export function readDispatchStream(
   readonly process: DispatchProcessState | null;
   readonly attemptOutcome: RuntimeAttemptOutcome | null;
   readonly terminalOutcome: DispatchTerminalOutcome | null;
+  readonly scheduledFallback: { readonly sameSessionResume?: boolean; readonly providerSessionId?: string } | null;
   /** The latest evidence-copy disposition; absent streams settle and compact as before. */
   readonly evidenceState: Exclude<OperationalStatus.DispatchEvidenceState, "not-required"> | null;
   readonly runtimeMetrics: RuntimeMetrics | null;
@@ -1042,6 +1045,7 @@ function summarizeDispatch(
     processState: DispatchProcessState | null = null,
     attemptOutcome: RuntimeAttemptOutcome | null = null,
     terminalOutcome: DispatchTerminalOutcome | null = null,
+    scheduledFallback: { readonly sameSessionResume?: boolean; readonly providerSessionId?: string } | null = null,
     evidenceState: "pending" | "stored" | null = null,
     runtimeMetrics: RuntimeMetrics | null = null,
     decisionActionRecord: DispatchStreamRecord | null = null;
@@ -1058,6 +1062,11 @@ function summarizeDispatch(
         exited: true,
       };
     if (record.kind === "attempt_outcome" && isRuntimeAttemptOutcome(record)) attemptOutcome = record;
+    if (record.kind === "fallback_state" && record.state === "scheduled")
+      scheduledFallback = {
+        ...(record.sameSessionResume === true ? { sameSessionResume: true } : {}),
+        ...(typeof record.providerSessionId === "string" ? { providerSessionId: record.providerSessionId } : {}),
+      };
     if (record.kind === "terminal_outcome" && isDispatchTerminalOutcome(record, header.runtimeSessionId))
       terminalOutcome = {
         payload: record.payload,
@@ -1084,6 +1093,7 @@ function summarizeDispatch(
     process: processState,
     attemptOutcome,
     terminalOutcome,
+    scheduledFallback,
     evidenceState,
     runtimeMetrics,
     decisionActionRecord,

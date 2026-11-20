@@ -407,7 +407,7 @@ test("Codex sidecar launch materializes the complete non-secret provider config 
     if (process.platform !== "win32") assert.equal(statSync(codexConfig).mode & 0o777, 0o600);
     assert.equal(
       text,
-      `model_provider = "codex_local_access"\nmodel_reasoning_effort = "xhigh"\nallow_login_shell = false\ncli_auth_credentials_store = "file"\n${process.platform === "win32" ? 'windows.sandbox = "unelevated"\n' : ""}\n[model_providers."codex_local_access"]\nname = "codex_local_access"\nbase_url = "https://private-relay.example.invalid/v1"\nwire_api = "responses"\nrequires_openai_auth = true\nhttp_headers = { "X-Harness-Probe" = "present", "X-Static-Route" = "sidecar" }\nexperimental_bearer_token = "instance-secret"\n`,
+      `model_provider = "codex_local_access"\nmodel_reasoning_effort = "xhigh"\nallow_login_shell = false\ncli_auth_credentials_store = "file"\n${process.platform === "win32" ? 'windows.sandbox = "unelevated"\n' : ""}\n[model_providers."codex_local_access"]\nname = "codex_local_access"\nbase_url = "https://private-relay.example.invalid/v1"\nwire_api = "responses"\nrequires_openai_auth = true\nrequest_max_retries = 4\nstream_max_retries = 5\nhttp_headers = { "X-Harness-Probe" = "present", "X-Static-Route" = "sidecar" }\nexperimental_bearer_token = "instance-secret"\n`,
     );
     assert.match(text, /experimental_bearer_token = "instance-secret"/u);
     assert.doesNotMatch(JSON.stringify(launch), /instance-secret/u);

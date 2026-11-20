@@ -43,6 +43,10 @@ export type RuntimeFallbackAttempt = {
   readonly candidateIndex?: number;
   /** Number of completed retry rounds after the initial candidate pass. */
   readonly retryRound?: number;
+  /** Number of post-tool same-session transient fault resume retries already scheduled/used in this group. */
+  readonly sameSessionRetryCount?: number;
+  /** Provider session id locked when the group entered post-tool same-session fault resume. */
+  readonly sameSessionProviderSessionId?: string;
   readonly waitStartedAt?: string;
   readonly rootDispatchKey: string;
   /** Fallback source mission with the current dispatch ID replaced by the spawner's prompt token. */
