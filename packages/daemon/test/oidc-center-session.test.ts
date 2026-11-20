@@ -201,7 +201,7 @@ test("clearing all center selections tombstones every persisted entry", (t) => {
     selection = oidcCenterSelections(active.userRoot),
     authority = { url: "https://login.example", realm: "harness", clientId: "harness-gui" },
     value = { issuer: active.edgeIssuer, authority };
-  writeFleetEdgeConfig(active.edgeRoot, {
+  writeFleetEdgeConfig(active.userRoot, "edge-repo", {
     repoId: "edge-repo",
     host: "center",
     port: 7443,

@@ -1165,7 +1165,12 @@ export function createDaemonHostRepositoryApi(
           method === "repo.policy.metadata.read"
         ) {
           if (method === "repo.fleet.overview.read") {
-            const failure = edgeReplicaDoctor(edge.canonicalRoot, repoId).failureCode;
+            const failure = edgeReplicaDoctor(
+              edge.canonicalRoot,
+              repoId,
+              undefined,
+              context.input.userRoot,
+            ).failureCode;
             if (failure?.toUpperCase() === "CENTER_MOVED")
               throw context.hostCodedError(
                 "CENTER_MOVED",
