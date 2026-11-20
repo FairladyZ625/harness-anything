@@ -19,6 +19,10 @@ import {
   DAEMON_USE_CASE_PROJECTION_SCHEMA,
 } from "../src/daemon-host/protocol/daemon-protocol-schema-ids.ts";
 import { validateDaemonUseCaseProjection } from "../src/daemon-host/protocol/daemon-protocol-use-case-projection.ts";
+import { createRepoCellApi } from "../src/daemon-host/repo-cell-api.ts";
+import { dispatchRead } from "../src/daemon-host/repo-cell-command.ts";
+import { requiredCellText } from "../src/daemon-host/repo-cell-settlement.ts";
+import type { RepoCellApiContext } from "../src/daemon-host/repo-cell-types.ts";
 import {
   SCHEDULE_MIN_EVERY_MS,
   formatScheduleDuration,
@@ -327,7 +331,7 @@ test("the schedules list validator locks the joined wire shape", () => {
     );
 });
 
-test("rows with a claimed-but-unlinked activeRun and a detail-less lastRun pass the wire contract", () => {
+test("rows with a claimed-but-unlinked activeRun and a detail-less lastRun pass the wire contract", async (t) => {
   const claimed = {
     ...armedSchedule,
     status: {
@@ -389,6 +393,50 @@ test("rows with a claimed-but-unlinked activeRun and a detail-less lastRun pass 
     [],
     "a blank dispatchId must stay invalid",
   );
+
+  await t.test("the schedule plane scopes rows by creator, origin node, and current run node", async () => {
+    const context = guiContext();
+    const creator = actor.principal.personId;
+    let schedule: ScheduleV1 = claimed;
+    const cell = createRepoCellApi({
+      ...context,
+      extracted: {},
+      state: "attached",
+      dispatchRead,
+      requiredCellText,
+      cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+      projection: {
+        ...context.projection,
+        listEntities: (kind: string, withAttribution = false) =>
+          kind === "schedule"
+            ? [
+                {
+                  id: schedule.scheduleId,
+                  value: schedule,
+                  workspaceRevision: 2,
+                  ...(withAttribution ? { createdByPersonId: creator, originNodeId: "edge-origin" } : {}),
+                },
+              ]
+            : context.projection.listEntities(kind),
+      },
+    } as unknown as RepoCellApiContext);
+    const scheduleIds = async (scope: { scopePersonId?: string; filterNodeId?: string }) => {
+      const envelope = await cell.read("repo.projection.read", { name: "schedule-plane", ...scope });
+      assert.deepEqual(validateDaemonUseCaseProjection(envelope), []);
+      return (envelope.projection as SchedulesListResult).schedules.map(({ scheduleId }) => scheduleId);
+    };
+    const scopedCreator = { scopePersonId: creator };
+    const ids = [claimed.scheduleId];
+    assert.deepEqual(await scheduleIds(scopedCreator), ids);
+    assert.deepEqual(await scheduleIds({ filterNodeId: "edge-origin" }), ids);
+    assert.deepEqual(await scheduleIds({ ...scopedCreator, filterNodeId: "edge-one" }), ids);
+    assert.deepEqual(await scheduleIds({ scopePersonId: "person-other", filterNodeId: "edge-one" }), []);
+    assert.deepEqual(await scheduleIds({ filterNodeId: "local" }), []);
+
+    schedule = { ...claimed, status: { ...claimed.status, activeRun: null } };
+    assert.deepEqual(await scheduleIds({ ...scopedCreator, filterNodeId: "local" }), ids);
+    assert.deepEqual(await scheduleIds({ filterNodeId: "edge-one" }), []);
+  });
 });
 
 test("malformed definitions degrade to invalid rows while trigger DTO variants remain closed", () => {

@@ -1607,7 +1607,7 @@ test("executor injection follows the daemon-declared surface exactly", () => {
     );
     if (accepts)
       assert.equal(executorRejected, false, `${method}: the validator must accept a declared payload executor`);
-    else if (payload && !payload.open)
+    else if ((payload && !payload.open) || params.fields.payload === "json?")
       assert.equal(executorRejected, true, `${method}: an undeclared payload executor must be rejected`);
     else if (!payload)
       assert.equal(

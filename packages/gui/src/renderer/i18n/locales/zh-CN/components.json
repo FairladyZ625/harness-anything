@@ -425,8 +425,8 @@
   "components.taskFilterBar.node": "节点",
   "components.taskFilterBar.me": "我 ({name})",
   "components.scopeLens.label": "视角",
-  "components.scopeLens.all": "全部成员",
-  "components.scopeLens.me": "我（只看自己）",
+  "components.scopeLens.all": "全部",
+  "components.scopeLens.me": "我的",
   "components.scopeLens.activeBanner": "当前成员视角：{name}",
   "components.scopeLens.exit": "退出视角"
 }

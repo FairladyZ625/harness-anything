@@ -1,3 +1,4 @@
+import type { FleetOverviewRead } from "../../api/renderer-dto.ts";
 import { t } from "../i18n/index.tsx";
 
 /**
@@ -6,6 +7,15 @@ import { t } from "../i18n/index.tsx";
  */
 
 export type RepoMode = "local" | "remote-proxy" | "remote-center" | "remote-edge";
+
+export function displayedRepoMode(
+  mode: RepoMode | null,
+  effective: FleetOverviewRead["effectiveMode"],
+): RepoMode | null {
+  if (mode !== "local") return mode;
+  if (effective === "center") return "remote-center";
+  return effective === "local" ? "local" : null;
+}
 
 const MODE_LABEL: Record<RepoMode, () => string> = {
   local: () => t("components.repoMode.local"),

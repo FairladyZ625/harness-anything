@@ -2,6 +2,11 @@ import { TabPanel } from "../components/primitives/EntryBoundary.tsx";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { AgendaSuccess } from "../api-client.ts";
+import { adaptProjectionRows } from "../task-adapter.ts";
+import { useCollaboratorTaskList } from "../task-data.ts";
+import { useAgendaQuery } from "../agenda-data.ts";
+import { useDecisionSummaryQuery } from "../triadic-data.ts";
+import type { WorkIndex } from "../model/work-collections.ts";
 import { t } from "../i18n/index.tsx";
 import type { ObserveTailMode } from "../daemon-observe-model.ts";
 import { CADENCE_EVENT_LIMIT, deriveCadenceSnapshot, type CadenceInput } from "../model/cadence.ts";
@@ -23,6 +28,11 @@ import {
   type FleetHistoryRange,
 } from "../model/cadence-fleet.ts";
 import { agentRuntimeClient, runtimeQueryKeys } from "../agent-runtime-client.ts";
+import {
+  CollaboratorFilters,
+  useCollaboratorFilters,
+  type CollaboratorFilterOptions,
+} from "../components/CollaboratorFilters.tsx";
 
 /**
  * 研发态势(Cadence & Pulse)一级视图:治理域下项目研发心跳的驾驶舱。
@@ -43,34 +53,54 @@ const MODE_LABEL: Record<ObserveTailMode, () => string> = {
 export function CadenceView({
   repoId,
   projectName,
-  tasks,
-  agenda,
-  decisions,
+  tasks: defaultTasks,
+  works,
+  agenda: defaultAgenda,
+  decisions: defaultDecisions,
   onNavigateEntity,
   onOpenPool,
+  collaborator,
 }: {
   readonly repoId: string;
   readonly projectName: string;
   readonly tasks: CadenceInput["tasks"];
+  readonly works?: WorkIndex;
   readonly agenda: AgendaSuccess | undefined;
   /** 决策摘要行:任务页签只读 state 计数,执行概况页签另取 title 命名 decision 组。 */
   readonly decisions: readonly { readonly decisionId: string; readonly title: string; readonly state: string }[];
   readonly onNavigateEntity: (ref: string) => void;
   readonly onOpenPool: () => void;
+  readonly collaborator?: CollaboratorFilterOptions;
 }) {
+  const scope = useCollaboratorFilters(collaborator),
+    scoped = scope.person !== null || scope.node !== null,
+    taskList = useCollaboratorTaskList(repoId, scope.query),
+    tasks = useMemo(
+      () =>
+        scoped
+          ? adaptProjectionRows(taskList.data?.rows ?? [], repoId, taskList.data?.status ?? "pending", works)
+          : defaultTasks,
+      [scoped, taskList.data, repoId, works, defaultTasks],
+    ),
+    scopedAgenda = useAgendaQuery(scoped ? repoId : null, scope.person, collaborator?.currentPersonId, scope.node),
+    agenda = scoped ? scopedAgenda.data : defaultAgenda,
+    scopedDecisions = useDecisionSummaryQuery(scoped ? repoId : null, { scope: scope.query }),
+    decisions = scoped ? scopedDecisions.decisions : defaultDecisions;
   const [tab, setTab] = useState<"tasks" | "fleet">("tasks"),
     [fleetRange, setFleetRange] = useState<FleetHistoryRange>("24h"),
-    feed = useCadenceFeed(repoId),
+    feed = useCadenceFeed(repoId, scope.person, scope.node),
     // 执行概况的一条有界读面(groupBy=task,无成员级 status 筛选):query key 并入
     // sessionGroupsAll 家族,与会话页共享缓存与台账 cut 的失效扇出,不另建轮询。
     // daemon 保证 live 会话不被 since 切掉,「正在执行」区天然不受历史窗口影响。
     fleetGroups = useQuery({
-      queryKey: [...runtimeQueryKeys.sessionGroupsAll(repoId), "cadence", "task", fleetRange],
+      queryKey: [...runtimeQueryKeys.sessionGroupsAll(repoId), "cadence", "task", fleetRange, scope.person, scope.node],
       queryFn: () =>
         agentRuntimeClient.sessionGroups(repoId, {
           groupBy: "task",
           since: new Date(Date.now() - FLEET_HISTORY_RANGE_MS[fleetRange]).toISOString(),
           limit: FLEET_GROUPS_LIMIT,
+          ...(scope.person ? { personId: scope.person } : {}),
+          ...(scope.node ? { nodeId: scope.node } : {}),
         }),
       enabled: tab === "fleet",
       staleTime: 4_000,
@@ -117,6 +147,7 @@ export function CadenceView({
     openTask = (taskId: string): void => {
       onNavigateEntity(`task/${taskId}`);
     };
+  const scopeError = taskList.error ?? scopedAgenda.error ?? scopedDecisions.error;
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <PageHeader
@@ -126,10 +157,18 @@ export function CadenceView({
           <span data-testid="cadence-stream" className="flex flex-wrap items-baseline gap-2">
             {feed.mode === null ? null : <span>{MODE_LABEL[feed.mode]()}</span>}
             <span>{t("views.cadence.streamScanned", { count: feed.events.length })}</span>
-            <span>{t(feed.historyComplete ? "views.cadence.windowComplete" : "views.cadence.windowPartial")}</span>
+            <span>
+              {t(
+                feed.historyComplete && (!scoped || taskList.data?.status === "ready")
+                  ? "views.cadence.windowComplete"
+                  : "views.cadence.windowPartial",
+              )}
+            </span>
           </span>
         }
       />
+      {collaborator && <CollaboratorFilters options={collaborator} selection={scope} />}
+      {scopeError && <p role="alert">{scopeError.message}</p>}
       {feed.status === "unavailable" ? (
         <p
           data-testid="cadence-unavailable"

@@ -425,8 +425,8 @@
   "components.taskFilterBar.node": "node",
   "components.taskFilterBar.me": "Me ({name})",
   "components.scopeLens.label": "Scope",
-  "components.scopeLens.all": "All members",
-  "components.scopeLens.me": "Me (mine only)",
+  "components.scopeLens.all": "All",
+  "components.scopeLens.me": "Mine",
   "components.scopeLens.activeBanner": "Member scope: {name}",
   "components.scopeLens.exit": "Exit scope"
 }

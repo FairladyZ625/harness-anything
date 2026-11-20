@@ -6,7 +6,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeAll, expect, it, vi } from "vitest";
 import { AppSidebar } from "../src/renderer/components/AppSidebar.tsx";
 import { taskQueryKeys } from "../src/renderer/task-data.ts";
-import { agendaQueryKeys } from "../src/renderer/agenda-data.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import type { AgendaSuccess } from "../src/renderer/api-client.ts";
 import type { WorkIndexRead } from "../src/api/renderer-dto.ts";
@@ -74,8 +73,6 @@ function mountSidebar(
     client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   // 工作索引走 App 已挂载的同一查询键:预置缓存,侧栏不依赖 daemon 就能判工作根。
   client.setQueryData(taskQueryKeys.works("repo"), works);
-  // agenda 同理:Needs you 角标读 App 常驻的同一缓存键,预置后侧栏不发第二个请求。
-  if (agenda !== undefined) client.setQueryData(agendaQueryKeys.read("repo"), agenda);
   return {
     onNavigate,
     onUnpinWork,
@@ -92,6 +89,7 @@ function mountSidebar(
               view="home"
               hasSelection={false}
               poolBadgeCount={undefined}
+              agenda={agenda}
               projectSwitcherOpen={false}
               onProjectSwitcherToggle={() => {}}
               onOpenProject={() => {}}

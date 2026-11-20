@@ -14,14 +14,7 @@ import type { AgendaSuccess } from "../api-client.ts";
 import type { CadenceFeedEvent } from "../model/cadence.ts";
 import type { AttestationPoolLanes } from "../model/attestation-pool.ts";
 import { runtimeModelShortLabel } from "../model/runtime-models.ts";
-import type { SnapshotStatus, TaskRow } from "../model/types";
-import {
-  taskExecutionMatches,
-  taskMatchesNode,
-  taskMatchesPerson,
-  type AttributionScope,
-} from "../model/attribution.ts";
-import { scopeWorkActivity } from "../model/work-collections.ts";
+import type { SnapshotStatus } from "../model/types";
 import type { WorkDayGroup, WorkStepKind } from "../model/workspace-narrative.ts";
 import { workDayGroups } from "../model/workspace-narrative.ts";
 import type { AgentActivity } from "../components/agent-ui/AgentTree.tsx";
@@ -379,7 +372,6 @@ export function watchedWorks(
   agenda: AgendaSuccess | undefined,
   activity?: { readonly days: number; readonly now: string },
   runtime?: AgentRuntimeOverviewResult | undefined,
-  scopedTasks?: { readonly tasks: readonly TaskRow[]; readonly scope: AttributionScope },
 ): readonly WatchedWork[] {
   const rows = workRows(works, agenda);
   const members = new Map((works?.works ?? []).map((work) => [work.taskId, work.memberTaskIds] as const));
@@ -390,15 +382,9 @@ export function watchedWorks(
       .map((entity) => entity.ref.replace(/^task\//u, "")),
   );
   const cutoff = activity === undefined ? null : Date.parse(activity.now) - Math.max(1, activity.days) * 86_400_000;
-  const tasks = scopedTasks?.tasks ?? [];
-  const taskById = new Map(tasks.map((task) => [task.taskId, task]));
-  const parents = new Set(tasks.flatMap(({ parentTaskId }) => (parentTaskId ? [parentTaskId] : [])));
-  const scope = scopedTasks?.scope;
   const runsByTask = new Map<string, RunRow[]>();
   for (const run of runRows(runtime, undefined)) {
     if (run.taskId === null) continue;
-    const task = taskById.get(run.taskId);
-    if (scope && (!task || !taskExecutionMatches(task, scope))) continue;
     const runs = runsByTask.get(run.taskId);
     if (runs) runs.push(run);
     else runsByTask.set(run.taskId, [run]);
@@ -408,21 +394,7 @@ export function watchedWorks(
     const source = pinnedIds.has(row.taskId) ? "pinned" : "recent";
     if (source === "recent" && TERMINAL_WORK.has(row.status)) return [];
     const memberIds = members.get(row.taskId) ?? [];
-    const scoped =
-      scope &&
-      scopeWorkActivity(
-        taskById.get(row.taskId),
-        memberIds.flatMap((id) => taskById.get(id) ?? []),
-        (task) =>
-          (scope.personId === null || taskMatchesPerson(task, scope.personId)) &&
-          (scope.nodeId === null || taskMatchesNode(task, scope.nodeId)),
-        parents,
-        scope,
-      );
-    if (scoped === null) return [];
-    const work = scoped ? { ...row, counts: scoped.counts, lastActivityAt: scoped.lastChangeAt } : row;
-    const memberTaskIds = scoped?.members.map(({ taskId }) => taskId) ?? memberIds;
-    const participants = scoped?.rootMatches === false ? memberTaskIds : [row.taskId, ...memberTaskIds];
+    const participants = [row.taskId, ...memberIds];
     const handlers = [
       ...new Set(
         participants
@@ -431,9 +403,9 @@ export function watchedWorks(
           .map(({ who }) => who),
       ),
     ];
-    const isRunning = scoped ? scoped.live > 0 : handlers.length > 0;
-    if (source === "recent" && !isRunning && cutoff !== null && !(Date.parse(work.lastActivityAt) >= cutoff)) return [];
-    return [{ work, source, memberTaskIds, handlers, isRunning }];
+    const isRunning = handlers.length > 0;
+    if (source === "recent" && !isRunning && cutoff !== null && !(Date.parse(row.lastActivityAt) >= cutoff)) return [];
+    return [{ work: row, source, memberTaskIds: memberIds, handlers, isRunning }];
   });
 
   return watched.sort((left, right) => {
@@ -600,13 +572,10 @@ export function agentLanesOf(input: {
   /** blocked 但无 awaits 问句时的兜底提示(视图层传 i18n 文案,模型保持纯)。 */
   readonly awaitingFallbackQuestion: string;
   readonly nowMs: number;
-  /** Optional member scope lens filter applied before selecting lane blocks and running task rows. */
-  readonly personId?: string | null;
 }): OverviewAgentLanes {
   const blockOf = new Map<string, AgentLaneBlockSource>();
   const runningSessionIds: string[] = [];
   if (input.groups.length === 0) return { lanes: [], handoffs: [], blockOf, runningSessionIds };
-  const filterPersonId = input.personId ?? null;
 
   const lanes: AgentLane[] = [];
   const dispatchRows: TaskDispatchProjectionRow[] = [];
@@ -620,9 +589,6 @@ export function agentLanesOf(input: {
     const labelOf = (taskId: string): string => page?.titleOf.get(taskId) ?? input.taskTitles.get(taskId) ?? taskId;
     if (page !== undefined) {
       const rows = page.rows
-        // Filter member attribution before windowing/slicing so another member's round on the same
-        // task or agent never displaces or leaks into the active member lens.
-        .filter((row) => filterPersonId === null || row.personId === filterPersonId)
         // 战情总览只看当前窗口(6h):成员页会带出该 agent 更早的已收口轮次,收口块
         // 太老就不画(运行中/阻塞中的块无论起点都留,它们仍是「现在」)。
         .filter(
@@ -662,7 +628,7 @@ export function agentLanesOf(input: {
         if (running) runningSessionIds.push(row.runtimeSessionId);
         dispatchRows.push(row);
       }
-    } else if (group.latestRound !== null && (filterPersonId === null || group.personId === filterPersonId)) {
+    } else if (group.latestRound !== null) {
       // 活跃 agent 之外:组头 latestRound 给最近一块上下文(确定终点,不生长)。窗口外的
       // 已收口块不画——否则时间轴会被 19 天前的历史轮次撑开,不再是「现在」。
       const round = group.latestRound,
@@ -892,12 +858,9 @@ export interface PinnedEntityRow {
   readonly title: string;
 }
 
-export function pinnedEntityRows(
-  agenda: AgendaSuccess | undefined,
-  personId: string | null,
-): readonly PinnedEntityRow[] {
+export function pinnedEntityRows(agenda: AgendaSuccess | undefined): readonly PinnedEntityRow[] {
   if (agenda === undefined) return [];
   return agenda.pinnedEntities
-    .filter((entity) => entity.kind !== "task" && (personId === null || entity.personIds?.includes(personId)))
+    .filter((entity) => entity.kind !== "task")
     .map((entity) => ({ ref: entity.ref, kind: entity.kind, title: entity.title }));
 }

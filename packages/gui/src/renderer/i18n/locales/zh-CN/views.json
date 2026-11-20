@@ -2140,6 +2140,7 @@
   "views.liveFloor.doingReviewDecision": "评审决策中",
   "views.liveFloor.endedReviewRejected": "评审打回",
   "views.liveFloor.endedEmpty": "近 24 小时没有刚结束的会话。",
+  "views.liveFloor.endedWindowPartial": "近 24 小时，结果已截断",
   "views.liveFloor.endedWindowNote": "近 24 小时",
   "views.liveFloor.endedReportToggle": "报告",
   "views.liveFloor.stageOther": "其他",

@@ -251,7 +251,7 @@ export function listPinnedEntityRows(db: DatabaseSync, personId?: string): reado
   }));
 }
 
-// The entity-ref index serves both old and rebuilt caches. Resolve the first upsert, so an edit
+// The entity-ref index serves both old and rebuilt caches. Resolve the first creation event, so an edit
 // or completion by another collaborator never replaces the creator. The write document stays V1.
 function projectEntityOrigins(
   db: DatabaseSync,
@@ -267,7 +267,7 @@ function projectEntityOrigins(
          SELECT ref.workspace_revision FROM event_summary_entity_ref ref
          CROSS JOIN event_summary event ON event.workspace_revision=ref.workspace_revision
          WHERE ref.entity_ref=? || '/' || requested.value
-           AND event.event_type IN ('entity_upserted','entity_reference_declared','schedule_created')
+           AND event.event_type IN ('entity_upserted','entity_reference_declared','entity_content_observed','schedule_created')
          ORDER BY ref.workspace_revision LIMIT 1
        )`,
       JSON.stringify(entities.map(({ id }) => id)),

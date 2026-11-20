@@ -8,6 +8,7 @@ import { t } from "../i18n/index.tsx";
 import { Empty } from "../components/primitives/Empty.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { Region } from "../components/primitives/Region.tsx";
+import { exactTokens } from "../token-format.ts";
 import { QUERY_PACING_MS } from "../query-pacing.ts";
 import {
   rankScaleFor,
@@ -29,6 +30,11 @@ import { UsageShareDonut, type ShareBasis } from "../components/tokenUsage/Usage
 import { UsageHeadline } from "../components/tokenUsage/UsageHeadline.tsx";
 import { UsageSessions, UsageSpend, UsageUnreported, UsageWorth } from "../components/tokenUsage/UsageBreakdowns.tsx";
 import { TokenUsageDetail } from "../components/tokenUsage/TokenUsageDetail.tsx";
+import {
+  CollaboratorFilters,
+  useCollaboratorFilters,
+  type CollaboratorFilterOptions,
+} from "../components/CollaboratorFilters.tsx";
 
 /**
  * 系统 Tab 的「Token 消耗」页:所选时间范围(今天 / 7 天 / 30 天)内的消耗分析。按问题顺序
@@ -54,6 +60,7 @@ export function TokenUsageView({
   onSelectEntity,
   onOpenTask,
   remoteEdge = false,
+  collaborator,
 }: {
   readonly repoId: string;
   /** `tokenAgent/<id>` / `tokenSquad/<id>`:详情落点,空 = 总览。 */
@@ -63,17 +70,32 @@ export function TokenUsageView({
   readonly onOpenTask: (taskId: string) => void;
   /** Edge mirrors contain local runtime projections; they are not the center's fleet total. */
   readonly remoteEdge?: boolean;
+  readonly collaborator?: CollaboratorFilterOptions;
 }) {
+  const [dimension, setDimension] = useState<"overview" | "person" | "node">("overview");
+  const scope = useCollaboratorFilters(collaborator);
+  const groupBy = dimension !== "overview" ? dimension : scope.person ? "person" : scope.node ? "node" : null;
   const [range, setRange] = useState<TokenUsageRange>("today"),
     member = tokenUsageMemberFromRef(focusedEntityRef),
     usage = useQuery({
       queryKey: runtimeQueryKeys.tokenUsage(repoId, range),
       queryFn: () => agentRuntimeClient.tokenUsage(repoId, range),
-      enabled: REPO_ID.test(repoId),
+      enabled: REPO_ID.test(repoId) && groupBy === null,
       // 派工流的 runtime_metrics 增长不推进台账 cut,页面自持低频轮询(见 query-pacing)。
       refetchInterval: QUERY_PACING_MS.tokenUsage,
     }),
     data = usage.data;
+  const attribution = useQuery({
+    queryKey: [...runtimeQueryKeys.tokenUsage(repoId, range), groupBy, scope.query],
+    queryFn: () => agentRuntimeClient.collaboratorTokenUsage(repoId, { range, groupBy: groupBy!, ...scope.query }),
+    enabled: REPO_ID.test(repoId) && groupBy !== null,
+    refetchInterval: QUERY_PACING_MS.tokenUsage,
+  });
+  const error = groupBy === null ? usage.error : attribution.error;
+  const attributionRows =
+    attribution.data?.groupBy === "person"
+      ? attribution.data.byPerson.map((row) => ({ ...row, id: row.personId }))
+      : (attribution.data?.byNode ?? []).map((row) => ({ ...row, id: row.nodeId }));
   return (
     <section data-testid="token-usage-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <header className="flex min-h-[42px] shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-surface-raised px-3.5">
@@ -84,15 +106,28 @@ export function TokenUsageView({
           onChange={(value) => setRange(value)}
           options={tokenUsageRanges.map((value) => ({ value, label: t(tokenUsageRangeKey[value]) }))}
         />
+        {collaborator && (
+          <SegCtl
+            label={t("components.scopeLens.label")}
+            value={dimension}
+            onChange={setDimension}
+            options={[
+              { value: "overview", label: t("components.scopeLens.all") },
+              { value: "person", label: t("components.taskFilterBar.person") },
+              { value: "node", label: t("components.taskFilterBar.node") },
+            ]}
+          />
+        )}
         <span className="flex-1" />
         {data?.status === "pending" ? (
           <StatusTag status="planned" label={t("agentRuntime.tokenUsageProjectionPending")} />
         ) : null}
       </header>
-      {usage.isError ? (
+      {collaborator && <CollaboratorFilters options={collaborator} selection={scope} />}
+      {error ? (
         <Notice tone="bad" variant="strip" testId="runtime-read-error">
           {t("agentRuntime.readFailed", {
-            error: usage.error instanceof Error ? usage.error.message : String(usage.error),
+            error: error.message,
           })}
         </Notice>
       ) : null}
@@ -101,7 +136,42 @@ export function TokenUsageView({
           {t("agentRuntime.tokenUsageEdgeScope")}
         </Notice>
       ) : null}
-      {member !== null ? (
+      {groupBy !== null ? (
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          {attribution.isPending ? (
+            <Empty>{t("agentRuntime.loading")}</Empty>
+          ) : (
+            <table className="w-full text-left ui-body">
+              <thead>
+                <tr>
+                  <th>
+                    {t(groupBy === "person" ? "components.taskFilterBar.person" : "components.taskFilterBar.node")}
+                  </th>
+                  <th>{t("agentRuntime.tokenUsageColDispatches")}</th>
+                  <th>{t("agentRuntime.tokenUsageColTotal")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {attributionRows.map((row) => (
+                  <tr key={row.id ?? ""}>
+                    <td>
+                      {(groupBy === "person"
+                        ? collaborator?.lensMembers.find(({ personId }) => personId === row.id)?.label
+                        : collaborator?.nodeOptions.find(({ nodeId }) => nodeId === row.id)?.label) ??
+                        row.id ??
+                        "—"}
+                    </td>
+                    <td>
+                      {exactTokens(row.usageReportedDispatches)} / {exactTokens(row.dispatches)}
+                    </td>
+                    <td>{exactTokens(row.totalTokens)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      ) : member !== null ? (
         <TokenUsageDetail
           repoId={repoId}
           member={member}

@@ -32,6 +32,7 @@ import { isAvailableScheduleGuiAgentOption } from "./protocol/schedules-contract
 import { defaultLedgerBackupRetention } from "./schedule-builtin-executor.ts";
 import {
   emptyScheduleHealthRollup,
+  type InspectedScheduleProjection,
   scheduleHealthRollupsFromEvents,
 } from "@harness-anything/application/internal/queries/schedule-projection.ts";
 import { admitRepoMode } from "./repo-mode.ts";
@@ -246,7 +247,10 @@ function lastRunDtoOf(schedule: ScheduleV1, context: SchedulesGuiReadContext): S
   };
 }
 
-export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesListResult {
+export function readSchedulesGui(
+  context: SchedulesGuiReadContext,
+  selected?: readonly InspectedScheduleProjection[],
+): SchedulesListResult {
   const repoMode = context.mode ?? "local";
   if (repoMode === "remote-proxy")
     throw new Error("Schedule GUI reads for remote-proxy repositories must be routed to the remote daemon.");
@@ -260,12 +264,10 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
     healthRollups = scheduleHealthRollupsFromEvents(context.projection.readScheduleEvents().events),
     healthRollupOf = (scheduleId: string): ScheduleGuiHealthDto =>
       healthRollups.get(scheduleId) ?? emptyScheduleHealthRollup();
-  const schedules = context.projection
-    .listEntities("schedule")
+  const schedules = (selected ?? context.projection.listEntities("schedule").map(inspectGuiSchedule))
     .map((row): ScheduleGuiListRowDto => {
-      const errors = validateScheduleV1(row.value);
-      if (errors.length > 0) return invalidScheduleGuiRow(row, errors);
-      const schedule = row.value as ScheduleV1,
+      if (!row.valid) return row.invalid;
+      const schedule = row.schedule,
         active = activeRunDtoOf(schedule),
         health = healthRollupOf(schedule.scheduleId),
         availability = deriveScheduleExecutionAvailability({
@@ -294,7 +296,7 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
         mode: schedule.mode,
         systemPresetId: schedule.systemPresetId ?? null,
         definitionResidency: "ledger",
-        definitionRevision: row.workspaceRevision,
+        definitionRevision: row.revision,
         trigger: triggerDtoOf(schedule),
         target: targetDtoOf(
           schedule,
@@ -343,6 +345,28 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
     schedules,
     watermark: cut.watermark,
     sourceRevision: cut.sourceRevision,
+  };
+}
+
+function inspectGuiSchedule(row: {
+  readonly id?: string;
+  readonly value: unknown;
+  readonly workspaceRevision: number;
+}):
+  | Extract<InspectedScheduleProjection, { readonly valid: true }>
+  | { readonly valid: false; readonly invalid: ScheduleGuiInvalidRowDto } {
+  const errors = validateScheduleV1(row.value);
+  if (errors.length === 0) return { valid: true, schedule: row.value as ScheduleV1, revision: row.workspaceRevision };
+  const value = row.value as { readonly scheduleId?: unknown } | null;
+  const id = row.id ?? (typeof value?.scheduleId === "string" && value.scheduleId ? value.scheduleId : "unknown");
+  return {
+    valid: false,
+    invalid: {
+      scheduleId: id,
+      state: "invalid",
+      invalidReason: errors.join("; "),
+      definitionRevision: row.workspaceRevision,
+    },
   };
 }
 
@@ -429,21 +453,4 @@ function scheduleTargetProjection(
       error: { code: "agent_not_found", hint: `${agentId} is not an installed agent.` },
     };
   return isAvailableScheduleGuiAgentOption(option) ? null : option;
-}
-
-function invalidScheduleGuiRow(
-  row: { readonly id?: string; readonly value: unknown; readonly workspaceRevision: number },
-  errors: readonly string[],
-): ScheduleGuiInvalidRowDto {
-  const value =
-      typeof row.value === "object" && row.value !== null && !Array.isArray(row.value)
-        ? (row.value as Readonly<Record<string, unknown>>)
-        : null,
-    scheduleId = row.id ?? (typeof value?.scheduleId === "string" && value.scheduleId ? value.scheduleId : "unknown");
-  return {
-    scheduleId,
-    state: "invalid",
-    invalidReason: errors.join("; "),
-    definitionRevision: row.workspaceRevision,
-  };
 }

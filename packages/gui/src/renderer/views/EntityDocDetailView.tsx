@@ -50,6 +50,7 @@ export function EntityDocDetailView({
   repoId,
   kind,
   selectedEntityRef,
+  scope,
   liveCounts,
   projectName,
   fromViewLabel,
@@ -60,6 +61,7 @@ export function EntityDocDetailView({
   readonly kind: string;
   /** 声明实体的深链接落点(`<kind>/<entityId>`);null = 只看说明。 */
   readonly selectedEntityRef: string | null;
+  readonly scope?: Parameters<typeof useGovernedEntityRows>[1];
   readonly liveCounts: EntityLiveCounts;
   readonly projectName: string;
   readonly fromViewLabel: string;
@@ -77,7 +79,7 @@ export function EntityDocDetailView({
   }, [selectedEntityRef]);
   // 右栏的工作态:新建向导与实体详情互斥——进入向导清选择,选中实体退向导。
   const [creating, setCreating] = useState(false);
-  const allGovernedRows = useGovernedEntityRows(repoId);
+  const allGovernedRows = useGovernedEntityRows(repoId, scope);
   const governedRows =
     catalogRow !== null && catalogRow.origin === "vertical"
       ? allGovernedRows.filter((entity) => entity.kind === kind)

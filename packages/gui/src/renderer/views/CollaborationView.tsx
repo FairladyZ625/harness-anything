@@ -3,7 +3,7 @@ import { t } from "../i18n/index.tsx";
 import type { FleetOverviewEvent, FleetOverviewNode, FleetOverviewRead } from "../../api/renderer-dto.ts";
 import type { FleetNodeUnregisterInput } from "../../api/fleet-admin-contract.ts";
 import { formatListTime } from "../model/time.ts";
-import { RepoModeBadge, type RepoMode } from "../components/RepoModeBadge.tsx";
+import { RepoModeBadge, displayedRepoMode, type RepoMode } from "../components/RepoModeBadge.tsx";
 import { Empty } from "../components/primitives/Empty.tsx";
 import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { Section } from "../components/primitives/Section.tsx";
@@ -57,6 +57,7 @@ export function CollaborationView({
 }) {
   const shownOverview = overview,
     nodes = shownOverview?.nodes ?? [];
+  const badgeMode = displayedRepoMode(mode, overview?.effectiveMode);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [eventNode, setEventNode] = useState("all");
   const selected = selectedNode === null ? null : (nodes.find((node) => node.nodeId === selectedNode) ?? null);
@@ -117,7 +118,7 @@ export function CollaborationView({
             ? undefined
             : t("collaboration.fleetSummary", { nodes: nodes.length, executing, events: events.length })
         }
-        actions={<RepoModeBadge mode={mode} />}
+        actions={badgeMode === null ? undefined : <RepoModeBadge mode={badgeMode} />}
       />
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 py-4">
         {mode === "local" ? (

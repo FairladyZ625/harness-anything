@@ -10,14 +10,19 @@ export const workspaceScopeQueryKeys = {
 export function useWorkspaceScopeQuery(
   repoId: string | null,
   rootTaskId: string | null,
+  scopePersonId: string | null = null,
 ): UseInfiniteQueryResult<InfiniteData<WorkspaceScopeRead, string | null>, Error> {
   return useInfiniteQuery({
-    queryKey: workspaceScopeQueryKeys.read(repoId ?? "unselected", rootTaskId ?? "unselected"),
+    queryKey: [
+      ...workspaceScopeQueryKeys.read(repoId ?? "unselected", rootTaskId ?? "unselected"),
+      ...(scopePersonId === null ? [] : [scopePersonId]),
+    ],
     queryFn: ({ pageParam }) =>
       harnessClient.getWorkspaceScope({
         repoId: repoId ?? "unselected",
         rootTaskId: rootTaskId ?? "unselected",
         limit: guiInteractionPolicy.defaultValue.pageSizes.workspaceScope,
+        ...(scopePersonId === null ? {} : { scopePersonId }),
         ...(pageParam ? { cursor: pageParam } : {}),
       }),
     initialPageParam: null as string | null,

@@ -1055,16 +1055,41 @@ test("member dispatch payloads accept one selector and a bounded limit at both b
     parse = (payload: Readonly<Record<string, unknown>>) => taskDispatchesPayloadFromCell(context, payload);
   assert.deepEqual(parse({ agentId: "terra", limit: 50 }), { agentId: "terra", limit: 50 });
   assert.deepEqual(parse({ squadId: "squad-x", limit: 500 }), { squadId: "squad-x", limit: 500 });
+  const scoped = { agentId: "terra", personId: "person-alice", nodeId: "edge-a", limit: 12 };
+  assert.deepEqual(parse(scoped), scoped);
   assert.deepEqual(
     validateDaemonRpcCall({
       method: "repo.task.dispatches",
       params: {
         repo: { repoId: "repo-a" },
-        payload: { agentId: "terra", personId: "person-alice", nodeId: "edge-a", limit: 12 },
+        payload: scoped,
       },
     }),
     [],
   );
+  const floor = { floor: "ended", limit: 12, personId: "person-alice", nodeId: "edge-a" };
+  assert.deepEqual(parse(floor), floor);
+  assert.deepEqual(
+    validateDaemonRpcCall({
+      method: "repo.task.dispatches",
+      params: { repo: { repoId: "repo-a" }, payload: floor },
+    }),
+    [],
+  );
+  for (const payload of [
+    { ...floor, cursor: "not-an-ended-selector" },
+    { ...floor, taskIds: ["task-a"] },
+    { ...floor, limit: 17 },
+  ]) {
+    assert.throws(() => parse(payload), /Invalid live-floor dispatch selector/);
+    assert.notDeepEqual(
+      validateDaemonRpcCall({
+        method: "repo.task.dispatches",
+        params: { repo: { repoId: "repo-a" }, payload },
+      }),
+      [],
+    );
+  }
   for (const advisorySurface of decisionReadSurfaces) {
     const payload = { taskIds: ["task-a"], advisorySurface };
     assert.deepEqual(parse(payload), payload);
@@ -1083,14 +1108,22 @@ test("member dispatch payloads accept one selector and a bounded limit at both b
     [],
   );
   for (const payload of [
+    { agentId: "terra", limit: 50, personId: 42 },
+    { agentId: "terra", limit: 50, nodeId: "" },
+    { taskId: "task-a", personId: "person-alice" },
     { agentId: "terra", squadId: "squad-x", limit: 50 },
     { agentId: "terra" },
     { agentId: "terra", limit: 0 },
     { agentId: "terra", limit: 501 },
     { agentId: "terra", limit: 50, taskIds: ["task-a"] },
     { agentId: "", limit: 50 },
-  ])
+  ]) {
     assert.throws(() => parse(payload), /must be non-empty text|Task dispatch member reads/);
+    assert.notDeepEqual(
+      validateDaemonRpcCall({ method: "repo.task.dispatches", params: { repo: { repoId: "repo-a" }, payload } }),
+      [],
+    );
+  }
 });
 
 // Consent asks whether this cut's review lanes concluded (task_cffec8b1 / PR #3922), so the read

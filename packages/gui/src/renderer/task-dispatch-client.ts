@@ -46,3 +46,36 @@ export async function readAllTaskDispatches(payload: TaskDispatchSelection): Pro
     ),
   };
 }
+
+/** Enrich the active overview by session identity and read ended dispatches in one bounded window. */
+export async function readLiveFloorDispatches(
+  repoId: string,
+  runtimeSessionIds: readonly string[],
+  personId: string | null,
+) {
+  const read = async (selector: Extract<DaemonTaskDispatchesPayload, { readonly floor: "active" | "ended" }>) => {
+    const result = await harnessClient.getTaskDispatches({
+      repoId,
+      ...selector,
+      ...(personId === null ? {} : { personId }),
+    });
+    if (!("floor" in result) || result.floor !== selector.floor)
+      throw new Error("Live floor dispatch selector mismatch.");
+    return result;
+  };
+  const active: TaskDispatchProjectionRow[] = [],
+    ended = read({ floor: "ended", limit: guiInteractionPolicy.defaultValue.pageSizes.endedFloor });
+  // Bounded payloads over the active session set. Each session is looked up once.
+  const activePages = (async () => {
+    for (let offset = 0; offset < runtimeSessionIds.length; offset += TASK_DISPATCH_PAGE_LIMIT) {
+      const page = await read({
+        floor: "active",
+        limit: TASK_DISPATCH_PAGE_LIMIT,
+        runtimeSessionIds: runtimeSessionIds.slice(offset, offset + TASK_DISPATCH_PAGE_LIMIT),
+      });
+      active.push(...page.dispatches);
+    }
+  })();
+  const [history] = await Promise.all([ended, activePages]);
+  return { active, ended: history.dispatches, truncated: history.truncated };
+}

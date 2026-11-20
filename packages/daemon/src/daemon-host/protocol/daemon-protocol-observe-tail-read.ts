@@ -16,6 +16,8 @@ export const observeTailReadMethod = Object.freeze({
       direction: { values: ["history", "follow"], optional: false },
       cursor: "json?",
       dispatchId: "string?",
+      scopePersonId: "string?",
+      filterNodeId: "string?",
     }),
   }),
   ...repoReadCommandTopology,

@@ -249,8 +249,8 @@ describe("admin global member scope lens (CH2)", () => {
 
     const select = view.container.querySelector<HTMLSelectElement>('[data-testid="global-scope-select"]')!;
     expect(select).toBeTruthy();
-    expect(select.textContent).toContain("全部成员");
-    expect(select.textContent).toContain("我（只看自己）");
+    expect(select.options[0]?.textContent).toBe("全部");
+    expect(select.options[1]?.textContent).toBe("我的");
     expect(select.textContent).toContain("chenyirun");
 
     await changeValue(select, "person_chen");
@@ -276,7 +276,7 @@ describe("admin global member scope lens (CH2)", () => {
     view.unmount();
   });
 
-  it("filters OverviewView tasks & pinned items when scopePersonId is set", async () => {
+  it("renders only the personal pins supplied by the scoped Agenda", async () => {
     vi.stubGlobal("harness", {
       request: () => Promise.reject(new Error("no bridge in test")),
     });
@@ -355,8 +355,22 @@ describe("admin global member scope lens (CH2)", () => {
     const props = (scopePersonId: string | null) => ({
       repoId: "repo-test",
       connectionId: null,
-      agenda: pinnedAgenda,
-      works: undefined,
+      agenda: {
+        ...pinnedAgenda,
+        pinnedEntities: pinnedAgenda.pinnedEntities.filter(({ ref }) => ref === "task/task-chen"),
+      },
+      works: {
+        works: [
+          {
+            taskId: "work-chen",
+            title: "Chen's work",
+            status: "active",
+            counts: { executing: 1, done: 0 },
+            lastActivityAt: new Date().toISOString(),
+            memberTaskIds: ["task-chen"],
+          },
+        ],
+      } as never,
       titles: new Map([
         ["task/task-alice", "Alice Active"],
         ["task/task-chen", "Chen Active"],
@@ -380,7 +394,7 @@ describe("admin global member scope lens (CH2)", () => {
     const view = renderDom(createElement(OverviewView, props("person_chen")));
     await view.mount();
     expect(view.container.textContent).toContain("进行中 1");
-    expect(view.container.textContent).toContain("Chen Active");
+    expect(view.container.querySelector('[data-testid="overview-region-pins"]')?.textContent).toContain("Chen Active");
     expect(view.container.textContent).not.toContain("Alice Active");
     view.unmount();
   });

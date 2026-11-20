@@ -52,6 +52,7 @@ const LANE_LABEL_KEY: Record<(typeof TASK_CLOSEOUT_TABS)[number], MessageKey> = 
  */
 export function AttestationPoolView({
   repoId,
+  scopeControl,
   decisions,
   summary,
   facts,
@@ -79,6 +80,7 @@ export function AttestationPoolView({
   onPoolTabChange,
 }: {
   repoId: string;
+  scopeControl?: ReactNode;
   decisions: DecisionRow[];
   summary: WorkspaceSummaryRead["decisions"];
   facts: FactRef[];
@@ -324,6 +326,7 @@ export function AttestationPoolView({
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="attestation-pool-view">
+      {scopeControl}
       <PageHeader
         title={t("views.attestationPoolView.title")}
         note={t("views.attestationPoolView.subtitle")}

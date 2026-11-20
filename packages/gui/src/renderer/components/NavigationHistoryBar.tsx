@@ -15,7 +15,7 @@ export interface GlobalScopeLensProps {
  *
  * 经典浏览器式 ← / → 按钮。状态机由 AppShell 持有(useViewHistory),
  * 本组件纯展示。Cmd+[ / Cmd+] 与鼠标侧键监听在 AppShell,不在这。
- * 右侧仅对管理员且仓库具备多成员/边缘节点时渲染只读全局成员视角透镜(CH2)。
+ * 右侧渲染只读视角，指定其他成员的选项只由管理员目录提供（CH2）。
  */
 export function NavigationHistoryBar({
   canBack,
@@ -87,7 +87,7 @@ export function NavigationHistoryBar({
   );
 }
 
-/** 顶栏下方紧凑状态条:仅当管理员切换到指定成员/「我」视角时显示，支持一键退出。 */
+/** 顶栏下方紧凑状态条，支持一键退出成员视角。 */
 export function GlobalScopeBanner({
   personId,
   currentPersonId,

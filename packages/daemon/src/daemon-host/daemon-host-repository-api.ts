@@ -46,12 +46,18 @@ import {
   type DaemonGuiReadResultMap,
   type DaemonGuiRpcReadMethod,
 } from "./protocol/daemon-protocol.contract.ts";
+import { hostCodedError } from "./daemon-host-errors.ts";
 import { parseDaemonReadResult } from "./protocol/daemon-result-validation.ts";
 import { withLocalDispatchStreamEvidence } from "./dispatch-activity-read.ts";
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
 import { seedBuiltinSchedules } from "./schedule-builtin-executor.ts";
 import { resolveRepoBootstrap, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
-import { type RepoCell, type RepoCellReadMethod, type RepoTaskAction } from "./repo-cell-types.ts";
+import {
+  type RepoCell,
+  type RepoCellBinding,
+  type RepoCellReadMethod,
+  type RepoTaskAction,
+} from "./repo-cell-types.ts";
 import type { SquadControlResult } from "./squad-control-result.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
 import { localDefaultBinding, localSystemActionBinding } from "./daemon-host-binding.ts";
@@ -87,14 +93,55 @@ function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCel
   );
 }
 
-async function bindAgendaTeams(binding: import("./repo-cell-types.ts").RepoCellBinding) {
-  if (binding.taskClaimant?.teamIds !== undefined) return binding;
+async function personTeamsForBinding(binding: RepoCellBinding, personId: string): Promise<readonly string[] | null> {
   const credential = binding.keycloakAuthorization;
-  if (!credential?.center) return binding;
-  const center = await credential.center(),
-    adapter = center.provider,
-    teamIds = await adapter.readPersonTeams(center.accessToken, binding.actor.principal.personId),
-    nodeId = typeof binding.source === "object" && binding.source.kind === "node" ? binding.source.nodeId : null;
+  if (!credential?.center) return null;
+  const center = await credential.center();
+  return center.provider.readPersonTeams(center.accessToken, personId);
+}
+
+async function bindPersonalRead(
+  binding: import("./repo-cell-types.ts").RepoCellBinding,
+  repoId: string,
+  method: DaemonGuiRpcReadMethod,
+  payload: Readonly<Record<string, unknown>>,
+  operatorBinding?: () => Promise<import("./repo-cell-types.ts").RepoCellBinding>,
+) {
+  if (
+    method !== "repo.agenda.read" &&
+    method !== "repo.works.briefs.read" &&
+    method !== "repo.workspace.scope.read" &&
+    method !== "repo.decisions.list" &&
+    !(method === "repo.tasks.list" && payload.attestationOnly === true)
+  )
+    return binding;
+  const scope = payload.scopePersonId ?? (method === "repo.agenda.read" ? undefined : payload.filterPersonId);
+  if (typeof scope === "string" && scope !== binding.actor.principal.personId) {
+    const operator = operatorBinding === undefined ? binding : await operatorBinding();
+    if (
+      binding.executionPrincipal !== undefined ||
+      operator.executionPrincipal !== undefined ||
+      operator.actor.principal.personId !== binding.actor.principal.personId
+    )
+      throw hostCodedError(
+        "authorization_denied",
+        "Cross-member personal reads require a repository administrator session.",
+      );
+    await requireAuthorizedHostAction({
+      kind: "access-manage",
+      repoId,
+      binding: operator,
+      actionId: `personal-read:${method}:${repoId}`,
+      evaluatedAtCut: `repository:${repoId}:current`,
+    });
+    const teamIds = (await personTeamsForBinding(operator, scope)) ?? [];
+    return { ...binding, personalReadScope: { personId: scope, teamIds } };
+  }
+  if (method !== "repo.agenda.read") return binding;
+  if (binding.taskClaimant?.teamIds !== undefined) return binding;
+  const teamIds = await personTeamsForBinding(binding, binding.actor.principal.personId);
+  if (teamIds === null) return binding;
+  const nodeId = typeof binding.source === "object" && binding.source.kind === "node" ? binding.source.nodeId : null;
   return { ...binding, taskClaimant: { personId: binding.actor.principal.personId, nodeId, teamIds } };
 }
 
@@ -1082,11 +1129,9 @@ export function createDaemonHostRepositoryApi(
             throw error;
           }
         }
-        const binding = await context.binding(edge.canonicalRoot, auth, undefined, undefined, true),
-          readBinding =
-            method === "repo.agenda.read" || method === "repo.works.briefs.read"
-              ? await bindAgendaTeams(binding)
-              : binding;
+        const rootDir = edge.canonicalRoot,
+          binding = await context.binding(rootDir, auth, undefined, undefined, true),
+          readBinding = await bindPersonalRead(binding, repoId, method, payload, () => context.binding(rootDir, auth));
         const cell = context.cells.get(repoId);
         if (cell && (method === "repo.gui.catalog.snapshot" || method === "repo.gui.catalog.preset.read")) {
           // Installed presets/adapters/files are node-local; defaults come from one authorized replica cut.
@@ -1146,11 +1191,7 @@ export function createDaemonHostRepositoryApi(
             ? context.warmingMessage(repoId)
             : (context.unavailable.get(repoId)?.lastError ?? `Unknown repo namespace: ${repoId}.`),
         );
-      const binding = await context.binding(cell.status().rootDir, auth),
-        readBinding =
-          method === "repo.agenda.read" || method === "repo.works.briefs.read"
-            ? await bindAgendaTeams(binding)
-            : binding;
+      const binding = await context.binding(cell.status().rootDir, auth);
       if (repositoryRead)
         await requireAuthorizedHostAction({
           kind: method === "repo.fleet.overview.read" ? "fleet-overview-read" : "repository-read",
@@ -1159,6 +1200,7 @@ export function createDaemonHostRepositoryApi(
           actionId: `${method === "repo.fleet.overview.read" ? "fleet-overview-read" : "repository-read"}:${repoId}`,
           evaluatedAtCut: `repository:${repoId}:current`,
         });
+      const readBinding = await bindPersonalRead(binding, repoId, method, payload);
       let result: unknown;
       if (method === "repo.policy.metadata.read") result = await readPolicyMetadata(await context.keycloakCenter());
       else if (method === "repo.tasks.claimable")

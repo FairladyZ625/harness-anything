@@ -103,17 +103,41 @@ async function mount() {
   return container;
 }
 
-it("Live floor drains bounded dispatch pages and retains the recent reviewer on the last page", async () => {
+const floorPage = (
+  floor: "active" | "ended",
+  rows: readonly TaskDispatchProjectionRow[] = [],
+  cursor: string | null = null,
+  nextCursor: string | null = null,
+) => ({
+  ok: true as const,
+  status: "ready" as const,
+  floor,
+  dispatches: rows,
+  truncated: false,
+  outcome: "succeeded" as const,
+  exitCode: 0,
+  watermark: 1,
+  sourceRevision: 1,
+  page: { limit: floor === "ended" ? 12 : 16, cursor, nextCursor },
+});
+
+it("Live floor bounds active enrichment and uses the outcome window for long-running reviews", async () => {
   const rows = dispatches();
+  const runtimeSessionIds = Array.from({ length: 17 }, (_, i) => `runtime-active-${String(i).padStart(2, "0")}`);
+  vi.mocked(agentRuntimeClient.overview).mockResolvedValue({
+    ...FIXTURE_RUNTIME_OVERVIEW,
+    sessions: runtimeSessionIds.map((runtimeSessionId) => ({ runtimeSessionId, lifecycle: null })) as never,
+  });
   expect(Buffer.byteLength(JSON.stringify(page(rows, null, null)))).toBeGreaterThan(FRAME_LIMIT);
   const read = vi.spyOn(harnessClient, "getTaskDispatches").mockImplementation(async (payload) => {
-    if (payload.limit === undefined || payload.limit > 16)
-      throw new Error(`invalid_frame: Fleet frame exceeds ${FRAME_LIMIT} bytes`);
-    const start = Number(payload.cursor ?? 0),
-      end = Math.min(start + payload.limit, rows.length);
-    const result = page(rows.slice(start, end), payload.cursor ?? null, end < rows.length ? String(end) : null);
-    expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(FRAME_LIMIT);
-    return result;
+    expect(payload.limit).toBeLessThanOrEqual(16);
+    expect(payload.taskIds).toBeUndefined();
+    if (payload.floor === "ended") {
+      const result = floorPage("ended", rows.slice(-1));
+      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(FRAME_LIMIT);
+      return result;
+    }
+    return floorPage("active");
   });
   const container = await mount();
   await vi.waitFor(() =>
@@ -122,7 +146,8 @@ it("Live floor drains bounded dispatch pages and retains the recent reviewer on 
   expect(container.querySelector('[role="alert"]')).toBeNull();
   expect(container.querySelector('[data-testid="live-floor-ended"]')?.textContent).toContain("Rejected in review");
   expect(container.querySelectorAll('[data-testid="live-floor-ended-row"]')).toHaveLength(1);
-  expect(read).toHaveBeenCalledTimes(Math.ceil(rows.length / 16));
+  expect(read).toHaveBeenCalledTimes(3);
+  expect(read.mock.calls.flatMap(([payload]) => payload.runtimeSessionIds ?? [])).toEqual(runtimeSessionIds);
 });
 
 it("Live floor keeps a failed dispatch read visible", async () => {
@@ -136,9 +161,10 @@ it("Live floor keeps a failed dispatch read visible", async () => {
 });
 
 it("the task timeline shows a read error instead of an empty dispatch history", async () => {
-  vi.spyOn(harnessClient, "getTaskDispatches")
-    .mockResolvedValueOnce(page([], null, null))
-    .mockRejectedValue(new Error("Center unavailable for timeline"));
+  vi.spyOn(harnessClient, "getTaskDispatches").mockImplementation(async (payload) => {
+    if (payload.floor !== undefined) return floorPage(payload.floor);
+    throw new Error("Center unavailable for timeline");
+  });
   const container = await mount();
   await vi.waitFor(() =>
     expect(container.querySelector('[data-testid="live-floor-stage-queued"] button')).not.toBeNull(),

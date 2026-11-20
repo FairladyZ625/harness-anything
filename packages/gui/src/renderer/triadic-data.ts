@@ -107,11 +107,23 @@ export function useActiveEdgesQuery(repoId: string | null, enabled: boolean) {
 }
 
 /** 根级常驻读面:决策摘要投影(decisionId/title/state/appliesTo),157,246 B 量级。 */
-export function useDecisionSummaryQuery(repoId: string | null, options: { readonly enabled?: boolean } = {}) {
+export function useDecisionSummaryQuery(
+  repoId: string | null,
+  options: {
+    readonly enabled?: boolean;
+    readonly scope?: Pick<
+      Parameters<typeof harnessClient.getDecisionSummaries>[0],
+      "scopePersonId" | "filterPersonId" | "filterNodeId"
+    >;
+  } = {},
+) {
   const enabled = repoId !== null && options.enabled !== false;
   const query = useQuery({
-    queryKey: triadicQueryKeys.decisionSummary(repoId ?? "unselected"),
-    queryFn: () => harnessClient.getDecisionSummaries({ repoId: repoId! }),
+    queryKey: [
+      ...triadicQueryKeys.decisionSummary(repoId ?? "unselected"),
+      ...(options.scope === undefined ? [] : [options.scope]),
+    ],
+    queryFn: () => harnessClient.getDecisionSummaries({ repoId: repoId!, ...options.scope }),
     enabled,
     staleTime: 10_000,
   });
@@ -382,20 +394,25 @@ export function useTriadicProjectionQuery(
     readonly graphEnabled?: boolean;
     readonly decisionsEnabled?: boolean;
     readonly decisionStates?: ReadonlyArray<Exclude<DecisionState, "unknown">>;
+    readonly decisionScope?: Omit<Parameters<typeof harnessClient.getDecisions>[0], "repoId" | "state">;
   } = {},
 ) {
   const enabled = options.enabled !== false && repoId !== null;
   const graphEnabled = enabled && options.graphEnabled !== false;
   const decisionsEnabled = enabled && options.decisionsEnabled !== false;
   const decisionStates = options.decisionStates;
+  const decisionScope = options.decisionScope;
   const graph = useCompleteRelationGraphQuery(repoId ?? "unselected", graphEnabled);
   const decisions = useQuery({
-    queryKey: triadicQueryKeys.decisions(repoId ?? "unselected", decisionStates),
+    queryKey: [
+      ...triadicQueryKeys.decisions(repoId ?? "unselected", decisionStates),
+      ...(decisionScope && Object.keys(decisionScope).length ? [decisionScope] : []),
+    ],
     queryFn: async () => {
-      if (decisionStates === undefined) return harnessClient.getDecisions({ repoId: repoId! });
+      if (decisionStates === undefined) return harnessClient.getDecisions({ repoId: repoId!, ...decisionScope });
       if (decisionStates.length === 0) return { ok: true as const, decisions: [], warnings: [] };
       const reads = await Promise.all(
-        decisionStates.map((state) => harnessClient.getDecisions({ repoId: repoId!, state })),
+        decisionStates.map((state) => harnessClient.getDecisions({ repoId: repoId!, state, ...decisionScope })),
       );
       return {
         ...reads[0]!,

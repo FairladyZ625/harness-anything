@@ -9,7 +9,7 @@ export default {
     "Governance → Cadence & Pulse renders HUD, rhythm track and blockers from the observe.tail event window; " +
     "a rhythm row expands in place (stage funnel + micro event chain) and its detail link routes to task detail, " +
     "without console errors.",
-  async run({ page }) {
+  async run({ page, shot }) {
     await bridgeReady(page);
     await nav(page, /^(?:研发态势|Cadence & Pulse)$/u, "cadence-hud");
     await page.getByTestId("cadence-rhythm").waitFor();
@@ -24,6 +24,7 @@ export default {
     await page.getByTestId("cadence-rhythm-detail").waitFor();
     await page.getByTestId("cadence-funnel").waitFor();
     await page.getByTestId("cadence-micro").waitFor();
+    await shot("cadence-inventory-and-rhythm");
     // 展开头部的「进入详情」外链才路由到任务详情。
     await page.getByRole("button", { name: /进入详情|Open detail/u }).click();
     await page.getByTestId("task-detail-view").waitFor();

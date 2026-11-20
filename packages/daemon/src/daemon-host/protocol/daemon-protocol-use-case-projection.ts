@@ -15,6 +15,7 @@ import {
   type UseCaseProjectionFacet,
 } from "./daemon-protocol-results.ts";
 import { validateSchedulesList } from "./schedules-contract.ts";
+import type { CollaboratorScope } from "@harness-anything/kernel/internal/domain/collaborator-scope.ts";
 
 /**
  * Result-side validation for the use-case projection envelope. This half is deliberately *not* on
@@ -47,7 +48,7 @@ export interface DaemonUseCaseProjectionResult {
   readonly projection: unknown;
 }
 
-export interface DaemonUseCaseProjectionPayload {
+export interface DaemonUseCaseProjectionPayload extends CollaboratorScope {
   readonly name: UseCaseProjectionName;
   readonly facet?: UseCaseProjectionFacet;
   readonly scheduleId?: string;

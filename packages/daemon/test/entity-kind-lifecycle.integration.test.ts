@@ -113,6 +113,11 @@ test("a runtime-declared Kind keeps identity and instance pins across schema v2,
       1,
       { summary: "first" },
     ]);
+    const scopedRows = (payload: { scopePersonId?: string; filterNodeId?: string }) =>
+      cell!.read("repo.entity.rows.read", payload, binding).then(({ rows }) => rows.map(({ ref }) => ref));
+    assert.deepEqual(await scopedRows({ scopePersonId: binding.actor.principal.personId }), [firstRef]);
+    assert.deepEqual(await scopedRows({ filterNodeId: "center" }), [firstRef]);
+    assert.deepEqual(await scopedRows({ scopePersonId: "person-other", filterNodeId: "center" }), []);
 
     // Negative: a non-scalar attribute value is refused rather than quietly dropped.
     const nonScalar = await cell.run(

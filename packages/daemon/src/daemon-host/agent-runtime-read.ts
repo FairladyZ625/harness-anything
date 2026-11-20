@@ -1,4 +1,8 @@
 import {
+  storageReadPolicy,
+  validateStorageReadWindow,
+} from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
+import {
   publicRuntimeSession,
   publicRuntimeInstallation,
   runtimeSessionMissingOutcomeEvidence,
@@ -43,6 +47,7 @@ import { readRuntimeSessionContextOccupancy } from "./context-occupancy.ts";
 import { runtimeSessionSettlement } from "./runtime-settlement.ts";
 import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
 import { writeSourceNodeId } from "@harness-anything/kernel/internal/domain/write-source.ts";
+import { readCollaboratorLiveFloor } from "@harness-anything/application/internal/queries/collaborator-reads.ts";
 
 /** Attach is an interactive stream: both writer and query entry points consume processAlive.
  * Installation support is transport inventory, never an alternative process/lifecycle judgment. */
@@ -233,7 +238,10 @@ export function makeAgentRuntimeReadModel(input: {
   return {
     overview: (payload: Readonly<Record<string, unknown>>): AgentRuntimeOverviewResult => {
       const query = overviewQuery(payload),
-        active = query.limit === null && query.taskId === null ? activeLifecycleSessions(input.projection) : null,
+        active =
+          query.scope === null && query.limit === null && query.taskId === null
+            ? activeLifecycleSessions(input.projection)
+            : null,
         cut = active ?? input.projection.readCut();
       const paged =
         query.limit === null
@@ -246,12 +254,14 @@ export function makeAgentRuntimeReadModel(input: {
             });
       const sessions =
         paged?.rows ??
-        (query.taskId
-          ? input.projection.readRuntimeSessionsForTask(query.taskId)
-          : // The unscoped, unpaged overview is the `ha runtime status` default: list what is
-            // still running, not every session ever. Scoped reads keep full task history;
-            // explicit paging stays the deliberate history lane.
-            active!.sessions);
+        (query.scope !== null
+          ? readCollaboratorLiveFloor(input.projection, query.scope).map(({ session }) => session)
+          : query.taskId
+            ? input.projection.readRuntimeSessionsForTask(query.taskId)
+            : // The unscoped, unpaged overview is the `ha runtime status` default: list what is
+              // still running, not every session ever. Scoped reads keep full task history;
+              // explicit paging stays the deliberate history lane.
+              active!.sessions);
       const installationIds = new Set(sessions.map(({ installationId }) => installationId));
       const installations = input.projection.readRuntimeInstallations();
       const installationsById = new Map(
@@ -596,15 +606,24 @@ function overviewQuery(payload: Readonly<Record<string, unknown>>): {
   readonly limit: number | null;
   readonly cursor: string | null;
   readonly afterRuntimeSessionId: string | null;
+  readonly scope: Parameters<typeof readCollaboratorLiveFloor>[1] | null;
 } {
-  const keys = Object.keys(payload);
+  const hasScope = payload.scopePersonId !== undefined || payload.filterNodeId !== undefined;
+  const hasPage = payload.limit !== undefined;
+  const validWidth =
+    !hasPage ||
+    (typeof payload.limit === "number" &&
+      validateStorageReadWindow(payload.limit, storageReadPolicy.defaultValue.pageSizes.sessions));
   if (
-    keys.some((key) => !["taskId", "limit", "cursor"].includes(key)) ||
+    (hasScope &&
+      (payload.taskId !== undefined ||
+        hasPage ||
+        [payload.scopePersonId, payload.filterNodeId].some(
+          (field) => field !== undefined && (typeof field !== "string" || !field.trim()),
+        ))) ||
     (payload.taskId !== undefined && (typeof payload.taskId !== "string" || !payload.taskId)) ||
-    (payload.limit !== undefined &&
-      (!Number.isInteger(payload.limit) || (payload.limit as number) < 1 || (payload.limit as number) > 64)) ||
-    (payload.cursor !== undefined && (typeof payload.cursor !== "string" || !payload.cursor)) ||
-    (payload.cursor !== undefined && payload.limit === undefined)
+    !validWidth ||
+    (payload.cursor !== undefined && (!hasPage || typeof payload.cursor !== "string" || !payload.cursor))
   ) {
     throw coded(
       "invalid_request",
@@ -617,6 +636,12 @@ function overviewQuery(payload: Readonly<Record<string, unknown>>): {
     limit: typeof payload.limit === "number" ? payload.limit : null,
     cursor,
     afterRuntimeSessionId: cursor === null ? null : runtimeSessionIdFromCursor(cursor),
+    scope: hasScope
+      ? {
+          ...(typeof payload.scopePersonId === "string" ? { scopePersonId: payload.scopePersonId } : {}),
+          ...(typeof payload.filterNodeId === "string" ? { filterNodeId: payload.filterNodeId } : {}),
+        }
+      : null,
   };
 }
 function runtimeSessionCursor(runtimeSessionId: string): string {

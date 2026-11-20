@@ -1,10 +1,13 @@
 // harness-test-tier: fast
 // @vitest-environment happy-dom
-import { afterEach, beforeAll, expect, it } from "vitest";
+import { afterEach, beforeAll, expect, it, vi } from "vitest";
+import { agentRuntimeClient } from "../src/renderer/agent-runtime-client.ts";
+import { FIXTURE_RUNTIME_OVERVIEW, FIXTURE_SESSION_DTO } from "./entityIdGateFixtures.ts";
 import type { TaskRow } from "../src/renderer/model/types.ts";
 import {
   WORKS_EMPTY,
   agenda,
+  flushUntil,
   mountOverview,
   setupOverviewBoardEnvironment,
   unmountOverview,
@@ -12,7 +15,10 @@ import {
 import { projectedTaskFields } from "./task-projection-fields.ts";
 
 beforeAll(setupOverviewBoardEnvironment);
-afterEach(unmountOverview);
+afterEach(() => {
+  unmountOverview();
+  vi.restoreAllMocks();
+});
 
 function task(taskId: string, personId: string, createdAt: string, parentTaskId?: string): TaskRow {
   return {
@@ -40,7 +46,7 @@ function task(taskId: string, personId: string, createdAt: string, parentTaskId?
   };
 }
 
-it("uses member activity for the recent window, ordering, and the timestamp of pinned work", () => {
+it("uses projected member activity and the scoped live session to order watched work", async () => {
   const now = Date.now();
   const at = (hoursAgo: number) => new Date(now - hoursAgo * 3_600_000).toISOString();
   const works = [
@@ -50,6 +56,17 @@ it("uses member activity for the recent window, ordering, and the timestamp of p
     { id: "later", aliceAt: at(24), bobAt: at(12) },
     { id: "running", aliceAt: at(168), bobAt: at(1) },
   ];
+  const runtime = vi.spyOn(agentRuntimeClient, "overview").mockResolvedValue({
+    ...FIXTURE_RUNTIME_OVERVIEW,
+    sessions: [
+      {
+        ...FIXTURE_SESSION_DTO,
+        associations: [{ ...FIXTURE_SESSION_DTO.associations[0]!, taskId: "running-alice" }],
+        activity: { ...FIXTURE_SESSION_DTO.activity, lastObservedAt: at(1) },
+        lifecycle: { displayStatus: "running" },
+      } as typeof FIXTURE_SESSION_DTO,
+    ],
+  });
   const container = mountOverview({
     scopePersonId: "person_alice",
     tasks: works.flatMap(({ id, aliceAt, bobAt }) => [
@@ -68,13 +85,13 @@ it("uses member activity for the recent window, ordering, and the timestamp of p
     ]),
     works: {
       ...WORKS_EMPTY,
-      works: works.map(({ id, bobAt }) => ({
+      works: works.map(({ id, aliceAt }) => ({
         taskId: id,
         title: id,
         status: "active",
-        counts: { executing: 2 },
-        lastActivityAt: bobAt,
-        memberTaskIds: [`${id}-alice`, `${id}-bob`],
+        counts: { executing: id === "old" ? 0 : 1 },
+        lastActivityAt: aliceAt,
+        memberTaskIds: [`${id}-alice`],
       })),
     },
     agenda: agenda({
@@ -84,6 +101,8 @@ it("uses member activity for the recent window, ordering, and the timestamp of p
     }),
   });
 
+  await flushUntil(() => container.querySelector("[data-work-card]")?.getAttribute("data-work-card") === "running");
+  expect(runtime).toHaveBeenCalledWith("probe-repo", undefined, undefined, { scopePersonId: "person_alice" });
   const workCards = [...container.querySelectorAll<HTMLElement>("[data-work-card]")];
   expect({
     order: workCards.map((row) => row.dataset.workCard),

@@ -5,6 +5,9 @@ import { readTaskRuntimeContext } from "./task-runtime-context-read.ts";
 import { readEdgeViewBlob } from "./runtime-result-read.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
+import { taskDispatchesPayloadFromCell } from "@harness-anything/application/internal/queries/repo-cell-read-payloads.ts";
+import { cellCodedError } from "./repo-cell-errors.ts";
+import { requiredCellText } from "./repo-cell-settlement.ts";
 
 export function readEdgeRuntimeRepository(
   input: {
@@ -36,26 +39,11 @@ export function readEdgeRuntimeRepository(
       } as unknown as JsonObject;
     }
     if (method === "repo.task.dispatches") {
-      const selector =
-        typeof payload.taskId === "string"
-          ? { taskId: payload.taskId }
-          : Array.isArray(payload.taskIds)
-            ? {
-                taskIds: payload.taskIds as string[],
-                ...(typeof payload.limit === "number" ? { limit: payload.limit } : {}),
-                ...(typeof payload.cursor === "string" ? { cursor: payload.cursor } : {}),
-              }
-            : typeof payload.agentId === "string" && typeof payload.limit === "number"
-              ? { agentId: payload.agentId, limit: payload.limit }
-              : typeof payload.squadId === "string" && typeof payload.limit === "number"
-                ? { squadId: payload.squadId, limit: payload.limit }
-                : null;
-      if (selector === null) throw new Error("Task dispatches requires a task id, task ids, or a member selector.");
       return {
         ...readTaskDispatches({
           projection: source,
           rootDir: input.workspaceRoot,
-          ...selector,
+          ...taskDispatchesPayloadFromCell({ cellCodedError, requiredCellText }, payload),
         }),
         ...frame,
       } as unknown as JsonObject;

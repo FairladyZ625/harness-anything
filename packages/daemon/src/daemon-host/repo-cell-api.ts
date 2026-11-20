@@ -87,6 +87,7 @@ import { readArtifactsGui } from "./artifacts-gui-read.ts";
 import { makeGitReadinessSource } from "./process-port.ts";
 import { readObserveTail } from "./observe-tail.ts";
 import { readSchedulesGui } from "./schedules-gui-read.ts";
+import { readCollaboratorSchedules } from "@harness-anything/application/internal/queries/schedule-projection.ts";
 import { readScheduleRuns } from "./schedule-runs-read.ts";
 import { readRepoInFlightWork } from "./repo-in-flight-work.ts";
 import {
@@ -113,6 +114,7 @@ import { workspaceScopeFromProjection } from "@harness-anything/application/inte
 import { workIndexFromProjection } from "@harness-anything/application/internal/queries/work-read.ts";
 import { workTopologyFromProjection } from "@harness-anything/application/internal/queries/work-topology-read.ts";
 import { workBriefsFromProjection } from "@harness-anything/application/internal/queries/work-briefs-read.ts";
+import { readCollaboratorDecisions } from "@harness-anything/application/internal/queries/collaborator-reads.ts";
 
 import { explainAuthenticationRequired, readTaskActionExplanation } from "./task-action-explanation-read.ts";
 import { commitRuntimeSessionAction, settleUnlaunchedRuntimeSession } from "./runtime-session-action-runtime.ts";
@@ -137,6 +139,8 @@ function agendaViewerContext(binding: RepoCellBinding): {
   readonly nodeId?: string;
   readonly teamIds: readonly string[];
 } {
+  if (binding.personalReadScope !== undefined)
+    return { principalId: binding.personalReadScope.personId, teamIds: binding.personalReadScope.teamIds };
   const nodeId =
       typeof binding.source === "object" && binding.source.kind === "node" ? binding.source.nodeId : undefined,
     cachedTeamIds = binding.taskClaimant?.teamIds;
@@ -302,30 +306,50 @@ export function createRepoCellApi(
         settingsLastChanged(context.projection),
         readDecisionPointSettings(readCanonicalVerticalDeclaration(context.projection)?.definition ?? null),
       ),
-    "repo.tasks.list": (payload: Readonly<Record<string, unknown>>) =>
-      queryRead().guiTasks(taskListQueryFromPayload(payload, context.cellCodedError)),
+    "repo.tasks.list": (payload: Readonly<Record<string, unknown>>, binding?: RepoCellBinding) => {
+      const query = taskListQueryFromPayload(payload, context.cellCodedError);
+      if (payload.attestationOnly === true)
+        return queryRead().guiTasks(
+          { ...query, activePackagesOnly: true, openOnly: true },
+          collaboratorInvolvement(payload, binding),
+          true,
+        );
+      const scope = collaboratorScope(payload);
+      return queryRead().guiTasks(
+        query,
+        scope.scopePersonId !== undefined || scope.filterPersonId !== undefined || scope.filterNodeId !== undefined
+          ? scope
+          : undefined,
+      );
+    },
     "repo.tasks.wip": () => readTaskWipSnapshot(context as unknown as TaskQueryCell),
-    "repo.works.index": () => workIndexFromProjection(context.projection),
+    "repo.works.index": (payload) => workIndexFromProjection(context.projection, collaboratorScope(payload)),
     "repo.work.topology.read": (payload: Readonly<Record<string, unknown>>) =>
       workTopologyFromProjection(context.projection, {
         workRootTaskId: context.requiredCellText(payload.workRootTaskId, "workRootTaskId"),
       }),
     // 读者的 person id 只来自读绑定(agent 议程读同源),payload 永远不携带身份。
-    "repo.works.briefs.read": (_payload: Readonly<Record<string, unknown>>, binding?: RepoCellBinding) => {
-      const principalId = binding?.actor.principal.personId;
+    "repo.works.briefs.read": (payload: Readonly<Record<string, unknown>>, binding?: RepoCellBinding) => {
+      const scope = collaboratorScope(payload),
+        viewerPersonId = binding?.actor.principal.personId;
+      requirePersonalReadScope(binding, scope.scopePersonId ?? scope.filterPersonId);
       return workBriefsFromProjection({
         projection: context.projection,
-        ...(principalId === undefined ? {} : { principalId }),
-        agendaPage: (query) => queryRead().agenda({ ...query, ...(principalId === undefined ? {} : { principalId }) }),
+        ...scope,
+        ...(viewerPersonId === undefined ? {} : { viewerPersonId }),
       });
     },
     "repo.workspace.summary.read": () => workspaceSummaryFromProjection(context.projection),
-    "repo.workspace.scope.read": (payload) =>
-      workspaceScopeFromProjection(context.projection, {
+    "repo.workspace.scope.read": (payload, binding) => {
+      const scope = collaboratorScope(payload);
+      requirePersonalReadScope(binding, scope.scopePersonId ?? scope.filterPersonId);
+      return workspaceScopeFromProjection(context.projection, {
+        ...scope,
         rootTaskId: context.requiredCellText(payload.rootTaskId, "rootTaskId"),
         ...(payload.limit === undefined ? {} : { limit: Number(payload.limit) }),
         ...(payload.cursor === undefined ? {} : { cursor: String(payload.cursor) }),
-      }),
+      });
+    },
     "repo.projection.read": (payload: Readonly<Record<string, unknown>>) => useCaseProjection(payload),
     "repo.entity.actions.explain": explainAuthenticationRequired,
     "repo.vertical.declaration.read": () =>
@@ -334,7 +358,7 @@ export function createRepoCellApi(
       const vertical = canonicalVertical(context.projection, context.input.repoId);
       return buildEntityKindCatalog(vertical.contract.artifactKinds, vertical.revision);
     },
-    "repo.entity.rows.read": () =>
+    "repo.entity.rows.read": (payload) =>
       readDeclaredEntityRows({
         catalog: buildEntityKindCatalog(
           compiledArtifactKinds(context.projection, context.input.repoId),
@@ -342,6 +366,7 @@ export function createRepoCellApi(
         ),
         projection: context.projection,
         runtimeInstances: context.input.runtimeInstances ?? (() => []),
+        scope: collaboratorScope(payload),
       }),
     "repo.entity.locator.read": (payload: Readonly<Record<string, unknown>>) =>
       readEntityLocator({
@@ -377,9 +402,17 @@ export function createRepoCellApi(
       });
     },
     "repo.agenda.read": (payload: Readonly<Record<string, unknown>>, binding?: RepoCellBinding) => {
+      const { scopePersonId, filterNodeId, ...parameters } = payload;
+      requirePersonalReadScope(
+        binding,
+        scopePersonId === undefined ? undefined : context.requiredCellText(scopePersonId, "scopePersonId"),
+      );
       const viewer = binding === undefined ? null : agendaViewerContext(binding);
       return queryRead().agenda({
-        ...agendaQueryFromPayload(context, payload),
+        ...agendaQueryFromPayload(context, parameters),
+        ...(typeof scopePersonId === "string" ? { scopePersonId } : {}),
+        ...(filterNodeId === undefined ? {} : { filterNodeId: context.requiredCellText(filterNodeId, "filterNodeId") }),
+        ...(viewer === null ? {} : { pinPersonId: viewer.principalId }),
         ...(viewer === null ? {} : viewer),
       });
     },
@@ -436,7 +469,8 @@ export function createRepoCellApi(
         projection: context.projection,
         readResult: (ref) => readCanonicalRuntimeResult(context.store, ref),
       }).read(context.requiredCellText(payload.squadRunId, "squadRunId")),
-    "repo.decisions.list": (payload: Readonly<Record<string, unknown>>) => decisionListFromPayload(payload),
+    "repo.decisions.list": (payload: Readonly<Record<string, unknown>>, binding?: RepoCellBinding) =>
+      decisionListFromPayload(payload, binding),
     "repo.tasks.completion.read": (payload, binding?: RepoCellBinding) =>
       readTaskCompletion(
         context.projection,
@@ -462,37 +496,65 @@ export function createRepoCellApi(
           input: { repoId: context.input.repoId },
         },
         payload,
+        collaboratorScope(payload),
       ),
     "repo.agentRuntime.overview": (payload) => context.runtimeReads.overview(payload),
     "repo.agentRuntime.sessions.read": (payload) => context.runtimeReads.session(payload),
     "repo.agentRuntime.events.read": (payload) => context.runtimeReads.events(payload),
     ...agentRuntimeTokenUsageReadHandlers(context),
-    "repo.task.dispatches": (payload: Readonly<Record<string, unknown>>) => {
-      const selection = taskDispatchesPayloadFromCell(context, payload);
-      if (
-        (payload.personId !== undefined || payload.nodeId !== undefined) &&
-        selection.agentId === undefined &&
-        selection.squadId === undefined
-      )
-        throw context.cellCodedError("invalid_command", "Dispatch attribution filters require a member read.");
-      return readTaskDispatches({
+    "repo.task.dispatches": (payload: Readonly<Record<string, unknown>>) =>
+      readTaskDispatches({
         projection: context.projection,
         rootDir: context.rootDir,
-        ...selection,
-        ...(payload.personId === undefined ? {} : { personId: context.requiredCellText(payload.personId, "personId") }),
-        ...(payload.nodeId === undefined ? {} : { nodeId: context.requiredCellText(payload.nodeId, "nodeId") }),
-      });
-    },
+        now: context.now,
+        ...taskDispatchesPayloadFromCell(context, payload),
+      }),
   } satisfies DaemonGuiReadHandlers;
-  function decisionListFromPayload(payload: Readonly<Record<string, unknown>>): DaemonDecisionListResult {
+  function collaboratorScope(payload: Readonly<Record<string, unknown>>) {
+    const text = (field: "scopePersonId" | "filterPersonId" | "filterNodeId") =>
+      payload[field] === undefined ? undefined : context.requiredCellText(payload[field], field);
+    return {
+      scopePersonId: text("scopePersonId"),
+      filterPersonId: text("filterPersonId"),
+      filterNodeId: text("filterNodeId"),
+    };
+  }
+  function requirePersonalReadScope(binding: RepoCellBinding | undefined, personId: string | undefined) {
     if (
-      Object.keys(payload).some((field) => field !== "projection" && field !== "state") ||
+      personId !== undefined &&
+      personId !== binding?.actor.principal.personId &&
+      personId !== binding?.personalReadScope?.personId
+    )
+      throw context.cellCodedError(
+        "authorization_denied",
+        "Cross-member personal reads require repository administration.",
+      );
+  }
+  function collaboratorInvolvement(payload: Readonly<Record<string, unknown>>, binding?: RepoCellBinding) {
+    const scope = collaboratorScope(payload);
+    requirePersonalReadScope(binding, scope.scopePersonId ?? scope.filterPersonId);
+    return {
+      ...scope,
+      viewerPersonId: binding?.actor.principal.personId,
+      involvement: payload.involvement === "mine" ? ("mine" as const) : ("all" as const),
+    };
+  }
+  function decisionListFromPayload(
+    payload: Readonly<Record<string, unknown>>,
+    binding?: RepoCellBinding,
+  ): DaemonDecisionListResult {
+    if (
+      Object.keys(payload).some(
+        (field) =>
+          !["projection", "state", "involvement", "scopePersonId", "filterPersonId", "filterNodeId"].includes(field),
+      ) ||
       (payload.projection !== undefined && payload.projection !== "summary" && payload.projection !== "full") ||
       (payload.state !== undefined &&
         (typeof payload.state !== "string" || !(decisionStateWords as readonly string[]).includes(payload.state)))
     )
       throw context.cellCodedError("invalid_command", "Decision list projection or state filter is invalid.");
-    const read = context.projection.listDecisions({
+    const read = readCollaboratorDecisions(context.projection, {
+      ...collaboratorInvolvement(payload, binding),
       withBody: payload.projection !== "summary",
       ...(typeof payload.state === "string" ? { state: payload.state as DecisionProjectionRow["state"] } : {}),
     });
@@ -598,7 +660,14 @@ export function createRepoCellApi(
       version: 1,
       inputs: deriveUseCaseProjectionInputs(name),
     };
-    if (name === "schedule-plane") return { ...envelope, projection: readSchedulesGui(context) };
+    if (name === "schedule-plane") {
+      const scope = collaboratorScope(selector);
+      const selected =
+        scope.scopePersonId || scope.filterPersonId || scope.filterNodeId
+          ? readCollaboratorSchedules(context.projection, scope)
+          : undefined;
+      return { ...envelope, projection: readSchedulesGui(context, selected) };
+    }
     if (name === "schedule-run-history")
       return {
         ...envelope,

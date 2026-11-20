@@ -417,6 +417,8 @@ export function validateDaemonQueryPayload(
 ): string[] {
   if (value === undefined) return [];
   if (!isJsonObject(value)) return ["query payload must be an object"];
+  if (method === "repo.tasks.list" && value.attestationOnly !== true && value.involvement !== undefined)
+    return ["repo.tasks.list involvement requires attestationOnly"];
   if (method === "repo.triadic.relationGraph" && value.hops !== undefined)
     return validateRelationNeighborhoodPayload(value);
   if (method === "repo.triadic.relationGraph" && value.entity !== undefined)

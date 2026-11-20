@@ -169,6 +169,8 @@ export interface RepoCellBinding {
   readonly artifactKindResolver?: (kind: string) => string | null;
   /** Online directory facts resolved inside the center writer, never accepted from transport. */
   readonly taskClaimant?: TaskClaimant;
+  /** Repository-admin scope authorized by the read host for this request. */
+  readonly personalReadScope?: { readonly personId: string; readonly teamIds: readonly string[] };
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
   /** Established exclusively by the daemon local socket boundary for host-resident actions. */

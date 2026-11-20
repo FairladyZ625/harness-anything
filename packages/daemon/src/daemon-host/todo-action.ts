@@ -35,7 +35,10 @@ export function runTodoAction(
       typeof action.targetRef === "string"
         ? new Set(todoRelations(cell.projection, { target: action.targetRef }).map((edge) => edge.sourceRef))
         : null;
-    const todos = readTodos(cell.projection).filter(
+    const todos = readTodos(cell.projection, {
+      ...(action.mine === true ? { scope: "mine", viewerPersonId: binding.actor.principal.personId } : {}),
+      ...(typeof action.filterPersonId === "string" ? { filterPersonId: action.filterPersonId } : {}),
+    }).filter(
       (todo) =>
         (!attached || attached.has(todo.ref)) &&
         (action.all === true ||

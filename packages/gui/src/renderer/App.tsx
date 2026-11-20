@@ -2,7 +2,7 @@ import { TodosView } from "./views/TodosView.tsx";
 import { PageEntryBoundary } from "./components/primitives/EntryBoundary.tsx";
 import { pageEntryIdentity } from "./components/primitives/page-entry-identity.ts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { DecisionState, TaskRow } from "./model/types.ts";
 import type { WorkspaceSummaryRead } from "../api/renderer-dto.ts";
 import { ThemeProvider } from "./theme.tsx";
@@ -29,6 +29,7 @@ import { DaemonObserveView } from "./views/DaemonObserveView.tsx";
 import { taskDetailEntry } from "./views/task-detail-entry.tsx";
 import { CollaborationView } from "./views/CollaborationView.tsx";
 import { useFleetOverview } from "./collaboration-data.ts";
+import { displayedRepoMode } from "./components/RepoModeBadge.tsx";
 import { collaborationSummaryOf } from "./model/collaboration.ts";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
 import { AppSidebar } from "./components/AppSidebar.tsx";
@@ -39,7 +40,6 @@ import { workTargetOf } from "./navigation/entityRoutes.ts";
 import { workIndexOf } from "./model/work-collections.ts";
 import { useAppShortcuts } from "./navigation/useAppShortcuts.ts";
 import { applyTaskFilters, DEFAULT_TASK_FILTERS, type TaskFilters } from "./model/taskFilters.ts";
-import { taskMatchesPerson } from "./model/attribution.ts";
 import { useMemberScopeContext } from "./use-member-scope-lens.ts";
 import { adaptProjectionRows } from "./task-adapter.ts";
 import { deriveAttestationLanes, type AttestationPoolTabId } from "./model/attestation-pool.ts";
@@ -47,15 +47,19 @@ import {
   invalidateLedgerDependents,
   mergeTaskRows,
   useActiveTasksQuery,
+  useRecentTerminalTasksQuery,
+  useCollaboratorTaskList,
   useTasksQuery,
   useTaskWipQuery,
   useWorkIndexQuery,
 } from "./task-data.ts";
 import { harnessClient } from "./api-client.ts";
+import { t } from "./i18n/index.tsx";
 import { useAgendaQuery } from "./agenda-data.ts";
 import {
   FULL_RELATION_GRAPH_VIEWS,
   FULL_TRIADIC_PROJECTION_VIEWS,
+  triadicQueryKeys,
   useActiveEdgesQuery,
   useDecisionSummaryQuery,
   useRuntimePlaneQuery,
@@ -104,6 +108,7 @@ import { AuroraBackdrop, LiquidFilterDef } from "./components/GlassFoundation.ts
 import { RepositoryReadNotice } from "./components/RepositoryReadNotice.tsx";
 import { requestAccountLogin } from "./account-login-request.ts";
 import { appMainSurface } from "./app-main-surface.ts";
+import { CollaboratorFilters, useCollaboratorFilters } from "./components/CollaboratorFilters.tsx";
 type DecisionPoolGroupId = WorkspaceSummaryRead["decisions"]["groups"][number]["id"];
 function AppShell() {
   const desktopOnly = guiTransport().capabilities().nativeFiles?.status === "unavailable";
@@ -198,19 +203,15 @@ function AppShell() {
     useAppLocation(projectId);
   const { view, selectedId, previewId, focusedEntityRef, taskFilters, drill } = location;
   const mainSurface = appMainSurface(view, ledgerUnavailable);
+  const pendingBoard = view === "board" && tasksQuery.data?.status !== "ready";
+  const terminalTasksQuery = useRecentTerminalTasksQuery(activeRepoId, pendingBoard);
   const taskWipQuery = useTaskWipQuery(activeRepoId, view === "board" || view === "overview");
   // 侧栏置顶工作、总览、议程和研发态势消费 `ha agenda` 同一条 repo.agenda.read 投影；
   // 侧栏跨视图常驻，因此读面也随仓库常驻，不建立第二份 pin 状态。
-  const agendaQuery = useAgendaQuery(activeRepoId);
   // 工作根与任务所属工作只读 daemon 工作索引(dec_5F7E74F1):关系图领地、看板泳道、工作列表、
   // 重点工作、面包屑与「根任务即工作」的跳转判定都从这一份来,renderer 不另立规则。
   const workIndexQuery = useWorkIndexQuery(activeRepoId);
   const works = useMemo(() => workIndexOf(workIndexQuery.data), [workIndexQuery.data]);
-  const workspaceScopeQuery = useWorkspaceScopeQuery(activeRepoId, location.scopeRootTaskId ?? null);
-  const workspaceScope = useMemo(
-    () => combineWorkspaceScopePages(workspaceScopeQuery.data?.pages ?? []),
-    [workspaceScopeQuery.data?.pages],
-  );
   // 执行概况页签的会话组读面(sessionGroups)由 CadenceView 自带:query key 并入
   // sessionGroupsAll 家族,与会话页共享缓存与台账 cut 的失效扇出。
   const setTaskFilters = useCallback((next: TaskFilters) => updateLocation({ taskFilters: next }), [updateLocation]);
@@ -248,7 +249,12 @@ function AppShell() {
     // 行集 = 完整切面(水化中渐进成形)∪ 活跃切片;完整切面未落地的那一小段首屏
     // 只有切片行,freshness 诚实地按 pending(尚未读完)标记。
     return adaptProjectionRows(
-      mergeTaskRows(tasksQuery.data?.rows, activeTasksQuery.data),
+      mergeTaskRows(
+        tasksQuery.data?.rows,
+        pendingBoard && terminalTasksQuery.data !== undefined
+          ? [...(activeTasksQuery.data ?? []), ...terminalTasksQuery.data]
+          : activeTasksQuery.data,
+      ),
       projectId,
       tasksQuery.data?.status ?? "pending",
       works,
@@ -256,13 +262,22 @@ function AppShell() {
       const rootAssessment = roots.get(task.taskId);
       return rootAssessment ? { ...task, rootAssessment } : task;
     });
-  }, [projectId, taskWipQuery.data, tasksQuery.data, activeTasksQuery.data, works]);
+  }, [
+    projectId,
+    taskWipQuery.data,
+    tasksQuery.data,
+    activeTasksQuery.data,
+    terminalTasksQuery.data,
+    pendingBoard,
+    works,
+  ]);
   const activeRepo = systemQuery.data?.repos.find((repo) => repo.repoId === activeRepoId);
   // 窗口标题「项目名 — Harness Anything」:Dock/任务栏/⌘` 切窗口可辨认。
   useProjectWindowTitle(activeRepo?.displayName ?? null);
   // 协作页舰队拓扑(task_8ce646d94):repo.fleet.overview.read 一条 typed read,挂统一
   // 节奏常量自持轮询(见 collaboration-data.ts:半数事实是 daemon 级状态,cut 覆盖不到)。
   const fleetOverview = useFleetOverview(activeRepoId, activeRepo !== undefined);
+  const effectiveTopology = fleetOverview.overview?.effectiveMode;
   const project = adaptRepoProject(
     projectId,
     activeRepo,
@@ -282,8 +297,57 @@ function AppShell() {
     rootDir: activeRepo?.canonicalRoot ?? undefined,
     tasks: projectTasks,
     fleetNodes: fleetOverview.overview?.nodes,
+    collaborative:
+      activeRepo?.mode === "remote-edge" || effectiveTopology === "center"
+        ? true
+        : effectiveTopology === "local"
+          ? false
+          : undefined,
     view,
   });
+  const poolFilter = useCollaboratorFilters(memberScope);
+  const { filterPersonId, ...poolFilters } = poolFilter.query;
+  const selectedPoolScope =
+    filterPersonId !== undefined && filterPersonId === memberScope.currentPersonId
+      ? { ...poolFilters, involvement: "mine" as const }
+      : poolFilter.query;
+  const activePoolScope =
+    view === "decisionPool"
+      ? selectedPoolScope
+      : memberScope.scopePersonId === null
+        ? {}
+        : { scopePersonId: memberScope.scopePersonId };
+  const poolScoped = Object.keys(activePoolScope).length > 0;
+  const poolTasksQuery = useCollaboratorTaskList(activeRepoId, { ...activePoolScope, attestationOnly: true });
+  const poolTasks = useMemo(
+    () =>
+      adaptProjectionRows(poolTasksQuery.data?.rows ?? [], projectId, poolTasksQuery.data?.status ?? "pending", works),
+    [poolTasksQuery.data, projectId, works],
+  );
+  const poolDecisionBadge = useQuery({
+    queryKey: [...triadicQueryKeys.decisions(projectId, ["proposed"]), activePoolScope],
+    queryFn: () => harnessClient.getDecisions({ repoId: projectId, ...activePoolScope, state: "proposed" }),
+    enabled: activeRepoId !== null && poolScoped,
+  });
+  const ownRead = memberScope.scopePersonId === null || memberScope.scopePersonId === memberScope.currentPersonId;
+  const agendaQuery = useAgendaQuery(
+    memberScope.identityPending ? null : activeRepoId,
+    memberScope.scopePersonId,
+    memberScope.currentPersonId,
+  );
+  const overviewWorkIndex = useWorkIndexQuery(
+    view === "overview" && memberScope.scopePersonId !== null ? activeRepoId : null,
+    memberScope.scopePersonId,
+  );
+  const workspaceScopeQuery = useWorkspaceScopeQuery(
+    activeRepoId,
+    location.scopeRootTaskId ?? null,
+    memberScope.scopePersonId,
+  );
+  const workspaceScope = useMemo(
+    () => combineWorkspaceScopePages(workspaceScopeQuery.data?.pages ?? []),
+    [workspaceScopeQuery.data?.pages],
+  );
   // 总览紧凑协作入口的摘要(折算在 model/collaboration.ts;未选中仓没有仓库视角,不给入口)。
   const collaborationSummary = activeRepo === undefined ? null : collaborationSummaryOf(projectTasks);
   /** task 详情「打开终端」→ 终端页进页即建绑定会话;requestId 让同一请求只消费一次。 */
@@ -305,13 +369,6 @@ function AppShell() {
   const selected = useMemo(() => tasks.find((t) => t.taskId === selectedId) ?? null, [tasks, selectedId]);
   // 根任务即工作:选中位落在工作根(跨仓深链、历史恢复时任务行尚未到)就原地换成工作页。
   const selectedWorkRootId = selected !== null && works.isWorkRoot(selected.taskId) ? selected.taskId : null;
-  const scopedProjectTasks = useMemo(
-    () =>
-      memberScope.scopePersonId === null
-        ? projectTasks
-        : projectTasks.filter((task) => taskMatchesPerson(task, memberScope.scopePersonId!)),
-    [projectTasks, memberScope.scopePersonId],
-  );
   const boardFilters = useMemo(
     () => (memberScope.scopePersonId === null ? taskFilters : { ...taskFilters, person: memberScope.scopePersonId }),
     [memberScope.scopePersonId, taskFilters],
@@ -325,8 +382,7 @@ function AppShell() {
       setTaskFilters(memberScope.scopePersonId === null ? next : { ...next, person: taskFilters.person }),
     [memberScope.scopePersonId, setTaskFilters, taskFilters.person],
   );
-  const previewTasks =
-    view === "board" ? filteredProjectTasks : memberScope.scopePersonId === null ? projectTasks : scopedProjectTasks;
+  const previewTasks = view === "board" ? filteredProjectTasks : projectTasks;
   const previewTask = useMemo(
     () => previewTasks.find((task) => task.taskId === previewId) ?? null,
     [previewId, previewTasks],
@@ -369,6 +425,7 @@ function AppShell() {
     // serializes two independent daemon reads on the decision pool's first mount.
     decisionsEnabled: true,
     decisionStates: decisionPoolStates as ReadonlyArray<Exclude<DecisionState, "unknown">> | undefined,
+    decisionScope: view === "decisionPool" || view === "freshness" ? activePoolScope : undefined,
   });
   // 运行时平面(agent/schedule 行 + agent→task 派发边):只有关系图页读取;
   // 三条既有读(agent 目录/Schedule 列表/关系图切面)与各自入口共享
@@ -418,14 +475,24 @@ function AppShell() {
   // 决策侧与池内「决策待裁」域计数同读面同判据(workspace summary 的 kernel proposed
   // 判定),角标与域 tab 共享同一 query 缓存,结构性相等。
   const poolBadgeCount = useMemo(() => {
-    const lanes = deriveAttestationLanes(projectTasks);
+    if (poolTasksQuery.data?.status !== "ready" || (poolScoped && poolDecisionBadge.data === undefined))
+      return undefined;
+    const lanes = deriveAttestationLanes(poolTasks);
     return (
-      (workspaceSummaryQuery.data?.decisions.inboxCount ?? 0) +
+      (poolScoped
+        ? (poolDecisionBadge.data?.decisions.length ?? 0)
+        : (workspaceSummaryQuery.data?.decisions.inboxCount ?? 0)) +
       lanes.gates.length +
       lanes.consents.length +
       lanes.breakGlass.length
     );
-  }, [projectTasks, workspaceSummaryQuery.data?.decisions.inboxCount]);
+  }, [
+    poolTasks,
+    poolScoped,
+    poolTasksQuery.data,
+    poolDecisionBadge.data,
+    workspaceSummaryQuery.data?.decisions.inboxCount,
+  ]);
 
   // 系统运行区输入(派生收敛在 model/use-app-runtime-health.ts;读面不变)。
   // 换代挂载的全局进度直接数同一个 systemQuery.repos,不新增读面或轮询。
@@ -600,9 +667,11 @@ function AppShell() {
           project={project}
           repos={systemQuery.data?.repos ?? []}
           activeRepoId={activeRepoId}
+          effectiveRepoMode={displayedRepoMode(activeRepo?.mode ?? null, effectiveTopology)}
           view={view}
           hasSelection={selected !== null}
           poolBadgeCount={poolBadgeCount}
+          agenda={agendaQuery.data}
           projectSwitcherOpen={projectSwitcherOpen}
           onProjectSwitcherToggle={() => setProjectSwitcherOpen((open) => !open)}
           onOpenProject={(repoId) => {
@@ -623,7 +692,7 @@ function AppShell() {
           pinnedWork={(agendaQuery.data?.pinnedEntities ?? []).flatMap((item) =>
             item.kind === "task" ? [{ taskId: item.ref.replace(/^task\//u, ""), title: item.title }] : [],
           )}
-          onUnpinWork={(taskId) => handleSetPin({ taskId }, false)}
+          onUnpinWork={ownRead ? (taskId) => handleSetPin({ taskId }, false) : undefined}
           onOpenPinned={openTaskDetail}
           ledgerStatus={ledgerStatusBar}
           onRefreshLedger={refreshLedger}
@@ -655,9 +724,9 @@ function AppShell() {
                 : null
             }
           />
-          {memberScope.canUseGlobalLens && memberScope.scopePersonId !== null && (
+          {memberScope.canUseGlobalLens && memberScope.selectedPersonId && (
             <GlobalScopeBanner
-              personId={memberScope.scopePersonId}
+              personId={memberScope.selectedPersonId}
               currentPersonId={memberScope.currentPersonId}
               peopleById={memberScope.peopleById}
               onExit={() => memberScope.setScopePersonId(null)}
@@ -731,6 +800,8 @@ function AppShell() {
               ) : view === "liveFloor" ? (
                 <LiveFloorView
                   repoId={projectId}
+                  scopePersonId={memberScope.scopePersonId}
+                  viewerPersonId={memberScope.currentPersonId}
                   tasks={tasks}
                   works={works}
                   onOpenTask={openTaskDetail}
@@ -753,18 +824,21 @@ function AppShell() {
                   repoId={projectId}
                   focusedEntityRef={focusedEntityRef}
                   onNavigateEntity={navigateToEntity}
+                  selectedPersonId={memberScope.selectedPersonId}
+                  currentPersonId={memberScope.currentPersonId}
+                  members={memberScope.lensMembers}
                 />
               ) : view === "overview" ? (
-                workspaceSummaryQuery.data ? (
+                workspaceSummaryQuery.data && !memberScope.identityPending ? (
                   <OverviewView
                     connectionId={activeRepo?.connectionId ?? null}
                     repoId={projectId}
                     agenda={agendaQuery.data}
-                    works={workIndexQuery.data}
+                    works={memberScope.scopePersonId === null ? workIndexQuery.data : overviewWorkIndex.data}
                     titles={taskTitles}
                     workspaceSummary={workspaceSummaryQuery.data}
                     health={runtimeHealth}
-                    tasks={projectTasks}
+                    tasks={poolTasks}
                     collaboration={collaborationSummary}
                     onNavigateEntity={navigateToEntity}
                     onOpenTask={(taskId, docPath) => {
@@ -788,9 +862,10 @@ function AppShell() {
                         drill: null,
                       })
                     }
-                    onUnpin={(taskId) => handleSetPin({ taskId }, false)}
-                    onUnpinEntity={handleUnpinEntity}
+                    onUnpin={ownRead ? (taskId) => handleSetPin({ taskId }, false) : undefined}
+                    onUnpinEntity={ownRead ? handleUnpinEntity : undefined}
                     scopePersonId={memberScope.scopePersonId}
+                    viewerPersonId={memberScope.currentPersonId}
                   />
                 ) : (
                   <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />
@@ -835,7 +910,7 @@ function AppShell() {
                     facts={facts}
                     relations={relations}
                     onNavigateEntity={navigateToEntity}
-                    onSetTaskPin={handleSetPin}
+                    onSetTaskPin={ownRead ? handleSetPin : undefined}
                     onAttest={(task, gateId, mode) => {
                       void taskActions.attestGate(task, gateId, mode);
                     }}
@@ -870,7 +945,7 @@ function AppShell() {
               ) : view === "board" ? (
                 <BoardView
                   tasks={filteredProjectTasks}
-                  allTasks={scopedProjectTasks}
+                  allTasks={projectTasks}
                   wipSnapshot={taskWipQuery.data}
                   filters={boardFilters}
                   onFiltersChange={changeBoardFilters}
@@ -1010,8 +1085,25 @@ function AppShell() {
                 workspaceSummaryQuery.data ? (
                   <AttestationPoolView
                     repoId={projectId}
+                    scopeControl={
+                      <>
+                        <CollaboratorFilters options={memberScope} selection={poolFilter} />
+                        {poolTasksQuery.error ? (
+                          <p role="alert">{poolTasksQuery.error.message}</p>
+                        ) : poolTasksQuery.data?.status !== "ready" ? (
+                          <p role="status">{t("views.agenda.tasksPending")}</p>
+                        ) : null}
+                      </>
+                    }
                     decisions={decisions}
-                    summary={workspaceSummaryQuery.data.decisions}
+                    summary={
+                      poolScoped
+                        ? {
+                            ...workspaceSummaryQuery.data.decisions,
+                            inboxCount: poolDecisionBadge.data?.decisions.length ?? 0,
+                          }
+                        : workspaceSummaryQuery.data.decisions
+                    }
                     facts={facts}
                     relations={relations}
                     coverageRows={coverageRows}
@@ -1023,7 +1115,7 @@ function AppShell() {
                     onCheckReceipt={(key) => {
                       void decisionActions.checkReceipt(key);
                     }}
-                    tasks={projectTasks}
+                    tasks={poolTasks}
                     onAttest={taskActions.attestGate}
                     taskFeedback={feedbackOf}
                     onConsentReview={(task, reviewId) => taskActions.consentReview(task, reviewId)}
@@ -1051,7 +1143,9 @@ function AppShell() {
               ) : view === "cadence" ? (
                 <CadenceView
                   repoId={projectId}
+                  collaborator={memberScope}
                   projectName={project.name}
+                  works={works}
                   tasks={projectTasks}
                   agenda={agendaQuery.data}
                   decisions={decisionSummary.decisions}
@@ -1084,6 +1178,7 @@ function AppShell() {
               ) : view === "entities" ? (
                 <EntitiesView
                   repoId={projectId}
+                  collaborator={memberScope}
                   // 实体页深链接 entitydoc/<kind>:落目录页内详情(与 preset/<id> 同构,
                   // 推栈回撤原路返回)。声明实体的 <kind>/<id> 也落这里(见 entityRoutes)。
                   focusedRef={focusedEntityRef}
@@ -1126,6 +1221,7 @@ function AppShell() {
               ) : view === "schedules" ? (
                 <SchedulesView
                   repoId={projectId}
+                  collaborator={memberScope}
                   focusedEntityRef={focusedEntityRef}
                   onSelectEntity={selectRuntimeEntity}
                   onFocusSchedule={(ref) => updateLocation({ focusedEntityRef: ref })}
@@ -1133,7 +1229,7 @@ function AppShell() {
                   onBack={back}
                 />
               ) : view === "artifacts" ? (
-                <ArtifactsView repoId={projectId} onNavigateTask={openTaskDetail} />
+                <ArtifactsView repoId={projectId} onNavigateTask={openTaskDetail} collaborator={memberScope} />
               ) : view === "agentSquad" ? (
                 <AgentSquadView
                   repoId={projectId}
@@ -1168,6 +1264,7 @@ function AppShell() {
                   onSelectEntity={selectRuntimeEntity}
                   onOpenTask={openTaskDetail}
                   remoteEdge={activeRepo?.mode === "remote-edge"}
+                  collaborator={memberScope}
                 />
               ) : view === "terminal" ? (
                 <TerminalRoute
