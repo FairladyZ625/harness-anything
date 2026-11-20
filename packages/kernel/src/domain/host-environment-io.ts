@@ -2,6 +2,10 @@
 export const hostEnvironmentFiles = Object.freeze({
   fleetSnapshotPin: { name: "pin.json", owner: "packages/daemon/src/daemon-host/fleet/center-listener.ts" },
   fleetSnapshotTransfer: { name: "transfer.json", owner: "packages/daemon/src/daemon-host/fleet/walreceiver.ts" },
+  modelPricingCache: {
+    name: "model-pricing-cache.json",
+    owner: "packages/daemon/src/daemon-host/model-pricing-refresh.ts",
+  },
   worktreeSetupProgress: { name: "succeeded.json", owner: "packages/daemon/src/daemon-host/worktree-setup.ts" },
 });
 

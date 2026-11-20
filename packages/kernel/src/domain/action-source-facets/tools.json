@@ -3291,6 +3291,13 @@
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync",
         "order": 409
+      },
+      {
+        "candidateId": "action:tools:tools/sync-model-pricing.mjs#syncModelPricing:73cd1513c5eafe207b31a75253235498",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.writeFile",
+        "order": 414
       }
     ],
     "preset-install": [

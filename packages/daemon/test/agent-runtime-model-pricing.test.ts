@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { tokenUsageProjection } from "./token-usage-lifecycle.fixtures.ts";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,7 +14,12 @@ import {
 } from "../src/daemon-host/agent-runtime-token-usage.ts";
 import { modelPriceOf, modelPricingVersion, usageCostUsd } from "../src/runtime-engine/agent-runtime-model-pricing.ts";
 import { createModelPricingCatalog } from "../src/runtime-engine/model-pricing-catalog.ts";
-import { refreshModelPricingCatalog } from "../src/daemon-host/model-pricing-refresh.ts";
+import { hostEnvironmentFilePath } from "../src/daemon-host/host-environment-io.ts";
+import {
+  initializeModelPricingCatalog,
+  MODEL_PRICING_REFRESH_INTERVAL_MS,
+  refreshModelPricingCatalog,
+} from "../src/daemon-host/model-pricing-refresh.ts";
 
 /** 价格模块与读面金额累加的定向测试:四段计价(新输入/缓存读/缓存写/输出)、无价格模型不按
  * 0 计、缓存写缺字段的历史记录按 0 计、金额出现在每个聚合维度、校验器接受新形状。 */
@@ -160,6 +165,132 @@ test("background price refresh installs a validated catalog without making real 
       outputPerMillion: 10,
     },
   ]);
+});
+
+test("startup installs a fresh disk cache without requesting the network", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-model-pricing-cache-fresh-")),
+    catalog = createModelPricingCatalog({
+      modelsDev: { openai: { models: { "gpt-6.2-sol": { cost: { input: 2, output: 10 } } } } },
+      version: "2026-11-21",
+      source: "https://models.dev/api.json",
+    });
+  try {
+    writeFileSync(
+      hostEnvironmentFilePath("modelPricingCache", userRoot),
+      JSON.stringify({ schema: "model-pricing-cache/v1", fetchedAt: "2026-11-21T11:00:00.000Z", catalog }),
+    );
+    let installed: unknown;
+    const nextRefresh = await initializeModelPricingCatalog({
+      userRoot,
+      install: (value) => (installed = value),
+      now: () => new Date("2026-11-21T12:00:00.000Z"),
+      fetcher: async () => {
+        assert.fail("fresh cache must not fetch");
+      },
+    });
+    assert.deepEqual(installed, catalog);
+    assert.equal(nextRefresh, MODEL_PRICING_REFRESH_INTERVAL_MS - 60 * 60 * 1_000);
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("startup refreshes a stale disk cache and atomically persists the validated catalog", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-model-pricing-cache-stale-")),
+    oldCatalog = createModelPricingCatalog({
+      modelsDev: { openai: { models: { "gpt-6.2-sol": { cost: { input: 1, output: 5 } } } } },
+      version: "2026-11-20",
+      source: "https://models.dev/api.json",
+    });
+  try {
+    writeFileSync(
+      hostEnvironmentFilePath("modelPricingCache", userRoot),
+      JSON.stringify({ schema: "model-pricing-cache/v1", fetchedAt: "2026-11-20T10:00:00.000Z", catalog: oldCatalog }),
+    );
+    let installed: unknown;
+    const nextRefresh = await initializeModelPricingCatalog({
+      userRoot,
+      install: (value) => (installed = value),
+      now: () => new Date("2026-11-21T12:00:00.000Z"),
+      fetcher: async (url, options) => {
+        assert.equal(url, "https://models.dev/api.json");
+        assert.ok(options?.signal);
+        return new Response(
+          JSON.stringify({ openai: { models: { "gpt-6.2-sol": { cost: { input: 2, output: 10 } } } } }),
+          { status: 200 },
+        );
+      },
+    });
+    const cache = JSON.parse(readFileSync(hostEnvironmentFilePath("modelPricingCache", userRoot), "utf8")) as {
+      schema: string;
+      fetchedAt: string;
+      catalog: { version: string; models: { inputPerMillion: number }[] };
+    };
+    assert.equal(nextRefresh, MODEL_PRICING_REFRESH_INTERVAL_MS);
+    assert.equal(cache.schema, "model-pricing-cache/v1");
+    assert.equal(cache.fetchedAt, "2026-11-21T12:00:00.000Z");
+    assert.equal(cache.catalog.version, "2026-11-21");
+    assert.equal(cache.catalog.models[0]?.inputPerMillion, 2);
+    assert.deepEqual(installed, cache.catalog);
+    assert.deepEqual(readdirSync(userRoot), ["model-pricing-cache.json"]);
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("a stale disk cache is not installed when the refresh fails", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-model-pricing-cache-offline-")),
+    staleCatalog = createModelPricingCatalog({
+      modelsDev: { openai: { models: { "gpt-6.2-sol": { cost: { input: 1, output: 5 } } } } },
+      version: "2026-11-20",
+      source: "https://models.dev/api.json",
+    });
+  try {
+    writeFileSync(
+      hostEnvironmentFilePath("modelPricingCache", userRoot),
+      JSON.stringify({
+        schema: "model-pricing-cache/v1",
+        fetchedAt: "2026-11-20T10:00:00.000Z",
+        catalog: staleCatalog,
+      }),
+    );
+    let installs = 0;
+    await initializeModelPricingCatalog({
+      userRoot,
+      install: () => (installs += 1),
+      now: () => new Date("2026-11-21T12:00:00.000Z"),
+      fetcher: async () => {
+        throw new Error("offline");
+      },
+    });
+    assert.equal(installs, 0);
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("invalid cache and failed refresh leave the in-memory catalog unchanged", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-model-pricing-cache-invalid-"));
+  try {
+    writeFileSync(hostEnvironmentFilePath("modelPricingCache", userRoot), JSON.stringify({ schema: "wrong" }));
+    let installs = 0;
+    const nextRefresh = await initializeModelPricingCatalog({
+      userRoot,
+      install: () => (installs += 1),
+      now: () => new Date("2026-11-21T12:00:00.000Z"),
+      fetcher: async () => new Response("unavailable", { status: 503 }),
+    });
+    assert.equal(nextRefresh, MODEL_PRICING_REFRESH_INTERVAL_MS);
+    assert.equal(installs, 0);
+    assert.deepEqual(modelPriceOf("gpt-6.2-sol"), {
+      inputPerMillion: 2,
+      cacheReadPerMillion: 0.1,
+      cacheWritePerMillion: 2.5,
+      outputPerMillion: 10,
+    });
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
 });
 
 test("usageCostUsd prices the four token kinds separately", () => {
