@@ -18,6 +18,7 @@ export const cachePurgeDerivedDirectories = [
   "generated",
   "restore-drills",
   "runtime/dispatches",
+  "runtime/sealed-skills",
   "doc-sync-claims",
   "fleet-uploads",
   "conflicts",

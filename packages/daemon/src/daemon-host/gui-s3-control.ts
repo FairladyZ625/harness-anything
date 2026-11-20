@@ -78,6 +78,7 @@ type Rule =
   | "number"
   | "boolean"
   | "null-string"
+  | "optional-null-string"
   | "null-number"
   | "array"
   | "optional-array"
@@ -106,6 +107,7 @@ export function closed(value: unknown, fields: Readonly<Record<string, Rule>>, l
           typeof item === "boolean" ||
           Array.isArray(item))) ||
       (rule === "null-string" && (item === null || typeof item === "string")) ||
+      (rule === "optional-null-string" && (item === undefined || item === null || typeof item === "string")) ||
       (rule === "null-number" && (item === null || typeof item === "number")) ||
       (rule === "nullable-object" && (item === null || record(item)))
     )
@@ -360,6 +362,8 @@ export function validateAgentDispatchPreview(value: unknown): readonly string[] 
       dispatchId: "string",
       runtimeSessionId: "string",
       effort: "null-string",
+      agentDeclarationDigest: "optional-null-string",
+      skillSnapshotDigest: "optional-null-string",
       prompt: "string",
       mission: "string",
     },
@@ -368,6 +372,15 @@ export function validateAgentDispatchPreview(value: unknown): readonly string[] 
   if (!record(value)) return errors;
   if (value.schema !== "agent-dispatch-preview/v1" || value.ok !== true)
     errors.push("agent dispatch preview schema is invalid");
+  if (
+    (value.agentDeclarationDigest !== undefined &&
+      value.agentDeclarationDigest !== null &&
+      !digest(value.agentDeclarationDigest)) ||
+    (value.skillSnapshotDigest !== undefined &&
+      value.skillSnapshotDigest !== null &&
+      !digest(value.skillSnapshotDigest))
+  )
+    errors.push("agent dispatch preview digest is invalid");
   return errors;
 }
 

@@ -442,6 +442,8 @@ function parseAgentRun(
         ["--effort", "effort"],
         ["--mcp-policy", "mcpPolicy"],
         ["--on-exit", "onExitCommand"],
+        ["--expected-agent-digest", "expectedAgentDeclarationDigest"],
+        ["--expected-skill-digest", "expectedSkillSnapshotDigest"],
       ]),
       ...(f.booleans.has("--fast") ? { fast: true } : {}),
       ...(f.booleans.has("--dry-run") ? { dryRun: true } : {}),

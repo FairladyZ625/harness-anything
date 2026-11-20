@@ -491,3 +491,14 @@ export {
   type DispatchLifecycleSummary,
   type DispatchLifecycleView,
 } from "./dispatch-lifecycle.ts";
+
+export {
+  computeAgentDeclarationDigest,
+  computeSkillSnapshotDigest,
+  verifyBareProviderSessionResumeIdentity,
+  verifyDispatchSnapshotFence,
+  type PriorProviderSessionIdentity,
+  type SkillSnapshotFileDigest,
+  type SkillSnapshotUnitDigest,
+} from "./agent-dispatch-identity.ts";
+export { digest as isSha256Digest } from "./digest.ts";

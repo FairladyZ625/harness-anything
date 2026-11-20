@@ -1751,6 +1751,21 @@ test("CLI runtime spawn and control RPC payloads align with daemonMethodPayloadF
     },
     { argv: ["agent", "run", "terra", "--claim-next", "--no-stream"] },
     { argv: ["agent", "run", "terra", "--task", "task_1", "--dry-run", "--no-stream"], expectedFields: ["dryRun"] },
+    {
+      argv: [
+        "agent",
+        "run",
+        "terra",
+        "--task",
+        "task_1",
+        "--expected-agent-digest",
+        `sha256:${"a".repeat(64)}`,
+        "--expected-skill-digest",
+        `sha256:${"b".repeat(64)}`,
+        "--no-stream",
+      ],
+      expectedFields: ["expectedAgentDeclarationDigest", "expectedSkillSnapshotDigest"],
+    },
     { argv: ["runtime", "run", "inst-1", "--prompt", "inspect", "--cwd", "."] },
     {
       argv: ["runtime", "run", "--resume-dispatch", "dispatch_0123456789abcdef01234567", "--prompt", "resume"],

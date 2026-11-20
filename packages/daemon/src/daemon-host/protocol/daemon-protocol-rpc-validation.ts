@@ -472,6 +472,8 @@ export function validateNamedActionPayload(method: DaemonGuiActionMethod, value:
       (value.cwd === undefined ? value.dispatchId === undefined && !nonEmpty(value.taskId) : !exactCwd(value.cwd)) ||
       (value.taskId !== undefined && value.taskId !== null && !nonEmpty(value.taskId)) ||
       (value.providerSessionId !== undefined && !nonEmpty(value.providerSessionId)) ||
+      (value.expectedAgentDeclarationDigest !== undefined && !digest(value.expectedAgentDeclarationDigest)) ||
+      (value.expectedSkillSnapshotDigest !== undefined && !digest(value.expectedSkillSnapshotDigest)) ||
       (value.dryRun !== undefined && typeof value.dryRun !== "boolean") ||
       !nonEmpty(value.dispatchKey))
   )

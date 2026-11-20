@@ -25,6 +25,7 @@ import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/stor
 import { posixShellFallback, runProcessExitAsync, runProcessTextAsync, startDetachedProcess } from "./process-port.ts";
 import { nodeModulesSetupAdapter } from "./worktree-setup-node-modules.ts";
 import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
+import { resolveOwnedDirectory } from "./local-root-paths.ts";
 import type { CanonicalEventStore } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 
 // dec_8B3FCCD256CAC5B0BF3CCEDE58 CH3: the repository declares in Settings `worktree.setup` what a fresh worktree
@@ -348,7 +349,7 @@ export function removeEmptyWorktreeDirectory(target: string): void {
   removeMirrorEntry(target, false);
 }
 
-function removeMirrorEntry(target: string, recursive = true): void {
+export function removeMirrorEntry(target: string, recursive = true): void {
   const entry = lstatSync(target);
   if (recursive && (!entry.isDirectory() || entry.isSymbolicLink())) {
     /* @gate-identity non-state/environment-io.5d1712f8bfbde7e1 */ unlinkSync(target);
@@ -617,6 +618,12 @@ export function unlinkWorktreeLedger(rootDir: string, cwd: string): void {
     clearWorktreeLedgerCopies(legacyMarker);
     /* @gate-identity non-state/environment-io.d52ac26bd8aaf8af */ unlinkSync(legacyMarker);
   }
+  const localRuntime = localEntry?.isDirectory() ? resolveOwnedDirectory(realpathSync(local), "runtime") : null;
+  if (localRuntime !== null) {
+    const skillSnapshots = path.join(localRuntime, "sealed-skills");
+    if (lstatSync(skillSnapshots, { throwIfNoEntry: false })) removeMirrorEntry(skillSnapshots);
+    if (readdirSync(localRuntime).length === 0) removeMirrorEntry(localRuntime, false);
+  }
   if (!linked) {
     if (ownership === "legacy" && readdirSync(mirror).length === 0) removeEmptyWorktreeDirectory(mirror);
     if (localEntry?.isSymbolicLink() && path.resolve(cwd, readlinkSync(local)) === layout.localRoot)
@@ -674,8 +681,8 @@ function workerLedgerCopyPath(marker: string, relative: string): string {
   return path.join(path.dirname(marker), "ledger-files", relative);
 }
 
-/** Creates a worker-owned copy path without following directories a worker may have replaced with symlinks. */
-function ensureRealDirectory(root: string, directory: string): void {
+/** Creates a runtime copy path without following directories a worker may have replaced with symlinks. */
+export function ensureRealDirectory(root: string, directory: string): void {
   if (directory === root) return;
   const relative = path.relative(root, directory);
   if (relative.startsWith("..") || path.isAbsolute(relative))

@@ -17,6 +17,7 @@ import {
 import type { EntityDocumentJsonSchema } from "./entity-json-schema.ts";
 import { deriveRelationId, type EntityRelationRecord } from "./entity-relation.ts";
 import { timestamp } from "./timestamp.ts";
+import { digest as isSha256Digest } from "./digest.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 
 export class RuntimeSessionAdoptionStaleError extends Error {
@@ -399,6 +400,8 @@ interface RuntimePayloads {
     readonly attemptIndex?: number;
     readonly agentId?: string;
     readonly agentName?: string;
+    readonly agentDeclarationDigest?: string;
+    readonly skillSnapshotDigest?: string;
     readonly squadId?: string;
     readonly squadRun?: SquadDispatchContext;
     readonly cwd?: string;
@@ -608,6 +611,8 @@ function validateAgentRuntimePayloadFields(
                 "attemptIndex",
                 "agentId",
                 "agentName",
+                "agentDeclarationDigest",
+                "skillSnapshotDigest",
                 "squadId",
                 "squadRun",
                 "cwd",
@@ -658,6 +663,12 @@ function validateAgentRuntimePayloadFields(
       (value.attemptIndex !== undefined && (!Number.isInteger(value.attemptIndex) || Number(value.attemptIndex) < 0)))
   )
     return ["runtime dispatch query metadata is invalid"];
+  if (
+    type === "runtime_dispatch_requested" &&
+    ((value.agentDeclarationDigest !== undefined && !isSha256Digest(value.agentDeclarationDigest)) ||
+      (value.skillSnapshotDigest !== undefined && !isSha256Digest(value.skillSnapshotDigest)))
+  )
+    return ["runtime dispatch identity digest is invalid"];
   if (
     type === "runtime_dispatch_requested" &&
     ((value.handoffEnabled !== undefined && typeof value.handoffEnabled !== "boolean") ||

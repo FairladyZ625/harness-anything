@@ -132,8 +132,13 @@ test("a real worktree dispatch hands the worker an openable path for every priva
   // And the delivered prompt carries the path that opens each one — the same `workerLedgerPath`
   // port Required Skills uses, so one file never gets two different paths.
   assert.match(prompt, /# Private Ledger Paths \(read-only\)/u);
-  for (const reference of [standard, skill]) {
-    const readable = workerLedgerPath(root, prepared!.cwd, path.join(root, reference));
+  const requiredSkill = /(?:^|\n)- agent-dev-standards: (.+)(?:\n|$)/u.exec(prompt)?.[1];
+  assert.ok(requiredSkill, "Required Skills must name the selected skill");
+  assert.match(requiredSkill, /runtime[/\\]sealed-skills[/\\][^/\\]+[/\\]agent-dev-standards[/\\]SKILL\.md$/u);
+  for (const [reference, readable] of [
+    [standard, workerLedgerPath(root, prepared!.cwd, path.join(root, standard))],
+    [skill, requiredSkill],
+  ] as const) {
     assert.equal(existsSync(readable), true, `${reference} must be openable at ${readable}`);
     assert.match(
       prompt,
@@ -156,8 +161,6 @@ test("a real worktree dispatch hands the worker an openable path for every priva
   // Required Skills names the skill's manifest, but a skill is consumed as its directory: the
   // scripts beside SKILL.md are part of it. A manifest-only copy made reviewers report the tools as
   // missing; the manifest must stay at the one path the read-set appendix also prints.
-  const requiredSkill = /(?:^|\n)- agent-dev-standards: (.+)(?:\n|$)/u.exec(prompt)?.[1];
-  assert.ok(requiredSkill, "Required Skills must name the selected skill");
   assert.equal(existsSync(requiredSkill), true, `the skill manifest must exist at ${requiredSkill}`);
   const copiedSkillScript = path.join(path.dirname(requiredSkill), "scripts", "census.mjs");
   assert.equal(

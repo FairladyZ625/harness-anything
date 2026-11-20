@@ -15,7 +15,9 @@ import {
   getExecutableEntityAction,
   stableStringify,
   submissionDigest,
+  verifyBareProviderSessionResumeIdentity,
   type AgentRuntimeEventV1,
+  type PriorProviderSessionIdentity,
 } from "@harness-anything/kernel";
 import { archiveRuntimeDispatch } from "./doc-sync-actions.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -211,6 +213,43 @@ export function appendAuxiliaryRuntimeIngress(
           "runtime_dispatch_already_resumed",
           `Dispatch ${sourceId} was already resumed as ${successor.event.payload.dispatchId}.`,
         );
+    } else if (
+      typeof action.payload.resumeProviderSessionId === "string" &&
+      action.payload.handoffCheckpointId === undefined
+    ) {
+      const priorIdentities: PriorProviderSessionIdentity[] = [];
+      for (const session of cell.projection.readRuntimeSessions({
+        providerSessionId: action.payload.resumeProviderSessionId,
+      })) {
+        const priorDispatch =
+          cell.projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef) ??
+          cell.projection.readLatestRuntimeDispatchBySession?.(session.runtimeSessionId) ??
+          null;
+        if (!priorDispatch) continue;
+        priorIdentities.push({
+          runtimeSessionId: session.runtimeSessionId,
+          personId: priorDispatch.actor.principal.personId,
+          taskId: priorDispatch.payload.taskId ?? null,
+          agentId: priorDispatch.payload.agentId ?? null,
+          ...(priorDispatch.payload.agentDeclarationDigest !== undefined
+            ? { agentDeclarationDigest: priorDispatch.payload.agentDeclarationDigest }
+            : {}),
+          ...(priorDispatch.payload.skillSnapshotDigest !== undefined
+            ? { skillSnapshotDigest: priorDispatch.payload.skillSnapshotDigest }
+            : {}),
+        });
+      }
+      const bareVerdict = verifyBareProviderSessionResumeIdentity(priorIdentities, {
+        providerSessionId: action.payload.resumeProviderSessionId,
+        personId: binding.actor.principal.personId,
+        taskId: typeof action.payload.taskId === "string" ? action.payload.taskId : null,
+        agentId: typeof action.payload.agentId === "string" ? action.payload.agentId : null,
+        agentDeclarationDigest:
+          typeof action.payload.agentDeclarationDigest === "string" ? action.payload.agentDeclarationDigest : null,
+        skillSnapshotDigest:
+          typeof action.payload.skillSnapshotDigest === "string" ? action.payload.skillSnapshotDigest : null,
+      });
+      if (!bareVerdict.ok) throw cell.cellCodedError(bareVerdict.code, bareVerdict.message);
     }
     const key = cell.requiredCellText(action.payload.dispatchKey, "dispatchKey"),
       hash = createHash("sha256").update(`${cell.input.repoId}\0${key}`).digest("hex");

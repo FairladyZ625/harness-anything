@@ -18,6 +18,7 @@ import {
   type DispatchStreamHeader,
 } from "./dispatch-stream.ts";
 import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
+import { listLocalSkillSnapshotSessionIds, reclaimSessionSkillSnapshot } from "./agent-skill-snapshot.ts";
 import { createActiveRuntime, attachActiveRuntime, isRuntimeProcessProvenStopped } from "./runtime-spawn-active.ts";
 import { adoptNativeProcess } from "./runtime-spawn-process.ts";
 import {
@@ -457,10 +458,10 @@ function attachAdoptedObservations(context: RuntimeSpawnerContext, active: Activ
 }
 
 export async function sweepSettledRuntimeTempDirectories(context: RuntimeSpawnerContext): Promise<void> {
-  if (!context.input.reclaimSettledRuntimeTempDirectories || !context.input.listRuntimeTempSessionIds) return;
-  const runtimeSessionIds = [...new Set(context.input.listRuntimeTempSessionIds())];
+  const snapshotSessionIds = new Set(listLocalSkillSnapshotSessionIds(context.input.rootDir)),
+    runtimeSessionIds = [...new Set([...snapshotSessionIds, ...(context.input.listRuntimeTempSessionIds?.() ?? [])])];
   if (runtimeSessionIds.length === 0) {
-    context.input.reclaimSettledRuntimeTempDirectories([]);
+    context.input.reclaimSettledRuntimeTempDirectories?.([]);
     return;
   }
   const lifecycleReads = await Promise.allSettled(
@@ -473,7 +474,9 @@ export async function sweepSettledRuntimeTempDirectories(context: RuntimeSpawner
     settledRuntimeSessionIds.push(runtimeSessionIds[index]!);
   }
   if (settledRuntimeSessionIds.length === 0) return;
-  const reclaimFailures = context.input.reclaimSettledRuntimeTempDirectories(settledRuntimeSessionIds);
+  for (const sessionId of settledRuntimeSessionIds)
+    if (snapshotSessionIds.has(sessionId)) reclaimSessionSkillSnapshot(context.input.rootDir, sessionId);
+  const reclaimFailures = context.input.reclaimSettledRuntimeTempDirectories?.(settledRuntimeSessionIds) ?? [];
   for (const failure of reclaimFailures)
     logRuntimeTempReclaimFailure(failure.instanceId, failure.runtimeSessionId, "by the startup sweep", failure.error);
 }
