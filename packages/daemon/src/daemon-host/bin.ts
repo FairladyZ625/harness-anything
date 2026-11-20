@@ -55,6 +55,10 @@ async function main(argv: readonly string[], afterParentExit = false): Promise<n
     process.stderr.write(`daemon not started: stopped by the operator at ${stoppedAt}\n`);
     return 0;
   }
+  if (!process.env.NODE_TEST_CONTEXT && process.env.HARNESS_DISABLE_MODEL_PRICING_REFRESH !== "1") {
+    const { startModelPricingRefresh } = await import("./model-pricing-refresh.ts");
+    startModelPricingRefresh();
+  }
   if (!respectStoppedMarker) clearDaemonStoppedMarker(userRoot, daemonId);
   const markerOption = process.argv.indexOf("--respect-stopped-marker", 2);
   if (markerOption !== -1) process.argv.splice(markerOption, 1);

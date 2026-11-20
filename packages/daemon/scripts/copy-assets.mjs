@@ -5,6 +5,10 @@ import { fileURLToPath } from "node:url";
 const dist = new URL("../dist/", import.meta.url);
 rmSync(new URL("preset/assets/", dist), { recursive: true, force: true });
 cpSync(new URL("../../preset/assets/", import.meta.url), new URL("preset/assets/", dist), { recursive: true });
+cpSync(
+  new URL("../src/runtime-engine/model-pricing-catalog.json", import.meta.url),
+  new URL("daemon/src/runtime-engine/model-pricing-catalog.json", dist),
+);
 // Keep the marker stable for repeated builds of one commit; a daemon should drain only when the
 // loaded source identity changes. Archive trees (clean-build gate, source tarballs) have no .git
 // to resolve; they share one stable marker so a build without commit identity still never looks

@@ -13,6 +13,8 @@ import {
   validateAgentRuntimeTokenUsageDetail,
 } from "../src/daemon-host/agent-runtime-token-usage.ts";
 import { modelPriceOf, modelPricingVersion, usageCostUsd } from "../src/runtime-engine/agent-runtime-model-pricing.ts";
+import { createModelPricingCatalog } from "../src/runtime-engine/model-pricing-catalog.ts";
+import { refreshModelPricingCatalog } from "../src/daemon-host/model-pricing-refresh.ts";
 
 /** 价格模块与读面金额累加的定向测试:四段计价(新输入/缓存读/缓存写/输出)、无价格模型不按
  * 0 计、缓存写缺字段的历史记录按 0 计、金额出现在每个聚合维度、校验器接受新形状。 */
@@ -41,6 +43,123 @@ test("the price table resolves exact, case-folded and missing ids", () => {
   assert.equal(modelPriceOf(""), null);
   for (const model of ["toString", "constructor", "__proto__"]) assert.equal(modelPriceOf(model), null, model);
   assert.match(modelPricingVersion, /^\d{4}-\d{2}-\d{2}$/u);
+});
+
+test("observed dispatch model IDs resolve to their public base rates", () => {
+  const cases = [
+    [
+      ["gpt-6.2-sol", "openai/gpt-6.2-sol"],
+      [2, 0.1, 2.5, 10],
+    ],
+    [["gpt-6.1-terra"], [1, 0.05, 1.25, 5]],
+    [
+      ["gemini-4-hydrogen-high", "gemini-4-hydrogen-xhigh"],
+      [1.5, 0.075, 1.5, 7.5],
+    ],
+    [["gemini-4-carbon-high"], [2, 0.1, 2, 10]],
+    [["gemini-3.8-flash-medium"], [0.75, 0.075, 0.75, 3.75]],
+    [
+      [
+        "Deepseek-V4.1-Flash",
+        "deepseek-v4.1-flash-1017",
+        '["deepseek-official","Deepseek-V4.1-Flash"]',
+        '["deepseek-account","deepseek-flash"]',
+      ],
+      [0.15, 0.003, 0.15, 0.6],
+    ],
+    [
+      ["claude-opus-5-5-high", "anthropic/claude-opus-5-5-20261017-max[1m]"],
+      [4, 0.2, 5, 20],
+    ],
+    [
+      ["GLM-5.3[1m]", "GLM-5.3-20261017"],
+      [1.4, 0.26, 1.4, 4.4],
+    ],
+    [
+      ["GLM-5.3-Flash[1m]", "GLM-5.3-Flash-low-2026-10-17"],
+      [0.15, 0.03, 0.15, 0.5],
+    ],
+  ] as const;
+  for (const [models, [inputPerMillion, cacheReadPerMillion, cacheWritePerMillion, outputPerMillion]] of cases) {
+    for (const model of models) {
+      assert.deepEqual(
+        modelPriceOf(model),
+        { inputPerMillion, cacheReadPerMillion, cacheWritePerMillion, outputPerMillion },
+        model,
+      );
+    }
+  }
+  for (const model of [
+    "swe2",
+    "custom/gpt-unknown-high",
+    '["account","toString"]',
+    '["gpt-6.2-sol"]',
+    '["account",42]',
+  ]) {
+    assert.equal(modelPriceOf(model), null, model);
+  }
+});
+
+test("models.dev catalog generation preserves free cache reads and bills zero or missing cache writes at input", () => {
+  const catalog = createModelPricingCatalog({
+    modelsDev: {
+      zai: {
+        models: {
+          "glm-5.3": { cost: { input: 1.4, output: 4.4, cache_read: 0.26, cache_write: 0 } },
+          "glm-5.3-flash": { cost: { input: 0.15, output: 0.5, cache_read: 0.03 } },
+          "glm-5.3-preview": { cost: { input: 0, output: 0 } },
+        },
+      },
+    },
+    version: "2026-11-21",
+    source: "https://models.dev/api.json",
+  });
+  assert.deepEqual(catalog.models, [
+    {
+      id: "glm-5.3",
+      provider: "zai",
+      inputPerMillion: 1.4,
+      cacheReadPerMillion: 0.26,
+      cacheWritePerMillion: 1.4,
+      outputPerMillion: 4.4,
+    },
+    {
+      id: "glm-5.3-flash",
+      provider: "zai",
+      inputPerMillion: 0.15,
+      cacheReadPerMillion: 0.03,
+      cacheWritePerMillion: 0.15,
+      outputPerMillion: 0.5,
+    },
+  ]);
+});
+
+test("background price refresh installs a validated catalog without making real requests", async () => {
+  let installed: unknown;
+  const fetched = await refreshModelPricingCatalog({
+    fetcher: async (url, options) => {
+      assert.equal(url, "https://models.dev/api.json");
+      assert.ok(options?.signal);
+      return new Response(
+        JSON.stringify({ openai: { models: { "gpt-6.2-sol": { cost: { input: 2, output: 10 } } } } }),
+        { status: 200 },
+      );
+    },
+    install: (catalog) => (installed = catalog),
+    now: () => new Date("2026-11-21T12:00:00.000Z"),
+  });
+  assert.equal(fetched, true);
+  assert.equal((installed as { version: string }).version, "2026-11-21");
+  assert.deepEqual((installed as { models: unknown[] }).models, [
+    {
+      id: "gpt-6.2-sol",
+      provider: "openai",
+      inputPerMillion: 2,
+      cacheReadPerMillion: 2,
+      cacheWritePerMillion: 2,
+      outputPerMillion: 10,
+    },
+  ]);
 });
 
 test("usageCostUsd prices the four token kinds separately", () => {
