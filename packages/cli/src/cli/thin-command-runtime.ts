@@ -135,7 +135,12 @@ function parseRuntimeControl(
       rootDir,
       repoId,
       json,
-      { kind, runtimeSessionId: id, ...(flags.one.has("--ruling") ? { ruling: flags.one.get("--ruling") } : {}) },
+      {
+        kind,
+        runtimeSessionId: id,
+        ...(flags.one.has("--ruling") ? { ruling: flags.one.get("--ruling") } : {}),
+        ...(flags.one.has("--reason") ? { reason: flags.one.get("--reason") } : {}),
+      },
       route.method,
     );
   // Like agent run, --prompt-file rides the action and is materialized into

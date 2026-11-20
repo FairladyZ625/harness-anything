@@ -38,6 +38,12 @@ import { authorizationFetch } from "./tls-ca-certificate.ts";
 
 const repositoryTarget: EntityRef = "settings/repository";
 
+/** Resolve the provider-neutral credential carried by the authenticated repository request. */
+export function onlineAuthorizationCredential(input: { readonly binding: RepoCellBinding }) {
+  const credential = input.binding.keycloakAuthorization;
+  return credential;
+}
+
 export async function evaluateRepoCellAction(input: {
   readonly action: RepoTaskAction;
   readonly binding: RepoCellBinding;
@@ -76,7 +82,7 @@ export async function evaluateRepoCellAction(input: {
       "authorization-provider",
       policyAction,
     );
-  const credential = input.binding.keycloakAuthorization;
+  const credential = onlineAuthorizationCredential(input);
   if (!credential) {
     return authorizeRepoCellAction({
       ...input,

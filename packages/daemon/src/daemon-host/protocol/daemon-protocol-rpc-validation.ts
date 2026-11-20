@@ -527,7 +527,9 @@ export function validateNamedActionPayload(method: DaemonGuiActionMethod, value:
     errors.push("runtime spawn request is invalid");
   if (
     method === "repo.agentRuntime.cancel" &&
-    (!nonEmpty(value.runtimeSessionId) || (value.ruling !== undefined && !nonEmpty(value.ruling)))
+    (!nonEmpty(value.runtimeSessionId) ||
+      (value.ruling !== undefined && !nonEmpty(value.ruling)) ||
+      (value.reason !== undefined && (!nonEmpty(value.reason) || !value.reason.trim())))
   )
     errors.push("runtime cancel request is invalid");
   if (method === "repo.gui.catalog.reread" && value.expectedDigest !== undefined && !digest(value.expectedDigest))

@@ -402,6 +402,7 @@ export function reduceDispatchLifecycle(
         ? ({ dispatchId: attempt.dispatchId, status: "awaiting" } as const)
         : group.ruling,
     scheduled =
+      closedBy?.orphanRecovery === undefined &&
       closedBy?.attempt?.fallbackState === "scheduled" &&
       group.delivery.status !== "registered" &&
       ruling === null &&

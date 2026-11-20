@@ -9,6 +9,7 @@ import { makeRuntimeSpawner } from "../src/daemon-host/runtime-spawn.ts";
 import { cancelRuntime } from "../src/daemon-host/runtime-spawn-control.ts";
 import { openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
+import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
 import type { RuntimeBinding } from "../src/daemon-host/runtime-spawn-types.ts";
 import { definition, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 
@@ -373,3 +374,55 @@ for (const condition of ["foreign-person", "worker-credential", "stream", "activ
     assert.deepEqual(f.published, []);
   });
 }
+
+test("a center admin can settle an unreachable edge orphan with a separate audit reason", async (t) => {
+  const f = fixture(t),
+    remote = f.context.input.remote!,
+    actor = { principal: { personId: "admin" }, executor: null },
+    reason = "The original directory identity was deleted.",
+    ruling = "The execution edge is unreachable and has no local owner.";
+  f.owner.processGroupPid = process.pid;
+  const context = {
+    ...f.context,
+    input: { ...f.context.input, runtimeNode: undefined, remote: undefined },
+    requiredRuntimeProjection: () => ({
+      readDispatchLifecycle: remote.readDispatchLifecycle,
+      readRuntimeDispatch: () => f.owner,
+      readRuntimeSession: () => f.session,
+      readRuntimeSessionEventsByType: () => [
+        { type: "runtime_session_liveness_changed", source: f.owner.source, payload: { processGroupPid: process.pid } },
+      ],
+    }),
+  } as unknown as RuntimeSpawnerContext;
+  const admin = {
+    actor,
+    source: "local",
+    authorizationDecision: { outcome: "allowed" },
+    keycloakAuthorization: {
+      session: { personId: actor.principal.personId },
+      center: async () => ({
+        accessToken: "fixture",
+        provider: {
+          readPeople: async () => [{ userId: "admin-user", personId: "admin", username: "admin" }],
+          readGrants: async () => [{ groupId: "admin", resource: context.input.repoId, userIds: ["admin-user"] }],
+        },
+      }),
+    },
+  } as RepoCellBinding;
+  await assert.rejects(cancelRuntime(context, { runtimeSessionId, ruling }, admin), {
+    code: "execution_scope_mismatch",
+  });
+  const receipt = await cancelRuntime(context, { runtimeSessionId, reason, ruling }, admin);
+  assert.equal(receipt.detail, "ruling_resolved");
+  assert.deepEqual(
+    f.published.map(({ type }) => type),
+    ["runtime_session_outcome_observed"],
+  );
+  const event = f.published[0]!;
+  assert.deepEqual(event.source, f.owner.source);
+  assert.deepEqual(event.actor, actor);
+  const body = JSON.parse(event.body!);
+  assert.equal(body.reason, ruling);
+  assert.equal(body.processStop, "unproven");
+  assert.deepEqual(body.orphanRecovery, { originalPersonId: "owner", adminPersonId: "admin", reason });
+});

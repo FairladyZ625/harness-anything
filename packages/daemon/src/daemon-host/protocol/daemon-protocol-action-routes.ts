@@ -332,7 +332,7 @@ export const daemonActionRoutes = Object.freeze([
     "agentRuntime.cancel",
     "repo.agentRuntime.cancel",
     "runtime-cancel",
-    shape({ runtimeSessionId: "string", ruling: "string?" }),
+    shape({ runtimeSessionId: "string", ruling: "string?", reason: "string?" }),
   ),
   actionRpc(
     "agentRuntime.steer",

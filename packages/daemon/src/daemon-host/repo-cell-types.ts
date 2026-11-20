@@ -158,6 +158,7 @@ export interface RepoCellAutoClaimAssignment {
 }
 
 export interface RepoCellBinding {
+  readonly orphanRecovery?: import("./runtime-spawn-types.ts").RuntimeBinding["orphanRecovery"];
   /** Git candidate names observed before entering the local document write turn. */
   readonly observedDocGitPaths?: readonly string[] | null;
   /** Worker-local session lifetime; stripped at every transport/persistence boundary. */

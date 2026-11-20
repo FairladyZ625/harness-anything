@@ -1,3 +1,4 @@
+import { isOrphanRuntimeRecoveryAudit, type OrphanRuntimeRecoveryAudit } from "./orphan-runtime-recovery.ts";
 import { writeSourceRuntimeSessionId } from "./write-source.ts";
 import {
   validSquadDispatchContext,
@@ -459,6 +460,7 @@ interface RuntimePayloads {
     readonly resultRef: string;
     readonly result: RuntimeResultClaim | null;
     readonly reasonCode?: string;
+    readonly orphanRecovery?: OrphanRuntimeRecoveryAudit;
     readonly dispatchId?: string;
     readonly endedAt?: string;
     readonly runtimeMetrics?: RuntimeDispatchMetrics;
@@ -599,7 +601,7 @@ function validateAgentRuntimePayloadFields(
     : payloadFields[type];
   const optionalFields =
     type === "runtime_session_outcome_observed"
-      ? ["reasonCode", "dispatchId", "endedAt", "runtimeMetrics", "attempt"]
+      ? ["reasonCode", "dispatchId", "endedAt", "runtimeMetrics", "attempt", "orphanRecovery"]
       : type === "runtime_session_started"
         ? ["taskBinding"]
         : type === "runtime_session_liveness_changed"
@@ -729,6 +731,7 @@ function validateAgentRuntimePayloadFields(
     (!["succeeded", "failed", "unknown", "cancelled", "stopped"].includes(String(value.outcome)) ||
       (value.exitCode !== null && (!Number.isInteger(value.exitCode) || (value.exitCode as number) < 0)) ||
       (value.reasonCode !== undefined && !isNonEmptyString(value.reasonCode)) ||
+      (value.orphanRecovery !== undefined && !isOrphanRuntimeRecoveryAudit(value.orphanRecovery)) ||
       !validResult(value.resultRef, value.result, allowUnknownFields))
   )
     return ["runtime outcome observation is invalid"];
@@ -1074,6 +1077,9 @@ export function reduceRuntimeSession(
     }
     return {
       ...current,
+      ...(event.payload.orphanRecovery && event.payload.reasonCode === "ruling_resolved"
+        ? { liveness: "unknown" as const, attachable: false }
+        : {}),
       outcome: event.payload.outcome,
       exitCode: event.payload.exitCode,
       resultRef: event.payload.resultRef,

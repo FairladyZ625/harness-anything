@@ -1,3 +1,4 @@
+import { prepareOrphanRuntimeLeaseRelease } from "./runtime-orphan-recovery.ts";
 import { makeSettingsActionRuntime } from "./settings-action-runtime.ts";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { runStorageMigrationAction } from "./storage-migration-action.ts";
@@ -304,6 +305,8 @@ export function executeRepoAction(
           if (catalogAction.kind === "task-escalation-resolve")
             return resolveTaskEscalation(cell, catalogAction, catalogBinding);
           if (catalogAction.kind === "task-submit") return submitTask(cell, catalogAction, catalogBinding);
+          if (catalogAction.kind === "task-release")
+            catalogBinding = await prepareOrphanRuntimeLeaseRelease(cell, catalogAction, catalogBinding);
           if (Array.isArray(catalogAction.docChanges))
             return cell.runTaskCommandWithDocs(catalogAction as TaskCommandWithDocsAction, catalogBinding);
           if (catalogAction.kind === "preset-upgrade") return cell.upgradePresetSnapshot(catalogAction, catalogBinding);

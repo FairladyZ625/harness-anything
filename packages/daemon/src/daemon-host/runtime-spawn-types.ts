@@ -1,3 +1,4 @@
+import type { OrphanRuntimeRecoveryAudit } from "@harness-anything/kernel/internal/domain/orphan-runtime-recovery.ts";
 import type { SquadDispatchSelection } from "./agent-entities.ts";
 import type { DispatchLifecycleQuery, DispatchLifecycleRead } from "@harness-anything/kernel";
 import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
@@ -92,6 +93,8 @@ export interface RuntimeCallbackRelay {
 }
 
 export type RuntimeBinding = {
+  /** Center-local proof from the current writer turn. Never carried by dispatch or RPC. */
+  readonly orphanRecovery?: { readonly dispatchId: string; readonly audit: OrphanRuntimeRecoveryAudit };
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
   readonly authorizationDecision?: AuthorizationDecision;

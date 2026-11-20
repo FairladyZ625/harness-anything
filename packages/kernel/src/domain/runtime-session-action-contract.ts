@@ -88,6 +88,7 @@ const actionFields: Readonly<Record<RuntimeSessionActionId, readonly EntityActio
     field("resultRef"),
     field("result", "json-object"),
     field("reasonCode", "string", false),
+    field("orphanRecovery", "json-object", false),
     field("dispatchId", "string", false),
     field("endedAt", "string", false),
     field("runtimeMetrics", "json-object", false),

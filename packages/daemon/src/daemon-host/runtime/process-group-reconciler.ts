@@ -128,22 +128,29 @@ export function probeProcessGroup(
   const pid = groupPid(input);
   if (!validGroupPid(pid)) return "unknown_unreachable";
   if ((deps.platform ?? process.platform) === "win32") return windowsVerdict(input, deps, false);
+  return probePosixProcessGroup(pid, deps.signalGroup ?? defaultSignalGroup, "unknown_unreachable");
+}
+
+function probePosixProcessGroup(
+  pid: number,
+  signalGroup: NonNullable<ProcessGroupReconcilerDeps["signalGroup"]>,
+  permissionDenied: "running" | "unknown_unreachable",
+): ProviderGroupSweepVerdict {
   try {
-    (deps.signalGroup ?? defaultSignalGroup)(pid, 0);
+    signalGroup(pid, 0);
     return "running";
   } catch (error) {
     const code = errorCode(error);
     if (code === "ESRCH") return "proven_stopped";
-    // Permission and probe errors are evidence gaps, never evidence of a stopped group.
+    if (code === "EPERM") return permissionDenied;
     return "unknown_unreachable";
   }
 }
 
 /**
  * Observe whether a recorded local process group is still running on this host.
- * Unlike `probeProcessGroup`, this is a blocking observation for owner rulings only: it never
- * yields a stop proof from a single PID, and without a Windows containment witness it probes
- * leader process reachability.
+ * A group that refuses signal permission still blocks a ruling. The leader check can also
+ * detect a live process, but only group or containment accounting supplies stop proof.
  */
 export function observeRecordedProcessGroup(
   input: number | ProcessGroupIdentity,
@@ -151,9 +158,11 @@ export function observeRecordedProcessGroup(
 ): ProviderGroupSweepVerdict {
   const pid = groupPid(input);
   if (!validGroupPid(pid)) return "unknown_unreachable";
-  const verdict = probeProcessGroup(input, deps);
-  if (verdict === "running") return "running";
-  if ((deps.platform ?? process.platform) === "win32" && verdict === "proven_stopped") return "proven_stopped";
+  const windows = (deps.platform ?? process.platform) === "win32",
+    verdict = windows
+      ? windowsVerdict(input, deps, false)
+      : probePosixProcessGroup(pid, deps.signalGroup ?? defaultSignalGroup, "running");
+  if (verdict === "running" || (windows && verdict === "proven_stopped")) return verdict;
   try {
     process.kill(pid, 0);
     return "running";
