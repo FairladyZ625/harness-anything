@@ -1663,8 +1663,9 @@
       },
       {
         "candidateId": "action:packages/application:packages/application/src/commands/entity-action-runtime-session.ts#commitRuntimeSessionBundle.appended:aca15e02146445d36e47128025d8565d",
-        "route": "runtime-run",
-        "role": "effect"
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
       }
     ]
   },

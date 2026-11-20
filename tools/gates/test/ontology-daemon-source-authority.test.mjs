@@ -183,12 +183,17 @@ test("local maintenance sources require exact technical ports and cannot claim a
   }
 });
 
-// CH1: OS credential lookup is a local typed driver; the RuntimeSession event still needs
-// the runtime-run owner's canonical decision, including re-entry with an internal action frame.
-test("local credential lookup cannot authorize the RuntimeSession append", () => {
+// The app append is a guarded storage port, not a protocol owner. Runtime ingress owns the
+// durable action; local credential lookup cannot be borrowed as authority for either write.
+test("local credential lookup and runtime append remain typed ports, not action authority", () => {
   const kinds = ["runtime-run", "daemon-local-state"],
-    sessionSource = inputs.constants.actionDeclarations
+    runtimeAppendSource = inputs.constants.actionDeclarations
       .find((action) => action.kind === "runtime-run")
+      .ontology.sources.find((source) =>
+        source.candidateId.includes("entity-action-runtime-session.ts#commitRuntimeSessionBundle.appended:"),
+      ),
+    appendPortSource = inputs.constants.actionDeclarations
+      .find((action) => action.kind === "daemon-local-state")
       .ontology.sources.find((source) =>
         source.candidateId.includes("entity-action-runtime-session.ts#commitRuntimeSessionBundle.appended:"),
       ),
@@ -197,11 +202,14 @@ test("local credential lookup cannot authorize the RuntimeSession append", () =>
       .ontology.sources.find((source) =>
         source.candidateId.includes("agent-runtime-credential-port.ts#credentialPort.resolve:"),
       );
-  assert.equal(sessionSource.role, "effect");
+  assert.equal(runtimeAppendSource, undefined);
+  assert.equal(appendPortSource.role, "technical-port");
+  assert.equal(appendPortSource.port, "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append");
   assert.equal(lookupSource.role, "technical-port");
   const accepted = auditDurableActionAuthorization(repoRoot, inputs, { only: kinds });
   assert.deepEqual(accepted.findings, []);
-  assert.equal(accepted.sourceRows.find((row) => row.id === sessionSource.candidateId)?.ok, true);
+  assert.equal(accepted.rows.find((row) => row.id === "runtime-run")?.ok, true);
+  assert.equal(accepted.sourceRows.find((row) => row.id === appendPortSource.candidateId)?.ok, true);
   assert.equal(accepted.sourceRows.find((row) => row.id === lookupSource.candidateId)?.authority, "technical-port");
   // A lookup certificate must not transfer to a different physical call, even when
   // both source identities are registered and the real runtime owner is authorized.
@@ -217,7 +225,7 @@ test("local credential lookup cannot authorize the RuntimeSession append", () =>
                 ...action,
                 ontology: {
                   ...action.ontology,
-                  sources: [lookupSource, { ...lookupSource, candidateId: sessionSource.candidateId }],
+                  sources: [lookupSource, { ...lookupSource, candidateId: appendPortSource.candidateId }],
                 },
               }
             : action,
@@ -226,7 +234,7 @@ test("local credential lookup cannot authorize the RuntimeSession append", () =>
     },
     { only: ["daemon-local-state"] },
   );
-  assert.equal(borrowed.sourceRows.find((row) => row.id === sessionSource.candidateId)?.ok, false);
+  assert.equal(borrowed.sourceRows.find((row) => row.id === appendPortSource.candidateId)?.ok, false);
   assert.equal(borrowed.sourceRows.find((row) => row.id === lookupSource.candidateId)?.ok, true);
 });
 
