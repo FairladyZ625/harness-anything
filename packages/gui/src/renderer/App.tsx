@@ -37,7 +37,7 @@ import type { LedgerStatusBarInput } from "./components/sidebar/SystemStatusPane
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { useEntityNavigation } from "./navigation/useEntityNavigation.ts";
 import { workTargetOf } from "./navigation/entityRoutes.ts";
-import { workIndexOf } from "./model/work-collections.ts";
+import { isWorkContainer, workIndexOf } from "./model/work-collections.ts";
 import { useAppShortcuts } from "./navigation/useAppShortcuts.ts";
 import { applyTaskFilters, DEFAULT_TASK_FILTERS, type TaskFilters } from "./model/taskFilters.ts";
 import { useMemberScopeContext } from "./use-member-scope-lens.ts";
@@ -292,6 +292,15 @@ function AppShell() {
   const { openLocalDocument } = useLocalDocOpener();
 
   const projectTasks = useMemo(() => tasks.filter((t) => t.projectId === projectId), [tasks, projectId]);
+  const executableTasks = useMemo(() => projectTasks.filter((task) => !isWorkContainer(task)), [projectTasks]);
+  const activeTaskCount = useMemo(
+    () =>
+      tasksQuery.data?.status === "ready" && workIndexQuery.data?.status === "ready"
+        ? executableTasks.filter((task) => task.coordinationStatus === "active" && task.packageDisposition === "active")
+            .length
+        : undefined,
+    [tasksQuery.data?.status, workIndexQuery.data?.status, executableTasks],
+  );
   const memberScope = useMemberScopeContext({
     repoId: activeRepoId,
     rootDir: activeRepo?.canonicalRoot ?? undefined,
@@ -349,7 +358,7 @@ function AppShell() {
     [workspaceScopeQuery.data?.pages],
   );
   // 总览紧凑协作入口的摘要(折算在 model/collaboration.ts;未选中仓没有仓库视角,不给入口)。
-  const collaborationSummary = activeRepo === undefined ? null : collaborationSummaryOf(projectTasks);
+  const collaborationSummary = activeRepo === undefined ? null : collaborationSummaryOf(executableTasks);
   /** task 详情「打开终端」→ 终端页进页即建绑定会话;requestId 让同一请求只消费一次。 */
   const [terminalLaunch, setTerminalLaunch] = useState<TerminalLaunchTask | null>(null);
   const runtimeAuthTerminal = useRuntimeAuthTerminal(projectId, view);
@@ -368,21 +377,21 @@ function AppShell() {
   }, [docFocus, selectedId]);
   const selected = useMemo(() => tasks.find((t) => t.taskId === selectedId) ?? null, [tasks, selectedId]);
   // 根任务即工作:选中位落在工作根(跨仓深链、历史恢复时任务行尚未到)就原地换成工作页。
-  const selectedWorkRootId = selected !== null && works.isWorkRoot(selected.taskId) ? selected.taskId : null;
+  const selectedWorkRootId = selected !== null && isWorkContainer(selected) ? selected.taskId : null;
   const boardFilters = useMemo(
     () => (memberScope.scopePersonId === null ? taskFilters : { ...taskFilters, person: memberScope.scopePersonId }),
     [memberScope.scopePersonId, taskFilters],
   );
-  const filteredProjectTasks = useMemo(
-    () => applyTaskFilters(projectTasks, boardFilters, favorites),
-    [projectTasks, boardFilters, favorites],
+  const filteredBoardTasks = useMemo(
+    () => applyTaskFilters(executableTasks, boardFilters, favorites),
+    [executableTasks, boardFilters, favorites],
   );
   const changeBoardFilters = useCallback(
     (next: TaskFilters) =>
       setTaskFilters(memberScope.scopePersonId === null ? next : { ...next, person: taskFilters.person }),
     [memberScope.scopePersonId, setTaskFilters, taskFilters.person],
   );
-  const previewTasks = view === "board" ? filteredProjectTasks : projectTasks;
+  const previewTasks = view === "board" ? filteredBoardTasks : projectTasks;
   const previewTask = useMemo(
     () => previewTasks.find((task) => task.taskId === previewId) ?? null,
     [previewId, previewTasks],
@@ -670,6 +679,7 @@ function AppShell() {
           effectiveRepoMode={displayedRepoMode(activeRepo?.mode ?? null, effectiveTopology)}
           view={view}
           hasSelection={selected !== null}
+          activeTaskCount={activeTaskCount}
           poolBadgeCount={poolBadgeCount}
           agenda={agendaQuery.data}
           projectSwitcherOpen={projectSwitcherOpen}
@@ -837,6 +847,7 @@ function AppShell() {
                     works={memberScope.scopePersonId === null ? workIndexQuery.data : overviewWorkIndex.data}
                     titles={taskTitles}
                     workspaceSummary={workspaceSummaryQuery.data}
+                    activeTaskCount={activeTaskCount}
                     health={runtimeHealth}
                     tasks={poolTasks}
                     collaboration={collaborationSummary}
@@ -944,8 +955,8 @@ function AppShell() {
                 )
               ) : view === "board" ? (
                 <BoardView
-                  tasks={filteredProjectTasks}
-                  allTasks={projectTasks}
+                  tasks={filteredBoardTasks}
+                  allTasks={executableTasks}
                   wipSnapshot={taskWipQuery.data}
                   filters={boardFilters}
                   onFiltersChange={changeBoardFilters}

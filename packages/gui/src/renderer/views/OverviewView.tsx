@@ -60,6 +60,7 @@ export function OverviewView({
   works,
   titles,
   workspaceSummary,
+  activeTaskCount,
   health,
   tasks,
   collaboration,
@@ -86,6 +87,7 @@ export function OverviewView({
   /** `task/<id>` → 标题(App 常驻任务列表投影);最近变化显示任务标题。 */
   readonly titles: ReadonlyMap<string, string>;
   readonly workspaceSummary: WorkspaceSummaryRead;
+  readonly activeTaskCount?: number;
   /** 侧栏系统运行区同一份派生(App 折算,见 model/runtime-health.ts);这里喂异常状态点。 */
   readonly health: RuntimeHealth;
   /** 非纯本地仓的协作摘要(task_1bafbf09);null/undefined = 纯本地,不显示入口。 */
@@ -268,9 +270,7 @@ export function OverviewView({
           <span className="min-w-0 truncate font-mono ui-micro text-text-faint">
             {t("views.overviewView.topQuiet", {
               agents: String(runRows(runtimeQuery.data, undefined).length),
-              active: String(
-                scopePersonId === null ? (workspaceSummary.tasks.byStatus.active ?? 0) : runningRows.length,
-              ),
+              active: String(scopePersonId === null ? (activeTaskCount ?? "…") : runningRows.length),
             })}
             {wipQuery.data !== undefined &&
               ` · ${t("views.overviewView.topWipSummary", {

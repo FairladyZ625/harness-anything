@@ -33,6 +33,7 @@ export function NavButton({
   icon,
   label,
   badge,
+  badgeLabel,
   badgeTone = "accent",
 }: {
   active: boolean;
@@ -40,6 +41,7 @@ export function NavButton({
   icon: React.ReactNode;
   label: string;
   badge?: number;
+  badgeLabel?: string;
   /** 徽标档色:accent=常规计数;question=Orca 提问态橙(Needs you,呼吸角标)。 */
   badgeTone?: "accent" | "question";
 }) {
@@ -66,6 +68,7 @@ export function NavButton({
         <span
           id={badgeId}
           data-nav-badge={badgeTone}
+          title={badgeLabel}
           className={`ml-auto inline-flex shrink-0 items-center gap-1 rounded px-1.5 font-mono ui-micro font-semibold tabular-nums ${
             badgeTone === "accent" ? "bg-accent text-accent-fg" : "border"
           }`}
@@ -86,6 +89,7 @@ export function NavButton({
               style={{ background: "var(--color-agent-question)" }}
             />
           )}
+          {badgeLabel && <span className="sr-only">{badgeLabel} </span>}
           {badge}
         </span>
       )}

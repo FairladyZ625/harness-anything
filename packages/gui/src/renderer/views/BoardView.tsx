@@ -496,7 +496,7 @@ export const BoardView = memo(function BoardView({
   peopleById,
 }: {
   tasks: readonly TaskRow[];
-  allTasks: TaskRow[];
+  allTasks: readonly TaskRow[];
   wipSnapshot?: TaskWipRead;
   filters: TaskFilters;
   onFiltersChange: (filters: TaskFilters) => void;

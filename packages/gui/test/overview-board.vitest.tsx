@@ -938,7 +938,7 @@ describe("总览:系统状态弱化与异常提升", () => {
             })
           : Promise.reject(new Error("no bridge in test")),
     });
-    const container = mount();
+    const container = mount({ activeTaskCount: 2 });
     await flushUntil(
       () => container.querySelector('[data-testid="overview-topbar"]')?.textContent?.includes("daemon 正常") === true,
     );

@@ -10,7 +10,7 @@ import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // 看板照打「共 M」(M 是部分行集)。组件单测曾手工喂 `hydrating:true` 而假绿:生产路径
 // 从来没有把切面的水化事实交给派生。这里直接挂真实的 App,用桥接替身驱动「预算截断」,
 // 断言的是 DOM 上业主看到的那两行字。
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -25,7 +25,7 @@ const AT = "2026-10-26T00:00:00.000Z";
 const OBSERVED_AT = new Date().toISOString();
 
 /** 最小但通过读取校验的投影行(snapshot.task 与 taskId 必须一致)。 */
-function projectionRow(taskId: string) {
+function projectionRow(taskId: string, status = "planned", parentTaskId: string | null = null, taskClass = "standard") {
   return {
     taskId,
     generation: "v1",
@@ -34,14 +34,14 @@ function projectionRow(taskId: string) {
     completedAt: null,
     updatedAt: AT,
     packagePath: `tasks/${taskId}-probe`,
-    coordinationStatus: "planned",
+    coordinationStatus: status,
     snapshotAvailability: { consents: "known", gateWitnesses: "known" },
     closeoutAssessment: { readiness: "not_required", gates: [] },
     blockingAssessment: { taskId, state: "clear", blockers: [], warnings: [] },
     placement: {
       productLines: ["desktop"],
       spawningDecisionIds: [],
-      parentTaskId: null,
+      parentTaskId,
       origin: "native",
       engine: "kernel/task-lifecycle/v1",
       packageDisposition: "active",
@@ -59,8 +59,8 @@ function projectionRow(taskId: string) {
         schema: "task/v2",
         taskId,
         title: `Probe ${taskId}`,
-        taskClass: "standard",
-        status: "planned",
+        taskClass,
+        status,
         graph: "D>K",
         currentNode: "implementation",
         iteration: 0,
@@ -70,7 +70,7 @@ function projectionRow(taskId: string) {
         pinned: false,
         metadata: {
           idempotencyKey: null,
-          parentTaskId: null,
+          parentTaskId,
           workKind: "feat",
           riskTier: "low",
           urgency: "low",
@@ -128,14 +128,25 @@ const mounted: { root: Root; container: HTMLElement }[] = [];
  */
 async function mountBoard(options: {
   readonly truncated: boolean;
+  readonly work?: "declared" | "derived";
 }): Promise<{ readonly container: HTMLElement; readonly tasksReads: () => number }> {
   let tasksReads = 0;
+  const rootId = "task_work_root";
+  const counts = { planned: 0, executing: 2, blocked: 0, pending: 0, done: 0, cancelled: 0 };
+  const memberTaskIds = ["task_000001", "task_000002"];
+  const firstPage = options.work
+    ? [
+        projectionRow(rootId, "active", null, options.work === "declared" ? "work" : "standard"),
+        projectionRow("task_000001", "active", rootId),
+        projectionRow("task_000002", "active", rootId),
+      ]
+    : [projectionRow("task_000001"), projectionRow("task_000002")];
   const page = (payload: { readonly cursor?: string }) => {
     tasksReads += 1;
     const first = payload.cursor === undefined;
     // 首页给两行(一行服务、一行被 daemon 隔离),续读页给一页空行也照样报游标:
     // 行集是否完整与这一页有没有行无关,只由 reader 的 `done`(nextCursor)决定。
-    const rows = first ? [projectionRow("task_000001"), projectionRow("task_000002")] : [];
+    const rows = first ? firstPage : [];
     return {
       ok: true as const,
       status: "ready" as const,
@@ -187,11 +198,82 @@ async function mountBoard(options: {
       ],
     }),
     getTasks: async (payload) => page((payload ?? {}) as { readonly cursor?: string }),
+    getDecisions: async (payload) => ({
+      ok: true,
+      status: "ready",
+      projection: payload?.projection,
+      decisions: [],
+      watermark: 1_000,
+      sourceRevision: 1_000,
+      warnings: [],
+    }),
+    getWorkIndex: async () => ({
+      schema: "daemon.work-index/v1",
+      ok: true,
+      status: "ready",
+      works:
+        options.work === "derived"
+          ? [
+              {
+                taskId: rootId,
+                title: `Probe ${rootId}`,
+                status: "active",
+                root: "derived",
+                parentTaskId: null,
+                taskCount: 2,
+                counts,
+                lastActivityAt: AT,
+                memberTaskIds,
+              },
+            ]
+          : [],
+      watermark: 1_000,
+      sourceRevision: 1_000,
+      warnings: [],
+    }),
+    getWorkspaceScope: async () => ({
+      schema: "daemon.workspace-scope/v1",
+      ok: true,
+      status: "ready",
+      root: {
+        taskId: rootId,
+        title: `Probe ${rootId}`,
+        status: "active",
+        taskClass: "standard",
+        parentTaskId: null,
+        updatedAt: AT,
+        pinned: false,
+        hasChildren: true,
+      },
+      ancestors: [],
+      goalMaterial: null,
+      counts,
+      scope: { descendantCount: 2, executableLeafCount: 2, archivedCount: 0 },
+      groups: [],
+      memberTaskIds,
+      eventSummaries: [],
+      eventWindowComplete: true,
+      tasks: memberTaskIds.map((taskId) => ({
+        taskId,
+        title: `Probe ${taskId}`,
+        status: "active",
+        taskClass: "standard",
+        parentTaskId: rootId,
+        updatedAt: AT,
+        pinned: false,
+        hasChildren: false,
+      })),
+      page: { limit: 100, cursor: null, nextCursor: null },
+      incompleteParentRefs: [],
+      watermark: 1_000,
+      sourceRevision: 1_000,
+      warnings: [],
+    }),
     getWorkspaceSummary: async () => ({
       schema: "daemon.workspace-summary/v1",
       ok: true,
       status: "ready",
-      tasks: { lastChangedAt: null, total: 2, byStatus: { planned: 2 } },
+      tasks: { lastChangedAt: null, total: firstPage.length, byStatus: options.work ? { active: 3 } : { planned: 2 } },
       decisions: {
         total: 0,
         inboxCount: 0,
@@ -244,6 +326,9 @@ async function mountBoard(options: {
       {
         "daemon.gui.system.read": "getSystemStatus",
         "repo.tasks.list": "getTasks",
+        "repo.decisions.list": "getDecisions",
+        "repo.works.index": "getWorkIndex",
+        "repo.workspace.scope.read": "getWorkspaceScope",
         "repo.workspace.summary.read": "getWorkspaceSummary",
         "repo.agenda.read": "getAgenda",
       },
@@ -277,7 +362,55 @@ function headerSummary(container: HTMLElement): string {
 beforeAll(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   setActiveLocale("zh-CN");
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+    return this.hasAttribute("data-index") ? 108 : 600;
+  });
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+    const height = (this as HTMLElement).hasAttribute?.("data-index") ? 108 : 600;
+    return { width: 600, height, top: 0, left: 0, bottom: height, right: 600, x: 0, y: 0 } as DOMRect;
+  });
 });
+
+it.each(["declared", "derived"] as const)(
+  "excludes the %s Work root from board rows and status counts",
+  async (work) => {
+    const { container } = await mountBoard({ truncated: false, work });
+    expect(container.querySelector('[data-testid="board-status-active-count"]')?.textContent).toBe("2");
+    expect(headerSummary(container)).toContain("共 2");
+    expect(container.querySelectorAll('[data-testid="board-task-card"]')).toHaveLength(2);
+    expect(container.querySelector('button[aria-label="看板"] [data-nav-badge]')?.textContent).toMatch(/2$/u);
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="board-filter-toggle"]')!.click());
+    expect(container.querySelector('[data-testid="board-status-pill-active"]')?.textContent).toMatch(/2$/u);
+    const selectLayout = (name: string) =>
+      act(async () =>
+        [...container.querySelectorAll<HTMLButtonElement>("button")]
+          .find((button) => button.textContent === name)!
+          .click(),
+      );
+    await selectLayout("列表");
+    const list = container.querySelector('[data-testid="list-scroll"]')!;
+    expect(list.querySelectorAll('[data-testid^="task-row-"]')).toHaveLength(2);
+    expect(list.querySelector('[data-testid="task-row-task_work_root"]')).toBeNull();
+    if (work === "declared") return;
+    await selectLayout("泳道");
+    expect(container.querySelector('[data-testid="swimlane-status-active-count"]')?.textContent).toBe("2");
+    const lanes = container.querySelectorAll('[data-testid="swimlane-row"]');
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0]?.textContent).toContain("[work]");
+    const workLink = lanes[0]!.querySelector<HTMLButtonElement>('button[title$="task/task_work_root"]')!;
+    expect(workLink.textContent).toBe("Probe task_work_root");
+    await act(async () => workLink.click());
+    await vi.waitFor(() => {
+      const detail = container.querySelector('[data-testid="workspace-view"]');
+      expect(detail?.querySelector("h1")?.textContent).toBe("Probe task_work_root");
+      expect(detail?.querySelector("header")?.textContent).toContain("[work]");
+    });
+    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="总览"]')!.click());
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-testid="overview-topbar"]')?.textContent).toContain("进行中 2");
+    });
+  },
+);
 
 afterEach(() => {
   while (mounted.length > 0) {
@@ -289,6 +422,7 @@ afterEach(() => {
   }
   Reflect.deleteProperty(window, "harness");
   window.localStorage.clear();
+  window.sessionStorage.clear();
 });
 
 describe("预算截断的水化:行集不完整时不得声称已追平(BF1 经 App 的接线)", () => {

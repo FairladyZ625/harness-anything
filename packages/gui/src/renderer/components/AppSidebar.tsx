@@ -17,6 +17,7 @@ import { readIdentity, type IdentitySnapshot } from "../identity-session.ts";
 import { useWorkIndexQuery } from "../task-data.ts";
 import { workIndexOf } from "../model/work-collections.ts";
 import { decisionRows, needsYouWorkIds } from "../views/overview-model.ts";
+import { STATUS_META } from "./badges.tsx";
 
 export interface AppSidebarProps {
   readonly project: Project;
@@ -26,6 +27,7 @@ export interface AppSidebarProps {
   readonly view: ViewId;
   /** 任务详情占用主区时导航不点亮任何一项(与旧 App.tsx 判定一致)。 */
   readonly hasSelection: boolean;
+  readonly activeTaskCount?: number;
   /** 待办签发总池的待办角标(决策待裁 + 门禁待签 + 收口待同意 + 阻断待特批)。 */
   readonly poolBadgeCount: number | undefined;
   readonly agenda?: AgendaSuccess;
@@ -85,6 +87,7 @@ export function AppSidebar({
   effectiveRepoMode,
   view,
   hasSelection,
+  activeTaskCount,
   poolBadgeCount,
   agenda,
   projectSwitcherOpen,
@@ -354,10 +357,13 @@ export function AppSidebar({
                   badge={
                     item.id === "decisionPool"
                       ? poolBadgeCount
-                      : item.id === "overview" && needsYouCount > 0
-                        ? needsYouCount
-                        : undefined
+                      : item.id === "board"
+                        ? activeTaskCount
+                        : item.id === "overview" && needsYouCount > 0
+                          ? needsYouCount
+                          : undefined
                   }
+                  badgeLabel={item.id === "board" ? STATUS_META.active.label : undefined}
                   // 总览导航项挂 Needs you 橙色呼吸角标(Orca 五级第 1 级优先呈现):
                   // 有提问阻塞/待裁决项时,无论当前在哪页都能看到「有东西在等你」。
                   badgeTone={item.id === "overview" ? "question" : "accent"}

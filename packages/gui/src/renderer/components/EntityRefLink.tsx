@@ -42,6 +42,7 @@ export function EntityRefLink({
   children,
   title,
   className,
+  multiline = false,
 }: {
   /** canonical 实体引用;全局 kind 见 navigation/entityRoutes.ts 的可寻址七类,任务内记录引用见上。 */
   entityRef: string;
@@ -51,6 +52,8 @@ export function EntityRefLink({
   children?: ReactNode;
   title?: string;
   className?: string;
+  /** Let a surrounding title block own the line clamp. */
+  multiline?: boolean;
 }) {
   return (
     <button
@@ -58,7 +61,7 @@ export function EntityRefLink({
       onClick={() => onNavigate(entityRef)}
       title={title === undefined || title === entityRef ? entityRef : `${title} · ${entityRef}`}
       className={className ?? `${REF_TYPOGRAPHY} text-accent hover:underline`}
-      style={REF_LAYOUT_STYLE}
+      style={multiline ? { ...REF_LAYOUT_STYLE, display: "inline", whiteSpace: "normal" } : REF_LAYOUT_STYLE}
     >
       {children ?? entityRef}
     </button>

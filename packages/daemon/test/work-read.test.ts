@@ -48,6 +48,103 @@ const rows = [
   task("standalone", null, "active"),
 ];
 
+test("Work list, index and show count archived descendants through their whole subtree", (context) => {
+  const tree = receiptProjection([
+    task("root", null, "active", "work"),
+    task("group", "root", "active", "standard", undefined, "archived"),
+    task("deep-planned", "group", "planned", "standard", undefined, "archived"),
+    task("deep-done", "group", "done", "standard", undefined, "archived"),
+    task("empty-work", "root", "planned", "work"),
+  ]);
+  const listed = workListFromProjection(tree, {}).rows.find(({ taskId }) => taskId === "root")!,
+    indexed = workIndexFromProjection(tree).works.find(({ taskId }) => taskId === "root")!,
+    shown = workShowFromProjection(tree, { taskId: "root" });
+  context.diagnostic(
+    JSON.stringify({
+      list: [listed.status, listed.counts],
+      index: [indexed.status, indexed.counts],
+      show: [shown.root.status, shown.counts],
+    }),
+  );
+  assert.equal(listed.counts.planned, 1);
+  assert.deepEqual(listed.counts, { done: 1, executing: 0, pending: 0, blocked: 0, planned: 1, cancelled: 0 });
+  assert.deepEqual(indexed.counts, listed.counts);
+  assert.deepEqual(shown.counts, listed.counts);
+  assert.equal(indexed.status, shown.root.status);
+  assert.equal(listed.status, shown.root.status);
+  assert.equal(listed.taskCount, shown.scope.descendantCount);
+  assert.deepEqual(
+    shown.openTasks.map(({ taskId }) => taskId),
+    ["deep-planned"],
+  );
+});
+
+test("Work presentation derives terminal status from executable leaves below open containers", () => {
+  const tree = receiptProjection([
+    task("completed-root", null, "active", "work"),
+    task("completed-group", "completed-root", "active", "work"),
+    task("completed-leaf", "completed-group", "done", "standard", undefined, "archived"),
+    task("cancelled-root", null, "active", "work"),
+    task("cancelled-group", "cancelled-root", "done"),
+    task("cancelled-leaf", "cancelled-group", "cancelled"),
+  ]);
+  const listed = workListFromProjection(tree, { all: true }),
+    indexed = workIndexFromProjection(tree);
+  for (const [taskId, status] of [
+    ["completed-root", "done"],
+    ["cancelled-root", "cancelled"],
+  ] as const) {
+    const shown = workShowFromProjection(tree, { taskId });
+    assert.equal(listed.rows.find((work) => work.taskId === taskId)?.status, status);
+    assert.equal(indexed.works.find((work) => work.taskId === taskId)?.status, status);
+    assert.equal(shown.root.status, status);
+  }
+  assert.equal(workListFromProjection(tree, {}).count, 0);
+});
+
+test("Work collections read archived descendants of a live root without loading unrelated history", () => {
+  const selectedIds = new Set<string>();
+  const tree = receiptProjection(
+    [
+      task("root", null, "active"),
+      task("archived-group", "root", "active", "standard", undefined, "archived"),
+      task("archived-leaf", "archived-group", "planned", "standard", undefined, "archived"),
+      ...Array.from({ length: 128 }, (_, index) =>
+        task(`historical-${index}`, null, "active", "work", undefined, "archived"),
+      ),
+    ],
+    {},
+    (selected) => {
+      for (const row of selected) selectedIds.add(row.taskId);
+    },
+  );
+  const list = workListFromProjection(tree, {});
+  const index = workIndexFromProjection(tree);
+  assert.deepEqual(
+    list.rows.map(({ taskId }) => taskId),
+    ["root"],
+  );
+  assert.equal(list.rows[0]?.counts.planned, 1);
+  assert.equal(index.works[0]?.counts.planned, 1);
+  assert.deepEqual([...selectedIds].sort(), ["archived-group", "archived-leaf", "root"]);
+});
+
+test("a deep forest of nested Work roots rolls up each leaf to every containing Work", () => {
+  const size = 2_500;
+  const nested = Array.from({ length: size }, (_, index) =>
+    task(`work-${index}`, index === 0 ? null : `work-${index - 1}`, "active", "work"),
+  );
+  nested.push(task("archived-leaf", `work-${size - 1}`, "done", "standard", undefined, "archived"));
+  const tree = receiptProjection(nested);
+  const index = workIndexFromProjection(tree);
+  assert.equal(index.works.length, size);
+  assert.ok(index.works.every((row) => row.status === "done" && row.counts.done === 1));
+  assert.equal(index.works.find((row) => row.taskId === "work-0")?.taskCount, size);
+  assert.deepEqual(index.works.find((row) => row.taskId === "work-0")?.memberTaskIds, []);
+  assert.deepEqual(index.works.find((row) => row.taskId === `work-${size - 1}`)?.memberTaskIds, ["archived-leaf"]);
+  assert.equal(workShowFromProjection(tree, { taskId: "work-0" }).counts.done, 1);
+});
+
 function projection(plan: string | null = "# Work\n\n## Mission\n\n- Ship release two.\n- Keep the lanes green.\n") {
   return {
     readTaskIndex: () => ({ status: "ready", rows, watermark: 7, sourceRevision: 7, warnings: [] }),
@@ -114,7 +211,7 @@ test("work index assigns every task to the work root ha work list names; nested 
   );
 });
 
-test("work reads consume the kernel's presented root status while open and childless roots stay open", () => {
+test("work reads preserve explicit terminal and open childless root statuses", () => {
   const rows = [
     task("all-done", null, "done", "work"),
     task("done-group", "all-done", "done"),
@@ -223,7 +320,11 @@ test("work show names the goal, subtree counts and open tasks, and the renderer 
 // could join, read from the same work-root rule `ha work list` uses. The rows are the kernel index
 // shape, so this also pins that the receipt reads titles, not ids alone. `plans` maps a work root's
 // task id to its task_plan.md body; a root without an entry has no readable plan.
-function receiptProjection(rowsFor: typeof rows = rows, plans: Record<string, string> = {}) {
+function receiptProjection(
+  rowsFor: typeof rows = rows,
+  plans: Record<string, string> = {},
+  observeRows: (selected: typeof rows) => void = () => {},
+) {
   const byId = new Map(rowsFor.map((row) => [row.taskId, row]));
   return {
     read: (taskId: string) =>
@@ -240,14 +341,32 @@ function receiptProjection(rowsFor: typeof rows = rows, plans: Record<string, st
         limit?: number;
         presentationStatus?: boolean;
         parentTaskId?: string;
+        activePackagesOnly?: boolean;
+        scopeRootTaskId?: string;
       } = {},
     ) => {
       // Kernel contract (task-query-projection.ts): the SQL filters run on the raw event status,
       // `limit` pages the task-id order and never ranks, and `presentationStatus` only swaps the
       // displayed status for the subtree-derived one.
+      const scope = new Set<string>();
+      if (query.scopeRootTaskId !== undefined) {
+        const pending = [query.scopeRootTaskId];
+        for (const id of pending) {
+          if (scope.has(id)) continue;
+          scope.add(id);
+          for (const row of rowsFor) if (row.parentTaskId === id) pending.push(row.taskId);
+        }
+        let ancestor = byId.get(query.scopeRootTaskId)?.parentTaskId;
+        while (ancestor && !scope.has(ancestor)) {
+          scope.add(ancestor);
+          ancestor = byId.get(ancestor)?.parentTaskId;
+        }
+      }
       const matched = rowsFor
         .filter(
           (row) =>
+            (query.scopeRootTaskId === undefined || scope.has(row.taskId)) &&
+            (!query.activePackagesOnly || row.packageDisposition === "active") &&
             (!query.workRootsOnly ||
               row.taskClass === "work" ||
               (row.parentTaskId === null && rowsFor.some((candidate) => candidate.parentTaskId === row.taskId))) &&
@@ -260,9 +379,11 @@ function receiptProjection(rowsFor: typeof rows = rows, plans: Record<string, st
             ? { ...row, status: row.presentedStatus }
             : row,
         );
+      const selected = query.limit === undefined ? matched : matched.slice(0, query.limit);
+      observeRows(selected);
       return {
         status: "ready" as const,
-        rows: query.limit === undefined ? matched : matched.slice(0, query.limit),
+        rows: selected,
         watermark: 7,
         sourceRevision: 7,
         warnings: [],
