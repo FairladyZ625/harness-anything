@@ -567,12 +567,13 @@ function persistEdgeConnection(
   replaceLoginAuthority = false,
 ): void {
   const previous = readFleetEdgeConfig(userRoot, request.repoId);
+  const advertisedRealm = loginAuthority?.realm;
   const loginUrl = replaceLoginAuthority
       ? loginAuthority?.url
       : previous?.loginRealm === undefined && loginAuthority?.realm
         ? loginAuthority.url
         : (previous?.loginUrl ?? loginAuthority?.url),
-    loginRealm = replaceLoginAuthority ? loginAuthority?.realm : (previous?.loginRealm ?? loginAuthority?.realm),
+    loginRealm = replaceLoginAuthority ? advertisedRealm : (previous?.loginRealm ?? advertisedRealm),
     loginServername = replaceLoginAuthority
       ? loginAuthority?.servername
       : (previous?.loginServername ?? loginAuthority?.servername),

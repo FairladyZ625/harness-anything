@@ -2,10 +2,7 @@
 import { fleetMirrorCutFile, locateFleetMirrorView } from "../../daemon/test/replica-catch-up.fixture.ts";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { localDaemonTargetKey } from "@harness-anything/daemon/internal/client/local-daemon-target";
-import {
-  readFleetEdgeConfig,
-  writeFleetEdgeConfig,
-} from "@harness-anything/daemon/internal/client/fleet-edge-config";
+import { readFleetEdgeConfig, writeFleetEdgeConfig } from "@harness-anything/daemon/internal/client/fleet-edge-config";
 import { signInProcessPolicyTestUser } from "../../daemon/test/keycloak-process-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { createHash, X509Certificate } from "node:crypto";

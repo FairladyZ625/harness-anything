@@ -58,6 +58,18 @@
         "order": 7
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-open.ts#openDaemonHost.withReplicaSyncFence:110a21b074f66cc39fe4305d86adaa44",
+        "route": "daemon-fleet-edge-sync",
+        "role": "support",
+        "order": 9
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-open.ts#openDaemonHost.withReplicaSyncFence:6165b2468d982b70e27f83f039463193",
+        "route": "daemon-fleet-edge-sync",
+        "role": "support",
+        "order": 10
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/edge-replica-doctor.ts#edgeReplicaDoctor:670825534fcc8700014b543f2b41d01b",
         "route": "daemon-fleet-edge-sync",
         "role": "support",
@@ -1541,7 +1553,7 @@
         "order": 534
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-workspace-migration.ts#migrateFleetEdgeWorkspace:5b51f6c360fb6a6208b5efc7ba8111a7",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-workspace-migration.ts#migrateFleetEdgeWorkspace:5278d78974e8d31a93c727de8cdc3a79",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/daemon-host/oidc-center-selection.ts#oidcCenterSelections.write",

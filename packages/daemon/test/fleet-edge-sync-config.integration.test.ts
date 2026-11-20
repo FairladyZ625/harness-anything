@@ -23,10 +23,7 @@ import { readReplicaHealth, recordReplicaHealth } from "../src/fleet-sync/fleet/
 import { waitForFleetReplicaReady } from "../src/daemon-host/fleet/replica-sync.ts";
 import { fleetBaseBackupTrace } from "@harness-anything/storage";
 import { oidcCenterSelections } from "../src/daemon-host/oidc-center-selection.ts";
-import {
-  readFleetOperationalClient,
-  readFleetRepositoryMetadataClient,
-} from "../src/daemon-host/fleet/peer.ts";
+import { readFleetOperationalClient, readFleetRepositoryMetadataClient } from "../src/daemon-host/fleet/peer.ts";
 import { runtimeForwardingContext } from "../src/daemon-host/fleet/forwarding-port.ts";
 import { runFleetEdgeTask } from "../src/daemon-host/fleet-edge-task.ts";
 
