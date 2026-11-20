@@ -18,6 +18,12 @@ import test from "node:test";
 import { MessageChannel, receiveMessageOnPort } from "node:worker_threads";
 import ts from "typescript";
 import {
+  AUTHORIZATION_CI_SHARD_COUNT,
+  authorizationCiRun,
+  readAuthorizationShards,
+  serializeAuthorizationShard,
+} from "../authorization-ci-shards.mjs";
+import {
   authorizationShardBuckets,
   finishSourceRows,
   partitionAuthorizationSources,
@@ -28,8 +34,10 @@ import { sourceFileOf, guiCallbackCallerFiles } from "../authorization-source-pr
 import { testOrdinalInPartition } from "../../node-test-runner-lib.mjs";
 import { replaceSourceOnce, runGit } from "./helpers.mjs";
 import {
+  auditAuthorizationPart,
   auditDurableActionAuthorization,
   changedAuthorizationScope,
+  collectAuthorizationAudit,
   loadAuthorizationInputs,
   shardedAudit,
   shardWorkerCount,
@@ -109,6 +117,47 @@ test("descriptor sources and shared native entry routes each have exactly one sh
   assert.deepEqual(owners("script-run"), [0]);
   assert.equal(owners("daemon:bin").length, 1);
   assert.equal(owners("cli:ha").length, 1);
+});
+
+test("CI rejects missing, duplicated, incomplete and incompatible authorization proofs", (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), "authorization-shards-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const stamp = {
+    revision: "fixture-revision",
+    today: "2026-11-20",
+    scope: "fixture-scope",
+    count: AUTHORIZATION_CI_SHARD_COUNT,
+  };
+  const row = { id: "client-entry", kind: "task-start", route: "task.start" };
+  const inventory = { routes: [[7, "task.start"]], sources: [[0, row.id, row.kind, row.route]] };
+  const run = { dir, stamp };
+  const writePart = (index, proof, inputs = stamp) =>
+    writeFileSync(
+      path.join(dir, `authorization-shard-${index}.json`),
+      serializeAuthorizationShard({ stamp: inputs, partition: { index } }, proof),
+      { flag: "wx" },
+    );
+  const result = { rows: [{ index: 7, id: "task.start" }], sourceProofs: [{ ordinal: 0, row }] };
+  const empty = { rows: [], sourceProofs: [] };
+  const replace = (index, proof, inputs = stamp) => {
+    rmSync(path.join(dir, `authorization-shard-${index}.json`));
+    writePart(index, proof, inputs);
+  };
+  for (let index = 1; index < stamp.count; index++) writePart(index, empty);
+  assert.throws(() => readAuthorizationShards(run, inventory), /every shard exactly once/u);
+  writePart(0, result);
+  assert.deepEqual(readAuthorizationShards(run, inventory), result);
+  replace(1, result);
+  assert.throws(() => readAuthorizationShards(run, inventory), /coverage differs for routes/u);
+  replace(1, empty, { ...stamp, revision: "stale-revision" });
+  assert.throws(() => readAuthorizationShards(run, inventory), /incompatible audit inputs/u);
+  replace(1, empty);
+  replace(0, { ...result, sourceProofs: [] });
+  assert.throws(() => readAuthorizationShards(run, inventory), /coverage differs for sources/u);
+  assert.throws(
+    () => authorizationCiRun(repoRoot, undefined, { AUTHORIZATION_CI_MODE: "blocked" }),
+    /a required quick-gate job failed/u,
+  );
 });
 
 test("a multiplexed client loses authority when its other shard rejects a server route", () => {
@@ -364,7 +413,7 @@ partitionedTest(
 );
 
 partitionedTest(
-  "modified multiplexed GUI client traces all forwarded routes and fails closed when mutated to call an unauthorized route",
+  "CI shards preserve the serial verdict when a multiplexed GUI client is mutated to call an unauthorized route",
   async (t) => {
     const dir = sourceCopy(t, {
       copyPackages: ["gui", "daemon", "authorization-keycloak", "application", "kernel"],
@@ -382,10 +431,36 @@ partitionedTest(
       "task.unpin",
     ];
     const inputs = await loadAuthorizationInputs(repoRoot);
-    const options = { sourceRoot: dir, only };
-    const serial = () => auditDurableActionAuthorization(repoRoot, inputs, { ...options, changedFiles: [file] });
-    const parallel = () => shardedAudit(repoRoot, [file], { ...options, shardCount: 4, concurrency: 2 });
-    const green = await parallel();
+    const today = new Date().toISOString().slice(0, 10);
+    const options = { sourceRoot: dir, only, today };
+    const changedFiles = [file];
+    const serial = () => auditDurableActionAuthorization(repoRoot, inputs, { ...options, changedFiles });
+    const parallel = async () => {
+      const proofs = mkdtempSync(path.join(tmpdir(), "authorization-shards-"));
+      t.after(() => rmSync(proofs, { recursive: true, force: true }));
+      const stamp = { today, count: 2 };
+      const rowsPerPartition = [];
+      for (let index = 0; index < stamp.count; index++) {
+        const partition = { index, count: stamp.count };
+        const part = await auditAuthorizationPart(repoRoot, inputs, changedFiles, {
+          ...options,
+          partition,
+          concurrency: 1,
+        });
+        rowsPerPartition.push(part.rows.length);
+        writeFileSync(
+          path.join(proofs, `authorization-shard-${index}.json`),
+          serializeAuthorizationShard({ stamp, partition }, part),
+        );
+      }
+      const result = collectAuthorizationAudit(repoRoot, inputs, { dir: proofs, stamp }, { ...options, changedFiles });
+      return { result, rowsPerPartition };
+    };
+    const { result: green, rowsPerPartition } = await parallel();
+    assert.ok(
+      rowsPerPartition.every((count) => count > 0),
+      "the valid client scope crosses both partitions",
+    );
     assert.deepEqual(green, serial());
     assert.deepEqual(green.findings, []);
     assert.equal(green.rows.find((row) => row.id === "task.start")?.ok, true);
@@ -404,7 +479,7 @@ partitionedTest(
       file,
     );
     writeFileSync(target, mutated);
-    const red = await parallel();
+    const { result: red } = await parallel();
     assert.deepEqual(red, serial());
     assert.ok(red.findings.length > 0);
     assert.equal(exitCodeFor("ratchet", red.findings.length), 1);

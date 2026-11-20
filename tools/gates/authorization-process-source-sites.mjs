@@ -3,8 +3,6 @@ import { bindArguments, EMPTY_ENV, isFunctionNode, makeEvaluator, unwrap } from 
 import { nodeStart, sourceSite } from "./authorization-gui-source-proof.mjs";
 import { sourceOriginFilter } from "./authorization-source-origins.mjs";
 
-import { expandSourceFrames } from "./authorization-source-traversal.mjs";
-
 const frameKeys = new WeakMap();
 const graphReferences = new WeakMap();
 const graphSites = new WeakMap();
@@ -92,7 +90,7 @@ export function processNativeSourceSites(graph, entry, evaluator, targets) {
   return reached;
 }
 
-function* sourceWalk(
+export function processSourceSites(
   graph,
   entry,
   {
@@ -150,7 +148,7 @@ function* sourceWalk(
     if (!contexts.has(key)) contexts.set(key, { fn, env, sites: [], edges: null, missing: 0n, hits: null });
     return contexts.get(key);
   }
-  function expansion(frame) {
+  function expand(frame) {
     const { fn, env } = frame;
     frame.edges = [];
     const linkFrame = (value, args = null) => {
@@ -166,27 +164,63 @@ function* sourceWalk(
         references: args ? referencedRanges(args) : [],
       });
     };
-    return {
-      body: fn.body,
-      fold: (condition) => evaluator.fold(condition, env),
-      promise(node) {
-        if (graph.lookup("Promise", node) || (mayReachTarget && !mayReachTarget(node, env))) return;
+    function visit(node) {
+      if (isFunctionNode(node)) return true;
+      if (ts.isBlock(node) || ts.isSourceFile(node)) {
+        for (const statement of node.statements) if (!visit(statement)) return false;
+        return true;
+      }
+      if (ts.isReturnStatement(node) || ts.isThrowStatement(node)) {
+        if (node.expression) visit(node.expression);
+        return false;
+      }
+      if (ts.isIfStatement(node) || ts.isConditionalExpression(node)) {
+        const condition = ts.isIfStatement(node) ? node.expression : node.condition;
+        visit(condition);
+        const folded = evaluator.fold(condition, env);
+        const left = ts.isIfStatement(node) ? node.thenStatement : node.whenTrue;
+        const right = ts.isIfStatement(node) ? node.elseStatement : node.whenFalse;
+        if (folded) {
+          const selected = folded.value ? left : right;
+          return selected ? visit(selected) : true;
+        }
+        // Unknown branches both remain reachable; only two exits terminate the next statement.
+        const leftContinues = visit(left),
+          rightContinues = right ? visit(right) : true;
+        return leftContinues || rightContinues;
+      }
+      if (
+        ts.isNewExpression(node) &&
+        node.expression.getText() === "Promise" &&
+        !graph.lookup("Promise", node) &&
+        (!mayReachTarget || mayReachTarget(node, env))
+      )
         for (const argument of node.arguments ?? [])
           for (const value of evaluator.evaluate(argument, env).filter((value) => value.fn)) linkFrame(value);
-      },
-      call(node) {
+      if (ts.isCallExpression(node)) {
         frame.sites.push(location(node));
-        if (mayReachTarget && !mayReachTarget(node, env)) return;
-        const values = evaluator.evaluate(node.expression, env);
-        const functions = values.filter((value) => value.fn);
-        for (const value of functions) linkFrame(value, node.arguments);
-        const declared = functions.length === 0 && graph.callDeclaration(node);
-        if (isFunctionNode(declared)) linkFrame({ node: declared, env: EMPTY_ENV }, node.arguments);
-        if (values.some((value) => value.external !== undefined))
-          for (const arg of node.arguments)
-            for (const value of evaluator.evaluate(arg, env).filter((value) => value.fn)) linkFrame(value);
-      },
-    };
+        if (!mayReachTarget || mayReachTarget(node, env)) {
+          const values = evaluator.evaluate(node.expression, env);
+          const functions = values.filter((value) => value.fn);
+          for (const value of functions) linkFrame(value, node.arguments);
+          // A typeof callback signature can refer to a different implementation.
+          // The actual callback wins whenever it resolves.
+          const declared = functions.length === 0 && graph.callDeclaration(node);
+          if (isFunctionNode(declared)) linkFrame({ node: declared, env: EMPTY_ENV }, node.arguments);
+          if (values.some((value) => value.external !== undefined))
+            for (const arg of node.arguments)
+              for (const value of evaluator.evaluate(arg, env).filter((value) => value.fn)) linkFrame(value);
+        }
+      }
+      // A child's exit cannot skip siblings in an enclosing loop/try/switch. Keep those
+      // constructs conservative; sequential blocks and branches handle their own exits above.
+      ts.forEachChild(node, (child) => {
+        visit(child);
+      });
+      return true;
+    }
+    if (fn.body) visit(fn.body);
+    frame.env = null;
   }
   const targetRanges = new Map();
   for (const site of requested) {
@@ -218,117 +252,62 @@ function* sourceWalk(
   function allRemainingMissing(frame) {
     return missing !== 0n && (frame.missing & missing) === missing;
   }
-  // Each lane advances its own depth-first cursor. Suspending at expansion
-  // never changes which actual binding first occupies a bounded frame key.
-  const pending = [{ frame: frameFor(entry, env) }];
-  while (pending.length) {
-    const { frame, previousHits } = pending.pop();
-    if (previousHits !== undefined) {
-      if (hits.length > previousHits) {
-        frame.hits ??= new Set();
-        for (let i = previousHits; i < hits.length; i++) frame.hits.add(hits[i]);
-      }
-      continue;
-    }
-    if (!frame.fn.body || seen.has(frame) || satisfied() || allRemainingMissing(frame)) continue;
-    if (frame.edges === null && mayReachTarget && !mayReachTarget(frame.fn, frame.env)) continue;
-    const start = hits.length;
+  function walk(frame) {
+    // A dispatcher may re-enter with another argument binding. frameFor already gives
+    // each binding context its identity; seen frames terminate cycles without pruning it.
+    if (!frame.fn.body || seen.has(frame)) return;
+    if (satisfied()) return;
+    if (allRemainingMissing(frame)) return;
+    // An authored-origin summary can rule out the entire unexpanded frame.
+    // Possible origins still go through the same control-flow and binding walk.
+    if (frame.edges === null && mayReachTarget && !mayReachTarget(frame.fn, frame.env)) return;
+    const previousHits = hits.length;
     if (targetOnly && frame.hits) {
       for (const site of frame.hits) {
         record(site);
-        if (satisfied()) break;
+        if (satisfied()) return;
       }
-      if (satisfied()) continue;
     }
     seen.add(frame);
-    if (targetOnly) pending.push({ frame, previousHits: start });
+    // Upstream host/migration proofs target an invoked callback endpoint as well as calls.
     const endpoint = location(frame.fn);
     if (requested.has(endpoint)) record(endpoint);
-    if (targetOnly && satisfied()) continue;
-    if (frame.edges === null) {
-      yield expansion(frame);
-      frame.env = null;
+    if (!targetOnly || !satisfied()) {
+      if (frame.edges === null) expand(frame);
+      for (const site of frame.sites) record(site);
     }
-    for (const site of frame.sites) record(site);
-    if (satisfied()) continue;
-    const preferred = [],
-      neighboring = [],
-      remaining = [];
-    for (const edge of frame.edges) {
-      const inTargetFile = targetRanges.has(graph.fileOf(edge.frame.fn));
-      const next =
-        (inTargetFile && containsTarget(rangeOf(edge.frame.fn))) || edge.references.some(containsTarget)
-          ? preferred
-          : inTargetFile
-            ? neighboring
-            : remaining;
-      next.push(edge);
+    if (!satisfied()) {
+      // A callback naming the target is cheap to inspect first. Other edges remain available.
+      const preferred = [],
+        neighboring = [],
+        remaining = [];
+      for (const edge of frame.edges) {
+        const inTargetFile = targetRanges.has(graph.fileOf(edge.frame.fn));
+        const next =
+          (inTargetFile && containsTarget(rangeOf(edge.frame.fn))) || edge.references.some(containsTarget)
+            ? preferred
+            : inTargetFile
+              ? neighboring
+              : remaining;
+        next.push(edge.frame);
+      }
+      for (const edges of [preferred, neighboring, remaining])
+        for (const edge of edges) {
+          if (satisfied()) break;
+          walk(edge);
+        }
     }
-    for (const group of [remaining, neighboring, preferred])
-      for (let i = group.length - 1; i >= 0; i--) pending.push(group[i]);
+    // Each hit added below this frame has an actual edge path from here. Do not cache
+    // hits from an earlier sibling or make any claim about unexplored edges.
+    if (targetOnly && hits.length > previousHits) {
+      frame.hits ??= new Set();
+      for (let index = previousHits; index < hits.length; index++) frame.hits.add(hits[index]);
+    }
   }
+  walk(frameFor(entry, env));
   // A missing requested target forces a complete traversal (including cycles). Every
   // visited frame then has the same negative reachability fact. An early hit proves
   // no absence; an untargeted query still walks the whole graph. Never cache authority.
   if (missing !== 0n && (!matchAny || hits.length === 0)) for (const frame of seen) frame.missing |= missing;
   return sites;
-}
-
-export function processSourceSites(graph, entry, options) {
-  return processSourceQueries([{ graph, entry, options }])[0];
-}
-
-// Run independent descriptor searches in lockstep at frame expansion. Queries
-// sharing an evaluator must finish in caller order: their frame tables persist.
-export function processSourceQueries(queries, profile) {
-  const results = [];
-  for (let start = 0; start < queries.length; ) {
-    const walks = [],
-      evaluators = new Set();
-    while (start + walks.length < queries.length && walks.length < 4) {
-      const { graph, entry, options } = queries[start + walks.length];
-      if (options?.evaluator && evaluators.has(options.evaluator)) break;
-      evaluators.add(options?.evaluator);
-      walks.push(sourceWalk(graph, entry, options));
-    }
-    results.push(
-      ...advanceWalks(walks, (frames) => {
-        const bodies = expandSourceFrames(frames);
-        if (profile) {
-          profile.sourceFrames += frames.length;
-          profile.sourceBodyVisits += bodies;
-        }
-      }),
-    );
-    start += walks.length;
-  }
-  return results;
-}
-
-// A lane suspends only for a source query. Reports, recursion cutoffs, target
-// order, and the first bound environment of each frame stay inside that lane.
-export function runDescriptorTraversals(walks, profile) {
-  return advanceWalks(walks, (queries) => processSourceQueries(queries, profile));
-}
-
-function advanceWalks(walks, resolve) {
-  const answers = [];
-  let active = walks.map((walk, index) => ({ walk, index }));
-  while (active.length) {
-    const pending = [],
-      requests = [];
-    for (const lane of active) {
-      const step = lane.walk.next(answers[lane.index]);
-      if (step.done) answers[lane.index] = step.value;
-      else {
-        pending.push(lane);
-        requests.push(step.value);
-      }
-    }
-    if (!pending.length) break;
-    const replies = resolve(requests);
-    if (replies) for (let i = 0; i < pending.length; i++) answers[pending[i].index] = replies[i];
-    active = pending;
-  }
-  return answers;
 }

@@ -28,6 +28,13 @@ export function partitionAuthorizationSources(actions, buckets, { index, count }
   });
 }
 
+export function mergeAuthorizationProofs(parts) {
+  return {
+    rows: parts.flatMap((part) => part.rows).sort((left, right) => left.index - right.index),
+    sourceProofs: parts.flatMap((part) => part.sourceProofs).sort((left, right) => left.ordinal - right.ordinal),
+  };
+}
+
 export function findingsFor(rows, receipt, sourceRows) {
   return [
     ...rows

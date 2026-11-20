@@ -8,9 +8,7 @@ import ts from "typescript";
 import { bindArguments, EMPTY_ENV, isFunctionNode, makeEvaluator, unwrap } from "./authorization-flow-graph.mjs";
 import { nodeStart } from "./authorization-gui-source-proof.mjs";
 import { sourceOriginFilter } from "./authorization-source-origins.mjs";
-import { traceActionChildren } from "./authorization-source-traversal.mjs";
-import { runDescriptorTraversals } from "./authorization-process-source-sites.mjs";
-import { sourceFrameKey, sourceSite } from "./authorization-source-proof.mjs";
+import { processSourceSites, sourceFrameKey, sourceSite } from "./authorization-source-proof.mjs";
 
 const maxWalkDepth = 60;
 const ownNodeCache = new WeakMap();
@@ -427,7 +425,7 @@ export function makeAuthorizationTracer(graph, anchors) {
   }
 
   /** Trace one descriptor from the transport entries. */
-  function* traceDescriptor(descriptor) {
+  function traceDescriptor(descriptor) {
     const facts = {
         method: descriptor.method,
         kind: descriptor.kind,
@@ -763,24 +761,48 @@ export function makeAuthorizationTracer(graph, anchors) {
       );
     }
 
-    function* visit(expression, env, state) {
+    const traceActionChildrenCache = new WeakMap();
+    function traceActionChildren(root) {
+      let cached = traceActionChildrenCache.get(root);
+      if (cached) return cached;
+      const list = [];
+      const collect = (parent) => {
+        ts.forEachChild(parent, (child) => {
+          if (ts.isTypeNode(child) || isFunctionNode(child)) return;
+          if (
+            ts.isConditionalExpression(child) ||
+            ts.isCallExpression(child) ||
+            (ts.isBinaryExpression(child) && child.operatorToken.kind === ts.SyntaxKind.EqualsToken)
+          ) {
+            list.push(child);
+            return;
+          }
+          collect(child);
+        });
+      };
+      collect(root);
+      traceActionChildrenCache.set(root, list);
+      return list;
+    }
+
+    function visit(expression, env, state) {
       const node = unwrap(expression);
       if (!node || isFunctionNode(node) || !state.alive) return;
       if (ts.isConditionalExpression(node)) {
-        yield* visit(node.condition, env, state);
+        visit(node.condition, env, state);
         const folded = evaluator.fold(node.condition, env);
-        if (folded) return yield* visit(folded.value ? node.whenTrue : node.whenFalse, env, state);
+        if (folded) return visit(folded.value ? node.whenTrue : node.whenFalse, env, state);
         const left = clone(state),
           right = clone(state);
-        yield* visit(node.whenTrue, env, left);
-        yield* visit(node.whenFalse, env, right);
+        visit(node.whenTrue, env, left);
+        visit(node.whenFalse, env, right);
         checkJoin(node, state, [left, right], node.condition);
         Object.assign(state, join(left, right));
         return;
       }
-      if (ts.isCallExpression(node)) return yield* visitCall(node, env, state);
+      if (ts.isCallExpression(node)) return visitCall(node, env, state);
       if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-        yield* visit(node.right, env, state);
+        visit(node.right, env, state);
         const target = unwrap(node.left),
           right = unwrap(node.right);
         if (ts.isIdentifier(target) && derived(right, state.tainted))
@@ -789,7 +811,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       }
       for (const action of traceActionChildren(node)) {
         if (!state.alive) break;
-        yield* visit(action, env, state);
+        visit(action, env, state);
       }
     }
 
@@ -845,14 +867,14 @@ export function makeAuthorizationTracer(graph, anchors) {
       );
     }
 
-    function* visitCall(node, env, state) {
+    function visitCall(node, env, state) {
       const callee = unwrap(node.expression);
       if (ts.isPropertyAccessExpression(callee) && callee.name.text === "then") {
-        yield* visit(callee.expression, env, state);
+        visit(callee.expression, env, state);
         const [resolved] = node.arguments;
         for (const value of resolved ? evaluator.evaluate(resolved, env) : [])
           if (value.fn)
-            yield* walkFunction(
+            walkFunction(
               value,
               bindFrame(value, evaluator.expandArguments([callee.expression], env), env),
               clone(state),
@@ -860,10 +882,10 @@ export function makeAuthorizationTracer(graph, anchors) {
         return;
       }
       if (ts.isPropertyAccessExpression(callee) && ["catch", "finally"].includes(callee.name.text))
-        return yield* visit(callee.expression, env, state);
+        return visit(callee.expression, env, state);
       if (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee))
-        yield* visit(callee.expression, env, state);
-      for (const argument of node.arguments) yield* visit(argument, env, state);
+        visit(callee.expression, env, state);
+      for (const argument of node.arguments) visit(argument, env, state);
       if (isPortCall(node)) return;
       const values = evaluator.evaluate(callee, env);
       const writerFenceName = writerFence?.name?.text;
@@ -954,7 +976,7 @@ export function makeAuthorizationTracer(graph, anchors) {
             )
           : null;
       const deferredSources = [];
-      function* proveSourceCallee(value) {
+      function proveSourceCallee(value) {
         const boundary = !graph.modules.has(graph.fileOf(value.node));
         // Rejection is irreversible; another authorized call cannot repair a bypass. For an
         // authorized call only unseen sources remain; an unguarded call must still challenge
@@ -963,17 +985,13 @@ export function makeAuthorizationTracer(graph, anchors) {
           ([, source]) => !source.seen || (!sourceAuthority && source.ok),
         );
         if ((!sourceAuthority && !boundary) || pendingSources.length === 0) return;
-        const sites = yield {
-          graph: sourceGraph,
-          entry: value.node,
-          options: {
-            evaluator: sourceEvaluator,
-            env: bindFrame(value, sourceEvaluator.expandArguments(node.arguments, env), env),
-            targets: pendingSources.map(([site]) => site),
-            targetOnly: true,
-            mayReachTarget: hasSourceOrigin,
-          },
-        };
+        const sites = processSourceSites(sourceGraph, value.node, {
+          evaluator: sourceEvaluator,
+          env: bindFrame(value, sourceEvaluator.expandArguments(node.arguments, env), env),
+          targets: pendingSources.map(([site]) => site),
+          targetOnly: true,
+          mayReachTarget: hasSourceOrigin,
+        });
         for (const [site, target] of pendingSources)
           if (sites.has(site))
             observe(
@@ -984,7 +1002,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       }
       for (const value of sourceFunctions) {
         if (policyWalks?.has(value.node) && graph.modules.has(graph.fileOf(value.node))) deferredSources.push(value);
-        else yield* proveSourceCallee(value);
+        else proveSourceCallee(value);
       }
       if (state.authorized && node.arguments.some((argument) => spends(argument, state.tainted, 0)))
         state.consumed = true;
@@ -1008,7 +1026,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       if (functions.length === 0 && values.some((value) => value.external !== undefined))
         for (const argument of node.arguments)
           for (const value of functionArgument(argument, env) ? evaluator.evaluate(argument, env) : [])
-            if (value.fn) yield* walkFunction(value, value.env, clone(state));
+            if (value.fn) walkFunction(value, value.env, clone(state));
       if (
         state.effect &&
         decisionData &&
@@ -1033,20 +1051,16 @@ export function makeAuthorizationTracer(graph, anchors) {
         // A supplied callback is invoked in this caller's guard frame even when its
         // return value depends on a decision it obtains itself.
         if (boundParameter?.kind === "param" && env.get(boundParameter.parameter)?.expression) {
-          yield* invokeCallback(boundParameter.parameter, value, node, env, state, sourceAuthority);
+          invokeCallback(boundParameter.parameter, value, node, env, state, sourceAuthority);
           allAuthorized = false;
           continue;
         }
         if (producesDecision(value.node)) {
           // A producer that itself exits on denial is an enforcer: what follows it is authorized.
-          const outcome = yield* walkFunction(
-            value,
-            bindFrame(value, evaluator.expandArguments(node.arguments, env), env),
-            {
-              ...newState(),
-              effect: state.effect,
-            },
-          );
+          const outcome = walkFunction(value, bindFrame(value, evaluator.expandArguments(node.arguments, env), env), {
+            ...newState(),
+            effect: state.effect,
+          });
           if (outcome.authorizedReturn) {
             enforcedSubject = decisionSubject(node, env);
             checkCut(node, env, enforcedSubject);
@@ -1061,7 +1075,7 @@ export function makeAuthorizationTracer(graph, anchors) {
         inner.sourceCovered ||= Boolean(sourceAuthority);
         inner.authorized = false;
         inner.consumed = false;
-        const outcome = yield* walkFunction(
+        const outcome = walkFunction(
           value,
           bindFrame(value, evaluator.expandArguments(node.arguments, env), env),
           inner,
@@ -1075,7 +1089,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       }
       // A policy callee may not descend to every source. Preserve the full-graph fallback
       // for anything it did not prove, using this call's original authority and argument frame.
-      for (const value of deferredSources) yield* proveSourceCallee(value);
+      for (const value of deferredSources) proveSourceCallee(value);
       if (walked.length > 0 && walked.length === functions.length) {
         // A callee that returns only past its own local-transport exit leaves this frame local.
         if (walked.every((outcome) => outcome.localReturn)) state.local = true;
@@ -1541,7 +1555,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       });
     }
 
-    function* serviceContinuation(value, env) {
+    function serviceContinuation(value, env) {
       const sites = new Map(),
         fn = value.node;
       let progress = -1,
@@ -1578,23 +1592,19 @@ export function makeAuthorizationTracer(graph, anchors) {
         if (verified.ok) sites.set(node, verified.kind);
       });
       if (!sites.size) return { sites, failure };
-      const reachable = yield {
-        graph: sourceGraph,
-        entry: fn,
-        options: {
-          evaluator: sourceEvaluator,
-          env,
-          targets: [...sites.keys()].map((node) => sourceSite(sourceGraph, node)),
-          targetOnly: true,
-        },
-      };
+      const reachable = processSourceSites(sourceGraph, fn, {
+        evaluator: sourceEvaluator,
+        env,
+        targets: [...sites.keys()].map((node) => sourceSite(sourceGraph, node)),
+        targetOnly: true,
+      });
       return {
         sites: new Map([...sites].filter(([node]) => reachable.has(sourceSite(sourceGraph, node)))),
         failure: "declared service invocation is unreachable in this callback frame",
       };
     }
 
-    function* invokeCallback(parameter, value, call, env, state, sourceAuthority) {
+    function invokeCallback(parameter, value, call, env, state, sourceAuthority) {
       // Grouped per guard frame: a non-durable branch of another command is not this route's bypass.
       const group = sourceFrameKey(graph, parameter.parent, env),
         frames = guardCalls.get(parameter) ?? new Map(),
@@ -1632,7 +1642,7 @@ export function makeAuthorizationTracer(graph, anchors) {
         !calls.calls.at(-1).carried &&
         decisionCallback(parameter)
       ) {
-        const { sites, failure } = yield* serviceContinuation(value, next);
+        const { sites, failure } = serviceContinuation(value, next);
         calls.calls.at(-1).selfAuthorized = sites.size > 0;
         calls.calls.at(-1).selfFailure = failure;
         // This certificate answers only for its service invocation. The outer principal's
@@ -1646,17 +1656,16 @@ export function makeAuthorizationTracer(graph, anchors) {
           inner.serviceSites = sites;
         }
       }
-      yield* walkFunction(value, next, inner);
+      walkFunction(value, next, inner);
     }
 
-    function* walkStatement(statement, env, state, frame) {
+    function walkStatement(statement, env, state, frame) {
       if (!statement || !state.alive) return;
-      if (ts.isBlock(statement))
-        for (const child of statement.statements) yield* walkStatement(child, env, state, frame);
+      if (ts.isBlock(statement)) for (const child of statement.statements) walkStatement(child, env, state, frame);
       else if (ts.isVariableStatement(statement)) {
         for (const declaration of statement.declarationList.declarations) {
           if (!declaration.initializer) continue;
-          yield* visit(declaration.initializer, env, state);
+          visit(declaration.initializer, env, state);
           if (refusalCalls.has(unwrap(declaration.initializer))) state.refusals.add(declaration);
           if (descriptor.ownSession && sessionDerived(declaration.initializer, env, state))
             state.sessioned.add(declaration);
@@ -1669,9 +1678,9 @@ export function makeAuthorizationTracer(graph, anchors) {
             }
           }
         }
-      } else if (ts.isExpressionStatement(statement)) yield* visit(statement.expression, env, state);
+      } else if (ts.isExpressionStatement(statement)) visit(statement.expression, env, state);
       else if (ts.isReturnStatement(statement)) {
-        yield* visit(statement.expression, env, state);
+        visit(statement.expression, env, state);
         if (state.alive)
           frame.returns.push({
             authorized: state.authorized,
@@ -1682,20 +1691,20 @@ export function makeAuthorizationTracer(graph, anchors) {
           });
         state.alive = false;
       } else if (ts.isThrowStatement(statement)) {
-        yield* visit(statement.expression, env, state);
+        visit(statement.expression, env, state);
         state.alive = false;
-      } else if (ts.isIfStatement(statement)) yield* walkIf(statement, env, state, frame);
+      } else if (ts.isIfStatement(statement)) walkIf(statement, env, state, frame);
       else if (ts.isTryStatement(statement)) {
-        yield* walkStatement(statement.tryBlock, env, state, frame);
-        if (statement.finallyBlock) yield* walkStatement(statement.finallyBlock, env, clone(state), frame);
-      } else if (ts.isSwitchStatement(statement)) yield* walkSwitch(statement, env, state, frame);
+        walkStatement(statement.tryBlock, env, state, frame);
+        if (statement.finallyBlock) walkStatement(statement.finallyBlock, env, clone(state), frame);
+      } else if (ts.isSwitchStatement(statement)) walkSwitch(statement, env, state, frame);
       else if (
         ts.isForOfStatement(statement) ||
         ts.isForStatement(statement) ||
         ts.isForInStatement(statement) ||
         ts.isWhileStatement(statement)
       )
-        yield* walkStatement(statement.statement, env, clone(state), frame);
+        walkStatement(statement.statement, env, clone(state), frame);
     }
 
     /** The producing call of a decision expression, through a folded or decision-only choice. */
@@ -1708,16 +1717,11 @@ export function makeAuthorizationTracer(graph, anchors) {
       return [node.whenTrue, node.whenFalse].map((branch) => producerCallIn(branch, env)).find(Boolean) ?? null;
     }
 
-    function* walkIf(statement, env, state, frame) {
-      yield* visit(statement.expression, env, state);
+    function walkIf(statement, env, state, frame) {
+      visit(statement.expression, env, state);
       const folded = evaluator.fold(statement.expression, env);
       if (folded)
-        return yield* walkStatement(
-          folded.value ? statement.thenStatement : statement.elseStatement,
-          env,
-          state,
-          frame,
-        );
+        return walkStatement(folded.value ? statement.thenStatement : statement.elseStatement, env, state, frame);
       const polarity = denialPolarity(statement.expression, state.tainted),
         transport = nonLocalPolarity(statement.expression) ?? refusalPolarity(statement.expression, state),
         left = clone(state),
@@ -1729,8 +1733,8 @@ export function makeAuthorizationTracer(graph, anchors) {
       // A boolean predicate over a decision answers for the action its own port call evaluated.
       const predicate = polarity && predicateCallIn(statement.expression);
       if (predicate) (polarity === "else" ? left : right).decisionKind = decisionSubject(predicate, env);
-      yield* walkStatement(statement.thenStatement, env, left, frame);
-      yield* walkStatement(statement.elseStatement, env, right, frame);
+      walkStatement(statement.thenStatement, env, left, frame);
+      walkStatement(statement.elseStatement, env, right, frame);
       // A denial branch that does not exit leaves the denied decision live after the test.
       if (polarity === "then" && left.alive) right.authorized = state.authorized;
       if (polarity === "else" && right.alive) left.authorized = state.authorized;
@@ -1765,8 +1769,8 @@ export function makeAuthorizationTracer(graph, anchors) {
       report.authorized.push(`${where(node)}: ${label(state.decisionKind)} denial exits before the effect`);
     }
 
-    function* walkSwitch(statement, env, state, frame) {
-      yield* visit(statement.expression, env, state);
+    function walkSwitch(statement, env, state, frame) {
+      visit(statement.expression, env, state);
       const folded = evaluator.fold(statement.expression, env);
       const clauses = statement.caseBlock.clauses,
         matched = folded
@@ -1787,7 +1791,7 @@ export function makeAuthorizationTracer(graph, anchors) {
         const branch = clone(state);
         for (const child of clause.statements) {
           if (ts.isBreakStatement(child)) break;
-          yield* walkStatement(child, env, branch, frame);
+          walkStatement(child, env, branch, frame);
         }
         branches.push(branch);
         merged = join(merged, branch);
@@ -1799,23 +1803,19 @@ export function makeAuthorizationTracer(graph, anchors) {
     const authorityShape = (state) =>
       `${state.authorized ? 1 : 0}${state.effect ? 1 : 0}${state.sourceCovered ? 1 : 0}${state.local ? 1 : 0}${state.sessioned.size > 0 ? 1 : 0}:${state.writerTurn ? 1 : 0}${state.writerFenced ? 1 : 0}:${state.decisionKind?.kind ?? ""}:${state.decisionKind?.routed ? 1 : 0}:${[...(state.serviceSites ?? [])].map(([node, kind]) => `${sourceSite(graph, node)}=${kind}`).join(",")}`;
 
-    function* frameReachesSource(fn, env) {
+    function frameReachesSource(fn, env) {
       if (!hasSourceOrigin(fn, env)) return false;
       let reachable = deferredReachability.get(fn);
       if (!reachable) deferredReachability.set(fn, (reachable = new WeakMap()));
       if (!reachable.has(env)) {
-        const sites = yield {
-          graph: sourceGraph,
-          entry: fn,
-          options: {
-            evaluator: sourceEvaluator,
-            env,
-            targets: sourceTargets,
-            matchAny: true,
-            targetOnly: true,
-            mayReachTarget: hasSourceOrigin,
-          },
-        };
+        const sites = processSourceSites(sourceGraph, fn, {
+          evaluator: sourceEvaluator,
+          env,
+          targets: sourceTargets,
+          matchAny: true,
+          targetOnly: true,
+          mayReachTarget: hasSourceOrigin,
+        });
         reachable.set(
           env,
           sourceTargets.some((site) => sites.has(site)),
@@ -1824,7 +1824,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       return reachable.get(env);
     }
 
-    function* deferSourceFrame(value, env, state, key) {
+    function deferSourceFrame(value, env, state, key) {
       const fn = value.node,
         contexts = deferredKeys.get(fn) ?? new WeakMap(),
         keys = contexts.get(env) ?? new Set();
@@ -1834,7 +1834,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       keys.add(key);
       // Deferred frames cannot supply a return summary. Only a real source reachable in
       // this exact argument frame can affect the remaining source proof; no authority is cached.
-      if (yield* frameReachesSource(fn, env)) deferredFrames.push({ value, env, state: clone(state) });
+      if (frameReachesSource(fn, env)) deferredFrames.push({ value, env, state: clone(state) });
     }
 
     function carriesSourceCallback(env) {
@@ -1872,7 +1872,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       return result;
     }
 
-    function* walkFunction(value, env, state, resume = false) {
+    function walkFunction(value, env, state, resume = false) {
       env = graph.internEnv(env);
       const fn = value.node,
         none = {
@@ -1899,7 +1899,7 @@ export function makeAuthorizationTracer(graph, anchors) {
         state.sourceCovered &&
         !enclosesSource(fn) &&
         !carriesSourceCallback(env) &&
-        !(yield* frameReachesSource(fn, env))
+        !frameReachesSource(fn, env)
       ) {
         seen.set(key, none);
         memo.set(fn, seen);
@@ -1911,7 +1911,7 @@ export function makeAuthorizationTracer(graph, anchors) {
         if (descriptor.sources?.length) {
           seen.set(key, { ...none, deferred: true });
           memo.set(fn, seen);
-          yield* deferSourceFrame(value, env, state, key);
+          deferSourceFrame(value, env, state, key);
         }
         return none;
       }
@@ -1920,7 +1920,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       stack.push(fn);
       const frame = { returns: [] };
       if (ts.isBlock(fn.body)) {
-        yield* walkStatement(fn.body, env, state, frame);
+        walkStatement(fn.body, env, state, frame);
         if (state.alive)
           frame.returns.push({
             authorized: state.authorized,
@@ -1930,7 +1930,7 @@ export function makeAuthorizationTracer(graph, anchors) {
             nullish: true,
           });
       } else {
-        yield* visit(fn.body, env, state);
+        visit(fn.body, env, state);
         frame.returns.push({
           authorized: state.authorized,
           consumed: state.consumed,
@@ -1956,14 +1956,14 @@ export function makeAuthorizationTracer(graph, anchors) {
 
     for (const entry of descriptor.entries ?? anchors.entries) {
       const env = graph.internEnv([[entry.parameters[0], { root: true }]]);
-      yield* walkFunction({ fn: true, node: entry, env: EMPTY_ENV }, env, newState());
+      walkFunction({ fn: true, node: entry, env: EMPTY_ENV }, env, newState());
     }
     // Bound the JavaScript stack, not the source proof. Shared frame identities still
     // terminate cycles; an unfinished frame never supplies an authorized return summary.
     for (let index = 0; index < deferredFrames.length; index++) {
       const { value, env, state } = deferredFrames[index];
       deferredFrames[index] = null;
-      yield* walkFunction(value, env, state, true);
+      walkFunction(value, env, state, true);
     }
     // On the traced route every effect-callback call must follow the denial exit and receive the
     // decision: an earlier call runs the effect before authorization, and a call without the
@@ -1982,10 +1982,5 @@ export function makeAuthorizationTracer(graph, anchors) {
     return report;
   }
 
-  return {
-    traceDescriptor: (descriptor) => runDescriptorTraversals([traceDescriptor(descriptor)])[0],
-    descriptorTraversal: traceDescriptor,
-    producesDecision,
-    allowPredicate,
-  };
+  return { traceDescriptor, producesDecision, allowPredicate };
 }

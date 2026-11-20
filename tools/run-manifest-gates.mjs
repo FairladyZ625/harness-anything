@@ -373,11 +373,15 @@ function readChangedPaths(revision) {
 }
 
 function supportsAuthorizationScope(options) {
-  return options.workflowJob === "quick-gates" && ["pull_request", "merge_group"].includes(options.eventName);
+  return Boolean(options.workflowJob) && ["pull_request", "merge_group"].includes(options.eventName);
 }
 
-function readAuthorizationChangedPaths(options) {
-  if (!supportsAuthorizationScope(options)) return null;
+function readAuthorizationChangedPaths(manifest, options) {
+  if (
+    !supportsAuthorizationScope(options) ||
+    !selectManifestGateIds(manifest, options).includes("ontology-durable-action-authorization")
+  )
+    return null;
   const revision = options.changedBase;
   const base = spawnSync("git", ["rev-parse", "--verify", "--quiet", `${revision}^{commit}`], {
     cwd: repoRoot,
@@ -591,9 +595,10 @@ export async function runManifestGatePlanParallel(plan, { execute, concurrency =
 
 async function main(argv) {
   const options = parseManifestGateArgs(argv);
+  const manifest = readManifest();
   options.eventName = process.env.GITHUB_EVENT_NAME ?? null;
   if (options.changed !== null) options.changedPaths = readChangedPaths(options.changed);
-  options.authorizationChangedPaths = readAuthorizationChangedPaths(options);
+  options.authorizationChangedPaths = readAuthorizationChangedPaths(manifest, options);
   readTestQuarantine(repoRoot);
   if (shouldSkipTestQuarantine(options.workflowJob, process.env)) process.env.HARNESS_TEST_QUARANTINE = "skip";
   if (options.shard !== null) process.env.HARNESS_TEST_SHARD = String(options.shard);
@@ -601,7 +606,6 @@ async function main(argv) {
     process.env.HARNESS_TEST_TIER = "integration";
   else if (options.workflowJob === "gui-build") process.env.HARNESS_TEST_TIER = "gui";
   else if (options.workflowJob) process.env.HARNESS_TEST_TIER ||= "contract";
-  const manifest = readManifest();
   const plan = buildManifestGatePlan(manifest, options);
   const hints = new Map(manifest.gates.map((gate) => [gate.id, gate.failureHint]));
   const planWithHints = plan.map((entry) =>
