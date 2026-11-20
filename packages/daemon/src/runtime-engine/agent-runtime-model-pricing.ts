@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import { parseModelPricingCatalog, type ModelPricingCatalog } from "./model-pricing-catalog.ts";
 
 /** Version of the synchronized public price catalog. */
@@ -62,7 +63,7 @@ export function normalizeModelPricingKey(model: string): string | null {
     try {
       tuple = JSON.parse(candidate) as unknown;
     } catch (error) {
-      void error;
+      consumeKnownError(error);
       return null;
     }
     if (!Array.isArray(tuple) || tuple.length !== 2 || tuple.some((item) => typeof item !== "string")) return null;

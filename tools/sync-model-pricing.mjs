@@ -59,7 +59,7 @@ export async function syncModelPricing(argv = process.argv.slice(2)) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   syncModelPricing().catch((error) => {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   });
 }
