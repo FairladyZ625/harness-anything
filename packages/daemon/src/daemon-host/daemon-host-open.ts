@@ -18,6 +18,7 @@ import {
   startFleetCenterAdmission,
 } from "./fleet-center-admission.ts";
 import { executionCredentialRejected, runtimeExecutionActor } from "./runtime-execution-credential.ts";
+import { centerReviewFailurePrefix } from "./task-review-dispatch.ts";
 /** @daemon-transport-authority Host composition and RepoCell ownership. */
 import path from "node:path";
 import { readFileSync } from "node:fs";
@@ -538,6 +539,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       };
       try {
         await writeNodeReviewDispatchFailure(candidate, failure, signal);
+        triggerCenterReviewFallback("edge-review-dispatch-failed");
       } catch (publicationError) {
         throw runtimeSpawnError(
           failure.code,
@@ -580,6 +582,97 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       throw Object.assign(new Error(`The center rejected review-dispatch state for task ${candidate.taskId}.`), {
         code: typeof receipt.code === "string" ? receipt.code : "review_dispatch_state_rejected",
       });
+  }
+  const centerReviewTarget = (candidate: NodeAutoDispatchCandidate) => {
+    const cell = cells.get(candidate.repoId);
+    if (!cell || !fleetCenter)
+      throw hostCodedError(
+        "execution_scope_mismatch",
+        `Center review repository for ${candidate.taskId} is unavailable.`,
+      );
+    return cell;
+  };
+  const centerReviewLoop = openNodeAutoDispatchLoop({
+    read: async (signal) => {
+      const center = fleetCenter;
+      if (!center) return [];
+      const candidates = (
+        await Promise.all(
+          [...cells.values()].map((cell) =>
+            cell.status().mode === "local"
+              ? (cell.readNodeAutoDispatchCandidates?.({ kind: "center-review-fallback" }, signal) ?? [])
+              : [],
+          ),
+        )
+      ).flat();
+      const online = new Map<string, boolean>();
+      return candidates.filter((candidate) => {
+        if (candidate.edgeDispatchFailed) return true;
+        const nodeId = candidate.requiredNodeId;
+        if (!online.has(nodeId)) online.set(nodeId, center.inspectNode(nodeId).online);
+        return online.get(nodeId) === false;
+      });
+    },
+    spawn: async (candidate, signal) => {
+      const cell = centerReviewTarget(candidate),
+        binding = await hostBinding(cell.status().rootDir, { transportKind: "unix-socket" }, null, candidate.repoId);
+      signal.throwIfAborted();
+      if (!candidate.edgeDispatchFailed && fleetCenter?.inspectNode(candidate.requiredNodeId).online !== false)
+        throw hostCodedError("execution_scope_mismatch", "The implementation node became available before fallback.");
+      const receipt = await cell.spawnRuntime(candidate.payload, { ...binding, centerReviewFallback: true }),
+        runtimeSessionId = typeof receipt.runtimeSessionId === "string" ? receipt.runtimeSessionId : null;
+      if (!runtimeSessionId || !["applied", "no_changes"].includes(String(receipt.outcome)))
+        throw runtimeSpawnError(
+          typeof receipt.code === "string" ? receipt.code : "center_review_dispatch_failed",
+          `Center reviewer did not start ${candidate.dispatchKey}: ` +
+            String(receipt.rejectionExplanation ?? receipt.summary ?? receipt.code ?? receipt.outcome),
+        );
+    },
+    onFailure: async (candidate, error, signal) => {
+      if (signal.aborted || runtimeErrorCode(error) === "execution_scope_mismatch") return "continue" as const;
+      consumeKnownError(error);
+      const failure = {
+        executionId: candidate.executionId,
+        dispatchKey: candidate.dispatchKey,
+        ...reviewDispatchDiagnostic({
+          code: runtimeErrorCode(error),
+          message: `${centerReviewFailurePrefix} ${runtimeErrorMessage(error)}`,
+        }),
+        failedAt: now(),
+      };
+      await writeCenterReviewDispatchFailure(candidate, failure);
+      return "continue" as const;
+    },
+    onSuccess: async (candidate) => {
+      if (candidate.edgeDispatchFailed) await writeCenterReviewDispatchFailure(candidate, null);
+    },
+  });
+  async function writeCenterReviewDispatchFailure(
+    candidate: NodeAutoDispatchCandidate,
+    failure: TaskReviewDispatchFailureV1 | null,
+  ): Promise<void> {
+    const cell = centerReviewTarget(candidate),
+      binding = await hostBinding(cell.status().rootDir, { transportKind: "unix-socket" }, null, candidate.repoId),
+      receipt = await cell.run(
+        {
+          kind: "task-amend",
+          taskId: candidate.taskId,
+          patches: [{ field: "reviewDispatchFailure", value: JSON.stringify(failure) }],
+        },
+        binding,
+      );
+    if (!["applied", "no_changes"].includes(String(receipt.outcome)))
+      throw Object.assign(new Error(`The Center rejected review-dispatch state for task ${candidate.taskId}.`), {
+        code: typeof receipt.code === "string" ? receipt.code : "review_dispatch_state_rejected",
+      });
+  }
+  function triggerCenterReviewFallback(reason: string): void {
+    if (!fleetCenter || closeController.signal.aborted) return;
+    void centerReviewLoop.trigger(reason).catch((error: unknown) => {
+      process.emitWarning(error instanceof Error ? error : new Error(String(error)), {
+        code: "CENTER_REVIEW_FALLBACK_SCAN_FAILED",
+      });
+    });
   }
   function runtimeOwnerFor({
     repoId,
@@ -1010,6 +1103,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     binding: hostBinding,
     keycloakCenter,
     keycloakSession,
+    triggerCenterReviewFallback,
     oidc,
     loginListenerCertificate: () => managedRbac.loginListenerCertificate(),
     get accessAdmin() {
@@ -1466,6 +1560,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       const teardown: readonly (readonly [phase: string, step: () => Promise<unknown>])[] = [
         ["auto-claim.close", () => autoClaimLoop.close()],
         ["auto-dispatch.close", () => autoDispatchLoop.close()],
+        ["center-review-fallback.close", () => centerReviewLoop.close()],
         [
           "replica-sync.close",
           () => {
@@ -1658,6 +1753,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           storage: input.storage,
           buildDraining: input.buildDraining,
           onDeliverySettled: input.onRepoStatusChange,
+          onNodeDisconnected: () => triggerCenterReviewFallback("fleet-node-disconnected"),
           recordTraffic: input.recordTraffic,
           ...(input.authenticateExecutionPrincipal
             ? { authenticateExecutionPrincipal: input.authenticateExecutionPrincipal }
@@ -1694,6 +1790,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         }),
       );
       fleetCenter = started.center;
+      void host.attachmentsSettled().then(() => triggerCenterReviewFallback("fleet-center-restored"));
       await accessAdmin.resumeEdgeJoinTunnels(started.center.port);
     }
   } catch (error) {

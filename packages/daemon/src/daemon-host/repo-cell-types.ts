@@ -158,6 +158,7 @@ export interface RepoCellAutoClaimAssignment {
 }
 
 export interface RepoCellBinding {
+  readonly centerReviewFallback?: true;
   readonly orphanRecovery?: import("./runtime-spawn-types.ts").RuntimeBinding["orphanRecovery"];
   /** Git candidate names observed before entering the local document write turn. */
   readonly observedDocGitPaths?: readonly string[] | null;
@@ -448,7 +449,7 @@ export interface RepoCell {
     signal?: AbortSignal,
   ) => Promise<readonly RepoCellAutoClaimAssignment[]>;
   readonly readNodeAutoDispatchCandidates?: (
-    nodeId: string,
+    query: import("./node-auto-dispatch.ts").NodeAutoDispatchQuery,
     signal?: AbortSignal,
   ) => Promise<readonly import("./node-auto-dispatch.ts").NodeAutoDispatchCandidate[]>;
   readonly workspaceSummary: () => Promise<DaemonGuiReadResultMap["repo.workspace.summary.read"]>;

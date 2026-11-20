@@ -28,6 +28,7 @@ import { readTaskCompletion } from "./task-completion-read.ts";
 import { readReckoningSignals } from "@harness-anything/application/internal/queries/reckoning-signals.ts";
 import { readTaskRuntimeContext } from "./task-runtime-context-read.ts";
 import { enqueueRuntimePublication } from "./runtime-publication-queue.ts";
+import { prepareCenterReviewFallback } from "./task-review-dispatch.ts";
 import { isSquadControlCommand, isSquadControlResult, squadControlRejected } from "./squad-control-result.ts";
 
 import { readDecisionPointSettings } from "./decision-point-settings-read.ts";
@@ -826,7 +827,12 @@ export function createRepoCellApi(
     // turn, acquire a lease, or append a dispatch event.
     if (spawn.dryRun === true) return context.runtimeSpawner.spawn(spawn, binding);
     // A task dispatch's worktree checkout and setup finish first; the queue receives only the dispatch itself.
-    const worktree = await context.runtimeSpawner.prepareWorktree(spawn);
+    const fallback = binding.centerReviewFallback
+        ? await prepareCenterReviewFallback(context.extracted, spawn, binding)
+        : null,
+      worktree = await context.runtimeSpawner.prepareWorktree(spawn, fallback?.commitSha);
+    if (fallback && fallback.commitSha !== null && worktree === null)
+      throw context.cellCodedError("review_checkout_commit_unavailable", "Center review requires a pinned checkout.");
     const authoredTask = worktree === null && typeof spawn.taskId === "string" ? spawn.taskId : null;
     if (authoredTask !== null) {
       await settleAuthoredMaterialization(context.store, "spawn runtime");
@@ -843,6 +849,7 @@ export function createRepoCellApi(
       },
       binding,
       (authorizedBinding) => {
+        fallback?.assertCurrent();
         if (authoredTask !== null) requireTaskPackageMaterialization(context, authoredTask);
         return context.runtimeSpawner.spawnTask(spawn, authorizedBinding, worktree, context.projection, progress);
       },

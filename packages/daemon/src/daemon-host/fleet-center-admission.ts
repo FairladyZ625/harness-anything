@@ -45,6 +45,7 @@ export interface FleetCenterAdmissionRequest {
   readonly host: FleetCenterOptions["host"];
   readonly buildDraining?: FleetCenterOptions["buildDraining"];
   readonly onDeliverySettled?: FleetCenterOptions["onDeliverySettled"];
+  readonly onNodeDisconnected?: FleetCenterOptions["onNodeDisconnected"];
   readonly recordTraffic?: FleetCenterOptions["recordTraffic"];
   readonly authenticateExecutionPrincipal?: FleetCenterOptions["authenticateExecutionPrincipal"];
   readonly userRoot: string;
@@ -114,6 +115,7 @@ export async function prepareFleetCenterAdmission(input: FleetCenterAdmissionReq
     storage: input.storage,
     buildDraining: input.buildDraining,
     onDeliverySettled: input.onDeliverySettled,
+    onNodeDisconnected: input.onNodeDisconnected,
     ...(input.authenticateExecutionPrincipal
       ? { authenticateExecutionPrincipal: input.authenticateExecutionPrincipal }
       : {}),

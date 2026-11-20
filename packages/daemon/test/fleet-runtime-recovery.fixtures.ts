@@ -43,6 +43,7 @@ export async function fleetFixture(
   repositoryInstances?: Parameters<typeof scheduleRepositoryDocument>[1],
   startTask = true,
   runtimeInstanceCapacities?: Readonly<Record<string, number>>,
+  runtimeLaunch?: Parameters<typeof openDaemonHost>[0]["runtimeLaunch"],
 ) {
   // The product names a checkout by its resolved path; the fixture root is resolved once so every path derived
   // from it compares equal where the temporary directory is itself a symbolic link.
@@ -87,7 +88,7 @@ export async function fleetFixture(
       "-days",
       "1",
       "-addext",
-      "subjectAltName=DNS:localhost",
+      "subjectAltName=DNS:localhost,IP:127.0.0.1",
     ],
     { stdio: "ignore" },
   );
@@ -104,6 +105,8 @@ export async function fleetFixture(
       // This fixture authors task plans through Git before running the fleet protocol.
       storage: { "fleet-repo": { nodeTaskMaterializationPolicy: "include_done" } },
       runtimeInstanceCapacities,
+      authenticateExecutionPrincipal: owners.authenticateExecutionPrincipal,
+      ...(runtimeLaunch ? { runtimeLaunch, runtimeGithubToken: async () => null } : {}),
       ...(centerRuntimes.length ? { runtimeDiscover: () => [...centerRuntimes] } : {}),
     });
   t.after(async () => {

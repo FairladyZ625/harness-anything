@@ -22,6 +22,7 @@ import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
 import { readReplicaHealth } from "../fleet-sync/fleet/replica-health.ts";
 import { readObserveEventTail } from "./observe-tail.ts";
 import { nodeReworkDispatchCandidate } from "./task-return-dispatch.ts";
+import type { NodeAutoDispatchQuery } from "./node-auto-dispatch.ts";
 import { nodeReviewDispatchCandidate } from "./task-review-dispatch.ts";
 import { makePersonActionRuntime } from "./person-action-runtime.ts";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
@@ -450,11 +451,13 @@ export function makeRepoReadRuntime(
         ? edgeReplicaRead(binding, (projection) => readAssignments(projection))
         : query(readAssignments);
     },
-    readNodeAutoDispatchCandidates: (nodeId: string) =>
+    readNodeAutoDispatchCandidates: (dispatchQuery: NodeAutoDispatchQuery) =>
       query((projection) => {
         const cell = readRuntime(projection).actionContext,
           rows: import("@harness-anything/kernel").TaskProjectionListRow[] = [];
-        for (const status of ["in_review", "active"] as const) {
+        for (const status of dispatchQuery.kind === "center-review-fallback"
+          ? (["in_review"] as const)
+          : (["in_review", "active"] as const)) {
           let cursor: string | undefined;
           while (true) {
             const page = projection.list({
@@ -470,9 +473,13 @@ export function makeRepoReadRuntime(
         }
         return rows.flatMap((row) => {
           const taskId = row.taskId;
-          const review = nodeReviewDispatchCandidate(cell, { taskId, requiredNodeId: nodeId });
+          const review =
+            dispatchQuery.kind === "center-review-fallback"
+              ? nodeReviewDispatchCandidate(cell, { taskId, centerFallback: true })
+              : nodeReviewDispatchCandidate(cell, { taskId, requiredNodeId: dispatchQuery.nodeId });
           if (review) return [review];
-          const rework = nodeReworkDispatchCandidate(cell, { taskId, requiredNodeId: nodeId });
+          if (dispatchQuery.kind === "center-review-fallback") return [];
+          const rework = nodeReworkDispatchCandidate(cell, { taskId, requiredNodeId: dispatchQuery.nodeId });
           return rework ? [rework] : [];
         });
       }),

@@ -102,6 +102,8 @@ export interface FleetCenterOptions {
   readonly verifyReplica?: (auth: DaemonAuthenticationContext) => Promise<DaemonAuthenticationContext | null>;
   readonly buildDraining?: () => boolean;
   readonly onDeliverySettled?: () => void;
+  /** Called after the final authenticated connection for a node closes. */
+  readonly onNodeDisconnected?: (nodeId: string) => void;
   readonly onError?: (entry: {
     readonly nodeId: string | null;
     readonly messageId: string | null;
