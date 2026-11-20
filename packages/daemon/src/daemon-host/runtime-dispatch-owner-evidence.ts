@@ -25,7 +25,17 @@ export function readRuntimeDispatchOwnerEvidence(
   return {
     actor: dispatch.actor,
     source: dispatch.source,
-    payload: { dispatchId: dispatch.payload.dispatchId },
+    payload: {
+      dispatchId: dispatch.payload.dispatchId,
+      ...(dispatch.payload.taskId !== undefined ? { taskId: dispatch.payload.taskId } : {}),
+      ...(dispatch.payload.agentId !== undefined ? { agentId: dispatch.payload.agentId } : {}),
+      ...(dispatch.payload.agentDeclarationDigest !== undefined
+        ? { agentDeclarationDigest: dispatch.payload.agentDeclarationDigest }
+        : {}),
+      ...(dispatch.payload.skillSnapshotDigest !== undefined
+        ? { skillSnapshotDigest: dispatch.payload.skillSnapshotDigest }
+        : {}),
+    },
     instanceId: dispatch.payload.instanceId,
     processGroupPid,
   };
