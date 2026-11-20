@@ -360,9 +360,9 @@ export interface FleetEdgeRepointRequest {
 /** Verify a relocated center against the durable edge cut before changing any edge state. */
 export async function repointFleetEdgeMirror(
   input: FleetEdgeRepointRequest,
+  withReplicaSyncFence: <T>(repoId: string, operation: () => Promise<T>) => Promise<T>,
   readAccessToken?: () => Promise<string | undefined>,
   onAdmitted?: () => void,
-  withReplicaSyncFence: <T>(repoId: string, operation: () => Promise<T>) => Promise<T>,
 ): Promise<Record<string, unknown>> {
   const run = () => repointFleetEdgeMirrorFenced(input, readAccessToken, onAdmitted);
   return withReplicaSyncFence(input.payload.repoId, run);
