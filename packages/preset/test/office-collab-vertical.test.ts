@@ -402,6 +402,18 @@ test("deliverable-contract check passes valid deliverables and rejects missing f
         "subheading only",
         "# Quarterly Operating Review\n\n## Executive Summary\n\n### Subsection without body\n\n## Action Plan\nFinalize resource allocation.\n",
       ],
+      [
+        "empty atx subheading",
+        "# Quarterly Operating Review\n\n## Executive Summary\n\n###\n\n## Action Plan\n\nFinalize it.\n",
+      ],
+      [
+        "empty atx subheading with trailing spaces",
+        "# Quarterly Operating Review\n\n## Executive Summary\n\n###   \n\n## Action Plan\n\nFinalize it.\n",
+      ],
+      [
+        "empty atx subheading with closing hashes",
+        "# Quarterly Operating Review\n\n## Executive Summary\n\n### ###\n\n## Action Plan\n\nFinalize it.\n",
+      ],
     ] as const) {
       const commentFile = path.join(sandbox, `${label.replaceAll(" ", "-")}.md`);
       writeFileSync(commentFile, commentDoc);
@@ -433,15 +445,15 @@ test("deliverable-contract check passes valid deliverables and rejects missing f
       assert.match(commentResult.diagnostic, /Empty required sections: ## Executive Summary/u, label);
     }
 
-    // Positive 2: Real section containing a substantive fenced code block passes
-    const codeBodyDoc =
-      '# Quarterly Operating Review\n\n## Executive Summary\n\n```json\n{"status":"on-track"}\n```\n\n## Action Plan\nFinalize resource allocation.\n';
-    const codeBodyFile = path.join(sandbox, "code-body.md");
-    writeFileSync(codeBodyFile, codeBodyDoc);
-    const codeBodyHash = sha256(codeBodyDoc);
-    const codeBodyManifestFile = path.join(sandbox, "code-body-manifest.json");
-    writeFileSync(codeBodyManifestFile, JSON.stringify({ ...validManifest, documentSha256: codeBodyHash }));
-    const codeBodyPass = runCheckScript(sandbox, scriptPath, {
+    // Negative 7b: Trailing '#' without preceding whitespace is part of heading text (CommonMark ATX) and must not match "## Executive Summary"
+    const trailingHashDoc =
+      "# Quarterly Operating Review\n\n## Executive Summary#\n\nDraft text.\n\n## Action Plan\n\nFinalize it.\n";
+    const trailingHashFile = path.join(sandbox, "trailing-hash.md");
+    writeFileSync(trailingHashFile, trailingHashDoc);
+    const trailingHashSha = sha256(trailingHashDoc);
+    const trailingHashManifest = path.join(sandbox, "trailing-hash-manifest.json");
+    writeFileSync(trailingHashManifest, JSON.stringify({ ...validManifest, documentSha256: trailingHashSha }));
+    const trailingHashResult = runCheckScript(sandbox, scriptPath, {
       schema: "witness-input/v1",
       code: null,
       subjects: [
@@ -449,7 +461,7 @@ test("deliverable-contract check passes valid deliverables and rejects missing f
           path: "tasks/t1/artifacts/deliverable-manifest.json",
           revision: 1,
           blobSha256: manifestHash,
-          file: codeBodyManifestFile,
+          file: trailingHashManifest,
         },
       ],
       artifacts: [
@@ -457,12 +469,58 @@ test("deliverable-contract check passes valid deliverables and rejects missing f
           path: "tasks/t1/artifacts/deliverable-manifest.json",
           revision: 1,
           blobSha256: manifestHash,
-          file: codeBodyManifestFile,
+          file: trailingHashManifest,
         },
-        { path: "tasks/t1/artifacts/deliverable.md", revision: 1, blobSha256: codeBodyHash, file: codeBodyFile },
+        {
+          path: "tasks/t1/artifacts/deliverable.md",
+          revision: 1,
+          blobSha256: trailingHashSha,
+          file: trailingHashFile,
+        },
       ],
     }).payload;
-    assert.equal(codeBodyPass.result, "pass", codeBodyPass.diagnostic);
+    assert.equal(trailingHashResult.result, "fail");
+    assert.match(trailingHashResult.diagnostic, /Missing required sections: ## Executive Summary/u);
+
+    // Positive 2: Real section containing a substantive fenced code block or CommonMark closing '#' preceded by space passes
+    for (const [label, okDoc] of [
+      [
+        "fenced-code-body",
+        '# Quarterly Operating Review\n\n## Executive Summary\n\n```json\n{"status":"on-track"}\n```\n\n## Action Plan\nFinalize resource allocation.\n',
+      ],
+      [
+        "closing-atx-hashes",
+        "# Quarterly Operating Review\n\n## Executive Summary ###  \n\nDraft text.\n\n## Action Plan #\n\nFinalize it.\n",
+      ],
+    ] as const) {
+      const okFile = path.join(sandbox, `${label}.md`);
+      writeFileSync(okFile, okDoc);
+      const okHash = sha256(okDoc);
+      const okManifestFile = path.join(sandbox, `${label}-manifest.json`);
+      writeFileSync(okManifestFile, JSON.stringify({ ...validManifest, documentSha256: okHash }));
+      const okPass = runCheckScript(sandbox, scriptPath, {
+        schema: "witness-input/v1",
+        code: null,
+        subjects: [
+          {
+            path: "tasks/t1/artifacts/deliverable-manifest.json",
+            revision: 1,
+            blobSha256: manifestHash,
+            file: okManifestFile,
+          },
+        ],
+        artifacts: [
+          {
+            path: "tasks/t1/artifacts/deliverable-manifest.json",
+            revision: 1,
+            blobSha256: manifestHash,
+            file: okManifestFile,
+          },
+          { path: "tasks/t1/artifacts/deliverable.md", revision: 1, blobSha256: okHash, file: okFile },
+        ],
+      }).payload;
+      assert.equal(okPass.result, "pass", `${label}: ${okPass.diagnostic}`);
+    }
 
     // Negative 8: Duplicate top-level JSON key
     const dupFile = path.join(sandbox, "dup-manifest.json");

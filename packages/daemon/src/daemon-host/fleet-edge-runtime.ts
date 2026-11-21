@@ -896,6 +896,7 @@ export function openFleetEdgeRuntime(input: {
             : {}),
           packageRoot,
           riskTier,
+          verticalId: current.task?.metadata?.verticalId ?? null,
           profileId,
           riskTierFlowVersion,
           taskClass: current.task!.taskClass,
@@ -1664,7 +1665,7 @@ function findMirroredAgentDeclaration(
         ),
       ),
     );
-  return readBundledAgentDeclaration(agentId, verticalId) ?? undefined;
+  return readBundledAgentDeclaration(agentId, verticalId, request.workspaceRoot) ?? undefined;
 }
 
 function mirroredAgentDeclaration(

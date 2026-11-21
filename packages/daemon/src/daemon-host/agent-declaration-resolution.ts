@@ -64,8 +64,8 @@ export function isAgentDeclarationInvalid(error: unknown): boolean {
  * semantic instead of a generic not-found — the agent stays dispatchable forever, while editing
  * (install an overriding copy) stays open, which is how model changes reach it.
  */
-export function assertBundledAgentLifecycleOpen(agentId: string, verticalId?: string): void {
-  if (readBundledAgentDeclaration(agentId, verticalId) === null) return;
+export function assertBundledAgentLifecycleOpen(agentId: string, verticalId?: string, rootDir?: string): void {
+  if (readBundledAgentDeclaration(agentId, verticalId, rootDir) === null) return;
   throw Object.assign(
     new Error(
       `Agent ${agentId} is a system-bundled agent shipped with Harness; it cannot be retired or deleted. ` +
@@ -131,7 +131,7 @@ export function readAgentDeclarationResolution(input: {
     throw agentDeclarationInvalidError(input.agentId, error);
   }
   if (stored) return { declaration: readProjectedAgentDeclaration(stored.value), layer: "installed" };
-  const bundled = readBundledAgentDeclaration(input.agentId, input.verticalId);
+  const bundled = readBundledAgentDeclaration(input.agentId, input.verticalId, input.rootDir);
   return bundled ? { declaration: bundled, layer: "bundled" } : null;
 }
 

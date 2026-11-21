@@ -1,7 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import type { AgentDeclarationV1, EntityStore } from "@harness-anything/kernel";
+import { listBundledAgentDeclarationIds } from "@harness-anything/preset";
 import {
   assertBundledAgentLifecycleOpen,
   readAgentDeclaration,
@@ -161,4 +165,112 @@ test("bundled agent resolution scopes by verticalId for office/collab while pres
     verticalId: "science/experiment",
   });
   assert.equal(customFallback?.declaration.instructions, codingCloseout.instructions);
+});
+
+test("HA09-8: pre-existing local custom office/collab vertical reads local agents first and preserves core worker/reviewer fallback", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-local-office-agents-")),
+    empty = entityStore(null);
+  try {
+    const localOfficeDir = path.join(rootDir, "verticals", "legacy-office");
+    mkdirSync(localOfficeDir, { recursive: true });
+    writeFileSync(path.join(localOfficeDir, "vertical.json"), JSON.stringify({ id: "office/collab" }));
+
+    const coreWorker = readAgentDeclaration({
+      rootDir: "/unused",
+      agentId: "worker",
+      entityStore: empty,
+      verticalId: "software/coding",
+    });
+    const coreReviewer = readAgentDeclaration({
+      rootDir: "/unused",
+      agentId: "reviewer",
+      entityStore: empty,
+      verticalId: "software/coding",
+    });
+
+    // Without a local agents/ directory, legacy local office/collab keeps pre-upgrade core bundled agents
+    const legacyWorker = readAgentDeclaration({
+      rootDir,
+      agentId: "worker",
+      entityStore: empty,
+      verticalId: "office/collab",
+    });
+    assert.equal(legacyWorker.instructions, coreWorker.instructions);
+    const legacyReviewer = readAgentDeclaration({
+      rootDir,
+      agentId: "reviewer",
+      entityStore: empty,
+      verticalId: "office/collab",
+    });
+    assert.equal(legacyReviewer.instructions, coreReviewer.instructions);
+    assert.equal(
+      readAgentDeclarationResolution({
+        rootDir,
+        agentId: "contributor",
+        entityStore: empty,
+        verticalId: "office/collab",
+      }),
+      null,
+    );
+    assert.throws(() => assertBundledAgentLifecycleOpen("worker", "office/collab", rootDir), {
+      code: "agent_system_builtin",
+    });
+    assert.ok(listBundledAgentDeclarationIds("office/collab", rootDir).includes("worker"));
+
+    // Local agents/ inside the custom office/collab vertical take precedence while unoverridden core agents remain available
+    const localAgentsDir = path.join(localOfficeDir, "agents");
+    mkdirSync(localAgentsDir, { recursive: true });
+    writeFileSync(
+      path.join(localAgentsDir, "reviewer.json"),
+      JSON.stringify({
+        schema: "agent-declaration/v1",
+        id: "reviewer",
+        name: "Local Office Reviewer",
+        role: "reviewer",
+        instructions: "Apply local office custom checklist.",
+        runtimes: [],
+        skills: [],
+      }),
+    );
+    writeFileSync(
+      path.join(localAgentsDir, "analyst.json"),
+      JSON.stringify({
+        schema: "agent-declaration/v1",
+        id: "analyst",
+        name: "Local Office Analyst",
+        role: "worker",
+        instructions: "Synthesize local office brief.",
+        runtimes: [],
+        skills: [],
+      }),
+    );
+
+    const localReviewer = readAgentDeclaration({
+      rootDir,
+      agentId: "reviewer",
+      entityStore: empty,
+      verticalId: "office/collab",
+    });
+    assert.equal(localReviewer.instructions, "Apply local office custom checklist.");
+    const localAnalyst = readAgentDeclaration({
+      rootDir,
+      agentId: "analyst",
+      entityStore: empty,
+      verticalId: "office/collab",
+    });
+    assert.equal(localAnalyst.instructions, "Synthesize local office brief.");
+    const fallbackWorker = readAgentDeclaration({
+      rootDir,
+      agentId: "worker",
+      entityStore: empty,
+      verticalId: "office/collab",
+    });
+    assert.equal(fallbackWorker.instructions, coreWorker.instructions);
+    const listed = listBundledAgentDeclarationIds("office/collab", rootDir);
+    assert.ok(listed.includes("analyst"));
+    assert.ok(listed.includes("reviewer"));
+    assert.ok(listed.includes("worker"));
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });

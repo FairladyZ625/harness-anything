@@ -672,6 +672,7 @@ export async function openRepoWriterCell(
     prepareAgentAction: EntityActionCatalogPreparer = (contract, action, _binding, opId) => {
       if (contract.target.kind === "agent" && contract.id === "retire")
         prepareAgentEntityRetire({
+          rootDir,
           action,
           replayed: store.readEvent(opId),
           verticalId: settings.read().defaultVertical,
@@ -690,6 +691,7 @@ export async function openRepoWriterCell(
             reason: existing.payload.reason,
           };
         const prepared = prepareAgentEntityDelete({
+          rootDir,
           action,
           entityStore: createEntityStore(store),
           projection,

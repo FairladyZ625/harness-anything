@@ -784,11 +784,12 @@ export function prepareAgentEntityRetire(input: {
   readonly action: Readonly<Record<string, unknown>>;
   readonly replayed: unknown;
   readonly verticalId?: string;
+  readonly rootDir?: string;
 }): void {
   const replayed = input.replayed as { readonly schema?: unknown; readonly type?: unknown } | null;
   if (replayed?.schema === "entity-event/v1" && replayed.type === "agent_retired") return;
   try {
-    assertBundledAgentLifecycleOpen(String(input.action.agentId ?? ""), input.verticalId);
+    assertBundledAgentLifecycleOpen(String(input.action.agentId ?? ""), input.verticalId, input.rootDir);
   } catch (error) {
     throw attributeEntityActionCriterion(
       error instanceof Error ? error : Object.assign(new Error(String(error)), { cause: error }),
@@ -816,6 +817,7 @@ export function prepareAgentEntityDelete(input: {
   readonly entityStore: EntityStore;
   readonly projection: Pick<TaskProjection, "countRuntimeDispatchesByAgent" | "listEntities" | "readRelationQuery">;
   readonly verticalId?: string;
+  readonly rootDir?: string;
 }): PreparedAgentEntityDelete {
   const kind = entityKind(input.action.kind),
     idField = kind === "agent" ? "agentId" : "squadId",
@@ -824,7 +826,7 @@ export function prepareAgentEntityDelete(input: {
     reason = requiredEntityText(input.action.reason, "reason");
   if (kind === "agent") {
     try {
-      assertBundledAgentLifecycleOpen(entityId, input.verticalId);
+      assertBundledAgentLifecycleOpen(entityId, input.verticalId, input.rootDir);
     } catch (error) {
       throw attributeEntityActionCriterion(
         error instanceof Error ? error : Object.assign(new Error(String(error)), { cause: error }),

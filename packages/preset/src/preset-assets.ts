@@ -43,6 +43,7 @@ export interface VerticalCatalogEntryV1 {
 
 function scanVerticalRoots(repoRoot?: string): {
   readonly roots: Map<string, string>;
+  readonly localRoots: Map<string, string>;
   readonly shadowedBuiltins: Set<string>;
 } {
   const roots = new Map(builtinVerticalRoots),
@@ -74,7 +75,12 @@ function scanVerticalRoots(repoRoot?: string): {
       roots.set(id, root);
     }
   }
-  return { roots, shadowedBuiltins };
+  return { roots, localRoots, shadowedBuiltins };
+}
+
+export function findLocalVerticalRoot(verticalId: string, repoRoot?: string): string | null {
+  if (!repoRoot || verticalId === CORE_BUILTIN_VERTICAL_ID) return null;
+  return scanVerticalRoots(repoRoot).localRoots.get(verticalId) ?? null;
 }
 
 /** Repository declarations are external input; IDs never become filesystem paths. */

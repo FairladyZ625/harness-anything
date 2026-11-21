@@ -546,7 +546,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         agentId,
         squadId,
         targetAgentId,
-        taskSnapshot?.task?.metadata?.verticalId,
+        taskSnapshot?.task?.metadata?.verticalId ?? remoteTask?.verticalId ?? undefined,
       );
     if (agent) assertAgentDispatchable(agent);
     const agentDeclarationDigest = agent === null ? null : computeAgentDeclarationDigest(agent),

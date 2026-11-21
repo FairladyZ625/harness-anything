@@ -78,9 +78,15 @@ function stripHtmlCommentsOnLine(line, inComment) {
 }
 
 function parseHeading(line) {
-  const match = /^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$/u.exec(line);
+  const match = /^ {0,3}(#{1,6})(?:$|[ \t]+(.*)$)/u.exec(line);
   if (!match) return null;
-  return { level: match[1].length, normalized: `${match[1]} ${match[2].trim()}` };
+  let content = (match[2] ?? "").replace(/[ \t]+$/u, "");
+  if (/^#+$/u.test(content)) content = "";
+  else content = content.replace(/[ \t]+#+$/u, "").replace(/[ \t]+$/u, "");
+  return {
+    level: match[1].length,
+    normalized: content ? `${match[1]} ${content}` : match[1],
+  };
 }
 
 function parseMarkdownLines(documentText) {
