@@ -374,13 +374,13 @@ function prepareDeliverableTargetPath(outDir, options = {}) {
   return targetDir;
 }
 
-function writeDeliverableDirectory(stagingDir, outDir, options = {}) {
+function stageDeliverableDirectory(stagingDir, outDir, options = {}) {
   const targetDir = prepareDeliverableTargetPath(outDir, options);
   const parentDir = path.dirname(targetDir);
   const entries = collectDeliverableEntries(stagingDir, { ignoredSegments: options.ignoredSegments });
   mkdirSync(parentDir, { recursive: true });
   const tempDir = mkdtempSync(path.join(parentDir, `.${path.basename(targetDir)}.staging-`));
-  const backupDir = `${targetDir}.replacing-${process.pid}-${Date.now()}`;
+  const backupDir = `${targetDir}.replacing-${process.pid}-${randomUUID()}`;
   let swappedOldOut = false;
   let installedNewOut = false;
   try {
@@ -395,25 +395,41 @@ function writeDeliverableDirectory(stagingDir, outDir, options = {}) {
         chmodSync(destination, mode);
       }
     }
-    if (lstatSync(targetDir, { throwIfNoEntry: false })) {
-      renameSync(targetDir, backupDir);
-      swappedOldOut = true;
-    }
-    renameSync(tempDir, targetDir);
-    installedNewOut = true;
-    if (swappedOldOut) {
-      rmSync(backupDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
-    }
   } catch (error) {
-    if (swappedOldOut && !installedNewOut && lstatSync(backupDir, { throwIfNoEntry: false })) {
-      renameSync(backupDir, targetDir);
-    }
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     throw error;
-  } finally {
-    if (!installedNewOut && lstatSync(tempDir, { throwIfNoEntry: false })) {
-      rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
-    }
   }
+  return {
+    swap() {
+      if (lstatSync(targetDir, { throwIfNoEntry: false })) {
+        renameSync(targetDir, backupDir);
+        swappedOldOut = true;
+      }
+      renameSync(tempDir, targetDir);
+      installedNewOut = true;
+    },
+    finalize() {
+      if (swappedOldOut && lstatSync(backupDir, { throwIfNoEntry: false })) {
+        rmSync(backupDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      }
+      swappedOldOut = false;
+    },
+    rollback() {
+      if (installedNewOut && lstatSync(targetDir, { throwIfNoEntry: false })) {
+        renameSync(targetDir, tempDir);
+        installedNewOut = false;
+      }
+      if (swappedOldOut && lstatSync(backupDir, { throwIfNoEntry: false })) {
+        renameSync(backupDir, targetDir);
+        swappedOldOut = false;
+      }
+    },
+    cleanup() {
+      if (!installedNewOut && lstatSync(tempDir, { throwIfNoEntry: false })) {
+        rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      }
+    },
+  };
 }
 
 function splitUstarPath(posixPath) {
@@ -669,6 +685,7 @@ export async function buildReproducibleBundle(options) {
 
     let archiveSha256 = null;
     let destinationArchive = null;
+    let stagedOutput = null;
     if (options.archivePath || options.createArchive) {
       const archiveBytes = createDeterministicTarGz(staging, {
         sourceDateEpoch,
@@ -679,9 +696,6 @@ export async function buildReproducibleBundle(options) {
         destinationArchive = path.resolve(options.archivePath);
         const archiveDir = path.dirname(destinationArchive);
         mkdirSync(archiveDir, { recursive: true });
-        // Write to an exclusive same-directory temporary file (brand-new inode, O_EXCL) so a
-        // hardlinked or existing --archive target can never be truncated in-place before --out
-        // validation and replacement succeed.
         stagedArchivePath = path.join(
           archiveDir,
           `.${path.basename(destinationArchive)}.staging-${process.pid}-${randomUUID()}`,
@@ -690,17 +704,25 @@ export async function buildReproducibleBundle(options) {
       }
     }
 
-    if (options.outputDir) {
-      writeDeliverableDirectory(staging, path.resolve(options.outputDir), {
-        repository,
-        archivePath: options.archivePath,
-        ignoredSegments: DEFAULT_IGNORED_SEGMENTS,
-      });
-    }
-
-    if (stagedArchivePath && destinationArchive) {
-      renameSync(stagedArchivePath, destinationArchive);
-      stagedArchivePath = null;
+    try {
+      if (options.outputDir) {
+        stagedOutput = stageDeliverableDirectory(staging, path.resolve(options.outputDir), {
+          repository,
+          archivePath: options.archivePath,
+          ignoredSegments: DEFAULT_IGNORED_SEGMENTS,
+        });
+        stagedOutput.swap();
+      }
+      if (stagedArchivePath && destinationArchive) {
+        renameSync(stagedArchivePath, destinationArchive);
+        stagedArchivePath = null;
+      }
+      stagedOutput?.finalize();
+    } catch (error) {
+      stagedOutput?.rollback();
+      throw error;
+    } finally {
+      stagedOutput?.cleanup();
     }
 
     return {
@@ -850,41 +872,25 @@ export function verifyBuildManifest(options) {
       errors.push(`type mismatch for ${filePath}: expected ${expectedType}, got ${found.type}`);
       continue;
     }
-    if (found.mode !== expectedMode) {
+    if (found.mode !== expectedMode)
       errors.push(`mode mismatch for ${filePath}: expected ${expectedMode}, got ${found.mode}`);
+    if (expectedType === "symlink" && found.linkTarget !== expected.linkTarget) {
+      errors.push(
+        `symlink target mismatch for ${filePath}: expected ${String(expected.linkTarget)}, got ${found.linkTarget}`,
+      );
     }
-    if (expectedType === "symlink") {
-      if (found.linkTarget !== expected.linkTarget) {
-        errors.push(
-          `symlink target mismatch for ${filePath}: expected ${String(expected.linkTarget)}, got ${found.linkTarget}`,
-        );
-      }
-      if (found.size !== expected.size) {
-        errors.push(`size mismatch for symlink ${filePath}: expected ${String(expected.size)}, got ${found.size}`);
-      }
-      if (found.sha256 !== expected.sha256) {
-        errors.push(
-          `digest mismatch for symlink ${filePath}: expected ${String(expected.sha256)}, got ${found.sha256}`,
-        );
-      }
-      continue;
-    }
-    if (found.size !== expected.size) {
-      errors.push(`size mismatch for ${filePath}: expected ${String(expected.size)}, got ${found.size}`);
-    }
-    if (found.sha256 !== expected.sha256) {
-      errors.push(`digest mismatch for ${filePath}: expected ${String(expected.sha256)}, got ${found.sha256}`);
-    }
+    const label = expectedType === "symlink" ? `symlink ${filePath}` : filePath;
+    if (found.size !== expected.size)
+      errors.push(`size mismatch for ${label}: expected ${String(expected.size)}, got ${found.size}`);
+    if (found.sha256 !== expected.sha256)
+      errors.push(`digest mismatch for ${label}: expected ${String(expected.sha256)}, got ${found.sha256}`);
   }
   for (const filePath of actualMap.keys()) {
-    if (!expectedMap.has(filePath)) {
-      errors.push(`unexpected extra file: ${filePath}`);
-    }
+    if (!expectedMap.has(filePath)) errors.push(`unexpected extra file: ${filePath}`);
   }
   if (actual.artifactDigest !== manifest.artifactDigest) {
     errors.push(`root artifactDigest mismatch: expected ${manifest.artifactDigest}, got ${actual.artifactDigest}`);
   }
-
   return {
     ok: errors.length === 0,
     commit: manifest.commit ?? null,
@@ -915,25 +921,17 @@ export async function main(argv = process.argv.slice(2)) {
       help: { type: "boolean", short: "h" },
     },
   });
-
   if (values.help || positionals.length === 0) {
     console.log(HELP_TEXT);
     return values.help ? 0 : 2;
   }
-
   const command = positionals[0];
-  const dependencyMode = values["no-deps"]
-    ? "none"
-    : values["offline-cache"]
-      ? "offline-cache"
-      : values["mirror-node-modules"]
-        ? "mirror"
-        : "mirror";
+  const dependencyMode = values["no-deps"] ? "none" : values["offline-cache"] ? "offline-cache" : "mirror";
+  const epochOpt =
+    values["source-date-epoch"] !== undefined ? { sourceDateEpoch: Number(values["source-date-epoch"]) } : {};
 
   if (command === "build") {
-    if (!values.out && !values.archive) {
-      throw new Error("build requires --out <dir> and/or --archive <file>.");
-    }
+    if (!values.out && !values.archive) throw new Error("build requires --out <dir> and/or --archive <file>.");
     const result = await buildReproducibleBundle({
       repository: values.repository,
       revision: values.revision,
@@ -942,7 +940,7 @@ export async function main(argv = process.argv.slice(2)) {
       offlineCacheDir: values["offline-cache"],
       dependencyMode,
       targetWorkspaces: values.workspace,
-      ...(values["source-date-epoch"] !== undefined ? { sourceDateEpoch: Number(values["source-date-epoch"]) } : {}),
+      ...epochOpt,
     });
     console.log(
       JSON.stringify(
@@ -961,7 +959,6 @@ export async function main(argv = process.argv.slice(2)) {
     );
     return 0;
   }
-
   if (command === "verify") {
     const result = await verifyReproducibleBuild({
       repository: values.repository,
@@ -970,19 +967,17 @@ export async function main(argv = process.argv.slice(2)) {
       dependencyMode,
       targetWorkspaces: values.workspace,
       createArchive: Boolean(values["verify-archive"]),
-      ...(values["source-date-epoch"] !== undefined ? { sourceDateEpoch: Number(values["source-date-epoch"]) } : {}),
+      ...epochOpt,
     });
     console.log(JSON.stringify({ command: "verify", ...result }, null, 2));
     return result.ok ? 0 : 1;
   }
-
   if (command === "verify-manifest") {
     if (!values.bundle) throw new Error("verify-manifest requires --bundle <dir>.");
     const result = verifyBuildManifest({ bundleDir: values.bundle, manifestPath: values.manifest });
     console.log(JSON.stringify({ command: "verify-manifest", ...result }, null, 2));
     return result.ok ? 0 : 1;
   }
-
   throw new Error(`Unknown command: ${command}\n${HELP_TEXT}`);
 }
 

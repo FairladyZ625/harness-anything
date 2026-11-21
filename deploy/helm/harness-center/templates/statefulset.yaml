@@ -44,13 +44,13 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "harness-center.fullname" . }}
-          {{- if or .Values.identity.extraCaCertConfigMap .Values.metrics.bearerTokenExistingSecret .Values.daemon.extraEnv }}
+          {{- if or .Values.identity.extraCaCertConfigMap (and .Values.metrics.enabled .Values.metrics.bearerTokenExistingSecret) .Values.daemon.extraEnv }}
           env:
             {{- if .Values.identity.extraCaCertConfigMap }}
             - name: NODE_EXTRA_CA_CERTS
               value: "/etc/harness/ca/{{ .Values.identity.extraCaCertKey }}"
             {{- end }}
-            {{- if .Values.metrics.bearerTokenExistingSecret }}
+            {{- if and .Values.metrics.enabled .Values.metrics.bearerTokenExistingSecret }}
             - name: HARNESS_DAEMON_METRICS_BEARER_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -67,16 +67,13 @@ spec:
               containerPort: {{ .Values.fleet.port }}
               protocol: TCP
             {{- end }}
-            {{- if .Values.metrics.enabled }}
-            - name: metrics
+            - name: {{ if .Values.metrics.enabled }}metrics{{ else }}health{{ end }}
               containerPort: {{ .Values.metrics.port }}
               protocol: TCP
-            {{- end }}
-          {{- if .Values.metrics.enabled }}
           livenessProbe:
             httpGet:
               path: /healthz
-              port: metrics
+              port: {{ if .Values.metrics.enabled }}metrics{{ else }}health{{ end }}
             initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
             periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
@@ -84,7 +81,7 @@ spec:
           readinessProbe:
             httpGet:
               path: /readyz
-              port: metrics
+              port: {{ if .Values.metrics.enabled }}metrics{{ else }}health{{ end }}
             initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
             periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
@@ -92,12 +89,11 @@ spec:
           startupProbe:
             httpGet:
               path: /healthz
-              port: metrics
+              port: {{ if .Values.metrics.enabled }}metrics{{ else }}health{{ end }}
             initialDelaySeconds: {{ .Values.probes.startup.initialDelaySeconds }}
             periodSeconds: {{ .Values.probes.startup.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.startup.timeoutSeconds }}
             failureThreshold: {{ .Values.probes.startup.failureThreshold }}
-          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:

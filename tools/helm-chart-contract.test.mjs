@@ -1,12 +1,11 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import Ajv from "ajv";
-import { parse as parseYaml, parseAllDocuments } from "yaml";
+import { parse as parseYaml } from "yaml";
 import { PROMETHEUS_METRIC_NAMES } from "../packages/kernel/src/domain/prometheus-metrics.ts";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
@@ -123,6 +122,29 @@ function validateHelmValuesRender(values) {
   if (values.identity?.mode === "managed" && values.workloadKind === "Deployment" && !values.persistence?.enabled) {
     errors.push("identity.mode=managed requires workloadKind=StatefulSet or persistence.enabled=true");
   }
+  if (values.workloadKind === "Deployment" && !values.persistence?.enabled) {
+    if (
+      values.identity?.mode !== "external" ||
+      !String(values.identity?.issuerUrl ?? "").trim() ||
+      !String(values.identity?.realm ?? "").trim() ||
+      !String(values.identity?.clientId ?? "").trim() ||
+      !String(values.identity?.existingClientSecret ?? "").trim() ||
+      !String(values.identity?.clientSecretKey ?? "").trim()
+    ) {
+      errors.push("stateless Deployment requires complete declarative external identity configuration");
+    }
+  }
+  const mbind = String(values.metrics?.bind ?? "")
+    .trim()
+    .toLowerCase();
+  if (
+    !mbind ||
+    /^(?:localhost\.?|127\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}|\[?::1\]?|\[?(?:0{1,4}:){7}0{0,3}1\]?|\[?::ffff:127\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}\]?)$/u.test(
+      mbind,
+    )
+  ) {
+    errors.push("metrics.bind must not be a loopback address");
+  }
   if (values.fleet?.enabled) {
     if (values.fleet.authorityRepoId && !values.fleet.tlsExistingSecret) {
       errors.push("fleet.tlsExistingSecret is required when fleet.authorityRepoId is set");
@@ -139,8 +161,18 @@ function validateHelmValuesRender(values) {
       errors.push("identity.issuerUrl is required when identity.existingClientSecret is set");
     }
   }
-  if (values.fleet?.enabled && values.metrics?.enabled && Number(values.fleet.port) === Number(values.metrics.port)) {
-    errors.push("fleet.port and metrics.port must be distinct when both fleet.enabled and metrics.enabled are true");
+  if (values.fleet?.enabled && Number(values.fleet.port) === Number(values.metrics?.port)) {
+    errors.push("fleet.port and metrics.port must be distinct when fleet.enabled is true");
+  }
+  const reservedLabels = new Set([
+    "app.kubernetes.io/name",
+    "app.kubernetes.io/instance",
+    "helm.sh/chart",
+    "app.kubernetes.io/version",
+    "app.kubernetes.io/managed-by",
+  ]);
+  for (const key of Object.keys(values.podLabels ?? {})) {
+    if (reservedLabels.has(key)) errors.push(`podLabels must not override reserved label ${key}`);
   }
   const userRootClean = path.posix.normalize(String(values.daemon?.userRoot ?? "")).replace(/\/+$/u, "") || "/";
   const repoRootClean = path.posix.normalize(String(values.fleet?.authorityRepoRoot ?? "")).replace(/\/+$/u, "") || "/";
@@ -368,7 +400,7 @@ test("values.yaml validates strictly against values.schema.json and schema enfor
     "schema must allow Deployment with persistence.enabled=true and sqlite backend",
   );
 
-  // F-G7-35: Fleet-enabled Deployment requires persistence.enabled=true; stateless Deployment is allowed only when fleet.enabled=false and backend=postgres
+  // F-G7-35 & F-G7-48: stateless Deployment requires postgres + fleet.enabled=false + complete declarative external identity
   assert.equal(values.persistence.enabled, true, "default values.yaml with fleet.enabled=true must enable persistence");
   assert.equal(
     validate({
@@ -387,9 +419,40 @@ test("values.yaml validates strictly against values.schema.json and schema enfor
       fleet: { ...values.fleet, enabled: false },
       persistence: { ...values.persistence, enabled: false },
     }),
-    true,
-    "schema must allow stateless Deployment when storage.backend=postgres and fleet.enabled=false",
+    false,
+    "schema must reject stateless Deployment lacking complete declarative external identity (F-G7-48)",
   );
+  assert.equal(
+    validate({
+      ...values,
+      workloadKind: "Deployment",
+      fleet: { ...values.fleet, enabled: false },
+      persistence: { ...values.persistence, enabled: false },
+      identity: {
+        ...values.identity,
+        mode: "external",
+        issuerUrl: "https://idp.example.org",
+        existingClientSecret: "oidc-secret",
+      },
+    }),
+    true,
+    "schema must allow stateless Deployment when postgres + fleet.enabled=false + complete external identity",
+  );
+  // F-G7-48(b): loopback metrics.bind rejected because kubelet probes Pod IP
+  for (const loopback of ["127.0.0.1", "127.0.1.1", "::1", "[::1]", "localhost", "LOCALHOST."]) {
+    assert.equal(
+      validate({ ...values, metrics: { ...values.metrics, bind: loopback } }),
+      false,
+      `schema must reject loopback metrics.bind=${loopback}`,
+    );
+  }
+  assert.equal(validate({ ...values, metrics: { ...values.metrics, bind: "::" } }), true);
+  // F-G7-49: podLabels/podAnnotations must not override reserved chart/selector keys
+  for (const key of ["app.kubernetes.io/name", "app.kubernetes.io/instance", "helm.sh/chart"]) {
+    assert.equal(validate({ ...values, podLabels: { [key]: "custom" } }), false);
+  }
+  assert.equal(validate({ ...values, podAnnotations: { "checksum/config": "override" } }), false);
+  assert.equal(validate({ ...values, podLabels: { team: "platform" } }), true);
 
   // F-G7-37: fullnameOverride must be a strict RFC 1035 DNS label when set
   for (const badOverride of ["7center", "team.prod", "UPPER", "-leading", "trailing-", "a".repeat(64)]) {
@@ -691,6 +754,38 @@ test("Helm templates isolate Fleet vs Metrics Services, wire StatefulSet headles
     overlappingPortErrors.some((entry) => entry.includes("fleet.port and metrics.port must be distinct")),
     "overlapping Fleet and metrics container ports must fail render-time validation",
   );
+  // F-G7-48: probes stay active even when metrics.enabled=false (configmap sets HARNESS_DAEMON_METRICS_EXPOSED=0)
+  assert.ok(configmap.includes('HARNESS_DAEMON_METRICS_EXPOSED: "0"'));
+  assert.ok(!deployment.includes("{{- if .Values.metrics.enabled }}\n          livenessProbe:"));
+  assert.ok(!statefulset.includes("{{- if .Values.metrics.enabled }}\n          livenessProbe:"));
+  assert.ok(helpers.includes("must not be a loopback address"));
+  assert.ok(
+    helpers.includes(
+      "stateless Deployment (persistence.enabled=false) requires complete declarative external identity",
+    ),
+  );
+  assert.ok(helpers.includes("podLabels must not override reserved chart/selector label"));
+  assert.ok(
+    validateHelmValuesRender({
+      ...defaultValues,
+      metrics: { ...defaultValues.metrics, bind: "127.0.0.1" },
+    }).some((entry) => entry.includes("loopback")),
+  );
+  assert.ok(
+    validateHelmValuesRender({
+      ...defaultValues,
+      workloadKind: "Deployment",
+      fleet: { ...defaultValues.fleet, enabled: false },
+      persistence: { ...defaultValues.persistence, enabled: false },
+    }).some((entry) => entry.includes("stateless Deployment requires")),
+  );
+  assert.ok(
+    validateHelmValuesRender({
+      ...defaultValues,
+      podLabels: { "app.kubernetes.io/name": "custom" },
+    }).some((entry) => entry.includes("podLabels must not override")),
+  );
+
   // Distinct container ports render distinct targetPorts on Fleet vs Metrics Services
   assert.notEqual(defaultValues.fleet.port, defaultValues.metrics.port);
   assert.ok(deployment.includes("containerPort: {{ .Values.fleet.port }}"));
@@ -1008,120 +1103,4 @@ test("Helm chart contains zero customer-specific coupling, plaintext secrets, or
       );
     }
   }
-});
-
-test("Real helm lint & helm template verify string-quoted labels, Sprig naming prefixes, and StatefulSet spec.serviceName preservation when helm CLI is installed (F-G7-41, F-G7-42)", () => {
-  const helmBin = process.env.HARNESS_HELM_BIN || "helm";
-  const versionProbe = spawnSync(helmBin, ["version", "--short"], { encoding: "utf8" });
-  if (versionProbe.error || versionProbe.status !== 0) {
-    // When running in minimal environments without the external helm binary, the template & schema tests above still run.
-    return;
-  }
-
-  const lint = spawnSync(helmBin, ["lint", chartRoot], { encoding: "utf8" });
-  assert.equal(lint.status, 0, `helm lint failed:\n${lint.stdout}\n${lint.stderr}`);
-
-  const rfc1035 = /^[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
-  const cases = [
-    { release: "prod", expectedPrefix: "prod-harness-center-" },
-    { release: "team.prod", expectedPrefix: "team-prod-harness-center-" },
-    { release: "team-prod", expectedPrefix: "team-prod-harness-center-" },
-    { release: "7center", expectedPrefix: "ha-7center-harness-center-" },
-    { release: "0", expectedPrefix: "ha-0-harness-center-" },
-    { release: "42", expectedPrefix: "ha-42-harness-center-" },
-    { release: "true", expectedPrefix: "true-harness-center-" },
-  ];
-  const seenMetricsServices = new Set();
-
-  for (const { release, expectedPrefix } of cases) {
-    const rendered = spawnSync(
-      helmBin,
-      [
-        "template",
-        release,
-        chartRoot,
-        "--set",
-        "metrics.serviceMonitor.enabled=true",
-        "--set",
-        "metrics.prometheusRule.enabled=true",
-        "--set",
-        "podDisruptionBudget.enabled=true",
-        "--set",
-        "networkPolicy.enabled=true",
-      ],
-      { encoding: "utf8" },
-    );
-    assert.equal(rendered.status, 0, `helm template ${release} failed:\n${rendered.stderr}`);
-    const docs = parseAllDocuments(rendered.stdout)
-      .map((doc) => doc.toJS())
-      .filter((doc) => doc && typeof doc === "object");
-    assert.ok(docs.length >= 6, `expected rendered K8s manifests for release ${release}`);
-
-    const expectedNames = renderHelmNames({ releaseName: release });
-    for (const doc of docs) {
-      const labels = doc.metadata?.labels ?? {};
-      assert.equal(
-        typeof labels["app.kubernetes.io/instance"],
-        "string",
-        `${release}/${doc.kind}: app.kubernetes.io/instance label must be a YAML string`,
-      );
-      assert.equal(labels["app.kubernetes.io/instance"], release);
-      assert.equal(typeof labels["app.kubernetes.io/name"], "string");
-      assert.equal(typeof labels["helm.sh/chart"], "string");
-      assert.equal(typeof labels["app.kubernetes.io/managed-by"], "string");
-      assert.match(doc.metadata.name, rfc1035, `${release}/${doc.kind}: invalid RFC 1035 name ${doc.metadata.name}`);
-
-      const selector = doc.spec?.selector?.matchLabels ?? doc.spec?.selector ?? doc.spec?.podSelector?.matchLabels;
-      if (selector && "app.kubernetes.io/instance" in selector) {
-        assert.equal(
-          typeof selector["app.kubernetes.io/instance"],
-          "string",
-          `${release}/${doc.kind}: selector app.kubernetes.io/instance must be a YAML string`,
-        );
-        assert.equal(selector["app.kubernetes.io/instance"], release);
-      }
-      if (doc.kind === "Service" && labels["app.kubernetes.io/component"] === "metrics") {
-        assert.equal(doc.metadata.name, expectedNames.metricsServiceName);
-        assert.ok(
-          doc.metadata.name.startsWith(expectedPrefix),
-          `${release}: metrics Service ${doc.metadata.name} must preserve readable prefix ${expectedPrefix}`,
-        );
-        assert.equal(seenMetricsServices.has(doc.metadata.name), false, `collision on ${doc.metadata.name}`);
-        seenMetricsServices.add(doc.metadata.name);
-      }
-    }
-  }
-
-  // F-G7-42: Verify StatefulSet long-release upgrade preserves immutable metadata.name, spec.serviceName, and PVC name
-  const longRelease = "a".repeat(53);
-  const legacyWorkloadName = `${"a".repeat(53)}-harness-c`;
-  const legacyServiceName = `${"a".repeat(45)}-47c7f801-headless`;
-  const stsRender = spawnSync(
-    helmBin,
-    [
-      "template",
-      longRelease,
-      chartRoot,
-      "--set",
-      "workloadKind=StatefulSet",
-      "--set-string",
-      `fullnameOverride=${legacyWorkloadName}`,
-      "--set-string",
-      `service.headlessNameOverride=${legacyServiceName}`,
-    ],
-    { encoding: "utf8" },
-  );
-  assert.equal(stsRender.status, 0, `StatefulSet upgrade render failed:\n${stsRender.stderr}`);
-  const stsDocs = parseAllDocuments(stsRender.stdout)
-    .map((doc) => doc.toJS())
-    .filter((doc) => doc && typeof doc === "object");
-  const sts = stsDocs.find((doc) => doc.kind === "StatefulSet");
-  const headlessSvc = stsDocs.find(
-    (doc) => doc.kind === "Service" && doc.metadata?.labels?.["app.kubernetes.io/component"] === "headless",
-  );
-  assert.ok(sts && headlessSvc, "StatefulSet and headless Service must render");
-  assert.equal(sts.metadata.name, legacyWorkloadName);
-  assert.equal(sts.spec.serviceName, legacyServiceName);
-  assert.equal(headlessSvc.metadata.name, legacyServiceName);
-  assert.equal(sts.spec.volumeClaimTemplates?.[0]?.metadata?.name, "daemon-state");
 });

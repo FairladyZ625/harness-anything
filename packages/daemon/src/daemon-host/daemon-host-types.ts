@@ -349,6 +349,8 @@ export interface DaemonHostOpenInput {
     credential: string,
   ) => Promise<import("./runtime-execution-credential.ts").RuntimeExecutionPrincipal>;
   readonly runtimeFile?: string;
+  /** Enables O(1) in-memory tracked repo metrics instrumentation (disabled by default when metrics are off). */
+  readonly metricsEnabled?: boolean;
   /** When true, /readyz requires external/managed identity configuration to be present before advertising ready. */
   readonly requireIdentityReady?: boolean;
   /** Minimum interval (ms) between live upstream OIDC re-verifications while already ready (default 10000). */

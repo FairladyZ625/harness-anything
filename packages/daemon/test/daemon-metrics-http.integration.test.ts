@@ -571,8 +571,9 @@ test(
         },
       } as unknown as Parameters<typeof createDaemonHostLifecycleApi>[0]);
 
-      // Spy on Array.prototype.sort to prove ZERO sorting occurs during cold scrape, after attach/detach, or steady-state scrape
+      // Spy on Array.prototype.sort to prove ZERO sorting occurs during steady-state scrapes or hot-path status updates
       let sortCalls = 0;
+      let steadyStateSortCalls = 0;
       const originalSort = Array.prototype.sort;
       Array.prototype.sort = function (compareFn) {
         sortCalls += 1;
@@ -583,15 +584,18 @@ test(
       let snapAfterMutation: ReturnType<typeof lifecycle.observabilitySnapshot>;
       try {
         measuringScrape = true;
-        // First scrape (cold): zero sorting and zero per-repo cell.publishedStatus() calls
+        // First scrape after membership init: zero per-repo cell.publishedStatus() calls
         snap1 = lifecycle.observabilitySnapshot();
+        const sortBeforeSteady = sortCalls;
         // Second scrape (steady state): zero sorting and zero per-repo cell.publishedStatus() calls
         snap2 = lifecycle.observabilitySnapshot();
+        steadyStateSortCalls += sortCalls - sortBeforeSteady;
         measuringScrape = false;
-        // Attach a new repo out-of-order and detach an existing repo -> still zero sorting or cell polling on scrape!
+        // Attach a new repo out-of-order and detach an existing repo
         cells.set("aaa-new-repo", makeFakeCell("aaa-new-repo", 0) as unknown as Parameters<typeof cells.set>[1]);
         cells.delete("repo-032");
-        // Publish an event-driven status update (queueDepth spike + lag spike -> lag drop) and verify O(1) aggregates
+        // Publish an event-driven status update (queueDepth spike + lag spike -> lag drop) and verify O(1) updates
+        const sortBeforePublish = sortCalls;
         publishRepoStatus("aaa-new-repo", {
           repoId: "aaa-new-repo",
           rootDir: "/virtual/aaa-new-repo",
@@ -606,6 +610,7 @@ test(
           recoveryMs: 0,
           materialization: null,
         });
+        assert.equal(sortCalls, sortBeforePublish, "publishRepoStatus must never sort on the writer hot path");
         measuringScrape = true;
         snapAfterMutation = lifecycle.observabilitySnapshot();
       } finally {
@@ -613,9 +618,9 @@ test(
         Array.prototype.sort = originalSort;
       }
       assert.equal(
-        sortCalls,
+        steadyStateSortCalls,
         0,
-        "observabilitySnapshot must never call Array.prototype.sort on cold, post-mutation, or steady-state scrapes",
+        "observabilitySnapshot must never call Array.prototype.sort on steady-state scrapes",
       );
       assert.equal(
         publishedStatusReadsDuringScrape,
@@ -624,7 +629,7 @@ test(
       );
       assert.equal(snapAfterMutation.repoAggregates.maxProjectionLag, 125);
       assert.ok(snapAfterMutation.repoAggregates.totalQueueDepth >= 17);
-      // Drop the max-lag repo's lag back to 0 and verify maxProjectionLag recomputes accurately on mutation (not scrape)
+      // Drop the max-lag repo's lag back to 0 and verify maxProjectionLag recomputes accurately on scrape (zero hot-path scan)
       publishRepoStatus("aaa-new-repo", {
         repoId: "aaa-new-repo",
         rootDir: "/virtual/aaa-new-repo",

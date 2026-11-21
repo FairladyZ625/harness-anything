@@ -2053,25 +2053,32 @@
         "order": 421
       },
       {
-        "candidateId": "action:tools:tools/reproducible-build.mjs#writeDeliverableDirectory:2d68919f2f3b1d82ec143ee33fecc7de",
+        "candidateId": "action:tools:tools/reproducible-build.mjs#stageDeliverableDirectory:2d68919f2f3b1d82ec143ee33fecc7de",
         "route": "package-assets-build",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
         "order": 428
       },
       {
-        "candidateId": "action:tools:tools/reproducible-build.mjs#writeDeliverableDirectory:de93fe914ac1e238b533382f37fe1534",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
-        "order": 429
-      },
-      {
-        "candidateId": "action:tools:tools/reproducible-build.mjs#writeDeliverableDirectory:e3d58e78a0a59eae348c29f6087aef1c",
+        "candidateId": "action:tools:tools/reproducible-build.mjs#stageDeliverableDirectory:e3d58e78a0a59eae348c29f6087aef1c",
         "route": "package-assets-build",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync",
+        "order": 429
+      },
+      {
+        "candidateId": "action:tools:tools/reproducible-build.mjs#stageDeliverableDirectory.cleanup:2d68919f2f3b1d82ec143ee33fecc7de",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
         "order": 430
+      },
+      {
+        "candidateId": "action:tools:tools/reproducible-build.mjs#stageDeliverableDirectory.finalize:de93fe914ac1e238b533382f37fe1534",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
+        "order": 431
       },
       {
         "candidateId": "action:tools:tools/run-gui-tests.mjs#main.child:91619e5f97a431a86859a5bdf3329925",

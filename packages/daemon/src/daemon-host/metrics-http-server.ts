@@ -50,6 +50,8 @@ export interface DaemonMetricsHttpConfig {
   readonly port: number;
   readonly path: string;
   readonly bearerToken: string | null;
+  /** When false, serves only /healthz and /readyz probes and disables Prometheus /metrics scraping. */
+  readonly exposeMetrics?: boolean;
 }
 
 export interface DaemonReadinessResult {
@@ -114,15 +116,18 @@ export function resolveDaemonMetricsConfig(
     throw new Error(`Invalid daemon metrics bind address: ${JSON.stringify(bind)}.`);
   }
 
+  const rawExposed = env.HARNESS_DAEMON_METRICS_EXPOSED?.trim().toLowerCase();
+  const exposeMetrics = rawExposed !== "0" && rawExposed !== "false";
   const metricsPath = parseDaemonMetricsPath(overrides?.path ?? env.HARNESS_DAEMON_METRICS_PATH ?? "/metrics");
 
   const hasExplicitTokenEnv =
     Object.prototype.hasOwnProperty.call(env, "HARNESS_DAEMON_METRICS_BEARER_TOKEN") &&
     env.HARNESS_DAEMON_METRICS_BEARER_TOKEN !== undefined;
   const authRequired =
-    env.HARNESS_DAEMON_METRICS_REQUIRE_AUTH === "1" || env.HARNESS_DAEMON_METRICS_REQUIRE_AUTH === "true";
+    exposeMetrics &&
+    (env.HARNESS_DAEMON_METRICS_REQUIRE_AUTH === "1" || env.HARNESS_DAEMON_METRICS_REQUIRE_AUTH === "true");
   const bearerToken =
-    hasExplicitTokenEnv || authRequired
+    exposeMetrics && (hasExplicitTokenEnv || authRequired)
       ? parseConfiguredBearerToken(env.HARNESS_DAEMON_METRICS_BEARER_TOKEN ?? "")
       : null;
 
@@ -131,6 +136,7 @@ export function resolveDaemonMetricsConfig(
     port,
     path: metricsPath,
     bearerToken,
+    ...(exposeMetrics ? {} : { exposeMetrics: false }),
   };
 }
 
@@ -265,7 +271,7 @@ function handleRequest(
     return;
   }
 
-  if (pathname === options.config.path) {
+  if (options.config.exposeMetrics !== false && pathname === options.config.path) {
     if (expectedTokenHash !== null && !bearerTokenMatches(request.headers.authorization, expectedTokenHash)) {
       writeResponse(response, 401, "text/plain; charset=utf-8", "Unauthorized\n", {
         "www-authenticate": "Bearer",

@@ -148,6 +148,11 @@ and strict ASCII non-conflicting Prometheus scrape path.
 {{- if and (eq .Values.identity.mode "managed") (eq .Values.workloadKind "Deployment") (not .Values.persistence.enabled) }}
 {{- fail "identity.mode=managed requires persistent storage: set workloadKind=StatefulSet or persistence.enabled=true on Deployment so Pod replacement preserves managed Keycloak realm state." }}
 {{- end }}
+{{- if and (eq .Values.workloadKind "Deployment") (not .Values.persistence.enabled) }}
+{{- if or (ne .Values.identity.mode "external") (not (trim .Values.identity.issuerUrl)) (not (trim .Values.identity.realm)) (not (trim .Values.identity.clientId)) (not (trim .Values.identity.existingClientSecret)) (not (trim .Values.identity.clientSecretKey)) }}
+{{- fail "stateless Deployment (persistence.enabled=false) requires complete declarative external identity configuration: identity.mode=external with non-empty identity.issuerUrl, identity.realm, identity.clientId, identity.existingClientSecret, and identity.clientSecretKey so Pod replacement reconstructs identity without manual state." }}
+{{- end }}
+{{- end }}
 {{- if .Values.fleet.enabled }}
 {{- if and .Values.fleet.authorityRepoId (not .Values.fleet.tlsExistingSecret) }}
 {{- fail "fleet.tlsExistingSecret is required when fleet.authorityRepoId is set (incomplete Fleet TLS listener configuration)." }}
@@ -164,13 +169,17 @@ and strict ASCII non-conflicting Prometheus scrape path.
 {{- fail "identity.issuerUrl is required when identity.mode=external and identity.existingClientSecret is set (incomplete external OIDC configuration)." }}
 {{- end }}
 {{- end }}
-{{- if and .Values.fleet.enabled .Values.metrics.enabled (eq (int .Values.fleet.port) (int .Values.metrics.port)) }}
-{{- fail (printf "fleet.port (%d) and metrics.port (%d) must be distinct when both fleet.enabled and metrics.enabled are true so the Fleet Service cannot forward to the plaintext metrics HTTP listener or collide on container bind." (int .Values.fleet.port) (int .Values.metrics.port)) }}
+{{- if and .Values.fleet.enabled (eq (int .Values.fleet.port) (int .Values.metrics.port)) }}
+{{- fail (printf "fleet.port (%d) and metrics.port (%d) must be distinct when fleet.enabled is true so the Fleet Service cannot forward to or collide with the daemon health/metrics HTTP listener." (int .Values.fleet.port) (int .Values.metrics.port)) }}
 {{- end }}
 {{- $userRootClean := clean .Values.daemon.userRoot -}}
 {{- $repoRootClean := clean .Values.fleet.authorityRepoRoot -}}
 {{- if and .Values.fleet.enabled (or (eq $userRootClean $repoRootClean) (hasPrefix (printf "%s/" $userRootClean) $repoRootClean) (hasPrefix (printf "%s/" $repoRootClean) $userRootClean)) }}
 {{- fail (printf "fleet.authorityRepoRoot (%q -> %q) and daemon.userRoot (%q -> %q) must be disjoint normalized absolute paths." .Values.fleet.authorityRepoRoot $repoRootClean .Values.daemon.userRoot $userRootClean) }}
+{{- end }}
+{{- $mbind := lower (trim .Values.metrics.bind) }}
+{{- if or (eq $mbind "") (regexMatch "^(localhost\\.?|127\\.(?:[0-9]{1,3}\\.){2}[0-9]{1,3}|\\[?::1\\]?|\\[?(?:0{1,4}:){7}0{0,3}1\\]?|\\[?::ffff:127\\.(?:[0-9]{1,3}\\.){2}[0-9]{1,3}\\]?)$" $mbind) }}
+{{- fail (printf "metrics.bind %q must not be a loopback address because Kubernetes startup/readiness/liveness probes connect to the Pod IP (use 0.0.0.0 or ::)." .Values.metrics.bind) }}
 {{- end }}
 {{- if .Values.metrics.enabled }}
 {{- $mpath := trim .Values.metrics.path }}
@@ -179,6 +188,28 @@ and strict ASCII non-conflicting Prometheus scrape path.
 {{- end }}
 {{- if and .Values.metrics.bearerTokenExistingSecret (not .Values.metrics.bearerTokenSecretKey) }}
 {{- fail "metrics.bearerTokenSecretKey is required when metrics.bearerTokenExistingSecret is set." }}
+{{- end }}
+{{- end }}
+{{- $reservedLabels := list "app.kubernetes.io/name" "app.kubernetes.io/instance" "helm.sh/chart" "app.kubernetes.io/version" "app.kubernetes.io/managed-by" }}
+{{- range $k, $_ := .Values.podLabels }}
+{{- if has $k $reservedLabels }}
+{{- fail (printf "podLabels must not override reserved chart/selector label %q (would emit duplicate YAML keys or diverge from workload selector)." $k) }}
+{{- end }}
+{{- end }}
+{{- range $k, $_ := .Values.metrics.serviceMonitor.labels }}
+{{- if has $k $reservedLabels }}
+{{- fail (printf "metrics.serviceMonitor.labels must not override reserved chart label %q." $k) }}
+{{- end }}
+{{- end }}
+{{- range $k, $_ := .Values.metrics.prometheusRule.labels }}
+{{- if has $k $reservedLabels }}
+{{- fail (printf "metrics.prometheusRule.labels must not override reserved chart label %q." $k) }}
+{{- end }}
+{{- end }}
+{{- $reservedPodAnnotations := list "checksum/config" "checksum/entrypoint" }}
+{{- range $k, $_ := .Values.podAnnotations }}
+{{- if has $k $reservedPodAnnotations }}
+{{- fail (printf "podAnnotations must not override reserved chart annotation %q." $k) }}
 {{- end }}
 {{- end }}
 {{- end }}

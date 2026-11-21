@@ -211,9 +211,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       { readonly controller: AbortController; readonly config: string; task: Promise<void> }
     >();
   const unavailable = new Map<string, RepoCellStatus>(),
-    trackedRepoObservability = instrumentTrackedRepoMaps({ cells, warming, unavailable }),
-    sortedRepoIds = trackedRepoObservability.sortedRepoIds,
-    publishRepoStatus = trackedRepoObservability.publishRepoStatus,
+    trackedRepoObservability = input.metricsEnabled
+      ? instrumentTrackedRepoMaps({ cells, warming, unavailable })
+      : undefined,
+    sortedRepoIds = trackedRepoObservability?.sortedRepoIds,
+    publishRepoStatus = trackedRepoObservability?.publishRepoStatus,
     unavailableProbes = new Map<string, ReturnType<typeof makeRecoveryProbe>>(),
     controls = new Map<string, DaemonControlReceipt>(),
     runtimeDiscovery = input.runtimeDiscover ?? (() => discoverRuntimeInstallations());
@@ -1707,6 +1709,12 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           return auth.localSessionAccessToken ? auth.localSessionAccessToken() : auth.oidcPrincipal?.accessToken;
         },
       });
+      const refreshEdgeReplicaStatus = (): void => {
+        const cell = cells.get(repo.repoId);
+        if (!cell?.refreshReplicaStatus) return;
+        const status = cell.refreshReplicaStatus();
+        publishRepoStatus?.(repo.repoId, status);
+      };
       const task = runFleetReplicaSync({
         readAccessToken,
         hostname: config.host,
@@ -1724,8 +1732,15 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           if (warning === null) fleetVersionWarnings.delete(repo.repoId);
           else fleetVersionWarnings.set(repo.repoId, warning);
         },
-        onRevoked: () => revokeFleetMirrorTree(rootDir),
+        onRevoked: () => {
+          revokeFleetMirrorTree(rootDir);
+          refreshEdgeReplicaStatus();
+        },
+        onReplicaHealthChange: () => {
+          refreshEdgeReplicaStatus();
+        },
         onConfirmed: async (changedPaths, signal) => {
+          refreshEdgeReplicaStatus();
           await runReplicaConfirmedRound({
             materialize: () => {
               const latched = runtimeRecoveryWatch.confirmFailure(config.repoId);
@@ -1774,8 +1789,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               },
             ],
           });
+          refreshEdgeReplicaStatus();
         },
         onConfirmedFailure: (error) => {
+          refreshEdgeReplicaStatus();
           if (!runtimeRecoveryWatch.noteConfirmFailure(config.repoId, error)) return;
           const failureCode = runtimeErrorCode(error);
           input.recordLifecycle?.({
@@ -1785,12 +1802,14 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             error: error instanceof Error ? error.message : String(error),
           });
         },
-        onFailure: (error) =>
+        onFailure: (error) => {
+          refreshEdgeReplicaStatus();
           input.recordLifecycle?.({
             event: "replica_sync_failed",
             repoId: repo.repoId,
             error: error instanceof Error ? error.message : String(error),
-          }),
+          });
+        },
       });
       replicaSync.task = task;
       replicaSyncTasks.add(task);

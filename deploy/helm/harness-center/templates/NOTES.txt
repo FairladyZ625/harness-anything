@@ -35,11 +35,13 @@ Harness Anything Center ({{ include "harness-center.fullname" . }}) deployed in 
    Fleet TLS service is disabled (fleet.enabled=false) and any stale persisted center.json is cleaned up on boot.
    {{- end }}
 
-4. Observability & health probes (dedicated ClusterIP Service {{ include "harness-center.metricsServiceName" . }}):
+4. Observability & health probes:
    {{- if .Values.metrics.enabled }}
+   Dedicated ClusterIP Service {{ include "harness-center.metricsServiceName" . }}:
    - Metrics:   http://{{ include "harness-center.metricsServiceName" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.metricsPort }}{{ .Values.metrics.path }}
    - Liveness:  http://{{ include "harness-center.metricsServiceName" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.metricsPort }}/healthz
    - Readiness: http://{{ include "harness-center.metricsServiceName" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.metricsPort }}/readyz
    {{- else }}
-   Metrics HTTP endpoint is disabled (metrics.enabled=false).
+   Prometheus /metrics scraping and the metrics Service are disabled (metrics.enabled=false, HARNESS_DAEMON_METRICS_EXPOSED=0).
+   Kubernetes startup/liveness (/healthz) and readiness (/readyz) probes remain active on container port {{ .Values.metrics.port }}.
    {{- end }}

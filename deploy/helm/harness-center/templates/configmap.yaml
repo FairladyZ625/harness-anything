@@ -15,13 +15,15 @@ data:
   {{- if .Values.fleet.enabled }}
   HARNESS_FLEET_PORT: {{ .Values.fleet.port | quote }}
   {{- end }}
-  {{- if .Values.metrics.enabled }}
   HARNESS_DAEMON_METRICS_BIND: {{ .Values.metrics.bind | quote }}
   HARNESS_DAEMON_METRICS_PORT: {{ .Values.metrics.port | quote }}
+  {{- if .Values.metrics.enabled }}
   HARNESS_DAEMON_METRICS_PATH: {{ .Values.metrics.path | quote }}
   {{- if .Values.metrics.bearerTokenExistingSecret }}
   HARNESS_DAEMON_METRICS_REQUIRE_AUTH: "1"
   {{- end }}
+  {{- else }}
+  HARNESS_DAEMON_METRICS_EXPOSED: "0"
   {{- end }}
   {{- if and (eq .Values.identity.mode "external") .Values.identity.issuerUrl .Values.identity.existingClientSecret }}
   HARNESS_DAEMON_REQUIRE_IDENTITY: "1"

@@ -267,17 +267,6 @@ function instrumentRepoMap<V>(
   };
 }
 
-function binarySearchIndex(sorted: readonly string[], target: string): number {
-  let lo = 0;
-  let hi = sorted.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >>> 1;
-    if (sorted[mid]! < target) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo;
-}
-
 function toRepoMetricsSnapshot(status: RepoCellStatus): RepoMetricsSnapshot {
   const attached = status.state === "attached";
   return {
@@ -303,48 +292,42 @@ function isCountedRepoState(state: RepoCellStatus["state"]): state is "attached"
 }
 
 /**
- * Instruments the host's repository membership maps so sorted repository snapshots and aggregates
- * (state counts, total write queue depth, max projection lag) are maintained incrementally via
- * event-driven publish hooks and map mutations, making /metrics scrapes strict O(1) for collection.
+ * Instruments the host's repository membership maps so per-repo status and queue-depth updates
+ * perform strict O(1) single-entry Map writes with incremental counters and zero array cloning
+ * on the writer hot path; sorted snapshots and max-lag rescans happen lazily only at /metrics scrape.
  */
 export function instrumentTrackedRepoMaps(maps: {
   readonly cells: Map<string, RepoCell>;
   readonly warming: Map<string, RepoCellStatus>;
   readonly unavailable: Map<string, RepoCellStatus>;
 }): TrackedRepoObservability {
-  const sortedIds: string[] = [];
-  const sortedRepos: RepoMetricsSnapshot[] = [];
   const entriesById = new Map<string, RepoMetricsSnapshot>();
   const lagByRepoId = new Map<string, number>();
   const stateCounts = { attached: 0, warming: 0, unavailable: 0 };
   let totalQueueDepth = 0;
   let maxProjectionLag = 0;
-  let publishedReposView: readonly RepoMetricsSnapshot[] = [];
-  let cachedAggregates: RepoMetricsAggregates = {
-    stateCounts: { attached: 0, warming: 0, unavailable: 0 },
-    totalQueueDepth: 0,
-    maxProjectionLag: 0,
-  };
+  let maxLagDirty = false;
+  let sortedIds: string[] = [];
+  let membershipDirty = false;
 
-  const refreshPublishedView = (): void => {
-    publishedReposView = sortedRepos.slice();
-    cachedAggregates = {
-      stateCounts: {
-        attached: stateCounts.attached,
-        warming: stateCounts.warming,
-        unavailable: stateCounts.unavailable,
-      },
-      totalQueueDepth,
-      maxProjectionLag,
-    };
-  };
-
-  const recomputeMaxLag = (): void => {
-    let nextMax = 0;
-    for (const lag of lagByRepoId.values()) {
-      if (lag > nextMax) nextMax = lag;
+  const ensureSortedIds = (): readonly string[] => {
+    if (membershipDirty) {
+      sortedIds = [...entriesById.keys()].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+      membershipDirty = false;
     }
-    maxProjectionLag = nextMax;
+    return sortedIds;
+  };
+
+  const resolveMaxLag = (): number => {
+    if (maxLagDirty) {
+      let nextMax = 0;
+      for (const lag of lagByRepoId.values()) {
+        if (lag > nextMax) nextMax = lag;
+      }
+      maxProjectionLag = nextMax;
+      maxLagDirty = false;
+    }
+    return maxProjectionLag;
   };
 
   const upsertEntry = (next: RepoMetricsSnapshot): void => {
@@ -361,6 +344,8 @@ export function instrumentTrackedRepoMaps(maps: {
     if (prev) {
       if (isCountedRepoState(prev.state)) stateCounts[prev.state] -= 1;
       totalQueueDepth -= safeMetricNonNegative(prev.queueDepth);
+    } else {
+      membershipDirty = true;
     }
     if (isCountedRepoState(next.state)) stateCounts[next.state] += 1;
     totalQueueDepth += safeMetricNonNegative(next.queueDepth);
@@ -369,39 +354,27 @@ export function instrumentTrackedRepoMaps(maps: {
     const nextLag = computeRepoLag(next);
     if (nextLag === null) nativeMapDelete.call(lagByRepoId, next.repoId);
     else lagByRepoId.set(next.repoId, nextLag);
-    if (nextLag !== null && nextLag >= maxProjectionLag) {
-      maxProjectionLag = nextLag;
-    } else if (prevLag !== undefined && prevLag === maxProjectionLag && (nextLag === null || nextLag < prevLag)) {
-      recomputeMaxLag();
+    if (!maxLagDirty) {
+      if (nextLag !== null && nextLag >= maxProjectionLag) {
+        maxProjectionLag = nextLag;
+      } else if (prevLag !== undefined && prevLag === maxProjectionLag && (nextLag === null || nextLag < prevLag)) {
+        maxLagDirty = true;
+      }
     }
 
     entriesById.set(next.repoId, next);
-    const index = binarySearchIndex(sortedIds, next.repoId);
-    if (sortedIds[index] === next.repoId) {
-      sortedRepos[index] = next;
-    } else {
-      sortedIds.splice(index, 0, next.repoId);
-      sortedRepos.splice(index, 0, next);
-    }
-    refreshPublishedView();
   };
 
   const removeEntry = (repoId: string): void => {
     const prev = entriesById.get(repoId);
     if (!prev) return;
     nativeMapDelete.call(entriesById, repoId);
+    membershipDirty = true;
     if (isCountedRepoState(prev.state)) stateCounts[prev.state] -= 1;
     totalQueueDepth -= safeMetricNonNegative(prev.queueDepth);
     const prevLag = lagByRepoId.get(repoId);
     nativeMapDelete.call(lagByRepoId, repoId);
-    if (prevLag !== undefined && prevLag === maxProjectionLag) recomputeMaxLag();
-
-    const index = binarySearchIndex(sortedIds, repoId);
-    if (sortedIds[index] === repoId) {
-      sortedIds.splice(index, 1);
-      sortedRepos.splice(index, 1);
-    }
-    refreshPublishedView();
+    if (prevLag !== undefined && prevLag === maxProjectionLag) maxLagDirty = true;
   };
 
   const syncRepoFromMaps = (repoId: string): void => {
@@ -424,8 +397,6 @@ export function instrumentTrackedRepoMaps(maps: {
   };
 
   const rebuildAll = (): void => {
-    sortedIds.length = 0;
-    sortedRepos.length = 0;
     entriesById.clear();
     lagByRepoId.clear();
     stateCounts.attached = 0;
@@ -433,7 +404,9 @@ export function instrumentTrackedRepoMaps(maps: {
     stateCounts.unavailable = 0;
     totalQueueDepth = 0;
     maxProjectionLag = 0;
-    refreshPublishedView();
+    maxLagDirty = false;
+    sortedIds = [];
+    membershipDirty = false;
     const seen = new Set<string>();
     for (const id of maps.warming.keys()) seen.add(id);
     for (const id of maps.cells.keys()) seen.add(id);
@@ -466,16 +439,31 @@ export function instrumentTrackedRepoMaps(maps: {
   rebuildAll();
 
   const observability: TrackedRepoObservability = {
-    sortedRepoIds: () => sortedIds,
+    sortedRepoIds: ensureSortedIds,
     publishRepoStatus: (repoId, status) => {
       if (!maps.warming.has(repoId) && maps.cells.has(repoId)) {
         upsertEntry(toRepoMetricsSnapshot(status));
       }
     },
-    snapshot: () => ({
-      repos: publishedReposView,
-      aggregates: cachedAggregates,
-    }),
+    snapshot: () => {
+      const ids = ensureSortedIds();
+      const repos: RepoMetricsSnapshot[] = new Array(ids.length);
+      for (let index = 0; index < ids.length; index += 1) {
+        repos[index] = entriesById.get(ids[index]!)!;
+      }
+      return {
+        repos,
+        aggregates: {
+          stateCounts: {
+            attached: stateCounts.attached,
+            warming: stateCounts.warming,
+            unavailable: stateCounts.unavailable,
+          },
+          totalQueueDepth,
+          maxProjectionLag: resolveMaxLag(),
+        },
+      };
+    },
   };
   trackedObservabilityByCells.set(maps.cells, observability);
   return observability;

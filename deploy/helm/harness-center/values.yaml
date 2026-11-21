@@ -2,7 +2,8 @@
 # Designed for external PostgreSQL + external OIDC/Keycloak with no customer-specific coupling.
 
 # Select "Deployment" (with persistence.enabled: true whenever fleet.enabled=true or storage.backend=sqlite;
-# persistence.enabled: false is only permitted for purely stateless PostgreSQL centers with fleet.enabled=false)
+# persistence.enabled: false is only permitted for purely stateless PostgreSQL centers with fleet.enabled=false
+# and complete declarative external identity config: issuerUrl, realm, clientId, existingClientSecret, clientSecretKey)
 # or "StatefulSet" when per-pod volumeClaimTemplates are preferred.
 # Single-authority writer topology requires replicaCount: 1.
 workloadKind: Deployment

@@ -221,6 +221,13 @@ export async function performOpenRegistered(
       onRuntimeSignal: (_runtimeSessionId, signal) => {
         if (signal.type === "exit") context.onAutoClaimTrigger?.("runtime-exit");
       },
+      ...(context.publishRepoStatus
+        ? {
+            onMetricsStatus: (status) => {
+              context.publishRepoStatus!(repo.repoId, status);
+            },
+          }
+        : {}),
       onStatus: (status) => {
         const previousState = publishedState;
         publishedState = status.state;

@@ -1,8 +1,9 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import {
+import fs, {
   chmodSync,
+  existsSync,
   linkSync,
   lstatSync,
   mkdtempSync,
@@ -15,6 +16,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -967,15 +969,117 @@ test("buildReproducibleBundle mirror mode rebinds workspace symlinks into the ex
     });
     assert.equal(built.manifest.commit, commit);
     assert.ok(built.manifest.files.some((entry) => entry.path === "packages/sample/dist/index.js"));
-    const distCode = readFileSync(path.join(outputDir, "packages/sample/dist/index.js"), "utf8");
-    assert.match(
-      distCode,
-      /"0\.1\.0"/u,
+    assert.equal(
+      readFileSync(path.join(outputDir, "packages/sample/dist/index.js"), "utf8").includes('"0.1.0"'),
+      true,
       "mirror build must resolve @repro/sample from the pinned commit, not staleRoot",
     );
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     rmSync(staleRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     rmSync(outputDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test("F-G7-50: dual --out + --archive rolls back --out from backup when final archive renameSync throws EIO", async () => {
+  const { dir, commit } = createFixtureGitRepo();
+  const sandbox = mkdtempSync(path.join(tmpdir(), "ha-repro-dual-eio-"));
+  const outDir = path.join(sandbox, "bundle");
+  const archivePath = path.join(sandbox, "bundle.tar.gz");
+  const freshOutDir = path.join(sandbox, "fresh-bundle");
+  const freshArchivePath = path.join(sandbox, "fresh-bundle.tar.gz");
+  const origRenameSync = fs.renameSync;
+  try {
+    // 1. Seed paired v1 delivery (epoch 100)
+    const v1 = await buildReproducibleBundle({
+      repository: dir,
+      revision: commit,
+      sourceDateEpoch: 100,
+      outputDir: outDir,
+      archivePath,
+      targetWorkspaces: ["@repro/sample"],
+      dependencyMode: "none",
+    });
+    assert.equal(v1.ok, true);
+    const v1ArchiveBytes = readFileSync(archivePath);
+    assert.equal(JSON.parse(readFileSync(path.join(outDir, "build-manifest.json"), "utf8")).sourceDateEpoch, 100);
+
+    // 2. Inject EIO on final archive renameSync during v2 (epoch 200) build -> both --out and --archive MUST stay at v1!
+    fs.renameSync = (oldPath, newPath) => {
+      if (path.resolve(String(newPath)) === path.resolve(archivePath)) {
+        const err = new Error("EIO: injected final archive rename");
+        err.code = "EIO";
+        throw err;
+      }
+      return origRenameSync(oldPath, newPath);
+    };
+    syncBuiltinESMExports();
+
+    await assert.rejects(
+      () =>
+        buildReproducibleBundle({
+          repository: dir,
+          revision: commit,
+          sourceDateEpoch: 200,
+          outputDir: outDir,
+          archivePath,
+          targetWorkspaces: ["@repro/sample"],
+          dependencyMode: "none",
+        }),
+      /EIO: injected final archive rename/u,
+    );
+
+    fs.renameSync = origRenameSync;
+    syncBuiltinESMExports();
+
+    const manifestAfter = JSON.parse(readFileSync(path.join(outDir, "build-manifest.json"), "utf8"));
+    assert.equal(
+      manifestAfter.sourceDateEpoch,
+      100,
+      "--out manifest must roll back to v1 epoch 100 when final archive rename fails",
+    );
+    assert.equal(verifyBuildManifest({ bundleDir: outDir }).ok, true);
+    assert.equal(
+      Buffer.compare(readFileSync(archivePath), v1ArchiveBytes),
+      0,
+      "--archive must remain byte-identical to v1",
+    );
+    assert.deepEqual(
+      readdirSync(sandbox).filter((name) => name.includes(".staging-") || name.includes(".replacing-")),
+      [],
+      "rollback must leave zero .staging- or .replacing- remnants",
+    );
+
+    // 3. First-time dual build (no prior --out): EIO on final archive rename must remove newly placed --out too!
+    fs.renameSync = (oldPath, newPath) => {
+      if (path.resolve(String(newPath)) === path.resolve(freshArchivePath)) {
+        const err = new Error("EIO: injected fresh archive rename");
+        err.code = "EIO";
+        throw err;
+      }
+      return origRenameSync(oldPath, newPath);
+    };
+    syncBuiltinESMExports();
+
+    await assert.rejects(
+      () =>
+        buildReproducibleBundle({
+          repository: dir,
+          revision: commit,
+          sourceDateEpoch: 300,
+          outputDir: freshOutDir,
+          archivePath: freshArchivePath,
+          targetWorkspaces: ["@repro/sample"],
+          dependencyMode: "none",
+        }),
+      /EIO: injected fresh archive rename/u,
+    );
+    assert.equal(existsSync(freshOutDir), false, "first-time --out must be rolled back on archive EIO");
+    assert.equal(existsSync(freshArchivePath), false, "failed --archive must not exist");
+  } finally {
+    fs.renameSync = origRenameSync;
+    syncBuiltinESMExports();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });

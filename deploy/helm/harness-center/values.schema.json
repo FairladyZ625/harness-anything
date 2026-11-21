@@ -41,6 +41,26 @@
       "type": "string",
       "pattern": "^$|^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$"
     },
+    "podAnnotations": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "not": {
+        "anyOf": [{ "required": ["checksum/config"] }, { "required": ["checksum/entrypoint"] }]
+      }
+    },
+    "podLabels": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "not": {
+        "anyOf": [
+          { "required": ["app.kubernetes.io/name"] },
+          { "required": ["app.kubernetes.io/instance"] },
+          { "required": ["helm.sh/chart"] },
+          { "required": ["app.kubernetes.io/version"] },
+          { "required": ["app.kubernetes.io/managed-by"] }
+        ]
+      }
+    },
     "daemon": {
       "type": "object",
       "required": ["id", "userRoot", "entrypoint", "cliEntrypoint"],
@@ -182,7 +202,14 @@
       "required": ["enabled", "bind", "port", "path"],
       "properties": {
         "enabled": { "type": "boolean" },
-        "bind": { "type": "string", "minLength": 1 },
+        "bind": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S+$",
+          "not": {
+            "pattern": "^([lL][oO][cC][aA][lL][hH][oO][sS][tT]\\.?|127\\.([0-9]{1,3}\\.){2}[0-9]{1,3}|\\[?::1\\]?|\\[?(0{1,4}:){7}0{0,3}1\\]?|\\[?::[fF]{4}:127\\.([0-9]{1,3}\\.){2}[0-9]{1,3}\\]?)$"
+          }
+        },
         "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
         "path": {
           "type": "string",
@@ -192,7 +219,43 @@
           }
         },
         "bearerTokenExistingSecret": { "type": "string" },
-        "bearerTokenSecretKey": { "type": "string" }
+        "bearerTokenSecretKey": { "type": "string" },
+        "serviceMonitor": {
+          "type": "object",
+          "properties": {
+            "labels": {
+              "type": "object",
+              "additionalProperties": { "type": "string" },
+              "not": {
+                "anyOf": [
+                  { "required": ["app.kubernetes.io/name"] },
+                  { "required": ["app.kubernetes.io/instance"] },
+                  { "required": ["helm.sh/chart"] },
+                  { "required": ["app.kubernetes.io/version"] },
+                  { "required": ["app.kubernetes.io/managed-by"] }
+                ]
+              }
+            }
+          }
+        },
+        "prometheusRule": {
+          "type": "object",
+          "properties": {
+            "labels": {
+              "type": "object",
+              "additionalProperties": { "type": "string" },
+              "not": {
+                "anyOf": [
+                  { "required": ["app.kubernetes.io/name"] },
+                  { "required": ["app.kubernetes.io/instance"] },
+                  { "required": ["helm.sh/chart"] },
+                  { "required": ["app.kubernetes.io/version"] },
+                  { "required": ["app.kubernetes.io/managed-by"] }
+                ]
+              }
+            }
+          }
+        }
       },
       "allOf": [
         {
@@ -313,6 +376,34 @@
           }
         },
         "required": ["persistence"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "workloadKind": { "const": "Deployment" },
+          "persistence": {
+            "properties": { "enabled": { "const": false } },
+            "required": ["enabled"]
+          }
+        },
+        "required": ["workloadKind", "persistence"]
+      },
+      "then": {
+        "properties": {
+          "identity": {
+            "required": ["mode", "issuerUrl", "realm", "clientId", "existingClientSecret", "clientSecretKey"],
+            "properties": {
+              "mode": { "const": "external" },
+              "issuerUrl": { "type": "string", "minLength": 1 },
+              "realm": { "type": "string", "minLength": 1 },
+              "clientId": { "type": "string", "minLength": 1 },
+              "existingClientSecret": { "type": "string", "minLength": 1 },
+              "clientSecretKey": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "required": ["identity"]
       }
     }
   ]

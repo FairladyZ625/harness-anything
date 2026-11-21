@@ -34,6 +34,7 @@ import type { openDaemonDiagnostics } from "./daemon-diagnostics.ts";
 export interface RunningDaemon {
   readonly endpoint: string;
   readonly metricsEndpoint?: string;
+  readonly probeEndpoint?: string;
   readonly stop: () => Promise<void>;
 }
 export interface DaemonServeDeferred {
@@ -131,6 +132,7 @@ export async function startDaemon(input: {
   let memorySampler: BoundedMemorySampler | undefined;
   let metricsServer: DaemonMetricsServer | undefined;
   const metricsConfig = input.metrics === undefined ? resolveDaemonMetricsConfig(process.env) : input.metrics;
+  const metricsExposed = metricsConfig !== null && metricsConfig.exposeMetrics !== false;
   let host: Awaited<ReturnType<typeof openDaemonHost>> | undefined,
     requestLog: ReturnType<typeof openDaemonRequestLog> | null = null,
     transport: ReturnType<typeof createUnixSocketTransportServer> | undefined,
@@ -322,8 +324,9 @@ export async function startDaemon(input: {
         onRepoStatusChange: requestDrainCheck,
         buildDraining,
         recordTraffic,
-        ...(metricsConfig !== null
+        ...(metricsExposed
           ? {
+              metricsEnabled: true,
               onFleetRequestStarted: () => {
                 activeFleetRequests += 1;
               },
@@ -456,7 +459,7 @@ export async function startDaemon(input: {
     await observation.withDaemonObservation(diagnostics.observer, () => transport!.start());
     socketBound = true;
     if (metricsConfig !== null) {
-      memorySampler = createBoundedMemorySampler();
+      if (metricsExposed) memorySampler = createBoundedMemorySampler();
       metricsServer = await startDaemonMetricsServer({
         config: metricsConfig,
         daemonId: input.daemonId,
@@ -512,7 +515,12 @@ export async function startDaemon(input: {
     singleton.release();
     throw error;
   }
-  return { endpoint, ...(metricsServer ? { metricsEndpoint: metricsServer.endpoint } : {}), stop };
+  return {
+    endpoint,
+    ...(metricsServer && metricsExposed ? { metricsEndpoint: metricsServer.endpoint } : {}),
+    ...(metricsServer ? { probeEndpoint: new URL("/readyz", metricsServer.endpoint).href } : {}),
+    stop,
+  };
 }
 
 class EdgeAuthorizationDeniedError extends Error {
