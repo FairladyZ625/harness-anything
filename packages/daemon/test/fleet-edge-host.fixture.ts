@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { TestContext } from "node:test";
@@ -18,6 +18,7 @@ import { auth } from "./daemon-host-recovery.fixture.ts";
 import { readRuntimeExecutionPrincipal } from "../src/daemon-host/runtime-execution-principal-store.ts";
 import { requireExecutionRequestScope } from "../src/daemon-host/runtime-execution-scope.ts";
 import type { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 type FleetFixture = Awaited<ReturnType<typeof fleetNodeClaimFixture>>;
 
@@ -187,15 +188,8 @@ export async function fleetEdgeHostFixture(
         await host.close();
       } catch (cause) {
         throw new Error(`edge host ${name} failed to close`, { cause });
-      }
-      // A Windows tree can still hold a file open for a moment after the hosts close, and
-      // a throwing hook skips every later fixture's after hook (node:test stops the queue),
-      // stranding that fixture's host and its replica-sync retry timer. Retry, then report the
-      // leftover instead of aborting cleanup; the OS temp cleaner removes what remains.
-      try {
-        rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-      } catch (error) {
-        console.warn(`[fleet-edge-host-fixture] could not remove ${root}: ${String(error)}`);
+      } finally {
+        removeTempRepository(root);
       }
     })();
     return closePromise;

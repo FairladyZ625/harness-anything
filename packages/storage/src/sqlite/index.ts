@@ -115,6 +115,7 @@ export type {
 export {
   assertWriterEpochFenceDescriptor,
   closeWriterEpochFenceDescriptors,
+  closeWriterEpochFenceDescriptorsUnder,
   openPersistentWriterEpoch,
   readLedgerWriterEpoch,
   withWriterEpochFenceDescriptor,

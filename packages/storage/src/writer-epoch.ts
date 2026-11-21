@@ -697,6 +697,18 @@ export function closeWriterEpochFenceDescriptors(): void {
   descriptorAuthorities.clear();
 }
 
+export function closeWriterEpochFenceDescriptorsUnder(rootDir: string): void {
+  const root = path.resolve(rootDir),
+    prefix = `${root}${path.sep}`;
+  for (const [key, authority] of descriptorAuthorities) {
+    const separator = key.indexOf("\0"),
+      stateRoot = separator < 0 ? "" : path.resolve(key.slice(0, separator));
+    if (stateRoot !== root && !stateRoot.startsWith(prefix)) continue;
+    authority.close();
+    descriptorAuthorities.delete(key);
+  }
+}
+
 function leaseFromRow(row: EpochRow): WriterEpochLease {
   return {
     repoId: row.repo_id,

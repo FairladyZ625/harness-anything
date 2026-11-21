@@ -6,14 +6,15 @@ import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts"
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes, readDaemonRegistry } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 import { readDaemonPid } from "@harness-anything/daemon/internal/runtime";
-import { ownDaemonFixture } from "./daemon-cleanup.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
+import { ownDaemonFixture, stopOwnedDaemonFixture } from "./daemon-cleanup.fixture.ts";
 
 const realm = await spawnKeycloak();
 after(() => realm.close());
@@ -36,12 +37,17 @@ export async function setup(
   beta: string;
 }> {
   const root = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-w3-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
   const alpha = path.join(root, "alpha"),
     beta = path.join(root, "beta"),
     userRoot = sharedUserRoot ?? path.join(root, "user");
-  for (const repo of [alpha, beta]) initialize(repo);
-  await authorize(userRoot, ["alpha", "beta"]);
+  if (!sharedUserRoot) ownDaemonFixture({ parent: root, userRoot, daemonId: "default", env: process.env }, t);
+  try {
+    for (const repo of [alpha, beta]) initialize(repo);
+    await authorize(userRoot, ["alpha", "beta"]);
+  } catch (error) {
+    if (sharedUserRoot) removeTempRepository(root);
+    throw error;
+  }
   return { root, userRoot, alpha, beta };
 }
 export async function setupEmpty(
@@ -50,13 +56,19 @@ export async function setupEmpty(
   sharedUserRoot?: string,
 ): Promise<{ root: string; userRoot: string; repo: string }> {
   const root = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-w3-init-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
   const repo = path.join(root, "repo"),
     userRoot = sharedUserRoot ?? path.join(root, "user");
-  mkdirSync(repo);
-  await authorize(userRoot, []);
+  if (!sharedUserRoot) ownDaemonFixture({ parent: root, userRoot, daemonId: "default", env: process.env }, t);
+  try {
+    mkdirSync(repo);
+    await authorize(userRoot, []);
+  } catch (error) {
+    if (sharedUserRoot) removeTempRepository(root);
+    throw error;
+  }
   return { root, userRoot, repo };
 }
+
 /** Share only the resident service; every scenario still owns fresh repositories. */
 export function residentCliFixture() {
   const parent = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-w3-resident-")),
@@ -79,29 +91,37 @@ export function residentCliFixture() {
     }
     assert.equal(readDaemonPid(userRoot, "default"), pid, "the resident fixture must keep its daemon");
   };
+  const release = (root: string): void => {
+    const registry = readDaemonRegistry({ userRoot });
+    for (const repo of [...registry.repos, ...registry.invalidRepos]) {
+      if (repo.canonicalRoot === null || !repo.canonicalRoot.startsWith(`${root}${path.sep}`)) continue;
+      // Unbind waits for closeCell before removing the registration.
+      assert.equal(run(repo.canonicalRoot, userRoot, ["repo", "unbind", repo.repoId]).ok, true);
+    }
+    assert.equal(readDaemonPid(userRoot, "default"), pid, "unbinding a scenario must preserve the service");
+  };
   return {
     setup: async (t: TestContext) => {
       const fixture = await setup(t, userRoot),
         repoId = `resident-${++scenario}`;
+      t.after(() => {
+        release(fixture.root);
+        removeTempRepository(fixture.root);
+      });
       await authorize(userRoot, [repoId]);
       start();
       return { ...fixture, repoId };
     },
     setupEmpty: async (t: TestContext, repoId = "fresh") => {
       const fixture = await setupEmpty(t, repoId, userRoot);
+      t.after(() => {
+        release(fixture.root);
+        removeTempRepository(fixture.root);
+      });
       start();
       return fixture;
     },
-    release: (root: string) => {
-      const registry = readDaemonRegistry({ userRoot });
-      for (const repo of [...registry.repos, ...registry.invalidRepos]) {
-        if (repo.canonicalRoot === null || !repo.canonicalRoot.startsWith(`${root}${path.sep}`)) continue;
-        // The real unbind waits for closeCell before removing the registration. Its receipt
-        // therefore precedes Windows directory removal, including reader-handle release.
-        assert.equal(run(repo.canonicalRoot, userRoot, ["repo", "unbind", repo.repoId]).ok, true);
-      }
-      assert.equal(readDaemonPid(userRoot, "default"), pid, "unbinding a scenario must preserve the service");
-    },
+    release,
   };
 }
 
@@ -167,6 +187,17 @@ export async function waitForRun(root: string, userRoot: string, runId: string, 
   }
   throw new Error(`run ${runId} did not reach ${phase}`);
 }
+
+export async function waitForRepoAttached(root: string, userRoot: string, repoId: string): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const status = run(root, userRoot, ["daemon", "status"]),
+      repo = (status.repos as Array<{ repoId: string; state: string }>).find((entry) => entry.repoId === repoId);
+    if (repo?.state === "attached") return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`repository ${repoId} did not become attached`);
+}
+
 export function initialize(root: string): void {
   mkdirSync(path.join(root, "harness"), { recursive: true });
   writeFileSync(path.join(root, ".gitignore"), ".home/\n", "utf8");
@@ -296,9 +327,6 @@ export function runNoop(root: string, userRoot: string, entry: string): { status
   });
   return { status: result.status };
 }
-export function stop(root: string, userRoot: string, entry = cli): void {
-  spawnSync(process.execPath, [entry, "--root", root, "--json", "daemon", "stop"], {
-    encoding: "utf8",
-    env: { ...process.env, HARNESS_DAEMON_USER_ROOT: userRoot },
-  });
+export function stop(userRoot: string, entry = cli): Promise<void> {
+  return stopOwnedDaemonFixture({ userRoot, daemonId: "default", env: process.env }, entry);
 }

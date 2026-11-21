@@ -1,12 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { availableParallelism, loadavg } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
+import { waitForDaemonFixtureExit } from "./daemon-cleanup.fixture.ts";
 import { daemonStoppedMarkerPath } from "@harness-anything/daemon/internal/client/daemon-autostart";
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { readDaemonPid } from "@harness-anything/daemon/internal/runtime";
@@ -14,8 +14,7 @@ import { deriveRelationId } from "@harness-anything/kernel";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
-// Windows teardown: rmSync below cannot remove a ledger file while one of this process's readers
-// still holds it open (nightly EPERM), so every reader opened in a test is drained before cleanup.
+// Drain readers before cleanup, then let the shared fixture helper close any remaining handles.
 const trackLedgerReaders = () => {
   const readers: Array<ReturnType<typeof makeTaskEventReader>> = [];
   return {
@@ -31,7 +30,6 @@ const trackLedgerReaders = () => {
 };
 
 import {
-  builtCli,
   cli,
   git,
   gitLedgerWriter,
@@ -45,13 +43,13 @@ import {
   settleFollower,
   setup,
   stop,
+  waitForRepoAttached,
 } from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
 
 const resident = residentCliFixture();
 
 test("daemon stop requires a mounted root unless --daemon-id is explicit", async (t) => {
   const fixture = await setup(t);
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
     await register(fixture.alpha, fixture.userRoot, "alpha");
@@ -87,20 +85,22 @@ test("daemon stop requires a mounted root unless --daemon-id is explicit", async
     const explicit = run(fixture.beta, fixture.userRoot, ["daemon", "stop", "--daemon-id", "default"]);
     assert.equal(explicit.ok, true, JSON.stringify(explicit));
     assert.equal(existsSync(marker), true, "an explicit daemon target remains stoppable from another root");
+    await waitForDaemonFixtureExit(pid);
 
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
+    const attachedPid = readDaemonPid(fixture.userRoot, "default");
+    assert.ok(attachedPid, "the attached daemon must publish its pid");
     const attached = run(fixture.alpha, fixture.userRoot, ["daemon", "stop"]);
     assert.equal(attached.ok, true, JSON.stringify(attached));
+    await waitForDaemonFixtureExit(attachedPid);
   } finally {
-    stop(fixture.alpha, fixture.userRoot);
-    rmSync(fixture.root, { recursive: true, force: true });
+    await stop(fixture.userRoot);
   }
 });
 
 test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite before Git follower verification", async (t) => {
   const fixture = await setup(t),
     ledgerReaders = trackLedgerReaders();
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
     const noDaemon = runMaybe(fixture.alpha, fixture.userRoot, [
       "daemon",
@@ -577,7 +577,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       [fixture.alpha, ledgerReaders.open(fixture.alpha, "alpha").read().revision],
       [fixture.beta, ledgerReaders.open(fixture.beta, "beta").read().revision],
     ]);
-    stop(fixture.alpha, fixture.userRoot); // Drain the event-derived follower before independent Git read-back.
+    await stop(fixture.userRoot); // Drain the event-derived follower before independent Git read-back.
     for (const root of [fixture.alpha, fixture.beta]) {
       const manifest = JSON.parse(git(root, "show", "HEAD:harness/events/segments/manifest.json")) as {
         schema: string;
@@ -602,16 +602,14 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       true,
     );
   } finally {
-    stop(fixture.alpha, fixture.userRoot);
+    await stop(fixture.userRoot);
     await ledgerReaders.drain();
-    rmSync(fixture.root, { recursive: true, force: true });
   }
 });
 
 test("real CLI files subtask-expansion packages under a work and reads the work back", async (t) => {
   const fixture = await resident.setup(t),
     ledgerReaders = trackLedgerReaders();
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
     await register(fixture.alpha, fixture.userRoot, fixture.repoId);
@@ -818,42 +816,21 @@ test("real CLI files subtask-expansion packages under a work and reads the work 
       /No fitting\nwork\? ha work create --title <name> --decision <id> starts one, or file under a general work/u,
     );
   } finally {
-    resident.release(fixture.root);
     await ledgerReaders.drain();
-    rmSync(fixture.root, { recursive: true, force: true });
   }
 });
 
 test("resident daemon CLI write p50 includes process startup through parsed receipt", async (t) => {
   const fixture = await resident.setup(t);
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
-    // Prepare the real compiled CLI from its production config. Type diagnostics already run
-    // in the static/package gates; repeating them here dominated this latency fixture's cost.
-    // Emission and the production asset copier produce byte-identical build output.
-    execFileSync(
-      process.execPath,
-      [
-        createRequire(import.meta.url).resolve("typescript/lib/tsc.js"),
-        "-p",
-        "packages/cli/tsconfig.build.json",
-        "--noCheck",
-      ],
-      {
-        cwd: process.cwd(),
-        stdio: "pipe",
-      },
-    );
-    execFileSync(process.execPath, ["packages/cli/scripts/copy-assets.mjs"], { stdio: "pipe" });
-    assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"], builtCli).ok, true);
-    await register(fixture.alpha, fixture.userRoot, fixture.repoId, builtCli);
+    assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"], cli).ok, true);
+    await register(fixture.alpha, fixture.userRoot, fixture.repoId, cli);
     // Warm two short rounds before measuring. GitHub's runner has a cold page/cache
-    // penalty that is absent on the developer machine; one measured sample reached
-    // 357ms while load stayed at 0.33. Warmup absorbs that one-time penalty, while
-    // measured rounds still alternate arm order and use medians so a scheduler pause
-    // affects one sample, not a verdict. The baseline is the same compiled CLI's
-    // no-op help path: it includes process startup, static module loading, and argument
-    // handling, while returning before a daemon request or a persisted write.
+    // penalty that is absent on the developer machine. Warmup absorbs that one-time
+    // penalty, while measured rounds alternate arm order and use medians so a scheduler
+    // pause affects one sample, not a verdict. The baseline is the same source CLI's
+    // no-op help path. Both arms include process startup, module loading, and argument
+    // handling, while help returns before a daemon request or persisted write.
     const warmupRounds = 2,
       rounds = 5,
       samplesPerRound = 3,
@@ -870,12 +847,12 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
             fixture.alpha,
             fixture.userRoot,
             ["task", "create", "--id", `task-latency-warmup-${id}`, "--admin", "--title", `Latency warmup ${id}`],
-            builtCli,
+            cli,
           );
           assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
         };
         const warmNoop = (): void => {
-          assert.equal(runNoop(fixture.alpha, fixture.userRoot, builtCli).status, 0);
+          assert.equal(runNoop(fixture.alpha, fixture.userRoot, cli).status, 0);
         };
         if (first) {
           warmCli();
@@ -897,7 +874,7 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
             fixture.alpha,
             fixture.userRoot,
             ["task", "create", "--id", `task-latency-${index}`, "--admin", "--title", `Latency ${index}`],
-            builtCli,
+            cli,
           );
           assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
           const elapsed = performance.now() - started;
@@ -906,7 +883,7 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
         };
         const measureNoop = (): void => {
           const started = performance.now();
-          assert.equal(runNoop(fixture.alpha, fixture.userRoot, builtCli).status, 0);
+          assert.equal(runNoop(fixture.alpha, fixture.userRoot, cli).status, 0);
           const elapsed = performance.now() - started;
           noopSamples.push(elapsed);
           noopRound.push(elapsed);
@@ -930,7 +907,7 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
       `latency-window=before-cli-process-spawn-through-exit-and-parsed-receipt samples=${cliSamples.length} p50=${p50.toFixed(3)}ms min=${Math.min(...cliSamples).toFixed(3)}ms max=${Math.max(...cliSamples).toFixed(3)}ms`,
     );
     t.diagnostic(
-      `latency-baseline=compiled-cli-help-noop samples=${noopSamples.length} p50=${noopP50.toFixed(3)}ms min=${Math.min(...noopSamples).toFixed(3)}ms max=${Math.max(...noopSamples).toFixed(3)}ms`,
+      `latency-baseline=cli-help-noop samples=${noopSamples.length} p50=${noopP50.toFixed(3)}ms min=${Math.min(...noopSamples).toFixed(3)}ms max=${Math.max(...noopSamples).toFixed(3)}ms`,
     );
     t.diagnostic(
       `latency-ratio=paired-round-cli-write-over-cli-help-noop warmup-rounds=${warmupRounds} rounds=${ratios.length} samples-per-round=${samplesPerRound} p50=${startupRatio.toFixed(3)}x min=${orderedRatios[0]!.toFixed(3)}x max=${orderedRatios.at(-1)!.toFixed(3)}x load1-per-parallelism=${loadSamples.map((value) => value.toFixed(2)).join(",")}`,
@@ -938,7 +915,6 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
     t.diagnostic(`latency-round-ratios=${ratios.map((value) => value.toFixed(3)).join(",")}`);
   } finally {
     resident.release(fixture.root);
-    rmSync(fixture.root, { recursive: true, force: true });
   }
 });
 
@@ -947,7 +923,6 @@ test("U-12 Configure-Verify failure keeps the canonical publication and returns 
     ledgerReaders = trackLedgerReaders(),
     configPath = path.join(fixture.alpha, "harness/harness.yaml"),
     overlayPath = path.join(fixture.alpha, "harness/governance/task-scaffold.json");
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
     writeFileSync(
       configPath,
@@ -991,15 +966,12 @@ test("U-12 Configure-Verify failure keeps the canonical publication and returns 
     assert.equal(stream.events[1]?.schema, "vertical-declaration-event/v1");
     assert.equal(stream.events[2]?.schema, "doc-event/v1");
   } finally {
-    resident.release(fixture.root);
     await ledgerReaders.drain();
-    rmSync(fixture.root, { recursive: true, force: true });
   }
 });
 
 test("existing c606 pair upgrades additively and explicit name is the only config byte change", async (t) => {
   const fixture = await resident.setup(t);
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
     const configPath = path.join(fixture.alpha, "harness/harness.yaml"),
       peoplePath = path.join(fixture.alpha, "harness/people.yaml"),
@@ -1069,13 +1041,11 @@ test("existing c606 pair upgrades additively and explicit name is the only confi
     assert.equal(readFileSync(configPath, "utf8"), `name: "Renamed"\n${originalConfig}`);
   } finally {
     resident.release(fixture.root);
-    rmSync(fixture.root, { recursive: true, force: true });
   }
 });
 
 test("an existing config without a legacy people file initializes through Keycloak", async (t) => {
   const fixture = await resident.setupEmpty(t, "partial");
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
     mkdirSync(path.join(fixture.repo, "harness"));
     const configPath = path.join(fixture.repo, "harness/harness.yaml"),
@@ -1095,13 +1065,11 @@ test("an existing config without a legacy people file initializes through Keyclo
     assert.equal(existsSync(path.join(fixture.repo, "harness/context")), true);
   } finally {
     resident.release(fixture.root);
-    rmSync(fixture.root, { recursive: true, force: true });
   }
 });
 
 test("existing architecture assets remain byte-owned and a half model is not completed", async (t) => {
   const fixture = await resident.setup(t);
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
     const architectureRoot = path.join(fixture.alpha, "harness/context/architecture"),
       readme = "# Project Architecture\n\nProject-owned without builtin anchors.\n",
@@ -1132,13 +1100,11 @@ test("existing architecture assets remain byte-owned and a half model is not com
     assert.equal((initialized.drifted as string[]).includes("harness/context/architecture/README.md"), true);
   } finally {
     resident.release(fixture.root);
-    rmSync(fixture.root, { recursive: true, force: true });
   }
 });
 
 test("repository overlay is additive, preserves authored prose, and rejects an invalid plan before publication", async (t) => {
   const fixture = await setup(t);
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
     const custom = "# Existing Context\n\nOwned by the project.\n",
       customAgents = "# Existing Agents\n\nProject-owned.\n",
@@ -1210,9 +1176,8 @@ test("repository overlay is additive, preserves authored prose, and rejects an i
       "governance-repository-scaffold.json",
     );
     assert.notEqual(initialized.commit, before);
-    stop(fixture.alpha, fixture.userRoot);
+    await stop(fixture.userRoot);
     const invalid = await setup(t);
-    t.after(() => rmSync(invalid.root, { recursive: true, force: true }));
     writeFileSync(
       path.join(invalid.alpha, "harness/harness.yaml"),
       "layout:\n  authoredRoot: harness\nsettings:\n  scaffolds:\n    task: governance/task-scaffold.json\n    repository: invalid.json\n",
@@ -1237,17 +1202,14 @@ test("repository overlay is additive, preserves authored prose, and rejects an i
     assert.equal(git(invalid.alpha, "rev-parse", "HEAD"), invalidHead);
     assert.equal(git(invalid.alpha, "status", "--porcelain"), invalidStatus);
     assert.equal(existsSync(path.join(invalid.alpha, "harness/context")), false);
-    stop(invalid.alpha, invalid.userRoot);
-    rmSync(invalid.root, { recursive: true, force: true });
+    await stop(invalid.userRoot);
   } finally {
-    stop(fixture.alpha, fixture.userRoot);
-    rmSync(fixture.root, { recursive: true, force: true });
+    await stop(fixture.userRoot);
   }
 });
 
 test("a changed overlay path leaves the prior authored document and reports it as governance drift", async (t) => {
   const fixture = await setup(t);
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
     const config =
         "layout:\n  authoredRoot: harness\nsettings:\n  scaffolds:\n    task: governance/task-scaffold.json\n    repository: governance/repository-scaffold.json\n",
@@ -1274,13 +1236,14 @@ test("a changed overlay path leaves the prior authored document and reports it a
     assert.equal((first.created as string[]).includes("harness/context/old-project.md"), true);
     const oldBody = readFileSync(path.join(fixture.alpha, "harness/context/old-project.md"), "utf8"),
       ledgerRoot = path.join(fixture.alpha, "harness");
-    stop(fixture.alpha, fixture.userRoot);
+    await stop(fixture.userRoot);
     writeFileSync(overlayPath, overlay("harness/context/new-project.md"));
     git(ledgerRoot, "add", "governance/repository-scaffold.json");
     // Constructing the out-of-band overlay change means committing inside the
     // ledger repository itself; the fixture plays that writer via the marker.
     gitLedgerWriter(ledgerRoot, "commit", "--quiet", "-m", "change project document path");
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
+    await waitForRepoAttached(fixture.alpha, fixture.userRoot, "alpha");
     const changed = run(fixture.alpha, fixture.userRoot, [
       "init",
       "--repo-id",
@@ -1296,14 +1259,12 @@ test("a changed overlay path leaves the prior authored document and reports it a
     assert.equal(readFileSync(path.join(fixture.alpha, "harness/context/old-project.md"), "utf8"), oldBody);
     assert.equal(readFileSync(path.join(fixture.alpha, "harness/context/new-project.md"), "utf8"), oldBody);
   } finally {
-    stop(fixture.alpha, fixture.userRoot);
-    rmSync(fixture.root, { recursive: true, force: true });
+    await stop(fixture.userRoot);
   }
 });
 
 test("old-only standards fail closed before repository scaffold publication", async (t) => {
   const fixture = await resident.setup(t);
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
     mkdirSync(path.join(fixture.alpha, "harness/standards"), {
       recursive: true,
@@ -1332,6 +1293,5 @@ test("old-only standards fail closed before repository scaffold publication", as
     assert.equal(existsSync(path.join(fixture.alpha, "harness/context")), false);
   } finally {
     resident.release(fixture.root);
-    rmSync(fixture.root, { recursive: true, force: true });
   }
 });

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { type TestContext } from "node:test";
@@ -19,6 +19,7 @@ import {
   registerSettledBootstrappedDaemonRepo,
 } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const replicaQuota = 64 * 1024 * 1024;
 
@@ -145,17 +146,9 @@ export async function fleetNodeClaimFixture(
     const centerResults = await Promise.allSettled(centers.splice(0).map((target) => target.close())),
       hostResults = await Promise.allSettled(hosts.splice(0).map((target) => target.close())),
       results = [...centerResults, ...hostResults];
-    await owners.close();
-    // A Windows tree can still hold a file open for a moment after the hosts close, and
-    // a throwing hook skips every later fixture's after hook (node:test stops the queue),
-    // stranding that fixture's host and its replica-sync retry timer. Retry, then report the
-    // leftover instead of aborting cleanup; the OS temp cleaner removes what remains.
-    try {
-      rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-    } catch (error) {
-      console.warn(`[fleet-lease-fixture] could not remove ${root}: ${String(error)}`);
-    }
-    const unexpected = results
+    const ownerResults = await Promise.allSettled([owners.close()]);
+    removeTempRepository(root);
+    const unexpected = [...results, ...ownerResults]
       .filter((result): result is PromiseRejectedResult => result.status === "rejected")
       .map(({ reason }) => reason)
       .filter((reason) => !isExpectedStaleWriterClose(reason));

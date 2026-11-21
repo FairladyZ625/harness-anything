@@ -206,7 +206,7 @@ export async function ensureLocalDaemonRunning(input: {
           unit = installedDaemonServiceUnit(target);
         // Windows SSH-launched detached children disappear when the session ends. The task manager is
         // the sole Windows launcher, even before an explicit login-autostart install.
-        if (!unit && process.platform === "win32") {
+        if (!unit && process.platform === "win32" && !launch.env.HARNESS_DAEMON_OWNER_PID) {
           // Copying process.env loses its Windows case-insensitive property access.
           const scheduled = daemonServiceUnit(target)!,
             environment = Object.fromEntries(
