@@ -28,15 +28,13 @@ export interface DaemonMetricsServer {
 }
 
 const RESERVED_PROBE_PATHS = new Set(["/healthz", "/readyz"]);
+const STRICT_ASCII_METRICS_PATH_PATTERN = /^\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/u;
 
 function parseDaemonMetricsPath(rawPath: string): string {
   const metricsPath = rawPath.trim();
-  if (!metricsPath.startsWith("/") || /[\s\r\n?#]/u.test(metricsPath)) {
-    throw new Error(`Invalid daemon metrics path: ${JSON.stringify(metricsPath)} (must start with '/').`);
-  }
-  if (metricsPath.includes("//") || /(?:^|\/)\.\.?(?:\/|$)/u.test(metricsPath)) {
+  if (!STRICT_ASCII_METRICS_PATH_PATTERN.test(metricsPath) || /(?:^|\/)\.\.?(?:\/|$)/u.test(metricsPath)) {
     throw new Error(
-      `Invalid daemon metrics path: ${JSON.stringify(metricsPath)} (must be a canonical path without dot segments or empty segments).`,
+      `Invalid daemon metrics path: ${JSON.stringify(metricsPath)} (must use clean ASCII URL path segments without dot segments, percent-encoding, or trailing slashes).`,
     );
   }
   const normalized = path.posix.normalize(metricsPath).replace(/\/+$/u, "") || "/";
@@ -46,6 +44,16 @@ function parseDaemonMetricsPath(rawPath: string): string {
     );
   }
   return metricsPath;
+}
+
+function parseConfiguredBearerToken(rawToken: string): string {
+  const trimmed = rawToken.trim();
+  if (trimmed.length === 0 || /[\r\n]/u.test(trimmed)) {
+    throw new Error(
+      "Invalid daemon metrics bearer token: configured credential must be a non-empty single-line string.",
+    );
+  }
+  return trimmed;
 }
 
 export function resolveDaemonMetricsConfig(
@@ -71,8 +79,15 @@ export function resolveDaemonMetricsConfig(
 
   const metricsPath = parseDaemonMetricsPath(overrides?.path ?? env.HARNESS_DAEMON_METRICS_PATH ?? "/metrics");
 
-  const rawToken = env.HARNESS_DAEMON_METRICS_BEARER_TOKEN;
-  const bearerToken = rawToken !== undefined && rawToken.length > 0 ? rawToken : null;
+  const hasExplicitTokenEnv =
+    Object.prototype.hasOwnProperty.call(env, "HARNESS_DAEMON_METRICS_BEARER_TOKEN") &&
+    env.HARNESS_DAEMON_METRICS_BEARER_TOKEN !== undefined;
+  const authRequired =
+    env.HARNESS_DAEMON_METRICS_REQUIRE_AUTH === "1" || env.HARNESS_DAEMON_METRICS_REQUIRE_AUTH === "true";
+  const bearerToken =
+    hasExplicitTokenEnv || authRequired
+      ? parseConfiguredBearerToken(env.HARNESS_DAEMON_METRICS_BEARER_TOKEN ?? "")
+      : null;
 
   return {
     bind,
@@ -91,7 +106,9 @@ export async function startDaemonMetricsServer(options: {
   readonly onError?: (error: unknown, context: { readonly pathname: string }) => void;
 }): Promise<DaemonMetricsServer> {
   const validatedPath = parseDaemonMetricsPath(options.config.path);
-  const config: DaemonMetricsHttpConfig = { ...options.config, path: validatedPath };
+  const validatedToken =
+    options.config.bearerToken === null ? null : parseConfiguredBearerToken(options.config.bearerToken);
+  const config: DaemonMetricsHttpConfig = { ...options.config, path: validatedPath, bearerToken: validatedToken };
   const serverOptions = { ...options, config };
   const expectedTokenHash = config.bearerToken === null ? null : sha256Digest(config.bearerToken);
 
@@ -258,7 +275,19 @@ function reportMetricsError(
 
 function parsePathname(rawUrl: string): string {
   const queryStart = rawUrl.indexOf("?");
-  return queryStart >= 0 ? rawUrl.slice(0, queryStart) : rawUrl;
+  const rawPath = queryStart >= 0 ? rawUrl.slice(0, queryStart) : rawUrl;
+  return rawPath.replace(/%([0-9A-Fa-f]{2})/gu, (match, hex: string) => {
+    const code = Number.parseInt(hex, 16);
+    const isUnreserved =
+      (code >= 0x41 && code <= 0x5a) ||
+      (code >= 0x61 && code <= 0x7a) ||
+      (code >= 0x30 && code <= 0x39) ||
+      code === 0x2d ||
+      code === 0x2e ||
+      code === 0x5f ||
+      code === 0x7e;
+    return isUnreserved ? String.fromCharCode(code) : match;
+  });
 }
 
 function bearerTokenMatches(header: string | undefined, expectedHash: Buffer): boolean {

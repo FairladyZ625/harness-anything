@@ -18,6 +18,7 @@ import {
   readdirSync,
   readFileSync,
   readlinkSync,
+  renameSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -255,20 +256,46 @@ export function createDeterministicTarGz(rootDir, options = {}) {
 }
 
 function writeDeliverableDirectory(stagingDir, outDir) {
+  const targetDir = path.resolve(outDir);
+  const parentDir = path.dirname(targetDir);
+  if (targetDir === parentDir) {
+    throw new Error(`Refusing to overwrite filesystem root as output directory: ${targetDir}`);
+  }
   const entries = collectDeliverableEntries(stagingDir);
-  mkdirSync(outDir, { recursive: true });
-  for (const entry of entries) {
-    const destination = path.join(outDir, ...entry.path.split("/"));
-    mkdirSync(path.dirname(destination), { recursive: true });
-    if (lstatSync(destination, { throwIfNoEntry: false })) {
-      rmSync(destination, { recursive: true, force: true });
+  mkdirSync(parentDir, { recursive: true });
+  const tempDir = mkdtempSync(path.join(parentDir, `.${path.basename(targetDir)}.staging-`));
+  const backupDir = `${targetDir}.replacing-${process.pid}-${Date.now()}`;
+  let swappedOldOut = false;
+  let installedNewOut = false;
+  try {
+    for (const entry of entries) {
+      const destination = path.join(tempDir, ...entry.path.split("/"));
+      mkdirSync(path.dirname(destination), { recursive: true });
+      if (entry.type === "symlink") {
+        symlinkSync(entry.linkTarget, destination);
+      } else {
+        const mode = Number.parseInt(entry.mode, 8);
+        writeFileSync(destination, entry.bytes, { mode });
+        chmodSync(destination, mode);
+      }
     }
-    if (entry.type === "symlink") {
-      symlinkSync(entry.linkTarget, destination);
-    } else {
-      const mode = Number.parseInt(entry.mode, 8);
-      writeFileSync(destination, entry.bytes, { mode });
-      chmodSync(destination, mode);
+    if (lstatSync(targetDir, { throwIfNoEntry: false })) {
+      renameSync(targetDir, backupDir);
+      swappedOldOut = true;
+    }
+    renameSync(tempDir, targetDir);
+    installedNewOut = true;
+    if (swappedOldOut) {
+      rmSync(backupDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  } catch (error) {
+    if (swappedOldOut && !installedNewOut && lstatSync(backupDir, { throwIfNoEntry: false })) {
+      renameSync(backupDir, targetDir);
+    }
+    throw error;
+  } finally {
+    if (!installedNewOut && lstatSync(tempDir, { throwIfNoEntry: false })) {
+      rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     }
   }
 }
@@ -608,8 +635,25 @@ export function verifyBuildManifest(options) {
   }
 
   const actual = computeDirectoryManifest(bundleDir, { ignoreFiles: ["build-manifest.json"] });
-  const expectedMap = new Map(manifest.files.map((entry) => [entry.path, entry]));
+  const expectedMap = new Map();
+  for (const entry of manifest.files) {
+    if (!entry || typeof entry !== "object" || typeof entry.path !== "string" || entry.path.length === 0) {
+      errors.push("Build manifest contains an entry without a valid string path.");
+      continue;
+    }
+    if (expectedMap.has(entry.path)) {
+      errors.push(`duplicate manifest entry: ${entry.path}`);
+      continue;
+    }
+    expectedMap.set(entry.path, entry);
+  }
   const actualMap = new Map(actual.files.map((entry) => [entry.path, entry]));
+
+  if (manifest.fileCount !== manifest.files.length || manifest.fileCount !== actual.fileCount) {
+    errors.push(
+      `fileCount mismatch: manifest declares ${String(manifest.fileCount)}, lists ${manifest.files.length} entries, filesystem has ${actual.fileCount}`,
+    );
+  }
 
   for (const [filePath, expected] of expectedMap) {
     const found = actualMap.get(filePath);
@@ -632,10 +676,21 @@ export function verifyBuildManifest(options) {
           `symlink target mismatch for ${filePath}: expected ${String(expected.linkTarget)}, got ${found.linkTarget}`,
         );
       }
+      if (found.size !== expected.size) {
+        errors.push(`size mismatch for symlink ${filePath}: expected ${String(expected.size)}, got ${found.size}`);
+      }
+      if (found.sha256 !== expected.sha256) {
+        errors.push(
+          `digest mismatch for symlink ${filePath}: expected ${String(expected.sha256)}, got ${found.sha256}`,
+        );
+      }
       continue;
     }
-    if (found.sha256 !== expected.sha256 || found.size !== expected.size) {
-      errors.push(`digest mismatch for ${filePath}: expected ${expected.sha256}, got ${found.sha256}`);
+    if (found.size !== expected.size) {
+      errors.push(`size mismatch for ${filePath}: expected ${String(expected.size)}, got ${found.size}`);
+    }
+    if (found.sha256 !== expected.sha256) {
+      errors.push(`digest mismatch for ${filePath}: expected ${String(expected.sha256)}, got ${found.sha256}`);
     }
   }
   for (const filePath of actualMap.keys()) {

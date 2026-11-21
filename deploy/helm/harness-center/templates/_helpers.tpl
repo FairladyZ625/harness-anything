@@ -50,21 +50,45 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{/*
 Dedicated in-cluster Metrics Service name (always ClusterIP, never shared with external Fleet exposure).
+Truncates before appending the suffix and hashes long fullnames so primary, metrics, and headless Services never collide.
 */}}
 {{- define "harness-center.metricsServiceName" -}}
-{{- printf "%s-metrics" (include "harness-center.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- $full := include "harness-center.fullname" . -}}
+{{- if le (len $full) 55 -}}
+{{- printf "%s-metrics" $full -}}
+{{- else -}}
+{{- printf "%s-%s-metrics" ($full | trunc 46 | trimSuffix "-") ($full | sha256sum | trunc 8) -}}
+{{- end -}}
 {{- end }}
 
 {{/*
 Governing headless Service name for StatefulSet stable pod DNS.
+Truncates before appending the suffix and hashes long fullnames to remain <= 63 chars and collision-free.
 */}}
 {{- define "harness-center.headlessServiceName" -}}
-{{- printf "%s-headless" (include "harness-center.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- $full := include "harness-center.fullname" . -}}
+{{- if le (len $full) 54 -}}
+{{- printf "%s-headless" $full -}}
+{{- else -}}
+{{- printf "%s-%s-headless" ($full | trunc 45 | trimSuffix "-") ($full | sha256sum | trunc 8) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Entrypoint ConfigMap name bounded to 63 chars even for maximum-length release names.
+*/}}
+{{- define "harness-center.entrypointConfigMapName" -}}
+{{- $full := include "harness-center.fullname" . -}}
+{{- if le (len $full) 52 -}}
+{{- printf "%s-entrypoint" $full -}}
+{{- else -}}
+{{- printf "%s-%s-entrypoint" ($full | trunc 43 | trimSuffix "-") ($full | sha256sum | trunc 8) -}}
+{{- end -}}
 {{- end }}
 
 {{/*
 Render-time validation enforcing single-writer topology, required PostgreSQL Secret wiring,
-and non-conflicting Prometheus scrape path.
+metrics auth Secret key completeness, and strict ASCII non-conflicting Prometheus scrape path.
 */}}
 {{- define "harness-center.validateValues" -}}
 {{- if ne (int .Values.replicaCount) 1 }}
@@ -75,9 +99,11 @@ and non-conflicting Prometheus scrape path.
 {{- end }}
 {{- if .Values.metrics.enabled }}
 {{- $mpath := trim .Values.metrics.path }}
-{{- $norm := trimSuffix "/" $mpath }}
-{{- if or (not (hasPrefix "/" $mpath)) (contains "//" $mpath) (regexMatch "(^|/)\\.\\.?(/|$)" $mpath) (eq $norm "/healthz") (eq $norm "/readyz") }}
-{{- fail (printf "metrics.path %q is invalid or conflicts with reserved probe paths /healthz or /readyz." .Values.metrics.path) }}
+{{- if or (not (regexMatch "^/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$" $mpath)) (regexMatch "(^|/)\\.\\.?(/|$)" $mpath) (eq $mpath "/healthz") (eq $mpath "/readyz") }}
+{{- fail (printf "metrics.path %q must use clean ASCII URL path segments and must not conflict with reserved probe paths /healthz or /readyz." .Values.metrics.path) }}
+{{- end }}
+{{- if and .Values.metrics.bearerTokenExistingSecret (not .Values.metrics.bearerTokenSecretKey) }}
+{{- fail "metrics.bearerTokenSecretKey is required when metrics.bearerTokenExistingSecret is set." }}
 {{- end }}
 {{- end }}
 {{- end }}

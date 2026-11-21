@@ -21,6 +21,9 @@ export type { CenterMovedDetails, CenterRelocatedTombstoneV1 };
 export interface FleetCenterOptions {
   /** Persist one transport record per completed frame; the runtime wires this to the conn log. */
   readonly recordTraffic?: (entry: import("../conn-log.ts").DaemonTrafficLogEntry) => void;
+  /** Called when a Fleet center RPC starts/settles so daemon rpc_inflight reflects Fleet traffic. */
+  readonly onRequestStarted?: () => void;
+  readonly onRequestSettled?: () => void;
   readonly commandResourceBudget?: ResourceBudget;
   readonly storage?: Readonly<Record<string, import("@harness-anything/storage").DaemonStorageConfig>>;
   readonly host: Pick<

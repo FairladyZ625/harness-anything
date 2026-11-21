@@ -88,7 +88,11 @@ import {
   rejectHostAction,
   rejectPresetRun,
 } from "./daemon-host-errors.ts";
-import { createDaemonHostLifecycleApi } from "./daemon-host-lifecycle-api.ts";
+import {
+  createDaemonHostLifecycleApi,
+  createIdentityReadinessController,
+  instrumentTrackedRepoMaps,
+} from "./daemon-host-lifecycle-api.ts";
 import {
   attachInitial as attachInitialImpl,
   attemptHostRecovery as attemptHostRecoveryImpl,
@@ -197,6 +201,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       { readonly controller: AbortController; readonly config: string; task: Promise<void> }
     >();
   const unavailable = new Map<string, RepoCellStatus>(),
+    sortedRepoIds = instrumentTrackedRepoMaps({ cells, warming, unavailable }),
     unavailableProbes = new Map<string, ReturnType<typeof makeRecoveryProbe>>(),
     controls = new Map<string, DaemonControlReceipt>(),
     runtimeDiscovery = input.runtimeDiscover ?? (() => discoverRuntimeInstallations());
@@ -818,19 +823,24 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   let latestControl: DaemonControlReceipt | null = null;
   let fleetCenter: FleetTlsCenter | null = null;
   let fleetCenterRestoreFailed = false;
-  const hasConfiguredIdentity = (): boolean => {
-    const mode = readProviderMode(input.userRoot);
-    return mode === "external" || mode === "managed";
-  };
-  let identityReady = hasConfiguredIdentity();
-  const markIdentityConfigured = <T>(outcome: T): T => {
-    if (!identityReady && hasConfiguredIdentity()) identityReady = true;
-    return outcome;
-  };
   let initialAttachments: Promise<void> | null = null,
     initialAttachmentsSettled = false,
     replicaSyncStartQueued = false,
     closing = false;
+  const identityReadiness = createIdentityReadinessController({
+    requireIdentityReady: input.requireIdentityReady,
+    hasConfiguredIdentity: () => {
+      const mode = readProviderMode(input.userRoot);
+      return mode === "managed" || (mode === "external" && oidc.centerConfigured());
+    },
+    ensureRbacResumed,
+    checkOidcStatus: () => oidc.status(),
+    checkOidcCenter: () => oidc.center(),
+    isClosing: () => closing,
+    recordDiagnostics: (error) => {
+      input.recordLifecycle?.({ event: "diagnostics", service: "identity-readiness", error });
+    },
+  });
   const replicaSyncTasks = new Set<Promise<void>>();
   const unavailableStatus = (
     repoId: string,
@@ -1190,7 +1200,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     initialAttachmentsSettled: () =>
       initialAttachmentsSettled || (repos.length === 0 && warming.size === 0 && openings.size === 0),
     fleetCenterRestoreFailed: () => fleetCenterRestoreFailed,
-    identityReady: () => identityReady,
+    sortedRepoIds,
+    identityReadiness: identityReadiness.currentState,
     waitForWarming,
     closeSignal: closeController.signal,
     get closing() {
@@ -1229,6 +1240,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   accessAdminRef.current = accessAdmin;
   const lifecycle = createDaemonHostLifecycleApi(hostContext);
   void ensureRbacResumed().catch(consumeKnownError);
+  identityReadiness.start();
   const edgeJoinProgress = createEdgeJoinProgressTap();
   const forwardEdgeAccessAdmin = (
     repoId: string,
@@ -1411,7 +1423,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         )
           return oidc
             .configureAuthority(() => managedRbac.run(request), requireLoginTarget())
-            .then(markIdentityConfigured);
+            .then(identityReadiness.observeConfigured, identityReadiness.observeConfigureFailure);
         if (request.repoId && !loginTarget)
           throw hostCodedError("repo_namespace_unknown", "Select a registered repository for login.");
         if (usesRegisteredAuthority && request.repoId) {
@@ -1575,7 +1587,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           evaluatedAtCut: "daemon-rbac:current",
         })
           .then(() => managedRbac.run(request))
-          .then(markIdentityConfigured);
+          .then(identityReadiness.observeConfigured, identityReadiness.observeConfigureFailure);
       })();
     },
     close: async () => {
@@ -1781,6 +1793,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           onDeliverySettled: input.onRepoStatusChange,
           onNodeDisconnected: () => triggerCenterReviewFallback("fleet-node-disconnected"),
           recordTraffic: input.recordTraffic,
+          onRequestStarted: input.onFleetRequestStarted,
+          onRequestSettled: input.onFleetRequestSettled,
           ...(input.authenticateExecutionPrincipal
             ? { authenticateExecutionPrincipal: input.authenticateExecutionPrincipal }
             : {}),

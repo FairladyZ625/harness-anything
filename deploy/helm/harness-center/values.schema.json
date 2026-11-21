@@ -110,18 +110,28 @@
         "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
         "path": {
           "type": "string",
-          "pattern": "^/[^\\s?#]*$",
+          "pattern": "^/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$",
           "not": {
-            "anyOf": [
-              { "pattern": "^/+(\\.+/)*(?:healthz|readyz)/*$" },
-              { "pattern": "(?:^|/)\\.\\.?(?:/|$)" },
-              { "pattern": "//" }
-            ]
+            "anyOf": [{ "const": "/healthz" }, { "const": "/readyz" }, { "pattern": "(?:^|/)\\.\\.?(?:/|$)" }]
           }
         },
         "bearerTokenExistingSecret": { "type": "string" },
         "bearerTokenSecretKey": { "type": "string" }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "bearerTokenExistingSecret": { "type": "string", "minLength": 1 } },
+            "required": ["bearerTokenExistingSecret"]
+          },
+          "then": {
+            "required": ["bearerTokenSecretKey"],
+            "properties": {
+              "bearerTokenSecretKey": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      ]
     },
     "service": {
       "type": "object",

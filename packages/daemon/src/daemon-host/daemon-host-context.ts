@@ -209,7 +209,13 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   readonly startInitialAttachments: () => Promise<void>;
   readonly initialAttachmentsSettled?: () => boolean;
   readonly fleetCenterRestoreFailed?: () => boolean;
-  readonly identityReady?: () => boolean;
+  readonly sortedRepoIds?: () => readonly string[];
+  readonly identityReadiness?: () =>
+    | "ready"
+    | "identity_not_configured"
+    | "identity_verifying"
+    | "identity_authority_sync_pending"
+    | "identity_unavailable";
   readonly waitForWarming: (repoId: string) => Promise<void>;
   closing: boolean;
   initialAttachments: Promise<void> | null;

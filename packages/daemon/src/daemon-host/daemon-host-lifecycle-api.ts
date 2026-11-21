@@ -3,7 +3,210 @@ import { daemonPackageVersion } from "./build-identity.ts";
 import { observeDaemonOperation, markDaemonOperationPhase } from "./daemon-operation.ts";
 import type { DaemonHost } from "./daemon-host-types.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
+import type { RepoCell, RepoCellStatus } from "./repo-cell-types.ts";
 import { readDaemonRegistry, type RepoMetricsSnapshot } from "@harness-anything/kernel";
+
+export interface TrackedRepoMaps {
+  readonly cells: Map<string, RepoCell>;
+  readonly warming: Map<string, RepoCellStatus>;
+  readonly unavailable: Map<string, RepoCellStatus>;
+  readonly sortedRepoIds: () => readonly string[];
+}
+
+export type IdentityProbeCode =
+  | "ready"
+  | "identity_not_configured"
+  | "identity_verifying"
+  | "identity_authority_sync_pending"
+  | "identity_unavailable";
+
+export interface IdentityReadinessController {
+  readonly start: () => void;
+  readonly currentState: () => IdentityProbeCode;
+  readonly observeConfigured: <T>(outcome: T) => Promise<T>;
+  readonly observeConfigureFailure: (error: unknown) => never;
+}
+
+export function createIdentityReadinessController(input: {
+  readonly requireIdentityReady?: boolean;
+  readonly hasConfiguredIdentity: () => boolean;
+  readonly ensureRbacResumed: () => Promise<void>;
+  readonly checkOidcStatus: () => Promise<unknown>;
+  readonly checkOidcCenter: () => Promise<unknown>;
+  readonly isClosing: () => boolean;
+  readonly recordDiagnostics?: (errorMessage: string) => void;
+}): IdentityReadinessController {
+  const isIdentityRequired = (): boolean => {
+    if (input.requireIdentityReady !== undefined) return input.requireIdentityReady;
+    const raw = process.env.HARNESS_DAEMON_REQUIRE_IDENTITY;
+    return raw === "1" || raw === "true";
+  };
+  let current: IdentityProbeCode = input.hasConfiguredIdentity()
+    ? isIdentityRequired()
+      ? "identity_verifying"
+      : "ready"
+    : "identity_not_configured";
+  let verifyInFlight: Promise<void> | null = null;
+  let verifyGeneration = 0;
+
+  const verifyLiveAuthority = (): Promise<void> => {
+    if (!input.hasConfiguredIdentity()) {
+      current = "identity_not_configured";
+      return Promise.resolve();
+    }
+    if (verifyInFlight) return verifyInFlight;
+    const checkPendingSync = current === "identity_authority_sync_pending";
+    const generation = ++verifyGeneration;
+    const run = (async () => {
+      await input.ensureRbacResumed();
+      if (checkPendingSync) await input.checkOidcStatus();
+      await input.checkOidcCenter();
+    })()
+      .then(
+        () => {
+          if (!input.isClosing()) current = "ready";
+        },
+        (error: unknown) => {
+          if (!input.isClosing()) {
+            current = checkPendingSync ? "identity_authority_sync_pending" : "identity_unavailable";
+          }
+          input.recordDiagnostics?.(error instanceof Error ? error.message : String(error));
+        },
+      )
+      .finally(() => {
+        if (verifyGeneration === generation) verifyInFlight = null;
+      });
+    verifyInFlight = run;
+    return run;
+  };
+
+  return {
+    start: () => {
+      if (isIdentityRequired() && input.hasConfiguredIdentity()) void verifyLiveAuthority();
+    },
+    currentState: () => {
+      if (
+        !input.isClosing() &&
+        (current === "identity_unavailable" ||
+          current === "identity_authority_sync_pending" ||
+          current === "identity_verifying")
+      ) {
+        void verifyLiveAuthority();
+      }
+      return current;
+    },
+    observeConfigured: async <T>(outcome: T): Promise<T> => {
+      const sync =
+        outcome !== null &&
+        typeof outcome === "object" &&
+        "authoritySync" in outcome &&
+        outcome.authoritySync !== null &&
+        typeof outcome.authoritySync === "object"
+          ? (outcome.authoritySync as { readonly pending?: unknown })
+          : null;
+      if (sync?.pending === true) {
+        current = "identity_authority_sync_pending";
+        return outcome;
+      }
+      if (!input.hasConfiguredIdentity()) {
+        current = "identity_not_configured";
+        return outcome;
+      }
+      current = "identity_verifying";
+      await verifyLiveAuthority();
+      return outcome;
+    },
+    observeConfigureFailure: (error: unknown): never => {
+      current = input.hasConfiguredIdentity() ? "identity_unavailable" : "identity_not_configured";
+      throw error;
+    },
+  };
+}
+
+const nativeMapSet = Map.prototype.set;
+const nativeMapDelete = Map.prototype.delete;
+const nativeMapClear = Map.prototype.clear;
+
+function instrumentRepoMap<V>(
+  map: Map<string, V>,
+  onAdd: (repoId: string) => void,
+  onRemove: (repoId: string) => void,
+  onClear: () => void,
+): void {
+  map.set = function set(key: string, value: V): Map<string, V> {
+    const existed = Map.prototype.has.call(this, key);
+    nativeMapSet.call(this, key, value);
+    if (!existed) onAdd(key);
+    return this;
+  };
+  map.delete = function remove(key: string): boolean {
+    const removed = nativeMapDelete.call(this, key);
+    if (removed) onRemove(key);
+    return removed;
+  };
+  map.clear = function clear(): void {
+    if (this.size === 0) return;
+    nativeMapClear.call(this);
+    onClear();
+  };
+}
+
+function binarySearchIndex(sorted: readonly string[], target: string): number {
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (sorted[mid]! < target) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/**
+ * Instruments the host's repository membership maps so the sorted union of repository IDs
+ * is maintained incrementally on attach/warming/unavailable/detach mutations (zero per-scrape sort).
+ */
+export function instrumentTrackedRepoMaps(maps: {
+  readonly cells: Map<string, RepoCell>;
+  readonly warming: Map<string, RepoCellStatus>;
+  readonly unavailable: Map<string, RepoCellStatus>;
+}): () => readonly string[] {
+  const sortedIds: string[] = [];
+
+  const onAdd = (repoId: string): void => {
+    const index = binarySearchIndex(sortedIds, repoId);
+    if (sortedIds[index] === repoId) return;
+    sortedIds.splice(index, 0, repoId);
+  };
+
+  const onRemove = (repoId: string): void => {
+    if (maps.cells.has(repoId) || maps.warming.has(repoId) || maps.unavailable.has(repoId)) return;
+    const index = binarySearchIndex(sortedIds, repoId);
+    if (sortedIds[index] === repoId) sortedIds.splice(index, 1);
+  };
+
+  const onClear = (): void => {
+    sortedIds.length = 0;
+    for (const id of maps.cells.keys()) onAdd(id);
+    for (const id of maps.warming.keys()) onAdd(id);
+    for (const id of maps.unavailable.keys()) onAdd(id);
+  };
+
+  instrumentRepoMap(maps.cells, onAdd, onRemove, onClear);
+  instrumentRepoMap(maps.warming, onAdd, onRemove, onClear);
+  instrumentRepoMap(maps.unavailable, onAdd, onRemove, onClear);
+  onClear();
+
+  return () => sortedIds;
+}
+
+export function createTrackedRepoMaps(): TrackedRepoMaps {
+  const cells = new Map<string, RepoCell>();
+  const warming = new Map<string, RepoCellStatus>();
+  const unavailable = new Map<string, RepoCellStatus>();
+  const sortedRepoIds = instrumentTrackedRepoMaps({ cells, warming, unavailable });
+  return { cells, warming, unavailable, sortedRepoIds };
+}
 
 export function createDaemonHostLifecycleApi(
   context: DaemonHostApiContext,
@@ -18,52 +221,16 @@ export function createDaemonHostLifecycleApi(
   | "attachmentsSettled"
   | "close"
 > {
-  // Resident sorted repo ID cache: avoids O(R log R) sorting on every Prometheus scrape
-  // while membership across cells/warming/unavailable is unchanged.
-  let cachedSortedRepoIds: string[] = [];
-  let cachedRepoIdSet = new Set<string>();
+  // Resolve package version once at host startup so neither status() nor cold /metrics scrapes touch disk.
+  const resolvedPackageVersion = daemonPackageVersion();
 
-  const syncSortedRepoIds = (): readonly string[] => {
-    let unchanged = true;
-    for (const id of context.cells.keys()) {
-      if (!cachedRepoIdSet.has(id)) {
-        unchanged = false;
-        break;
-      }
-    }
-    if (unchanged) {
-      for (const id of context.warming.keys()) {
-        if (!cachedRepoIdSet.has(id)) {
-          unchanged = false;
-          break;
-        }
-      }
-    }
-    if (unchanged) {
-      for (const id of context.unavailable.keys()) {
-        if (!cachedRepoIdSet.has(id)) {
-          unchanged = false;
-          break;
-        }
-      }
-    }
-    if (unchanged) {
-      for (const id of cachedSortedRepoIds) {
-        if (!context.cells.has(id) && !context.warming.has(id) && !context.unavailable.has(id)) {
-          unchanged = false;
-          break;
-        }
-      }
-    }
-    if (!unchanged) {
-      const nextSet = new Set<string>();
-      for (const id of context.cells.keys()) nextSet.add(id);
-      for (const id of context.warming.keys()) nextSet.add(id);
-      for (const id of context.unavailable.keys()) nextSet.add(id);
-      cachedRepoIdSet = nextSet;
-      cachedSortedRepoIds = [...nextSet].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
-    }
-    return cachedSortedRepoIds;
+  const currentSortedRepoIds = (): readonly string[] => {
+    if (context.sortedRepoIds) return context.sortedRepoIds();
+    const ids = new Set<string>();
+    for (const id of context.cells.keys()) ids.add(id);
+    for (const id of context.warming.keys()) ids.add(id);
+    for (const id of context.unavailable.keys()) ids.add(id);
+    return [...ids].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
   };
 
   const readPublishedRepoStatus = (repoId: string) => {
@@ -85,7 +252,7 @@ export function createDaemonHostLifecycleApi(
       const { entry, ...observedBuild } = context.buildObserver.status(),
         build = {
           ...observedBuild,
-          version: daemonPackageVersion(),
+          version: resolvedPackageVersion,
         },
         registry = readDaemonRegistry({ userRoot: context.input.userRoot }),
         proxyRepos = registry.repos
@@ -183,7 +350,7 @@ export function createDaemonHostLifecycleApi(
         .map((status) => ({ repoId: status.repoId, queueDepth: status.queueDepth ?? null })),
     observabilitySnapshot: () => {
       const repos: RepoMetricsSnapshot[] = [];
-      for (const repoId of syncSortedRepoIds()) {
+      for (const repoId of currentSortedRepoIds()) {
         const status = readPublishedRepoStatus(repoId);
         if (!status) continue;
         repos.push({
@@ -225,8 +392,9 @@ export function createDaemonHostLifecycleApi(
       }
       if (hasUnavailableRepo) reasons.push("repos_unavailable");
       if (context.fleetCenterRestoreFailed?.()) reasons.push("fleet_center_unavailable");
-      if (isIdentityRequired() && context.identityReady && !context.identityReady()) {
-        reasons.push("identity_not_configured");
+      if (isIdentityRequired() && context.identityReadiness) {
+        const identityState = context.identityReadiness();
+        if (identityState !== "ready") reasons.push(identityState);
       }
       return { ready: reasons.length === 0, reasons };
     },

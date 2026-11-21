@@ -455,9 +455,119 @@ test("verifyBuildManifest detects byte, executable-mode, symlink-target, type, m
     const recomputed = computeDirectoryManifest(outDir, { ignoreFiles: ["build-manifest.json"] });
     assert.equal(recomputed.artifactDigest, built.manifest.artifactDigest);
     assert.equal(verifyBuildManifest({ bundleDir: outDir, manifestPath }).ok, true);
+
+    // F-G7-16: tampering symlink manifest size or sha256 (even with recomputed artifactDigest) MUST fail verifyBuildManifest
+    const baseManifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const symlinkIdx = baseManifest.files.findIndex((entry) => entry.type === "symlink");
+    assert.ok(symlinkIdx >= 0, "expected symlink entry in manifest");
+
+    // 1) Tamper symlink size (artifactDigest unchanged because symlink fingerprint omits size)
+    const badSizeManifest = structuredClone(baseManifest);
+    badSizeManifest.files[symlinkIdx].size = 42;
+    const badSizePath = path.join(archiveDir, "bad-symlink-size.json");
+    writeFileSync(badSizePath, `${JSON.stringify(badSizeManifest, null, 2)}\n`);
+    const badSizeRes = verifyBuildManifest({ bundleDir: outDir, manifestPath: badSizePath });
+    assert.equal(badSizeRes.ok, false, "tampered symlink size in manifest must be rejected");
+    assert.ok(badSizeRes.errors.some((entry) => entry.includes("size mismatch for symlink")));
+
+    // 2) Tamper symlink sha256 AND update root artifactDigest to match the tampered entry
+    const badShaManifest = structuredClone(baseManifest);
+    badShaManifest.files[symlinkIdx].sha256 = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+    const forgedLines = badShaManifest.files
+      .map((entry) =>
+        entry.type === "symlink"
+          ? `symlink  ${entry.mode}  ${entry.sha256}  ${entry.path} -> ${entry.linkTarget ?? ""}`
+          : `file  ${entry.mode}  ${entry.sha256}  ${entry.size}  ${entry.path}`,
+      )
+      .join("\n");
+    const { hash } = await import("node:crypto");
+    badShaManifest.artifactDigest = `sha256:${hash("sha256", Buffer.from(forgedLines, "utf8"), "hex")}`;
+    const badShaPath = path.join(archiveDir, "bad-symlink-sha.json");
+    writeFileSync(badShaPath, `${JSON.stringify(badShaManifest, null, 2)}\n`);
+    const badShaRes = verifyBuildManifest({ bundleDir: outDir, manifestPath: badShaPath });
+    assert.equal(
+      badShaRes.ok,
+      false,
+      "tampered symlink sha256 in manifest must be rejected even with updated root digest",
+    );
+    assert.ok(badShaRes.errors.some((entry) => entry.includes("digest mismatch for symlink")));
+
+    // 3) Tamper fileCount / duplicate manifest entries rejected
+    const badCountManifest = structuredClone(baseManifest);
+    badCountManifest.fileCount = baseManifest.files.length + 1;
+    const badCountPath = path.join(archiveDir, "bad-count.json");
+    writeFileSync(badCountPath, `${JSON.stringify(badCountManifest, null, 2)}\n`);
+    const badCountRes = verifyBuildManifest({ bundleDir: outDir, manifestPath: badCountPath });
+    assert.equal(badCountRes.ok, false, "mismatched fileCount in manifest must be rejected");
+    assert.ok(badCountRes.errors.some((entry) => entry.includes("fileCount mismatch")));
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     rmSync(outDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    rmSync(archiveDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test("buildReproducibleBundle atomically replaces reused --out directory so deleted files never survive into verify-manifest", async () => {
+  const {
+    dir,
+    commit: commit1,
+    git,
+  } = createFixtureGitRepo({ nondeterministic: false, includeExecutableAndSymlink: true });
+  const outDir = path.join(mkdtempSync(path.join(tmpdir(), "ha-repro-reuse-")), "bundle");
+  const archiveDir = mkdtempSync(path.join(tmpdir(), "ha-repro-reuse-arch-"));
+  const archive1 = path.join(archiveDir, "v1.tar.gz");
+  const archive2 = path.join(archiveDir, "v2.tar.gz");
+  try {
+    // Commit 1 includes an extra file that will be deleted in Commit 2
+    writeFileSync(path.join(dir, "packages/sample/src/obsolete.js"), "export const old = 1;\n");
+    git(["add", "."]);
+    git(["commit", "-q", "-m", "add obsolete file"]);
+    const cut1 = git(["rev-parse", "HEAD"]);
+    assert.notEqual(cut1, commit1);
+
+    await buildReproducibleBundle({
+      repository: dir,
+      revision: cut1,
+      outputDir: outDir,
+      archivePath: archive1,
+      targetWorkspaces: ["@repro/sample"],
+      dependencyMode: "none",
+    });
+    assert.equal(verifyBuildManifest({ bundleDir: outDir }).ok, true);
+    assert.ok(lstatSync(path.join(outDir, "packages/sample/src/obsolete.js")).isFile());
+
+    // Commit 2 deletes obsolete.js; rebuilding into the SAME --out must atomically replace it
+    unlinkSync(path.join(dir, "packages/sample/src/obsolete.js"));
+    git(["add", "-A"]);
+    git(["commit", "-q", "-m", "delete obsolete file"]);
+    const cut2 = git(["rev-parse", "HEAD"]);
+
+    const built2 = await buildReproducibleBundle({
+      repository: dir,
+      revision: cut2,
+      outputDir: outDir,
+      archivePath: archive2,
+      targetWorkspaces: ["@repro/sample"],
+      dependencyMode: "none",
+    });
+    assert.equal(
+      lstatSync(path.join(outDir, "packages/sample/src/obsolete.js"), { throwIfNoEntry: false }),
+      undefined,
+      "reused --out directory must not retain files deleted in the second cut",
+    );
+    const verified2 = verifyBuildManifest({ bundleDir: outDir });
+    assert.equal(verified2.ok, true, `reused --out must pass verifyBuildManifest: ${JSON.stringify(verified2.errors)}`);
+    const tar2Entries = parseUstarEntries(readFileSync(archive2)).filter(
+      (entry) => entry.path !== "build-manifest.json",
+    );
+    assert.deepEqual(
+      tar2Entries.map((entry) => entry.path),
+      built2.manifest.files.map((entry) => entry.path),
+      "reused --out manifest and second-cut tar.gz must match 1:1",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    rmSync(path.dirname(outDir), { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     rmSync(archiveDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });

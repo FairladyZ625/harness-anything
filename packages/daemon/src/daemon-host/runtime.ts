@@ -66,6 +66,7 @@ export async function startDaemon(input: {
   /** Reads the operator's GitHub token once per launch; set by the resident daemon entry. */
   readonly runtimeGithubToken?: DaemonHostOpenInput["runtimeGithubToken"];
   readonly runtimeCredentialPort?: DaemonHostOpenInput["runtimeCredentialPort"];
+  readonly oidc?: DaemonHostOpenInput["oidc"];
   readonly managedRbac?: DaemonHostOpenInput["managedRbac"];
   /** Optional platform skill evaluation capability supplied by the daemon composition root. */
   readonly skillEval?: DaemonHostOpenInput["skillEval"];
@@ -107,6 +108,7 @@ export async function startDaemon(input: {
   /* @gate-identity state-store/runtime-instance.daemon-pid */ writeFileSync(pidPath, `${process.pid}\n`, "utf8");
   const lifecycle = openDaemonLifecycleLog({ userRoot: input.userRoot, daemonId: input.daemonId });
   const build = daemonBuildStamp();
+  const packageVersion = daemonPackageVersion();
   const buildObserver = input.buildObserver ?? observeDaemonBuild(input.runtimeFile);
   lifecycle.record({ event: "process_start", endpoint, ...buildObserver.status() });
   // Connection- and request-level traffic sink; async by design so the socket hot path never waits on disk.
@@ -309,6 +311,13 @@ export async function startDaemon(input: {
         onRepoStatusChange: requestDrainCheck,
         buildDraining,
         recordTraffic,
+        onFleetRequestStarted: () => {
+          activeRequests += 1;
+        },
+        onFleetRequestSettled: () => {
+          activeRequests = Math.max(0, activeRequests - 1);
+          requestDrainCheck();
+        },
       }),
     );
     // One sink for the daemon; the protocol server is created per connection and reports into it.
@@ -442,7 +451,7 @@ export async function startDaemon(input: {
           const observed = host!.observabilitySnapshot();
           return {
             daemonId: input.daemonId,
-            version: daemonPackageVersion(),
+            version: packageVersion,
             commit: build.commit ?? "unknown",
             uptimeSeconds: Number(process.hrtime.bigint() - startedMonotonicNs) / 1e9,
             processResidentMemoryBytes: memory.rss,

@@ -130,7 +130,7 @@ spec:
       volumes:
         - name: entrypoint
           configMap:
-            name: {{ include "harness-center.fullname" . }}-entrypoint
+            name: {{ include "harness-center.entrypointConfigMapName" . }}
             defaultMode: 0555
         {{- if .Values.storage.existingSecret }}
         - name: daemon-storage-config

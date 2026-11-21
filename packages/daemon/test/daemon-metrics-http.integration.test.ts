@@ -1,6 +1,8 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,13 +13,16 @@ import {
 } from "@harness-anything/kernel";
 import { daemonPackageVersion } from "../src/daemon-host/build-identity.ts";
 import { startDaemon } from "../src/daemon-host/runtime.ts";
-import { createDaemonHostLifecycleApi } from "../src/daemon-host/daemon-host-lifecycle-api.ts";
+import { createDaemonHostLifecycleApi, createTrackedRepoMaps } from "../src/daemon-host/daemon-host-lifecycle-api.ts";
 import { openRepoCellProxy } from "../src/daemon-host/repo-cell-proxy.ts";
 import { saveFleetCenterConfig } from "../src/daemon-host/fleet-center-config.ts";
 import { resolveDaemonMetricsConfig, startDaemonMetricsServer } from "../src/daemon-host/metrics-http-server.ts";
 import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { fleetEdgeConfigPath } from "../src/daemon-host/client/fleet-edge-config.ts";
+import { rawPeer } from "./fleet-tls-session.fixture.ts";
+import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
+import { rosterRepo } from "./daemon-host-recovery.fixture.ts";
 
 test("resolveDaemonMetricsConfig defaults to disabled and rejects invalid ports and reserved probe paths", async () => {
   assert.equal(resolveDaemonMetricsConfig({}), null);
@@ -51,8 +56,9 @@ test("resolveDaemonMetricsConfig defaults to disabled and rejects invalid ports 
     /path/iu,
   );
 
-  // F-G7-13: reject reserved probe paths and normalized/traversal variants on both config and server start
+  // F-G7-13 & F-G7-23: reject reserved probe paths, traversal/dot variants, trailing slashes, non-ASCII, and percent-encoded paths
   for (const forbiddenPath of [
+    "/",
     "/healthz",
     "/readyz",
     "/healthz/",
@@ -60,6 +66,10 @@ test("resolveDaemonMetricsConfig defaults to disabled and rejects invalid ports 
     "//healthz",
     "/./readyz",
     "/metrics/../healthz",
+    "/metrics/",
+    "/指标",
+    "/%6detrics",
+    "/metrics%2Fsub",
   ]) {
     assert.throws(
       () =>
@@ -84,6 +94,81 @@ test("resolveDaemonMetricsConfig defaults to disabled and rejects invalid ports 
       /path/iu,
       `startDaemonMetricsServer must reject ${forbiddenPath}`,
     );
+  }
+
+  // F-G7-22: fail closed when bearer auth is configured with empty or whitespace token (never downgrade to anonymous)
+  for (const badEnv of [
+    { HARNESS_DAEMON_METRICS_PORT: "9090", HARNESS_DAEMON_METRICS_BEARER_TOKEN: "" },
+    { HARNESS_DAEMON_METRICS_PORT: "9090", HARNESS_DAEMON_METRICS_BEARER_TOKEN: "   " },
+    { HARNESS_DAEMON_METRICS_PORT: "9090", HARNESS_DAEMON_METRICS_REQUIRE_AUTH: "1" },
+    {
+      HARNESS_DAEMON_METRICS_PORT: "9090",
+      HARNESS_DAEMON_METRICS_REQUIRE_AUTH: "1",
+      HARNESS_DAEMON_METRICS_BEARER_TOKEN: "",
+    },
+  ]) {
+    assert.throws(
+      () => resolveDaemonMetricsConfig(badEnv),
+      /bearer token/iu,
+      `resolveDaemonMetricsConfig must reject invalid bearer auth env: ${JSON.stringify(badEnv)}`,
+    );
+  }
+  for (const emptyToken of ["", "   ", "\t\n"]) {
+    await assert.rejects(
+      () =>
+        startDaemonMetricsServer({
+          config: { bind: "127.0.0.1", port: 0, path: "/metrics", bearerToken: emptyToken },
+          daemonId: "empty-bearer-reject",
+          collectSnapshot: () => {
+            throw new Error("should not be called");
+          },
+          isLive: () => true,
+          isReady: () => true,
+        }),
+      /bearer token/iu,
+      `startDaemonMetricsServer must reject empty/whitespace bearerToken=${JSON.stringify(emptyToken)}`,
+    );
+  }
+
+  // F-G7-23: custom ASCII metrics path normalizes RFC 3986 percent-encoded unreserved request octets while keeping %2F rejected
+  const customServer = await startDaemonMetricsServer({
+    config: { bind: "127.0.0.1", port: 0, path: "/custom/prom-metrics_1.0", bearerToken: null },
+    daemonId: "custom-path-norm",
+    collectSnapshot: () => ({
+      daemonId: "custom-path-norm",
+      version: "0.1.0",
+      commit: "test",
+      uptimeSeconds: 1,
+      processResidentMemoryBytes: 1_000,
+      processHeapUsedBytes: 500,
+      activeRuntimeSessions: 0,
+      rpc: createRpcMetricsAccumulator().snapshot(0),
+      fleet: {
+        centerEnabled: false,
+        activeConnections: 0,
+        authenticatedNodes: 0,
+        replicationStreams: 0,
+        pendingDeliveries: 0,
+      },
+      repos: [],
+    }),
+    isLive: () => true,
+    isReady: () => true,
+  });
+  try {
+    const origin = new URL(customServer.endpoint).origin;
+    assert.equal((await fetch(`${origin}/custom/prom-metrics_1.0`)).status, 200);
+    // %70='p', %2D='-', %5F='_', %2E='.' (all RFC 3986 unreserved octets)
+    const encodedRes = await fetch(`${origin}/custom/%70rom%2Dmetrics%5F1%2E0`);
+    assert.equal(encodedRes.status, 200);
+    assert.ok((await encodedRes.text()).includes("ha_daemon_up 1\n"));
+    // Percent-encoded slash (%2F) is reserved and must NOT be decoded into a separator
+    assert.equal((await fetch(`${origin}/custom%2Fprom-metrics_1.0`)).status, 404);
+    // Percent-encoded unreserved octets on reserved probe routes still route consistently
+    assert.equal((await fetch(`${origin}/%68ealthz`)).status, 200);
+    assert.equal((await fetch(`${origin}/%72eadyz`)).status, 200);
+  } finally {
+    await customServer.close();
   }
 });
 
@@ -264,22 +349,27 @@ test(
     }
 
     // 2. Lifecycle readiness state transitions: unavailable repo, fleet restore failure, and pending identity -> 503 -> recovery -> 200
-    const cells = new Map();
-    const warming = new Map();
-    const unavailable = new Map();
+    const tracked = createTrackedRepoMaps();
+    const { cells, warming, unavailable, sortedRepoIds } = tracked;
     let initialSettled = false;
     let fleetRestoreFailed = true;
-    let identityConfigured = false;
+    let identityState:
+      | "ready"
+      | "identity_not_configured"
+      | "identity_verifying"
+      | "identity_authority_sync_pending"
+      | "identity_unavailable" = "identity_not_configured";
 
     const lifecycle = createDaemonHostLifecycleApi({
       input: { userRoot: "/virtual-readyz", daemonId: "readyz-transitions", requireIdentityReady: true },
       cells,
       warming,
       unavailable,
+      sortedRepoIds,
       closing: false,
       initialAttachmentsSettled: () => initialSettled,
       fleetCenterRestoreFailed: () => fleetRestoreFailed,
-      identityReady: () => identityConfigured,
+      identityReadiness: () => identityState,
     } as unknown as Parameters<typeof createDaemonHostLifecycleApi>[0]);
 
     const server = await startDaemonMetricsServer({
@@ -319,7 +409,7 @@ test(
       // Storage attach fails -> repo lands in unavailable -> still 503 while /healthz stays 200
       initialSettled = true;
       fleetRestoreFailed = false;
-      identityConfigured = true;
+      identityState = "ready";
       unavailable.set("center", {
         repoId: "center",
         rootDir: "/virtual/center",
@@ -420,40 +510,43 @@ test(
       // JSON.parse in readFleetEdgeConfig would throw!
       writeFileSync(edgeCfgPath, "{invalid-json-must-not-be-read-on-scrape");
 
-      const cells = new Map();
+      const tracked = createTrackedRepoMaps();
+      const { cells, warming, unavailable, sortedRepoIds } = tracked;
       cells.set("edge-repo", edgeCell);
+      const makeFakeCell = (repoId: string, i: number) => ({
+        publishedStatus: () => ({
+          repoId,
+          rootDir: `/virtual/${repoId}`,
+          mode: "local" as const,
+          state: "attached" as const,
+          generation: 1,
+          queueDepth: i % 4,
+          projectionWatermark: 1000 - (i % 5),
+          ledgerRevision: 1000,
+          lastError: null,
+          causeClass: null,
+          recoveryMs: 0,
+          materialization: null,
+        }),
+        status: () => {
+          throw new Error("observabilitySnapshot must read publishedStatus(), not slow status()");
+        },
+        statusCuts: () => {
+          throw new Error("observabilitySnapshot must not invoke statusCuts()");
+        },
+      });
       for (let i = 0; i < 64; i += 1) {
         const repoId = `repo-${String(63 - i).padStart(3, "0")}`; // deliberately inserted in reverse order
-        cells.set(repoId, {
-          publishedStatus: () => ({
-            repoId,
-            rootDir: `/virtual/${repoId}`,
-            mode: "local" as const,
-            state: "attached" as const,
-            generation: 1,
-            queueDepth: i % 4,
-            projectionWatermark: 1000 - (i % 5),
-            ledgerRevision: 1000,
-            lastError: null,
-            causeClass: null,
-            recoveryMs: 0,
-            materialization: null,
-          }),
-          status: () => {
-            throw new Error("observabilitySnapshot must read publishedStatus(), not slow status()");
-          },
-          statusCuts: () => {
-            throw new Error("observabilitySnapshot must not invoke statusCuts()");
-          },
-        });
+        cells.set(repoId, makeFakeCell(repoId, i) as unknown as Parameters<typeof cells.set>[1]);
       }
 
       const rpc = createRpcMetricsAccumulator();
       const lifecycle = createDaemonHostLifecycleApi({
         input: { userRoot: "/nonexistent-o1-proof-root", daemonId: "o1-proof" },
         cells,
-        warming: new Map(),
-        unavailable: new Map(),
+        warming,
+        unavailable,
+        sortedRepoIds,
         fleetCenter: {
           connectionMetrics: () => ({
             activeConnections: 3,
@@ -468,9 +561,33 @@ test(
         },
       } as unknown as Parameters<typeof createDaemonHostLifecycleApi>[0]);
 
-      // First scrape populates resident sorted order; second scrape reuses cached order with zero sorting
-      const snap1 = lifecycle.observabilitySnapshot();
-      const snap2 = lifecycle.observabilitySnapshot();
+      // Spy on Array.prototype.sort to prove ZERO sorting occurs during cold scrape, after attach/detach, or steady-state scrape
+      let sortCalls = 0;
+      const originalSort = Array.prototype.sort;
+      Array.prototype.sort = function (compareFn) {
+        sortCalls += 1;
+        return originalSort.call(this, compareFn);
+      };
+      let snap1: ReturnType<typeof lifecycle.observabilitySnapshot>;
+      let snap2: ReturnType<typeof lifecycle.observabilitySnapshot>;
+      let snapAfterMutation: ReturnType<typeof lifecycle.observabilitySnapshot>;
+      try {
+        // First scrape (cold): zero sorting because TrackedRepoMaps maintains sorted order incrementally on mutation
+        snap1 = lifecycle.observabilitySnapshot();
+        // Second scrape (steady state): zero sorting
+        snap2 = lifecycle.observabilitySnapshot();
+        // Attach a new repo out-of-order and detach an existing repo -> still zero sorting on scrape!
+        cells.set("aaa-new-repo", makeFakeCell("aaa-new-repo", 0) as unknown as Parameters<typeof cells.set>[1]);
+        cells.delete("repo-032");
+        snapAfterMutation = lifecycle.observabilitySnapshot();
+      } finally {
+        Array.prototype.sort = originalSort;
+      }
+      assert.equal(
+        sortCalls,
+        0,
+        "observabilitySnapshot must never call Array.prototype.sort on cold, post-mutation, or steady-state scrapes",
+      );
       assert.equal(snap1.repos.length, 65);
       assert.deepEqual(
         snap2.repos.map((r) => r.repoId),
@@ -479,6 +596,12 @@ test(
       );
       assert.equal(snap2.repos[0]?.repoId, "edge-repo");
       assert.equal(snap2.repos[0]?.state, "unavailable");
+      assert.equal(snapAfterMutation.repos[0]?.repoId, "aaa-new-repo");
+      assert.ok(!snapAfterMutation.repos.some((r) => r.repoId === "repo-032"));
+      assert.deepEqual(
+        snapAfterMutation.repos.map((r) => r.repoId),
+        [...snapAfterMutation.repos.map((r) => r.repoId)].sort(),
+      );
 
       // Confirm formatPrometheusMetrics formats pre-sorted repos cleanly and preserves constant RPC cardinality
       for (let i = 0; i < 10; i += 1) rpc.observeDuration(0.015, true);
@@ -629,3 +752,297 @@ test("metrics HTTP server isolates throwing collectSnapshot/isReady/isLive callb
     await server.close();
   }
 });
+
+test(
+  "cold HTTP /metrics scrape on a freshly launched node daemon performs zero existsSync/readFileSync calls before any daemon.status RPC",
+  { timeout: 60_000 },
+  () => {
+    const userRoot = mkdtempSync(path.join(tmpdir(), "ha-cold-scrape-"));
+    const runtimeUrl = new URL("../src/daemon-host/runtime.ts", import.meta.url).href;
+    const targetUrl = new URL("../src/daemon-host/client/local-daemon-target.ts", import.meta.url).href;
+    const daemonPkg = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "../package.json"), "utf8")) as {
+      readonly version: string;
+    };
+    const childEnv = { ...process.env };
+    delete childEnv.npm_package_version;
+    try {
+      const probeScript = `
+        import fs from "node:fs";
+        import { syncBuiltinESMExports } from "node:module";
+        import { startDaemon } from ${JSON.stringify(runtimeUrl)};
+        import { localUserDaemonEndpoint } from ${JSON.stringify(targetUrl)};
+
+        const userRoot = ${JSON.stringify(userRoot)};
+        const daemonId = "cold-scrape-zero-fs";
+        const endpoint = localUserDaemonEndpoint(userRoot, daemonId);
+        const running = await startDaemon({
+          userRoot,
+          daemonId,
+          endpoint,
+          buildSupersessionEnabled: false,
+          metrics: { bind: "127.0.0.1", port: 0, path: "/metrics", bearerToken: null },
+        });
+        if (!("stop" in running) || !running.metricsEndpoint) {
+          throw new Error("expected running daemon with metricsEndpoint");
+        }
+        const readyzUrl = new URL("/readyz", running.metricsEndpoint).href;
+        for (let attempt = 0; attempt < 50; attempt += 1) {
+          const probe = await fetch(readyzUrl);
+          if (probe.status === 200) break;
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        const fsCalls = [];
+        const origExistsSync = fs.existsSync;
+        const origReadFileSync = fs.readFileSync;
+        const origStatSync = fs.statSync;
+        const origLstatSync = fs.lstatSync;
+        const origReaddirSync = fs.readdirSync;
+        fs.existsSync = (...args) => { fsCalls.push(["existsSync", String(args[0])]); return origExistsSync(...args); };
+        fs.readFileSync = (...args) => { fsCalls.push(["readFileSync", String(args[0])]); return origReadFileSync(...args); };
+        fs.statSync = (...args) => { fsCalls.push(["statSync", String(args[0])]); return origStatSync(...args); };
+        fs.lstatSync = (...args) => { fsCalls.push(["lstatSync", String(args[0])]); return origLstatSync(...args); };
+        fs.readdirSync = (...args) => { fsCalls.push(["readdirSync", String(args[0])]); return origReaddirSync(...args); };
+        syncBuiltinESMExports();
+        let body = "";
+        let status = 0;
+        try {
+          const res = await fetch(running.metricsEndpoint);
+          status = res.status;
+          body = await res.text();
+        } finally {
+          fs.existsSync = origExistsSync;
+          fs.readFileSync = origReadFileSync;
+          fs.statSync = origStatSync;
+          fs.lstatSync = origLstatSync;
+          fs.readdirSync = origReaddirSync;
+          syncBuiltinESMExports();
+          await running.stop();
+        }
+        process.stdout.write(JSON.stringify({ status, fsCalls, hasVersion: body.includes('version="${daemonPkg.version}"'), hasUp: body.includes("ha_daemon_up 1\\n") }));
+      `;
+      const probePath = path.join(userRoot, "cold-scrape-probe.mjs");
+      writeFileSync(probePath, probeScript, "utf8");
+      const output = execFileSync(process.execPath, [probePath], {
+        env: childEnv,
+        encoding: "utf8",
+      });
+      const parsed = JSON.parse(output) as {
+        readonly status: number;
+        readonly fsCalls: readonly (readonly [string, string])[];
+        readonly hasVersion: boolean;
+        readonly hasUp: boolean;
+      };
+      assert.equal(parsed.status, 200);
+      assert.equal(parsed.hasUp, true);
+      assert.equal(parsed.hasVersion, true, "cold /metrics must report real installed daemon package version");
+      assert.deepEqual(
+        parsed.fsCalls,
+        [],
+        `cold HTTP /metrics scrape must perform zero synchronous fs calls, observed: ${JSON.stringify(parsed.fsCalls)}`,
+      );
+    } finally {
+      rmSync(userRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  },
+);
+
+test(
+  "ha_daemon_rpc_inflight accounts for in-flight Fleet TLS RPC requests consistently with local Unix RPCs",
+  { timeout: 60_000 },
+  async () => {
+    const sandbox = mkdtempSync(path.join(tmpdir(), "ha-fleet-inflight-"));
+    const userRoot = path.join(sandbox, "user");
+    const repoRoot = path.join(sandbox, "repo");
+    const keyPath = path.join(sandbox, "tls.key");
+    const certPath = path.join(sandbox, "tls.crt");
+    const repoId = "fleet-inflight";
+    const daemonId = "fleet-inflight-daemon";
+    const endpoint = localUserDaemonEndpoint(userRoot, daemonId);
+    const closers: Array<() => unknown> = [];
+    let running: Awaited<ReturnType<typeof startDaemon>> | undefined;
+    try {
+      rosterRepo(repoRoot, repoId);
+      registerBootstrappedDaemonRepo({ canonicalRoot: repoRoot, repoId, userRoot, createConvenienceLinks: false });
+      execFileSync(
+        "openssl",
+        [
+          "req",
+          "-x509",
+          "-newkey",
+          "rsa:2048",
+          "-nodes",
+          "-keyout",
+          keyPath,
+          "-out",
+          certPath,
+          "-subj",
+          "/CN=localhost",
+          "-days",
+          "1",
+          "-addext",
+          "subjectAltName=DNS:localhost,IP:127.0.0.1",
+        ],
+        { stdio: "ignore" },
+      );
+      const probeServer = net.createServer();
+      await new Promise<void>((resolve) => probeServer.listen(0, "127.0.0.1", resolve));
+      const fleetPort = (probeServer.address() as net.AddressInfo).port;
+      await new Promise<void>((resolve) => probeServer.close(() => resolve()));
+
+      saveFleetCenterConfig(userRoot, daemonId, {
+        port: fleetPort,
+        bind: "127.0.0.1",
+        repoId,
+        keyPath,
+        certPath,
+        stateRoot: path.join(userRoot, "fleet"),
+        quotaBytes: 1024 * 1024,
+      });
+
+      let signalRpcEntered!: () => void;
+      const rpcEntered = new Promise<void>((resolve) => {
+        signalRpcEntered = resolve;
+      });
+      let releaseRpc!: () => void;
+      const rpcGate = new Promise<void>((resolve) => {
+        releaseRpc = resolve;
+      });
+
+      const fakeOidc = {
+        configured: () => true,
+        centerConfigured: () => true,
+        center: async () => ({
+          url: "https://idp.example.invalid",
+          realm: "fleet",
+          accessToken: "center-tok",
+          provider: {
+            authenticateNode: async () => true,
+            readNode: async () => ({ state: "active", revocation: "complete", personId: "person-owner" }),
+            authorizePerson: async () => ({ outcome: "allowed" }),
+          },
+        }),
+        bind: async <T extends Record<string, unknown>>(auth: T) => ({
+          ...auth,
+          oidcPrincipal: {
+            personId: "person-owner",
+            accessToken: "human-tok",
+            azp: "harness-cli",
+            authority: { url: "https://idp.example.invalid", realm: "fleet" },
+            provider: {
+              authorizePerson: async () => ({ outcome: "allowed" }),
+            },
+          },
+        }),
+        discovery: () => null,
+        status: async () => ({ ok: true }),
+        bindingHealth: async () => ({ ok: true }),
+        logout: async () => ({ ok: true }),
+        bootstrapStatus: async () => ({ ok: true, required: false }),
+        interactiveAuthority: async () => ({ url: "https://idp.example.invalid", realm: "fleet", clientId: "ha" }),
+        begin: async () => ({}),
+        complete: async () => ({}),
+        beginDevice: async () => ({}),
+        deviceApproval: async () => ({}),
+        pollDevice: async () => ({}),
+        requireAccessManagement: async () => {
+          throw new Error("not used");
+        },
+        requireSession: async () => {
+          throw new Error("not used");
+        },
+        serialize: async <T>(op: () => Promise<T>) => op(),
+        configureAuthority: async <T>(op: () => Promise<T>) => op(),
+        bootstrapAdmin: async () => ({ ok: true }),
+        invite: async () => ({ ok: true }),
+      };
+
+      running = await startDaemon({
+        userRoot,
+        daemonId,
+        endpoint,
+        buildSupersessionEnabled: false,
+        oidc: fakeOidc as unknown as Parameters<typeof startDaemon>[0]["oidc"],
+        openCell: async (cellInput) => {
+          const status = {
+            repoId: cellInput.repoId,
+            rootDir: cellInput.rootDir,
+            mode: cellInput.mode,
+            state: "attached" as const,
+            generation: 1,
+            queueDepth: 0,
+            projectionWatermark: 1,
+            ledgerRevision: 1,
+            lastError: null,
+            causeClass: null,
+            recoveryMs: 0,
+            materialization: null,
+          };
+          return {
+            status: () => status,
+            publishedStatus: () => status,
+            statusCuts: () => null,
+            read: async () => {
+              signalRpcEntered();
+              await rpcGate;
+              return {
+                ok: true,
+                status: "ready",
+                taskId: "task_demo",
+                dispatches: [],
+                outcome: "succeeded",
+                exitCode: 0,
+                watermark: 1,
+                sourceRevision: 1,
+              };
+            },
+            run: async () => ({ ok: true, schedules: [] }),
+            settlePendingMaterialization: async () => undefined,
+            close: async () => undefined,
+          } as unknown as Awaited<ReturnType<NonNullable<Parameters<typeof startDaemon>[0]["openCell"]>>>;
+        },
+        metrics: { bind: "127.0.0.1", port: 0, path: "/metrics", bearerToken: null },
+      });
+      assert.ok("stop" in running && running.metricsEndpoint);
+
+      const peer = await rawPeer(
+        (fn) => closers.push(fn),
+        fleetPort,
+        readFileSync(certPath),
+        "edge-node-1",
+        "machine-secret",
+      );
+
+      // Start one Fleet RPC and hold it in flight while scraping /metrics
+      const inFlightPromise = peer.request({
+        schema: "fleet.operational.read/v1",
+        messageId: "inflight-read-1",
+        repoId,
+        method: "repo.task.dispatches",
+        payload: { taskId: "task_demo" },
+      });
+
+      await rpcEntered;
+      const whileInFlight = await (await fetch(running.metricsEndpoint)).text();
+      assert.ok(
+        whileInFlight.includes("ha_daemon_rpc_inflight 1\n"),
+        `expected ha_daemon_rpc_inflight 1 while Fleet RPC is in flight, got:\n${whileInFlight}`,
+      );
+
+      releaseRpc();
+      const response = await inFlightPromise;
+      assert.equal(response.schema, "fleet.operational.read.result/v1");
+
+      const afterSettled = await (await fetch(running.metricsEndpoint)).text();
+      assert.ok(
+        afterSettled.includes("ha_daemon_rpc_inflight 0\n"),
+        `expected ha_daemon_rpc_inflight 0 after Fleet RPC settles, got:\n${afterSettled}`,
+      );
+      const okMatch = /ha_daemon_rpc_requests_total\{outcome="ok"\}\s+(\d+)/u.exec(afterSettled);
+      assert.ok(okMatch && Number(okMatch[1]) >= 1, `expected ok RPC counter >= 1, got:\n${afterSettled}`);
+    } finally {
+      for (const close of closers.splice(0)) await close();
+      if (running && "stop" in running) await running.stop();
+      rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  },
+);

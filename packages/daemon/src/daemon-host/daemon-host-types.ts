@@ -353,6 +353,9 @@ export interface DaemonHostOpenInput {
   readonly onRepoStatusChange?: () => void;
   /** One persisted transport record per completed request, shared with local JSON-RPC traffic. */
   readonly recordTraffic?: (entry: import("./conn-log.ts").DaemonTrafficLogEntry) => void;
+  /** Tracks in-flight Fleet center RPC requests alongside local Unix JSON-RPC requests. */
+  readonly onFleetRequestStarted?: () => void;
+  readonly onFleetRequestSettled?: () => void;
   /** The daemon's one OIDC session service; the transport binds requests through the same instance. */
   readonly oidc?: IdentitySessionPort;
   /** The managed identity center's lifecycle; a hermetic host substitutes it to stage its resume. */
