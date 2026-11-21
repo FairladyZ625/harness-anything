@@ -58,7 +58,11 @@ import { acquireWorkspaceLock, causeClassOf, latchReprobeThrottleMs } from "./re
 import { operationId } from "./repo-cell-proof.ts";
 import { makeScheduleActionRuntime, settleScheduledRuntime } from "./schedule-action-runtime.ts";
 import { commitRuntimeSessionAction, runtimeSessionActionPreparer } from "./runtime-session-action-runtime.ts";
-import { makeRepoCellSettingsState, readEffectiveDispatchArchiveRetention } from "./repo-cell-settings-state.ts";
+import {
+  makeRepoCellSettingsState,
+  projectedRepositorySettings,
+  readEffectiveDispatchArchiveRetention,
+} from "./repo-cell-settings-state.ts";
 import { makePersonActionRuntime } from "./person-action-runtime.ts";
 import { authorizeRuntimeRepoAction } from "./repo-cell-authorization.ts";
 import { commitRuntimeSettlement } from "./repo-cell-runtime-settlement.ts";
@@ -459,7 +463,7 @@ export async function openRepoWriterCell(
           rootDir,
           agentId,
           entityStore,
-          verticalId: verticalId ?? readSettings().defaultVertical,
+          verticalId: verticalId ?? projectedRepositorySettings(projection)?.defaultVertical,
         });
       return resolveAgentRuntimeDeclaration(declaration, projected);
     },
@@ -470,7 +474,7 @@ export async function openRepoWriterCell(
         leaderId,
         ...(workerId ? { workerId } : {}),
         entityStore: createEntityStore(store),
-        verticalId: verticalId ?? readSettings().defaultVertical,
+        verticalId: verticalId ?? projectedRepositorySettings(projection)?.defaultVertical,
       }),
     onRuntimeOutcome: (event) => {
       schedule(() => squadCoordinator.observeOutcome(event));
@@ -675,7 +679,7 @@ export async function openRepoWriterCell(
           rootDir,
           action,
           replayed: store.readEvent(opId),
-          verticalId: settings.read().defaultVertical,
+          verticalId: projectedRepositorySettings(projection)?.defaultVertical,
         });
       if (contract.id === "delete") {
         const existing = store.readEvent(opId);
@@ -695,7 +699,7 @@ export async function openRepoWriterCell(
           action,
           entityStore: createEntityStore(store),
           projection,
-          verticalId: settings.read().defaultVertical,
+          verticalId: projectedRepositorySettings(projection)?.defaultVertical,
         });
         return { ...action, ...prepared };
       }

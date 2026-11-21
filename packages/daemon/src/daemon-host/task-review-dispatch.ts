@@ -143,7 +143,7 @@ export function nodeReviewDispatchCandidate(
     rootDir: cell.rootDir,
     agentId: reviewerId,
     entityStore: createEntityStore(cell.store),
-    verticalId: snapshot.task.metadata?.verticalId ?? cell.settings.read().defaultVertical,
+    verticalId: snapshot.task.metadata?.verticalId ?? cell.settings.readRepository().defaultVertical,
   });
   if (!resolved) return null;
   const { declaration: agent, layer } = resolved,
@@ -343,7 +343,7 @@ export async function dispatchDecisionReview(
       rootDir: cell.rootDir,
       agentId: reviewerId,
       entityStore: createEntityStore(cell.store),
-      verticalId: cell.settings.read().defaultVertical,
+      verticalId: cell.settings.readRepository().defaultVertical,
     });
   if (!resolved)
     throw cell.cellCodedError("review_dispatch_failed", `Reviewer ${reviewerId} is not bundled or installed.`);
@@ -782,7 +782,7 @@ function readReviewAgent(cell: RepoCellOperationalContext, reviewerId: string, v
         rootDir: cell.rootDir,
         agentId: reviewerId,
         entityStore: createEntityStore(cell.store),
-        verticalId: verticalId ?? cell.settings.read().defaultVertical,
+        verticalId: verticalId ?? cell.settings.readRepository().defaultVertical,
       }),
     };
   } catch (error) {
@@ -899,7 +899,8 @@ export async function spawnCutReviewDispatch(
       agentId: input.reviewerId,
       entityStore: createEntityStore(cell.store),
       verticalId:
-        cell.projection.read(input.taskId).snapshot.task?.metadata?.verticalId ?? cell.settings.read().defaultVertical,
+        cell.projection.read(input.taskId).snapshot.task?.metadata?.verticalId ??
+        cell.settings.readRepository().defaultVertical,
     });
   } catch (error) {
     if (!isAgentDeclarationInvalid(error)) throw error;

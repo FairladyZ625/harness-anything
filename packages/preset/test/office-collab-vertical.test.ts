@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fromMarkdown } from "mdast-util-from-markdown";
 import {
   INITIAL_SETTINGS_V1,
   compileVerticalContract,
@@ -538,6 +539,143 @@ test("deliverable-contract check passes valid deliverables and rejects missing f
     }).payload;
     assert.equal(dup.result, "fail");
     assert.match(dup.diagnostic, /Duplicate top-level key "owner"/u);
+
+    // HA09-2: CommonMark parity against mdast-util-from-markdown across Setext headings, HTML blocks 1-7,
+    // indented code blocks, thematic breaks, code fences, and ATX edge cases (with valid SHA-256 hashes).
+    const mdastRequiredSections = (
+      doc: string,
+      required: readonly string[],
+    ): { readonly missing: string[]; readonly empty: string[] } => {
+      const tree = fromMarkdown(doc);
+      const headingText = (node: { readonly children?: ReadonlyArray<{ readonly value?: string }> }): string =>
+        (node.children ?? [])
+          .map((child) => (typeof child.value === "string" ? child.value : ""))
+          .join("")
+          .trim();
+      const isSubstantive = (node: { readonly type: string; readonly value?: string }): boolean => {
+        if (node.type === "thematicBreak") return false;
+        if (node.type === "code") return (node.value ?? "").trim().length > 0;
+        if (node.type === "html") return (node.value ?? "").replace(/<!--[\s\S]*?-->/gu, "").trim().length > 0;
+        return true;
+      };
+      const missing: string[] = [];
+      const empty: string[] = [];
+      for (const anchor of required) {
+        const parsed = /^(#{1,6})\s+(.*)$/u.exec(anchor.trim());
+        assert.ok(parsed, `expected heading anchor: ${anchor}`);
+        const depth = parsed[1]!.length;
+        const text = parsed[2]!.trim();
+        const matches: number[] = [];
+        for (let i = 0; i < tree.children.length; i += 1) {
+          const node = tree.children[i] as {
+            readonly type: string;
+            readonly depth?: number;
+            readonly children?: ReadonlyArray<{ readonly value?: string }>;
+          };
+          if (node.type === "heading" && node.depth === depth && headingText(node) === text) matches.push(i);
+        }
+        if (matches.length === 0) {
+          missing.push(anchor);
+          continue;
+        }
+        let hasBody = false;
+        for (const start of matches) {
+          for (let i = start + 1; i < tree.children.length; i += 1) {
+            const current = tree.children[i] as {
+              readonly type: string;
+              readonly depth?: number;
+              readonly value?: string;
+            };
+            if (current.type === "heading") {
+              if ((current.depth ?? 0) <= depth) break;
+              continue;
+            }
+            if (isSubstantive(current)) {
+              hasBody = true;
+              break;
+            }
+          }
+          if (hasBody) break;
+        }
+        if (!hasBody) empty.push(anchor);
+      }
+      return { missing, empty };
+    };
+
+    const actionTail = "\n\n## Action Plan\n\nFinalize the handoff.\n";
+    const required = ["## Executive Summary", "## Action Plan"];
+    const commonMarkCases: ReadonlyArray<readonly [string, string]> = [
+      ["emptyAtx", `## Executive Summary\n\n###${actionTail}`],
+      ["emptyAtxSpaces", `## Executive Summary\n\n###   ${actionTail}`],
+      ["emptyAtxClosing", `## Executive Summary\n\n### ###${actionTail}`],
+      ["unspacedHash", `## Executive Summary#\n\nDraft text.${actionTail}`],
+      ["spacedHash", `## Executive Summary ###\n\nDraft text.${actionTail}`],
+      ["emptyBeforeSetext", `## Executive Summary\n\nBackground\n----------\n\nBackground details.${actionTail}`],
+      ["emptyBeforeSetextH1", `## Executive Summary\n\nTop Level\n=========\n\nDetails.${actionTail}`],
+      ["setextMatchH2", `Executive Summary\n-----------------\n\nSubstantive summary.${actionTail}`],
+      ["setextH1NoMatchH2", `Executive Summary\n=================\n\nSubstantive summary.${actionTail}`],
+      ["htmlBlock", `<div>\n## Executive Summary\nBackground details.\n</div>${actionTail}`],
+      ["htmlBlockType1", `<pre>\n## Executive Summary\nDetails.\n</pre>${actionTail}`],
+      ["htmlBlockType2", `<!--\n## Executive Summary\nDetails.\n-->${actionTail}`],
+      ["htmlBlockType3", `<?xml\n## Executive Summary\n?>${actionTail}`],
+      ["htmlBlockType4", `<!DOCTYPE\n## Executive Summary\n>${actionTail}`],
+      ["htmlBlockType5", `<![CDATA[\n## Executive Summary\n]]>${actionTail}`],
+      ["htmlBlockType7", `<custom-panel>\n## Executive Summary\nDetails.\n</custom-panel>${actionTail}`],
+      ["htmlBlockType7InPara", `Intro text\n<custom-panel>\n## Executive Summary\n\nSummary body.${actionTail}`],
+      ["htmlBlock6NoBlank", "<div>\n## Executive Summary\n</div>\n## Action Plan\n\nFinalize.\n"],
+      ["indentedCodeHeading", `    ## Executive Summary\n    Indented body.${actionTail}`],
+      ["indentedCodeBody", `## Executive Summary\n\n    Indented example body.${actionTail}`],
+      ["thematicBreakEmpty", `## Executive Summary\n\n---${actionTail}`],
+      ["fencedCodeEmpty", `## Executive Summary\n\n\`\`\`\n\`\`\`${actionTail}`],
+      ["fencedCodeBody", `## Executive Summary\n\n\`\`\`json\n{"ok":true}\n\`\`\`${actionTail}`],
+    ];
+    for (const [label, doc] of commonMarkCases) {
+      const oracle = mdastRequiredSections(doc, required);
+      const docFile = path.join(sandbox, `cm-${label}.md`);
+      writeFileSync(docFile, doc);
+      const docHash = sha256(doc);
+      const cmManifestFile = path.join(sandbox, `cm-${label}-manifest.json`);
+      const cmManifestBody = JSON.stringify({ ...validManifest, documentSha256: docHash, requiredSections: required });
+      writeFileSync(cmManifestFile, cmManifestBody);
+      const cmManifestHash = sha256(cmManifestBody);
+      const actual = runCheckScript(sandbox, scriptPath, {
+        schema: "witness-input/v1",
+        code: null,
+        subjects: [
+          {
+            path: "tasks/t1/artifacts/deliverable-manifest.json",
+            revision: 1,
+            blobSha256: cmManifestHash,
+            file: cmManifestFile,
+          },
+        ],
+        artifacts: [
+          {
+            path: "tasks/t1/artifacts/deliverable-manifest.json",
+            revision: 1,
+            blobSha256: cmManifestHash,
+            file: cmManifestFile,
+          },
+          { path: "tasks/t1/artifacts/deliverable.md", revision: 1, blobSha256: docHash, file: docFile },
+        ],
+      }).payload;
+      const expectedPass = oracle.missing.length === 0 && oracle.empty.length === 0;
+      assert.equal(actual.result, expectedPass ? "pass" : "fail", `${label}: ${actual.diagnostic}`);
+      if (oracle.missing.length > 0) {
+        assert.match(
+          actual.diagnostic,
+          new RegExp(`Missing required sections: ${oracle.missing.join(", ")}`, "u"),
+          label,
+        );
+      } else {
+        assert.doesNotMatch(actual.diagnostic, /Missing required sections:/u, label);
+      }
+      if (oracle.empty.length > 0) {
+        assert.match(actual.diagnostic, new RegExp(`Empty required sections: ${oracle.empty.join(", ")}`, "u"), label);
+      } else {
+        assert.doesNotMatch(actual.diagnostic, /Empty required sections:/u, label);
+      }
+    }
   } finally {
     rmSync(sandbox, { recursive: true, force: true });
   }

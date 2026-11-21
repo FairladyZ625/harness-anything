@@ -445,7 +445,7 @@ test(
 );
 
 test(
-  "HA09-8: pre-existing local custom office/collab vertical preserves legacy bundled worker resolution across daemon cold read",
+  "HA09-8: pre-existing local custom office/collab vertical with same-name local agent files preserves core bundled worker/reviewer across Center cold read",
   { timeout: 120_000 },
   async (t) => {
     const parent = mkdtempSync(path.join(tmpdir(), "ha-office-upgrade-worker-")),
@@ -466,10 +466,36 @@ test(
     mkdirSync(home);
     initIngressRepo(root, process.getuid?.() ?? 0);
 
-    // Author a baseline-style pre-existing local custom office/collab vertical with NO local agents/ directory
+    // Author a baseline-style pre-existing local custom office/collab vertical that ALSO contains
+    // uninstalled same-name local agent files (reviewer.json + analyst.json) on disk.
     const localOffice = path.join(root, "verticals", "legacy-office");
     cpSync(new URL("../../preset/assets/software-coding/", import.meta.url), localOffice, { recursive: true });
     rmSync(path.join(localOffice, "agents"), { recursive: true, force: true });
+    mkdirSync(path.join(localOffice, "agents"), { recursive: true });
+    writeFileSync(
+      path.join(localOffice, "agents", "reviewer.json"),
+      JSON.stringify({
+        schema: "agent-declaration/v1",
+        id: "reviewer",
+        name: "Uninstalled Local Reviewer",
+        role: "reviewer",
+        instructions: "UNINSTALLED LOCAL REVIEWER MUST NOT OVERRIDE CORE.",
+        runtimes: [],
+        skills: [],
+      }),
+    );
+    writeFileSync(
+      path.join(localOffice, "agents", "analyst.json"),
+      JSON.stringify({
+        schema: "agent-declaration/v1",
+        id: "analyst",
+        name: "Uninstalled Local Analyst",
+        role: "worker",
+        instructions: "UNINSTALLED LOCAL ANALYST MUST NOT BECOME BUNDLED.",
+        runtimes: [],
+        skills: [],
+      }),
+    );
     const localVertical = JSON.parse(readFileSync(path.join(localOffice, "vertical.json"), "utf8"));
     localVertical.id = "office/collab";
     localVertical.title = "Legacy Local Office";
@@ -613,7 +639,8 @@ for (const frame of [
     );
     assert.equal((await cliJsonAt(daemon1.endpoint, 0, "task", "start", taskId)).outcome, "applied");
 
-    // Cold-restart daemon to prove cold read of existing local office/collab task still resolves bundled worker
+    // Cold-restart daemon to prove cold read of existing local office/collab task still resolves core bundled
+    // worker/reviewer and ignores uninstalled local agent files under verticals/legacy-office/agents/.
     await daemon1.stop();
     stop = async () => {};
     const daemon2 = await launchDaemon();
@@ -624,7 +651,36 @@ for (const frame of [
       bundledAgents: string[];
     };
     assert.ok(legacyCatalog.bundledAgents.includes("worker"), JSON.stringify(legacyCatalog.bundledAgents));
+    assert.ok(legacyCatalog.bundledAgents.includes("reviewer"), JSON.stringify(legacyCatalog.bundledAgents));
     assert.ok(!legacyCatalog.bundledAgents.includes("contributor"), JSON.stringify(legacyCatalog.bundledAgents));
+    assert.ok(!legacyCatalog.bundledAgents.includes("analyst"), JSON.stringify(legacyCatalog.bundledAgents));
+
+    const reviewerDryRun = await cliJsonAt(
+      daemon2.endpoint,
+      0,
+      "agent",
+      "run",
+      "reviewer",
+      "--task",
+      taskId,
+      "--instance",
+      instanceId,
+      "--dry-run",
+    );
+    assert.equal(reviewerDryRun.ok, true, JSON.stringify(reviewerDryRun));
+    assert.match(
+      String(reviewerDryRun.prompt),
+      /Independently review the assigned delivery against the task contract/u,
+    );
+    assert.doesNotMatch(String(reviewerDryRun.prompt), /UNINSTALLED LOCAL REVIEWER/u);
+    assert.doesNotMatch(String(reviewerDryRun.prompt), /deliverable or handoff package/u);
+
+    const analystDenied = await spawnCli(
+      ["--root", root, "--json", "agent", "run", "analyst", "--task", taskId, "--instance", instanceId, "--dry-run"],
+      cliEnvFor(daemon2.endpoint),
+    );
+    assert.notEqual(analystDenied.status, 0, "uninstalled local analyst.json must not resolve as bundled");
+    assert.match(`${analystDenied.stdout}\n${analystDenied.stderr}`, /agent_not_found/u);
 
     const dispatched = await cliJsonAt(
       daemon2.endpoint,
@@ -651,5 +707,260 @@ for (const frame of [
     const launchedPrompt = readFileSync(promptFile, "utf8");
     assert.match(launchedPrompt, /# Agent Identity: worker \(worker\)/u);
     assert.match(launchedPrompt, /Complete the assigned task using the repository rules/u);
+  },
+);
+
+test(
+  "HA09-8: Fleet Edge resolves the same core worker/reviewer declarations as Center for a pre-existing local custom office/collab vertical containing same-name local agent files",
+  { timeout: 120_000 },
+  async (t) => {
+    const replicaQuota = 64 * 1024 * 1024,
+      fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"], [], "local", undefined, undefined, false);
+    t.after(() => fixture.close());
+
+    const writeLegacyLocalOfficeVertical = (repoDir: string, commit: boolean) => {
+      const localOffice = path.join(repoDir, "verticals", "legacy-office");
+      cpSync(new URL("../../preset/assets/software-coding/", import.meta.url), localOffice, { recursive: true });
+      rmSync(path.join(localOffice, "agents"), { recursive: true, force: true });
+      mkdirSync(path.join(localOffice, "agents"), { recursive: true });
+      writeFileSync(
+        path.join(localOffice, "agents", "reviewer.json"),
+        JSON.stringify({
+          schema: "agent-declaration/v1",
+          id: "reviewer",
+          name: "Uninstalled Local Reviewer",
+          role: "reviewer",
+          instructions: "UNINSTALLED LOCAL REVIEWER MUST NOT OVERRIDE CORE.",
+          runtimes: [],
+          skills: [],
+        }),
+      );
+      writeFileSync(
+        path.join(localOffice, "agents", "analyst.json"),
+        JSON.stringify({
+          schema: "agent-declaration/v1",
+          id: "analyst",
+          name: "Uninstalled Local Analyst",
+          role: "worker",
+          instructions: "UNINSTALLED LOCAL ANALYST MUST NOT BECOME BUNDLED.",
+          runtimes: [],
+          skills: [],
+        }),
+      );
+      const localVertical = JSON.parse(readFileSync(path.join(localOffice, "vertical.json"), "utf8"));
+      localVertical.id = "office/collab";
+      localVertical.title = "Legacy Local Office";
+      localVertical.completion = {
+        sources: {},
+        gates: {},
+        closeoutDefaults: { review: false, consent: false, factDisposition: false },
+      };
+      writeFileSync(path.join(localOffice, "vertical.json"), JSON.stringify(localVertical));
+      const legacyPresetDir = path.join(localOffice, "presets", "legacy-memo");
+      mkdirSync(legacyPresetDir, { recursive: true });
+      writeFileSync(
+        path.join(legacyPresetDir, "PRESET.md"),
+        "---\nschema: preset-document/v1\ndescription: Pre-existing local office preset.\nwhenToUse: Legacy local office memo workflow.\n---\n# Legacy Memo\n",
+      );
+      writeFileSync(
+        path.join(legacyPresetDir, "preset.json"),
+        JSON.stringify({
+          schema: "preset-manifest/v3",
+          id: "legacy-memo",
+          title: "Legacy Memo",
+          vertical: "office/collab",
+          version: "1.0.0",
+          kind: "template-content",
+          outputShape: "artifact-only",
+          kernelVersionRange: { min: "1.0.0" },
+          capabilityImports: [],
+          defaultProfile: "baseline",
+          profiles: [{ id: "baseline", title: "Baseline", completionGates: [], templateSelections: [] }],
+        }),
+      );
+      if (commit) {
+        git(repoDir, "add", "verticals");
+        git(repoDir, "commit", "-qm", "add local custom office/collab vertical with same-name agent files");
+      }
+    };
+
+    writeLegacyLocalOfficeVertical(fixture.repo, false);
+
+    const legacyTaskId = "task-legacy-office-edge",
+      createdLegacy = await fixture.host.run(
+        fixture.subject.repoId,
+        {
+          kind: "task-create",
+          taskId: legacyTaskId,
+          title: "Legacy Local Office Edge Task",
+          verticalId: "office/collab",
+          presetId: "legacy-memo",
+          profileId: "baseline",
+          riskTier: "low",
+        },
+        fixture.auth,
+      );
+    assert.equal(createdLegacy.outcome, "applied", JSON.stringify(createdLegacy));
+    await waitForFleetPublication(fixture.host, fixture.subject.repoId, createdLegacy.opId, fixture.auth);
+    const legacyPackagePath = String((createdLegacy as Record<string, unknown>).packagePath);
+    await realizeTaskPlanFixture(
+      fixture.repo,
+      legacyPackagePath,
+      (planPath) =>
+        fixture.host.run(fixture.subject.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
+      "Legacy Local Office Edge Task",
+    );
+
+    const center = await fixture.center(),
+      edgeRoot = path.join(fixture.root, "legacy-local-edge"),
+      edgeUserRoot = path.join(fixture.root, "legacy-local-edge-user"),
+      viewRoot = path.join(fixture.root, "legacy-local-edge-view"),
+      uid = process.getuid?.() ?? 0,
+      localAuth = {
+        transportKind: "unix-socket",
+        unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" },
+      } as const;
+    mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
+    initRepo(edgeRoot);
+    writeFileSync(
+      path.join(edgeRoot, "harness/harness.yaml"),
+      readFileSync(path.join(fixture.repo, "harness/harness.yaml")),
+    );
+    git(edgeRoot, "add", "harness");
+    git(edgeRoot, "commit", "-qm", "edge harness");
+    writeLegacyLocalOfficeVertical(edgeRoot, true);
+
+    const syncEdge = async () => {
+      await catchUpReplica({
+        readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+        port: center.port,
+        ca: fixture.cert,
+        nodeId: fixture.subject.nodeId,
+        credential: "machine-secret",
+        repoId: fixture.subject.repoId,
+        viewRoot,
+        diskQuotaBytes: replicaQuota,
+      });
+      assert.equal(applyFleetMirrorCut(viewRoot, fixture.subject.repoId, edgeRoot, "pull").outcome, "applied");
+    };
+    await syncEdge();
+
+    writeFleetEdgeConfig(edgeUserRoot, fixture.subject.repoId, {
+      repoId: fixture.subject.repoId,
+      host: "127.0.0.1",
+      port: center.port,
+      caPath: fixture.certFile,
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      viewRoot,
+      quotaBytes: replicaQuota,
+    });
+    registerBootstrappedDaemonRepo({
+      canonicalRoot: edgeRoot,
+      repoId: fixture.subject.repoId,
+      mode: "remote-edge",
+      userRoot: edgeUserRoot,
+      createConvenienceLinks: false,
+    });
+    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId, edgeRoot);
+
+    const runtimeDefinition: AgentDefinitionSnapshot = {
+        schema: "agent-definition-snapshot/v1",
+        configVersion: 1,
+        instanceId: "edge-legacy-office-codex",
+        installationId: "edge-legacy-office-codex-installation",
+        kindId: "codex",
+        providerId: "openai",
+        model: "legacy-office-edge-model",
+        reasoningEffort: "high",
+        endpointKind: "official",
+        baseUrlHash: null,
+        authMode: "subscription",
+      },
+      runtimeInstallation: RuntimeInstallationWitness = {
+        installationId: runtimeDefinition.installationId,
+        kindId: runtimeDefinition.kindId,
+        executablePath: "/usr/bin/true",
+        version: "1.0.0",
+        observedAt: "2026-11-21T00:00:00.000Z",
+      };
+
+    const edgeHost = await openDaemonHost({
+      daemonId: "legacy-local-office-edge",
+      userRoot: edgeUserRoot,
+      runtimeDiscover: () => [runtimeInstallation],
+      runtimeLaunch: () => runtimeProcessFixture(t),
+    });
+    fixture.track(() => edgeHost.close());
+    await edgeHost.attachmentsSettled();
+
+    await registerFixtureRuntimeInstance(
+      edgeHost,
+      fixture.subject.repoId,
+      localAuth,
+      {
+        instanceId: runtimeDefinition.instanceId,
+        name: "Edge Legacy Office Codex",
+        kindId: runtimeDefinition.kindId,
+        installationId: runtimeDefinition.installationId,
+        providerId: runtimeDefinition.providerId,
+        models: [runtimeDefinition.model],
+        codex: { reasoningEffort: runtimeDefinition.reasoningEffort },
+        authMode: runtimeDefinition.authMode,
+      },
+      { allowHost: fixture.host },
+    );
+    await syncEdge();
+
+    // Both Center and Edge must resolve reviewer and worker to core bundled declarations (never local agents/*.json or builtin office agents)
+    const edgeReviewer = await edgeHost.spawnRuntime(
+      fixture.subject.repoId,
+      {
+        runtimeInstanceId: runtimeDefinition.instanceId,
+        agentId: "reviewer",
+        cwd: { scope: "repo-root" },
+        taskId: legacyTaskId,
+        dryRun: true,
+        dispatchKey: "edge-legacy-office-reviewer",
+      },
+      localAuth,
+    );
+    assert.equal(edgeReviewer.ok, true, JSON.stringify(edgeReviewer));
+    assert.match(String(edgeReviewer.prompt), /Independently review the assigned delivery against the task contract/u);
+    assert.doesNotMatch(String(edgeReviewer.prompt), /UNINSTALLED LOCAL REVIEWER/u);
+    assert.doesNotMatch(String(edgeReviewer.prompt), /deliverable or handoff package/u);
+
+    const edgeWorker = await edgeHost.spawnRuntime(
+      fixture.subject.repoId,
+      {
+        runtimeInstanceId: runtimeDefinition.instanceId,
+        agentId: "worker",
+        cwd: { scope: "repo-root" },
+        taskId: legacyTaskId,
+        dryRun: true,
+        dispatchKey: "edge-legacy-office-worker",
+      },
+      localAuth,
+    );
+    assert.equal(edgeWorker.ok, true, JSON.stringify(edgeWorker));
+    assert.match(String(edgeWorker.prompt), /Complete the assigned task using the repository rules/u);
+
+    for (const disallowed of ["analyst", "contributor"] as const) {
+      await assert.rejects(
+        edgeHost.spawnRuntime(
+          fixture.subject.repoId,
+          {
+            runtimeInstanceId: runtimeDefinition.instanceId,
+            agentId: disallowed,
+            cwd: { scope: "repo-root" },
+            taskId: legacyTaskId,
+            dryRun: true,
+            dispatchKey: `edge-legacy-office-${disallowed}-denied`,
+          },
+          localAuth,
+        ),
+        { code: "agent_not_found" },
+      );
+    }
   },
 );

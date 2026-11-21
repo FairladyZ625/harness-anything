@@ -89,65 +89,141 @@ function parseHeading(line) {
   };
 }
 
+function matchHtmlBlockStart(line, inParagraph) {
+  // CommonMark §4.6 HTML blocks (types 1–7); types 1–6 interrupt paragraphs, type 7 cannot.
+  if (/^ {0,3}<(?:pre|script|style|textarea)(?:$|[ \t>])/iu.test(line))
+    return { type: 1, endPattern: /<\/(?:pre|script|style|textarea)>/iu };
+  if (/^ {0,3}<!--/u.test(line)) return { type: 2, endPattern: /-->/u };
+  if (/^ {0,3}<\?/u.test(line)) return { type: 3, endPattern: /\?>/u };
+  if (/^ {0,3}<![A-Za-z]/u.test(line)) return { type: 4, endPattern: />/u };
+  if (/^ {0,3}<!\[CDATA\[/u.test(line)) return { type: 5, endPattern: /\]\]>/u };
+  const type6 =
+    /^ {0,3}<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h1|h2|h3|h4|h5|h6|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:$|[ \t>]|\/>)/iu;
+  if (type6.test(line)) return { type: 6, endPattern: null };
+  if (inParagraph) return null;
+  const openTag =
+    /^ {0,3}<(?!(?:pre|script|style|textarea)(?:$|[ \t/>]))[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \t]*=[ \t]*(?:[^\s"'=<>`]+|'[^']*'|"[^"]*"))?)*[ \t]*\/?>[ \t]*$/iu;
+  const closeTag = /^ {0,3}<\/[A-Za-z][A-Za-z0-9-]*[ \t]*>[ \t]*$/u;
+  if (openTag.test(line) || closeTag.test(line)) return { type: 7, endPattern: null };
+  return null;
+}
+
+function makeEntry(text, flags = {}) {
+  return {
+    text,
+    isHeading: flags.isHeading ?? false,
+    inCode: flags.inCode ?? false,
+    isHtmlBlock: flags.isHtmlBlock ?? false,
+    hasContent: flags.hasContent ?? false,
+    level: flags.level ?? 0,
+    normalizedHeading: flags.normalizedHeading ?? "",
+  };
+}
+
+function flushParagraphLines(parsed, paragraphLines) {
+  if (paragraphLines.length === 0) return;
+  let inComment = false;
+  for (const rawLine of paragraphLines) {
+    const stripped = stripHtmlCommentsOnLine(rawLine, inComment);
+    inComment = stripped.inComment;
+    parsed.push(makeEntry(stripped.text, { hasContent: stripped.text.trim().length > 0 }));
+  }
+  paragraphLines.length = 0;
+}
+
 function parseMarkdownLines(documentText) {
   const parsed = [];
+  const paragraphLines = [];
   let fence = null;
-  let inComment = false;
+  let htmlBlock = null;
   for (const line of stripFrontmatter(documentText).split(/\r?\n/u)) {
-    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line);
     if (fence !== null) {
-      const closes =
-        delimiter !== null &&
-        delimiter[1][0] === fence.marker &&
-        delimiter[1].length >= fence.length &&
-        !delimiter[2].trim();
+      const closer = /^ {0,3}(`{3,}|~{3,})[ \t]*$/u.exec(line);
+      const closes = closer !== null && closer[1][0] === fence.marker && closer[1].length >= fence.length;
       if (closes) fence = null;
-      parsed.push({
-        text: line,
-        isHeading: false,
-        inFence: true,
-        fenceEdge: closes,
-        level: 0,
-        normalizedHeading: "",
-      });
+      parsed.push(makeEntry(line, { inCode: true, hasContent: !closes && line.trim().length > 0 }));
       continue;
     }
-    const stripped = stripHtmlCommentsOnLine(line, inComment);
-    inComment = stripped.inComment;
-    const opener = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(stripped.text);
+    if (htmlBlock !== null) {
+      if (htmlBlock.endPattern === null && /^[ \t]*$/u.test(line)) {
+        htmlBlock = null;
+        continue;
+      }
+      const hasContent =
+        htmlBlock.type === 2 ? stripHtmlCommentsOnLine(line, true).text.trim().length > 0 : line.trim().length > 0;
+      parsed.push(makeEntry(line, { isHtmlBlock: true, hasContent }));
+      if (htmlBlock.endPattern !== null && htmlBlock.endPattern.test(line)) htmlBlock = null;
+      continue;
+    }
+    if (/^[ \t]*$/u.test(line)) {
+      flushParagraphLines(parsed, paragraphLines);
+      continue;
+    }
+    if (paragraphLines.length > 0) {
+      const setext = /^ {0,3}(=+|-+)[ \t]*$/u.exec(line);
+      if (setext) {
+        const level = setext[1][0] === "=" ? 1 : 2;
+        const headingText = paragraphLines
+          .map((item) => item.trim())
+          .join("\n")
+          .trim();
+        const hashes = "#".repeat(level);
+        paragraphLines.length = 0;
+        parsed.push(
+          makeEntry(headingText, {
+            isHeading: true,
+            level,
+            normalizedHeading: headingText ? `${hashes} ${headingText}` : hashes,
+          }),
+        );
+        continue;
+      }
+    } else if (/^(?: {4}| {0,3}\t)/u.test(line)) {
+      parsed.push(makeEntry(line, { inCode: true, hasContent: line.trim().length > 0 }));
+      continue;
+    }
+    const opener = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line);
     if (opener && !(opener[1][0] === "`" && opener[2].includes("`"))) {
+      flushParagraphLines(parsed, paragraphLines);
       fence = { marker: opener[1][0], length: opener[1].length };
-      parsed.push({
-        text: stripped.text,
-        isHeading: false,
-        inFence: true,
-        fenceEdge: true,
-        level: 0,
-        normalizedHeading: "",
-      });
+      parsed.push(makeEntry(line, { inCode: true }));
       continue;
     }
-    const heading = parseHeading(stripped.text);
+    const heading = parseHeading(line);
     if (heading) {
-      parsed.push({
-        text: stripped.text,
-        isHeading: true,
-        inFence: false,
-        fenceEdge: false,
-        level: heading.level,
-        normalizedHeading: heading.normalized,
-      });
-    } else {
-      parsed.push({
-        text: stripped.text,
-        isHeading: false,
-        inFence: false,
-        fenceEdge: false,
-        level: 0,
-        normalizedHeading: "",
-      });
+      flushParagraphLines(parsed, paragraphLines);
+      parsed.push(makeEntry(line, { isHeading: true, level: heading.level, normalizedHeading: heading.normalized }));
+      continue;
     }
+    const htmlStart = matchHtmlBlockStart(line, paragraphLines.length > 0);
+    if (htmlStart) {
+      flushParagraphLines(parsed, paragraphLines);
+      const hasContent =
+        htmlStart.type === 2 ? stripHtmlCommentsOnLine(line, false).text.trim().length > 0 : line.trim().length > 0;
+      parsed.push(makeEntry(line, { isHtmlBlock: true, hasContent }));
+      if (htmlStart.endPattern === null || !htmlStart.endPattern.test(line)) htmlBlock = htmlStart;
+      continue;
+    }
+    if (/^ {0,3}(?:(?:-[ \t]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})$/u.test(line)) {
+      flushParagraphLines(parsed, paragraphLines);
+      parsed.push(makeEntry(line));
+      continue;
+    }
+    const container =
+      /^ {0,3}>/u.test(line) ||
+      (paragraphLines.length === 0
+        ? /^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:$|[ \t])/u.test(line)
+        : /^ {0,3}(?:[-+*]|1[.)])[ \t]+\S/u.test(line));
+    if (container) {
+      flushParagraphLines(parsed, paragraphLines);
+      const stripped = stripHtmlCommentsOnLine(line, false).text;
+      const content = stripped.replace(/^ {0,3}(?:>|(?:[-+*]|\d{1,9}[.)]))[ \t]*/u, "").trim();
+      parsed.push(makeEntry(stripped, { hasContent: content.length > 0 }));
+      continue;
+    }
+    paragraphLines.push(line);
   }
+  flushParagraphLines(parsed, paragraphLines);
   return parsed;
 }
 
@@ -163,7 +239,7 @@ function checkRequiredSections(documentText, requiredSections) {
       const entry = entries[i];
       if (targetHeading) {
         if (entry.isHeading && entry.normalizedHeading === targetHeading.normalized) matchingIndices.push(i);
-      } else if (!entry.inFence && entry.text.trim() === trimmedAnchor) {
+      } else if (!entry.inCode && !entry.isHtmlBlock && entry.text.trim() === trimmedAnchor) {
         matchingIndices.push(i);
       }
     }
@@ -180,8 +256,7 @@ function checkRequiredSections(documentText, requiredSections) {
           if (level > 0 && current.level <= level) break;
           continue;
         }
-        if (current.fenceEdge) continue;
-        if (current.text.trim().length > 0) {
+        if (current.hasContent) {
           hasBody = true;
           break;
         }
