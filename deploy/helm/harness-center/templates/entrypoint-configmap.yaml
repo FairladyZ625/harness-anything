@@ -470,7 +470,7 @@ data:
       const path = require("node:path");
       const marker = process.argv[1];
       mkdirSync(path.dirname(marker), { recursive: true, mode: 0o700 });
-      writeFileSync(marker, JSON.stringify({ target: process.cwd(), startedAt: new Date().toISOString() }) + "\n", { mode: 0o600 });
+      writeFileSync(marker, process.cwd() + "\n", { mode: 0o600 });
       chmodSync(marker, 0o600);
     ' "$BOOTSTRAP_PENDING_MARKER"
 

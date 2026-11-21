@@ -274,20 +274,20 @@ function resolvePathWithExistingRealpath(targetPath) {
   }
 }
 
-function isSameOrWithinResolved(candidatePath, basePath) {
+function pathWithinResolved(candidatePath, basePath) {
   const rel = path.relative(basePath, candidatePath);
-  if (rel === "") return true;
-  if (path.isAbsolute(rel)) return false;
-  return rel !== ".." && !rel.startsWith(`..${path.sep}`) && !rel.startsWith("../");
+  return (
+    rel === "" || (!path.isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${path.sep}`) && !rel.startsWith("../"))
+  );
 }
 
-function isSameOrWithinPath(candidatePath, basePath) {
+function pathWithinTarget(candidatePath, basePath) {
   const lexicalCandidate = path.resolve(candidatePath);
   const lexicalBase = path.resolve(basePath);
-  if (isSameOrWithinResolved(lexicalCandidate, lexicalBase)) return true;
-  const canonicalCandidate = resolvePathWithExistingRealpath(lexicalCandidate);
-  const canonicalBase = resolvePathWithExistingRealpath(lexicalBase);
-  return isSameOrWithinResolved(canonicalCandidate, canonicalBase);
+  return (
+    pathWithinResolved(lexicalCandidate, lexicalBase) ||
+    pathWithinResolved(resolvePathWithExistingRealpath(lexicalCandidate), resolvePathWithExistingRealpath(lexicalBase))
+  );
 }
 
 function findUnexpectedDirectories(rootDir, manifestFiles) {
@@ -328,7 +328,7 @@ function prepareDeliverableTargetPath(outDir, options = {}) {
   const protectedAncestors = [path.resolve(process.cwd()), path.resolve(homedir()), path.resolve(tmpdir())];
   if (options.repository) protectedAncestors.push(path.resolve(options.repository));
   for (const protectedPath of protectedAncestors) {
-    if (isSameOrWithinPath(protectedPath, targetDir)) {
+    if (pathWithinTarget(protectedPath, targetDir)) {
       throw new Error(
         `Refusing to replace protected directory or ancestor (${protectedPath}) as --out target: ${targetDir}`,
       );
@@ -336,7 +336,7 @@ function prepareDeliverableTargetPath(outDir, options = {}) {
   }
   if (options.archivePath) {
     const resolvedArchive = path.resolve(options.archivePath);
-    if (isSameOrWithinPath(resolvedArchive, targetDir) || isSameOrWithinPath(targetDir, resolvedArchive)) {
+    if (pathWithinTarget(resolvedArchive, targetDir) || pathWithinTarget(targetDir, resolvedArchive)) {
       throw new Error(
         `Refusing overlapping --archive (${resolvedArchive}) and --out (${targetDir}) paths; write --archive outside --out.`,
       );
@@ -358,7 +358,8 @@ function prepareDeliverableTargetPath(outDir, options = {}) {
           `Refusing to replace existing non-empty directory without a valid ${REPRODUCIBLE_BUILD_MANIFEST_SCHEMA} build-manifest.json verification: ${targetDir} (${verified.errors.slice(0, 3).join("; ")})`,
         );
       }
-      const unexpectedDirs = findUnexpectedDirectories(targetDir, verified.verifiedFiles ?? []);
+      const existingManifest = JSON.parse(readFileSync(path.join(targetDir, "build-manifest.json"), "utf8"));
+      const unexpectedDirs = findUnexpectedDirectories(targetDir, existingManifest.files ?? []);
       if (unexpectedDirs.length > 0) {
         throw new Error(
           `Refusing to replace existing non-empty directory containing unmanaged directories outside ${REPRODUCIBLE_BUILD_MANIFEST_SCHEMA} build-manifest.json: ${targetDir} (${unexpectedDirs.slice(0, 3).join(", ")})`,
@@ -859,7 +860,6 @@ export function verifyBuildManifest(options) {
     commit: manifest.commit ?? null,
     artifactDigest: actual.artifactDigest,
     fileCount: actual.fileCount,
-    verifiedFiles: actual.files,
     errors,
   };
 }

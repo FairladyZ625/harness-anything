@@ -840,14 +840,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   const readPendingBootstrapTargets = (): readonly string[] => {
     const markerPath = path.join(input.userRoot, "rbac", ".oidc-bootstrap-pending");
     if (!existsSync(markerPath)) return [];
-    try {
-      const parsed = JSON.parse(readFileSync(markerPath, "utf8")) as { readonly target?: unknown };
-      if (typeof parsed.target === "string" && parsed.target.trim().length > 0) return [parsed.target.trim()];
-      return [""];
-    } catch (error) {
-      consumeKnownError(error);
-      return [""];
-    }
+    const target = readFileSync(markerPath, "utf8").trim();
+    return [target];
   };
   const identityReadiness = createIdentityReadinessController({
     requireIdentityReady: input.requireIdentityReady,

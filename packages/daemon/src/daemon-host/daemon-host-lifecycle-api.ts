@@ -49,14 +49,19 @@ export function createIdentityReadinessController(input: {
     return raw === "1" || raw === "true";
   };
   let targetRevisionSeq = 0;
-  const pendingSyncTargetRevisions = new Map<string, number>();
+  let pendingSyncTargets: Array<{ readonly targetKey: string; readonly revision: number }> = [];
   const addPendingSyncTarget = (targetKey: string): void => {
-    pendingSyncTargetRevisions.set(targetKey, ++targetRevisionSeq);
+    const nextRevision = ++targetRevisionSeq;
+    pendingSyncTargets = [
+      ...pendingSyncTargets.filter((entry) => entry.targetKey !== targetKey),
+      { targetKey, revision: nextRevision },
+    ];
   };
-  const clearPendingSyncTargetIfUnchanged = (targetKey: string, expectedRevision: number): void => {
-    if (pendingSyncTargetRevisions.get(targetKey) === expectedRevision) {
-      pendingSyncTargetRevisions.delete(targetKey);
-    }
+  const removePendingSyncTarget = (targetKey: string, expectedRevision?: number): void => {
+    pendingSyncTargets = pendingSyncTargets.filter((entry) => {
+      if (entry.targetKey !== targetKey) return true;
+      return expectedRevision !== undefined && entry.revision !== expectedRevision;
+    });
   };
   if (input.initialPendingTargets) {
     for (const target of input.initialPendingTargets) {
@@ -65,7 +70,7 @@ export function createIdentityReadinessController(input: {
   }
   let current: IdentityProbeCode = !input.hasConfiguredIdentity()
     ? "identity_not_configured"
-    : pendingSyncTargetRevisions.size > 0
+    : pendingSyncTargets.length > 0
       ? "identity_authority_sync_pending"
       : isIdentityRequired()
         ? "identity_verifying"
@@ -76,43 +81,46 @@ export function createIdentityReadinessController(input: {
   let lastAccessToken: string | undefined;
   let discoveryVerified = false;
 
-  const assertStatusOk = (statusResult: unknown): void => {
-    if (
-      statusResult !== null &&
-      typeof statusResult === "object" &&
-      "ok" in statusResult &&
-      statusResult.ok === false
-    ) {
-      throw new Error("OIDC status check reported ok=false");
-    }
-  };
-
   const verifyLiveAuthority = (forceFreshToken = false): Promise<void> => {
     if (!input.hasConfiguredIdentity()) {
-      pendingSyncTargetRevisions.clear();
+      pendingSyncTargets = [];
       discoveryVerified = false;
       lastAccessToken = undefined;
       current = "identity_not_configured";
       return Promise.resolve();
     }
     if (verifyInFlight) return verifyInFlight;
-    const targetsToSync = [...pendingSyncTargetRevisions.entries()];
+    const targetsToSync = [...pendingSyncTargets];
     const generation = ++verifyGeneration;
     const tokenToInvalidate = forceFreshToken ? lastAccessToken : undefined;
     const isStale = (): boolean => input.isClosing() || verifyGeneration !== generation;
     const run = (async () => {
       await input.ensureRbacResumed();
       if (isStale()) return;
-      for (const [target, capturedRevision] of targetsToSync) {
-        const statusResult = await input.checkOidcStatus(target === "" ? undefined : target);
+      for (const { targetKey, revision } of targetsToSync) {
+        const statusResult = await input.checkOidcStatus(targetKey === "" ? undefined : targetKey);
         if (isStale()) return;
-        assertStatusOk(statusResult);
-        clearPendingSyncTargetIfUnchanged(target, capturedRevision);
+        if (
+          statusResult !== null &&
+          typeof statusResult === "object" &&
+          "ok" in statusResult &&
+          statusResult.ok === false
+        ) {
+          throw new Error("OIDC status check reported ok=false");
+        }
+        removePendingSyncTarget(targetKey, revision);
       }
       if (!discoveryVerified) {
         const defaultStatus = await input.checkOidcStatus(undefined);
         if (isStale()) return;
-        assertStatusOk(defaultStatus);
+        if (
+          defaultStatus !== null &&
+          typeof defaultStatus === "object" &&
+          "ok" in defaultStatus &&
+          defaultStatus.ok === false
+        ) {
+          throw new Error("OIDC default status check reported ok=false");
+        }
         discoveryVerified = true;
       }
       const centerResult = await input.checkOidcCenter(tokenToInvalidate);
@@ -129,7 +137,7 @@ export function createIdentityReadinessController(input: {
       .then(
         () => {
           if (isStale()) return;
-          if (pendingSyncTargetRevisions.size > 0) {
+          if (pendingSyncTargets.length > 0) {
             current = "identity_authority_sync_pending";
             return;
           }
@@ -139,7 +147,7 @@ export function createIdentityReadinessController(input: {
         (error: unknown) => {
           if (!isStale()) {
             if (forceFreshToken) lastAccessToken = undefined;
-            current = pendingSyncTargetRevisions.size > 0 ? "identity_authority_sync_pending" : "identity_unavailable";
+            current = pendingSyncTargets.length > 0 ? "identity_authority_sync_pending" : "identity_unavailable";
           }
           input.recordDiagnostics?.(error instanceof Error ? error.message : String(error));
         },
@@ -192,15 +200,15 @@ export function createIdentityReadinessController(input: {
         current = "identity_authority_sync_pending";
         return outcome;
       }
-      pendingSyncTargetRevisions.delete(targetKey);
+      removePendingSyncTarget(targetKey);
       discoveryVerified = false;
       lastAccessToken = undefined;
       if (!input.hasConfiguredIdentity()) {
-        pendingSyncTargetRevisions.clear();
+        pendingSyncTargets = [];
         current = "identity_not_configured";
         return outcome;
       }
-      if (pendingSyncTargetRevisions.size > 0) {
+      if (pendingSyncTargets.length > 0) {
         current = "identity_authority_sync_pending";
         return outcome;
       }
@@ -212,7 +220,7 @@ export function createIdentityReadinessController(input: {
       ++verifyGeneration;
       verifyInFlight = null;
       current = input.hasConfiguredIdentity()
-        ? pendingSyncTargetRevisions.size > 0
+        ? pendingSyncTargets.length > 0
           ? "identity_authority_sync_pending"
           : "identity_unavailable"
         : "identity_not_configured";

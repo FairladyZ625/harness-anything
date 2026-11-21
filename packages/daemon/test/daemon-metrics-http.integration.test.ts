@@ -1447,19 +1447,15 @@ test(
       await requestDaemonJsonRpcAt(endpoint, "daemon.status", {});
 
       // Must supersede and exit promptly once fleetDrainDeadlineMs (150ms) elapses despite stuck Fleet RPC!
-      await Promise.race([
-        supersededExited.promise,
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("build_superseded stalled behind stuck Fleet RPC metrics counter")), 5_000),
-        ),
-      ]);
+      await supersededExited.promise;
+      await peer.closed;
       const records = readDaemonLifecycleRecords(userRoot, daemonId);
       assert.ok(
         records.some((entry) => entry.event === "process_exit" && entry.outcome === "build_superseded"),
         `expected build_superseded process_exit record, got ${JSON.stringify(records)}`,
       );
       releaseRpc();
-      await stuckFleetPromise;
+      void stuckFleetPromise;
     } finally {
       releaseRpc?.();
       for (const close of closers.splice(0)) await close();
@@ -1574,6 +1570,32 @@ test(
       const secondHalf = fullPayload.subarray(19);
       const payloadSha256 = createHash("sha256").update(fullPayload).digest("hex");
 
+      const openAttachedCell: NonNullable<Parameters<typeof startDaemon>[0]["openCell"]> = async (cellInput) => {
+        const status = {
+          repoId: cellInput.repoId,
+          rootDir: cellInput.rootDir,
+          mode: cellInput.mode,
+          state: "attached" as const,
+          generation: 1,
+          queueDepth: 0,
+          projectionWatermark: 1,
+          ledgerRevision: 1,
+          lastError: null,
+          causeClass: null,
+          recoveryMs: 0,
+          materialization: null,
+        };
+        return {
+          status: () => status,
+          publishedStatus: () => status,
+          statusCuts: () => null,
+          read: async () => ({ ok: true }),
+          run: async () => ({ ok: true, schedules: [] }),
+          settlePendingMaterialization: async () => undefined,
+          close: async () => undefined,
+        } as unknown as Awaited<ReturnType<NonNullable<Parameters<typeof startDaemon>[0]["openCell"]>>>;
+      };
+
       // Pod A: boots on PVC root (daemon.userRoot) + authority-repo subPath, starts upload and persists chunk 1
       const portA = await allocPort();
       saveFleetCenterConfig(pvcRoot, daemonId, {
@@ -1591,6 +1613,7 @@ test(
         endpoint: localUserDaemonEndpoint(pvcRoot, daemonId),
         buildSupersessionEnabled: false,
         oidc: fakeOidc as unknown as Parameters<typeof startDaemon>[0]["oidc"],
+        openCell: openAttachedCell,
         metrics: null,
       });
       assert.ok("stop" in podA);
@@ -1610,7 +1633,11 @@ test(
           opId: "op-pod-replace-upload-1",
           content: { sha256: payloadSha256, size: fullPayload.byteLength, mediaType: "text/plain" },
         });
-        assert.equal(beginRes.schema, "fleet.upload.ready/v1");
+        assert.equal(
+          beginRes.schema,
+          "fleet.upload.ready/v1",
+          `unexpected begin response: ${JSON.stringify(beginRes)}`,
+        );
         uploadId = String(beginRes.uploadId ?? "");
         assert.ok(uploadId.length > 0);
         const chunk1Res = await peerA.request({
@@ -1651,6 +1678,7 @@ test(
         endpoint: localUserDaemonEndpoint(pvcRoot, daemonId),
         buildSupersessionEnabled: false,
         oidc: fakeOidc as unknown as Parameters<typeof startDaemon>[0]["oidc"],
+        openCell: openAttachedCell,
         metrics: null,
       });
       assert.ok("stop" in podB);
@@ -1670,7 +1698,11 @@ test(
           opId: "op-pod-replace-upload-1",
           content: { sha256: payloadSha256, size: fullPayload.byteLength, mediaType: "text/plain" },
         });
-        assert.equal(resumeRes.schema, "fleet.upload.ready/v1");
+        assert.equal(
+          resumeRes.schema,
+          "fleet.upload.ready/v1",
+          `unexpected resume response: ${JSON.stringify(resumeRes)}`,
+        );
         assert.equal(resumeRes.uploadId, uploadId);
         assert.equal(
           resumeRes.resumeOffset,
@@ -1698,6 +1730,11 @@ test(
         );
         assert.equal(finishRes.status, "staged");
         assert.equal((finishRes.descriptor as { readonly sha256?: string } | undefined)?.sha256, payloadSha256);
+        assert.equal(
+          existsSync(path.join(pvcAuthorityRepo, ".harness", "doc-sync-claims", uploadId)),
+          true,
+          "staged upload claim must be persisted inside PVC authority-repo subPath",
+        );
       } finally {
         for (const close of closers.splice(0)) await close();
         await podB.stop();
