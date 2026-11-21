@@ -9,8 +9,14 @@ import {
   markDaemonOperationPhase,
   observeDaemonOperation,
 } from "../daemon-operation.ts";
-import { validateTaskDispatchesPayload } from "../protocol/daemon-protocol-rpc-validation.ts";
-import { commandClassForAction, commandDescriptorForAction } from "../protocol/daemon-protocol.contract.ts";
+import { parseDaemonRpcParams, validateTaskDispatchesPayload } from "../protocol/daemon-protocol-rpc-validation.ts";
+import {
+  actionForDaemonMethod,
+  commandClassForAction,
+  commandDescriptorForAction,
+  makeDaemonCommandReceipt,
+} from "../protocol/daemon-protocol.contract.ts";
+import { parseDaemonActionResult } from "../protocol/daemon-result-validation.ts";
 import { createFleetDeliveryDrain } from "../../fleet-sync/fleet/center-delivery-drain.ts";
 import { createResourceBudget, DOC_SHOW_BUDGET_LIMITS, ResourceBudgetExceeded } from "./resource-budget.ts";
 import { fetchWorkerDelivery } from "../runtime-worker-push.ts";
@@ -68,7 +74,7 @@ import {
 } from "./center-listener-relocation.ts";
 import type { Delivery, FleetCenterOptions, FleetTlsCenter, SessionWindow } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
-import { type FleetFrameV1 } from "./command-protocol.ts";
+import { fleetBusinessOperationalReadMethods, type FleetFrameV1 } from "./command-protocol.ts";
 import type { FleetOverviewResult } from "./fleet-overview-read.ts";
 import { openFleetStorage, hasDaemonGitFollower } from "@harness-anything/storage";
 import {
@@ -92,6 +98,26 @@ const REPLICATION_HEAD_POLL_MS = 50;
 export const REPLICATION_KEEPALIVE_MS = 15_000;
 /** Active (unfinished) uploads one node may hold across all of its sessions. */
 const FLEET_NODE_ACTIVE_UPLOADS = 16;
+const FLEET_BUSINESS_READ_METHODS = new Set<string>(fleetBusinessOperationalReadMethods);
+const FLEET_READ_FAULT_CODES = new Set<string>([
+  "entity_not_found",
+  "execution_scope_mismatch",
+  "human_confirmation_required",
+  "ingress_binding_forbidden",
+  "invalid_command",
+  "invalid_cursor",
+  "invalid_field",
+  "runtime_session_not_found",
+  "unsupported_command",
+]);
+const FLEET_TASK_READ_DENIAL_CODES = new Set<string>([
+  "authentication_required",
+  "authorization_denied",
+  "execution_scope_mismatch",
+  "human_confirmation_required",
+  "ingress_binding_forbidden",
+  "repo_mode_read_only",
+]);
 function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise<void>((resolve) => {
     const done = () => {
@@ -1515,13 +1541,29 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           "execution_scope_mismatch",
           "Runtime read repository must match the authenticated node request.",
         );
+      const businessRead = FLEET_BUSINESS_READ_METHODS.has(frame.method);
       const binding = {
-        ...(await (frame.method === "repo.access.members.read" ? repoAdmission(a) : auth(a))),
+        ...(await (frame.method === "repo.access.members.read" || businessRead ? repoAdmission(a) : auth(a))),
         connectionSignal: connectionSignal ? AbortSignal.any([connectionSignal, closing.signal]) : closing.signal,
       };
       markDaemonOperationPhase("repository-admission");
       let result;
       try {
+        if (businessRead) {
+          const parsed = parseDaemonRpcParams(frame.method, {
+            repo: { repoId: a.repoId },
+            payload: frame.payload,
+          });
+          if (!parsed.ok) throw new FleetFault("invalid_field", parsed.errors.join("; "));
+          if (
+            frame.method === "observe.tail" &&
+            (frame.payload.kind === "daemon-log" || frame.payload.kind === "lifecycle")
+          )
+            throw new FleetFault(
+              "execution_scope_mismatch",
+              `observe.tail kind ${String(frame.payload.kind)} is host-scoped and cannot be read through a repository-scoped Fleet read.`,
+            );
+        }
         if (frame.method === "repo.access.members.read") {
           if (Object.keys(frame.payload).length > 0)
             throw new FleetFault("invalid_field", "The repository directory read takes no payload.");
@@ -1542,6 +1584,30 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         } else if (frame.method === "repo.tasks.autoDispatchCandidates") {
           markDaemonOperationPhase("projection-read");
           result = await options.host.readNodeAutoDispatchCandidates(a.repoId, binding);
+        } else if (frame.method === "repo.task.show" || frame.method === "repo.task.read") {
+          const action = actionForDaemonMethod(frame.method, frame.payload as JsonObject);
+          if (commandDescriptorForAction(action.kind).commandClass !== "repo-read")
+            throw new FleetFault("unsupported_command", `${action.kind} is not a read-only repository command.`);
+          const receipt = await observedRunCenterWriter(a.repoId, action, binding);
+          if (
+            "outcome" in receipt &&
+            receipt.outcome === "op_rejected" &&
+            "code" in receipt &&
+            typeof receipt.code === "string" &&
+            FLEET_TASK_READ_DENIAL_CODES.has(receipt.code)
+          ) {
+            throw new FleetFault(
+              receipt.code,
+              "rejectionExplanation" in receipt && typeof receipt.rejectionExplanation === "string"
+                ? receipt.rejectionExplanation
+                : receipt.code,
+            );
+          }
+          const commandReceipt = makeDaemonCommandReceipt(action.kind, receipt);
+          result =
+            frame.method === "repo.task.show"
+              ? parseDaemonActionResult("repo.task.show", commandReceipt)
+              : commandReceipt;
         } else {
           markDaemonOperationPhase("projection-read");
           if (frame.method === "repo.task.dispatches") {
@@ -1558,6 +1624,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           }
         }
       } catch (error) {
+        if (error instanceof FleetFault) throw error;
         const code = runtimeErrorCode(error);
         if (
           code &&
@@ -1566,6 +1633,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           )
         )
           throw new FleetFault(code, runtimeErrorMessage(error));
+        if (code && FLEET_READ_FAULT_CODES.has(code)) throw new FleetFault(code, runtimeErrorMessage(error));
         throw error;
       }
       return immediate({

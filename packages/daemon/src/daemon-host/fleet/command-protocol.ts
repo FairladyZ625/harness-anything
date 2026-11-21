@@ -77,6 +77,30 @@ export interface FleetRuntimeDispatchContext {
   /** New owners admit the dispatch and its RuntimeSession in one canonical transaction. */
   readonly launchGeneration?: number;
 }
+export const fleetBusinessOperationalReadMethods = [
+  "repo.tasks.list",
+  "repo.task.show",
+  "repo.task.read",
+  "observe.tail",
+  "repo.agentRuntime.events.read",
+  "repo.agentRuntime.tokenUsage",
+  "repo.agentRuntime.tokenUsageDetail",
+  "repo.artifacts.list",
+  "repo.agenda.read",
+] as const;
+const fleetOperationalReadMethods = [
+  "repo.tasks.runtimeContext.read",
+  "repo.agentRuntime.lifecycle.read",
+  "repo.agentRuntime.sessions.await",
+  "repo.task.dispatches",
+  "repo.access.members.read",
+  "repo.fleet.overview.read",
+  "repo.policy.metadata.read",
+  "repo.tasks.autoClaimCandidates",
+  "repo.tasks.autoDispatchCandidates",
+  ...fleetBusinessOperationalReadMethods,
+] as const;
+type FleetOperationalReadMethod = (typeof fleetOperationalReadMethods)[number];
 type Msg<S extends string, P extends object = object> = S extends string
   ? Readonly<{ schema: S; messageId: string; accessToken?: string }> & Readonly<P>
   : never;
@@ -315,16 +339,7 @@ export type FleetFrameV1 =
       "fleet.operational.read/v1",
       {
         repoId: string;
-        method:
-          | "repo.tasks.runtimeContext.read"
-          | "repo.agentRuntime.lifecycle.read"
-          | "repo.agentRuntime.sessions.await"
-          | "repo.task.dispatches"
-          | "repo.access.members.read"
-          | "repo.fleet.overview.read"
-          | "repo.policy.metadata.read"
-          | "repo.tasks.autoClaimCandidates"
-          | "repo.tasks.autoDispatchCandidates";
+        method: FleetOperationalReadMethod;
         payload: Readonly<Record<string, unknown>>;
       }
     >
@@ -1027,17 +1042,7 @@ const schemas: Readonly<Record<string, Check>> = {
   "fleet.operational.read/v1": shape({
     ...common,
     repoId: id,
-    method: one(
-      "repo.tasks.runtimeContext.read",
-      "repo.agentRuntime.lifecycle.read",
-      "repo.agentRuntime.sessions.await",
-      "repo.task.dispatches",
-      "repo.access.members.read",
-      "repo.fleet.overview.read",
-      "repo.policy.metadata.read",
-      "repo.tasks.autoClaimCandidates",
-      "repo.tasks.autoDispatchCandidates",
-    ),
+    method: one(...fleetOperationalReadMethods),
     payload: record,
   }),
   "fleet.operational.read.result/v1": optionalShape({ ...reply, result: record, versionWarning: text }, [
