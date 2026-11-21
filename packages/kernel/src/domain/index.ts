@@ -3,6 +3,7 @@ export { commandInterceptionIssues } from "./command-interceptions.ts";
 export { validateRetiredCiRunObservationEvent } from "./ci-run-observation-retired-event.ts";
 export type { ActionEnvelope } from "./action-envelope.ts";
 export type { AuthorizationDecision } from "./receipt-frame.ts";
+export { decisionProviderVendors } from "./decision-provider.ts";
 export type {
   AdvisoryDecision,
   DecisionOption,
@@ -10,6 +11,7 @@ export type {
   DecisionProviderMetadata,
   DecisionProviderProbe,
   DecisionProviderRecord,
+  DecisionProviderVendor,
   DecisionQuestion,
   DecisionRequest,
   DecisionUsage,

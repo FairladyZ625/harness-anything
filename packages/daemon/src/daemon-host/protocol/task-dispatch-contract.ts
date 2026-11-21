@@ -1,4 +1,5 @@
 import type {
+  DecisionProviderVendor,
   DispatchLifecycleSummary,
   EffectiveRuntimePermissionMode,
   EffectiveRuntimePermissionModeSource,
@@ -28,7 +29,7 @@ export interface TaskDispatchAdvisory {
   readonly options: readonly { readonly id: string; readonly text: string }[];
   readonly provider: {
     readonly providerId: string;
-    readonly vendor: "openrouter";
+    readonly vendor: DecisionProviderVendor;
     readonly requestedModel: string;
     readonly resolvedModel: string;
     readonly modelVersion: null;

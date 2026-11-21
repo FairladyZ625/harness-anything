@@ -4,6 +4,7 @@ import type {
   DaemonRepoMode,
   DecisionCapabilityId,
   DecisionCapabilityReason,
+  DecisionProviderVendor,
   MaterializationState,
   ReviewFindingCategory,
   ReviewFindingLabel,
@@ -111,6 +112,20 @@ export const reviewFindingLabelWords = Object.freeze([
   "Pre-existing",
 ] as const satisfies readonly ReviewFindingLabel[]);
 export const reviewFindingLabelWordsAreExact: [ReviewFindingLabel] extends [(typeof reviewFindingLabelWords)[number]]
+  ? true
+  : never = true;
+
+export const decisionProviderVendorWords = Object.freeze([
+  "openrouter",
+  "google",
+  "perplexity",
+  "decisions-http",
+  "openai-compatible",
+  "anthropic",
+] as const satisfies readonly DecisionProviderVendor[]);
+export const decisionProviderVendorWordsAreExact: [DecisionProviderVendor] extends [
+  (typeof decisionProviderVendorWords)[number],
+]
   ? true
   : never = true;
 

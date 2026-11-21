@@ -134,6 +134,84 @@ test("Decisions provider CLI accepts only the approved provider type and credent
       baseUrl: "",
       enabled: false,
     });
+  for (const vendor of [
+    "openrouter",
+    "google",
+    "perplexity",
+    "decisions-http",
+    "openai-compatible",
+    "anthropic",
+  ] as const) {
+    const createVendor = parseThinCommand([
+      "provider",
+      "create",
+      "--type",
+      "decisions",
+      "--vendor",
+      vendor,
+      "--id",
+      `dp-${vendor}`,
+      "--name",
+      `Provider ${vendor}`,
+      "--model",
+      "test-model",
+      "--credential-ref",
+      "credential:v1:test-key",
+      "--base-url",
+      "https://gateway.internal.example/v1",
+    ]);
+    assert.equal(createVendor.ok, true, `provider create --vendor ${vendor} should parse`);
+    if (createVendor.ok) {
+      assert.equal(createVendor.command.method, "daemon.provider.create");
+      assert.deepEqual(createVendor.command.action, {
+        kind: "provider-create",
+        type: "decisions",
+        vendor,
+        providerId: `dp-${vendor}`,
+        name: `Provider ${vendor}`,
+        model: "test-model",
+        baseUrl: "https://gateway.internal.example/v1",
+        credentialRef: "credential:v1:test-key",
+        enabled: true,
+      });
+    }
+  }
+  assert.equal(
+    parseThinCommand([
+      "provider",
+      "create",
+      "--type",
+      "decisions",
+      "--vendor",
+      "unknown-vendor",
+      "--id",
+      "a",
+      "--name",
+      "A",
+      "--model",
+      "m",
+      "--credential-ref",
+      "credential:v1:key",
+    ]).ok,
+    false,
+  );
+  const updateVendor = parseThinCommand([
+    "provider",
+    "update",
+    "review-choice",
+    "--vendor",
+    "google",
+    "--base-url",
+    "http://127.0.0.1:8080/v1beta",
+  ]);
+  assert.equal(updateVendor.ok, true);
+  if (updateVendor.ok)
+    assert.deepEqual(updateVendor.command.action, {
+      kind: "provider-update",
+      providerId: "review-choice",
+      vendor: "google",
+      baseUrl: "http://127.0.0.1:8080/v1beta",
+    });
   assert.equal(parseThinCommand(["provider", "update", "review-choice"]).ok, false);
   for (const operation of ["list", "show", "probe", "delete"]) {
     const args = operation === "list" ? ["provider", operation] : ["provider", operation, "review-choice"],

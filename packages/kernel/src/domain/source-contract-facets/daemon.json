@@ -7,7 +7,7 @@
         "explain": "Daemon `DecisionProviderPort.decide` transport adapter executing validated provider invocations with timeout and audit recording.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#openDecisionProviderService.port.decide:ac03593faf9739488670ff08f41264d4",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#openDecisionProviderService.port.decide:5108d8292901300bf1d6831188cb00a8",
             "route": "packages/daemon/src/daemon-host/decision-provider.ts#openDecisionProviderService.port.decide"
           }
         ],
@@ -19,7 +19,7 @@
         "explain": "Ingress request envelope validator for `DecisionProviderPort` invocations (`requestId`, `decisionPoint`, `options`, timeout bounds).",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#validateDecisionRequest:057f566b5cddf6760beba74a28cff400",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#validateDecisionRequest:364c678dbaa8453803e1e5c9fbb2d7fa",
             "route": "packages/daemon/src/daemon-host/decision-provider.ts#validateDecisionRequest"
           }
         ],

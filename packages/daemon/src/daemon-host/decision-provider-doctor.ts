@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { DecisionProviderRecord } from "@harness-anything/kernel";
+import { getDecisionProviderAdapter, parseDecisionProviderBaseUrl } from "./decision-providers/index.ts";
 import type { DoctorCheck } from "./repo-cell-doctor.ts";
 
 const checkId = "decisions-provider";
@@ -8,7 +9,7 @@ const checkId = "decisions-provider";
  * `ha doctor health` Decisions configuration check. The provider records are machine-local, so the
  * host process supplies them; this function only judges the provider the repository selected.
  * Read-only: it names the model, the failure code, the config file, and the next command without
- * resolving the credential or contacting OpenRouter.
+ * resolving the credential or contacting the configured Decisions provider.
  */
 export function decisionProviderDoctorCheck(input: {
   readonly userRoot: string;
@@ -57,6 +58,15 @@ export function decisionProviderDoctorCheck(input: {
       summary: `Decisions provider ${providerId} (model ${provider.model}) is selected by repository settings but disabled.`,
       next: `Run ha provider update ${providerId} --enable, then ha provider probe ${providerId}. Config: ${configPath}.`,
     };
+  const baseUrlFailure = checkProviderBaseUrl(provider);
+  if (baseUrlFailure !== null)
+    return {
+      id: checkId,
+      status: "fail",
+      count: 1,
+      summary: `Decisions provider ${providerId} (vendor ${provider.vendor}, model ${provider.model}) has an invalid baseUrl configuration: ${baseUrlFailure}`,
+      next: `Run ha provider update ${providerId} --base-url <https-or-loopback-url>, then ha provider probe ${providerId}. Config: ${configPath}.`,
+    };
   if (provider.probe.state === "failed") {
     const modelUnavailable = provider.probe.code === "decision_model_unavailable",
       next = modelUnavailable
@@ -87,4 +97,15 @@ export function decisionProviderDoctorCheck(input: {
     summary: `Decisions provider ${providerId} (model ${provider.model}) was ready at ${provider.probe.checkedAt}.`,
     next: "Nothing to do.",
   };
+}
+
+function checkProviderBaseUrl(provider: DecisionProviderRecord): string | null {
+  const adapter = getDecisionProviderAdapter(provider.vendor);
+  if (!adapter) return `Unsupported provider vendor: ${String(provider.vendor)}.`;
+  try {
+    parseDecisionProviderBaseUrl(adapter, provider.baseUrl);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
 }

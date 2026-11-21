@@ -1015,7 +1015,8 @@ test("a delivered cut retains a terminal provider cause while defaulting to no_a
     String(stored[0]?.action?.reason),
     /decision_transport after 0 retries: The OpenRouter Decisions request could not be completed/u,
   );
-  assert.match(String(stored[0]?.action?.reason), /HTTP 404 NotFoundResponseError: Invalid URL/u);
+  assert.match(String(stored[0]?.action?.reason), /HTTP 404 NotFoundResponseError code=http_404/u);
+  assert.doesNotMatch(String(stored[0]?.action?.reason), /Invalid URL/u);
 });
 
 test("a removed model keeps the model and its update command in the settled receipt", async (t) => {
@@ -1049,8 +1050,93 @@ test("a removed model keeps the model and its update command in the settled rece
   assert.match(reason, /decision_model_unavailable after 0 retries/u);
   assert.match(reason, new RegExp(`ha provider update ${provider.providerId} --model`, "u"));
   assert.match(reason, new RegExp(provider.model.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
-  assert.match(reason, /HTTP 404 NotFoundResponseError/u);
-  assert.match(reason, /unavailable for free/u);
+  assert.match(reason, /HTTP 404 NotFoundResponseError code=model_unavailable/u);
+  assert.doesNotMatch(reason, /unavailable for free/u);
+});
+
+test("HA10-02: executable incident fallback reasons never leak upstream error codes, types, statuses, messages, or short keys", async (t) => {
+  const rootDir = isolatedRoot();
+  const { createServer } = await import("node:http");
+  const sensitiveCode = "TENANT_SECRET_CODE_9911";
+  const sensitiveType = "INTERNAL_LEAK_TYPE_77";
+  const sensitiveStatus = "ORG_STATUS_42";
+  const sensitiveMessage = "Echoed prompt confidential-payload-8822 key=k1";
+  const server = createServer((_req, res) => {
+    res.writeHead(401, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error: {
+          code: sensitiveCode,
+          type: sensitiveType,
+          status: sensitiveStatus,
+          message: sensitiveMessage,
+        },
+      }),
+    );
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const origin = `http://127.0.0.1:${String(address.port)}`;
+  t.after(async () => {
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+      server.closeAllConnections();
+    });
+    rmSync(rootDir, { recursive: true, force: true });
+  });
+  seedIncidentStream(rootDir);
+  const secrets = new Map<string, string>();
+  const decisionProvider = openDecisionProviderService({
+    userRoot: rootDir,
+    vault: {
+      issue: () => "credential:v1:ha10-02-incident-key",
+      store: async (ref, secret) => void secrets.set(ref, secret),
+      resolve: async (ref) => secrets.get(ref) ?? "k1",
+      remove: async (ref) => void secrets.delete(ref),
+    },
+    now: () => "2026-10-19T00:00:00.000Z",
+    sleep: async () => undefined,
+  });
+  await decisionProvider.command({
+    kind: "provider-create",
+    type: "decisions",
+    vendor: "openrouter",
+    providerId: provider.providerId,
+    name: provider.name,
+    model: provider.model,
+    baseUrl: `${origin}/api/alpha`,
+    apiKey: "k1",
+  });
+  const executor = openTestExecutor({
+      rootDir,
+      providers: { list: decisionProvider.list, port: decisionProvider.port },
+      now: () => "2026-10-19T00:00:01.000Z",
+    }),
+    { cell, spawns } = fakeIncidentCell({
+      rootDir,
+      submission: { commitSha: "b".repeat(40) },
+      resume: { dispatchId, agentId: "terra" },
+    });
+  await executor.settle(cell, incidentOutcomeEvent());
+  assert.equal(spawns.length, 0);
+  const stored = await openDecisionAnnotationStore(rootDir).export(),
+    reason = String(stored[0]?.action?.reason);
+  assert.match(reason, /provider_credential_unavailable after 0 retries/u);
+  assert.match(reason, /HTTP 401 UnauthorizedResponseError code=http_401/u);
+  for (const forbidden of [
+    sensitiveCode,
+    sensitiveType,
+    sensitiveStatus,
+    sensitiveMessage,
+    "confidential-payload",
+    "k1",
+  ]) {
+    assert.equal(reason.includes(forbidden), false, `incident reason leaked ${forbidden}: ${reason}`);
+  }
 });
 
 test("the deterministic default still escalates when a guard forbids every automatic action", async (t) => {

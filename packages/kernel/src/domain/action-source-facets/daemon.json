@@ -1204,7 +1204,14 @@
         "order": 1161
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#openDecisionProviderService.port.decide.selected:5fa4ed17baab86c55356f4c68b797088",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#openDecisionProviderService.invokeAdapter:4ebda1709afd5bacfae557776694502d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-host/decision-providers/types.ts#DecisionProviderAdapter.invoke",
+        "order": 1239
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#openDecisionProviderService.port.decide.selected:03fe5d6933166f00bef4f386531cd250",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/daemon-host/decision-provider.ts#openDecisionProviderService.enqueue",
@@ -1216,13 +1223,6 @@
         "role": "technical-port",
         "port": "packages/daemon/src/daemon-host/decision-provider.ts#openDecisionProviderService.enqueue",
         "order": 1237
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#openRouterDecision:1a5937b41f5548472b6fd964893385b9",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@openrouter/sdk/esm/sdk/decisions.d.ts#Decisions.create",
-        "order": 1238
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#providerError:aa94d91442a58c04667e9d8d423772af",

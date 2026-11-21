@@ -1,4 +1,5 @@
 import { cliInput, defineHostAdminCommand } from "@harness-anything/preset/internal/preset-command-contract";
+import { decisionProviderVendorWords } from "./daemon-protocol-vocabulary.ts";
 
 const credentialReferenceRegex =
   "^credential:v1:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$|^keychain:[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$";
@@ -12,6 +13,13 @@ export const providerProtocolCommands = Object.freeze([
     method: "daemon.provider.create",
     inputs: [
       cliInput("--type", "single", true, { code: "missing_field" }, { pathKind: "non-path", enum: ["decisions"] }),
+      cliInput(
+        "--vendor",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", enum: decisionProviderVendorWords },
+      ),
       cliInput(
         "--id",
         "single",
@@ -58,7 +66,7 @@ export const providerProtocolCommands = Object.freeze([
         operation === "show"
           ? "Show one redacted Decisions provider."
           : operation === "probe"
-            ? "Verify one Decisions provider can reach OpenRouter."
+            ? "Verify one Decisions provider can reach its configured endpoint."
             : "Delete one Decisions provider and remove its unused credential.",
       method: `daemon.provider.${operation}`,
       inputs: [],
@@ -73,6 +81,13 @@ export const providerProtocolCommands = Object.freeze([
     summary: "Update a Decisions provider configuration.",
     method: "daemon.provider.update",
     inputs: [
+      cliInput(
+        "--vendor",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", enum: decisionProviderVendorWords },
+      ),
       cliInput("--name", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
       cliInput("--model", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
       cliInput("--base-url", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),

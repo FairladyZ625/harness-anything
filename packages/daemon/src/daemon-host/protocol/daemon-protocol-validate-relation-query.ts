@@ -26,7 +26,12 @@ import {
   warningArray,
   recordShapeError,
 } from "./daemon-protocol-validate-entities.ts";
-import { relationStateWords, decisionStateWords, taskStatusWords } from "./daemon-protocol-vocabulary.ts";
+import {
+  decisionProviderVendorWords,
+  relationStateWords,
+  decisionStateWords,
+  taskStatusWords,
+} from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, isUtcTimestamp, unknownFieldViolation, type JsonObject } from "./json-rpc-types.ts";
 import { DAEMON_WORKSPACE_SUMMARY_SCHEMA } from "./daemon-protocol-schema-ids.ts";
 import type {
@@ -302,7 +307,8 @@ function validTaskDispatchAdvisory(value: unknown): boolean {
     value.options.every((option) => isJsonObject(option) && dispatchText(option.id) && dispatchText(option.text)) &&
     isJsonObject(value.provider) &&
     dispatchText(value.provider.providerId) &&
-    value.provider.vendor === "openrouter" &&
+    typeof value.provider.vendor === "string" &&
+    (decisionProviderVendorWords as readonly string[]).includes(value.provider.vendor) &&
     dispatchText(value.provider.requestedModel) &&
     dispatchText(value.provider.resolvedModel) &&
     value.provider.modelVersion === null &&

@@ -19,6 +19,7 @@ export function parseProvider(
   if (
     route.id === "provider-update" &&
     ![
+      "--vendor",
       "--name",
       "--model",
       "--base-url",
@@ -36,6 +37,7 @@ export function parseProvider(
     ...(route.id === "provider-create"
       ? {
           type: flags.one.get("--type"),
+          ...(flags.one.has("--vendor") ? { vendor: flags.one.get("--vendor") } : {}),
           providerId: flags.one.get("--id"),
           name: flags.one.get("--name"),
           model: flags.one.get("--model"),
@@ -47,6 +49,7 @@ export function parseProvider(
       : {}),
     ...(route.id === "provider-update"
       ? {
+          ...(flags.one.has("--vendor") ? { vendor: flags.one.get("--vendor") } : {}),
           ...(flags.one.has("--name") ? { name: flags.one.get("--name") } : {}),
           ...(flags.one.has("--model") ? { model: flags.one.get("--model") } : {}),
           ...(flags.one.has("--base-url") ? { baseUrl: flags.one.get("--base-url") } : {}),

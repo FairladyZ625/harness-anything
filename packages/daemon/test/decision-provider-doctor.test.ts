@@ -127,3 +127,60 @@ test("an unreadable provider file is a failure with the repair path, not a throw
   assert.match(check.summary, /Unexpected token/u);
   assert.ok(check.next.includes(configPath), check.next);
 });
+
+test("doctor enforces unified baseUrl validation across all vendors even when probe state was ready", () => {
+  const missingRequired = decisionProviderDoctorCheck({
+    userRoot,
+    configuredProviderId: "self-hosted-decider",
+    listProviders: () => [
+      provider(
+        { state: "ready", checkedAt },
+        { providerId: "self-hosted-decider", vendor: "decisions-http", baseUrl: null, model: "decider-v1" },
+      ),
+    ],
+  });
+  assert.equal(missingRequired.status, "fail");
+  assert.match(missingRequired.summary, /decisions-http/u);
+  assert.match(missingRequired.next, /ha provider update self-hosted-decider --base-url/u);
+
+  for (const [vendor, invalidUrl] of [
+    ["openai-compatible", "http://gateway.internal.example/v1"],
+    ["google", "https://generativelanguage.googleapis.com/v1beta?"],
+    ["anthropic", "https://api.anthropic.com/v1#frag"],
+    ["perplexity", "https://user:pass@api.perplexity.ai/v1"],
+    ["openrouter", "not-a-valid-url"],
+  ] as const) {
+    const invalidCheck = decisionProviderDoctorCheck({
+      userRoot,
+      configuredProviderId: `bad-${vendor}`,
+      listProviders: () => [
+        provider(
+          { state: "ready", checkedAt },
+          { providerId: `bad-${vendor}`, vendor, baseUrl: invalidUrl, model: "model-x" },
+        ),
+      ],
+    });
+    assert.equal(invalidCheck.status, "fail", `${vendor} with invalid baseUrl ${invalidUrl} must fail doctor`);
+    assert.match(invalidCheck.summary, /invalid baseUrl/u);
+    assert.match(invalidCheck.next, new RegExp(`ha provider update bad-${vendor} --base-url`, "u"));
+  }
+
+  for (const [vendor, baseUrl] of [
+    ["openai-compatible", null],
+    ["openai-compatible", "https://gateway.internal.example/v1"],
+    ["google", null],
+    ["perplexity", "http://127.0.0.1:8080/v1"],
+    ["decisions-http", "http://127.0.0.1:9000/v1"],
+    ["anthropic", null],
+  ] as const) {
+    const ready = decisionProviderDoctorCheck({
+      userRoot,
+      configuredProviderId: `ok-${vendor}`,
+      listProviders: () => [
+        provider({ state: "ready", checkedAt }, { providerId: `ok-${vendor}`, vendor, baseUrl, model: "model-x" }),
+      ],
+    });
+    assert.equal(ready.status, "ok", `${vendor} with baseUrl=${String(baseUrl)} should be ok when ready`);
+    assert.equal(ready.count, 0);
+  }
+});
