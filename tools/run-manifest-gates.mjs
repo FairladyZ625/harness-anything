@@ -455,7 +455,7 @@ export function runCommandAsync(
   label,
   command,
   failureHint = null,
-  { cwd = repoRoot, githubGroups = false, input } = {},
+  { cwd = repoRoot, githubGroups = false, input, env = process.env } = {},
 ) {
   return new Promise((resolve) => {
     const started = Date.now();
@@ -491,7 +491,7 @@ export function runCommandAsync(
     try {
       child = spawn(command, {
         cwd,
-        env: process.env,
+        env,
         shell: true,
         stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
       });
@@ -522,22 +522,15 @@ export function runCommandAsync(
 }
 
 const runManifestGate = (entry) => runCommand(entry.id, entry.command, entry.failureHint, { input: entry.input });
-const runManifestGateAsync = (entry, githubGroups = false) => {
-  const concurrency = entry.authorizationAuditConcurrency;
-  if (concurrency === undefined) {
-    return runCommandAsync(entry.id, entry.command, entry.failureHint, { githubGroups, input: entry.input });
-  }
-
-  const variable = "HARNESS_AUTH_AUDIT_CONCURRENCY";
-  const previous = process.env[variable];
-  process.env[variable] = String(concurrency);
-  try {
-    return runCommandAsync(entry.id, entry.command, entry.failureHint, { githubGroups, input: entry.input });
-  } finally {
-    if (previous === undefined) delete process.env[variable];
-    else process.env[variable] = previous;
-  }
-};
+const runManifestGateAsync = (entry, githubGroups = false) =>
+  runCommandAsync(entry.id, entry.command, entry.failureHint, {
+    githubGroups,
+    input: entry.input,
+    env:
+      entry.authorizationAuditConcurrency === undefined
+        ? process.env
+        : { ...process.env, HARNESS_AUTH_AUDIT_CONCURRENCY: String(entry.authorizationAuditConcurrency) },
+  });
 
 /**
  * Run every gate in the plan and decide the aggregate verdict only at the end.
