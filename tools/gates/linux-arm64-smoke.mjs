@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import {
   accessSync,
   constants,
@@ -20,16 +19,46 @@ import { verifyTarballArchive } from "../check-package-tarball-exports.mjs";
 import { lastReceipt, smokeIdentity } from "../fixtures/smoke-identity.mjs";
 import { preparePackageExports, restorePackageExports } from "../package-exports-lifecycle.mjs";
 import { env as smokeEnv, resolveBinCommand, workspaceDependencyClosure } from "../smoke-cli-package.mjs";
+import {
+  CLEANUP_TIMEOUT_MS,
+  PROCESS_TREE_KILL_GRACE_MS,
+  destroyChildStreams,
+  extractErrorMessages,
+  isConfirmedDaemonGone,
+  localDaemonSocketEndpoint,
+  ownedProcessTreeAlive,
+  processIsAlive,
+  readDaemonPid,
+  readDaemonSingletonLock,
+  readPidFileStrict,
+  removeDirectorySafely,
+  requestOwnedDaemonCooperativeStop,
+  runAsyncCleanupStep,
+  runBoundedCommandAsync,
+  runWithResourceCleanups,
+  signalProcess,
+  spawnOwnedDaemon,
+  verifyDaemonStoppedAndCleanup,
+  waitChildExitOrDelay,
+  waitForOwnedDaemonReady,
+} from "./linux-arm64-smoke-process.mjs";
 import { normalizeRepoPath } from "./module-policy.mjs";
 
+export {
+  isConfirmedDaemonGone,
+  localDaemonSocketEndpoint,
+  readPidFileStrict,
+  requestOwnedDaemonCooperativeStop,
+  runBoundedCommandAsync,
+  runWithResourceCleanups,
+  spawnOwnedDaemon,
+  verifyDaemonStoppedAndCleanup,
+  waitForOwnedDaemonReady,
+};
+
 export const DEFAULT_DEADLINE_MS = 180_000;
-const CLEANUP_TIMEOUT_MS = 5_000;
-const PROCESS_TREE_KILL_GRACE_MS = 300;
-const PID_POLL_INTERVAL_MS = 50;
-const DAEMON_READY_POLL_MS = 100;
 const STOP_SETTLE_POLLS = 20;
 const NATIVE_PROBE_MARKER = "__HARNESS_ARM64_NATIVE_PROBE_RESULT__=";
-const GONE_RECEIPT_CODES = new Set(["daemon_unavailable", "daemon_stopped_by_operator"]);
 const ARM64_CONTRACT_TESTS = Object.freeze([
   "packages/daemon/test/node-pty-prebuild.test.ts",
   "packages/daemon/test/linux-arm64-platform.test.ts",
@@ -43,12 +72,6 @@ const TARBALL_CHECK_PACKAGES = new Set([
 function sanitizedHostEnv(overrides = {}) {
   const base = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("HARNESS_")));
   return { ...base, ...overrides };
-}
-
-function delay(ms) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
 }
 
 function createDeadlineBudget(deadlineMs, now = () => Date.now()) {
@@ -284,225 +307,6 @@ export async function runNativeModulesProbeInSubprocess({
   };
 }
 
-function signalProcess(pid, signal) {
-  try {
-    process.kill(pid, signal);
-    return true;
-  } catch (error) {
-    if (error?.code === "ESRCH") return false;
-    throw error;
-  }
-}
-
-function signalProcessGroup(pid, signal) {
-  try {
-    process.kill(-pid, signal);
-    return true;
-  } catch (error) {
-    if (error?.code === "ESRCH") return false;
-    throw error;
-  }
-}
-
-function processIsAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    if (error?.code !== "ESRCH" && error?.code !== "EPERM") throw error;
-    return error.code === "EPERM";
-  }
-}
-
-function processGroupIsAlive(pgid) {
-  try {
-    process.kill(-pgid, 0);
-    return true;
-  } catch (error) {
-    if (error?.code !== "ESRCH" && error?.code !== "EPERM") throw error;
-    return error.code === "EPERM";
-  }
-}
-
-async function waitForChildExit(child, timeoutMs) {
-  if (child.exitCode !== null || child.signalCode !== null) return true;
-  return new Promise((resolve) => {
-    let done = false;
-    const finish = (exited) => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      child.off("exit", onExit);
-      child.off("close", onExit);
-      resolve(exited);
-    };
-    const onExit = () => finish(true);
-    const timer = setTimeout(() => finish(child.exitCode !== null || child.signalCode !== null), timeoutMs);
-    child.once("exit", onExit);
-    child.once("close", onExit);
-  });
-}
-
-function waitChildExitOrDelay(child, ms) {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
-  return new Promise((resolve) => {
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      child.off("exit", finish);
-      child.off("close", finish);
-      resolve();
-    };
-    const timer = setTimeout(finish, Math.max(1, Math.floor(ms)));
-    child.once("exit", finish);
-    child.once("close", finish);
-  });
-}
-
-async function waitForProcessTreeExit(child, pgid, timeoutMs) {
-  const isGone = () =>
-    (child.exitCode !== null || child.signalCode !== null) && !processGroupIsAlive(pgid) && !processIsAlive(pgid);
-  if (isGone()) return true;
-  const maxPolls = Math.max(1, Math.ceil(Math.max(1, timeoutMs) / PID_POLL_INTERVAL_MS));
-  for (let attempt = 0; attempt < maxPolls && !isGone(); attempt += 1) {
-    await delay(PID_POLL_INTERVAL_MS);
-  }
-  return isGone();
-}
-
-function destroyChildStreams(child) {
-  child.stdout?.destroy();
-  child.stderr?.destroy();
-  child.stdin?.destroy();
-}
-
-async function terminateProcessTree(
-  child,
-  { graceMs = PROCESS_TREE_KILL_GRACE_MS, cleanupTimeoutMs = CLEANUP_TIMEOUT_MS },
-) {
-  if (child.pid === undefined || process.platform === "win32") {
-    if (child.exitCode === null && child.signalCode === null) {
-      child.kill("SIGKILL");
-      await waitForChildExit(child, cleanupTimeoutMs);
-    }
-    destroyChildStreams(child);
-    return child.exitCode !== null || child.signalCode !== null;
-  }
-  const pgid = child.pid;
-  const leaderExited = () => child.exitCode !== null || child.signalCode !== null;
-  if (processGroupIsAlive(pgid)) {
-    signalProcessGroup(pgid, "SIGTERM");
-  } else if (!leaderExited() || processIsAlive(pgid)) {
-    signalProcess(pgid, "SIGTERM");
-  }
-  const exitedGracefully = await waitForProcessTreeExit(child, pgid, Math.min(graceMs, cleanupTimeoutMs));
-  if (!exitedGracefully) {
-    if (processGroupIsAlive(pgid)) signalProcessGroup(pgid, "SIGKILL");
-    if (processIsAlive(pgid)) signalProcess(pgid, "SIGKILL");
-    destroyChildStreams(child);
-    await waitForProcessTreeExit(child, pgid, cleanupTimeoutMs);
-  } else {
-    destroyChildStreams(child);
-  }
-  return leaderExited() && !processGroupIsAlive(pgid) && !processIsAlive(pgid);
-}
-
-async function attemptTerminateProcessTree(child, options) {
-  try {
-    const terminatedCleanly = await terminateProcessTree(child, options);
-    return { ok: true, terminatedCleanly, error: null };
-  } catch (error) {
-    return { ok: false, terminatedCleanly: false, error: error instanceof Error ? error.message : String(error) };
-  }
-}
-
-export function runBoundedCommandAsync(
-  command,
-  args,
-  { cwd, env, timeoutMs, input, label, graceMs = PROCESS_TREE_KILL_GRACE_MS, cleanupTimeoutMs = CLEANUP_TIMEOUT_MS },
-) {
-  const effectiveTimeoutMs = Math.max(1, Math.floor(timeoutMs));
-  return new Promise((resolve) => {
-    const child = spawn(command, args, {
-      cwd,
-      env,
-      detached: process.platform !== "win32",
-      stdio: [input !== undefined ? "pipe" : "ignore", "pipe", "pipe"],
-      windowsHide: true,
-    });
-    let stdout = "";
-    let stderr = "";
-    let timedOut = false;
-    let settled = false;
-    const finish = (value) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(value);
-    };
-    if (input !== undefined && child.stdin) {
-      child.stdin.on("error", (error) => {
-        if (error?.code !== "EPIPE") stderr += `\nstdin error: ${error.message}`;
-      });
-      child.stdin.end(input);
-    }
-    const timer = setTimeout(async () => {
-      timedOut = true;
-      const termination = await attemptTerminateProcessTree(child, { graceMs, cleanupTimeoutMs });
-      const suffix = !termination.ok
-        ? ` (cleanup error: ${termination.error})`
-        : termination.terminatedCleanly
-          ? ""
-          : ` (process tree did not exit within ${cleanupTimeoutMs}ms)`;
-      finish({
-        ok: false,
-        status: child.exitCode,
-        signal: child.signalCode,
-        stdout,
-        stderr,
-        timedOut: true,
-        terminatedCleanly: termination.terminatedCleanly,
-        errorMessage: `${label} timed out after ${effectiveTimeoutMs}ms${suffix}`,
-      });
-    }, effectiveTimeoutMs);
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk;
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk;
-    });
-    child.on("error", (error) => {
-      finish({
-        ok: false,
-        status: null,
-        signal: null,
-        stdout,
-        stderr,
-        timedOut: false,
-        terminatedCleanly: true,
-        errorMessage: `${label} failed to spawn: ${error.message}`,
-      });
-    });
-    child.on("close", (status, signal) => {
-      if (timedOut) return;
-      finish({
-        ok: status === 0,
-        status,
-        signal,
-        stdout,
-        stderr,
-        timedOut: false,
-        terminatedCleanly: true,
-        errorMessage: status === 0 ? null : `${label} exited ${status}: ${(stderr || stdout).trim()}`,
-      });
-    });
-  });
-}
-
 function runNpmAsync(args, options) {
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   return runBoundedCommandAsync(npm, args, {
@@ -517,225 +321,6 @@ function parseCliResult(result) {
   } catch (error) {
     return { ...result, receipt: null, parseError: error instanceof Error ? error.message : String(error) };
   }
-}
-
-function readPidFileStrict(filePath) {
-  if (!existsSync(filePath)) return { state: "absent", pid: null };
-  const pid = Number(readFileSync(filePath, "utf8").trim());
-  if (!Number.isInteger(pid) || pid <= 0) return { state: "invalid", pid: null };
-  return { state: "present", pid };
-}
-
-function readDaemonPid(userRoot) {
-  return readPidFileStrict(path.join(userRoot, "daemon-default.pid"));
-}
-
-function readDaemonSingletonLock(userRoot) {
-  return readPidFileStrict(path.join(userRoot, "daemon-default.singleton.lock"));
-}
-
-function daemonPidAlive(userRoot) {
-  const info = readDaemonPid(userRoot);
-  if (info.state !== "present") return false;
-  return processIsAlive(info.pid);
-}
-
-function ownedProcessTreeAlive(ownedDaemon) {
-  if (!ownedDaemon) return false;
-  const { child, pgid } = ownedDaemon;
-  if (child.exitCode === null && child.signalCode === null) return true;
-  if (pgid !== null && process.platform !== "win32") {
-    return processGroupIsAlive(pgid) || processIsAlive(pgid);
-  }
-  return pgid !== null && processIsAlive(pgid);
-}
-
-export function spawnOwnedDaemon({ label, daemonBin, repo, userRoot, env }) {
-  const daemonEnv = { ...env };
-  delete daemonEnv.HARNESS_DAEMON_USER_ROOT;
-  delete daemonEnv.HARNESS_DAEMON_ID;
-  const child = spawn(
-    daemonBin.file,
-    [...daemonBin.argsPrefix, "--service", "--user-root", userRoot, "--daemon-id", "default"],
-    {
-      cwd: repo,
-      env: daemonEnv,
-      detached: process.platform !== "win32",
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-    },
-  );
-  const handle = {
-    label,
-    userRoot,
-    child,
-    pgid: child.pid ?? null,
-    ready: false,
-    reportedPid: null,
-    spawnError: null,
-    stdout: "",
-    stderr: "",
-  };
-  child.stdout?.setEncoding("utf8");
-  child.stderr?.setEncoding("utf8");
-  child.stdout?.on("data", (chunk) => {
-    handle.stdout += chunk;
-  });
-  child.stderr?.on("data", (chunk) => {
-    handle.stderr += chunk;
-  });
-  child.on("error", (error) => {
-    handle.spawnError = error instanceof Error ? error.message : String(error);
-  });
-  return handle;
-}
-
-export async function waitForOwnedDaemonReady({
-  label,
-  ownedDaemon,
-  checkStatus,
-  budget,
-  pollIntervalMs = DAEMON_READY_POLL_MS,
-}) {
-  const effectivePollMs = Math.max(1, Math.floor(pollIntervalMs));
-  const maxAttempts = Math.max(1, Math.ceil(budget.deadlineMs / effectivePollMs) + 1);
-  let lastDetail = "daemon has not reported ready yet";
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    if (ownedDaemon.spawnError) {
-      return {
-        ok: false,
-        timedOut: false,
-        statusResult: null,
-        errorMessage: `${label} daemon failed to spawn: ${ownedDaemon.spawnError}`,
-      };
-    }
-    if (ownedDaemon.child.exitCode !== null || ownedDaemon.child.signalCode !== null) {
-      return {
-        ok: false,
-        timedOut: false,
-        statusResult: null,
-        errorMessage: `${label} daemon exited before readiness (code=${ownedDaemon.child.exitCode} signal=${ownedDaemon.child.signalCode}): ${(ownedDaemon.stderr || ownedDaemon.stdout).trim()}`,
-      };
-    }
-    const statusTimeoutMs = budget.remainingMs(`${label} daemon readiness status`);
-    const statusResult = await checkStatus(statusTimeoutMs);
-    if (statusResult.status === 0 && statusResult.receipt?.ok === true) {
-      ownedDaemon.ready = true;
-      ownedDaemon.reportedPid = typeof statusResult.receipt.pid === "number" ? statusResult.receipt.pid : null;
-      return { ok: true, timedOut: false, statusResult, errorMessage: null };
-    }
-    lastDetail =
-      statusResult.errorMessage ||
-      statusResult.stderr.trim() ||
-      statusResult.stdout.trim() ||
-      `status=${statusResult.status} code=${statusResult.receipt?.code ?? "none"}`;
-    if (statusResult.timedOut || budget.isExpired()) {
-      return {
-        ok: false,
-        timedOut: true,
-        statusResult,
-        errorMessage: `${label} daemon readiness timed out: ${lastDetail}`,
-      };
-    }
-    const remaining = budget.remainingMs(`${label} daemon readiness wait`);
-    await waitChildExitOrDelay(ownedDaemon.child, Math.min(effectivePollMs, remaining));
-  }
-  return {
-    ok: false,
-    timedOut: true,
-    statusResult: null,
-    errorMessage: `${label} daemon did not become ready: ${lastDetail}`,
-  };
-}
-
-export function isConfirmedDaemonGone(statusResult) {
-  return (
-    statusResult.status !== 0 &&
-    statusResult.timedOut !== true &&
-    typeof statusResult.receipt?.code === "string" &&
-    GONE_RECEIPT_CODES.has(statusResult.receipt.code)
-  );
-}
-
-export async function verifyDaemonStoppedAndCleanup({
-  label,
-  userRoot,
-  ownedDaemon = null,
-  stopDaemon,
-  started = false,
-  alreadyStopped = false,
-  graceMs = PROCESS_TREE_KILL_GRACE_MS,
-  cleanupTimeoutMs = CLEANUP_TIMEOUT_MS,
-}) {
-  const cleanupErrors = [];
-  const ownedAliveBefore = ownedProcessTreeAlive(ownedDaemon);
-  const pidInfoBefore = readDaemonPid(userRoot);
-  const lockInfoBefore = readDaemonSingletonLock(userRoot);
-  const pidAliveBefore = pidInfoBefore.state === "present" && processIsAlive(pidInfoBefore.pid);
-  const lockAliveBefore = lockInfoBefore.state === "present" && processIsAlive(lockInfoBefore.pid);
-  const anyBookkeepingAliveBefore = pidAliveBefore || lockAliveBefore;
-
-  if (
-    !ownedAliveBefore &&
-    ((!started && !ownedDaemon && !anyBookkeepingAliveBefore) || (alreadyStopped && !anyBookkeepingAliveBefore))
-  ) {
-    if (ownedDaemon) destroyChildStreams(ownedDaemon.child);
-    return { ok: true, errors: cleanupErrors };
-  }
-
-  const shouldAttemptCooperativeStop = Boolean(
-    stopDaemon && (started || ownedDaemon?.ready === true || pidAliveBefore),
-  );
-  if (shouldAttemptCooperativeStop) {
-    const stopAttempt = await runAsyncCleanupStep(`${label} cleanup daemon stop`, async () => {
-      const stopResult = await stopDaemon(cleanupTimeoutMs);
-      const stopConfirmedOk = stopResult.status === 0 && stopResult.receipt?.ok === true;
-      const stopConfirmedAlreadyGone = isConfirmedDaemonGone(stopResult);
-      if (!stopConfirmedOk && !stopConfirmedAlreadyGone) {
-        return {
-          ok: false,
-          errors: [
-            `${label} cleanup daemon stop failed: status=${stopResult.status} timedOut=${Boolean(stopResult.timedOut)} code=${stopResult.receipt?.code ?? "none"} detail=${(stopResult.stderr || stopResult.stdout || stopResult.errorMessage || "").trim()}`,
-          ],
-        };
-      }
-      return { ok: true, errors: [] };
-    });
-    cleanupErrors.push(...stopAttempt.errors);
-  }
-
-  if (ownedDaemon) {
-    if (ownedProcessTreeAlive(ownedDaemon)) {
-      const termination = await attemptTerminateProcessTree(ownedDaemon.child, { graceMs, cleanupTimeoutMs });
-      if (!termination.ok) {
-        cleanupErrors.push(`${label} cleanup owned process tree termination failed: ${termination.error}`);
-      } else if (!termination.terminatedCleanly) {
-        cleanupErrors.push(`${label} cleanup owned process tree did not exit within ${cleanupTimeoutMs}ms`);
-      }
-    } else {
-      destroyChildStreams(ownedDaemon.child);
-    }
-  }
-
-  const pidInfoAfter = readDaemonPid(userRoot);
-  if (pidInfoAfter.state === "invalid") {
-    cleanupErrors.push(`${label} cleanup observed invalid daemon pid file`);
-  } else if (pidInfoAfter.state === "present" && processIsAlive(pidInfoAfter.pid)) {
-    cleanupErrors.push(
-      `${label} cleanup observed surviving daemon pid ${pidInfoAfter.pid} (owned pgid=${ownedDaemon?.pgid ?? "none"})`,
-    );
-  }
-
-  const lockInfoAfter = readDaemonSingletonLock(userRoot);
-  if (lockInfoAfter.state === "invalid") {
-    cleanupErrors.push(`${label} cleanup observed invalid daemon singleton lock`);
-  } else if (lockInfoAfter.state === "present" && processIsAlive(lockInfoAfter.pid)) {
-    cleanupErrors.push(
-      `${label} cleanup observed surviving daemon singleton lock pid ${lockInfoAfter.pid} (owned pgid=${ownedDaemon?.pgid ?? "none"})`,
-    );
-  }
-
-  return { ok: cleanupErrors.length === 0, errors: cleanupErrors };
 }
 
 function filesBelow(directory) {
@@ -805,66 +390,6 @@ function checkExecutableBit(filePath) {
     return { ok: true, error: null };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
-  }
-}
-
-async function runAsyncCleanupStep(label, fn) {
-  try {
-    const result = await fn();
-    if (result && result.ok === false) {
-      const details = Array.isArray(result.errors)
-        ? result.errors
-        : [result.errorMessage ?? `${label} reported failure`];
-      return { ok: false, errors: details };
-    }
-    return { ok: true, errors: [] };
-  } catch (error) {
-    return { ok: false, errors: [`${label} failed: ${error instanceof Error ? error.message : String(error)}`] };
-  }
-}
-
-function extractErrorMessages(error) {
-  if (error instanceof AggregateError) {
-    const nested = error.errors.flatMap((entry) => extractErrorMessages(entry));
-    return nested.length > 0 ? nested : [error.message || String(error)];
-  }
-  return [error instanceof Error ? error.message : String(error)];
-}
-
-async function captureBodyOutcome(bodyFn) {
-  try {
-    return { ok: true, value: await bodyFn(), error: null };
-  } catch (error) {
-    return { ok: false, value: undefined, error };
-  }
-}
-
-export async function runWithResourceCleanups(bodyFn, cleanups) {
-  const bodyOutcome = await captureBodyOutcome(bodyFn);
-  const cleanupErrors = [];
-  for (const { label, run } of cleanups) {
-    const outcome = await runAsyncCleanupStep(label, run);
-    cleanupErrors.push(...outcome.errors);
-  }
-  if (!bodyOutcome.ok) {
-    if (cleanupErrors.length === 0) throw bodyOutcome.error;
-    const primaryMessages = extractErrorMessages(bodyOutcome.error);
-    const wrapped = new AggregateError(
-      [bodyOutcome.error, ...cleanupErrors.map((message) => new Error(message))],
-      `${primaryMessages.join("; ")}; cleanup errors: ${cleanupErrors.join("; ")}`,
-    );
-    wrapped.cause = bodyOutcome.error;
-    throw wrapped;
-  }
-  return { bodyResult: bodyOutcome.value, cleanupErrors };
-}
-
-function removeDirectorySafely(dirPath, label) {
-  try {
-    rmSync(dirPath, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
-    return { ok: true, errors: [] };
-  } catch (error) {
-    return { ok: false, errors: [`${label} failed: ${error instanceof Error ? error.message : String(error)}`] };
   }
 }
 
@@ -1491,63 +1016,58 @@ export async function runPackagedDaemonAndEdgeSmoke({ cliBins, daemonBin, tempRo
         `exit ${deltaEdgeList.status} rows=${JSON.stringify(deltaRows)} stderr=${deltaEdgeList.stderr.trim()}`,
       );
 
-      const edgeStopped = await edge(["daemon", "stop"]);
-      const edgeStopOk = edgeStopped.status === 0 && edgeStopped.receipt?.ok === true;
-      record(
-        "edge daemon stops cleanly",
-        edgeStopOk,
-        `exit ${edgeStopped.status} receipt=${JSON.stringify(edgeStopped.receipt)} stderr=${edgeStopped.stderr.trim()}`,
-      );
-      let edgeAfter = await edge(["daemon", "status"]);
-      for (
-        let attempt = 0;
-        (edgeAfter.status === 0 ||
-          edgeAfter.receipt?.code === "daemon_stopping" ||
-          ownedProcessTreeAlive(edgeDaemon)) &&
-        attempt < STOP_SETTLE_POLLS;
-        attempt += 1
-      ) {
-        await delay(100);
-        edgeAfter = await edge(["daemon", "status"]);
-      }
-      const edgeGone =
-        isConfirmedDaemonGone(edgeAfter) && !daemonPidAlive(edgeUser) && !ownedProcessTreeAlive(edgeDaemon);
-      edgeDaemonStopped = edgeStopOk && edgeGone;
-      if (edgeDaemonStopped) destroyChildStreams(edgeDaemon.child);
-      record(
-        "edge daemon reports gone after stop",
-        edgeGone,
-        `status=${edgeAfter.status} timedOut=${Boolean(edgeAfter.timedOut)} code=${edgeAfter.receipt?.code ?? "none"} pidAlive=${daemonPidAlive(edgeUser)} ownedAlive=${ownedProcessTreeAlive(edgeDaemon)}`,
-      );
+      const stopOwnedDaemonCleanly = async ({ label, userRoot, ownedDaemon, checkStatus }) => {
+        const stopped = await requestOwnedDaemonCooperativeStop({
+          label,
+          userRoot,
+          ownedDaemon,
+          timeoutMs: budget.remainingMs(`${label} daemon stop`),
+        });
+        const stopOk =
+          stopped.status === 0 && stopped.receipt?.ok === true && stopped.receipt?.pid === ownedDaemon.pgid;
+        record(
+          `${label} daemon stops cleanly`,
+          stopOk,
+          `exit ${stopped.status} receipt=${JSON.stringify(stopped.receipt)} detail=${(stopped.errorMessage || stopped.stderr || "").trim()}`,
+        );
+        let after = await checkStatus();
+        for (
+          let attempt = 0;
+          (after.status === 0 || after.receipt?.code === "daemon_stopping" || ownedProcessTreeAlive(ownedDaemon)) &&
+          attempt < STOP_SETTLE_POLLS;
+          attempt += 1
+        ) {
+          await waitChildExitOrDelay(ownedDaemon.child, 100);
+          after = await checkStatus();
+        }
+        const pidInfo = readDaemonPid(userRoot);
+        const lockInfo = readDaemonSingletonLock(userRoot);
+        const pidClear = pidInfo.state === "absent" || (pidInfo.state === "present" && !processIsAlive(pidInfo.pid));
+        const lockClear =
+          lockInfo.state === "absent" || (lockInfo.state === "present" && !processIsAlive(lockInfo.pid));
+        const gone = isConfirmedDaemonGone(after) && pidClear && lockClear && !ownedProcessTreeAlive(ownedDaemon);
+        const stoppedCleanly = stopOk && gone;
+        if (stoppedCleanly) destroyChildStreams(ownedDaemon.child);
+        record(
+          `${label} daemon reports gone after stop`,
+          gone,
+          `status=${after.status} timedOut=${Boolean(after.timedOut)} code=${after.receipt?.code ?? "none"} pidState=${pidInfo.state} lockState=${lockInfo.state} ownedAlive=${ownedProcessTreeAlive(ownedDaemon)}`,
+        );
+        return stoppedCleanly;
+      };
 
-      const centerStopped = await center(["daemon", "stop"]);
-      const centerStopOk = centerStopped.status === 0 && centerStopped.receipt?.ok === true;
-      record(
-        "center daemon stops cleanly",
-        centerStopOk,
-        `exit ${centerStopped.status} receipt=${JSON.stringify(centerStopped.receipt)} stderr=${centerStopped.stderr.trim()}`,
-      );
-      let centerAfter = await center(["daemon", "status"]);
-      for (
-        let attempt = 0;
-        (centerAfter.status === 0 ||
-          centerAfter.receipt?.code === "daemon_stopping" ||
-          ownedProcessTreeAlive(centerDaemon)) &&
-        attempt < STOP_SETTLE_POLLS;
-        attempt += 1
-      ) {
-        await delay(100);
-        centerAfter = await center(["daemon", "status"]);
-      }
-      const centerGone =
-        isConfirmedDaemonGone(centerAfter) && !daemonPidAlive(centerUser) && !ownedProcessTreeAlive(centerDaemon);
-      centerDaemonStopped = centerStopOk && centerGone;
-      if (centerDaemonStopped) destroyChildStreams(centerDaemon.child);
-      record(
-        "center daemon reports gone after stop",
-        centerGone,
-        `status=${centerAfter.status} timedOut=${Boolean(centerAfter.timedOut)} code=${centerAfter.receipt?.code ?? "none"} pidAlive=${daemonPidAlive(centerUser)} ownedAlive=${ownedProcessTreeAlive(centerDaemon)}`,
-      );
+      edgeDaemonStopped = await stopOwnedDaemonCleanly({
+        label: "edge",
+        userRoot: edgeUser,
+        ownedDaemon: edgeDaemon,
+        checkStatus: () => edge(["daemon", "status"]),
+      });
+      centerDaemonStopped = await stopOwnedDaemonCleanly({
+        label: "center",
+        userRoot: centerUser,
+        ownedDaemon: centerDaemon,
+        checkStatus: () => center(["daemon", "status"]),
+      });
       return { ok: true };
     }, [
       {
@@ -1557,10 +1077,7 @@ export async function runPackagedDaemonAndEdgeSmoke({ cliBins, daemonBin, tempRo
             label: "edge",
             userRoot: edgeUser,
             ownedDaemon: edgeDaemon,
-            started: edgeDaemon?.ready === true,
             alreadyStopped: edgeDaemonStopped,
-            stopDaemon: (timeoutMs) =>
-              runPackagedCli(cliBins.ha, "ha", edgeRepo, edgeEnv, ["daemon", "stop"], undefined, timeoutMs),
           }),
       },
       {
@@ -1570,10 +1087,7 @@ export async function runPackagedDaemonAndEdgeSmoke({ cliBins, daemonBin, tempRo
             label: "center",
             userRoot: centerUser,
             ownedDaemon: centerDaemon,
-            started: centerDaemon?.ready === true,
             alreadyStopped: centerDaemonStopped,
-            stopDaemon: (timeoutMs) =>
-              runPackagedCli(cliBins.ha, "ha", centerRepo, centerEnv, ["daemon", "stop"], undefined, timeoutMs),
           }),
       },
       {

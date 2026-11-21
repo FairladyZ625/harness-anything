@@ -13,7 +13,10 @@ import {
   DEFAULT_DEADLINE_MS,
   evaluateLinuxArm64Smoke,
   isConfirmedDaemonGone,
+  localDaemonSocketEndpoint,
   packAndInstallArm64Packages,
+  readPidFileStrict,
+  requestOwnedDaemonCooperativeStop,
   runBoundedCommandAsync,
   runNativeModulesProbeInSubprocess,
   runWithResourceCleanups,
@@ -382,10 +385,17 @@ test("F8/F12 negative controls: runBoundedCommandAsync reaps hung process trees 
     // Failed daemon stop receipt during cleanup must fail closed and never be silently discarded.
     const emptyUserRoot = path.join(tempDir, "empty-user");
     mkdirSync(emptyUserRoot, { recursive: true });
+    const refusedOwned = spawnOwnedDaemon({
+      label: "edge",
+      daemonBin: { file: process.execPath, argsPrefix: ["-e", "setInterval(() => {}, 1000);", "--"] },
+      repo: tempDir,
+      userRoot: emptyUserRoot,
+      env: process.env,
+    });
     const cleanupFailed = await verifyDaemonStoppedAndCleanup({
       label: "edge",
       userRoot: emptyUserRoot,
-      started: true,
+      ownedDaemon: refusedOwned,
       alreadyStopped: false,
       stopDaemon: async () => ({
         ok: false,
@@ -398,6 +408,11 @@ test("F8/F12 negative controls: runBoundedCommandAsync reaps hung process trees 
     });
     assert.equal(cleanupFailed.ok, false);
     assert.match(cleanupFailed.errors.join("\n"), /edge cleanup daemon stop failed.*daemon_stop_refused/u);
+    assert.throws(
+      () => process.kill(-refusedOwned.pgid, 0),
+      (error) => error?.code === "ESRCH",
+      "owned process group must still be reaped after cooperative stop refusal",
+    );
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -449,10 +464,17 @@ test("F13 negative controls: smoke-identity init failure closes HTTPS worker, th
     // and Edge cleanup throwing during main smoke failure must still run Center + identity worker cleanup AND preserve both errors.
     const edgeThrowUser = path.join(tempDir, "edge-throw-user");
     mkdirSync(edgeThrowUser, { recursive: true });
+    const throwingOwned = spawnOwnedDaemon({
+      label: "edge",
+      daemonBin: { file: process.execPath, argsPrefix: ["-e", "setInterval(() => {}, 1000);", "--"] },
+      repo: tempDir,
+      userRoot: edgeThrowUser,
+      env: process.env,
+    });
     const stopThrew = await verifyDaemonStoppedAndCleanup({
       label: "edge",
       userRoot: edgeThrowUser,
-      started: true,
+      ownedDaemon: throwingOwned,
       alreadyStopped: false,
       stopDaemon: async () => {
         throw new Error("edge stop transport failed");
@@ -460,6 +482,11 @@ test("F13 negative controls: smoke-identity init failure closes HTTPS worker, th
     });
     assert.equal(stopThrew.ok, false);
     assert.match(stopThrew.errors.join("\n"), /edge cleanup daemon stop failed: edge stop transport failed/u);
+    assert.throws(
+      () => process.kill(-throwingOwned.pgid, 0),
+      (error) => error?.code === "ESRCH",
+      "owned process group must still be reaped when cooperative stop throws",
+    );
 
     const identityDir = path.join(tempDir, "live-identity");
     mkdirSync(identityDir, { recursive: true });
@@ -962,16 +989,7 @@ test("F16 negative controls: paused daemon before pidfile publication is reaped 
                   label: "center",
                   userRoot,
                   ownedDaemon,
-                  started: ownedDaemon?.ready === true,
                   alreadyStopped: false,
-                  stopDaemon: async () => ({
-                    ok: false,
-                    status: 1,
-                    timedOut: false,
-                    stdout: "",
-                    stderr: "",
-                    receipt: { ok: false, code: "daemon_unavailable" },
-                  }),
                 });
               },
             },
@@ -1012,7 +1030,8 @@ test("F16 negative controls: paused daemon before pidfile publication is reaped 
     assert.ok(capturedTempRoot);
     assert.equal(existsSync(capturedTempRoot), false, "tempRoot must be removed after owned daemon cleanup");
 
-    // Ownership guard: verifyDaemonStoppedAndCleanup must never blindly signal an unowned PID in daemon-default.pid.
+    // Ownership guard: verifyDaemonStoppedAndCleanup (using its real default RPC-only stop path)
+    // must never invoke cooperative stop or blindly signal an unowned PID in daemon-default.pid.
     const unownedUserRoot = path.join(tempDir, "unowned-user");
     mkdirSync(unownedUserRoot, { recursive: true });
     foreignSleeper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000);"], {
@@ -1025,16 +1044,7 @@ test("F16 negative controls: paused daemon before pidfile publication is reaped 
       label: "center",
       userRoot: unownedUserRoot,
       ownedDaemon: null,
-      started: false,
       alreadyStopped: false,
-      stopDaemon: async () => ({
-        ok: false,
-        status: 1,
-        timedOut: false,
-        stdout: "",
-        stderr: "",
-        receipt: { ok: false, code: "daemon_replaced" },
-      }),
     });
     assert.equal(unownedResult.ok, false);
     assert.match(
@@ -1104,6 +1114,385 @@ test("F17 negative control: native-modules probe blocking synchronously before P
       () => process.kill(-probePid, 0),
       (error) => error?.code === "ESRCH",
       `blocked native-modules probe process group -${probePid} must be reaped`,
+    );
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+function forceKillDetachedGroup(pid) {
+  try {
+    process.kill(-pid, "SIGKILL");
+    return true;
+  } catch (error) {
+    if (error?.code === "ESRCH") return false;
+    throw error;
+  }
+}
+
+test("F19 negative control: real RPC-only cooperative stop rejects identity mismatch over Unix socket and never falls back to pidfile SIGTERM when RPC is unreachable", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "ha-f19-"));
+  const socketPath = path.join(tempDir, "d.sock");
+  const serverReadyFile = path.join(tempDir, "srv-ready.json");
+  const ownedReadyFile = path.join(tempDir, "owned-a1-ready.json");
+  const ownedUnreachReadyFile = path.join(tempDir, "owned-b-ready.json");
+  const stopReceivedFile = path.join(tempDir, "stop-called.txt");
+  const sigtermFile = path.join(tempDir, "sigterm-hit.txt");
+  const unreachableReadyFile = path.join(tempDir, "unreach-ready.json");
+  let foreignRpcServer = null;
+  let foreignUnreachable = null;
+  try {
+    // Verify deterministic localDaemonSocketEndpoint shape matches daemon runtime-relay-target convention.
+    const computedEndpoint = localDaemonSocketEndpoint(path.join(tempDir, "sample-user"), "default", "linux");
+    assert.match(computedEndpoint, /\/tmp\/harness-anything-\d+\/daemon-\d+-u-[a-f0-9]{16}\.sock$/u);
+
+    // 1. Spawn a real controllable Unix-socket JSON-RPC peer representing a foreign daemon.
+    const fakeRpcScript = [
+      'const fs = require("node:fs");',
+      'const net = require("node:net");',
+      `const sockPath = ${JSON.stringify(socketPath)};`,
+      `const readyFile = ${JSON.stringify(serverReadyFile)};`,
+      `const stopFile = ${JSON.stringify(stopReceivedFile)};`,
+      'process.on("SIGTERM", () => fs.writeFileSync(stopFile, "SIGTERM"));',
+      "const server = net.createServer((conn) => {",
+      '  conn.setEncoding("utf8");',
+      '  let buf = "";',
+      '  conn.on("data", (chunk) => {',
+      "    buf += chunk;",
+      '    let idx = buf.indexOf("\\n");',
+      "    while (idx >= 0) {",
+      "      const line = buf.slice(0, idx).trim();",
+      "      buf = buf.slice(idx + 1);",
+      '      idx = buf.indexOf("\\n");',
+      "      if (!line) continue;",
+      "      const req = JSON.parse(line);",
+      '      if (req.method === "protocol.hello") {',
+      '        conn.write(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { ok: true, protocolVersion: req.params.protocolVersion, methods: ["daemon.status", "daemon.stop"] } }) + "\\n");',
+      '      } else if (req.method === "daemon.status") {',
+      '        conn.write(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { ok: true, pid: process.pid } }) + "\\n");',
+      '      } else if (req.method === "daemon.stop") {',
+      '        fs.writeFileSync(stopFile, "RPC_STOP");',
+      '        conn.write(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { ok: true, command: "daemon-stop", pid: process.pid } }) + "\\n");',
+      "      }",
+      "    }",
+      "  });",
+      "});",
+      "server.listen(sockPath, () => {",
+      '  const tmp = readyFile + ".tmp";',
+      "  fs.writeFileSync(tmp, JSON.stringify({ pid: process.pid }));",
+      "  fs.renameSync(tmp, readyFile);",
+      "});",
+    ].join("\n");
+    foreignRpcServer = spawn(process.execPath, ["-e", fakeRpcScript], {
+      cwd: tempDir,
+      stdio: "ignore",
+      detached: true,
+      windowsHide: true,
+    });
+    for (let attempt = 0; !existsSync(serverReadyFile) && attempt < 100; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.equal(existsSync(serverReadyFile), true, "foreign RPC peer must bind its Unix socket");
+    const { pid: foreignRpcPid } = JSON.parse(readFileSync(serverReadyFile, "utf8"));
+    assert.equal(foreignRpcPid, foreignRpcServer.pid);
+
+    // Branch A1: pidfile matches ownedDaemon.pgid so cooperative stop MUST connect over Unix socket,
+    // observe daemon.status pid === foreignRpcPid !== ownedDaemon.pgid, and refuse BEFORE sending daemon.stop.
+    const mismatchUserRoot = path.join(tempDir, "mismatch-user");
+    mkdirSync(mismatchUserRoot, { recursive: true });
+    const ownedSleeperScript = (readyPath) =>
+      [
+        'const fs = require("node:fs");',
+        'process.on("SIGTERM", () => {});',
+        `const tmp = ${JSON.stringify(`${readyPath}.tmp`)};`,
+        "fs.writeFileSync(tmp, JSON.stringify({ pid: process.pid }));",
+        `fs.renameSync(tmp, ${JSON.stringify(readyPath)});`,
+        "setInterval(() => {}, 1000);",
+      ].join(" ");
+    const ownedAlive = spawnOwnedDaemon({
+      label: "center",
+      daemonBin: { file: process.execPath, argsPrefix: ["-e", ownedSleeperScript(ownedReadyFile), "--"] },
+      repo: tempDir,
+      userRoot: mismatchUserRoot,
+      env: process.env,
+    });
+    for (let attempt = 0; !existsSync(ownedReadyFile) && attempt < 100; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.equal(existsSync(ownedReadyFile), true, "owned daemon A1 must be running before cleanup");
+    ownedAlive.endpoint = socketPath;
+    writeFileSync(path.join(mismatchUserRoot, "daemon-default.pid"), `${ownedAlive.pgid}\n`);
+
+    const mismatchCleanup = await verifyDaemonStoppedAndCleanup({
+      label: "center",
+      userRoot: mismatchUserRoot,
+      ownedDaemon: ownedAlive,
+      alreadyStopped: false,
+      graceMs: 150,
+      cleanupTimeoutMs: 3_000,
+    });
+    assert.equal(mismatchCleanup.ok, false);
+    assert.match(mismatchCleanup.errors.join("\n"), /daemon_identity_mismatch/u);
+    assert.equal(
+      existsSync(stopReceivedFile),
+      false,
+      "foreign RPC peer must NEVER receive daemon.stop or SIGTERM on identity mismatch",
+    );
+    assert.doesNotThrow(() => process.kill(foreignRpcPid, 0), "foreign RPC peer must remain alive");
+    assert.throws(
+      () => process.kill(-ownedAlive.pgid, 0),
+      (error) => error?.code === "ESRCH",
+      "owned daemon process group must still be reaped after RPC identity mismatch",
+    );
+
+    // Branch A2: waitForOwnedDaemonReady must also reject a readiness answer whose pid !== ownedDaemon.pgid.
+    const readyOwned = spawnOwnedDaemon({
+      label: "edge",
+      daemonBin: { file: process.execPath, argsPrefix: ["-e", "setInterval(() => {}, 1000);", "--"] },
+      repo: tempDir,
+      userRoot: mismatchUserRoot,
+      env: process.env,
+    });
+    try {
+      const readyCheck = await waitForOwnedDaemonReady({
+        label: "edge",
+        ownedDaemon: readyOwned,
+        checkStatus: async () => ({
+          ok: true,
+          status: 0,
+          timedOut: false,
+          stdout: "",
+          stderr: "",
+          receipt: { ok: true, pid: foreignRpcPid },
+        }),
+        budget: { deadlineMs: 2_000, isExpired: () => false, remainingMs: () => 2_000 },
+        pollIntervalMs: 25,
+      });
+      assert.equal(readyCheck.ok, false);
+      assert.equal(readyOwned.ready, false);
+      assert.match(readyCheck.errorMessage ?? "", /identity mismatch/u);
+    } finally {
+      await verifyDaemonStoppedAndCleanup({
+        label: "edge",
+        userRoot: path.join(tempDir, "empty-cleanup"),
+        ownedDaemon: readyOwned,
+        alreadyStopped: true,
+        graceMs: 100,
+        cleanupTimeoutMs: 2_000,
+      });
+    }
+
+    // Branch B: Unreachable RPC socket + live foreign PID in daemon-default.pid.
+    // Neither direct requestOwnedDaemonCooperativeStop nor verifyDaemonStoppedAndCleanup may send SIGTERM to the pidfile PID.
+    const unreachableUserRoot = path.join(tempDir, "unreach-user");
+    mkdirSync(unreachableUserRoot, { recursive: true });
+    const foreignUnreachScript = [
+      'const fs = require("node:fs");',
+      `process.on("SIGTERM", () => fs.writeFileSync(${JSON.stringify(sigtermFile)}, "SIGTERM"));`,
+      `const tmp = ${JSON.stringify(`${unreachableReadyFile}.tmp`)};`,
+      "fs.writeFileSync(tmp, JSON.stringify({ pid: process.pid }));",
+      `fs.renameSync(tmp, ${JSON.stringify(unreachableReadyFile)});`,
+      "setInterval(() => {}, 1000);",
+    ].join("\n");
+    foreignUnreachable = spawn(process.execPath, ["-e", foreignUnreachScript], {
+      cwd: tempDir,
+      stdio: "ignore",
+      detached: true,
+      windowsHide: true,
+    });
+    for (let attempt = 0; !existsSync(unreachableReadyFile) && attempt < 100; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.equal(existsSync(unreachableReadyFile), true);
+    const foreignUnreachPid = foreignUnreachable.pid;
+    writeFileSync(path.join(unreachableUserRoot, "daemon-default.pid"), `${foreignUnreachPid}\n`);
+
+    // B1: Direct RPC stop against a missing socket when pidfile names a different live PID.
+    const ownedForUnreach = spawnOwnedDaemon({
+      label: "edge",
+      daemonBin: { file: process.execPath, argsPrefix: ["-e", ownedSleeperScript(ownedUnreachReadyFile), "--"] },
+      repo: tempDir,
+      userRoot: unreachableUserRoot,
+      env: process.env,
+    });
+    for (let attempt = 0; !existsSync(ownedUnreachReadyFile) && attempt < 100; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.equal(existsSync(ownedUnreachReadyFile), true, "owned daemon B must be running before cleanup");
+    ownedForUnreach.endpoint = path.join(tempDir, "missing.sock");
+    const directStopMismatch = await requestOwnedDaemonCooperativeStop({
+      label: "edge",
+      userRoot: unreachableUserRoot,
+      ownedDaemon: ownedForUnreach,
+      timeoutMs: 2_000,
+    });
+    assert.equal(directStopMismatch.ok, false);
+    assert.equal(directStopMismatch.receipt?.code, "daemon_identity_mismatch");
+    assert.equal(existsSync(sigtermFile), false, "unowned pidfile PID must not receive SIGTERM");
+
+    // B2: Direct RPC stop against a missing socket when pidfile is absent (pure unreachable transport -> daemon_unavailable, no signal).
+    const emptyUnreachRoot = path.join(tempDir, "empty-unreach-user");
+    mkdirSync(emptyUnreachRoot, { recursive: true });
+    const directStopUnreachable = await requestOwnedDaemonCooperativeStop({
+      label: "edge",
+      userRoot: emptyUnreachRoot,
+      ownedDaemon: ownedForUnreach,
+      endpoint: path.join(tempDir, "missing.sock"),
+      timeoutMs: 2_000,
+    });
+    assert.equal(directStopUnreachable.ok, false);
+    assert.equal(directStopUnreachable.receipt?.code, "daemon_unavailable");
+    assert.equal(existsSync(sigtermFile), false);
+
+    // B3: Full cleanup with unreachable socket + foreign pidfile PID must reap owned group, leave foreign PID unsignalled, and fail closed.
+    const unreachCleanup = await verifyDaemonStoppedAndCleanup({
+      label: "edge",
+      userRoot: unreachableUserRoot,
+      ownedDaemon: ownedForUnreach,
+      alreadyStopped: false,
+      graceMs: 150,
+      cleanupTimeoutMs: 3_000,
+    });
+    assert.equal(unreachCleanup.ok, false);
+    assert.match(unreachCleanup.errors.join("\n"), /daemon_identity_mismatch/u);
+    assert.match(
+      unreachCleanup.errors.join("\n"),
+      new RegExp(`observed surviving daemon pid ${foreignUnreachPid}`, "u"),
+    );
+    assert.equal(existsSync(sigtermFile), false, "foreign process must NEVER receive SIGTERM when RPC is unreachable");
+    assert.doesNotThrow(() => process.kill(foreignUnreachPid, 0), "foreign process must remain alive");
+    assert.throws(
+      () => process.kill(-ownedForUnreach.pgid, 0),
+      (error) => error?.code === "ESRCH",
+      "owned daemon process group must still be reaped",
+    );
+  } finally {
+    for (const proc of [foreignRpcServer, foreignUnreachable]) {
+      if (proc?.pid) forceKillDetachedGroup(proc.pid);
+    }
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("F20 negative control: pidfile/singleton ENOENT is treated as absent and EISDIR read errors preserve errors without short-circuiting owned process-group reaping", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "ha-f20-bookkeeping-"));
+  const probePidFile = path.join(tempDir, "f20-owned-pid.json");
+  try {
+    // Concurrent unlink (ENOENT) must be treated as absent without throwing.
+    const absent = readPidFileStrict(path.join(tempDir, "unlinked-daemon.pid"));
+    assert.equal(absent.state, "absent");
+    assert.equal(absent.pid, null);
+
+    // Directory at daemon-default.pid and daemon-default.singleton.lock forces EISDIR on readFileSync.
+    const userRoot = path.join(tempDir, "eisdir-user");
+    mkdirSync(path.join(userRoot, "daemon-default.pid"), { recursive: true });
+    mkdirSync(path.join(userRoot, "daemon-default.singleton.lock"), { recursive: true });
+
+    const pidDirRead = readPidFileStrict(path.join(userRoot, "daemon-default.pid"));
+    assert.equal(pidDirRead.state, "error");
+    assert.equal(pidDirRead.code, "EISDIR");
+
+    const sleeperScript = [
+      'const fs = require("node:fs");',
+      'process.on("SIGTERM", () => {});',
+      `const tmp = ${JSON.stringify(`${probePidFile}.tmp`)};`,
+      "fs.writeFileSync(tmp, JSON.stringify({ pid: process.pid }));",
+      `fs.renameSync(tmp, ${JSON.stringify(probePidFile)});`,
+      "setInterval(() => {}, 1000);",
+    ].join("\n");
+    const ownedDaemon = spawnOwnedDaemon({
+      label: "center",
+      daemonBin: { file: process.execPath, argsPrefix: ["-e", sleeperScript, "--"] },
+      repo: tempDir,
+      userRoot,
+      env: process.env,
+    });
+    for (let attempt = 0; !existsSync(probePidFile) && attempt < 100; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.equal(existsSync(probePidFile), true, "owned daemon must be running before cleanup");
+    const { pid: ownedPid } = JSON.parse(readFileSync(probePidFile, "utf8"));
+    assert.equal(ownedPid, ownedDaemon.pgid);
+
+    const cleanupResult = await verifyDaemonStoppedAndCleanup({
+      label: "center",
+      userRoot,
+      ownedDaemon,
+      alreadyStopped: false,
+      graceMs: 150,
+      cleanupTimeoutMs: 3_000,
+    });
+    assert.equal(cleanupResult.ok, false);
+    assert.match(cleanupResult.errors.join("\n"), /failed reading daemon pid file.*EISDIR/u);
+    assert.match(cleanupResult.errors.join("\n"), /failed reading daemon singleton lock.*EISDIR/u);
+    assert.throws(
+      () => process.kill(ownedPid, 0),
+      (error) => error?.code === "ESRCH",
+      `owned daemon pid ${ownedPid} must be reaped despite EISDIR bookkeeping errors`,
+    );
+    assert.throws(
+      () => process.kill(-ownedPid, 0),
+      (error) => error?.code === "ESRCH",
+      `owned daemon process group -${ownedPid} must be reaped despite EISDIR bookkeeping errors`,
+    );
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("F21 negative control: runBoundedCommandAsync detects and reaps a same-group descendant with detached stdio when leader exits 0", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "ha-f21-close-group-"));
+  const pidFile = path.join(tempDir, "f21-pids.json");
+  try {
+    // Grandchild stays in the leader's process group (detached: false) with completely independent stdio ("ignore"),
+    // ignores SIGTERM, writes both PIDs atomically, and stays alive.
+    // Leader waits until the grandchild is confirmed running, then exits 0 so stdout/stderr pipes close immediately.
+    const detachedStdioGrandScript = [
+      'const fs = require("node:fs");',
+      'process.on("SIGTERM", () => {});',
+      `const tmp = ${JSON.stringify(`${pidFile}.tmp`)};`,
+      `fs.writeFileSync(tmp, JSON.stringify({ leader: Number(process.env.LEADER_PID), grand: process.pid }));`,
+      `fs.renameSync(tmp, ${JSON.stringify(pidFile)});`,
+      "setInterval(() => {}, 1000);",
+    ].join(" ");
+    const leaderExitZeroScript = [
+      'const fs = require("node:fs");',
+      'const { spawn } = require("node:child_process");',
+      `spawn(process.execPath, ["-e", ${JSON.stringify(detachedStdioGrandScript)}], { stdio: "ignore", detached: false, env: { ...process.env, LEADER_PID: String(process.pid) } });`,
+      `const waitReady = setInterval(() => { if (fs.existsSync(${JSON.stringify(pidFile)})) { clearInterval(waitReady); process.exit(0); } }, 15);`,
+    ].join(" ");
+
+    const result = await runBoundedCommandAsync(process.execPath, ["-e", leaderExitZeroScript], {
+      cwd: tempDir,
+      env: process.env,
+      timeoutMs: 10_000,
+      graceMs: 150,
+      cleanupTimeoutMs: 3_000,
+      label: "f21 detached-stdio descendant probe",
+    });
+
+    assert.equal(result.timedOut, false, "must settle via close branch rather than waiting for full command timeout");
+    assert.equal(result.status, 0, "group leader exited 0");
+    assert.equal(result.ok, false, "surviving same-group descendant after leader exit 0 must fail closed");
+    assert.equal(result.survivingProcessGroup, true);
+    assert.equal(result.terminatedCleanly, true, result.errorMessage ?? "");
+    assert.match(result.errorMessage ?? "", /left surviving process group -\d+ after exit 0/u);
+
+    assert.equal(existsSync(pidFile), true, "grandchild must have started and written PIDs before leader exited 0");
+    const { leader: leaderPid, grand: grandPid } = JSON.parse(readFileSync(pidFile, "utf8"));
+    assert.ok(Number.isInteger(leaderPid) && leaderPid > 0);
+    assert.ok(Number.isInteger(grandPid) && grandPid > 0 && grandPid !== leaderPid);
+    for (const pid of [leaderPid, grandPid]) {
+      assert.throws(
+        () => process.kill(pid, 0),
+        (error) => error?.code === "ESRCH",
+        `pid ${pid} must be reaped via -pgid on close when leader exited 0`,
+      );
+    }
+    assert.throws(
+      () => process.kill(-leaderPid, 0),
+      (error) => error?.code === "ESRCH",
+      `process group -${leaderPid} must be gone after close settlement`,
     );
   } finally {
     rmSync(tempDir, { recursive: true, force: true });

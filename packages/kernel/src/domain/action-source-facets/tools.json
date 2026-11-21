@@ -968,6 +968,41 @@
         "order": 79
       },
       {
+        "candidateId": "action:tools:tools/gates/linux-arm64-smoke-process.mjs#localDaemonSocketEndpoint.hash:5d0336bcd10abf44eca03ff6f3bac2e4",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update",
+        "order": 430
+      },
+      {
+        "candidateId": "action:tools:tools/gates/linux-arm64-smoke-process.mjs#removeDirectorySafely:3dbef057bf60e434ec4ed1f7ff722422",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
+        "order": 426
+      },
+      {
+        "candidateId": "action:tools:tools/gates/linux-arm64-smoke-process.mjs#requestOwnedDaemonCooperativeStop.sendRpc:296d49d59513dbcaa7b63a29c6bea9f1",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write",
+        "order": 431
+      },
+      {
+        "candidateId": "action:tools:tools/gates/linux-arm64-smoke-process.mjs#runBoundedCommandAsync.child:24d31ff23434f29d9ba20653414d112e",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn",
+        "order": 427
+      },
+      {
+        "candidateId": "action:tools:tools/gates/linux-arm64-smoke-process.mjs#spawnOwnedDaemon.child:87e1f1887afe0ccd60c7e02927edb091",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn",
+        "order": 429
+      },
+      {
         "candidateId": "action:tools:tools/gates/linux-arm64-smoke.mjs#buildWorkspacePackage:a7bd49f3352fbc05b92180fdbad63507",
         "route": "package-assets-build",
         "role": "technical-port",
@@ -982,32 +1017,11 @@
         "order": 423
       },
       {
-        "candidateId": "action:tools:tools/gates/linux-arm64-smoke.mjs#removeDirectorySafely:3dbef057bf60e434ec4ed1f7ff722422",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
-        "order": 426
-      },
-      {
-        "candidateId": "action:tools:tools/gates/linux-arm64-smoke.mjs#runBoundedCommandAsync.child:24d31ff23434f29d9ba20653414d112e",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn",
-        "order": 427
-      },
-      {
         "candidateId": "action:tools:tools/gates/linux-arm64-smoke.mjs#runPackagedDaemonAndEdgeSmoke:b7333ff7f6305b6dbb503ce3c1f56bfb",
         "route": "package-assets-build",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync",
         "order": 424
-      },
-      {
-        "candidateId": "action:tools:tools/gates/linux-arm64-smoke.mjs#spawnOwnedDaemon.child:87e1f1887afe0ccd60c7e02927edb091",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn",
-        "order": 429
       },
       {
         "candidateId": "action:tools:tools/gates/linux-arm64-smoke.mjs#verifyNodePty.child:0ad2bc9ab81156900dfaf720ada90305",
