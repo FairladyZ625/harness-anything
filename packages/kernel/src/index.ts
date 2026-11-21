@@ -254,7 +254,6 @@ export {
   auditGenesisChainHash,
   buildDeliveryCertificate,
   createAuditChainAccumulator,
-  DEFAULT_AUDIT_ENTRIES_FILE,
   isAuditDigest,
   isPureRevisionWindow,
   type AuditCertificateVerifyResult,

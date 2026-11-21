@@ -169,6 +169,8 @@ export interface AuditEventWindowQuery {
   readonly after?: string;
   readonly before?: string;
   readonly limit: number;
+  /** When true, revision bounds were already resolved on page 1; advance directly by PK cursor. */
+  readonly boundsPinned?: boolean;
 }
 export interface AuditEventWindowBatch {
   readonly sourceRevision: number;

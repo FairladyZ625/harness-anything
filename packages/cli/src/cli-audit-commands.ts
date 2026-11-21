@@ -8,6 +8,7 @@ import type {
   AuditExportWindowV1,
   AuditSliceVerifyDiagnostic,
   AuditSliceVerifySuccess,
+  AuditTrustAnchorMode,
   AuditVerifyFailure,
   DeliveryCertificateV1,
 } from "@harness-anything/kernel/internal/integrity/audit-hash-chain.ts";
@@ -60,8 +61,9 @@ export async function runLedgerAuditExport(
   }
   const kernel = await import("@harness-anything/kernel/internal/integrity/audit-hash-chain.ts");
   const hostIo = await import("@harness-anything/daemon/internal/host-environment-io");
-  const entriesPath = path.join(outputDir, kernel.DEFAULT_AUDIT_ENTRIES_FILE);
+  const stagingAnchorPath = path.join(outputDir, kernel.DEFAULT_AUDIT_ENTRIES_FILE);
   const manifestPath = path.join(outputDir, "audit-manifest.json");
+  let entriesPath: string;
   let lineWriter: Awaited<ReturnType<typeof hostIo.openCallerOutputLineWriter>> | null = null;
   let accumulator: ReturnType<typeof kernel.createAuditChainAccumulator> | null = null;
   let cursor: string | undefined = typeof baseAction.cursor === "string" ? baseAction.cursor : undefined;
@@ -97,20 +99,19 @@ export async function runLedgerAuditExport(
           toRevision: page.effectiveToRevision >= 1 ? page.effectiveToRevision : null,
         };
         if (kernel.isPureRevisionWindow(manifestWindow)) {
-          const parsedCursor = cursor === undefined ? 0 : Number(cursor);
+          const parsedCursor = cursor === undefined ? 0 : Number(cursor.split(":")[0]);
           expectedPureRevision = Math.max(
             manifestWindow.fromRevision ?? 1,
             Number.isInteger(parsedCursor) && parsedCursor >= 0 ? parsedCursor + 1 : 1,
           );
         }
         // Stage output only AFTER the first RPC page succeeds so auth/validation failures never touch outputDir.
-        lineWriter = await hostIo.openCallerOutputLineWriter(entriesPath);
+        lineWriter = await hostIo.openCallerOutputLineWriter(stagingAnchorPath);
         accumulator = kernel.createAuditChainAccumulator({
           repoId: page.repoId,
           algorithm: page.algorithm,
           prevRootHash: page.prevRootHash,
           window: manifestWindow,
-          entriesFile: kernel.DEFAULT_AUDIT_ENTRIES_FILE,
         });
       }
       for (const event of page.events) {
@@ -146,8 +147,15 @@ export async function runLedgerAuditExport(
       }
     }
     manifest = accumulator!.finalize();
+    entriesPath = path.join(outputDir, manifest.entriesFile);
+    const supersededEntriesPath = readPriorEntriesFilePath(manifestPath, outputDir);
     const manifestJson = `${JSON.stringify(manifest, null, 2)}\n`;
-    await lineWriter!.commit({ filePath: manifestPath, contents: manifestJson });
+    await lineWriter!.commit({
+      filePath: manifestPath,
+      contents: manifestJson,
+      entriesTargetPath: entriesPath,
+      ...(supersededEntriesPath === undefined ? {} : { supersededEntriesPath }),
+    });
   } catch (error) {
     if (lineWriter !== null) await lineWriter.abort();
     throw error;
@@ -342,16 +350,31 @@ export async function runLedgerAuditVerify(
     certificateResult = { ...verified, certificatePath: certPath };
   }
 
+  const hasChain = verifiedSlices.length > 0;
+  const hasCertificate = certificateResult !== undefined;
+  const chainAnchorPinned = hasChain ? options.expectedRootHash !== undefined : null;
+  const certificateAnchorPinned = hasCertificate ? options.expectedCertificateHash !== undefined : null;
+  const allAnchorsPinned =
+    (!hasChain || chainAnchorPinned === true) && (!hasCertificate || certificateAnchorPinned === true);
+  const anyAnchorPinned = chainAnchorPinned === true || certificateAnchorPinned === true;
+  const trustAnchorMode: AuditTrustAnchorMode = allAnchorsPinned
+    ? "pinned"
+    : anyAnchorPinned
+      ? "partially-pinned"
+      : "self-consistent-only";
   const trustAnchor = {
-    mode:
-      options.expectedRootHash !== undefined || options.expectedCertificateHash !== undefined
-        ? ("pinned" as const)
-        : ("self-consistent-only" as const),
+    mode: trustAnchorMode,
+    chainAnchorPinned,
+    certificateAnchorPinned,
     ...(options.expectedRootHash === undefined ? {} : { expectedRootHash: options.expectedRootHash }),
     ...(options.expectedCertificateHash === undefined
       ? {}
       : { expectedCertificateHash: options.expectedCertificateHash }),
   };
+  const certificateChainCoverage =
+    hasChain && certificateResult !== undefined && certificateResult.chainEvidence !== undefined
+      ? certificateResult.chainEvidence.coverage
+      : ("not_applicable" as const);
 
   if (diagnosticUnattributed !== null) {
     emit(
@@ -359,9 +382,11 @@ export async function runLedgerAuditVerify(
         ok: false,
         diagnostic: true,
         verificationStatus: "diagnostic_incomplete_attribution",
+        selfConsistent: false,
         strictVerified: false,
         chainIntegrityOk: true,
         attributionVerified: false,
+        certificateChainCoverage,
         code: diagnosticUnattributed.code,
         message: diagnosticUnattributed.message,
         hint: diagnosticUnattributed.message,
@@ -385,11 +410,15 @@ export async function runLedgerAuditVerify(
     return 1;
   }
 
+  const strictVerified =
+    allAnchorsPinned && (certificateChainCoverage === "complete" || certificateChainCoverage === "not_applicable");
   emit(
     {
       ok: true,
-      verificationStatus: "verified",
-      strictVerified: true,
+      verificationStatus: strictVerified ? "verified" : "self_consistent_only",
+      selfConsistent: true,
+      strictVerified,
+      certificateChainCoverage,
       command: "ledger-audit-verify",
       schema: "audit-verify-receipt/v1",
       trustAnchor,
@@ -494,6 +523,15 @@ async function verifyEntriesRawStream(
   } catch (error) {
     return { ok: false, error: cliErrorMessage(error) };
   }
+}
+
+function readPriorEntriesFilePath(manifestPath: string, outputDir: string): string | undefined {
+  const existing = readJsonFile(manifestPath);
+  if (!existing.ok || typeof existing.value !== "object" || existing.value === null) return undefined;
+  const entriesFile = (existing.value as Record<string, unknown>).entriesFile;
+  if (typeof entriesFile !== "string" || entriesFile.length === 0) return undefined;
+  if (path.basename(entriesFile) !== entriesFile || entriesFile === "." || entriesFile === "..") return undefined;
+  return path.join(outputDir, entriesFile);
 }
 
 function readJsonFile(

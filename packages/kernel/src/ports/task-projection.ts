@@ -406,6 +406,10 @@ export interface TaskProjection {
   }) => readonly CanonicalEventV1[];
   readonly readScheduleOutputEvents: (runtimeSessionIds: readonly string[]) => readonly CanonicalEventV1[];
   readonly readSettingsEvent: () => SettingsEventV1 | null;
+  /** Canonical migration-import-event/v1 (entity.kind="task") that imported a historical v0 task, if any. */
+  readonly readTaskImportedEvent?: (
+    taskId: string,
+  ) => import("../domain/migration-import-event.ts").MigrationImportEventV1 | null;
   readonly readPresetSnapshot: (digest: string) => PresetSnapshotProjectionRead;
   readonly readProgress: (taskId: string) => TaskProgressProjectionRead;
   /** The single dispatch lifecycle read port (dec_AEB05951C69E47FCE53E53C341 CH2). */

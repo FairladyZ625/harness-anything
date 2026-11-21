@@ -48,11 +48,15 @@ export function renderLedgerAuditVerifyReceipt(receipt: Record<string, unknown>)
     return [header, detail].filter(Boolean).join("\n");
   }
   const cert = isRecord(receipt.certificate) ? receipt.certificate : null;
-  const anchor = isRecord(receipt.trustAnchor)
-    ? String(receipt.trustAnchor.mode ?? "self-consistent-only")
-    : "self-consistent-only";
+  const trust = isRecord(receipt.trustAnchor) ? receipt.trustAnchor : null;
+  const anchor = trust ? String(trust.mode ?? "self-consistent-only") : "self-consistent-only";
+  const chainPinned = trust && typeof trust.chainAnchorPinned === "boolean" ? String(trust.chainAnchorPinned) : "n/a";
+  const certPinned =
+    trust && typeof trust.certificateAnchorPinned === "boolean" ? String(trust.certificateAnchorPinned) : "n/a";
+  const coverage =
+    typeof receipt.certificateChainCoverage === "string" ? receipt.certificateChainCoverage : "not_applicable";
   return [
-    `audit-verify: ok (slices=${String(receipt.sliceCount ?? 0)}, events=${String(receipt.totalEvents ?? 0)}, trust=${anchor})`,
+    `audit-verify: ok (strictVerified=${String(receipt.strictVerified === true)}, selfConsistent=${String(receipt.selfConsistent === true)}, slices=${String(receipt.sliceCount ?? 0)}, events=${String(receipt.totalEvents ?? 0)}, trust=${anchor}, chainPinned=${chainPinned}, certPinned=${certPinned}, coverage=${coverage})`,
     ...(cert
       ? [
           `certificate: ${String(cert.taskId)} (${String(cert.completionKind ?? "native")}, ${String(cert.algorithm)}) ${String(cert.certificateHash)}`,
@@ -75,7 +79,9 @@ export function renderTaskDeliveryCertificateReceipt(
     `delivery-certificate: ${String(cert.taskId)} (${String(cert.completionKind ?? "native")}, ${String(cert.algorithm)}, status=${String(cert.status)})`,
     ...(typeof cert.submissionDigest === "string" ? [`submissionDigest: ${cert.submissionDigest}`] : []),
     ...(isRecord(cert.resolution)
-      ? [`resolution: ${String(cert.resolution.kind)} (${String(cert.resolution.factRef)})`]
+      ? [
+          `resolution: ${String(cert.resolution.kind)} (${String(cert.resolution.factRef ?? cert.resolution.migratedFrom ?? "")})`,
+        ]
       : []),
     `certificateHash: ${String(cert.certificateHash)}`,
     ...(typeof receipt.outputPath === "string" ? [`output: ${receipt.outputPath}`] : []),

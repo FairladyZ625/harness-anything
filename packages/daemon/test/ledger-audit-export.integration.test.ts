@@ -8,16 +8,29 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
   createAuditChainAccumulator,
+  reviewDigest,
+  serializePersistedCanonicalEvent,
+  sha256Text,
+  taskLifecycleWritePlan,
+  type AuditExportManifestV1,
   type AuditExportWindowV1,
   type DeliveryCertificateV1,
   type PersistedCanonicalEventV1,
 } from "@harness-anything/kernel";
+import { normalizePersistedEventValue } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
+import {
+  createMigrationImportEvent,
+  migrationImportWritePlan,
+} from "@harness-anything/kernel/internal/domain/migration-import-event.ts";
 import {
   createAuditCertificateChainCollector,
   verifyAuditSliceContent,
   verifyDeliveryCertificate,
 } from "@harness-anything/kernel/internal/integrity/audit-hash-chain.ts";
-import { sqliteLedgerPath } from "@harness-anything/storage";
+import { makeTaskEventStore, makeTaskProjection, sqliteLedgerPath } from "@harness-anything/storage";
+import { readTaskDeliveryCertificate } from "@harness-anything/application/internal/queries/task-delivery-certificate.ts";
+import { readAuditExportPage } from "@harness-anything/application/internal/queries/ledger-audit-export.ts";
+import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
@@ -529,4 +542,234 @@ test("task-delivery-certificate exports verifiable native, external-resolution, 
       }
     },
   );
+});
+
+test("DM-04 & DM-05: historical imported done task and non-normalized review/consent timestamps verify across hot read and cold rebuild", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-audit-dm04-dm05-"));
+  try {
+    execFileSync("git", ["init", "-q"], { cwd: rootDir });
+    execFileSync("git", ["config", "user.name", "Audit Test"], { cwd: rootDir });
+    execFileSync("git", ["config", "user.email", "audit@example.invalid"], { cwd: rootDir });
+    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness/.gitattributes"), "* -text\n");
+    execFileSync("git", ["add", "."], { cwd: rootDir });
+    execFileSync("git", ["commit", "-qm", "init"], { cwd: rootDir });
+
+    const repoId = "repo-dm04-dm05";
+    const fixture = lifecycleFixture({
+      taskId: "task_hist_review_001",
+      executionId: "exec_hist_review_001",
+      reviewId: "rev_hist_review_001",
+    });
+    let store = makeTaskEventStore({ rootDir, repoId });
+    for (const ev of fixture.events) {
+      store.append({ event: ev, plan: taskLifecycleWritePlan(ev), blobs: [] });
+    }
+    const importedTaskId = "task_imported_done_dm04";
+    const docBody = "# Imported Done\n";
+    const docSha = sha256Text(docBody);
+    const importEvent = createMigrationImportEvent({
+      eventId: "event-import-dm04",
+      workspaceRevision: fixture.events.length + 1,
+      opId: "migration-import-dm04",
+      actor: { principal: { personId: "person_zeyu" }, executor: null },
+      source: "migration-import/v1",
+      occurredAt: "2026-08-19T02:33:20.837Z",
+      payload: {
+        migratedFrom: importedTaskId,
+        generation: "v0",
+        entity: {
+          kind: "task",
+          provenance: "imported_snapshot",
+          task: { ...fixture.snapshot.task!, taskId: importedTaskId, status: "done" },
+          originalStatus: "done",
+          packagePath: `tasks/${importedTaskId}-hist`,
+          documentClaim: {
+            path: `tasks/${importedTaskId}-hist/INDEX.md`,
+            sha256: docSha,
+            size: Buffer.byteLength(docBody),
+            mediaType: "text/markdown",
+            policyId: "typed-migration-import/v1",
+          },
+        },
+      },
+    });
+    const importPlan = migrationImportWritePlan(importEvent);
+    store.append({
+      event: importEvent,
+      plan: importPlan,
+      blobs: [{ sha256: docSha, size: Buffer.byteLength(docBody), mediaType: "text/markdown", body: docBody }],
+    });
+    await store.drain();
+
+    // Rewrite review_recorded & review_consent_recorded in SQLite with historical +08:00 / no-.sss timestamps (DM-05)
+    const db = new DatabaseSync(sqliteLedgerPath(rootDir));
+    try {
+      const rows = db.prepare("SELECT revision, event_json FROM event ORDER BY revision").all() as Array<{
+        readonly revision: number;
+        readonly event_json: string;
+      }>;
+      const updateStmt = db.prepare("UPDATE event SET occurred_at=?, event_json=?, digest=? WHERE revision=?");
+      for (const row of rows) {
+        const parsed = JSON.parse(row.event_json) as PersistedCanonicalEventV1;
+        if (parsed.type === "review_recorded") {
+          const updated = {
+            ...parsed,
+            occurredAt: "2026-08-19T10:33:20+08:00",
+            payload: {
+              ...parsed.payload,
+              review: { ...parsed.payload.review, reviewedAt: "2026-08-19T10:33:20+08:00" },
+            },
+          };
+          const json = serializePersistedCanonicalEvent(updated);
+          updateStmt.run(updated.occurredAt, json, `sha256:${sha256Text(json)}`, row.revision);
+        } else if (parsed.type === "review_consent_recorded") {
+          const normalizedRev = normalizePersistedEventValue({
+            ...parsed.payload.review,
+            reviewedAt: "2026-08-19T10:33:20+08:00",
+          });
+          const updated = {
+            ...parsed,
+            occurredAt: "2026-08-19T02:35:00Z",
+            payload: {
+              ...parsed.payload,
+              review: { ...parsed.payload.review, reviewedAt: "2026-08-19T10:33:20+08:00" },
+              consent: {
+                ...parsed.payload.consent,
+                consentedAt: "2026-08-19T10:35:00+08:00",
+                reviewDigest: reviewDigest(normalizedRev),
+              },
+            },
+          };
+          const json = serializePersistedCanonicalEvent(updated);
+          updateStmt.run(updated.occurredAt, json, `sha256:${sha256Text(json)}`, row.revision);
+        }
+      }
+    } finally {
+      db.close();
+    }
+
+    store = makeTaskEventStore({ rootDir, repoId });
+    const projection = makeTaskProjection({ rootDir, eventStore: store });
+    try {
+      const makeCell = () => ({
+        input: { repoId },
+        store,
+        projection,
+        operationId: (_a: unknown, _b: unknown, _w: string, rev: number) => `op:read:${rev}`,
+        readResult: (opId: string, value: object, revision: number) => ({
+          schema: "command-receipt/v2" as const,
+          ok: true as const,
+          command: "read",
+          outcome: "applied" as const,
+          opId,
+          revision,
+          evidence: JSON.stringify(value),
+          summary: "",
+        }),
+        cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+        requiredCellText: (value: unknown, name: string) => {
+          if (typeof value !== "string" || !value) throw new Error(`missing ${name}`);
+          return value;
+        },
+      });
+      const queryBinding = {
+        actor: { principal: { personId: "person_zeyu" }, executor: null },
+        source: "local" as const,
+      };
+
+      for (const phase of ["hot", "cold-rebuild"] as const) {
+        if (phase === "hot") projection.catchUp();
+        else projection.rebuild();
+        const cellApi = makeCell();
+        const exportReceipt = readAuditExportPage(
+          cellApi,
+          { kind: "ledger-audit-export", algorithm: "sm3" },
+          queryBinding,
+        );
+        const exported = JSON.parse(String(exportReceipt.evidence)) as {
+          readonly events: readonly PersistedCanonicalEventV1[];
+          readonly manifest: AuditExportManifestV1;
+        };
+        const acc = createAuditChainAccumulator({
+          repoId,
+          algorithm: "sm3",
+          window: exported.manifest.window,
+        });
+        const entriesContent = exported.events.map((e) => acc.addEvent(e).line).join("");
+        const manifest = acc.finalize();
+
+        const impCertReceipt = readTaskDeliveryCertificate(
+          cellApi,
+          { kind: "task-delivery-certificate", taskId: importedTaskId, algorithm: "sha256" },
+          queryBinding,
+        );
+        const impCert = (JSON.parse(String(impCertReceipt.evidence)) as { readonly certificate: DeliveryCertificateV1 })
+          .certificate;
+        assert.equal(impCert.completionKind, "imported-migration", phase);
+        const impCollector = createAuditCertificateChainCollector({
+          taskId: importedTaskId,
+          completionOpId: impCert.completion.opId,
+          executionId: null,
+        });
+        assert.equal(
+          verifyAuditSliceContent({
+            manifest,
+            entriesContent,
+            expectedRootHash: manifest.rootHash,
+            certificateCollector: impCollector,
+          }).ok,
+          true,
+        );
+        const impVer = verifyDeliveryCertificate(impCert, {
+          expectedAlgorithm: "sha256",
+          expectedCertificateHash: impCert.certificateHash,
+          chainEvidence: impCollector.evidence(),
+        });
+        assert.equal(impVer.ok, true, `${phase}: ${JSON.stringify(impVer)}`);
+        if (impVer.ok) assert.equal(impVer.strictVerified, true);
+
+        const histCertReceipt = readTaskDeliveryCertificate(
+          cellApi,
+          { kind: "task-delivery-certificate", taskId: "task_hist_review_001", algorithm: "sha256" },
+          queryBinding,
+        );
+        const histCert = (
+          JSON.parse(String(histCertReceipt.evidence)) as { readonly certificate: DeliveryCertificateV1 }
+        ).certificate;
+        assert.equal(histCert.completionKind, "native", phase);
+        const histCollector = createAuditCertificateChainCollector({
+          taskId: "task_hist_review_001",
+          completionOpId: histCert.completion.opId,
+          executionId: histCert.executionId,
+        });
+        assert.equal(
+          verifyAuditSliceContent({
+            manifest,
+            entriesContent,
+            expectedRootHash: manifest.rootHash,
+            certificateCollector: histCollector,
+          }).ok,
+          true,
+        );
+        const histVer = verifyDeliveryCertificate(histCert, {
+          expectedAlgorithm: "sha256",
+          expectedCertificateHash: histCert.certificateHash,
+          chainEvidence: histCollector.evidence(),
+        });
+        assert.equal(histVer.ok, true, `${phase}: ${JSON.stringify(histVer)}`);
+        if (histVer.ok) {
+          assert.equal(histVer.strictVerified, true);
+          assert.equal(histVer.chainEvidence?.coverage, "complete");
+          assert.equal(histVer.chainEvidence?.reviewsVerifiedCount, 1);
+          assert.equal(histVer.chainEvidence?.consentVerified, true);
+        }
+      }
+    } finally {
+      projection.close();
+      await store.drain();
+    }
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });

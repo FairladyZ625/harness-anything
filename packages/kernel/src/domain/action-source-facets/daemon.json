@@ -2623,7 +2623,7 @@
         "order": 2
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/host-environment-io.ts#openCallerOutputLineWriter.cleanupTemp:c9fa86afc112c9fd8abc25963cee8369",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/host-environment-io.ts#openCallerOutputLineWriter.cleanupTemp:b3d6e952ff0fbd3ccb1d25293e88bd14",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm",

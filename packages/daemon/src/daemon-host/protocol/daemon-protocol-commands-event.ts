@@ -117,7 +117,13 @@ export const eventProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         { pathKind: "non-path", regex: eventListLimit, projection: "number" },
       ),
-      cliInput("--cursor", "single", false, { code: "invalid_field" }, { pathKind: "non-path", regex: "^[0-9]+$" }),
+      cliInput(
+        "--cursor",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", regex: "^[0-9]+(?::[0-9]+)?$" },
+      ),
       cliInput(
         "--output-dir",
         "single",

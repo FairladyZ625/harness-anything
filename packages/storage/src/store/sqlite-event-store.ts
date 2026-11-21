@@ -940,6 +940,7 @@ function readSqliteEventWindow(
     readonly after?: string;
     readonly before?: string;
     readonly limit: number;
+    readonly boundsPinned?: boolean;
   },
 ) {
   const sourceRevision = readRevision(db);
@@ -953,18 +954,27 @@ function readSqliteEventWindow(
       done: true,
     };
   }
+  const afterMs = input.after === undefined ? undefined : Date.parse(input.after);
+  const beforeMs = input.before === undefined ? undefined : Date.parse(input.before);
+  const hasTimeWindow = afterMs !== undefined || beforeMs !== undefined;
+  // Every canonical ISO-8601 timestamp carries an offset in [-23:59, +23:59], so +/-24h lexical
+  // bounds are a sound superset that still drives the existing event_occurred_at covering index.
+  const lexAfter = afterMs === undefined ? undefined : new Date(afterMs - 86_400_000).toISOString().slice(0, 19);
+  const lexBefore =
+    beforeMs === undefined ? undefined : new Date(beforeMs + 86_400_000 + 1_000).toISOString().slice(0, 19);
+  const instantMsExpr = "CAST(ROUND(unixepoch(occurred_at, 'subsec') * 1000) AS INTEGER)";
   let seekAfter = input.afterRevision;
   let seekMax = upperRevision;
-  if (input.after !== undefined || input.before !== undefined) {
+  if (hasTimeWindow && !input.boundsPinned) {
     const boundClauses: string[] = [];
     const boundValues: (string | number)[] = [input.afterRevision, upperRevision, input.afterRevision, upperRevision];
-    if (input.after !== undefined) {
-      boundClauses.push("occurred_at>=?");
-      boundValues.push(input.after);
+    if (lexAfter !== undefined && afterMs !== undefined) {
+      boundClauses.push("occurred_at>=?", `${instantMsExpr}>=?`);
+      boundValues.push(lexAfter, afterMs);
     }
-    if (input.before !== undefined) {
-      boundClauses.push("occurred_at<=?");
-      boundValues.push(input.before);
+    if (lexBefore !== undefined && beforeMs !== undefined) {
+      boundClauses.push("occurred_at<?", `${instantMsExpr}<=?`);
+      boundValues.push(lexBefore, beforeMs);
     }
     const bounds = query(
       `SELECT MIN(CASE WHEN revision>? AND revision<=? THEN revision END) AS min_rev, ` +
@@ -986,13 +996,13 @@ function readSqliteEventWindow(
   }
   const clauses = ["revision>?", "revision<=?"];
   const values: (string | number)[] = [seekAfter, seekMax];
-  if (input.after !== undefined) {
-    clauses.push("occurred_at>=?");
-    values.push(input.after);
+  if (afterMs !== undefined) {
+    clauses.push(`${instantMsExpr}>=?`);
+    values.push(afterMs);
   }
-  if (input.before !== undefined) {
-    clauses.push("occurred_at<=?");
-    values.push(input.before);
+  if (beforeMs !== undefined) {
+    clauses.push(`${instantMsExpr}<=?`);
+    values.push(beforeMs);
   }
   values.push(input.limit + 1);
   const rows = query(

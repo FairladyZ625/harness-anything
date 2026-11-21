@@ -14,6 +14,9 @@ import {
 } from "../../src/integrity/audit-hash-chain.ts";
 import { digestText, sha256Text, type AuditHashAlgorithm } from "../../src/integrity/stable-hash.ts";
 import type { TaskCompletedEvent } from "../../src/domain/task-lifecycle-event.ts";
+import { createMigrationImportEvent, type MigrationImportEventV1 } from "../../src/domain/migration-import-event.ts";
+import { normalizePersistedEventValue } from "../../src/domain/doc-sync-canonical-events.ts";
+import { reviewDigest } from "../../src/domain/review.ts";
 import { lifecycleFixture } from "../store/task-lifecycle-fixture.ts";
 
 test("SM3 matches GM/T 0004-2012 standard test vector for 'abc' and SHA-256 matches FIPS 180-4", () => {
@@ -559,4 +562,338 @@ test("G4-07: external-resolution and sibling-resolution done certificates verify
   const badSibRes = verifyDeliveryCertificate(badSibling);
   assert.equal(badSibRes.ok, false);
   if (!badSibRes.ok) assert.equal(badSibRes.code, "audit_certificate_hash_mismatch");
+});
+
+test("DM-02: date/time slices allow historical out-of-order revisions while rejecting overlaps and equal boundaries", () => {
+  const fixture = lifecycleFixture({
+    taskId: "task_dm02_001",
+    executionId: "exec_dm02_001",
+    reviewId: "rev_dm02_001",
+  });
+  // Mirror real historical ledger: 2026-08-19 carries rev 47768, 2026-08-31 carries rev 41601.
+  const evAug19 = {
+    ...fixture.events[0]!,
+    workspaceRevision: 47768,
+    opId: "op_aug19_47768",
+    eventId: "ev_aug19_47768",
+    occurredAt: "2026-08-19T02:33:20.837Z",
+  };
+  const evAug31 = {
+    ...fixture.events[1]!,
+    workspaceRevision: 41601,
+    opId: "op_aug31_41601",
+    eventId: "ev_aug31_41601",
+    occurredAt: "2026-08-31T09:59:08.131Z",
+  };
+
+  const acc1 = createAuditChainAccumulator({
+    repoId: "repo-dm02",
+    algorithm: "sm3",
+    window: {
+      fromRevision: null,
+      toRevision: 286571,
+      utcDate: "2026-08-19",
+      after: "2026-08-19T00:00:00.000Z",
+      before: "2026-08-19T23:59:59.999Z",
+    },
+  });
+  const lines1 = acc1.addEvent(evAug19).line;
+  const manifest1 = acc1.finalize();
+
+  const acc2 = createAuditChainAccumulator({
+    repoId: "repo-dm02",
+    algorithm: "sm3",
+    prevRootHash: manifest1.rootHash,
+    window: {
+      fromRevision: null,
+      toRevision: 286571,
+      utcDate: "2026-08-31",
+      after: "2026-08-31T00:00:00.000Z",
+      before: "2026-08-31T23:59:59.999Z",
+    },
+  });
+  const lines2 = acc2.addEvent(evAug31).line;
+  const manifest2 = acc2.finalize();
+
+  const v1 = verifyAuditSliceContent({ manifest: manifest1, entriesContent: lines1 });
+  const v2 = verifyAuditSliceContent({
+    manifest: manifest2,
+    entriesContent: lines2,
+    expectedPrevRootHash: manifest1.rootHash,
+  });
+  assert.equal(v1.ok, true);
+  assert.equal(v2.ok, true);
+  if (v1.ok && v2.ok) {
+    assert.equal(verifyAuditSliceSequence(v1, v2), null);
+    // Negative: reversed date order rejected
+    const reversed = verifyAuditSliceSequence({ ...v2, rootHash: v2.rootHash }, { ...v1, prevRootHash: v2.rootHash });
+    assert.equal(reversed?.code, "audit_slice_sequence_invalid");
+    // Negative: same UTC date rejected
+    const sameDay = verifyAuditSliceSequence(v1, { ...v1, prevRootHash: v1.rootHash });
+    assert.equal(sameDay?.code, "audit_slice_sequence_invalid");
+  }
+
+  // Positive: custom non-overlapping time windows with reversed revisions succeed
+  const customA = {
+    repoId: "repo-dm02",
+    window: {
+      fromRevision: null,
+      toRevision: null,
+      utcDate: null,
+      after: "2026-08-19T00:00:00.000Z",
+      before: "2026-08-19T12:00:00.000Z",
+    },
+    firstRevision: 500,
+    lastRevision: 500,
+    rootHash: manifest1.rootHash,
+  };
+  const customB = {
+    repoId: "repo-dm02",
+    window: {
+      fromRevision: null,
+      toRevision: null,
+      utcDate: null,
+      after: "2026-08-19T12:00:00.001Z",
+      before: "2026-08-19T23:59:59.999Z",
+    },
+    firstRevision: 100,
+    lastRevision: 100,
+    prevRootHash: manifest1.rootHash,
+  };
+  assert.equal(verifyAuditSliceSequence(customA, customB), null);
+
+  // Negative: equal boundary endpoints (inclusive overlap) rejected
+  const equalBoundary = verifyAuditSliceSequence(customA, {
+    ...customB,
+    window: { ...customB.window, after: "2026-08-19T12:00:00.000Z" },
+  });
+  assert.equal(equalBoundary?.code, "audit_slice_sequence_invalid");
+  assert.equal(equalBoundary?.field, "window.after");
+});
+
+test("DM-04, DM-05, DM-06: imported-migration certificates, historical timestamp normalization, and strictVerified trust basis", () => {
+  const fixture = lifecycleFixture({
+    taskId: "task_dm04_001",
+    executionId: "exec_dm04_001",
+    reviewId: "rev_dm04_001",
+  });
+  // DM-04: Historically imported done task (zero task_completed events)
+  const importedTask = { ...fixture.snapshot.task!, taskId: "task_imported_hist", status: "done" as const };
+  const importEvent: MigrationImportEventV1 = createMigrationImportEvent({
+    eventId: "ev_import_done_001",
+    workspaceRevision: 41369,
+    opId: "migration-import-done-001",
+    actor: { principal: { personId: "person_zeyu" }, executor: null },
+    source: "migration-import/v1",
+    occurredAt: "2026-08-19T02:33:20.837Z",
+    payload: {
+      migratedFrom: "task_imported_hist",
+      generation: "v0",
+      entity: {
+        kind: "task",
+        provenance: "imported_snapshot",
+        task: importedTask,
+        originalStatus: "done",
+        packagePath: "tasks/task_imported_hist-fixture",
+        documentClaim: {
+          path: "tasks/task_imported_hist-fixture/INDEX.md",
+          sha256: "0".repeat(64),
+          size: 128,
+          mediaType: "text/markdown",
+          policyId: "typed-migration-import/v1",
+        },
+      },
+    },
+  });
+  const importedCert = buildDeliveryCertificate({
+    algorithm: "sm3",
+    repoId: "repo-dm04",
+    task: importedTask,
+    execution: null,
+    reviews: [],
+    reviewConsent: null,
+    completionEvent: importEvent,
+  });
+  assert.equal(importedCert.completionKind, "imported-migration");
+  assert.equal(importedCert.executionId, null);
+  assert.equal(importedCert.commitSha, null);
+  assert.deepEqual(importedCert.resolution, {
+    kind: "imported-migration",
+    migratedFrom: "task_imported_hist",
+    generation: "v0",
+    originalStatus: "done",
+    packagePath: "tasks/task_imported_hist-fixture",
+  });
+
+  // Unpinned verify is selfConsistent=true, strictVerified=false
+  const unpinnedImported = verifyDeliveryCertificate(importedCert);
+  assert.equal(unpinnedImported.ok, true);
+  if (unpinnedImported.ok) {
+    assert.equal(unpinnedImported.selfConsistent, true);
+    assert.equal(unpinnedImported.anchorPinned, false);
+    assert.equal(unpinnedImported.strictVerified, false);
+    assert.equal(unpinnedImported.verificationMode, "self-consistent-only");
+  }
+
+  // Joint verify of imported-migration cert against sha256 chain + pinned anchor
+  const impAcc = createAuditChainAccumulator({
+    repoId: "repo-dm04",
+    algorithm: "sha256",
+    window: { fromRevision: 41369, toRevision: 41369, utcDate: null, after: null, before: null },
+  });
+  const impLines = impAcc.addEvent(importEvent).line;
+  const impManifest = impAcc.finalize();
+  const impCollector = createAuditCertificateChainCollector({
+    taskId: "task_imported_hist",
+    completionOpId: importEvent.opId,
+    executionId: null,
+  });
+  const impSliceRes = verifyAuditSliceContent({
+    manifest: impManifest,
+    entriesContent: impLines,
+    expectedRootHash: impManifest.rootHash,
+    certificateCollector: impCollector,
+  });
+  assert.equal(impSliceRes.ok, true);
+  if (impSliceRes.ok) {
+    assert.equal(impSliceRes.strictVerified, true);
+  }
+  const impCertVerified = verifyDeliveryCertificate(importedCert, {
+    expectedAlgorithm: "sm3",
+    expectedCertificateHash: importedCert.certificateHash,
+    chainEvidence: impCollector.evidence(),
+  });
+  assert.equal(impCertVerified.ok, true, JSON.stringify(impCertVerified));
+  if (impCertVerified.ok) {
+    assert.equal(impCertVerified.strictVerified, true);
+    assert.equal(impCertVerified.chainEvidence?.coverage, "complete");
+  }
+
+  // DM-05: Raw chain has historical +08:00 / no-.sss timestamps while projection-built certificate has normalized UTC .000Z
+  const rawEvents = fixture.events.map((ev) => {
+    if (ev.type === "review_recorded") {
+      return {
+        ...ev,
+        occurredAt: "2026-08-19T10:33:20+08:00",
+        payload: {
+          ...ev.payload,
+          review: { ...ev.payload.review, reviewedAt: "2026-08-19T10:33:20+08:00" },
+        },
+      };
+    }
+    if (ev.type === "review_consent_recorded") {
+      const normalizedRev = normalizePersistedEventValue({
+        ...ev.payload.review,
+        reviewedAt: "2026-08-19T10:33:20+08:00",
+      });
+      return {
+        ...ev,
+        occurredAt: "2026-08-19T02:35:00Z",
+        payload: {
+          ...ev.payload,
+          review: { ...ev.payload.review, reviewedAt: "2026-08-19T10:33:20+08:00" },
+          consent: {
+            ...ev.payload.consent,
+            consentedAt: "2026-08-19T10:35:00+08:00",
+            reviewDigest: reviewDigest(normalizedRev),
+          },
+        },
+      };
+    }
+    return ev;
+  });
+  const normReviews = rawEvents
+    .filter(
+      (e): e is Extract<(typeof rawEvents)[number], { readonly type: "review_recorded" }> =>
+        e.type === "review_recorded",
+    )
+    .map((e) => normalizePersistedEventValue(e.payload.review));
+  const normConsentEvent = rawEvents.find(
+    (e): e is Extract<(typeof rawEvents)[number], { readonly type: "review_consent_recorded" }> =>
+      e.type === "review_consent_recorded",
+  )!;
+  const normConsent = normalizePersistedEventValue(normConsentEvent.payload.consent);
+  const completionEv = rawEvents.find((e) => e.type === "task_completed") as TaskCompletedEvent;
+  const exec = fixture.snapshot.executions[0]!;
+  assert.equal(exec.schema, "execution/v1");
+
+  const histCert = buildDeliveryCertificate({
+    algorithm: "sha256",
+    repoId: "repo-dm05",
+    task: fixture.snapshot.task!,
+    execution: exec,
+    reviews: normReviews,
+    reviewConsent: normConsent,
+    completionEvent: completionEv,
+  });
+
+  const histAcc = createAuditChainAccumulator({
+    repoId: "repo-dm05",
+    algorithm: "sm3",
+    window: { fromRevision: 1, toRevision: 6, utcDate: null, after: null, before: null },
+  });
+  const histLines = rawEvents.map((e) => histAcc.addEvent(e).line).join("");
+  const histManifest = histAcc.finalize();
+  const histCollector = createAuditCertificateChainCollector({
+    taskId: "task_dm04_001",
+    completionOpId: completionEv.opId,
+    executionId: exec.executionId,
+  });
+  assert.equal(
+    verifyAuditSliceContent({
+      manifest: histManifest,
+      entriesContent: histLines,
+      expectedRootHash: histManifest.rootHash,
+      certificateCollector: histCollector,
+    }).ok,
+    true,
+  );
+  const histVerified = verifyDeliveryCertificate(histCert, {
+    expectedCertificateHash: histCert.certificateHash,
+    chainEvidence: histCollector.evidence(),
+  });
+  assert.equal(histVerified.ok, true, JSON.stringify(histVerified));
+  if (histVerified.ok) {
+    assert.equal(histVerified.strictVerified, true);
+    assert.equal(histVerified.chainEvidence?.coverage, "complete");
+    assert.equal(histVerified.chainEvidence?.reviewsVerifiedCount, 1);
+    assert.equal(histVerified.chainEvidence?.consentVerified, true);
+  }
+
+  // DM-06: Partial slice covering ONLY completionEvent (rev 6) leaves review & consent uncovered -> strictVerified=false!
+  const partialAcc = createAuditChainAccumulator({
+    repoId: "repo-dm05",
+    algorithm: "sm3",
+    window: { fromRevision: 6, toRevision: 6, utcDate: null, after: null, before: null },
+  });
+  const partialLines = partialAcc.addEvent(completionEv).line;
+  const partialManifest = partialAcc.finalize();
+  const partialCollector = createAuditCertificateChainCollector({
+    taskId: "task_dm04_001",
+    completionOpId: completionEv.opId,
+    executionId: exec.executionId,
+  });
+  assert.equal(
+    verifyAuditSliceContent({
+      manifest: partialManifest,
+      entriesContent: partialLines,
+      expectedRootHash: partialManifest.rootHash,
+      certificateCollector: partialCollector,
+    }).ok,
+    true,
+  );
+  const partialCertRes = verifyDeliveryCertificate(histCert, {
+    expectedCertificateHash: histCert.certificateHash,
+    chainEvidence: partialCollector.evidence(),
+  });
+  assert.equal(partialCertRes.ok, true, JSON.stringify(partialCertRes));
+  if (partialCertRes.ok) {
+    assert.equal(partialCertRes.selfConsistent, true);
+    assert.equal(partialCertRes.anchorPinned, true);
+    assert.equal(partialCertRes.strictVerified, false);
+    assert.equal(partialCertRes.verificationMode, "self-consistent-only");
+    assert.equal(partialCertRes.chainEvidence?.coverage, "partial");
+    assert.deepEqual(partialCertRes.chainEvidence?.uncoveredReviewIds, ["rev_dm04_001"]);
+    assert.equal(partialCertRes.chainEvidence?.uncoveredConsentId, normConsent.consentId);
+  }
 });

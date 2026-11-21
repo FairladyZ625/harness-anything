@@ -1098,7 +1098,8 @@
         "command:ledger-audit-export": {
           "measurements": [
             "cli-ledger-audit-export",
-            "ledger-audit-export-date"
+            "ledger-audit-export-date",
+            "ledger-audit-export-date-multipage"
           ]
         },
         "command:ledger-reconcile": {

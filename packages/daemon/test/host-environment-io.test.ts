@@ -5,10 +5,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  createAuditChainAccumulator,
+  verifyAuditSliceContent,
+} from "@harness-anything/kernel/internal/integrity/audit-hash-chain.ts";
+import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
+import {
   createHostScratchDirectory,
   hostEnvironmentFilePath,
   openCallerOutputLineWriter,
-  writeCallerOutputFile,
   writeHostEnvironmentFile,
 } from "../src/daemon-host/host-environment-io.ts";
 
@@ -52,25 +56,89 @@ test("scratch handles own separate directories and close only once", async (t) =
   assert.deepEqual(await readdir(first.directory), []);
 });
 
-test("staged caller output writer preserves existing files on abort and publishes companion atomically on commit", async (t) => {
+test("staged caller output writer preserves verifiable prior export on final switch failure and switches atomically on commit", async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), "ha-caller-output-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  const entriesPath = path.join(directory, "audit-events.jsonl");
+  const fixture = lifecycleFixture({ taskId: "task_dm07_001", executionId: "exec_dm07_001", reviewId: "rev_dm07_001" });
   const manifestPath = path.join(directory, "audit-manifest.json");
-  await writeCallerOutputFile(entriesPath, "old-entries\n");
-  await writeCallerOutputFile(manifestPath, "old-manifest\n");
+  const anchorPath = path.join(directory, "audit-events.jsonl");
 
-  const aborted = await openCallerOutputLineWriter(entriesPath);
+  // Publish verifiable v1 export
+  const acc1 = createAuditChainAccumulator({
+    repoId: "repo-dm07",
+    algorithm: "sha256",
+    window: { fromRevision: 1, toRevision: 3, utcDate: null, after: null, before: null },
+  });
+  const lines1 = fixture.events.slice(0, 3).map((e) => acc1.addEvent(e).line);
+  const manifest1 = acc1.finalize();
+  const entries1Path = path.join(directory, manifest1.entriesFile);
+  const writer1 = await openCallerOutputLineWriter(anchorPath);
+  for (const line of lines1) await writer1.writeLine(line);
+  await writer1.commit({
+    filePath: manifestPath,
+    contents: `${JSON.stringify(manifest1, null, 2)}\n`,
+    entriesTargetPath: entries1Path,
+  });
+  assert.deepEqual((await readdir(directory)).sort(), [manifest1.entriesFile, "audit-manifest.json"].sort());
+
+  // Abort mid-stream preserves v1 cleanly
+  const aborted = await openCallerOutputLineWriter(anchorPath);
   await aborted.writeLine("partial-new\n");
   await aborted.abort();
-  assert.equal(await readFile(entriesPath, "utf8"), "old-entries\n");
-  assert.equal(await readFile(manifestPath, "utf8"), "old-manifest\n");
-  assert.deepEqual((await readdir(directory)).sort(), ["audit-events.jsonl", "audit-manifest.json"]);
+  assert.deepEqual((await readdir(directory)).sort(), [manifest1.entriesFile, "audit-manifest.json"].sort());
 
-  const committed = await openCallerOutputLineWriter(entriesPath);
-  await committed.writeLine("new-entries\n");
-  await committed.commit({ filePath: manifestPath, contents: "new-manifest\n" });
-  assert.equal(await readFile(entriesPath, "utf8"), "new-entries\n");
-  assert.equal(await readFile(manifestPath, "utf8"), "new-manifest\n");
-  assert.deepEqual((await readdir(directory)).sort(), ["audit-events.jsonl", "audit-manifest.json"]);
+  // DM-07: Injected failure right before final manifest switch MUST leave v1 100% intact & verifiable!
+  const acc2 = createAuditChainAccumulator({
+    repoId: "repo-dm07",
+    algorithm: "sha256",
+    window: { fromRevision: 1, toRevision: 6, utcDate: null, after: null, before: null },
+  });
+  const lines2 = fixture.events.map((e) => acc2.addEvent(e).line);
+  const manifest2 = acc2.finalize();
+  assert.notEqual(manifest2.entriesFile, manifest1.entriesFile);
+  const entries2Path = path.join(directory, manifest2.entriesFile);
+
+  const failingWriter = await openCallerOutputLineWriter(anchorPath);
+  for (const line of lines2) await failingWriter.writeLine(line);
+  await assert.rejects(
+    failingWriter.commit({
+      filePath: manifestPath,
+      contents: `${JSON.stringify(manifest2, null, 2)}\n`,
+      entriesTargetPath: entries2Path,
+      supersededEntriesPath: entries1Path,
+      beforeSwitch: () => {
+        throw new Error("simulated crash before final manifest switch");
+      },
+    }),
+    /simulated crash before final manifest switch/u,
+  );
+  await failingWriter.close();
+  assert.deepEqual((await readdir(directory)).sort(), [manifest1.entriesFile, "audit-manifest.json"].sort());
+  const stillV1Manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  const stillV1Entries = await readFile(path.join(directory, stillV1Manifest.entriesFile), "utf8");
+  const verifyStillV1 = verifyAuditSliceContent({
+    manifest: stillV1Manifest,
+    entriesContent: stillV1Entries,
+    expectedRootHash: manifest1.rootHash,
+  });
+  assert.equal(verifyStillV1.ok, true, JSON.stringify(verifyStillV1));
+
+  // Successful single-switch commit publishes v2 and garbage-collects superseded v1 entries file
+  const committed = await openCallerOutputLineWriter(anchorPath);
+  for (const line of lines2) await committed.writeLine(line);
+  await committed.commit({
+    filePath: manifestPath,
+    contents: `${JSON.stringify(manifest2, null, 2)}\n`,
+    entriesTargetPath: entries2Path,
+    supersededEntriesPath: entries1Path,
+  });
+  assert.deepEqual((await readdir(directory)).sort(), [manifest2.entriesFile, "audit-manifest.json"].sort());
+  const nowV2Manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  const nowV2Entries = await readFile(path.join(directory, nowV2Manifest.entriesFile), "utf8");
+  const verifyV2 = verifyAuditSliceContent({
+    manifest: nowV2Manifest,
+    entriesContent: nowV2Entries,
+    expectedRootHash: manifest2.rootHash,
+  });
+  assert.equal(verifyV2.ok, true, JSON.stringify(verifyV2));
 });

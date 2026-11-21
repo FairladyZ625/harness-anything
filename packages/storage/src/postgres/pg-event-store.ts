@@ -181,6 +181,7 @@ interface ReadEventWindowPayload {
     readonly after?: string;
     readonly before?: string;
     readonly limit: number;
+    readonly boundsPinned?: boolean;
   };
 }
 interface ReadEventPayload {
@@ -746,18 +747,29 @@ async function readEventWindow(
       done: true,
     };
   }
+  const afterMs = query.after === undefined ? undefined : Date.parse(query.after);
+  const beforeMs = query.before === undefined ? undefined : Date.parse(query.before);
+  const hasTimeWindow = afterMs !== undefined || beforeMs !== undefined;
+  const lexAfter = afterMs === undefined ? undefined : new Date(afterMs - 86_400_000).toISOString().slice(0, 19);
+  const lexBefore =
+    beforeMs === undefined ? undefined : new Date(beforeMs + 86_400_000 + 1_000).toISOString().slice(0, 19);
+  const instantExpr = "date_trunc('milliseconds', occurred_at::timestamptz)";
   let seekAfter = query.afterRevision;
   let seekMax = upperRevision;
-  if (query.after !== undefined || query.before !== undefined) {
+  if (hasTimeWindow && !query.boundsPinned) {
     const boundClauses = ["tenant_id=$1", "project_id=$2", "repo_id=$3"];
     const boundValues: unknown[] = [scope.tenantId, scope.projectId, input.repoId, query.afterRevision, upperRevision];
-    if (query.after !== undefined) {
-      boundValues.push(query.after);
+    if (lexAfter !== undefined && query.after !== undefined) {
+      boundValues.push(lexAfter);
       boundClauses.push(`occurred_at>=$${boundValues.length}`);
+      boundValues.push(query.after);
+      boundClauses.push(`${instantExpr}>=$${boundValues.length}::timestamptz`);
     }
-    if (query.before !== undefined) {
+    if (lexBefore !== undefined && query.before !== undefined) {
+      boundValues.push(lexBefore);
+      boundClauses.push(`occurred_at<$${boundValues.length}`);
       boundValues.push(query.before);
-      boundClauses.push(`occurred_at<=$${boundValues.length}`);
+      boundClauses.push(`${instantExpr}<=$${boundValues.length}::timestamptz`);
     }
     const bounds = (
       await client.query<{ readonly min_rev: string | null; readonly max_rev: string | null }>(
@@ -783,11 +795,11 @@ async function readEventWindow(
   const values: unknown[] = [scope.tenantId, scope.projectId, input.repoId, seekAfter, seekMax];
   if (query.after !== undefined) {
     values.push(query.after);
-    clauses.push(`occurred_at>=$${values.length}`);
+    clauses.push(`${instantExpr}>=$${values.length}::timestamptz`);
   }
   if (query.before !== undefined) {
     values.push(query.before);
-    clauses.push(`occurred_at<=$${values.length}`);
+    clauses.push(`${instantExpr}<=$${values.length}::timestamptz`);
   }
   values.push(query.limit + 1);
   const result = await client.query<{ readonly event_json: string }>(

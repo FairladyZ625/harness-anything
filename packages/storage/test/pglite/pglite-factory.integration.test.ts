@@ -7,8 +7,14 @@ import test from "node:test";
 import type { Pool } from "pg";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { makeTaskProjection, makeTaskProjectionReader } from "../../src/projection/rebuildable-task-projection.ts";
+import { taskLifecycleWritePlan } from "@harness-anything/kernel";
 import { assertWriterEpochFactory } from "../writer-epoch-factory.assertions.ts";
-import { assertCanonicalFactoryLifecycle } from "../canonical-factory.assertions.ts";
+import {
+  assertCanonicalFactoryLifecycle,
+  assertHistoricalDateWindowAndImportParity,
+  buildHistoricalTimestampFixtures,
+} from "../canonical-factory.assertions.ts";
+import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
 import { withTempStoreAsync } from "../store/helpers.ts";
 import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
 import { createPGliteStorageBackend } from "../../src/pglite/storage-backend.ts";
@@ -170,6 +176,58 @@ pgliteIntegrationSuite("PGlite synchronous factories", () => {
           await backend.close();
         }
         return;
+      } finally {
+        projection.close();
+        await store.drain();
+      }
+    });
+  });
+  test("PGlite readEventWindow handles historical timezone offsets/no-ms timestamps and readTaskImportedEvent", async () => {
+    await withTempStoreAsync(async (rootDir) => {
+      const repoId = "pglite-dm01-dm04";
+      const storage = {
+        backend: "pglite" as const,
+        dataDir: join(rootDir, "database"),
+        materialize: false,
+        scope: { tenantId: "tenant", projectId: "project", policyEpoch: 1 },
+      };
+      const baseEvents = lifecycleFixture({ taskId: "task_pg_hist_ts", executionId: "exec_pg_hist_ts" }).events.slice(
+        0,
+        5,
+      );
+      let store = makeTaskEventStore({ repoId, rootDir, storage });
+      for (const ev of baseEvents) {
+        store.append({ event: ev, plan: taskLifecycleWritePlan(ev), blobs: [] });
+      }
+      await store.drain();
+      const backend = await createPGliteStorageBackend({ repoId, storage });
+      try {
+        for (const row of buildHistoricalTimestampFixtures(baseEvents)) {
+          await backend.pool.query(
+            "UPDATE ha_events SET occurred_at=$1, event_json=$2, event_digest=$3 WHERE tenant_id=$4 AND project_id=$5 AND repo_id=$6 AND revision=$7",
+            [
+              row.occurredAt,
+              row.eventJson,
+              row.digest,
+              storage.scope.tenantId,
+              storage.scope.projectId,
+              repoId,
+              row.revision,
+            ],
+          );
+        }
+      } finally {
+        await backend.close();
+      }
+      store = makeTaskEventStore({ repoId, rootDir, storage });
+      const projection = makeTaskProjection({ rootDir, eventStore: store, storage });
+      try {
+        projection.rebuild();
+        assertHistoricalDateWindowAndImportParity({
+          store,
+          projection,
+          importedTaskId: "task_pglite_imported_done",
+        });
       } finally {
         projection.close();
         await store.drain();

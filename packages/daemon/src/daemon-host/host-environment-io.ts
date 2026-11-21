@@ -32,12 +32,20 @@ export async function writeHostEnvironmentFile(
 }
 
 /** Open a staged streaming line writer for a caller-specified export artifact path.
- *  Writes to a sibling temporary file and publishes atomically only on commit()
- *  (optionally staging a companion file such as audit-manifest.json before either
- *  rename), leaving pre-existing targets untouched if aborted or failed mid-stream. */
+ *  Writes to a sibling temporary file and publishes via a single atomic switch:
+ *  when publishing a companion manifest alongside a content-addressed entries target,
+ *  the immutable entries file is staged first without overwriting any prior entries file,
+ *  then the companion manifest is switched atomically in one POSIX rename, and any
+ *  superseded entries file is removed only after that switch succeeds. */
 export async function openCallerOutputLineWriter(filePath: string): Promise<{
   readonly writeLine: (line: string) => Promise<void>;
-  readonly commit: (companion?: { readonly filePath: string; readonly contents: string }) => Promise<void>;
+  readonly commit: (companion?: {
+    readonly filePath: string;
+    readonly contents: string;
+    readonly entriesTargetPath?: string;
+    readonly supersededEntriesPath?: string;
+    readonly beforeSwitch?: () => void | Promise<void>;
+  }) => Promise<void>;
   readonly abort: () => Promise<void>;
   readonly close: () => Promise<void>;
 }> {
@@ -53,11 +61,14 @@ export async function openCallerOutputLineWriter(filePath: string): Promise<{
     closed = true;
     await handle.close();
   };
-  const cleanupTemp = async () => {
-    if (cleaned || published) return;
-    cleaned = true;
-    await rm(temporary, { force: true });
+  const cleanupTemp = async (targetPath: string = temporary) => {
+    if (targetPath === temporary) {
+      if (cleaned || published) return;
+      cleaned = true;
+    }
+    await rm(targetPath, { force: true });
   };
+  const publishEntries = (targetPath: string) => rename(temporary, targetPath);
   return {
     writeLine: async (line: string) => {
       await handle.write(line, undefined, "utf8");
@@ -65,23 +76,39 @@ export async function openCallerOutputLineWriter(filePath: string): Promise<{
     commit: async (companion) => {
       await closeHandle();
       if (published) return;
-      const stagedCompanion = companion === undefined ? null : await openCallerOutputLineWriter(companion.filePath);
-      let companionCommitted = false;
-      try {
-        if (stagedCompanion !== null && companion !== undefined) {
-          await stagedCompanion.writeLine(companion.contents);
-        }
-        await rename(temporary, filePath);
+      if (companion === undefined) {
+        await publishEntries(filePath);
         published = true;
-        if (stagedCompanion !== null) {
-          await stagedCompanion.commit();
-          companionCommitted = true;
+        return;
+      }
+      const finalEntriesPath = companion.entriesTargetPath ?? filePath;
+      const sameTargetAsPrior =
+        companion.supersededEntriesPath !== undefined &&
+        path.resolve(companion.supersededEntriesPath) === path.resolve(finalEntriesPath);
+      const stagedCompanion = await openCallerOutputLineWriter(companion.filePath);
+      let companionCommitted = false;
+      let entriesMovedToFinal = false;
+      try {
+        await stagedCompanion.writeLine(companion.contents);
+        await publishEntries(finalEntriesPath);
+        entriesMovedToFinal = true;
+        if (companion.beforeSwitch !== undefined) {
+          await companion.beforeSwitch();
+        }
+        await stagedCompanion.commit();
+        published = true;
+        companionCommitted = true;
+        if (companion.supersededEntriesPath !== undefined && !sameTargetAsPrior) {
+          await cleanupTemp(companion.supersededEntriesPath);
         }
       } finally {
-        if (stagedCompanion !== null) {
-          if (!companionCommitted) await stagedCompanion.abort();
-          await stagedCompanion.close();
+        if (!companionCommitted) {
+          await stagedCompanion.abort();
+          if (entriesMovedToFinal && !sameTargetAsPrior) {
+            await cleanupTemp(finalEntriesPath);
+          }
         }
+        await stagedCompanion.close();
       }
     },
     abort: async () => {

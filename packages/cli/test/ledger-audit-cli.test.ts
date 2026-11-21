@@ -195,8 +195,8 @@ test("CLI multi-page streaming audit-export, atomic staging, pinned anchors, mix
     const manifest1 = res1.manifest as AuditExportManifestV1;
     assert.equal(manifest1.rootHash, (res1Concurrent.manifest as AuditExportManifestV1).rootHash);
 
-    // G4-06: Failed auth on page 1 OR failure on page 2 MUST preserve pre-existing files in slice1Dir with zero .tmp residue!
-    const entries1Path = path.join(slice1Dir, "audit-events.jsonl");
+    // G4-06 & DM-07: Content-addressed entries file + single-switch manifest; failed auth or page 2 preserves prior export with zero .tmp residue!
+    const entries1Path = path.join(slice1Dir, manifest1.entriesFile);
     const manifest1Path = path.join(slice1Dir, "audit-manifest.json");
     const originalEntries1 = readFileSync(entries1Path, "utf8");
     const originalManifest1 = readFileSync(manifest1Path, "utf8");
@@ -209,7 +209,7 @@ test("CLI multi-page streaming audit-export, atomic staging, pinned anchors, mix
     assert.equal(authFailRes.ok, false);
     assert.equal(readFileSync(entries1Path, "utf8"), originalEntries1);
     assert.equal(readFileSync(manifest1Path, "utf8"), originalManifest1);
-    assert.deepEqual(readdirSync(slice1Dir).sort(), ["audit-events.jsonl", "audit-manifest.json"]);
+    assert.deepEqual(readdirSync(slice1Dir).sort(), [manifest1.entriesFile, "audit-manifest.json"].sort());
 
     let pageAttempt = 0;
     const baseDaemon = mockExportDaemon(fixture.events, "sm3");
@@ -221,7 +221,7 @@ test("CLI multi-page streaming audit-export, atomic staging, pinned anchors, mix
     assert.equal(midFailRes.ok, false);
     assert.equal(readFileSync(entries1Path, "utf8"), originalEntries1);
     assert.equal(readFileSync(manifest1Path, "utf8"), originalManifest1);
-    assert.deepEqual(readdirSync(slice1Dir).sort(), ["audit-events.jsonl", "audit-manifest.json"]);
+    assert.deepEqual(readdirSync(slice1Dir).sort(), [manifest1.entriesFile, "audit-manifest.json"].sort());
 
     const parsed2 = parseThinCommand([
       "ledger",
@@ -329,9 +329,125 @@ test("CLI multi-page streaming audit-export, atomic staging, pinned anchors, mix
     ]);
     assert.equal(okRun.status, 0, JSON.stringify(okRun.body));
     assert.equal(okRun.body?.ok, true);
+    assert.equal(okRun.body?.selfConsistent, true);
+    assert.equal(okRun.body?.strictVerified, true);
+    assert.equal(okRun.body?.certificateChainCoverage, "complete");
     assert.equal(okRun.body?.sliceCount, 2);
     assert.equal(okRun.body?.totalEvents, 6);
-    assert.equal((okRun.body?.trustAnchor as { mode: string }).mode, "pinned");
+    assert.deepEqual(okRun.body?.trustAnchor, {
+      mode: "pinned",
+      chainAnchorPinned: true,
+      certificateAnchorPinned: true,
+      expectedRootHash: manifest2.rootHash,
+      expectedCertificateHash: cert.certificateHash,
+    });
+
+    // DM-06: Single-artifact pinning (pinning ONLY rootHash when verifying chain+cert) MUST NOT claim pinned or strictVerified!
+    const rootOnlyPin = runOfflineCli([
+      "--manifest",
+      manifest1Path,
+      "--manifest",
+      path.join(slice2Dir, "audit-manifest.json"),
+      "--certificate",
+      certPath,
+      "--algorithm",
+      "sm3",
+      "--certificate-algorithm",
+      "sha256",
+      "--expected-root-hash",
+      manifest2.rootHash,
+    ]);
+    assert.equal(rootOnlyPin.status, 0, JSON.stringify(rootOnlyPin.body));
+    assert.equal(rootOnlyPin.body?.selfConsistent, true);
+    assert.equal(rootOnlyPin.body?.strictVerified, false);
+    assert.equal(rootOnlyPin.body?.verificationStatus, "self_consistent_only");
+    assert.equal((rootOnlyPin.body?.trustAnchor as { mode: string }).mode, "partially-pinned");
+    assert.equal((rootOnlyPin.body?.trustAnchor as { chainAnchorPinned: boolean }).chainAnchorPinned, true);
+    assert.equal(
+      (rootOnlyPin.body?.trustAnchor as { certificateAnchorPinned: boolean }).certificateAnchorPinned,
+      false,
+    );
+
+    // DM-06: Pinning ONLY certificateHash when verifying chain+cert MUST ALSO report partially-pinned and strictVerified=false!
+    const certOnlyPin = runOfflineCli([
+      "--manifest",
+      manifest1Path,
+      "--manifest",
+      path.join(slice2Dir, "audit-manifest.json"),
+      "--certificate",
+      certPath,
+      "--algorithm",
+      "sm3",
+      "--certificate-algorithm",
+      "sha256",
+      "--expected-certificate-hash",
+      cert.certificateHash,
+    ]);
+    assert.equal(certOnlyPin.status, 0, JSON.stringify(certOnlyPin.body));
+    assert.equal(certOnlyPin.body?.selfConsistent, true);
+    assert.equal(certOnlyPin.body?.strictVerified, false);
+    assert.equal((certOnlyPin.body?.trustAnchor as { mode: string }).mode, "partially-pinned");
+    assert.equal((certOnlyPin.body?.trustAnchor as { chainAnchorPinned: boolean }).chainAnchorPinned, false);
+    assert.equal((certOnlyPin.body?.trustAnchor as { certificateAnchorPinned: boolean }).certificateAnchorPinned, true);
+
+    // DM-06: Partial slice coverage (only rev 6 completion slice, excluding rev 4 review & rev 5 consent) MUST report strictVerified=false even with BOTH pins!
+    const completionOnlyDir = path.join(workDir, "completion-only-slice");
+    const parsedCompletionOnly = parseThinCommand([
+      "ledger",
+      "audit-export",
+      "--algorithm",
+      "sm3",
+      "--from-revision",
+      "6",
+      "--to-revision",
+      "6",
+      "--output-dir",
+      completionOnlyDir,
+      "--json",
+    ]);
+    assert.equal(parsedCompletionOnly.ok, true);
+    if (parsedCompletionOnly.ok) {
+      const compRes = await runLedgerAuditExport(parsedCompletionOnly.command, mockExportDaemon(fixture.events, "sm3"));
+      const compManifest = compRes.manifest as AuditExportManifestV1;
+      const partialRun = runOfflineCli([
+        "--manifest",
+        path.join(completionOnlyDir, "audit-manifest.json"),
+        "--certificate",
+        certPath,
+        "--algorithm",
+        "sm3",
+        "--certificate-algorithm",
+        "sha256",
+        "--expected-root-hash",
+        compManifest.rootHash,
+        "--expected-certificate-hash",
+        cert.certificateHash,
+      ]);
+      assert.equal(partialRun.status, 0, JSON.stringify(partialRun.body));
+      assert.equal(partialRun.body?.selfConsistent, true);
+      assert.equal(partialRun.body?.strictVerified, false);
+      assert.equal(partialRun.body?.certificateChainCoverage, "partial");
+      const partialHuman = runOfflineCli(
+        [
+          "--manifest",
+          path.join(completionOnlyDir, "audit-manifest.json"),
+          "--certificate",
+          certPath,
+          "--algorithm",
+          "sm3",
+          "--certificate-algorithm",
+          "sha256",
+          "--expected-root-hash",
+          compManifest.rootHash,
+          "--expected-certificate-hash",
+          cert.certificateHash,
+        ],
+        false,
+      );
+      assert.equal(partialHuman.status, 0);
+      assert.match(partialHuman.stdout, /strictVerified=false/u);
+      assert.match(partialHuman.stdout, /coverage=partial/u);
+    }
 
     // G4-01 Negative: pinned --expected-root-hash rejects self-consistent forged replacement slice
     const forgedDir = path.join(workDir, "forged-slice");
@@ -506,7 +622,7 @@ test("CLI multi-page streaming audit-export, atomic staging, pinned anchors, mix
       .join("");
     const shaManifest = shaAcc.finalize();
     const shaDir = path.join(workDir, "sha-slice");
-    const shaEntriesPath = path.join(shaDir, "audit-events.jsonl");
+    const shaEntriesPath = path.join(shaDir, shaManifest.entriesFile);
     const shaManifestPath = path.join(shaDir, "audit-manifest.json");
     const shaParsed = parseThinCommand([
       "ledger",
@@ -532,6 +648,9 @@ test("CLI multi-page streaming audit-export, atomic staging, pinned anchors, mix
       const shaOk = runOfflineCli(["--manifest", shaManifestPath, "--algorithm", "sha256"]);
       assert.equal(shaOk.status, 0);
       assert.equal(shaOk.body?.ok, true);
+      assert.equal(shaOk.body?.selfConsistent, true);
+      assert.equal(shaOk.body?.strictVerified, false);
+      assert.equal((shaOk.body?.trustAnchor as { mode: string }).mode, "self-consistent-only");
     }
   } finally {
     rmSync(workDir, { recursive: true, force: true });
