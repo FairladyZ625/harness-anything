@@ -395,24 +395,89 @@ export function findExhaustedSubscriptionQuotaWindow(
     : { window: earliestModelUnblock.window, resetAt: earliestModelUnblock.resetAt };
 }
 
+function quotaWindowsMatch(left: RuntimeQuotaWindowV1, right: RuntimeQuotaWindowV1): boolean {
+  if (left.id.trim().toLowerCase() === right.id.trim().toLowerCase()) return true;
+  if (
+    (left.kind === "session" || left.kind === "weekly" || left.kind === "monthly") &&
+    left.kind === right.kind &&
+    (left.scope ?? "primary") === (right.scope ?? "primary") &&
+    !windowHasModelQualifier(left) &&
+    !windowHasModelQualifier(right)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Merges a new quota observation with the previously cached snapshot for the same account.
+ * Known future-resetting exhausted windows (e.g. a 7d=0 window) that are omitted by a
+ * subsequent partial response (e.g. only reporting a healthy 5h window) are preserved until
+ * either their reset clock elapses or a fresh observation explicitly reports that window.
+ */
+export function mergeSubscriptionQuotaObservation(
+  previous: RuntimeSubscriptionQuotaV1 | undefined,
+  incoming: RuntimeSubscriptionQuotaV1,
+  now?: string,
+): RuntimeSubscriptionQuotaV1 {
+  if (!previous) return incoming;
+  const nowTime = now === undefined ? Date.parse(incoming.observedAt) : Date.parse(now);
+  const preserved: RuntimeQuotaWindowV1[] = [];
+  for (const prevWindow of previous.windows) {
+    if (prevWindow.remainingFraction > 0 || prevWindow.resetsAt === null) continue;
+    const resetTime = Date.parse(prevWindow.resetsAt);
+    if (!Number.isFinite(resetTime) || (Number.isFinite(nowTime) && resetTime <= nowTime)) continue;
+    if (incoming.windows.some((nextWindow) => quotaWindowsMatch(prevWindow, nextWindow))) continue;
+    preserved.push(prevWindow);
+  }
+  if (preserved.length === 0) return incoming;
+  const mergedWindows = [...incoming.windows, ...preserved].slice(0, 64);
+  return {
+    ...incoming,
+    windows: mergedWindows,
+  };
+}
+
+/**
+ * Classifies whether an exhausted window governs the entire account or a specific model subset
+ * so runtime health success recovery only clears exhaustion for the matching scope.
+ */
+export function subscriptionQuotaExhaustionScope(
+  quota: RuntimeSubscriptionQuotaV1,
+  window: RuntimeQuotaWindowV1,
+  configuredModels?: readonly string[],
+): { readonly scope: "account" | "model"; readonly models?: readonly string[] } {
+  if (!windowHasModelQualifier(window)) return { scope: "account" };
+  const normalizedConfigured = configuredModels?.map((model) => model.trim()).filter((model) => model.length > 0) ?? [];
+  const matched =
+    normalizedConfigured.length > 0
+      ? normalizedConfigured.filter((model) => windowAppliesToModel(window, model, quota.windows))
+      : [...(window.models ?? [])];
+  return matched.length > 0 ? { scope: "model", models: matched } : { scope: "model" };
+}
+
 /**
  * Returns true only when the snapshot proves positive capacity across applicable blocking windows
- * (and contains no 0%-remaining applicable window with missing or future reset time). Credits-only
- * or partial 0%-without-resetAt snapshots return false so they never clear known quota exhaustion.
+ * (and contains no 0%-remaining applicable window with missing or future reset time). Credits-only,
+ * partial responses that omit a still-active exhausted window from `previousQuota`, or
+ * 0%-without-resetAt snapshots return false so they never clear known quota exhaustion.
  */
 export function hasRecoveredSubscriptionQuota(
   quota: RuntimeSubscriptionQuotaV1,
   now?: string,
-  options?: { readonly models?: readonly string[] },
+  options?: { readonly models?: readonly string[]; readonly previousQuota?: RuntimeSubscriptionQuotaV1 },
 ): boolean {
+  const effectiveQuota = options?.previousQuota
+    ? mergeSubscriptionQuotaObservation(options.previousQuota, quota, now)
+    : quota;
   const nowTime = now === undefined ? Number.NEGATIVE_INFINITY : Date.parse(now);
   const normalizedModels = options?.models?.map((model) => model.trim()).filter((model) => model.length > 0) ?? [];
   if (normalizedModels.length === 0) {
-    const primaryWindows = quota.windows.filter((window) => window.scope !== "auxiliary");
+    const primaryWindows = effectiveQuota.windows.filter((window) => window.scope !== "auxiliary");
     return primaryWindows.length > 0 && !modelHasUnresolvedZeroWindow(primaryWindows, nowTime);
   }
   return normalizedModels.some((model) => {
-    const applicable = windowsForModel(quota, model);
+    const applicable = windowsForModel(effectiveQuota, model);
     return applicable.length > 0 && !modelHasUnresolvedZeroWindow(applicable, nowTime);
   });
 }

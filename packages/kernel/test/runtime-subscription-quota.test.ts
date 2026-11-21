@@ -5,6 +5,8 @@ import {
   findExhaustedSubscriptionQuotaWindow,
   formatSubscriptionQuotaSummary,
   hasRecoveredSubscriptionQuota,
+  mergeSubscriptionQuotaObservation,
+  subscriptionQuotaExhaustionScope,
   validRuntimeSubscriptionQuota,
   type RuntimeSubscriptionQuotaV1,
 } from "@harness-anything/kernel";
@@ -342,6 +344,90 @@ test("findExhaustedSubscriptionQuotaWindow picks the latest future reset among p
     false,
   );
   assert.equal(hasRecoveredSubscriptionQuota(validQuota, now), true);
+
+  // Partial healthy 5h response NEVER wipes a previously observed future-resetting 7d=0 window.
+  const sevenDayExhausted: RuntimeSubscriptionQuotaV1 = {
+    schemaVersion: 1,
+    observedAt: now,
+    source: "claude-oauth",
+    plan: "max",
+    windows: [
+      {
+        id: "five_hour",
+        label: "5h",
+        kind: "session",
+        scope: "primary",
+        remainingFraction: 0.5,
+        usedPercent: 50,
+        resetsAt: "2026-11-21T15:00:00.000Z",
+      },
+      {
+        id: "seven_day",
+        label: "7d",
+        kind: "weekly",
+        scope: "primary",
+        remainingFraction: 0,
+        usedPercent: 100,
+        resetsAt: "2026-11-28T00:00:00.000Z",
+      },
+    ],
+  };
+  const partialFiveHourHealthy: RuntimeSubscriptionQuotaV1 = {
+    schemaVersion: 1,
+    observedAt: "2026-11-21T10:05:00.000Z",
+    source: "claude-oauth",
+    plan: "max",
+    windows: [
+      {
+        id: "five_hour",
+        label: "5h",
+        kind: "session",
+        scope: "primary",
+        remainingFraction: 0.9,
+        usedPercent: 10,
+        resetsAt: "2026-11-21T15:00:00.000Z",
+      },
+    ],
+  };
+  const mergedPartial = mergeSubscriptionQuotaObservation(
+    sevenDayExhausted,
+    partialFiveHourHealthy,
+    "2026-11-21T10:05:00.000Z",
+  );
+  assert.equal(mergedPartial.windows.length, 2);
+  assert.equal(mergedPartial.windows.find((w) => w.id === "seven_day")?.remainingFraction, 0);
+  assert.equal(findExhaustedSubscriptionQuotaWindow(mergedPartial, "2026-11-21T10:05:00.000Z")?.window.id, "seven_day");
+  assert.equal(
+    hasRecoveredSubscriptionQuota(partialFiveHourHealthy, "2026-11-21T10:05:00.000Z", {
+      previousQuota: sevenDayExhausted,
+    }),
+    false,
+  );
+  // Once the 7d reset clock elapses, merge drops the expired exhausted window and recovery is allowed.
+  const mergedAfterExpiry = mergeSubscriptionQuotaObservation(
+    sevenDayExhausted,
+    partialFiveHourHealthy,
+    "2026-11-28T00:01:00.000Z",
+  );
+  assert.equal(mergedAfterExpiry.windows.length, 1);
+  assert.equal(
+    hasRecoveredSubscriptionQuota(partialFiveHourHealthy, "2026-11-28T00:01:00.000Z", {
+      previousQuota: sevenDayExhausted,
+    }),
+    true,
+  );
+  // Exhaustion scope distinguishes account-wide windows from model-scoped buckets.
+  assert.deepEqual(
+    subscriptionQuotaExhaustionScope(sevenDayExhausted, sevenDayExhausted.windows[1]!, ["claude-opus-5-5"]),
+    { scope: "account" },
+  );
+  assert.deepEqual(
+    subscriptionQuotaExhaustionScope(agyMultiFamily, agyMultiFamily.windows[2]!, [
+      "gemini-4-argon-high",
+      "gemini-4-hydrogen-low",
+    ]),
+    { scope: "model", models: ["gemini-4-argon-high"] },
+  );
 
   // Headline selector ignores inapplicable buckets and expired windows.
   const headline = selectSubscriptionQuotaHeadlineWindow(agyMultiFamily, now, {

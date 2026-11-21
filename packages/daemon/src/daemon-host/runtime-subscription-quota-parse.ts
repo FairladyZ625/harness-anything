@@ -63,8 +63,18 @@ export function parseAgyQuotaResponse(
     throw runtimeInstanceError("runtime_quota_response_invalid", "AGY quota response is not valid JSON.");
   }
   const root = requireRecord(parsed, "AGY quota response");
-  if (root.ok === false || (root.error !== undefined && root.error !== null))
+  const normalizedRootStatus = typeof root.status === "string" ? root.status.trim().toLowerCase() : null;
+  if (
+    root.ok === false ||
+    (root.error !== undefined && root.error !== null) ||
+    (normalizedRootStatus !== null && normalizedRootStatus !== "success")
+  )
     throw runtimeInstanceError("runtime_quota_response_invalid", "AGY quota response reported a command failure.");
+  if (options.expectedCommand === "usage" && normalizedRootStatus !== "success")
+    throw runtimeInstanceError(
+      "runtime_quota_response_invalid",
+      'AGY /usage envelope must report top-level status "SUCCESS".',
+    );
   const data = agyQuotaDataRecord(root, options.expectedCommand);
   if (!Array.isArray(data.groups) || data.groups.length === 0)
     throw runtimeInstanceError("runtime_quota_response_invalid", "AGY quota response has no groups array.");
@@ -144,10 +154,11 @@ function agyQuotaDataRecord(
 ): Record<string, unknown> {
   if (root.command !== undefined) {
     const command = requireRecord(root.command, "AGY quota command response");
+    const normalizedCommandStatus = typeof command.status === "string" ? command.status.trim().toLowerCase() : null;
     if (
       command.ok === false ||
       command.success === false ||
-      (typeof command.status === "string" && command.status.trim().toLowerCase() === "error") ||
+      (normalizedCommandStatus !== null && normalizedCommandStatus !== "success") ||
       (command.error !== undefined && command.error !== null)
     ) {
       throw runtimeInstanceError("runtime_quota_response_invalid", "AGY quota command envelope reported failure.");
@@ -169,6 +180,12 @@ function agyQuotaDataRecord(
       }
     }
     return requireRecord(command.data, "AGY quota command data");
+  }
+  if (expectedCommand === "usage") {
+    throw runtimeInstanceError(
+      "runtime_quota_response_invalid",
+      'AGY /usage envelope must include command.name === "usage".',
+    );
   }
   if (root.data !== undefined) return requireRecord(root.data, "AGY quota data");
   if (root.groups !== undefined) return root;

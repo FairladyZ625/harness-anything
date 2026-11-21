@@ -338,6 +338,8 @@ export {
   findExhaustedSubscriptionQuotaWindow,
   formatSubscriptionQuotaSummary,
   hasRecoveredSubscriptionQuota,
+  mergeSubscriptionQuotaObservation,
+  subscriptionQuotaExhaustionScope,
   validRuntimeSubscriptionQuota,
   type RuntimeQuotaCreditsV1,
   type RuntimeQuotaWindowKind,

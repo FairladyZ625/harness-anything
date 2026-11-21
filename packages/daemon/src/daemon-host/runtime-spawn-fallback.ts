@@ -360,7 +360,9 @@ export async function settleFallbackAttempt(
   if (delivered || !isProviderFailureClassification(outcome.classification) || !fallback) {
     if (isProviderFailureClassification(outcome.classification) && !delivered) recordProviderFailure();
     else if (active.providerOutcome === "succeeded" || delivered)
-      input.runtimeProviderHealth?.recordSuccess(outcome.provider.instance, active.startedAt);
+      input.runtimeProviderHealth?.recordSuccess(outcome.provider.instance, active.startedAt, {
+        model: outcome.provider.model,
+      });
     await input.onAttemptTerminal?.(terminal);
     return;
   }

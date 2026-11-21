@@ -1,8 +1,10 @@
-import { hash as cryptoHash } from "node:crypto";
+import { hash as cryptoHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import type { RuntimeSubscriptionQuotaV1 } from "@harness-anything/kernel";
 import { runtimeSubscriptionQuotaPolicy } from "@harness-anything/kernel/internal/domain/runtime-instance-contract.ts";
+import { writeFileDurably } from "../../../storage/src/durable-file.ts";
 import { runtimeInstanceError } from "./agent-runtime-instance-config.ts";
 import { runExecutable, runExecutableResult } from "./agent-runtime-installation-discovery.ts";
 import {
@@ -123,14 +125,43 @@ export async function probeProviderSubscriptionQuota(
   return null;
 }
 
-export function agyNonInteractiveProbeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+const noBrowserLauncherNames = ["open", "xdg-open", "gio", "start"] as const;
+const noBrowserShimDirs = new Map<string, string>();
+
+function ensureNoBrowserLauncherShimDir(platform: NodeJS.Platform): string {
+  const baseTmp = tmpdir(),
+    cacheKey = `${platform}:${baseTmp}`,
+    existing = noBrowserShimDirs.get(cacheKey),
+    sentinelName = platform === "win32" ? `${noBrowserLauncherNames[0]}.cmd` : noBrowserLauncherNames[0];
+  if (existing && existsSync(path.join(existing, sentinelName))) return existing;
+  const dir = path.join(baseTmp, `ha-no-browser-shim-${randomUUID()}`);
+  for (const name of noBrowserLauncherNames) {
+    if (platform === "win32") {
+      writeFileDurably(path.join(dir, `${name}.cmd`), "@exit /b 126\r\n", 0o755);
+    } else {
+      writeFileDurably(path.join(dir, name), "#!/bin/sh\nexit 126\n", 0o755);
+    }
+  }
+  noBrowserShimDirs.set(cacheKey, dir);
+  return dir;
+}
+
+export function agyNonInteractiveProbeEnv(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
+): NodeJS.ProcessEnv {
+  const shimDir = ensureNoBrowserLauncherShimDir(platform);
+  const existingPath = env.PATH ?? env.Path ?? process.env.PATH ?? "";
+  const guardedPath = existingPath ? `${shimDir}${path.delimiter}${existingPath}` : shimDir;
   return {
     ...env,
-    // Enforce non-interactive headless background execution: suppress browser launch and CLI auto-update.
+    // Enforce non-interactive headless background execution: suppress browser launch (both via
+    // env conventions and by shadowing OS URL launchers on PATH) and CLI auto-update (`"true"`).
+    PATH: guardedPath,
     CI: "1",
     BROWSER: "false",
     NO_BROWSER: "1",
-    AGY_CLI_DISABLE_AUTO_UPDATE: "1",
+    AGY_CLI_DISABLE_AUTO_UPDATE: "true",
     NO_UPDATE_NOTIFIER: "1",
     ...(env.SSH_CONNECTION ? {} : { SSH_CONNECTION: "127.0.0.1 0 127.0.0.1 22" }),
   };
@@ -145,7 +176,7 @@ export async function probeAgyCliQuota(
   observedAt: string,
 ): Promise<RuntimeSubscriptionQuotaV1> {
   requireAccountHome(env, "AGY");
-  const probeEnv = agyNonInteractiveProbeEnv(env);
+  const probeEnv = agyNonInteractiveProbeEnv(env, platform);
   // Prefer modern `agy -p /usage --output-format json` (>=1.2.2); fall back to legacy `/quota`
   // when `/usage` is unsupported or returns an unrecognized command envelope.
   const usageResult = await runExecutableResult(platform, executablePath, ["-p", "/usage", "--output-format", "json"], {
@@ -417,7 +448,8 @@ async function probeCopilotOAuthQuota(input: SubscriptionQuotaProbeInput): Promi
  * 1. Apply the store's launch GitHub token (`GH_TOKEN`) to a copy of the instance environment.
  * 2. Read `COPILOT_GITHUB_TOKEN` -> `GH_TOKEN` -> `GITHUB_TOKEN` from that launch-effective env.
  * 3. Only when no launch env token is present, match the active `github.com` user in CLI-owned
- *    `~/.copilot/{config,hosts,apps}.json` (never editor `~/.config/github-copilot/*` files).
+ *    `$COPILOT_HOME/{config,hosts,apps}.json` (defaulting to `~/.copilot`, never editor
+ *    `~/.config/github-copilot/*` files, and never falling back from `COPILOT_HOME` to `~/.copilot`).
  */
 async function readCopilotTokenReadOnly(input: SubscriptionQuotaProbeInput): Promise<string | null> {
   const effectiveEnv: NodeJS.ProcessEnv = { ...input.env };
@@ -433,11 +465,11 @@ async function readCopilotTokenReadOnly(input: SubscriptionQuotaProbeInput): Pro
     usableEnvToken(effectiveEnv.GH_TOKEN) ??
     usableEnvToken(effectiveEnv.GITHUB_TOKEN);
   if (fromEnv) return fromEnv;
-  const home = effectiveEnv.HOME ?? effectiveEnv.USERPROFILE;
-  if (!home) return null;
-  const active = await readCopilotActiveAccount(home, input.signal);
+  const copilotHome = resolveCopilotHome(effectiveEnv);
+  if (!copilotHome) return null;
+  const active = await readCopilotActiveAccount(copilotHome, input.signal);
   if (active.host !== null && active.host !== "github.com") return null;
-  const candidates = [path.join(home, ".copilot", "hosts.json"), path.join(home, ".copilot", "apps.json")];
+  const candidates = [path.join(copilotHome, "hosts.json"), path.join(copilotHome, "apps.json")];
   const matchedEntries: Array<{ readonly user: string | null; readonly token: string }> = [];
   for (const candidate of candidates) {
     const parsed = await readJsonFileReadOnly(candidate, input.signal);
@@ -466,10 +498,10 @@ function usableEnvToken(value: unknown): string | null {
 }
 
 async function readCopilotActiveAccount(
-  home: string,
+  copilotHome: string,
   signal: AbortSignal,
 ): Promise<{ readonly user: string | null; readonly host: string | null }> {
-  const config = await readJsonFileReadOnly(path.join(home, ".copilot", "config.json"), signal);
+  const config = await readJsonFileReadOnly(path.join(copilotHome, "config.json"), signal);
   if (!config) return { user: null, host: null };
   const last = isRecord(config.last_logged_in_user) ? config.last_logged_in_user : null;
   const user =
@@ -621,6 +653,12 @@ function resolveClaudeConfigDir(env: NodeJS.ProcessEnv): string | null {
   return home ? path.join(home, ".claude") : null;
 }
 
+function resolveCopilotHome(env: NodeJS.ProcessEnv): string | null {
+  if (nonEmptyString(env.COPILOT_HOME)) return env.COPILOT_HOME!.trim();
+  const home = nonEmptyString(env.HOME) ?? nonEmptyString(env.USERPROFILE);
+  return home ? path.join(home, ".copilot") : null;
+}
+
 function requireAccountHome(env: NodeJS.ProcessEnv, label: string): string {
   const home = env.HOME ?? env.USERPROFILE;
   if (!home)
@@ -669,11 +707,13 @@ export function subscriptionCredentialGeneration(kindId: RuntimeInstanceKind, en
     for (const key of ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"] as const) {
       chunks.push(Buffer.from(`env:${key}=${usableEnvToken(env[key]) ?? ""}\0`));
     }
-    if (home) {
+    const copilotHome = resolveCopilotHome(env);
+    if (copilotHome) {
+      chunks.push(Buffer.from(`copilotHome:${copilotHome}\0`));
       candidates.push(
-        path.join(home, ".copilot", "config.json"),
-        path.join(home, ".copilot", "hosts.json"),
-        path.join(home, ".copilot", "apps.json"),
+        path.join(copilotHome, "config.json"),
+        path.join(copilotHome, "hosts.json"),
+        path.join(copilotHome, "apps.json"),
       );
     }
   } else {

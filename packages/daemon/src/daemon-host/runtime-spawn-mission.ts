@@ -295,7 +295,12 @@ export function resolveRuntimeInstanceCandidates(input: {
       (declaredTargets !== undefined && !agentRuntimeKindMatches(declaredTargets, instance.kindId))
     )
       continue;
-    const model = declaredModel ?? declaredTargets?.find((row) => row.type === instance.kindId)?.model;
+    const explicitModel = declaredModel ?? declaredTargets?.find((row) => row.type === instance.kindId)?.model;
+    const effectiveModel =
+      explicitModel ??
+      (typeof instance.defaultModel === "string" && instance.defaultModel.trim().length > 0
+        ? instance.defaultModel
+        : undefined);
     const now = input.now ?? new Date().toISOString();
     const providerHealth = input.health?.find((row) => row.instanceId === instance.instanceId),
       healthUntil = providerHealth?.frozen ? null : effectiveProviderBlockedUntil(providerHealth),
@@ -303,8 +308,8 @@ export function resolveRuntimeInstanceCandidates(input: {
         providerHealth?.frozen === true ||
         (healthUntil !== null && healthUntil !== undefined && Date.parse(healthUntil) > Date.parse(now)),
       modelQuotaBlocked =
-        !healthBlocked && instance.quota && model
-          ? findExhaustedSubscriptionQuotaWindow(instance.quota, now, { models: [model] })
+        !healthBlocked && instance.quota && effectiveModel
+          ? findExhaustedSubscriptionQuotaWindow(instance.quota, now, { models: [effectiveModel] })
           : null,
       reason = !instance.enabled
         ? "runtime_instance_disabled"
@@ -312,8 +317,8 @@ export function resolveRuntimeInstanceCandidates(input: {
           ? `runtime_provider_unavailable (${providerHealth?.reason ?? (providerHealth?.quotaExhaustedUntil ? "quota_exhausted" : "cooldown")}; recover at ${healthUntil})`
           : modelQuotaBlocked
             ? `runtime_provider_unavailable (quota_exhausted:${modelQuotaBlocked.window.id}; recover at ${modelQuotaBlocked.resetAt})`
-            : !agentRuntimeModelMatches(instance.models, model ?? instance.defaultModel)
-              ? `agent_model_unavailable (${model})`
+            : !agentRuntimeModelMatches(instance.models, explicitModel ?? instance.defaultModel)
+              ? `agent_model_unavailable (${explicitModel})`
               : instance.authReadiness.status !== "ready" && instance.authReadiness.code !== "runtime_auth_not_checked"
                 ? `${instance.authReadiness.code}: ${instance.authReadiness.hint}`
                 : undefined;
@@ -387,7 +392,12 @@ export function resolveRuntimeInstanceCandidates(input: {
       const now = input.now ?? new Date().toISOString();
       const health = input.health?.find((row) => row.instanceId === instance.instanceId),
         blockedUntil = effectiveProviderBlockedUntil(health),
-        targetModel = declaredModel ?? declaredTargets?.find((row) => row.type === instance.kindId)?.model,
+        targetModel =
+          declaredModel ??
+          declaredTargets?.find((row) => row.type === instance.kindId)?.model ??
+          (typeof instance.defaultModel === "string" && instance.defaultModel.trim().length > 0
+            ? instance.defaultModel
+            : undefined),
         modelQuotaBlocked =
           instance.quota !== undefined &&
           targetModel !== undefined &&

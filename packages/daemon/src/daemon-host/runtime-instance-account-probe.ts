@@ -38,7 +38,7 @@ export function createRuntimeInstanceAccountProbe(
         if (probe === undefined) return null;
         if (probe.kind !== "command") return probeSessionModelCatalog(platform, input, probe.kind, signal, timeoutMs);
         if (input.kindId === "agy") agyAccountHome(input.env);
-        const commandEnv = input.kindId === "agy" ? agyNonInteractiveProbeEnv(input.env) : input.env;
+        const commandEnv = input.kindId === "agy" ? agyNonInteractiveProbeEnv(input.env, platform) : input.env;
         const output = await runExecutable(platform, input.executablePath, probe.args, {
             env: commandEnv,
             timeoutMs,

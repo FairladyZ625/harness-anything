@@ -1,6 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -183,7 +184,10 @@ test("AGY quota parser rejects malformed /quota and /usage response shapes", () 
   assert.throws(
     () =>
       parseAgyQuotaResponse(
-        JSON.stringify({ ok: false, command: { name: "usage", ok: false, error: "not logged in" } }),
+        JSON.stringify({
+          status: "ERROR",
+          command: { name: "usage", data: { groups: [{ buckets: [{ remaining_fraction: 0.9 }] }] } },
+        }),
         "2026-11-15T00:00:00.000Z",
         { expectedCommand: "usage" },
       ),
@@ -193,6 +197,31 @@ test("AGY quota parser rejects malformed /quota and /usage response shapes", () 
     () =>
       parseAgyQuotaResponse(
         JSON.stringify({
+          ok: true,
+          command: { name: "usage", data: { groups: [{ buckets: [{ remaining_fraction: 0.9 }] }] } },
+        }),
+        "2026-11-15T00:00:00.000Z",
+        { expectedCommand: "usage" },
+      ),
+    invalidShape,
+  );
+  assert.throws(
+    () =>
+      parseAgyQuotaResponse(
+        JSON.stringify({
+          status: "SUCCESS",
+          data: { groups: [{ buckets: [{ remaining_fraction: 0.9 }] }] },
+        }),
+        "2026-11-15T00:00:00.000Z",
+        { expectedCommand: "usage" },
+      ),
+    invalidShape,
+  );
+  assert.throws(
+    () =>
+      parseAgyQuotaResponse(
+        JSON.stringify({
+          status: "SUCCESS",
           command: { name: "other", data: { groups: [{ buckets: [{ remaining_fraction: 0.5 }] }] } },
         }),
         "2026-11-15T00:00:00.000Z",
@@ -200,18 +229,55 @@ test("AGY quota parser rejects malformed /quota and /usage response shapes", () 
       ),
     invalidShape,
   );
+  assert.throws(
+    () =>
+      parseAgyQuotaResponse(
+        JSON.stringify({
+          status: "ERROR",
+          command: { data: { groups: [{ buckets: [{ remaining_fraction: 0.5 }] }] } },
+        }),
+        "2026-11-15T00:00:00.000Z",
+        { expectedCommand: "quota" },
+      ),
+    invalidShape,
+  );
 });
 
-test("AGY quota probe prefers /usage with nested remaining.remaining_fraction, skips null buckets, enforces non-interactive env, and avoids browser launch on expired login", async () => {
+test("AGY quota probe prefers native /usage SUCCESS envelope, falls back on top-level status ERROR, sets AGY_CLI_DISABLE_AUTO_UPDATE=true, and shadows open/xdg-open on PATH", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-agy-usage-")),
+    fakeBin = path.join(root, "fake-bin"),
     traceFile = path.join(root, "trace.jsonl"),
     browserMarker = path.join(root, "browser-launched"),
     resetAt = "2026-11-22T06:00:00.000Z";
+  mkdirSync(fakeBin, { recursive: true });
   writeFileSync(traceFile, "");
+  // Install real launcher executables on fakeBin so we can prove PATH shadowing blocks them
+  // even when an expired-login CLI ignores BROWSER="false" and invokes open / xdg-open directly.
+  for (const launcher of ["open", "xdg-open"] as const) {
+    if (process.platform === "win32") {
+      writeFileSync(path.join(fakeBin, `${launcher}.cmd`), `@echo ${launcher}>>"${browserMarker}"\r\n@exit /b 0\r\n`);
+    } else {
+      const target = path.join(fakeBin, launcher);
+      writeFileSync(target, `#!/bin/sh\necho ${launcher} >> ${JSON.stringify(browserMarker)}\nexit 0\n`, {
+        mode: 0o755,
+      });
+      chmodSync(target, 0o755);
+    }
+  }
+  // Positive control: unguarded PATH executes fakeBin/open and writes browserMarker.
+  const positiveControl = spawnSync(process.platform === "win32" ? "open.cmd" : "open", ["https://example.invalid"], {
+    env: { ...process.env, PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}` },
+    shell: process.platform === "win32",
+  });
+  assert.equal(positiveControl.status, 0);
+  assert.match(readFileSync(browserMarker, "utf8"), /open/u);
+  rmSync(browserMarker, { force: true });
+
   const agyUsage = writeProviderExecutable(
     path.join(root, "agy-usage"),
     `
       const fs = require("node:fs");
+      const { spawnSync } = require("node:child_process");
       const args = process.argv.slice(2);
       fs.appendFileSync(${JSON.stringify(traceFile)}, JSON.stringify({
         args,
@@ -223,19 +289,52 @@ test("AGY quota probe prefers /usage with nested remaining.remaining_fraction, s
         ssh: Boolean(process.env.SSH_CONNECTION),
       }) + "\\n");
       if (process.env.EXPIRED_LOGIN === "1") {
-        // A real CLI would only attempt browser launch when BROWSER !== "false" and CI !== "1".
-        if (process.env.BROWSER !== "false" || process.env.CI !== "1" || process.env.NO_BROWSER !== "1") {
-          fs.writeFileSync(${JSON.stringify(browserMarker)}, "launched");
-        }
-        console.log(JSON.stringify({ ok: false, command: { name: args[1].slice(1), ok: false, error: "login expired" } }));
+        // Deliberately ignore BROWSER="false" and try to launch OS browser via PATH.
+        spawnSync(process.platform === "win32" ? "open.cmd" : "open", ["https://accounts.google.com/o/oauth2/auth"], {
+          env: process.env,
+          shell: process.platform === "win32",
+        });
+        spawnSync(process.platform === "win32" ? "xdg-open.cmd" : "xdg-open", ["https://accounts.google.com/o/oauth2/auth"], {
+          env: process.env,
+          shell: process.platform === "win32",
+        });
+        console.log(JSON.stringify({ status: "ERROR", command: { name: args[1].slice(1), error: "login expired" } }));
         process.exit(1);
+      }
+      if (process.env.USAGE_ERROR_ENVELOPE === "1") {
+        if (args[1] === "/usage") {
+          // Exit 0 with top-level status: "ERROR" EVEN WITH buckets present must NOT be accepted.
+          console.log(JSON.stringify({
+            status: "ERROR",
+            command: {
+              name: "usage",
+              data: {
+                plan: "Stale",
+                groups: [{ group_id: "gemini", buckets: [{ bucket_id: "stale", remaining_fraction: 0.99 }] }]
+              }
+            }
+          }));
+          process.exit(0);
+        }
+        if (args[1] === "/quota") {
+          console.log(JSON.stringify({
+            status: "SUCCESS",
+            command: {
+              name: "quota",
+              data: {
+                plan: "Pro",
+                groups: [{ group_id: "gemini", buckets: [{ bucket_id: "fallback-quota", remaining_fraction: 0.25, reset_time: ${JSON.stringify(resetAt)} }] }]
+              }
+            }
+          }));
+          process.exit(0);
+        }
       }
       if (args[1] === "/usage") {
         console.log(JSON.stringify({
-          ok: true,
+          status: "SUCCESS",
           command: {
             name: "usage",
-            ok: true,
             data: {
               plan: "Pro",
               groups: [
@@ -260,11 +359,12 @@ test("AGY quota probe prefers /usage with nested remaining.remaining_fraction, s
   try {
     const probe = createRuntimeInstanceAccountProbe(process.platform);
     const home = path.join(root, "home");
+    const baseEnv = { HOME: home, PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}` };
     const quota = await probe.probeQuota({
       kindId: "agy",
       credentialSource: "instance",
       executablePath: agyUsage,
-      env: { HOME: home },
+      env: baseEnv,
       now: () => "2026-11-21T10:00:00.000Z",
     });
     assert.ok(quota);
@@ -284,17 +384,29 @@ test("AGY quota probe prefers /usage with nested remaining.remaining_fraction, s
     assert.equal(events[0]?.ci, "1");
     assert.equal(events[0]?.browser, "false");
     assert.equal(events[0]?.noBrowser, "1");
-    assert.equal(events[0]?.noAutoUpdate, "1");
+    assert.equal(events[0]?.noAutoUpdate, "true");
     assert.equal(events[0]?.noUpdateNotifier, "1");
     assert.equal(events[0]?.ssh, true);
 
-    // Expired login fails closed without launching a browser.
+    // Top-level /usage status: "ERROR" (even exit 0 with buckets) rejects and falls back cleanly to /quota.
+    const fallbackQuota = await probe.probeQuota({
+      kindId: "agy",
+      credentialSource: "instance",
+      executablePath: agyUsage,
+      env: { ...baseEnv, USAGE_ERROR_ENVELOPE: "1" },
+      now: () => "2026-11-21T10:00:00.000Z",
+    });
+    assert.ok(fallbackQuota);
+    assert.equal(fallbackQuota.windows[0]?.id, "fallback-quota");
+    assert.equal(fallbackQuota.windows[0]?.remainingFraction, 0.25);
+
+    // Expired login attempting direct open/xdg-open fails closed without invoking fakeBin launchers.
     await assert.rejects(
       probe.probeQuota({
         kindId: "agy",
         credentialSource: "instance",
         executablePath: agyUsage,
-        env: { HOME: home, EXPIRED_LOGIN: "1" },
+        env: { ...baseEnv, EXPIRED_LOGIN: "1" },
         now: () => "2026-11-21T10:00:00.000Z",
       }),
       (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_quota_probe_failed",

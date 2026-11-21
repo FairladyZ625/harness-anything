@@ -1,5 +1,10 @@
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
-import type { SettingsV1, AgentDefinitionSnapshot, RuntimeSubscriptionQuotaV1 } from "@harness-anything/kernel";
+import type {
+  SettingsV1,
+  AgentDefinitionSnapshot,
+  RuntimeInstanceAccountCut,
+  RuntimeSubscriptionQuotaV1,
+} from "@harness-anything/kernel";
 import type { AgentRuntimeInstanceDto } from "./agent-runtime-contract.ts";
 import {
   type RuntimeIsolationState,
@@ -199,4 +204,5 @@ export interface PreparedRuntimeAuthCommand {
   readonly args: readonly string[];
   readonly env: NodeJS.ProcessEnv;
   readonly cwd: string;
+  readonly accountCut: RuntimeInstanceAccountCut;
 }

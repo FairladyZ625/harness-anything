@@ -286,6 +286,61 @@ test("AGY quota probe parses multi-group buckets, caches for O(1) list/show, coo
         }),
       (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_model_not_ready",
     );
+
+    // QUOTA-08: When --model and Agent inline model are omitted, candidate selection enforces
+    // per-model quota exhaustion against each instance's effective defaultModel (e.g. exhausted
+    // Argon defaultModel skips to healthy candidate even when Hydrogen still has quota).
+    const defaultArgonExhausted = {
+      ...mixedInstance,
+      instanceId: "agy-default-argon",
+      models: ["gemini-4-argon-high", "gemini-4-hydrogen-low"],
+      defaultModel: "gemini-4-argon-high",
+      availableModels: ["gemini-4-argon-high", "gemini-4-hydrogen-low"],
+    };
+    const healthyArgonFallback = {
+      ...mixedInstance,
+      instanceId: "agy-healthy-argon",
+      models: ["gemini-4-argon-high", "gemini-4-hydrogen-low"],
+      defaultModel: "gemini-4-argon-high",
+      availableModels: ["gemini-4-argon-high", "gemini-4-hydrogen-low"],
+      quota: {
+        schemaVersion: 1 as const,
+        observedAt: "2026-11-21T10:00:00.000Z",
+        source: "agy-cli",
+        plan: "Pro",
+        windows: [
+          mixedWindow("gemini-weekly", "Gemini · Weekly", 0.9),
+          mixedWindow("argon-weekly", "Argon · Weekly", 0.7),
+        ],
+      },
+    };
+    assert.deepEqual(
+      resolveRuntimeInstanceCandidates({
+        agent: null,
+        sessions: [],
+        allowedInstanceIds: ["agy-default-argon", "agy-healthy-argon"],
+        instances: [defaultArgonExhausted, healthyArgonFallback],
+        health: [],
+        now: "2026-11-21T12:00:00.000Z",
+        runtimeKind: "agy",
+      }),
+      ["agy-healthy-argon"],
+    );
+    assert.deepEqual(
+      resolveRuntimeInstanceCandidates({
+        agent: {
+          id: "agy-default-agent",
+          role: "worker",
+          runtimes: [{ type: "agy" }],
+        } as unknown as Parameters<typeof resolveRuntimeInstanceCandidates>[0]["agent"],
+        sessions: [],
+        allowedInstanceIds: ["agy-default-argon", "agy-healthy-argon"],
+        instances: [defaultArgonExhausted, healthyArgonFallback],
+        health: [],
+        now: "2026-11-21T12:00:00.000Z",
+      }),
+      ["agy-healthy-argon"],
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -438,6 +493,89 @@ test("Codex read-only quota probe via app-server RPC never invokes codex exec in
     assert.equal(recoveredQuota.windows[0]?.remainingFraction, 0.004);
     assert.equal(health.get("codex-rpc").quotaExhaustedUntil, null);
     assert.throws(() => readFileSync(execMarker, "utf8"), /ENOENT/u);
+
+    // QUOTA-05: When local `codex login status` is ready and BOTH read-only routes (RPC & OAuth)
+    // fail / return 429, NEVER fall through to active `codex exec` inference and NEVER overwrite
+    // ready authReadiness with runtime_quota_unavailable; preserve ready status + cached quota.
+    const failingCodexBin = writeProviderExecutable(
+      path.join(bin, "codex-both-fail"),
+      `
+        const fs = require("node:fs");
+        const args = process.argv.slice(2);
+        if (args[0] === "login" && args[1] === "status") { console.log("Logged in"); process.exit(0); }
+        if (args[0] === "exec") {
+          fs.writeFileSync(${JSON.stringify(execMarker)}, "called");
+          console.log(JSON.stringify({ type: "turn.failed", error: { http_status: 429, code: "insufficient_quota", message: "quota exceeded" } }));
+          process.exit(1);
+        }
+        process.exit(2);
+      `,
+    );
+    const failHome = path.join(root, "fail-home");
+    mkdirSync(path.join(failHome, ".codex"), { recursive: true, mode: 0o700 });
+    writeFileSync(
+      path.join(failHome, ".codex", "auth.json"),
+      JSON.stringify({ auth_mode: "chatgpt", tokens: { access_token: "codex_fake_429_token" } }),
+      { mode: 0o600 },
+    );
+    let quotaFetchCalls = 0;
+    const storeBothFail = openRuntimeInstanceStore({
+      userRoot: path.join(root, "user-both-fail"),
+      platform: "darwin",
+      env: { PATH: bin, HOME: failHome },
+      discover: () => [witness("codex", failingCodexBin, "0.165.0")],
+      now: () => "2026-11-21T10:00:00.000Z",
+      quotaFetch: async () => {
+        quotaFetchCalls += 1;
+        if (quotaFetchCalls === 1) {
+          return new Response(
+            JSON.stringify({
+              plan_type: "plus",
+              rate_limit: {
+                primary_window: { used_percent: 20, limit_window_seconds: 18000, reset_at: 1795273200 },
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({ error: "rate limited" }), {
+          status: 429,
+          headers: { "content-type": "application/json", "retry-after": "60" },
+        });
+      },
+    });
+    storeBothFail.command({
+      kind: "runtime-instance-create",
+      instanceId: "codex-readonly-429",
+      name: "Codex ReadOnly 429",
+      kindId: "codex",
+      installationId: "codex-install",
+      providerId: "openai",
+      models: ["gpt-6-sol"],
+      authMode: "subscription",
+      credentialSource: "operator",
+      isolationState: "operator-environment",
+    });
+    const seeded = await storeBothFail.command({
+      kind: "runtime-instance-show",
+      instanceId: "codex-readonly-429",
+      probe: true,
+    });
+    const seededQuota = (seeded.instance as Record<string, unknown>).quota;
+    assert.ok(seededQuota);
+    const afterBothFail = await storeBothFail.command({
+      kind: "runtime-instance-show",
+      instanceId: "codex-readonly-429",
+      probe: true,
+    });
+    const failedInstance = afterBothFail.instance as Record<string, unknown>;
+    assert.deepEqual(failedInstance.authReadiness, { status: "ready", code: null, hint: null, basis: "metadata" });
+    assert.deepEqual(failedInstance.quota, seededQuota);
+    assert.throws(
+      () => readFileSync(execMarker, "utf8"),
+      /ENOENT/u,
+      "codex exec must NEVER be invoked on 429/RPC failure",
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -860,6 +998,78 @@ test("Copilot quota pins https://api.github.com, aligns account precedence, and 
     storeConflict.command({ ...copilotBase, instanceId: "copilot-conflict", name: "Copilot Conflict" });
     await storeConflict.command({ kind: "runtime-instance-show", instanceId: "copilot-conflict", probe: true });
     assert.equal(server.requests.at(-1)?.headers.authorization, `token ${ghResolvedToken}`);
+
+    // 5. QUOTA-04 dual-dir COPILOT_HOME alignment:
+    //    When default ~/.copilot has stale account A (alice) and COPILOT_HOME has active account B (bob)
+    //    with an empty launch resolver, probe MUST read COPILOT_HOME (bob) and NEVER hang alice's quota onto bob.
+    const dualHome = path.join(root, "dual-default-home");
+    const customCopilotHome = path.join(root, "custom-copilot-home");
+    const customCopilotEmptyTokens = path.join(root, "custom-copilot-no-tokens");
+    mkdirSync(path.join(dualHome, ".copilot"), { recursive: true, mode: 0o700 });
+    mkdirSync(customCopilotHome, { recursive: true, mode: 0o700 });
+    mkdirSync(customCopilotEmptyTokens, { recursive: true, mode: 0o700 });
+    writeFileSync(
+      path.join(dualHome, ".copilot", "config.json"),
+      JSON.stringify({ last_logged_in_user: { host: "https://github.com", login: "alice" } }),
+      { mode: 0o600 },
+    );
+    writeFileSync(
+      path.join(dualHome, ".copilot", "hosts.json"),
+      JSON.stringify({ "github.com": { user: "alice", oauth_token: userAToken } }),
+      { mode: 0o600 },
+    );
+    writeFileSync(
+      path.join(customCopilotHome, "config.json"),
+      JSON.stringify({ last_logged_in_user: { host: "https://github.com", login: "bob" } }),
+      { mode: 0o600 },
+    );
+    writeFileSync(
+      path.join(customCopilotHome, "hosts.json"),
+      JSON.stringify({ "github.com": { user: "bob", oauth_token: userBToken } }),
+      { mode: 0o600 },
+    );
+    const storeCopilotHome = openRuntimeInstanceStore({
+      userRoot: path.join(userRoot, "copilot-home-b"),
+      platform: "darwin",
+      env: { PATH: bin, HOME: dualHome, COPILOT_HOME: customCopilotHome },
+      discover: () => [witness("copilot", copilotBin, "1.0.0")],
+      resolveGithubToken: async () => null,
+      now: () => "2026-11-21T10:00:00.000Z",
+      quotaFetch: pinnedLoopbackFetch(server, requestedUrls),
+    });
+    storeCopilotHome.command({ ...copilotBase, instanceId: "copilot-home-b", name: "Copilot Home B" });
+    await storeCopilotHome.command({ kind: "runtime-instance-show", instanceId: "copilot-home-b", probe: true });
+    assert.equal(server.requests.at(-1)?.headers.authorization, `token ${userBToken}`);
+
+    // When COPILOT_HOME specifies active account bob without a matching local token, fail closed to unavailable
+    // (0 outbound requests) instead of falling back to stale ~/.copilot account alice!
+    writeFileSync(
+      path.join(customCopilotEmptyTokens, "config.json"),
+      JSON.stringify({ last_logged_in_user: { host: "https://github.com", login: "bob" } }),
+      { mode: 0o600 },
+    );
+    const requestsBeforeFailClosed = requestedUrls.length;
+    const storeCopilotFailClosed = openRuntimeInstanceStore({
+      userRoot: path.join(userRoot, "copilot-home-fail-closed"),
+      platform: "darwin",
+      env: { PATH: bin, HOME: dualHome, COPILOT_HOME: customCopilotEmptyTokens },
+      discover: () => [witness("copilot", copilotBin, "1.0.0")],
+      resolveGithubToken: async () => null,
+      now: () => "2026-11-21T10:00:00.000Z",
+      quotaFetch: pinnedLoopbackFetch(server, requestedUrls),
+    });
+    storeCopilotFailClosed.command({
+      ...copilotBase,
+      instanceId: "copilot-home-unaligned",
+      name: "Copilot Home Unaligned",
+    });
+    const unaligned = await storeCopilotFailClosed.command({
+      kind: "runtime-instance-show",
+      instanceId: "copilot-home-unaligned",
+      probe: true,
+    });
+    assert.equal((unaligned.instance as Record<string, unknown>).quota, undefined);
+    assert.equal(requestedUrls.length, requestsBeforeFailClosed);
   } finally {
     await server.close();
     rmSync(root, { recursive: true, force: true });
@@ -892,6 +1102,9 @@ test("Security, sanitization, same-instance re-login, out-of-order probes, healt
     | "tainted-fields"
     | "credits-only"
     | "zero-no-reset"
+    | "seven-day-zero"
+    | "partial-5h-healthy"
+    | "both-healthy"
     | "race-1"
     | "race-2"
     | "slow-relogin" = "redirect";
@@ -931,6 +1144,31 @@ test("Security, sanitization, same-instance re-login, out-of-order probes, healt
     if (serverMode === "zero-no-reset") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ five_hour: { utilization: 100, resets_at: null } }));
+      return;
+    }
+    if (serverMode === "seven-day-zero") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          five_hour: { utilization: 30, resets_at: "2026-11-21T15:00:00.000Z" },
+          seven_day: { utilization: 100, resets_at: "2026-11-28T00:00:00.000Z" },
+        }),
+      );
+      return;
+    }
+    if (serverMode === "partial-5h-healthy") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ five_hour: { utilization: 10, resets_at: "2026-11-21T15:00:00.000Z" } }));
+      return;
+    }
+    if (serverMode === "both-healthy") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          five_hour: { utilization: 10, resets_at: "2026-11-21T15:00:00.000Z" },
+          seven_day: { utilization: 20, resets_at: "2026-11-28T00:00:00.000Z" },
+        }),
+      );
       return;
     }
     if (serverMode === "race-1") {
@@ -1053,6 +1291,23 @@ test("Security, sanitization, same-instance re-login, out-of-order probes, healt
     assert.equal(health.get("claude-sec").cooldownUntil, "2026-11-21T11:00:00.000Z");
     health.reset("claude-sec", "2026-11-21T10:01:00.000Z");
 
+    // 4b. QUOTA-09: Observed 7d=0 (future reset) is NOT wiped when a subsequent partial response
+    //     only reports a healthy 5h window; recovery only clears once 7d itself is confirmed healthy.
+    serverMode = "seven-day-zero";
+    await store.command({ kind: "runtime-instance-show", instanceId: "claude-sec", probe: true });
+    assert.equal(health.get("claude-sec").quotaExhaustedUntil, "2026-11-28T00:00:00.000Z");
+    serverMode = "partial-5h-healthy";
+    const afterPartial = (await store.command({ kind: "runtime-instance-show", instanceId: "claude-sec", probe: true }))
+      .instance as {
+      readonly quota?: { readonly windows: ReadonlyArray<{ readonly id: string; readonly remainingFraction: number }> };
+    };
+    assert.equal(afterPartial.quota?.windows.find((w) => w.id === "five_hour")?.remainingFraction, 0.9);
+    assert.equal(afterPartial.quota?.windows.find((w) => w.id === "seven_day")?.remainingFraction, 0);
+    assert.equal(health.get("claude-sec").quotaExhaustedUntil, "2026-11-28T00:00:00.000Z");
+    serverMode = "both-healthy";
+    await store.command({ kind: "runtime-instance-show", instanceId: "claude-sec", probe: true });
+    assert.equal(health.get("claude-sec").quotaExhaustedUntil, null);
+
     // 5. Two concurrent probes finishing out of order: older probe (1) cannot overwrite newer probe (2).
     serverMode = "race-1";
     const olderProbe = store.authStatus("claude-sec");
@@ -1079,10 +1334,10 @@ test("Security, sanitization, same-instance re-login, out-of-order probes, healt
       occurredAt: "2026-11-21T10:00:00.000Z",
       cooldownBaseSeconds: 3600,
     });
-    store.prepareAuthCommand("claude-sec", "login");
-    store.beginAuthSession("claude-sec", "login-cancelled");
+    const cancelCmd = store.prepareAuthCommand("claude-sec", "login");
+    store.beginAuthSession("claude-sec", "login-cancelled", cancelCmd.accountCut);
     assert.equal((await store.authStatus("claude-sec")).code, "runtime_auth_in_progress");
-    store.completeAuthSession("claude-sec", "login-cancelled", "login", 1);
+    store.completeAuthSession("claude-sec", "login-cancelled", "login", 1, cancelCmd.accountCut);
     assert.equal(health.get("claude-sec").reason, "HTTP 503");
     assert.equal(health.get("claude-sec").cooldownUntil, "2026-11-21T11:00:00.000Z");
 
@@ -1091,7 +1346,7 @@ test("Security, sanitization, same-instance re-login, out-of-order probes, healt
       firstStarted = resolve;
     });
     serverMode = "slow-relogin";
-    store.prepareAuthCommand("claude-sec", "login");
+    const reloginCmd = store.prepareAuthCommand("claude-sec", "login");
     const midLoginOldProbe = store.authStatus("claude-sec");
     await firstStartedPromise;
     // New account credentials land on disk before the slow old-account probe finishes.
@@ -1100,7 +1355,7 @@ test("Security, sanitization, same-instance re-login, out-of-order probes, healt
       JSON.stringify({ claudeAiOauth: { accessToken: "sk-ant-oat01-brand-new-account-token-999" } }),
       { mode: 0o600 },
     );
-    store.completeAuthSession("claude-sec", "login-succeeded", "login", 0);
+    store.completeAuthSession("claude-sec", "login-succeeded", "login", 0, reloginCmd.accountCut);
     releaseFirst?.();
     await assert.rejects(
       midLoginOldProbe,
@@ -1111,6 +1366,56 @@ test("Security, sanitization, same-instance re-login, out-of-order probes, healt
       (await store.command({ kind: "runtime-instance-show", instanceId: "claude-sec" })).instance?.quota,
       undefined,
     );
+
+    // 6b. QUOTA-07: Interleaved login-A + rebind-B (and delete/recreate-B):
+    //     When login-A's stale terminal later exits 0, completeAuthSession MUST verify the exact
+    //     account cut/generation and act as a complete no-op without clearing B's quota/readiness/health!
+    const loginA = store.prepareAuthCommand("claude-sec", "login");
+    store.beginAuthSession("claude-sec", "stale-login-a", loginA.accountCut);
+    // Rebind the instance from operator -> instance credentialSource (account B) while login-A is still open.
+    store.command({
+      kind: "runtime-instance-update",
+      instanceId: "claude-sec",
+      credentialSource: "instance",
+    });
+    const instanceBClaudeDir = path.join(userRoot, "runtime-instances", "claude-sec", "home", ".claude");
+    mkdirSync(instanceBClaudeDir, { recursive: true, mode: 0o700 });
+    writeFileSync(
+      path.join(instanceBClaudeDir, ".credentials.json"),
+      JSON.stringify({ claudeAiOauth: { accessToken: "sk-ant-oat01-account-b-token-123" } }),
+      { mode: 0o600 },
+    );
+    serverMode = "seven-day-zero";
+    const probedB = await store.command({ kind: "runtime-instance-show", instanceId: "claude-sec", probe: true });
+    const quotaB = (probedB.instance as Record<string, unknown>).quota;
+    assert.ok(quotaB);
+    assert.equal(health.get("claude-sec").quotaExhaustedUntil, "2026-11-28T00:00:00.000Z");
+    // Now stale login-A terminal exits 0 -> MUST be a complete NO-OP!
+    store.completeAuthSession("claude-sec", "stale-login-a", "login", 0, loginA.accountCut);
+    const afterStaleExit = (await store.command({ kind: "runtime-instance-show", instanceId: "claude-sec" }))
+      .instance as Record<string, unknown>;
+    assert.equal((afterStaleExit.authReadiness as Record<string, unknown>).status, "ready");
+    assert.deepEqual(afterStaleExit.quota, quotaB);
+    assert.equal(health.get("claude-sec").quotaExhaustedUntil, "2026-11-28T00:00:00.000Z");
+
+    // Same check for delete + recreate with same instanceId while login-B is running:
+    const loginB = store.prepareAuthCommand("claude-sec", "login");
+    store.beginAuthSession("claude-sec", "stale-login-b", loginB.accountCut);
+    store.command({ kind: "runtime-instance-delete", instanceId: "claude-sec" });
+    store.command(createPayload);
+    serverMode = "both-healthy";
+    const probedRecreated = await store.command({
+      kind: "runtime-instance-show",
+      instanceId: "claude-sec",
+      probe: true,
+    });
+    const quotaRecreated = (probedRecreated.instance as Record<string, unknown>).quota;
+    assert.ok(quotaRecreated);
+    store.completeAuthSession("claude-sec", "stale-login-b", "login", 0, loginB.accountCut);
+    const afterRecreateExit = (await store.command({ kind: "runtime-instance-show", instanceId: "claude-sec" }))
+      .instance as Record<string, unknown>;
+    assert.equal((afterRecreateExit.authReadiness as Record<string, unknown>).status, "ready");
+    assert.deepEqual(afterRecreateExit.quota, quotaRecreated);
 
     // 7. Daemon client RPC result validation rejects malformed quota WITHOUT echoing untrusted secret strings.
     let listError: unknown;

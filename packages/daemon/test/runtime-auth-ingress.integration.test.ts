@@ -184,7 +184,7 @@ test("daemon ingress spawns interactive sign-in terminals on the isolated state 
           status: "ready",
           code: null,
           hint: null,
-          basis: "provider",
+          basis: "metadata",
         });
       });
     }

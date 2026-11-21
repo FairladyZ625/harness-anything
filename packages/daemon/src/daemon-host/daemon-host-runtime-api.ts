@@ -835,13 +835,14 @@ export function createDaemonHostRuntimeApi(
               idempotencyKey,
               operation as "login" | "logout",
               exitCode,
+              command.accountCut,
             );
           },
         },
         { ...serverBinding, authorizationDecision },
       ) as JsonObject;
       if (!settled && result.state === "running") {
-        context.instances.beginAuthSession(command.instanceId, idempotencyKey);
+        context.instances.beginAuthSession(command.instanceId, idempotencyKey, command.accountCut);
       }
       return { ...result, authorizationDecision: authorizationDecision as unknown as JsonObject };
     },

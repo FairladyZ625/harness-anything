@@ -204,6 +204,39 @@ test("quota health transitions are orthogonal to transport failures and manual f
       }),
       "2026-11-22T00:00:00.000Z",
     );
+
+    // recordSuccess only clears quotaExhaustedUntil when the succeeded model matches the exhausted
+    // scope or the observed reset window has elapsed (never on an unrelated model or unscoped success).
+    store.recordQuotaExhausted({
+      instanceId: "scoped-model-account",
+      occurredAt: "2026-11-21T10:00:00.000Z",
+      resetAt: "2026-11-28T00:00:00.000Z",
+      scope: "model",
+      models: ["gemini-4-argon-high"],
+    });
+    const afterUnscopedSuccess = store.recordSuccess("scoped-model-account", "2026-11-21T10:05:00.000Z");
+    assert.equal(afterUnscopedSuccess.quotaExhaustedUntil, "2026-11-28T00:00:00.000Z");
+    const afterOtherModelSuccess = store.recordSuccess("scoped-model-account", "2026-11-21T10:06:00.000Z", {
+      model: "gemini-4-hydrogen-low",
+    });
+    assert.equal(afterOtherModelSuccess.quotaExhaustedUntil, "2026-11-28T00:00:00.000Z");
+    const afterMatchingModelSuccess = store.recordSuccess("scoped-model-account", "2026-11-21T10:07:00.000Z", {
+      model: "gemini-4-argon-high",
+    });
+    assert.equal(afterMatchingModelSuccess.quotaExhaustedUntil, null);
+
+    // Account-wide exhaustion clears on matching-account execution with a model, OR once resetAt elapses.
+    store.recordQuotaExhausted({
+      instanceId: "account-wide-quota",
+      occurredAt: "2026-11-21T10:00:00.000Z",
+      resetAt: "2026-11-28T00:00:00.000Z",
+      scope: "account",
+    });
+    assert.equal(
+      store.recordSuccess("account-wide-quota", "2026-11-21T10:05:00.000Z").quotaExhaustedUntil,
+      "2026-11-28T00:00:00.000Z",
+    );
+    assert.equal(store.recordSuccess("account-wide-quota", "2026-11-28T00:00:00.000Z").quotaExhaustedUntil, null);
   } finally {
     rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }

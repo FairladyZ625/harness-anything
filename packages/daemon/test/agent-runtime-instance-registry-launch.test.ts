@@ -730,12 +730,9 @@ process.exit(9);
       status: "ready",
       code: null,
       hint: null,
-      basis: "provider",
+      basis: "metadata",
     });
-    const probe = JSON.parse(readFileSync(recordFile, "utf8")) as { readonly args: string[]; readonly cwd: string };
-    assert.equal(probe.args.at(-1), "-");
-    assert.equal(probe.args.at(-2), "--skip-git-repo-check");
-    assert.equal(probe.cwd, path.join(root, "runtime-instances", "codex-probe-worktree"));
+    assert.throws(() => readFileSync(recordFile, "utf8"), /ENOENT/u);
     const launch = await store.prepareLaunch("codex-probe-worktree", {
       cwd: root,
       prompt: "Reply with exactly READY.",
@@ -747,15 +744,17 @@ process.exit(9);
   }
 });
 
-// A refusal from the probe's own cwd is a workspace verdict, not a credential verdict: the
-// login may be valid while the probe dir is not a git repository, so the GUI must get a code
-// that names the workspace instead of the generic runtime_auth_probe_failed.
-test("a codex probe refusal from an untrusted directory maps to a workspace error", async () => {
+// Read-only Codex probes run `codex login status` + read-only quota endpoints instead of
+// invoking `codex exec` in the non-git instance directory, avoiding untrusted-cwd inference faults.
+test("a codex auth probe stays read-only and never invokes codex exec inside the instance directory", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-codex-probe-untrusted-")),
+    execMarker = path.join(root, "exec-called"),
     executablePath = writeProviderExecutable(
       path.join(root, "codex"),
-      `if (process.argv[2] === "login") { console.log("Logged in using ChatGPT"); process.exit(0); }
+      `const fs = require("node:fs");
+if (process.argv[2] === "login") { console.log("Logged in using ChatGPT"); process.exit(0); }
 if (process.argv[2] === "exec") {
+  fs.writeFileSync(${JSON.stringify(execMarker)}, "called");
   console.error("Not inside a trusted directory and --skip-git-repo-check was not specified.");
   process.exit(1);
 }
@@ -784,13 +783,12 @@ process.exit(9);
       auth: { mode: "subscription" },
     });
     const readiness = await store.authStatus("codex-probe-untrusted");
-    assert.equal(readiness.status, "not-ready");
-    assert.equal(readiness.code, "runtime_probe_workspace_untrusted");
-    assert.match(readiness.hint ?? "", /--skip-git-repo-check/u);
+    assert.deepEqual(readiness, { status: "ready", code: null, hint: null, basis: "metadata" });
     assert.equal(
       (await store.command({ kind: "runtime-instance-show", instanceId: "codex-probe-untrusted" })).instance?.authState,
-      "unknown",
+      "authenticated",
     );
+    assert.throws(() => readFileSync(execMarker, "utf8"), /ENOENT/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
