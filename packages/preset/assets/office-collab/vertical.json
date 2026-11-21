@@ -211,12 +211,42 @@
       { "path": "{{paths.sessionsRoot}}", "create": "lazy" }
     ],
     "seededDocs": [
-      { "slot": "repository.context.index", "templateRef": "template://office/context-index@1", "materializeAs": "{{paths.contextRoot}}/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-      { "slot": "repository.standard.index", "templateRef": "template://office/standards-index@1", "materializeAs": "{{paths.standardsRoot}}/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-      { "slot": "repository.standard.governance", "templateRef": "template://office/repository-governance@1", "materializeAs": "{{paths.standardsRoot}}/repository-governance.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-      { "slot": "repository.standard.decision-writing", "templateRef": "template://office/decision-writing@1", "materializeAs": "{{paths.standardsRoot}}/decision-writing.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-      { "slot": "repository.gitattributes", "templateRef": "template://office/gitattributes@1", "materializeAs": "{{paths.authoredRoot}}/.gitattributes", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-      { "slot": "repository.claude.entry", "templateRef": "template://office/claude-entry@1", "materializeAs": "{{paths.rootDir}}/CLAUDE.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } }
+      {
+        "slot": "repository.context.index",
+        "templateRef": "template://office/context-index@1",
+        "materializeAs": "{{paths.contextRoot}}/README.md",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      },
+      {
+        "slot": "repository.standard.index",
+        "templateRef": "template://office/standards-index@1",
+        "materializeAs": "{{paths.standardsRoot}}/README.md",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      },
+      {
+        "slot": "repository.standard.governance",
+        "templateRef": "template://office/repository-governance@1",
+        "materializeAs": "{{paths.standardsRoot}}/repository-governance.md",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      },
+      {
+        "slot": "repository.standard.decision-writing",
+        "templateRef": "template://office/decision-writing@1",
+        "materializeAs": "{{paths.standardsRoot}}/decision-writing.md",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      },
+      {
+        "slot": "repository.gitattributes",
+        "templateRef": "template://office/gitattributes@1",
+        "materializeAs": "{{paths.authoredRoot}}/.gitattributes",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      },
+      {
+        "slot": "repository.claude.entry",
+        "templateRef": "template://office/claude-entry@1",
+        "materializeAs": "{{paths.rootDir}}/CLAUDE.md",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      }
     ],
     "agentsEntry": {
       "materializeAs": "{{paths.rootDir}}/AGENTS.md",
@@ -305,7 +335,7 @@
       "deliverable-contract": {
         "source": "office-collab/deliverable-contract",
         "appliesTo": "artifacts",
-        "subjects": "all-artifacts",
+        "subjects": ["artifacts/deliverable-manifest.json"],
         "bindings": {
           "schema": { "artifact": "artifacts/deliverable-manifest.json", "pointer": "/schema" },
           "deliverableKind": { "artifact": "artifacts/deliverable-manifest.json", "pointer": "/deliverableKind" },
@@ -317,7 +347,7 @@
       "upstream-fresh": {
         "source": "office-collab/upstream-fresh",
         "appliesTo": "artifacts",
-        "subjects": "all-artifacts",
+        "subjects": ["artifacts/upstream-freshness.json"],
         "bindings": {
           "schema": { "artifact": "artifacts/upstream-freshness.json", "pointer": "/schema" },
           "checkedAt": { "artifact": "artifacts/upstream-freshness.json", "pointer": "/checkedAt" }
@@ -326,7 +356,7 @@
       "handoff-completeness": {
         "source": "office-collab/handoff-completeness",
         "appliesTo": "artifacts",
-        "subjects": "all-artifacts",
+        "subjects": ["artifacts/handoff.json"],
         "bindings": {
           "schema": { "artifact": "artifacts/handoff.json", "pointer": "/schema" },
           "from": { "artifact": "artifacts/handoff.json", "pointer": "/ownerTransfer/from" },

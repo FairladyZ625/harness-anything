@@ -446,12 +446,13 @@ export function readSquadDeclaration(input: {
   readonly rootDir: string;
   readonly squadId: string;
   readonly entityStore?: AgentDeclarationReader;
+  readonly verticalId?: string;
 }): SquadDeclarationV1 {
   const entityStore = input.entityStore ?? openEntityStore(input.rootDir),
     squad = parseSquadDeclarationV1(readStoredDeclaration(input.rootDir, "squad", input.squadId, entityStore)),
     missing = [squad.leader, ...squad.workers].filter((id) => {
       try {
-        readAgentDeclaration({ rootDir: input.rootDir, agentId: id, entityStore });
+        readAgentDeclaration({ rootDir: input.rootDir, agentId: id, entityStore, verticalId: input.verticalId });
         return false;
       } catch (error) {
         consumeKnownError(error);
@@ -478,19 +479,35 @@ export function resolveSquadDispatch(input: {
   readonly entityStore?: AgentDeclarationReader & {
     readonly list: (kind: string) => readonly { readonly id: string; readonly value: unknown }[];
   };
+  readonly verticalId?: string;
 }): SquadDispatchSelection {
   const entityStore = input.entityStore ?? openEntityStore(input.rootDir);
   if (input.squadId) {
-    const squad = readSquadDeclaration({ rootDir: input.rootDir, squadId: input.squadId, entityStore });
+    const squad = readSquadDeclaration({
+      rootDir: input.rootDir,
+      squadId: input.squadId,
+      entityStore,
+      verticalId: input.verticalId,
+    });
     if (squad.leader !== input.leaderId)
       throw entityError("squad_leader_mismatch", `Agent ${input.leaderId} is not the leader of squad ${squad.id}.`);
     if (input.workerId && !squad.workers.includes(input.workerId))
       throw entityError("squad_member_not_found", `Agent ${input.workerId} is not a worker in squad ${squad.id}.`);
     return {
       squadId: squad.id,
-      leader: readAgentDeclaration({ rootDir: input.rootDir, agentId: squad.leader, entityStore }),
+      leader: readAgentDeclaration({
+        rootDir: input.rootDir,
+        agentId: squad.leader,
+        entityStore,
+        verticalId: input.verticalId,
+      }),
       worker: input.workerId
-        ? readAgentDeclaration({ rootDir: input.rootDir, agentId: input.workerId, entityStore })
+        ? readAgentDeclaration({
+            rootDir: input.rootDir,
+            agentId: input.workerId,
+            entityStore,
+            verticalId: input.verticalId,
+          })
         : null,
     };
   }
@@ -500,9 +517,19 @@ export function resolveSquadDispatch(input: {
   for (const { id: squadId, value } of entityStore.list("squad")) {
     const squad = parseSquadDeclarationV1(value);
     if (squad.leader !== input.leaderId || !squad.workers.includes(input.workerId)) continue;
-    const leader = readAgentDeclaration({ rootDir: input.rootDir, agentId: squad.leader, entityStore }),
-      worker = readAgentDeclaration({ rootDir: input.rootDir, agentId: input.workerId, entityStore });
-    readSquadDeclaration({ rootDir: input.rootDir, squadId, entityStore });
+    const leader = readAgentDeclaration({
+        rootDir: input.rootDir,
+        agentId: squad.leader,
+        entityStore,
+        verticalId: input.verticalId,
+      }),
+      worker = readAgentDeclaration({
+        rootDir: input.rootDir,
+        agentId: input.workerId,
+        entityStore,
+        verticalId: input.verticalId,
+      });
+    readSquadDeclaration({ rootDir: input.rootDir, squadId, entityStore, verticalId: input.verticalId });
     matches.push({ squadId, leader, worker });
   }
   if (matches.length === 0)
@@ -756,11 +783,12 @@ function finalizePreparedEntityInstall(input: {
 export function prepareAgentEntityRetire(input: {
   readonly action: Readonly<Record<string, unknown>>;
   readonly replayed: unknown;
+  readonly verticalId?: string;
 }): void {
   const replayed = input.replayed as { readonly schema?: unknown; readonly type?: unknown } | null;
   if (replayed?.schema === "entity-event/v1" && replayed.type === "agent_retired") return;
   try {
-    assertBundledAgentLifecycleOpen(String(input.action.agentId ?? ""));
+    assertBundledAgentLifecycleOpen(String(input.action.agentId ?? ""), input.verticalId);
   } catch (error) {
     throw attributeEntityActionCriterion(
       error instanceof Error ? error : Object.assign(new Error(String(error)), { cause: error }),
@@ -787,6 +815,7 @@ export function prepareAgentEntityDelete(input: {
   readonly action: Readonly<Record<string, unknown>> & { readonly kind: string };
   readonly entityStore: EntityStore;
   readonly projection: Pick<TaskProjection, "countRuntimeDispatchesByAgent" | "listEntities" | "readRelationQuery">;
+  readonly verticalId?: string;
 }): PreparedAgentEntityDelete {
   const kind = entityKind(input.action.kind),
     idField = kind === "agent" ? "agentId" : "squadId",
@@ -795,7 +824,7 @@ export function prepareAgentEntityDelete(input: {
     reason = requiredEntityText(input.action.reason, "reason");
   if (kind === "agent") {
     try {
-      assertBundledAgentLifecycleOpen(entityId);
+      assertBundledAgentLifecycleOpen(entityId, input.verticalId);
     } catch (error) {
       throw attributeEntityActionCriterion(
         error instanceof Error ? error : Object.assign(new Error(String(error)), { cause: error }),

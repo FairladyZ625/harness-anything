@@ -108,6 +108,7 @@ export async function collectCommandWitness(
         gateRunId: run.runId,
         code: submission.commitSha ? { commitSha: submission.commitSha, directory: "input/code" } : null,
         subjects,
+        artifacts: allSubjects,
       }),
     );
     let produced: CompletionWitnessResult | undefined;

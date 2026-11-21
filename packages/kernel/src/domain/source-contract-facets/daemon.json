@@ -243,7 +243,7 @@
         "explain": "Host filesystem bundled-agent protection guard refusing retire or delete operations against shipped built-in agent declarations.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/agent-declaration-resolution.ts#assertBundledAgentLifecycleOpen:d6d577b0fc5f23b372343eb76000bff7",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/agent-declaration-resolution.ts#assertBundledAgentLifecycleOpen:cbb3c5056fe703bce92996558382b40f",
             "route": "packages/daemon/src/daemon-host/agent-declaration-resolution.ts#assertBundledAgentLifecycleOpen"
           }
         ],

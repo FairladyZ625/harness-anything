@@ -449,7 +449,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         taskId !== null && !input.remote && !reviewerBinding && !dryRun && frozenTask
           ? input.resolveAgent !== undefined &&
             agentId !== undefined &&
-            input.resolveAgent(agentId)?.permissionMode === "read-only"
+            input.resolveAgent(agentId, taskSnapshot?.task?.metadata?.verticalId)?.permissionMode === "read-only"
           : false,
       attachTarget = readOnlyAttach ? selectReadOnlyAttachTarget(taskId!, taskSnapshot!) : null,
       arrangement = taskSnapshot ? currentExecutionArrangement(taskSnapshot) : undefined,
@@ -539,7 +539,15 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         agent,
         resolvedSkills: rawResolvedSkills,
         preset,
-      } = resolveDispatchAgent(input, binding, cwd, agentId, squadId, targetAgentId);
+      } = resolveDispatchAgent(
+        input,
+        binding,
+        cwd,
+        agentId,
+        squadId,
+        targetAgentId,
+        taskSnapshot?.task?.metadata?.verticalId,
+      );
     if (agent) assertAgentDispatchable(agent);
     const agentDeclarationDigest = agent === null ? null : computeAgentDeclarationDigest(agent),
       preparedSkillSnapshot =

@@ -2,7 +2,12 @@ import { existsSync } from "node:fs";
 import { createRuntime } from "./preset-runtime.ts";
 import { loadCanonicalAssets, resolveVerticalAssetsRoot } from "./preset-assets.ts";
 import { decodePackage, presetDocumentValue, scan } from "./preset-package.ts";
-import { asFailure, builtinVerticalRoots, presetFailure } from "./preset-resolver-common.ts";
+import {
+  asFailure,
+  builtinVerticalAssetRootSet,
+  builtinVerticalRoots,
+  presetFailure,
+} from "./preset-resolver-common.ts";
 import type { PresetFailure } from "./preset-resolver-types.ts";
 import { consumeKnownError, validatePresetDocumentV1, validatePresetManifestV3 } from "./preset.contract.ts";
 import path from "node:path";
@@ -92,17 +97,21 @@ export function validateVerticalSource(
   } = {},
 ) {
   const requested = input.source ?? "software/coding",
-    builtinId = requested.startsWith("builtin:") ? requested.slice("builtin:".length) : requested,
+    explicitBuiltin = requested.startsWith("builtin:"),
+    builtinId = explicitBuiltin ? requested.slice("builtin:".length) : requested,
     builtin = builtinVerticalRoots.has(builtinId);
   let source = path.resolve(input.rootDir ?? process.cwd(), requested);
   try {
     source =
       input.assetsRoot ??
-      (builtin
-        ? resolveVerticalAssetsRoot(builtinId, input.rootDir)
-        : existsSync(source)
-          ? source
-          : resolveVerticalAssetsRoot(requested, input.rootDir));
+      (explicitBuiltin && builtin
+        ? builtinVerticalRoots.get(builtinId)!
+        : builtin
+          ? resolveVerticalAssetsRoot(builtinId, input.rootDir)
+          : existsSync(source)
+            ? source
+            : resolveVerticalAssetsRoot(requested, input.rootDir));
+    const isBuiltinSource = builtinVerticalAssetRootSet.has(path.resolve(source));
     const assets = loadCanonicalAssets(source),
       vertical = assets.compiledVertical.definition,
       refs = [
@@ -136,7 +145,7 @@ export function validateVerticalSource(
       : undefined;
     return {
       schema: "vertical-validate-report/v1" as const,
-      source: builtin ? `builtin:${vertical.id}` : source,
+      source: isBuiltinSource ? `builtin:${vertical.id}` : source,
       available: true,
       valid: issues.length === 0,
       vertical: {

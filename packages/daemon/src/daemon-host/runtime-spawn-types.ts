@@ -524,12 +524,13 @@ export interface RuntimeSpawnerInput {
     provider: "github" | "gitlab",
     repoId: string,
   ) => Promise<NodeJS.ProcessEnv | null>;
-  readonly resolveAgent?: (agentId: string) => RuntimeAgent;
+  readonly resolveAgent?: (agentId: string, verticalId?: string) => RuntimeAgent;
   readonly resolveSquadDispatch?: (
     squadId: string | undefined,
     leaderId: string,
     workerId: string | undefined,
     binding: RuntimeBinding,
+    verticalId?: string,
   ) => SquadDispatchSelection;
   readonly launch?: RuntimeLauncher;
   readonly schedule: (work: () => void | Promise<void>, binding?: RuntimeBinding) => void;

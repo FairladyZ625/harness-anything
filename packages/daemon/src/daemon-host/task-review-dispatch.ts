@@ -143,6 +143,7 @@ export function nodeReviewDispatchCandidate(
     rootDir: cell.rootDir,
     agentId: reviewerId,
     entityStore: createEntityStore(cell.store),
+    verticalId: snapshot.task.metadata?.verticalId ?? cell.settings.read().defaultVertical,
   });
   if (!resolved) return null;
   const { declaration: agent, layer } = resolved,
@@ -342,6 +343,7 @@ export async function dispatchDecisionReview(
       rootDir: cell.rootDir,
       agentId: reviewerId,
       entityStore: createEntityStore(cell.store),
+      verticalId: cell.settings.read().defaultVertical,
     });
   if (!resolved)
     throw cell.cellCodedError("review_dispatch_failed", `Reviewer ${reviewerId} is not bundled or installed.`);
@@ -772,7 +774,7 @@ type DispatchStep = {
   readonly reviewDispatchFailure?: TaskReviewDispatchFailureV1;
 };
 
-function readReviewAgent(cell: RepoCellOperationalContext, reviewerId: string) {
+function readReviewAgent(cell: RepoCellOperationalContext, reviewerId: string, verticalId?: string) {
   try {
     return {
       kind: "resolved" as const,
@@ -780,6 +782,7 @@ function readReviewAgent(cell: RepoCellOperationalContext, reviewerId: string) {
         rootDir: cell.rootDir,
         agentId: reviewerId,
         entityStore: createEntityStore(cell.store),
+        verticalId: verticalId ?? cell.settings.read().defaultVertical,
       }),
     };
   } catch (error) {
@@ -895,6 +898,8 @@ export async function spawnCutReviewDispatch(
       rootDir: cell.rootDir,
       agentId: input.reviewerId,
       entityStore: createEntityStore(cell.store),
+      verticalId:
+        cell.projection.read(input.taskId).snapshot.task?.metadata?.verticalId ?? cell.settings.read().defaultVertical,
     });
   } catch (error) {
     if (!isAgentDeclarationInvalid(error)) throw error;
@@ -1415,7 +1420,7 @@ export async function prepareTaskReviewDispatch(
       warnings.push(`Task ${taskId} review is pending: ${placement.reason}; no runtime dispatch was created.`);
       continue;
     }
-    const agentResolution = readReviewAgent(cell, reviewerId);
+    const agentResolution = readReviewAgent(cell, reviewerId, snapshot.task.metadata?.verticalId);
     if (agentResolution.kind === "invalid") {
       fail(agentResolution.detail, reviewerId, execution.executionId);
       continue;

@@ -452,23 +452,25 @@ export async function openRepoWriterCell(
       ? { reclaimSettledRuntimeTempDirectories: input.reclaimSettledRuntimeTempDirectories }
       : {}),
     ...(input.prepareDaemonGitEnvironment ? { prepareDaemonGitEnvironment: input.prepareDaemonGitEnvironment } : {}),
-    resolveAgent: (agentId) => {
+    resolveAgent: (agentId, verticalId) => {
       const projected = projection.getEntity("agent", agentId);
       const entityStore = createEntityStore(store),
         declaration = readAgentDeclaration({
           rootDir,
           agentId,
           entityStore,
+          verticalId: verticalId ?? readSettings().defaultVertical,
         });
       return resolveAgentRuntimeDeclaration(declaration, projected);
     },
-    resolveSquadDispatch: (squadId, leaderId, workerId) =>
+    resolveSquadDispatch: (squadId, leaderId, workerId, _binding, verticalId) =>
       resolveSquadDispatch({
         rootDir,
         ...(squadId ? { squadId } : {}),
         leaderId,
         ...(workerId ? { workerId } : {}),
         entityStore: createEntityStore(store),
+        verticalId: verticalId ?? readSettings().defaultVertical,
       }),
     onRuntimeOutcome: (event) => {
       schedule(() => squadCoordinator.observeOutcome(event));
@@ -669,7 +671,11 @@ export async function openRepoWriterCell(
     squadActionRuntime = makeSquadActionRuntime(runtimeContext),
     prepareAgentAction: EntityActionCatalogPreparer = (contract, action, _binding, opId) => {
       if (contract.target.kind === "agent" && contract.id === "retire")
-        prepareAgentEntityRetire({ action, replayed: store.readEvent(opId) });
+        prepareAgentEntityRetire({
+          action,
+          replayed: store.readEvent(opId),
+          verticalId: settings.read().defaultVertical,
+        });
       if (contract.id === "delete") {
         const existing = store.readEvent(opId);
         if (
@@ -683,7 +689,12 @@ export async function openRepoWriterCell(
             baseBlobSha256: existing.payload.ownedContent.retirements[0]!.baseBlobSha256,
             reason: existing.payload.reason,
           };
-        const prepared = prepareAgentEntityDelete({ action, entityStore: createEntityStore(store), projection });
+        const prepared = prepareAgentEntityDelete({
+          action,
+          entityStore: createEntityStore(store),
+          projection,
+          verticalId: settings.read().defaultVertical,
+        });
         return { ...action, ...prepared };
       }
       if (contract.id !== "install") return action;

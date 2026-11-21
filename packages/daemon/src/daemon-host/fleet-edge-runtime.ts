@@ -858,7 +858,12 @@ export function openFleetEdgeRuntime(input: {
               preferredInstanceId: spawnHints?.preferredRuntimeInstanceId,
               agentId: spawnHints?.agentId,
               findAgent: (agentId) =>
-                trustedScheduleAgents.get(agentId) ?? findMirroredAgentDeclaration(request, agentId),
+                trustedScheduleAgents.get(agentId) ??
+                findMirroredAgentDeclaration(
+                  request,
+                  agentId,
+                  current.task?.metadata?.verticalId ?? readSettings().defaultVertical,
+                ),
               localInstances: input.ports.runtimeInstances(),
             }),
             prepareDaemonGitEnvironment = input.ports.prepareDaemonGitEnvironment
@@ -1042,11 +1047,14 @@ export function openFleetEdgeRuntime(input: {
       : {}),
     reclaimSettledRuntimeTempDirectories: input.ports.reclaimSettledRuntimeTempDirectories,
     prepareDaemonGitEnvironment: input.ports.prepareDaemonGitEnvironment,
-    resolveAgent: (agentId) => {
+    resolveAgent: (agentId, verticalId) => {
       const { request } = context();
-      return trustedScheduleAgents.get(agentId) ?? mirroredAgentDeclaration(request, agentId);
+      return (
+        trustedScheduleAgents.get(agentId) ??
+        mirroredAgentDeclaration(request, agentId, verticalId ?? readSettings().defaultVertical)
+      );
     },
-    resolveSquadDispatch: (squadId, leaderId, workerId, binding) => {
+    resolveSquadDispatch: (squadId, leaderId, workerId, binding, verticalId) => {
       const { request } = context();
       return withEdgeReadModel(
         {
@@ -1062,6 +1070,7 @@ export function openFleetEdgeRuntime(input: {
             ...(squadId ? { squadId } : {}),
             leaderId,
             ...(workerId ? { workerId } : {}),
+            verticalId: verticalId ?? readSettings().defaultVertical,
             entityStore: {
               get: (kind, id) => projection.getEntity(kind, id),
               list: (kind) => projection.listEntities(kind),
@@ -1639,6 +1648,7 @@ function taskRuntimeContext(
 function findMirroredAgentDeclaration(
   request: Pick<FleetEdgeRuntimeRequest["payload"], "viewRoot" | "repoId" | "workspaceRoot" | "nodeId">,
   agentId: string,
+  verticalId?: string,
 ): RuntimeAgent | undefined {
   const logical = `agents/${agentId}.json`;
   if (
@@ -1654,14 +1664,15 @@ function findMirroredAgentDeclaration(
         ),
       ),
     );
-  return readBundledAgentDeclaration(agentId) ?? undefined;
+  return readBundledAgentDeclaration(agentId, verticalId) ?? undefined;
 }
 
 function mirroredAgentDeclaration(
   request: Pick<FleetEdgeRuntimeRequest["payload"], "viewRoot" | "repoId" | "workspaceRoot" | "nodeId">,
   agentId: string,
+  verticalId?: string,
 ): RuntimeAgent {
-  const declaration = findMirroredAgentDeclaration(request, agentId);
+  const declaration = findMirroredAgentDeclaration(request, agentId, verticalId);
   if (declaration) return declaration;
   throw edgeRuntimeError(
     "agent_not_found",

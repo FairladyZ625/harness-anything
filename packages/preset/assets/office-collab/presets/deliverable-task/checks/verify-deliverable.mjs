@@ -48,31 +48,139 @@ function scanDuplicateTopLevelKeys(raw) {
   return duplicates;
 }
 
-function headingLevel(line) {
-  const match = /^(#{1,6})\s+\S/u.exec(line.trim());
-  return match ? match[1].length : 0;
+function stripFrontmatter(body) {
+  const match = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/u.exec(body);
+  return match ? body.slice(match[0].length) : body;
+}
+
+function stripHtmlCommentsOnLine(line, inComment) {
+  let out = "";
+  let index = 0;
+  let comment = inComment;
+  while (index < line.length) {
+    if (comment) {
+      const end = line.indexOf("-->", index);
+      if (end < 0) return { text: out, inComment: true };
+      index = end + 3;
+      comment = false;
+    } else {
+      const start = line.indexOf("<!--", index);
+      if (start < 0) {
+        out += line.slice(index);
+        break;
+      }
+      out += line.slice(index, start);
+      index = start + 4;
+      comment = true;
+    }
+  }
+  return { text: out, inComment: comment };
+}
+
+function parseHeading(line) {
+  const match = /^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$/u.exec(line);
+  if (!match) return null;
+  return { level: match[1].length, normalized: `${match[1]} ${match[2].trim()}` };
+}
+
+function parseMarkdownLines(documentText) {
+  const parsed = [];
+  let fence = null;
+  let inComment = false;
+  for (const line of stripFrontmatter(documentText).split(/\r?\n/u)) {
+    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line);
+    if (fence !== null) {
+      const closes =
+        delimiter !== null &&
+        delimiter[1][0] === fence.marker &&
+        delimiter[1].length >= fence.length &&
+        !delimiter[2].trim();
+      if (closes) fence = null;
+      parsed.push({
+        text: line,
+        isHeading: false,
+        inFence: true,
+        fenceEdge: closes,
+        level: 0,
+        normalizedHeading: "",
+      });
+      continue;
+    }
+    const stripped = stripHtmlCommentsOnLine(line, inComment);
+    inComment = stripped.inComment;
+    const opener = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(stripped.text);
+    if (opener && !(opener[1][0] === "`" && opener[2].includes("`"))) {
+      fence = { marker: opener[1][0], length: opener[1].length };
+      parsed.push({
+        text: stripped.text,
+        isHeading: false,
+        inFence: true,
+        fenceEdge: true,
+        level: 0,
+        normalizedHeading: "",
+      });
+      continue;
+    }
+    const heading = parseHeading(stripped.text);
+    if (heading) {
+      parsed.push({
+        text: stripped.text,
+        isHeading: true,
+        inFence: false,
+        fenceEdge: false,
+        level: heading.level,
+        normalizedHeading: heading.normalized,
+      });
+    } else {
+      parsed.push({
+        text: stripped.text,
+        isHeading: false,
+        inFence: false,
+        fenceEdge: false,
+        level: 0,
+        normalizedHeading: "",
+      });
+    }
+  }
+  return parsed;
 }
 
 function checkRequiredSections(documentText, requiredSections) {
-  const lines = documentText.split(/\r?\n/u);
+  const entries = parseMarkdownLines(documentText);
   const missing = [];
   const empty = [];
   for (const anchor of requiredSections) {
     const trimmedAnchor = anchor.trim();
-    const index = lines.findIndex((line) => line.trim() === trimmedAnchor);
-    if (index < 0) {
+    const targetHeading = parseHeading(trimmedAnchor);
+    const matchingIndices = [];
+    for (let i = 0; i < entries.length; i += 1) {
+      const entry = entries[i];
+      if (targetHeading) {
+        if (entry.isHeading && entry.normalizedHeading === targetHeading.normalized) matchingIndices.push(i);
+      } else if (!entry.inFence && entry.text.trim() === trimmedAnchor) {
+        matchingIndices.push(i);
+      }
+    }
+    if (matchingIndices.length === 0) {
       missing.push(trimmedAnchor);
       continue;
     }
-    const level = headingLevel(trimmedAnchor);
+    const level = targetHeading?.level ?? 0;
     let hasBody = false;
-    for (let i = index + 1; i < lines.length; i += 1) {
-      const current = lines[i].trim();
-      if (!current) continue;
-      const nextLevel = headingLevel(current);
-      if (level > 0 && nextLevel > 0 && nextLevel <= level) break;
-      hasBody = true;
-      break;
+    for (const startIndex of matchingIndices) {
+      for (let i = startIndex + 1; i < entries.length; i += 1) {
+        const current = entries[i];
+        if (current.isHeading) {
+          if (level > 0 && current.level <= level) break;
+          continue;
+        }
+        if (current.fenceEdge) continue;
+        if (current.text.trim().length > 0) {
+          hasBody = true;
+          break;
+        }
+      }
+      if (hasBody) break;
     }
     if (!hasBody) empty.push(trimmedAnchor);
   }
@@ -108,6 +216,7 @@ function emit(result, subjects, predicate, diagnostic) {
 const inputPath = JSON.parse(process.env.HA_PRESET_INPUT ?? "{}").witnessInput;
 const witness = JSON.parse(readFileSync(inputPath, "utf8"));
 const rawSubjects = Array.isArray(witness.subjects) ? witness.subjects : [];
+const readableArtifacts = Array.isArray(witness.artifacts) ? witness.artifacts : rawSubjects;
 const subjects = rawSubjects.map(({ file: _file, ...identity }) => identity);
 
 const manifestSubject = findRootSubject(rawSubjects, MANIFEST_PATH);
@@ -153,7 +262,7 @@ if (!Array.isArray(manifest.requiredSections) || manifest.requiredSections.lengt
 }
 
 if (errors.length === 0) {
-  const documentSubject = findRootSubject(rawSubjects, manifest.documentPath);
+  const documentSubject = findRootSubject(readableArtifacts, manifest.documentPath);
   if (!documentSubject) {
     errors.push(`Referenced deliverable "${manifest.documentPath}" is absent from submitted artifacts.`);
   } else {

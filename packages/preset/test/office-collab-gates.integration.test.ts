@@ -242,21 +242,26 @@ test("frozen preset process executes office/collab gates: red blocks completion 
     ) => {
       const requirement = contract.contract.gates.find((g) => g.gateId === gateId)!;
       const inputFiles: Record<string, Uint8Array> = {};
-      const subjects: Array<ArtifactDelivery & { file: string }> = [];
+      const allSubjects: Array<ArtifactDelivery & { file: string }> = [];
       let index = 0;
       for (const [logicalPath, body] of Object.entries(artifactFiles)) {
         const key = `artifact-${index++}`;
         const bytes = Buffer.from(body, "utf8");
         inputFiles[key] = bytes;
-        subjects.push({
+        allSubjects.push({
           path: `${compiled.packagePath}/${logicalPath}`,
           revision: 1,
           blobSha256: sha256(bytes),
           file: `input/${key}`,
         });
       }
+      const names =
+        requirement.subjects === undefined || requirement.subjects === "all-artifacts"
+          ? null
+          : requirement.subjects.map((name) => `${compiled.packagePath}/${name}`);
+      const subjects = allSubjects.filter((subject) => names === null || names.includes(subject.path));
       inputFiles["witness.json"] = Buffer.from(
-        JSON.stringify({ schema: "witness-input/v1", code: null, subjects }),
+        JSON.stringify({ schema: "witness-input/v1", code: null, subjects, artifacts: allSubjects }),
         "utf8",
       );
       let witness: CompletionWitnessResult | undefined;
@@ -402,6 +407,50 @@ test("frozen preset process executes office/collab gates: red blocks completion 
       closeoutGates: { review: false, consent: false, factDisposition: false },
     });
     assert.deepEqual(greenBlockers, []);
+    // 4. Scale test (HA09-3): 500 unrelated frozen Markdown notes must stay well under the 64KiB result_oversize limit
+    const with500Notes: Record<string, string> = { ...goodArtifacts };
+    for (let i = 0; i < 500; i += 1) {
+      with500Notes[`artifacts/notes/n${i}.md`] = `# Note ${i}\nUnrelated meeting scratchpad entry ${i}.\n`;
+    }
+    const scaledHandoff = await runFrozenGate(
+      "handoff-completeness",
+      "office-collab/handoff-completeness",
+      "handoff-task",
+      "verify-handoff",
+      "handoff-500-notes",
+      with500Notes,
+    );
+    assert.equal(scaledHandoff.witness.result, "pass", scaledHandoff.witness.diagnostic);
+    assert.equal(scaledHandoff.witness.subjects.length, 1);
+    assert.equal(scaledHandoff.witness.subjects[0]?.path, `${compiled.packagePath}/artifacts/handoff.json`);
+    assert.deepEqual(scaledHandoff.predicateIssues, []);
+
+    const scaledUpstream = await runFrozenGate(
+      "upstream-fresh",
+      "office-collab/upstream-fresh",
+      "deliverable-task",
+      "verify-upstream-fresh",
+      "upstream-500-notes",
+      with500Notes,
+    );
+    assert.equal(scaledUpstream.witness.result, "pass", scaledUpstream.witness.diagnostic);
+    assert.equal(scaledUpstream.witness.subjects.length, 1);
+    assert.equal(scaledUpstream.witness.subjects[0]?.path, `${compiled.packagePath}/artifacts/upstream-freshness.json`);
+    assert.deepEqual(scaledUpstream.predicateIssues, []);
+
+    const scaledSnapshot = submittedSnapshot(compiled.event.payload.task, contract, scaledHandoff.anchors, [
+      { gateId: "handoff-completeness", runId: "run-scaled-1", witness: scaledHandoff.witness },
+      { gateId: "upstream-fresh", runId: "run-scaled-2", witness: scaledUpstream.witness },
+    ]);
+    assert.deepEqual(
+      completionBlockers(scaledSnapshot, "exec-office-1", {
+        closeout: "ready",
+        closeoutPath: `${compiled.packagePath}/closeout.md`,
+        eligibleDirtyPaths: [],
+        closeoutGates: { review: false, consent: false, factDisposition: false },
+      }),
+      [],
+    );
   } finally {
     await service.close();
     rmSync(rootDir, { recursive: true, force: true });

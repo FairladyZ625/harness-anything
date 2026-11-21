@@ -516,6 +516,14 @@ export const presetCommands = Object.freeze([
     inputs: [],
   }),
   defineRepoReadCommand({
+    id: "vertical-list",
+    phase: "Preset-A",
+    path: ["vertical", "list"],
+    summary: "List builtin and repository verticals.",
+    method: "repo.vertical.list",
+    inputs: [],
+  }),
+  defineRepoReadCommand({
     id: "vertical-validate",
     phase: "Preset-A",
     path: ["vertical", "validate"],

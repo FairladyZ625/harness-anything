@@ -76,6 +76,7 @@ function emit(result, subjects, predicate, diagnostic) {
 const inputPath = JSON.parse(process.env.HA_PRESET_INPUT ?? "{}").witnessInput;
 const witness = JSON.parse(readFileSync(inputPath, "utf8"));
 const rawSubjects = Array.isArray(witness.subjects) ? witness.subjects : [];
+const readableArtifacts = Array.isArray(witness.artifacts) ? witness.artifacts : rawSubjects;
 const subjects = rawSubjects.map(({ file: _file, ...identity }) => identity);
 
 const manifestSubject = findRootSubject(rawSubjects, MANIFEST_PATH);
@@ -126,40 +127,36 @@ if (Array.isArray(manifest.baselines)) {
       errors.push(`baselines[${index}].expectedSha256 must be a 64-character lowercase SHA-256 hex digest.`);
       continue;
     }
-    if (ref.startsWith("artifacts/")) {
-      if (!SAFE_ARTIFACT.test(ref)) {
-        errors.push(`baselines[${index}].ref "${ref}" is not a safe artifacts/... path.`);
-        continue;
-      }
-      const subject = findRootSubject(rawSubjects, ref);
-      if (!subject) {
-        driftedCount += 1;
-        errors.push(`Upstream artifact "${ref}" is missing from submitted artifacts.`);
-        continue;
-      }
-      const actualSha256 = hash("sha256", readFileSync(subject.file), "hex");
-      if (actualSha256 !== entry.expectedSha256) {
-        driftedCount += 1;
-        errors.push(
-          `Upstream drift on "${ref}": expected ${entry.expectedSha256.slice(0, 12)}, actual ${actualSha256.slice(0, 12)}.`,
-        );
-      } else if (entry.observedSha256 !== undefined) {
-        if (typeof entry.observedSha256 !== "string" || !SHA256_RE.test(entry.observedSha256)) {
-          errors.push(`baselines[${index}].observedSha256 must be a 64-character lowercase SHA-256 hex digest.`);
-        } else if (entry.observedSha256 !== actualSha256) {
-          driftedCount += 1;
-          errors.push(`Upstream observedSha256 disagrees with frozen bytes for "${ref}".`);
-        }
-      }
-    } else {
+    if (!ref.startsWith("artifacts/")) {
+      driftedCount += 1;
+      errors.push(
+        `Unverifiable external upstream ref "${ref}": upstream-fresh only verifies frozen artifacts/... subjects whose bytes can be independently hashed.`,
+      );
+      continue;
+    }
+    if (!SAFE_ARTIFACT.test(ref)) {
+      driftedCount += 1;
+      errors.push(`baselines[${index}].ref "${ref}" is not a safe artifacts/... path.`);
+      continue;
+    }
+    const subject = findRootSubject(readableArtifacts, ref);
+    if (!subject) {
+      driftedCount += 1;
+      errors.push(`Upstream artifact "${ref}" is missing from submitted artifacts.`);
+      continue;
+    }
+    const actualSha256 = hash("sha256", readFileSync(subject.file), "hex");
+    if (actualSha256 !== entry.expectedSha256) {
+      driftedCount += 1;
+      errors.push(
+        `Upstream drift on "${ref}": expected ${entry.expectedSha256.slice(0, 12)}, actual ${actualSha256.slice(0, 12)}.`,
+      );
+    } else if (entry.observedSha256 !== undefined) {
       if (typeof entry.observedSha256 !== "string" || !SHA256_RE.test(entry.observedSha256)) {
+        errors.push(`baselines[${index}].observedSha256 must be a 64-character lowercase SHA-256 hex digest.`);
+      } else if (entry.observedSha256 !== actualSha256) {
         driftedCount += 1;
-        errors.push(`External upstream "${ref}" requires a 64-character lowercase observedSha256.`);
-      } else if (entry.observedSha256 !== entry.expectedSha256) {
-        driftedCount += 1;
-        errors.push(
-          `Upstream drift on "${ref}": expected ${entry.expectedSha256.slice(0, 12)}, observed ${entry.observedSha256.slice(0, 12)}.`,
-        );
+        errors.push(`Upstream observedSha256 disagrees with frozen bytes for "${ref}".`);
       }
     }
   }

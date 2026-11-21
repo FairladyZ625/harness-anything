@@ -87,6 +87,13 @@ test("office/collab vertical passes schema decoding, compilation, validation, an
       ["BRIEF", "DELIV", "HANDOFF", "MIN", "MEM"],
     );
 
+    // All three office/collab gates declare narrow manifest subjects (never all-artifacts)
+    assert.deepEqual(decoded.completion.gates["deliverable-contract"]?.subjects, [
+      "artifacts/deliverable-manifest.json",
+    ]);
+    assert.deepEqual(decoded.completion.gates["upstream-fresh"]?.subjects, ["artifacts/upstream-freshness.json"]);
+    assert.deepEqual(decoded.completion.gates["handoff-completeness"]?.subjects, ["artifacts/handoff.json"]);
+
     // Validate via builtin id, builtin: prefix, and direct path
     for (const source of ["office/collab", "builtin:office/collab", officeRoot]) {
       const report = validateVerticalSource({ source, presetId: "deliverable-task", userRoot });
@@ -340,7 +347,124 @@ test("deliverable-contract check passes valid deliverables and rejects missing f
     assert.equal(emptySection.result, "fail");
     assert.match(emptySection.diagnostic, /Empty required sections: ## Executive Summary/u);
 
-    // Negative 6: Duplicate top-level JSON key
+    // Negative 6: Fenced code block example heading (backtick & tilde) must not satisfy required section
+    for (const [label, fencedDoc] of [
+      [
+        "backtick fence",
+        "# Quarterly Operating Review\n\n```markdown\n## Executive Summary\nExample text inside code fence.\n```\n\n## Action Plan\nFinalize resource allocation.\n",
+      ],
+      [
+        "tilde fence",
+        "# Quarterly Operating Review\n\n~~~md\n## Executive Summary\nExample text inside tilde fence.\n~~~\n\n## Action Plan\nFinalize resource allocation.\n",
+      ],
+    ] as const) {
+      const fencedFile = path.join(sandbox, `${label.replaceAll(" ", "-")}.md`);
+      writeFileSync(fencedFile, fencedDoc);
+      const fencedHash = sha256(fencedDoc);
+      const fencedManifestFile = path.join(sandbox, `${label.replaceAll(" ", "-")}-manifest.json`);
+      writeFileSync(fencedManifestFile, JSON.stringify({ ...validManifest, documentSha256: fencedHash }));
+      const fencedResult = runCheckScript(sandbox, scriptPath, {
+        schema: "witness-input/v1",
+        code: null,
+        subjects: [
+          {
+            path: "tasks/t1/artifacts/deliverable-manifest.json",
+            revision: 1,
+            blobSha256: manifestHash,
+            file: fencedManifestFile,
+          },
+        ],
+        artifacts: [
+          {
+            path: "tasks/t1/artifacts/deliverable-manifest.json",
+            revision: 1,
+            blobSha256: manifestHash,
+            file: fencedManifestFile,
+          },
+          { path: "tasks/t1/artifacts/deliverable.md", revision: 1, blobSha256: fencedHash, file: fencedFile },
+        ],
+      }).payload;
+      assert.equal(fencedResult.result, "fail", label);
+      assert.match(fencedResult.diagnostic, /Missing required sections: ## Executive Summary/u, label);
+    }
+
+    // Negative 7: HTML-comment-only and subheading-only sections must be rejected as empty even with matching hash
+    for (const [label, commentDoc] of [
+      [
+        "single-line html comment",
+        "# Quarterly Operating Review\n\n## Executive Summary\n<!-- TODO: fill in executive summary -->\n\n## Action Plan\nFinalize resource allocation.\n",
+      ],
+      [
+        "multi-line html comment",
+        "# Quarterly Operating Review\n\n## Executive Summary\n<!--\nplaceholder line 1\nplaceholder line 2\n-->\n\n## Action Plan\nFinalize resource allocation.\n",
+      ],
+      [
+        "subheading only",
+        "# Quarterly Operating Review\n\n## Executive Summary\n\n### Subsection without body\n\n## Action Plan\nFinalize resource allocation.\n",
+      ],
+    ] as const) {
+      const commentFile = path.join(sandbox, `${label.replaceAll(" ", "-")}.md`);
+      writeFileSync(commentFile, commentDoc);
+      const commentHash = sha256(commentDoc);
+      const commentManifestFile = path.join(sandbox, `${label.replaceAll(" ", "-")}-manifest.json`);
+      writeFileSync(commentManifestFile, JSON.stringify({ ...validManifest, documentSha256: commentHash }));
+      const commentResult = runCheckScript(sandbox, scriptPath, {
+        schema: "witness-input/v1",
+        code: null,
+        subjects: [
+          {
+            path: "tasks/t1/artifacts/deliverable-manifest.json",
+            revision: 1,
+            blobSha256: manifestHash,
+            file: commentManifestFile,
+          },
+        ],
+        artifacts: [
+          {
+            path: "tasks/t1/artifacts/deliverable-manifest.json",
+            revision: 1,
+            blobSha256: manifestHash,
+            file: commentManifestFile,
+          },
+          { path: "tasks/t1/artifacts/deliverable.md", revision: 1, blobSha256: commentHash, file: commentFile },
+        ],
+      }).payload;
+      assert.equal(commentResult.result, "fail", label);
+      assert.match(commentResult.diagnostic, /Empty required sections: ## Executive Summary/u, label);
+    }
+
+    // Positive 2: Real section containing a substantive fenced code block passes
+    const codeBodyDoc =
+      '# Quarterly Operating Review\n\n## Executive Summary\n\n```json\n{"status":"on-track"}\n```\n\n## Action Plan\nFinalize resource allocation.\n';
+    const codeBodyFile = path.join(sandbox, "code-body.md");
+    writeFileSync(codeBodyFile, codeBodyDoc);
+    const codeBodyHash = sha256(codeBodyDoc);
+    const codeBodyManifestFile = path.join(sandbox, "code-body-manifest.json");
+    writeFileSync(codeBodyManifestFile, JSON.stringify({ ...validManifest, documentSha256: codeBodyHash }));
+    const codeBodyPass = runCheckScript(sandbox, scriptPath, {
+      schema: "witness-input/v1",
+      code: null,
+      subjects: [
+        {
+          path: "tasks/t1/artifacts/deliverable-manifest.json",
+          revision: 1,
+          blobSha256: manifestHash,
+          file: codeBodyManifestFile,
+        },
+      ],
+      artifacts: [
+        {
+          path: "tasks/t1/artifacts/deliverable-manifest.json",
+          revision: 1,
+          blobSha256: manifestHash,
+          file: codeBodyManifestFile,
+        },
+        { path: "tasks/t1/artifacts/deliverable.md", revision: 1, blobSha256: codeBodyHash, file: codeBodyFile },
+      ],
+    }).payload;
+    assert.equal(codeBodyPass.result, "pass", codeBodyPass.diagnostic);
+
+    // Negative 8: Duplicate top-level JSON key
     const dupFile = path.join(sandbox, "dup-manifest.json");
     writeFileSync(
       dupFile,
@@ -361,7 +485,7 @@ test("deliverable-contract check passes valid deliverables and rejects missing f
   }
 });
 
-test("upstream-fresh check passes aligned baselines and rejects drifted artifact digests, missing upstream artifacts, and external drift", async () => {
+test("upstream-fresh check passes aligned frozen artifact baselines and fails closed on drifted, missing, or unverifiable external refs", async () => {
   const sandbox = mkdtempSync(path.join(tmpdir(), "ha-office-upstream-check-"));
   const userRoot = path.join(sandbox, "user");
   const officeRoot = resolveVerticalAssetsRoot("office/collab");
@@ -390,6 +514,10 @@ test("upstream-fresh check passes aligned baselines and rejects drifted artifact
     const briefFile = path.join(sandbox, "upstream-brief.md");
     writeFileSync(briefFile, briefBody);
     const briefHash = sha256(briefBody);
+    const specBody = "# Upstream Scope Spec\nApproved boundary v1.\n";
+    const specFile = path.join(sandbox, "upstream-spec.md");
+    writeFileSync(specFile, specBody);
+    const specHash = sha256(specBody);
     const decisionHash = sha256("decision-v1");
 
     const validManifest = {
@@ -397,21 +525,29 @@ test("upstream-fresh check passes aligned baselines and rejects drifted artifact
       checkedAt: "2026-11-21T00:00:00Z",
       baselines: [
         { ref: "artifacts/upstream-brief.md", expectedSha256: briefHash },
-        { ref: "decision/dec_example", expectedSha256: decisionHash, observedSha256: decisionHash },
+        { ref: "artifacts/upstream-spec.md", expectedSha256: specHash, observedSha256: specHash },
       ],
     };
     const manifestFile = path.join(sandbox, "upstream-freshness.json");
     writeFileSync(manifestFile, JSON.stringify(validManifest));
     const manifestHash = sha256(readFileSync(manifestFile));
 
-    const validSubjects = [
-      { path: "tasks/t1/artifacts/upstream-freshness.json", revision: 1, blobSha256: manifestHash, file: manifestFile },
+    const manifestSubject = {
+      path: "tasks/t1/artifacts/upstream-freshness.json",
+      revision: 1,
+      blobSha256: manifestHash,
+      file: manifestFile,
+    };
+    const validArtifacts = [
+      manifestSubject,
       { path: "tasks/t1/artifacts/upstream-brief.md", revision: 1, blobSha256: briefHash, file: briefFile },
+      { path: "tasks/t1/artifacts/upstream-spec.md", revision: 1, blobSha256: specHash, file: specFile },
     ];
     const pass = runCheckScript(sandbox, scriptPath, {
       schema: "witness-input/v1",
       code: null,
-      subjects: validSubjects,
+      subjects: [manifestSubject],
+      artifacts: validArtifacts,
     }).payload;
     assert.equal(pass.result, "pass", pass.diagnostic);
     assert.deepEqual(pass.predicate, {
@@ -421,7 +557,7 @@ test("upstream-fresh check passes aligned baselines and rejects drifted artifact
       driftedCount: 0,
       allFresh: true,
     });
-    const anchors = validSubjects.map(({ file: _f, ...id }) => id);
+    const anchors = [{ path: manifestSubject.path, revision: manifestSubject.revision, blobSha256: manifestHash }];
     assert.deepEqual(
       completionPredicateIssues(requirement, pass, anchors, (logical) =>
         logical === "artifacts/upstream-freshness.json" ? validManifest : undefined,
@@ -429,43 +565,41 @@ test("upstream-fresh check passes aligned baselines and rejects drifted artifact
       [],
     );
 
-    // Negative 1: Upstream artifact changed after manifest was recorded -> drift detected
+    // Negative 1: Upstream artifact changed after manifest was recorded -> drift detected from real frozen bytes
     const updatedBriefFile = path.join(sandbox, "upstream-brief-v2.md");
     writeFileSync(updatedBriefFile, "# Upstream Project Brief\nVersion 2 updated scope.\n");
     const artifactDrift = runCheckScript(sandbox, scriptPath, {
       schema: "witness-input/v1",
       code: null,
-      subjects: [
-        {
-          path: "tasks/t1/artifacts/upstream-freshness.json",
-          revision: 1,
-          blobSha256: manifestHash,
-          file: manifestFile,
-        },
+      subjects: [manifestSubject],
+      artifacts: [
+        manifestSubject,
         {
           path: "tasks/t1/artifacts/upstream-brief.md",
           revision: 2,
           blobSha256: sha256(readFileSync(updatedBriefFile)),
           file: updatedBriefFile,
         },
+        { path: "tasks/t1/artifacts/upstream-spec.md", revision: 1, blobSha256: specHash, file: specFile },
       ],
     }).payload;
     assert.equal(artifactDrift.result, "fail");
     assert.match(artifactDrift.diagnostic, /Upstream drift on "artifacts\/upstream-brief\.md"/u);
 
-    // Negative 2: External baseline observedSha256 !== expectedSha256
-    const extDriftFile = path.join(sandbox, "ext-drift.json");
+    // Negative 2 (HA09-1): Self-reported external ref MUST fail closed even when observedSha256 === expectedSha256
+    const extSelfReportedFile = path.join(sandbox, "ext-self-reported.json");
     writeFileSync(
-      extDriftFile,
+      extSelfReportedFile,
       JSON.stringify({
         schema: "office-collab/upstream-freshness/v1",
         checkedAt: "2026-11-21T00:00:00Z",
         baselines: [
-          { ref: "decision/dec_example", expectedSha256: decisionHash, observedSha256: sha256("decision-v2") },
+          { ref: "artifacts/upstream-brief.md", expectedSha256: briefHash },
+          { ref: "decision/dec_example", expectedSha256: decisionHash, observedSha256: decisionHash },
         ],
       }),
     );
-    const extDrift = runCheckScript(sandbox, scriptPath, {
+    const extSelfReported = runCheckScript(sandbox, scriptPath, {
       schema: "witness-input/v1",
       code: null,
       subjects: [
@@ -473,25 +607,28 @@ test("upstream-fresh check passes aligned baselines and rejects drifted artifact
           path: "tasks/t1/artifacts/upstream-freshness.json",
           revision: 1,
           blobSha256: manifestHash,
-          file: extDriftFile,
+          file: extSelfReportedFile,
         },
       ],
+      artifacts: [
+        {
+          path: "tasks/t1/artifacts/upstream-freshness.json",
+          revision: 1,
+          blobSha256: manifestHash,
+          file: extSelfReportedFile,
+        },
+        { path: "tasks/t1/artifacts/upstream-brief.md", revision: 1, blobSha256: briefHash, file: briefFile },
+      ],
     }).payload;
-    assert.equal(extDrift.result, "fail");
-    assert.match(extDrift.diagnostic, /Upstream drift on "decision\/dec_example"/u);
+    assert.equal(extSelfReported.result, "fail");
+    assert.match(extSelfReported.diagnostic, /Unverifiable external upstream ref "decision\/dec_example"/u);
 
     // Negative 3: Referenced upstream artifact missing from submission
     const missingUpstream = runCheckScript(sandbox, scriptPath, {
       schema: "witness-input/v1",
       code: null,
-      subjects: [
-        {
-          path: "tasks/t1/artifacts/upstream-freshness.json",
-          revision: 1,
-          blobSha256: manifestHash,
-          file: manifestFile,
-        },
-      ],
+      subjects: [manifestSubject],
+      artifacts: [manifestSubject],
     }).payload;
     assert.equal(missingUpstream.result, "fail");
     assert.match(missingUpstream.diagnostic, /missing from submitted artifacts/u);

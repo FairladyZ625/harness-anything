@@ -409,7 +409,7 @@ export function executeRepoAction(
   }
   if (
     action.kind.startsWith("preset-") ||
-    /^(?:vertical-validate|template-(?:list|render)|script-(?:list|inspect))$/u.test(action.kind)
+    /^(?:vertical-(?:list|validate)|template-(?:list|render)|script-(?:list|inspect))$/u.test(action.kind)
   ) {
     // Execution credentials scope their reads to the dispatched repository (dec_9DFDC635180975FDFC0CDB33D7):
     // a caller-supplied validator source resolving outside the repository root would turn the

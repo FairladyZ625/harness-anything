@@ -64,8 +64,8 @@ export function isAgentDeclarationInvalid(error: unknown): boolean {
  * semantic instead of a generic not-found — the agent stays dispatchable forever, while editing
  * (install an overriding copy) stays open, which is how model changes reach it.
  */
-export function assertBundledAgentLifecycleOpen(agentId: string): void {
-  if (readBundledAgentDeclaration(agentId) === null) return;
+export function assertBundledAgentLifecycleOpen(agentId: string, verticalId?: string): void {
+  if (readBundledAgentDeclaration(agentId, verticalId) === null) return;
   throw Object.assign(
     new Error(
       `Agent ${agentId} is a system-bundled agent shipped with Harness; it cannot be retired or deleted. ` +
@@ -117,6 +117,7 @@ export function readAgentDeclarationResolution(input: {
   readonly rootDir: string;
   readonly agentId: string;
   readonly entityStore?: AgentDeclarationReader;
+  readonly verticalId?: string;
 }): AgentDeclarationResolution | null {
   if (!entitySlug(input.agentId)) return null;
   const entityStore = input.entityStore ?? openEntityStore(input.rootDir);
@@ -130,7 +131,7 @@ export function readAgentDeclarationResolution(input: {
     throw agentDeclarationInvalidError(input.agentId, error);
   }
   if (stored) return { declaration: readProjectedAgentDeclaration(stored.value), layer: "installed" };
-  const bundled = readBundledAgentDeclaration(input.agentId);
+  const bundled = readBundledAgentDeclaration(input.agentId, input.verticalId);
   return bundled ? { declaration: bundled, layer: "bundled" } : null;
 }
 
@@ -138,6 +139,7 @@ export function readAgentDeclaration(input: {
   readonly rootDir: string;
   readonly agentId: string;
   readonly entityStore?: AgentDeclarationReader;
+  readonly verticalId?: string;
 }): ProjectedAgentDeclaration {
   const resolved = readAgentDeclarationResolution(input);
   if (!resolved)

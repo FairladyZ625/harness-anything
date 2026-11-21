@@ -80,6 +80,7 @@ function emit(result, subjects, predicate, diagnostic) {
 const inputPath = JSON.parse(process.env.HA_PRESET_INPUT ?? "{}").witnessInput;
 const witness = JSON.parse(readFileSync(inputPath, "utf8"));
 const rawSubjects = Array.isArray(witness.subjects) ? witness.subjects : [];
+const readableArtifacts = Array.isArray(witness.artifacts) ? witness.artifacts : rawSubjects;
 const subjects = rawSubjects.map(({ file: _file, ...identity }) => identity);
 
 const manifestSubject = findRootSubject(rawSubjects, MANIFEST_PATH);
@@ -138,7 +139,7 @@ if (!Array.isArray(manifest.deliverables) || manifest.deliverables.length === 0)
       errors.push(`deliverables[${index}].sha256 must be a 64-character lowercase SHA-256 hex digest.`);
       continue;
     }
-    const targetSubject = findRootSubject(rawSubjects, item.path);
+    const targetSubject = findRootSubject(readableArtifacts, item.path);
     if (!targetSubject) {
       errors.push(`Deliverable "${item.path}" is absent from submitted artifacts.`);
       continue;

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentDeclarationV1, EntityStore } from "@harness-anything/kernel";
 import {
+  assertBundledAgentLifecycleOpen,
   readAgentDeclaration,
   readAgentDeclarationResolution,
 } from "../src/daemon-host/agent-declaration-resolution.ts";
@@ -100,4 +101,64 @@ test("an installed declaration the current schema rejects resolves as an actiona
     () => readAgentDeclarationResolution({ rootDir: "/unused", agentId: "legacy-worker", entityStore: invalidStore }),
     (error: unknown) => (error as { code?: string }).code === "agent_declaration_invalid",
   );
+});
+
+test("bundled agent resolution scopes by verticalId for office/collab while preserving software/coding defaults", () => {
+  const empty = entityStore(null);
+  for (const role of ["coordinator", "contributor", "reviewer", "closeout-reviewer"] as const) {
+    const office = readAgentDeclarationResolution({
+      rootDir: "/unused",
+      agentId: role,
+      entityStore: empty,
+      verticalId: "office/collab",
+    });
+    assert.ok(office, role);
+    assert.equal(office.layer, "bundled");
+    assert.equal(office.declaration.id, role);
+    assert.throws(() => assertBundledAgentLifecycleOpen(role, "office/collab"), { code: "agent_system_builtin" });
+  }
+  assert.equal(
+    readAgentDeclarationResolution({ rootDir: "/unused", agentId: "coordinator", entityStore: empty }),
+    null,
+  );
+  assert.doesNotThrow(() => assertBundledAgentLifecycleOpen("coordinator"));
+
+  // Same-name reviewer & closeout-reviewer resolve deterministically per vertical
+  const codingReviewer = readAgentDeclaration({
+    rootDir: "/unused",
+    agentId: "reviewer",
+    entityStore: empty,
+    verticalId: "software/coding",
+  });
+  const officeReviewer = readAgentDeclaration({
+    rootDir: "/unused",
+    agentId: "reviewer",
+    entityStore: empty,
+    verticalId: "office/collab",
+  });
+  assert.notEqual(codingReviewer.instructions, officeReviewer.instructions);
+  assert.match(officeReviewer.instructions, /deliverable or handoff package/u);
+
+  const codingCloseout = readAgentDeclaration({
+    rootDir: "/unused",
+    agentId: "closeout-reviewer",
+    entityStore: empty,
+  });
+  const officeCloseout = readAgentDeclaration({
+    rootDir: "/unused",
+    agentId: "closeout-reviewer",
+    entityStore: empty,
+    verticalId: "office/collab",
+  });
+  assert.notEqual(codingCloseout.instructions, officeCloseout.instructions);
+  assert.match(officeCloseout.instructions, /collaboration task execution/u);
+
+  // Custom non-builtin vertical falls back to software/coding bundled defaults
+  const customFallback = readAgentDeclarationResolution({
+    rootDir: "/unused",
+    agentId: "closeout-reviewer",
+    entityStore: empty,
+    verticalId: "science/experiment",
+  });
+  assert.equal(customFallback?.declaration.instructions, codingCloseout.instructions);
 });

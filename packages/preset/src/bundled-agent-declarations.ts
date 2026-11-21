@@ -1,11 +1,11 @@
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { entitySlug, parseAgentDeclarationV1, type AgentDeclarationV1 } from "@harness-anything/kernel";
-import { builtinVerticalRoots } from "./preset-resolver-common.ts";
+import { builtinVerticalRoots, defaultAssets } from "./preset-resolver-common.ts";
 
-function bundledAgentRootForVertical(verticalId: string): string | null {
-  const root = builtinVerticalRoots.get(verticalId);
-  return root ? path.join(root, "agents") : null;
+function bundledAgentRootForVertical(verticalId: string): string {
+  const root = builtinVerticalRoots.get(verticalId) ?? defaultAssets;
+  return path.join(root, "agents");
 }
 
 export function readBundledAgentDeclaration(
@@ -14,7 +14,6 @@ export function readBundledAgentDeclaration(
 ): AgentDeclarationV1 | null {
   if (!entitySlug(agentId)) return null;
   const root = bundledAgentRootForVertical(verticalId);
-  if (!root) return null;
   const source = path.join(root, `${agentId}.json`);
   if (!existsSync(source) || !lstatSync(source).isFile() || lstatSync(source).isSymbolicLink()) return null;
   const declaration = parseAgentDeclarationV1(JSON.parse(readFileSync(source, "utf8")));
@@ -28,7 +27,7 @@ export function readBundledAgentDeclaration(
  * against, sorted for stable selector ordering and catalog digests. */
 export function listBundledAgentDeclarationIds(verticalId = "software/coding"): readonly string[] {
   const root = bundledAgentRootForVertical(verticalId);
-  if (!root || !existsSync(root)) return [];
+  if (!existsSync(root)) return [];
   return readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
     .map((entry) => entry.name.slice(0, -".json".length))
