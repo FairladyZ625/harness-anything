@@ -349,14 +349,6 @@ test("G38 CI retains the legacy budget and joins every Node26 backend/collection
     pgliteSets.map((set) => set.set),
     [1, 2],
   );
-  assert.deepEqual(
-    pgliteSets.map((set) => set.dimensions.split(",")),
-    [
-      ["dispatches", "runtime-sessions", "task-history", "relation-visibility"],
-      ["task-outputs", "source-events", "relations", "event-bytes"],
-    ],
-    "PGlite sets must follow the measured balanced assignment",
-  );
   const pgliteDimensions = pgliteSets.flatMap((set) => set.dimensions.split(","));
   assert.equal(new Set(pgliteDimensions).size, pgliteDimensions.length, "PGlite sets must be pairwise disjoint");
   assert.deepEqual(

@@ -270,6 +270,7 @@ jobs:
     env:
       HARNESS_TEST_PARTITION: ${{ matrix.partition }}/4
       HARNESS_TEST_PARTITION_STRATEGY: measured
+      HARNESS_TEST_PARTITION_SHARED_FILES: tools/gates/test/ontology-durable-action-authorization.test.mjs
       HARNESS_TEST_CONCURRENCY: 4
     steps:
       - uses: actions/checkout@v4
@@ -316,7 +317,7 @@ jobs:
     env:
       # Preserve the full CRLF checkout and dedicated boundary gate on all four test partitions.
       HARNESS_TEST_PARTITION: ${{ matrix.partition }}/${{ strategy.job-total }}
-      HARNESS_TEST_PARTITION_STRATEGY: measured
+      HARNESS_TEST_PARTITION_SHARED_FILES: tools/gates/test/ontology-durable-action-authorization.test.mjs
     steps:
       - name: Convert line endings on checkout the way a Windows host does
         run: git config --global core.autocrlf true
@@ -381,7 +382,7 @@ jobs:
       - if: needs.install.outputs.code != 'false'
         env:
           HARNESS_INTEGRATION_DURATION_LOG: ${{ runner.temp }}/integration-durations-shard-${{ matrix.shard }}.log
-          HARNESS_TEST_CONCURRENCY: 4
+          HARNESS_TEST_CONCURRENCY: 3
         run: node tools/run-manifest-gates.mjs --workflow-job integration-shard --shard ${{ matrix.shard }}
       - if: always() && (github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && needs.install.outputs.code != 'false'
         uses: actions/upload-artifact@v4
@@ -681,9 +682,9 @@ jobs:
       matrix:
         include:
           - set: 1
-            dimensions: dispatches,runtime-sessions,task-history,relation-visibility
+            dimensions: source-events,dispatches,runtime-sessions,task-history,relation-visibility
           - set: 2
-            dimensions: task-outputs,source-events,relations,event-bytes
+            dimensions: task-outputs,relations,event-bytes
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

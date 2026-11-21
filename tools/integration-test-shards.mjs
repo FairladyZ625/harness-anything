@@ -4,21 +4,19 @@ export const integrationShardCount = 10;
 // The median cost of an integration file added between 2026-10-25 and 2026-11-08 was 8.7s; the
 // previous 1s default let 354 unweighted files pile into shards that looked light.
 export const defaultIntegrationTestWeightMs = 10_000;
-// Weights are serial file durations; the separate wall estimate models four concurrent workers.
-// The wall cap reserves 60s for setup and reporting inside the eight-minute job target.
-export const integrationShardBudgetMs = 1_500_000;
-export const integrationShardWallBudgetMs = 420_000;
-// The observed largest file is 281.6s; keeping the file cap below the 420s shard test-wall cap
-// avoids splitting scenarios when the measured four-worker shard still meets the job budget.
-export const integrationFileBudgetMs = 300_000;
+// Run 44925574438 measured 12.74M ms of file work across the current ten shards. The
+// three-worker model reserves 50s per job for checkout, artifact restore, and reporting.
+export const integrationShardBudgetMs = 1_290_000;
+export const integrationShardWallBudgetMs = 430_000;
+// Keep the 200.3s relocation test whole so it uses a single managed RBAC fixture.
+export const integrationFileBudgetMs = 210_000;
 // The runner fails a file whose measured duration exceeds this multiple of its declared weight
 // plus the slack: the declaration is what the shard budget sums, so it has to stay honest. The
 // slack absorbs the runner noise measured over four runs of main (p99 of max/median 1.57).
 export const integrationWeightOverrunFactor = 2;
 export const integrationWeightOverrunSlackMs = 60_000;
-// The workflow opts into four test workers. Bound predicted test time separately from summed file
-// work so the job keeps a 60s allowance for setup and reporting under the 8-minute target.
-export const integrationShardLaneCount = 4;
+// Match HARNESS_TEST_CONCURRENCY in rewrite-ci.yml.
+export const integrationShardLaneCount = 3;
 export const integrationShardWallSpreadBudgetMs = 30_000;
 
 // Measured per-file durations are kept in integration-test-weights.json. A file without an entry

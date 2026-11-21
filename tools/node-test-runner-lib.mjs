@@ -64,17 +64,14 @@ export function partitionTestFiles(
   const partition = parseTestPartition(partitionValue);
   if (partition === null) return [...files];
   const shared = new Set(sharedFiles);
-  if (sharedFiles.some((file) => !files.includes(file))) {
-    throw new Error("shared partition files must belong to the selected tier");
-  }
   if (strategy === "ordinal") {
     return files.filter((file, fileIndex) => shared.has(file) || fileIndex % partition.count === partition.index - 1);
   }
   if (strategy !== "measured") throw new Error(`unknown test partition strategy: ${strategy}`);
-  if (sharedFiles.length > 0) throw new Error("measured test partitions require one owner per file");
 
   const partitions = Array.from({ length: partition.count }, (_, index) => ({ index, files: [], weightMs: 0 }));
   const weightedFiles = files
+    .filter((file) => !shared.has(file))
     .map((file) => {
       const weightMs = weightOverrides[file] ?? defaultWeightMs;
       if (!Number.isFinite(weightMs) || weightMs <= 0) throw new Error(`invalid test file weight: ${file}`);
@@ -90,7 +87,8 @@ export function partitionTestFiles(
     lightest.weightMs += entry.weightMs;
   }
 
-  return partitions[partition.index - 1].files;
+  // A shared file owns its scenario selection and needs to start even if other files fill the pool.
+  return [...files.filter((file) => shared.has(file)), ...partitions[partition.index - 1].files];
 }
 
 export function coverageReporterArgs(coveragePath) {

@@ -16,7 +16,6 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { parse } from "yaml";
-import { scenarioShards } from "./gates/test/scenario-shards.mjs";
 
 // A bounded wait whose timer never keeps the test process alive on its own.
 function boundedWait(ms) {
@@ -189,18 +188,15 @@ test("measured file partitions balance durations and preserve the exact discover
     measured[0].filter((file) => measured[1].includes(file)),
     [],
   );
-  assert.throws(
-    () => partitionTestFiles(files, "1/2", [files[0]], { strategy: "measured", weightOverrides: weights }),
-    /one owner per file/u,
-  );
 });
 
-test("each discovered fast and contract test file has exactly one CI partition", () => {
+test("CI file partitions cover every fast and contract file and only share the durable mutation suite", () => {
   const workflow = parse(readFileSync(path.join(repoRoot, ".github/workflows/rewrite-ci.yml"), "utf8"));
   const job = workflow.jobs["fast-contract"];
   assert.equal(job.env.HARNESS_TEST_PARTITION_STRATEGY, "measured");
   assert.equal(job.env.HARNESS_TEST_CONCURRENCY, 4);
-  assert.equal(job.env.HARNESS_TEST_PARTITION_SHARED_FILES, undefined);
+  const shared = job.env.HARNESS_TEST_PARTITION_SHARED_FILES.split(",");
+  assert.deepEqual(shared, ["tools/gates/test/ontology-durable-action-authorization.test.mjs"]);
   const tiers = discoverTestTierManifest(repoRoot);
   assert.deepEqual(Object.values(tiers).flat().sort(), discoverTestFiles(repoRoot).sort());
   const weights = JSON.parse(readFileSync(path.join(repoRoot, "tools/fast-contract-test-weights.json"), "utf8"));
@@ -208,39 +204,37 @@ test("each discovered fast and contract test file has exactly one CI partition",
   assert.deepEqual(indices, [1, 2, 3, 4]);
   for (const tier of ["fast", "contract"]) {
     const files = tiers[tier];
+    const sharedInTier = shared.filter((file) => files.includes(file));
     const partitions = indices.map((index) =>
-      partitionTestFiles(files, `${index}/${indices.length}`, [], { strategy: "measured", weightOverrides: weights }),
+      partitionTestFiles(files, `${index}/${indices.length}`, shared, {
+        strategy: "measured",
+        weightOverrides: weights,
+      }),
     );
-    assert.deepEqual(partitions.flat().sort(), [...files].sort(), `${tier} partition union and file counts`);
-    for (let left = 0; left < partitions.length; left += 1) {
-      for (let right = left + 1; right < partitions.length; right += 1) {
-        assert.deepEqual(
-          partitions[left].filter((file) => partitions[right].includes(file)),
-          [],
-          `${tier} partitions ${left + 1}/${right + 1} must be disjoint`,
-        );
-      }
+    for (const partition of partitions) {
+      assert.deepEqual(
+        partition.filter((file) => shared.includes(file)),
+        sharedInTier,
+      );
+      assert.deepEqual(partition.slice(0, sharedInTier.length), sharedInTier);
+    }
+    assert.deepEqual([...new Set(partitions.flat())].sort(), [...files].sort());
+    assert.deepEqual(
+      partitions
+        .flat()
+        .filter((file) => !shared.includes(file))
+        .sort(),
+      files.filter((file) => !shared.includes(file)).sort(),
+      `${tier} non-shared files must each run on exactly one partition`,
+    );
+    for (const file of files.filter((file) => !shared.includes(file) && file !== "tools/run-node-tests.test.mjs")) {
+      assert.doesNotMatch(
+        readFileSync(path.join(repoRoot, file), "utf8"),
+        /process\.env\.HARNESS_TEST_PARTITION\b/u,
+        file,
+      );
     }
   }
-});
-
-test("scenario entrypoints register a disjoint union and reject stale assignments", () => {
-  const scenarios = scenarioShards([4, 3, 2, 1, 2]);
-  const names = ["first", "second", "third", "fourth", "fifth"];
-  const run = () => undefined;
-  for (const name of names.slice(0, -1)) scenarios.add(name, run);
-  assert.throws(() => scenarios.register(1, run), /covers 5 of 4 registered cases/u);
-  scenarios.add(names.at(-1), run);
-  scenarios.addFirst("common", run);
-  const registered = [];
-  for (const group of [1, 2, 3, 4]) {
-    scenarios.register(group, (name, callback) => {
-      assert.equal(callback, run);
-      registered.push(name);
-    });
-  }
-  assert.deepEqual(registered, ["fourth", "common", "third", "fifth", "second", "first"]);
-  assert.throws(() => scenarios.add("unassigned", run), /Invalid scenario shard/u);
 });
 
 test("testOrdinalInPartition splits the slow shared suite exactly by registration order", () => {

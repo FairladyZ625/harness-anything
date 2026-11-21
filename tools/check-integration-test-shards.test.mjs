@@ -1,9 +1,10 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { parse } from "yaml";
 import test from "node:test";
 import {
   checkIntegrationTestShards,
@@ -16,6 +17,7 @@ import {
   estimateIntegrationShardWallMs,
   integrationFileBudgetMs,
   integrationShardCount,
+  integrationShardLaneCount,
   integrationShardWallBudgetMs,
   integrationShardWallSpreadBudgetMs,
   integrationTestFileWeightsMs,
@@ -38,6 +40,9 @@ test("integration shard declaration is non-overlapping and complete", () => {
   );
   assert.equal(result.summaries.length, integrationShardCount);
   assert.ok(result.summaries.every((summary) => summary.files > 0));
+  const workflow = parse(readFileSync(new URL("../.github/workflows/rewrite-ci.yml", import.meta.url), "utf8"));
+  const shardStep = workflow.jobs["integration-shard"].steps.find((step) => step.env?.HARNESS_INTEGRATION_DURATION_LOG);
+  assert.equal(shardStep.env.HARNESS_TEST_CONCURRENCY, integrationShardLaneCount);
   const shards = assignIntegrationTestShards(result.derivedFiles);
   assert.deepEqual(
     shards.flatMap((shard) => shard.files).sort(),
@@ -77,7 +82,7 @@ test("an integration shard predicted above the eight-minute target fails validat
     overBudgetFiles: files,
     shardBudgetMs: Number.POSITIVE_INFINITY,
   });
-  assert.ok(result.errors.some((error) => error.includes("estimated wall 420001ms")));
+  assert.ok(result.errors.some((error) => error.includes(`estimated wall ${integrationShardWallBudgetMs + 1}ms`)));
 });
 
 test("each shard hands files over heavy-first so a late large file cannot extend the tail", () => {
