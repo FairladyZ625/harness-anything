@@ -37,10 +37,12 @@
     },
     "daemon": {
       "type": "object",
-      "required": ["id", "userRoot"],
+      "required": ["id", "userRoot", "entrypoint", "cliEntrypoint"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "userRoot": { "type": "string", "pattern": "^/" },
+        "entrypoint": { "type": "string", "pattern": "^/" },
+        "cliEntrypoint": { "type": "string", "pattern": "^/" },
         "extraEnv": { "type": "array" }
       }
     },
@@ -62,19 +64,25 @@
         "realm": { "type": "string", "minLength": 1 },
         "clientId": { "type": "string", "minLength": 1 },
         "existingClientSecret": { "type": "string" },
-        "clientSecretKey": { "type": "string" },
+        "clientSecretKey": { "type": "string", "minLength": 1 },
         "extraCaCertConfigMap": { "type": "string" },
-        "extraCaCertKey": { "type": "string" }
+        "extraCaCertKey": { "type": "string", "minLength": 1 }
       }
     },
     "fleet": {
       "type": "object",
-      "required": ["enabled", "port"],
+      "required": ["enabled", "bind", "port", "authorityRepoRoot", "quotaBytes", "tlsCertKey", "tlsKeyKey"],
       "properties": {
         "enabled": { "type": "boolean" },
+        "bind": { "type": "string", "minLength": 1 },
         "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
         "externalUrl": { "type": "string" },
-        "tlsExistingSecret": { "type": "string" }
+        "authorityRepoId": { "type": "string" },
+        "authorityRepoRoot": { "type": "string", "pattern": "^/" },
+        "quotaBytes": { "type": "integer", "minimum": 1 },
+        "tlsExistingSecret": { "type": "string" },
+        "tlsCertKey": { "type": "string", "minLength": 1 },
+        "tlsKeyKey": { "type": "string", "minLength": 1 }
       }
     },
     "metrics": {

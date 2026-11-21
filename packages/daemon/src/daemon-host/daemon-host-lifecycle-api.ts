@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { daemonPackageVersion } from "./build-identity.ts";
 import { observeDaemonOperation, markDaemonOperationPhase } from "./daemon-operation.ts";
 import type { DaemonHost } from "./daemon-host-types.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
@@ -21,7 +22,7 @@ export function createDaemonHostLifecycleApi(
       const { entry, ...observedBuild } = context.buildObserver.status(),
         build = {
           ...observedBuild,
-          version: process.env.npm_package_version ?? "0.0.0",
+          version: daemonPackageVersion(),
         },
         registry = readDaemonRegistry({ userRoot: context.input.userRoot }),
         proxyRepos = registry.repos

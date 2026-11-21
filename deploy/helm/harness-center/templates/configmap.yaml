@@ -7,16 +7,28 @@ metadata:
 data:
   HARNESS_DAEMON_ID: {{ .Values.daemon.id | quote }}
   HARNESS_DAEMON_USER_ROOT: {{ .Values.daemon.userRoot | quote }}
+  HARNESS_DAEMON_ENTRY: {{ .Values.daemon.entrypoint | quote }}
+  HARNESS_CLI_ENTRY: {{ .Values.daemon.cliEntrypoint | quote }}
   {{- if .Values.metrics.enabled }}
   HARNESS_DAEMON_METRICS_BIND: {{ .Values.metrics.bind | quote }}
   HARNESS_DAEMON_METRICS_PORT: {{ .Values.metrics.port | quote }}
   HARNESS_DAEMON_METRICS_PATH: {{ .Values.metrics.path | quote }}
   {{- end }}
-  {{- if .Values.identity.issuerUrl }}
+  {{- if and (eq .Values.identity.mode "external") .Values.identity.issuerUrl .Values.identity.existingClientSecret }}
   HARNESS_OIDC_ISSUER_URL: {{ .Values.identity.issuerUrl | quote }}
-  {{- end }}
   HARNESS_OIDC_REALM: {{ .Values.identity.realm | quote }}
   HARNESS_OIDC_CLIENT_ID: {{ .Values.identity.clientId | quote }}
+  HARNESS_OIDC_CLIENT_SECRET_FILE: "/etc/harness/oidc/{{ .Values.identity.clientSecretKey }}"
+  {{- end }}
+  {{- if and .Values.fleet.enabled .Values.fleet.tlsExistingSecret .Values.fleet.authorityRepoId }}
+  HARNESS_FLEET_BIND: {{ .Values.fleet.bind | quote }}
+  HARNESS_FLEET_PORT: {{ .Values.fleet.port | quote }}
+  HARNESS_FLEET_AUTHORITY_REPO_ID: {{ .Values.fleet.authorityRepoId | quote }}
+  HARNESS_FLEET_AUTHORITY_REPO_ROOT: {{ .Values.fleet.authorityRepoRoot | quote }}
+  HARNESS_FLEET_QUOTA_BYTES: {{ .Values.fleet.quotaBytes | quote }}
+  HARNESS_FLEET_TLS_CERT_FILE: "/etc/harness/fleet-tls/{{ .Values.fleet.tlsCertKey }}"
+  HARNESS_FLEET_TLS_KEY_FILE: "/etc/harness/fleet-tls/{{ .Values.fleet.tlsKeyKey }}"
   {{- if .Values.fleet.externalUrl }}
   HARNESS_FLEET_EXTERNAL_URL: {{ .Values.fleet.externalUrl | quote }}
+  {{- end }}
   {{- end }}

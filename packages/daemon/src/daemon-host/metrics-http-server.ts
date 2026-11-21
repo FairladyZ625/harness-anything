@@ -64,11 +64,28 @@ export async function startDaemonMetricsServer(options: {
   readonly collectSnapshot: () => DaemonMetricsSnapshot;
   readonly isLive: () => boolean;
   readonly isReady: () => boolean;
+  readonly onError?: (error: unknown, context: { readonly pathname: string }) => void;
 }): Promise<DaemonMetricsServer> {
   const expectedTokenHash = options.config.bearerToken === null ? null : sha256Digest(options.config.bearerToken);
 
   const server: Server = createServer((request, response) => {
-    handleRequest(request, response, options, expectedTokenHash);
+    const handled = invokeSafely(() => {
+      handleRequest(request, response, options, expectedTokenHash);
+    });
+    if (!handled.ok) {
+      const pathname = parsePathname(request.url ?? "/");
+      reportMetricsError(options.onError, handled.error, pathname);
+      if (!response.headersSent && !response.writableEnded) {
+        writeResponse(
+          response,
+          500,
+          "text/plain; charset=utf-8",
+          (request.method ?? "GET") === "HEAD" ? "" : "Internal Server Error\n",
+        );
+      } else if (!response.writableEnded) {
+        response.destroy();
+      }
+    }
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -111,6 +128,7 @@ function handleRequest(
     readonly collectSnapshot: () => DaemonMetricsSnapshot;
     readonly isLive: () => boolean;
     readonly isReady: () => boolean;
+    readonly onError?: (error: unknown, context: { readonly pathname: string }) => void;
   },
   expectedTokenHash: Buffer | null,
 ): void {
@@ -123,10 +141,12 @@ function handleRequest(
 
   const pathname = parsePathname(request.url ?? "/");
   if (pathname === "/healthz") {
-    const live = options.isLive();
+    const liveResult = invokeSafely(() => options.isLive());
+    if (!liveResult.ok) reportMetricsError(options.onError, liveResult.error, pathname);
+    const live = liveResult.ok && liveResult.value;
     const payload = JSON.stringify({
       ok: live,
-      status: live ? "live" : "stopping",
+      status: !liveResult.ok ? "error" : live ? "live" : "stopping",
       daemonId: options.daemonId,
       pid: process.pid,
     });
@@ -140,10 +160,12 @@ function handleRequest(
   }
 
   if (pathname === "/readyz") {
-    const ready = options.isLive() && options.isReady();
+    const readyResult = invokeSafely(() => options.isLive() && options.isReady());
+    if (!readyResult.ok) reportMetricsError(options.onError, readyResult.error, pathname);
+    const ready = readyResult.ok && readyResult.value;
     const payload = JSON.stringify({
       ok: ready,
-      status: ready ? "ready" : "not_ready",
+      status: !readyResult.ok ? "error" : ready ? "ready" : "not_ready",
       daemonId: options.daemonId,
       pid: process.pid,
     });
@@ -159,11 +181,17 @@ function handleRequest(
   if (pathname === options.config.path) {
     if (expectedTokenHash !== null && !bearerTokenMatches(request.headers.authorization, expectedTokenHash)) {
       writeResponse(response, 401, "text/plain; charset=utf-8", "Unauthorized\n", {
-        "www-authenticate": 'Bearer realm="harness-daemon-metrics"',
+        "www-authenticate": "Bearer",
       });
       return;
     }
-    const body = formatPrometheusMetrics(options.collectSnapshot());
+    const bodyResult = invokeSafely(() => formatPrometheusMetrics(options.collectSnapshot()));
+    if (!bodyResult.ok) {
+      reportMetricsError(options.onError, bodyResult.error, pathname);
+      writeResponse(response, 500, "text/plain; charset=utf-8", method === "HEAD" ? "" : "Internal Server Error\n");
+      return;
+    }
+    const body = bodyResult.value;
     writeResponse(response, 200, PROMETHEUS_TEXT_CONTENT_TYPE, method === "HEAD" ? "" : body, {
       "content-length": String(Buffer.byteLength(body, "utf8")),
     });
@@ -171,6 +199,28 @@ function handleRequest(
   }
 
   writeResponse(response, 404, "text/plain; charset=utf-8", "Not Found\n");
+}
+
+type MetricsCallResult<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: unknown };
+
+function invokeSafely<T>(operation: () => T): MetricsCallResult<T> {
+  try {
+    return { ok: true, value: operation() };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
+
+function reportMetricsError(
+  onError: ((error: unknown, context: { readonly pathname: string }) => void) | undefined,
+  error: unknown,
+  pathname: string,
+): void {
+  if (!onError) return;
+  const reported = invokeSafely(() => {
+    onError(error, { pathname });
+  });
+  void reported;
 }
 
 function parsePathname(rawUrl: string): string {

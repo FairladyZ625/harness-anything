@@ -5,10 +5,32 @@ Harness Anything Center ({{ include "harness-center.fullname" . }}) deployed in 
    Runtime and authority connection strings must live only in that Secret.
 
 2. External OIDC / Keycloak identity:
-   Configure identity.issuerUrl, identity.realm, identity.clientId and mount the confidential
-   client secret via identity.existingClientSecret.
+   {{- if and (eq .Values.identity.mode "external") .Values.identity.issuerUrl .Values.identity.existingClientSecret }}
+   The pod entrypoint (/etc/harness/entrypoint/start-center.sh) automatically invokes
+   `ha bootstrap --mode external --url {{ .Values.identity.issuerUrl }} --realm {{ .Values.identity.realm }} --client-id {{ .Values.identity.clientId }} --client-secret-stdin`
+   against the local daemon Unix socket using the mounted Secret at /etc/harness/oidc/{{ .Values.identity.clientSecretKey }}.
+   {{- else }}
+   To wire external OIDC/Keycloak automatically at pod start, set identity.mode=external,
+   identity.issuerUrl, and identity.existingClientSecret, or exec into the pod and run
+   `ha bootstrap --mode external --url <https-url> --realm <realm> --client-id harness-center --client-secret-stdin`
+   against the pod's local daemon socket.
+   {{- end }}
 
-3. Observability & health probes:
+3. Fleet TLS Center listener:
+   {{- if and .Values.fleet.enabled .Values.fleet.tlsExistingSecret .Values.fleet.authorityRepoId }}
+   The pod entrypoint seeds daemon-registry/v2 and fleet-center-config/v1 using the mounted TLS
+   keypair (/etc/harness/fleet-tls/{{ .Values.fleet.tlsCertKey }} & /etc/harness/fleet-tls/{{ .Values.fleet.tlsKeyKey }})
+   for repository {{ .Values.fleet.authorityRepoId }} so the daemon starts the Fleet TLS listener on port {{ .Values.fleet.port }} at boot.
+   {{- else if .Values.fleet.enabled }}
+   To start the Fleet TLS listener automatically on boot, set fleet.authorityRepoId and
+   fleet.tlsExistingSecret (plus fleet.externalUrl for edge reachability). Alternatively, exec into
+   the pod, sign in (`ha bootstrap --operation login`), and run `ha daemon fleet center start`
+   over the local daemon socket.
+   {{- else }}
+   Fleet TLS service port is disabled (fleet.enabled=false).
+   {{- end }}
+
+4. Observability & health probes:
    {{- if .Values.metrics.enabled }}
    - Metrics:   http://{{ include "harness-center.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.metricsPort }}{{ .Values.metrics.path }}
    - Liveness:  http://{{ include "harness-center.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.metricsPort }}/healthz

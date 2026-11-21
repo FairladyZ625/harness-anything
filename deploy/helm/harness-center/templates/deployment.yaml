@@ -16,6 +16,7 @@ spec:
     metadata:
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/entrypoint: {{ include (print $.Template.BasePath "/entrypoint-configmap.yaml") . | sha256sum }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -36,16 +37,16 @@ spec:
         - name: harness-center
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - /etc/harness/entrypoint/start-center.sh
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           envFrom:
             - configMapRef:
                 name: {{ include "harness-center.fullname" . }}
+          {{- if or .Values.identity.extraCaCertConfigMap .Values.metrics.bearerTokenExistingSecret .Values.daemon.extraEnv }}
           env:
-            {{- if .Values.metrics.enabled }}
-            - name: HARNESS_DAEMON_METRICS_PORT
-              value: {{ .Values.metrics.port | quote }}
-            {{- end }}
             {{- if .Values.identity.extraCaCertConfigMap }}
             - name: NODE_EXTRA_CA_CERTS
               value: "/etc/harness/ca/{{ .Values.identity.extraCaCertKey }}"
@@ -60,6 +61,7 @@ spec:
             {{- with .Values.daemon.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+          {{- end }}
           ports:
             {{- if .Values.fleet.enabled }}
             - name: fleet-tls
@@ -102,18 +104,21 @@ spec:
           volumeMounts:
             - name: daemon-state
               mountPath: {{ .Values.daemon.userRoot | quote }}
+            - name: entrypoint
+              mountPath: /etc/harness/entrypoint
+              readOnly: true
             {{- if .Values.storage.existingSecret }}
             - name: daemon-storage-config
               mountPath: "{{ .Values.daemon.userRoot }}/daemon-storage.json"
               subPath: {{ .Values.storage.secretKey }}
               readOnly: true
             {{- end }}
-            {{- if .Values.fleet.tlsExistingSecret }}
+            {{- if and .Values.fleet.enabled .Values.fleet.tlsExistingSecret }}
             - name: fleet-tls
               mountPath: /etc/harness/fleet-tls
               readOnly: true
             {{- end }}
-            {{- if .Values.identity.existingClientSecret }}
+            {{- if and (eq .Values.identity.mode "external") .Values.identity.existingClientSecret }}
             - name: oidc-client-secret
               mountPath: /etc/harness/oidc
               readOnly: true
@@ -131,19 +136,23 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
+        - name: entrypoint
+          configMap:
+            name: {{ include "harness-center.fullname" . }}-entrypoint
+            defaultMode: 0555
         {{- if .Values.storage.existingSecret }}
         - name: daemon-storage-config
           secret:
             secretName: {{ .Values.storage.existingSecret }}
             defaultMode: 0400
         {{- end }}
-        {{- if .Values.fleet.tlsExistingSecret }}
+        {{- if and .Values.fleet.enabled .Values.fleet.tlsExistingSecret }}
         - name: fleet-tls
           secret:
             secretName: {{ .Values.fleet.tlsExistingSecret }}
             defaultMode: 0400
         {{- end }}
-        {{- if .Values.identity.existingClientSecret }}
+        {{- if and (eq .Values.identity.mode "external") .Values.identity.existingClientSecret }}
         - name: oidc-client-secret
           secret:
             secretName: {{ .Values.identity.existingClientSecret }}

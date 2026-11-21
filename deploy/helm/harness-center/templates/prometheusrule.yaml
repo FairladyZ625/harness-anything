@@ -13,13 +13,13 @@ spec:
     - name: harness-center.rules
       rules:
         - alert: HarnessDaemonDown
-          expr: ha_daemon_up == 0
+          expr: up{job="{{ include "harness-center.fullname" . }}"} == 0 or absent(ha_daemon_up) == 1
           for: 1m
           labels:
             severity: critical
           annotations:
             summary: "Harness Anything daemon is down"
-            description: "The Harness Anything center daemon reported ha_daemon_up == 0 for more than 1 minute."
+            description: "The Harness Anything center daemon scrape target is down (up == 0) or ha_daemon_up is absent for more than 1 minute."
         - alert: HarnessWriteQueueSaturated
           expr: ha_daemon_write_queue_depth_total > {{ .Values.metrics.prometheusRule.writeQueueDepthThreshold }}
           for: 2m
@@ -39,8 +39,8 @@ spec:
         - alert: HarnessRpcErrorRateHigh
           expr: |
             (
-              rate(ha_daemon_rpc_requests_total{outcome="error"}[5m])
-              / clamp_min(rate(ha_daemon_rpc_requests_total[5m]), 1e-9)
+              sum(rate(ha_daemon_rpc_requests_total{outcome="error"}[5m]))
+              / clamp_min(sum(rate(ha_daemon_rpc_requests_total[5m])), 1e-9)
             ) > {{ .Values.metrics.prometheusRule.rpcErrorRatioThreshold }}
           for: 5m
           labels:

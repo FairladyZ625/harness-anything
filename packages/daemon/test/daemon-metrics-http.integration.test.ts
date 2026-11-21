@@ -1,10 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createRpcMetricsAccumulator, PROMETHEUS_TEXT_CONTENT_TYPE } from "@harness-anything/kernel";
+import { daemonPackageVersion } from "../src/daemon-host/build-identity.ts";
 import { startDaemon } from "../src/daemon-host/runtime.ts";
 import { createDaemonHostLifecycleApi } from "../src/daemon-host/daemon-host-lifecycle-api.ts";
 import { resolveDaemonMetricsConfig, startDaemonMetricsServer } from "../src/daemon-host/metrics-http-server.ts";
@@ -86,13 +87,15 @@ test(
       assert.equal(readyBody.ok, true);
       assert.equal(readyBody.status, "ready");
 
-      // Bearer token guard on /metrics
+      // Bearer token guard on /metrics (RFC 6750 WWW-Authenticate without provider-specific realm)
       const unauth = await fetch(running.metricsEndpoint);
       assert.equal(unauth.status, 401);
+      assert.equal(unauth.headers.get("www-authenticate"), "Bearer");
       const wrongAuth = await fetch(running.metricsEndpoint, {
         headers: { authorization: "Bearer wrong-token" },
       });
       assert.equal(wrongAuth.status, 401);
+      assert.equal(wrongAuth.headers.get("www-authenticate"), "Bearer");
 
       // Non-GET/HEAD rejected with 405
       const postRes = await fetch(running.metricsEndpoint, {
@@ -120,8 +123,16 @@ test(
       assert.equal(scraped.headers.get("cache-control"), "no-store");
 
       const text = await scraped.text();
+      const daemonPkg = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "../package.json"), "utf8")) as {
+        readonly version: string;
+      };
       assert.ok(text.includes("ha_daemon_up 1\n"));
       assert.ok(text.includes(`daemon_id="${daemonId}"`));
+      assert.ok(
+        text.includes(`version="${process.env.npm_package_version?.trim() || daemonPkg.version}"`),
+        `expected build_info version label to match package version, got:\n${text}`,
+      );
+      assert.ok(!text.includes('version="0.0.0"'), "ha_daemon_build_info must not report fallback version 0.0.0");
       assert.ok(text.includes("ha_daemon_write_queue_depth_total 0\n"));
       assert.ok(text.includes("ha_daemon_runtime_sessions_active 0\n"));
       assert.ok(text.includes("ha_daemon_fleet_connections_active 0\n"));
@@ -257,6 +268,115 @@ test("metrics scrape executes in O(1) bounded work independent of historical RPC
     assert.ok(largeBody.includes("ha_daemon_rpc_duration_seconds_count 10010\n"));
     assert.ok(largeBody.includes("ha_daemon_fleet_connections_active 3\n"));
     assert.ok(largeBody.includes("ha_daemon_projection_lag_revisions_max 7\n"));
+  } finally {
+    await server.close();
+  }
+});
+
+test("daemonPackageVersion resolves installed package.json version when npm_package_version is unset", () => {
+  const pkg = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "../package.json"), "utf8")) as {
+    readonly version: string;
+  };
+  assert.notEqual(pkg.version, "0.0.0");
+  assert.equal(daemonPackageVersion({}), pkg.version);
+  assert.equal(daemonPackageVersion({ npm_package_version: "   " }), pkg.version);
+  assert.equal(daemonPackageVersion({ npm_package_version: "2.3.4" }), "2.3.4");
+});
+
+test("metrics HTTP server isolates throwing collectSnapshot/isReady/isLive callbacks and keeps serving", async () => {
+  let failMetrics = true;
+  let failReady = true;
+  let failLive = true;
+  const reported: Array<{ readonly pathname: string; readonly message: string }> = [];
+
+  const server = await startDaemonMetricsServer({
+    config: { bind: "127.0.0.1", port: 0, path: "/metrics", bearerToken: null },
+    daemonId: "fault-isolation",
+    collectSnapshot: () => {
+      if (failMetrics) throw new Error("SQLITE_BUSY: projection read failed");
+      return {
+        daemonId: "fault-isolation",
+        version: daemonPackageVersion({}),
+        commit: "test",
+        uptimeSeconds: 1,
+        processResidentMemoryBytes: 1_000,
+        processHeapUsedBytes: 500,
+        activeRuntimeSessions: 0,
+        rpc: createRpcMetricsAccumulator().snapshot(0),
+        fleet: {
+          centerEnabled: false,
+          activeConnections: 0,
+          authenticatedNodes: 0,
+          replicationStreams: 0,
+          pendingDeliveries: 0,
+        },
+        repos: [],
+      };
+    },
+    isReady: () => {
+      if (failReady) throw new Error("EIO: status cut unavailable");
+      return true;
+    },
+    isLive: () => {
+      if (failLive) throw new Error("liveness check failed");
+      return true;
+    },
+    onError: (error, context) => {
+      reported.push({
+        pathname: context.pathname,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    },
+  });
+
+  const origin = new URL(server.endpoint).origin;
+  try {
+    const failedMetrics = await fetch(server.endpoint);
+    assert.equal(failedMetrics.status, 500);
+    const failedMetricsBody = await failedMetrics.text();
+    assert.equal(failedMetricsBody, "Internal Server Error\n");
+    assert.ok(!failedMetricsBody.includes("SQLITE_BUSY"), "internal error details must not leak over HTTP");
+
+    const failedReady = await fetch(`${origin}/readyz`);
+    assert.equal(failedReady.status, 503);
+    assert.deepEqual(await failedReady.json(), {
+      ok: false,
+      status: "error",
+      daemonId: "fault-isolation",
+      pid: process.pid,
+    });
+
+    const failedLive = await fetch(`${origin}/healthz`);
+    assert.equal(failedLive.status, 503);
+    assert.deepEqual(await failedLive.json(), {
+      ok: false,
+      status: "error",
+      daemonId: "fault-isolation",
+      pid: process.pid,
+    });
+
+    assert.equal(reported.length, 3);
+    assert.equal(reported[0]?.pathname, "/metrics");
+    assert.match(reported[0]?.message ?? "", /SQLITE_BUSY/u);
+    assert.equal(reported[1]?.pathname, "/readyz");
+    assert.equal(reported[2]?.pathname, "/healthz");
+
+    // Once faults clear, the same server continues serving cleanly without restarting
+    failMetrics = false;
+    failReady = false;
+    failLive = false;
+
+    const recoveredMetrics = await fetch(server.endpoint);
+    assert.equal(recoveredMetrics.status, 200);
+    assert.ok((await recoveredMetrics.text()).includes("ha_daemon_up 1\n"));
+
+    const recoveredReady = await fetch(`${origin}/readyz`);
+    assert.equal(recoveredReady.status, 200);
+    assert.equal(((await recoveredReady.json()) as { status: string }).status, "ready");
+
+    const recoveredLive = await fetch(`${origin}/healthz`);
+    assert.equal(recoveredLive.status, 200);
+    assert.equal(((await recoveredLive.json()) as { status: string }).status, "live");
   } finally {
     await server.close();
   }

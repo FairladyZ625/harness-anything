@@ -15,7 +15,12 @@ import {
   type DaemonMetricsHttpConfig,
   type DaemonMetricsServer,
 } from "./metrics-http-server.ts";
-import { daemonBuildStamp, observeDaemonBuild, type DaemonBuildObserver } from "./build-identity.ts";
+import {
+  daemonBuildStamp,
+  daemonPackageVersion,
+  observeDaemonBuild,
+  type DaemonBuildObserver,
+} from "./build-identity.ts";
 import { firstWorkspaceLinkFinding, workspaceLinkFailure } from "./workspace-link-integrity.ts";
 import { runtimePidIsAlive } from "../runtime-engine/runtime-process-liveness.ts";
 import { createUnixSocketTransportServer } from "./transport/unix-socket.ts";
@@ -435,7 +440,7 @@ export async function startDaemon(input: {
           const observed = host!.observabilitySnapshot();
           return {
             daemonId: input.daemonId,
-            version: process.env.npm_package_version ?? "0.0.0",
+            version: daemonPackageVersion(),
             commit: build.commit ?? "unknown",
             uptimeSeconds: Number(process.hrtime.bigint() - startedMonotonicNs) / 1e9,
             processResidentMemoryBytes: memory.rss,
@@ -448,6 +453,13 @@ export async function startDaemon(input: {
         },
         isLive: () => !stopping,
         isReady: () => !stopping && !host!.observabilitySnapshot().repos.some((repo) => repo.state === "warming"),
+        onError: (error, { pathname }) =>
+          lifecycle.record({
+            event: "diagnostics",
+            service: "metrics-http",
+            endpoint: pathname,
+            error: error instanceof Error ? error.message : String(error),
+          }),
       });
     }
     lifecycle.record({ event: "socket_bound", endpoint });

@@ -1,0 +1,152 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "harness-center.fullname" . }}-entrypoint
+  labels:
+    {{- include "harness-center.labels" . | nindent 4 }}
+data:
+  start-center.sh: |
+    #!/bin/sh
+    set -eu
+
+    DAEMON_ENTRY="${HARNESS_DAEMON_ENTRY:-/opt/ha/current/packages/daemon/dist/index.js}"
+    CLI_ENTRY="${HARNESS_CLI_ENTRY:-/opt/ha/current/packages/cli/dist/cli/src/index.js}"
+    USER_ROOT="${HARNESS_DAEMON_USER_ROOT:-/var/lib/ha/user}"
+    DAEMON_ID="${HARNESS_DAEMON_ID:-center}"
+
+    if [ -n "${HARNESS_FLEET_AUTHORITY_REPO_ID:-}" ]; then
+      if [ -z "${HARNESS_FLEET_TLS_CERT_FILE:-}" ] || [ ! -r "${HARNESS_FLEET_TLS_CERT_FILE}" ]; then
+        echo "harness-center: missing readable Fleet TLS certificate at ${HARNESS_FLEET_TLS_CERT_FILE:-<unset>}" >&2
+        exit 1
+      fi
+      if [ -z "${HARNESS_FLEET_TLS_KEY_FILE:-}" ] || [ ! -r "${HARNESS_FLEET_TLS_KEY_FILE}" ]; then
+        echo "harness-center: missing readable Fleet TLS private key at ${HARNESS_FLEET_TLS_KEY_FILE:-<unset>}" >&2
+        exit 1
+      fi
+      node -e '
+        const { createHash } = require("node:crypto");
+        const { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
+        const path = require("node:path");
+
+        const userRoot = path.resolve(process.env.HARNESS_DAEMON_USER_ROOT || "/var/lib/ha/user");
+        const daemonId = process.env.HARNESS_DAEMON_ID || "center";
+        const repoId = process.env.HARNESS_FLEET_AUTHORITY_REPO_ID;
+        const repoRoot = path.resolve(process.env.HARNESS_FLEET_AUTHORITY_REPO_ROOT || "/var/lib/ha/repos/center");
+        const bind = process.env.HARNESS_FLEET_BIND || "0.0.0.0";
+        const port = Number(process.env.HARNESS_FLEET_PORT || "7545");
+        const quotaBytes = Number(process.env.HARNESS_FLEET_QUOTA_BYTES || "1073741824");
+        const certPath = path.resolve(process.env.HARNESS_FLEET_TLS_CERT_FILE);
+        const keyPath = path.resolve(process.env.HARNESS_FLEET_TLS_KEY_FILE);
+        const externalUrl = (process.env.HARNESS_FLEET_EXTERNAL_URL || "").trim();
+
+        mkdirSync(userRoot, { recursive: true, mode: 0o700 });
+        mkdirSync(repoRoot, { recursive: true });
+
+        const registryPath = path.join(userRoot, "registry.json");
+        let registry = {
+          schema: "harness-daemon-registry/v2",
+          connections: [{ id: "local", kind: "local", displayName: "Local daemon", state: "enabled" }],
+          repos: [],
+        };
+        if (existsSync(registryPath)) {
+          registry = JSON.parse(readFileSync(registryPath, "utf8"));
+          if (!Array.isArray(registry.connections)) {
+            registry.connections = [{ id: "local", kind: "local", displayName: "Local daemon", state: "enabled" }];
+          }
+          if (!Array.isArray(registry.repos)) registry.repos = [];
+        }
+        if (!registry.repos.some((entry) => entry && entry.repoId === repoId)) {
+          registry.repos.push({
+            repoId,
+            canonicalRoot: repoRoot,
+            displayName: repoId,
+            authoredBranch: null,
+            mode: "local",
+            connectionId: "local",
+            state: "enabled",
+            registeredAt: new Date().toISOString(),
+          });
+          writeFileSync(registryPath, JSON.stringify(registry, null, 2) + "\n", { mode: 0o600 });
+        }
+
+        const targetKey = "u-" + createHash("sha256").update(userRoot + "\0" + daemonId).digest("hex").slice(0, 16);
+        const stateRoot = path.join(userRoot, "fleet");
+        const configDir = path.join(stateRoot, targetKey);
+        const configPath = path.join(configDir, "center.json");
+        if (!existsSync(configPath)) {
+          mkdirSync(configDir, { recursive: true, mode: 0o700 });
+          const payload = {
+            schema: "fleet-center-config/v1",
+            port,
+            bind,
+            repoId,
+            keyPath,
+            certPath,
+            stateRoot,
+            quotaBytes,
+            ...(externalUrl ? { externalUrl } : {}),
+          };
+          writeFileSync(configPath, JSON.stringify(payload) + "\n", { mode: 0o600 });
+          chmodSync(configPath, 0o600);
+        }
+      '
+    fi
+
+    NEED_OIDC_BOOTSTRAP=0
+    if [ -n "${HARNESS_OIDC_ISSUER_URL:-}" ] && [ ! -f "${USER_ROOT}/rbac/config.json" ]; then
+      if [ -z "${HARNESS_OIDC_CLIENT_SECRET_FILE:-}" ] || [ ! -r "${HARNESS_OIDC_CLIENT_SECRET_FILE}" ]; then
+        echo "harness-center: missing readable OIDC client secret at ${HARNESS_OIDC_CLIENT_SECRET_FILE:-<unset>}" >&2
+        exit 1
+      fi
+      NEED_OIDC_BOOTSTRAP=1
+    fi
+
+    if [ "$NEED_OIDC_BOOTSTRAP" -eq 0 ]; then
+      exec node "$DAEMON_ENTRY" serve
+    fi
+
+    node "$DAEMON_ENTRY" serve &
+    DAEMON_PID=$!
+
+    forward_signal() {
+      kill -TERM "$DAEMON_PID" 2>/dev/null || true
+    }
+    trap forward_signal TERM INT
+
+    ATTEMPTS="${HARNESS_BOOTSTRAP_WAIT_ATTEMPTS:-60}"
+    INTERVAL="${HARNESS_BOOTSTRAP_WAIT_INTERVAL_SECONDS:-1}"
+    READY=0
+    COUNT=0
+    while [ "$COUNT" -lt "$ATTEMPTS" ]; do
+      if ! kill -0 "$DAEMON_PID" 2>/dev/null; then
+        wait "$DAEMON_PID"
+        exit $?
+      fi
+      if node "$CLI_ENTRY" daemon status --json >/dev/null 2>&1; then
+        READY=1
+        break
+      fi
+      COUNT=$((COUNT + 1))
+      sleep "$INTERVAL"
+    done
+
+    if [ "$READY" -ne 1 ]; then
+      echo "harness-center: daemon did not become ready for external OIDC bootstrap" >&2
+      kill -TERM "$DAEMON_PID" 2>/dev/null || true
+      wait "$DAEMON_PID" || true
+      exit 1
+    fi
+
+    if ! node "$CLI_ENTRY" bootstrap \
+      --mode external \
+      --url "${HARNESS_OIDC_ISSUER_URL}" \
+      --realm "${HARNESS_OIDC_REALM:-fleet}" \
+      --client-id "${HARNESS_OIDC_CLIENT_ID:-harness-center}" \
+      --client-secret-stdin < "${HARNESS_OIDC_CLIENT_SECRET_FILE}"; then
+      echo "harness-center: external OIDC/Keycloak bootstrap failed" >&2
+      kill -TERM "$DAEMON_PID" 2>/dev/null || true
+      wait "$DAEMON_PID" || true
+      exit 1
+    fi
+
+    wait "$DAEMON_PID"

@@ -13,13 +13,14 @@ Enable it via environment variables or CLI flags on `harness-anything-daemon ser
 | `HARNESS_DAEMON_METRICS_PORT` | `--metrics-port` | unset (disabled) | TCP port (`0..65535`) for `/metrics`, `/healthz`, and `/readyz` |
 | `HARNESS_DAEMON_METRICS_BIND` | `--metrics-bind` | `127.0.0.1` | Bind host (`0.0.0.0` inside containers when scraped in-cluster) |
 | `HARNESS_DAEMON_METRICS_PATH` | `--metrics-path` | `/metrics` | Scrape path (must start with `/`) |
-| `HARNESS_DAEMON_METRICS_BEARER_TOKEN` | — | unset | Optional Bearer token required on `/metrics` (verified with constant-time digest comparison) |
+| `HARNESS_DAEMON_METRICS_BEARER_TOKEN` | — | unset | Optional Bearer token required on `/metrics` (verified with constant-time digest comparison; responds with RFC 6750 `WWW-Authenticate: Bearer` on `401`) |
 
 ### Endpoints
 
-- `GET /metrics` (`HEAD` allowed): returns Prometheus exposition format (`text/plain; version=0.0.4; charset=utf-8`). All counters, gauges, histograms, and bounded-window latency quantiles are assembled from resident in-memory state in `O(1)` per-scrape work without scanning ledger tables, enumerating directories, or reading `registry.json`.
-- `GET /healthz`: returns `200` while the daemon is live and `503` during shutdown.
+- `GET /metrics` (`HEAD` allowed): returns Prometheus exposition format (`text/plain; version=0.0.4; charset=utf-8`). All counters, gauges, histograms, and bounded-window latency quantiles are assembled in `O(1)` bounded work per loaded repository from resident in-memory state plus a single-row projection watermark read—never scanning ledger tables, enumerating directories, or reading `registry.json`. `ha_daemon_build_info` resolves the installed `@harness-anything/daemon` package version even when launched directly via `node` outside npm.
+- `GET /healthz`: returns `200` while the daemon is live and `503` during shutdown or probe failure.
 - `GET /readyz`: returns `200` when the daemon is live and no loaded repository cell is `warming`; otherwise returns `503`.
+- Collector or probe exceptions are isolated per request, recorded through the daemon diagnostics log, and answered with bounded `500` (`/metrics`) or `503` (`/healthz`, `/readyz`) responses without terminating the daemon.
 - Non-`GET`/`HEAD` requests return `405 Method Not Allowed`; unknown routes return `404 Not Found`.
 
 ### Exposed metric families
@@ -59,5 +60,8 @@ node tools/reproducible-build.mjs verify-manifest \
 The generic chart at [deploy/helm/harness-center/Chart.yaml](../deploy/helm/harness-center/Chart.yaml) targets external PostgreSQL (see [PostgreSQL daemon deployment](postgres-daemon.md)) and external OIDC/Keycloak (see [Server Daemon operations](operations-server-daemon.md)):
 
 - **Stateless vs. stateful workloads**: set `workloadKind: Deployment` (default) for PostgreSQL-backed stateless centers (`materialize: false`), or `workloadKind: StatefulSet` when persistent per-pod volumes (`volumeClaimTemplates`) are needed.
+- **External OIDC / Keycloak and Fleet TLS startup wiring**: the chart mounts `/etc/harness/entrypoint/start-center.sh` from `entrypoint-configmap.yaml` as the container entrypoint (aligned with `deploy/center.Dockerfile` paths `/opt/ha/current/packages/daemon/dist/index.js` and `/opt/ha/current/packages/cli/dist/cli/src/index.js`):
+  - When `identity.mode=external`, `identity.issuerUrl`, and `identity.existingClientSecret` are set, the entrypoint starts the daemon, waits for its local Unix socket, and runs `ha bootstrap --mode external --url ... --realm ... --client-id ... --client-secret-stdin < /etc/harness/oidc/<clientSecretKey>` whenever `<userRoot>/rbac/config.json` is not yet present.
+  - When `fleet.enabled=true`, `fleet.authorityRepoId`, and `fleet.tlsExistingSecret` are set, the entrypoint idempotently writes `harness-daemon-registry/v2` and `fleet-center-config/v1` referencing `/etc/harness/fleet-tls/{tlsCertKey,tlsKeyKey}` before daemon launch so `openDaemonHost` restores and binds the Fleet TLS listener on boot. Operators who omit `fleet.authorityRepoId` can instead run `ha bootstrap --operation login` and `ha daemon fleet center start` interactively over the pod's local socket.
 - **Secret isolation**: database connection strings (`daemon-storage.json`), Fleet TLS keypairs, OIDC client secrets, and optional Prometheus scrape Bearer tokens are mounted exclusively from Kubernetes Secrets referenced by name in `values.yaml`.
-- **Kubernetes probes & Prometheus Operator**: wires `/healthz` and `/readyz` probes by default, plus opt-in `ServiceMonitor` (`metrics.serviceMonitor.enabled: true`) and `PrometheusRule` (`metrics.prometheusRule.enabled: true`).
+- **Kubernetes probes & Prometheus Operator**: wires `/healthz` and `/readyz` probes by default, plus opt-in `ServiceMonitor` (`metrics.serviceMonitor.enabled: true`) and `PrometheusRule` (`metrics.prometheusRule.enabled: true`, alerting on `up == 0 or absent(ha_daemon_up) == 1`, queue saturation, projection lag, and aggregated `sum(rate(...{outcome="error"}[5m])) / clamp_min(sum(rate(...[5m])), 1e-9)` RPC error ratio).
