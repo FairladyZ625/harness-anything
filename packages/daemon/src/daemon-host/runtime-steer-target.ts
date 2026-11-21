@@ -10,10 +10,16 @@ import { isJsonObject, unknownFieldViolation, type JsonObject } from "./protocol
 import {
   dispatchStreamPath,
   parseRecord,
+  readDispatchStreamHeader,
   readDispatchStreamHeaders,
   readRuntimeWorkerChunk,
   type DispatchStreamHeader,
 } from "./dispatch-stream.ts";
+import {
+  readDispatchSteerState,
+  reconcileDispatchSteerStateFromStream,
+  writeDispatchSteerState,
+} from "./dispatch-steer-state.ts";
 import { runtimeSpawnError } from "../runtime-engine/runtime-spawn-errors.ts";
 
 export interface RuntimeSteerExpectation {
@@ -65,18 +71,45 @@ export function parseRuntimeSteerExpectation(value: unknown): RuntimeSteerExpect
   return value as RuntimeSteerExpectation;
 }
 
+export function findRuntimeSteerHeader(
+  rootDir: string,
+  selector: RuntimeSteerSelector,
+  options?: { readonly knownDispatchId?: string; readonly skipLeafScan?: boolean },
+): DispatchStreamHeader | null {
+  if (options?.knownDispatchId) {
+    const direct = readDispatchStreamHeader(rootDir, options.knownDispatchId);
+    if (
+      direct &&
+      ("dispatchId" in selector
+        ? direct.dispatchId === selector.dispatchId
+        : direct.runtimeSessionId === selector.runtimeSessionId)
+    ) {
+      return "dispatchId" in selector && direct.taskId === null && !options.skipLeafScan
+        ? tasklessLeafHeader(rootDir, direct)
+        : direct;
+    }
+  }
+  if ("dispatchId" in selector) {
+    const direct = readDispatchStreamHeader(rootDir, selector.dispatchId);
+    if (!direct) return null;
+    return direct.taskId === null && !options?.skipLeafScan ? tasklessLeafHeader(rootDir, direct) : direct;
+  }
+  const headers = readDispatchStreamHeaders(rootDir),
+    header = headers.find((entry) => entry.runtimeSessionId === selector.runtimeSessionId);
+  if (!header) return null;
+  return header;
+}
+
 /** The stream a selector steers: a taskless conversation addressed by any of its dispatches
  * steers its current leaf round; task-bound dispatches keep direct addressing. */
-export function resolveRuntimeSteerHeader(rootDir: string, selector: RuntimeSteerSelector): DispatchStreamHeader {
-  const headers = readDispatchStreamHeaders(rootDir),
-    header = headers.find((entry) =>
-      "dispatchId" in selector
-        ? entry.dispatchId === selector.dispatchId
-        : entry.runtimeSessionId === selector.runtimeSessionId,
-    );
+export function resolveRuntimeSteerHeader(
+  rootDir: string,
+  selector: RuntimeSteerSelector,
+  options?: { readonly knownDispatchId?: string; readonly skipLeafScan?: boolean },
+): DispatchStreamHeader {
+  const header = findRuntimeSteerHeader(rootDir, selector, options);
   if (!header) throw runtimeSpawnError("runtime_not_running", "Runtime dispatch was not found.");
-  // An earlier round's process has exited by the time a later round runs, and only the leaf can be live.
-  return "dispatchId" in selector && header.taskId === null ? leafOf(headers, header) : header;
+  return header;
 }
 
 export function runtimeSteerTarget(
@@ -84,17 +117,25 @@ export function runtimeSteerTarget(
   repoId: string,
   header: DispatchStreamHeader,
   liveness: RuntimeSteerLiveness,
+  opIds?: Set<string>,
+  knownLeafDispatchId?: string,
 ): RuntimeSteerTarget {
+  const leafDispatchId =
+    knownLeafDispatchId !== undefined
+      ? knownLeafDispatchId
+      : header.taskId !== null
+        ? header.dispatchId
+        : tasklessLeafHeader(rootDir, header).dispatchId;
   return {
     repoId,
     dispatchId: header.dispatchId,
     runtimeSessionId: header.runtimeSessionId,
-    leafDispatchId: leafOf(readDispatchStreamHeaders(rootDir), header).dispatchId,
+    leafDispatchId,
     taskless: header.taskId === null,
     taskId: header.taskId,
     executionId: header.executionId,
     liveness,
-    version: readRuntimeSteerVersion(rootDir, header.dispatchId),
+    version: readRuntimeSteerVersion(rootDir, header.dispatchId, opIds),
   };
 }
 
@@ -141,17 +182,44 @@ export function runtimeSteerRefusal(
 }
 
 /** The leaf's steer version: how many steer requests its dispatch stream already carries. Only
- * the daemon appends `steer_requested`, inside the same synchronous section that compares it. */
-export function readRuntimeSteerVersion(rootDir: string, dispatchId: string): number {
+ * the daemon appends `steer_requested`, inside the same synchronous section that compares it.
+ * Reads O(1) from the per-dispatch steer-state sidecar without scanning the provider transcript;
+ * only legacy streams written without a sidecar perform a one-time backfill scan. */
+export function readRuntimeSteerVersion(
+  rootDir: string,
+  dispatchId: string,
+  opIds?: Set<string>,
+  options?: { readonly forceTailScan?: boolean },
+): number {
   const target = dispatchStreamPath(rootDir, dispatchId),
-    decoder = new StringDecoder("utf8"),
-    marker = '"kind":"steer_requested"';
+    cached = reconcileDispatchSteerStateFromStream(
+      rootDir,
+      dispatchId,
+      target,
+      readRuntimeWorkerChunk,
+      parseRecord,
+      options,
+    );
+  if (cached !== null) {
+    if (opIds) for (const id of cached.opIds) opIds.add(id);
+    return cached.version;
+  }
+  const decoder = new StringDecoder("utf8"),
+    marker = '"kind":"steer_requested"',
+    collectedOpIds: string[] = [];
   let offset = 0,
     tail = "",
     count = 0;
   const countLine = (line: string): void => {
     // The marker is a cheap prefilter; provider transcripts embed JSON only as escaped strings.
-    if (line.includes(marker) && parseRecord(line)?.kind === "steer_requested") count += 1;
+    if (!line.includes(marker)) return;
+    const record = parseRecord(line);
+    if (record?.kind !== "steer_requested") return;
+    count += 1;
+    if (typeof record.opId === "string") {
+      collectedOpIds.push(record.opId);
+      opIds?.add(record.opId);
+    }
   };
   for (;;) {
     const bytes = readRuntimeWorkerChunk(target, offset);
@@ -162,6 +230,16 @@ export function readRuntimeSteerVersion(rootDir: string, dispatchId: string): nu
     for (const line of lines) countLine(line);
   }
   countLine(tail + decoder.end());
+  writeDispatchSteerState(rootDir, {
+    schema: "dispatch-steer-state/v1",
+    dispatchId,
+    version: count,
+    streamOffset: offset,
+    controlCursorRevision: 0,
+    opIds: collectedOpIds.slice(-512),
+    pendingReceipts: [],
+    ackedReceiptOpIds: [],
+  });
   return count;
 }
 
@@ -170,14 +248,16 @@ export function runtimeSteerReceiptTarget(target: RuntimeSteerTarget): JsonObjec
   return { ...locked, delivery: "requested" } as unknown as JsonObject;
 }
 
-function leafOf(headers: readonly DispatchStreamHeader[], header: DispatchStreamHeader): DispatchStreamHeader {
+function tasklessLeafHeader(rootDir: string, header: DispatchStreamHeader): DispatchStreamHeader {
   const seen = new Set([header.dispatchId]);
   let current = header;
   for (;;) {
-    const child = headers.find((entry) => entry.resumedFromDispatchId === current.dispatchId);
-    if (!child || seen.has(child.dispatchId)) return current;
-    seen.add(child.dispatchId);
-    current = child;
+    const nextId = readDispatchSteerState(rootDir, current.dispatchId)?.resumedToDispatchId;
+    if (!nextId || seen.has(nextId)) return current;
+    const nextHeader = readDispatchStreamHeader(rootDir, nextId);
+    if (!nextHeader) return current;
+    seen.add(nextId);
+    current = nextHeader;
   }
 }
 

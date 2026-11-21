@@ -49,6 +49,7 @@ import {
   type BaseBackupArchive,
   type BaseBackupMetadata,
 } from "@harness-anything/storage";
+import { steerReceiptOpId } from "../dispatch-steer-state.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "../../runtime-engine/runtime-spawn-errors.ts";
 import {
   describeClaimMiss,
@@ -1249,7 +1250,29 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           throw error;
         }
         try {
-          const receipt = await observedRunCenterWriter(a.repoId, action, commandAuth);
+          let receipt: Awaited<ReturnType<typeof observedRunCenterWriter>>;
+          if (command.kind === "runtime-cancel" || command.kind === "runtime-steer") {
+            const { kind: controlKind, ...controlPayload } = command;
+            const controlInput = {
+              ...controlPayload,
+              ...(controlPayload.idempotencyKey === undefined ? { idempotencyKey: frame.opId } : {}),
+            } as unknown as import("../protocol/json-rpc-types.ts").JsonObject;
+            if (controlKind === "runtime-cancel" ? !options.host.cancelRuntime : !options.host.steerRuntime)
+              throw new FleetFault("unsupported_command", `Center host does not expose ${controlKind}.`);
+            try {
+              receipt = (controlKind === "runtime-cancel"
+                ? await options.host.cancelRuntime!(a.repoId, controlInput, commandAuth)
+                : await options.host.steerRuntime!(a.repoId, controlInput, commandAuth)) as unknown as Awaited<
+                ReturnType<typeof observedRunCenterWriter>
+              >;
+            } catch (error) {
+              const code = runtimeErrorCode(error);
+              if (code) throw new FleetFault(code, runtimeErrorMessage(error));
+              throw error;
+            }
+          } else {
+            receipt = await observedRunCenterWriter(a.repoId, action, commandAuth);
+          }
           if (isRecoverableReceipt(receipt)) rememberRequestReceipt(a.repoId, frame.opId, receipt.opId);
           if (reservation) connectionSignal.throwIfAborted();
           const applied = receipt.outcome !== "op_rejected" && receipt.outcome !== "indeterminate";
@@ -1382,12 +1405,23 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         // Squad ingress validates the stored identity against it. Deriving that identity from the
         // payload keeps frame.opId correlation-only while preserving the same observation's replay
         // identity across different requests.
+        const controlReceipt =
+          frame.eventType === "runtime_session_liveness_changed" &&
+          typeof frame.payload.controlReceipt === "object" &&
+          frame.payload.controlReceipt !== null &&
+          !Array.isArray(frame.payload.controlReceipt)
+            ? (frame.payload.controlReceipt as { readonly requestOpId?: unknown; readonly status?: unknown })
+            : null;
         const runtimeEventOpId =
           frame.eventType === "runtime_squad_run_observed"
             ? squadObservationEventOpId(
                 frame.payload as unknown as Pick<SquadRunObservation, "squadRunId" | "runRevision">,
               )
-            : randomUUID();
+            : controlReceipt !== null &&
+                typeof frame.payload.runtimeSessionId === "string" &&
+                typeof controlReceipt.requestOpId === "string"
+              ? steerReceiptOpId(a.repoId, frame.payload.runtimeSessionId, controlReceipt.requestOpId)
+              : randomUUID();
         try {
           receipt = await options.host.runtimeIngress(
             a.repoId,

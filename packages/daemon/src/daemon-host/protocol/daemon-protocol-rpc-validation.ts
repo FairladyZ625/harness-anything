@@ -203,11 +203,12 @@ function validateRuntimeSessionReadPayload(value: unknown): string[] {
 
 function validateRuntimeSteerPayload(value: unknown): string[] {
   if (!isJsonObject(value)) return ["runtime steer request is invalid"];
-  const { runtimeSessionId, dispatchId, prompt } = value;
+  const { runtimeSessionId, dispatchId, prompt, idempotencyKey } = value;
   return !nonEmpty(prompt) ||
     nonEmpty(runtimeSessionId) === nonEmpty(dispatchId) ||
     (runtimeSessionId !== undefined && !nonEmpty(runtimeSessionId)) ||
-    (dispatchId !== undefined && !nonEmpty(dispatchId))
+    (dispatchId !== undefined && !nonEmpty(dispatchId)) ||
+    (idempotencyKey !== undefined && (!nonEmpty(idempotencyKey) || !idempotencyKey.trim()))
     ? ["runtime steer request is invalid"]
     : [];
 }
@@ -529,7 +530,8 @@ export function validateNamedActionPayload(method: DaemonGuiActionMethod, value:
     method === "repo.agentRuntime.cancel" &&
     (!nonEmpty(value.runtimeSessionId) ||
       (value.ruling !== undefined && !nonEmpty(value.ruling)) ||
-      (value.reason !== undefined && (!nonEmpty(value.reason) || !value.reason.trim())))
+      (value.reason !== undefined && (!nonEmpty(value.reason) || !value.reason.trim())) ||
+      (value.idempotencyKey !== undefined && (!nonEmpty(value.idempotencyKey) || !value.idempotencyKey.trim())))
   )
     errors.push("runtime cancel request is invalid");
   if (method === "repo.gui.catalog.reread" && value.expectedDigest !== undefined && !digest(value.expectedDigest))

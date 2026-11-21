@@ -193,6 +193,50 @@ const RUNTIME_SESSION_EVENTS_BY_TYPE_SQL = [
   `AND json_extract(event_json, '$.type') NOT IN (${privateRuntimeEventTypes.map((type) => `'${type}'`).join(", ")})`,
   "ORDER BY workspace_revision",
 ].join(" ");
+const RUNTIME_SESSION_EVENTS_BY_TYPE_WINDOW_SQL = (order: "ASC" | "DESC") =>
+  [
+    "SELECT event_json FROM event_index",
+    "WHERE workspace_revision > ?",
+    "AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+    "AND json_extract(event_json, '$.payload.runtimeSessionId') = ?",
+    "AND json_extract(event_json, '$.type') IN (SELECT value FROM json_each(?))",
+    `AND json_extract(event_json, '$.type') NOT IN (${privateRuntimeEventTypes.map((type) => `'${type}'`).join(", ")})`,
+    `ORDER BY workspace_revision ${order} LIMIT ?`,
+  ].join(" ");
+const RUNTIME_SESSION_CONTROL_REQUESTS_SQL = (order: "ASC" | "DESC") =>
+  [
+    "SELECT event_json FROM event_index",
+    "WHERE workspace_revision > ?",
+    "AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+    "AND json_extract(event_json, '$.payload.runtimeSessionId') = ?",
+    "AND (json_extract(event_json, '$.type') IN ('runtime_cancel_requested', 'runtime_steer_requested')",
+    "OR (json_extract(event_json, '$.type') = 'runtime_session_liveness_changed'",
+    "AND json_extract(event_json, '$.payload.controlRequest') IS NOT NULL))",
+    `ORDER BY workspace_revision ${order} LIMIT ?`,
+  ].join(" ");
+const RUNTIME_SESSION_CANCEL_CONTROL_REQUESTS_SQL = (order: "ASC" | "DESC") =>
+  [
+    "SELECT event_json FROM event_index",
+    "WHERE workspace_revision > ?",
+    "AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+    "AND json_extract(event_json, '$.payload.runtimeSessionId') = ?",
+    "AND (json_extract(event_json, '$.type') = 'runtime_cancel_requested'",
+    "OR (json_extract(event_json, '$.type') = 'runtime_session_liveness_changed'",
+    "AND json_extract(event_json, '$.payload.controlRequest.action') = 'cancel'))",
+    `ORDER BY workspace_revision ${order} LIMIT ?`,
+  ].join(" ");
+const RUNTIME_SESSION_CONTROL_RECEIPTS_SQL = (order: "ASC" | "DESC", appliedSteerOnly: boolean) =>
+  [
+    "SELECT event_json FROM event_index",
+    "WHERE workspace_revision > ?",
+    "AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+    "AND json_extract(event_json, '$.type') = 'runtime_session_liveness_changed'",
+    "AND json_extract(event_json, '$.payload.runtimeSessionId') = ?",
+    appliedSteerOnly
+      ? "AND json_extract(event_json, '$.payload.controlReceipt.status') = 'applied' AND json_extract(event_json, '$.payload.controlReceipt.steerVersion') IS NOT NULL"
+      : "AND json_extract(event_json, '$.payload.controlReceipt') IS NOT NULL",
+    `ORDER BY workspace_revision ${order} LIMIT ?`,
+  ].join(" ");
 const SCHEDULE_EVENTS_SQL = [
   "SELECT event_json FROM event_index",
   "WHERE json_extract(event_json, '$.schema') = 'schedule-event/v1'",
@@ -542,10 +586,58 @@ export function repositoryEventQueries(
           .filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event))
           .map((event) => (event.type === "runtime_dispatch_requested" ? publicRuntimeDispatch(event) : event));
       }),
-    readRuntimeSessionEventsByType: (runtimeSessionIdValue, types) =>
+    readRuntimeSessionEventsByType: (runtimeSessionIdValue, types, options) =>
       withRead((db) => {
-        const requested = assertRuntimeEventTypes(types);
-        return queryRows(db, RUNTIME_SESSION_EVENTS_BY_TYPE_SQL, runtimeSessionIdValue, JSON.stringify(requested))
+        const requested = assertRuntimeEventTypes(types),
+          order = options?.order === "desc" ? "DESC" : "ASC",
+          filter = options?.filter,
+          windowed =
+            options !== undefined &&
+            (options.afterRevision !== undefined ||
+              options.limit !== undefined ||
+              options.order !== undefined ||
+              filter !== undefined);
+        const rows = windowed
+          ? (() => {
+              const afterRevision = options.afterRevision ?? 0,
+                limit = options.limit ?? 500;
+              if (!validateStorageReadWindow(limit, undefined, afterRevision))
+                throw new Error("runtime session event page requires a non-negative revision and a positive limit");
+              if (filter === "control_request")
+                return queryRows(
+                  db,
+                  RUNTIME_SESSION_CONTROL_REQUESTS_SQL(order),
+                  afterRevision,
+                  runtimeSessionIdValue,
+                  limit,
+                );
+              if (filter === "cancel_control_request")
+                return queryRows(
+                  db,
+                  RUNTIME_SESSION_CANCEL_CONTROL_REQUESTS_SQL(order),
+                  afterRevision,
+                  runtimeSessionIdValue,
+                  limit,
+                );
+              if (filter === "control_receipt" || filter === "applied_steer_receipt")
+                return queryRows(
+                  db,
+                  RUNTIME_SESSION_CONTROL_RECEIPTS_SQL(order, filter === "applied_steer_receipt"),
+                  afterRevision,
+                  runtimeSessionIdValue,
+                  limit,
+                );
+              return queryRows(
+                db,
+                RUNTIME_SESSION_EVENTS_BY_TYPE_WINDOW_SQL(order),
+                afterRevision,
+                runtimeSessionIdValue,
+                JSON.stringify(requested),
+                limit,
+              );
+            })()
+          : queryRows(db, RUNTIME_SESSION_EVENTS_BY_TYPE_SQL, runtimeSessionIdValue, JSON.stringify(requested));
+        return rows
           .map((row) => JSON.parse(String(row.event_json)))
           .filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event))
           .map((event) => (event.type === "runtime_dispatch_requested" ? publicRuntimeDispatch(event) : event));

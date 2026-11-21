@@ -5,6 +5,7 @@ import {
   type TaskProjection,
   type AgentRuntimeEventV1,
   stableStringify,
+  runtimeSessionAcceptsLivenessEvent,
   sha256Text,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
@@ -12,6 +13,7 @@ import {
   deriveActionResult,
   type EntityActionCatalogPreparer,
 } from "@harness-anything/application/internal/commands/entity-action-catalog-executor.ts";
+import { steerReceiptOpId } from "./dispatch-steer-state.ts";
 import type { RepoCellActionContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoTaskAction, RuntimeIngressAction } from "./repo-cell-types.ts";
 
@@ -44,7 +46,35 @@ export function runtimeSessionActionPreparer(projection: () => TaskProjection): 
         "execution_scope_mismatch",
         "Orphan recovery evidence must come from the center writer.",
       );
-    if (!localOwner && !recoveryMatches) {
+    const controlRequest =
+      action.kind === "runtime_session_liveness_changed" &&
+      typeof action.controlRequest === "object" &&
+      action.controlRequest !== null &&
+      !Array.isArray(action.controlRequest)
+        ? (action.controlRequest as { readonly targetNodeId?: unknown })
+        : null;
+    if (
+      action.kind === "runtime_session_liveness_changed" &&
+      action.controlRequest !== undefined &&
+      !binding.trustedRemoteControl
+    )
+      invalidRuntimeSessionAction(
+        "invalid_runtime_event",
+        "Remote runtime control requests require the authorized runtime control action.",
+      );
+    const remoteControlAuthorized =
+      binding.trustedRemoteControl === true &&
+      controlRequest !== null &&
+      dispatch !== null &&
+      typeof dispatchSource === "object" &&
+      dispatchSource !== null &&
+      dispatchSource.kind === "node" &&
+      typeof controlRequest.targetNodeId === "string" &&
+      dispatchSource.nodeId === controlRequest.targetNodeId &&
+      binding.actor.executor === null &&
+      !binding.executionPrincipal &&
+      dispatch.actor.principal.personId === binding.actor.principal.personId;
+    if (!localOwner && !recoveryMatches && !remoteControlAuthorized) {
       if (
         !dispatch ||
         typeof dispatchSource !== "object" ||
@@ -138,12 +168,159 @@ export async function commitRuntimeSessionAction(
     throw Object.assign(new Error(`${catalogAction.kind} is not a RuntimeSession catalog Action.`), {
       code: "invalid_store",
     });
-  // CH3: RuntimeSession state decides duplicate or stale transitions; request opIds are never replay keys.
+  // F15 & F11: Every controlReceipt must fence against its persisted original control request
+  // (repo, session, owner node, dispatchId, controlRequestId, requestOpId) and enforce a single
+  // terminal receipt per requestOpId. Never emit runtime_session_liveness_changed after exit
+  // (bb7e55c90 N-1 reduceRuntimeSession throws "already exited").
+  if (action.type === "runtime_session_liveness_changed" && action.payload.controlReceipt !== undefined) {
+    try {
+      const fenced = fenceControlReceipt(cell, action, binding);
+      if (fenced.disposition === "no_changes") return fenced.receipt;
+    } catch (error) {
+      return deriveActionResult(contract, catalogAction, cell.failed(action.opId, error, contract, catalogAction));
+    }
+  }
   try {
     return await cell.entityActionExecutor.run(catalogAction, binding, action.opId, cell.entityActionRuntimes);
   } catch (error) {
     return deriveActionResult(contract, catalogAction, cell.failed(action.opId, error, contract, catalogAction));
   }
+}
+
+function fenceControlReceipt(
+  cell: RepoCellActionContext,
+  action: Extract<RuntimeIngressAction, { readonly kind: "event" }>,
+  binding: RepoCellBinding,
+): { readonly disposition: "proceed" } | { readonly disposition: "no_changes"; readonly receipt: WriteReceipt } {
+  const runtimeSessionId = requiredRuntimeActionText(action.payload.runtimeSessionId, "runtimeSessionId"),
+    rawReceipt = action.payload.controlReceipt;
+  if (rawReceipt === null || typeof rawReceipt !== "object" || Array.isArray(rawReceipt))
+    invalidRuntimeSessionAction("invalid_control_receipt", "Control receipt payload must be an object.");
+  type RuntimeControlReceiptPayload = NonNullable<
+    Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_liveness_changed" }>["payload"]["controlReceipt"]
+  >;
+  const receipt = rawReceipt as Partial<RuntimeControlReceiptPayload>;
+  if (
+    receipt.action !== "steer" ||
+    typeof receipt.controlRequestId !== "string" ||
+    !receipt.controlRequestId.trim() ||
+    typeof receipt.requestOpId !== "string" ||
+    !receipt.requestOpId.trim() ||
+    (receipt.status !== "applied" && receipt.status !== "rejected")
+  )
+    invalidRuntimeSessionAction("invalid_control_receipt", "Control receipt is missing required request correlation.");
+  if (binding.executionPrincipal)
+    invalidRuntimeSessionAction("execution_credential_rejected", "A runtime worker cannot forge a control receipt.");
+  const dispatch = cell.projection.readRuntimeDispatch(runtimeSessionId);
+  if (
+    !dispatch ||
+    typeof dispatch.source !== "object" ||
+    dispatch.source === null ||
+    dispatch.source.kind !== "node" ||
+    typeof binding.source !== "object" ||
+    binding.source === null ||
+    binding.source.kind !== "node" ||
+    dispatch.source.nodeId !== binding.source.nodeId ||
+    dispatch.actor.principal.personId !== binding.actor.principal.personId
+  )
+    invalidRuntimeSessionAction(
+      "execution_scope_mismatch",
+      "Control receipt must come from the node and owner that own the session dispatch.",
+    );
+  const original = cell.store.readEvent(receipt.requestOpId);
+  if (!original || original.schema !== "agent-runtime-event/v1")
+    invalidRuntimeSessionAction(
+      "control_request_not_found",
+      `Control receipt references unknown control request ${receipt.requestOpId}.`,
+    );
+  const origSteer =
+    original.type === "runtime_steer_requested"
+      ? {
+          runtimeSessionId: original.payload.runtimeSessionId,
+          controlRequestId: original.payload.controlRequestId,
+          targetNodeId: original.payload.targetNodeId,
+          dispatchId: original.payload.dispatchId,
+        }
+      : original.type === "runtime_session_liveness_changed" && original.payload.controlRequest?.action === "steer"
+        ? {
+            runtimeSessionId: original.payload.runtimeSessionId,
+            controlRequestId: original.payload.controlRequest.controlRequestId,
+            targetNodeId: original.payload.controlRequest.targetNodeId,
+            dispatchId: original.payload.controlRequest.dispatchId,
+          }
+        : null;
+  if (
+    !origSteer ||
+    origSteer.runtimeSessionId !== runtimeSessionId ||
+    origSteer.controlRequestId !== receipt.controlRequestId ||
+    origSteer.targetNodeId !== dispatch.source.nodeId ||
+    origSteer.dispatchId !== dispatch.payload.dispatchId ||
+    (receipt.dispatchId !== undefined && receipt.dispatchId !== origSteer.dispatchId)
+  )
+    invalidRuntimeSessionAction(
+      "invalid_control_receipt",
+      `Control receipt does not match persisted steer request ${receipt.requestOpId}.`,
+    );
+  const canonicalReceiptOpId = steerReceiptOpId(cell.input.repoId, runtimeSessionId, receipt.requestOpId);
+  if (action.opId !== canonicalReceiptOpId)
+    invalidRuntimeSessionAction(
+      "invalid_control_receipt",
+      "Control receipt opId must match the canonical single-receipt identity for its control request.",
+    );
+  const existing = cell.store.readEvent(canonicalReceiptOpId);
+  if (existing !== null) {
+    const existingReceipt =
+      existing.schema === "agent-runtime-event/v1" && existing.type === "runtime_session_liveness_changed"
+        ? existing.payload.controlReceipt
+        : undefined;
+    const sameOutcome =
+      existingReceipt !== undefined &&
+      existingReceipt.action === receipt.action &&
+      existingReceipt.controlRequestId === receipt.controlRequestId &&
+      existingReceipt.requestOpId === receipt.requestOpId &&
+      existingReceipt.status === receipt.status &&
+      (existingReceipt.dispatchId ?? origSteer.dispatchId) === (receipt.dispatchId ?? origSteer.dispatchId) &&
+      existingReceipt.steerVersion === receipt.steerVersion &&
+      (existingReceipt.reasonCode ?? null) === (receipt.reasonCode ?? null);
+    if (!sameOutcome)
+      invalidRuntimeSessionAction(
+        "control_receipt_conflict",
+        `Control request ${receipt.requestOpId} already recorded a conflicting terminal receipt.`,
+      );
+    return {
+      disposition: "no_changes",
+      receipt: {
+        outcome: "no_changes",
+        code: "no_changes",
+        origin: "runtime-session",
+        opId: canonicalReceiptOpId,
+        revision: existing.workspaceRevision,
+        evidence: `event-object:${canonicalReceiptOpId}`,
+        visibility: "center",
+        status: "settled_no_write",
+      } as WriteReceipt,
+    };
+  }
+  // F11: Never append runtime_session_liveness_changed after runtime_session_exited (or cancelled),
+  // because N-1 (bb7e55c90) reduceRuntimeSession throws "already exited". Drop/no-op late receipts
+  // cleanly once ownership and original-request fencing have passed.
+  const session = cell.projection.readRuntimeSession(runtimeSessionId);
+  if (session !== null && !runtimeSessionAcceptsLivenessEvent(session)) {
+    return {
+      disposition: "no_changes",
+      receipt: {
+        outcome: "no_changes",
+        code: "no_changes",
+        origin: "runtime-session",
+        opId: canonicalReceiptOpId,
+        revision: cell.store.readHead()?.revision ?? 0,
+        evidence: `session-exited:${runtimeSessionId}:${canonicalReceiptOpId}`,
+        visibility: "center",
+        status: "settled_no_write",
+      } as WriteReceipt,
+    };
+  }
+  return { disposition: "proceed" };
 }
 
 /** The first atomic admission has not returned to its node, so no provider can have launched.

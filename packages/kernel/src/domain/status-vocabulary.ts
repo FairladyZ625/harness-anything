@@ -596,6 +596,14 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     words: ["succeeded", "failed", "unknown", "cancelled", "stopped"],
   },
   {
+    id: "runtime.control-receipt-status",
+    entity: "RuntimeSession",
+    field: "controlReceipt.status",
+    module: "packages/kernel/src/domain/agent-runtime.ts",
+    anchor: "runtimeControlReceiptStatuses",
+    words: ["applied", "rejected"],
+  },
+  {
     id: "runtime.installation-state",
     entity: "RuntimeSession",
     field: "installation state",

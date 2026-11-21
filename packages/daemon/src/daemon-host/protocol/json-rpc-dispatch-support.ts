@@ -218,6 +218,7 @@ export function previousDispatchLifecycleReadResult<T>(method: string, result: T
       "effectivePermissionMode",
       "requestedPermissionMode",
       "permissionModeSource",
+      "controlReceipts",
     ]),
     sessionRead = method === "repo.agentRuntime.overview" || method === "repo.agentRuntime.sessions.read";
   const project = (value: unknown): unknown => {

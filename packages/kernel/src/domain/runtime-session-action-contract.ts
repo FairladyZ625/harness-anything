@@ -78,6 +78,8 @@ const actionFields: Readonly<Record<RuntimeSessionActionId, readonly EntityActio
     field("liveness", "string", true, ["live", "stale", "unknown"]),
     field("processGroupPid", "number", false),
     field("providerUnreachable", "json-object", false),
+    field("controlRequest", "json-object", false),
+    field("controlReceipt", "json-object", false),
   ]),
   runtime_session_cancelled: Object.freeze([runtimeSessionId]),
   runtime_session_exited: Object.freeze([runtimeSessionId]),

@@ -155,20 +155,55 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
   const readRuntimeSessionEventsByType: PgTaskProjectionSource["readRuntimeSessionEventsByType"] = (
     runtimeSessionId,
     types,
+    window,
   ) =>
     withPostgresTransaction(
       options.pool,
       async (client) => {
         const requested = assertRuntimeEventTypes(types),
-          events = await readEventsInTransaction(
-            client,
-            claims,
-            readers,
-            repoId,
-            "runtime_session_id = $6 AND event_type = ANY($7::text[]) AND event_type <> ALL($8::text[])",
-            [runtimeSessionId, requested, privateRuntimeEventTypes],
-          );
-        return events
+          order = window?.order === "desc" ? "DESC" : "ASC",
+          filter = window?.filter,
+          windowed =
+            window !== undefined &&
+            (window.afterRevision !== undefined ||
+              window.limit !== undefined ||
+              window.order !== undefined ||
+              filter !== undefined),
+          afterRevision = window?.afterRevision ?? 0,
+          limit = window?.limit ?? 500;
+        if (windowed && !validateStorageReadWindow(limit, undefined, afterRevision))
+          throw new Error("runtime session event page requires a non-negative revision and a positive limit");
+        const filterSql =
+          filter === "control_request"
+            ? " AND (event_type IN ('runtime_cancel_requested', 'runtime_steer_requested') OR (event_type = 'runtime_session_liveness_changed' AND event_json::jsonb -> 'payload' ? 'controlRequest'))"
+            : filter === "cancel_control_request"
+              ? " AND (event_type = 'runtime_cancel_requested' OR (event_type = 'runtime_session_liveness_changed' AND event_json::jsonb -> 'payload' -> 'controlRequest' ->> 'action' = 'cancel'))"
+              : filter === "control_receipt"
+                ? " AND event_type = 'runtime_session_liveness_changed' AND event_json::jsonb -> 'payload' ? 'controlReceipt'"
+                : filter === "applied_steer_receipt"
+                  ? " AND event_type = 'runtime_session_liveness_changed' AND event_json::jsonb -> 'payload' -> 'controlReceipt' ->> 'status' = 'applied' AND event_json::jsonb -> 'payload' -> 'controlReceipt' ? 'steerVersion'"
+                  : "";
+        const rows = windowed
+          ? await readEventRowsInTransaction(
+              client,
+              claims,
+              readers,
+              repoId,
+              `revision > $6 AND runtime_session_id = $7 AND event_type = ANY($8::text[]) AND event_type <> ALL($9::text[])${filterSql}`,
+              [afterRevision, runtimeSessionId, requested, privateRuntimeEventTypes],
+              order,
+              limit,
+            )
+          : await readEventRowsInTransaction(
+              client,
+              claims,
+              readers,
+              repoId,
+              "runtime_session_id = $6 AND event_type = ANY($7::text[]) AND event_type <> ALL($8::text[])",
+              [runtimeSessionId, requested, privateRuntimeEventTypes],
+            );
+        return rows
+          .map(({ event_json }) => eventIndexEvent(JSON.parse(event_json) as CanonicalEventV1))
           .filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event))
           .map((event) => (event.type === "runtime_dispatch_requested" ? publicRuntimeDispatch(event) : event));
       },

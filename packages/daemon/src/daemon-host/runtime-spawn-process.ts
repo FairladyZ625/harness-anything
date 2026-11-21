@@ -34,6 +34,7 @@ import type {
   RuntimeLauncher,
   RuntimeProcess,
   RuntimeProcessObservation,
+  RuntimeSteerOutcome,
 } from "./runtime-spawn-types.ts";
 import { runProcessTextAsync } from "./process-port.ts";
 import { requestProcessGroupStop } from "./runtime/process-group-reconciler.ts";
@@ -581,12 +582,14 @@ function observeDispatchProcess(
     runtimeSessionId = readDispatchStreamHeader(rootDir, dispatchId)?.runtimeSessionId;
   const outputs: Array<{ readonly chunk: string; readonly persisted: boolean }> = [];
   const errors: string[] = [];
+  const steerOutcomes: RuntimeSteerOutcome[] = [];
   const decoder = new StringDecoder("utf8");
   let offset = 0;
   let skippedOutputRecords = 0;
   let buffer = "";
   let outputListener: ((chunk: string, persisted?: boolean) => void) | null = null;
   let errorListener: ((chunk: string) => void) | null = null;
+  let steerOutcomeListener: ((outcome: RuntimeSteerOutcome) => void) | null = null;
   let exitListener:
     | ((code: number | null, lossReason?: string, observation?: RuntimeProcessObservation) => void)
     | null = null;
@@ -601,6 +604,10 @@ function observeDispatchProcess(
   const emitError = (chunk: string): void => {
     if (errorListener) errorListener(chunk);
     else errors.push(chunk);
+  };
+  const emitSteerOutcome = (outcome: RuntimeSteerOutcome): void => {
+    if (steerOutcomeListener) steerOutcomeListener(outcome);
+    else steerOutcomes.push(outcome);
   };
   const emitExit = (code: number | null, reason?: string, observation?: RuntimeProcessObservation): void => {
     if (exited) return;
@@ -657,7 +664,35 @@ function observeDispatchProcess(
           if (skippedOutputRecords < skipPersistedOutputRecords) skippedOutputRecords += 1;
           else emitOutput(`${String(record.output)}\n`);
         } else if (record?.kind === "provider_stderr") emitError(String(record.chunk));
-        else if (record?.kind === "process_lost") {
+        else if (
+          record?.kind === "steer_resumed" &&
+          typeof record.controlRequestId === "string" &&
+          typeof record.requestOpId === "string"
+        ) {
+          emitSteerOutcome({
+            status: "applied",
+            controlRequestId: record.controlRequestId,
+            requestOpId: record.requestOpId,
+            ...(typeof record.version === "number" && Number.isSafeInteger(record.version)
+              ? { steerVersion: record.version }
+              : {}),
+          });
+        } else if (
+          record?.kind === "steer_dropped" &&
+          typeof record.controlRequestId === "string" &&
+          typeof record.requestOpId === "string"
+        ) {
+          emitSteerOutcome({
+            status: "rejected",
+            controlRequestId: record.controlRequestId,
+            requestOpId: record.requestOpId,
+            ...(typeof record.version === "number" && Number.isSafeInteger(record.version)
+              ? { steerVersion: record.version }
+              : {}),
+            reasonCode: "steer_dropped",
+            ...(typeof record.reason === "string" && record.reason.length > 0 ? { message: record.reason } : {}),
+          });
+        } else if (record?.kind === "process_lost") {
           emitExit(null, String(record.reason), runtimeSessionId ? livenessEvent.payload : undefined);
           return;
         } else if (record?.kind === "process_exit") {
@@ -689,6 +724,10 @@ function observeDispatchProcess(
     onExit: (listener) => {
       exitListener = listener;
       if (exited) queueMicrotask(() => listener(exitCode, lossReason, processObservation));
+    },
+    onSteerOutcome: (listener) => {
+      steerOutcomeListener = listener;
+      for (const outcome of steerOutcomes.splice(0)) listener(outcome);
     },
     terminate: () => {
       requestProcessGroupStop({ pid, dispatch: { rootDir, dispatchId } });

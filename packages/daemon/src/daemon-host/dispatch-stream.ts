@@ -38,6 +38,13 @@ import {
   readDispatchEvidenceState,
   removeDispatchEvidenceState,
 } from "./dispatch-evidence-state.ts";
+import {
+  initDispatchSteerState,
+  prepareDispatchSteerAppend,
+  recordDispatchResumedTo,
+  recordDispatchSteerRequest,
+  removeDispatchSteerState,
+} from "./dispatch-steer-state.ts";
 import { compactDispatchStreamArchive } from "./dispatch-stream-compaction.ts";
 import { resolveOwnedLocalDirectory } from "./local-root-paths.ts";
 
@@ -371,6 +378,10 @@ export function openDispatchStream(
       encoding: "utf8",
       mode: 0o600,
     });
+    initDispatchSteerState(rootDir, header.dispatchId, statSync(target, { throwIfNoEntry: false })?.size ?? 0);
+    if (header.taskId === null && header.resumedFromDispatchId) {
+      recordDispatchResumedTo(rootDir, header.resumedFromDispatchId, header.dispatchId);
+    }
     if (header.taskId) {
       try {
         upsertDispatchLiveIndex(rootDir, {
@@ -477,6 +488,7 @@ export function removeDispatchStream(rootDir: string, dispatchId: string): void 
   readLimitWarnings.delete(target);
   writeLimitWarnings.delete(target);
   if (existsSync(target)) /* @gate-identity state-store/execution.dispatch-stream */ unlinkSync(target);
+  removeDispatchSteerState(rootDir, dispatchId);
   if (header?.taskId) removeDispatchLiveIndexEntries(rootDir, header.taskId, new Set([dispatchId]));
   removeDispatchEvidenceState(rootDir, dispatchId);
 }
@@ -708,6 +720,26 @@ function readDispatchStreamSummaryAt(target: string, dispatchId: string): Dispat
   return summarizeDispatch(header, records, stat.mtimeMs, lastProviderActivity, lastProgressAt, lastProviderReconnect);
 }
 
+/** O(1) probe returning 1 if any live (non-archived) dispatch stream exists, 0 otherwise, without reading headers or archive/ (F4). */
+export function countActiveDispatchStreams(rootDir: string): number {
+  const layout = resolveHarnessLayout(rootDir),
+    directory = resolveOwnedLocalDirectory(layout, ["runtime", "dispatches"]);
+  if (directory === null) return 0;
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (entry.isFile() && /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(entry.name)) return 1;
+  }
+  return 0;
+}
+
+/** O(1) lookup returning the live (non-archived) stream path for a specific dispatch, or null (F4). */
+export function findLiveDispatchStreamPath(rootDir: string, dispatchId: string): string | null {
+  const layout = resolveHarnessLayout(rootDir),
+    directory = resolveOwnedLocalDirectory(layout, ["runtime", "dispatches"]);
+  if (directory === null) return null;
+  const candidate = path.join(directory, `${dispatchId}.jsonl`);
+  return lstatSync(candidate, { throwIfNoEntry: false })?.isFile() === true ? candidate : null;
+}
+
 export function readDispatchStreamHeaders(rootDir: string, includeArchived = false): readonly DispatchStreamHeader[] {
   const layout = resolveHarnessLayout(rootDir);
   return (includeArchived ? [[], ["archive"]] : [[]]).flatMap((segments) => {
@@ -799,6 +831,17 @@ export function appendRuntimeWorkerRecord(
   // arrive concurrently with that rename; resolve the path again after an ENOENT so the state
   // remains durable on the archived stream instead of failing the coordinator's write queue.
   const target = dispatchStreamPath(rootDir, dispatchId);
+  const isSteerRequest = value.kind === "steer_requested";
+  const steerOpId = isSteerRequest && typeof value.opId === "string" ? value.opId : undefined;
+  if (isSteerRequest && steerOpId) {
+    const streamOffsetBefore = statSync(target, { throwIfNoEntry: false })?.size ?? 0,
+      version =
+        typeof value.version === "number" && Number.isSafeInteger(value.version) && value.version >= 1
+          ? value.version
+          : 1;
+    prepareDispatchSteerAppend(rootDir, dispatchId, { opId: steerOpId, version, streamOffsetBefore });
+  }
+  let writtenTarget = target;
   try {
     appendDispatchStreamRecord(target, value);
   } catch (error) {
@@ -806,7 +849,12 @@ export function appendRuntimeWorkerRecord(
     consumeKnownError(error);
     const retry = dispatchStreamPath(rootDir, dispatchId);
     if (retry === target || !existsSync(retry)) throw error;
+    writtenTarget = retry;
     appendDispatchStreamRecord(retry, value);
+  }
+  if (isSteerRequest) {
+    const streamOffsetAfter = statSync(writtenTarget, { throwIfNoEntry: false })?.size ?? 0;
+    recordDispatchSteerRequest(rootDir, dispatchId, steerOpId, streamOffsetAfter);
   }
 }
 

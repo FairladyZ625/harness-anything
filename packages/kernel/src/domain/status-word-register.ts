@@ -625,6 +625,20 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     divergence: "entity-scoped",
   },
   {
+    word: "applied",
+    entity: "RuntimeSession",
+    field: "controlReceipt.status",
+    meaning: "Edge runtime applied the correlated remote control request.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "rejected",
+    entity: "RuntimeSession",
+    field: "controlReceipt.status",
+    meaning: "Edge runtime rejected or dropped the correlated remote control request.",
+    divergence: "entity-scoped",
+  },
+  {
     word: "succeeded",
     entity: "RuntimeSession",
     field: "outcome",

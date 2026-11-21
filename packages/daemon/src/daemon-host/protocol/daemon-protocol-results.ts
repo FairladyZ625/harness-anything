@@ -643,6 +643,7 @@ export type DaemonGuiReadPayloadMap = {
   };
   readonly "repo.agentRuntime.sessions.read": {
     readonly runtimeSessionId: string;
+    readonly includeControlReceipts?: boolean;
   };
   readonly "repo.agentRuntime.events.read": {
     readonly runtimeSessionId: string;
