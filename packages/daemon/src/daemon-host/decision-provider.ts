@@ -3,18 +3,20 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { OpenRouter } from "@openrouter/sdk";
 import type { DecisionsResponse } from "@openrouter/sdk/models";
-import { consumeKnownError } from "@harness-anything/kernel";
+import { consumeKnownError, decisionProviderVendors } from "@harness-anything/kernel";
 import type {
   AdvisoryDecision,
   DecisionOption,
   DecisionPortFailureCode,
   DecisionProviderMetadata,
   DecisionProviderRecord,
+  DecisionProviderVendor,
   DecisionQuestion,
   DecisionRequest,
   DecisionUsage,
 } from "@harness-anything/kernel";
 import { credentialPort, isCredentialReferenceText, type CredentialPort } from "./agent-runtime-credential-port.ts";
+import { openAiCompatibleDecision, type DecisionProviderQuestion } from "./decision-provider-openai.ts";
 import { writeFileDurably } from "../../../storage/src/durable-file.ts";
 
 const fileSchema = "decision-providers/v1" as const;
@@ -34,22 +36,7 @@ const probeQuestion = {
 
 type ProviderFile = { readonly schema: typeof fileSchema; readonly providers: readonly DecisionProviderRecord[] };
 type ProviderCommand = Readonly<Record<string, unknown>>;
-type OpenRouterQuestion =
-  | {
-      readonly type: "noul";
-      readonly instructions: string;
-      readonly criteria: { readonly true: string; readonly false: string };
-    }
-  | {
-      readonly type: "choice";
-      readonly instructions: string;
-      readonly criteria: Readonly<Record<string, string | { readonly label: string; readonly criterion: string }>>;
-    }
-  | {
-      readonly type: "score";
-      readonly instructions: string;
-      readonly criteria: (string | { readonly id: string; readonly label: string; readonly criterion: string })[];
-    };
+type OpenRouterQuestion = DecisionProviderQuestion;
 type DecisionInvoker = (input: {
   readonly apiKey: string;
   readonly serverURL: string | undefined;
@@ -71,9 +58,16 @@ export function openDecisionProviderService(input: {
   readonly isCredentialInUse?: (reference: string) => boolean;
   /** Injectable only to make bounded retry timing deterministic in tests. */
   readonly sleep?: DecisionSleep;
+  /** Injectable only to make request timeout tests deterministic without waiting 30s. */
+  readonly requestTimeoutMs?: number;
 }) {
   const vault = input.vault ?? credentialPort();
-  const invokeDecision = input.invokeDecision ?? openRouterDecision;
+  const effectiveTimeoutMs = input.requestTimeoutMs ?? requestTimeoutMs;
+  const invokerFor = (vendor: DecisionProviderVendor): DecisionInvoker =>
+    input.invokeDecision ??
+    (vendor === "openai-compatible"
+      ? (request) => openAiCompatibleDecision({ ...request, timeoutMs: effectiveTimeoutMs })
+      : openRouterDecision);
   const sleep = input.sleep ?? ((delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
   const now = input.now ?? (() => new Date().toISOString());
   const target = path.join(input.userRoot, "decision-providers.json");
@@ -97,7 +91,7 @@ export function openDecisionProviderService(input: {
     const parsed = JSON.parse(readFileSync(target, "utf8")) as ProviderFile;
     if (parsed.schema !== fileSchema || !Array.isArray(parsed.providers))
       throw providerError("invalid_provider", "The stored Decisions provider file has an unsupported shape.");
-    cached = parsed.providers;
+    cached = parsed.providers.map(normalizeStoredProvider);
     return cached;
   };
   const persist = (providers: readonly DecisionProviderRecord[]): void => {
@@ -124,12 +118,20 @@ export function openDecisionProviderService(input: {
     const url = new URL(text);
     if (
       url.protocol !== "https:" &&
-      !(url.protocol === "http:" && ["localhost", "127.0.0.1", "::1"].includes(url.hostname))
+      !(url.protocol === "http:" && ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname))
     )
       throw providerError("invalid_base_url", "baseUrl must use HTTPS or loopback HTTP.");
     if (url.username || url.password || url.search || url.hash)
       throw providerError("invalid_base_url", "baseUrl cannot contain credentials, query parameters, or a fragment.");
     return text.replace(/\/+$/u, "");
+  };
+  const requireBaseUrlForVendor = (vendor: DecisionProviderVendor, baseUrl: string | null): string | null => {
+    if (vendor === "openai-compatible" && baseUrl === null)
+      throw providerError(
+        "invalid_base_url",
+        "openai-compatible providers require an absolute HTTPS URL or loopback HTTP baseUrl.",
+      );
+    return baseUrl;
   };
   const publicProvider = (value: DecisionProviderRecord): DecisionProviderRecord => ({
     ...value,
@@ -157,9 +159,10 @@ export function openDecisionProviderService(input: {
         throw providerError("invalid_provider_type", "Only --type decisions is supported.");
       if (read().some((entry) => entry.providerId === id))
         throw providerError("provider_exists", `Provider ${id} already exists.`);
-      const name = requiredText(action.name, "name"),
+      const vendor = parseVendor(action.vendor, "openrouter"),
+        name = requiredText(action.name, "name"),
         model = requiredText(action.model, "model"),
-        baseUrl = secureBaseUrl(action.baseUrl),
+        baseUrl = requireBaseUrlForVendor(vendor, secureBaseUrl(action.baseUrl)),
         enabled = action.enabled === undefined ? true : requireBoolean(action.enabled, "enabled"),
         auth = await takeCredential(action, vault);
       const record: DecisionProviderRecord = {
@@ -167,7 +170,7 @@ export function openDecisionProviderService(input: {
         providerId: id,
         name,
         providerType: "decisions",
-        vendor: "openrouter",
+        vendor,
         model,
         baseUrl,
         auth: { mode: "api-key", credentialRef: auth.reference },
@@ -205,11 +208,13 @@ export function openDecisionProviderService(input: {
       };
     }
     if (kind === "provider-update") {
-      const name = action.name === undefined ? undefined : requiredText(action.name, "name"),
+      const vendor = action.vendor === undefined ? undefined : parseVendor(action.vendor),
+        name = action.name === undefined ? undefined : requiredText(action.name, "name"),
         model = action.model === undefined ? undefined : requiredText(action.model, "model"),
         baseUrl = action.baseUrl === undefined ? undefined : secureBaseUrl(action.baseUrl),
         enabled = action.enabled === undefined ? undefined : requireBoolean(action.enabled, "enabled");
       if (
+        vendor === undefined &&
         name === undefined &&
         model === undefined &&
         baseUrl === undefined &&
@@ -218,12 +223,18 @@ export function openDecisionProviderService(input: {
         action.credentialRef === undefined
       )
         throw providerError("invalid_provider", "Specify at least one provider field to update.");
+      const nextVendor = vendor ?? current.vendor,
+        nextBaseUrl = requireBaseUrlForVendor(
+          nextVendor,
+          action.baseUrl === undefined ? current.baseUrl : (baseUrl ?? null),
+        );
       const auth = await takeCredential(action, vault, current.auth.credentialRef);
       const updated: DecisionProviderRecord = {
         ...current,
+        vendor: nextVendor,
         ...(name === undefined ? {} : { name }),
         ...(model === undefined ? {} : { model }),
-        ...(action.baseUrl === undefined ? {} : { baseUrl }),
+        baseUrl: nextBaseUrl,
         ...(enabled === undefined ? {} : { enabled }),
         auth: { mode: "api-key", credentialRef: auth.reference },
         configurationRevision: current.configurationRevision + 1,
@@ -247,6 +258,7 @@ export function openDecisionProviderService(input: {
       };
     }
     if (kind === "provider-probe") {
+      const resolvedServerUrl = requireBaseUrlForVendor(current.vendor, secureBaseUrl(current.baseUrl)) ?? undefined;
       let apiKey: string;
       try {
         apiKey = await vault.resolve(current.auth.credentialRef);
@@ -261,14 +273,15 @@ export function openDecisionProviderService(input: {
       }
       try {
         await invokeDecisionWithRetry({
-          invokeDecision,
+          invokeDecision: invokerFor(current.vendor),
           sleep,
           apiKey,
-          serverURL: serverUrl(current),
+          serverURL: resolvedServerUrl,
           model: current.model,
           state: [probeState],
           question: probeQuestion,
           providerId: current.providerId,
+          vendor: current.vendor,
         });
       } catch (error) {
         const failed = {
@@ -325,6 +338,8 @@ export function openDecisionProviderService(input: {
           throw providerError("provider_not_found", `Decisions provider ${request.providerId} does not exist.`);
         if (!provider.enabled)
           throw providerError("provider_disabled", `Decisions provider ${request.providerId} is disabled.`);
+        const resolvedServerUrl =
+          requireBaseUrlForVendor(provider.vendor, secureBaseUrl(provider.baseUrl)) ?? undefined;
         let apiKey: string;
         try {
           apiKey = await vault.resolve(provider.auth.credentialRef);
@@ -335,20 +350,21 @@ export function openDecisionProviderService(input: {
             `The credential for ${provider.providerId} is unavailable.`,
           );
         }
-        return { provider, apiKey };
+        return { provider, apiKey, resolvedServerUrl };
       });
       const startedAt = Date.now();
       let response: DecisionsResponse;
       try {
         response = await invokeDecisionWithRetry({
-          invokeDecision,
+          invokeDecision: invokerFor(selected.provider.vendor),
           sleep,
           apiKey: selected.apiKey,
-          serverURL: serverUrl(selected.provider),
+          serverURL: selected.resolvedServerUrl,
           model: selected.provider.model,
           state: request.state,
           question: toOpenRouterQuestion(request.question),
           providerId: selected.provider.providerId,
+          vendor: selected.provider.vendor,
         });
       } catch (error) {
         // A provider that cannot serve its configured model or credential stays broken until the
@@ -377,6 +393,7 @@ function invokeDecisionWithRetry(
     readonly invokeDecision: DecisionInvoker;
     readonly sleep: DecisionSleep;
     readonly providerId: string;
+    readonly vendor?: DecisionProviderVendor;
   },
   retries = 0,
 ): Promise<DecisionsResponse> {
@@ -390,7 +407,7 @@ function invokeDecisionWithRetry(
     })
     .catch((error: unknown) => {
       const code = decisionFailureCode(error),
-        mapped = mapOpenRouterFailure(error, input.apiKey, input.providerId, input.model),
+        mapped = mapOpenRouterFailure(error, input.apiKey, input.providerId, input.model, input.vendor),
         retryable = retryableDecisionFailure(error, code);
       if (!retryable || retries >= decisionRetryMaxRetries) {
         if (retryable && retries > 0)
@@ -543,10 +560,6 @@ function toOpenRouterQuestion(question: DecisionQuestion): OpenRouterQuestion {
   };
 }
 
-function serverUrl(provider: DecisionProviderRecord): string | undefined {
-  return provider.baseUrl ?? undefined;
-}
-
 async function openRouterDecision(input: {
   readonly apiKey: string;
   readonly serverURL: string | undefined;
@@ -684,21 +697,28 @@ function completeDistributionByCount(
 
 const decisionFailureDetailMaxLength = 400;
 
-function mapOpenRouterFailure(error: unknown, apiKey?: string, providerId?: string, model?: string): Error {
+function mapOpenRouterFailure(
+  error: unknown,
+  apiKey?: string,
+  providerId?: string,
+  model?: string,
+  vendor: DecisionProviderVendor = "openrouter",
+): Error {
   const code = decisionFailureCode(error),
     detail = decisionFailureDetail(error, apiKey),
     withDetail = (summary: string): string => (detail === "" ? summary : `${summary} ${detail}`),
+    vendorLabel = vendor === "openai-compatible" ? "OpenAI-compatible endpoint" : "OpenRouter",
     provider =
       providerId === undefined || model === undefined
         ? "the configured Decisions provider"
         : `Decisions provider ${providerId} (model ${model})`;
   if (code === "provider_credential_unavailable")
-    return providerError(code, withDetail("OpenRouter rejected the configured Decisions API key."), 0);
+    return providerError(code, withDetail(`${vendorLabel} rejected the configured Decisions API key.`), 0);
   if (code === "decision_rate_limited")
-    return providerError(code, withDetail("OpenRouter rate limited the Decisions request."), 0);
+    return providerError(code, withDetail(`${vendorLabel} rate limited the Decisions request.`), 0);
   if (code === "decision_timeout") return providerError(code, withDetail("The Decisions request timed out."), 0);
   if (code === "decision_protocol_invalid")
-    return providerError(code, withDetail("OpenRouter returned an invalid Decisions response."), 0);
+    return providerError(code, withDetail(`${vendorLabel} returned an invalid Decisions response.`), 0);
   if (code === "decision_model_unavailable")
     return providerError(
       code,
@@ -710,7 +730,7 @@ function mapOpenRouterFailure(error: unknown, apiKey?: string, providerId?: stri
       0,
     );
   if (code === "decision_transport")
-    return providerError(code, withDetail("The OpenRouter Decisions request could not be completed."), 0);
+    return providerError(code, withDetail(`The ${vendorLabel} Decisions request could not be completed.`), 0);
   if (error instanceof Error) return error;
   return new Error(String(error));
 }
@@ -778,7 +798,7 @@ function redactDecisionSecret(text: string, apiKey?: string): string {
 
 /** A 404 is a model-configuration fault only when the provider names the model as unavailable. */
 const modelUnavailablePattern =
-  /(?:model[^.\n]{0,80}unavailable|unavailable for free|use this slug instead|model not found|no such model|unknown model)/iu;
+  /(?:model[^.\n]{0,80}unavailable|model[^.\n]{0,80}does not exist|model not exist|model_not_found|unavailable for free|use this slug instead|model not found|no such model|unknown model)/iu;
 
 function nestedProviderMessage(value: unknown): string | null {
   if (typeof value === "string") return value;
@@ -789,8 +809,14 @@ function nestedProviderMessage(value: unknown): string | null {
 }
 
 function modelUnavailableMessage(error: object): boolean {
-  const row = error as { readonly message?: unknown; readonly error?: unknown; readonly data$?: unknown },
+  const row = error as {
+      readonly code?: unknown;
+      readonly message?: unknown;
+      readonly error?: unknown;
+      readonly data$?: unknown;
+    },
     body = row.data$ && typeof row.data$ === "object" ? (row.data$ as { readonly body$?: unknown }).body$ : null;
+  if (nestedProviderErrorCode(row) === "model_not_found") return true;
   return [row.message, nestedProviderMessage(row.error), nestedProviderMessage(row.data$), body].some(
     (message) => typeof message === "string" && modelUnavailablePattern.test(message),
   );
@@ -822,6 +848,24 @@ function decisionFailureCode(error: unknown): DecisionPortFailureCode {
   return "decision_transport";
 }
 
+function parseVendor(value: unknown, fallback?: DecisionProviderVendor): DecisionProviderVendor {
+  if (value === undefined) {
+    if (fallback !== undefined) return fallback;
+    throw providerError("invalid_provider", `vendor must be one of: ${decisionProviderVendors.join(", ")}.`);
+  }
+  if (typeof value === "string" && (decisionProviderVendors as readonly string[]).includes(value))
+    return value as DecisionProviderVendor;
+  throw providerError(
+    "invalid_provider",
+    `Unsupported provider vendor: ${String(value)}. Supported vendors: ${decisionProviderVendors.join(", ")}.`,
+  );
+}
+
+function normalizeStoredProvider(entry: DecisionProviderRecord): DecisionProviderRecord {
+  const vendor = parseVendor((entry as { readonly vendor?: unknown }).vendor, "openrouter");
+  return entry.vendor === vendor ? entry : { ...entry, vendor };
+}
+
 function providerSummary(provider: DecisionProviderRecord): string {
   return [
     `provider:${provider.providerId}`,
@@ -829,6 +873,7 @@ function providerSummary(provider: DecisionProviderRecord): string {
     "type:decisions",
     `vendor:${provider.vendor}`,
     `model:${provider.model}`,
+    ...(provider.baseUrl ? [`baseUrl:${provider.baseUrl}`] : []),
     `enabled:${provider.enabled ? "yes" : "no"}`,
     `probe:${provider.probe.state}`,
     "capability:advisory-only (cannot dispatch)",

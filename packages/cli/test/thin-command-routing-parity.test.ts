@@ -134,6 +134,75 @@ test("Decisions provider CLI accepts only the approved provider type and credent
       baseUrl: "",
       enabled: false,
     });
+  const createOpenAi = parseThinCommand([
+    "provider",
+    "create",
+    "--type",
+    "decisions",
+    "--vendor",
+    "openai-compatible",
+    "--id",
+    "intranet-vllm",
+    "--name",
+    "Intranet vLLM",
+    "--model",
+    "deepseek-r1",
+    "--credential-ref",
+    "credential:v1:test-key",
+    "--base-url",
+    "https://gateway.internal.example/v1",
+  ]);
+  assert.equal(createOpenAi.ok, true);
+  if (createOpenAi.ok) {
+    assert.equal(createOpenAi.command.method, "daemon.provider.create");
+    assert.deepEqual(createOpenAi.command.action, {
+      kind: "provider-create",
+      type: "decisions",
+      vendor: "openai-compatible",
+      providerId: "intranet-vllm",
+      name: "Intranet vLLM",
+      model: "deepseek-r1",
+      baseUrl: "https://gateway.internal.example/v1",
+      credentialRef: "credential:v1:test-key",
+      enabled: true,
+    });
+  }
+  assert.equal(
+    parseThinCommand([
+      "provider",
+      "create",
+      "--type",
+      "decisions",
+      "--vendor",
+      "unknown-vendor",
+      "--id",
+      "a",
+      "--name",
+      "A",
+      "--model",
+      "m",
+      "--credential-ref",
+      "credential:v1:key",
+    ]).ok,
+    false,
+  );
+  const updateVendor = parseThinCommand([
+    "provider",
+    "update",
+    "review-choice",
+    "--vendor",
+    "openai-compatible",
+    "--base-url",
+    "http://127.0.0.1:8080/v1",
+  ]);
+  assert.equal(updateVendor.ok, true);
+  if (updateVendor.ok)
+    assert.deepEqual(updateVendor.command.action, {
+      kind: "provider-update",
+      providerId: "review-choice",
+      vendor: "openai-compatible",
+      baseUrl: "http://127.0.0.1:8080/v1",
+    });
   assert.equal(parseThinCommand(["provider", "update", "review-choice"]).ok, false);
   for (const operation of ["list", "show", "probe", "delete"]) {
     const args = operation === "list" ? ["provider", operation] : ["provider", operation, "review-choice"],

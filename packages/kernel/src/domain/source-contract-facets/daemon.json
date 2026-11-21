@@ -7,7 +7,7 @@
         "explain": "Daemon `DecisionProviderPort.decide` transport adapter executing validated provider invocations with timeout and audit recording.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#openDecisionProviderService.port.decide:ac03593faf9739488670ff08f41264d4",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#openDecisionProviderService.port.decide:c30dce2546f7b38410ebd1238e7b0b4f",
             "route": "packages/daemon/src/daemon-host/decision-provider.ts#openDecisionProviderService.port.decide"
           }
         ],

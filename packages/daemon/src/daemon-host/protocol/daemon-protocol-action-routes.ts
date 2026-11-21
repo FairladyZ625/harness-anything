@@ -4,6 +4,7 @@ import {
   type GeneratedSettingsActionInputField,
 } from "@harness-anything/preset/internal/preset-command-contract";
 import { actionRpc, optionalEnum, shape, type RpcShape } from "./daemon-protocol-results.ts";
+import { decisionProviderVendorWords } from "./daemon-protocol-vocabulary.ts";
 import { daemonReadRoutes } from "./daemon-protocol-read-routes.ts";
 import { todoActionRoutes } from "./todo-action-routes.ts";
 import { entityDeclarationRoutes, entityImportRoutes } from "./entity-action-routes.ts";
@@ -552,6 +553,7 @@ export const providerMethods = Object.freeze([
     params: shape({
       payload: shape({
         type: "string",
+        vendor: optionalEnum(decisionProviderVendorWords),
         providerId: "string",
         name: "string",
         model: "string",
@@ -587,6 +589,7 @@ export const providerMethods = Object.freeze([
     params: shape({
       payload: shape({
         providerId: "string",
+        vendor: optionalEnum(decisionProviderVendorWords),
         name: "string?",
         model: "string?",
         baseUrl: "string-or-empty?",

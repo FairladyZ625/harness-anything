@@ -8,7 +8,7 @@ const checkId = "decisions-provider";
  * `ha doctor health` Decisions configuration check. The provider records are machine-local, so the
  * host process supplies them; this function only judges the provider the repository selected.
  * Read-only: it names the model, the failure code, the config file, and the next command without
- * resolving the credential or contacting OpenRouter.
+ * resolving the credential or contacting the configured Decisions provider.
  */
 export function decisionProviderDoctorCheck(input: {
   readonly userRoot: string;
@@ -56,6 +56,14 @@ export function decisionProviderDoctorCheck(input: {
       count: 1,
       summary: `Decisions provider ${providerId} (model ${provider.model}) is selected by repository settings but disabled.`,
       next: `Run ha provider update ${providerId} --enable, then ha provider probe ${providerId}. Config: ${configPath}.`,
+    };
+  if (provider.vendor === "openai-compatible" && !provider.baseUrl)
+    return {
+      id: checkId,
+      status: "fail",
+      count: 1,
+      summary: `Decisions provider ${providerId} (vendor openai-compatible, model ${provider.model}) is missing a required HTTPS or loopback HTTP baseUrl.`,
+      next: `Run ha provider update ${providerId} --base-url <https-or-loopback-url>, then ha provider probe ${providerId}. Config: ${configPath}.`,
     };
   if (provider.probe.state === "failed") {
     const modelUnavailable = provider.probe.code === "decision_model_unavailable",

@@ -127,3 +127,37 @@ test("an unreadable provider file is a failure with the repair path, not a throw
   assert.match(check.summary, /Unexpected token/u);
   assert.ok(check.next.includes(configPath), check.next);
 });
+
+test("doctor checks openai-compatible providers for required baseUrl and ready state", () => {
+  const missingBaseUrl = decisionProviderDoctorCheck({
+    userRoot,
+    configuredProviderId: "intranet-vllm",
+    listProviders: () => [
+      provider(
+        { state: "ready", checkedAt },
+        { providerId: "intranet-vllm", vendor: "openai-compatible", baseUrl: null, model: "deepseek-r1" },
+      ),
+    ],
+  });
+  assert.equal(missingBaseUrl.status, "fail");
+  assert.match(missingBaseUrl.summary, /openai-compatible/u);
+  assert.match(missingBaseUrl.next, /ha provider update intranet-vllm --base-url/u);
+
+  const ready = decisionProviderDoctorCheck({
+    userRoot,
+    configuredProviderId: "intranet-vllm",
+    listProviders: () => [
+      provider(
+        { state: "ready", checkedAt },
+        {
+          providerId: "intranet-vllm",
+          vendor: "openai-compatible",
+          baseUrl: "https://gateway.internal.example/v1",
+          model: "deepseek-r1",
+        },
+      ),
+    ],
+  });
+  assert.equal(ready.status, "ok");
+  assert.equal(ready.count, 0);
+});
