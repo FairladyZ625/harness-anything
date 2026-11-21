@@ -8,7 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
   createAuditChainAccumulator,
-  type AuditExportManifestV1,
+  type AuditExportWindowV1,
   type DeliveryCertificateV1,
   type PersistedCanonicalEventV1,
 } from "@harness-anything/kernel";
@@ -47,6 +47,8 @@ async function withCell(
   let cell: Cell | undefined;
   try {
     initRepo(rootDir);
+    execFileSync("git", ["-C", rootDir, "branch", "-M", "main"]);
+    execFileSync("git", ["-C", rootDir, "update-ref", "refs/remotes/origin/main", "HEAD"]);
     const ledger = path.join(rootDir, "harness");
     mkdirSync(ledger, { recursive: true });
     initRepo(ledger);
@@ -491,13 +493,16 @@ test("task-delivery-certificate exports verifiable native, external-resolution, 
 
       // Cross-verify both sibling & external resolution certificates against exported sha256 audit slice
       const fullSlice = evidence(await cell.run({ kind: "ledger-audit-export", algorithm: "sha256" }, binding));
-      const fullManifest = fullSlice.manifest as AuditExportManifestV1;
       const fullAcc = createAuditChainAccumulator({
-        repoId: fullManifest.repoId,
+        repoId: String(fullSlice.repoId),
         algorithm: "sha256",
-        window: fullManifest.window,
+        window: {
+          ...(fullSlice.window as AuditExportWindowV1),
+          toRevision: Number(fullSlice.effectiveToRevision),
+        },
       });
       const fullLines = (fullSlice.events as PersistedCanonicalEventV1[]).map((e) => fullAcc.addEvent(e).line).join("");
+      const fullManifest = fullAcc.finalize();
       for (const [resTaskId, resCert] of [
         [siblingTaskId, sibCert],
         [extTaskId, extCert],
