@@ -1,6 +1,6 @@
 import type { AgentRuntimeEventV1, CanonicalEventStore, SessionIdentity } from "@harness-anything/kernel";
 import type { RuntimeSpawnerContext, RuntimeTerminalReplay } from "./runtime-spawn-context.ts";
-import type { ActiveRuntime, RuntimeBinding } from "./runtime-spawn-types.ts";
+import type { ActiveRuntime } from "./runtime-spawn-types.ts";
 import {
   consumeProviderChunk,
   consumeProviderLine,
@@ -54,41 +54,3 @@ export const applied = (
   runtimeSessionId: string,
   dispatchId: string,
 ) => appliedImpl(context, event, publication, runtimeSessionId, dispatchId);
-
-export function runtimeControlDelegates(context: RuntimeSpawnerContext) {
-  const { processes, input } = context;
-  return {
-    activeRuntimeSessionIds: (): readonly string[] => [...processes.keys()],
-    activeRuntimeCount: (): number => processes.size,
-    isRuntimeActive: (runtimeSessionId: string): boolean => processes.has(runtimeSessionId),
-    activeDispatchId: (runtimeSessionId: string): string | null => processes.get(runtimeSessionId)?.dispatchId ?? null,
-    activeRuntimeForSelector: (
-      selector: { readonly dispatchId: string } | { readonly runtimeSessionId: string },
-    ): { readonly runtimeSessionId: string; readonly dispatchId: string } | null => {
-      if ("runtimeSessionId" in selector) {
-        const active = processes.get(selector.runtimeSessionId);
-        return active ? { runtimeSessionId: active.runtimeSessionId, dispatchId: active.dispatchId } : null;
-      }
-      for (const active of processes.values()) {
-        if (active.dispatchId === selector.dispatchId)
-          return { runtimeSessionId: active.runtimeSessionId, dispatchId: active.dispatchId };
-      }
-      return null;
-    },
-    flushPendingSteerReceipts: async (defaultBinding?: RuntimeBinding): Promise<void> => {
-      const { flushPendingSteerReceipts: flushReceipts } = await import("./runtime-spawn-active.ts");
-      const { readAllPendingSteerReceipts } = await import("./dispatch-steer-state.ts");
-      const { readDispatchStreamHeader } = await import("./dispatch-stream.ts");
-      const dispatches = new Map<string, string>();
-      for (const entry of readAllPendingSteerReceipts(input.rootDir)) {
-        if (!dispatches.has(entry.dispatchId)) dispatches.set(entry.dispatchId, entry.runtimeSessionId);
-      }
-      for (const [dispatchId, runtimeSessionId] of dispatches) {
-        const active = processes.get(runtimeSessionId),
-          binding = active?.binding ?? readDispatchStreamHeader(input.rootDir, dispatchId)?.binding ?? defaultBinding;
-        if (!binding) continue;
-        await flushReceipts(context, dispatchId, runtimeSessionId, binding);
-      }
-    },
-  };
-}

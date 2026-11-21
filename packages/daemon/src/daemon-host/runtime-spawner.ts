@@ -150,6 +150,7 @@ import {
   parseDispatchSnapshotExpectations,
   readOnlyAttachDispatch,
   prepareDispatchWorktree,
+  preflightRuntimeSelection,
   projectedWorktreeBinding,
   resolveDispatchCwd,
   dispatchDecisionPackageRoot,
@@ -216,51 +217,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   const ownsModelSlotQueue = input.modelSlotQueue === undefined;
   let fallbackClosed = false;
   const fallbackAbort = new AbortController();
-  const preflightRuntimeSelection = async (payload: JsonObject): Promise<void> => {
-    // A resumed dispatch carries its own model and instance in the recorded stream header; do not
-    // re-resolve it from the current declaration before the resume admission reads that header.
-    if (typeof payload.dispatchId === "string" || typeof payload.providerSessionId === "string") return;
-    const runtimeInstanceId =
-        typeof payload.runtimeInstanceId === "string"
-          ? requiredRuntimeSpawnText(payload.runtimeInstanceId, "runtimeInstanceId")
-          : undefined,
-      agentId =
-        typeof payload.agentId === "string" && payload.squadId === undefined && payload.targetAgentId === undefined
-          ? payload.agentId
-          : undefined,
-      taskId = typeof payload.taskId === "string" ? payload.taskId : null,
-      verticalId =
-        agentId !== undefined &&
-        input.resolveAgent !== undefined &&
-        taskId !== null &&
-        !input.remote &&
-        input.projection
-          ? requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot.task
-              ?.metadata?.verticalId
-          : undefined,
-      agent = agentId === undefined ? null : (input.resolveAgent?.(agentId, verticalId) ?? null),
-      requested = runtimeInstanceId ?? agent?.instance;
-    if (requested === undefined) return;
-    const projection = input.remote ? null : requiredRuntimeProjection(input),
-      [sessions, instances, allowedInstanceIds, health] = await resolveRuntimeDispatchResources(
-        input,
-        input.remote,
-        projection,
-      );
-    resolveRuntimeInstanceCandidates({
-      ...(requested === undefined ? {} : { requested }),
-      ...(runtimeInstanceId === undefined ? {} : { explicitlyRequested: true }),
-      ...(typeof payload.providerSessionId === "string" ? { providerSessionId: payload.providerSessionId } : {}),
-      agent,
-      ...(typeof payload.model === "string" ? { model: payload.model } : {}),
-      ...(typeof payload.runtimeKind === "string" ? { runtimeKind: payload.runtimeKind } : {}),
-      instances,
-      allowedInstanceIds,
-      sessions,
-      health,
-      now: input.now(),
-    });
-  };
   const spawnAttempt = releaseFailedTaskClaim(spawnClaimAttempt);
   const extracted: RuntimeSpawnerContext = {
     dispatchState,
@@ -1799,7 +1755,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     /** Checks a task dispatch's worktree out and prepares it; runs before the dispatch is queued for writing. */
     prepareWorktree: async (payload: JsonObject, reviewedCommit?: string | null) => {
       // Explicit-instance and declared-Agent model failures must surface before checkout/setup
-      await preflightRuntimeSelection(payload);
+      await preflightRuntimeSelection(input, payload);
       const taskId = payload.role === "reviewer" && typeof payload.taskId === "string" ? payload.taskId : null,
         pinnedCommit =
           taskId !== null && !input.remote
@@ -1966,7 +1922,48 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       binding: RuntimeBinding,
       options?: { readonly remoteControlRequestId?: string; readonly remoteControlOpId?: string },
     ) => steerRuntime(extracted, payload, binding, options),
-    ...runtimeSpawnerDelegates.runtimeControlDelegates(extracted),
+    activeRuntimeSessionIds: (): readonly string[] => [...processes.keys()],
+    activeRuntimeCount: (): number => processes.size,
+    isRuntimeActive: (runtimeSessionId: string): boolean => {
+      const runtimeHandles = processes;
+      return runtimeHandles.has(runtimeSessionId);
+    },
+    activeDispatchId: (runtimeSessionId: string): string | null => {
+      const runtimeHandles = processes;
+      return runtimeHandles.get(runtimeSessionId)?.dispatchId ?? null;
+    },
+    activeRuntimeForSelector: (
+      selector: { readonly dispatchId: string } | { readonly runtimeSessionId: string },
+    ): { readonly runtimeSessionId: string; readonly dispatchId: string } | null => {
+      const runtimeHandles = processes;
+      if ("runtimeSessionId" in selector) {
+        const active = runtimeHandles.get(selector.runtimeSessionId);
+        return active ? { runtimeSessionId: active.runtimeSessionId, dispatchId: active.dispatchId } : null;
+      }
+      for (const active of runtimeHandles.values()) {
+        if (active.dispatchId === selector.dispatchId)
+          return { runtimeSessionId: active.runtimeSessionId, dispatchId: active.dispatchId };
+      }
+      return null;
+    },
+    flushPendingSteerReceipts: async (defaultBinding?: RuntimeBinding): Promise<void> => {
+      const runtimeHandles = processes;
+      const { flushPendingSteerReceipts: flushReceipts } = await import("./runtime-spawn-active.ts");
+      const { readAllPendingSteerReceipts } = await import("./dispatch-steer-state.ts");
+      const { readDispatchStreamHeader } = await import("./dispatch-stream.ts");
+      const entries = readAllPendingSteerReceipts(input.rootDir);
+      if (entries.length === 0) return;
+      const dispatches = new Map<string, string>();
+      for (const entry of entries) {
+        if (!dispatches.has(entry.dispatchId)) dispatches.set(entry.dispatchId, entry.runtimeSessionId);
+      }
+      for (const [dispatchId, runtimeSessionId] of dispatches) {
+        const active = runtimeHandles.get(runtimeSessionId),
+          binding = active?.binding ?? readDispatchStreamHeader(input.rootDir, dispatchId)?.binding ?? defaultBinding;
+        if (!binding) continue;
+        await flushReceipts(extracted, dispatchId, runtimeSessionId, binding);
+      }
+    },
     isIdle: () => processes.size === 0 && exiting.size === 0,
     close: () => {
       fallbackClosed = true;
