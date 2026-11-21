@@ -647,4 +647,9 @@ export const daemonRuntimeInstancePolicySources = [
     "packages/daemon/src/daemon-host/agent-runtime-web-search.ts#runtimeWebSearchPolicyConflict.texts",
     'const texts = typeof policyTexts === "function" ? await policyTexts() : policyTexts;',
   ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-mission.ts#resolveRuntimeInstanceCandidates:23b085b9225b545f946dcccb9979f92f",
+    "packages/daemon/src/daemon-host/runtime-spawn-mission.ts#resolveRuntimeInstanceCandidates",
+    "if (configured && allowedInstances.length === 0)",
+  ],
 ] as const;

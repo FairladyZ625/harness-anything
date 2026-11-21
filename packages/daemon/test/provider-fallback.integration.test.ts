@@ -14,7 +14,11 @@ import { dispatchStreamPath, readDispatchStream } from "../src/daemon-host/dispa
 import { taskDispatchRowsSettled } from "../src/daemon-host/dispatch-read.ts";
 import type { TaskDispatchRow } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
-import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import {
+  openBootstrappedRepoCell as openRepoCell,
+  setFixtureAgentBinding,
+  waitForFixturePublication,
+} from "./repo-settings.fixture.ts";
 import { makeRuntimeSpawner } from "../src/daemon-host/runtime-spawn.ts";
 import type { RuntimeBinding, RuntimeProcess } from "../src/daemon-host/runtime-spawn-types.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -1349,6 +1353,7 @@ async function installAgent(
   providers: readonly { readonly instance: string }[],
   runtimeKind: "codex" | "devin" = "codex",
 ): Promise<void> {
+  setFixtureAgentBinding(cell.status().rootDir, agentId, providers[0]!.instance);
   const settings = (await cell.read("repo.settings.read")) as {
     readonly settings?: { readonly runtime?: { readonly allowedInstances?: readonly string[] } };
   };
@@ -1375,7 +1380,6 @@ async function installAgent(
         name: agentId,
         instructions: "Execute the assigned mission.",
         runtimes: [{ type: runtimeKind, model: "provider-success-model" }],
-        instance: providers[0]!.instance,
       },
     },
     binding,

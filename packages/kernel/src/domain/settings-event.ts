@@ -145,7 +145,11 @@ function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boo
     return false;
   const normalized = withoutRetiredSettings(value);
   if (!isRecord(normalized)) return false;
-  if (!allowUnknownFields) return validateRepositorySettings(normalized).length === 0;
+  if (!allowUnknownFields) {
+    if (isRecord(value.runtime) && Object.hasOwn(value.runtime, "allowedInstances")) return false;
+    if (isRecord(value.decisions) && Object.hasOwn(value.decisions, "provider")) return false;
+    return validateRepositorySettings(normalized).length === 0;
+  }
   if (!validLegacySnapshotShape(normalized)) return false;
   return validateRepositorySettings(repositorySettings(normalized as unknown as RepositorySettingsV1)).length === 0;
 }

@@ -3217,6 +3217,13 @@
         "order": 404
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-open.ts#openRepoWriterCell:084a6143387d1e922812699bfb5585df",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-host/runtime-recovery-work.ts#makeRuntimeRecoveryWork.run",
+        "order": 406
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-open.ts#openRepoWriterCell:22adc4369a52ac4ff388c97ba81e495e",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -3229,13 +3236,6 @@
         "role": "technical-port",
         "port": "packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run",
         "order": 405
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-open.ts#openRepoWriterCell:86b49fcc8aa54880b86b42d0081f80bf",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/daemon/src/daemon-host/runtime-recovery-work.ts#makeRuntimeRecoveryWork.run",
-        "order": 406
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-proof.ts#deliveryBranchFork.point:b06e1585338127c5780fa06de4f0fa05",

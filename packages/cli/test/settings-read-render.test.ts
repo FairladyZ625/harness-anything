@@ -22,8 +22,6 @@ test("settings read renders the latest settings_changed attribution line", () =>
     text: [
       "settings-read: applied",
       "worktree.setup: node-modules; run: pip install -e .",
-      "runtime.allowedInstances: not set — every dispatch is rejected " +
-        "(run ha init or ha settings update --runtime-allowed-instance <id>)",
       "lastChanged=2026-09-10T00:00:00.000Z by=agent:runtime-session:worker-1 revision=7",
     ].join("\n"),
   });
@@ -41,49 +39,8 @@ test("settings read renders lastChanged=initial before any settings_changed even
 
   assert.deepEqual(rendered, {
     stream: "stdout",
-    text: [
-      "settings-read: applied",
-      "worktree.setup: none",
-      "runtime.allowedInstances: not set — every dispatch is rejected " +
-        "(run ha init or ha settings update --runtime-allowed-instance <id>)",
-      "lastChanged=initial",
-    ].join("\n"),
+    text: ["settings-read: applied", "worktree.setup: none", "lastChanged=initial"].join("\n"),
   });
-});
-
-test("settings read states the runtime allowlist and what an unset or empty one rejects", () => {
-  const set = renderCliReceipt({
-    ok: true,
-    command: "settings-read",
-    outcome: "applied",
-    summary: "settings-read: applied",
-    settings: { runtime: { allowedInstances: ["zhipu/glm", "openai/codex"] } },
-    lastChanged: "initial",
-  });
-  assert.match(set.text, /^runtime\.allowedInstances: zhipu\/glm; openai\/codex$/mu);
-
-  const empty = renderCliReceipt({
-    ok: true,
-    command: "settings-read",
-    outcome: "applied",
-    summary: "settings-read: applied",
-    settings: { runtime: { allowedInstances: [] } },
-    lastChanged: "initial",
-  });
-  assert.match(
-    empty.text,
-    /^runtime\.allowedInstances: none — every dispatch is rejected .*--runtime-allowed-instance/mu,
-  );
-
-  const unset = renderCliReceipt({
-    ok: true,
-    command: "settings-read",
-    outcome: "applied",
-    summary: "settings-read: applied",
-    settings: { worktree: { setup: ["node-modules"] } },
-    lastChanged: "initial",
-  });
-  assert.match(unset.text, /^runtime\.allowedInstances: not set — every dispatch is rejected .*\bha init\b/mu);
 });
 
 test("settings read renders every set nested field, including role preferences", () => {
@@ -139,8 +96,6 @@ test("settings read prints unset nested fields not at all, in the settings objec
     "roles.defaultWorker: zcode-glm",
     "agenda.pinLimit: 12",
     "worktree.setup: node-modules",
-    "runtime.allowedInstances: not set — every dispatch is rejected " +
-      "(run ha init or ha settings update --runtime-allowed-instance <id>)",
     "lastChanged=initial",
   ]);
 });

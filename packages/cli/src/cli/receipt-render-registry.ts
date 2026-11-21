@@ -264,8 +264,6 @@ function renderSettingsRead(receipt: Record<string, unknown>): string {
   return [
     renderSuccessfulReceipt(receipt),
     ...nested,
-    // The allowlist keeps a named line even when the expansion emitted none for it.
-    ...(nested.some((line) => line.startsWith("runtime.allowedInstances:")) ? [] : [allowedInstancesLine(undefined)]),
     lastChanged === "initial"
       ? "lastChanged=initial"
       : isRecord(lastChanged)
@@ -281,26 +279,12 @@ function nestedSettingsLines(node: Record<string, unknown>, prefix: readonly str
   return Object.entries(node).flatMap(([key, value]) => {
     const path = [...prefix, key];
     if (isRecord(value)) return nestedSettingsLines(value, path);
-    if (path.join(".") === "runtime.allowedInstances") return [allowedInstancesLine(value)];
     return [`${path.join(".")}: ${nestedSettingsValueText(value)}`];
   });
 }
 
 function nestedSettingsValueText(value: unknown): string {
   return Array.isArray(value) ? (value.length ? value.map(String).join("; ") : "none") : String(value);
-}
-
-/** Unset and empty are both total rejections (PR #3512), but they repair differently: unset
- * wants ha init, empty wants an explicit allow. */
-function allowedInstancesLine(value: unknown): string {
-  const allowedInstances = Array.isArray(value) ? value.map(String) : undefined;
-  return `runtime.allowedInstances: ${
-    allowedInstances === undefined
-      ? "not set — every dispatch is rejected (run ha init or ha settings update --runtime-allowed-instance <id>)"
-      : allowedInstances.length
-        ? allowedInstances.join("; ")
-        : "none — every dispatch is rejected (allow with ha settings update --runtime-allowed-instance <id>)"
-  }`;
 }
 
 function renderDecisionPropose(receipt: Record<string, unknown>): string {

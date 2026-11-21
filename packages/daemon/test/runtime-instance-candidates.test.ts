@@ -6,8 +6,6 @@ import {
   prepareRuntimeInstance as prepare,
   resolveRuntimeInstanceCandidates,
 } from "../src/daemon-host/runtime-spawn-mission.ts";
-import { readSettingsFacet } from "@harness-anything/kernel";
-import { initialRuntimeInstanceSettings } from "../src/daemon-host/runtime-spawn-allowlist.ts";
 import type { RuntimeAgent } from "../src/daemon-host/runtime-spawn-types.ts";
 import {
   agentRuntimeAmbiguityWarning,
@@ -63,7 +61,7 @@ const agent = (): RuntimeAgent => ({
   runtimes: [{ type: "codex" }, { type: "devin" }],
 });
 
-test("runtime candidates use runtimes row order then project allowlist order", () => {
+test("runtime candidates use runtimes row order then node-local catalog order", () => {
   const instances = [
       instance("aaa-devin", "devin", "provider-devin"),
       instance("zzz-codex", "codex", "provider-codex"),
@@ -80,7 +78,7 @@ test("runtime candidates use runtimes row order then project allowlist order", (
   ]);
 });
 
-test("repository allowlist filters automatic candidates and reports the blocked instance", () => {
+test("node-local instance order filters automatic candidates and reports the blocked instance", () => {
   const instances = [
     instance("project-a", "codex", "provider-codex"),
     instance("project-b", "devin", "provider-devin"),
@@ -101,8 +99,8 @@ test("repository allowlist filters automatic candidates and reports the blocked 
     (error: unknown) =>
       error instanceof Error &&
       error.message ===
-        "Runtime instance project-b is not allowed for this repository. Allowed instances: project-a. " +
-          "Enable it without replacing the existing allowlist with ha settings update " +
+        "Runtime instance project-b is not allowed for this repository on this node. Allowed instances: project-a. " +
+          "Adjust the local order with ha settings update " +
           "--runtime-allowed-instance project-a --runtime-allowed-instance project-b.",
   );
 });
@@ -121,22 +119,6 @@ test("an empty repository allowlist rejects every automatic dispatch with action
       /No runtime instance is allowed for this repository.*Allowed instances: none.*ha settings update --runtime-allowed-instance <instance-id>/u.test(
         error.message,
       ),
-  );
-});
-
-test("an uninitialized repository allowlist never falls back to machine-enabled instances", () => {
-  assert.throws(
-    () =>
-      resolveRuntimeInstanceCandidates({
-        requested: "machine-codex",
-        agent: null,
-        instances: [instance("machine-codex", "codex", "provider-codex")],
-        sessions: [],
-      }),
-    (error: unknown) =>
-      error instanceof Error &&
-      (error as Error & { code?: string }).code === "runtime_instance_allowlist_uninitialized" &&
-      /ha init|repository settings/u.test(error.message),
   );
 });
 
@@ -530,6 +512,18 @@ test("an explicit instance request keeps the hard pin when that instance is disa
   );
 });
 
+const sol = (): RuntimeAgent => ({
+  id: "sol",
+  name: "Sol",
+  instructions: "Run the mission.",
+  runtimes: [{ type: "codex", model: "gpt-6.1-sol" }],
+});
+
+const splitInstances = () => [
+  instance("codex-api", "codex", "provider-codex", ["gpt-6.1-sol"]),
+  instance("zcode-flash", "zcode", "provider-zcode", ["GLM-5.3-Flash"]),
+];
+
 test("unknown explicit instances keep their machine-catalog error instead of a repository rejection", () => {
   assert.throws(
     () =>
@@ -544,33 +538,6 @@ test("unknown explicit instances keep their machine-catalog error instead of a r
       error instanceof Error && (error as Error & { code: string }).code === "runtime_instance_not_found",
   );
 });
-
-test("repository init seeds enabled instances once and preserves explicit project choices", () => {
-  const settings = readSettingsFacet("layout:\n  authoredRoot: harness\n"),
-    machines = [
-      { instanceId: "codex-api", enabled: true },
-      { instanceId: "other", enabled: false },
-    ],
-    projectA = initialRuntimeInstanceSettings(settings, machines),
-    projectB = initialRuntimeInstanceSettings(settings, []);
-  assert.deepEqual(projectA.runtime?.allowedInstances, ["codex-api"]);
-  assert.deepEqual(projectB.runtime?.allowedInstances, []);
-  assert.equal(initialRuntimeInstanceSettings(projectB, machines), projectB);
-  assert.equal(initialRuntimeInstanceSettings(projectA, []), projectA);
-  assert.equal(settings.runtime?.allowedInstances, undefined);
-});
-
-const sol = (): RuntimeAgent => ({
-  id: "sol",
-  name: "Sol",
-  instructions: "Run the mission.",
-  runtimes: [{ type: "codex", model: "gpt-6.1-sol" }],
-});
-
-const splitInstances = () => [
-  instance("codex-api", "codex", "provider-codex", ["gpt-6.1-sol"]),
-  instance("zcode-flash", "zcode", "provider-zcode", ["GLM-5.3-Flash"]),
-];
 
 test("an explicit instance pin of an undeclared runtime kind is rejected for a declaring Agent", () => {
   assert.throws(

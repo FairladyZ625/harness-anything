@@ -1700,10 +1700,10 @@
       {
         "id": "daemon/src/runtime-spawn-mission.ts#resolveRuntimeInstanceCandidates.assertAllowed",
         "symbol": "packages/daemon/src/daemon-host/runtime-spawn-mission.ts#resolveRuntimeInstanceCandidates.assertAllowed",
-        "explain": "Runtime instance selection filter checking explicit caller `allowedInstances` allowlists during spawn resolution.",
+        "explain": "Runtime instance selection checks the node-local repository order when one is configured and otherwise admits enabled local instances.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-mission.ts#resolveRuntimeInstanceCandidates.assertAllowed:014330df2eb99442be5bb882d3ae8dfc",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-mission.ts#resolveRuntimeInstanceCandidates.assertAllowed:c714cf70726bc3d5f9db6878e62aedc4",
             "route": "packages/daemon/src/daemon-host/runtime-spawn-mission.ts#resolveRuntimeInstanceCandidates.assertAllowed"
           }
         ],

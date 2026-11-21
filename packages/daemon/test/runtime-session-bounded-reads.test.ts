@@ -99,7 +99,7 @@ test("dispatch reads node-local handles and no repository lifecycle or 12,995-se
     state = createRuntimeInstanceDispatchState();
   for (const [runtimeSessionId, { instanceId }] of active) state.activate(runtimeSessionId, instanceId);
   const [local, , allowed] = await resolveRuntimeDispatchResources({}, undefined, projectionOf(history));
-  assert.deepEqual(allowed, ["instance-a", "instance-b"]);
+  assert.equal(allowed, undefined);
   assert.deepEqual([...active.keys()], ["runtime-open-a", "runtime-open-b", "runtime-open-c"]);
   assert.equal(
     [...state.readActiveLoads().values()].reduce((sum, load) => sum + load, 0),

@@ -7,7 +7,6 @@ import {
   writeRepositorySettingsFacet,
   type AgentDefinitionSnapshot,
 } from "@harness-anything/kernel";
-import { initialRuntimeInstanceSettings } from "../src/daemon-host/runtime-spawn-allowlist.ts";
 import { applyFleetMirrorCut } from "../src/daemon-host/fleet-edge-mirror.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { waitForCondition } from "../../../tools/fixtures/wait-for-condition.ts";
@@ -93,13 +92,13 @@ export async function pullScheduleView(
 
 export function scheduleRepositoryDocument(
   name: string,
-  instances: readonly {
+  _instances: readonly {
     readonly instanceId: string;
     readonly enabled: boolean;
   }[] = scheduleRuntimePorts().runtimeInstances(),
 ): string {
   const body = `schema: harness-anything/v1\nname: ${name}\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n`;
-  return writeRepositorySettingsFacet(body, initialRuntimeInstanceSettings(readSettingsFacet(body), instances));
+  return writeRepositorySettingsFacet(body, readSettingsFacet(body));
 }
 
 export function initHarnessRepo(

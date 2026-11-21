@@ -38,7 +38,7 @@ import {
   selectedRuntimeInstance,
   createRuntimeInstanceDispatchState,
 } from "./runtime-instance-selection.ts";
-import { resolveDispatchAgent } from "./runtime-spawn-agent.ts";
+import { applyLocalAgentBinding, resolveDispatchAgent } from "./runtime-spawn-agent.ts";
 import { assertAgentDispatchable } from "./agent-entities.ts";
 import { sharedProviderDirectory } from "./agent-runtime-instance-storage.ts";
 import {
@@ -238,7 +238,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           ? requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot.task
               ?.metadata?.verticalId
           : undefined,
-      agent = agentId === undefined ? null : (input.resolveAgent?.(agentId, verticalId) ?? null),
+      declaration = agentId === undefined ? undefined : input.resolveAgent?.(agentId, verticalId),
+      agent = declaration === undefined ? null : applyLocalAgentBinding(input, declaration),
       requested = runtimeInstanceId ?? agent?.instance;
     if (requested === undefined) return;
     const projection = input.remote ? null : requiredRuntimeProjection(input),

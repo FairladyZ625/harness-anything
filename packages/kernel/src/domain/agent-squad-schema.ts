@@ -46,10 +46,6 @@ export interface AgentDeclarationV1 {
   readonly name: string;
   readonly instructions: string;
   readonly runtimes: readonly AgentRuntimeTargetV1[];
-  readonly instance?: string;
-  /** Ordered soft preference among the instances one runtimes row admits; unlike `instance` it
-   *  never fails a dispatch when a more preferred instance is unavailable on this node. */
-  readonly preferredInstances?: readonly string[];
   readonly selectionStrategy?: RuntimeSelectionStrategy;
   readonly permissionMode?: AgentPermissionMode;
   readonly mcpPolicy?: AgentMcpPolicy;
@@ -111,24 +107,6 @@ export const AGENT_DECLARATION_V1_SCHEMA = Object.freeze({
           },
         },
       },
-    },
-    instance: {
-      ...slug("Optional node-local runtime instance selection."),
-      "x-error": "must be a lowercase instance id.",
-    },
-    preferredInstances: {
-      type: "array",
-      uniqueItems: true,
-      description:
-        "Ordered instance preference for the runtimes rows this Agent declares. A preferred instance " +
-        "is used when it is enabled, compatible, and ready on this node; otherwise dispatch falls " +
-        "back to the remaining compatible instances by runtime row, then repository allowed-instance " +
-        "order. Unlike `instance`, this never blocks a dispatch on this node.",
-      items: {
-        ...slug("Preferred runtime instance id."),
-        "x-error": "must be lowercase instance ids.",
-      },
-      "x-error": "must be an ordered array of unique lowercase instance ids.",
     },
     selectionStrategy: {
       type: "string",
@@ -229,6 +207,17 @@ export function validateSquadDeclarationV1(value: unknown): readonly string[] {
 }
 export function parseAgentDeclarationV1(value: unknown): AgentDeclarationV1 {
   return parse(AGENT_DECLARATION_V1_SCHEMA, value, "agent declaration");
+}
+
+/** Canonical declaration reads project the historical fields away without changing the source blob. */
+export function withoutLegacyAgentInstanceBindings(value: unknown): unknown {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
+  const {
+    instance: _instance,
+    preferredInstances: _preferredInstances,
+    ...shared
+  } = value as Readonly<Record<string, unknown>>;
+  return shared;
 }
 export function parseSquadDeclarationV1(value: unknown): SquadDeclarationV1 {
   return parse(SQUAD_DECLARATION_V1_SCHEMA, value, "squad declaration");

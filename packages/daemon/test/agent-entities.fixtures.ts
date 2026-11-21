@@ -167,20 +167,22 @@ export function writeEntity(
  * (`runtime_type` string plus top-level `model`), appended as a raw entity_upserted command under
  * the "direct-store" fence holder the fixtures' task event store also uses — the exact way the
  * old daemon wrote it, bypassing the bundle validation that now refuses that shape. */
-export function appendLegacyAgentDeclaration(rootDir: string): void {
+export function appendLegacyAgentDeclaration(
+  rootDir: string,
+  value = {
+    schema: "agent-declaration/v1",
+    id: "legacy-worker",
+    name: "Legacy Worker",
+    instructions: "Legacy fixture agent.",
+    runtime_type: "zcode",
+    model: "GLM-5.3",
+  } as Readonly<Record<string, unknown>> & { readonly id: string },
+): void {
   initRepo(rootDir);
   const contract = requireEntityStoreKindContract("agent"),
-    value = {
-      schema: "agent-declaration/v1",
-      id: "legacy-worker",
-      name: "Legacy Worker",
-      instructions: "Legacy fixture agent.",
-      runtime_type: "zcode",
-      model: "GLM-5.3",
-    },
     body = `${JSON.stringify(value, null, 2)}\n`,
     claim = {
-      path: "agents/legacy-worker.json",
+      path: `agents/${value.id}.json` as const,
       sha256: sha256Text(body),
       size: Buffer.byteLength(body),
       mediaType: contract.entityStore.document.mediaType,
@@ -195,7 +197,7 @@ export function appendLegacyAgentDeclaration(rootDir: string): void {
       source: "local",
       occurredAt: "2026-09-18T00:00:00.000Z",
       type: "entity_upserted",
-      payload: { entityKind: "agent", entityId: "legacy-worker", declarationDocumentClaim: claim },
+      payload: { entityKind: "agent", entityId: value.id, declarationDocumentClaim: claim },
     },
     // This historical declaration owns exactly its declaration file. Keep the fixture manifest
     // explicit: the current declaration compiler correctly rejects the legacy runtime fields.

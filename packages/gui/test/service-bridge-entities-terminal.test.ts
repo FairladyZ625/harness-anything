@@ -37,7 +37,6 @@ test("GUI entity write channel validates then installs an Agent and preserves a 
         name: "GUI Created Agent",
         instructions: "Keep the roster intact.\nSecond line.",
         runtimes: [{ type: "codex", model: "gpt-5.6-terra" }],
-        instance: "codex-gui",
         role: "commander",
         skills: [{ id: "review", path: "skills/review" }],
         prompts: ["prompt://gui"],
@@ -179,7 +178,6 @@ test("GUI entity channel retires and deletes declarations through the CLI's acti
         name,
         instructions: `Instructions for ${name}.`,
         runtimes: [{ type: "codex", model: "gpt-5.6-terra" }],
-        instance: "codex-gui",
       });
     for (const [id, name] of [
       ["gui-lifecycle-agent", "GUI Lifecycle Agent"],

@@ -1082,7 +1082,7 @@ test("tools baseline is permanently zero and new tool execution calls fail close
       "runtime-run",
     ],
     [
-      "action:tools:tools/stress/fleet/fleet-fixture.mjs#openFleetCampaignFixture.installed:8657606fb6a6e38dd7dd960fe4cefb14",
+      "action:tools:tools/stress/fleet/fleet-fixture.mjs#openFleetCampaignFixture.installed:b9f242adbf5b1d237e75b2129b9c9ebd",
       "agent-install",
       "agent-install",
     ],

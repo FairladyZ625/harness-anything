@@ -6,6 +6,7 @@ import {
 import { validateEntityJsonSchema } from "../domain/entity-json-schema.ts";
 import * as Schema from "effect/Schema";
 import { SETTINGS_FIELD_DECLARATIONS, type SettingsFieldDeclaration } from "../domain/settings-field-declarations.ts";
+import { runtimeAgentBindingsSchema } from "../domain/runtime-agent-bindings.ts";
 import { domainStatuses } from "../domain/lifecycle-status.ts";
 import { packageDispositions } from "../domain/package-disposition.ts";
 import { priorityTiers, taskWorkKinds } from "../domain/task-metadata.ts";
@@ -131,6 +132,26 @@ function authoredSettingSchema(declaration: SettingsFieldDeclaration): Schema.Sc
       );
     case "gate-mappings":
       return Schema.Record({ key: Schema.String, value: Schema.Unknown });
+    case "runtime-agent-bindings":
+      return Schema.Unknown.pipe(
+        Schema.filter(
+          (value) =>
+            validateEntityJsonSchema(
+              {
+                $schema: "https://json-schema.org/draft/2020-12/schema",
+                $id: "runtime-agent-bindings",
+                type: "object",
+                properties: { bindings: runtimeAgentBindingsSchema },
+                required: ["bindings"],
+                additionalProperties: false,
+              },
+              { bindings: value },
+              "runtimeAgentBindings",
+            ).length === 0,
+        ),
+      );
+    default:
+      throw new Error(`Unsupported settings value kind ${declaration.valueKind}.`);
   }
 }
 

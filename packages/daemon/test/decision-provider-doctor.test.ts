@@ -83,15 +83,19 @@ test("doctor reports a configured provider that is missing or disabled", () => {
   assert.match(disabled.next, /ha provider update openrouter-mammoth --enable/u);
 });
 
-test("doctor leaves an unconfigured provider out of repository health", () => {
+test("doctor selects the first enabled provider when the local setting is absent", () => {
   const check = decisionProviderDoctorCheck({
     userRoot,
     configuredProviderId: null,
-    listProviders: () => [provider({ state: "failed", checkedAt, code: "decision_model_unavailable" })],
+    listProviders: () => [
+      provider({ state: "ready", checkedAt }, { providerId: "disabled", enabled: false }),
+      provider({ state: "ready", checkedAt }),
+      provider({ state: "ready", checkedAt }, { providerId: "later" }),
+    ],
   });
   assert.equal(check.status, "ok");
   assert.equal(check.count, 0);
-  assert.doesNotMatch(check.summary, /openrouter-mammoth/u);
+  assert.match(check.summary, /openrouter-mammoth/u);
 });
 
 test("doctor treats an unprobed configured provider as unverified, not broken", () => {

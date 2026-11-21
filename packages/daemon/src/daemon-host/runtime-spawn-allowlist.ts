@@ -1,4 +1,5 @@
 import type { RepositorySettingsV1, RuntimeSessionReadQuery, TaskProjection } from "@harness-anything/kernel";
+import { agentRuntimeModelMatches } from "./agent-runtime-contract.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { RuntimeSessionSelection, RuntimeSpawnerInput } from "./runtime-spawn-types.ts";
 
@@ -20,27 +21,35 @@ export async function resolveRuntimeDispatchResources(
   const read = (query: RuntimeSessionReadQuery) =>
       remote ? remote.readRuntimeSessions(query) : projection!.readRuntimeSessions(query),
     localRuntimeSessions = providerSessionId === undefined ? [] : await read({ providerSessionId }),
-    runtimeInstances = input.runtimeInstances?.() ?? [];
-  const settings = remote
-      ? input.readSettings?.()
-      : (projection!.getEntity("settings", "repository")?.value as RepositorySettingsV1 | undefined),
-    allowedInstanceIds = settings?.runtime?.allowedInstances,
+    settings = input.readSettings?.(),
+    runtime =
+      settings?.runtime ??
+      (projection?.getEntity("settings", "repository")?.value as RepositorySettingsV1 | undefined)?.runtime,
+    allowedKinds = runtime?.allowedKinds,
+    allowedModels = runtime?.allowedModels,
+    instances = input.runtimeInstances?.() ?? [],
+    runtimeInstances =
+      allowedModels === undefined
+        ? instances
+        : instances.map((instance) => ({
+            ...instance,
+            models: instance.models.filter((model) => agentRuntimeModelMatches(allowedModels, model)),
+          })),
+    capabilityAllowedInstanceIds =
+      allowedKinds === undefined && allowedModels === undefined
+        ? undefined
+        : runtimeInstances
+            .filter(
+              (instance) =>
+                (allowedKinds === undefined || allowedKinds.includes(instance.kindId)) &&
+                (allowedModels === undefined || instance.models.length > 0),
+            )
+            .map((instance) => instance.instanceId),
+    localOrder = settings?.runtime?.allowedInstances,
+    allowedInstanceIds =
+      capabilityAllowedInstanceIds === undefined
+        ? localOrder
+        : (localOrder ?? capabilityAllowedInstanceIds).filter((id) => capabilityAllowedInstanceIds.includes(id)),
     health = input.runtimeProviderHealth?.list() ?? [];
   return [localRuntimeSessions, runtimeInstances, allowedInstanceIds, health];
-}
-
-/** ha init captures machine availability during the operator's repository setup. */
-export function initialRuntimeInstanceSettings<Settings extends RepositorySettingsV1>(
-  settings: Settings,
-  instances: readonly Pick<RuntimeInstanceSummary, "instanceId" | "enabled">[],
-): Settings {
-  return settings.runtime?.allowedInstances === undefined
-    ? {
-        ...settings,
-        runtime: {
-          ...settings.runtime,
-          allowedInstances: [...new Set(instances.filter((row) => row.enabled).map((row) => row.instanceId))],
-        },
-      }
-    : settings;
 }

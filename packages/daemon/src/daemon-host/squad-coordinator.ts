@@ -361,10 +361,6 @@ export function makeSquadCoordinator(input: {
       );
     const squad = squadForRun(claimed.squadId),
       squadRunId = `squad_${randomUUID().replaceAll("-", "").slice(0, 24)}`,
-      leaderInstance = input.query((projection) => {
-        const row = projection.getEntity("agent", squad.leader);
-        return row === null ? null : (readProjectedAgentDeclaration(row.value).instance ?? null);
-      }),
       state: SquadState = {
         schema: "squad-run/v1",
         squadRunId,
@@ -372,7 +368,7 @@ export function makeSquadCoordinator(input: {
         squadId: claimed.squadId,
         subject: claimed.subject,
         scheduleRuntime: claimed.schedule,
-        runtimeInstanceId: leaderInstance,
+        runtimeInstanceId: null,
         cwd: claimed.cwd,
         baseSha: localGitObjectRefStore.headCommit(claimed.cwd),
         mission: claimed.mission,

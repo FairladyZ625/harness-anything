@@ -353,13 +353,12 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       assert.deepEqual(envelope.inputs, deriveUseCaseProjectionInputs(name), `${name} inputs are registry-derived`);
     }
     const settingsBefore = parseDaemonReadResult("repo.settings.read", results.get("repo.settings.read"));
-    // F-1D3A0A64: init records the empty machine inventory as this project's exact list.
+    // No local runtime admission override is recorded at initialization.
     assert.deepEqual(settingsBefore.settings, {
       // Provider scheduling fields project their repository-owned defaults.
       runtime: {
         // dec_DA1602487428A58E8B446ECE38/CH3: repository strategy defaults to sticky.
         selectionStrategy: "sticky",
-        allowedInstances: [],
         commandInterceptions: [],
         agentSkills: [],
         dispatchUsageLimit: 0,

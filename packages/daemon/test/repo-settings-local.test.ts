@@ -4,9 +4,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { INITIAL_SETTINGS_V1, localSettings, type LocalSettingsV1 } from "@harness-anything/kernel";
+import { INITIAL_SETTINGS_V1, localSettings, repositorySettings, type LocalSettingsV1 } from "@harness-anything/kernel";
 import { nodeMaterializationStorage } from "../src/daemon-host/node-materialization-settings.ts";
 import { makeRepoCellSettingsState } from "../src/daemon-host/repo-cell-settings-state.ts";
+import { applyLocalAgentBinding } from "../src/daemon-host/runtime-spawn-agent.ts";
+import { resolveRuntimeInstanceCandidates } from "../src/daemon-host/runtime-spawn-mission.ts";
 
 function settingsStateFor(rootDir: string, appended: { count: number } = { count: 0 }) {
   const repository = {
@@ -16,6 +18,8 @@ function settingsStateFor(rootDir: string, appended: { count: number } = { count
       defaultPreset: INITIAL_SETTINGS_V1.defaultPreset,
       defaultProfile: INITIAL_SETTINGS_V1.defaultProfile,
       scaffolds: INITIAL_SETTINGS_V1.scaffolds,
+      decisions: { enabledPoints: ["example@0123456789ab"] },
+      runtime: { allowedKinds: ["codex"] },
     },
     cell = {
       rootDir,
@@ -54,6 +58,78 @@ test("local state stays local and does not append a settings event", () => {
       locale: "zh-CN",
       gui: { connectTimeoutMs: 2000, requestTimeoutMs: 30000, terminalBrowser: "embedded" },
     });
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("local provider and Agent bindings overlay the shared capability and decision point settings", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-local-provider-bindings-"));
+  try {
+    const state = settingsStateFor(rootDir);
+    state.writeLocal(
+      localSettings({
+        decisions: { provider: "local-decisions" },
+        runtime: { allowedInstances: ["local-codex", "local-backup"] },
+        runtimeAgentBindings: [{ agentId: "worker", instance: "local-codex", preferredInstances: ["local-backup"] }],
+      }),
+    );
+    const settings = state.read();
+    assert.deepEqual(settings.decisions, { enabledPoints: ["example@0123456789ab"], provider: "local-decisions" });
+    assert.deepEqual(settings.runtime.allowedKinds, ["codex"]);
+    assert.deepEqual(settings.runtime.allowedInstances, ["local-codex", "local-backup"]);
+    assert.equal(Object.hasOwn(repositorySettings(settings).runtime, "allowedInstances"), false);
+    assert.equal(Object.hasOwn(repositorySettings(settings).decisions, "provider"), false);
+    const worker = { id: "worker", name: "Worker", instructions: "Work.", runtimes: [{ type: "codex" }] };
+    const pinnedWorker = applyLocalAgentBinding({ readSettings: state.read }, worker);
+    assert.deepEqual(pinnedWorker, {
+      ...worker,
+      instance: "local-codex",
+      preferredInstances: ["local-backup"],
+    });
+    const instances = [
+      {
+        instanceId: "local-backup",
+        kindId: "codex",
+        models: ["gpt-6.1-sol"],
+        enabled: true,
+        authReadiness: { status: "ready", code: null, hint: null },
+      },
+      {
+        instanceId: "local-codex",
+        kindId: "codex",
+        models: ["gpt-6.1-sol"],
+        enabled: true,
+        authReadiness: { status: "ready", code: null, hint: null },
+      },
+    ] as never;
+    assert.deepEqual(
+      resolveRuntimeInstanceCandidates({
+        requested: pinnedWorker.instance,
+        agent: pinnedWorker,
+        instances,
+        sessions: [],
+        allowedInstanceIds: settings.runtime.allowedInstances,
+      }),
+      ["local-codex"],
+    );
+
+    state.writeLocal(
+      localSettings({
+        runtime: { allowedInstances: ["local-codex", "local-backup"] },
+        runtimeAgentBindings: [{ agentId: "worker", preferredInstances: ["local-backup"] }],
+      }),
+    );
+    const preferredWorker = applyLocalAgentBinding({ readSettings: state.read }, worker);
+    assert.deepEqual(
+      resolveRuntimeInstanceCandidates({
+        agent: preferredWorker,
+        instances,
+        sessions: [],
+        allowedInstanceIds: state.read().runtime.allowedInstances,
+      }),
+      ["local-backup", "local-codex"],
+    );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

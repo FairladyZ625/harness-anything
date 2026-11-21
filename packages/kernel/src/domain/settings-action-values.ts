@@ -22,10 +22,16 @@ export function repositorySettingsActionValues(read: SettingsV1 | RepositorySett
 } {
   // The daemon's settings read merges the local fields (locale, GUI deadlines) into one view; a
   // repository-only caller contributes none of them and gets no local values.
-  const merged = read as SettingsV1;
+  const merged = read as SettingsV1,
+    repository = repositorySettings(read),
+    local = Object.hasOwn(merged, "locale")
+      ? localSettings(merged as unknown as Readonly<Record<string, unknown>>)
+      : undefined;
   return SETTINGS_DECLARATION_RUNTIME.actionValues({
-    ...repositorySettings(read),
-    ...(Object.hasOwn(merged, "locale") ? localSettings(merged as unknown as Readonly<Record<string, unknown>>) : {}),
+    ...repository,
+    ...local,
+    runtime: { ...repository.runtime, ...local?.runtime },
+    decisions: { ...repository.decisions, ...local?.decisions },
   }) as {
     readonly [field: string]:
       | string

@@ -586,7 +586,6 @@ test(
           name: "Second reviewer",
           instructions: "Inspect the decision cut and record your independent verdict.",
           runtimes: [{ type: "codex", model: "review-model" }],
-          instance: "review-second",
           role: "reviewer",
         },
       });
@@ -1003,7 +1002,6 @@ test(
           name: "Second reviewer",
           instructions: "Inspect submitted bytes and record your independent verdict.",
           runtimes: [{ type: "codex", model: "review-model" }],
-          instance: "review-second",
           role: "reviewer",
         },
       });
@@ -1780,7 +1778,6 @@ test(
           name: "Second reviewer",
           instructions: "Inspect submitted bytes and record your independent verdict.",
           runtimes: [{ type: "codex", model: "review-model" }],
-          instance: "review-second",
           role: "reviewer",
         },
       });

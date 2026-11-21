@@ -11,7 +11,9 @@ import {
   DISPATCH_LIFECYCLE_PAGE_LIMIT,
   consumeKnownError,
   isNativeExecution,
+  repositorySettings,
   type RepositorySettingsV1,
+  type SettingsV1,
   type RuntimeProviderUnreachable,
   type TaskProjection,
 } from "@harness-anything/kernel";
@@ -49,7 +51,8 @@ import {
 import { selectReviewTarget } from "./review-dispatch-admission.ts";
 import { runtimeRecoveryError } from "./runtime-recovery-watch.ts";
 import { resolveSquadDispatch } from "./agent-entities.ts";
-import { parseAgentDeclarationV1 } from "@harness-anything/kernel";
+import { readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts";
+import { mergeRepositoryLocalSettings, readLocalState } from "./repo-cell-settings-state.ts";
 import { readBundledAgentDeclaration } from "@harness-anything/preset";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary, RuntimeLaunchRequest } from "./agent-runtime-instances.ts";
 import {
@@ -66,6 +69,7 @@ import { applyFleetMirrorCut, locateFleetMirrorView } from "./fleet-edge-mirror.
 import { transitionDocumentReadinessContract } from "./transition-document-access.ts";
 import { validateAgentRuntimeOverview, type AgentRuntimeOverviewResult } from "./agent-runtime-contract.ts";
 import { makeRuntimeSpawner, type RuntimeDaemonRoute, type RuntimeLauncher } from "./runtime-spawn.ts";
+import { applyLocalAgentBinding } from "./runtime-spawn-agent.ts";
 import type { ReviewerReviewRecoveryInput, RuntimeAgent, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { readReplicaGeneration } from "../fleet-sync/fleet/replica-generation.ts";
@@ -279,10 +283,15 @@ export function openFleetEdgeRuntime(input: {
   };
   const readSettings = () => {
     const { request } = context();
-    return withEdgeReadModel({ ...request, principalId: replicaOwner, includeEntries: false }, (projection) => ({
-      ...readSettingsFacet(readFileSync(resolveHarnessLayout(request.workspaceRoot).configPath!, "utf8")),
-      ...((projection.getEntity("settings", "repository")?.value as RepositorySettingsV1 | undefined) ?? {}),
-    }));
+    return withEdgeReadModel({ ...request, principalId: replicaOwner, includeEntries: false }, (projection) =>
+      mergeRepositoryLocalSettings(
+        repositorySettings(
+          (projection.getEntity("settings", "repository")?.value as RepositorySettingsV1 | undefined) ??
+            readSettingsFacet(readFileSync(resolveHarnessLayout(request.workspaceRoot).configPath!, "utf8")),
+        ),
+        readLocalState(request.workspaceRoot).value,
+      ),
+    );
   };
   let replicaOwner: string | undefined;
   const readMirroredDocument = (logicalPath: string): string | null => {
@@ -857,6 +866,7 @@ export function openFleetEdgeRuntime(input: {
               intentInstanceId,
               preferredInstanceId: spawnHints?.preferredRuntimeInstanceId,
               agentId: spawnHints?.agentId,
+              readSettings,
               findAgent: (agentId) =>
                 trustedScheduleAgents.get(agentId) ??
                 findMirroredAgentDeclaration(
@@ -1448,7 +1458,7 @@ export function openFleetEdgeRuntime(input: {
       };
     let trustedAgent: RuntimeAgent;
     try {
-      trustedAgent = parseAgentDeclarationV1(receipt.trustedAgent);
+      trustedAgent = readProjectedAgentDeclaration(receipt.trustedAgent);
     } catch {
       throw edgeRuntimeError(
         "schedule_agent_invalid",
@@ -1658,7 +1668,7 @@ function findMirroredAgentDeclaration(
       logical,
     )
   )
-    return parseAgentDeclarationV1(
+    return readProjectedAgentDeclaration(
       JSON.parse(
         new TextDecoder("utf-8", { fatal: true }).decode(
           readAuthoredDocumentBytes(resolveHarnessLayout(request.workspaceRoot).authoredRoot, logical),
@@ -1748,10 +1758,12 @@ function resolveReviewPublicationInstanceCandidates(input: {
   readonly intentInstanceId: string | undefined;
   readonly preferredInstanceId: string | undefined;
   readonly agentId: string | undefined;
+  readonly readSettings: () => SettingsV1;
   readonly findAgent: (agentId: string) => RuntimeAgent | undefined;
   readonly localInstances: readonly RuntimeInstanceSummary[];
 }): readonly string[] {
-  const agent = input.agentId ? input.findAgent(input.agentId) : undefined;
+  const declaration = input.agentId ? input.findAgent(input.agentId) : undefined,
+    agent = declaration ? applyLocalAgentBinding({ readSettings: input.readSettings }, declaration) : undefined;
   const localIds = new Set(input.localInstances.map((instance) => instance.instanceId));
   const enabledLocal = input.localInstances.filter((instance) => instance.enabled);
   const configuredLocal = enabledLocal.filter((instance) => instance.hostingCredentialState === "configured");

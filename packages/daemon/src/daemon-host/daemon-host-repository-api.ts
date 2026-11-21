@@ -3,7 +3,6 @@ import { forward } from "./fleet/forwarding-port.ts";
 import { forwardingIntentForAction } from "./fleet/forwarding-intent.ts";
 import { materializeFleetEdgeDocuments, reconcileFleetNodeMaterialization } from "./fleet-edge-materialization.ts";
 import { runFleetEdgeRepositoryRead } from "./fleet-edge-task.ts";
-import { initialRuntimeInstanceSettings } from "./runtime-spawn-allowlist.ts";
 import { edgeReplicaDoctor } from "./edge-replica-doctor.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
@@ -310,10 +309,7 @@ export function createDaemonHostRepositoryApi(
       const [bootstrapSettings, bootstrapDocumentBody] = prepared.settingsBootstrap,
         bootstrap = {
           ...prepared,
-          settingsBootstrap: [
-            initialRuntimeInstanceSettings(bootstrapSettings, context.runtimePorts.runtimeInstances()),
-            bootstrapDocumentBody,
-          ] as const,
+          settingsBootstrap: [bootstrapSettings, bootstrapDocumentBody] as const,
         };
       const claimedRegistration = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
         (repo) => repo.repoId === bootstrap.repoId,
