@@ -4,13 +4,23 @@ import { observeDaemonOperation, markDaemonOperationPhase } from "./daemon-opera
 import type { DaemonHost } from "./daemon-host-types.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
 import type { RepoCell, RepoCellStatus } from "./repo-cell-types.ts";
-import { readDaemonRegistry, type RepoMetricsSnapshot } from "@harness-anything/kernel";
+import { readDaemonRegistry, type RepoMetricsAggregates, type RepoMetricsSnapshot } from "@harness-anything/kernel";
+
+export interface TrackedRepoObservability {
+  readonly sortedRepoIds: () => readonly string[];
+  readonly publishRepoStatus: (repoId: string, status: RepoCellStatus) => void;
+  readonly snapshot: () => {
+    readonly repos: readonly RepoMetricsSnapshot[];
+    readonly aggregates: RepoMetricsAggregates;
+  };
+}
 
 export interface TrackedRepoMaps {
   readonly cells: Map<string, RepoCell>;
   readonly warming: Map<string, RepoCellStatus>;
   readonly unavailable: Map<string, RepoCellStatus>;
   readonly sortedRepoIds: () => readonly string[];
+  readonly publishRepoStatus: (repoId: string, status: RepoCellStatus) => void;
 }
 
 export type IdentityProbeCode =
@@ -232,22 +242,22 @@ export function createIdentityReadinessController(input: {
 const nativeMapSet = Map.prototype.set;
 const nativeMapDelete = Map.prototype.delete;
 const nativeMapClear = Map.prototype.clear;
+const trackedObservabilityByCells = new WeakMap<Map<string, RepoCell>, TrackedRepoObservability>();
 
 function instrumentRepoMap<V>(
   map: Map<string, V>,
-  onAdd: (repoId: string) => void,
-  onRemove: (repoId: string) => void,
+  onSet: (repoId: string, value: V) => void,
+  onDelete: (repoId: string) => void,
   onClear: () => void,
 ): void {
   map.set = function set(key: string, value: V): Map<string, V> {
-    const existed = Map.prototype.has.call(this, key);
     nativeMapSet.call(this, key, value);
-    if (!existed) onAdd(key);
+    onSet(key, value);
     return this;
   };
   map.delete = function remove(key: string): boolean {
     const removed = nativeMapDelete.call(this, key);
-    if (removed) onRemove(key);
+    if (removed) onDelete(key);
     return removed;
   };
   map.clear = function clear(): void {
@@ -268,50 +278,221 @@ function binarySearchIndex(sorted: readonly string[], target: string): number {
   return lo;
 }
 
+function toRepoMetricsSnapshot(status: RepoCellStatus): RepoMetricsSnapshot {
+  const attached = status.state === "attached";
+  return {
+    repoId: status.repoId,
+    state: status.state,
+    queueDepth: status.queueDepth ?? null,
+    projectionWatermark: attached ? (status.projectionWatermark ?? null) : null,
+    ledgerRevision: attached ? (status.ledgerRevision ?? null) : null,
+  };
+}
+
+function safeMetricNonNegative(value: number | null): number {
+  return value !== null && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+function computeRepoLag(entry: RepoMetricsSnapshot): number | null {
+  if (entry.projectionWatermark === null || entry.ledgerRevision === null) return null;
+  return Math.max(0, safeMetricNonNegative(entry.ledgerRevision) - safeMetricNonNegative(entry.projectionWatermark));
+}
+
+function isCountedRepoState(state: RepoCellStatus["state"]): state is "attached" | "warming" | "unavailable" {
+  return state === "attached" || state === "warming" || state === "unavailable";
+}
+
 /**
- * Instruments the host's repository membership maps so the sorted union of repository IDs
- * is maintained incrementally on attach/warming/unavailable/detach mutations (zero per-scrape sort).
+ * Instruments the host's repository membership maps so sorted repository snapshots and aggregates
+ * (state counts, total write queue depth, max projection lag) are maintained incrementally via
+ * event-driven publish hooks and map mutations, making /metrics scrapes strict O(1) for collection.
  */
 export function instrumentTrackedRepoMaps(maps: {
   readonly cells: Map<string, RepoCell>;
   readonly warming: Map<string, RepoCellStatus>;
   readonly unavailable: Map<string, RepoCellStatus>;
-}): () => readonly string[] {
+}): TrackedRepoObservability {
   const sortedIds: string[] = [];
-
-  const onAdd = (repoId: string): void => {
-    const index = binarySearchIndex(sortedIds, repoId);
-    if (sortedIds[index] === repoId) return;
-    sortedIds.splice(index, 0, repoId);
+  const sortedRepos: RepoMetricsSnapshot[] = [];
+  const entriesById = new Map<string, RepoMetricsSnapshot>();
+  const lagByRepoId = new Map<string, number>();
+  const stateCounts = { attached: 0, warming: 0, unavailable: 0 };
+  let totalQueueDepth = 0;
+  let maxProjectionLag = 0;
+  let publishedReposView: readonly RepoMetricsSnapshot[] = [];
+  let cachedAggregates: RepoMetricsAggregates = {
+    stateCounts: { attached: 0, warming: 0, unavailable: 0 },
+    totalQueueDepth: 0,
+    maxProjectionLag: 0,
   };
 
-  const onRemove = (repoId: string): void => {
-    if (maps.cells.has(repoId) || maps.warming.has(repoId) || maps.unavailable.has(repoId)) return;
-    const index = binarySearchIndex(sortedIds, repoId);
-    if (sortedIds[index] === repoId) sortedIds.splice(index, 1);
+  const refreshPublishedView = (): void => {
+    publishedReposView = sortedRepos.slice();
+    cachedAggregates = {
+      stateCounts: {
+        attached: stateCounts.attached,
+        warming: stateCounts.warming,
+        unavailable: stateCounts.unavailable,
+      },
+      totalQueueDepth,
+      maxProjectionLag,
+    };
   };
 
-  const onClear = (): void => {
+  const recomputeMaxLag = (): void => {
+    let nextMax = 0;
+    for (const lag of lagByRepoId.values()) {
+      if (lag > nextMax) nextMax = lag;
+    }
+    maxProjectionLag = nextMax;
+  };
+
+  const upsertEntry = (next: RepoMetricsSnapshot): void => {
+    const prev = entriesById.get(next.repoId);
+    if (
+      prev &&
+      prev.state === next.state &&
+      prev.queueDepth === next.queueDepth &&
+      prev.projectionWatermark === next.projectionWatermark &&
+      prev.ledgerRevision === next.ledgerRevision
+    ) {
+      return;
+    }
+    if (prev) {
+      if (isCountedRepoState(prev.state)) stateCounts[prev.state] -= 1;
+      totalQueueDepth -= safeMetricNonNegative(prev.queueDepth);
+    }
+    if (isCountedRepoState(next.state)) stateCounts[next.state] += 1;
+    totalQueueDepth += safeMetricNonNegative(next.queueDepth);
+
+    const prevLag = lagByRepoId.get(next.repoId);
+    const nextLag = computeRepoLag(next);
+    if (nextLag === null) lagByRepoId.delete(next.repoId);
+    else lagByRepoId.set(next.repoId, nextLag);
+    if (nextLag !== null && nextLag >= maxProjectionLag) {
+      maxProjectionLag = nextLag;
+    } else if (prevLag !== undefined && prevLag === maxProjectionLag && (nextLag === null || nextLag < prevLag)) {
+      recomputeMaxLag();
+    }
+
+    entriesById.set(next.repoId, next);
+    const index = binarySearchIndex(sortedIds, next.repoId);
+    if (sortedIds[index] === next.repoId) {
+      sortedRepos[index] = next;
+    } else {
+      sortedIds.splice(index, 0, next.repoId);
+      sortedRepos.splice(index, 0, next);
+    }
+    refreshPublishedView();
+  };
+
+  const removeEntry = (repoId: string): void => {
+    const prev = entriesById.get(repoId);
+    if (!prev) return;
+    entriesById.delete(repoId);
+    if (isCountedRepoState(prev.state)) stateCounts[prev.state] -= 1;
+    totalQueueDepth -= safeMetricNonNegative(prev.queueDepth);
+    const prevLag = lagByRepoId.get(repoId);
+    lagByRepoId.delete(repoId);
+    if (prevLag !== undefined && prevLag === maxProjectionLag) recomputeMaxLag();
+
+    const index = binarySearchIndex(sortedIds, repoId);
+    if (sortedIds[index] === repoId) {
+      sortedIds.splice(index, 1);
+      sortedRepos.splice(index, 1);
+    }
+    refreshPublishedView();
+  };
+
+  const syncRepoFromMaps = (repoId: string): void => {
+    const warmingStatus = maps.warming.get(repoId);
+    if (warmingStatus) {
+      upsertEntry(toRepoMetricsSnapshot(warmingStatus));
+      return;
+    }
+    const cell = maps.cells.get(repoId);
+    if (cell) {
+      upsertEntry(toRepoMetricsSnapshot(cell.publishedStatus ? cell.publishedStatus() : cell.status()));
+      return;
+    }
+    const unavailableStatus = maps.unavailable.get(repoId);
+    if (unavailableStatus) {
+      upsertEntry(toRepoMetricsSnapshot(unavailableStatus));
+      return;
+    }
+    removeEntry(repoId);
+  };
+
+  const rebuildAll = (): void => {
     sortedIds.length = 0;
-    for (const id of maps.cells.keys()) onAdd(id);
-    for (const id of maps.warming.keys()) onAdd(id);
-    for (const id of maps.unavailable.keys()) onAdd(id);
+    sortedRepos.length = 0;
+    entriesById.clear();
+    lagByRepoId.clear();
+    stateCounts.attached = 0;
+    stateCounts.warming = 0;
+    stateCounts.unavailable = 0;
+    totalQueueDepth = 0;
+    maxProjectionLag = 0;
+    refreshPublishedView();
+    const seen = new Set<string>();
+    for (const id of maps.warming.keys()) seen.add(id);
+    for (const id of maps.cells.keys()) seen.add(id);
+    for (const id of maps.unavailable.keys()) seen.add(id);
+    for (const id of seen) syncRepoFromMaps(id);
   };
 
-  instrumentRepoMap(maps.cells, onAdd, onRemove, onClear);
-  instrumentRepoMap(maps.warming, onAdd, onRemove, onClear);
-  instrumentRepoMap(maps.unavailable, onAdd, onRemove, onClear);
-  onClear();
+  instrumentRepoMap(
+    maps.cells,
+    (repoId) => {
+      if (!maps.warming.has(repoId)) syncRepoFromMaps(repoId);
+    },
+    (repoId) => syncRepoFromMaps(repoId),
+    rebuildAll,
+  );
+  instrumentRepoMap(
+    maps.warming,
+    (_repoId, status) => upsertEntry(toRepoMetricsSnapshot(status)),
+    (repoId) => syncRepoFromMaps(repoId),
+    rebuildAll,
+  );
+  instrumentRepoMap(
+    maps.unavailable,
+    (repoId, status) => {
+      if (!maps.warming.has(repoId) && !maps.cells.has(repoId)) upsertEntry(toRepoMetricsSnapshot(status));
+    },
+    (repoId) => syncRepoFromMaps(repoId),
+    rebuildAll,
+  );
+  rebuildAll();
 
-  return () => sortedIds;
+  const observability: TrackedRepoObservability = {
+    sortedRepoIds: () => sortedIds,
+    publishRepoStatus: (repoId, status) => {
+      if (!maps.warming.has(repoId) && maps.cells.has(repoId)) {
+        upsertEntry(toRepoMetricsSnapshot(status));
+      }
+    },
+    snapshot: () => ({
+      repos: publishedReposView,
+      aggregates: cachedAggregates,
+    }),
+  };
+  trackedObservabilityByCells.set(maps.cells, observability);
+  return observability;
 }
 
 export function createTrackedRepoMaps(): TrackedRepoMaps {
   const cells = new Map<string, RepoCell>();
   const warming = new Map<string, RepoCellStatus>();
   const unavailable = new Map<string, RepoCellStatus>();
-  const sortedRepoIds = instrumentTrackedRepoMaps({ cells, warming, unavailable });
-  return { cells, warming, unavailable, sortedRepoIds };
+  const observability = instrumentTrackedRepoMaps({ cells, warming, unavailable });
+  return {
+    cells,
+    warming,
+    unavailable,
+    sortedRepoIds: observability.sortedRepoIds,
+    publishRepoStatus: observability.publishRepoStatus,
+  };
 }
 
 export function createDaemonHostLifecycleApi(
@@ -455,17 +636,30 @@ export function createDaemonHostLifecycleApi(
         .concat([...context.warming.values(), ...context.unavailable.values()])
         .map((status) => ({ repoId: status.repoId, queueDepth: status.queueDepth ?? null })),
     observabilitySnapshot: () => {
-      const repos: RepoMetricsSnapshot[] = [];
-      for (const repoId of currentSortedRepoIds()) {
-        const status = readPublishedRepoStatus(repoId);
-        if (!status) continue;
-        repos.push({
-          repoId: status.repoId,
-          state: status.state,
-          queueDepth: status.queueDepth ?? null,
-          projectionWatermark: status.projectionWatermark ?? null,
-          ledgerRevision: status.ledgerRevision ?? null,
-        });
+      const tracked = trackedObservabilityByCells.get(context.cells);
+      let repos: readonly RepoMetricsSnapshot[];
+      let repoAggregates: RepoMetricsAggregates;
+      if (tracked) {
+        const precomputed = tracked.snapshot();
+        repos = precomputed.repos;
+        repoAggregates = precomputed.aggregates;
+      } else {
+        const fallbackRepos: RepoMetricsSnapshot[] = [];
+        const stateCounts = { attached: 0, warming: 0, unavailable: 0 };
+        let totalQueueDepth = 0;
+        let maxProjectionLag = 0;
+        for (const repoId of currentSortedRepoIds()) {
+          const status = readPublishedRepoStatus(repoId);
+          if (!status) continue;
+          const entry = toRepoMetricsSnapshot(status);
+          fallbackRepos.push(entry);
+          if (isCountedRepoState(entry.state)) stateCounts[entry.state] += 1;
+          totalQueueDepth += safeMetricNonNegative(entry.queueDepth);
+          const lag = computeRepoLag(entry);
+          if (lag !== null && lag > maxProjectionLag) maxProjectionLag = lag;
+        }
+        repos = fallbackRepos;
+        repoAggregates = { stateCounts, totalQueueDepth, maxProjectionLag };
       }
       const centerMetrics = context.fleetCenter?.connectionMetrics();
       const fleet = centerMetrics
@@ -477,7 +671,7 @@ export function createDaemonHostLifecycleApi(
             replicationStreams: 0,
             pendingDeliveries: 0,
           };
-      return { repos, fleet };
+      return { repos, repoAggregates, fleet };
     },
     probeSnapshot: () => {
       const reasons: string[] = [];

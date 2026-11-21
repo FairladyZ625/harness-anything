@@ -215,7 +215,11 @@
       "properties": {
         "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
         "fleetPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
-        "metricsPort": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        "metricsPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "headlessNameOverride": {
+          "type": "string",
+          "pattern": "^$|^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$"
+        }
       }
     },
     "probes": {
@@ -279,6 +283,27 @@
           }
         },
         "required": ["workloadKind", "fleet"]
+      },
+      "then": {
+        "properties": {
+          "persistence": {
+            "properties": { "enabled": { "const": true } },
+            "required": ["enabled"]
+          }
+        },
+        "required": ["persistence"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "workloadKind": { "const": "Deployment" },
+          "identity": {
+            "properties": { "mode": { "const": "managed" } },
+            "required": ["mode"]
+          }
+        },
+        "required": ["workloadKind", "identity"]
       },
       "then": {
         "properties": {

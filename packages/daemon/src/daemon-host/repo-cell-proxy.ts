@@ -158,6 +158,7 @@ export async function openRepoCellProxy(
       },
       initialReplicaStatus = baseStatus();
     lastPublishedReplicaStatus = initialReplicaStatus;
+    input.onStatus?.(initialReplicaStatus);
     supervisor = {
       status: replicaStatus,
       request: rejectWrite,
@@ -452,6 +453,13 @@ export async function openRepoCellProxy(
     close: async () => {
       if (closed) return;
       closed = true;
+      input.onStatus?.({
+        ...(replicaOnly && lastPublishedReplicaStatus !== null ? lastPublishedReplicaStatus : supervisor.status()),
+        state: "closed",
+        queueDepth: 0,
+        projectionWatermark: undefined,
+        ledgerRevision: undefined,
+      });
       runtime.close();
       await terminal.close();
       try {

@@ -1,11 +1,12 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import Ajv from "ajv";
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, parseAllDocuments } from "yaml";
 import { PROMETHEUS_METRIC_NAMES } from "../packages/kernel/src/domain/prometheus-metrics.ts";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
@@ -49,7 +50,13 @@ function assertBalancedHelmDirectives(filePath, content) {
   assert.equal(depth, 0, `${filePath}: unbalanced Helm template directives (remaining depth=${depth})`);
 }
 
-function renderHelmNames({ releaseName, chartName = "harness-center", nameOverride = "", fullnameOverride = "" }) {
+function renderHelmNames({
+  releaseName,
+  chartName = "harness-center",
+  nameOverride = "",
+  fullnameOverride = "",
+  headlessNameOverride = "",
+}) {
   const trunc = (value, maxLen) => value.slice(0, maxLen).replace(/-+$/u, "");
   const sha16 = (value) => createHash("sha256").update(value).digest("hex").slice(0, 16);
   const name = trunc(nameOverride || chartName, 63);
@@ -74,7 +81,7 @@ function renderHelmNames({ releaseName, chartName = "harness-center", nameOverri
     fullname,
     fleetServiceName: derived("fleet", 57, 40),
     metricsServiceName: derived("metrics", 55, 38),
-    headlessServiceName: derived("headless", 54, 37),
+    headlessServiceName: headlessNameOverride ? trunc(headlessNameOverride, 63) : derived("headless", 54, 37),
     entrypointConfigMapName: derived("entrypoint", 52, 35),
   };
 }
@@ -85,6 +92,25 @@ function validateHelmValuesRender(values) {
   if (values.fullnameOverride && !/^[a-z](?:[-a-z0-9]{0,61}[a-z0-9])?$/u.test(values.fullnameOverride)) {
     errors.push("fullnameOverride must be a valid RFC 1035 DNS label");
   }
+  if (
+    values.service?.headlessNameOverride &&
+    !/^[a-z](?:[-a-z0-9]{0,61}[a-z0-9])?$/u.test(values.service.headlessNameOverride)
+  ) {
+    errors.push("service.headlessNameOverride must be a valid RFC 1035 DNS label");
+  }
+  if (values.workloadKind === "StatefulSet" && values.service?.headlessNameOverride) {
+    const names = renderHelmNames({
+      releaseName: "release",
+      fullnameOverride: values.fullnameOverride ?? "",
+      headlessNameOverride: values.service.headlessNameOverride,
+    });
+    if (values.fleet?.enabled && names.headlessServiceName === names.fleetServiceName) {
+      errors.push("service.headlessNameOverride collides with Fleet Service name");
+    }
+    if (values.metrics?.enabled && names.headlessServiceName === names.metricsServiceName) {
+      errors.push("service.headlessNameOverride collides with Metrics Service name");
+    }
+  }
   if (values.storage?.backend === "postgres" && !values.storage?.existingSecret) {
     errors.push("storage.existingSecret is required when storage.backend=postgres");
   }
@@ -93,6 +119,9 @@ function validateHelmValuesRender(values) {
   }
   if (values.fleet?.enabled && values.workloadKind === "Deployment" && !values.persistence?.enabled) {
     errors.push("fleet.enabled=true requires workloadKind=StatefulSet or persistence.enabled=true");
+  }
+  if (values.identity?.mode === "managed" && values.workloadKind === "Deployment" && !values.persistence?.enabled) {
+    errors.push("identity.mode=managed requires workloadKind=StatefulSet or persistence.enabled=true");
   }
   if (values.fleet?.enabled) {
     if (values.fleet.authorityRepoId && !values.fleet.tlsExistingSecret) {
@@ -528,17 +557,122 @@ test("Helm templates isolate Fleet vs Metrics Services, wire StatefulSet headles
   assert.ok(headlessService.includes('eq .Values.workloadKind "StatefulSet"'));
   assert.ok(headlessService.includes("clusterIP: None"));
 
-  // F-G7-18, F-G7-28 & F-G7-37: RFC 1035 DNS-label release-unique base (64-bit sha256) + explicit role suffixes prevent ALL collisions
+  // F-G7-18, F-G7-28, F-G7-37, F-G7-41 & F-G7-42: RFC 1035 DNS-label release-unique base (64-bit sha256),
+  // exact Sprig regexReplaceAll(regex, s, repl) argument order (never piped!), string-quoted labels/selectors,
+  // and explicit service.headlessNameOverride for immutable StatefulSet spec.serviceName upgrades.
   assert.ok(helpers.includes('define "harness-center.fleetServiceName"'));
   assert.ok(helpers.includes('define "harness-center.entrypointConfigMapName"'));
   assert.ok(helpers.includes(".Release.Name | sha256sum | trunc 16"));
-  assert.ok(helpers.includes('regexReplaceAll "[^a-z0-9-]+" "-"'));
+  assert.ok(
+    helpers.includes('regexReplaceAll "[^a-z0-9-]+" $raw "-"'),
+    "_helpers.tpl must pass $raw as the 2nd argument to Sprig regexReplaceAll (never pipe input as 3rd repl argument)",
+  );
+  assert.ok(
+    !/\|\s*regexReplaceAll\b/u.test(helpers),
+    "_helpers.tpl must never pipe a value into Sprig regexReplaceAll (Go pipelines append input as the replacement string)",
+  );
+  assert.ok(helpers.includes('helm.sh/chart: {{ include "harness-center.chart" . | quote }}'));
+  assert.ok(helpers.includes("app.kubernetes.io/managed-by: {{ .Release.Service | quote }}"));
+  assert.ok(helpers.includes('app.kubernetes.io/name: {{ include "harness-center.name" . | quote }}'));
+  assert.ok(helpers.includes("app.kubernetes.io/instance: {{ .Release.Name | quote }}"));
   assert.ok(helpers.includes('regexMatch "^[a-z]"'));
+  assert.ok(helpers.includes(".Values.service.headlessNameOverride"));
   assert.ok(helpers.includes("trunc 40") && helpers.includes("trunc 38") && helpers.includes("sha256sum | trunc 16"));
   assert.ok(helpers.includes("trunc 37") && helpers.includes("trunc 35"));
   assert.ok(fleetService.includes('name: {{ include "harness-center.fleetServiceName" . }}'));
   assert.ok(deployment.includes('name: {{ include "harness-center.entrypointConfigMapName" . }}'));
   assert.ok(statefulset.includes('name: {{ include "harness-center.entrypointConfigMapName" . }}'));
+
+  // F-G7-41: Verify label & selector YAML types render strictly as strings for numeric/boolean Helm release names (0, 42, true)
+  const selectorBlock = /\{\{-\s*define "harness-center\.selectorLabels"\s*-\}\}([\s\S]*?)\{\{-\s*end\s*\}\}/u.exec(
+    helpers,
+  )?.[1];
+  const labelsBlock = /\{\{-\s*define "harness-center\.labels"\s*-\}\}([\s\S]*?)\{\{-\s*end\s*\}\}/u.exec(helpers)?.[1];
+  assert.ok(selectorBlock && labelsBlock, "_helpers.tpl must define selectorLabels and labels");
+  for (const scalarRelease of ["0", "42", "true", "prod", "team.prod", "7center"]) {
+    const renderedSelectors = selectorBlock
+      .replace(/\{\{\s*include "harness-center\.name" \.\s*\|\s*quote\s*\}\}/gu, JSON.stringify("harness-center"))
+      .replace(/\{\{\s*\.Release\.Name\s*\|\s*quote\s*\}\}/gu, JSON.stringify(scalarRelease));
+    assert.ok(
+      !renderedSelectors.includes("{{"),
+      `selectorLabels template must quote every dynamic label value (unrendered: ${renderedSelectors})`,
+    );
+    const parsedSelectors = parseYaml(renderedSelectors);
+    assert.equal(typeof parsedSelectors["app.kubernetes.io/name"], "string");
+    assert.equal(typeof parsedSelectors["app.kubernetes.io/instance"], "string");
+    assert.equal(parsedSelectors["app.kubernetes.io/instance"], scalarRelease);
+  }
+
+  // F-G7-42 & F-G7-43: service.headlessNameOverride validation & collision check, plus managed identity persistence guard
+  const ajvValidator = new Ajv({ allErrors: true, strict: false }).compile(
+    JSON.parse(readFileSync(path.join(chartRoot, "values.schema.json"), "utf8")),
+  );
+  const legacyHeadless = `${"a".repeat(45)}-47c7f801-headless`;
+  assert.equal(
+    ajvValidator({
+      ...parseYaml(readFileSync(path.join(chartRoot, "values.yaml"), "utf8")),
+      workloadKind: "StatefulSet",
+      fullnameOverride: `${"a".repeat(53)}-harness-c`,
+      service: {
+        ...parseYaml(readFileSync(path.join(chartRoot, "values.yaml"), "utf8")).service,
+        headlessNameOverride: legacyHeadless,
+      },
+    }),
+    true,
+    "valid RFC 1035 service.headlessNameOverride must pass schema validation",
+  );
+  assert.equal(
+    ajvValidator({
+      ...parseYaml(readFileSync(path.join(chartRoot, "values.yaml"), "utf8")),
+      service: {
+        ...parseYaml(readFileSync(path.join(chartRoot, "values.yaml"), "utf8")).service,
+        headlessNameOverride: "7invalid.headless",
+      },
+    }),
+    false,
+    "non-RFC-1035 service.headlessNameOverride must fail schema validation",
+  );
+  assert.equal(
+    ajvValidator({
+      ...parseYaml(readFileSync(path.join(chartRoot, "values.yaml"), "utf8")),
+      workloadKind: "Deployment",
+      storage: { backend: "postgres", existingSecret: "pg-secret", secretKey: "daemon-storage.json" },
+      fleet: { ...parseYaml(readFileSync(path.join(chartRoot, "values.yaml"), "utf8")).fleet, enabled: false },
+      identity: {
+        ...parseYaml(readFileSync(path.join(chartRoot, "values.yaml"), "utf8")).identity,
+        mode: "managed",
+      },
+      persistence: { enabled: false, storageClass: "", accessModes: ["ReadWriteOnce"], size: "10Gi" },
+    }),
+    false,
+    "identity.mode=managed with Deployment and persistence.enabled=false must fail schema validation",
+  );
+  const baseDefaults = parseYaml(readFileSync(path.join(chartRoot, "values.yaml"), "utf8"));
+  assert.ok(
+    validateHelmValuesRender({
+      ...baseDefaults,
+      workloadKind: "StatefulSet",
+      fullnameOverride: "prod-center",
+      service: { ...baseDefaults.service, headlessNameOverride: "prod-center-fleet" },
+    }).some((entry) => entry.includes("collides with Fleet Service")),
+  );
+  assert.ok(
+    validateHelmValuesRender({
+      ...baseDefaults,
+      workloadKind: "StatefulSet",
+      fullnameOverride: "prod-center",
+      service: { ...baseDefaults.service, headlessNameOverride: "prod-center-metrics" },
+    }).some((entry) => entry.includes("collides with Metrics Service")),
+  );
+  assert.ok(
+    validateHelmValuesRender({
+      ...baseDefaults,
+      workloadKind: "Deployment",
+      fleet: { ...baseDefaults.fleet, enabled: false },
+      identity: { ...baseDefaults.identity, mode: "managed" },
+      persistence: { ...baseDefaults.persistence, enabled: false },
+    }).some((entry) => entry.includes("identity.mode=managed requires")),
+  );
 
   // F-G7-27: render-time validation rejects overlapping fleet.port and metrics.port (even when TLS secret is unset & service.type=LoadBalancer)
   assert.ok(
@@ -874,4 +1008,120 @@ test("Helm chart contains zero customer-specific coupling, plaintext secrets, or
       );
     }
   }
+});
+
+test("Real helm lint & helm template verify string-quoted labels, Sprig naming prefixes, and StatefulSet spec.serviceName preservation when helm CLI is installed (F-G7-41, F-G7-42)", () => {
+  const helmBin = process.env.HARNESS_HELM_BIN || "helm";
+  const versionProbe = spawnSync(helmBin, ["version", "--short"], { encoding: "utf8" });
+  if (versionProbe.error || versionProbe.status !== 0) {
+    // When running in minimal environments without the external helm binary, the template & schema tests above still run.
+    return;
+  }
+
+  const lint = spawnSync(helmBin, ["lint", chartRoot], { encoding: "utf8" });
+  assert.equal(lint.status, 0, `helm lint failed:\n${lint.stdout}\n${lint.stderr}`);
+
+  const rfc1035 = /^[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
+  const cases = [
+    { release: "prod", expectedPrefix: "prod-harness-center-" },
+    { release: "team.prod", expectedPrefix: "team-prod-harness-center-" },
+    { release: "team-prod", expectedPrefix: "team-prod-harness-center-" },
+    { release: "7center", expectedPrefix: "ha-7center-harness-center-" },
+    { release: "0", expectedPrefix: "ha-0-harness-center-" },
+    { release: "42", expectedPrefix: "ha-42-harness-center-" },
+    { release: "true", expectedPrefix: "true-harness-center-" },
+  ];
+  const seenMetricsServices = new Set();
+
+  for (const { release, expectedPrefix } of cases) {
+    const rendered = spawnSync(
+      helmBin,
+      [
+        "template",
+        release,
+        chartRoot,
+        "--set",
+        "metrics.serviceMonitor.enabled=true",
+        "--set",
+        "metrics.prometheusRule.enabled=true",
+        "--set",
+        "podDisruptionBudget.enabled=true",
+        "--set",
+        "networkPolicy.enabled=true",
+      ],
+      { encoding: "utf8" },
+    );
+    assert.equal(rendered.status, 0, `helm template ${release} failed:\n${rendered.stderr}`);
+    const docs = parseAllDocuments(rendered.stdout)
+      .map((doc) => doc.toJS())
+      .filter((doc) => doc && typeof doc === "object");
+    assert.ok(docs.length >= 6, `expected rendered K8s manifests for release ${release}`);
+
+    const expectedNames = renderHelmNames({ releaseName: release });
+    for (const doc of docs) {
+      const labels = doc.metadata?.labels ?? {};
+      assert.equal(
+        typeof labels["app.kubernetes.io/instance"],
+        "string",
+        `${release}/${doc.kind}: app.kubernetes.io/instance label must be a YAML string`,
+      );
+      assert.equal(labels["app.kubernetes.io/instance"], release);
+      assert.equal(typeof labels["app.kubernetes.io/name"], "string");
+      assert.equal(typeof labels["helm.sh/chart"], "string");
+      assert.equal(typeof labels["app.kubernetes.io/managed-by"], "string");
+      assert.match(doc.metadata.name, rfc1035, `${release}/${doc.kind}: invalid RFC 1035 name ${doc.metadata.name}`);
+
+      const selector = doc.spec?.selector?.matchLabels ?? doc.spec?.selector ?? doc.spec?.podSelector?.matchLabels;
+      if (selector && "app.kubernetes.io/instance" in selector) {
+        assert.equal(
+          typeof selector["app.kubernetes.io/instance"],
+          "string",
+          `${release}/${doc.kind}: selector app.kubernetes.io/instance must be a YAML string`,
+        );
+        assert.equal(selector["app.kubernetes.io/instance"], release);
+      }
+      if (doc.kind === "Service" && labels["app.kubernetes.io/component"] === "metrics") {
+        assert.equal(doc.metadata.name, expectedNames.metricsServiceName);
+        assert.ok(
+          doc.metadata.name.startsWith(expectedPrefix),
+          `${release}: metrics Service ${doc.metadata.name} must preserve readable prefix ${expectedPrefix}`,
+        );
+        assert.equal(seenMetricsServices.has(doc.metadata.name), false, `collision on ${doc.metadata.name}`);
+        seenMetricsServices.add(doc.metadata.name);
+      }
+    }
+  }
+
+  // F-G7-42: Verify StatefulSet long-release upgrade preserves immutable metadata.name, spec.serviceName, and PVC name
+  const longRelease = "a".repeat(53);
+  const legacyWorkloadName = `${"a".repeat(53)}-harness-c`;
+  const legacyServiceName = `${"a".repeat(45)}-47c7f801-headless`;
+  const stsRender = spawnSync(
+    helmBin,
+    [
+      "template",
+      longRelease,
+      chartRoot,
+      "--set",
+      "workloadKind=StatefulSet",
+      "--set-string",
+      `fullnameOverride=${legacyWorkloadName}`,
+      "--set-string",
+      `service.headlessNameOverride=${legacyServiceName}`,
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(stsRender.status, 0, `StatefulSet upgrade render failed:\n${stsRender.stderr}`);
+  const stsDocs = parseAllDocuments(stsRender.stdout)
+    .map((doc) => doc.toJS())
+    .filter((doc) => doc && typeof doc === "object");
+  const sts = stsDocs.find((doc) => doc.kind === "StatefulSet");
+  const headlessSvc = stsDocs.find(
+    (doc) => doc.kind === "Service" && doc.metadata?.labels?.["app.kubernetes.io/component"] === "headless",
+  );
+  assert.ok(sts && headlessSvc, "StatefulSet and headless Service must render");
+  assert.equal(sts.metadata.name, legacyWorkloadName);
+  assert.equal(sts.spec.serviceName, legacyServiceName);
+  assert.equal(headlessSvc.metadata.name, legacyServiceName);
+  assert.equal(sts.spec.volumeClaimTemplates?.[0]?.metadata?.name, "daemon-state");
 });

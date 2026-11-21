@@ -151,6 +151,13 @@ export async function openWriterSupervisor(
       { readonly publish: (message: RepoWriterFleetBaseBackupTraceV1) => void; span?: { repoId: string | null } }
     >();
 
+  const publishStatus = (): void => {
+    options.onPublishedStatus?.({
+      ...status,
+      queueDepth: Math.max(status.queueDepth ?? 0, writes.depth()),
+    });
+  };
+
   const writes = createWriterRequestQueue({
     repoId: input.repoId,
     abortInFlightOnClose: options.canonicalStore !== undefined || daemonWriterSupportsCommitPhase(input.storage),
@@ -158,6 +165,7 @@ export async function openWriterSupervisor(
     syncRepDrainGraceMs: options.syncRepDrainGraceMs,
     requestTimeoutMs: options.requestTimeoutMs,
     warn: options.onWarning,
+    onDepthChange: () => publishStatus(),
     terminateAborted: async (error) => {
       const active = worker;
       worker = null;
@@ -224,6 +232,7 @@ export async function openWriterSupervisor(
             : {}),
         };
       status = { ...status, queueDepth: (status.queueDepth ?? 0) + 1 };
+      publishStatus();
       return await new Promise<T>((resolve, reject) => {
         const cancel = () => {
             storeAbort?.abort(signal?.reason);
@@ -262,6 +271,7 @@ export async function openWriterSupervisor(
           closeFleetBackupTrace(requestId);
           cleanup();
           status = { ...status, queueDepth: Math.max(0, (status.queueDepth ?? 1) - 1) };
+          publishStatus();
           reject(error instanceof Error ? error : new Error(String(error)));
         }
       });
@@ -350,6 +360,7 @@ export async function openWriterSupervisor(
       if (active) await active.terminate();
       failActive(new Error("RepoWriterCell closed"));
       status = { ...status, state: "closed", queueDepth: 0 };
+      publishStatus();
     }
   }
 
@@ -450,6 +461,7 @@ export async function openWriterSupervisor(
             );
           if (message.queueHead !== undefined) operation.operation?.noteQueueHead(message.queueHead);
           status = { ...status, queueDepth: Math.max(0, (status.queueDepth ?? 1) - 1) };
+          publishStatus();
           if (message.outcome === "ok") operation.resolve(message.value);
           else operation.reject(deserializeWriterError(message.error!));
           armIdle();
@@ -464,7 +476,7 @@ export async function openWriterSupervisor(
               status = published;
               statusObservedAt = Date.now();
             }
-            options.onPublishedStatus?.(status);
+            publishStatus();
             if (!settled && attaching && !resuming) options.onAttachStatus?.(published);
             if (
               !settled &&
@@ -545,6 +557,7 @@ export async function openWriterSupervisor(
             lastError: error.message,
             causeClass: "infrastructure",
           };
+          publishStatus();
           const delay = Math.min(1_000, 25 * 2 ** restartAttempt++);
           ready = new Promise((restartResolve, restartReject) => {
             const timer = setTimeout(() => {

@@ -18,7 +18,8 @@ sha256 discriminator of the raw .Release.Name so distinct releases (including "t
 {{- else }}
 {{- $name := default .Chart.Name .Values.nameOverride }}
 {{- $releaseHash := .Release.Name | sha256sum | trunc 16 }}
-{{- $sanitized := printf "%s-%s" .Release.Name $name | lower | regexReplaceAll "[^a-z0-9-]+" "-" | trimAll "-" }}
+{{- $raw := printf "%s-%s" .Release.Name $name | lower }}
+{{- $sanitized := regexReplaceAll "[^a-z0-9-]+" $raw "-" | trimAll "-" }}
 {{- if not (regexMatch "^[a-z]" $sanitized) }}
 {{- $sanitized = printf "ha-%s" $sanitized | trimSuffix "-" }}
 {{- end }}
@@ -38,20 +39,20 @@ Create chart name and version as used by the chart label.
 Common labels
 */}}
 {{- define "harness-center.labels" -}}
-helm.sh/chart: {{ include "harness-center.chart" . }}
+helm.sh/chart: {{ include "harness-center.chart" . | quote }}
 {{ include "harness-center.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
 {{- end }}
 
 {{/*
 Selector labels
 */}}
 {{- define "harness-center.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "harness-center.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/name: {{ include "harness-center.name" . | quote }}
+app.kubernetes.io/instance: {{ .Release.Name | quote }}
 {{- end }}
 
 {{/*
@@ -85,11 +86,15 @@ Governing headless Service name for StatefulSet stable pod DNS.
 Truncates before appending the suffix and hashes long fullnames (64-bit) to remain <= 63 chars and RFC 1035 compliant.
 */}}
 {{- define "harness-center.headlessServiceName" -}}
+{{- if .Values.service.headlessNameOverride -}}
+{{- .Values.service.headlessNameOverride | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
 {{- $full := include "harness-center.fullname" . -}}
 {{- if le (len $full) 54 -}}
 {{- printf "%s-headless" $full -}}
 {{- else -}}
 {{- printf "%s-%s-headless" ($full | trunc 37 | trimSuffix "-") ($full | sha256sum | trunc 16) -}}
+{{- end -}}
 {{- end -}}
 {{- end }}
 
@@ -119,6 +124,18 @@ and strict ASCII non-conflicting Prometheus scrape path.
 {{- if and .Values.fullnameOverride (not (regexMatch "^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$" .Values.fullnameOverride)) }}
 {{- fail (printf "fullnameOverride %q must be a valid RFC 1035 DNS label (^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$) so rendered Kubernetes Service names are accepted." .Values.fullnameOverride) }}
 {{- end }}
+{{- if and .Values.service.headlessNameOverride (not (regexMatch "^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$" .Values.service.headlessNameOverride)) }}
+{{- fail (printf "service.headlessNameOverride %q must be a valid RFC 1035 DNS label (^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$) so StatefulSet spec.serviceName is accepted." .Values.service.headlessNameOverride) }}
+{{- end }}
+{{- if and (eq .Values.workloadKind "StatefulSet") .Values.service.headlessNameOverride }}
+{{- $headlessName := include "harness-center.headlessServiceName" . -}}
+{{- if and .Values.fleet.enabled (eq $headlessName (include "harness-center.fleetServiceName" .)) }}
+{{- fail (printf "service.headlessNameOverride %q collides with Fleet Service name." $headlessName) }}
+{{- end }}
+{{- if and .Values.metrics.enabled (eq $headlessName (include "harness-center.metricsServiceName" .)) }}
+{{- fail (printf "service.headlessNameOverride %q collides with Metrics Service name." $headlessName) }}
+{{- end }}
+{{- end }}
 {{- if and (eq .Values.storage.backend "postgres") (not .Values.storage.existingSecret) }}
 {{- fail "storage.existingSecret is required when storage.backend=postgres so daemon-storage.json is mounted and never falls back to local SQLite." }}
 {{- end }}
@@ -127,6 +144,9 @@ and strict ASCII non-conflicting Prometheus scrape path.
 {{- end }}
 {{- if and .Values.fleet.enabled (eq .Values.workloadKind "Deployment") (not .Values.persistence.enabled) }}
 {{- fail "fleet.enabled=true requires persistent storage: set workloadKind=StatefulSet or persistence.enabled=true on Deployment so Pod replacement preserves <userRoot>/fleet/state.json and staged Fleet uploads/claims." }}
+{{- end }}
+{{- if and (eq .Values.identity.mode "managed") (eq .Values.workloadKind "Deployment") (not .Values.persistence.enabled) }}
+{{- fail "identity.mode=managed requires persistent storage: set workloadKind=StatefulSet or persistence.enabled=true on Deployment so Pod replacement preserves managed Keycloak realm state." }}
 {{- end }}
 {{- if .Values.fleet.enabled }}
 {{- if and .Values.fleet.authorityRepoId (not .Values.fleet.tlsExistingSecret) }}

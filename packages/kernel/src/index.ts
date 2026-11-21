@@ -346,5 +346,6 @@ export {
   formatPrometheusMetrics,
   type DaemonMetricsSnapshot,
   type FleetMetricsSnapshot,
+  type RepoMetricsAggregates,
   type RepoMetricsSnapshot,
 } from "./domain/prometheus-metrics.ts";

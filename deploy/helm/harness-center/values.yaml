@@ -110,6 +110,9 @@ service:
   annotations: {}
   fleetPort: 7545
   metricsPort: 9090
+  # Optional explicit RFC 1035 name for the StatefulSet governing headless Service (spec.serviceName),
+  # allowing in-place upgrades of earlier long-name StatefulSets whose spec.serviceName is immutable.
+  headlessNameOverride: ""
 
 probes:
   liveness:

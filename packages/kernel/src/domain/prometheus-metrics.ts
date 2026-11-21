@@ -39,6 +39,16 @@ export interface RepoMetricsSnapshot {
   readonly ledgerRevision: number | null;
 }
 
+export interface RepoMetricsAggregates {
+  readonly stateCounts: {
+    readonly attached: number;
+    readonly warming: number;
+    readonly unavailable: number;
+  };
+  readonly totalQueueDepth: number;
+  readonly maxProjectionLag: number;
+}
+
 export interface FleetMetricsSnapshot {
   readonly centerEnabled: boolean;
   readonly activeConnections: number;
@@ -79,6 +89,10 @@ export interface DaemonMetricsSnapshot {
   readonly rpc: RpcMetricsSnapshot;
   readonly fleet: FleetMetricsSnapshot;
   readonly repos: readonly RepoMetricsSnapshot[];
+  /** Optional event-maintained O(1) repository aggregates so scrapes never re-aggregate across repos. */
+  readonly repoAggregates?: RepoMetricsAggregates;
+  /** When true, snapshot.repos is guaranteed pre-sorted by repoId so formatter skips order verification. */
+  readonly reposPresorted?: boolean;
 }
 
 export interface RpcMetricsAccumulator {
@@ -137,7 +151,7 @@ export function createRpcMetricsAccumulator(options?: {
 
 export function formatPrometheusMetrics(snapshot: DaemonMetricsSnapshot): string {
   const lines: string[] = [];
-  const sortedRepos = orderedRepos(snapshot.repos);
+  const sortedRepos = snapshot.reposPresorted ? snapshot.repos : orderedRepos(snapshot.repos);
 
   pushHeader(lines, PROMETHEUS_METRIC_NAMES.daemonUp, "gauge", "Whether the Harness Anything daemon process is up.");
   pushSample(lines, PROMETHEUS_METRIC_NAMES.daemonUp, undefined, 1);
@@ -193,18 +207,25 @@ export function formatPrometheusMetrics(snapshot: DaemonMetricsSnapshot): string
     safeNonNegative(snapshot.processHeapUsedBytes),
   );
 
-  const stateCounts: Record<"attached" | "warming" | "unavailable", number> = {
-    attached: 0,
-    warming: 0,
-    unavailable: 0,
-  };
-  let totalQueueDepth = 0;
-  for (const repo of sortedRepos) {
-    if (repo.state === "attached" || repo.state === "warming" || repo.state === "unavailable") {
-      stateCounts[repo.state] += 1;
-    }
-    if (repo.queueDepth !== null && Number.isFinite(repo.queueDepth)) {
-      totalQueueDepth += Math.max(0, repo.queueDepth);
+  let stateCounts: { attached: number; warming: number; unavailable: number };
+  let totalQueueDepth: number;
+  if (snapshot.repoAggregates) {
+    stateCounts = {
+      attached: safeNonNegative(snapshot.repoAggregates.stateCounts.attached),
+      warming: safeNonNegative(snapshot.repoAggregates.stateCounts.warming),
+      unavailable: safeNonNegative(snapshot.repoAggregates.stateCounts.unavailable),
+    };
+    totalQueueDepth = safeNonNegative(snapshot.repoAggregates.totalQueueDepth);
+  } else {
+    stateCounts = { attached: 0, warming: 0, unavailable: 0 };
+    totalQueueDepth = 0;
+    for (const repo of sortedRepos) {
+      if (repo.state === "attached" || repo.state === "warming" || repo.state === "unavailable") {
+        stateCounts[repo.state] += 1;
+      }
+      if (repo.queueDepth !== null && Number.isFinite(repo.queueDepth)) {
+        totalQueueDepth += Math.max(0, repo.queueDepth);
+      }
     }
   }
 
@@ -420,7 +441,8 @@ export function formatPrometheusMetrics(snapshot: DaemonMetricsSnapshot): string
     );
   }
 
-  let maxLag = 0;
+  const hasPrecomputedMaxLag = snapshot.repoAggregates !== undefined;
+  let maxLag = hasPrecomputedMaxLag ? safeNonNegative(snapshot.repoAggregates!.maxProjectionLag) : 0;
   pushHeader(
     lines,
     PROMETHEUS_METRIC_NAMES.projectionLagRevisions,
@@ -430,7 +452,7 @@ export function formatPrometheusMetrics(snapshot: DaemonMetricsSnapshot): string
   for (const repo of sortedRepos) {
     if (repo.projectionWatermark === null || repo.ledgerRevision === null) continue;
     const lag = Math.max(0, safeNonNegative(repo.ledgerRevision) - safeNonNegative(repo.projectionWatermark));
-    if (lag > maxLag) maxLag = lag;
+    if (!hasPrecomputedMaxLag && lag > maxLag) maxLag = lag;
     pushSample(lines, PROMETHEUS_METRIC_NAMES.projectionLagRevisions, [["repo_id", repo.repoId]], lag);
   }
 

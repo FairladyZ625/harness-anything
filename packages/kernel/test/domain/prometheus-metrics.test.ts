@@ -195,3 +195,52 @@ test("formatPrometheusMetrics renders compliant 0.0.4 text with escaping, determ
   assert.ok(rendered.includes("ha_daemon_fleet_replication_streams_active 6\n"));
   assert.ok(rendered.includes("ha_daemon_fleet_deliveries_pending 2\n"));
 });
+
+test("formatPrometheusMetrics consumes pre-maintained repoAggregates and reposPresorted in O(1) without re-sorting (F-G7-44)", () => {
+  const rpc = createRpcMetricsAccumulator();
+  const presortedRepos = [
+    { repoId: "alpha", state: "attached" as const, queueDepth: 2, projectionWatermark: 10, ledgerRevision: 15 },
+    { repoId: "beta", state: "warming" as const, queueDepth: null, projectionWatermark: null, ledgerRevision: null },
+  ];
+  let sortCalls = 0;
+  const origSort = Array.prototype.sort;
+  Array.prototype.sort = function (compareFn) {
+    sortCalls += 1;
+    return origSort.call(this, compareFn);
+  };
+  let rendered: string;
+  try {
+    rendered = formatPrometheusMetrics({
+      daemonId: "preagg-test",
+      version: "0.1.0",
+      commit: "abc1234",
+      uptimeSeconds: 10,
+      processResidentMemoryBytes: 1000,
+      processHeapUsedBytes: 500,
+      activeRuntimeSessions: 0,
+      rpc: rpc.snapshot(0),
+      fleet: {
+        centerEnabled: false,
+        activeConnections: 0,
+        authenticatedNodes: 0,
+        replicationStreams: 0,
+        pendingDeliveries: 0,
+      },
+      repos: presortedRepos,
+      reposPresorted: true,
+      repoAggregates: {
+        stateCounts: { attached: 7, warming: 3, unavailable: 1 },
+        totalQueueDepth: 42,
+        maxProjectionLag: 99,
+      },
+    });
+  } finally {
+    Array.prototype.sort = origSort;
+  }
+  assert.equal(sortCalls, 0);
+  assert.ok(rendered.includes('ha_daemon_repos_loaded{state="attached"} 7\n'));
+  assert.ok(rendered.includes('ha_daemon_repos_loaded{state="warming"} 3\n'));
+  assert.ok(rendered.includes('ha_daemon_repos_loaded{state="unavailable"} 1\n'));
+  assert.ok(rendered.includes("ha_daemon_write_queue_depth_total 42\n"));
+  assert.ok(rendered.includes("ha_daemon_projection_lag_revisions_max 99\n"));
+});

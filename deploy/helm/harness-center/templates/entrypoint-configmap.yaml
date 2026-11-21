@@ -77,7 +77,7 @@ data:
     # 1. Verify declared storage backend wiring across ALL enabled registered repositories (plus target Fleet authority)
     #    so postgres deployments never silently fall back to local SQLite for any repo, and never leak Secret contents on parse errors.
     node -e '
-      const { existsSync, readFileSync } = require("node:fs");
+      const { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } = require("node:fs");
       const path = require("node:path");
 
       const userRoot = path.resolve(process.env.HARNESS_DAEMON_USER_ROOT || "/var/lib/ha/user");
@@ -108,9 +108,9 @@ data:
         }
       };
 
+      let registry = null;
       const requiredRepoIds = new Set();
       if (existsSync(registryFile)) {
-        let registry;
         try {
           registry = JSON.parse(readFileSync(registryFile, "utf8"));
         } catch {
@@ -159,6 +159,64 @@ data:
               missingRepoIds.sort().join(", "),
           );
           process.exit(1);
+        }
+        // Reconcile declared PostgreSQL repositories from daemon-storage.json into registry.json so
+        // stateless Deployment replacements (emptyDir userRoot) re-attach all declared repositories
+        // before /readyz can report Ready, while preserving any existing registered/disabled rows.
+        const nextRegistry =
+          registry && typeof registry === "object" && !Array.isArray(registry)
+            ? registry
+            : {
+                schema: "harness-daemon-registry/v2",
+                connections: [{ id: "local", kind: "local", displayName: "Local daemon", state: "enabled" }],
+                repos: [],
+              };
+        if (!Array.isArray(nextRegistry.connections)) {
+          nextRegistry.connections = [{ id: "local", kind: "local", displayName: "Local daemon", state: "enabled" }];
+        }
+        if (!Array.isArray(nextRegistry.repos)) nextRegistry.repos = [];
+        const existingRepoIds = new Set(
+          nextRegistry.repos
+            .filter((entry) => entry && typeof entry === "object" && typeof entry.repoId === "string")
+            .map((entry) => entry.repoId),
+        );
+        let registryDirty = false;
+        const defaultReposBase = path.join(userRoot, "repos");
+        for (const [rawRepoId, cfg] of pgEntries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+          const repoId = rawRepoId.trim();
+          if (!repoId || repoId === authorityRepoId || existingRepoIds.has(repoId)) continue;
+          if (/[/\\]|\.\./u.test(repoId)) {
+            console.error(
+              "harness-center: refusing unsafe repository ID in daemon-storage.json for declarative registration: " +
+                repoId,
+            );
+            process.exit(1);
+          }
+          const repoRoot = path.join(defaultReposBase, repoId);
+          mkdirSync(repoRoot, { recursive: true });
+          const authoredBranch =
+            cfg.gitFollower && typeof cfg.gitFollower.branch === "string" && cfg.gitFollower.branch.trim()
+              ? cfg.gitFollower.branch.trim()
+              : null;
+          nextRegistry.repos.push({
+            repoId,
+            canonicalRoot: repoRoot,
+            displayName: repoId,
+            authoredBranch,
+            mode: "local",
+            connectionId: "local",
+            state: "enabled",
+            registeredAt: new Date().toISOString(),
+          });
+          existingRepoIds.add(repoId);
+          registryDirty = true;
+        }
+        if (registryDirty) {
+          mkdirSync(userRoot, { recursive: true, mode: 0o700 });
+          const tmpRegistry = registryFile + ".tmp";
+          writeFileSync(tmpRegistry, JSON.stringify(nextRegistry, null, 2) + "\n", { mode: 0o600 });
+          chmodSync(tmpRegistry, 0o600);
+          renameSync(tmpRegistry, registryFile);
         }
       } else if (backend === "sqlite" && existsSync(storageFile)) {
         const parsed = parseStorageFile();

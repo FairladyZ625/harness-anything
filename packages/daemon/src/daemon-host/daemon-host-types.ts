@@ -5,6 +5,7 @@ import {
   type AuthorizationDecision,
   type DaemonRepoMode,
   type FleetMetricsSnapshot,
+  type RepoMetricsAggregates,
   type RepoMetricsSnapshot,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
@@ -308,9 +309,10 @@ export interface DaemonHost {
   };
   /** Lightweight queue snapshot from loaded cells only; no registry/build/cell re-read. */
   readonly writeQueues: () => readonly { readonly repoId: string; readonly queueDepth: number | null }[];
-  /** Pure in-memory O(1) observability snapshot for Prometheus scrapes; zero registry or DB scans. */
+  /** Pure in-memory O(1) observability snapshot for Prometheus scrapes; zero registry, cell polling, or DB scans. */
   readonly observabilitySnapshot: () => {
     readonly repos: readonly RepoMetricsSnapshot[];
+    readonly repoAggregates: RepoMetricsAggregates;
     readonly fleet: FleetMetricsSnapshot;
   };
   /** Pure in-memory readiness probe judgment separating process liveness from service readiness. */

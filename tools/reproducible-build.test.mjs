@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
+  linkSync,
   lstatSync,
   mkdtempSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   readlinkSync,
   rmSync,
@@ -787,6 +789,111 @@ test("buildReproducibleBundle refuses protected paths, arbitrary non-bundle dire
       /unmanaged directories/u,
     );
     assert.equal(lstatSync(extraEmptyDir).isDirectory(), true);
+
+    // 8. F-G7-45: Hardlinked --archive pointing to an existing file inside --out must NEVER truncate the shared inode
+    // when --out replacement fails or during manifest verification!
+    const hardlinkBundleDir = path.join(sandbox, "hardlink-bundle");
+    await buildReproducibleBundle({
+      repository: dir,
+      revision: commit,
+      outputDir: hardlinkBundleDir,
+      targetWorkspaces: ["@repro/sample"],
+      dependencyMode: "none",
+    });
+    const insideTarget = path.join(hardlinkBundleDir, "packages", "sample", "dist", "index.js");
+    const originalBytes = readFileSync(insideTarget);
+    const originalStat = lstatSync(insideTarget);
+    const hardlinkArchive = path.join(sandbox, "alias.tar.gz");
+    linkSync(insideTarget, hardlinkArchive);
+    assert.equal(lstatSync(hardlinkArchive).ino, originalStat.ino, "fixture setup must share inode");
+
+    // 8a. When --out replacement is rejected (unmanaged file added), BOTH the hardlinked file inside --out and --archive
+    // stay completely intact (same bytes, same inode, zero leftover staging files).
+    const blockerFile = path.join(hardlinkBundleDir, "unmanaged-keep.txt");
+    writeFileSync(blockerFile, "blocker\n");
+    await assert.rejects(
+      () =>
+        buildReproducibleBundle({
+          repository: dir,
+          revision: commit,
+          outputDir: hardlinkBundleDir,
+          archivePath: hardlinkArchive,
+          targetWorkspaces: ["@repro/sample"],
+          dependencyMode: "none",
+        }),
+      /unexpected extra file: unmanaged-keep\.txt/u,
+    );
+    assert.equal(
+      Buffer.compare(readFileSync(insideTarget), originalBytes),
+      0,
+      "rejected --out replacement must not truncate hardlinked file inside --out",
+    );
+    assert.equal(
+      Buffer.compare(readFileSync(hardlinkArchive), originalBytes),
+      0,
+      "rejected --out replacement must not modify --archive target",
+    );
+    assert.equal(lstatSync(hardlinkArchive).ino, originalStat.ino);
+    assert.deepEqual(
+      readdirSync(sandbox).filter((name) => name.includes(".staging-")),
+      [],
+      "failed archive staging must clean up temporary files",
+    );
+    rmSync(blockerFile, { force: true });
+    assert.equal(
+      verifyBuildManifest({ bundleDir: hardlinkBundleDir }).ok,
+      true,
+      "existing bundle manifest must remain 100% valid after failed build with hardlinked --archive",
+    );
+
+    // 8b. When --out IS a valid bundle and --archive is hardlinked to a file inside --out, staging to an O_EXCL temp
+    // inode allows --out manifest verification & atomic swap to succeed cleanly, then renames the new archive inode!
+    const replaced = await buildReproducibleBundle({
+      repository: dir,
+      revision: commit,
+      outputDir: hardlinkBundleDir,
+      archivePath: hardlinkArchive,
+      targetWorkspaces: ["@repro/sample"],
+      dependencyMode: "none",
+    });
+    assert.equal(replaced.ok, true);
+    assert.equal(verifyBuildManifest({ bundleDir: hardlinkBundleDir }).ok, true);
+    assert.notEqual(
+      lstatSync(hardlinkArchive).ino,
+      originalStat.ino,
+      "atomic archive rename must publish a new inode instead of truncating the old hardlink inode",
+    );
+    assert.equal(parseUstarEntries(readFileSync(hardlinkArchive)).length > 0, true);
+
+    // 8c. External hardlink pair: overwriting --archive replaces only the archive directory entry and preserves peer link bytes!
+    const peerKeep = path.join(sandbox, "peer-keep.txt");
+    const peerAlias = path.join(sandbox, "peer-alias.tar.gz");
+    writeFileSync(peerKeep, "preserve-external-hardlink\n");
+    linkSync(peerKeep, peerAlias);
+    await buildReproducibleBundle({
+      repository: dir,
+      revision: commit,
+      archivePath: peerAlias,
+      targetWorkspaces: ["@repro/sample"],
+      dependencyMode: "none",
+    });
+    assert.equal(readFileSync(peerKeep, "utf8"), "preserve-external-hardlink\n");
+    assert.notEqual(lstatSync(peerKeep).ino, lstatSync(peerAlias).ino);
+
+    // 8d. Refusing an existing directory passed as --archive
+    const archiveDirCollision = path.join(sandbox, "archive-is-dir");
+    mkdirSync(archiveDirCollision, { recursive: true });
+    await assert.rejects(
+      () =>
+        buildReproducibleBundle({
+          repository: dir,
+          revision: commit,
+          archivePath: archiveDirCollision,
+          targetWorkspaces: ["@repro/sample"],
+          dependencyMode: "none",
+        }),
+      /Refusing to overwrite directory as --archive target/u,
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });

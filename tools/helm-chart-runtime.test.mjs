@@ -1292,3 +1292,107 @@ test("StatefulSet PVC root + authority-repo subPath persist SQLite ledger across
     rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
+
+test("start-center.sh reconciles declared PostgreSQL repos into registry.json for stateless Deployment while preserving disabled rows and rejecting traversal IDs (F-G7-43)", () => {
+  const sandbox = mkdtempSync(path.join(tmpdir(), "ha-helm-pg-reconcile-"));
+  const freshUserRoot = path.join(sandbox, "fresh-user");
+  const pvcUserRoot = path.join(sandbox, "pvc-user");
+  const badUserRoot = path.join(sandbox, "bad-user");
+  const scriptPath = path.join(sandbox, "start-center.sh");
+  const stubDaemon = path.join(sandbox, "stub-daemon.cjs");
+  mkdirSync(freshUserRoot, { recursive: true });
+  mkdirSync(pvcUserRoot, { recursive: true });
+  mkdirSync(badUserRoot, { recursive: true });
+  writeFileSync(scriptPath, extractEntrypointScript(), { mode: 0o755 });
+  writeFileSync(stubDaemon, "process.exit(0);\n");
+
+  try {
+    const validPg = {
+      backend: "postgres",
+      connectionString: "postgresql://runtime@db.internal/harness",
+      authorityConnectionString: "postgresql://authority@db.internal/harness",
+      materialize: false,
+    };
+
+    // 1. Fresh emptyDir userRoot (fleet.enabled=false): reconciles declared PG repos into registry.json
+    writeFileSync(
+      path.join(freshUserRoot, "daemon-storage.json"),
+      JSON.stringify({ "repo-alpha": validPg, "repo-beta": { ...validPg, gitFollower: { branch: "main" } } }),
+    );
+    const freshRes = spawnSync("/bin/sh", [scriptPath], {
+      env: {
+        ...process.env,
+        HARNESS_DAEMON_ENTRY: stubDaemon,
+        HARNESS_DAEMON_USER_ROOT: freshUserRoot,
+        HARNESS_STORAGE_BACKEND: "postgres",
+        HARNESS_FLEET_ENABLED: "false",
+      },
+      encoding: "utf8",
+    });
+    assert.equal(freshRes.status, 0, `fresh stateless PG reconciliation failed: ${freshRes.stderr}`);
+    const freshRegistry = readDaemonRegistry({ userRoot: freshUserRoot });
+    assert.deepEqual(
+      freshRegistry.repos.map((r) => ({ repoId: r.repoId, state: r.state, authoredBranch: r.authoredBranch })),
+      [
+        { repoId: "repo-alpha", state: "enabled", authoredBranch: null },
+        { repoId: "repo-beta", state: "enabled", authoredBranch: "main" },
+      ],
+    );
+
+    // 2. Existing PVC userRoot with an intentionally disabled repo row: preserves disabled state without re-enabling
+    writeFileSync(
+      path.join(pvcUserRoot, "registry.json"),
+      JSON.stringify({
+        schema: "harness-daemon-registry/v2",
+        connections: [{ id: "local", kind: "local", displayName: "Local daemon", state: "enabled" }],
+        repos: [
+          {
+            repoId: "repo-disabled",
+            canonicalRoot: path.join(sandbox, "disabled-root"),
+            displayName: "repo-disabled",
+            authoredBranch: null,
+            mode: "local",
+            connectionId: "local",
+            state: "disabled",
+            registeredAt: "2026-10-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    writeFileSync(
+      path.join(pvcUserRoot, "daemon-storage.json"),
+      JSON.stringify({ "repo-disabled": validPg, "repo-active": validPg }),
+    );
+    const pvcRes = spawnSync("/bin/sh", [scriptPath], {
+      env: {
+        ...process.env,
+        HARNESS_DAEMON_ENTRY: stubDaemon,
+        HARNESS_DAEMON_USER_ROOT: pvcUserRoot,
+        HARNESS_STORAGE_BACKEND: "postgres",
+        HARNESS_FLEET_ENABLED: "false",
+      },
+      encoding: "utf8",
+    });
+    assert.equal(pvcRes.status, 0, `PVC PG reconciliation failed: ${pvcRes.stderr}`);
+    const pvcRegistry = readDaemonRegistry({ userRoot: pvcUserRoot });
+    assert.equal(pvcRegistry.repos.find((r) => r.repoId === "repo-disabled")?.state, "disabled");
+    assert.equal(pvcRegistry.repos.find((r) => r.repoId === "repo-active")?.state, "enabled");
+
+    // 3. Unsafe traversal repoId in daemon-storage.json fails closed
+    writeFileSync(path.join(badUserRoot, "daemon-storage.json"), JSON.stringify({ "../escape": validPg }));
+    const badRes = spawnSync("/bin/sh", [scriptPath], {
+      env: {
+        ...process.env,
+        HARNESS_DAEMON_ENTRY: stubDaemon,
+        HARNESS_DAEMON_USER_ROOT: badUserRoot,
+        HARNESS_STORAGE_BACKEND: "postgres",
+        HARNESS_FLEET_ENABLED: "false",
+      },
+      encoding: "utf8",
+    });
+    assert.notEqual(badRes.status, 0);
+    assert.match(badRes.stderr, /refusing unsafe repository ID/u);
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});

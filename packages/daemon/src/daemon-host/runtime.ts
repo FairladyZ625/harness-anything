@@ -10,8 +10,10 @@ import type { openDaemonRequestLog } from "./request-log.ts";
 import { openDaemonLifecycleLog } from "./lifecycle-log.ts";
 import { openDaemonConnLog, type DaemonTrafficLogEntry } from "./conn-log.ts";
 import {
+  createBoundedMemorySampler,
   resolveDaemonMetricsConfig,
   startDaemonMetricsServer,
+  type BoundedMemorySampler,
   type DaemonMetricsHttpConfig,
   type DaemonMetricsServer,
 } from "./metrics-http-server.ts";
@@ -126,6 +128,7 @@ export async function startDaemon(input: {
   };
   let observation: typeof import("./daemon-operation.ts");
   let diagnostics: Awaited<ReturnType<typeof openDaemonDiagnostics>> | undefined;
+  let memorySampler: BoundedMemorySampler | undefined;
   let metricsServer: DaemonMetricsServer | undefined;
   const metricsConfig = input.metrics === undefined ? resolveDaemonMetricsConfig(process.env) : input.metrics;
   let host: Awaited<ReturnType<typeof openDaemonHost>> | undefined,
@@ -220,6 +223,7 @@ export async function startDaemon(input: {
         throw error;
       } finally {
         if (!deadlineExpired) lifecycle.record({ event: "process_exit", outcome });
+        memorySampler?.close();
         await settleTeardownStep(() => metricsServer?.close() ?? Promise.resolve());
         await settleTeardownStep(() => transport!.stop());
         await settleTeardownStep(() => connLog.settle());
@@ -452,11 +456,12 @@ export async function startDaemon(input: {
     await observation.withDaemonObservation(diagnostics.observer, () => transport!.start());
     socketBound = true;
     if (metricsConfig !== null) {
+      memorySampler = createBoundedMemorySampler();
       metricsServer = await startDaemonMetricsServer({
         config: metricsConfig,
         daemonId: input.daemonId,
         collectSnapshot: () => {
-          const memory = process.memoryUsage();
+          const memory = memorySampler!.read();
           const observed = host!.observabilitySnapshot();
           return {
             daemonId: input.daemonId,
@@ -469,6 +474,8 @@ export async function startDaemon(input: {
             rpc: rpcMetrics.snapshot(activeRequests + activeFleetRequests),
             fleet: observed.fleet,
             repos: observed.repos,
+            repoAggregates: observed.repoAggregates,
+            reposPresorted: true,
           };
         },
         isLive: () => !stopping,
@@ -495,6 +502,7 @@ export async function startDaemon(input: {
     });
     // A failed startup releases the same three keys in the same order a drained shutdown does, so a
     // bound endpoint never outlives the pid file that names its owner.
+    memorySampler?.close();
     if (metricsServer) await settleTeardownStep(() => metricsServer!.close());
     if (socketBound) await transport!.stop();
     await connLog.settle();

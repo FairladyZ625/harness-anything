@@ -225,6 +225,7 @@ export async function performOpenRegistered(
         const previousState = publishedState;
         publishedState = status.state;
         if (context.warming.has(repo.repoId)) context.warming.set(repo.repoId, status);
+        else context.publishRepoStatus?.(repo.repoId, status);
         context.input.onRepoStatusChange?.();
         if (context.cells.has(repo.repoId) && previousState !== "attached" && status.state === "attached")
           void context.scheduleScheduler.refresh();

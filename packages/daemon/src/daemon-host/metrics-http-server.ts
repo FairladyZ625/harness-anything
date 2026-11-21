@@ -2,11 +2,48 @@ import { hash, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
+import v8 from "node:v8";
 import {
   PROMETHEUS_TEXT_CONTENT_TYPE,
   formatPrometheusMetrics,
   type DaemonMetricsSnapshot,
 } from "@harness-anything/kernel";
+
+export interface ProcessMemorySample {
+  readonly rss: number;
+  readonly heapUsed: number;
+}
+
+export interface BoundedMemorySampler {
+  readonly read: () => ProcessMemorySample;
+  readonly close: () => void;
+}
+
+const DEFAULT_MEMORY_SAMPLE_INTERVAL_MS = 2_000;
+
+/**
+ * Samples process RSS via process.memoryUsage.rss() and V8 heap usage via v8.getHeapStatistics()
+ * on a bounded background timer, avoiding synchronous process.memoryUsage() page-table walks
+ * on the HTTP /metrics scrape path.
+ */
+export function createBoundedMemorySampler(options?: { readonly intervalMs?: number }): BoundedMemorySampler {
+  const sample = (): ProcessMemorySample => ({
+    rss: process.memoryUsage.rss(),
+    heapUsed: v8.getHeapStatistics().used_heap_size,
+  });
+  let current = sample();
+  const intervalMs = options?.intervalMs ?? DEFAULT_MEMORY_SAMPLE_INTERVAL_MS;
+  const timer = setInterval(() => {
+    current = sample();
+  }, intervalMs);
+  timer.unref();
+  return {
+    read: () => current,
+    close: () => {
+      clearInterval(timer);
+    },
+  };
+}
 
 export interface DaemonMetricsHttpConfig {
   readonly bind: string;

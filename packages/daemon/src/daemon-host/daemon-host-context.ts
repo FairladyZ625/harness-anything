@@ -119,6 +119,7 @@ export interface DaemonHostRegistryContext extends HostMaps, DaemonHostAdmission
     readonly canonicalRoot: string;
     readonly mode: DaemonRepoMode;
   }) => RepoCellStatus;
+  readonly publishRepoStatus?: (repoId: string, status: RepoCellStatus) => void;
   readonly openRegistered: (repo: RegisteredRepoInput, progress?: AttachProgress) => Promise<void>;
   readonly unavailableStatus: (repoId: string, rootDir: string, mode: DaemonRepoMode, error: unknown) => RepoCellStatus;
   readonly waitForWarming: (repoId: string) => Promise<void>;
@@ -210,6 +211,7 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   readonly initialAttachmentsSettled?: () => boolean;
   readonly fleetCenterRestoreFailed?: () => boolean;
   readonly sortedRepoIds?: () => readonly string[];
+  readonly publishRepoStatus?: (repoId: string, status: RepoCellStatus) => void;
   readonly identityReadiness?: () =>
     | "ready"
     | "identity_not_configured"

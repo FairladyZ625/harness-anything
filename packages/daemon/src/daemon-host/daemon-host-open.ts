@@ -211,7 +211,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       { readonly controller: AbortController; readonly config: string; task: Promise<void> }
     >();
   const unavailable = new Map<string, RepoCellStatus>(),
-    sortedRepoIds = instrumentTrackedRepoMaps({ cells, warming, unavailable }),
+    trackedRepoObservability = instrumentTrackedRepoMaps({ cells, warming, unavailable }),
+    sortedRepoIds = trackedRepoObservability.sortedRepoIds,
+    publishRepoStatus = trackedRepoObservability.publishRepoStatus,
     unavailableProbes = new Map<string, ReturnType<typeof makeRecoveryProbe>>(),
     controls = new Map<string, DaemonControlReceipt>(),
     runtimeDiscovery = input.runtimeDiscover ?? (() => discoverRuntimeInstallations());
@@ -979,6 +981,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     pruneMissingRoot,
     markWarming,
     warmingStatus,
+    publishRepoStatus,
     openRegistered,
     unavailableStatus,
     waitForWarming,
@@ -1226,6 +1229,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       initialAttachmentsSettled || (repos.length === 0 && warming.size === 0 && openings.size === 0),
     fleetCenterRestoreFailed: () => fleetCenterRestoreFailed,
     sortedRepoIds,
+    publishRepoStatus,
     identityReadiness: identityReadiness.currentState,
     waitForWarming,
     closeSignal: closeController.signal,

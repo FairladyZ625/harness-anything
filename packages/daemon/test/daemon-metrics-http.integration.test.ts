@@ -516,23 +516,28 @@ test(
       writeFileSync(edgeCfgPath, "{invalid-json-must-not-be-read-on-scrape");
 
       const tracked = createTrackedRepoMaps();
-      const { cells, warming, unavailable, sortedRepoIds } = tracked;
+      const { cells, warming, unavailable, sortedRepoIds, publishRepoStatus } = tracked;
       cells.set("edge-repo", edgeCell);
+      let publishedStatusReadsDuringScrape = 0;
+      let measuringScrape = false;
       const makeFakeCell = (repoId: string, i: number) => ({
-        publishedStatus: () => ({
-          repoId,
-          rootDir: `/virtual/${repoId}`,
-          mode: "local" as const,
-          state: "attached" as const,
-          generation: 1,
-          queueDepth: i % 4,
-          projectionWatermark: 1000 - (i % 5),
-          ledgerRevision: 1000,
-          lastError: null,
-          causeClass: null,
-          recoveryMs: 0,
-          materialization: null,
-        }),
+        publishedStatus: () => {
+          if (measuringScrape) publishedStatusReadsDuringScrape += 1;
+          return {
+            repoId,
+            rootDir: `/virtual/${repoId}`,
+            mode: "local" as const,
+            state: "attached" as const,
+            generation: 1,
+            queueDepth: i % 4,
+            projectionWatermark: 1000 - (i % 5),
+            ledgerRevision: 1000,
+            lastError: null,
+            causeClass: null,
+            recoveryMs: 0,
+            materialization: null,
+          };
+        },
         status: () => {
           throw new Error("observabilitySnapshot must read publishedStatus(), not slow status()");
         },
@@ -577,15 +582,34 @@ test(
       let snap2: ReturnType<typeof lifecycle.observabilitySnapshot>;
       let snapAfterMutation: ReturnType<typeof lifecycle.observabilitySnapshot>;
       try {
-        // First scrape (cold): zero sorting because TrackedRepoMaps maintains sorted order incrementally on mutation
+        measuringScrape = true;
+        // First scrape (cold): zero sorting and zero per-repo cell.publishedStatus() calls
         snap1 = lifecycle.observabilitySnapshot();
-        // Second scrape (steady state): zero sorting
+        // Second scrape (steady state): zero sorting and zero per-repo cell.publishedStatus() calls
         snap2 = lifecycle.observabilitySnapshot();
-        // Attach a new repo out-of-order and detach an existing repo -> still zero sorting on scrape!
+        measuringScrape = false;
+        // Attach a new repo out-of-order and detach an existing repo -> still zero sorting or cell polling on scrape!
         cells.set("aaa-new-repo", makeFakeCell("aaa-new-repo", 0) as unknown as Parameters<typeof cells.set>[1]);
         cells.delete("repo-032");
+        // Publish an event-driven status update (queueDepth spike + lag spike -> lag drop) and verify O(1) aggregates
+        publishRepoStatus("aaa-new-repo", {
+          repoId: "aaa-new-repo",
+          rootDir: "/virtual/aaa-new-repo",
+          mode: "local",
+          state: "attached",
+          generation: 2,
+          queueDepth: 17,
+          projectionWatermark: 900,
+          ledgerRevision: 1025,
+          lastError: null,
+          causeClass: null,
+          recoveryMs: 0,
+          materialization: null,
+        });
+        measuringScrape = true;
         snapAfterMutation = lifecycle.observabilitySnapshot();
       } finally {
+        measuringScrape = false;
         Array.prototype.sort = originalSort;
       }
       assert.equal(
@@ -593,6 +617,33 @@ test(
         0,
         "observabilitySnapshot must never call Array.prototype.sort on cold, post-mutation, or steady-state scrapes",
       );
+      assert.equal(
+        publishedStatusReadsDuringScrape,
+        0,
+        "observabilitySnapshot must serve pre-maintained repo state with zero per-repo cell.publishedStatus() polling during scrapes (F-G7-44)",
+      );
+      assert.equal(snapAfterMutation.repoAggregates.maxProjectionLag, 125);
+      assert.ok(snapAfterMutation.repoAggregates.totalQueueDepth >= 17);
+      // Drop the max-lag repo's lag back to 0 and verify maxProjectionLag recomputes accurately on mutation (not scrape)
+      publishRepoStatus("aaa-new-repo", {
+        repoId: "aaa-new-repo",
+        rootDir: "/virtual/aaa-new-repo",
+        mode: "local",
+        state: "attached",
+        generation: 2,
+        queueDepth: 0,
+        projectionWatermark: 1025,
+        ledgerRevision: 1025,
+        lastError: null,
+        causeClass: null,
+        recoveryMs: 0,
+        materialization: null,
+      });
+      measuringScrape = true;
+      const snapAfterLagDrop = lifecycle.observabilitySnapshot();
+      measuringScrape = false;
+      assert.equal(publishedStatusReadsDuringScrape, 0);
+      assert.equal(snapAfterLagDrop.repoAggregates.maxProjectionLag, 4);
       assert.equal(snap1.repos.length, 65);
       assert.deepEqual(
         snap2.repos.map((r) => r.repoId),
@@ -797,11 +848,28 @@ test(
           await new Promise((resolve) => setTimeout(resolve, 10));
         }
         const fsCalls = [];
+        let memoryUsageCalls = 0;
+        let memoryUsageRssCalls = 0;
         const origExistsSync = fs.existsSync;
         const origReadFileSync = fs.readFileSync;
         const origStatSync = fs.statSync;
         const origLstatSync = fs.lstatSync;
         const origReaddirSync = fs.readdirSync;
+        const origMemoryUsage = process.memoryUsage;
+        const origMemoryUsageRss = origMemoryUsage.rss;
+        const wrappedMemoryUsage = Object.assign(
+          (...args) => {
+            memoryUsageCalls += 1;
+            return origMemoryUsage(...args);
+          },
+          {
+            rss: (...args) => {
+              memoryUsageRssCalls += 1;
+              return origMemoryUsageRss.apply(origMemoryUsage, args);
+            },
+          },
+        );
+        process.memoryUsage = wrappedMemoryUsage;
         fs.existsSync = (...args) => { fsCalls.push(["existsSync", String(args[0])]); return origExistsSync(...args); };
         fs.readFileSync = (...args) => { fsCalls.push(["readFileSync", String(args[0])]); return origReadFileSync(...args); };
         fs.statSync = (...args) => { fsCalls.push(["statSync", String(args[0])]); return origStatSync(...args); };
@@ -815,6 +883,7 @@ test(
           status = res.status;
           body = await res.text();
         } finally {
+          process.memoryUsage = origMemoryUsage;
           fs.existsSync = origExistsSync;
           fs.readFileSync = origReadFileSync;
           fs.statSync = origStatSync;
@@ -823,7 +892,20 @@ test(
           syncBuiltinESMExports();
           await running.stop();
         }
-        process.stdout.write(JSON.stringify({ status, fsCalls, hasVersion: body.includes('version="${daemonPkg.version}"'), hasUp: body.includes("ha_daemon_up 1\\n") }));
+        const rssMatch = /ha_daemon_process_resident_memory_bytes (\\d+(?:\\.\\d+)?)/u.exec(body);
+        const heapMatch = /ha_daemon_process_heap_used_bytes (\\d+(?:\\.\\d+)?)/u.exec(body);
+        process.stdout.write(
+          JSON.stringify({
+            status,
+            fsCalls,
+            memoryUsageCalls,
+            memoryUsageRssCalls,
+            rssBytes: rssMatch ? Number(rssMatch[1]) : 0,
+            heapUsedBytes: heapMatch ? Number(heapMatch[1]) : 0,
+            hasVersion: body.includes('version="${daemonPkg.version}"'),
+            hasUp: body.includes("ha_daemon_up 1\\n"),
+          }),
+        );
       `;
       const probePath = path.join(userRoot, "cold-scrape-probe.mjs");
       writeFileSync(probePath, probeScript, "utf8");
@@ -834,12 +916,28 @@ test(
       const parsed = JSON.parse(output) as {
         readonly status: number;
         readonly fsCalls: readonly (readonly [string, string])[];
+        readonly memoryUsageCalls: number;
+        readonly memoryUsageRssCalls: number;
+        readonly rssBytes: number;
+        readonly heapUsedBytes: number;
         readonly hasVersion: boolean;
         readonly hasUp: boolean;
       };
       assert.equal(parsed.status, 200);
       assert.equal(parsed.hasUp, true);
       assert.equal(parsed.hasVersion, true, "cold /metrics must report real installed daemon package version");
+      assert.ok(parsed.rssBytes > 0, `expected positive sampled RSS bytes, got ${parsed.rssBytes}`);
+      assert.ok(parsed.heapUsedBytes > 0, `expected positive sampled heapUsed bytes, got ${parsed.heapUsedBytes}`);
+      assert.equal(
+        parsed.memoryUsageCalls,
+        0,
+        "HTTP /metrics scrape must NEVER invoke synchronous process.memoryUsage() page-table walk (F-G7-44)",
+      );
+      assert.equal(
+        parsed.memoryUsageRssCalls,
+        0,
+        "HTTP /metrics scrape must read bounded background memory sample instead of invoking synchronous RSS syscall on request path (F-G7-44)",
+      );
       assert.deepEqual(
         parsed.fsCalls,
         [],

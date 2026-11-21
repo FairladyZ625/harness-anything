@@ -372,6 +372,11 @@ export function createDaemonHostRepositoryApi(
             onBootstrap: (receipt) => {
               published = receipt;
             },
+            onStatus: (status) => {
+              if (context.warming.has(prepared.repoId)) context.warming.set(prepared.repoId, status);
+              else context.publishRepoStatus?.(prepared.repoId, status);
+              context.input.onRepoStatusChange?.();
+            },
             ...context.runtimePorts,
             ...(context.input.runtimeLaunch ? { runtimeLaunch: context.input.runtimeLaunch } : {}),
           });

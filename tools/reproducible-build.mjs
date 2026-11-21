@@ -8,7 +8,7 @@
  * SHA-256 manifests and deterministic USTAR/gzip archives across two independent builds.
  */
 import { execFile as childExecFile, spawnSync } from "node:child_process";
-import { hash } from "node:crypto";
+import { hash, randomUUID } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -336,6 +336,10 @@ function prepareDeliverableTargetPath(outDir, options = {}) {
   }
   if (options.archivePath) {
     const resolvedArchive = path.resolve(options.archivePath);
+    const existingArchive = lstatSync(resolvedArchive, { throwIfNoEntry: false });
+    if (existingArchive?.isDirectory()) {
+      throw new Error(`Refusing to overwrite directory as --archive target: ${resolvedArchive}`);
+    }
     if (pathWithinTarget(resolvedArchive, targetDir) || pathWithinTarget(targetDir, resolvedArchive)) {
       throw new Error(
         `Refusing overlapping --archive (${resolvedArchive}) and --out (${targetDir}) paths; write --archive outside --out.`,
@@ -562,6 +566,14 @@ export async function buildReproducibleBundle(options) {
     options.targetWorkspaces && options.targetWorkspaces.length > 0 ? options.targetWorkspaces : DEFAULT_WORKSPACES;
   const dependencyMode = options.dependencyMode ?? (options.offlineCacheDir ? "offline-cache" : "mirror");
 
+  if (options.archivePath) {
+    const resolvedArchive = path.resolve(options.archivePath);
+    const existingArchive = lstatSync(resolvedArchive, { throwIfNoEntry: false });
+    if (existingArchive?.isDirectory()) {
+      throw new Error(`Refusing to overwrite directory as --archive target: ${resolvedArchive}`);
+    }
+  }
+
   if (options.outputDir) {
     prepareDeliverableTargetPath(options.outputDir, {
       repository,
@@ -570,6 +582,7 @@ export async function buildReproducibleBundle(options) {
   }
 
   const staging = mkdtempSync(path.join(tmpdir(), "ha-repro-stage-"));
+  let stagedArchivePath = null;
   try {
     const extracted = extractTree(repository, commit, staging);
     if (!extracted.ok) throw new Error(extracted.detail);
@@ -655,6 +668,7 @@ export async function buildReproducibleBundle(options) {
     writeFileSync(path.join(staging, "build-manifest.json"), manifestJson, "utf8");
 
     let archiveSha256 = null;
+    let destinationArchive = null;
     if (options.archivePath || options.createArchive) {
       const archiveBytes = createDeterministicTarGz(staging, {
         sourceDateEpoch,
@@ -662,9 +676,17 @@ export async function buildReproducibleBundle(options) {
       });
       archiveSha256 = sha256Buffer(archiveBytes);
       if (options.archivePath) {
-        const destinationArchive = path.resolve(options.archivePath);
-        mkdirSync(path.dirname(destinationArchive), { recursive: true });
-        writeFileSync(destinationArchive, archiveBytes);
+        destinationArchive = path.resolve(options.archivePath);
+        const archiveDir = path.dirname(destinationArchive);
+        mkdirSync(archiveDir, { recursive: true });
+        // Write to an exclusive same-directory temporary file (brand-new inode, O_EXCL) so a
+        // hardlinked or existing --archive target can never be truncated in-place before --out
+        // validation and replacement succeed.
+        stagedArchivePath = path.join(
+          archiveDir,
+          `.${path.basename(destinationArchive)}.staging-${process.pid}-${randomUUID()}`,
+        );
+        writeFileSync(stagedArchivePath, archiveBytes, { flag: "wx", mode: 0o644 });
       }
     }
 
@@ -674,6 +696,11 @@ export async function buildReproducibleBundle(options) {
         archivePath: options.archivePath,
         ignoredSegments: DEFAULT_IGNORED_SEGMENTS,
       });
+    }
+
+    if (stagedArchivePath && destinationArchive) {
+      renameSync(stagedArchivePath, destinationArchive);
+      stagedArchivePath = null;
     }
 
     return {
@@ -687,6 +714,9 @@ export async function buildReproducibleBundle(options) {
       manifest,
     };
   } finally {
+    if (stagedArchivePath) {
+      rmSync(stagedArchivePath, { force: true });
+    }
     rmSync(staging, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 }
