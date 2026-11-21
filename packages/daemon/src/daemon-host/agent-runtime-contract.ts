@@ -1,5 +1,9 @@
 import { agentRuntimeSessionGroupStatusWords } from "@harness-anything/kernel/internal/domain/client-view-status.ts";
 import { validRuntimeInstanceTier } from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
+import {
+  validRuntimeSubscriptionQuota,
+  type RuntimeSubscriptionQuotaV1,
+} from "@harness-anything/kernel/internal/domain/runtime-subscription-quota.ts";
 import type { RuntimeLiveness } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import type { LeasePhase } from "@harness-anything/kernel/internal/domain/execution.ts";
@@ -25,12 +29,12 @@ import type {
 } from "@harness-anything/kernel";
 import type { RuntimeCapabilitySupport } from "../runtime-engine/runtime-inventory-types.ts";
 import { isRuntimeMcpPolicy } from "../runtime-engine/runtime-inventory.ts";
-import {
-  type ActorIdentity,
-  type AgentDefinitionSnapshot,
-  type AgentRuntimeEventV1,
-  type RuntimeInstallationState,
-  type RuntimeSessionSemanticState,
+import type {
+  ActorIdentity,
+  AgentDefinitionSnapshot,
+  AgentRuntimeEventV1,
+  RuntimeInstallationState,
+  RuntimeSessionSemanticState,
 } from "@harness-anything/kernel";
 import { validAgentRuntimeAttemptChain, type AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 import type { ProviderUnreachableEvidence } from "./protocol/task-dispatch-contract.ts";
@@ -53,6 +57,7 @@ interface AgentRuntimeInstanceCommonDto {
   readonly providerId: string;
   readonly models: readonly string[];
   readonly availableModels?: readonly string[];
+  readonly quota?: RuntimeSubscriptionQuotaV1;
   readonly defaultModel: string;
   readonly enabled: boolean;
   /** Optional only for previous-version peer DTOs; the node emits the effective default 1. */
@@ -86,6 +91,8 @@ export interface AgentRuntimeInstanceDto extends AgentRuntimeInstanceCommonDto {
     readonly reason: string | null;
     readonly lastFailureAt: string | null;
     readonly lastResetAt: string | null;
+    readonly quotaExhaustedUntil?: string | null;
+    readonly quotaObservedAt?: string | null;
   };
 }
 export interface AgentRuntimeAssociationDto {
@@ -547,7 +554,7 @@ function validInstance(value: unknown): value is AgentRuntimeInstanceDto {
         "authReadiness",
         "isolationState",
       ],
-      ["availableModels", "hostingCredentialState", "mcpPolicy", "tier"],
+      ["availableModels", "hostingCredentialState", "mcpPolicy", "quota", "tier"],
     ) &&
     value.schemaVersion === 2 &&
     Array.isArray(value.models) &&
@@ -558,6 +565,7 @@ function validInstance(value: unknown): value is AgentRuntimeInstanceDto {
       (Array.isArray(value.availableModels) &&
         value.availableModels.length > 0 &&
         value.availableModels.every((item) => typeof item === "string" && item.length > 0))) &&
+    (value.quota === undefined || validRuntimeSubscriptionQuota(value.quota)) &&
     typeof value.defaultModel === "string" &&
     (value.models.includes(value.defaultModel) || (value.models.length === 0 && value.defaultModel === "")) &&
     typeof value.enabled === "boolean" &&

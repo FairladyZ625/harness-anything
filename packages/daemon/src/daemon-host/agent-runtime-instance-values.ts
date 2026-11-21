@@ -31,3 +31,9 @@ export function available(basis: "metadata" | "provider" = "metadata"): RuntimeA
 export function unavailable(code: string, hint: string): RuntimeAuthReadiness {
   return { status: "not-ready", code, hint };
 }
+
+const sha256HexPattern = /^(?:(?:account|credential):)?[0-9a-f]{64}$/u;
+
+export function validAccountFingerprint(value: unknown): value is string {
+  return typeof value === "string" && sha256HexPattern.test(value);
+}

@@ -650,6 +650,7 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
           authState: probed.authState,
           authReadiness: probed.authReadiness,
           availableModels: probed.availableModels,
+          quota: probed.quota,
           providerHealth: probed.providerHealth,
         };
   });

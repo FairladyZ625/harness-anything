@@ -4,8 +4,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
+import { projectRuntimeProviderHealth } from "@harness-anything/kernel";
 import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
-import { openRuntimeProviderHealthStore } from "../src/runtime-engine/runtime-provider-health.ts";
+import {
+  effectiveProviderBlockedUntil,
+  openRuntimeProviderHealthStore,
+} from "../src/runtime-engine/runtime-provider-health.ts";
 
 test("provider health persists bounded cooldowns and freezes after the configured streak", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-provider-health-"));
@@ -106,6 +110,212 @@ test("provider health fallback cooldown reads the shared policy default", () => 
     assert.equal(row.cooldownUntil, "2026-10-12T00:00:07.000Z");
   } finally {
     daemonRuntimePolicy.defaultValue.health.cooldownBaseSeconds = previousBase;
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test("quota health transitions are orthogonal to transport failures and manual freezes (503 -> quota -> recovery)", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-provider-health-quota-"));
+  try {
+    const store = openRuntimeProviderHealthStore(root),
+      resetAt = "2026-11-28T00:00:00.000Z";
+    const first = store.recordQuotaExhausted({
+      instanceId: "codex-quota",
+      occurredAt: "2026-11-21T10:00:00.000Z",
+      resetAt,
+    });
+    const second = store.recordQuotaExhausted({
+      instanceId: "codex-quota",
+      occurredAt: "2026-11-21T10:05:00.000Z",
+      resetAt,
+    });
+    const third = store.recordQuotaExhausted({
+      instanceId: "codex-quota",
+      occurredAt: "2026-11-21T10:10:00.000Z",
+      resetAt: "2026-11-22T00:00:00.000Z",
+      scope: "account",
+    });
+    assert.equal(first.failureStreak, 0);
+    assert.equal(second.failureStreak, 0);
+    assert.equal(third.failureStreak, 0);
+    assert.equal(third.frozenUntil, null);
+    assert.equal(third.cooldownUntil, null);
+    // QUOTA-09: authoritative newer observation replaces stale longer window when longer window recovers.
+    assert.equal(third.quotaExhaustedUntil, "2026-11-22T00:00:00.000Z");
+    assert.equal(effectiveProviderBlockedUntil(third), "2026-11-22T00:00:00.000Z");
+
+    // Out-of-order older occurredAt does not overwrite newer authoritative quota observation.
+    const stale = store.recordQuotaExhausted({
+      instanceId: "codex-quota",
+      occurredAt: "2026-11-21T10:02:00.000Z",
+      resetAt,
+    });
+    assert.equal(stale.quotaExhaustedUntil, "2026-11-22T00:00:00.000Z");
+
+    // QUOTA-20: projectRuntimeProviderHealth & effectiveProviderBlockedUntil(health, now) filter expired clocks
+    // and select the latest still-future clock matching scheduler eligibility.
+    assert.deepEqual(
+      projectRuntimeProviderHealth(
+        {
+          frozen: false,
+          frozenUntil: null,
+          cooldownUntil: "2026-11-21T13:00:00.000Z",
+          quotaExhaustedUntil: "2026-11-21T15:00:00.000Z",
+          reason: "HTTP 503",
+        },
+        "2026-11-21T12:00:00.000Z",
+      ),
+      {
+        status: "cooldown",
+        recoverAt: "2026-11-21T15:00:00.000Z",
+        reason: "HTTP 503",
+        transportBlocked: true,
+        usageExhausted: true,
+      },
+    );
+    assert.deepEqual(
+      projectRuntimeProviderHealth(
+        {
+          frozen: false,
+          frozenUntil: null,
+          cooldownUntil: "2026-11-21T11:00:00.000Z",
+          quotaExhaustedUntil: "2026-11-21T15:00:00.000Z",
+          reason: "HTTP 503",
+        },
+        "2026-11-21T12:00:00.000Z",
+      ),
+      {
+        status: "cooldown",
+        recoverAt: "2026-11-21T15:00:00.000Z",
+        reason: "quota_exhausted",
+        transportBlocked: false,
+        usageExhausted: true,
+      },
+    );
+    assert.deepEqual(
+      projectRuntimeProviderHealth(
+        {
+          frozen: false,
+          frozenUntil: null,
+          cooldownUntil: null,
+          quotaExhaustedUntil: "2026-11-21T09:00:00.000Z",
+          reason: null,
+        },
+        "2026-11-21T12:00:00.000Z",
+      ),
+      {
+        status: "ready",
+        recoverAt: null,
+        reason: null,
+        transportBlocked: false,
+        usageExhausted: false,
+      },
+    );
+    assert.equal(
+      effectiveProviderBlockedUntil(
+        { cooldownUntil: null, frozenUntil: null, quotaExhaustedUntil: "2026-11-21T09:00:00.000Z" },
+        "2026-11-21T12:00:00.000Z",
+      ),
+      null,
+    );
+
+    // Clearing quota_exhausted clears quotaExhaustedUntil cleanly.
+    const cleared = store.clearQuotaExhausted("codex-quota", "2026-11-21T11:00:00.000Z");
+    assert.equal(cleared.quotaExhaustedUntil, null);
+    assert.equal(effectiveProviderBlockedUntil(cleared), null);
+
+    // Permanent freeze is preserved across quota exhaustion and quota recovery.
+    store.recordFailure({
+      instanceId: "frozen-account",
+      reason: "manual freeze",
+      occurredAt: "2026-11-21T10:00:00.000Z",
+      permanentFreeze: true,
+    });
+    store.recordQuotaExhausted({
+      instanceId: "frozen-account",
+      occurredAt: "2026-11-21T10:05:00.000Z",
+      resetAt,
+    });
+    const afterQuotaClear = store.clearQuotaExhausted("frozen-account", "2026-11-21T11:00:00.000Z");
+    assert.equal(afterQuotaClear.frozen, true);
+    assert.equal(afterQuotaClear.reason, "manual freeze");
+    assert.equal(afterQuotaClear.quotaExhaustedUntil, null);
+
+    // Active HTTP 503 cooldown -> subsequent quota_exhausted -> quota recovery MUST preserve HTTP 503 cooldown & reason!
+    const after503 = store.recordFailure({
+      instanceId: "network-account",
+      reason: "HTTP 503",
+      occurredAt: "2026-11-21T10:00:00.000Z",
+      cooldownBaseSeconds: 3600,
+    });
+    assert.equal(after503.cooldownUntil, "2026-11-21T11:00:00.000Z");
+    const after503AndQuota = store.recordQuotaExhausted({
+      instanceId: "network-account",
+      occurredAt: "2026-11-21T10:05:00.000Z",
+      resetAt: "2026-11-21T12:00:00.000Z",
+    });
+    assert.equal(after503AndQuota.reason, "HTTP 503");
+    assert.equal(after503AndQuota.cooldownUntil, "2026-11-21T11:00:00.000Z");
+    assert.equal(after503AndQuota.quotaExhaustedUntil, "2026-11-21T12:00:00.000Z");
+    assert.equal(effectiveProviderBlockedUntil(after503AndQuota), "2026-11-21T12:00:00.000Z");
+    const afterQuotaRecovery = store.clearQuotaExhausted("network-account", "2026-11-21T10:15:00.000Z");
+    assert.equal(afterQuotaRecovery.quotaExhaustedUntil, null);
+    assert.equal(afterQuotaRecovery.reason, "HTTP 503");
+    assert.equal(afterQuotaRecovery.failureStreak, 1);
+    assert.equal(afterQuotaRecovery.cooldownUntil, "2026-11-21T11:00:00.000Z");
+    assert.equal(effectiveProviderBlockedUntil(afterQuotaRecovery), "2026-11-21T11:00:00.000Z");
+
+    // effectiveProviderBlockedUntil always prefers the latest of frozenUntil, cooldownUntil, and quotaExhaustedUntil.
+    assert.equal(
+      effectiveProviderBlockedUntil({
+        cooldownUntil: "2026-11-28T00:00:00.000Z",
+        frozenUntil: "2026-11-21T10:30:00.000Z",
+        quotaExhaustedUntil: "2026-11-29T00:00:00.000Z",
+      }),
+      "2026-11-29T00:00:00.000Z",
+    );
+    assert.equal(
+      effectiveProviderBlockedUntil({
+        cooldownUntil: "2026-11-21T10:30:00.000Z",
+        frozenUntil: "2026-11-22T00:00:00.000Z",
+        quotaExhaustedUntil: null,
+      }),
+      "2026-11-22T00:00:00.000Z",
+    );
+
+    // recordSuccess only clears quotaExhaustedUntil when the succeeded model matches the exhausted
+    // scope or the observed reset window has elapsed (never on an unrelated model or unscoped success).
+    store.recordQuotaExhausted({
+      instanceId: "scoped-model-account",
+      occurredAt: "2026-11-21T10:00:00.000Z",
+      resetAt: "2026-11-28T00:00:00.000Z",
+      scope: "model",
+      models: ["gemini-4-argon-high"],
+    });
+    const afterUnscopedSuccess = store.recordSuccess("scoped-model-account", "2026-11-21T10:05:00.000Z");
+    assert.equal(afterUnscopedSuccess.quotaExhaustedUntil, "2026-11-28T00:00:00.000Z");
+    const afterOtherModelSuccess = store.recordSuccess("scoped-model-account", "2026-11-21T10:06:00.000Z", {
+      model: "gemini-4-hydrogen-low",
+    });
+    assert.equal(afterOtherModelSuccess.quotaExhaustedUntil, "2026-11-28T00:00:00.000Z");
+    const afterMatchingModelSuccess = store.recordSuccess("scoped-model-account", "2026-11-21T10:07:00.000Z", {
+      model: "gemini-4-argon-high",
+    });
+    assert.equal(afterMatchingModelSuccess.quotaExhaustedUntil, null);
+
+    // Account-wide exhaustion clears on matching-account execution with a model, OR once resetAt elapses.
+    store.recordQuotaExhausted({
+      instanceId: "account-wide-quota",
+      occurredAt: "2026-11-21T10:00:00.000Z",
+      resetAt: "2026-11-28T00:00:00.000Z",
+      scope: "account",
+    });
+    assert.equal(
+      store.recordSuccess("account-wide-quota", "2026-11-21T10:05:00.000Z").quotaExhaustedUntil,
+      "2026-11-28T00:00:00.000Z",
+    );
+    assert.equal(store.recordSuccess("account-wide-quota", "2026-11-28T00:00:00.000Z").quotaExhaustedUntil, null);
+  } finally {
     rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });

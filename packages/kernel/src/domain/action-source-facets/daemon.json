@@ -4217,6 +4217,13 @@
         "order": 814
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-subscription-quota-probe.ts#probeCodexAppServerQuota.input:f5f64c7d060c5b47d23dce3daf463c4e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/stream.d.ts#stream.Stream.Writable.write",
+        "order": 1327
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-task-publication.ts#publishTaskPullRequest:11888f18490efcb316f57fd6f83496c5",
         "route": "daemon-local-state",
         "role": "technical-port",

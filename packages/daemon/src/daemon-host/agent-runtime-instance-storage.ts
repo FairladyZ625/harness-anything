@@ -5,20 +5,33 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readFileSync,
   readlinkSync,
+  realpathSync,
   renameSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
 import { agentDefinitionSnapshotEndpoint } from "./agent-runtime-snapshot.ts";
-import { type AgentDefinitionSnapshot, type RuntimeMcpPolicy } from "@harness-anything/kernel";
+import {
+  formatSubscriptionQuotaSummary,
+  type AgentDefinitionSnapshot,
+  type RuntimeMcpPolicy,
+} from "@harness-anything/kernel";
 import { resolveRuntimeMcpPolicy, runtimeSupportsMcpPolicy } from "../runtime-engine/runtime-permissions.ts";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { writeFileDurably } from "../../../storage/src/durable-file.ts";
-import { identifier, runtimeInstanceError, unavailable } from "./agent-runtime-instance-values.ts";
+import {
+  identifier,
+  isRuntimeInstanceRecord,
+  runtimeInstanceError,
+  unavailable,
+} from "./agent-runtime-instance-values.ts";
 import type {
+  RecordedRuntimeInstallation,
   RuntimeAuthReadiness,
   RuntimeInstallationIdentity,
   RuntimeInstallationWitness,
@@ -187,6 +200,7 @@ export function publicConfig(
     providerId: config.providerId,
     models: config.models,
     ...(config.availableModels === undefined ? {} : { availableModels: config.availableModels }),
+    ...(config.quota === undefined ? {} : { quota: config.quota }),
     defaultModel: config.defaultModel,
     enabled: config.enabled,
     tier: config.tier ?? 1,
@@ -328,6 +342,43 @@ export function runtimeBaseUrl(config: RuntimeInstanceConfig): string | undefine
   return runtimeProviderConfig(config).baseUrl;
 }
 
+export function parseCodexChatgptBaseUrl(tomlText: string): string | null {
+  for (const rawLine of tomlText.split(/\r?\n/u)) {
+    const line = stripTomlComment(rawLine).trim();
+    if (!line) continue;
+    if (line.startsWith("[")) break;
+    const match = /^chatgpt_base_url\s*=\s*(?:"([^"\\]*(?:\\.[^"\\]*)*)"|'([^']*)')$/u.exec(line);
+    if (!match) continue;
+    const raw = match[1] !== undefined ? match[1].replace(/\\"/gu, '"').replace(/\\\\/gu, "\\") : (match[2] ?? "");
+    const trimmed = raw.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  return null;
+}
+
+function stripTomlComment(line: string): string {
+  let inDouble = false;
+  let inSingle = false;
+  let escaped = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index]!;
+    if (inDouble) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inDouble = false;
+      continue;
+    }
+    if (inSingle) {
+      if (char === "'") inSingle = false;
+      continue;
+    }
+    if (char === '"') inDouble = true;
+    else if (char === "'") inSingle = true;
+    else if (char === "#") return line.slice(0, index);
+  }
+  return line;
+}
+
 export function writeCodexConfig(
   target: string,
   config: RuntimeInstanceConfig,
@@ -335,6 +386,7 @@ export function writeCodexConfig(
   baseUrlOverride?: string,
   platform: NodeJS.Platform = process.platform,
 ): void {
+  const existingChatgptBaseUrl = existsSync(target) ? parseCodexChatgptBaseUrl(readFileSync(target, "utf8")) : null;
   const provider = runtimeProviderConfig(config),
     effort = provider.reasoningEffort,
     headers =
@@ -343,6 +395,7 @@ export function writeCodexConfig(
         : provider.httpHeaders,
     lines = [
       `model_provider = ${tomlString(config.providerId)}`,
+      ...(existingChatgptBaseUrl ? [`chatgpt_base_url = ${tomlString(existingChatgptBaseUrl)}`] : []),
       ...(effort ? [`model_reasoning_effort = ${tomlString(effort)}`] : []),
       "allow_login_shell = false",
       // Bind authentication before login/app-server startup, including on macOS.
@@ -520,4 +573,87 @@ export function writeDeepseekHarnessPatch(target: string, config: RuntimeInstanc
 
 export function tomlString(value: string): string {
   return JSON.stringify(value);
+}
+
+/** The receipt's installation row: a witness minus the host paths the command contract keeps
+ *  out of every runtime-instance reply. */
+export function withoutHostPaths({
+  executableEntryPath: _entry,
+  executablePath: _path,
+  ...installation
+}: RuntimeInstallationWitness): RecordedRuntimeInstallation {
+  return installation;
+}
+
+export function installationEntryMatches(installation: RuntimeInstallationWitness): boolean {
+  if (!installation.executableEntryPath) return true;
+  // A vanished entry reads as undefined rather than throwing; any other failure stays loud.
+  const entry = statSync(installation.executableEntryPath, { throwIfNoEntry: false });
+  return (
+    entry !== undefined &&
+    entry.isFile() &&
+    (process.platform === "win32" || (entry.mode & 0o111) !== 0) &&
+    realpathSync.native(installation.executableEntryPath) === installation.executablePath
+  );
+}
+
+export function readRecordedInstallationsFile(
+  installationsTarget: string,
+): readonly RecordedRuntimeInstallation[] | null {
+  if (!existsSync(installationsTarget)) return null;
+  const value: unknown = JSON.parse(readFileSync(installationsTarget, "utf8"));
+  if (
+    !isRuntimeInstanceRecord(value) ||
+    value.schema !== "runtime-installations/v1" ||
+    !Array.isArray(value.installations) ||
+    Object.keys(value).some((key) => !["schema", "installations"].includes(key))
+  )
+    throw runtimeInstanceError("invalid_runtime_installation_store", "Recorded runtime installations are invalid.");
+  return value.installations as readonly RecordedRuntimeInstallation[];
+}
+
+export function authReadinessLabel(readiness: RuntimeAuthReadiness): string {
+  if (readiness.code === "runtime_auth_not_checked") return "not-checked";
+  return readiness.status === "ready" && readiness.basis === "metadata" ? "ready (metadata)" : readiness.status;
+}
+
+export function formatRuntimeInstanceListSummary(
+  instances: readonly RuntimeInstanceSummary[],
+  installations: readonly RecordedRuntimeInstallation[],
+): string {
+  return [
+    "ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tCREDENTIAL SOURCE\tAVAILABLE MODELS\tLOGIN STATUS\tPERMISSION MODE\tMCP POLICY\tQUOTA",
+    ...instances.map((instance) =>
+      [
+        instance.instanceId,
+        instance.name,
+        instance.kindId,
+        instance.models.join(","),
+        instance.enabled ? "enabled" : "disabled",
+        instance.authMode,
+        instance.credentialSource,
+        instance.availableModels?.join(",") ?? "(not probed)",
+        authReadinessLabel(instance.authReadiness),
+        `${instance.permissionMode}`,
+        instance.mcpPolicy ?? "unsupported",
+        formatSubscriptionQuotaSummary(instance.quota),
+      ].join("\t"),
+    ),
+    "",
+    "INSTALLATION\tKIND\tVERSION\tOBSERVED AT",
+    ...installations.map(
+      ({ installationId, kindId, version, observedAt }) => `${installationId}\t${kindId}\t${version}\t${observedAt}`,
+    ),
+  ].join("\n");
+}
+
+export function formatRuntimeInstanceShowSummary(
+  instanceId: string,
+  instance: RuntimeInstanceSummary,
+  modelCatalogReadiness?: RuntimeAuthReadiness,
+): string {
+  const prefix = modelCatalogReadiness
+    ? `modelCatalog: ${modelCatalogReadiness.code ?? "ready"}${modelCatalogReadiness.hint ? ` · ${modelCatalogReadiness.hint}` : ""}\n`
+    : "";
+  return `${prefix}runtime-instance-show: ${instanceId}\ntier: ${instance.tier}\nmodels: ${instance.models.join(", ")}\navailableModels: ${instance.availableModels?.join(", ") ?? "(not probed)"}\ncredentialSource: ${instance.credentialSource}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}\nmcpPolicy: ${instance.mcpPolicy ?? "unsupported"}${instance.quota ? `\nquota: ${formatSubscriptionQuotaSummary(instance.quota)}` : ""}`;
 }

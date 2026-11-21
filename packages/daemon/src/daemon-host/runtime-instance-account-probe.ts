@@ -1,14 +1,16 @@
 import path from "node:path";
+import type { RuntimeSubscriptionQuotaV1 } from "@harness-anything/kernel";
 import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { runtimeInstanceError } from "./agent-runtime-instance-config.ts";
-import {
-  parseRuntimeModelCatalogOutput,
-  runExecutable,
-  runExecutableResult,
-} from "./agent-runtime-installation-discovery.ts";
-import type { RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
+import { parseRuntimeModelCatalogOutput, runExecutable } from "./agent-runtime-installation-discovery.ts";
+import type { RuntimeCredentialSource, RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
 import { runtimeKindForId } from "../runtime-engine/runtime-inventory.ts";
 import { probeSessionModelCatalog } from "./runtime-account-model-catalog.ts";
+import {
+  agyNonInteractiveProbeEnv,
+  probeProviderSubscriptionQuota,
+  type KeychainLookupRunner,
+} from "./runtime-subscription-quota-probe.ts";
 
 export interface RuntimeAccountModelCatalog {
   readonly models: readonly string[];
@@ -36,10 +38,12 @@ export function createRuntimeInstanceAccountProbe(
         if (probe === undefined) return null;
         if (probe.kind !== "command") return probeSessionModelCatalog(platform, input, probe.kind, signal, timeoutMs);
         if (input.kindId === "agy") agyAccountHome(input.env);
+        const commandEnv = input.kindId === "agy" ? agyNonInteractiveProbeEnv(input.env, platform) : input.env;
         const output = await runExecutable(platform, input.executablePath, probe.args, {
-            env: input.env,
+            env: commandEnv,
             timeoutMs,
             captureOutput: true,
+            input: "",
             signal,
           }),
           models = parseRuntimeModelCatalogOutput(input.kindId, output);
@@ -50,62 +54,31 @@ export function createRuntimeInstanceAccountProbe(
         };
       });
     },
-    probeAgyQuota: (input: {
-      readonly executablePath: string;
+    probeQuota: (input: {
+      readonly kindId: RuntimeInstanceKind;
+      readonly credentialSource: RuntimeCredentialSource;
+      readonly executablePath?: string;
       readonly env: NodeJS.ProcessEnv;
+      readonly hasCustomProviderBaseUrl?: boolean;
       readonly signal?: AbortSignal;
-    }): Promise<string | undefined> => {
-      const timeoutMs = runtimeKindForId("agy").auth.subscriptionProbeTimeoutMs,
+      readonly now?: () => string;
+      readonly fetchImpl?: typeof fetch;
+      readonly resolveGithubToken?: () => Promise<string | null>;
+      readonly runKeychainLookup?: KeychainLookupRunner;
+      readonly onCredentialFingerprint?: (fingerprint: string) => void;
+    }): Promise<RuntimeSubscriptionQuotaV1 | null> => {
+      const timeoutMs = runtimeKindForId(input.kindId).auth.subscriptionProbeTimeoutMs,
         signal = probeSignal(input.signal, timeoutMs);
-      return runBounded(signal, async () => {
-        agyAccountHome(input.env);
-        const result = await runExecutableResult(
-          platform,
-          input.executablePath,
-          ["-p", "/quota", "--output-format", "json"],
-          { env: input.env, timeoutMs, signal },
-        );
-        if (result.exitCode !== 0)
-          throw runtimeInstanceError(
-            "runtime_quota_probe_failed",
-            `AGY quota probe exited with status ${result.exitCode}.`,
-          );
-        return quotaResetTime(result.stdout);
-      });
+      return runBounded(signal, () =>
+        probeProviderSubscriptionQuota(platform, {
+          ...input,
+          signal,
+          timeoutMs,
+          now: input.now ?? (() => new Date().toISOString()),
+        }),
+      );
     },
   });
-}
-
-export function quotaResetTime(output: string): string | undefined {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(output);
-  } catch {
-    throw runtimeInstanceError("runtime_quota_response_invalid", "AGY quota response is not valid JSON.");
-  }
-  const root = record(parsed, "AGY quota response"),
-    command = record(root.command, "AGY quota command response"),
-    data = record(command.data, "AGY quota command data");
-  if (!Array.isArray(data.groups) || data.groups.length === 0)
-    throw runtimeInstanceError("runtime_quota_response_invalid", "AGY quota response has no groups array.");
-  const exhausted: { readonly value: string; readonly time: number }[] = [];
-  for (const groupValue of data.groups) {
-    const group = record(groupValue, "AGY quota group");
-    if (!Array.isArray(group.buckets))
-      throw runtimeInstanceError("runtime_quota_response_invalid", "AGY quota group has no buckets array.");
-    for (const bucketValue of group.buckets) {
-      const bucket = record(bucketValue, "AGY quota bucket");
-      if (typeof bucket.remaining_fraction !== "number" || !Number.isFinite(bucket.remaining_fraction))
-        throw runtimeInstanceError(
-          "runtime_quota_response_invalid",
-          "AGY quota bucket has no numeric remaining_fraction.",
-        );
-      if (bucket.remaining_fraction > 0) continue;
-      const reset = resetTimestamp(bucket.reset_time);
-      if (reset) exhausted.push(reset);
-    }
-  }
-  return exhausted.sort((left, right) => right.time - left.time)[0]?.value;
 }
 
 export function appendAgyAccountDirectories(kindId: RuntimeInstanceKind, env: NodeJS.ProcessEnv, args: string[]): void {
@@ -118,24 +91,6 @@ function agyAccountHome(env: NodeJS.ProcessEnv): string {
   const home = env.HOME ?? env.USERPROFILE;
   if (!home) throw runtimeInstanceError("runtime_auth_probe_failed", "AGY account probe could not determine its HOME.");
   return home;
-}
-
-function resetTimestamp(value: unknown): { readonly value: string; readonly time: number } | undefined {
-  const time =
-    typeof value === "string"
-      ? Date.parse(value)
-      : typeof value === "number"
-        ? value < 10_000_000_000
-          ? value * 1_000
-          : value
-        : Number.NaN;
-  if (!Number.isFinite(time)) return undefined;
-  return { value: typeof value === "string" ? value : new Date(time).toISOString(), time };
-}
-
-function record(value: unknown, label: string): Record<string, unknown> {
-  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
-  throw runtimeInstanceError("runtime_quota_response_invalid", `${label} is invalid.`);
 }
 
 function probeSignal(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
