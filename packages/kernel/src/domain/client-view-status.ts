@@ -133,3 +133,6 @@ export const tokenUsageOutcomeWords = Object.freeze([
   "unknown",
 ] as const);
 export type AgentRuntimeTokenUsageOutcome = (typeof tokenUsageOutcomeWords)[number];
+
+export const agentRuntimeTokenUsageRangeWords = Object.freeze(["today", "7d", "30d"] as const);
+export type AgentRuntimeTokenUsageRange = (typeof agentRuntimeTokenUsageRangeWords)[number];

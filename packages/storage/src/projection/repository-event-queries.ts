@@ -182,13 +182,12 @@ const RUNTIME_SESSION_EVENTS_SQL = [
 // not receive the session's other events only to discard them in JavaScript. event_index_runtime_session
 // bounds the scan to that session and revision order; it deliberately carries no type column, because
 // a session+type index would also be chosen for the dispatch lookup and replace its one-row seek.
-const RUNTIME_SESSION_EVENTS_BY_TYPE_SQL = [
+const RUNTIME_SESSION_EVENTS_BY_TYPE_BASE_SQL = [
   "SELECT event_json FROM event_index",
   "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
   "AND json_extract(event_json, '$.payload.runtimeSessionId') = ?",
   "AND json_extract(event_json, '$.type') IN (SELECT value FROM json_each(?))",
   `AND json_extract(event_json, '$.type') NOT IN (${privateRuntimeEventTypes.map((type) => `'${type}'`).join(", ")})`,
-  "ORDER BY workspace_revision",
 ].join(" ");
 const SCHEDULE_EVENTS_SQL = [
   "SELECT event_json FROM event_index",
@@ -641,10 +640,30 @@ export function repositoryEventQueries(
           .filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event))
           .map((event) => (event.type === "runtime_dispatch_requested" ? publicRuntimeDispatch(event) : event));
       }),
-    readRuntimeSessionEventsByType: (runtimeSessionIdValue, types) =>
+    readRuntimeSessionEventsByType: (runtimeSessionIdValue, types, options) =>
       withRead((db) => {
-        const requested = assertRuntimeEventTypes(types);
-        return queryRows(db, RUNTIME_SESSION_EVENTS_BY_TYPE_SQL, runtimeSessionIdValue, JSON.stringify(requested))
+        const requested = assertRuntimeEventTypes(types),
+          maxRevision = options?.maxRevision,
+          limit = options?.limit,
+          order = options?.order ?? "asc";
+        if (maxRevision !== undefined && (!Number.isSafeInteger(maxRevision) || maxRevision < 0))
+          throw new Error("runtime session event read maxRevision must be a non-negative safe integer");
+        if (limit !== undefined && !validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.standard))
+          throw new Error("runtime session event read limit must be between 1 and 500");
+        if (order !== "asc" && order !== "desc")
+          throw new Error("runtime session event read order must be asc or desc");
+        const args: (string | number)[] = [runtimeSessionIdValue, JSON.stringify(requested)],
+          clauses = [RUNTIME_SESSION_EVENTS_BY_TYPE_BASE_SQL];
+        if (maxRevision !== undefined) {
+          clauses.push("AND workspace_revision <= ?");
+          args.push(maxRevision);
+        }
+        clauses.push(`ORDER BY workspace_revision ${order === "desc" ? "DESC" : "ASC"}`);
+        if (limit !== undefined) {
+          clauses.push("LIMIT ?");
+          args.push(limit);
+        }
+        return queryRows(db, clauses.join(" "), ...args)
           .map((row) => JSON.parse(String(row.event_json)))
           .filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event))
           .map((event) => (event.type === "runtime_dispatch_requested" ? publicRuntimeDispatch(event) : event));

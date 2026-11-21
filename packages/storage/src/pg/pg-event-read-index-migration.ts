@@ -294,6 +294,8 @@ export function eventReadIndexDdl(): readonly string[] {
       ON ha_events (${eventScope},revision) WHERE read_index_version<7`,
     `CREATE INDEX IF NOT EXISTS ha_events_fleet_node
       ON ha_events (${eventScope},fleet_node_id,revision DESC) WHERE event_type<>'ci_run_observed'`,
+    `CREATE INDEX IF NOT EXISTS ha_events_fleet_actor_person
+      ON ha_events (${eventScope},actor_person_id,revision DESC) WHERE event_type<>'ci_run_observed'`,
     `CREATE INDEX IF NOT EXISTS ha_events_visible_summary_revision
       ON ha_events (${eventScope},revision DESC) WHERE event_type<>'ci_run_observed'`,
     `CREATE INDEX IF NOT EXISTS ha_events_fleet_dispatch
@@ -433,7 +435,7 @@ export async function pgDispatchPageTimeGate(
 ): Promise<void> {
   const pending = await client.query(
     `SELECT 1 FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4
-      AND ${dispatchPagePending} LIMIT 1`,
+      AND ${dispatchPagePending} ORDER BY revision LIMIT 1`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
   );
   if (pending.rows.length) {

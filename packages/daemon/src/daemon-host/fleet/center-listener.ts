@@ -42,7 +42,7 @@ import {
   finalizeFleetTokenUsageDetailResult,
   fleetTokenUsageDetailCursorKey,
   unwrapFleetTokenUsageDetailCursor,
-} from "../agent-runtime-token-usage.ts";
+} from "@harness-anything/application/internal/queries/token-usage-detail-read.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
 import {
   consumeKnownError,
@@ -160,7 +160,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const nodeAdmission = createNodeRetirementAdmission();
   const deliveries = createFleetDeliveryDrain(options.onDeliverySettled);
   const resourceBudget = options.commandResourceBudget ?? createResourceBudget(DOC_SHOW_BUDGET_LIMITS);
-  const detailCursorKey = fleetTokenUsageDetailCursorKey(options.key);
   const reserveDocShowBudget = (nodeId: string, repoId: string, sessionId: string) => {
     try {
       return resourceBudget.reserve({ nodeId, repoId, sessionId }, { bulkTransfers: 1 });
@@ -1641,17 +1640,21 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             if (errors.length) throw new FleetFault("invalid_field", errors.join("; "));
           }
           let readPayload = frame.payload as JsonObject;
+          const detailCursorKey =
+            frame.method === "repo.agentRuntime.tokenUsageDetail"
+              ? fleetTokenUsageDetailCursorKey(a.repoId, options.cursorSecret)
+              : null;
           const outerDetailCursor =
             frame.method === "repo.agentRuntime.tokenUsageDetail" && typeof frame.payload.cursor === "string"
               ? frame.payload.cursor
               : null;
-          if (outerDetailCursor !== null) {
+          if (outerDetailCursor !== null && detailCursorKey !== null) {
             const innerCursor = unwrapFleetTokenUsageDetailCursor(detailCursorKey, a.repoId, outerDetailCursor);
             if (innerCursor === null) throw new FleetFault("invalid_cursor", "Token usage detail cursor is invalid.");
             readPayload = { ...readPayload, cursor: innerCursor };
           }
           result = await options.host.read(a.repoId, frame.method, readPayload, binding);
-          if (frame.method === "repo.agentRuntime.tokenUsageDetail")
+          if (frame.method === "repo.agentRuntime.tokenUsageDetail" && detailCursorKey !== null)
             result = finalizeFleetTokenUsageDetailResult(detailCursorKey, a.repoId, outerDetailCursor, result);
           if (frame.method === "repo.fleet.overview.read") {
             const warning = versionWarnings.get(nodeId);

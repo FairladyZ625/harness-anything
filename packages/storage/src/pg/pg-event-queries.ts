@@ -155,20 +155,41 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
   const readRuntimeSessionEventsByType: PgTaskProjectionSource["readRuntimeSessionEventsByType"] = (
     runtimeSessionId,
     types,
+    queryOptions,
   ) =>
     withPostgresTransaction(
       options.pool,
       async (client) => {
         const requested = assertRuntimeEventTypes(types),
-          events = await readEventsInTransaction(
+          maxRevision = queryOptions?.maxRevision,
+          limit = queryOptions?.limit,
+          order = queryOptions?.order ?? "asc";
+        if (maxRevision !== undefined && (!Number.isSafeInteger(maxRevision) || maxRevision < 0))
+          throw new Error("runtime session event read maxRevision must be a non-negative safe integer");
+        if (limit !== undefined && !validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.standard))
+          throw new Error("runtime session event read limit must be between 1 and 500");
+        if (order !== "asc" && order !== "desc")
+          throw new Error("runtime session event read order must be asc or desc");
+        const predicate =
+            maxRevision === undefined
+              ? "runtime_session_id = $6 AND event_type = ANY($7::text[]) AND event_type <> ALL($8::text[])"
+              : "runtime_session_id = $6 AND event_type = ANY($7::text[]) AND event_type <> ALL($8::text[]) AND revision <= $9::bigint",
+          predicateValues =
+            maxRevision === undefined
+              ? [runtimeSessionId, requested, privateRuntimeEventTypes]
+              : [runtimeSessionId, requested, privateRuntimeEventTypes, maxRevision],
+          rows = await readEventRowsInTransaction(
             client,
             claims,
             readers,
             repoId,
-            "runtime_session_id = $6 AND event_type = ANY($7::text[]) AND event_type <> ALL($8::text[])",
-            [runtimeSessionId, requested, privateRuntimeEventTypes],
+            predicate,
+            predicateValues,
+            order === "desc" ? "DESC" : "ASC",
+            limit,
           );
-        return events
+        return rows
+          .map(({ event_json }) => eventIndexEvent(JSON.parse(event_json) as CanonicalEventV1))
           .filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event))
           .map((event) => (event.type === "runtime_dispatch_requested" ? publicRuntimeDispatch(event) : event));
       },
@@ -179,8 +200,17 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
     withPostgresTransaction(
       options.pool,
       async (client) => {
-        if (!validateStorageReadWindow(query.limit, storageReadPolicy.defaultValue.pageSizes.standard))
-          throw new Error("event list limit must be between 1 and 500");
+        if (
+          !validateStorageReadWindow(
+            query.limit,
+            storageReadPolicy.defaultValue.pageSizes.standard,
+            query.afterRevision,
+            query.revisionBound,
+          )
+        )
+          throw new Error("event list limit must be between 1 and 500 with valid revision bounds");
+        const order = query.order ?? "desc";
+        if (order !== "asc" && order !== "desc") throw new Error("event list order must be asc or desc");
         await assertPgEventReadIndexReady(client, claims, repoId, 6);
         const cut = await readCutInTransaction(client, claims, readers, repoId),
           values: unknown[] = [claims.tenantId, claims.projectId, repoId, claims.policyEpoch, readers, cut.watermark],
@@ -193,6 +223,8 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
             values.push(value);
             where.push(predicate(values.length));
           };
+        if (query.afterRevision !== undefined)
+          add((parameter) => `event.revision > $${parameter}`, query.afterRevision);
         if (query.revisionBound !== undefined)
           add((parameter) => `event.revision < $${parameter}`, query.revisionBound);
         if (query.type !== undefined) add((parameter) => `event.event_type = $${parameter}`, query.type);
@@ -215,7 +247,7 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
               = (event.tenant_id,event.project_id,event.repo_id,event.policy_epoch,event.revision)`,
           rows = await client.query<{ list_row: string }>(
             `SELECT event.list_row FROM ${from} WHERE ${where.join(" AND ")}
-            ORDER BY ${query.entity === undefined ? "event" : "ref"}.revision DESC LIMIT $${values.length}`,
+            ORDER BY ${query.entity === undefined ? "event" : "ref"}.revision ${order === "asc" ? "ASC" : "DESC"} LIMIT $${values.length}`,
             values,
           ),
           selected = rows.rows.map(({ list_row }) => JSON.parse(list_row) as EventListRow);

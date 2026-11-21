@@ -381,6 +381,64 @@ function dispatchContract(
       .rows.map(({ event }) => event.payload.dispatchId),
     ["runtime-query-a"],
   );
+  // F11 parity: bounded readRuntimeSessionEventsByType with maxRevision/limit/order across SQLite and PostgreSQL.
+  const allSessionOutcomes = queries.readRuntimeSessionEventsByType("runtime-query-session", [
+    "runtime_dispatch_requested",
+    "runtime_session_outcome_observed",
+  ]);
+  assert.ok(allSessionOutcomes.length >= 2);
+  const firstSessionRev = allSessionOutcomes[0]!.workspaceRevision;
+  assert.deepEqual(
+    queries
+      .readRuntimeSessionEventsByType(
+        "runtime-query-session",
+        ["runtime_dispatch_requested", "runtime_session_outcome_observed"],
+        { maxRevision: firstSessionRev, limit: 10, order: "desc" },
+      )
+      .map((event) => event.workspaceRevision),
+    [firstSessionRev],
+  );
+  assert.deepEqual(
+    queries
+      .readRuntimeSessionEventsByType(
+        "runtime-query-session",
+        ["runtime_dispatch_requested", "runtime_session_outcome_observed"],
+        { limit: 1, order: "desc" },
+      )
+      .map((event) => event.workspaceRevision),
+    [allSessionOutcomes.at(-1)!.workspaceRevision],
+  );
+  assert.throws(
+    () =>
+      queries.readRuntimeSessionEventsByType("runtime-query-session", ["runtime_session_outcome_observed"], {
+        limit: 0,
+      }),
+    /limit/,
+  );
+  assert.throws(
+    () =>
+      queries.readRuntimeSessionEventsByType("runtime-query-session", ["runtime_session_outcome_observed"], {
+        maxRevision: -1,
+      }),
+    /maxRevision/,
+  );
+  // F16 parity: bounded readEventList with afterRevision + order across SQLite and PostgreSQL.
+  const allActorEvents = queries.readEventList({ actorPersonId: "person_runtime", limit: 100 });
+  if (allActorEvents.rows.length >= 2) {
+    const oldest = allActorEvents.rows.at(-1)!.revision,
+      newest = allActorEvents.rows[0]!.revision,
+      ascWindow = queries.readEventList({
+        actorPersonId: "person_runtime",
+        afterRevision: oldest - 1,
+        revisionBound: newest + 1,
+        order: "asc",
+        limit: 100,
+      });
+    assert.deepEqual(
+      ascWindow.rows.map((row) => row.revision),
+      allActorEvents.rows.map((row) => row.revision).toReversed(),
+    );
+  }
   assert.throws(() => queries.readRuntimeDispatchPage({ startedAtGte: "", limit: 0 }), /limit/);
   assert.throws(() => queries.readRuntimeDispatchPage({ startedAtGte: "", limit: 501 }), /limit/);
   const historical = ["", ":attempt2", ":fallback:3", ":attempt2:fallback:3"].map((suffix, ordinal) => {

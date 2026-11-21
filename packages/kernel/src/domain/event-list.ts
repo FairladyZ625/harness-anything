@@ -7,8 +7,12 @@ export interface EventListQuery {
   readonly after?: string;
   readonly before?: string;
   readonly limit: number;
+  /** Exclusive lower revision bound for bounded window scans. */
+  readonly afterRevision?: number;
   /** Exclusive upper revision bound decoded from --cursor; absent means "newest page". */
   readonly revisionBound?: number;
+  /** Revision scan order within (afterRevision, revisionBound); defaults to "desc". */
+  readonly order?: "asc" | "desc";
 }
 
 export interface EventListRow {

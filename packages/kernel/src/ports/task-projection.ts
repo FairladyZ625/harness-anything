@@ -313,12 +313,18 @@ export interface TaskProjection {
     limit: number,
   ) => readonly AgentRuntimeEventV1[];
   /**
-   * One session's events narrowed to the requested types, revision ascending. Callers that need
-   * the newest outcome or liveness event read only the matching rows, never the whole session.
+   * One session's events narrowed to the requested types, revision ordered (default asc). Callers
+   * that need a bounded or watermark-pinned lookup pass maxRevision/limit/order so late events
+   * past maxRevision are never materialized.
    */
   readonly readRuntimeSessionEventsByType: (
     runtimeSessionIdValue: string,
     types: readonly AgentRuntimeEventType[],
+    options?: {
+      readonly maxRevision?: number;
+      readonly limit?: number;
+      readonly order?: "asc" | "desc";
+    },
   ) => readonly AgentRuntimeEventV1[];
   readonly readArtifactEntityState: (kind: string, id: string) => ArtifactEntityState | null;
   readonly readEventList: (query: EventListQuery) => EventListPage;
