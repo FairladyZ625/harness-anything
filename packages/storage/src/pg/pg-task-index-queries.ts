@@ -294,6 +294,8 @@ function indexRow(
     readonly package_path: string | null;
     readonly updated_at: string;
     readonly presentation_status: string | null;
+    readonly submission_commit_sha?: string | null;
+    readonly external_commit_sha?: string | null;
   } & PgIndexAttribution,
   now: string,
 ): ReturnType<TaskProjectionQueries["readTaskIndex"]>["rows"] {
@@ -328,6 +330,17 @@ function indexRow(
       taskClass: row.task_class as TaskIndexProjectionRow["taskClass"],
       packageDisposition: (row.task_package_disposition ?? "active") as TaskIndexProjectionRow["packageDisposition"],
       packagePath: row.package_path,
+      ...(row.submission_commit_sha === undefined
+        ? {}
+        : {
+            submissionCommitShas: [
+              ...new Set(
+                [row.submission_commit_sha, row.external_commit_sha].filter(
+                  (sha): sha is string => typeof sha === "string" && sha !== "",
+                ),
+              ),
+            ],
+          }),
       updatedAt: new Date(row.updated_at).toISOString(),
     },
   ];

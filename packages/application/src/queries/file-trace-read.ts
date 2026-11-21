@@ -507,14 +507,20 @@ function readCollisions(
       [],
     dirty = new Map(hits.map(({ taskId, tracePaths }) => [taskId, tracePaths])),
     taskIds = [...new Set([...dirty.keys(), ...branches.keys()])].filter((taskId) => taskId !== excludeTaskId),
-    rows = new Map<string, TaskIndexProjectionRow | undefined>(taskIds.map((taskId) => [taskId, undefined]));
+    missingRows = new Map<string, TaskIndexProjectionRow | undefined>(taskIds.map((taskId) => [taskId, undefined]));
+  let rows = missingRows;
   if (taskIds.length > 0) {
     const read = projection.readTaskIndex({ taskIds });
     reads.push(read);
-    for (const row of read.rows) {
-      if (row.status === "done" || row.status === "cancelled") rows.delete(row.taskId);
-      else if (rows.has(row.taskId)) rows.set(row.taskId, row);
-    }
+    const foundRows = new Map(read.rows.map((row) => [row.taskId, row]));
+    rows = new Map(
+      taskIds
+        .filter((taskId) => {
+          const row = foundRows.get(taskId);
+          return row === undefined || (row.status !== "done" && row.status !== "cancelled");
+        })
+        .map((taskId) => [taskId, foundRows.get(taskId)]),
+    );
   }
   return { branches, dirty, rows };
 }

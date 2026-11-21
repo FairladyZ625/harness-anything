@@ -22,7 +22,6 @@ const UNBORN_HEAD =
   /does not have any commits yet|bad default revision 'HEAD'|unknown revision or path not in the working tree.*HEAD/iu;
 const MAX_WORKTREE_ENTRIES = 32;
 const MAX_WORKTREE_PROBES = 8;
-const WORKTREE_PROBE_TIMEOUT_MS = 300;
 const TASK_WORKTREE = /^task_[0-9a-f]{26}$/u;
 
 /**
@@ -121,7 +120,6 @@ function readDirtyWorktreeCollisions(
           "--",
           ...targets,
         ],
-        WORKTREE_PROBE_TIMEOUT_MS,
       );
       // A disappearing, inaccessible or slow peer worktree is advisory. Continue sampling the others.
       if (!status.ok) continue;
