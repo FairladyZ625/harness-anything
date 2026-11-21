@@ -265,7 +265,9 @@ pgliteIntegrationSuite("PGlite event indexes", () => {
       );
       await backend.pool.query("SET ROLE rt_ctrl_reader");
       const plans: unknown[] = [],
-        pool = tracedPgReads(backend.pool, plans, (sql) => /^\s*SELECT[\s\S]*FROM ha_events/u.test(sql)),
+        pool = tracedPgReads(backend.pool, plans, (sql) =>
+          /^\s*SELECT\s+revision::text[\s\S]*FROM ha_events/u.test(sql),
+        ),
         source = createPgTaskProjectionSource({ pool, scope, repoId, ownsPool: false });
 
       const controls = await source.readRuntimeSessionEventsByType(
@@ -315,7 +317,16 @@ pgliteIntegrationSuite("PGlite event indexes", () => {
       );
 
       const scans = explainNodes(plans).filter((row) => String(row["Relation Name"]) === "ha_events");
-      assert.equal(scans.length, 5, `expected 5 traced ha_events plans, got: ${JSON.stringify(scans)}`);
+      assert.deepEqual(
+        scans.map((row) => String(row["Index Name"])),
+        [
+          "ha_events_runtime_control",
+          "ha_events_runtime_cancel_control",
+          "ha_events_runtime_control_receipt",
+          "ha_events_runtime_applied_steer_receipt",
+          "ha_events_runtime_control_receipt_req",
+        ],
+      );
       for (const scan of scans) {
         const examined =
           (Number(scan["Actual Rows"]) + Number(scan["Rows Removed by Filter"] ?? 0)) * Number(scan["Actual Loops"]);
