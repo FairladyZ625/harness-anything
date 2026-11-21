@@ -254,28 +254,40 @@ test("manifest gate runner keeps a bounded pool and reports every failure in pla
   assert.equal(maxActive, 2);
 });
 
-test("parallel gate pool budgets authorization workers against the outer pool", async () => {
+test("parallel gate pool runs authorization exclusively with a bounded worker budget", async () => {
   const captured = [];
+  const active = new Set();
+  let authorizationOverlapped = false;
   const plan = [
+    { id: "gate-before" },
     { id: "ontology-durable-action-authorization" },
     ...Array.from({ length: 5 }, (_, index) => ({ id: `gate-${index}` })),
   ];
   const result = await runManifestGatePlanParallel(plan, {
     concurrency: 6,
     cpuCount: 8,
-    execute: (entry) => {
+    execute: async (entry) => {
+      if (entry.id === "ontology-durable-action-authorization" && active.size > 0) {
+        authorizationOverlapped = true;
+      }
+      if (active.has("ontology-durable-action-authorization")) authorizationOverlapped = true;
+      active.add(entry.id);
       captured.push(entry);
+      await new Promise((resolve) => setImmediate(resolve));
+      active.delete(entry.id);
       return { ok: true };
     },
   });
 
   assert.deepEqual(result.failedGateIds, []);
-  assert.equal(authorizationGateConcurrencyForPool(6, 8), 1);
+  assert.equal(authorizationGateConcurrencyForPool(8), 4);
+  assert.equal(authorizationGateConcurrencyForPool(2), 1);
   assert.equal(
     captured.find((entry) => entry.id === "ontology-durable-action-authorization").authorizationAuditConcurrency,
-    1,
+    4,
   );
-  assert.equal(captured.find((entry) => entry.id === "gate-0").authorizationAuditConcurrency, undefined);
+  assert.equal(captured.find((entry) => entry.id === "gate-before").authorizationAuditConcurrency, undefined);
+  assert.equal(authorizationOverlapped, false);
 });
 
 test("parallel gate pool exposes the auth cap only to the authorization child", async () => {
@@ -284,7 +296,7 @@ test("parallel gate pool exposes the auth cap only to the authorization child", 
   const output = [];
   const originalLog = console.log;
   const originalError = console.error;
-  process.env[variable] = "4";
+  delete process.env[variable];
   console.log = (...args) => output.push(args.join(" "));
   console.error = (...args) => output.push(args.join(" "));
   const command = `node -e "process.stdout.write('GATE_CAP=' + (process.env.${variable} || 'unset'))"`;
@@ -304,11 +316,8 @@ test("parallel gate pool exposes the auth cap only to the authorization child", 
     else process.env[variable] = previous;
   }
 
-  assert.ok(
-    output.some((line) => line === "GATE_CAP=1"),
-    output.join("\n"),
-  );
-  assert.equal(output.filter((line) => line === "GATE_CAP=4").length, 5, output.join("\n"));
+  assert.equal(output.filter((line) => line === "GATE_CAP=4").length, 1, output.join("\n"));
+  assert.equal(output.filter((line) => line === "GATE_CAP=unset").length, 5, output.join("\n"));
 });
 
 test("manifest gate runner appends shard args only to shardable gates", () => {

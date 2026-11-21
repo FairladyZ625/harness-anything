@@ -579,9 +579,8 @@ export function runManifestGatePlan(plan, { execute, stopOnFailure = false, gith
  * @param {any[]} plan
  * @param {{ execute?: typeof runManifestGateAsync, concurrency?: number, githubGroups?: boolean }} [options]
  */
-export function authorizationGateConcurrencyForPool(gateConcurrency, cpuCount = availableParallelism()) {
-  const activeGates = Math.max(1, Math.floor(gateConcurrency));
-  return Math.max(1, Math.min(4, Math.floor(cpuCount / activeGates) - 1));
+export function authorizationGateConcurrencyForPool(cpuCount = availableParallelism()) {
+  return Math.max(1, Math.min(4, Math.floor(cpuCount) - 1));
 }
 
 export async function runManifestGatePlanParallel(
@@ -591,32 +590,41 @@ export async function runManifestGatePlanParallel(
   const run = execute ?? ((entry) => runManifestGateAsync(entry, githubGroups));
   const results = new Array(plan.length);
   let nextIndex = 0;
-  const workerCount = Math.min(Math.max(1, concurrency), plan.length);
-  const authorizationWorkerCap = authorizationGateConcurrencyForPool(workerCount, cpuCount);
+  const authorizationIndex = plan.findIndex((entry) => entry.id === "ontology-durable-action-authorization");
+  const remainingIndexes = plan.map((_, index) => index).filter((index) => index !== authorizationIndex);
+  const workerCount = Math.min(Math.max(1, concurrency), remainingIndexes.length);
 
-  function entryForPool(entry) {
-    if (entry.id !== "ontology-durable-action-authorization" || workerCount < 2) return entry;
+  function entryForAuthorizationWindow(entry) {
+    if (remainingIndexes.length === 0 || workerCount < 2) return entry;
     const inheritedCap = process.env.HARNESS_AUTH_AUDIT_CONCURRENCY;
-    const concurrencyCap =
-      inheritedCap === undefined ? authorizationWorkerCap : Math.min(Number(inheritedCap), authorizationWorkerCap);
+    const poolCap = authorizationGateConcurrencyForPool(cpuCount);
+    const concurrencyCap = inheritedCap === undefined ? poolCap : Math.min(Number(inheritedCap), poolCap);
     return {
       ...entry,
       authorizationAuditConcurrency: concurrencyCap,
     };
   }
 
+  async function runEntry(index, entry) {
+    try {
+      results[index] = { id: entry.id, ...(await run(entry)) };
+    } catch (error) {
+      console.error(`✖ ${entry.id} failed to run: ${error instanceof Error ? error.message : String(error)}`);
+      results[index] = { id: entry.id, ok: false, durationMs: 0 };
+    }
+  }
+
+  if (authorizationIndex >= 0) {
+    await runEntry(authorizationIndex, entryForAuthorizationWindow(plan[authorizationIndex]));
+  }
+
   async function worker() {
     while (true) {
-      const index = nextIndex;
+      const next = nextIndex;
       nextIndex += 1;
-      if (index >= plan.length) return;
-      const entry = entryForPool(plan[index]);
-      try {
-        results[index] = { id: entry.id, ...(await run(entry)) };
-      } catch (error) {
-        console.error(`✖ ${entry.id} failed to run: ${error instanceof Error ? error.message : String(error)}`);
-        results[index] = { id: entry.id, ok: false, durationMs: 0 };
-      }
+      if (next >= remainingIndexes.length) return;
+      const index = remainingIndexes[next];
+      await runEntry(index, plan[index]);
     }
   }
 
