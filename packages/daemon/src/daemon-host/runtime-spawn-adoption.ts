@@ -9,7 +9,6 @@ import type * as OperationalStatus from "@harness-anything/kernel/internal/domai
 import type { ActiveRuntime, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import {
   appendRuntimeWorkerRecord,
-  archiveDispatchStream,
   dispatchStreamPath,
   parseRecord,
   readDispatchStream,
