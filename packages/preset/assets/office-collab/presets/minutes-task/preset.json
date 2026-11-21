@@ -1,0 +1,58 @@
+{
+  "schema": "preset-manifest/v3",
+  "id": "minutes-task",
+  "title": "Meeting Minutes & Action Items",
+  "vertical": "office/collab",
+  "version": "1.0.0",
+  "kind": "template-content",
+  "outputShape": "task-package-artifact",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [],
+  "profiles": [
+    {
+      "id": "baseline",
+      "title": "Baseline",
+      "completionGates": [],
+      "templateSelections": [
+        {
+          "slot": "task.meeting.minutes",
+          "templateRef": "template://office/meeting-minutes@1",
+          "materializeAs": "minutes.md",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        }
+      ]
+    },
+    {
+      "id": "lightweight",
+      "title": "Lightweight",
+      "completionGates": [],
+      "capabilityImports": [
+        { "id": "policy:template-override/lightweight-task-plan/v1", "kind": "command", "version": "1" },
+        { "id": "policy:template-override/lightweight-closeout/v1", "kind": "command", "version": "1" }
+      ],
+      "templateSelections": [
+        {
+          "slot": "task.plan",
+          "templateRef": "template://office/task-plan-lightweight@1",
+          "materializeAs": "task_plan.md",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        },
+        {
+          "slot": "task.closeout",
+          "templateRef": "template://office/closeout-lightweight@1",
+          "materializeAs": "closeout.md",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        },
+        {
+          "slot": "task.meeting.minutes",
+          "templateRef": "template://office/meeting-minutes@1",
+          "materializeAs": "minutes.md",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        }
+      ],
+      "closeoutOverrides": { "review": false, "consent": false },
+      "archiveOnComplete": true
+    }
+  ],
+  "defaultProfile": "baseline"
+}

@@ -1,0 +1,84 @@
+{
+  "schema": "preset-manifest/v3",
+  "id": "handoff-task",
+  "title": "Handoff Task",
+  "vertical": "office/collab",
+  "version": "1.0.0",
+  "kind": "template-content",
+  "outputShape": "task-package-artifact",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [
+    { "id": "completion-witness", "kind": "checker", "version": "1", "required": true }
+  ],
+  "entrypoints": {
+    "verify-handoff": {
+      "type": "script",
+      "intent": "Verify four-element handoff completeness and referenced deliverable integrity.",
+      "inputs": [{ "name": "witnessInput", "type": "string", "required": true }],
+      "requires": [],
+      "produces": [{ "id": "completion-witness", "kind": "checker", "version": "1" }],
+      "sideEffects": [],
+      "command": "checks/verify-handoff.mjs"
+    }
+  },
+  "profiles": [
+    {
+      "id": "baseline",
+      "title": "Verified Handoff",
+      "completionGates": ["handoff-completeness"],
+      "templateSelections": [
+        {
+          "slot": "task.handoff.package",
+          "templateRef": "template://office/handoff-package@1",
+          "materializeAs": "handoff.md",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        }
+      ]
+    },
+    {
+      "id": "fresh",
+      "title": "Handoff + Upstream Freshness",
+      "completionGates": ["handoff-completeness", "upstream-fresh"],
+      "templateSelections": [
+        {
+          "slot": "task.handoff.package",
+          "templateRef": "template://office/handoff-package@1",
+          "materializeAs": "handoff.md",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        }
+      ]
+    },
+    {
+      "id": "lightweight",
+      "title": "Lightweight",
+      "completionGates": [],
+      "capabilityImports": [
+        { "id": "policy:template-override/lightweight-task-plan/v1", "kind": "command", "version": "1" },
+        { "id": "policy:template-override/lightweight-closeout/v1", "kind": "command", "version": "1" }
+      ],
+      "templateSelections": [
+        {
+          "slot": "task.plan",
+          "templateRef": "template://office/task-plan-lightweight@1",
+          "materializeAs": "task_plan.md",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        },
+        {
+          "slot": "task.closeout",
+          "templateRef": "template://office/closeout-lightweight@1",
+          "materializeAs": "closeout.md",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        },
+        {
+          "slot": "task.handoff.package",
+          "templateRef": "template://office/handoff-package@1",
+          "materializeAs": "handoff.md",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        }
+      ],
+      "closeoutOverrides": { "review": false, "consent": false },
+      "archiveOnComplete": true
+    }
+  ],
+  "defaultProfile": "baseline"
+}

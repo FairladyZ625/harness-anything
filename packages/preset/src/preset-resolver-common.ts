@@ -3,8 +3,21 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const defaultAssets = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../assets/software-coding"),
-  defaultBundled = path.join(defaultAssets, "presets");
+const assetsDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../assets"),
+  officeCollabAssets = path.join(assetsDirectory, "office-collab");
+
+export const defaultAssets = path.join(assetsDirectory, "software-coding"),
+  defaultBundled = path.join(defaultAssets, "presets"),
+  builtinVerticalRoots: ReadonlyMap<string, string> = new Map([
+    ["software/coding", defaultAssets],
+    ["office/collab", officeCollabAssets],
+  ]),
+  builtinVerticalAssetRootSet: ReadonlySet<string> = new Set(
+    [...builtinVerticalRoots.values()].map((root) => path.resolve(root)),
+  ),
+  builtinBundledRootSet: ReadonlySet<string> = new Set(
+    [...builtinVerticalRoots.values()].map((root) => path.resolve(root, "presets")),
+  );
 
 export function resolverContentHash(body: string): string {
   return createHash("sha256").update(body).digest("hex");

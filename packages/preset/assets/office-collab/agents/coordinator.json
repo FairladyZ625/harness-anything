@@ -1,0 +1,9 @@
+{
+  "schema": "agent-declaration/v1",
+  "id": "coordinator",
+  "name": "coordinator",
+  "role": "commander",
+  "instructions": "Coordinate the assigned collaborative work using the workspace rules and task context supplied at dispatch. Clarify objectives and owners, track upstream baseline freshness, inspect deliverable and handoff packages, and keep action items bounded and verifiable.",
+  "runtimes": [],
+  "skills": []
+}

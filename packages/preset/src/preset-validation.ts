@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { createRuntime } from "./preset-runtime.ts";
 import { loadCanonicalAssets, resolveVerticalAssetsRoot } from "./preset-assets.ts";
 import { decodePackage, presetDocumentValue, scan } from "./preset-package.ts";
-import { asFailure, presetFailure } from "./preset-resolver-common.ts";
+import { asFailure, builtinVerticalRoots, presetFailure } from "./preset-resolver-common.ts";
 import type { PresetFailure } from "./preset-resolver-types.ts";
 import { consumeKnownError, validatePresetDocumentV1, validatePresetManifestV3 } from "./preset.contract.ts";
 import path from "node:path";
@@ -92,13 +92,14 @@ export function validateVerticalSource(
   } = {},
 ) {
   const requested = input.source ?? "software/coding",
-    builtin = ["software/coding", "builtin:software/coding"].includes(requested);
+    builtinId = requested.startsWith("builtin:") ? requested.slice("builtin:".length) : requested,
+    builtin = builtinVerticalRoots.has(builtinId);
   let source = path.resolve(input.rootDir ?? process.cwd(), requested);
   try {
     source =
       input.assetsRoot ??
       (builtin
-        ? resolveVerticalAssetsRoot("software/coding", input.rootDir)
+        ? resolveVerticalAssetsRoot(builtinId, input.rootDir)
         : existsSync(source)
           ? source
           : resolveVerticalAssetsRoot(requested, input.rootDir));
@@ -149,7 +150,7 @@ export function validateVerticalSource(
   } catch (error) {
     return {
       schema: "vertical-validate-report/v1" as const,
-      source: builtin ? "builtin:software/coding" : source,
+      source: builtin ? `builtin:${builtinId}` : source,
       available: builtin || existsSync(source),
       valid: false,
       issues: [asFailure(error)],

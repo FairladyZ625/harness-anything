@@ -1,0 +1,9 @@
+{
+  "schema": "agent-declaration/v1",
+  "id": "reviewer",
+  "name": "reviewer",
+  "role": "reviewer",
+  "instructions": "Independently review the submitted deliverable or handoff package against the task contract and declared completion gates. Verify artifact completeness, upstream freshness, and factual consistency directly, and distinguish blocking defects from non-blocking suggestions.",
+  "runtimes": [],
+  "skills": []
+}

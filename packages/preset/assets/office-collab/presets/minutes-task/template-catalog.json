@@ -1,0 +1,54 @@
+{
+  "schema": "template-catalog/v2",
+  "package": {
+    "id": "preset-minutes-task",
+    "title": "minutes-task",
+    "version": "1.0.0",
+    "owner": "preset",
+    "locales": ["zh-CN", "en-US"]
+  },
+  "documents": [
+    {
+      "id": "office/meeting-minutes",
+      "version": "1",
+      "documentKind": "meeting-minutes",
+      "slot": "task.meeting.minutes",
+      "materializeAs": "minutes.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Meeting Metadata", "## Key Decisions", "## Action Items", "## Open Questions"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Meeting Metadata", "## Key Decisions", "## Action Items", "## Open Questions"], "bodyPath": "templates/task.meeting.minutes/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Meeting Metadata", "## Key Decisions", "## Action Items", "## Open Questions"], "bodyPath": "templates/task.meeting.minutes/en-US.md" }
+      ]
+    },
+    {
+      "id": "office/task-plan-lightweight",
+      "version": "1",
+      "documentKind": "task-plan",
+      "slot": "task.plan",
+      "materializeAs": "task_plan.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Brief", "## Upstream Inputs", "## Acceptance Criteria"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Brief", "## Upstream Inputs", "## Acceptance Criteria"], "bodyPath": "templates/task.plan.lightweight/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Brief", "## Upstream Inputs", "## Acceptance Criteria"], "bodyPath": "templates/task.plan.lightweight/en-US.md" }
+      ]
+    },
+    {
+      "id": "office/closeout-lightweight",
+      "version": "1",
+      "documentKind": "task-closeout",
+      "slot": "task.closeout",
+      "materializeAs": "closeout.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Summary", "## Verification"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Summary", "## Verification"], "bodyPath": "templates/task.closeout.lightweight/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Summary", "## Verification"], "bodyPath": "templates/task.closeout.lightweight/en-US.md" }
+      ]
+    }
+  ]
+}

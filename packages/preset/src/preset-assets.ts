@@ -14,7 +14,8 @@ import type { CompiledVerticalContract } from "@harness-anything/kernel";
 import { requiredRegularFile, safeTemplatePath } from "./preset-materialization.ts";
 import { parsePresetJson } from "./preset-json.ts";
 import {
-  defaultAssets,
+  builtinVerticalAssetRootSet,
+  builtinVerticalRoots,
   isPresetResolutionRecord,
   presetFailure,
   resolverContentHash,
@@ -28,7 +29,7 @@ const canonicalAssetsCache = new Map<string, CanonicalAssets>();
 
 /** Repository declarations are external input; IDs never become filesystem paths. */
 export function resolveVerticalAssetsRoot(verticalId: string, repoRoot?: string): string {
-  const roots = new Map([["software/coding", defaultAssets]]);
+  const roots = new Map(builtinVerticalRoots);
   const directory = repoRoot && path.join(repoRoot, "verticals");
   if (directory && existsSync(directory)) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -61,7 +62,7 @@ export function loadCanonicalAssets(source: string): CanonicalAssets {
     cached = canonicalAssetsCache.get(resolvedSource);
   if (cached) return cached;
   const assets = loadCanonicalAssetsUncached(resolvedSource);
-  if (resolvedSource !== path.resolve(defaultAssets)) return assets;
+  if (!builtinVerticalAssetRootSet.has(resolvedSource)) return assets;
   canonicalAssetsCache.set(resolvedSource, assets);
   return assets;
 }

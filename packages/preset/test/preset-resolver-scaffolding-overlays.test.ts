@@ -286,7 +286,9 @@ test("repository init plan consumes the declaration and composes package-local A
         }),
       (error: unknown) =>
         (error as { code?: string; message?: string }).code === "missing_vertical" &&
-        /Available vertical ids: software\/coding\./u.test((error as { message?: string }).message ?? ""),
+        /Available vertical ids: software\/coding, office\/collab\./u.test(
+          (error as { message?: string }).message ?? "",
+        ),
     );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

@@ -2,6 +2,7 @@ import { presetExecutionPolicy } from "@harness-anything/kernel/internal/domain/
 import { loadCanonicalAssets } from "./preset-assets.ts";
 import { materializeSelections } from "./preset-materialization.ts";
 import {
+  builtinVerticalAssetRootSet,
   defaultAssets,
   normalizeLocale,
   presetFailure,
@@ -25,9 +26,10 @@ export function runVerticalDiscoveryAction(
   action: Readonly<Record<string, unknown>> & { readonly kind: string },
   assetsRoot = defaultAssets,
 ): unknown {
-  const assets = loadCanonicalAssets(path.resolve(assetsRoot)),
+  const resolvedAssetsRoot = path.resolve(assetsRoot),
+    assets = loadCanonicalAssets(resolvedAssetsRoot),
     vertical = assets.compiledVertical.definition,
-    source = path.resolve(assetsRoot) === defaultAssets ? `builtin:${vertical.id}` : path.resolve(assetsRoot);
+    source = builtinVerticalAssetRootSet.has(resolvedAssetsRoot) ? `builtin:${vertical.id}` : resolvedAssetsRoot;
   if (action.kind === "template-list")
     return assets.catalog.catalog.documents
       .map((document) => ({

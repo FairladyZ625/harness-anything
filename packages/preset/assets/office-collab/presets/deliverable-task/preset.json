@@ -1,0 +1,100 @@
+{
+  "schema": "preset-manifest/v3",
+  "id": "deliverable-task",
+  "title": "Deliverable Task",
+  "vertical": "office/collab",
+  "version": "1.0.0",
+  "kind": "template-content",
+  "outputShape": "task-package-artifact",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [
+    { "id": "completion-witness", "kind": "checker", "version": "1", "required": true }
+  ],
+  "entrypoints": {
+    "verify-deliverable": {
+      "type": "script",
+      "intent": "Verify structured deliverable manifest, artifact SHA-256 integrity, and required document sections.",
+      "inputs": [{ "name": "witnessInput", "type": "string", "required": true }],
+      "requires": [],
+      "produces": [{ "id": "completion-witness", "kind": "checker", "version": "1" }],
+      "sideEffects": [],
+      "command": "checks/verify-deliverable.mjs"
+    },
+    "verify-upstream-fresh": {
+      "type": "script",
+      "intent": "Verify upstream baseline digests recorded in upstream-freshness.json have not drifted.",
+      "inputs": [{ "name": "witnessInput", "type": "string", "required": true }],
+      "requires": [],
+      "produces": [{ "id": "completion-witness", "kind": "checker", "version": "1" }],
+      "sideEffects": [],
+      "command": "checks/verify-upstream-fresh.mjs"
+    }
+  },
+  "profiles": [
+    {
+      "id": "baseline",
+      "title": "Baseline",
+      "completionGates": [],
+      "templateSelections": [
+        {
+          "slot": "task.deliverable.brief",
+          "templateRef": "template://office/deliverable-brief@1",
+          "materializeAs": "deliverable-brief.md",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        }
+      ]
+    },
+    {
+      "id": "verified",
+      "title": "Verified Deliverable",
+      "completionGates": ["deliverable-contract"],
+      "templateSelections": [
+        {
+          "slot": "task.deliverable.brief",
+          "templateRef": "template://office/deliverable-brief@1",
+          "materializeAs": "deliverable-brief.md",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        }
+      ]
+    },
+    {
+      "id": "upstream-verified",
+      "title": "Deliverable + Upstream Freshness",
+      "completionGates": ["deliverable-contract", "upstream-fresh"],
+      "templateSelections": [
+        {
+          "slot": "task.deliverable.brief",
+          "templateRef": "template://office/deliverable-brief@1",
+          "materializeAs": "deliverable-brief.md",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        }
+      ]
+    },
+    {
+      "id": "lightweight",
+      "title": "Lightweight",
+      "completionGates": [],
+      "capabilityImports": [
+        { "id": "policy:template-override/lightweight-task-plan/v1", "kind": "command", "version": "1" },
+        { "id": "policy:template-override/lightweight-closeout/v1", "kind": "command", "version": "1" }
+      ],
+      "templateSelections": [
+        {
+          "slot": "task.plan",
+          "templateRef": "template://office/task-plan-lightweight@1",
+          "materializeAs": "task_plan.md",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        },
+        {
+          "slot": "task.closeout",
+          "templateRef": "template://office/closeout-lightweight@1",
+          "materializeAs": "closeout.md",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        }
+      ],
+      "closeoutOverrides": { "review": false, "consent": false },
+      "archiveOnComplete": true
+    }
+  ],
+  "defaultProfile": "baseline"
+}
