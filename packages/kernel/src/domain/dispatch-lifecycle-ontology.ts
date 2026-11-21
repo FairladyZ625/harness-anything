@@ -251,8 +251,8 @@ export const daemonRuntimeSessionPolicySources = [
     "const CONTROL_RECEIPTS_MAX_LIMIT = 500;",
   ],
   [
-    "policy:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-read.ts#readSessionControlReceipts.events.limit:0dd585c292e12f6bf0b47a1d330750d6",
-    "packages/daemon/src/daemon-host/agent-runtime-read.ts#readSessionControlReceipts.events.limit",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-read.ts#readSessionControlReceipts.hasMore.limit:0dd585c292e12f6bf0b47a1d330750d6",
+    "packages/daemon/src/daemon-host/agent-runtime-read.ts#readSessionControlReceipts.hasMore.limit",
     "limit: 1,",
   ],
   [
