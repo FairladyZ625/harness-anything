@@ -36,6 +36,7 @@ import { replaceSourceOnce, runGit } from "./helpers.mjs";
 import {
   auditAuthorizationPart,
   auditDurableActionAuthorization,
+  authorizationAuditConcurrencyLimit,
   changedAuthorizationScope,
   collectAuthorizationAudit,
   loadAuthorizationInputs,
@@ -57,7 +58,16 @@ test("authorization admission is bounded by the runner CPU and memory budgets", 
   assert.equal(shardWorkerCount(4, 15.625 * gib), 2);
   assert.equal(shardWorkerCount(2, 24 * gib), 2);
   assert.equal(shardWorkerCount(8, 24 * gib), 4);
+  assert.equal(shardWorkerCount(8, 44 * gib), 4);
+  assert.equal(shardWorkerCount(8, 44 * gib, 2), 2);
   assert.equal(shardWorkerCount(4, 4 * gib), 1);
+  assert.equal(shardWorkerCount(8, 24 * gib, 1), 1);
+  assert.equal(authorizationAuditConcurrencyLimit({ HARNESS_AUTH_AUDIT_CONCURRENCY: "2" }), 2);
+  assert.equal(authorizationAuditConcurrencyLimit({}), null);
+  assert.throws(
+    () => authorizationAuditConcurrencyLimit({ HARNESS_AUTH_AUDIT_CONCURRENCY: "0" }),
+    /HARNESS_AUTH_AUDIT_CONCURRENCY must be a positive integer/u,
+  );
 });
 
 test("a late checker notification cannot consume the next request's unpublished reply", (t) => {

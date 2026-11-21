@@ -253,6 +253,53 @@ test("manifest gate runner keeps a bounded pool and reports every failure in pla
   assert.equal(maxActive, 2);
 });
 
+test("parallel gate pool drains before an incremental authorization request can fall back to full proof", async () => {
+  const authorization = { id: "ontology-durable-action-authorization", input: '["tools/run-manifest-gates.mjs"]' };
+  const ordinary = Array.from({ length: 6 }, (_, index) => ({ id: `gate-${index}` }));
+  const started = [];
+  const releases = [];
+  const plan = [authorization, ...ordinary];
+  const resultPromise = runManifestGatePlanParallel(plan, {
+    concurrency: 6,
+    execute: (entry) => {
+      started.push(entry);
+      if (entry === authorization) return Promise.resolve({ ok: false, durationMs: 0 });
+      return new Promise((resolve) => {
+        releases.push(() => resolve({ ok: entry !== ordinary[0], durationMs: 0 }));
+      });
+    },
+  });
+
+  assert.deepEqual(started, ordinary, "ordinary gates use every configured pool slot");
+  for (const release of releases.slice(0, -1)) release();
+  await Promise.resolve();
+  assert.deepEqual(started, ordinary, "authorization waits for the last ordinary gate");
+  releases.at(-1)();
+
+  const result = await resultPromise;
+  assert.deepEqual(started, [...ordinary, authorization], "the authorization request is forwarded intact");
+  assert.deepEqual(
+    result.results.map(({ id }) => id),
+    plan.map(({ id }) => id),
+  );
+  assert.deepEqual(result.failedGateIds, [authorization.id, ordinary[0].id]);
+});
+
+test("parallel gate pool runs an authorization-only plan with the gate's own worker budget", async () => {
+  const entry = { id: "ontology-durable-action-authorization" };
+  const started = [];
+  const result = await runManifestGatePlanParallel([entry], {
+    concurrency: 6,
+    execute: (gate) => {
+      started.push(gate);
+      return Promise.resolve({ ok: true, durationMs: 0 });
+    },
+  });
+
+  assert.deepEqual(started, [entry]);
+  assert.deepEqual(result.failedGateIds, []);
+});
+
 test("manifest gate runner appends shard args only to shardable gates", () => {
   const manifest = {
     gates: [
