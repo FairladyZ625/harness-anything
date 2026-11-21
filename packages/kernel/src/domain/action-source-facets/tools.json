@@ -968,6 +968,20 @@
         "order": 79
       },
       {
+        "candidateId": "action:tools:tools/gates/linux-arm64-smoke.mjs#verifyNodePty.output.child:b09dbca775d3a7e00ea2d1336b47d849",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/node-pty/typings/node-pty.d.ts#node-pty.spawn",
+        "order": 421
+      },
+      {
+        "candidateId": "action:tools:tools/gates/linux-arm64-smoke.mjs#verifyNodeSqlite:c457ff497d6aaad85c6476fb52d24117",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run",
+        "order": 422
+      },
+      {
         "candidateId": "action:tools:tools/gates/ontology-closure-scan.mjs#scanOntologyText.visit.hash:d86e15eaca87ccdbb5b93ac03de17408",
         "route": "package-assets-build",
         "role": "support",
