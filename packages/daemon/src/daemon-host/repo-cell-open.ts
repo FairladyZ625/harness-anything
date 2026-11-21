@@ -528,9 +528,10 @@ export async function openRepoWriterCell(
       await authorizeRuntimeAction({ ...payload, kind: "runtime-spawn" }, binding, actionId),
     commitRuntimeEvent: async (draft, binding) => {
       const action = { kind: "event" as const, ...draft },
+        trustedControl = draft.type === "runtime_cancel_requested" || draft.type === "runtime_steer_requested",
         receipt = runtimeSessionActionIds.includes(draft.type as never)
           ? await commitRuntimeSessionAction(extracted, action, binding)
-          : extracted.appendAuxiliaryRuntimeIngress(action, binding),
+          : extracted.appendAuxiliaryRuntimeIngress(action, binding, false, trustedControl),
         event = (receipt as typeof receipt & { readonly event?: AgentRuntimeEventV1 }).event,
         runtimeReceipt = { ...(receipt as unknown as JsonObject) };
       delete runtimeReceipt.event;
@@ -542,7 +543,12 @@ export async function openRepoWriterCell(
     authorizeRuntimeEvent: async ({ type, payload, opId, binding }) =>
       await authorizeRuntimeAction(
         {
-          kind: "runtime-run",
+          kind:
+            type === "runtime_cancel_requested"
+              ? "runtime-cancel"
+              : type === "runtime_steer_requested"
+                ? "runtime-steer"
+                : "runtime-run",
           runtimeEventType: type,
           ...(Object.hasOwn(payload, "runtimeSessionId")
             ? { runtimeSessionId: (payload as { readonly runtimeSessionId: string }).runtimeSessionId }

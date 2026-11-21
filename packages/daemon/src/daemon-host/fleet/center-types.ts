@@ -38,7 +38,7 @@ export interface FleetCenterOptions {
     | "readNodeAutoClaimCandidates"
     | "readNodeAutoDispatchCandidates"
   > &
-    Partial<Pick<DaemonHost, "readRepositoryMembers" | "unregisterFleetNode">>;
+    Partial<Pick<DaemonHost, "readRepositoryMembers" | "unregisterFleetNode" | "cancelRuntime" | "steerRuntime">>;
   readonly stateRoot: string;
   readonly centerRepoId?: string;
   readonly relocationRoot?: string;

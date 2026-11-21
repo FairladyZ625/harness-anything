@@ -66,6 +66,7 @@ import { applyFleetMirrorCut, locateFleetMirrorView } from "./fleet-edge-mirror.
 import { transitionDocumentReadinessContract } from "./transition-document-access.ts";
 import { validateAgentRuntimeOverview, type AgentRuntimeOverviewResult } from "./agent-runtime-contract.ts";
 import { makeRuntimeSpawner, type RuntimeDaemonRoute, type RuntimeLauncher } from "./runtime-spawn.ts";
+import { createFleetEdgeRuntimeControlConsumer, type RemoteRuntimeControlEvent } from "./fleet-edge-runtime-control.ts";
 import type { ReviewerReviewRecoveryInput, RuntimeAgent, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { readReplicaGeneration } from "../fleet-sync/fleet/replica-generation.ts";
@@ -1151,12 +1152,50 @@ export function openFleetEdgeRuntime(input: {
       return readEdgeRuntimeResult(request.viewRoot, request.repoId, request.nodeId, ref);
     },
   });
+  const remoteControl = createFleetEdgeRuntimeControlConsumer({
+    nodeId: () => input.resolveLocation().nodeId,
+    activeRuntimeSessionIds: () => spawner.activeRuntimeSessionIds(),
+    readControlEvents: async (runtimeSessionIds) => {
+      const request = input.resolveLocation();
+      return readRuntimeProjection(request, (projection) => {
+        const events: RemoteRuntimeControlEvent[] = [];
+        for (const runtimeSessionId of runtimeSessionIds) {
+          for (const event of projection.readRuntimeSessionEventsByType(runtimeSessionId, [
+            "runtime_cancel_requested",
+            "runtime_steer_requested",
+          ])) {
+            if (event.type === "runtime_cancel_requested" || event.type === "runtime_steer_requested")
+              events.push(event);
+          }
+        }
+        return events;
+      });
+    },
+    executeCancel: async (runtimeSessionId) => {
+      const { request } = context();
+      await spawner.cancel({ runtimeSessionId }, await controlBinding(request));
+    },
+    executeSteer: async (event) => {
+      const { request } = context();
+      await spawner.steer(
+        {
+          runtimeSessionId: event.payload.runtimeSessionId,
+          prompt: event.payload.prompt,
+          ...(event.payload.expected ? { expected: event.payload.expected as unknown as JsonObject } : {}),
+        },
+        await controlBinding(request),
+        { remoteControlRequestId: event.payload.controlRequestId },
+      );
+    },
+    schedule,
+  });
   let ready: Promise<void> | null = null;
   const ensureReady = (): Promise<void> => {
     if (ready === null) {
       const attempt = pullRuntimeReplica().then(() => {
         void spawner.adopt().then(
           () => {
+            void remoteControl.drain().catch((error: unknown) => console.error("[runtime-remote-control]", error));
             schedule(() => squad.reconcile());
           },
           (error: unknown) => console.error("[runtime-recovery]", error),
@@ -1175,9 +1214,14 @@ export function openFleetEdgeRuntime(input: {
         executionSignalContext.run(connectionSignal, async () => {
           const { request } = context();
 
-          if (readDispatchStreamHeaders(request.workspaceRoot).length === 0) return;
+          if (
+            readDispatchStreamHeaders(request.workspaceRoot).length === 0 &&
+            spawner.activeRuntimeSessionIds().length === 0
+          )
+            return;
           await ensureReady();
           const recovered = await spawner.adopt();
+          await remoteControl.drain();
           await schedule(async () => {
             await squad.flushPublications();
             await pullRuntimeReplica();

@@ -65,18 +65,24 @@ export function parseRuntimeSteerExpectation(value: unknown): RuntimeSteerExpect
   return value as RuntimeSteerExpectation;
 }
 
-/** The stream a selector steers: a taskless conversation addressed by any of its dispatches
- * steers its current leaf round; task-bound dispatches keep direct addressing. */
-export function resolveRuntimeSteerHeader(rootDir: string, selector: RuntimeSteerSelector): DispatchStreamHeader {
+export function findRuntimeSteerHeader(rootDir: string, selector: RuntimeSteerSelector): DispatchStreamHeader | null {
   const headers = readDispatchStreamHeaders(rootDir),
     header = headers.find((entry) =>
       "dispatchId" in selector
         ? entry.dispatchId === selector.dispatchId
         : entry.runtimeSessionId === selector.runtimeSessionId,
     );
-  if (!header) throw runtimeSpawnError("runtime_not_running", "Runtime dispatch was not found.");
+  if (!header) return null;
   // An earlier round's process has exited by the time a later round runs, and only the leaf can be live.
   return "dispatchId" in selector && header.taskId === null ? leafOf(headers, header) : header;
+}
+
+/** The stream a selector steers: a taskless conversation addressed by any of its dispatches
+ * steers its current leaf round; task-bound dispatches keep direct addressing. */
+export function resolveRuntimeSteerHeader(rootDir: string, selector: RuntimeSteerSelector): DispatchStreamHeader {
+  const header = findRuntimeSteerHeader(rootDir, selector);
+  if (!header) throw runtimeSpawnError("runtime_not_running", "Runtime dispatch was not found.");
+  return header;
 }
 
 export function runtimeSteerTarget(
@@ -142,7 +148,7 @@ export function runtimeSteerRefusal(
 
 /** The leaf's steer version: how many steer requests its dispatch stream already carries. Only
  * the daemon appends `steer_requested`, inside the same synchronous section that compares it. */
-export function readRuntimeSteerVersion(rootDir: string, dispatchId: string): number {
+export function readRuntimeSteerVersion(rootDir: string, dispatchId: string, opIds?: Set<string>): number {
   const target = dispatchStreamPath(rootDir, dispatchId),
     decoder = new StringDecoder("utf8"),
     marker = '"kind":"steer_requested"';
@@ -151,7 +157,11 @@ export function readRuntimeSteerVersion(rootDir: string, dispatchId: string): nu
     count = 0;
   const countLine = (line: string): void => {
     // The marker is a cheap prefilter; provider transcripts embed JSON only as escaped strings.
-    if (line.includes(marker) && parseRecord(line)?.kind === "steer_requested") count += 1;
+    if (!line.includes(marker)) return;
+    const record = parseRecord(line);
+    if (record?.kind !== "steer_requested") return;
+    count += 1;
+    if (opIds && typeof record.opId === "string") opIds.add(record.opId);
   };
   for (;;) {
     const bytes = readRuntimeWorkerChunk(target, offset);

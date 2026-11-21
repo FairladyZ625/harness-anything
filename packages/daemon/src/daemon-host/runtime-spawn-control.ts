@@ -36,12 +36,16 @@ import {
   readyDispatchLifecycle,
 } from "./runtime-dispatch-admission.ts";
 import {
+  findRuntimeSteerHeader,
   parseRuntimeSteerExpectation,
+  readRuntimeSteerVersion,
   resolveRuntimeSteerHeader,
   runtimeSteerMismatch,
   runtimeSteerReceiptTarget,
   runtimeSteerRefusal,
   runtimeSteerTarget,
+  type RuntimeSteerExpectation,
+  type RuntimeSteerSelector,
 } from "./runtime-steer-target.ts";
 
 export async function cancelRuntime(
@@ -57,11 +61,17 @@ export async function cancelRuntime(
     escalation = payload.escalation === true,
     reason = typeof payload.reason === "string" ? payload.reason.trim() : null,
     ruling = payload.ruling === undefined ? null : requiredRuntimeSpawnText(payload.ruling, "ruling").trim(),
+    idempotencyKey =
+      payload.idempotencyKey === undefined
+        ? null
+        : requiredRuntimeSpawnText(payload.idempotencyKey, "idempotencyKey").trim(),
     hash = createHash("sha256").update(`${context.input.repoId}\0${runtimeSessionId}`).digest("hex"),
     opId = `runtime-cancel-${hash.slice(0, 32)}`;
   if (ruling === "") throw runtimeSpawnError("invalid_runtime_ruling", "Owner ruling reason must not be empty.");
   if (payload.reason !== undefined && !reason)
     throw runtimeSpawnError("invalid_field", "Recovery reason must not be empty.");
+  if (payload.idempotencyKey !== undefined && !idempotencyKey)
+    throw runtimeSpawnError("invalid_field", "Runtime cancel idempotencyKey must not be empty.");
   // Authorize against the canonical dispatch, including repeated cancellation after archival.
   const headers = readDispatchStreamHeaders(context.input.rootDir, true),
     matchingHeader = headers.find((header) => header.runtimeSessionId === runtimeSessionId),
@@ -72,6 +82,23 @@ export async function cancelRuntime(
           ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
           : readRuntimeDispatchOwnerEvidence(context.requiredRuntimeProjection(context.input), runtimeSessionId),
     ownerBinding = matchingHeader?.binding ?? canonicalDispatch,
+    isCenter = context.input.runtimeNode === undefined && context.input.remote === undefined,
+    remoteEdgeTargetNodeId =
+      isCenter &&
+      ruling === null &&
+      !escalation &&
+      matchingHeader === undefined &&
+      ownerBinding != null &&
+      typeof ownerBinding.source === "object" &&
+      ownerBinding.source !== null &&
+      ownerBinding.source.kind === "node"
+        ? ownerBinding.source.nodeId
+        : null,
+    remoteEdgeCancelOwned =
+      remoteEdgeTargetNodeId !== null &&
+      binding.actor.executor === null &&
+      !(binding as { readonly executionPrincipal?: unknown }).executionPrincipal &&
+      ownerBinding!.actor.principal.personId === binding.actor.principal.personId,
     crossNodeCenterRuling =
       context.input.runtimeNode === undefined &&
       ruling !== null &&
@@ -96,6 +123,86 @@ export async function cancelRuntime(
   const lifecycle = await readDispatchLifecycle(context, { by: "session", runtimeSessionId });
   if (lifecycle.status !== "ready") throw dispatchLifecyclePendingError(lifecycle, context.runtimeSpawnError);
   let attempt = lifecycle.rows[0];
+  if (remoteEdgeCancelOwned && remoteEdgeTargetNodeId !== null) {
+    const session = context.requiredRuntimeProjection(context.input).readRuntimeSession(runtimeSessionId);
+    if (
+      attempt?.policy.attemptSettled ||
+      (attempt ? attempt.attempt.outcome !== null : session?.outcome !== null && session?.outcome !== undefined)
+    ) {
+      if (attempt?.policy.fallbackPending && attempt.controlLeafDispatchId === attempt.attempt.dispatchId) {
+        const terminal = readFallbackExhaustion(
+          context.requiredRuntimeProjection(context.input),
+          (ref) => readCanonicalRuntimeResult(context.requiredRuntimeStore(context.input), ref),
+          attempt.attempt,
+        );
+        const settlement = await context.publishRuntimeEvent(
+          "runtime_session_outcome_observed",
+          terminal.payload,
+          opId,
+          binding,
+          terminal.body,
+        );
+        return context.controlReceipt(opId, runtimeSessionId, "already-exited", settlement.receipt);
+      }
+      return context.controlReceipt(
+        opId,
+        runtimeSessionId,
+        "already-exited",
+        attempt?.policy.groupSettled ? { outcome: "no_changes", status: "settled_no_write" } : undefined,
+      );
+    }
+    if (!attempt || !session) throw runtimeSpawnError("runtime_not_running", "Runtime session was not found.");
+    if (attempt.attempt.stopProof !== "proven_stopped") {
+      const controlRequestId = idempotencyKey ?? opId,
+        eventOpId = `runtime-cancel-req-${sha256Text(`${context.input.repoId}\0${runtimeSessionId}\0${controlRequestId}`).slice(0, 32)}`,
+        existing = context.requiredRuntimeStore(context.input).readEvent(eventOpId);
+      if (existing) {
+        return {
+          schema: "command-receipt/v2",
+          ok: true,
+          command: "runtime-cancel",
+          outcome: "no_changes",
+          code: "no_changes",
+          origin: "runtime-cancel",
+          opId: eventOpId,
+          runtimeSessionId,
+          detail: "cancel_requested",
+          controlRequestId,
+          targetNodeId: remoteEdgeTargetNodeId,
+          status: "settled_no_write",
+          visibility: "center",
+          evidence: `event-object:${eventOpId}`,
+          summary: `Cancel request ${controlRequestId} was already recorded for remote runtime ${runtimeSessionId} on node ${remoteEdgeTargetNodeId}.`,
+        };
+      }
+      const published = await context.publishRuntimeEvent(
+        "runtime_cancel_requested",
+        {
+          runtimeSessionId,
+          controlRequestId,
+          targetNodeId: remoteEdgeTargetNodeId,
+          ...(reason ? { reason } : {}),
+        },
+        eventOpId,
+        binding,
+      );
+      return {
+        schema: "command-receipt/v2",
+        ok: true,
+        command: "runtime-cancel",
+        outcome: published.receipt?.outcome ?? "applied",
+        opId: eventOpId,
+        ...(typeof published.receipt?.revision === "number" ? { revision: published.receipt.revision } : {}),
+        runtimeSessionId,
+        detail: "cancel_requested",
+        controlRequestId,
+        targetNodeId: remoteEdgeTargetNodeId,
+        visibility: "center",
+        evidence: `event-object:${eventOpId}`,
+        summary: `Cancel request ${controlRequestId} recorded for remote runtime ${runtimeSessionId} on node ${remoteEdgeTargetNodeId}.`,
+      };
+    }
+  }
   if (!owned) {
     const session = context.input.remote
       ? await context.input.remote.readRuntimeSession(runtimeSessionId)
@@ -448,6 +555,7 @@ export async function steerRuntime(
   context: RuntimeSpawnerContext,
   payload: JsonObject,
   binding: RuntimeBinding,
+  options?: { readonly remoteControlRequestId?: string },
 ): Promise<JsonObject> {
   const unknownField = unknownFieldViolation(payload, daemonMethodPayloadFields("repo.agentRuntime.steer"));
   if (unknownField)
@@ -455,15 +563,27 @@ export async function steerRuntime(
   const runtimeSessionIdInput = payload.runtimeSessionId,
     dispatchIdInput = payload.dispatchId,
     prompt = requiredRuntimeSpawnText(payload.prompt, "prompt"),
-    expected = parseRuntimeSteerExpectation(payload.expected);
+    expected = parseRuntimeSteerExpectation(payload.expected),
+    idempotencyKey =
+      payload.idempotencyKey === undefined
+        ? null
+        : requiredRuntimeSpawnText(payload.idempotencyKey, "idempotencyKey").trim();
+  if (payload.idempotencyKey !== undefined && !idempotencyKey)
+    throw runtimeSpawnError("invalid_runtime_steer", "Runtime steer idempotencyKey must not be empty.");
   if ((typeof runtimeSessionIdInput === "string") === (typeof dispatchIdInput === "string"))
     throw runtimeSpawnError("invalid_runtime_steer", "Specify exactly one runtime session id or dispatch id.");
-  const selector =
+  const selector: RuntimeSteerSelector =
       typeof dispatchIdInput === "string"
         ? { dispatchId: dispatchIdInput }
         : { runtimeSessionId: runtimeSessionIdInput as string },
     { rootDir, repoId } = context.input;
-  let header = resolveRuntimeSteerHeader(rootDir, selector);
+  const localHeader = findRuntimeSteerHeader(rootDir, selector);
+  if (!localHeader) {
+    if (context.input.runtimeNode === undefined && context.input.remote === undefined)
+      return requestRemoteEdgeSteer(context, { selector, prompt, expected, idempotencyKey }, binding);
+    throw runtimeSpawnError("runtime_not_running", "Runtime dispatch was not found.");
+  }
+  let header = localHeader;
   const runtimeSessionId = header.runtimeSessionId;
   let [view] = readyDispatchLifecycle(
     await readDispatchLifecycle(context, { by: "session", runtimeSessionId }),
@@ -524,7 +644,31 @@ export async function steerRuntime(
       mismatch.expected,
     );
   const version = target.version + 1,
-    opId = `runtime-steer-${createHash("sha256").update(`${repoId}\0${runtimeSessionId}\0${context.input.now()}\0${prompt}`).digest("hex").slice(0, 32)}`;
+    opId = options?.remoteControlRequestId
+      ? `runtime-steer-remote-${sha256Text(`${repoId}\0${runtimeSessionId}\0${options.remoteControlRequestId}`).slice(0, 32)}`
+      : `runtime-steer-${createHash("sha256").update(`${repoId}\0${runtimeSessionId}\0${context.input.now()}\0${prompt}`).digest("hex").slice(0, 32)}`;
+  if (options?.remoteControlRequestId) {
+    const seenOpIds = new Set<string>();
+    readRuntimeSteerVersion(rootDir, header.dispatchId, seenOpIds);
+    if (seenOpIds.has(opId)) {
+      return {
+        schema: "command-receipt/v2",
+        ok: true,
+        command: "runtime-steer",
+        outcome: "no_changes",
+        code: "no_changes",
+        origin: "runtime-steer",
+        opId,
+        runtimeSessionId,
+        dispatchId: header.dispatchId,
+        status: "settled_no_write",
+        visibility: "center",
+        evidence: `dispatch-stream:${header.dispatchId}:steer_requested:${opId}`,
+        summary: `Remote steer request ${options.remoteControlRequestId} was already appended to ${header.dispatchId}.`,
+        steerTarget: runtimeSteerReceiptTarget(target),
+      };
+    }
+  }
   // The dispatch stream is the control channel: the worker host owning the provider follows
   // this file, so a host adopted after a daemon restart is steered like one this daemon spawned.
   appendRuntimeWorkerRecord(rootDir, header.dispatchId, {
@@ -555,6 +699,121 @@ export async function steerRuntime(
     // `applied` is the stream append, not the provider's turn: the worker host applies it later.
     summary: `Steer request appended to ${header.dispatchId} at steer version ${String(version)}; the provider has not confirmed it yet.`,
     steerTarget: runtimeSteerReceiptTarget({ ...target, version }),
+  };
+}
+
+async function requestRemoteEdgeSteer(
+  context: RuntimeSpawnerContext,
+  input: {
+    readonly selector: RuntimeSteerSelector;
+    readonly prompt: string;
+    readonly expected: RuntimeSteerExpectation | null;
+    readonly idempotencyKey: string | null;
+  },
+  binding: RuntimeBinding,
+): Promise<JsonObject> {
+  const { repoId } = context.input,
+    projection = context.requiredRuntimeProjection(context.input),
+    dispatchEvent =
+      "dispatchId" in input.selector
+        ? (projection.readRuntimeDispatchById(input.selector.dispatchId)?.event ?? null)
+        : (projection.readRuntimeDispatch(input.selector.runtimeSessionId) ??
+          projection.readLatestRuntimeDispatchBySession?.(input.selector.runtimeSessionId) ??
+          null);
+  if (!dispatchEvent) throw runtimeSpawnError("runtime_not_running", "Runtime dispatch was not found.");
+  if (typeof dispatchEvent.source !== "object" || dispatchEvent.source === null || dispatchEvent.source.kind !== "node")
+    throw runtimeSpawnError("runtime_not_running", "Runtime dispatch was not found.");
+  if (
+    binding.actor.executor !== null ||
+    Boolean((binding as { readonly executionPrincipal?: unknown }).executionPrincipal) ||
+    dispatchEvent.actor.principal.personId !== binding.actor.principal.personId
+  )
+    throw runtimeSpawnError("execution_scope_mismatch", "This runtime is owned by another node.");
+  const targetNodeId = dispatchEvent.source.nodeId,
+    runtimeSessionId = dispatchEvent.payload.runtimeSessionId,
+    [view] = readyDispatchLifecycle(
+      await readDispatchLifecycle(context, { by: "session", runtimeSessionId }),
+      context.runtimeSpawnError,
+    ),
+    session = projection.readRuntimeSession(runtimeSessionId),
+    kindId = view?.attempt.kindId ?? dispatchEvent.payload.kindId;
+  if (!runtimeKindForId(kindId as never).steerSupported)
+    throw runtimeSpawnError("runtime_steer_unsupported", `${kindId} does not support runtime steering.`);
+  if (!view?.policy.canSteer || !session || session.outcome !== null)
+    throw runtimeSpawnError("runtime_steer_unavailable", "The canonical lifecycle has no running control target.");
+  if (!session.providerSessionId)
+    throw runtimeSpawnError("runtime_steer_unavailable", "Provider has not established a resumable session yet.");
+  if (input.expected) {
+    const taskId = dispatchEvent.payload.taskId ?? null,
+      executionId = dispatchEvent.payload.executionId ?? null,
+      checks: readonly (readonly [string, unknown, unknown])[] = [
+        ["repoId", input.expected.repoId, repoId],
+        ["taskless", input.expected.taskless, taskId === null],
+        ["taskId", input.expected.taskId, taskId],
+        ["executionId", input.expected.executionId, executionId],
+        ["dispatchId", input.expected.dispatchId, dispatchEvent.payload.dispatchId],
+        ["dispatchId", input.expected.dispatchId, view.controlLeafDispatchId],
+      ];
+    for (const [field, want, actual] of checks)
+      if (want !== undefined && want !== actual)
+        throw runtimeSpawnError(
+          "runtime_steer_target_changed",
+          `The steer target no longer matches expected.${field}.`,
+        );
+  }
+  const controlRequestId =
+      input.idempotencyKey ??
+      `runtime-steer-${sha256Text(`${repoId}\0${runtimeSessionId}\0${context.input.now()}\0${input.prompt}`).slice(0, 32)}`,
+    eventOpId = `runtime-steer-req-${sha256Text(`${repoId}\0${runtimeSessionId}\0${controlRequestId}`).slice(0, 32)}`,
+    existing = context.requiredRuntimeStore(context.input).readEvent(eventOpId);
+  if (existing) {
+    return {
+      schema: "command-receipt/v2",
+      ok: true,
+      command: "runtime-steer",
+      outcome: "no_changes",
+      code: "no_changes",
+      origin: "runtime-steer",
+      opId: eventOpId,
+      runtimeSessionId,
+      dispatchId: view.attempt.dispatchId,
+      detail: "steer_requested",
+      controlRequestId,
+      targetNodeId,
+      status: "settled_no_write",
+      visibility: "center",
+      evidence: `event-object:${eventOpId}`,
+      summary: `Steer request ${controlRequestId} was already recorded for remote runtime ${runtimeSessionId} on node ${targetNodeId}.`,
+    };
+  }
+  const published = await context.publishRuntimeEvent(
+    "runtime_steer_requested",
+    {
+      runtimeSessionId,
+      dispatchId: view.attempt.dispatchId,
+      controlRequestId,
+      targetNodeId,
+      prompt: input.prompt,
+      ...(input.expected ? { expected: input.expected } : {}),
+    },
+    eventOpId,
+    binding,
+  );
+  return {
+    schema: "command-receipt/v2",
+    ok: true,
+    command: "runtime-steer",
+    outcome: published.receipt?.outcome ?? "applied",
+    opId: eventOpId,
+    ...(typeof published.receipt?.revision === "number" ? { revision: published.receipt.revision } : {}),
+    runtimeSessionId,
+    dispatchId: view.attempt.dispatchId,
+    detail: "steer_requested",
+    controlRequestId,
+    targetNodeId,
+    visibility: "center",
+    evidence: `event-object:${eventOpId}`,
+    summary: `Steer request ${controlRequestId} recorded for remote runtime ${runtimeSessionId} on node ${targetNodeId}.`,
   };
 }
 

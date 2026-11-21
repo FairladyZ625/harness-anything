@@ -130,9 +130,19 @@ for (const reviewer of [false, true])
           connection.readAccessToken,
         );
         assert.equal(businessWrite.code, "execution_credential_rejected", JSON.stringify(businessWrite));
-        await assert.rejects(fixture.host.cancelRuntime(repoId, { runtimeSessionId }, owner), {
-          code: "execution_scope_mismatch",
-        });
+        const remoteCancel = await fixture.host.cancelRuntime(repoId, { runtimeSessionId }, owner);
+        assert.equal(remoteCancel.ok, true, JSON.stringify(remoteCancel));
+        assert.equal(remoteCancel.detail, "cancel_requested", JSON.stringify(remoteCancel));
+        assert.equal(remoteCancel.targetNodeId, nodeId, JSON.stringify(remoteCancel));
+        const afterRemoteCancel = await fixture.host.readDispatchLifecycle(
+          repoId,
+          { by: "session", runtimeSessionId },
+          owner,
+        );
+        assert.equal(afterRemoteCancel.status, "ready");
+        if (afterRemoteCancel.status !== "ready") assert.fail("canonical lifecycle must remain ready");
+        assert.equal(afterRemoteCancel.rows[0]?.policy.groupSettled, false);
+        assert.equal(afterRemoteCancel.rows[0]?.attempt.stopProof, "unproven");
       }
       const unprovenBody = "An observation without physical stop proof is not an owner ruling.",
         unprovenSha = sha256Text(unprovenBody),

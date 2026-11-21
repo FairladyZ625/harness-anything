@@ -1249,7 +1249,26 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           throw error;
         }
         try {
-          const receipt = await observedRunCenterWriter(a.repoId, action, commandAuth);
+          let receipt: Awaited<ReturnType<typeof observedRunCenterWriter>>;
+          if (command.kind === "runtime-cancel" || command.kind === "runtime-steer") {
+            const { kind: controlKind, ...controlPayload } = command;
+            const controlInput = controlPayload as unknown as import("../protocol/json-rpc-types.ts").JsonObject;
+            if (controlKind === "runtime-cancel" ? !options.host.cancelRuntime : !options.host.steerRuntime)
+              throw new FleetFault("unsupported_command", `Center host does not expose ${controlKind}.`);
+            try {
+              receipt = (controlKind === "runtime-cancel"
+                ? await options.host.cancelRuntime!(a.repoId, controlInput, commandAuth)
+                : await options.host.steerRuntime!(a.repoId, controlInput, commandAuth)) as unknown as Awaited<
+                ReturnType<typeof observedRunCenterWriter>
+              >;
+            } catch (error) {
+              const code = runtimeErrorCode(error);
+              if (code) throw new FleetFault(code, runtimeErrorMessage(error));
+              throw error;
+            }
+          } else {
+            receipt = await observedRunCenterWriter(a.repoId, action, commandAuth);
+          }
           if (isRecoverableReceipt(receipt)) rememberRequestReceipt(a.repoId, frame.opId, receipt.opId);
           if (reservation) connectionSignal.throwIfAborted();
           const applied = receipt.outcome !== "op_rejected" && receipt.outcome !== "indeterminate";
