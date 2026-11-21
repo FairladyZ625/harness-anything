@@ -1906,7 +1906,7 @@ test("F19: controlReceipts cursor pagination reaches >500 receipts and requestOp
   t.after(() => db.close());
   const reqPlan = db
     .prepare(
-      "EXPLAIN QUERY PLAN SELECT event_json FROM event_index WHERE workspace_revision > ? AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.payload.runtimeSessionId') = ? AND json_extract(event_json, '$.type') IN ('runtime_session_provider_bound', 'runtime_session_liveness_changed') AND json_extract(event_json, '$.payload.controlReceipt.requestOpId') = ? ORDER BY workspace_revision ASC LIMIT ?",
+      "EXPLAIN QUERY PLAN SELECT event_json FROM event_index WHERE workspace_revision > ? AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.payload.runtimeSessionId') = ? AND json_extract(event_json, '$.type') IN ('runtime_session_provider_bound', 'runtime_session_liveness_changed') AND json_extract(event_json, '$.payload.controlReceipt.requestOpId') IS NOT NULL AND json_extract(event_json, '$.payload.controlReceipt.requestOpId') = ? ORDER BY workspace_revision ASC LIMIT ?",
     )
     .all(0, sessionId, "op-req-19-515", 1) as { detail: string }[];
   assert.ok(

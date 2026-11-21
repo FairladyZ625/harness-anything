@@ -15,6 +15,7 @@ import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { steerReceiptOpId } from "../src/daemon-host/dispatch-steer-state.ts";
 import { runFleetRuntimeEventClient } from "../src/daemon-host/fleet/peer.ts";
+import { waitForFleetReplicaReady } from "../src/daemon-host/fleet/replica-sync.ts";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
 import { readRuntimeExecutionPrincipal } from "../src/daemon-host/runtime-execution-principal-store.ts";
 import { requireExecutionRequestScope } from "../src/daemon-host/runtime-execution-scope.ts";
@@ -414,7 +415,7 @@ test(
           reduced = reduceRuntimeSession(reduced, event);
           if (reduced?.liveness === "exited") sawExited = true;
         }
-        assert.equal(reduced?.outcome, "cancelled");
+        assert.equal(reduced?.outcome, sid === taskSessionId ? "cancelled" : "unknown");
       }
       assert.ok(taskSteerLateOpId.length > 0);
     } finally {
@@ -586,8 +587,13 @@ test(
         git(root, "reset", "--hard", `origin/${branch}`);
       },
     });
-    // Freeze ONLY the resident replication TCP socket(s) already connected for Edge B; new CLI RPC connections
-    // opened afterwards will pass straight through to Center.
+    // Wait until Edge B's resident replication stream is live, then freeze ONLY its TCP socket(s);
+    // new CLI RPC connections opened afterwards will pass straight through to Center.
+    assert.equal(
+      await waitForFleetReplicaReady({ viewRoot: pausedEdgeB.viewRoot, repoId, nodeId: "node-two" }),
+      true,
+      "Edge B resident replication stream must become ready before pausing",
+    );
     assert.ok(openUpstreams.size >= 1, "Edge B must hold an active resident replication TCP connection");
     const pausedUpstreams = [...openUpstreams];
     for (const sock of pausedUpstreams) sock.pause();

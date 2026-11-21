@@ -1866,6 +1866,18 @@
   "runtime-session": {
     "contracts": [
       {
+        "id": "kernel/src/domain/agent-runtime.ts#RuntimeSessionEntityV1.isRuntimeControlCarrierEvent",
+        "symbol": "packages/kernel/src/domain/agent-runtime.ts#isRuntimeControlCarrierEvent",
+        "explain": "RuntimeSessionEntityV1: Structural carrier discriminator identifying additive controlRequest/controlReceipt events that must not mutate liveness.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#isRuntimeControlCarrierEvent:17f9bf99c201ff2f85dce28e08ce2626",
+            "route": "packages/kernel/src/domain/agent-runtime.ts#isRuntimeControlCarrierEvent"
+          }
+        ],
+        "order": 4
+      },
+      {
         "id": "kernel/src/domain/agent-runtime.ts#RuntimeSessionEntityV1.validateAgentRuntimeEventFields",
         "symbol": "packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimeEventFields",
         "explain": "RuntimeSessionEntityV1: Accepted session/event identity and provenance fields.",
@@ -1888,18 +1900,6 @@
           }
         ],
         "order": 0
-      },
-      {
-        "id": "kernel/src/domain/agent-runtime.ts#RuntimeSessionEntityV1.isRuntimeControlCarrierEvent",
-        "symbol": "packages/kernel/src/domain/agent-runtime.ts#isRuntimeControlCarrierEvent",
-        "explain": "RuntimeSessionEntityV1: Structural carrier discriminator identifying additive controlRequest/controlReceipt events that must not mutate liveness.",
-        "sources": [
-          {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#isRuntimeControlCarrierEvent:17f9bf99c201ff2f85dce28e08ce2626",
-            "route": "packages/kernel/src/domain/agent-runtime.ts#isRuntimeControlCarrierEvent"
-          }
-        ],
-        "order": 4
       },
       {
         "id": "kernel/src/domain/agent-runtime.ts#RuntimeSessionEntityV1.validateSessionIdentity",
