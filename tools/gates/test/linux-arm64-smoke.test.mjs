@@ -1,9 +1,11 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 import { parse } from "yaml";
 import { smokeIdentity } from "../../fixtures/smoke-identity.mjs";
 import { parseGateWorkflow } from "../../gate-workflow-parser.mjs";
@@ -13,12 +15,15 @@ import {
   isConfirmedDaemonGone,
   packAndInstallArm64Packages,
   runBoundedCommandAsync,
+  runNativeModulesProbeInSubprocess,
   runWithResourceCleanups,
+  spawnOwnedDaemon,
   verifyDaemonStoppedAndCleanup,
   verifyHostArchitecture,
   verifyInstalledPackageBins,
   verifyNodePty,
   verifyNodeSqlite,
+  waitForOwnedDaemonReady,
 } from "../linux-arm64-smoke.mjs";
 import { makeRepo } from "./helpers.mjs";
 
@@ -125,11 +130,28 @@ test("verifyInstalledPackageBins verifies ha, harness-anything, and daemon bins 
 });
 
 test("verifyNodeSqlite and verifyNodePty enforce prebuilds and bounded PTY timeout", async () => {
-  const sqlite = verifyNodeSqlite();
+  const sqlite = await verifyNodeSqlite();
   assert.equal(sqlite.ok, true, sqlite.errors.join("\n"));
 
   const ptyOk = await verifyNodePty({ runLivePty: false });
   assert.equal(ptyOk.ok, true, ptyOk.errors.join("\n"));
+
+  const subOk = await runNativeModulesProbeInSubprocess({
+    rootDir,
+    platform: "linux",
+    arch: "arm64",
+    runLivePty: false,
+    timeoutMs: 15_000,
+  });
+  assert.equal(subOk.ok, true, subOk.errors.join("\n"));
+  assert.ok(subOk.checks.some((line) => line.includes("node:sqlite DatabaseSync round-trip passed")));
+
+  const smokeSource = readFileSync(path.join(rootDir, "tools/gates/linux-arm64-smoke.mjs"), "utf8");
+  assert.doesNotMatch(
+    smokeSource,
+    /^import\s+.*from\s+["']node:sqlite["']/mu,
+    "node:sqlite must not be loaded at module top-level before the 180s budget is initialized",
+  );
 
   const emptyRoot = mkdtempSync(path.join(tmpdir(), "ha-empty-node-pty-"));
   try {
@@ -188,13 +210,13 @@ test("F7 negative control: slow daemon build from clean no-dist (and pre-existin
     platform: "linux",
     arch: "arm64",
     nodeVersion: "24.13.0",
-    deadlineMs: 600,
+    deadlineMs: 1_500,
     runLivePty: false,
     runContractTests: false,
   });
   assert.equal(cleanTimedOut.ok, false);
   assert.equal(cleanTimedOut.stages.find((stage) => stage.name === "build-and-pack")?.ok, false);
-  assert.match(cleanTimedOut.errors.join("\n"), /build @harness-anything\/daemon timed out|exceeded 600ms/u);
+  assert.match(cleanTimedOut.errors.join("\n"), /build @harness-anything\/daemon timed out|exceeded 1500ms/u);
 
   // Pre-existing dist/index.js and dist/build-id.txt must never bypass daemon build timing.
   const prebuiltRepo = makeRepo({
@@ -224,7 +246,7 @@ test("F7 negative control: slow daemon build from clean no-dist (and pre-existin
     platform: "linux",
     arch: "arm64",
     nodeVersion: "24.13.0",
-    deadlineMs: 600,
+    deadlineMs: 1_500,
     runLivePty: false,
     runContractTests: false,
   });
@@ -234,7 +256,7 @@ test("F7 negative control: slow daemon build from clean no-dist (and pre-existin
     false,
     "pre-existing daemon dist must be cleared before timed compilation",
   );
-  assert.match(prebuiltTimedOut.errors.join("\n"), /build @harness-anything\/daemon timed out|exceeded 600ms/u);
+  assert.match(prebuiltTimedOut.errors.join("\n"), /build @harness-anything\/daemon timed out|exceeded 1500ms/u);
 });
 
 test("F8/F12 negative controls: runBoundedCommandAsync reaps hung process trees including early-exiting group leaders", async () => {
@@ -747,4 +769,343 @@ test("rewrite-ci and gate-manifest wire linux-arm64-smoke on ubuntu-24.04-arm wi
   assert.deepEqual(gate.executionSurfaces.rewriteCi.pullRequestJobs, ["linux-arm64-smoke"]);
   assert.deepEqual(gate.executionSurfaces.rewriteCi.nonPullRequestJobs, ["linux-arm64-smoke"]);
   assert.equal(manifest.surfaces.branchProtection.requiredContexts.includes("linux-arm64-smoke"), false);
+});
+
+test("F15 negative control: standalone top-level-await entry keeps event loop alive through SIGKILL process-group exit poll, receipt emission, and tempRoot cleanup", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "ha-f15-standalone-"));
+  const pidFile = path.join(tempDir, "f15-pids.json");
+  const repoDir = path.join(tempDir, "repo");
+  mkdirSync(repoDir, { recursive: true });
+  try {
+    const smokeModuleUrl = pathToFileURL(path.join(rootDir, "tools/gates/linux-arm64-smoke.mjs")).href;
+    const orphanGrandScript = [
+      'const fs = require("node:fs");',
+      'process.on("SIGTERM", () => {});',
+      `const tmp = ${JSON.stringify(`${pidFile}.tmp`)};`,
+      `fs.writeFileSync(tmp, JSON.stringify({ leader: Number(process.env.LEADER_PID), grand: process.pid }));`,
+      `fs.renameSync(tmp, ${JSON.stringify(pidFile)});`,
+      'process.stdout.write("F15_GRANDCHILD_READY\\n");',
+      "setInterval(() => {}, 1000);",
+    ].join(" ");
+    const earlyLeaderScript = [
+      'const { spawn } = require("node:child_process");',
+      `spawn(process.execPath, ["-e", ${JSON.stringify(orphanGrandScript)}], { stdio: "inherit", env: { ...process.env, LEADER_PID: String(process.pid) } });`,
+      "process.exit(0);",
+    ].join(" ");
+    const standaloneScript = `
+      import { evaluateLinuxArm64Smoke, runBoundedCommandAsync } from ${JSON.stringify(smokeModuleUrl)};
+      let observedTempRoot = null;
+      let timedOutReceipt = null;
+      const result = await evaluateLinuxArm64Smoke(${JSON.stringify(repoDir)}, {
+        requireLinuxArm64: true,
+        platform: "linux",
+        arch: "arm64",
+        nodeVersion: "24.13.0",
+        runLivePty: false,
+        runContractTests: false,
+        runNativeModules: () => ({ ok: true, checks: [], errors: [] }),
+        runPackInstall: async (_root, { tempRoot }) => {
+          observedTempRoot = tempRoot;
+          timedOutReceipt = await runBoundedCommandAsync(process.execPath, ["-e", ${JSON.stringify(earlyLeaderScript)}], {
+            cwd: ${JSON.stringify(tempDir)},
+            env: process.env,
+            timeoutMs: 800,
+            graceMs: 150,
+            cleanupTimeoutMs: 3000,
+            label: "f15 standalone early-leader probe",
+          });
+          return {
+            ok: false,
+            errors: [timedOutReceipt.errorMessage ?? "expected timeout"],
+            checks: [],
+            consumerDir: null,
+            cliBins: null,
+            daemonBin: null,
+          };
+        },
+      });
+      process.stdout.write("__F15_RECEIPT__=" + JSON.stringify({
+        ok: result.ok,
+        errors: result.errors,
+        stages: result.stages,
+        observedTempRoot,
+        timedOut: timedOutReceipt?.timedOut,
+        terminatedCleanly: timedOutReceipt?.terminatedCleanly,
+        status: timedOutReceipt?.status,
+      }) + "\\n");
+    `;
+    const run = await runBoundedCommandAsync(process.execPath, ["--input-type=module", "-e", standaloneScript], {
+      cwd: tempDir,
+      env: process.env,
+      timeoutMs: 15_000,
+      label: "F15 standalone entry",
+    });
+    assert.equal(run.timedOut, false, run.errorMessage ?? "");
+    assert.equal(run.status, 0, `standalone process must settle top-level await cleanly; stderr=${run.stderr}`);
+    assert.doesNotMatch(run.stderr, /Detected unsettled top-level await/iu);
+    const line = run.stdout
+      .split(/\r?\n/u)
+      .reverse()
+      .find((entry) => entry.startsWith("__F15_RECEIPT__="));
+    assert.ok(line, `standalone entry must emit receipt after cleanup; stdout=${run.stdout} stderr=${run.stderr}`);
+    const payload = JSON.parse(line.slice("__F15_RECEIPT__=".length));
+    assert.equal(payload.ok, false);
+    assert.equal(payload.timedOut, true);
+    assert.equal(payload.status, 0, "group leader must have exited 0 before timeout");
+    assert.equal(payload.terminatedCleanly, true, "process group must be confirmed reaped before receipt emission");
+    assert.match(payload.errors.join("\n"), /f15 standalone early-leader probe timed out after 800ms/u);
+    assert.ok(typeof payload.observedTempRoot === "string" && payload.observedTempRoot.length > 0);
+    assert.equal(existsSync(payload.observedTempRoot), false, "outer finally must remove tempRoot after SIGKILL poll");
+    assert.equal(existsSync(pidFile), true, "grandchild must write both PIDs before timeout");
+    const { leader: leaderPid, grand: grandPid } = JSON.parse(readFileSync(pidFile, "utf8"));
+    for (const pid of [leaderPid, grandPid]) {
+      assert.throws(
+        () => process.kill(pid, 0),
+        (error) => error?.code === "ESRCH",
+        `pid ${pid} must be gone after standalone cleanup`,
+      );
+    }
+    assert.throws(
+      () => process.kill(-leaderPid, 0),
+      (error) => error?.code === "ESRCH",
+      `process group -${leaderPid} must be gone after standalone cleanup`,
+    );
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("F16 negative controls: paused daemon before pidfile publication is reaped by owned process group on timeout and unowned surviving pids fail closed without blind kill", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "ha-f16-daemon-ownership-"));
+  const probePidFile = path.join(tempDir, "paused-daemon-pid.json");
+  const fakeDaemonScript = path.join(tempDir, "paused-daemon.mjs");
+  let foreignSleeper = null;
+  try {
+    writeFileSync(
+      fakeDaemonScript,
+      [
+        "#!/usr/bin/env node",
+        'import { renameSync, writeFileSync } from "node:fs";',
+        'process.on("SIGTERM", () => {});',
+        `const tmp = ${JSON.stringify(`${probePidFile}.tmp`)};`,
+        `writeFileSync(tmp, JSON.stringify({ pid: process.pid }));`,
+        `renameSync(tmp, ${JSON.stringify(probePidFile)});`,
+        "// Intentionally pause before singleton lock or daemon-default.pid publication.",
+        "setInterval(() => {}, 1000);",
+      ].join("\n"),
+    );
+    chmodSync(fakeDaemonScript, 0o755);
+
+    const repo = makeRepo({ "README.md": "ok\n" });
+    let capturedTempRoot = null;
+    let pidExistedAtCleanup = null;
+    let lockExistedAtCleanup = null;
+    const timedOut = await evaluateLinuxArm64Smoke(repo.rootDir, {
+      requireLinuxArm64: true,
+      platform: "linux",
+      arch: "arm64",
+      nodeVersion: "24.13.0",
+      deadlineMs: 1_500,
+      runLivePty: false,
+      runContractTests: false,
+      runNativeModules: () => ({ ok: true, checks: [], errors: [] }),
+      runPackInstall: (_root, { tempRoot }) => {
+        capturedTempRoot = tempRoot;
+        return {
+          ok: true,
+          errors: [],
+          checks: [],
+          consumerDir: tempRoot,
+          cliBins: {
+            ha: { file: path.join(tempRoot, "node_modules/.bin/ha"), argsPrefix: [] },
+            harnessAnything: { file: path.join(tempRoot, "node_modules/.bin/harness-anything"), argsPrefix: [] },
+          },
+          daemonBin: { file: process.execPath, argsPrefix: [fakeDaemonScript] },
+        };
+      },
+      runColdSmoke: () => ({ ok: true, errors: [], checks: [] }),
+      runDaemonEdgeSmoke: async ({ daemonBin, tempRoot, budget }) => {
+        const userRoot = path.join(tempRoot, "paused-center-user");
+        mkdirSync(userRoot, { recursive: true });
+        let ownedDaemon = null;
+        try {
+          const { bodyResult, cleanupErrors } = await runWithResourceCleanups(async () => {
+            ownedDaemon = spawnOwnedDaemon({
+              label: "center",
+              daemonBin,
+              repo: tempRoot,
+              userRoot,
+              env: process.env,
+            });
+            const ready = await waitForOwnedDaemonReady({
+              label: "center",
+              ownedDaemon,
+              checkStatus: async () => ({
+                ok: false,
+                status: 1,
+                timedOut: false,
+                stdout: "",
+                stderr: "",
+                receipt: { ok: false, code: "daemon_unavailable" },
+              }),
+              budget,
+              pollIntervalMs: 50,
+            });
+            return { ok: ready.ok, errors: ready.errorMessage ? [ready.errorMessage] : [], checks: [] };
+          }, [
+            {
+              label: "center daemon cleanup",
+              run: () => {
+                pidExistedAtCleanup = existsSync(path.join(userRoot, "daemon-default.pid"));
+                lockExistedAtCleanup = existsSync(path.join(userRoot, "daemon-default.singleton.lock"));
+                return verifyDaemonStoppedAndCleanup({
+                  label: "center",
+                  userRoot,
+                  ownedDaemon,
+                  started: ownedDaemon?.ready === true,
+                  alreadyStopped: false,
+                  stopDaemon: async () => ({
+                    ok: false,
+                    status: 1,
+                    timedOut: false,
+                    stdout: "",
+                    stderr: "",
+                    receipt: { ok: false, code: "daemon_unavailable" },
+                  }),
+                });
+              },
+            },
+          ]);
+          return {
+            ok: cleanupErrors.length === 0 && bodyResult?.ok !== false,
+            errors: [...(bodyResult?.errors ?? []), ...cleanupErrors],
+            checks: [],
+          };
+        } catch (error) {
+          return { ok: false, errors: [error instanceof Error ? error.message : String(error)], checks: [] };
+        }
+      },
+    });
+
+    assert.equal(timedOut.ok, false);
+    assert.equal(timedOut.stages.find((stage) => stage.name === "daemon-and-edge-smoke")?.ok, false);
+    assert.match(timedOut.errors.join("\n"), /exceeded 1500ms|readiness timed out/u);
+    assert.equal(pidExistedAtCleanup, false, "paused daemon must not have written daemon-default.pid before timeout");
+    assert.equal(
+      lockExistedAtCleanup,
+      false,
+      "paused daemon must not have written daemon-default.singleton.lock before timeout",
+    );
+    assert.equal(existsSync(probePidFile), true, "paused daemon must have started and written its probe PID");
+    const { pid: pausedPid } = JSON.parse(readFileSync(probePidFile, "utf8"));
+    assert.ok(Number.isInteger(pausedPid) && pausedPid > 0);
+    assert.throws(
+      () => process.kill(pausedPid, 0),
+      (error) => error?.code === "ESRCH",
+      `paused daemon pid ${pausedPid} must be reaped even without a pidfile`,
+    );
+    assert.throws(
+      () => process.kill(-pausedPid, 0),
+      (error) => error?.code === "ESRCH",
+      `paused daemon process group -${pausedPid} must be reaped`,
+    );
+    assert.ok(capturedTempRoot);
+    assert.equal(existsSync(capturedTempRoot), false, "tempRoot must be removed after owned daemon cleanup");
+
+    // Ownership guard: verifyDaemonStoppedAndCleanup must never blindly signal an unowned PID in daemon-default.pid.
+    const unownedUserRoot = path.join(tempDir, "unowned-user");
+    mkdirSync(unownedUserRoot, { recursive: true });
+    foreignSleeper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000);"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    assert.ok(Number.isInteger(foreignSleeper.pid) && foreignSleeper.pid > 0);
+    writeFileSync(path.join(unownedUserRoot, "daemon-default.pid"), `${foreignSleeper.pid}\n`);
+    const unownedResult = await verifyDaemonStoppedAndCleanup({
+      label: "center",
+      userRoot: unownedUserRoot,
+      ownedDaemon: null,
+      started: false,
+      alreadyStopped: false,
+      stopDaemon: async () => ({
+        ok: false,
+        status: 1,
+        timedOut: false,
+        stdout: "",
+        stderr: "",
+        receipt: { ok: false, code: "daemon_replaced" },
+      }),
+    });
+    assert.equal(unownedResult.ok, false);
+    assert.match(
+      unownedResult.errors.join("\n"),
+      new RegExp(`observed surviving daemon pid ${foreignSleeper.pid}`, "u"),
+    );
+    // The unrelated foreign process must still be alive because cleanup refused blind kill.
+    assert.doesNotThrow(() => process.kill(foreignSleeper.pid, 0));
+  } finally {
+    if (foreignSleeper && foreignSleeper.exitCode === null && foreignSleeper.signalCode === null) {
+      foreignSleeper.kill("SIGKILL");
+    }
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("F17 negative control: native-modules probe blocking synchronously before PTY event listeners is killed within internal budget and tempRoot is cleaned up", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "ha-f17-native-block-"));
+  const blockerPath = path.join(tempDir, "block-before-pty.mjs");
+  const probePidFile = path.join(tempDir, "native-probe-pid.json");
+  try {
+    writeFileSync(
+      blockerPath,
+      [
+        'import { renameSync, writeFileSync } from "node:fs";',
+        `const tmp = ${JSON.stringify(`${probePidFile}.tmp`)};`,
+        `writeFileSync(tmp, JSON.stringify({ pid: process.pid }));`,
+        `renameSync(tmp, ${JSON.stringify(probePidFile)});`,
+        "// Synchronously block the native probe thread before node-pty/node:sqlite or any JS event/timer can run.",
+        "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);",
+      ].join("\n"),
+    );
+
+    const repo = makeRepo({ "README.md": "ok\n" });
+    let capturedTempRoot = null;
+    let cleanupCalled = false;
+    const blocked = await evaluateLinuxArm64Smoke(repo.rootDir, {
+      requireLinuxArm64: true,
+      platform: "linux",
+      arch: "arm64",
+      nodeVersion: "24.13.0",
+      deadlineMs: 1_200,
+      runLivePty: true,
+      runContractTests: false,
+      nativeProbeNodeArgs: ["--import", pathToFileURL(blockerPath).href],
+      onCleanup: ({ tempRoot }) => {
+        cleanupCalled = true;
+        capturedTempRoot = tempRoot;
+      },
+    });
+
+    assert.equal(blocked.ok, false);
+    assert.equal(blocked.stages.find((stage) => stage.name === "native-modules")?.ok, false);
+    assert.match(blocked.errors.join("\n"), /native-modules probe timed out/u);
+    assert.equal(cleanupCalled, true, "cleanup callback must run after native-modules timeout");
+    assert.ok(capturedTempRoot);
+    assert.equal(existsSync(capturedTempRoot), false, "tempRoot must be removed after native-modules timeout");
+    assert.equal(existsSync(probePidFile), true, "native-modules child must have entered synchronous block");
+    const { pid: probePid } = JSON.parse(readFileSync(probePidFile, "utf8"));
+    assert.ok(Number.isInteger(probePid) && probePid > 0);
+    assert.throws(
+      () => process.kill(probePid, 0),
+      (error) => error?.code === "ESRCH",
+      `blocked native-modules probe pid ${probePid} must be reaped`,
+    );
+    assert.throws(
+      () => process.kill(-probePid, 0),
+      (error) => error?.code === "ESRCH",
+      `blocked native-modules probe process group -${probePid} must be reaped`,
+    );
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 });
