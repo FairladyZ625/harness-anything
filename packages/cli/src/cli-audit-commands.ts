@@ -98,6 +98,13 @@ export async function runLedgerAuditExport(
         pinnedToRevision = page.effectiveToRevision;
         const pureRevision = kernel.isPureRevisionWindow(page.window);
         const actualFromRevision = page.effectiveFromRevision ?? page.window.fromRevision;
+        if (actualFromRevision !== null && actualFromRevision > page.effectiveToRevision) {
+          return cliFailure(
+            "ledger-audit-export",
+            "invalid_command",
+            `Audit export --from-revision (${actualFromRevision}) exceeds the effective upper revision (${page.effectiveToRevision}).`,
+          );
+        }
         const emptyPostCursorPure =
           pureRevision && page.cursorTruncated === true && actualFromRevision === null && page.events.length === 0;
         manifestWindow = {

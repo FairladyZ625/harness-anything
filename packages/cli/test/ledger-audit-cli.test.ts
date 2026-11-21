@@ -87,6 +87,51 @@ test("thin command parser routes ledger audit-export and task delivery-certifica
   }
 });
 
+test("audit-export CLI rejects an out-of-range first page before staging output", async (t) => {
+  const directory = mkdtempSync(path.join(tmpdir(), "ha-audit-cli-window-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  for (const utcDate of [null, "2026-11-21"]) {
+    const outputDir = path.join(directory, utcDate ?? "revisions");
+    const parsed = parseThinCommand([
+      "ledger",
+      "audit-export",
+      "--from-revision",
+      "51",
+      "--output-dir",
+      outputDir,
+      ...(utcDate === null ? [] : ["--date", utcDate]),
+    ]);
+    assert.equal(parsed.ok, true);
+    const receipt = await runLedgerAuditExport(parsed.command, async () => ({
+      ok: true,
+      evidence: JSON.stringify({
+        schema: "audit-export-page/v1",
+        repoId: "repo-cli-test",
+        sourceRevision: 50,
+        effectiveFromRevision: 51,
+        effectiveToRevision: 50,
+        algorithm: "sha256",
+        prevRootHash: auditGenesisChainHash("sha256"),
+        window: {
+          fromRevision: 51,
+          toRevision: null,
+          utcDate,
+          after: utcDate === null ? null : `${utcDate}T00:00:00.000Z`,
+          before: utcDate === null ? null : `${utcDate}T23:59:59.999Z`,
+        },
+        events: [],
+        count: 0,
+        scannedCount: 0,
+        hasMore: false,
+        page: { limit: 500, cursor: null, nextCursor: null },
+      }),
+    }));
+    assert.equal(receipt.ok, false);
+    assert.equal(receipt.code, "invalid_command");
+    assert.throws(() => readdirSync(outputDir), { code: "ENOENT" });
+  }
+});
+
 test("CLI multi-page streaming audit-export, atomic staging, pinned anchors, mixed-algorithm cert, raw-byte checks, and human errors", async () => {
   const workDir = mkdtempSync(path.join(tmpdir(), "ha-audit-cli-"));
   const emptyHome = path.join(workDir, "empty-home");

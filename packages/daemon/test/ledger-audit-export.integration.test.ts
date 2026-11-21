@@ -210,6 +210,24 @@ test("ledger-audit-export paginates canonical events, enforces cursor bounds & r
         true,
       );
 
+      for (const date of [undefined, "2026-11-21"]) {
+        const window = { kind: "ledger-audit-export" as const, ...(date === undefined ? {} : { date }) };
+        const atHead = evidence(await cell.run({ ...window, fromRevision: sourceRevision }, binding));
+        const manifest = atHead.manifest as AuditExportManifestV1;
+        assert.equal(manifest.window.fromRevision, sourceRevision);
+        assert.equal(manifest.window.toRevision, sourceRevision);
+        assert.equal(manifest.eventCount, 1);
+        const pastHead = await cell.run({ ...window, fromRevision: sourceRevision + 1 }, binding);
+        assert.equal(pastHead.outcome, "op_rejected");
+        assert.equal(pastHead.code, "invalid_command");
+      }
+      const emptyDate = evidence(
+        await cell.run({ kind: "ledger-audit-export", date: "2026-11-22", fromRevision: sourceRevision }, binding),
+      );
+      const emptyManifest = emptyDate.manifest as AuditExportManifestV1;
+      assert.equal(emptyManifest.eventCount, 0);
+      assert.equal(verifyAuditSliceContent({ manifest: emptyManifest, entriesContent: "" }).ok, true);
+
       // G4-05: --cursor below --from-revision MUST be rejected!
       const badCursor = await cell.run({ kind: "ledger-audit-export", fromRevision: 5, cursor: "1" }, binding);
       assert.equal(badCursor.outcome, "op_rejected");

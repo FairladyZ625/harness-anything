@@ -229,6 +229,12 @@ export function readAuditExportPage(
       (batch.events.at(-1)?.workspaceRevision ?? 0) >= effectiveToRevision;
     nextCursor = exhausted ? null : String(lastScanned);
   }
+  if (query.window.fromRevision !== null && query.window.fromRevision > effectiveToRevision) {
+    throw cell.cellCodedError(
+      "invalid_command",
+      `Audit export --from-revision (${query.window.fromRevision}) exceeds the effective upper revision (${effectiveToRevision}).`,
+    );
+  }
   const hasMore = nextCursor !== null;
   const declaredStartAfter = query.window.fromRevision !== null ? query.window.fromRevision - 1 : 0;
   const cursorClippedStart = query.cursor !== null && query.startAfterRevision > declaredStartAfter;

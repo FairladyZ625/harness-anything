@@ -139,18 +139,19 @@ test("staged caller output writer preserves verifiable prior export on final swi
     await pubA.writeLine(line);
     await pubB.writeLine(line);
   }
+  const publishedA = pubA.commit({
+    filePath: raceManifestPath,
+    contents: `${JSON.stringify(manifest1, null, 2)}\n`,
+    entriesTargetPath: raceEntriesPath,
+  });
   const [resA, resB] = await Promise.allSettled([
-    pubA.commit({
-      filePath: raceManifestPath,
-      contents: `${JSON.stringify(manifest1, null, 2)}\n`,
-      entriesTargetPath: raceEntriesPath,
-    }),
+    publishedA,
     pubB.commit({
       filePath: raceManifestPath,
       contents: `${JSON.stringify(manifest1, null, 2)}\n`,
       entriesTargetPath: raceEntriesPath,
       beforeSwitch: async () => {
-        await new Promise((resolve) => setTimeout(resolve, 15));
+        await publishedA;
         throw new Error("simulated switch failure in concurrent sibling publisher");
       },
     }),
@@ -159,6 +160,7 @@ test("staged caller output writer preserves verifiable prior export on final swi
   await pubB.close();
   assert.equal(resA.status, "fulfilled");
   assert.equal(resB.status, "rejected");
+  assert.match(String(resB.reason), /simulated switch failure in concurrent sibling publisher/u);
   assert.deepEqual((await readdir(raceDir)).sort(), [manifest1.entriesFile, "audit-manifest.json"].sort());
   const raceManifest = JSON.parse(await readFile(raceManifestPath, "utf8"));
   const raceEntries = await readFile(path.join(raceDir, raceManifest.entriesFile), "utf8");
