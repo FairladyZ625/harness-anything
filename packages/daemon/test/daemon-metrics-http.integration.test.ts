@@ -921,9 +921,14 @@ test(
           realm: "fleet",
           accessToken: "center-tok",
           provider: {
+            policyRef: "test-policy",
+            authority: { url: "https://idp.example.invalid", realm: "fleet" },
+            deniedReasonCode: "authorization_denied",
             authenticateNode: async () => true,
             readNode: async () => ({ state: "active", revocation: "complete", personId: "person-owner" }),
-            authorizePerson: async () => ({ outcome: "allowed" }),
+            validateUserAccessToken: async () => true,
+            authorize: async () => ({ outcome: "allowed", reasonCode: "allowed" }),
+            authorizePerson: async () => ({ outcome: "allowed", reasonCode: "allowed" }),
           },
         }),
         bind: async <T extends Record<string, unknown>>(auth: T) => ({
@@ -934,7 +939,12 @@ test(
             azp: "harness-cli",
             authority: { url: "https://idp.example.invalid", realm: "fleet" },
             provider: {
-              authorizePerson: async () => ({ outcome: "allowed" }),
+              policyRef: "test-policy",
+              authority: { url: "https://idp.example.invalid", realm: "fleet" },
+              deniedReasonCode: "authorization_denied",
+              validateUserAccessToken: async () => true,
+              authorize: async () => ({ outcome: "allowed", reasonCode: "allowed" }),
+              authorizePerson: async () => ({ outcome: "allowed", reasonCode: "allowed" }),
             },
           },
         }),
@@ -1324,9 +1334,14 @@ test(
           realm: "fleet",
           accessToken: "center-tok",
           provider: {
+            policyRef: "test-policy",
+            authority: { url: "https://idp.example.invalid", realm: "fleet" },
+            deniedReasonCode: "authorization_denied",
             authenticateNode: async () => true,
             readNode: async () => ({ state: "active", revocation: "complete", personId: "person-owner" }),
-            authorizePerson: async () => ({ outcome: "allowed" }),
+            validateUserAccessToken: async () => true,
+            authorize: async () => ({ outcome: "allowed", reasonCode: "allowed" }),
+            authorizePerson: async () => ({ outcome: "allowed", reasonCode: "allowed" }),
           },
         }),
         bind: async <T extends Record<string, unknown>>(auth: T) => ({
@@ -1337,7 +1352,12 @@ test(
             azp: "harness-cli",
             authority: { url: "https://idp.example.invalid", realm: "fleet" },
             provider: {
-              authorizePerson: async () => ({ outcome: "allowed" }),
+              policyRef: "test-policy",
+              authority: { url: "https://idp.example.invalid", realm: "fleet" },
+              deniedReasonCode: "authorization_denied",
+              validateUserAccessToken: async () => true,
+              authorize: async () => ({ outcome: "allowed", reasonCode: "allowed" }),
+              authorizePerson: async () => ({ outcome: "allowed", reasonCode: "allowed" }),
             },
           },
         }),
@@ -1525,9 +1545,14 @@ test(
           realm: "fleet",
           accessToken: "center-tok",
           provider: {
+            policyRef: "test-policy",
+            authority: { url: "https://idp.example.invalid", realm: "fleet" },
+            deniedReasonCode: "authorization_denied",
             authenticateNode: async () => true,
             readNode: async () => ({ state: "active", revocation: "complete", personId: "person-owner" }),
-            authorizePerson: async () => ({ outcome: "allowed" }),
+            validateUserAccessToken: async () => true,
+            authorize: async () => ({ outcome: "allowed", reasonCode: "allowed" }),
+            authorizePerson: async () => ({ outcome: "allowed", reasonCode: "allowed" }),
           },
         }),
         bind: async <T extends Record<string, unknown>>(auth: T) => ({
@@ -1538,7 +1563,12 @@ test(
             azp: "harness-cli",
             authority: { url: "https://idp.example.invalid", realm: "fleet" },
             provider: {
-              authorizePerson: async () => ({ outcome: "allowed" }),
+              policyRef: "test-policy",
+              authority: { url: "https://idp.example.invalid", realm: "fleet" },
+              deniedReasonCode: "authorization_denied",
+              validateUserAccessToken: async () => true,
+              authorize: async () => ({ outcome: "allowed", reasonCode: "allowed" }),
+              authorizePerson: async () => ({ outcome: "allowed", reasonCode: "allowed" }),
             },
           },
         }),
@@ -1643,6 +1673,7 @@ test(
         const chunk1Res = await peerA.request({
           schema: "fleet.upload.chunk/v1",
           messageId: "upload-chunk-1",
+          opId: "op-pod-replace-upload-1",
           uploadId,
           offset: 0,
           dataBase64: firstHalf.toString("base64"),
@@ -1712,6 +1743,7 @@ test(
         const chunk2Res = await peerB.request({
           schema: "fleet.upload.chunk/v1",
           messageId: "upload-chunk-2",
+          opId: "op-pod-replace-upload-1",
           uploadId,
           offset: firstHalf.byteLength,
           dataBase64: secondHalf.toString("base64"),
@@ -1721,6 +1753,7 @@ test(
         const finishRes = await peerB.request({
           schema: "fleet.upload.finish/v1",
           messageId: "upload-finish-1",
+          opId: "op-pod-replace-upload-1",
           uploadId,
         });
         assert.equal(
