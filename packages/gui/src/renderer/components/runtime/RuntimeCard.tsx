@@ -228,7 +228,7 @@ export function RuntimeCard({
 
       {providerHealth &&
         (() => {
-          const projectedHealth = projectRuntimeProviderHealth(providerHealth, now);
+          const projectedHealth = projectRuntimeProviderHealth(providerHealth, now ?? new Date().toISOString());
           return (
             <Card testId="runtime-card-health">
               <CardHead>
