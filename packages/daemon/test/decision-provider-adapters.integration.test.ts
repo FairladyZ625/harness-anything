@@ -1114,17 +1114,8 @@ test("HA10-03 & HA10-07: openrouter uses the shared direct HTTP pipeline for URL
     sleep: async () => undefined,
   });
 
-  // HA10-07: both explicit `/api/alpha` and legacy root origin resolve to `/api/alpha/decisions` (never `/api/alpha/api/alpha/decisions`)
-  await service.command({
-    kind: "provider-create",
-    type: "decisions",
-    vendor: "openrouter",
-    providerId: "or-explicit-alpha",
-    name: "OR Explicit Alpha",
-    model: "perplexity/pplx-decider-v1.3",
-    baseUrl: `${mock.origin}/api/alpha`,
-    apiKey: "sk-or-test-key",
-  });
+  // HA10-07: legacy root loopback origin resolves to `/api/alpha/decisions`, while custom
+  // non-default `/api/alpha` paths keep the exact legacy SDK suffix (`/api/alpha/api/alpha/decisions`)
   await service.command({
     kind: "provider-create",
     type: "decisions",
@@ -1133,6 +1124,16 @@ test("HA10-03 & HA10-07: openrouter uses the shared direct HTTP pipeline for URL
     name: "OR Legacy Root",
     model: "perplexity/pplx-decider-v1.3",
     baseUrl: mock.origin,
+    apiKey: "sk-or-test-key",
+  });
+  await service.command({
+    kind: "provider-create",
+    type: "decisions",
+    vendor: "openrouter",
+    providerId: "or-custom-alpha",
+    name: "OR Custom Alpha",
+    model: "perplexity/pplx-decider-v1.3",
+    baseUrl: `${mock.origin}/api/alpha`,
     apiKey: "sk-or-test-key",
   });
 
@@ -1144,12 +1145,15 @@ test("HA10-03 & HA10-07: openrouter uses the shared direct HTTP pipeline for URL
     answers: { decision: { type: "noul", noul: 0.85 } },
   });
 
-  for (const pid of ["or-explicit-alpha", "or-legacy-root"] as const) {
+  for (const [pid, expectedPath] of [
+    ["or-legacy-root", "/api/alpha/decisions"],
+    ["or-custom-alpha", "/api/alpha/api/alpha/decisions"],
+  ] as const) {
     seenPaths.length = 0;
     seenAuths.length = 0;
     const probe = await service.command({ kind: "provider-probe", providerId: pid });
     assert.equal((probe.provider as { probe: { state: string } }).probe.state, "ready");
-    assert.deepEqual(seenPaths, ["/api/alpha/decisions"]);
+    assert.deepEqual(seenPaths, [expectedPath]);
     assert.deepEqual(seenAuths, ["Bearer sk-or-test-key"]);
   }
 
@@ -1166,7 +1170,7 @@ test("HA10-03 & HA10-07: openrouter uses the shared direct HTTP pipeline for URL
   });
   const protoResult = await service.port.decide({
     subjectRef: "dispatch/openrouter-proto-keys",
-    providerId: "or-explicit-alpha",
+    providerId: "or-legacy-root",
     questionSetVersion: "choice/v1",
     state: ["Evaluate special keys."],
     question: {
@@ -1205,11 +1209,11 @@ test("HA10-03 & HA10-07: openrouter uses the shared direct HTTP pipeline for URL
       answers: { decision: { type: "noul", noul: 0.9 } },
     });
     await assert.rejects(
-      service.command({ kind: "provider-probe", providerId: "or-explicit-alpha" }),
+      service.command({ kind: "provider-probe", providerId: "or-legacy-root" }),
       (error: unknown) => (error as { code?: string }).code === "decision_protocol_invalid",
       `openrouter probe must reject termination=${label}`,
     );
-    assert.deepEqual(service.list().find(({ providerId }) => providerId === "or-explicit-alpha")?.probe, {
+    assert.deepEqual(service.list().find(({ providerId }) => providerId === "or-legacy-root")?.probe, {
       state: "failed",
       checkedAt: "2026-11-21T00:00:00.000Z",
       code: "decision_protocol_invalid",
@@ -1222,7 +1226,7 @@ test("HA10-03 & HA10-07: openrouter uses the shared direct HTTP pipeline for URL
     await assert.rejects(
       service.port.decide({
         subjectRef: `dispatch/openrouter-bad-stop-${Object.values(termination).join("-")}`,
-        providerId: "or-explicit-alpha",
+        providerId: "or-legacy-root",
         questionSetVersion: "choice/v1",
         state: ["Evaluate stop_reason."],
         question: {
@@ -1248,7 +1252,7 @@ test("HA10-03 & HA10-07: openrouter uses the shared direct HTTP pipeline for URL
     usage: { input_tokens: 3, output_tokens: 0 },
     answers: { decision: { type: "noul", noul: 0.8 } },
   });
-  const dualNormalProbe = await service.command({ kind: "provider-probe", providerId: "or-explicit-alpha" });
+  const dualNormalProbe = await service.command({ kind: "provider-probe", providerId: "or-legacy-root" });
   assert.equal((dualNormalProbe.provider as { probe: { state: string } }).probe.state, "ready");
 
   // HA10-03: openrouter probe rejects invalid/missing `answers.decision` and out-of-range noul with decision_protocol_invalid
@@ -1266,21 +1270,24 @@ test("HA10-03 & HA10-07: openrouter uses the shared direct HTTP pipeline for URL
   ]) {
     replyRawJson = badProbeBody;
     await assert.rejects(
-      service.command({ kind: "provider-probe", providerId: "or-explicit-alpha" }),
+      service.command({ kind: "provider-probe", providerId: "or-legacy-root" }),
       (error: unknown) => (error as { code?: string }).code === "decision_protocol_invalid",
     );
   }
 });
 
-test("HA10-07: openrouter preserves legacy custom proxy prefixes (/gateway -> /gateway/api/alpha/decisions) while deduplicating /gateway/api/alpha", async (t) => {
+test("HA10-07: persisted legacy OpenRouter custom proxy prefixes (including /gateway and /proxy/api/alpha) preserve exact historical SDK routes on probe and decide", async (t) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-dp-openrouter-proxy-"));
   const { vault } = createMemoryVault();
   const seenPaths: string[] = [];
 
+  // Serve ONLY the historical `@openrouter/sdk` routes (`<baseUrl>/api/alpha/decisions`) and 404
+  // every rewritten path (including `/gateway/decisions` and `/proxy/api/alpha/decisions`).
+  const allowedPaths = new Set(["/gateway/api/alpha/decisions", "/proxy/api/alpha/api/alpha/decisions"]);
   const mock = await startLoopbackServer((req, _body, res) => {
     const pathname = req.url ?? "";
     seenPaths.push(pathname);
-    if (req.method === "POST" && pathname === "/gateway/api/alpha/decisions") {
+    if (req.method === "POST" && allowedPaths.has(pathname)) {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(
         JSON.stringify({
@@ -1301,6 +1308,50 @@ test("HA10-07: openrouter preserves legacy custom proxy prefixes (/gateway -> /g
     rmSync(parent, { recursive: true, force: true });
   });
 
+  const credRef = vault.issue();
+  await vault.store(credRef, "sk-or-proxy-key");
+
+  // Seed persisted pre-upgrade decision-providers.json records (without `vendor` field)
+  writeFileSync(
+    path.join(parent, "decision-providers.json"),
+    `${JSON.stringify(
+      {
+        schema: "decision-providers/v1",
+        providers: [
+          {
+            schema: "decision-provider/v1",
+            providerId: "or-legacy-gateway",
+            name: "Legacy Gateway",
+            providerType: "decisions",
+            model: "perplexity/pplx-decider-v1.3",
+            baseUrl: `${mock.origin}/gateway`,
+            auth: { mode: "api-key", credentialRef: credRef },
+            enabled: true,
+            configurationRevision: 1,
+            configurationId: "legacy-gateway-1",
+            probe: { state: "unknown" },
+          },
+          {
+            schema: "decision-provider/v1",
+            providerId: "or-legacy-proxy-alpha",
+            name: "Legacy Proxy Ending In Alpha",
+            providerType: "decisions",
+            model: "perplexity/pplx-decider-v1.3",
+            baseUrl: `${mock.origin}/proxy/api/alpha`,
+            auth: { mode: "api-key", credentialRef: credRef },
+            enabled: true,
+            configurationRevision: 1,
+            configurationId: "legacy-proxy-alpha-1",
+            probe: { state: "unknown" },
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+    { mode: 0o600 },
+  );
+
   const service = openDecisionProviderService({
     userRoot: parent,
     vault,
@@ -1308,21 +1359,10 @@ test("HA10-07: openrouter preserves legacy custom proxy prefixes (/gateway -> /g
     sleep: async () => undefined,
   });
 
-  for (const [providerId, baseUrl] of [
-    ["or-legacy-proxy", `${mock.origin}/gateway`],
-    ["or-explicit-proxy-alpha", `${mock.origin}/gateway/api/alpha`],
+  for (const [providerId, expectedPath] of [
+    ["or-legacy-gateway", "/gateway/api/alpha/decisions"],
+    ["or-legacy-proxy-alpha", "/proxy/api/alpha/api/alpha/decisions"],
   ] as const) {
-    await service.command({
-      kind: "provider-create",
-      type: "decisions",
-      vendor: "openrouter",
-      providerId,
-      name: providerId,
-      model: "perplexity/pplx-decider-v1.3",
-      baseUrl,
-      apiKey: "sk-or-proxy-key",
-    });
-
     seenPaths.length = 0;
     const probe = await service.command({ kind: "provider-probe", providerId });
     assert.equal((probe.provider as { probe: { state: string } }).probe.state, "ready");
@@ -1334,11 +1374,11 @@ test("HA10-07: openrouter preserves legacy custom proxy prefixes (/gateway -> /g
       question: {
         type: "noul",
         prompt: "Does the legacy proxy accept this request?",
-        criteria: { true: "It reaches /gateway/api/alpha/decisions.", false: "It misses the route." },
+        criteria: { true: `It reaches ${expectedPath}.`, false: "It misses the route." },
       },
     });
     assert.equal(decision.result.type, "noul");
     assert.equal(decision.result.value, 0.91);
-    assert.deepEqual(seenPaths, ["/gateway/api/alpha/decisions", "/gateway/api/alpha/decisions"]);
+    assert.deepEqual(seenPaths, [expectedPath, expectedPath]);
   }
 });

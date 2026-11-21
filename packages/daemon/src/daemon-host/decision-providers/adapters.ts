@@ -13,7 +13,7 @@ import {
   type DecisionProviderAdapter,
   type NormalizedDecisionEnvelope,
 } from "./types.ts";
-import { joinEndpointUrl, resolveAdapterBaseUrl } from "./url.ts";
+import { canonicalBaseUrlString, joinEndpointUrl, resolveAdapterBaseUrl } from "./url.ts";
 
 const anthropicApiVersion = "2023-06-01";
 const anthropicMaxTokens = 1024;
@@ -26,9 +26,11 @@ const openRouterAdapter: DecisionProviderAdapter = {
   requiresBaseUrl: false,
   invoke: (input) => {
     const base = resolveAdapterBaseUrl(openRouterAdapter, input.baseUrl);
-    // Preserve legacy custom proxy prefixes (e.g. /gateway -> /gateway/api/alpha/decisions) while
-    // avoiding duplicate /api/alpha when baseUrl already ends with /api/alpha.
-    const segment = base.pathname.replace(/\/+$/u, "").endsWith("/api/alpha") ? "decisions" : "api/alpha/decisions";
+    // Deduplicate only the public OpenRouter default baseUrl (`https://openrouter.ai/api/alpha`);
+    // every custom baseUrl (including legacy proxies ending in `/gateway` or `/gateway/api/alpha`)
+    // preserves the exact historical `@openrouter/sdk` `api/alpha/decisions` suffix.
+    const segment =
+      canonicalBaseUrlString(base) === openRouterAdapter.defaultBaseUrl ? "decisions" : "api/alpha/decisions";
     return invokeBearerDecisionsEndpoint(openRouterAdapter, input, segment);
   },
 };
