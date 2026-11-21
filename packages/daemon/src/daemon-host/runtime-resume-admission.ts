@@ -321,6 +321,7 @@ export function resolveDispatchCwd(
   inherited: string | undefined,
   worktree: TaskWorktreeCheckout | null,
   taskPackageRoot?: string | null,
+  inheritedManagedRoots: readonly string[] = [],
 ): { readonly cwd: string; readonly worktree: TaskWorktreeCheckout | null } {
   if (taskPackageRoot) {
     return {
@@ -329,8 +330,10 @@ export function resolveDispatchCwd(
     };
   }
   if (payload.cwd === undefined && inherited) {
-    if (!existsSync(inherited)) throw runtimeSpawnError("invalid_runtime_cwd", "Runtime cwd directory does not exist.");
-    return { cwd: inherited, worktree: null };
+    return {
+      cwd: resolveManagedDispatchCwd(rootDir, inherited, inheritedManagedRoots),
+      worktree: null,
+    };
   }
   return {
     cwd: worktree

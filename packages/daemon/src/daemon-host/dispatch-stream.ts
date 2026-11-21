@@ -147,6 +147,8 @@ export interface DispatchStreamHeader extends RuntimeResumeHeader {
   readonly reviewTarget?:
     | { readonly kind: "task"; readonly taskId: string; readonly executionId: string; readonly digest: string }
     | { readonly kind: "decision"; readonly decisionId: string; readonly digest: string };
+  /** True only when the trusted internal Decision review entry materialized and authorized the package cwd. */
+  readonly trustedDecisionPackage?: true;
   readonly leaseVersion?: number;
   readonly schedule?: {
     readonly scheduleId: string;

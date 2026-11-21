@@ -70,6 +70,7 @@ export type { CompleteTaskCommand } from "./task-lifecycle.contract.ts";
 export {
   approvedReviewHistoryForExecution,
   consentedApprovedReviewForExecution,
+  hasEffectiveReviewForExecution,
   reviewsForExecution,
   reviewVerdicts,
 } from "./review.ts";

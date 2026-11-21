@@ -183,8 +183,36 @@ test(
     );
     assert.equal(resolvedPackage.cwd, realpathSync.native(taskPackage));
 
-    // Trusted inherited cwd (fallback continuation) inside symlinked harness/ resolves cleanly.
-    assert.equal(resolveDispatchCwd(root, {}, resolvedPackage.cwd, null).cwd, resolvedPackage.cwd);
+    // Ordinary inherited cwd without managed roots must still stay inside the repository realpath.
+    assert.throws(
+      () => resolveDispatchCwd(root, {}, resolvedPackage.cwd, null),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "invalid_runtime_cwd" &&
+        error.message === "Runtime cwd must stay inside the repository.",
+    );
+
+    // Ordinary inherited cwd replaced with an out-of-repo symlink during backoff is rejected on re-validation.
+    const ordinarySub = path.join(root, "ordinary-dir");
+    mkdirSync(ordinarySub, { recursive: true });
+    assert.equal(resolveDispatchCwd(root, {}, ordinarySub, null).cwd, realpathSync.native(ordinarySub));
+    rmSync(ordinarySub, { recursive: true, force: true });
+    symlinkSync(externalOutside, ordinarySub, "dir");
+    assert.throws(
+      () => resolveDispatchCwd(root, {}, ordinarySub, null),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "invalid_runtime_cwd" &&
+        error.message === "Runtime cwd must stay inside the repository.",
+    );
+
+    // Inherited cwd with explicit managed root resolves only while realpath remains inside that managed root.
+    assert.equal(
+      resolveDispatchCwd(root, {}, resolvedPackage.cwd, null, undefined, [path.join(root, "harness")]).cwd,
+      resolvedPackage.cwd,
+    );
 
     // Missing inherited cwd fails with directory-does-not-exist instead of containment escape.
     assert.throws(

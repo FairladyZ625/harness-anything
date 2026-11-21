@@ -13,8 +13,11 @@ import { INITIAL_SETTINGS_V1 } from "@harness-anything/kernel/internal/domain/se
 import {
   archiveDispatchStreams,
   readDispatchStream,
+  removeDispatchStream,
   reopenDispatchStream,
   scrubProviderValue,
+  type DispatchStreamHeader,
+  type DispatchStreamWriter,
   type DispatchTerminalOutcome,
 } from "./dispatch-stream.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
@@ -28,9 +31,10 @@ import type {
 } from "./runtime-spawn-types.ts";
 import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
 import { existsSync } from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   consumeKnownError,
+  sha256Text,
   type AgentRuntimeEventV1,
   type DispatchLifecycleView,
   type TaskProjectionQueries,
@@ -47,7 +51,7 @@ import {
   agentRuntimeTargetForKind,
   agentRuntimeKindMatches,
 } from "./agent-runtime-contract.ts";
-import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
+import type { RuntimeInstanceKind, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 
 export function requiredRuntimeFast(value: unknown): boolean {
@@ -268,13 +272,38 @@ function nextFallbackCandidate(
 export type FallbackSettlement = Pick<
   NonNullable<Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }>["payload"]["attempt"]>,
   "fallbackState" | "fallbackSchedule"
-> & { readonly budgetRefusal?: { readonly code: string; readonly message: string } };
+> & {
+  readonly budgetRefusal?: { readonly code: string; readonly message: string };
+  readonly exhaustedReason?: string;
+};
+
+type FallbackSettlementSubject = Pick<
+  ActiveRuntime,
+  | "runtimeSessionId"
+  | "stream"
+  | "fallbackAttempt"
+  | "providerFault"
+  | "providerOutcome"
+  | "startedAt"
+  | "task"
+  | "role"
+  | "toolCallObserved"
+  | "providerSessionId"
+  | "resumeProviderSessionId"
+  | "lossReason"
+  | "errorOverflowed"
+  | "errorBuffer"
+  | "kindId"
+  | "inputTokens"
+  | "outputTokens"
+>;
 
 export async function settleFallbackAttempt(
   context: RuntimeSpawnerContext,
-  active: ActiveRuntime,
+  active: FallbackSettlementSubject,
   outcome: RuntimeAttemptOutcome,
   terminal: RuntimeAttemptTerminal,
+  singlePass?: boolean,
 ): Promise<FallbackSettlement | void> {
   const { input } = context;
   const exhaustedTerminal = async (
@@ -283,7 +312,7 @@ export async function settleFallbackAttempt(
   ): Promise<FallbackSettlement> => {
     active.stream.appendFallbackState({ state: "exhausted", reason }, input.now());
     await input.onAttemptTerminal?.({ ...terminal, outcome: "failed", reason });
-    return { fallbackState: "exhausted", ...(budgetRefusal ? { budgetRefusal } : {}) };
+    return { fallbackState: "exhausted", exhaustedReason: reason, ...(budgetRefusal ? { budgetRefusal } : {}) };
   };
   const scheduledTerminal = (
     schedule: NonNullable<FallbackSettlement["fallbackSchedule"]>,
@@ -441,7 +470,8 @@ export async function settleFallbackAttempt(
         return earliest === null ? usableAt : Math.min(earliest, usableAt);
       }, null)
     : selection!.recoverAt;
-  if (exhausted && (retryRound >= maxRetries || recoverAt === null))
+  const roundCeiling = singlePass ? retryRound : maxRetries;
+  if (exhausted && (retryRound >= roundCeiling || recoverAt === null))
     return exhaustedTerminal(
       `Provider fallback exhausted after ${String(nextAttemptIndex)} attempt(s) and ${String(retryRound)} retry round(s): ${outcome.reason}. ` +
         `Candidates: ${fallbackAvailabilitySummary(fallback.candidates, input.runtimeProviderHealth)}`,
@@ -540,11 +570,13 @@ export async function scheduleFallbackContinuation(args: {
     workspaceProgress: RuntimeWorkspaceProgress,
     inheritedCwd?: string,
     preparedWorktree?: TaskWorktreeCheckout | null,
+    trustedDecisionReview?: boolean,
   ) => Promise<unknown>;
   readonly ensureFallbackWorktree?: (input: {
     readonly role?: string;
     readonly taskId: string | null;
     readonly executionId: string | null;
+    readonly reviewTarget?: DispatchStreamHeader["reviewTarget"];
     readonly cwd: string;
     readonly dispatchKey: string;
   }) => Promise<TaskWorktreeCheckout | null>;
@@ -582,7 +614,10 @@ export async function scheduleFallbackContinuation(args: {
       dispatchId: header.dispatchId,
       task: null,
       schedule: header.schedule ?? null,
-      outcome: "failed",
+      outcome:
+        terminal.payload.reasonCode === "review_cut_superseded" || terminal.reason.startsWith("review_cut_superseded:")
+          ? "superseded"
+          : "failed",
       reason: terminal.reason,
       endedAt: terminal.payload.endedAt ?? input.now(),
       binding,
@@ -612,6 +647,7 @@ export async function scheduleFallbackContinuation(args: {
             role: header.role,
             taskId: header.taskId,
             executionId: header.executionId,
+            reviewTarget: header.reviewTarget,
             cwd: probeCwd,
             dispatchKey: header.fallbackAttempt!.rootDispatchKey,
           });
@@ -746,13 +782,20 @@ export async function scheduleFallbackContinuation(args: {
             workspaceProgress,
             ensuredWorktree ? ensuredWorktree.cwd : dispatchCwd,
             ensuredWorktree,
+            header.trustedDecisionPackage === true,
           );
         } catch (error) {
           consumeKnownError(error);
           // Closing the local slot queue does not settle the accepted provider continuation.
           if (runtimeErrorCode(error) === "RUNTIME_CLOSING") return;
-          const reason = String(
-              scrubProviderValue(`Provider fallback could not launch ${next.instance}: ${runtimeErrorMessage(error)}`),
+          const errorCode = runtimeErrorCode(error),
+            superseded = errorCode === "review_cut_superseded",
+            reason = String(
+              scrubProviderValue(
+                superseded
+                  ? `review_cut_superseded: ${runtimeErrorMessage(error)}`
+                  : `Provider fallback could not launch ${next.instance}: ${runtimeErrorMessage(error)}`,
+              ),
             ).slice(0, 1024),
             after = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [header.dispatchId] });
           if (after.status !== "ready")
@@ -768,7 +811,7 @@ export async function scheduleFallbackContinuation(args: {
             reason,
             payload: {
               ...terminal.payload,
-              ...(runtimeErrorCode(error) === "execution_budget_exceeded"
+              ...(errorCode === "execution_budget_exceeded" && terminal.payload.reasonCode === undefined
                 ? { reasonCode: "execution_budget_exceeded" }
                 : {}),
               attempt: exhaustFallback(terminal.payload.attempt, reason),
@@ -787,6 +830,144 @@ export async function scheduleFallbackContinuation(args: {
     signal.addEventListener("abort", onAbort, { once: true });
     detachAbort = () => signal.removeEventListener("abort", onAbort);
   }
+}
+
+/** Settles an admitted attempt whose launcher proved no OS process was created, routing through fallback and group cleanup. */
+export async function settleStartRejectedAttempt(args: {
+  readonly context: RuntimeSpawnerContext;
+  readonly stream: DispatchStreamWriter;
+  readonly dispatchId: string;
+  readonly runtimeSessionId: string;
+  readonly instanceId: string;
+  readonly kindId: RuntimeInstanceKind;
+  readonly model: string;
+  readonly role: string | null;
+  readonly cwd: string;
+  readonly startedAt: string;
+  readonly task: ActiveRuntime["task"];
+  readonly schedule: ActiveRuntime["schedule"];
+  readonly binding: RuntimeBinding;
+  readonly fallbackAttempt: RuntimeFallbackAttempt | null;
+  readonly resumeProviderSessionId: string | null;
+  readonly error: unknown;
+}): Promise<{ readonly fallbackPending: boolean }> {
+  const {
+      context,
+      stream,
+      dispatchId,
+      runtimeSessionId,
+      instanceId,
+      kindId,
+      model,
+      role,
+      cwd,
+      startedAt,
+      task,
+      schedule,
+      binding,
+      fallbackAttempt,
+      resumeProviderSessionId,
+      error,
+    } = args,
+    { input } = context,
+    endedAt = input.now(),
+    rawReason = String(scrubProviderValue(runtimeErrorMessage(error))).slice(0, 1024),
+    errorCode = runtimeErrorCode(error),
+    faultClassification: RuntimeAttemptOutcome["classification"] = "provider_fault",
+    groupId = fallbackAttempt?.attemptGroupId ?? dispatchId,
+    index = fallbackAttempt?.attemptIndex ?? 0,
+    observed: RuntimeAttemptOutcome = {
+      classification: faultClassification,
+      reason: rawReason,
+      provider: { instance: instanceId, model, kind: kindId },
+      attemptGroupId: groupId,
+      attemptIndex: index,
+    };
+  stream.appendAttemptOutcome(observed, endedAt);
+  const subject: FallbackSettlementSubject = {
+      runtimeSessionId,
+      stream,
+      fallbackAttempt,
+      providerFault: null,
+      providerOutcome: "failed",
+      startedAt,
+      task,
+      role,
+      toolCallObserved: false,
+      providerSessionId: null,
+      resumeProviderSessionId,
+      lossReason: null,
+      errorOverflowed: false,
+      errorBuffer: "",
+      kindId,
+      inputTokens: 0,
+      outputTokens: 0,
+    },
+    singlePass = Boolean(error),
+    fallback = await settleFallbackAttempt(
+      context,
+      subject,
+      observed,
+      {
+        runtimeSessionId,
+        dispatchId,
+        task: null,
+        schedule,
+        outcome: "failed",
+        reason: rawReason,
+        endedAt,
+        binding,
+      },
+      singlePass,
+    ),
+    { budgetRefusal, exhaustedReason, ...fallbackDisposition } = fallback ?? { fallbackState: null },
+    effectiveReason = budgetRefusal
+      ? `${budgetRefusal.code}: ${budgetRefusal.message}`
+      : (exhaustedReason ?? rawReason),
+    body = `Runtime dispatch failed before provider registration: ${rawReason}`,
+    sha256 = sha256Text(body),
+    terminalOutcome: DispatchTerminalOutcome = {
+      payload: {
+        runtimeSessionId,
+        dispatchId,
+        outcome: "failed",
+        exitCode: null,
+        resultRef: `artifact:runtime-result/sha256/${sha256}`,
+        result: { sha256, size: Buffer.byteLength(body), mediaType: context.resultMediaType },
+        ...(budgetRefusal ? { reasonCode: budgetRefusal.code } : errorCode ? { reasonCode: errorCode } : {}),
+        endedAt,
+        attempt: {
+          classification: observed.classification,
+          reason: effectiveReason,
+          ...fallbackDisposition,
+        },
+      },
+      body,
+      reason: effectiveReason,
+    };
+  stream.appendTerminalOutcome(terminalOutcome, endedAt);
+  await context.publishRuntimeEvent("runtime_session_exited", { runtimeSessionId }, randomUUID(), binding);
+  const outcomeEvent = await context.publishRuntimeEvent(
+    "runtime_session_outcome_observed",
+    terminalOutcome.payload,
+    randomUUID(),
+    binding,
+    body,
+  );
+  if (outcomeEvent.event) input.onRuntimeOutcome?.(outcomeEvent.event, schedule);
+  const read = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [dispatchId] }),
+    lifecycle = read.status === "ready" ? read.rows[0] : undefined;
+  if (lifecycle?.policy.fallbackPending) {
+    await context.reconcileFallback(dispatchId);
+    return { fallbackPending: true };
+  }
+  if (lifecycle?.policy.groupSettled) {
+    await releaseFallbackResources(context, lifecycle, role, cwd, lifecycle.groupDispatchIds.length > 1);
+    if (lifecycle.groupDispatchIds.length <= 1) removeDispatchStream(input.rootDir, dispatchId);
+  } else {
+    removeDispatchStream(input.rootDir, dispatchId);
+  }
+  return { fallbackPending: false };
 }
 
 /** Group resources stay available across every attempt, including delayed/restarted continuations. */

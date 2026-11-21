@@ -7,6 +7,7 @@ import {
   currentExecutionCuts,
   deliveryTargetRef,
   INITIAL_SETTINGS_V1,
+  hasEffectiveReviewForExecution,
   isNativeExecution,
   resolveHarnessLayout,
   reviewsForExecution,
@@ -114,7 +115,7 @@ export function readCompletionContext(
                   (execution) =>
                     execution.iteration === snapshot.task?.iteration &&
                     execution.submission !== null &&
-                    reviewsForExecution(snapshot.reviews, execution).every((review) => review.verdict === "dismissed"),
+                    !hasEffectiveReviewForExecution(snapshot.reviews, execution, snapshot.reviewDispositions),
                 );
               return reviewCut
                 ? latestFailedCutReviewDispatch({ projection }, taskId, reviewCut, snapshot.task.reviewDispatchFailure)

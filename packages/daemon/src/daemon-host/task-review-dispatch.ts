@@ -29,7 +29,7 @@ import { isAgentDeclarationInvalid, readAgentDeclarationResolution } from "./age
 import { agentDeclaresExplicitModels } from "./agent-runtime-contract.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { reviewDispatchKey } from "./review-dispatch-key.ts";
-import { activeCutReviewDispatches, reviewAttemptEnded } from "./review-dispatch-state.ts";
+import { activeCutReviewDispatches, reviewDispatchGroupSettled } from "./review-dispatch-state.ts";
 
 export { reviewDispatchKey } from "./review-dispatch-key.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
@@ -281,7 +281,7 @@ export async function dispatchDecisionReview(
     return (
       target?.kind === "decision" &&
       target.decisionId === decisionId &&
-      !reviewAttemptEnded(cell, event.payload.runtimeSessionId) &&
+      !reviewDispatchGroupSettled(cell, event.payload) &&
       !reviewRecorded(target.digest, event.payload.runtimeSessionId)
     );
   });
@@ -297,7 +297,7 @@ export async function dispatchDecisionReview(
     existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
   while (
     existing !== null &&
-    reviewAttemptEnded(cell, ids.runtimeSessionId) &&
+    reviewDispatchGroupSettled(cell, existing.payload) &&
     !reviewRecorded(digest, ids.runtimeSessionId)
   ) {
     attempt += 1;
@@ -377,7 +377,9 @@ export async function dispatchDecisionReview(
     });
   if (authorizationDecision.outcome !== "allowed")
     throw cell.cellCodedError("authorization_denied", authorizationDecision.nextActions.join(" "));
-  const spawned = await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision });
+  const spawned = await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision }, null, false, {
+    trustedDecisionReview: true,
+  });
   // The spawner resolved the concrete instance; read it from the dispatch event this spawn just
   // applied so the receipt names the agent and instance that will run the review.
   const dispatched = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event,
@@ -436,7 +438,7 @@ function completedReviewerDispatchesForTask(
         typeof payload.dispatchKey === "string" &&
         (payload.dispatchKey.startsWith(seatPrefix) || payload.dispatchKey.startsWith(lanePrefix)) &&
         payload.dispatchKey !== input.dispatchKey &&
-        reviewAttemptEnded(cell, payload.runtimeSessionId)
+        reviewDispatchGroupSettled(cell, payload)
       );
     })
     .sort((left, right) => String(right.payload.startedAt ?? "").localeCompare(String(left.payload.startedAt ?? "")));
@@ -870,7 +872,7 @@ export async function spawnCutReviewDispatch(
           review.executionId === input.execution.executionId &&
           review.submissionDigest === submissionDigest(submission),
       );
-    if (cutReviewed || !reviewAttemptEnded(cell, existing.payload.runtimeSessionId))
+    if (cutReviewed || !reviewDispatchGroupSettled(cell, existing.payload))
       return {
         outcome: "already_dispatched",
         ids: {
@@ -1110,7 +1112,7 @@ function reviewDispatchAttempt(cell: RepoCellOperationalContext, baseKey: string
     key = reviewAttemptKey(baseKey, attempt),
     ids = reviewDispatchIds(cell.input.repoId, key),
     existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
-  while (existing !== null && reviewAttemptEnded(cell, existing.payload.runtimeSessionId)) {
+  while (existing !== null && reviewDispatchGroupSettled(cell, existing.payload)) {
     attempt += 1;
     key = reviewAttemptKey(baseKey, attempt);
     ids = reviewDispatchIds(cell.input.repoId, key);

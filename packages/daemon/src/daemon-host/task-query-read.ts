@@ -34,7 +34,7 @@ import {
   taskVisibility,
   workspaceTaskStatus,
   resolveHarnessLayout,
-  reviewsForExecution,
+  hasEffectiveReviewForExecution,
   type FreshnessReason,
   type FreshnessReasonInput,
   type ProjectionPage,
@@ -926,7 +926,7 @@ export function makeTaskQueryReadModel(input: {
               execution = snapshot.executions.find((candidate) => candidate.executionId === row.executionId);
             if (
               !execution?.submission ||
-              reviewsForExecution(snapshot.reviews, execution).length > 0 ||
+              hasEffectiveReviewForExecution(snapshot.reviews, execution, snapshot.reviewDispositions) ||
               activeCutReviewDispatches({ projection }, row.taskId, execution).length > 0
             )
               return [];

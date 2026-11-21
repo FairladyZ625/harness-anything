@@ -49,20 +49,57 @@ function cutReviewDispatches(
   });
 }
 
-/** A task cut can have only one active primary reviewer, including keys written before migration. */
+/** Group-level settlement judgment shared by task show, agenda, and review dispatch admission. */
+export function reviewDispatchGroupSettled(
+  cell: {
+    readonly projection: Pick<TaskProjectionQueries, "readRuntimeSessionEventsByType"> &
+      Partial<Pick<TaskProjectionQueries, "readDispatchLifecycle">>;
+  },
+  dispatch: { readonly dispatchId: string; readonly runtimeSessionId: string },
+): boolean {
+  if (typeof cell.projection.readDispatchLifecycle === "function") {
+    const read = cell.projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatch.dispatchId] });
+    if (read.status === "pending") return false;
+    const view = read.rows[0];
+    if (view) return view.policy.groupSettled;
+  }
+  return reviewAttemptEnded(cell, dispatch.runtimeSessionId);
+}
+
+/** A task cut can have only one active primary reviewer, including groups in waiting_backoff. */
 export function activeCutReviewDispatches(
   cell: {
     readonly projection: Pick<
       TaskProjectionQueries,
       "readRuntimeDispatchesByTaskExecution" | "readRuntimeSessionEventsByType"
-    >;
+    > &
+      Partial<Pick<TaskProjectionQueries, "readDispatchLifecycle">>;
   },
   taskId: string,
   execution: ExecutionV1,
 ): ReturnType<TaskProjectionQueries["readRuntimeDispatchesByTaskExecution"]> {
-  return cutReviewDispatches(cell, taskId, execution).filter(
-    ({ event }) => !reviewAttemptEnded(cell, event.payload.runtimeSessionId),
-  );
+  const dispatches = cutReviewDispatches(cell, taskId, execution);
+  if (typeof cell.projection.readDispatchLifecycle === "function") {
+    const active: ReturnType<TaskProjectionQueries["readRuntimeDispatchesByTaskExecution"]>[number][] = [];
+    for (const row of dispatches) {
+      const read = cell.projection.readDispatchLifecycle({
+        by: "dispatch",
+        dispatchIds: [row.event.payload.dispatchId],
+      });
+      if (read.status === "pending") {
+        active.push(row);
+        continue;
+      }
+      const view = read.rows[0];
+      if (!view) {
+        if (!reviewAttemptEnded(cell, row.event.payload.runtimeSessionId)) active.push(row);
+        continue;
+      }
+      if (!view.policy.groupSettled && view.controlLeafDispatchId === row.event.payload.dispatchId) active.push(row);
+    }
+    return active;
+  }
+  return dispatches.filter(({ event }) => !reviewAttemptEnded(cell, event.payload.runtimeSessionId));
 }
 
 function compactReviewFailureReason(value: string): string {
@@ -96,7 +133,7 @@ export function latestFailedCutReviewDispatch(
           }
         : null,
     dispatches = cutReviewDispatches(cell, taskId, execution);
-  if (dispatches.some(({ event }) => !reviewAttemptEnded(cell, event.payload.runtimeSessionId))) return null;
+  if (activeCutReviewDispatches(cell, taskId, execution).length > 0) return null;
   const latest = [...dispatches]
     .sort(
       (left, right) =>

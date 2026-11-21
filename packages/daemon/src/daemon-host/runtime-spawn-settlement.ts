@@ -689,7 +689,13 @@ export async function publishExit(
       context.processes.delete(active.runtimeSessionId);
       active.process.release?.();
     }
-    const { budgetRefusal, ...fallbackDisposition } = fallback ?? { fallbackState: null };
+    const {
+      budgetRefusal,
+      exhaustedReason: _exhaustedReason,
+      ...fallbackDisposition
+    } = fallback ?? {
+      fallbackState: null,
+    };
     const terminalOutcome: DispatchTerminalOutcome = {
       payload: {
         runtimeSessionId: active.runtimeSessionId,

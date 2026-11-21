@@ -1915,6 +1915,30 @@
         "order": 2
       },
       {
+        "id": "hasEffectiveReviewForExecution",
+        "symbol": "packages/kernel/src/domain/review.ts#hasEffectiveReviewForExecution",
+        "declaration": "function",
+        "inputs": [
+          "reviews: readonly ReviewV1[]",
+          "execution: ProjectedExecution",
+          "dispositions?: readonly ReviewDispositionV1[]"
+        ],
+        "output": "boolean",
+        "failureCodes": [],
+        "explain": "Judge whether a submitted Execution already has an effective Review verdict (approved or undisposed changes_requested), ignoring dismissed reviews.",
+        "consumers": [
+          "packages/daemon/src/daemon-host/task-completion-read.ts",
+          "packages/daemon/src/daemon-host/task-query-read.ts"
+        ],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/review.ts#hasEffectiveReviewForExecution:7253bdd05ad4963da04c4750cd7ec430",
+            "route": "domain"
+          }
+        ],
+        "order": 3
+      },
+      {
         "id": "ownerVerifiableFindingCategories",
         "symbol": "packages/kernel/src/domain/review-reverify.ts#ownerVerifiableFindingCategories",
         "declaration": "const",

@@ -13,7 +13,7 @@ import {
   verifyDispatchSnapshotFence,
 } from "@harness-anything/kernel";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
-import { readyDispatchLifecycle } from "./runtime-dispatch-admission.ts";
+import { readDispatchLifecycle, readyDispatchLifecycle } from "./runtime-dispatch-admission.ts";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -124,6 +124,7 @@ import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { runtimeExecutionRoleForLaunch, taskExecutionSurfaces } from "./runtime-execution-scope.ts";
 import {
   assertReviewerTarget,
+  parseTaskReviewTarget,
   reviewerPinnedCommit,
   selectReadOnlyAttachTarget,
   selectReviewTarget,
@@ -132,7 +133,9 @@ import { assertContextBudget, ModelSlotQueue } from "./runtime/model-slot-queue.
 import { relayBudgetMicrosOf } from "./runtime/cloud-dispatch-relay.ts";
 import {
   initialFallbackAttempt,
+  releaseFallbackResources,
   settleFallbackAttempt,
+  settleStartRejectedAttempt,
   scheduleFallbackContinuation,
   requiredRuntimeFast,
 } from "./runtime-spawn-fallback.ts";
@@ -290,12 +293,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     reconcileFallback: (dispatchId) =>
       scheduleFallbackContinuation({
         context: extracted,
-        ensureFallbackWorktree: ({ role, taskId, executionId, dispatchKey }) => {
+        ensureFallbackWorktree: ({ role, taskId, executionId, reviewTarget, dispatchKey }) => {
           if (role !== "reviewer" || !taskId || input.remote) return Promise.resolve(null);
           const worktreePayload: JsonObject = {
               role,
               taskId,
               ...(executionId ? { executionId } : {}),
+              ...(reviewTarget ? { reviewTarget } : {}),
               dispatchKey,
             },
             pinnedCommit = reviewerPinnedCommit(
@@ -315,6 +319,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           workspaceProgress,
           inheritedCwd,
           preparedWorktree,
+          trustedDecisionReview,
         ) =>
           spawnAttempt(
             payload,
@@ -332,6 +337,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             workspaceProgress,
             false,
             inheritedCwd,
+            trustedDecisionReview,
           ),
         dispatchId,
       }),
@@ -353,6 +359,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     workspaceProgress?: RuntimeWorkspaceProgress,
     recoveryRequested = false,
     inheritedFallbackCwd?: string,
+    trustedDecisionReview = false,
   ): Promise<JsonObject> {
     const dryRun = payload.dryRun === true,
       dispatchUsageLimit = input.readSettings?.().runtime.dispatchUsageLimit ?? 0;
@@ -408,6 +415,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       requestedExecutionId =
         payload.executionId === undefined ? undefined : requiredRuntimeSpawnText(payload.executionId, "executionId"),
       decisionReviewTarget = parseDecisionReviewTarget(payload.reviewTarget),
+      taskReviewTarget = parseTaskReviewTarget(payload.reviewTarget),
       providerSessionId =
         typeof payload.providerSessionId === "string"
           ? requiredRuntimeSpawnText(payload.providerSessionId, "providerSessionId")
@@ -445,6 +453,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       reviewer: reviewerBinding,
       taskId,
       decisionTarget: decisionReviewTarget,
+      taskTarget: taskReviewTarget,
       executionId: requestedExecutionId,
       remoteExecutionId: remoteTask?.executionId,
       remote: input.remote !== undefined,
@@ -461,12 +470,27 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       // enforces the same invariant.
       reviewTarget =
         reviewerBinding && taskId !== null
-          ? selectReviewTarget(taskId, requestedExecutionId, taskSnapshot, input.remote != null)
+          ? selectReviewTarget(
+              taskId,
+              requestedExecutionId ?? taskReviewTarget?.executionId,
+              taskSnapshot,
+              input.remote != null,
+              taskReviewTarget?.digest,
+            )
           : null,
       { dispatchId: newDispatchId, runtimeSessionId } = runtimeDispatchIdentity(input.repoId, dispatchKey),
       dispatchOpId = randomUUID(),
       installationOpId = randomUUID(),
       trustedHandoffSource = handoffFromRuntimeSessionId ?? resumed?.header.runtimeSessionId ?? null;
+    if (remoteTask && reviewerBinding && taskReviewTarget) {
+      const currentDigest = remoteTask.reviewerSubmission ? submissionDigest(remoteTask.reviewerSubmission) : null;
+      if (remoteTask.executionId !== taskReviewTarget.executionId || currentDigest !== taskReviewTarget.digest)
+        throw runtimeSpawnError(
+          "review_cut_superseded",
+          `Submitted cut for task ${taskReviewTarget.taskId} execution ${taskReviewTarget.executionId} was amended or superseded ` +
+            `(expected digest ${taskReviewTarget.digest}, current ${currentDigest ?? "none"}).`,
+        );
+    }
     const authorizationDecision: AuthorizationDecision | null = binding.authorizationDecision ?? null;
     const frozenStatus = taskSnapshot?.task?.status,
       frozenTask = frozenStatus === "submitted" || frozenStatus === "in_review",
@@ -538,9 +562,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         );
     }
     // A detached review checkout owns its package boundary. Artifact-only tasks have no checkout,
-    // so their reviewer must retain the canonical task package cwd. Trusted fallback continuations
-    // inherit their verified attempt-0 cwd without re-running external user containment checks,
-    // and re-materialize a missing pinned review checkout on remote edges before launch.
+    // so their reviewer must retain the canonical task package cwd. Trusted decision reviews are
+    // authorized only by internal review dispatch entries; ordinary inherited/fallback cwds still
+    // re-verify realpath containment against the repository root on every attempt.
     const effectiveInheritedCwd = inherited?.cwd ?? inheritedFallbackCwd;
     const fallbackNeedsRemoteReviewWorktree =
       remoteTask !== null &&
@@ -549,7 +573,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       taskId !== null &&
       effectiveInheritedCwd !== undefined &&
       !existsSync(effectiveInheritedCwd);
-    const requestedDecisionPackageRoot = dispatchDecisionPackageRoot(input.rootDir, payload, decisionReviewTarget);
+    const requestedDecisionPackageRoot = trustedDecisionReview
+      ? dispatchDecisionPackageRoot(input.rootDir, payload, decisionReviewTarget)
+      : null;
+    const inheritedManagedRoots = taskId !== null ? [path.join(input.rootDir, ".worktrees")] : [];
     const reviewerHasWorktree =
         reviewerBinding &&
         (remoteTask
@@ -577,6 +604,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             : null
           : preparedWorktree,
         taskPackageRoot,
+        inheritedManagedRoots,
       );
     const snapshotExpectations = parseDispatchSnapshotExpectations(payload),
       runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
@@ -1160,7 +1188,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         taskId: taskBinding?.taskId ?? null,
         executionId: taskBinding?.executionId ?? null,
         ...(decisionReviewTarget
-          ? { reviewTarget: decisionReviewTarget }
+          ? {
+              reviewTarget: decisionReviewTarget,
+              ...(trustedDecisionReview && requestedDecisionPackageRoot
+                ? { trustedDecisionPackage: true as const }
+                : {}),
+            }
           : reviewerBinding && taskBinding && (reviewTarget?.submission ?? remoteTask?.reviewerSubmission)
             ? {
                 reviewTarget: {
@@ -1273,7 +1306,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const cleanupCallbackRelay = (): void => {
       if (callbackRelay) removeRuntimeCallbackRelay(newDispatchId);
     };
-    const cleanupFailedLaunch = async (error: unknown): Promise<void> => {
+    const cleanupFailedLaunch = async (error: unknown): Promise<{ readonly fallbackPending: boolean }> => {
       active?.releaseAuthorization?.();
       process?.terminate();
       process?.release?.();
@@ -1282,18 +1315,19 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       cleanupCallbackRelay();
       reclaimFailedLaunchTempDirectory(input, runtimeInstanceId, runtimeSessionId);
       reclaimSessionSkillSnapshot(input.rootDir, runtimeSessionId, cwd);
-      if (role === "reviewer" && inheritedFallback === undefined) {
+      const reclaimUnadmittedReviewWorktree = async (): Promise<void> => {
+        if (role !== "reviewer" || inheritedFallback !== undefined) return;
         const inUseBySibling = [...processes.values()].some(
           (entry) => entry.runtimeSessionId !== runtimeSessionId && entry.cwd === cwd,
         );
-        if (!inUseBySibling) {
-          const reviewCleanupFailure = await reclaimReviewWorktree(input.rootDir, cwd);
-          if (reviewCleanupFailure)
-            console.error(`[review-worktree] ${newDispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
-        }
-      }
-      if (process && !(await runtimeProcessTreeStopped(input.rootDir, newDispatchId, process))) return;
-      if (!process && launchMayBeRunning) return;
+        if (inUseBySibling) return;
+        const reviewCleanupFailure = await reclaimReviewWorktree(input.rootDir, cwd);
+        if (reviewCleanupFailure)
+          console.error(`[review-worktree] ${newDispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
+      };
+      if (process && !(await runtimeProcessTreeStopped(input.rootDir, newDispatchId, process)))
+        return { fallbackPending: false };
+      if (!process && launchMayBeRunning) return { fallbackPending: false };
       dispatchState.deactivate(runtimeSessionId);
       // A lost receipt (including credential issuance after commit) does not undo admission.
       // Center reads must be ready; an unavailable read preserves the stream and claim for recovery.
@@ -1308,16 +1342,38 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           requested || observed || (dispatchRequestSent && !input.remote && input.store!().readEvent(dispatchOpId));
       if (observed?.policy.attemptSettled) {
         if (stream) removeDispatchStream(input.rootDir, newDispatchId);
-        return;
+        return { fallbackPending: false };
       }
       if (!admitted) {
+        await reclaimUnadmittedReviewWorktree();
         await releaseUnadmittedLease?.();
         await releaseUnadmittedClaim?.();
         if (stream) removeDispatchStream(input.rootDir, newDispatchId);
-        return;
+        return { fallbackPending: false };
+      }
+      if (!process && !launchMayBeRunning && isRuntimeProcessStartRejected(error)) {
+        return settleStartRejectedAttempt({
+          context: extracted,
+          stream: openStream(),
+          dispatchId: newDispatchId,
+          runtimeSessionId,
+          instanceId: definition.instanceId,
+          kindId: declaredKindId,
+          model: definition.model,
+          role: dispatchRole ?? null,
+          cwd,
+          startedAt: streamStartedAt,
+          task: taskBinding,
+          schedule: trustedSchedule ?? null,
+          binding: activeBinding,
+          fallbackAttempt: fallbackAttempt ?? null,
+          resumeProviderSessionId: providerSessionId ?? null,
+          error,
+        });
       }
       await publishRuntimeEvent("runtime_session_exited", { runtimeSessionId }, randomUUID(), activeBinding);
-      const body = `Runtime dispatch failed before provider registration: ${runtimeErrorMessage(error)}`,
+      const scrubbedError = String(scrubProviderValue(runtimeErrorMessage(error))).slice(0, 1024),
+        body = `Runtime dispatch failed before provider registration: ${scrubbedError}`,
         sha256 = sha256Text(body),
         terminal = await publishRuntimeEvent(
           "runtime_session_outcome_observed",
@@ -1335,7 +1391,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           body,
         );
       if (terminal.event) input.onRuntimeOutcome?.(terminal.event, trustedSchedule ?? null);
+      const settledRead = await readDispatchLifecycle(extracted, { by: "dispatch", dispatchIds: [newDispatchId] }),
+        settledLifecycle = settledRead.status === "ready" ? settledRead.rows[0] : undefined;
+      if (settledLifecycle?.policy.groupSettled)
+        await releaseFallbackResources(extracted, settledLifecycle, dispatchRole ?? null, cwd, false);
+      else await reclaimUnadmittedReviewWorktree();
       if (stream) removeDispatchStream(input.rootDir, newDispatchId);
+      return { fallbackPending: false };
     };
     try {
       await publishRuntimeEvent(
@@ -1493,15 +1555,77 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         authorizationDecision: authorizationDecision as unknown as JsonObject | null,
       };
     }
+    const buildSpawnReceipt = (): JsonObject => {
+      if (!requested?.event || (!requested.receipt && !requested.publication))
+        throw runtimeSpawnError("runtime_event_missing", "A dispatch start must have an accepted event.");
+      // operator sees only an id and has to infer why a same-kind sibling was skipped.
+      const selectionFields = {
+          runtimeSelection: {
+            instanceId: runtimeSelection.instanceId,
+            tier: runtimeSelection.tier,
+            selectionStrategy: runtimeSelection.selectionStrategy,
+            basis: runtimeSelection.basis,
+            reason: runtimeSelection.reason,
+            model: definition.model,
+          },
+        },
+        // `ha agent validate` / `ha agent install` warn before dispatch; the dispatch that actually
+        // had to pick is the last moment the author can still be told the choice was unstated, so the
+        // same warning rides this receipt and names the instance it took.
+        ambiguity =
+          agent === null
+            ? null
+            : agentRuntimeAmbiguityWarning({
+                agent,
+                runtimeInstances,
+                selected: runtimeSelection.instanceId,
+                selectionStrategy: input.readSettings?.().runtime.selectionStrategy,
+              }),
+        // A launch without the operator's GitHub login still runs; this is the one place the operator
+        // learns the worker cannot publish before the credential error would arrive at `ha task push`.
+        notices = [ambiguity?.message, prepared.githubCredentialNotice].filter(
+          (notice): notice is string => typeof notice === "string",
+        ),
+        // Merge, never replace: the receipt may already carry operator notices (for example the
+        // hosting-credential warning) that this dispatch must not drop.
+        existingWarnings = Array.isArray(requested.receipt?.warnings)
+          ? (requested.receipt.warnings as readonly unknown[]).filter(
+              (entry): entry is string => typeof entry === "string",
+            )
+          : [],
+        warningFields: { warnings?: readonly string[] } =
+          notices.length === 0 ? {} : { warnings: [...existingWarnings, ...notices] };
+      return requested.receipt
+        ? {
+            ...requested.receipt,
+            runtimeSessionId,
+            dispatchId: newDispatchId,
+            ...selectionFields,
+            ...warningFields,
+            ...(readOnlyDispatch ? { ledgerAccess: "unavailable", reportDelivery: "stdout" } : {}),
+            authorizationDecision: authorizationDecision as unknown as JsonObject | null,
+          }
+        : {
+            ...applied(requested.event, requested.publication!, runtimeSessionId, newDispatchId),
+            ...selectionFields,
+            ...warningFields,
+            ...(readOnlyDispatch ? { ledgerAccess: "unavailable", reportDelivery: "stdout" } : {}),
+            authorizationDecision: authorizationDecision as unknown as JsonObject | null,
+          };
+    };
     if (!process)
       try {
         openStream();
         ({ process, resumeObservation } = await launchPreparedProcess());
       } catch (error) {
-        await cleanupFailedLaunch(error);
+        const cleaned = await cleanupFailedLaunch(error);
+        if (cleaned.fallbackPending) {
+          const receipt = buildSpawnReceipt();
+          return receipt;
+        }
         throw error;
       }
-    const runtimeProcess = process;
+    const runtimeProcess = process!;
     const releasedRuntimeProcess: RuntimeProcess = {
       ...runtimeProcess,
       release: () => {
@@ -1583,74 +1707,18 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       await cleanupFailedLaunch(error);
       throw error;
     }
-    if (!requested.event || (!requested.receipt && !requested.publication))
-      throw runtimeSpawnError("runtime_event_missing", "A dispatch start must have an accepted event.");
-    // operator sees only an id and has to infer why a same-kind sibling was skipped.
-    const selectionFields = {
-        runtimeSelection: {
-          instanceId: runtimeSelection.instanceId,
-          tier: runtimeSelection.tier,
-          selectionStrategy: runtimeSelection.selectionStrategy,
-          basis: runtimeSelection.basis,
-          reason: runtimeSelection.reason,
-          model: definition.model,
-        },
-      },
-      // `ha agent validate` / `ha agent install` warn before dispatch; the dispatch that actually
-      // had to pick is the last moment the author can still be told the choice was unstated, so the
-      // same warning rides this receipt and names the instance it took.
-      ambiguity =
-        agent === null
-          ? null
-          : agentRuntimeAmbiguityWarning({
-              agent,
-              runtimeInstances,
-              selected: runtimeSelection.instanceId,
-              selectionStrategy: input.readSettings?.().runtime.selectionStrategy,
-            }),
-      // A launch without the operator's GitHub login still runs; this is the one place the operator
-      // learns the worker cannot publish before the credential error would arrive at `ha task push`.
-      notices = [ambiguity?.message, prepared.githubCredentialNotice].filter(
-        (notice): notice is string => typeof notice === "string",
-      ),
-      // Merge, never replace: the receipt may already carry operator notices (for example the
-      // hosting-credential warning) that this dispatch must not drop.
-      existingWarnings = Array.isArray(requested.receipt?.warnings)
-        ? (requested.receipt.warnings as readonly unknown[]).filter(
-            (entry): entry is string => typeof entry === "string",
-          )
-        : [],
-      warningFields: { warnings?: readonly string[] } =
-        notices.length === 0 ? {} : { warnings: [...existingWarnings, ...notices] };
-    return requested.receipt
-      ? {
-          ...requested.receipt,
-          runtimeSessionId,
-          dispatchId: newDispatchId,
-          ...selectionFields,
-          ...warningFields,
-          ...(readOnlyDispatch ? { ledgerAccess: "unavailable", reportDelivery: "stdout" } : {}),
-          authorizationDecision: authorizationDecision as unknown as JsonObject | null,
-        }
-      : {
-          ...applied(requested.event, requested.publication!, runtimeSessionId, newDispatchId),
-          ...selectionFields,
-          ...warningFields,
-          ...(readOnlyDispatch ? { ledgerAccess: "unavailable", reportDelivery: "stdout" } : {}),
-          authorizationDecision: authorizationDecision as unknown as JsonObject | null,
-        };
+    return buildSpawnReceipt();
   }
   return {
     /** Host-only snapshot preparation; callers complete this before enqueueing admission. */
     prepareProgress: async (payload: JsonObject, worktree: TaskWorktreeCheckout | null) => {
-      const inherited =
-          typeof payload.dispatchId === "string"
-            ? readDispatchStream(input.rootDir, payload.dispatchId)?.header.cwd
-            : undefined,
-        packageRoot =
-          dispatchDecisionPackageRoot(input.rootDir, payload, parseDecisionReviewTarget(payload.reviewTarget)) ??
-          dispatchTaskPackageRoot(input, typeof payload.taskId === "string" ? payload.taskId : null, null),
-        { cwd } = resolveDispatchCwd(input.rootDir, payload, inherited, worktree, packageRoot);
+      const resumedStream =
+          typeof payload.dispatchId === "string" ? readDispatchStream(input.rootDir, payload.dispatchId) : null,
+        inherited = resumedStream?.header.cwd,
+        taskId = typeof payload.taskId === "string" ? payload.taskId : (resumedStream?.header.taskId ?? null),
+        packageRoot = dispatchTaskPackageRoot(input, typeof payload.taskId === "string" ? payload.taskId : null, null),
+        inheritedManagedRoots = taskId !== null ? [path.join(input.rootDir, ".worktrees")] : [],
+        { cwd } = resolveDispatchCwd(input.rootDir, payload, inherited, worktree, packageRoot, inheritedManagedRoots);
       return collectRuntimeWorkspaceProgress(cwd);
     },
     /** Checks a task dispatch's worktree out and prepares it; runs before the dispatch is queued for writing. */
@@ -1686,6 +1754,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       binding: RuntimeBinding,
       worktree: TaskWorktreeCheckout | null = null,
       recoveryRequested = false,
+      options?: { readonly trustedDecisionReview?: boolean },
     ) =>
       spawnAttempt(
         payload,
@@ -1702,6 +1771,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         undefined,
         undefined,
         recoveryRequested,
+        undefined,
+        options?.trustedDecisionReview === true,
       ),
     /** The direct RepoCell runtime.run route owns admission and reuses its task projection read. */
     spawnTask: async (

@@ -138,9 +138,18 @@ function getReviewRepoTemplate(): string {
 
 function boundWorktree(root: string): string {
   const entries = git(root, "worktree", "list", "--porcelain").split("\n\n");
-  const pathLine = entries
-    .map((entry) => entry.split("\n").find((line) => line.startsWith("worktree ")))
-    .find((line) => line !== undefined && path.resolve(line.slice("worktree ".length)) !== path.resolve(root));
+  const entry =
+    entries.find((candidate) => candidate.split("\n").includes(`branch refs/heads/${taskId}`)) ??
+    entries.find((candidate) => {
+      const lines = candidate.split("\n"),
+        worktreeLine = lines.find((line) => line.startsWith("worktree "));
+      return (
+        worktreeLine !== undefined &&
+        path.resolve(worktreeLine.slice("worktree ".length)) !== path.resolve(root) &&
+        !lines.includes("detached")
+      );
+    });
+  const pathLine = entry?.split("\n").find((line) => line.startsWith("worktree "));
   assert.ok(pathLine, `expected a task worktree for ${root}`);
   return path.resolve(pathLine.slice("worktree ".length));
 }
@@ -162,6 +171,9 @@ export async function fixture(
     readonly providerMaxRetries?: number;
     readonly providerRoundBackoffBaseSeconds?: number;
     readonly symlinkAuthoredRoot?: string;
+    readonly now?: () => string;
+    readonly reviewInstanceIds?: readonly string[];
+    readonly rejectLaunch?: (instanceId: string, attempt: number) => Error | null | undefined;
     readonly stallTimeoutMs?: number;
     /** Simulate a provider rejecting its first input before a turn can start. */
     readonly providerInputLimit?: number;
@@ -227,12 +239,14 @@ export async function fixture(
     remainingProviderFailures =
       typeof failProvider === "number" ? failProvider : failProvider ? Number.POSITIVE_INFINITY : 0,
     failProviderResume = options.failProviderResume === true,
-    providerSessionStarted = false;
+    providerSessionStarted = false,
+    launchAttempts = 0;
   const open = () =>
     (options.openCell ?? openRepoCell)({
       repoId,
       rootDir: canonicalRoot(root),
       ownerId: "completion-review",
+      ...(options.now ? { now: options.now } : {}),
       ...(options.keycloakSession ? { keycloakSession: options.keycloakSession } : {}),
       runtimeDaemonRoute: {
         userRoot: path.join(root, "user"),
@@ -253,7 +267,7 @@ export async function fixture(
               ...extraInstances,
               { ...instance("ambient-first"), models: ["flash-model"], defaultModel: "flash-model" },
               ...(instancesAvailable
-                ? ["review-first", "review-second"].map((instanceId) => ({
+                ? (options.reviewInstanceIds ?? ["review-first", "review-second"]).map((instanceId) => ({
                     ...instance(instanceId),
                     models: [...new Set([catalogModel, ...(options.additionalModels ?? [])])],
                     defaultModel: catalogModel,
@@ -291,6 +305,9 @@ export async function fixture(
         };
       },
       runtimeLaunch: (prepared, persistence): RuntimeProcess => {
+        const rejection = options.rejectLaunch?.(prepared.definition.instanceId, launchAttempts);
+        launchAttempts += 1;
+        if (rejection) throw new RuntimeProcessStartRejected(rejection);
         if (options.providerInputLimit !== undefined && prepared.prompt.length > options.providerInputLimit)
           // CH3 (dec_DA1602487428A58E8B446ECE38): this rejection creates no OS process.
           throw new RuntimeProcessStartRejected(
@@ -532,6 +549,36 @@ export async function fixture(
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     return receipt;
   };
+  const amendSubmit = async (
+    note = "Amended delivery",
+    roundExecutionId = executionId,
+    binding: typeof owner = owner,
+  ) => {
+    writeFileSync(
+      path.join(root, "harness", packagePath, "closeout.md"),
+      `# Closeout\n\n## Summary\n\n${note} ${delivery}\n\n## Verification\n\nREADME bytes checked.\n\n` +
+        "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nReview dispatch retry.\n",
+    );
+    const commitSha = options.submitCommit
+      ? (() => {
+          const checkout = boundWorktree(root);
+          execFileSync("git", ["-C", checkout, "commit", "--allow-empty", "-qm", `test: ${note}`]);
+          return git(checkout, "rev-parse", "HEAD");
+        })()
+      : undefined;
+    const receipt = await cell.run(
+      {
+        kind: "task-submit",
+        taskId,
+        executionId: roundExecutionId,
+        amend: true,
+        ...(commitSha ? { commitSha } : {}),
+      },
+      binding,
+    );
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    return receipt;
+  };
   const consent = (reviewId: string) => run({ kind: "task-review-consent", taskId, executionId, reviewId });
   // Submit lands a review-required cut in in_review and the reviewer dispatch rides the same
   // write; review-lifted cuts complete straight off submitted (dec_E369B861 CH3).
@@ -582,6 +629,7 @@ export async function fixture(
     awaitRuntimeLiveness,
     cell: () => cell,
     submit,
+    amendSubmit,
     consent,
     complete: () => run({ kind: "task-complete", taskId, executionId }),
     install: async (instanceId: string | null = "review-first") => {
@@ -731,19 +779,23 @@ export async function fixture(
       runtimeSessionId: string,
       dispatchId: string,
       reviewedExecutionId: string = executionId,
+      verdict: "approved" | "dismissed" = "approved",
     ) => {
       const report = `${packagePath}/artifacts/reports/${dispatchId}.md`,
         packet = `${packagePath}/artifacts/reports/${dispatchId}.json`;
       mkdirSync(path.dirname(path.join(root, "harness", packet)), { recursive: true });
       writeFileSync(
         path.join(root, "harness", report),
-        "# Closeout review\n\nApproved from the dispatched reviewer.\n",
+        `# Closeout review\n\n${verdict === "dismissed" ? "Dismissed from the dispatched reviewer." : "Approved from the dispatched reviewer."}\n`,
       );
       writeFileSync(
         path.join(root, "harness", packet),
         JSON.stringify({
-          verdict: "approved",
-          reason: "Inspected the submitted execution and its declared evidence.",
+          verdict,
+          reason:
+            verdict === "dismissed"
+              ? "Dismissed prior review before re-dispatching."
+              : "Inspected the submitted execution and its declared evidence.",
           evidenceChecked: ["submitted execution", "task contract"],
           findings: [],
           resolutions: [],
@@ -774,6 +826,10 @@ export async function fixture(
       path.join(root, "harness", packagePath, "artifacts", "reports", `${dispatchId}.md`),
     cancel: (runtimeSessionId: string) => cell.cancelRuntime({ runtimeSessionId }, owner),
     awaitOutcome,
+    endPending: () => {
+      const pending = pendingProviders.at(-1)!;
+      pending.exit?.(1);
+    },
     failPending: () => {
       const pending = pendingProviders.at(-1)!;
       pending.output?.(
