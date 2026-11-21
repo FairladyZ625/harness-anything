@@ -1050,6 +1050,7 @@ export const daemonProtocolShapeContractPolicy = {
     "policy:packages/daemon:packages/daemon/src/daemon-host/gui-s3-control.ts#validateSystemStatus.errors.nodeAutoClaim:70cfc10d6603af9cf12e5446b9195ade",
     "policy:packages/daemon:packages/daemon/src/daemon-host/gui-s3-control.ts#validateSystemStatus.maxConcurrent:8ac1df28cecd20076ac1df48da992d67",
     "policy:packages/daemon:packages/daemon/src/daemon-host/gui-s3-control.ts#validateSystemStatus.allowedAgentIds:5710c973998faafa0fc53d3a1e33b1a9",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts#daemonRepositoryReadMethods.params.payload.limit:8c5d03e2a0802ee1f7808d89554b0cc2",
     "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts#daemonRepositoryReadMethods.params.payload.generatedAt:bab3b56fbceedb0102dd1b7203f77e7a",
     "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts#daemonProtocolMethods.params.policy:5774ea82d1f8ba5e47cd3d1f88548297",
     "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts#daemonProtocolMethods.params.threshold:7feb991d966e75d119019ed879c47bec",

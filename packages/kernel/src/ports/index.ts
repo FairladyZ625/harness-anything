@@ -54,3 +54,4 @@ export { runtimeExecutionLifetimeMs, executionCredentialRejected } from "./runti
 export type { ExecutionCredentialRejectionContext, RuntimeExecutionPrincipal } from "./runtime-execution-credential.ts";
 
 export type { EntityDeclarationState, EntityDeclarationReadQuery } from "./entity-declarations.ts";
+export * from "./canonical-event-page.ts";

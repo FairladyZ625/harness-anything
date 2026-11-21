@@ -6341,6 +6341,12 @@
         "order": 125
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/canonical-event-wait.ts#makeCanonicalEventWait.read.finish:c79e002eaad464a177c515584cc57d43",
+        "route": "repository-read",
+        "role": "support",
+        "order": 223
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-open.ts#openDaemonHost.scheduleScheduler.localBinding.receipt:053357f862e586963fdcff86efcf4395",
         "route": "repository-read",
         "role": "effect",

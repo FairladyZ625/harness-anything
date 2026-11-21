@@ -383,7 +383,7 @@ export function sqliteEventBatch(
       selected: sqlite.eventsAfter(start, maxItems),
       sourceRevision: sqlite.revision(),
     })),
-    next = start + selected.length;
+    next = selected.at(-1)?.workspaceRevision ?? start;
   return {
     sourceRevision,
     events: selected,
