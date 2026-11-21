@@ -181,14 +181,12 @@ test("registered PeerRequest decoding enforces the PROMOTED task-id discriminato
   );
 
   assert.deepEqual(parseEntityJsonSchema(schema, promoted), promoted);
-  assert.throws(
-    () => parseEntityJsonSchema(schema, { ...promoted, promotedTaskId: null }),
-    { code: "invalid_entity_contract" },
-  );
-  assert.throws(
-    () => parseEntityJsonSchema(schema, { ...promoted, state: "DONE", promotedTaskId: "task_123" }),
-    { code: "invalid_entity_contract" },
-  );
+  assert.throws(() => parseEntityJsonSchema(schema, { ...promoted, promotedTaskId: null }), {
+    code: "invalid_entity_contract",
+  });
+  assert.throws(() => parseEntityJsonSchema(schema, { ...promoted, state: "DONE", promotedTaskId: "task_123" }), {
+    code: "invalid_entity_contract",
+  });
 });
 
 test("opening enforces a single 240-character line and read-only SHA-256 attachments", () => {

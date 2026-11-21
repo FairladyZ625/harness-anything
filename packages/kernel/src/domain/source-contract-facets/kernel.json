@@ -976,7 +976,7 @@
         "explain": "EntityDocumentJsonSchema: Generic JSON-schema interpreter, including recursive value/shape validation.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-json-schema.ts#validateNodeValue:5f5a50b73654ca4281482310e2758531",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-json-schema.ts#validateNodeValue:2708d02cd37a6ec07c9acd83a560413d",
             "route": "packages/kernel/src/domain/entity-json-schema.ts#validateNodeValue"
           }
         ],
