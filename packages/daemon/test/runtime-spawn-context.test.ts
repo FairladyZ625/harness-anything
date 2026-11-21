@@ -14,6 +14,7 @@ import {
   managedRootsForTrustedCwd,
   resolveDispatchCwd,
 } from "../src/daemon-host/runtime-resume-admission.ts";
+import { resolveManagedReviewWorktreePath } from "../src/daemon-host/task-worktree.ts";
 
 test("an unbound runtime inherits its spawning daemon route and runtime actor", async () => {
   const prepared = {
@@ -306,6 +307,34 @@ test(
     );
   },
 );
+
+test("resolveManagedReviewWorktreePath matches realpath containment under symlinked .worktrees roots and rejects escapes", (context) => {
+  if (process.platform === "win32") return;
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-review-reclaim-root-")),
+    root = path.join(parent, "repo"),
+    externalWorktrees = path.join(parent, "external-worktrees"),
+    reviewCheckout = path.join(externalWorktrees, ".review", "task_1", "a".repeat(40)),
+    implWorktree = path.join(externalWorktrees, "task_1"),
+    outsideDir = path.join(parent, "outside");
+  context.after(() => rmSync(parent, { recursive: true, force: true }));
+  mkdirSync(root, { recursive: true });
+  mkdirSync(reviewCheckout, { recursive: true });
+  mkdirSync(implWorktree, { recursive: true });
+  mkdirSync(outsideDir, { recursive: true });
+  symlinkSync(externalWorktrees, path.join(root, ".worktrees"), "dir");
+  symlinkSync(outsideDir, path.join(externalWorktrees, ".review", "escape-link"), "dir");
+
+  const resolvedExpected = realpathSync.native(reviewCheckout);
+  assert.equal(resolveManagedReviewWorktreePath(root, resolvedExpected), resolvedExpected);
+  assert.equal(
+    resolveManagedReviewWorktreePath(root, path.join(root, ".worktrees", ".review", "task_1", "a".repeat(40))),
+    resolvedExpected,
+  );
+  assert.equal(resolveManagedReviewWorktreePath(root, path.join(root, ".worktrees", ".review")), null);
+  assert.equal(resolveManagedReviewWorktreePath(root, implWorktree), null);
+  assert.equal(resolveManagedReviewWorktreePath(root, path.join(root, ".worktrees", ".review", "escape-link")), null);
+  assert.equal(resolveManagedReviewWorktreePath(root, outsideDir), null);
+});
 
 test("runtime CLI bin stays absent when the daemon installation has no ha entry", (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-cli-missing-")),

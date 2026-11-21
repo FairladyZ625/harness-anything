@@ -68,6 +68,7 @@ import {
 } from "./runtime-spawn-adoption.ts";
 import {
   requiredRuntimeSpawnText,
+  runtimeErrorCode,
   runtimeErrorMessage,
   runtimeSpawnError,
   runtimeTaskExecutionFrozenError,
@@ -163,8 +164,10 @@ import {
 import { installHandoffRollout } from "./runtime-handoff-native.ts";
 import {
   reclaimReviewWorktree,
+  resolveManagedReviewWorktreePath,
   taskWorktreeCheckoutNote,
   verifyHandoffWorktree,
+  verifyReviewCheckout,
   type TaskWorktreeCheckout,
 } from "./task-worktree.ts";
 import { requireTaskWriterAdmission } from "./runtime-dispatch-admission.ts";
@@ -295,8 +298,16 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     reconcileFallback: (dispatchId) =>
       scheduleFallbackContinuation({
         context: extracted,
-        ensureFallbackWorktree: ({ role, taskId, executionId, reviewTarget, dispatchKey }) => {
-          if (role !== "reviewer" || !taskId || input.remote) return Promise.resolve(null);
+        ensureFallbackWorktree: async ({
+          role,
+          taskId,
+          executionId,
+          reviewTarget,
+          cwd,
+          dispatchKey,
+          trustedManagedCwd,
+        }) => {
+          if (role !== "reviewer" || !taskId || input.remote) return null;
           const worktreePayload: JsonObject = {
               role,
               taskId,
@@ -308,6 +319,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               worktreePayload,
               requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot,
             );
+          if (existsSync(cwd)) {
+            if (
+              typeof pinnedCommit === "string" &&
+              (trustedManagedCwd === "worktree" || resolveManagedReviewWorktreePath(input.rootDir, cwd) !== null)
+            )
+              await verifyReviewCheckout(cwd, pinnedCommit);
+            return null;
+          }
           return prepareDispatchWorktree(input, worktreePayload, projectedWorktreeBinding(input), pinnedCommit);
         },
         launch: (
@@ -486,7 +505,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       trustedHandoffSource = handoffFromRuntimeSessionId ?? resumed?.header.runtimeSessionId ?? null;
     if (remoteTask && reviewerBinding && taskReviewTarget) {
       const currentDigest = remoteTask.reviewerSubmission ? submissionDigest(remoteTask.reviewerSubmission) : null;
-      if (remoteTask.executionId !== taskReviewTarget.executionId || currentDigest !== taskReviewTarget.digest)
+      if (
+        remoteTask.executionId !== taskReviewTarget.executionId ||
+        ((remoteTask.reviewerSubmission !== undefined || inheritedFallback !== undefined) &&
+          currentDigest !== taskReviewTarget.digest)
+      )
         throw runtimeSpawnError(
           "review_cut_superseded",
           `Submitted cut for task ${taskReviewTarget.taskId} execution ${taskReviewTarget.executionId} was amended or superseded ` +
@@ -1137,6 +1160,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       if (taskId || trustedSchedule || reviewerBinding)
         await configureWorkerGitIdentity(cwd, input.rootDir, binding.actor.principal.personId);
       if (handoff) await verifyHandoffWorktree(cwd, handoff.commit);
+      if (
+        reviewerBinding &&
+        inheritedFallback !== undefined &&
+        dispatchWorktree === null &&
+        remoteTask?.worktree !== null &&
+        typeof remoteTask?.reviewerSubmission?.commitSha === "string"
+      )
+        await verifyReviewCheckout(cwd, remoteTask.reviewerSubmission.commitSha);
       // Every implementation runtime, including squad leaders, takes the actual lease. A read-only
       // attach takes none: it never asks for the handoff, so the frozen round's lease state stays untouched.
       taskLeaseHandoff =
@@ -1330,11 +1361,17 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       reclaimSessionSkillSnapshot(input.rootDir, runtimeSessionId, cwd);
       const reclaimUnadmittedReviewWorktree = async (): Promise<void> => {
         if (role !== "reviewer" || inheritedFallback !== undefined) return;
+        const targetPath = resolveManagedReviewWorktreePath(input.rootDir, cwd);
+        if (targetPath === null) return;
         const inUseBySibling = [...processes.values()].some(
-          (entry) => entry.runtimeSessionId !== runtimeSessionId && entry.cwd === cwd,
+          (entry) =>
+            entry.runtimeSessionId !== runtimeSessionId &&
+            (entry.cwd === cwd ||
+              entry.cwd === targetPath ||
+              resolveManagedReviewWorktreePath(input.rootDir, entry.cwd) === targetPath),
         );
         if (inUseBySibling) return;
-        const reviewCleanupFailure = await reclaimReviewWorktree(input.rootDir, cwd);
+        const reviewCleanupFailure = await reclaimReviewWorktree(input.rootDir, targetPath);
         if (reviewCleanupFailure)
           console.error(`[review-worktree] ${newDispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
       };
@@ -1385,8 +1422,20 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         });
       }
       await publishRuntimeEvent("runtime_session_exited", { runtimeSessionId }, randomUUID(), activeBinding);
-      const scrubbedError = String(scrubProviderValue(runtimeErrorMessage(error))).slice(0, 1024),
-        body = `Runtime dispatch failed before provider registration: ${scrubbedError}`,
+      const scrubbedError = String(scrubProviderValue(runtimeErrorMessage(error)))
+          .trim()
+          .slice(0, 1024),
+        rawErrorCode = runtimeErrorCode(error),
+        errorCode = typeof rawErrorCode === "string" && rawErrorCode.trim() ? rawErrorCode.trim() : undefined,
+        attemptReason = scrubbedError || errorCode || "Runtime dispatch failed before provider registration.",
+        failureClassification = "provider_fault" as const,
+        fallbackDisposition = inheritedFallback !== undefined ? { fallbackState: "exhausted" as const } : {},
+        attemptOutcome = {
+          classification: failureClassification,
+          reason: attemptReason,
+          ...fallbackDisposition,
+        },
+        body = `Runtime dispatch failed before provider registration: ${attemptReason}`,
         sha256 = sha256Text(body),
         terminal = await publishRuntimeEvent(
           "runtime_session_outcome_observed",
@@ -1397,7 +1446,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             exitCode: null,
             resultRef: `artifact:runtime-result/sha256/${sha256}`,
             result: { sha256, size: Buffer.byteLength(body), mediaType: "text/plain; charset=utf-8" },
+            ...(errorCode ? { reasonCode: errorCode } : {}),
             endedAt: input.now(),
+            attempt: attemptOutcome,
           },
           randomUUID(),
           activeBinding,
@@ -1407,8 +1458,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       const settledRead = await readDispatchLifecycle(extracted, { by: "dispatch", dispatchIds: [newDispatchId] }),
         settledLifecycle = settledRead.status === "ready" ? settledRead.rows[0] : undefined;
       if (settledLifecycle?.policy.groupSettled) {
-        await releaseFallbackResources(extracted, settledLifecycle, dispatchRole ?? null, cwd, false);
-        if (stream) removeDispatchStream(input.rootDir, newDispatchId);
+        await releaseFallbackResources(
+          extracted,
+          settledLifecycle,
+          dispatchRole ?? null,
+          cwd,
+          settledLifecycle.groupDispatchIds.length > 1,
+        );
+        if (settledLifecycle.groupDispatchIds.length <= 1 && stream) removeDispatchStream(input.rootDir, newDispatchId);
       } else if (settledRead.status === "ready" && settledLifecycle !== undefined) {
         await reclaimUnadmittedReviewWorktree();
       }

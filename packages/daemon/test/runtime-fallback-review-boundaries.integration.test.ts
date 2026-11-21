@@ -26,7 +26,12 @@ import { makeRuntimeSpawner } from "../src/daemon-host/runtime-spawner.ts";
 import { RuntimeProcessStartRejected } from "../src/daemon-host/runtime-spawn-process.ts";
 import { waitForDurableCondition } from "../../../tools/fixtures/event-arrival.ts";
 import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
-import { grantTestPolicyGroups, revokeTestPolicyActions, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import {
+  grantTestPolicyGroups,
+  policyTestCenter,
+  revokeTestPolicyActions,
+  withPolicyGroup,
+} from "./keycloak-policy.fixtures.ts";
 import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
 
 test(
@@ -785,6 +790,227 @@ test(
       await f.waitForLaunches(4);
       f.endPending();
       await f.awaitOutcome(retryDispatch.payload.runtimeSessionId);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
+  "review fallback verifies existing review checkout HEAD against frozen commitSha and refuses launch when drifted",
+  { timeout: 60_000 },
+  async () => {
+    let nowMs = Date.now() + 60_000;
+    const f = await fixture(1, true, false, false, false, {
+      autoSubmit: false,
+      closeoutProfile: "standard",
+      submitCommit: true,
+      guiDelivery: true,
+      create: { presetId: "standard-task" },
+      keycloakSession: async () => owner.keycloakAuthorization.session,
+      providerMaxRetries: 0,
+      providerRoundBackoffBaseSeconds: 60,
+      now: () => new Date(nowMs).toISOString(),
+    });
+    try {
+      await f.install(null);
+      assert.equal((await f.submit()).outcome, "applied");
+      await f.waitForLaunches(1);
+      const firstDispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
+      assert.ok(firstDispatch?.type === "runtime_dispatch_requested");
+      const reviewCwd = f.launches[0]!.cwd;
+      assert.ok(existsSync(reviewCwd));
+      const frozenSha = execFileSync("git", ["-C", reviewCwd, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+      await f.awaitOutcome(firstDispatch.payload.runtimeSessionId);
+
+      // Drift the existing review checkout HEAD locally during backoff while the ledger submission stays unchanged.
+      execFileSync("git", ["-C", reviewCwd, "config", "user.name", "Drift Test"]);
+      execFileSync("git", ["-C", reviewCwd, "config", "user.email", "drift@example.invalid"]);
+      execFileSync("git", ["-C", reviewCwd, "commit", "--allow-empty", "-qm", "drift: unrelated local commit"]);
+      const driftedSha = execFileSync("git", ["-C", reviewCwd, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+      assert.notEqual(driftedSha, frozenSha);
+
+      nowMs += 65_000;
+      await f.reopen();
+      await waitForDurableCondition(async () => {
+        const read = await f
+          .cell()
+          .readDispatchLifecycle({ by: "dispatch", dispatchIds: [firstDispatch.payload.dispatchId] });
+        return read.status === "ready" && read.rows[0]?.policy.groupSettled === true;
+      });
+      await f.cell().settlePendingMaterialization("drifted review checkout exhausted");
+
+      assert.equal(f.launches.length, 1, "backup reviewer must not launch on a drifted checkout");
+      const shown = JSON.parse(String((await f.run({ kind: "task-show", taskId })).evidence)) as {
+        readonly completionBlocker: { readonly code: string; readonly gate: string } | null;
+        readonly completionNext: { readonly action: string; readonly reason: string } | null;
+      };
+      assert.deepEqual(shown.completionBlocker, { code: "review_pending", gate: "review" });
+      assert.equal(shown.completionNext?.action, `ha task dispatch-review ${taskId}`);
+      assert.match(shown.completionNext?.reason ?? "", new RegExp(driftedSha, "u"));
+      assert.match(shown.completionNext?.reason ?? "", new RegExp(frozenSha, "u"));
+
+      const agenda = await f.cell().read("repo.agenda.read", {}, owner);
+      assert.match(agenda.summary, new RegExp(driftedSha, "u"));
+      assert.match(agenda.summary, new RegExp(`ha task dispatch-review ${taskId}`, "u"));
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
+  "symlinked .worktrees review fallback reclaims the external review checkout directory and git worktree registration at group terminal settlement",
+  { timeout: 60_000, skip: process.platform === "win32" ? "requires POSIX symlink semantics" : false },
+  async () => {
+    const outsideParent = mkdtempSync(path.join(tmpdir(), "ha-symlink-review-reclaim-")),
+      externalWorktrees = path.join(outsideParent, "external-worktrees");
+    const f = await fixture(true, true, false, false, false, {
+      autoSubmit: false,
+      closeoutProfile: "standard",
+      submitCommit: true,
+      guiDelivery: true,
+      create: { presetId: "standard-task" },
+      keycloakSession: async () => owner.keycloakAuthorization.session,
+      providerMaxRetries: 0,
+      providerRoundBackoffBaseSeconds: 0,
+    });
+    try {
+      await f.install(null);
+      await f.cell().settlePendingMaterialization("prepare symlinked worktrees root");
+      renameSync(path.join(f.root, ".worktrees"), externalWorktrees);
+      symlinkSync(externalWorktrees, path.join(f.root, ".worktrees"), "dir");
+      await f.reopen();
+
+      assert.equal((await f.submit()).outcome, "applied");
+      await f.waitForLaunches(2);
+      const dispatches = f.events().filter((event) => event.type === "runtime_dispatch_requested");
+      assert.equal(dispatches.length, 2, JSON.stringify(dispatches));
+      const backupCwd = f.launches[1]!.cwd;
+      assert.equal(f.launches[0]!.cwd, backupCwd);
+      assert.ok(
+        backupCwd.startsWith(realpathSync.native(externalWorktrees)),
+        `expected backup reviewer cwd inside symlinked external worktrees root, got ${backupCwd}`,
+      );
+      await f.awaitOutcome(dispatches[1]!.payload.runtimeSessionId);
+      await waitForDurableCondition(async () => {
+        const read = await f
+          .cell()
+          .readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatches[1]!.payload.dispatchId] });
+        return read.status === "ready" && read.rows[0]?.policy.groupSettled === true;
+      });
+      await f.cell().settlePendingMaterialization("symlinked review group exhausted");
+
+      assert.equal(
+        existsSync(backupCwd),
+        false,
+        `expected symlinked review checkout ${backupCwd} to be reclaimed at group terminal settlement`,
+      );
+      const worktreeList = execFileSync("git", ["-C", f.root, "worktree", "list", "--porcelain"], {
+        encoding: "utf8",
+      });
+      assert.equal(
+        worktreeList.includes(backupCwd),
+        false,
+        `expected git worktree registration for ${backupCwd} to be pruned:\n${worktreeList}`,
+      );
+    } finally {
+      await f.close();
+      rmSync(outsideParent, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "backup review post-admission credential preparation failure records sanitized reasonCode and attempt.reason in task show and agenda",
+  { timeout: 60_000 },
+  async () => {
+    let credentialRejectedOnce = false;
+    let fixtureHandle: Awaited<ReturnType<typeof fixture>> | null = null;
+    const f = await fixture(1, true, false, false, false, {
+      autoSubmit: false,
+      closeoutProfile: "standard",
+      submitCommit: true,
+      guiDelivery: true,
+      create: { presetId: "standard-task" },
+      keycloakSession: async () => owner.keycloakAuthorization.session,
+      keycloakCenter: async () => {
+        if (
+          !credentialRejectedOnce &&
+          fixtureHandle !== null &&
+          fixtureHandle.events().filter((event) => event.type === "runtime_dispatch_requested").length >= 2
+        ) {
+          credentialRejectedOnce = true;
+          throw Object.assign(
+            new Error(
+              "Center did not issue this dispatch credential (Authorization: Bearer sk-secret-token-9876543210).",
+            ),
+            { code: "execution_credential_rejected" },
+          );
+        }
+        return policyTestCenter();
+      },
+      providerMaxRetries: 0,
+      providerRoundBackoffBaseSeconds: 0,
+    });
+    fixtureHandle = f;
+    try {
+      await f.install(null);
+      assert.equal((await f.submit()).outcome, "applied");
+      await f.waitForLaunches(1);
+      const reviewCwd = f.launches[0]!.cwd;
+      await waitForDurableCondition(async () => {
+        const dispatches = f.events().filter((event) => event.type === "runtime_dispatch_requested");
+        if (dispatches.length < 2) return false;
+        const read = await f
+          .cell()
+          .readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatches[1]!.payload.dispatchId] });
+        return read.status === "ready" && read.rows[0]?.policy.groupSettled === true;
+      });
+      await f.cell().settlePendingMaterialization("backup credential rejection settled");
+
+      assert.equal(f.launches.length, 1, "backup provider process must not start after credential rejection");
+      const dispatches = f.events().filter((event) => event.type === "runtime_dispatch_requested");
+      assert.equal(dispatches.length, 2);
+      const backupDispatch = dispatches[1]!;
+      assert.equal(backupDispatch.payload.instanceId, "review-second");
+      const backupOutcome = f
+        .events()
+        .find(
+          (event): event is Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }> =>
+            event.type === "runtime_session_outcome_observed" &&
+            event.payload.runtimeSessionId === backupDispatch.payload.runtimeSessionId,
+        );
+      assert.ok(backupOutcome, "expected terminal outcome event for admitted backup attempt");
+      assert.equal(backupOutcome.payload.reasonCode, "execution_credential_rejected");
+      assert.match(backupOutcome.payload.attempt?.reason ?? "", /Center did not issue this dispatch credential/u);
+      assert.equal(
+        (backupOutcome.payload.attempt?.reason ?? "").includes("sk-secret-token-9876543210"),
+        false,
+        "bearer credential token must be scrubbed from attempt.reason",
+      );
+      assert.equal(existsSync(reviewCwd), false, "review checkout should be reclaimed when backup fails terminally");
+
+      const shown = JSON.parse(String((await f.run({ kind: "task-show", taskId })).evidence)) as {
+        readonly completionBlocker: { readonly code: string; readonly gate: string } | null;
+        readonly completionNext: { readonly action: string; readonly reason: string } | null;
+      };
+      assert.deepEqual(shown.completionBlocker, { code: "review_pending", gate: "review" });
+      assert.equal(shown.completionNext?.action, `ha task dispatch-review ${taskId}`);
+      assert.match(shown.completionNext?.reason ?? "", /Center did not issue this dispatch credential/u);
+      assert.equal(
+        (shown.completionNext?.reason ?? "").includes("review dispatch ended with outcome failed"),
+        false,
+        "task show must not fall back to generic outcome failed message",
+      );
+      assert.equal((shown.completionNext?.reason ?? "").includes("sk-secret-token-9876543210"), false);
+
+      const agenda = await f.cell().read("repo.agenda.read", {}, owner);
+      assert.match(agenda.summary, /execution_credential_rejected/u);
+      assert.match(agenda.summary, /Center did not issue this dispatch credential/u);
+      assert.match(agenda.summary, new RegExp(`ha task dispatch-review ${taskId}`, "u"));
+      assert.equal(agenda.summary.includes("review dispatch ended with outcome failed"), false);
+      assert.equal(agenda.summary.includes("sk-secret-token-9876543210"), false);
     } finally {
       await f.close();
     }

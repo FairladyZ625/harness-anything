@@ -181,6 +181,7 @@ export async function fixture(
     readonly failProviderResume?: boolean;
     readonly closeoutProfile?: "standard" | "strict";
     readonly keycloakSession?: Parameters<typeof openRepoCell>[0]["keycloakSession"];
+    readonly keycloakCenter?: Parameters<typeof openRepoCell>[0]["keycloakCenter"];
     readonly create?: Readonly<Record<string, unknown>>;
     /** Override reviewer catalog and declaration model spellings for runtime-resolution tests. */
     readonly catalogModel?: string;
@@ -248,6 +249,7 @@ export async function fixture(
       ownerId: "completion-review",
       ...(options.now ? { now: options.now } : {}),
       ...(options.keycloakSession ? { keycloakSession: options.keycloakSession } : {}),
+      ...(options.keycloakCenter ? { keycloakCenter: options.keycloakCenter } : {}),
       runtimeDaemonRoute: {
         userRoot: path.join(root, "user"),
         daemonId: "fixture",

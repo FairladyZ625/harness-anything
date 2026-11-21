@@ -31,7 +31,6 @@ import type {
   TrustedScheduleRuntime,
 } from "./runtime-spawn-types.ts";
 import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
-import { existsSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import {
   consumeKnownError,
@@ -48,7 +47,7 @@ import { runtimeErrorCode, runtimeErrorMessage, runtimeSpawnError } from "../run
 import type { RuntimeAgent, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import { resolveRuntimeInstanceCandidates } from "./runtime-spawn-mission.ts";
-import { reclaimReviewWorktree, type TaskWorktreeCheckout } from "./task-worktree.ts";
+import { reclaimReviewWorktree, resolveManagedReviewWorktreePath, type TaskWorktreeCheckout } from "./task-worktree.ts";
 import {
   agentRuntimeModelMatches,
   agentRuntimeModelSpelling,
@@ -583,6 +582,7 @@ export async function scheduleFallbackContinuation(args: {
     readonly reviewTarget?: DispatchStreamHeader["reviewTarget"];
     readonly cwd: string;
     readonly dispatchKey: string;
+    readonly trustedManagedCwd?: TrustedManagedCwdKind;
   }) => Promise<TaskWorktreeCheckout | null>;
   readonly dispatchId: string;
 }): Promise<void> {
@@ -645,7 +645,7 @@ export async function scheduleFallbackContinuation(args: {
       let ensuredWorktree: TaskWorktreeCheckout | null = null;
       let worktreeRestoreError: unknown = null;
       let probeCwd = header.cwd!;
-      if (header.role === "reviewer" && header.taskId && !existsSync(probeCwd) && args.ensureFallbackWorktree) {
+      if (header.role === "reviewer" && header.taskId && args.ensureFallbackWorktree) {
         try {
           ensuredWorktree = await args.ensureFallbackWorktree({
             role: header.role,
@@ -654,6 +654,7 @@ export async function scheduleFallbackContinuation(args: {
             reviewTarget: header.reviewTarget,
             cwd: probeCwd,
             dispatchKey: header.fallbackAttempt!.rootDispatchKey,
+            trustedManagedCwd: header.trustedManagedCwd,
           });
           if (ensuredWorktree) probeCwd = ensuredWorktree.cwd;
         } catch (error) {
@@ -1007,14 +1008,23 @@ export async function releaseFallbackResources(
 ): Promise<void> {
   if (!lifecycle.policy.groupSettled) return;
   if (role === "reviewer" && cwd) {
-    const inUseBySibling =
-      context.processes !== undefined && [...context.processes.values()].some((active) => active.cwd === cwd);
-    if (!inUseBySibling) {
-      const failure = await reclaimReviewWorktree(context.input.rootDir, cwd);
-      if (failure)
-        console.error(
-          `[review-worktree] ${lifecycle.controlLeafDispatchId} could not be reclaimed: ${failure.message}`,
+    const targetPath = resolveManagedReviewWorktreePath(context.input.rootDir, cwd);
+    if (targetPath !== null) {
+      const inUseBySibling =
+        context.processes !== undefined &&
+        [...context.processes.values()].some(
+          (active) =>
+            active.cwd === cwd ||
+            active.cwd === targetPath ||
+            resolveManagedReviewWorktreePath(context.input.rootDir, active.cwd) === targetPath,
         );
+      if (!inUseBySibling) {
+        const failure = await reclaimReviewWorktree(context.input.rootDir, targetPath);
+        if (failure)
+          console.error(
+            `[review-worktree] ${lifecycle.controlLeafDispatchId} could not be reclaimed: ${failure.message}`,
+          );
+      }
     }
   }
   if (archiveStreams) archiveDispatchStreams(context.input.rootDir, lifecycle.groupDispatchIds);

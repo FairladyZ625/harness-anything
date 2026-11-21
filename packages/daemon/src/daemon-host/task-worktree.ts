@@ -21,6 +21,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { cellCodedError } from "./repo-cell-errors.ts";
+import { resolveContainedPath } from "./contained-path.ts";
 import { runProcessExitAsync, runProcessTextAsync } from "./process-port.ts";
 import type { TaskWorkspaceView } from "./protocol/daemon-protocol-results.ts";
 import {
@@ -429,9 +430,10 @@ function reviewGit(rootDir: string, ...args: string[]): Promise<string> {
 }
 
 /** The reviewer's checkout is the frozen cut or it is not prepared: never advance, reset, or silently accept another HEAD. */
-async function verifyReviewCheckout(cwd: string, commit: string): Promise<void> {
-  const head = (
-    await runProcessTextAsync(
+export async function verifyReviewCheckout(cwd: string, commit: string): Promise<void> {
+  if (!/^[0-9a-f]{40}$/u.test(commit))
+    throw cellCodedError("review_checkout_commit_unavailable", "The frozen delivery commit is not a full Git SHA.");
+  const head = await runProcessExitAsync(
       "git",
       ["-C", cwd, "rev-parse", "HEAD"],
       undefined,
@@ -439,13 +441,16 @@ async function verifyReviewCheckout(cwd: string, commit: string): Promise<void> 
       undefined,
       undefined,
       { timeoutMs: 30_000 },
-    )
-  ).trim();
-  if (head !== commit)
+    ),
+    actualHead = head.exitCode === 0 ? head.stdout.trim() : "";
+  if (actualHead !== commit)
     throw cellCodedError(
       "review_checkout_commit_mismatch",
-      `Reviewer checkout ${cwd} is at ${head}, not the frozen delivery commit ${commit}; ` +
-        "the cut must be reviewed at its frozen commit.",
+      actualHead
+        ? `Reviewer checkout ${cwd} is at ${actualHead}, not the frozen delivery commit ${commit}; ` +
+            "the cut must be reviewed at its frozen commit."
+        : `Reviewer checkout ${cwd} has no readable Git HEAD for frozen delivery commit ${commit}; ` +
+            "the cut must be reviewed at its frozen commit.",
     );
 }
 
@@ -585,14 +590,23 @@ export function writeTaskWorktreeExecutionBinding(
   }
 }
 
+/** Resolves a managed detached review checkout path using the same realpath containment rule as admission. */
+export function resolveManagedReviewWorktreePath(rootDir: string, cwd: string): string | null {
+  const reviewRoot = path.join(rootDir, ".worktrees", ".review");
+  if (!existsSync(reviewRoot) || !existsSync(cwd)) return null;
+  const resolvedRoot = resolveContainedPath(reviewRoot, "."),
+    resolvedTarget = resolveContainedPath(reviewRoot, path.relative(reviewRoot, cwd));
+  if (resolvedRoot === null || resolvedTarget === null || resolvedTarget === resolvedRoot) return null;
+  return resolvedTarget;
+}
+
 /** Removes a detached reviewer snapshot after settlement; returns a diagnostic for the caller to record. */
 export async function reclaimReviewWorktree(rootDir: string, cwd: string): Promise<Error | null> {
-  const reviewRoot = path.join(rootDir, ".worktrees", ".review"),
-    relative = path.relative(reviewRoot, cwd);
-  if (relative === "" || relative.startsWith(".." + path.sep) || path.isAbsolute(relative) || !existsSync(cwd))
-    return null;
+  const target = resolveManagedReviewWorktreePath(rootDir, cwd);
+  if (target === null) return null;
   try {
-    await reviewGit(rootDir, "worktree", "remove", "--force", cwd);
+    await reviewGit(rootDir, "worktree", "remove", "--force", target);
+    await reviewGit(rootDir, "worktree", "prune");
     return null;
   } catch (error) {
     return error instanceof Error ? error : new Error(String(error));
