@@ -791,38 +791,44 @@ async function readEventWindow(
     seekAfter = Math.max(query.afterRevision, Number(bounds.min_rev) - 1);
     seekMax = Math.min(upperRevision, Number(bounds.max_rev));
   }
-  const values: unknown[] = [scope.tenantId, scope.projectId, input.repoId, seekAfter, seekMax];
-  let sql: string;
-  if (hasTimeWindow) {
-    const outerClauses: string[] = [];
-    if (query.after !== undefined) {
-      values.push(query.after);
-      outerClauses.push(`date_trunc('milliseconds', w.occurred_at::timestamptz)>=$${values.length}::timestamptz`);
-    }
-    if (query.before !== undefined) {
-      values.push(query.before);
-      outerClauses.push(`date_trunc('milliseconds', w.occurred_at::timestamptz)<=$${values.length}::timestamptz`);
-    }
-    values.push(query.limit + 1);
-    sql =
-      "SELECT w.event_json FROM (" +
+  const matched: CanonicalEventV1[] = [];
+  const batchLimit = query.limit + 1;
+  let cursorRev = seekAfter;
+  // Keep Query 2 on the pure (tenant_id, project_id, repo_id, revision) PK index with LIMIT:
+  // adding date_trunc(...) or an unbounded subquery under FORCE ROW LEVEL SECURITY pushes
+  // PostgreSQL's planner into a Seq Scan + Sort over the full remaining revision span.
+  while (matched.length < batchLimit && cursorRev < seekMax) {
+    const result = await client.query<{
+      readonly revision: string;
+      readonly occurred_at: string;
+      readonly event_json: string;
+    }>(
       "SELECT revision, occurred_at, event_json FROM ha_events " +
-      "WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND revision>$4 AND revision<=$5 " +
-      "ORDER BY revision ASC OFFSET 0" +
-      `) AS w WHERE ${outerClauses.join(" AND ")} LIMIT $${values.length}`;
-  } else {
-    values.push(query.limit + 1);
-    sql =
-      "SELECT event_json FROM ha_events " +
-      "WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND revision>$4 AND revision<=$5 " +
-      `ORDER BY revision ASC LIMIT $${values.length}`;
+        "WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND revision>$4 AND revision<=$5 " +
+        "ORDER BY revision ASC LIMIT $6",
+      [scope.tenantId, scope.projectId, input.repoId, cursorRev, seekMax, batchLimit],
+    );
+    if (result.rows.length === 0) break;
+    for (const row of result.rows) {
+      cursorRev = Number(row.revision);
+      if (hasTimeWindow) {
+        const ms = Date.parse(row.occurred_at);
+        if (Number.isNaN(ms)) continue;
+        if (afterMs !== undefined && ms < afterMs) continue;
+        if (beforeMs !== undefined && ms > beforeMs) continue;
+      }
+      matched.push(JSON.parse(row.event_json) as CanonicalEventV1);
+      if (matched.length >= batchLimit) break;
+    }
+    if (result.rows.length < batchLimit) break;
   }
-  const result = await client.query<{ readonly event_json: string }>(sql, values);
-  const hasMore = result.rows.length > query.limit;
-  const events = (hasMore ? result.rows.slice(0, query.limit) : result.rows).map(
-    ({ event_json }) => JSON.parse(event_json) as CanonicalEventV1,
-  );
-  const lastScannedRevision = hasMore ? events.at(-1)!.workspaceRevision : seekMax;
+  const hasMore = matched.length > query.limit;
+  const events = hasMore ? matched.slice(0, query.limit) : matched;
+  const lastScannedRevision = hasMore
+    ? hasTimeWindow
+      ? matched[query.limit]!.workspaceRevision - 1
+      : events.at(-1)!.workspaceRevision
+    : seekMax;
   return {
     sourceRevision,
     events,
