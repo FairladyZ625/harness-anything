@@ -1,5 +1,5 @@
 import { hash as cryptoHash, randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { RuntimeSubscriptionQuotaV1 } from "@harness-anything/kernel";
@@ -14,6 +14,7 @@ import {
 } from "./agent-runtime-instance-storage.ts";
 import type { RuntimeCredentialSource, RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
 import { JsonRpcLineClient } from "./client/local-json-rpc-client.ts";
+import { createHostScratchDirectory } from "./host-environment-io.ts";
 import { applyGithubLaunchCredential } from "./runtime-github-credentials.ts";
 import { registerSecretValue, scrubSecretText } from "../runtime-engine/secret-scrub.ts";
 import {
@@ -97,6 +98,8 @@ export interface SubscriptionQuotaProbeInput {
   readonly fetchImpl?: typeof fetch;
   readonly resolveGithubToken?: () => Promise<string | null>;
   readonly runKeychainLookup?: KeychainLookupRunner;
+  /** Optional observer receiving a SHA-256 hex digest of an ephemeral/keychain token when no file credential exists. */
+  readonly onCredentialFingerprint?: (fingerprint: string) => void;
 }
 
 /**
@@ -167,6 +170,72 @@ export function agyNonInteractiveProbeEnv(
   };
 }
 
+const agyStagedReadOnlyFiles = [
+  "antigravity-oauth-token",
+  "oauth_creds.json",
+  "google_accounts.json",
+  "settings.json",
+  "jetski_state.pbtxt",
+  path.join("antigravity-cli", "antigravity-oauth-token"),
+  path.join("antigravity-cli", "jetski_state.pbtxt"),
+  path.join("antigravity-cli", "settings.json"),
+] as const;
+
+const codexStagedReadOnlyFiles = ["auth.json", "config.toml"] as const;
+
+/**
+ * Stages only the required read-only credential/config files into an ephemeral mode-0700
+ * scratch directory so native provider CLIs (`codex app-server`, `agy -p /usage|/quota`)
+ * can never proactively refresh or mutate the user's real `auth.json` or AGY home directory.
+ */
+function stageReadOnlyProbeHome(
+  kind: "agy" | "codex",
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+): { readonly env: NodeJS.ProcessEnv; readonly cwd: string; readonly close: () => void } {
+  const scratch = createHostScratchDirectory("providerProbeHome");
+  try {
+    if (platform !== "win32") chmodSync(scratch.directory, 0o700);
+    const stageFile = (sourceFile: string, destinationFile: string): void => {
+      if (!statSync(sourceFile, { throwIfNoEntry: false })?.isFile()) return;
+      const bytes = tryReadFileBytes(sourceFile);
+      if (!bytes.ok) return;
+      writeFileDurably(destinationFile, bytes.value, 0o600);
+    };
+    const stagedEnv: NodeJS.ProcessEnv = {
+      ...env,
+      HOME: scratch.directory,
+      USERPROFILE: scratch.directory,
+      XDG_CONFIG_HOME: path.join(scratch.directory, ".config"),
+      XDG_DATA_HOME: path.join(scratch.directory, ".local", "share"),
+      XDG_CACHE_HOME: path.join(scratch.directory, ".cache"),
+    };
+    if (kind === "codex") {
+      const realCodexHome = resolveCodexHome(env);
+      const stagedCodexHome = path.join(scratch.directory, ".codex");
+      if (realCodexHome) {
+        for (const relativePath of codexStagedReadOnlyFiles) {
+          stageFile(path.join(realCodexHome, relativePath), path.join(stagedCodexHome, relativePath));
+        }
+      }
+      if (platform !== "win32" && existsSync(stagedCodexHome)) chmodSync(stagedCodexHome, 0o700);
+      stagedEnv.CODEX_HOME = stagedCodexHome;
+    } else {
+      const realHome = requireAccountHome(env, "AGY");
+      const realGeminiDir = providerConfigDirectory(realHome, "agy");
+      const stagedGeminiDir = providerConfigDirectory(scratch.directory, "agy");
+      for (const relativePath of agyStagedReadOnlyFiles) {
+        stageFile(path.join(realGeminiDir, relativePath), path.join(stagedGeminiDir, relativePath));
+      }
+      if (platform !== "win32" && existsSync(stagedGeminiDir)) chmodSync(stagedGeminiDir, 0o700);
+    }
+    return { env: stagedEnv, cwd: scratch.directory, close: scratch.close };
+  } catch (error) {
+    scratch.close();
+    throw error;
+  }
+}
+
 export async function probeAgyCliQuota(
   platform: NodeJS.Platform,
   executablePath: string,
@@ -176,37 +245,49 @@ export async function probeAgyCliQuota(
   observedAt: string,
 ): Promise<RuntimeSubscriptionQuotaV1> {
   requireAccountHome(env, "AGY");
-  const probeEnv = agyNonInteractiveProbeEnv(env, platform);
-  // Prefer modern `agy -p /usage --output-format json` (>=1.2.2); fall back to legacy `/quota`
-  // when `/usage` is unsupported or returns an unrecognized command envelope.
-  const usageResult = await runExecutableResult(platform, executablePath, ["-p", "/usage", "--output-format", "json"], {
-    env: probeEnv,
-    timeoutMs,
-    input: "",
-    signal,
-  });
-  if (usageResult.exitCode === 0) {
-    const parsedUsage = tryParseAgyQuota(usageResult.stdout, observedAt, { expectedCommand: "usage" });
-    if (parsedUsage.ok) return parsedUsage.value;
-  }
-  if (signal.aborted) throw signal.reason;
-  const legacyResult = await runExecutableResult(
-    platform,
-    executablePath,
-    ["-p", "/quota", "--output-format", "json"],
-    {
-      env: probeEnv,
-      timeoutMs,
-      input: "",
-      signal,
-    },
-  );
-  if (legacyResult.exitCode !== 0)
-    throw runtimeInstanceError(
-      "runtime_quota_probe_failed",
-      `AGY quota probe exited with status ${legacyResult.exitCode}.`,
+  const staged = stageReadOnlyProbeHome("agy", env, platform);
+  try {
+    const probeEnv = agyNonInteractiveProbeEnv(staged.env, platform);
+    // Prefer modern `agy -p /usage --output-format json` (>=1.2.2); fall back to legacy `/quota`
+    // when `/usage` is unsupported or returns an unrecognized command envelope.
+    const usageResult = await runExecutableResult(
+      platform,
+      executablePath,
+      ["-p", "/usage", "--output-format", "json"],
+      {
+        env: probeEnv,
+        cwd: staged.cwd,
+        timeoutMs,
+        input: "",
+        signal,
+      },
     );
-  return parseAgyQuotaResponse(legacyResult.stdout, observedAt, { expectedCommand: "quota" });
+    if (usageResult.exitCode === 0) {
+      const parsedUsage = tryParseAgyQuota(usageResult.stdout, observedAt, { expectedCommand: "usage" });
+      if (parsedUsage.ok) return parsedUsage.value;
+    }
+    if (signal.aborted) throw signal.reason;
+    const legacyResult = await runExecutableResult(
+      platform,
+      executablePath,
+      ["-p", "/quota", "--output-format", "json"],
+      {
+        env: probeEnv,
+        cwd: staged.cwd,
+        timeoutMs,
+        input: "",
+        signal,
+      },
+    );
+    if (legacyResult.exitCode !== 0)
+      throw runtimeInstanceError(
+        "runtime_quota_probe_failed",
+        `AGY quota probe exited with status ${legacyResult.exitCode}.`,
+      );
+    return parseAgyQuotaResponse(legacyResult.stdout, observedAt, { expectedCommand: "quota" });
+  } finally {
+    staged.close();
+  }
 }
 
 async function probeCodexQuota(
@@ -239,29 +320,32 @@ async function probeCodexAppServerQuota(
   timeoutMs: number,
   observedAt: string,
 ): Promise<RuntimeSubscriptionQuotaV1 | null> {
-  const rawCwd = env.HOME ?? env.USERPROFILE,
-    cwd = rawCwd && existsSync(rawCwd) ? rawCwd : undefined;
-  let result: RuntimeSubscriptionQuotaV1 | null = null;
-  await runExecutable(platform, executablePath, ["app-server"], {
-    env,
-    cwd,
-    signal,
-    timeoutMs: Math.min(timeoutMs, quotaHttpTimeoutMs),
-    captureOutput: true,
-    input: async (child) => {
-      const rpc = new JsonRpcLineClient(child.stdout!, child.stdin!);
-      try {
-        const rpcTimeout = Math.min(timeoutMs, quotaHttpTimeoutMs);
-        await rpc.request("initialize", { clientInfo: { name: "harness-anything", version: "0.1.0" } }, rpcTimeout);
-        child.stdin!.write(`${JSON.stringify({ method: "initialized", params: {} })}\n`);
-        const payload = await rpc.request("account/rateLimits/read", {}, rpcTimeout);
-        result = parseCodexRateLimits(payload, "codex-app-server", observedAt);
-      } finally {
-        rpc.close();
-      }
-    },
-  });
-  return result;
+  const staged = stageReadOnlyProbeHome("codex", env, platform);
+  try {
+    let result: RuntimeSubscriptionQuotaV1 | null = null;
+    await runExecutable(platform, executablePath, ["app-server"], {
+      env: staged.env,
+      cwd: staged.cwd,
+      signal,
+      timeoutMs: Math.min(timeoutMs, quotaHttpTimeoutMs),
+      captureOutput: true,
+      input: async (child) => {
+        const rpc = new JsonRpcLineClient(child.stdout!, child.stdin!);
+        try {
+          const rpcTimeout = Math.min(timeoutMs, quotaHttpTimeoutMs);
+          await rpc.request("initialize", { clientInfo: { name: "harness-anything", version: "0.1.0" } }, rpcTimeout);
+          child.stdin!.write(`${JSON.stringify({ method: "initialized", params: {} })}\n`);
+          const payload = await rpc.request("account/rateLimits/read", {}, rpcTimeout);
+          result = parseCodexRateLimits(payload, "codex-app-server", observedAt);
+        } finally {
+          rpc.close();
+        }
+      },
+    });
+    return result;
+  } finally {
+    staged.close();
+  }
 }
 
 async function probeCodexOAuthQuota(
@@ -309,6 +393,7 @@ async function probeClaudeOAuthQuota(
   const credentials = await readClaudeCredentialsReadOnly(platform, input);
   if (!credentials) return null;
   registerSecretValue(credentials.accessToken);
+  input.onCredentialFingerprint?.(cryptoHash("sha256", Buffer.from(`claude-oauth\0${credentials.accessToken}`), "hex"));
   const payload = await fetchQuotaJson({
     fetchImpl: input.fetchImpl ?? fetch,
     url: CLAUDE_OAUTH_USAGE_URL,
@@ -467,29 +552,42 @@ async function readCopilotTokenReadOnly(input: SubscriptionQuotaProbeInput): Pro
   if (fromEnv) return fromEnv;
   const copilotHome = resolveCopilotHome(effectiveEnv);
   if (!copilotHome) return null;
-  const active = await readCopilotActiveAccount(copilotHome, input.signal);
+  const config = await readJsonFileReadOnly(path.join(copilotHome, "config.json"), input.signal);
+  const active = parseCopilotActiveAccount(config);
   if (active.host !== null && active.host !== "github.com") return null;
   const candidates = [path.join(copilotHome, "hosts.json"), path.join(copilotHome, "apps.json")];
-  const matchedEntries: Array<{ readonly user: string | null; readonly token: string }> = [];
+  const fileEntries: Array<{ readonly user: string | null; readonly token: string }> = [];
   for (const candidate of candidates) {
     const parsed = await readJsonFileReadOnly(candidate, input.signal);
     if (!parsed) continue;
     for (const [hostKey, entry] of Object.entries(parsed)) {
       if (!isGithubDotComHostKey(hostKey) || !isRecord(entry)) continue;
-      const oauthToken = nonEmptyString(entry.oauth_token);
+      const oauthToken = usableEnvToken(entry.oauth_token);
       if (!oauthToken) continue;
       const user = nonEmptyString(entry.user)?.toLowerCase() ?? null;
-      matchedEntries.push({ user, token: oauthToken });
+      fileEntries.push({ user, token: oauthToken });
     }
   }
-  if (active.user !== null) {
-    const activeTokens = new Set(
-      matchedEntries.filter((entry) => entry.user === active.user).map((entry) => entry.token),
-    );
-    return activeTokens.size === 1 ? [...activeTokens][0]! : null;
-  }
-  const distinctTokens = new Set(matchedEntries.map((entry) => entry.token));
-  return distinctTokens.size === 1 ? [...distinctTokens][0]! : null;
+  const selectOwnedToken = (
+    entries: readonly { readonly user: string | null; readonly token: string }[],
+  ): string | null => {
+    if (active.user !== null) {
+      const activeTokens = new Set(entries.filter((entry) => entry.user === active.user).map((entry) => entry.token));
+      return activeTokens.size === 1 ? [...activeTokens][0]! : null;
+    }
+    const knownUsers = new Set<string>(active.loggedInUsers);
+    for (const entry of entries) {
+      if (entry.user !== null) knownUsers.add(entry.user);
+    }
+    if (knownUsers.size > 1) return null;
+    const distinctTokens = new Set(entries.map((entry) => entry.token));
+    return distinctTokens.size === 1 ? [...distinctTokens][0]! : null;
+  };
+  const hasFileCandidates =
+    active.user !== null ? fileEntries.some((entry) => entry.user === active.user) : fileEntries.length > 0;
+  if (hasFileCandidates) return selectOwnedToken(fileEntries);
+  const configEntries = extractCopilotConfigTokens(config, active.user);
+  return selectOwnedToken(configEntries);
 }
 
 function usableEnvToken(value: unknown): string | null {
@@ -497,12 +595,18 @@ function usableEnvToken(value: unknown): string | null {
   return token && !/\s/u.test(token) ? token : null;
 }
 
-async function readCopilotActiveAccount(
-  copilotHome: string,
-  signal: AbortSignal,
-): Promise<{ readonly user: string | null; readonly host: string | null }> {
-  const config = await readJsonFileReadOnly(path.join(copilotHome, "config.json"), signal);
-  if (!config) return { user: null, host: null };
+function normalizeCopilotHost(rawHost: unknown): string | null {
+  const text = nonEmptyString(rawHost)?.toLowerCase() ?? null;
+  if (!text) return null;
+  return text.replace(/^https?:\/\//u, "").replace(/\/.*$/u, "");
+}
+
+function parseCopilotActiveAccount(config: Record<string, unknown> | null): {
+  readonly user: string | null;
+  readonly host: string | null;
+  readonly loggedInUsers: readonly string[];
+} {
+  if (!config) return { user: null, host: null, loggedInUsers: [] };
   const last = isRecord(config.last_logged_in_user) ? config.last_logged_in_user : null;
   const user =
     nonEmptyString(last?.login)?.toLowerCase() ??
@@ -510,9 +614,79 @@ async function readCopilotActiveAccount(
     nonEmptyString(config.active_user)?.toLowerCase() ??
     nonEmptyString(config.user)?.toLowerCase() ??
     null;
-  const rawHost = nonEmptyString(last?.host)?.toLowerCase() ?? null;
-  const host = rawHost ? rawHost.replace(/^https?:\/\//u, "").replace(/\/.*$/u, "") : null;
-  return { user, host };
+  const host = normalizeCopilotHost(last?.host);
+  const loggedInUsers: string[] = [];
+  if (Array.isArray(config.logged_in_users)) {
+    for (const entry of config.logged_in_users) {
+      if (!isRecord(entry)) continue;
+      const entryHost = normalizeCopilotHost(entry.host);
+      if (entryHost !== null && entryHost !== "github.com") continue;
+      const entryUser = (nonEmptyString(entry.login) ?? nonEmptyString(entry.user))?.toLowerCase() ?? null;
+      if (entryUser) loggedInUsers.push(entryUser);
+    }
+  }
+  return { user, host, loggedInUsers };
+}
+
+function extractCopilotTokenValue(value: unknown): string | null {
+  const direct = usableEnvToken(value);
+  if (direct) return direct;
+  if (!isRecord(value)) return null;
+  return usableEnvToken(value.oauth_token) ?? usableEnvToken(value.token) ?? usableEnvToken(value.access_token);
+}
+
+function parseCopilotConfigTokenKey(rawKey: string): { readonly host: string; readonly user: string } | null {
+  const stripped = rawKey.trim().replace(/^https?:\/\//iu, "");
+  const separator = stripped.lastIndexOf(":");
+  if (separator <= 0 || separator >= stripped.length - 1) return null;
+  const host = stripped.slice(0, separator).replace(/\/+$/u, "").toLowerCase();
+  const user = stripped
+    .slice(separator + 1)
+    .trim()
+    .toLowerCase();
+  if (!host || !user) return null;
+  return { host, user };
+}
+
+/**
+ * Extracts GitHub Copilot CLI's native plaintext OAuth tokens from `~/.copilot/config.json`
+ * (written when the OS keychain is unavailable), accepting only `github.com` entries and
+ * binding every token to its declared account login so callers fail closed on mismatch/ambiguity.
+ */
+function extractCopilotConfigTokens(
+  config: Record<string, unknown> | null,
+  activeUser: string | null,
+): Array<{ readonly user: string | null; readonly token: string }> {
+  if (!config) return [];
+  const entries: Array<{ readonly user: string | null; readonly token: string }> = [];
+  if (isRecord(config.copilot_tokens)) {
+    for (const [rawKey, rawValue] of Object.entries(config.copilot_tokens)) {
+      const parsedKey = parseCopilotConfigTokenKey(rawKey);
+      if (!parsedKey || parsedKey.host !== "github.com") continue;
+      const token = extractCopilotTokenValue(rawValue);
+      if (!token) continue;
+      entries.push({ user: parsedKey.user, token });
+    }
+  }
+  if (Array.isArray(config.logged_in_users)) {
+    for (const item of config.logged_in_users) {
+      if (!isRecord(item)) continue;
+      const host = normalizeCopilotHost(item.host);
+      if (host !== null && host !== "github.com") continue;
+      const token = extractCopilotTokenValue(item);
+      if (!token) continue;
+      const user = (nonEmptyString(item.login) ?? nonEmptyString(item.user))?.toLowerCase() ?? null;
+      entries.push({ user, token });
+    }
+  }
+  if (isRecord(config.last_logged_in_user)) {
+    const host = normalizeCopilotHost(config.last_logged_in_user.host);
+    if (host === null || host === "github.com") {
+      const token = extractCopilotTokenValue(config.last_logged_in_user);
+      if (token) entries.push({ user: activeUser, token });
+    }
+  }
+  return entries;
 }
 
 function isGithubDotComHostKey(key: string): boolean {
@@ -683,7 +857,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * (and Copilot env tokens) so an async probe started before a credential swap fails closed on commit.
  * Never persists, logs, or returns raw credential bytes.
  */
-export function subscriptionCredentialGeneration(kindId: RuntimeInstanceKind, env: NodeJS.ProcessEnv): string {
+export function subscriptionCredentialGeneration(
+  kindId: RuntimeInstanceKind,
+  env: NodeJS.ProcessEnv,
+  resolvedGithubToken?: string | null,
+): string {
   const chunks: Buffer[] = [Buffer.from(`${kindId}\0`)];
   const candidates: string[] = [];
   const home = nonEmptyString(env.HOME) ?? nonEmptyString(env.USERPROFILE);
@@ -704,10 +882,14 @@ export function subscriptionCredentialGeneration(kindId: RuntimeInstanceKind, en
       );
     }
   } else if (kindId === "copilot") {
-    for (const key of ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"] as const) {
-      chunks.push(Buffer.from(`env:${key}=${usableEnvToken(env[key]) ?? ""}\0`));
+    const effectiveEnv: NodeJS.ProcessEnv = { ...env };
+    if (resolvedGithubToken !== undefined) {
+      applyGithubLaunchCredential(effectiveEnv, usableEnvToken(resolvedGithubToken));
     }
-    const copilotHome = resolveCopilotHome(env);
+    for (const key of ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"] as const) {
+      chunks.push(Buffer.from(`env:${key}=${usableEnvToken(effectiveEnv[key]) ?? ""}\0`));
+    }
+    const copilotHome = resolveCopilotHome(effectiveEnv);
     if (copilotHome) {
       chunks.push(Buffer.from(`copilotHome:${copilotHome}\0`));
       candidates.push(

@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { projectRuntimeProviderHealth } from "@harness-anything/kernel";
 import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 
 export type RuntimeProviderHealth = {
@@ -21,8 +22,10 @@ export type RuntimeProviderHealth = {
 
 export function effectiveProviderBlockedUntil(
   health: Pick<RuntimeProviderHealth, "cooldownUntil" | "frozenUntil" | "quotaExhaustedUntil"> | undefined,
+  now?: string,
 ): string | null {
   if (!health) return null;
+  if (now !== undefined) return projectRuntimeProviderHealth(health, now).recoverAt;
   const candidates = [health.frozenUntil, health.cooldownUntil, health.quotaExhaustedUntil ?? null].filter(
     (value): value is string => value !== null && Number.isFinite(Date.parse(value)),
   );
@@ -134,22 +137,17 @@ export function openRuntimeProviderHealthStore(userRoot: string) {
     readonly models?: readonly string[];
   }): RuntimeProviderHealth => {
     const previous = get(input.instanceId),
-      proposedTime = Date.parse(input.resetAt),
-      previousQuotaUntil = previous.quotaExhaustedUntil ?? null,
-      previousQuotaTime = previousQuotaUntil === null ? Number.NEGATIVE_INFINITY : Date.parse(previousQuotaUntil),
-      keepPreviousUntil =
-        previousQuotaUntil !== null && Number.isFinite(previousQuotaTime) && previousQuotaTime > proposedTime,
-      quotaExhaustedUntil = keepPreviousUntil ? previousQuotaUntil : input.resetAt,
-      quotaExhaustedScope = keepPreviousUntil
-        ? (previous.quotaExhaustedScope ?? null)
-        : (input.scope ?? previous.quotaExhaustedScope ?? null),
-      quotaExhaustedModels = keepPreviousUntil
-        ? (previous.quotaExhaustedModels ?? null)
-        : input.scope === "account"
-          ? null
-          : input.models && input.models.length > 0
-            ? [...input.models]
-            : null;
+      occurredMs = Date.parse(input.occurredAt),
+      previousObservedMs =
+        previous.quotaObservedAt == null ? Number.NEGATIVE_INFINITY : Date.parse(previous.quotaObservedAt);
+    if (Number.isFinite(occurredMs) && Number.isFinite(previousObservedMs) && occurredMs < previousObservedMs) {
+      return previous;
+    }
+    const previousQuotaUntil = previous.quotaExhaustedUntil ?? null,
+      quotaExhaustedUntil = input.resetAt,
+      quotaExhaustedScope = input.scope ?? null,
+      quotaExhaustedModels =
+        input.scope === "account" ? null : input.models && input.models.length > 0 ? [...input.models] : null;
     if (
       quotaExhaustedUntil === previousQuotaUntil &&
       previous.quotaObservedAt === input.occurredAt &&

@@ -1335,9 +1335,10 @@ test("Security, sanitization, same-instance re-login, out-of-order probes, healt
       cooldownBaseSeconds: 3600,
     });
     const cancelCmd = store.prepareAuthCommand("claude-sec", "login");
-    store.beginAuthSession("claude-sec", "login-cancelled", cancelCmd.accountCut);
+    const cancelCut = store.beginAuthSession("claude-sec", "login-cancelled", cancelCmd.accountCut)!;
+    assert.ok(cancelCut);
     assert.equal((await store.authStatus("claude-sec")).code, "runtime_auth_in_progress");
-    store.completeAuthSession("claude-sec", "login-cancelled", "login", 1, cancelCmd.accountCut);
+    store.completeAuthSession("claude-sec", "login-cancelled", "login", 1, cancelCut);
     assert.equal(health.get("claude-sec").reason, "HTTP 503");
     assert.equal(health.get("claude-sec").cooldownUntil, "2026-11-21T11:00:00.000Z");
 
@@ -1371,7 +1372,8 @@ test("Security, sanitization, same-instance re-login, out-of-order probes, healt
     //     When login-A's stale terminal later exits 0, completeAuthSession MUST verify the exact
     //     account cut/generation and act as a complete no-op without clearing B's quota/readiness/health!
     const loginA = store.prepareAuthCommand("claude-sec", "login");
-    store.beginAuthSession("claude-sec", "stale-login-a", loginA.accountCut);
+    const loginACut = store.beginAuthSession("claude-sec", "stale-login-a", loginA.accountCut)!;
+    assert.ok(loginACut);
     // Rebind the instance from operator -> instance credentialSource (account B) while login-A is still open.
     store.command({
       kind: "runtime-instance-update",
@@ -1391,7 +1393,7 @@ test("Security, sanitization, same-instance re-login, out-of-order probes, healt
     assert.ok(quotaB);
     assert.equal(health.get("claude-sec").quotaExhaustedUntil, "2026-11-28T00:00:00.000Z");
     // Now stale login-A terminal exits 0 -> MUST be a complete NO-OP!
-    store.completeAuthSession("claude-sec", "stale-login-a", "login", 0, loginA.accountCut);
+    store.completeAuthSession("claude-sec", "stale-login-a", "login", 0, loginACut);
     const afterStaleExit = (await store.command({ kind: "runtime-instance-show", instanceId: "claude-sec" }))
       .instance as Record<string, unknown>;
     assert.equal((afterStaleExit.authReadiness as Record<string, unknown>).status, "ready");
@@ -1400,7 +1402,8 @@ test("Security, sanitization, same-instance re-login, out-of-order probes, healt
 
     // Same check for delete + recreate with same instanceId while login-B is running:
     const loginB = store.prepareAuthCommand("claude-sec", "login");
-    store.beginAuthSession("claude-sec", "stale-login-b", loginB.accountCut);
+    const loginBCut = store.beginAuthSession("claude-sec", "stale-login-b", loginB.accountCut)!;
+    assert.ok(loginBCut);
     store.command({ kind: "runtime-instance-delete", instanceId: "claude-sec" });
     store.command(createPayload);
     serverMode = "both-healthy";
@@ -1411,7 +1414,7 @@ test("Security, sanitization, same-instance re-login, out-of-order probes, healt
     });
     const quotaRecreated = (probedRecreated.instance as Record<string, unknown>).quota;
     assert.ok(quotaRecreated);
-    store.completeAuthSession("claude-sec", "stale-login-b", "login", 0, loginB.accountCut);
+    store.completeAuthSession("claude-sec", "stale-login-b", "login", 0, loginBCut);
     const afterRecreateExit = (await store.command({ kind: "runtime-instance-show", instanceId: "claude-sec" }))
       .instance as Record<string, unknown>;
     assert.equal((afterRecreateExit.authReadiness as Record<string, unknown>).status, "ready");

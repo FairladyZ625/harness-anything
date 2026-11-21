@@ -541,3 +541,79 @@ export function formatSubscriptionQuotaSummary(quota: RuntimeSubscriptionQuotaV1
 function formatNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/u, "");
 }
+
+export interface RuntimeProviderHealthBlockInput {
+  readonly frozen?: boolean;
+  readonly frozenUntil?: string | null;
+  readonly cooldownUntil?: string | null;
+  readonly quotaExhaustedUntil?: string | null;
+  readonly reason?: string | null;
+}
+
+export interface RuntimeProviderHealthProjection {
+  readonly status: "frozen" | "cooldown" | "ready";
+  readonly recoverAt: string | null;
+  readonly reason: string | null;
+  readonly transportBlocked: boolean;
+  readonly usageExhausted: boolean;
+}
+
+/**
+ * Projects the active provider health status and effective recovery timestamp at `now`,
+ * matching scheduler eligibility:
+ * - Only clocks strictly in the future (`> now`) remain active blocks; expired timestamps are ignored.
+ * - `recoverAt` is the latest (maximum) of all still-future blocking clocks
+ *   (`frozenUntil`, `cooldownUntil`, `quotaExhaustedUntil`).
+ * - When only `quotaExhaustedUntil` is active in the future, `reason` reports `"quota_exhausted"`.
+ *   When `quotaExhaustedUntil` has expired, it neither triggers `"cooldown"` nor `"quota_exhausted"`.
+ */
+export function projectRuntimeProviderHealth(
+  health: RuntimeProviderHealthBlockInput | undefined,
+  now?: string,
+): RuntimeProviderHealthProjection {
+  if (!health) {
+    return {
+      status: "ready",
+      recoverAt: null,
+      reason: null,
+      transportBlocked: false,
+      usageExhausted: false,
+    };
+  }
+  const nowTime = now === undefined ? Date.now() : Date.parse(now);
+  const futureClock = (value: string | null | undefined): string | null => {
+    if (typeof value !== "string") return null;
+    const parsed = Date.parse(value);
+    if (!Number.isFinite(parsed)) return null;
+    if (Number.isFinite(nowTime) && parsed <= nowTime) return null;
+    return value;
+  };
+  const activeFrozenUntil = futureClock(health.frozenUntil);
+  const activeCooldownUntil = futureClock(health.cooldownUntil);
+  const activeUsageUntil = futureClock(health.quotaExhaustedUntil);
+  const futureClocks = [activeFrozenUntil, activeCooldownUntil, activeUsageUntil].filter(
+    (value): value is string => value !== null,
+  );
+  const recoverAt =
+    futureClocks.length === 0 ? null : futureClocks.sort((left, right) => Date.parse(right) - Date.parse(left))[0]!;
+  const transportBlocked = activeFrozenUntil !== null || activeCooldownUntil !== null;
+  const usageExhausted = activeUsageUntil !== null;
+  const status: "frozen" | "cooldown" | "ready" = health.frozen ? "frozen" : recoverAt !== null ? "cooldown" : "ready";
+  const reason =
+    status === "frozen"
+      ? (health.reason ?? (usageExhausted ? "quota_exhausted" : null))
+      : status === "cooldown"
+        ? transportBlocked && health.reason
+          ? health.reason
+          : usageExhausted
+            ? "quota_exhausted"
+            : (health.reason ?? null)
+        : (health.reason ?? null);
+  return {
+    status,
+    recoverAt,
+    reason,
+    transportBlocked,
+    usageExhausted,
+  };
+}

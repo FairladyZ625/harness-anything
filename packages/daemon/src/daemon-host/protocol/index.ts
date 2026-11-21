@@ -117,8 +117,11 @@ export type {
 export type { RuntimeInstanceSummary } from "../agent-runtime-instance-types.ts";
 export {
   findExhaustedSubscriptionQuotaWindow,
+  projectRuntimeProviderHealth,
   selectSubscriptionQuotaHeadlineWindow,
   validRuntimeSubscriptionQuota,
+  type RuntimeProviderHealthBlockInput,
+  type RuntimeProviderHealthProjection,
   type RuntimeQuotaWindowScope,
   type RuntimeQuotaWindowV1,
   type RuntimeSubscriptionQuotaV1,

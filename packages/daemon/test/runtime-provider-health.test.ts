@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
+import { projectRuntimeProviderHealth } from "@harness-anything/kernel";
 import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import {
   effectiveProviderBlockedUntil,
@@ -132,14 +133,91 @@ test("quota health transitions are orthogonal to transport failures and manual f
       instanceId: "codex-quota",
       occurredAt: "2026-11-21T10:10:00.000Z",
       resetAt: "2026-11-22T00:00:00.000Z",
+      scope: "account",
     });
     assert.equal(first.failureStreak, 0);
     assert.equal(second.failureStreak, 0);
     assert.equal(third.failureStreak, 0);
     assert.equal(third.frozenUntil, null);
     assert.equal(third.cooldownUntil, null);
-    assert.equal(third.quotaExhaustedUntil, resetAt);
-    assert.equal(effectiveProviderBlockedUntil(third), resetAt);
+    // QUOTA-09: authoritative newer observation replaces stale longer window when longer window recovers.
+    assert.equal(third.quotaExhaustedUntil, "2026-11-22T00:00:00.000Z");
+    assert.equal(effectiveProviderBlockedUntil(third), "2026-11-22T00:00:00.000Z");
+
+    // Out-of-order older occurredAt does not overwrite newer authoritative quota observation.
+    const stale = store.recordQuotaExhausted({
+      instanceId: "codex-quota",
+      occurredAt: "2026-11-21T10:02:00.000Z",
+      resetAt,
+    });
+    assert.equal(stale.quotaExhaustedUntil, "2026-11-22T00:00:00.000Z");
+
+    // QUOTA-20: projectRuntimeProviderHealth & effectiveProviderBlockedUntil(health, now) filter expired clocks
+    // and select the latest still-future clock matching scheduler eligibility.
+    assert.deepEqual(
+      projectRuntimeProviderHealth(
+        {
+          frozen: false,
+          frozenUntil: null,
+          cooldownUntil: "2026-11-21T13:00:00.000Z",
+          quotaExhaustedUntil: "2026-11-21T15:00:00.000Z",
+          reason: "HTTP 503",
+        },
+        "2026-11-21T12:00:00.000Z",
+      ),
+      {
+        status: "cooldown",
+        recoverAt: "2026-11-21T15:00:00.000Z",
+        reason: "HTTP 503",
+        transportBlocked: true,
+        usageExhausted: true,
+      },
+    );
+    assert.deepEqual(
+      projectRuntimeProviderHealth(
+        {
+          frozen: false,
+          frozenUntil: null,
+          cooldownUntil: "2026-11-21T11:00:00.000Z",
+          quotaExhaustedUntil: "2026-11-21T15:00:00.000Z",
+          reason: "HTTP 503",
+        },
+        "2026-11-21T12:00:00.000Z",
+      ),
+      {
+        status: "cooldown",
+        recoverAt: "2026-11-21T15:00:00.000Z",
+        reason: "quota_exhausted",
+        transportBlocked: false,
+        usageExhausted: true,
+      },
+    );
+    assert.deepEqual(
+      projectRuntimeProviderHealth(
+        {
+          frozen: false,
+          frozenUntil: null,
+          cooldownUntil: null,
+          quotaExhaustedUntil: "2026-11-21T09:00:00.000Z",
+          reason: null,
+        },
+        "2026-11-21T12:00:00.000Z",
+      ),
+      {
+        status: "ready",
+        recoverAt: null,
+        reason: null,
+        transportBlocked: false,
+        usageExhausted: false,
+      },
+    );
+    assert.equal(
+      effectiveProviderBlockedUntil(
+        { cooldownUntil: null, frozenUntil: null, quotaExhaustedUntil: "2026-11-21T09:00:00.000Z" },
+        "2026-11-21T12:00:00.000Z",
+      ),
+      null,
+    );
 
     // Clearing quota_exhausted clears quotaExhaustedUntil cleanly.
     const cleared = store.clearQuotaExhausted("codex-quota", "2026-11-21T11:00:00.000Z");

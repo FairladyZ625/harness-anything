@@ -281,6 +281,54 @@ test("real CLI runtime instance list/show/--probe displays subscription quota wi
       renderCliReceipt(shown).text,
       /quota: \[Ultra\] Gemini · 5h 72% \(resets 2026-11-28T00:00:00\.000Z\)/u,
     );
+
+    // QUOTA-20: CLI health table projects still-future clocks (max of cooldownUntil & quotaExhaustedUntil)
+    // and treats expired quotaExhaustedUntil as ready (never cooldown / quota_exhausted).
+    const healthFile = path.join(userRoot, "runtime-provider-health.json");
+    writeFileSync(
+      healthFile,
+      JSON.stringify({
+        "cli-agy-quota": {
+          instanceId: "cli-agy-quota",
+          failureStreak: 0,
+          cooldownUntil: null,
+          frozen: false,
+          frozenUntil: null,
+          reason: null,
+          lastFailureAt: null,
+          lastResetAt: null,
+          quotaExhaustedUntil: "2020-01-01T00:00:00.000Z",
+          quotaObservedAt: "2020-01-01T00:00:00.000Z",
+        },
+      }),
+      { mode: 0o600 },
+    );
+    const expiredList = renderCliReceipt(run(root, env, ["runtime", "instance", "list"])).text;
+    assert.match(expiredList, /cli-agy-quota\tCLI AGY Quota\tagy\tgemini-4-hydrogen-low\tenabled\tready\t-\t-/u);
+
+    writeFileSync(
+      healthFile,
+      JSON.stringify({
+        "cli-agy-quota": {
+          instanceId: "cli-agy-quota",
+          failureStreak: 1,
+          cooldownUntil: "2099-01-01T01:00:00.000Z",
+          frozen: false,
+          frozenUntil: null,
+          reason: "HTTP 503",
+          lastFailureAt: "2026-11-21T10:00:00.000Z",
+          lastResetAt: null,
+          quotaExhaustedUntil: "2099-01-01T05:00:00.000Z",
+          quotaObservedAt: "2026-11-21T10:00:00.000Z",
+        },
+      }),
+      { mode: 0o600 },
+    );
+    const activeBothList = renderCliReceipt(run(root, env, ["runtime", "instance", "list"])).text;
+    assert.match(
+      activeBothList,
+      /cli-agy-quota\tCLI AGY Quota\tagy\tgemini-4-hydrogen-low\tenabled\tcooldown\tHTTP 503\t2099-01-01T05:00:00\.000Z/u,
+    );
   } finally {
     runMaybe(root, env, ["daemon", "stop"]);
     rmSync(root, { recursive: true, force: true });

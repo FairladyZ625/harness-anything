@@ -260,4 +260,79 @@ describe("subscription quota rendering and IPC validation", () => {
     );
     expect(container.querySelector('[data-testid="runtime-card-quota"]')?.textContent).not.toContain("Exhausted");
   });
+
+  it("QUOTA-20: projects providerHealth status and recovery time using max of still-future clocks and treats expired quotaExhaustedUntil as ready", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    const commonProps = {
+      instance: baseInstance,
+      installations: [],
+      agents: [],
+      liveSessions: 0,
+      busy: false,
+      onSelectAgent: vi.fn(),
+      onSelectRuntime: vi.fn(),
+      onAuth: vi.fn(),
+      onValidate: vi.fn(),
+      onSetEnabled: vi.fn(),
+      projectAllowed: true,
+      projectSettingsBusy: false,
+      onSetProjectAllowed: vi.fn(),
+      onUpdate: vi.fn().mockResolvedValue({ ok: true }),
+      onDelete: vi.fn(),
+      onSelfTest: vi.fn().mockResolvedValue(null),
+    };
+
+    // 1. Transport cooldown (earlier: 13:11:22) + quota exhaustion (later: 15:44:55) at 12:00 ->
+    //    MUST show cooldown and the LATER 15:44:55 recovery timestamp (matching scheduler eligibility).
+    await act(async () =>
+      root!.render(
+        createElement(RuntimeCard, {
+          ...commonProps,
+          now: "2026-11-21T12:00:00.000Z",
+          providerHealth: {
+            nodeId: "local-node",
+            failureStreak: 1,
+            cooldownUntil: "2026-11-21T13:11:22.000Z",
+            frozen: false,
+            frozenUntil: null,
+            reason: "HTTP 503",
+            quotaExhaustedUntil: "2026-11-21T15:44:55.000Z",
+          },
+        }),
+      ),
+    );
+    const healthCardBoth = container.querySelector('[data-testid="runtime-card-health"]');
+    expect(healthCardBoth).not.toBeNull();
+    expect(healthCardBoth?.textContent).toContain("cooldown");
+    expect(healthCardBoth?.textContent).toContain("HTTP 503");
+    // Ensure the displayed recovery time reflects 15:44:55 UTC (not earlier 13:11:22 UTC), timezone-independently.
+    expect(healthCardBoth?.textContent).toContain("44:55");
+    expect(healthCardBoth?.textContent).not.toContain("11:22");
+
+    // 2. Expired quotaExhaustedUntil (past `now`) -> MUST show ready (not cooldown), reason "-", recover at "-".
+    await act(async () =>
+      root!.render(
+        createElement(RuntimeCard, {
+          ...commonProps,
+          now: "2026-11-21T12:00:00.000Z",
+          providerHealth: {
+            nodeId: "local-node",
+            failureStreak: 0,
+            cooldownUntil: null,
+            frozen: false,
+            frozenUntil: null,
+            reason: null,
+            quotaExhaustedUntil: "2026-11-21T09:00:00.000Z",
+          },
+        }),
+      ),
+    );
+    const healthCardExpired = container.querySelector('[data-testid="runtime-card-health"]');
+    expect(healthCardExpired).not.toBeNull();
+    expect(healthCardExpired?.textContent).toContain("ready");
+    expect(healthCardExpired?.textContent).not.toContain("cooldown");
+    expect(healthCardExpired?.textContent).not.toContain("quota_exhausted");
+  });
 });

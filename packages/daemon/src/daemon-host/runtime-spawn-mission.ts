@@ -10,6 +10,7 @@ import {
   consumeKnownError,
   documentWorkspacePath,
   findExhaustedSubscriptionQuotaWindow,
+  projectRuntimeProviderHealth,
   resolveHarnessLayout,
 } from "@harness-anything/kernel";
 import { projectedRepositorySettings } from "./repo-cell-settings-state.ts";
@@ -180,6 +181,8 @@ export function resolveRuntimeInstanceCandidates(input: {
   readonly selectionStrategy?: RuntimeSelectionStrategy;
   readonly dispatchState?: RuntimeInstanceDispatchState;
   readonly health?: readonly RuntimeProviderHealth[];
+  /** When true (fallback chain construction), retain candidates whose quota is currently exhausted so they can recover before later hops. */
+  readonly chainMembershipOnly?: boolean;
   readonly now?: string;
 }): string[] {
   input = {
@@ -303,18 +306,17 @@ export function resolveRuntimeInstanceCandidates(input: {
         : undefined);
     const now = input.now ?? new Date().toISOString();
     const providerHealth = input.health?.find((row) => row.instanceId === instance.instanceId),
-      healthUntil = providerHealth?.frozen ? null : effectiveProviderBlockedUntil(providerHealth),
-      healthBlocked =
-        providerHealth?.frozen === true ||
-        (healthUntil !== null && healthUntil !== undefined && Date.parse(healthUntil) > Date.parse(now)),
+      projectedHealth = projectRuntimeProviderHealth(providerHealth, now),
+      healthUntil = projectedHealth.status === "frozen" ? null : projectedHealth.recoverAt,
+      healthBlocked = projectedHealth.status !== "ready",
       modelQuotaBlocked =
-        !healthBlocked && instance.quota && effectiveModel
+        !input.chainMembershipOnly && !healthBlocked && instance.quota && effectiveModel
           ? findExhaustedSubscriptionQuotaWindow(instance.quota, now, { models: [effectiveModel] })
           : null,
       reason = !instance.enabled
         ? "runtime_instance_disabled"
         : healthBlocked
-          ? `runtime_provider_unavailable (${providerHealth?.reason ?? (providerHealth?.quotaExhaustedUntil ? "quota_exhausted" : "cooldown")}; recover at ${healthUntil})`
+          ? `runtime_provider_unavailable (${projectedHealth.reason ?? "cooldown"}; recover at ${healthUntil})`
           : modelQuotaBlocked
             ? `runtime_provider_unavailable (quota_exhausted:${modelQuotaBlocked.window.id}; recover at ${modelQuotaBlocked.resetAt})`
             : !agentRuntimeModelMatches(instance.models, explicitModel ?? instance.defaultModel)
@@ -391,7 +393,7 @@ export function resolveRuntimeInstanceCandidates(input: {
     .filter((instance) => {
       const now = input.now ?? new Date().toISOString();
       const health = input.health?.find((row) => row.instanceId === instance.instanceId),
-        blockedUntil = effectiveProviderBlockedUntil(health),
+        blockedUntil = effectiveProviderBlockedUntil(health, now),
         targetModel =
           declaredModel ??
           declaredTargets?.find((row) => row.type === instance.kindId)?.model ??
@@ -399,10 +401,11 @@ export function resolveRuntimeInstanceCandidates(input: {
             ? instance.defaultModel
             : undefined),
         modelQuotaBlocked =
+          !input.chainMembershipOnly &&
           instance.quota !== undefined &&
           targetModel !== undefined &&
           findExhaustedSubscriptionQuotaWindow(instance.quota, now, { models: [targetModel] }) !== null;
-      return !health?.frozen && (!blockedUntil || Date.parse(blockedUntil) <= Date.parse(now)) && !modelQuotaBlocked;
+      return !health?.frozen && blockedUntil === null && !modelQuotaBlocked;
     });
   if (ready.length === 0)
     throw runtimeSpawnError(

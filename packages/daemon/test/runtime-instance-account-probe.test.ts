@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -63,34 +63,61 @@ test("AGY account model probes are bounded and abort while waiting for a slot", 
   }
 });
 
-test("AGY models and quota use HOME or USERPROFILE without ACP directory flags", async () => {
+test("AGY models and quota use HOME or USERPROFILE without ACP directory flags, and quota stages an ephemeral home that protects real credentials from mutation", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-account-home-")),
     resetAt = "2026-11-16T04:05:06.000Z",
+    stagedHomeTrace = path.join(root, "staged-homes.jsonl"),
     agy = writeProviderExecutable(
       path.join(root, "agy"),
       `
+        const fs = require("node:fs");
+        const path = require("node:path");
         const args = process.argv.slice(2);
         if (args[0] !== "acp" && (args.includes("--gemini-dir") || args.includes("--app-data-dir"))) {
           console.error("Error: flags provided but not defined: -gemini-dir");
           process.exit(1);
         }
-        if ((process.env.HOME ?? process.env.USERPROFILE) !== process.env.EXPECTED_HOME) process.exit(31);
-        if (args[0] === "models") console.log("gemini-4-hydrogen-low\\tmodel");
-        else if (JSON.stringify(args) === JSON.stringify(["-p", "/quota", "--output-format", "json"]))
+        const effectiveHome = process.env.HOME ?? process.env.USERPROFILE ?? "";
+        if (args[0] === "models") {
+          if (effectiveHome !== process.env.EXPECTED_HOME) process.exit(31);
+          console.log("gemini-4-hydrogen-low\\tmodel");
+        } else if (JSON.stringify(args) === JSON.stringify(["-p", "/quota", "--output-format", "json"])) {
+          // Verify staged copy of real credential is readable and deliberately attempt to overwrite it.
+          const tokenPath = path.join(effectiveHome, ".gemini", "antigravity-oauth-token");
+          if (fs.readFileSync(tokenPath, "utf8") !== process.env.EXPECTED_TOKEN) process.exit(33);
+          fs.writeFileSync(tokenPath, "mutated-by-proactive-refresh");
+          fs.appendFileSync(${JSON.stringify(stagedHomeTrace)}, effectiveHome + "\\n");
           console.log(JSON.stringify({ command: { data: { groups: [{ buckets: [{ remaining_fraction: 0, reset_time: ${JSON.stringify(resetAt)} }] }] } } }));
-        else process.exit(32);
+        } else process.exit(32);
       `,
     );
   try {
     const probe = createRuntimeInstanceAccountProbe(process.platform);
     for (const variable of ["HOME", "USERPROFILE"] as const) {
       const home = path.join(root, variable, "home"),
-        input = { executablePath: agy, env: { [variable]: home, EXPECTED_HOME: home } };
+        geminiDir = path.join(home, ".gemini"),
+        tokenFile = path.join(geminiDir, "antigravity-oauth-token"),
+        tokenBody = `agy-original-token-${variable}`,
+        input = { executablePath: agy, env: { [variable]: home, EXPECTED_HOME: home, EXPECTED_TOKEN: tokenBody } };
+      mkdirSync(geminiDir, { recursive: true, mode: 0o700 });
+      writeFileSync(tokenFile, tokenBody, { mode: 0o600 });
+      const statBefore = statSync(tokenFile);
       const catalog = await probe.probeModels({ ...input, kindId: "agy" });
       assert.deepEqual(catalog?.models, ["gemini-4-hydrogen-low"]);
       const quota = await probe.probeQuota({ ...input, kindId: "agy", credentialSource: "instance" });
       assert.ok(quota);
       assert.equal(findExhaustedSubscriptionQuotaWindow(quota)?.resetAt, resetAt);
+      // Real AGY credential file, mtime, and inode MUST stay completely untouched!
+      assert.equal(readFileSync(tokenFile, "utf8"), tokenBody);
+      const statAfter = statSync(tokenFile);
+      assert.equal(statAfter.mtimeMs, statBefore.mtimeMs);
+      assert.equal(statAfter.ino, statBefore.ino);
+    }
+    // Every ephemeral staged directory must be distinct from real homes and cleaned up in finally.
+    const stagedHomes = readFileSync(stagedHomeTrace, "utf8").trim().split("\n");
+    assert.equal(stagedHomes.length, 2);
+    for (const stagedHome of stagedHomes) {
+      assert.equal(existsSync(stagedHome), false, `ephemeral AGY probe home was not cleaned up: ${stagedHome}`);
     }
   } finally {
     rmSync(root, { recursive: true, force: true });

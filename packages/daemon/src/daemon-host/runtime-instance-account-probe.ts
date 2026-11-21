@@ -65,6 +65,7 @@ export function createRuntimeInstanceAccountProbe(
       readonly fetchImpl?: typeof fetch;
       readonly resolveGithubToken?: () => Promise<string | null>;
       readonly runKeychainLookup?: KeychainLookupRunner;
+      readonly onCredentialFingerprint?: (fingerprint: string) => void;
     }): Promise<RuntimeSubscriptionQuotaV1 | null> => {
       const timeoutMs = runtimeKindForId(input.kindId).auth.subscriptionProbeTimeoutMs,
         signal = probeSignal(input.signal, timeoutMs);

@@ -114,6 +114,7 @@ type SpawnLaunch = {
   readonly durability: LocalTerminalDurability;
   readonly warning: TerminalBackendWarningCode | null;
   readonly tmuxNamespace: string | null;
+  readonly onAdmitted?: () => void;
   readonly onExit?: (exitCode: number) => void;
 };
 
@@ -137,6 +138,8 @@ export interface TrustedTerminalLaunch {
   readonly cwd: string;
   readonly publicCwd: string;
   readonly profile: "runtime-auth";
+  readonly onBeforeSpawn?: () => void;
+  readonly onAdmitted?: () => void;
   readonly onExit?: (exitCode: number) => void;
 }
 export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
@@ -289,6 +292,7 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
         );
       const sessionId = terminalSessionId(input.repoId, launch.idempotencyKey);
       const command = terminalCommand(launch.executablePath, launch.args, launch.env, platform);
+      launch.onBeforeSpawn?.();
       return spawnProcess({
         key: launch.idempotencyKey,
         name: launch.name,
@@ -305,6 +309,7 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
         durability: "daemon-process",
         warning: null,
         tmuxNamespace: null,
+        ...(launch.onAdmitted ? { onAdmitted: launch.onAdmitted } : {}),
         ...(launch.onExit ? { onExit: launch.onExit } : {}),
       });
     },
@@ -474,6 +479,7 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
     };
     sessions.set(session.sessionId, session);
     idempotency.set(launch.key, session.sessionId);
+    launch.onAdmitted?.();
     if (launch.profile === "runtime-auth") {
       const controller = new AbortController(),
         deadline = setTimeout(

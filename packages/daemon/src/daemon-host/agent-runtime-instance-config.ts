@@ -6,6 +6,7 @@ import {
   isRuntimeInstanceRecord,
   requiredRuntimeInstanceText,
   runtimeInstanceError,
+  validAccountFingerprint,
 } from "./agent-runtime-instance-values.ts";
 import type {
   AgyRuntimeInstanceConfig,
@@ -97,6 +98,7 @@ export function runtimeInstanceConfig(
           "models",
           "availableModels",
           "quota",
+          "quotaAccountFingerprint",
           "defaultModel",
           "enabled",
           "tier",
@@ -191,7 +193,11 @@ export function runtimeInstanceConfig(
   const availableModels = value.availableModels === undefined ? undefined : normalizeModels(value.availableModels);
   if (value.quota !== undefined && !validRuntimeSubscriptionQuota(value.quota))
     throw runtimeInstanceError("invalid_runtime_quota", "Runtime instance quota snapshot is invalid.");
+  const accountFingerprint = value.quotaAccountFingerprint;
+  if (accountFingerprint !== undefined && !validAccountFingerprint(accountFingerprint))
+    throw runtimeInstanceError("invalid_runtime_quota", "Runtime instance quota account fingerprint is invalid.");
   const quota = value.quota,
+    quotaAccountFingerprint = value.quota === undefined ? undefined : accountFingerprint,
     instanceIsolation = credentialSource === "instance" ? "enforced" : value.isolationState,
     permissionMode = runtimePermissionMode(value.permissionMode, kindId),
     mcpPolicy = runtimeMcpPolicy(value.mcpPolicy, kindId),
@@ -225,6 +231,7 @@ export function runtimeInstanceConfig(
     models,
     ...(availableModels === undefined ? {} : { availableModels }),
     ...(quota === undefined ? {} : { quota }),
+    ...(quotaAccountFingerprint === undefined ? {} : { quotaAccountFingerprint }),
     defaultModel,
     enabled,
     tier: value.tier ?? 1,

@@ -35,6 +35,8 @@ export interface RuntimeInstanceCommon {
   readonly availableModels?: readonly string[];
   /** Latest node-local subscription quota snapshot observed for this instance. */
   readonly quota?: RuntimeSubscriptionQuotaV1;
+  /** SHA-256 hex fingerprint of the subscription credentials that produced `quota`; stripped from public DTOs. */
+  readonly quotaAccountFingerprint?: string;
   readonly defaultModel: string;
   readonly enabled: boolean;
   readonly tier?: number;

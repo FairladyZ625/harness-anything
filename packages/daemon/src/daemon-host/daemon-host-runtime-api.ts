@@ -14,8 +14,12 @@ import { readCenterRelocated, throwIfCenterMigrating, throwIfCenterRelocated } f
 import { annotateHostingCredentialNotice } from "./hosting-credential-readiness.ts";
 import { requireExecutionActionScope } from "./runtime-execution-scope.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
-import { readDaemonRegistry, type FleetDeviceLoginNotice } from "@harness-anything/kernel";
-import { effectiveProviderBlockedUntil } from "../runtime-engine/runtime-provider-health.ts";
+import {
+  projectRuntimeProviderHealth,
+  readDaemonRegistry,
+  type FleetDeviceLoginNotice,
+  type RuntimeInstanceAccountCut,
+} from "@harness-anything/kernel";
 import { catalogRereadReceipt } from "./gui-catalog.ts";
 import {
   ledgerWriteCommandTopology,
@@ -741,11 +745,16 @@ export function createDaemonHostRuntimeApi(
                 ...(instances as Record<string, unknown>[]).map((row) => {
                   const health = row.providerHealth as Record<string, unknown>,
                     stringField = (value: unknown): string | null => (typeof value === "string" ? value : null),
-                    blockedUntil = effectiveProviderBlockedUntil({
-                      cooldownUntil: stringField(health.cooldownUntil),
-                      frozenUntil: stringField(health.frozenUntil),
-                      quotaExhaustedUntil: stringField(health.quotaExhaustedUntil),
-                    });
+                    projected = projectRuntimeProviderHealth(
+                      {
+                        frozen: health.frozen === true,
+                        cooldownUntil: stringField(health.cooldownUntil),
+                        frozenUntil: stringField(health.frozenUntil),
+                        quotaExhaustedUntil: stringField(health.quotaExhaustedUntil),
+                        reason: stringField(health.reason),
+                      },
+                      context.now(),
+                    );
                   return [
                     health.nodeId,
                     row.instanceId,
@@ -753,9 +762,9 @@ export function createDaemonHostRuntimeApi(
                     row.kindId,
                     Array.isArray(row.models) ? row.models.join(",") : "",
                     row.enabled ? "enabled" : "disabled",
-                    health.frozen ? "frozen" : blockedUntil ? "cooldown" : "ready",
-                    health.reason ?? (health.quotaExhaustedUntil ? "quota_exhausted" : "-"),
-                    blockedUntil ?? "-",
+                    projected.status,
+                    projected.reason ?? "-",
+                    projected.recoverAt ?? "-",
                   ].join("\t");
                 }),
               ]
@@ -817,7 +826,7 @@ export function createDaemonHostRuntimeApi(
           Object.entries(command.env).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
         ),
         idempotencyKey = context.requiredText(payload.idempotencyKey, "idempotencyKey");
-      let settled = false;
+      let sessionCut: RuntimeInstanceAccountCut | undefined;
       const result = cell.terminal.spawnTrusted(
         {
           idempotencyKey,
@@ -828,22 +837,30 @@ export function createDaemonHostRuntimeApi(
           cwd: command.cwd,
           publicCwd: `runtime-instance:${command.instanceId}`,
           profile: "runtime-auth",
+          onBeforeSpawn: () => {
+            context.instances.rejectActiveAuthSession(command.instanceId);
+          },
+          onAdmitted: () => {
+            sessionCut =
+              context.instances.beginAuthSession(
+                command.instanceId,
+                idempotencyKey,
+                command.accountCut,
+                operation as "login" | "logout",
+              ) ?? undefined;
+          },
           onExit: (exitCode) => {
-            settled = true;
             context.instances.completeAuthSession(
               command.instanceId,
               idempotencyKey,
               operation as "login" | "logout",
               exitCode,
-              command.accountCut,
+              sessionCut ?? command.accountCut,
             );
           },
         },
         { ...serverBinding, authorizationDecision },
       ) as JsonObject;
-      if (!settled && result.state === "running") {
-        context.instances.beginAuthSession(command.instanceId, idempotencyKey, command.accountCut);
-      }
       return { ...result, authorizationDecision: authorizationDecision as unknown as JsonObject };
     },
   };
