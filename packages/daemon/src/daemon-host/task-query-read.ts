@@ -7,7 +7,7 @@ import {
   readAttestationPool,
   type CollaboratorTaskScope,
 } from "@harness-anything/application/internal/queries/collaborator-reads.ts";
-import { activeCutReviewDispatches } from "./review-dispatch-state.ts";
+import { activeCutReviewDispatches, latestFailedCutReviewDispatch } from "./review-dispatch-state.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import {
@@ -930,17 +930,21 @@ export function makeTaskQueryReadModel(input: {
               activeCutReviewDispatches({ projection }, row.taskId, execution).length > 0
             )
               return [];
-            const failure =
-              snapshot.task?.reviewDispatchFailure?.executionId === row.executionId
-                ? snapshot.task.reviewDispatchFailure
-                : undefined;
+            const failure = latestFailedCutReviewDispatch(
+              { projection },
+              row.taskId,
+              execution,
+              snapshot.task?.reviewDispatchFailure,
+            );
             return [
               {
                 taskId: row.taskId,
                 since: row.submittedAt,
                 title:
                   `${row.title} — CEO: required review has no active dispatch` +
-                  (failure ? `; ${reviewDispatchFailureWarning(failure)}` : "") +
+                  (failure
+                    ? `; ${reviewDispatchFailureWarning({ code: failure.code ?? "review_dispatch_failed", message: failure.reason })}`
+                    : "") +
                   `; run ha task dispatch-review ${row.taskId}.`,
               },
             ];

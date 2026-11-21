@@ -5,7 +5,7 @@ import { readSubmissionArtifact } from "@harness-anything/application/commands";
 import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { makeTaskEventReader, openSqliteEventStore } from "@harness-anything/storage";
@@ -159,7 +159,9 @@ export async function fixture(
     readonly beforeRuntimeStop?: (launchIndex: number) => Promise<void>;
     readonly submitCommit?: boolean;
     readonly guiDelivery?: boolean;
+    readonly providerMaxRetries?: number;
     readonly providerRoundBackoffBaseSeconds?: number;
+    readonly symlinkAuthoredRoot?: string;
     readonly stallTimeoutMs?: number;
     /** Simulate a provider rejecting its first input before a turn can start. */
     readonly providerInputLimit?: number;
@@ -374,16 +376,26 @@ export async function fixture(
         };
       },
     });
-  mkdirSync(path.join(root, "harness"), { recursive: true });
+  if (options.symlinkAuthoredRoot) {
+    mkdirSync(options.symlinkAuthoredRoot, { recursive: true });
+    git(options.symlinkAuthoredRoot, "init", "-q", "-b", "main");
+    git(options.symlinkAuthoredRoot, "config", "user.name", "Test");
+    git(options.symlinkAuthoredRoot, "config", "user.email", "test@example.com");
+    git(options.symlinkAuthoredRoot, "commit", "--allow-empty", "-qm", "init ledger");
+    symlinkSync(options.symlinkAuthoredRoot, path.join(root, "harness"), "dir");
+  } else {
+    mkdirSync(path.join(root, "harness"), { recursive: true });
+  }
   const harnessConfig = (worktreeSetup?: readonly string[]) =>
     "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n" +
     "settings:\n  defaultVertical: software/coding\n  defaultPreset: standard-task\n  defaultProfile: baseline\n" +
     `  closeout:\n    profile: ${options.closeoutProfile ?? "strict"}\n` +
-    (options.providerRoundBackoffBaseSeconds === undefined &&
+    (options.providerMaxRetries === undefined &&
+    options.providerRoundBackoffBaseSeconds === undefined &&
     options.stallTimeoutMs === undefined &&
     options.commandInterceptions === undefined
       ? ""
-      : `  runtime:\n${options.commandInterceptions === undefined ? "" : `    commandInterceptions: ${JSON.stringify(options.commandInterceptions)}\n`}${options.providerRoundBackoffBaseSeconds === undefined ? "" : `    providerRoundBackoffBaseSeconds: ${String(options.providerRoundBackoffBaseSeconds)}\n`}${options.stallTimeoutMs === undefined ? "" : `    stallTimeoutMs: ${String(options.stallTimeoutMs)}\n`}`) +
+      : `  runtime:\n${options.commandInterceptions === undefined ? "" : `    commandInterceptions: ${JSON.stringify(options.commandInterceptions)}\n`}${options.providerMaxRetries === undefined ? "" : `    providerMaxRetries: ${String(options.providerMaxRetries)}\n`}${options.providerRoundBackoffBaseSeconds === undefined ? "" : `    providerRoundBackoffBaseSeconds: ${String(options.providerRoundBackoffBaseSeconds)}\n`}${options.stallTimeoutMs === undefined ? "" : `    stallTimeoutMs: ${String(options.stallTimeoutMs)}\n`}`) +
     (worktreeSetup?.length
       ? `  worktree:\n    setup:\n${worktreeSetup.map((step) => `      - ${JSON.stringify(step)}\n`).join("")}`
       : "");
@@ -391,46 +403,50 @@ export async function fixture(
   if (options.legacyReviewer) appendLegacyReviewerDeclaration(repoId, canonicalRoot(root));
   let cell = await open();
   const run = (action: Parameters<typeof cell.run>[0]) => cell.run(action, owner);
-  const createOptions =
-    options.create?.taskClass === "work" && options.create.decisionRef === undefined
-      ? { ...options.create, decisionRef: await acceptedWorkDecision(cell, owner, taskId) }
-      : options.create;
-  const created = await run({
-    kind: "task-create",
-    taskId,
-    title: "Completion Review",
-    presetId: artifactDelivery || hybridDelivery ? "standard-task" : "docs-task",
-    ...createOptions,
-  });
-  assert.equal(created.outcome, "applied", JSON.stringify(created));
-  await waitForFixturePublication(cell, created.opId, owner);
-  const packagePath = String((created as Record<string, unknown>).packagePath);
-  await realizeTaskPlanFixture(root, packagePath, (planPath) => run({ kind: "doc-submit", paths: [planPath] }));
-  assert.equal((await run({ kind: "task-start", taskId, executionId })).outcome, "applied");
-  if (options.guiDelivery) {
-    await cell.settlePendingMaterialization("GUI fixture delivery");
-    const checkout = boundWorktree(root),
-      guiPath = "packages/gui/src/App.tsx";
-    mkdirSync(path.dirname(path.join(checkout, guiPath)), { recursive: true });
-    writeFileSync(path.join(checkout, guiPath), "export const App = () => null;\n");
-    git(checkout, "add", guiPath);
-    git(checkout, "commit", "-qm", "feat: fixture GUI delivery");
-  }
-  assert.equal(
-    (
-      await run({
-        kind: "fact-record",
-        taskId,
-        statement: "README contains the reviewed delivery.",
-        evidenceSource: "README.md",
-        confidence: "high",
-        memoryClass: "episodic",
-        memoryTags: [],
-      })
-    ).outcome,
-    "applied",
-  );
+  let packagePath = "";
   let delivery = git(root, "rev-parse", "HEAD");
+  if (!options.symlinkAuthoredRoot) {
+    const createOptions =
+      options.create?.taskClass === "work" && options.create.decisionRef === undefined
+        ? { ...options.create, decisionRef: await acceptedWorkDecision(cell, owner, taskId) }
+        : options.create;
+    const created = await run({
+      kind: "task-create",
+      taskId,
+      title: "Completion Review",
+      presetId: artifactDelivery || hybridDelivery ? "standard-task" : "docs-task",
+      ...createOptions,
+    });
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, owner);
+    packagePath = String((created as Record<string, unknown>).packagePath);
+    await realizeTaskPlanFixture(root, packagePath, (planPath) => run({ kind: "doc-submit", paths: [planPath] }));
+    assert.equal((await run({ kind: "task-start", taskId, executionId })).outcome, "applied");
+    if (options.guiDelivery) {
+      await cell.settlePendingMaterialization("GUI fixture delivery");
+      const checkout = boundWorktree(root),
+        guiPath = "packages/gui/src/App.tsx";
+      mkdirSync(path.dirname(path.join(checkout, guiPath)), { recursive: true });
+      writeFileSync(path.join(checkout, guiPath), "export const App = () => null;\n");
+      git(checkout, "add", guiPath);
+      git(checkout, "commit", "-qm", "feat: fixture GUI delivery");
+    }
+    assert.equal(
+      (
+        await run({
+          kind: "fact-record",
+          taskId,
+          statement: "README contains the reviewed delivery.",
+          evidenceSource: "README.md",
+          confidence: "high",
+          memoryClass: "episodic",
+          memoryTags: [],
+        })
+      ).outcome,
+      "applied",
+    );
+    delivery = git(root, "rev-parse", "HEAD");
+  }
   if (artifactDelivery) {
     const report = `${packagePath}/artifacts/delivery.md`;
     mkdirSync(path.dirname(path.join(root, "harness", report)), { recursive: true });

@@ -27,7 +27,7 @@ import type {
   TrustedScheduleRuntime,
 } from "./runtime-spawn-types.ts";
 import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
-import path from "node:path";
+import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import {
   consumeKnownError,
@@ -40,7 +40,7 @@ import { runtimeErrorCode, runtimeErrorMessage, runtimeSpawnError } from "../run
 import type { RuntimeAgent, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import { resolveRuntimeInstanceCandidates } from "./runtime-spawn-mission.ts";
-import { reclaimReviewWorktree } from "./task-worktree.ts";
+import { reclaimReviewWorktree, type TaskWorktreeCheckout } from "./task-worktree.ts";
 import {
   agentRuntimeModelMatches,
   agentRuntimeModelSpelling,
@@ -538,7 +538,16 @@ export async function scheduleFallbackContinuation(args: {
     publicationOwner: ActiveRuntime["publicationOwner"] | undefined,
     onDispatched: (dispatchId: string, runtimeSessionId: string) => void,
     workspaceProgress: RuntimeWorkspaceProgress,
+    inheritedCwd?: string,
+    preparedWorktree?: TaskWorktreeCheckout | null,
   ) => Promise<unknown>;
+  readonly ensureFallbackWorktree?: (input: {
+    readonly role?: string;
+    readonly taskId: string | null;
+    readonly executionId: string | null;
+    readonly cwd: string;
+    readonly dispatchKey: string;
+  }) => Promise<TaskWorktreeCheckout | null>;
   readonly dispatchId: string;
 }): Promise<void> {
   const { context } = args,
@@ -594,10 +603,28 @@ export async function scheduleFallbackContinuation(args: {
       detachAbort?.();
       if (context.closed?.() || signal?.aborted) return;
       // Host probes finish before input.schedule enters the exclusive writer turn (D1).
+      let ensuredWorktree: TaskWorktreeCheckout | null = null;
+      let worktreeRestoreError: unknown = null;
+      let probeCwd = header.cwd!;
+      if (header.role === "reviewer" && header.taskId && !existsSync(probeCwd) && args.ensureFallbackWorktree) {
+        try {
+          ensuredWorktree = await args.ensureFallbackWorktree({
+            role: header.role,
+            taskId: header.taskId,
+            executionId: header.executionId,
+            cwd: probeCwd,
+            dispatchKey: header.fallbackAttempt!.rootDispatchKey,
+          });
+          if (ensuredWorktree) probeCwd = ensuredWorktree.cwd;
+        } catch (error) {
+          consumeKnownError(error);
+          worktreeRestoreError = error;
+        }
+      }
       let workspaceProgress: RuntimeWorkspaceProgress = { head: null, changedFiles: null, unavailable: null };
       let remoteNode: string | null | undefined = null;
       try {
-        workspaceProgress = await collectRuntimeWorkspaceProgress(header.cwd!);
+        workspaceProgress = await collectRuntimeWorkspaceProgress(probeCwd);
         remoteNode = header.taskId && input.remote ? await input.remote.readTaskLifecycleNode?.(header.taskId) : null;
       } catch (error) {
         consumeKnownError(error);
@@ -671,6 +698,7 @@ export async function scheduleFallbackContinuation(args: {
                   : (remoteNode ?? "unavailable"),
               );
         try {
+          if (worktreeRestoreError !== null) throw worktreeRestoreError;
           const continuationPayload: JsonObject = {
               runtimeInstanceId: next.instance,
               ...(header.delegatedByAgentId && header.agentId
@@ -686,10 +714,10 @@ export async function scheduleFallbackContinuation(args: {
               ...(header.permissionMode ? { permissionMode: header.permissionMode } : {}),
               ...(header.mcpPolicy ? { mcpPolicy: header.mcpPolicy } : {}),
               ...(sameSessionProviderSessionId ? { providerSessionId: sameSessionProviderSessionId } : {}),
-              cwd:
-                dispatchCwd === input.rootDir
-                  ? { scope: "repo-root" }
-                  : { scope: "repo-relative", path: path.relative(input.rootDir, dispatchCwd) },
+              ...(header.reviewTarget ? { reviewTarget: header.reviewTarget } : {}),
+              ...(header.role === "reviewer" && header.taskId && header.executionId
+                ? { executionId: header.executionId }
+                : {}),
               prompt: continuation,
               ...(header.promptSource ? { promptSource: header.promptSource } : {}),
               ...(header.onExitCommand ? { onExitCommand: header.onExitCommand } : {}),
@@ -716,6 +744,8 @@ export async function scheduleFallbackContinuation(args: {
               );
             },
             workspaceProgress,
+            ensuredWorktree ? ensuredWorktree.cwd : dispatchCwd,
+            ensuredWorktree,
           );
         } catch (error) {
           consumeKnownError(error);
@@ -765,12 +795,19 @@ export async function releaseFallbackResources(
   lifecycle: DispatchLifecycleView,
   role?: string | null,
   cwd?: string | null,
+  archiveStreams = true,
 ): Promise<void> {
   if (!lifecycle.policy.groupSettled) return;
   if (role === "reviewer" && cwd) {
-    const failure = await reclaimReviewWorktree(context.input.rootDir, cwd);
-    if (failure)
-      console.error(`[review-worktree] ${lifecycle.controlLeafDispatchId} could not be reclaimed: ${failure.message}`);
+    const inUseBySibling =
+      context.processes !== undefined && [...context.processes.values()].some((active) => active.cwd === cwd);
+    if (!inUseBySibling) {
+      const failure = await reclaimReviewWorktree(context.input.rootDir, cwd);
+      if (failure)
+        console.error(
+          `[review-worktree] ${lifecycle.controlLeafDispatchId} could not be reclaimed: ${failure.message}`,
+        );
+    }
   }
-  archiveDispatchStreams(context.input.rootDir, lifecycle.groupDispatchIds);
+  if (archiveStreams) archiveDispatchStreams(context.input.rootDir, lifecycle.groupDispatchIds);
 }

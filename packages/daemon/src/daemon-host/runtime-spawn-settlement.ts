@@ -842,7 +842,7 @@ async function publishTerminalOutcome(
       reason: active.lossReason ?? (payload.outcome === "succeeded" ? null : terminal.reason),
     });
     context.input.stream.publish(active.runtimeSessionId, { type: "exit", outcome: payload.outcome });
-    if (archiveAllowed) await releaseFallbackResources(context, lifecycle, active.role, active.cwd);
+    await releaseFallbackResources(context, lifecycle, active.role, active.cwd, archiveAllowed);
     const onExitCommand = active.onExitCommand;
     if (typeof onExitCommand === "string")
       setImmediate(() =>

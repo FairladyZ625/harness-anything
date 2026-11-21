@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -9,7 +9,7 @@ import { daemonCliBinDirectory, prepareBoundRuntimeLaunch } from "../src/daemon-
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { fakeKeycloak, keycloakRealm, keycloakUrl } from "./keycloak.fixtures.ts";
 import type { RuntimeSpawnerInput } from "../src/daemon-host/runtime-spawn-types.ts";
-import { resolveDispatchCwd } from "../src/daemon-host/runtime-resume-admission.ts";
+import { dispatchDecisionPackageRoot, resolveDispatchCwd } from "../src/daemon-host/runtime-resume-admission.ts";
 
 test("an unbound runtime inherits its spawning daemon route and runtime actor", async () => {
   const prepared = {
@@ -153,8 +153,82 @@ test("an artifact task resume discards an inherited canonical cwd and any explic
 test("an artifact task rooted at the repository uses the repo-root cwd scope", (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-package-root-cwd-"));
   context.after(() => rmSync(root, { recursive: true, force: true }));
-  assert.equal(resolveDispatchCwd(root, {}, root, null, root).cwd, root);
+  assert.equal(resolveDispatchCwd(root, {}, root, null, root).cwd, realpathSync.native(root));
 });
+
+test(
+  "resolveDispatchCwd permits symlinked managed authoredRoot packages while rejecting external escapes",
+  { skip: process.platform === "win32" ? "requires POSIX symlink semantics" : false },
+  (context) => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-symlink-authored-")),
+      root = path.join(parent, "repo"),
+      externalLedger = path.join(parent, "private-ledger"),
+      externalOutside = path.join(parent, "outside"),
+      taskPackage = path.join(externalLedger, "tasks", "task_1");
+    context.after(() => rmSync(parent, { recursive: true, force: true }));
+    mkdirSync(root, { recursive: true });
+    mkdirSync(taskPackage, { recursive: true });
+    mkdirSync(externalOutside, { recursive: true });
+    symlinkSync(externalLedger, path.join(root, "harness"), "dir");
+    symlinkSync(externalOutside, path.join(root, "user-link"), "dir");
+    symlinkSync(externalOutside, path.join(externalLedger, "tasks", "escape"), "dir");
+
+    // Managed taskPackageRoot inside symlinked harness/ resolves cleanly.
+    const resolvedPackage = resolveDispatchCwd(
+      root,
+      {},
+      undefined,
+      null,
+      path.join(root, "harness", "tasks", "task_1"),
+    );
+    assert.equal(resolvedPackage.cwd, realpathSync.native(taskPackage));
+
+    // Trusted inherited cwd (fallback continuation) inside symlinked harness/ resolves cleanly.
+    assert.equal(resolveDispatchCwd(root, {}, resolvedPackage.cwd, null).cwd, resolvedPackage.cwd);
+
+    // Missing inherited cwd fails with directory-does-not-exist instead of containment escape.
+    assert.throws(
+      () => resolveDispatchCwd(root, {}, path.join(root, ".worktrees", ".review", "missing"), null),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "invalid_runtime_cwd" &&
+        error.message === "Runtime cwd directory does not exist.",
+    );
+
+    // Symlink escape inside harness/ pointing outside authoredRoot is still rejected.
+    assert.throws(
+      () => resolveDispatchCwd(root, {}, undefined, null, path.join(root, "harness", "tasks", "escape")),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_runtime_cwd",
+    );
+
+    // External caller payload.cwd symlink escape is still rejected.
+    assert.throws(
+      () => resolveDispatchCwd(root, { cwd: { scope: "repo-relative", path: "user-link" } }, undefined, null),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_runtime_cwd",
+    );
+
+    // Decision review package under symlinked harness/ resolves only for its own package path, never an escape.
+    const decisionPackage = path.join(externalLedger, "decisions", "decision-dec_1");
+    mkdirSync(decisionPackage, { recursive: true });
+    assert.equal(
+      dispatchDecisionPackageRoot(
+        root,
+        { cwd: { scope: "repo-relative", path: "harness/decisions/decision-dec_1" } },
+        { decisionId: "dec_1" },
+      ),
+      path.join(root, "harness", "decisions", "decision-dec_1"),
+    );
+    assert.equal(
+      dispatchDecisionPackageRoot(
+        root,
+        { cwd: { scope: "repo-relative", path: "user-link" } },
+        { decisionId: "dec_1" },
+      ),
+      null,
+    );
+  },
+);
 
 test("runtime CLI bin stays absent when the daemon installation has no ha entry", (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-cli-missing-")),

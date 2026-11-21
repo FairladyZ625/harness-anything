@@ -60,6 +60,12 @@ export interface CompletionReadinessContext {
   readonly actor?: ActorAxes;
   /** Active reviewer attempts for this exact submitted cut, read from the dispatch projection. */
   readonly activeReviewDispatchIds?: readonly string[];
+  /** Latest failed or exhausted review dispatch for this cut when no active reviewer or verdict exists. */
+  readonly latestReviewDispatchFailure?: {
+    readonly dispatchId?: string;
+    readonly code?: string;
+    readonly reason: string;
+  } | null;
   /** `missing`: the task contract declares no closeout document (an older contract generation). */
   readonly closeout: "ready" | "missing";
   readonly closeoutPath: string;
@@ -406,6 +412,20 @@ function evaluateCompletion(
         `The reviewer is already dispatched for this submitted cut (${context.activeReviewDispatchIds.join(", ")}); ` +
           "inspect its progress and wait for its verdict.",
       );
+    const reviewFailure = context.latestReviewDispatchFailure;
+    if (reviewFailure) {
+      const label = reviewFailure.dispatchId
+        ? `Latest review dispatch ${reviewFailure.dispatchId} failed`
+        : reviewFailure.code
+          ? `Latest review dispatch failed (${reviewFailure.code})`
+          : "Latest review dispatch failed";
+      return one(
+        "review_pending",
+        "review",
+        `ha task dispatch-review ${task.taskId}`,
+        `${label}: ${reviewFailure.reason}. Re-dispatch with ha task dispatch-review ${task.taskId}.`,
+      );
+    }
     if (route.kind === "re-review")
       return one(
         "review_pending",

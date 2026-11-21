@@ -30,7 +30,7 @@ import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { cellCodedError, cellErrorCode } from "./repo-cell-errors.ts";
 import { deliveryContainment, EMPTY_TREE_SHA, rebaseEquivalentDelivery } from "./task-delivery-containment.ts";
 import { taskLineageExecutorCandidates } from "./dispatch-read.ts";
-import { activeCutReviewDispatches } from "./review-dispatch-state.ts";
+import { activeCutReviewDispatches, latestFailedCutReviewDispatch } from "./review-dispatch-state.ts";
 
 /** Canonical completion inputs shared by command and GUI projection consumers. */
 export function readCompletionContext(
@@ -105,6 +105,22 @@ export function readCompletionContext(
                 : [],
             )
           : [],
+      latestReviewDispatchFailure:
+        snapshot.task?.status === "in_review" && closeoutGates.review !== false
+          ? (() => {
+              const reviewCut = snapshot.executions
+                .filter(isNativeExecution)
+                .find(
+                  (execution) =>
+                    execution.iteration === snapshot.task?.iteration &&
+                    execution.submission !== null &&
+                    reviewsForExecution(snapshot.reviews, execution).every((review) => review.verdict === "dismissed"),
+                );
+              return reviewCut
+                ? latestFailedCutReviewDispatch({ projection }, taskId, reviewCut, snapshot.task.reviewDispatchFailure)
+                : null;
+            })()
+          : null,
       closeoutGates,
       ...(executorlessReview
         ? {

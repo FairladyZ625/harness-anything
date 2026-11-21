@@ -9,8 +9,10 @@ import { daemonMethodPayloadFields } from "./protocol/daemon-protocol-commands.t
 import { unknownFieldViolation } from "./protocol/json-rpc-types.ts";
 import { readHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { verifiedHandoffVersions } from "./runtime-handoff-native.ts";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import type { SettingsV1, TaskProjection, TaskWorktreeBindingV1 } from "@harness-anything/kernel";
+import { resolveContainedPath } from "./contained-path.ts";
 import { readDispatchStream, readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "../runtime-engine/runtime-spawn-errors.ts";
@@ -272,6 +274,46 @@ export function dispatchTaskPackageRoot(
   return workspace?.kind === "task-package" ? path.resolve(input.rootDir, workspace.path) : null;
 }
 
+/** Managed decision review package root when the dispatch targets that decision's own directory. */
+export function dispatchDecisionPackageRoot(
+  rootDir: string,
+  payload: JsonObject,
+  decisionReviewTarget: { readonly decisionId: string } | null,
+): string | null {
+  if (decisionReviewTarget === null) return null;
+  const packageRoot = path.join(
+    resolveHarnessLayout(rootDir).decisionsRoot,
+    `decision-${decisionReviewTarget.decisionId}`,
+  );
+  if (!existsSync(packageRoot)) return null;
+  if (payload.cwd === undefined) return packageRoot;
+  if (
+    typeof payload.cwd === "object" &&
+    payload.cwd !== null &&
+    !Array.isArray(payload.cwd) &&
+    (payload.cwd as Record<string, unknown>).scope === "repo-relative" &&
+    typeof (payload.cwd as Record<string, unknown>).path === "string" &&
+    path.resolve(rootDir, (payload.cwd as Record<string, unknown>).path as string) === packageRoot
+  )
+    return packageRoot;
+  return null;
+}
+
+/** Validate a system-materialized directory against the repository root or its declared managed roots. */
+function resolveManagedDispatchCwd(rootDir: string, target: string, managedRoots: readonly string[]): string {
+  if (!existsSync(target)) throw runtimeSpawnError("invalid_runtime_cwd", "Runtime cwd directory does not exist.");
+  const directRelative = path.relative(rootDir, target);
+  const direct = resolveContainedPath(rootDir, directRelative === "" ? "." : directRelative);
+  if (direct !== null) return direct;
+  for (const managedRoot of managedRoots) {
+    if (!existsSync(managedRoot)) continue;
+    const managedRelative = path.relative(managedRoot, target);
+    const contained = resolveContainedPath(managedRoot, managedRelative === "" ? "." : managedRelative);
+    if (contained !== null) return contained;
+  }
+  throw runtimeSpawnError("invalid_runtime_cwd", "Runtime cwd must stay inside the repository.");
+}
+
 /** A package boundary takes precedence over both caller overrides and inherited cwd. */
 export function resolveDispatchCwd(
   rootDir: string,
@@ -281,23 +323,19 @@ export function resolveDispatchCwd(
   taskPackageRoot?: string | null,
 ): { readonly cwd: string; readonly worktree: TaskWorktreeCheckout | null } {
   if (taskPackageRoot) {
-    const relativePackageRoot = path.relative(rootDir, taskPackageRoot);
     return {
-      cwd: resolveRuntimeCwd(
-        rootDir,
-        relativePackageRoot === "" ? { scope: "repo-root" } : { scope: "repo-relative", path: relativePackageRoot },
-      ),
+      cwd: resolveManagedDispatchCwd(rootDir, taskPackageRoot, [resolveHarnessLayout(rootDir).authoredRoot]),
       worktree: null,
     };
   }
-  if (payload.cwd === undefined && inherited) return { cwd: inherited, worktree: null };
+  if (payload.cwd === undefined && inherited) {
+    if (!existsSync(inherited)) throw runtimeSpawnError("invalid_runtime_cwd", "Runtime cwd directory does not exist.");
+    return { cwd: inherited, worktree: null };
+  }
   return {
-    cwd: resolveRuntimeCwd(
-      rootDir,
-      worktree
-        ? { scope: "repo-relative", path: path.relative(rootDir, worktree.cwd) }
-        : (payload.cwd ?? { scope: "repo-root" }),
-    ),
+    cwd: worktree
+      ? resolveManagedDispatchCwd(rootDir, worktree.cwd, [path.join(rootDir, ".worktrees")])
+      : resolveRuntimeCwd(rootDir, payload.cwd ?? { scope: "repo-root" }),
     worktree,
   };
 }

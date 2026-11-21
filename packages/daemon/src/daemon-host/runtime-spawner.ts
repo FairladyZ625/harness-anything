@@ -15,6 +15,7 @@ import {
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { readyDispatchLifecycle } from "./runtime-dispatch-admission.ts";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { type AgentRuntimeEventV1, type CanonicalEventStore } from "@harness-anything/kernel";
 import {
@@ -146,6 +147,7 @@ import {
   prepareDispatchWorktree,
   projectedWorktreeBinding,
   resolveDispatchCwd,
+  dispatchDecisionPackageRoot,
   dispatchTaskPackageRoot,
 } from "./runtime-resume-admission.ts";
 import {
@@ -288,6 +290,20 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     reconcileFallback: (dispatchId) =>
       scheduleFallbackContinuation({
         context: extracted,
+        ensureFallbackWorktree: ({ role, taskId, executionId, dispatchKey }) => {
+          if (role !== "reviewer" || !taskId || input.remote) return Promise.resolve(null);
+          const worktreePayload: JsonObject = {
+              role,
+              taskId,
+              ...(executionId ? { executionId } : {}),
+              dispatchKey,
+            },
+            pinnedCommit = reviewerPinnedCommit(
+              worktreePayload,
+              requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot,
+            );
+          return prepareDispatchWorktree(input, worktreePayload, projectedWorktreeBinding(input), pinnedCommit);
+        },
         launch: (
           payload,
           binding,
@@ -297,6 +313,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           publicationOwner,
           onDispatched,
           workspaceProgress,
+          inheritedCwd,
+          preparedWorktree,
         ) =>
           spawnAttempt(
             payload,
@@ -305,13 +323,15 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             schedule,
             handoffFromRuntimeSessionId,
             publicationOwner,
-            null,
+            preparedWorktree ?? null,
             undefined,
             undefined,
             onDispatched,
             undefined,
             undefined,
             workspaceProgress,
+            false,
+            inheritedCwd,
           ),
         dispatchId,
       }),
@@ -332,6 +352,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     admissionTaskRead?: ReturnType<typeof requireCurrentTaskProjection> | null,
     workspaceProgress?: RuntimeWorkspaceProgress,
     recoveryRequested = false,
+    inheritedFallbackCwd?: string,
   ): Promise<JsonObject> {
     const dryRun = payload.dryRun === true,
       dispatchUsageLimit = input.readSettings?.().runtime.dispatchUsageLimit ?? 0;
@@ -517,25 +538,43 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         );
     }
     // A detached review checkout owns its package boundary. Artifact-only tasks have no checkout,
-    // so their reviewer must retain the canonical task package cwd.
+    // so their reviewer must retain the canonical task package cwd. Trusted fallback continuations
+    // inherit their verified attempt-0 cwd without re-running external user containment checks,
+    // and re-materialize a missing pinned review checkout on remote edges before launch.
+    const effectiveInheritedCwd = inherited?.cwd ?? inheritedFallbackCwd;
+    const fallbackNeedsRemoteReviewWorktree =
+      remoteTask !== null &&
+      inheritedFallback !== undefined &&
+      reviewerBinding &&
+      taskId !== null &&
+      effectiveInheritedCwd !== undefined &&
+      !existsSync(effectiveInheritedCwd);
+    const requestedDecisionPackageRoot = dispatchDecisionPackageRoot(input.rootDir, payload, decisionReviewTarget);
     const reviewerHasWorktree =
-        reviewerBinding && (remoteTask ? remoteTask.worktree !== null : preparedWorktree !== null),
-      taskPackageRoot = reviewerHasWorktree ? null : dispatchTaskPackageRoot(input, taskId, remoteTask),
+        reviewerBinding &&
+        (remoteTask
+          ? remoteTask.worktree !== null
+          : preparedWorktree !== null || (inheritedFallback !== undefined && effectiveInheritedCwd !== undefined)),
+      taskPackageRoot =
+        requestedDecisionPackageRoot ??
+        (reviewerHasWorktree ? null : dispatchTaskPackageRoot(input, taskId, remoteTask)),
       { cwd, worktree: dispatchWorktree } = resolveDispatchCwd(
         input.rootDir,
         payload,
-        inherited?.cwd,
+        fallbackNeedsRemoteReviewWorktree ? undefined : effectiveInheritedCwd,
         remoteTask
-          ? await prepareDispatchWorktree(
-              input,
-              { ...payload, ...(handoff ? { taskId: handoff.taskId, acceptedCommit: handoff.commit } : {}) },
-              () => remoteTask.worktree,
-              reviewerBinding
-                ? reviewTarget?.submission !== undefined || remoteTask.reviewerSubmission !== undefined
-                  ? ((reviewTarget?.submission ?? remoteTask.reviewerSubmission)!.commitSha ?? null)
-                  : undefined
-                : undefined,
-            )
+          ? fallbackNeedsRemoteReviewWorktree || (inheritedFallback === undefined && !effectiveInheritedCwd)
+            ? await prepareDispatchWorktree(
+                input,
+                { ...payload, ...(handoff ? { taskId: handoff.taskId, acceptedCommit: handoff.commit } : {}) },
+                () => remoteTask.worktree,
+                reviewerBinding
+                  ? reviewTarget?.submission !== undefined || remoteTask.reviewerSubmission !== undefined
+                    ? ((reviewTarget?.submission ?? remoteTask.reviewerSubmission)!.commitSha ?? null)
+                    : undefined
+                  : undefined,
+              )
+            : null
           : preparedWorktree,
         taskPackageRoot,
       );
@@ -1243,10 +1282,15 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       cleanupCallbackRelay();
       reclaimFailedLaunchTempDirectory(input, runtimeInstanceId, runtimeSessionId);
       reclaimSessionSkillSnapshot(input.rootDir, runtimeSessionId, cwd);
-      if (role === "reviewer") {
-        const reviewCleanupFailure = await reclaimReviewWorktree(input.rootDir, cwd);
-        if (reviewCleanupFailure)
-          console.error(`[review-worktree] ${newDispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
+      if (role === "reviewer" && inheritedFallback === undefined) {
+        const inUseBySibling = [...processes.values()].some(
+          (entry) => entry.runtimeSessionId !== runtimeSessionId && entry.cwd === cwd,
+        );
+        if (!inUseBySibling) {
+          const reviewCleanupFailure = await reclaimReviewWorktree(input.rootDir, cwd);
+          if (reviewCleanupFailure)
+            console.error(`[review-worktree] ${newDispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
+        }
       }
       if (process && !(await runtimeProcessTreeStopped(input.rootDir, newDispatchId, process))) return;
       if (!process && launchMayBeRunning) return;
@@ -1603,7 +1647,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           typeof payload.dispatchId === "string"
             ? readDispatchStream(input.rootDir, payload.dispatchId)?.header.cwd
             : undefined,
-        packageRoot = dispatchTaskPackageRoot(input, typeof payload.taskId === "string" ? payload.taskId : null, null),
+        packageRoot =
+          dispatchDecisionPackageRoot(input.rootDir, payload, parseDecisionReviewTarget(payload.reviewTarget)) ??
+          dispatchTaskPackageRoot(input, typeof payload.taskId === "string" ? payload.taskId : null, null),
         { cwd } = resolveDispatchCwd(input.rootDir, payload, inherited, worktree, packageRoot);
       return collectRuntimeWorkspaceProgress(cwd);
     },
