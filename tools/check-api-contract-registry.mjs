@@ -32,6 +32,7 @@ const expectedMethods = Object.freeze([
   { method: "repo.task.run", requiresRepo: true },
   { method: "repo.task.witness.run", requiresRepo: true },
   { method: "repo.task.read", requiresRepo: true },
+  { method: "repo.trace.read", requiresRepo: true },
 ]);
 // The fleet channel is part of the same closed RPC surface: every daemon-side
 // fleet handler must be declared here with a validated params shape.

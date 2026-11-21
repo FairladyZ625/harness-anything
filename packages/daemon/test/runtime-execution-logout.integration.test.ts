@@ -113,7 +113,7 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
       const { kind: _kind, ...payload } = action;
       return rpc(method, {
         repo: { repoId },
-        payload: method === "repo.task.run" || method === "repo.task.read" ? { action } : payload,
+        payload: ["repo.task.run", "repo.task.read", "repo.trace.read"].includes(method) ? { action } : payload,
       });
     };
   cleanupRuntimes = async () => {

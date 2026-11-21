@@ -1,5 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
+import { extractReferencedCodePaths } from "@harness-anything/application/internal/queries/file-trace-read.ts";
+import { withLocalWorktreeCollisions } from "./dispatch-causal-context.ts";
+import { makeWorkspaceGitHistoryPort } from "./repo-cell-trace-view.ts";
 import { readAllTaskDispatchPages } from "./dispatch-read.ts";
 import type * as RuntimeStatus from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import { fleetMirrorTaskPaths } from "./fleet-edge-mirror.ts";
@@ -744,7 +747,7 @@ export function openFleetEdgeRuntime(input: {
               " run ha daemon fleet edge sync, then retry.",
           );
         const packageRoot = path.join(materializedRoot, ...candidates[0]!.split("/")),
-          { causalContext, riskTier, profileId, riskTierFlowVersion, worktree, reviewerNote } = runtimeContext;
+          { riskTier, profileId, riskTierFlowVersion, worktree, reviewerNote } = runtimeContext;
         let plan: string;
         try {
           plan = readLocalAuthoredDocument(`${candidates[0]!}/task_plan.md`) ?? "";
@@ -760,7 +763,17 @@ export function openFleetEdgeRuntime(input: {
           taskId,
         );
         assertTransitionDocumentReady(requireTransitionDocumentKind("runtime.run"), plan, planContract);
-        const priorIteration = current.task && current.task.iteration > 0 ? current.task.iteration - 1 : null,
+        const causalContext =
+            review !== undefined || purpose === "settlement"
+              ? runtimeContext.causalContext
+              : withLocalWorktreeCollisions(
+                  runtimeContext.causalContext,
+                  makeWorkspaceGitHistoryPort(request.workspaceRoot).readDirtyWorktreeCollisions!({
+                    paths: extractReferencedCodePaths(plan),
+                    excludeTaskId: taskId,
+                  }),
+                ),
+          priorIteration = current.task && current.task.iteration > 0 ? current.task.iteration - 1 : null,
           ownerReturnBody =
             [
               priorIteration === null

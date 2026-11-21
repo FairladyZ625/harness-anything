@@ -21,6 +21,7 @@ const selectors = {
   "relation-list": { source: `task/${READ_TASK_ID}`, limit: 1 },
   "relation-triples": {},
   graph: { ref: `task/${READ_TASK_ID}` },
+  trace: { path: READ_DOCUMENT },
   "doctor-health": {},
   "todo-list": {},
   "todo-show": { todoId: "todo_222222222222222222222222" },

@@ -427,7 +427,9 @@ function daemonRequestPayload(command: ThinCommand, env: NodeJS.ProcessEnv): Rea
     executor = declaredExecutor(env);
   // Task action methods carry the executor inside their open action envelope; every other method takes
   // payload.executor exactly where the daemon contract declares the field.
-  return command.method === "repo.task.run" || command.method === "repo.task.read"
+  return command.method === "repo.task.run" ||
+    command.method === "repo.task.read" ||
+    command.method === "repo.trace.read"
     ? {
         action: executor ? { ...command.action, executor } : command.action,
         ...(artifactCoordinate === undefined ? {} : { pathCoordinate: artifactCoordinate }),

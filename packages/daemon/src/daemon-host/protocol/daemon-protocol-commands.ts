@@ -292,7 +292,7 @@ export function repoCellExecutionForAction(kind: string): "query-only" | "writer
 }
 
 export function actionForDaemonMethod(method: string, payload: JsonObject): JsonObject & { readonly kind: string } {
-  if (method === "repo.task.run" || method === "repo.task.read") {
+  if (method === "repo.task.run" || method === "repo.task.read" || method === "repo.trace.read") {
     const action = payload.action as JsonObject & { readonly kind: string },
       descriptor = commandDescriptorByActionKind.get(action.kind);
     if (descriptor?.method !== method)
@@ -787,6 +787,16 @@ export const daemonProtocolMethods = Object.freeze([
     id: "repo.task.read",
     phase: "W3",
     method: "repo.task.read",
+    requiresRepo: true,
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({ action: shape({ kind: "string" }, true) }),
+    }),
+  },
+  {
+    id: "repo.trace.read",
+    phase: "W3",
+    method: "repo.trace.read",
     requiresRepo: true,
     params: shape({
       repo: shape({ repoId: "string" }),

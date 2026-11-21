@@ -556,17 +556,15 @@ test("each remote-edge via-center-forward declaration becomes one validated daem
           ) as Record<string, unknown>,
           intent = forwardingIntentForAction(command.method, action as Record<string, unknown> & { kind: string });
         assert.equal(forwardingIntentIssue(intent), null, `${descriptor.id} is not accepted as a forwarding intent`);
-        const payload =
-          command.method === "repo.task.run" || command.method === "repo.task.read"
-            ? { action }
-            : command.method === "repo.script.run"
-              ? Object.fromEntries(
-                  Object.entries(action).filter(
-                    ([field, value]) =>
-                      field !== "kind" && field !== "schema" && !(field === "taskId" && value === null),
-                  ),
-                )
-              : Object.fromEntries(Object.entries(action).filter(([field]) => field !== "kind"));
+        const payload = ["repo.task.run", "repo.task.read", "repo.trace.read"].includes(command.method)
+          ? { action }
+          : command.method === "repo.script.run"
+            ? Object.fromEntries(
+                Object.entries(action).filter(
+                  ([field, value]) => field !== "kind" && field !== "schema" && !(field === "taskId" && value === null),
+                ),
+              )
+            : Object.fromEntries(Object.entries(action).filter(([field]) => field !== "kind"));
         const centerParams = parseDaemonRpcParams(command.method, { repo: { repoId: "probe-repo" }, payload });
         assert.ok(
           centerParams.ok,

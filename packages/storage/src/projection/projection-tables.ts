@@ -8,6 +8,14 @@ import {
 import { ensureRuntimeMemberIndex } from "./runtime-member-index.ts";
 import { ensureWorkspaceTaskCensus } from "./workspace-task-census.ts";
 import { catchUpDispatchLifecycle, DISPATCH_LIFECYCLE_TABLES_SQL } from "./dispatch-lifecycle-projection.ts";
+/**
+ * Reverse code-path trace keys (dec_9979850C7CE87C17271D78E4D1 CH2). SQLite normalizes task executions
+ * into `entity_projection` (`executions: []` in `task_snapshot.snapshot_json`), so execution submission
+ * SHAs are indexed on `entity_projection` while `externalResolution.commitSha` stays on `task_snapshot`.
+ */
+export const EXECUTION_SUBMISSION_COMMIT_SQL =
+  "(CASE WHEN json_valid(value_json) THEN json_extract(value_json, '$.submission.commitSha') END)";
+export const TASK_EXTERNAL_COMMIT_SQL = "json_extract(snapshot_json, '$.externalResolution.commitSha')";
 /** Shared query tables in the center projection and its full physical replica. */
 export const TASK_INDEX_TABLES_SQL = `
     /* @gate-identity state-store/task.projection.task_snapshot */ CREATE TABLE IF NOT EXISTS task_snapshot (
@@ -31,6 +39,7 @@ export const TASK_INDEX_TABLES_SQL = `
       WHERE package_disposition = 'active';
     CREATE INDEX IF NOT EXISTS task_snapshot_parent
       ON task_snapshot(json_extract(snapshot_json, '$.task.metadata.parentTaskId'));
+    CREATE INDEX IF NOT EXISTS task_snapshot_external_commit ON task_snapshot(${TASK_EXTERNAL_COMMIT_SQL});
     /* @gate-identity state-store/task.projection.task_package */ CREATE TABLE IF NOT EXISTS task_package (task_id TEXT PRIMARY KEY, package_path TEXT NOT NULL UNIQUE);`;
 
 const dispatchActivityAt =
