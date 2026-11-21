@@ -294,6 +294,37 @@ test("parallel gate pool budgets authorization workers against active gate concu
   assert.equal(maxActive, 6);
 });
 
+test("parallel gate pool reserves one CPU for authorization on small runners", async () => {
+  const captured = [];
+  let active = 0;
+  let maxActive = 0;
+  const result = await runManifestGatePlanParallel(
+    [
+      { id: "ontology-durable-action-authorization" },
+      ...Array.from({ length: 5 }, (_, index) => ({ id: `gate-${index}` })),
+    ],
+    {
+      concurrency: 6,
+      cpuCount: 2,
+      execute: async (entry) => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        captured.push(entry);
+        await new Promise((resolve) => setImmediate(resolve));
+        active -= 1;
+        return { ok: true };
+      },
+    },
+  );
+
+  assert.deepEqual(result.failedGateIds, []);
+  assert.equal(maxActive, 1);
+  assert.equal(
+    captured.find((entry) => entry.id === "ontology-durable-action-authorization").authorizationAuditConcurrency,
+    1,
+  );
+});
+
 test("parallel gate pool exposes the auth cap only to the authorization child", async () => {
   const variable = "HARNESS_AUTH_AUDIT_CONCURRENCY";
   const previous = process.env[variable];

@@ -590,9 +590,12 @@ export async function runManifestGatePlanParallel(
 ) {
   const run = execute ?? ((entry) => runManifestGateAsync(entry, githubGroups));
   const authorizationIndex = plan.findIndex((entry) => entry.id === "ontology-durable-action-authorization");
-  if (authorizationIndex >= 0 && concurrency > 1) {
+  const requestedWorkers = Math.min(Math.max(1, Math.floor(concurrency)), plan.length);
+  const workerBudget = authorizationIndex >= 0 ? Math.max(1, Math.floor(cpuCount) - 1) : requestedWorkers;
+  const workerCount = Math.min(requestedWorkers, workerBudget);
+  if (authorizationIndex >= 0 && workerCount > 0) {
     const inheritedCap = process.env.HARNESS_AUTH_AUDIT_CONCURRENCY;
-    const poolCap = authorizationGateConcurrencyForPool(cpuCount, concurrency);
+    const poolCap = authorizationGateConcurrencyForPool(cpuCount, workerCount);
     const concurrencyCap = inheritedCap === undefined ? poolCap : Math.min(Number(inheritedCap), poolCap);
     plan = plan.map((entry, index) =>
       index === authorizationIndex ? { ...entry, authorizationAuditConcurrency: concurrencyCap } : entry,
@@ -600,7 +603,6 @@ export async function runManifestGatePlanParallel(
   }
   const results = new Array(plan.length);
   let nextIndex = 0;
-  const workerCount = Math.min(Math.max(1, concurrency), plan.length);
 
   async function worker() {
     while (true) {
