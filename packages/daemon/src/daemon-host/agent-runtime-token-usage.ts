@@ -279,38 +279,228 @@ type EffectiveRuntimeMetrics = {
   readonly toolCallCount: number;
   readonly usageUnavailable?: boolean;
   readonly raw?: Readonly<Record<string, unknown>>;
+  readonly cacheWriteUnitemized?: boolean;
 };
+
+type TokenUsageProjection = Pick<TaskProjection, "readRuntimeDispatchPage" | "readDispatchLifecycle"> &
+  Partial<Pick<TaskProjection, "readDocument" | "readTaskIndex">>;
+
+type DetailCursor = {
+  readonly startedAt: string;
+  readonly dispatchId: string;
+  readonly range: AgentRuntimeTokenUsageRange;
+  readonly memberKind: "agent" | "squad";
+  readonly memberId: string;
+  readonly personId: string | null;
+  readonly sinceMs: number;
+  readonly untilMs: number;
+  readonly watermark: number;
+  readonly sourceRevision: number;
+};
+
+type DetailWindowSnapshot = {
+  readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
+  readonly memberName: string | null;
+  readonly totals: AgentRuntimeTokenUsageTotals;
+  readonly buckets: readonly AgentRuntimeTokenUsageBucket[];
+};
+
+const MAX_DETAIL_SNAPSHOTS_PER_PROJECTION = 32;
+const detailSnapshotCache = new WeakMap<
+  object,
+  readonly { readonly key: string; readonly snapshot: DetailWindowSnapshot }[]
+>();
+
+function getDetailSnapshot(projection: object, key: string): DetailWindowSnapshot | null {
+  return detailSnapshotCache.get(projection)?.find((entry) => entry.key === key)?.snapshot ?? null;
+}
+
+function putDetailSnapshot(projection: object, key: string, snapshot: DetailWindowSnapshot): void {
+  const retained = (detailSnapshotCache.get(projection) ?? []).filter((entry) => entry.key !== key);
+  detailSnapshotCache.set(projection, [...retained, { key, snapshot }].slice(-MAX_DETAIL_SNAPSHOTS_PER_PROJECTION));
+}
 
 function compareSessionOrder(
   left: { readonly startedAt: string; readonly dispatchId: string },
   right: { readonly startedAt: string; readonly dispatchId: string },
 ): number {
-  return Date.parse(right.startedAt) - Date.parse(left.startedAt) || left.dispatchId.localeCompare(right.dispatchId);
+  return (
+    Date.parse(right.startedAt) - Date.parse(left.startedAt) ||
+    Buffer.compare(Buffer.from(left.dispatchId), Buffer.from(right.dispatchId))
+  );
 }
 
-function encodeDetailCursor(row: { readonly startedAt: string; readonly dispatchId: string }): string {
-  return Buffer.from(`${row.startedAt}\0${row.dispatchId}`, "utf8").toString("base64url");
+function encodeDetailCursor(cursor: DetailCursor): string {
+  return Buffer.from(
+    [
+      "v2",
+      cursor.startedAt,
+      cursor.dispatchId,
+      cursor.range,
+      cursor.memberKind,
+      cursor.memberId,
+      cursor.personId ?? "",
+      String(cursor.sinceMs),
+      String(cursor.untilMs),
+      String(cursor.watermark),
+      String(cursor.sourceRevision),
+    ].join("\0"),
+    "utf8",
+  ).toString("base64url");
 }
 
-function decodeDetailCursor(value: string): { readonly startedAt: string; readonly dispatchId: string } | null {
+function parseSafeIntegerField(value: string): number | null {
+  if (!/^-?\d+$/u.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && String(parsed) === value ? parsed : null;
+}
+
+function decodeDetailCursor(value: string): DetailCursor | null {
   if (!value || !/^[A-Za-z0-9_-]+$/u.test(value)) return null;
   const decoded = Buffer.from(value, "base64url").toString("utf8");
   if (Buffer.from(decoded, "utf8").toString("base64url") !== value) return null;
-  const separator = decoded.indexOf("\0");
-  if (separator <= 0 || decoded.indexOf("\0", separator + 1) !== -1) return null;
-  const startedAt = decoded.slice(0, separator),
-    dispatchId = decoded.slice(separator + 1);
-  if (!isoTimestamp(startedAt) || !nonEmptyString(dispatchId)) return null;
-  return { startedAt, dispatchId };
+  const parts = decoded.split("\0");
+  if (parts.length !== 11 || parts[0] !== "v2") return null;
+  const [
+    ,
+    startedAt,
+    dispatchId,
+    range,
+    memberKind,
+    memberId,
+    rawPersonId,
+    rawSinceMs,
+    rawUntilMs,
+    rawWatermark,
+    rawSourceRevision,
+  ] = parts;
+  if (
+    !isoTimestamp(startedAt) ||
+    !nonEmptyString(dispatchId) ||
+    !agentRuntimeTokenUsageRanges.includes(range as AgentRuntimeTokenUsageRange) ||
+    (memberKind !== "agent" && memberKind !== "squad") ||
+    !nonEmptyString(memberId)
+  )
+    return null;
+  const sinceMs = parseSafeIntegerField(rawSinceMs!),
+    untilMs = parseSafeIntegerField(rawUntilMs!),
+    watermark = parseSafeIntegerField(rawWatermark!),
+    sourceRevision = parseSafeIntegerField(rawSourceRevision!);
+  if (
+    sinceMs === null ||
+    untilMs === null ||
+    watermark === null ||
+    sourceRevision === null ||
+    sinceMs > untilMs ||
+    watermark < 0 ||
+    sourceRevision < 0
+  )
+    return null;
+  return {
+    startedAt,
+    dispatchId,
+    range: range as AgentRuntimeTokenUsageRange,
+    memberKind,
+    memberId,
+    personId: rawPersonId === "" ? null : rawPersonId!,
+    sinceMs,
+    untilMs,
+    watermark,
+    sourceRevision,
+  };
+}
+
+function validArchivedRuntimeMetrics(value: unknown): value is EffectiveRuntimeMetrics {
+  return (
+    isRecord(value) &&
+    nonNegativeInteger(value.inputTokens) &&
+    nonNegativeInteger(value.cacheReadTokens) &&
+    nonNegativeInteger(value.outputTokens) &&
+    nonNegativeInteger(value.totalTokens) &&
+    nonNegativeInteger(value.toolCallCount) &&
+    (value.cacheWriteTokens === undefined || nonNegativeInteger(value.cacheWriteTokens)) &&
+    typeof value.usageUnavailable === "boolean"
+  );
+}
+
+function readArchivedDispatchMetrics(
+  projection: TokenUsageProjection,
+  taskPackageCache: Map<string, string | null>,
+  event: ReturnType<TaskProjection["readRuntimeDispatchPage"]>["rows"][number]["event"],
+): EffectiveRuntimeMetrics | null {
+  if (!projection.readDocument) return null;
+  const payload = event.payload;
+  let packagePath: string | null = null;
+  if (payload.taskId) {
+    if (!taskPackageCache.has(payload.taskId)) {
+      const taskRow = projection.readTaskIndex?.({ taskIds: [payload.taskId] }).rows[0];
+      taskPackageCache.set(payload.taskId, taskRow?.packagePath ?? null);
+    }
+    packagePath = taskPackageCache.get(payload.taskId) ?? null;
+  } else if (payload.reviewTarget?.kind === "decision" && payload.reviewTarget.decisionId) {
+    packagePath = `decisions/decision-${payload.reviewTarget.decisionId}`;
+  }
+  if (!packagePath) return null;
+  const document = projection.readDocument(`${packagePath}/artifacts/dispatches/${payload.dispatchId}.json`).document;
+  if (document === null) return null;
+  const parsed: unknown = JSON.parse(document.body);
+  if (
+    !isRecord(parsed) ||
+    parsed.schema !== "runtime-dispatch/v1" ||
+    !validArchivedRuntimeMetrics(parsed.runtimeMetrics)
+  )
+    return null;
+  return parsed.runtimeMetrics;
+}
+
+function resolveDispatchEntry(
+  rootDir: string,
+  projection: TokenUsageProjection,
+  taskPackageCache: Map<string, string | null>,
+  row: ReturnType<TaskProjection["readRuntimeDispatchPage"]>["rows"][number],
+): {
+  readonly header: DispatchStreamHeader;
+  readonly metrics: EffectiveRuntimeMetrics | null;
+  readonly endedAt: string | null;
+  readonly lifecycle: DispatchLifecycleSummary;
+} {
+  const header = projectedHeader(rootDir, row),
+    summary = readDispatchStreamSummary(rootDir, header.dispatchId);
+  let metrics: EffectiveRuntimeMetrics | null = summary?.runtimeMetrics ?? null;
+  if (metrics === null) {
+    const archived = readArchivedDispatchMetrics(projection, taskPackageCache, row.event);
+    if (archived !== null) metrics = archived;
+    else if (row.metrics !== null)
+      metrics =
+        row.metrics.usageUnavailable === true || row.metrics.cacheWriteTokens !== undefined
+          ? row.metrics
+          : { ...row.metrics, cacheWriteUnitemized: true };
+  }
+  return {
+    header,
+    metrics,
+    endedAt: (summary === null ? null : exitOccurredAt(summary)) ?? row.endedAt,
+    lifecycle: dispatchLifecycleSummary(
+      projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [header.dispatchId] }),
+    ),
+  };
 }
 
 /** Stream window dispatches from the indexed canonical runtime dispatch page; only in-window
- * matching dispatches probe local stream summaries, falling back to canonical settlement metrics
- * when the dispatch ran on an edge node without a center-local stream file. */
+ * matching dispatches probe local stream summaries, falling back to archived dispatch metrics
+ * and then canonical settlement metrics when the dispatch ran on an edge node. */
 function windowDispatches(
   rootDir: string,
-  projection: Pick<TaskProjection, "readRuntimeDispatchPage" | "readDispatchLifecycle">,
-  sinceMs: number,
+  projection: TokenUsageProjection,
+  query: {
+    readonly startedAtGte: string;
+    readonly startedAtLte?: string;
+    readonly agentId?: string;
+    readonly squadId?: string;
+    readonly personId?: string;
+    readonly order?: "asc" | "desc";
+    readonly maxRevision?: number;
+  },
   pick: (header: DispatchStreamHeader) => boolean,
   visit: (entry: {
     readonly header: DispatchStreamHeader;
@@ -319,27 +509,31 @@ function windowDispatches(
     readonly lifecycle: DispatchLifecycleSummary;
   }) => void,
 ): void {
-  const seen = new Set<string>();
+  const seen = new Set<string>(),
+    taskPackageCache = new Map<string, string | null>(),
+    minMs = Date.parse(query.startedAtGte),
+    maxMs = query.startedAtLte === undefined ? null : Date.parse(query.startedAtLte);
   let cursor: { readonly startedAt: string; readonly dispatchId: string } | undefined;
   for (;;) {
     const page = projection.readRuntimeDispatchPage({
-      startedAtGte: new Date(sinceMs).toISOString(),
+      ...query,
       ...(cursor ? { cursor } : {}),
       limit: 200,
     });
     for (const row of page.rows) {
-      const header = projectedHeader(rootDir, row);
-      if (!Number.isFinite(Date.parse(header.startedAt)) || !pick(header) || seen.has(header.dispatchId)) continue;
+      const header = projectedHeader(rootDir, row),
+        startedMs = Date.parse(header.startedAt);
+      if (
+        !Number.isFinite(startedMs) ||
+        (Number.isFinite(minMs) && startedMs < minMs) ||
+        (maxMs !== null && Number.isFinite(maxMs) && startedMs > maxMs) ||
+        (query.personId !== undefined && row.event.actor.principal.personId !== query.personId) ||
+        !pick(header) ||
+        seen.has(header.dispatchId)
+      )
+        continue;
       seen.add(header.dispatchId);
-      const summary = readDispatchStreamSummary(rootDir, header.dispatchId);
-      visit({
-        header,
-        metrics: summary?.runtimeMetrics ?? row.metrics,
-        endedAt: (summary === null ? null : exitOccurredAt(summary)) ?? row.endedAt,
-        lifecycle: dispatchLifecycleSummary(
-          projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [header.dispatchId] }),
-        ),
-      });
+      visit(resolveDispatchEntry(rootDir, projection, taskPackageCache, row));
     }
     if (page.done) break;
     if (!page.nextCursor) throw new Error("runtime dispatch page is incomplete without a next cursor");
@@ -385,7 +579,7 @@ export function readAgentRuntimeTokenUsage(input: {
   readonly range: AgentRuntimeTokenUsageRange;
   readonly entityLabel: (squadId: string) => string | null;
   readonly taskOf: (taskId: string) => WorkRuleTask | undefined;
-  readonly projection: Pick<TaskProjection, "readRuntimeDispatchPage" | "readDispatchLifecycle">;
+  readonly projection: TokenUsageProjection;
   readonly cut: {
     readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
     readonly watermark: number;
@@ -412,7 +606,7 @@ export function readAgentRuntimeTokenUsage(input: {
   windowDispatches(
     input.rootDir,
     input.projection,
-    previousSinceMs,
+    { startedAtGte: new Date(previousSinceMs).toISOString() },
     (candidate) => startedMs(candidate) < previousUntilMs || startedMs(candidate) >= sinceMs,
     ({ header, metrics, endedAt, lifecycle }) => {
       pending ||= lifecycle.status === "pending";
@@ -490,10 +684,11 @@ export function readAgentRuntimeTokenUsageDetail(input: {
   readonly now: string;
   readonly range: AgentRuntimeTokenUsageRange;
   readonly member: AgentRuntimeTokenUsageMemberIdentity;
+  readonly personId?: string;
   readonly limit?: number;
   readonly cursor?: string;
   readonly entityLabel: (squadId: string) => string | null;
-  readonly projection: Pick<TaskProjection, "readRuntimeDispatchPage" | "readDispatchLifecycle">;
+  readonly projection: TokenUsageProjection;
   readonly cut: {
     readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
     readonly watermark: number;
@@ -503,62 +698,218 @@ export function readAgentRuntimeTokenUsageDetail(input: {
   const now = new Date(input.now);
   if (!Number.isFinite(now.getTime())) throw new Error(`Agent runtime token usage now is invalid: ${input.now}.`);
   const maxLimit = storageReadPolicy.defaultValue.pageSizes.standard,
+    paginated = input.limit !== undefined || input.cursor !== undefined,
     limit = input.limit ?? maxLimit;
-  if (!positiveInteger(limit) || limit > maxLimit)
+  if (input.limit !== undefined && (!positiveInteger(input.limit) || input.limit > maxLimit))
     throw coded("invalid_command", `Token usage detail limit must be an integer from 1 to ${maxLimit}.`);
   const decodedCursor = input.cursor === undefined ? null : decodeDetailCursor(input.cursor);
   if (input.cursor !== undefined && decodedCursor === null)
     throw coded("invalid_cursor", "Token usage detail cursor is invalid.");
-  const { sinceMs, bucketMs } = planWindow(now, input.range),
-    buckets = bucketLadder(sinceMs, now.getTime(), bucketMs),
-    totals = new Map<string, UsageAccumulator>(),
-    pageCandidates: AgentRuntimeTokenUsageSessionRow[] = [],
-    candidateCap = limit + storageReadPolicy.defaultValue.minimumRows;
   const member = input.member,
+    memberId = member.kind === "agent" ? member.agentId : member.squadId,
+    personId = input.personId ?? null;
+  if (
+    decodedCursor !== null &&
+    (decodedCursor.range !== input.range ||
+      decodedCursor.memberKind !== member.kind ||
+      decodedCursor.memberId !== memberId ||
+      decodedCursor.personId !== personId ||
+      decodedCursor.watermark > input.cut.watermark)
+  )
+    throw coded("invalid_cursor", "Token usage detail cursor does not match the requested window or member.");
+  const initialWindow = planWindow(now, input.range),
+    sinceMs = decodedCursor === null ? initialWindow.sinceMs : decodedCursor.sinceMs,
+    untilMs = decodedCursor === null ? now.getTime() : decodedCursor.untilMs,
+    bucketMs = initialWindow.bucketMs,
+    pinnedWatermark = decodedCursor === null ? input.cut.watermark : decodedCursor.watermark,
+    pinnedSourceRevision = decodedCursor === null ? input.cut.sourceRevision : decodedCursor.sourceRevision,
+    memberQuery = member.kind === "agent" ? { agentId: member.agentId } : { squadId: member.squadId },
+    personQuery = personId === null ? {} : { personId },
     pickMember =
       member.kind === "agent"
         ? (header: DispatchStreamHeader) => header.agentId === member.agentId
-        : (header: DispatchStreamHeader) => header.squadId === member.squadId;
-  let pending = input.cut.status === "pending";
-  let memberName: string | null = null;
-  windowDispatches(input.rootDir, input.projection, sinceMs, pickMember, ({ header, metrics, endedAt, lifecycle }) => {
-    pending ||= lifecycle.status === "pending";
-    if (memberName === null && member.kind === "agent") memberName = header.agentName ?? member.agentId;
-    accumulate(totals, "", "", header, metrics, lifecycle);
-    accumulateBucket(buckets, header.startedAt, header.model ?? null, metrics, sinceMs, bucketMs, lifecycle);
-    if (decodedCursor === null || compareSessionOrder(decodedCursor, header) < 0) {
-      pageCandidates.push(sessionRowOf(header, metrics, endedAt, lifecycle));
-      if (pageCandidates.length > candidateCap) {
-        pageCandidates.sort(compareSessionOrder);
-        pageCandidates.length = candidateCap;
-      }
-    }
-  });
-  pageCandidates.sort(compareSessionOrder);
-  const hasMore = pageCandidates.length > limit,
-    sessions = hasMore ? pageCandidates.slice(0, limit) : pageCandidates,
-    nextCursor = hasMore && sessions.length > 0 ? encodeDetailCursor(sessions.at(-1)!) : null;
-  return {
-    ok: true,
-    status: pending ? "pending" : "ready",
-    range: input.range,
-    since: new Date(sinceMs).toISOString(),
-    bucketMs,
-    member:
-      input.member.kind === "agent"
-        ? { kind: "agent", agentId: input.member.agentId, agentName: memberName ?? input.member.agentId }
+        : (header: DispatchStreamHeader) => header.squadId === member.squadId,
+    formatMember = (memberName: string | null): AgentRuntimeTokenUsageMember =>
+      member.kind === "agent"
+        ? { kind: "agent", agentId: member.agentId, agentName: memberName ?? member.agentId }
         : {
             kind: "squad",
-            squadId: input.member.squadId,
-            squadName: input.entityLabel(input.member.squadId) ?? input.member.squadId,
-          },
-    totals: countersOf(totals.get("") ?? emptyAccumulator()),
+            squadId: member.squadId,
+            squadName: input.entityLabel(member.squadId) ?? member.squadId,
+          };
+
+  // F10: unpaginated callers (GUI & previous-version 12-key decoders) retain full session return
+  // and exact 12-key wire shape without emitting `page` or truncating at 500 sessions.
+  if (!paginated) {
+    const buckets = bucketLadder(sinceMs, untilMs, bucketMs),
+      totals = new Map<string, UsageAccumulator>(),
+      sessions: AgentRuntimeTokenUsageSessionRow[] = [];
+    let pending = input.cut.status === "pending";
+    let memberName: string | null = null;
+    windowDispatches(
+      input.rootDir,
+      input.projection,
+      {
+        ...memberQuery,
+        ...personQuery,
+        startedAtGte: new Date(sinceMs).toISOString(),
+        order: "desc",
+        maxRevision: pinnedWatermark,
+      },
+      pickMember,
+      ({ header, metrics, endedAt, lifecycle }) => {
+        pending ||= lifecycle.status === "pending";
+        if (memberName === null && member.kind === "agent") memberName = header.agentName ?? member.agentId;
+        accumulate(totals, "", "", header, metrics, lifecycle);
+        accumulateBucket(buckets, header.startedAt, header.model ?? null, metrics, sinceMs, bucketMs, lifecycle);
+        sessions.push(sessionRowOf(header, metrics, endedAt, lifecycle));
+      },
+    );
+    sessions.sort(compareSessionOrder);
+    return {
+      ok: true,
+      status: pending ? "pending" : "ready",
+      range: input.range,
+      since: new Date(sinceMs).toISOString(),
+      bucketMs,
+      member: formatMember(memberName),
+      totals: countersOf(totals.get("") ?? emptyAccumulator()),
+      buckets,
+      sessions,
+      pricing: { version: modelPricingVersion },
+      watermark: pinnedWatermark,
+      sourceRevision: pinnedSourceRevision,
+    };
+  }
+
+  const startedAtGte = new Date(sinceMs).toISOString(),
+    startedAtLte = new Date(untilMs).toISOString(),
+    snapshotKey = [
+      input.rootDir,
+      input.range,
+      member.kind,
+      memberId,
+      personId ?? "",
+      String(sinceMs),
+      String(untilMs),
+      String(pinnedWatermark),
+      String(pinnedSourceRevision),
+    ].join("\0"),
+    makeNextCursor = (row: AgentRuntimeTokenUsageSessionRow): string =>
+      encodeDetailCursor({
+        startedAt: row.startedAt,
+        dispatchId: row.dispatchId,
+        range: input.range,
+        memberKind: member.kind,
+        memberId,
+        personId,
+        sinceMs,
+        untilMs,
+        watermark: pinnedWatermark,
+        sourceRevision: pinnedSourceRevision,
+      });
+
+  // F11 + F13: continuation pages hit the cached pinned-window aggregate and seek directly to
+  // `(startedAt DESC, dispatchId ASC)` in a single `limit`-sized storage page, avoiding O(W^2) scans.
+  const cachedSnapshot = decodedCursor === null ? null : getDetailSnapshot(input.projection, snapshotKey);
+  if (decodedCursor !== null && cachedSnapshot !== null) {
+    const taskPackageCache = new Map<string, string | null>(),
+      page = input.projection.readRuntimeDispatchPage({
+        ...memberQuery,
+        ...personQuery,
+        startedAtGte,
+        startedAtLte,
+        order: "desc",
+        maxRevision: pinnedWatermark,
+        cursor: { startedAt: decodedCursor.startedAt, dispatchId: decodedCursor.dispatchId },
+        limit,
+      }),
+      sessions: AgentRuntimeTokenUsageSessionRow[] = [];
+    let pending = cachedSnapshot.status === "pending";
+    for (const row of page.rows) {
+      const entry = resolveDispatchEntry(input.rootDir, input.projection, taskPackageCache, row);
+      if (!pickMember(entry.header)) continue;
+      pending ||= entry.lifecycle.status === "pending";
+      sessions.push(sessionRowOf(entry.header, entry.metrics, entry.endedAt, entry.lifecycle));
+    }
+    const nextCursor = !page.done && sessions.length > 0 ? makeNextCursor(sessions.at(-1)!) : null;
+    return {
+      ok: true,
+      status: pending ? "pending" : "ready",
+      range: input.range,
+      since: startedAtGte,
+      bucketMs,
+      member: formatMember(cachedSnapshot.memberName),
+      totals: cachedSnapshot.totals,
+      buckets: cachedSnapshot.buckets,
+      sessions,
+      page: { limit, cursor: input.cursor ?? null, nextCursor },
+      pricing: { version: modelPricingVersion },
+      watermark: pinnedWatermark,
+      sourceRevision: pinnedSourceRevision,
+    };
+  }
+
+  // First page (or cold cache miss): compute the pinned window snapshot once and retain only
+  // `limit + 1` page candidates in memory while caching the frozen totals/buckets for follow-up pages.
+  const buckets = bucketLadder(sinceMs, untilMs, bucketMs),
+    totals = new Map<string, UsageAccumulator>(),
+    pageCandidates: AgentRuntimeTokenUsageSessionRow[] = [],
+    candidateCap = limit + storageReadPolicy.defaultValue.minimumRows;
+  let pending = input.cut.status === "pending";
+  let memberName: string | null = null;
+  windowDispatches(
+    input.rootDir,
+    input.projection,
+    {
+      ...memberQuery,
+      ...personQuery,
+      startedAtGte,
+      startedAtLte,
+      order: "desc",
+      maxRevision: pinnedWatermark,
+    },
+    pickMember,
+    ({ header, metrics, endedAt, lifecycle }) => {
+      pending ||= lifecycle.status === "pending";
+      if (memberName === null && member.kind === "agent") memberName = header.agentName ?? member.agentId;
+      accumulate(totals, "", "", header, metrics, lifecycle);
+      accumulateBucket(buckets, header.startedAt, header.model ?? null, metrics, sinceMs, bucketMs, lifecycle);
+      if (decodedCursor === null || compareSessionOrder(decodedCursor, header) < 0) {
+        pageCandidates.push(sessionRowOf(header, metrics, endedAt, lifecycle));
+        if (pageCandidates.length > candidateCap) {
+          pageCandidates.sort(compareSessionOrder);
+          pageCandidates.length = candidateCap;
+        }
+      }
+    },
+  );
+  pageCandidates.sort(compareSessionOrder);
+  const frozenTotals = countersOf(totals.get("") ?? emptyAccumulator()),
+    snapshotStatus: ProjectionStatus.ReadSetProjectionCut["status"] = pending ? "pending" : "ready",
+    hasMore = pageCandidates.length > limit,
+    sessions = hasMore ? pageCandidates.slice(0, limit) : pageCandidates,
+    nextCursor = hasMore && sessions.length > 0 ? makeNextCursor(sessions.at(-1)!) : null;
+  putDetailSnapshot(input.projection, snapshotKey, {
+    status: snapshotStatus,
+    memberName,
+    totals: frozenTotals,
+    buckets,
+  });
+  return {
+    ok: true,
+    status: snapshotStatus,
+    range: input.range,
+    since: startedAtGte,
+    bucketMs,
+    member: formatMember(memberName),
+    totals: frozenTotals,
     buckets,
     sessions,
     page: { limit, cursor: input.cursor ?? null, nextCursor },
     pricing: { version: modelPricingVersion },
-    watermark: input.cut.watermark,
-    sourceRevision: input.cut.sourceRevision,
+    watermark: pinnedWatermark,
+    sourceRevision: pinnedSourceRevision,
   };
 }
 
@@ -572,7 +923,7 @@ export function agentRuntimeTokenUsageHandler(context: {
   readonly now: () => string;
   readonly projection: Pick<
     TaskProjection,
-    "readCut" | "getEntity" | "readRuntimeDispatchPage" | "readTaskIndex" | "readDispatchLifecycle"
+    "readCut" | "getEntity" | "readRuntimeDispatchPage" | "readTaskIndex" | "readDispatchLifecycle" | "readDocument"
   >;
   readonly range: AgentRuntimeTokenUsageRange;
 }): AgentRuntimeTokenUsageResult {
@@ -592,7 +943,7 @@ export function agentRuntimeTokenUsageDetailHandler(context: {
   readonly now: () => string;
   readonly projection: Pick<
     TaskProjection,
-    "readCut" | "getEntity" | "readRuntimeDispatchPage" | "readDispatchLifecycle"
+    "readCut" | "getEntity" | "readRuntimeDispatchPage" | "readTaskIndex" | "readDispatchLifecycle" | "readDocument"
   >;
   readonly range: AgentRuntimeTokenUsageRange;
   readonly member: AgentRuntimeTokenUsageMemberIdentity;
@@ -643,6 +994,7 @@ export function agentRuntimeTokenUsageReadHandlers(context: {
     | "readRuntimeDispatchPage"
     | "readTaskIndex"
     | "readDispatchLifecycle"
+    | "readDocument"
     | "readRuntimeSessionEventsByType"
   >;
   readonly cellCodedError: (code: string, text: string) => Error;
@@ -880,6 +1232,7 @@ function sessionRowOf(
 function cacheWriteProvenanceOf(metrics: EffectiveRuntimeMetrics | null): "unreported" | "unitemized" | null {
   if (metrics === null || metrics.usageUnavailable === true) return null;
   if (metrics.cacheWriteTokens !== undefined) return null;
+  if (metrics.cacheWriteUnitemized === true) return "unitemized";
   return metrics.raw !== undefined && cacheWriteTokensOfUsage(metrics.raw) !== null ? "unitemized" : "unreported";
 }
 function exitOccurredAt(summary: DispatchStreamSummary): string | null {

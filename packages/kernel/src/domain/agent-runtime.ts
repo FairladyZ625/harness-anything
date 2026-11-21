@@ -789,28 +789,22 @@ function validFallbackSchedule(value: unknown): boolean {
 }
 
 function validRuntimeDispatchMetrics(value: unknown): value is RuntimeDispatchMetrics {
-  const required = [
+  if (
+    !isRecord(value) ||
+    !hasOnlyFields(value, [
       "inputTokens",
       "cacheReadTokens",
       "outputTokens",
       "totalTokens",
       "toolCallCount",
       "usageUnavailable",
-    ],
-    allowed = [...required, "cacheWriteTokens"];
-  if (
-    !isRecord(value) ||
-    !hasRequiredFields(value, required) ||
-    !Object.keys(value).every((key) => allowed.includes(key))
+    ])
   )
     return false;
   return (
     [value.inputTokens, value.cacheReadTokens, value.outputTokens, value.totalTokens, value.toolCallCount].every(
       (count) => Number.isSafeInteger(count) && Number(count) >= 0,
-    ) &&
-    (value.cacheWriteTokens === undefined ||
-      (Number.isSafeInteger(value.cacheWriteTokens) && Number(value.cacheWriteTokens) >= 0)) &&
-    typeof value.usageUnavailable === "boolean"
+    ) && typeof value.usageUnavailable === "boolean"
   );
 }
 function validRuntimeProviderUnreachable(value: unknown): value is RuntimeProviderUnreachable {
@@ -828,10 +822,24 @@ function validRuntimeProviderUnreachable(value: unknown): value is RuntimeProvid
 export function validateAgentRuntimeEvent(value: unknown): readonly string[] {
   return validateAgentRuntimeEventFields(runtimeEventValidationInput(value), true);
 }
+// Two-step expand-and-contract (dec_659E15CF): persisted readers accept optional non-negative
+// integer cacheWriteTokens now, while current writers emit only the 6-key baseline shape until
+// after the N-1 window (shrink/write-enable window: 2026-12-21).
 function runtimeEventValidationInput(value: unknown): unknown {
-  return isRecord(value) && writeSourceRuntimeSessionId(value.source) !== null
-    ? { ...value, source: "remote_direct" }
-    : value;
+  if (!isRecord(value)) return value;
+  const sourceNormalized =
+      writeSourceRuntimeSessionId(value.source) !== null ? { ...value, source: "remote_direct" } : value,
+    payload = isRecord(sourceNormalized.payload) ? sourceNormalized.payload : null,
+    metrics = payload && isRecord(payload.runtimeMetrics) ? payload.runtimeMetrics : null;
+  if (
+    metrics === null ||
+    !Object.hasOwn(metrics, "cacheWriteTokens") ||
+    !Number.isSafeInteger(metrics.cacheWriteTokens) ||
+    Number(metrics.cacheWriteTokens) < 0
+  )
+    return sourceNormalized;
+  const { cacheWriteTokens: _cacheWriteTokens, ...baselineMetrics } = metrics;
+  return { ...sourceNormalized, payload: { ...payload, runtimeMetrics: baselineMetrics } };
 }
 export function validateCurrentAgentRuntimeEvent(value: unknown): readonly string[] {
   return validateAgentRuntimeEventFields(value, false);

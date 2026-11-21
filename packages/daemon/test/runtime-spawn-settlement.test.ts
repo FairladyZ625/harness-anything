@@ -629,8 +629,10 @@ test("settlement keeps the cache-write counter out of the kernel event metrics c
   try {
     const outcomes: Record<string, unknown>[] = [],
       metricsRecords: Record<string, unknown>[] = [],
+      archivedRecords: Record<string, unknown>[] = [],
       runtime = {
         ...tasklessSettlementRuntime(rootDir, "counters settle"),
+        task: { taskId: "task_000000000000000000000001", executionId: "exe_000000000000000000000001" },
         inputTokens: 110,
         cacheReadTokens: 20,
         cacheWriteTokens: 10,
@@ -654,7 +656,12 @@ test("settlement keeps the cache-write counter out of the kernel event metrics c
           rootDir,
           now: () => "2026-10-10T00:01:00.000Z",
           stream: { publish: () => ({}) },
-          remote: { archive: async () => ({ outcome: "applied" }) },
+          remote: {
+            archive: async (archive: Record<string, unknown>) => {
+              archivedRecords.push(archive);
+              return { outcome: "applied" };
+            },
+          },
         },
         resultMediaType: "text/markdown",
         runtimeResultText: () => "counters settle",
@@ -666,9 +673,19 @@ test("settlement keeps the cache-write counter out of the kernel event metrics c
         settleFallback: async () => undefined,
       } as unknown as RuntimeSpawnerContext;
     await publishExit(context, runtime, 0);
-    // Canonical runtimeMetrics preserves optional cacheWriteTokens when the provider reports
-    // cache writes, so remote Center token usage reads match Edge counters and pricing (F8).
+    // Two-step expand-and-contract (F12 / dec_659E15CF): canonical agent-runtime-event/v1 keeps
+    // strictly the 6 baseline keys so N-1 decoders & cold rebuild stay 100% compatible, while
+    // both the local stream and open RuntimeDispatchArchive carry optional cacheWriteTokens.
     assert.deepEqual(outcomes[0]?.runtimeMetrics, {
+      inputTokens: 110,
+      cacheReadTokens: 20,
+      outputTokens: 25,
+      totalTokens: 135,
+      toolCallCount: 1,
+      usageUnavailable: false,
+    });
+    assert.equal(Object.keys((outcomes[0]?.runtimeMetrics as Record<string, unknown>) ?? {}).length, 6);
+    assert.deepEqual(archivedRecords[0]?.runtimeMetrics, {
       inputTokens: 110,
       cacheReadTokens: 20,
       cacheWriteTokens: 10,
@@ -688,8 +705,8 @@ test("settlement keeps the cache-write counter out of the kernel event metrics c
       compacted: false,
       raw: { cache_creation_input_tokens: 10 },
     });
-    // When the provider does not report cache writes, cacheWriteTokens stays omitted in both
-    // the canonical event and the stream record so provenance remains "unreported".
+    // When the provider does not report cache writes, cacheWriteTokens stays omitted in the
+    // canonical event, the archive document, and the stream record so provenance remains "unreported".
     const unreportedOutcomes: Record<string, unknown>[] = [];
     const unreportedRuntime = {
       ...runtime,
@@ -706,6 +723,14 @@ test("settlement keeps the cache-write counter out of the kernel event metrics c
     };
     await publishExit(context, unreportedRuntime, 0);
     assert.deepEqual(Object.keys((unreportedOutcomes[0]?.runtimeMetrics as Record<string, unknown>) ?? {}).sort(), [
+      "cacheReadTokens",
+      "inputTokens",
+      "outputTokens",
+      "toolCallCount",
+      "totalTokens",
+      "usageUnavailable",
+    ]);
+    assert.deepEqual(Object.keys((archivedRecords[1]?.runtimeMetrics as Record<string, unknown>) ?? {}).sort(), [
       "cacheReadTokens",
       "inputTokens",
       "outputTokens",

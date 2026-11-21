@@ -286,17 +286,23 @@ export async function publishExit(
         active.finalText === null ? null : String(scrubProviderValue(active.finalText)),
       );
     active.stream.appendAttemptOutcome(attemptOutcome, endedAt);
+    // Keep the canonical agent-runtime-event/v1 outcome strictly on the 6-key baseline schema
+    // during the dec_659E15CF expand window (2026-12-21), while carrying optional cacheWriteTokens
+    // in the local stream and open RuntimeDispatchArchive document.
     const runtimeMetrics = {
       inputTokens: active.inputTokens,
       cacheReadTokens: active.cacheReadTokens,
-      ...(cacheWriteTokensOfUsage(active.rawUsage) === null ? {} : { cacheWriteTokens: active.cacheWriteTokens }),
       outputTokens: active.outputTokens,
       totalTokens: active.inputTokens + active.outputTokens,
       toolCallCount: active.toolCallCount,
       usageUnavailable: !active.usageReported,
     };
+    const streamRuntimeMetrics = {
+      ...runtimeMetrics,
+      ...(cacheWriteTokensOfUsage(active.rawUsage) === null ? {} : { cacheWriteTokens: active.cacheWriteTokens }),
+    };
     active.stream.appendRuntimeMetrics?.(
-      { ...runtimeMetrics, compacted: active.compacted, raw: active.rawUsage },
+      { ...streamRuntimeMetrics, compacted: active.compacted, raw: active.rawUsage },
       endedAt,
     );
     let body = context.runtimeResultText(active, code, outcome);
@@ -460,6 +466,7 @@ export async function publishExit(
       lastConclusion,
       exitHead,
       eventStreamRef: active.stream.ref,
+      runtimeMetrics: streamRuntimeMetrics,
       attemptGroupId: attemptOutcome.attemptGroupId,
       attemptIndex: attemptOutcome.attemptIndex,
       provider: { instance: attemptOutcome.provider.instance, model: attemptOutcome.provider.model },

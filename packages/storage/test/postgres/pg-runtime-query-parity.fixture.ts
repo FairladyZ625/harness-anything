@@ -315,6 +315,63 @@ function dispatchContract(
     pages.flatMap(({ rows }) => rows.map(({ event }) => event.payload.dispatchId)),
     ["runtime-query-a", "runtime-query-b", "runtime-query-c"],
   );
+  // F11 + F13 parity: member/person/upper-bound/maxRevision/desc seek pages match across SQLite and PostgreSQL.
+  const descAllPages = [];
+  let descAllCursor: Parameters<TaskProjectionQueries["readRuntimeDispatchPage"]>[0]["cursor"];
+  for (;;) {
+    const page = queries.readRuntimeDispatchPage({
+      agentId: "parity-agent",
+      startedAtGte: "2026-09-01T00:00:00.000Z",
+      startedAtLte: "2026-09-03T00:00:00.000Z",
+      order: "desc",
+      limit: 1,
+      ...(descAllCursor ? { cursor: descAllCursor } : {}),
+    });
+    descAllPages.push(page);
+    if (page.done) break;
+    assert.ok(page.nextCursor);
+    descAllCursor = page.nextCursor;
+    assert.ok(descAllPages.length <= 4);
+  }
+  assert.deepEqual(
+    descAllPages.flatMap(({ rows }) => rows.map(({ event }) => event.payload.dispatchId)),
+    ["runtime-query-c", "runtime-query-a", "runtime-query-b"],
+  );
+  const descPersonPages = [];
+  let descPersonCursor: Parameters<TaskProjectionQueries["readRuntimeDispatchPage"]>[0]["cursor"];
+  for (;;) {
+    const page = queries.readRuntimeDispatchPage({
+      agentId: "parity-agent",
+      personId: "person_runtime",
+      startedAtGte: "2026-09-01T00:00:00.000Z",
+      startedAtLte: "2026-09-03T00:00:00.000Z",
+      order: "desc",
+      limit: 1,
+      ...(descPersonCursor ? { cursor: descPersonCursor } : {}),
+    });
+    descPersonPages.push(page);
+    if (page.done) break;
+    assert.ok(page.nextCursor);
+    descPersonCursor = page.nextCursor;
+    assert.ok(descPersonPages.length <= 3);
+  }
+  assert.deepEqual(
+    descPersonPages.flatMap(({ rows }) => rows.map(({ event }) => event.payload.dispatchId)),
+    ["runtime-query-a", "runtime-query-b"],
+  );
+  assert.deepEqual(
+    queries
+      .readRuntimeDispatchPage({
+        agentId: "parity-agent",
+        startedAtGte: "2026-09-01T00:00:00.000Z",
+        startedAtLte: "2026-09-02T00:00:00.000Z",
+        order: "desc",
+        maxRevision: byId!.event.workspaceRevision,
+        limit: 10,
+      })
+      .rows.map(({ event }) => event.payload.dispatchId),
+    ["runtime-query-a"],
+  );
   assert.throws(() => queries.readRuntimeDispatchPage({ startedAtGte: "", limit: 0 }), /limit/);
   assert.throws(() => queries.readRuntimeDispatchPage({ startedAtGte: "", limit: 501 }), /limit/);
   const historical = ["", ":attempt2", ":fallback:3", ":attempt2:fallback:3"].map((suffix, ordinal) => {

@@ -242,6 +242,14 @@ export const REPOSITORY_READ_TABLES_SQL = `
       json_extract(event_json, '$.payload.taskId'), ${sqliteDispatchPageTimeKey}, json_extract(event_json, '$.payload.dispatchId')
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
       AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
+    CREATE INDEX IF NOT EXISTS event_index_runtime_agent_dispatch_epoch_ms ON event_index(
+      json_extract(event_json, '$.payload.agentId'), ${sqliteDispatchPageTimeKey} DESC, json_extract(event_json, '$.payload.dispatchId') ASC
+    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
+    CREATE INDEX IF NOT EXISTS event_index_runtime_squad_dispatch_epoch_ms ON event_index(
+      json_extract(event_json, '$.payload.squadId'), ${sqliteDispatchPageTimeKey} DESC, json_extract(event_json, '$.payload.dispatchId') ASC
+    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
     CREATE INDEX IF NOT EXISTS event_index_runtime_attempt_group ON event_index(
       json_extract(event_json, '$.payload.attemptGroupId'), workspace_revision
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'

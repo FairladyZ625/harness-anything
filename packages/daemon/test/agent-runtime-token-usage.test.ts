@@ -1664,11 +1664,9 @@ test("readAgentRuntimeTokenUsageDetail paginates deterministically with limit + 
       projection,
     });
     assert.equal(full.sessions.length, 7);
-    assert.deepEqual(full.page, { limit: 500, cursor: null, nextCursor: null });
+    assert.equal(Object.hasOwn(full, "page"), false, "unpaginated detail call must keep exact 12-key shape (F10)");
+    assert.equal(Object.keys(full).length, 12);
     assert.deepEqual(validateAgentRuntimeTokenUsageDetail(full), []);
-    // Backward compatibility: legacy 12-field response without `page` remains valid.
-    const { page: _omitted, ...legacyShape } = full;
-    assert.deepEqual(validateAgentRuntimeTokenUsageDetail(legacyShape), []);
     assert.deepEqual(
       validateAgentRuntimeTokenUsageDetail({ ...full, page: { limit: 0, cursor: null, nextCursor: null } }),
       ["agent runtime token usage detail is invalid"],

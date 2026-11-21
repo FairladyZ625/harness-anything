@@ -719,7 +719,58 @@ test(
       );
       assert.equal(exited.outcome, "applied", JSON.stringify(exited));
       const resultBody = `edge settlement result for ${label}\n`,
-        resultSha = createHash("sha256").update(resultBody).digest("hex");
+        resultSha = createHash("sha256").update(resultBody).digest("hex"),
+        canonicalMetrics = {
+          inputTokens: metricsPayload.inputTokens,
+          cacheReadTokens: metricsPayload.cacheReadTokens,
+          outputTokens: metricsPayload.outputTokens,
+          totalTokens: metricsPayload.totalTokens,
+          toolCallCount: metricsPayload.toolCallCount,
+          usageUnavailable: metricsPayload.usageUnavailable,
+        };
+      const archiveRelPath = `${fixture.packagePath}/artifacts/dispatches/${identity.dispatchId}.json`,
+        archiveDiskPath = path.join(fixture.repo, "harness", archiveRelPath);
+      mkdirSync(path.dirname(archiveDiskPath), { recursive: true });
+      writeFileSync(
+        archiveDiskPath,
+        `${JSON.stringify(
+          {
+            schema: "runtime-dispatch/v1",
+            dispatchId: identity.dispatchId,
+            taskId,
+            executionId,
+            agentId: "agent-edge",
+            agentName: "Agent Edge",
+            instanceId: pricedDefinition.instanceId,
+            model: pricedDefinition.model,
+            reasoningEffort: null,
+            fast: false,
+            cwd: edgeRoot,
+            runtimeSessionId: identity.runtimeSessionId,
+            providerSessionId: null,
+            startedAt,
+            endedAt,
+            outcome: "succeeded",
+            exitCode: 0,
+            resultRef: `artifact:runtime-result/sha256/${resultSha}`,
+            runtimeMetrics: metricsPayload,
+            attemptGroupId: identity.dispatchId,
+            attemptIndex: 0,
+            provider: { instance: pricedDefinition.instanceId, model: pricedDefinition.model },
+            classification: "worker_stop",
+            reason: "Worker completed the attempt successfully.",
+          },
+          null,
+          2,
+        )}\n`,
+      );
+      const archived = await fixture.host.run(
+        repoId,
+        { kind: "doc-submit", paths: [archiveRelPath] },
+        localAuthFixture(),
+      );
+      assert.equal(archived.outcome, "applied", JSON.stringify(archived));
+      await waitForReceiptCommit(fixture.host, repoId, archived.opId, fixture.auth);
       const settled = await fixture.host.runtimeIngress(
         repoId,
         {
@@ -734,7 +785,7 @@ test(
             resultRef: `artifact:runtime-result/sha256/${resultSha}`,
             result: { sha256: resultSha, size: Buffer.byteLength(resultBody), mediaType: "text/plain; charset=utf-8" },
             endedAt,
-            runtimeMetrics: metricsPayload,
+            runtimeMetrics: canonicalMetrics,
           },
           resultBody,
         },
@@ -1134,14 +1185,46 @@ test(
       });
     const bulkProjection = {
       readRuntimeDispatchPage: (query: {
+        readonly agentId?: string;
+        readonly squadId?: string;
+        readonly startedAtGte: string;
+        readonly startedAtLte?: string;
+        readonly order?: "asc" | "desc";
+        readonly maxRevision?: number;
         readonly cursor?: { readonly startedAt: string; readonly dispatchId: string };
         readonly limit: number;
       }) => {
-        const start = query.cursor
-            ? bulkRows.findIndex((row) => row.event.payload.dispatchId === query.cursor!.dispatchId) + 1
-            : 0,
-          slice = bulkRows.slice(start, start + query.limit),
-          done = start + slice.length >= bulkRows.length,
+        const order = query.order ?? "asc",
+          minMs = query.startedAtGte === "" ? -Infinity : Date.parse(query.startedAtGte),
+          maxMs = query.startedAtLte === undefined ? Infinity : Date.parse(query.startedAtLte),
+          cursorMs = query.cursor ? Date.parse(query.cursor.startedAt) : order === "asc" ? -Infinity : Infinity,
+          ordered = bulkRows
+            .filter((row) => {
+              const payload = row.event.payload,
+                startedMs = Date.parse(payload.startedAt!);
+              if (query.agentId !== undefined && payload.agentId !== query.agentId) return false;
+              if (query.squadId !== undefined && payload.squadId !== query.squadId) return false;
+              if (query.maxRevision !== undefined && row.event.workspaceRevision > query.maxRevision) return false;
+              if (startedMs < minMs || startedMs > maxMs) return false;
+              if (query.cursor) {
+                const cmpId = Buffer.compare(Buffer.from(payload.dispatchId), Buffer.from(query.cursor.dispatchId));
+                if (order === "asc") {
+                  if (startedMs < cursorMs || (startedMs === cursorMs && cmpId <= 0)) return false;
+                } else if (startedMs > cursorMs || (startedMs === cursorMs && cmpId <= 0)) return false;
+              }
+              return true;
+            })
+            .sort((left, right) => {
+              const leftMs = Date.parse(left.event.payload.startedAt!),
+                rightMs = Date.parse(right.event.payload.startedAt!),
+                time = order === "asc" ? leftMs - rightMs : rightMs - leftMs;
+              return (
+                time ||
+                Buffer.compare(Buffer.from(left.event.payload.dispatchId), Buffer.from(right.event.payload.dispatchId))
+              );
+            }),
+          slice = ordered.slice(0, query.limit),
+          done = ordered.length <= query.limit,
           last = slice.at(-1)?.event.payload;
         return {
           rows: slice,

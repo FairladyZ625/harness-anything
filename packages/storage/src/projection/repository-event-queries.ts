@@ -160,13 +160,6 @@ const RUNTIME_DISPATCH_MEMBER_SESSIONS_SQL = (member: "agentId" | "squadId", sco
   FROM latest CROSS JOIN event_index d ON d.workspace_revision=latest.revision ORDER BY runtimeSessionId`;
 };
 const dispatchId = "json_extract(event_json, '$.payload.dispatchId')";
-const RUNTIME_DISPATCH_PAGE_SQL = (byTask: boolean) => `
-  SELECT event_json FROM event_index
-  WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-    AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'
-    ${byTask ? "AND json_extract(event_json, '$.payload.taskId') = ?" : ""}
-    AND ${sqliteDispatchPageTimeKey} >= ? AND (${sqliteDispatchPageTimeKey}, ${dispatchId}) > (?, ?)
-  ORDER BY ${sqliteDispatchPageTimeKey}, ${dispatchId} LIMIT ?`;
 const RUNTIME_OUTCOME_BY_DISPATCH_SQL = [
   "SELECT event_json FROM event_index",
   "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
@@ -174,6 +167,10 @@ const RUNTIME_OUTCOME_BY_DISPATCH_SQL = [
   "AND json_extract(event_json, '$.payload.dispatchId') = ?",
   "ORDER BY workspace_revision DESC LIMIT 1",
 ].join(" ");
+const RUNTIME_OUTCOME_BY_DISPATCH_MAX_REVISION_SQL = RUNTIME_OUTCOME_BY_DISPATCH_SQL.replace(
+  "ORDER BY workspace_revision DESC LIMIT 1",
+  "AND workspace_revision <= ? ORDER BY workspace_revision DESC LIMIT 1",
+);
 const RUNTIME_SESSION_EVENTS_SQL = [
   "SELECT event_json FROM event_index WHERE workspace_revision > ?",
   "AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
@@ -480,29 +477,110 @@ export function repositoryEventQueries(
                 : [];
             }),
           ),
-    readRuntimeDispatchPage: ({ taskIds, startedAtGte, cursor, limit: pageLimit }) =>
+    readRuntimeDispatchPage: ({
+      taskIds,
+      agentId,
+      squadId,
+      personId,
+      startedAtGte,
+      startedAtLte,
+      order = "asc",
+      maxRevision,
+      cursor,
+      limit: pageLimit,
+    }) =>
       withRead((db) => {
         if (!validateStorageReadWindow(pageLimit, storageReadPolicy.defaultValue.pageSizes.standard))
           throw new Error("runtime dispatch page requires a limit from 1 to 500");
-        const after = runtimeDispatchPageTimeKey(cursor?.startedAt ?? ""),
-          page = [
-            Math.max(runtimeDispatchPageTimeKey(startedAtGte), after),
-            after,
-            cursor?.dispatchId ?? "",
-            pageLimit + 1,
-          ] as const,
+        if (order !== "asc" && order !== "desc") throw new Error("runtime dispatch page order must be asc or desc");
+        if (agentId !== undefined && squadId !== undefined)
+          throw new Error("runtime dispatch page cannot filter by both agentId and squadId");
+        if (agentId !== undefined && agentId.length === 0)
+          throw new Error("runtime dispatch page agentId must be non-empty");
+        if (squadId !== undefined && squadId.length === 0)
+          throw new Error("runtime dispatch page squadId must be non-empty");
+        if (personId !== undefined && personId.length === 0)
+          throw new Error("runtime dispatch page personId must be non-empty");
+        if (maxRevision !== undefined && (!Number.isSafeInteger(maxRevision) || maxRevision < 0))
+          throw new Error("runtime dispatch page maxRevision must be a non-negative safe integer");
+        const minMs = runtimeDispatchPageTimeKey(startedAtGte);
+        if (startedAtLte !== undefined && startedAtLte === "") throw new Error("Invalid dispatch page timestamp");
+        const maxMs = startedAtLte === undefined ? null : runtimeDispatchPageTimeKey(startedAtLte);
+        const clauses: string[] = [
+            "json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+            "json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
+          ],
+          baseArgs: (string | number)[] = [];
+        if (agentId !== undefined) {
+          clauses.push("json_extract(event_json, '$.payload.agentId') = ?");
+          baseArgs.push(agentId);
+        }
+        if (squadId !== undefined) {
+          clauses.push("json_extract(event_json, '$.payload.squadId') = ?");
+          baseArgs.push(squadId);
+        }
+        if (personId !== undefined) {
+          clauses.push("json_extract(event_json, '$.actor.principal.personId') = ?");
+          baseArgs.push(personId);
+        }
+        if (maxRevision !== undefined) {
+          clauses.push("workspace_revision <= ?");
+          baseArgs.push(maxRevision);
+        }
+        let orderBy: string;
+        if (order === "asc") {
+          const after = runtimeDispatchPageTimeKey(cursor?.startedAt ?? "");
+          clauses.push(`${sqliteDispatchPageTimeKey} >= ?`);
+          baseArgs.push(Math.max(minMs, after));
+          if (maxMs !== null) {
+            clauses.push(`${sqliteDispatchPageTimeKey} <= ?`);
+            baseArgs.push(maxMs);
+          }
+          clauses.push(`(${sqliteDispatchPageTimeKey}, ${dispatchId}) > (?, ?)`);
+          baseArgs.push(after, cursor?.dispatchId ?? "");
+          orderBy = `${sqliteDispatchPageTimeKey} ASC, ${dispatchId} ASC`;
+        } else {
+          clauses.push(`${sqliteDispatchPageTimeKey} >= ?`);
+          baseArgs.push(minMs);
+          if (cursor !== undefined) {
+            if (cursor.startedAt === "") throw new Error("Invalid dispatch page timestamp");
+            const cursorMs = runtimeDispatchPageTimeKey(cursor.startedAt),
+              effectiveMax = maxMs === null ? cursorMs : Math.min(maxMs, cursorMs);
+            clauses.push(`${sqliteDispatchPageTimeKey} <= ?`);
+            baseArgs.push(effectiveMax);
+            clauses.push(
+              `(${sqliteDispatchPageTimeKey} < ? OR (${sqliteDispatchPageTimeKey} = ? AND ${dispatchId} > ?))`,
+            );
+            baseArgs.push(cursorMs, cursorMs, cursor.dispatchId);
+          } else if (maxMs !== null) {
+            clauses.push(`${sqliteDispatchPageTimeKey} <= ?`);
+            baseArgs.push(maxMs);
+          }
+          orderBy = `${sqliteDispatchPageTimeKey} DESC, ${dispatchId} ASC`;
+        }
+        const buildSql = (byTask: boolean) =>
+            `SELECT event_json FROM event_index WHERE ${[
+              ...clauses,
+              ...(byTask ? ["json_extract(event_json, '$.payload.taskId') = ?"] : []),
+            ].join(" AND ")} ORDER BY ${orderBy} LIMIT ?`,
+          compareKeys =
+            order === "asc"
+              ? compareRuntimeDispatchPageKeys
+              : (left: ReturnType<typeof runtimeDispatchPageKey>, right: ReturnType<typeof runtimeDispatchPageKey>) =>
+                  runtimeDispatchPageTimeKey(right.startedAt) - runtimeDispatchPageTimeKey(left.startedAt) ||
+                  Buffer.compare(Buffer.from(left.dispatchId), Buffer.from(right.dispatchId)),
           raw =
             taskIds === undefined
-              ? queryRows(db, RUNTIME_DISPATCH_PAGE_SQL(false), ...page)
+              ? queryRows(db, buildSql(false), ...baseArgs, pageLimit + 1)
               : taskIds
-                  .flatMap((taskId) => queryRows(db, RUNTIME_DISPATCH_PAGE_SQL(true), taskId, ...page))
+                  .flatMap((taskId) => queryRows(db, buildSql(true), ...baseArgs, taskId, pageLimit + 1))
                   .map((row) => ({ row, key: runtimeDispatchPageKey(JSON.parse(String(row.event_json))) }))
-                  .sort((left, right) => compareRuntimeDispatchPageKeys(left.key, right.key))
+                  .sort((left, right) => compareKeys(left.key, right.key))
                   .slice(0, pageLimit + 1)
                   .map(({ row }) => row),
           done = raw.length <= pageLimit,
           rows = raw.slice(0, pageLimit).flatMap((row) => {
-            const projected = projectedDispatch(db, row);
+            const projected = projectedDispatch(db, row, maxRevision);
             return projected ? [projected] : [];
           }),
           last = rows.at(-1)?.event;
@@ -612,11 +690,15 @@ export function repositoryEventQueries(
 function projectedDispatch(
   db: DatabaseSync,
   row: Readonly<Record<string, unknown>> | undefined,
+  maxRevision?: number,
 ): RuntimeDispatchProjectionRow | null {
   if (!row) return null;
   const event = JSON.parse(String(row.event_json)) as { readonly schema: string };
   if (!isAgentRuntimeEvent(event) || event.type !== "runtime_dispatch_requested") return null;
-  const outcomeRow = queryRow(db, RUNTIME_OUTCOME_BY_DISPATCH_SQL, event.payload.dispatchId),
+  const outcomeRow =
+      maxRevision === undefined
+        ? queryRow(db, RUNTIME_OUTCOME_BY_DISPATCH_SQL, event.payload.dispatchId)
+        : queryRow(db, RUNTIME_OUTCOME_BY_DISPATCH_MAX_REVISION_SQL, event.payload.dispatchId, maxRevision),
     outcome = outcomeRow ? (JSON.parse(String(outcomeRow.event_json)) as { readonly schema: string }) : null;
   if (!outcome || !isAgentRuntimeEvent(outcome) || outcome.type !== "runtime_session_outcome_observed")
     return { event: publicRuntimeDispatch(event), metrics: null, endedAt: null, outcome: null };

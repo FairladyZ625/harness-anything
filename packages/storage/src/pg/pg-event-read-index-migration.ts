@@ -94,6 +94,8 @@ const dispatchIndexes = [
   ["page", "dispatch_started_at,dispatch_id"],
   ["epoch_ms", `${pgDispatchPageTimeKey},dispatch_id`],
   ["task_epoch_ms", `payload_task_id,${pgDispatchPageTimeKey},dispatch_id`],
+  ["agent_epoch_ms", `agent_id,${pgDispatchPageTimeKey} DESC,dispatch_id ASC`],
+  ["squad_epoch_ms", `squad_id,${pgDispatchPageTimeKey} DESC,dispatch_id ASC`],
   // "Newest dispatch for this task" without walking every dispatch the task ever had:
   // fleet overview reads one current dispatch per lease row. Effective time is
   // `startedAt ?? occurredAt`, matching the dispatch row's timestamp fallback.
