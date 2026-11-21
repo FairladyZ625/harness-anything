@@ -141,6 +141,7 @@ export {
   readSubmissionFacts,
   renderSubmissionFacts,
   replaceSubmissionFacts,
+  upsertCloseoutSubmissionFacts,
 } from "./submission-facts.ts";
 export { classifyProtectedChanges, deriveProtectedSurfaceRules } from "./protected-surface-governance.ts";
 export {
