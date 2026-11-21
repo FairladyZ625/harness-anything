@@ -791,21 +791,33 @@ async function readEventWindow(
     seekAfter = Math.max(query.afterRevision, Number(bounds.min_rev) - 1);
     seekMax = Math.min(upperRevision, Number(bounds.max_rev));
   }
-  const clauses = ["tenant_id=$1", "project_id=$2", "repo_id=$3", "revision>$4", "revision<=$5"];
   const values: unknown[] = [scope.tenantId, scope.projectId, input.repoId, seekAfter, seekMax];
-  if (query.after !== undefined) {
-    values.push(query.after);
-    clauses.push(`${instantExpr}>=$${values.length}::timestamptz`);
+  let sql: string;
+  if (hasTimeWindow) {
+    const outerClauses: string[] = [];
+    if (query.after !== undefined) {
+      values.push(query.after);
+      outerClauses.push(`date_trunc('milliseconds', w.occurred_at::timestamptz)>=$${values.length}::timestamptz`);
+    }
+    if (query.before !== undefined) {
+      values.push(query.before);
+      outerClauses.push(`date_trunc('milliseconds', w.occurred_at::timestamptz)<=$${values.length}::timestamptz`);
+    }
+    values.push(query.limit + 1);
+    sql =
+      "SELECT w.event_json FROM (" +
+      "SELECT revision, occurred_at, event_json FROM ha_events " +
+      "WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND revision>$4 AND revision<=$5 " +
+      "ORDER BY revision ASC OFFSET 0" +
+      `) AS w WHERE ${outerClauses.join(" AND ")} LIMIT $${values.length}`;
+  } else {
+    values.push(query.limit + 1);
+    sql =
+      "SELECT event_json FROM ha_events " +
+      "WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND revision>$4 AND revision<=$5 " +
+      `ORDER BY revision ASC LIMIT $${values.length}`;
   }
-  if (query.before !== undefined) {
-    values.push(query.before);
-    clauses.push(`${instantExpr}<=$${values.length}::timestamptz`);
-  }
-  values.push(query.limit + 1);
-  const result = await client.query<{ readonly event_json: string }>(
-    `SELECT event_json FROM ha_events WHERE ${clauses.join(" AND ")} ORDER BY revision ASC LIMIT $${values.length}`,
-    values,
-  );
+  const result = await client.query<{ readonly event_json: string }>(sql, values);
   const hasMore = result.rows.length > query.limit;
   const events = (hasMore ? result.rows.slice(0, query.limit) : result.rows).map(
     ({ event_json }) => JSON.parse(event_json) as CanonicalEventV1,
