@@ -108,7 +108,9 @@ import { createReplicaStatusTracker } from "./replica-status.ts";
 import { readFleetCenterGitMetadata } from "../fleet-edge-git-preflight.ts";
 import { createBaseBackupQueue } from "../../fleet-sync/fleet/basebackup-queue.ts";
 import { forwardingIntentForAction, forwardingIntentIssue } from "./forwarding-intent.ts";
-import { readFleetRepointLineage } from "./repoint-lineage.ts";
+import { fleetErrorCode, sendCenterMovedReplicaReject } from "./center-listener-errors.ts";
+import { readCenterRepointLineage } from "./center-listener-repoint.ts";
+import { awaitWithSignal, delay } from "./center-listener-async.ts";
 import { fleetFrameBusinessOutcome } from "./frame-business-outcome.ts";
 /** The replication head poll interval: commit-to-edge latency floor versus idle reads. */
 const REPLICATION_HEAD_POLL_MS = 50;
@@ -137,36 +139,6 @@ const FLEET_TASK_READ_DENIAL_CODES = new Set<string>([
   "ingress_binding_forbidden",
   "repo_mode_read_only",
 ]);
-function delay(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise<void>((resolve) => {
-    const done = () => {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", done);
-      resolve();
-    };
-    const timer = setTimeout(done, ms);
-    signal.addEventListener("abort", done, { once: true });
-  });
-}
-function awaitWithSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => {
-      signal.removeEventListener("abort", onAbort);
-      reject(signal.reason);
-    };
-    signal.addEventListener("abort", onAbort, { once: true });
-    promise.then(
-      (value) => {
-        signal.removeEventListener("abort", onAbort);
-        resolve(value);
-      },
-      (error: unknown) => {
-        signal.removeEventListener("abort", onAbort);
-        reject(error);
-      },
-    );
-  });
-}
 export async function listenFleetTls(options: FleetCenterOptions): Promise<FleetTlsCenter> {
   /* @gate-identity non-state/environment-io.f4d8382218704581 */ mkdirSync(options.stateRoot, { recursive: true });
   const closing = new AbortController(),
@@ -544,15 +516,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         await peer.send({ type: "replica.resync", reason: "authorization_denied" });
         throw error;
       }
-      if (error instanceof FleetFault && error.code === "CENTER_MOVED") {
-        await peer.send({
-          type: "replica.reject",
-          code: error.code,
-          message: error.message,
-          centerBuildCommit: daemonBuildStamp().commit,
-          taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
-        });
-      }
+      await sendCenterMovedReplicaReject({
+        peer,
+        error,
+        centerBuildCommit: daemonBuildStamp().commit,
+        taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
+      });
       throw error;
     }
     const centerBuildCommit = daemonBuildStamp().commit;
@@ -992,16 +961,15 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           )
         : { originUrl: null, originAddress: null, originPushUrls: [], defaultBranch: null, defaultBranchCommit: null };
       const owned = ownedEpochFor(a.repoId),
-        lineage = frame.resumePosition
-          ? await readFleetRepointLineage({
-              rootDir: repoRoot(a.repoId),
-              repoId: a.repoId,
-              storage: options.storage?.[a.repoId],
-              position: frame.resumePosition,
-              retentionWindowCommits,
-            })
-          : undefined;
-      if (lineage) writerEpoch.assert(a.repoId, owned.epoch, owned.holderId);
+        lineage = await readCenterRepointLineage({
+          rootDir: repoRoot(a.repoId),
+          repoId: a.repoId,
+          storage: options.storage?.[a.repoId],
+          position: frame.resumePosition,
+          retentionWindowCommits,
+          ownedEpoch: owned,
+          assertWriterEpoch: (repoId, epoch, holderId) => writerEpoch.assert(repoId, epoch, holderId),
+        });
       return immediate({
         schema: "fleet.repo.metadata.result/v1",
         personId: principal.fleetReplicaPrincipal?.personId ?? principal.oidcPrincipal!.personId,
@@ -2004,10 +1972,4 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       ...(repoId === undefined ? {} : { repoId }),
     });
   }
-}
-
-function fleetErrorCode(error: unknown): string | null {
-  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
-    ? error.code
-    : null;
 }
