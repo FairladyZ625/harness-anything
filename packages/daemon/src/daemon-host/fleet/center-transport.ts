@@ -81,6 +81,40 @@ function reserveFleetTransfer(
   }
 }
 
+/** Tracks requests until delivery completes or fails, including streamed replies. */
+export function withFleetRequestMetrics(
+  options: Pick<FleetCenterOptions, "onRequestStarted" | "onRequestSettled">,
+  handle: Parameters<typeof serve>[2],
+): Parameters<typeof serve>[2] {
+  if (!options.onRequestStarted && !options.onRequestSettled) return handle;
+  return (...args) => {
+    let settled = false;
+    const settleRequest = (): void => {
+      if (settled) return;
+      settled = true;
+      options.onRequestSettled?.();
+    };
+    options.onRequestStarted?.();
+    return handle(...args).then(
+      (delivery) => ({
+        ...delivery,
+        onComplete: () => {
+          settleRequest();
+          delivery.onComplete?.();
+        },
+        onFailure: (error: unknown) => {
+          settleRequest();
+          delivery.onFailure?.(error);
+        },
+      }),
+      (error: unknown) => {
+        settleRequest();
+        throw error;
+      },
+    );
+  };
+}
+
 export async function serve(
   socket: TLSSocket,
   options: FleetCenterOptions,

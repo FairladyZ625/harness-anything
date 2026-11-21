@@ -37,6 +37,7 @@ export function createWriterRequestQueue(options: {
   readonly requestTimeoutMs?: number;
   readonly terminateAborted: (error: Error) => Promise<void>;
   readonly warn?: (warning: { event: string; repoId: string; opId: string; code?: string }) => void;
+  readonly onDepthChange?: (depth: number) => void;
 }) {
   const pendingQueue: Request[] = [],
     requests = new Map<string, Request>(),
@@ -102,7 +103,7 @@ export function createWriterRequestQueue(options: {
         )
         .finally(() => {
           request.cleanup();
-          requests.delete(request.requestId);
+          if (requests.delete(request.requestId)) options.onDepthChange?.(requests.size);
           // Unstaged workers hold their slot through the receipt, including detached callers.
           if (activeWriteSlot?.requestId === request.requestId) release(activeWriteSlot.id);
         });
@@ -186,7 +187,7 @@ export function createWriterRequestQueue(options: {
               const index = pendingQueue.indexOf(request);
               if (index >= 0) {
                 pendingQueue.splice(index, 1);
-                requests.delete(requestId);
+                if (requests.delete(requestId)) options.onDepthChange?.(requests.size);
                 request.cleanup();
                 reject(reason);
                 return;
@@ -207,6 +208,7 @@ export function createWriterRequestQueue(options: {
             },
           };
         requests.set(requestId, request);
+        options.onDepthChange?.(requests.size);
         pendingQueue.push(request);
         signal?.addEventListener("abort", onAbort, { once: true });
         pump();

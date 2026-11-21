@@ -502,6 +502,9 @@ export function createDaemonHostRuntimeApi(
             buildDraining: context.input.buildDraining,
             onDeliverySettled: context.input.onRepoStatusChange,
             onNodeDisconnected: () => context.triggerCenterReviewFallback?.("fleet-node-disconnected"),
+            recordTraffic: context.input.recordTraffic,
+            onRequestStarted: context.input.onFleetRequestStarted,
+            onRequestSettled: context.input.onFleetRequestSettled,
             ...(context.input.authenticateExecutionPrincipal
               ? { authenticateExecutionPrincipal: context.input.authenticateExecutionPrincipal }
               : {}),

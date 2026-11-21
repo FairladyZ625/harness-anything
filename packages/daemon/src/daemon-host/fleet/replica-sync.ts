@@ -20,6 +20,7 @@ export interface ReplicaSyncOptions extends Omit<FleetReplicaStreamOptions, "onA
   readonly onConfirmed?: (changedPaths?: readonly string[], signal?: AbortSignal) => void | Promise<void>;
   readonly onConfirmedFailure?: (error: unknown) => void;
   readonly onFailure?: (error: unknown) => void;
+  readonly onReplicaHealthChange?: () => void;
   readonly confirmTimeoutMs?: number;
 }
 type Waiter = { readonly sequence: number; readonly resolve: () => void; readonly reject: (error: unknown) => void };
@@ -334,6 +335,7 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
           if (!changedPaths) pendingChangedPaths = null;
           else if (pendingChangedPaths) for (const changed of changedPaths) pendingChangedPaths.add(changed);
           observe(null);
+          options.onReplicaHealthChange?.();
           settle(key, position.sequence);
           settleReady(key, true);
           confirm();
@@ -354,6 +356,7 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
         stream.down = attempt.error;
         settleReady(key, false);
         observe(replicaFailure(attempt.error, "replica_sync_failed"));
+        options.onReplicaHealthChange?.();
         options.onFailure?.(attempt.error);
       }
       // Preserve the health failure. Reconfiguration or daemon restart grants a new budget.

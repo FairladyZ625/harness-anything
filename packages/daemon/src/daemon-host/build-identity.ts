@@ -17,6 +17,7 @@ export interface DaemonBuildObserver {
   readonly status: () => DaemonBuildStatus;
 }
 let stamp: DaemonBuildStamp | undefined;
+let installedPackageVersion: string | undefined;
 const buildIdFilename = "build-id.txt",
   processMarkerPath = buildMarkerPath(fileURLToPath(import.meta.url)),
   processLoadedBuildId = processMarkerPath === null ? null : readBuildId(processMarkerPath);
@@ -28,6 +29,46 @@ const buildIdFilename = "build-id.txt",
 export function daemonBuildStamp(): DaemonBuildStamp {
   stamp ??= resolveStamp();
   return stamp;
+}
+export function daemonPackageVersion(env: Readonly<Record<string, string | undefined>> = process.env): string {
+  const fromEnv = env.npm_package_version?.trim();
+  if (fromEnv) return fromEnv;
+  installedPackageVersion ??= resolveInstalledPackageVersion();
+  return installedPackageVersion;
+}
+function tryReadDaemonPackageVersion(
+  candidate: string,
+): { readonly ok: true; readonly version: string | null } | { readonly ok: false } {
+  try {
+    const parsed = JSON.parse(readFileSync(candidate, "utf8")) as {
+      readonly name?: unknown;
+      readonly version?: unknown;
+    };
+    if (
+      parsed.name === "@harness-anything/daemon" &&
+      typeof parsed.version === "string" &&
+      parsed.version.trim().length > 0
+    ) {
+      return { ok: true, version: parsed.version.trim() };
+    }
+    return { ok: true, version: null };
+  } catch {
+    return { ok: false };
+  }
+}
+function resolveInstalledPackageVersion(): string {
+  let directory = path.dirname(fileURLToPath(import.meta.url));
+  for (;;) {
+    const candidate = path.join(directory, "package.json");
+    if (existsSync(candidate)) {
+      const read = tryReadDaemonPackageVersion(candidate);
+      if (read.ok && read.version !== null) return read.version;
+    }
+    const parent = path.dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  return "0.0.0";
 }
 export function observeDaemonBuild(runtimeFile?: string): DaemonBuildObserver {
   const markerPath = runtimeFile === undefined ? processMarkerPath : buildMarkerPath(runtimeFile),

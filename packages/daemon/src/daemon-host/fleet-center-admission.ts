@@ -47,6 +47,8 @@ export interface FleetCenterAdmissionRequest {
   readonly onDeliverySettled?: FleetCenterOptions["onDeliverySettled"];
   readonly onNodeDisconnected?: FleetCenterOptions["onNodeDisconnected"];
   readonly recordTraffic?: FleetCenterOptions["recordTraffic"];
+  readonly onRequestStarted?: FleetCenterOptions["onRequestStarted"];
+  readonly onRequestSettled?: FleetCenterOptions["onRequestSettled"];
   readonly authenticateExecutionPrincipal?: FleetCenterOptions["authenticateExecutionPrincipal"];
   readonly cursorSecret?: FleetCenterOptions["cursorSecret"];
   readonly userRoot: string;
@@ -123,6 +125,8 @@ export async function prepareFleetCenterAdmission(input: FleetCenterAdmissionReq
       ? { authenticateExecutionPrincipal: input.authenticateExecutionPrincipal }
       : {}),
     ...(input.recordTraffic ? { recordTraffic: input.recordTraffic } : {}),
+    ...(input.onRequestStarted ? { onRequestStarted: input.onRequestStarted } : {}),
+    ...(input.onRequestSettled ? { onRequestSettled: input.onRequestSettled } : {}),
     stateRoot,
     centerRepoId: request.repoId,
     relocationRoot: input.userRoot,

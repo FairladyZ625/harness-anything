@@ -1,0 +1,410 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Harness Anything Center Helm Chart Values",
+  "type": "object",
+  "required": [
+    "workloadKind",
+    "replicaCount",
+    "image",
+    "daemon",
+    "storage",
+    "identity",
+    "fleet",
+    "metrics",
+    "service",
+    "probes",
+    "persistence",
+    "podSecurityContext",
+    "securityContext"
+  ],
+  "properties": {
+    "workloadKind": {
+      "type": "string",
+      "enum": ["Deployment", "StatefulSet"]
+    },
+    "replicaCount": {
+      "type": "integer",
+      "const": 1,
+      "minimum": 1,
+      "maximum": 1
+    },
+    "image": {
+      "type": "object",
+      "required": ["repository", "tag", "pullPolicy"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string", "minLength": 1 },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "fullnameOverride": {
+      "type": "string",
+      "pattern": "^$|^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$"
+    },
+    "podAnnotations": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "not": {
+        "anyOf": [{ "required": ["checksum/config"] }, { "required": ["checksum/entrypoint"] }]
+      }
+    },
+    "podLabels": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "not": {
+        "anyOf": [
+          { "required": ["app.kubernetes.io/name"] },
+          { "required": ["app.kubernetes.io/instance"] },
+          { "required": ["helm.sh/chart"] },
+          { "required": ["app.kubernetes.io/version"] },
+          { "required": ["app.kubernetes.io/managed-by"] }
+        ]
+      }
+    },
+    "daemon": {
+      "type": "object",
+      "required": ["id", "userRoot", "entrypoint", "cliEntrypoint"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "userRoot": {
+          "type": "string",
+          "pattern": "^/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$",
+          "not": { "pattern": "(?:^|/)\\.\\.?(?:/|$)" }
+        },
+        "entrypoint": { "type": "string", "pattern": "^/" },
+        "cliEntrypoint": { "type": "string", "pattern": "^/" },
+        "extraEnv": { "type": "array" }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "required": ["backend", "secretKey"],
+      "properties": {
+        "backend": { "type": "string", "enum": ["postgres", "sqlite"] },
+        "existingSecret": { "type": "string" },
+        "secretKey": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "backend": { "const": "postgres" } },
+            "required": ["backend"]
+          },
+          "then": {
+            "required": ["existingSecret"],
+            "properties": {
+              "existingSecret": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      ]
+    },
+    "identity": {
+      "type": "object",
+      "required": ["mode", "realm", "clientId"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["external", "managed"] },
+        "issuerUrl": { "type": "string" },
+        "realm": { "type": "string", "minLength": 1 },
+        "clientId": { "type": "string", "minLength": 1 },
+        "existingClientSecret": { "type": "string" },
+        "clientSecretKey": { "type": "string", "minLength": 1 },
+        "extraCaCertConfigMap": { "type": "string" },
+        "extraCaCertKey": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": { "const": "external" },
+              "issuerUrl": { "type": "string", "minLength": 1 }
+            },
+            "required": ["mode", "issuerUrl"]
+          },
+          "then": {
+            "required": ["existingClientSecret"],
+            "properties": {
+              "existingClientSecret": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": { "const": "external" },
+              "existingClientSecret": { "type": "string", "minLength": 1 }
+            },
+            "required": ["mode", "existingClientSecret"]
+          },
+          "then": {
+            "required": ["issuerUrl"],
+            "properties": {
+              "issuerUrl": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      ]
+    },
+    "fleet": {
+      "type": "object",
+      "required": ["enabled", "bind", "port", "authorityRepoRoot", "quotaBytes", "tlsCertKey", "tlsKeyKey"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "bind": { "type": "string", "minLength": 1 },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "externalUrl": { "type": "string" },
+        "authorityRepoId": { "type": "string" },
+        "authorityRepoRoot": {
+          "type": "string",
+          "pattern": "^/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$",
+          "not": { "pattern": "(?:^|/)\\.\\.?(?:/|$)" }
+        },
+        "quotaBytes": { "type": "integer", "minimum": 1 },
+        "tlsExistingSecret": { "type": "string" },
+        "tlsCertKey": { "type": "string", "minLength": 1 },
+        "tlsKeyKey": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": { "const": true },
+              "authorityRepoId": { "type": "string", "minLength": 1 }
+            },
+            "required": ["enabled", "authorityRepoId"]
+          },
+          "then": {
+            "required": ["tlsExistingSecret"],
+            "properties": {
+              "tlsExistingSecret": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "enabled": { "const": true },
+              "tlsExistingSecret": { "type": "string", "minLength": 1 }
+            },
+            "required": ["enabled", "tlsExistingSecret"]
+          },
+          "then": {
+            "required": ["authorityRepoId"],
+            "properties": {
+              "authorityRepoId": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      ]
+    },
+    "metrics": {
+      "type": "object",
+      "required": ["enabled", "bind", "port", "path"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "bind": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S+$",
+          "not": {
+            "pattern": "^([lL][oO][cC][aA][lL][hH][oO][sS][tT]\\.?|127\\.([0-9]{1,3}\\.){2}[0-9]{1,3}|\\[?::1\\]?|\\[?(0{1,4}:){7}0{0,3}1\\]?|\\[?::[fF]{4}:127\\.([0-9]{1,3}\\.){2}[0-9]{1,3}\\]?)$"
+          }
+        },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "path": {
+          "type": "string",
+          "pattern": "^/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$",
+          "not": {
+            "anyOf": [{ "const": "/healthz" }, { "const": "/readyz" }, { "pattern": "(?:^|/)\\.\\.?(?:/|$)" }]
+          }
+        },
+        "bearerTokenExistingSecret": { "type": "string" },
+        "bearerTokenSecretKey": { "type": "string" },
+        "serviceMonitor": {
+          "type": "object",
+          "properties": {
+            "labels": {
+              "type": "object",
+              "additionalProperties": { "type": "string" },
+              "not": {
+                "anyOf": [
+                  { "required": ["app.kubernetes.io/name"] },
+                  { "required": ["app.kubernetes.io/instance"] },
+                  { "required": ["helm.sh/chart"] },
+                  { "required": ["app.kubernetes.io/version"] },
+                  { "required": ["app.kubernetes.io/managed-by"] }
+                ]
+              }
+            }
+          }
+        },
+        "prometheusRule": {
+          "type": "object",
+          "properties": {
+            "labels": {
+              "type": "object",
+              "additionalProperties": { "type": "string" },
+              "not": {
+                "anyOf": [
+                  { "required": ["app.kubernetes.io/name"] },
+                  { "required": ["app.kubernetes.io/instance"] },
+                  { "required": ["helm.sh/chart"] },
+                  { "required": ["app.kubernetes.io/version"] },
+                  { "required": ["app.kubernetes.io/managed-by"] }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "bearerTokenExistingSecret": { "type": "string", "minLength": 1 } },
+            "required": ["bearerTokenExistingSecret"]
+          },
+          "then": {
+            "required": ["bearerTokenSecretKey"],
+            "properties": {
+              "bearerTokenSecretKey": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      ]
+    },
+    "service": {
+      "type": "object",
+      "required": ["type", "fleetPort", "metricsPort"],
+      "properties": {
+        "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
+        "fleetPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "metricsPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "headlessNameOverride": {
+          "type": "string",
+          "pattern": "^$|^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$"
+        }
+      }
+    },
+    "probes": {
+      "type": "object",
+      "required": ["liveness", "readiness", "startup"]
+    },
+    "persistence": {
+      "type": "object",
+      "required": ["enabled", "size"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "storageClass": { "type": "string" },
+        "accessModes": { "type": "array", "items": { "type": "string" } },
+        "size": { "type": "string", "minLength": 1 }
+      }
+    },
+    "podSecurityContext": {
+      "type": "object",
+      "required": ["runAsNonRoot"],
+      "properties": {
+        "runAsNonRoot": { "type": "boolean" }
+      }
+    },
+    "securityContext": {
+      "type": "object",
+      "required": ["allowPrivilegeEscalation"],
+      "properties": {
+        "allowPrivilegeEscalation": { "type": "boolean" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "workloadKind": { "const": "Deployment" },
+          "storage": {
+            "properties": { "backend": { "const": "sqlite" } },
+            "required": ["backend"]
+          }
+        },
+        "required": ["workloadKind", "storage"]
+      },
+      "then": {
+        "properties": {
+          "persistence": {
+            "properties": { "enabled": { "const": true } },
+            "required": ["enabled"]
+          }
+        },
+        "required": ["persistence"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "workloadKind": { "const": "Deployment" },
+          "fleet": {
+            "properties": { "enabled": { "const": true } },
+            "required": ["enabled"]
+          }
+        },
+        "required": ["workloadKind", "fleet"]
+      },
+      "then": {
+        "properties": {
+          "persistence": {
+            "properties": { "enabled": { "const": true } },
+            "required": ["enabled"]
+          }
+        },
+        "required": ["persistence"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "workloadKind": { "const": "Deployment" },
+          "identity": {
+            "properties": { "mode": { "const": "managed" } },
+            "required": ["mode"]
+          }
+        },
+        "required": ["workloadKind", "identity"]
+      },
+      "then": {
+        "properties": {
+          "persistence": {
+            "properties": { "enabled": { "const": true } },
+            "required": ["enabled"]
+          }
+        },
+        "required": ["persistence"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "workloadKind": { "const": "Deployment" },
+          "persistence": {
+            "properties": { "enabled": { "const": false } },
+            "required": ["enabled"]
+          }
+        },
+        "required": ["workloadKind", "persistence"]
+      },
+      "then": {
+        "properties": {
+          "identity": {
+            "required": ["mode", "issuerUrl", "realm", "clientId", "existingClientSecret", "clientSecretKey"],
+            "properties": {
+              "mode": { "const": "external" },
+              "issuerUrl": { "type": "string", "minLength": 1 },
+              "realm": { "type": "string", "minLength": 1 },
+              "clientId": { "type": "string", "minLength": 1 },
+              "existingClientSecret": { "type": "string", "minLength": 1 },
+              "clientSecretKey": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "required": ["identity"]
+      }
+    }
+  ]
+}

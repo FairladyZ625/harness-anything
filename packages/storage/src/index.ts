@@ -50,6 +50,8 @@ export type { DaemonStorageConfig } from "./storage-daemon-composition.ts";
 export { withStorageWriteRequest, activeStorageWriteRequest } from "./pg/pg-task-query-reader.ts";
 export {
   readDaemonStorageConfig,
+  resolveRequiredStorageBackend,
+  enforceRepoStorageBackend,
   prepareDaemonRepoStorage,
   acquireRepoStorageLock,
   makeDaemonProjectionReader,

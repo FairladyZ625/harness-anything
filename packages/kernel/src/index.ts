@@ -340,3 +340,12 @@ export { createAgentRuntimeEvent } from "./domain/agent-runtime-event.ts";
 export { taskMutationDraft } from "./domain/task-lifecycle-event.ts";
 
 export { relationCreatedEventForReplay } from "./domain/relation-event.ts";
+export {
+  PROMETHEUS_TEXT_CONTENT_TYPE,
+  createRpcMetricsAccumulator,
+  formatPrometheusMetrics,
+  type DaemonMetricsSnapshot,
+  type FleetMetricsSnapshot,
+  type RepoMetricsAggregates,
+  type RepoMetricsSnapshot,
+} from "./domain/prometheus-metrics.ts";

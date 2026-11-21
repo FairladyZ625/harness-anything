@@ -478,6 +478,10 @@ export interface RepoCell {
   readonly attach: AgentRuntimeStreamHub["attach"];
   readonly runtime: Pick<AgentRuntimeStreamHub, "publish" | "issueWitnessToken" | "bindWitness">;
   readonly status: () => RepoCellStatus;
+  /** Pure in-memory published status snapshot for observability scrapes; never performs synchronous disk I/O. */
+  readonly publishedStatus?: () => RepoCellStatus;
+  /** Refreshes and publishes live replica-only status on edge replication/health transitions (never on scrape). */
+  readonly refreshReplicaStatus?: () => RepoCellStatus;
   readonly statusCuts: () => Pick<RepoCellStatus, "projectionWatermark" | "ledgerRevision"> | null;
   readonly inFlightWork: () => Promise<readonly RepoInFlightWork[]>;
   /** Waits for the event-derived Git follower while the caller's writer epoch is current. */
@@ -795,6 +799,8 @@ export interface RepoCellOpenInput {
   readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void;
   /** Internal writer status bridge for asynchronous materialization health changes. */
   readonly onMaterializationHealthChange?: Parameters<typeof makeTaskEventStore>[0]["onMaterializationHealthChange"];
+  /** Opt-in O(1) metrics status sink, wired only when Prometheus metrics collection is enabled. */
+  readonly onMetricsStatus?: (status: RepoCellStatus) => void;
   readonly onQueueDepthChange?: (queueDepth: number) => void;
   readonly onOpenProgress?: (progress: RepoCellAttachProgress) => void;
   readonly now?: () => string;

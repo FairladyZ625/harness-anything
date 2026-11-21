@@ -70,7 +70,16 @@ import {
   uploadWindow,
   verifyOwnedClaims as verifyOwnedClaimsImpl,
 } from "./center-lease-claims.ts";
-import { digestId, immediate, loadState, mid, ownedUpload, serve, writeCenterDurableJson } from "./center-transport.ts";
+import {
+  digestId,
+  immediate,
+  loadState,
+  mid,
+  ownedUpload,
+  serve,
+  withFleetRequestMetrics,
+  writeCenterDurableJson,
+} from "./center-transport.ts";
 import { createHelloRateLimiter } from "./center-hello-guard.ts";
 import {
   closeableCenterReplicationSlots,
@@ -1847,6 +1856,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       };
     });
   });
+  const trackedHandle = withFleetRequestMetrics(options, observedHandle);
   const server: Server = createServer({ key: options.key, cert: options.cert }, (socket) =>
     serve(
       socket,
@@ -1862,7 +1872,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           options.onVersionWarning?.(nodeId, warning);
         },
       },
-      observedHandle,
+      trackedHandle,
       sessions,
       replicationOwners,
       nodeSessions,
@@ -1886,6 +1896,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   return {
     port: address.port,
     pendingDeliveries: deliveries.pending,
+    connectionMetrics: () => ({
+      activeConnections: connections.size,
+      authenticatedNodes: sessions.size,
+      replicationStreams: replicationOwners.size,
+      pendingDeliveries: deliveries.pending(),
+    }),
     inspectNode: (nodeId) => ({
       online: (sessions.get(nodeId)?.size ?? 0) > 0,
       inFlight: nodeAdmission.inFlight(nodeId),

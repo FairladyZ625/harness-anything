@@ -1,15 +1,28 @@
 import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { readDaemonRegistry } from "@harness-anything/kernel";
+import { createRpcMetricsAccumulator, readDaemonRegistry } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
 import { acquireDaemonSingleton, daemonPidPath } from "./daemon-singleton.ts";
 import type { openDaemonHost } from "./daemon-host-open.ts";
 import type { openDaemonRequestLog } from "./request-log.ts";
 import { openDaemonLifecycleLog } from "./lifecycle-log.ts";
-import { openDaemonConnLog } from "./conn-log.ts";
-import { daemonBuildStamp, observeDaemonBuild, type DaemonBuildObserver } from "./build-identity.ts";
+import { openDaemonConnLog, type DaemonTrafficLogEntry } from "./conn-log.ts";
+import {
+  createBoundedMemorySampler,
+  resolveDaemonMetricsConfig,
+  startDaemonMetricsServer,
+  type BoundedMemorySampler,
+  type DaemonMetricsHttpConfig,
+  type DaemonMetricsServer,
+} from "./metrics-http-server.ts";
+import {
+  daemonBuildStamp,
+  daemonPackageVersion,
+  observeDaemonBuild,
+  type DaemonBuildObserver,
+} from "./build-identity.ts";
 import { firstWorkspaceLinkFinding, workspaceLinkFailure } from "./workspace-link-integrity.ts";
 import { runtimePidIsAlive } from "../runtime-engine/runtime-process-liveness.ts";
 import { createUnixSocketTransportServer } from "./transport/unix-socket.ts";
@@ -20,6 +33,8 @@ import type { openDaemonDiagnostics } from "./daemon-diagnostics.ts";
 
 export interface RunningDaemon {
   readonly endpoint: string;
+  readonly metricsEndpoint?: string;
+  readonly probeEndpoint?: string;
   readonly stop: () => Promise<void>;
 }
 export interface DaemonServeDeferred {
@@ -54,6 +69,7 @@ export async function startDaemon(input: {
   /** Reads the operator's GitHub token once per launch; set by the resident daemon entry. */
   readonly runtimeGithubToken?: DaemonHostOpenInput["runtimeGithubToken"];
   readonly runtimeCredentialPort?: DaemonHostOpenInput["runtimeCredentialPort"];
+  readonly oidc?: DaemonHostOpenInput["oidc"];
   readonly managedRbac?: DaemonHostOpenInput["managedRbac"];
   /** Optional platform skill evaluation capability supplied by the daemon composition root. */
   readonly skillEval?: DaemonHostOpenInput["skillEval"];
@@ -68,6 +84,15 @@ export async function startDaemon(input: {
   readonly retainPidUntilExit?: boolean;
   readonly shutdownDeadlineMs?: number;
   readonly shutdownDeadlineExceeded?: () => void;
+  readonly fleetDrainDeadlineMs?: number;
+  /** Optional opt-in read-only Prometheus/health HTTP listener. Defaults to HARNESS_DAEMON_METRICS_* env. */
+  readonly metrics?: DaemonMetricsHttpConfig | null;
+  /** When true, /readyz requires external/managed identity configuration before reporting ready. */
+  readonly requireIdentityReady?: boolean;
+  /** Optional strict storage backend policy (defaults to HARNESS_STORAGE_BACKEND env when set). */
+  readonly requiredStorageBackend?: DaemonHostOpenInput["requiredStorageBackend"];
+  /** Minimum interval (ms) between live upstream OIDC re-verifications while already ready. */
+  readonly identityReadyReverifyIntervalMs?: DaemonHostOpenInput["identityReadyReverifyIntervalMs"];
 }): Promise<DaemonServeStart> {
   const endpoint = input.endpoint ?? localUserDaemonEndpoint(input.userRoot, input.daemonId);
   // The singleton claim precedes every workspace attachment and the socket
@@ -91,17 +116,29 @@ export async function startDaemon(input: {
   /* @gate-identity state-store/runtime-instance.daemon-pid */ writeFileSync(pidPath, `${process.pid}\n`, "utf8");
   const lifecycle = openDaemonLifecycleLog({ userRoot: input.userRoot, daemonId: input.daemonId });
   const build = daemonBuildStamp();
+  const packageVersion = daemonPackageVersion();
   const buildObserver = input.buildObserver ?? observeDaemonBuild(input.runtimeFile);
   lifecycle.record({ event: "process_start", endpoint, ...buildObserver.status() });
   // Connection- and request-level traffic sink; async by design so the socket hot path never waits on disk.
   const connLog = openDaemonConnLog({ userRoot: input.userRoot, daemonId: input.daemonId });
+  const startedMonotonicNs = process.hrtime.bigint();
+  const rpcMetrics = createRpcMetricsAccumulator();
+  const recordTraffic = (entry: DaemonTrafficLogEntry): void => {
+    rpcMetrics.observeDuration(Math.max(0, entry.durationMs) / 1_000, entry.ok);
+    connLog.request(entry);
+  };
   let observation: typeof import("./daemon-operation.ts");
   let diagnostics: Awaited<ReturnType<typeof openDaemonDiagnostics>> | undefined;
+  let memorySampler: BoundedMemorySampler | undefined;
+  let metricsServer: DaemonMetricsServer | undefined;
+  const metricsConfig = input.metrics === undefined ? resolveDaemonMetricsConfig(process.env) : input.metrics;
+  const metricsExposed = metricsConfig !== null && metricsConfig.exposeMetrics !== false;
   let host: Awaited<ReturnType<typeof openDaemonHost>> | undefined,
     requestLog: ReturnType<typeof openDaemonRequestLog> | null = null,
     transport: ReturnType<typeof createUnixSocketTransportServer> | undefined,
     stopPromise: Promise<void> | null = null,
     activeRequests = 0,
+    activeFleetRequests = 0,
     drainCheckScheduled = false,
     buildSupersessionObserved = false,
     socketBound = false,
@@ -188,6 +225,8 @@ export async function startDaemon(input: {
         throw error;
       } finally {
         if (!deadlineExpired) lifecycle.record({ event: "process_exit", outcome });
+        memorySampler?.close();
+        await settleTeardownStep(() => metricsServer?.close() ?? Promise.resolve());
         await settleTeardownStep(() => transport!.stop());
         await settleTeardownStep(() => connLog.settle());
         await settleTeardownStep(() => requestLog?.settle() ?? Promise.resolve());
@@ -284,7 +323,18 @@ export async function startDaemon(input: {
         recordLifecycle,
         onRepoStatusChange: requestDrainCheck,
         buildDraining,
-        recordTraffic: connLog.request,
+        recordTraffic,
+        ...(metricsExposed
+          ? {
+              metricsEnabled: true,
+              onFleetRequestStarted: () => {
+                activeFleetRequests += 1;
+              },
+              onFleetRequestSettled: () => {
+                activeFleetRequests = Math.max(0, activeFleetRequests - 1);
+              },
+            }
+          : {}),
       }),
     );
     // One sink for the daemon; the protocol server is created per connection and reports into it.
@@ -369,7 +419,7 @@ export async function startDaemon(input: {
           emit,
           connectionId: connLog.connectionOpened(connectionId, authContext.transportKind),
           recordRequest: requestLog!.record,
-          recordTraffic: connLog.request,
+          recordTraffic,
           buildDrainStatus,
           buildDraining,
           stopping: () => stopping,
@@ -391,7 +441,7 @@ export async function startDaemon(input: {
             fleetDrainDeadline = setTimeout(() => {
               fleetDrainExpired = true;
               requestDrainCheck();
-            }, daemonRuntimePolicy.defaultValue.daemon.fleetDrainDeadlineMs);
+            }, input.fleetDrainDeadlineMs ?? daemonRuntimePolicy.defaultValue.daemon.fleetDrainDeadlineMs);
             fleetDrainDeadline.unref();
           },
           onRequestSettled: () => {
@@ -408,6 +458,40 @@ export async function startDaemon(input: {
     });
     await observation.withDaemonObservation(diagnostics.observer, () => transport!.start());
     socketBound = true;
+    if (metricsConfig !== null) {
+      if (metricsExposed) memorySampler = createBoundedMemorySampler();
+      metricsServer = await startDaemonMetricsServer({
+        config: metricsConfig,
+        daemonId: input.daemonId,
+        collectSnapshot: () => {
+          const memory = memorySampler!.read();
+          const observed = host!.observabilitySnapshot();
+          return {
+            daemonId: input.daemonId,
+            version: packageVersion,
+            commit: build.commit ?? "unknown",
+            uptimeSeconds: Number(process.hrtime.bigint() - startedMonotonicNs) / 1e9,
+            processResidentMemoryBytes: memory.rss,
+            processHeapUsedBytes: memory.heapUsed,
+            activeRuntimeSessions: runtimeProcessPids.size,
+            rpc: rpcMetrics.snapshot(activeRequests + activeFleetRequests),
+            fleet: observed.fleet,
+            repos: observed.repos,
+            repoAggregates: observed.repoAggregates,
+            reposPresorted: true,
+          };
+        },
+        isLive: () => !stopping,
+        isReady: () => (stopping ? { ready: false, reasons: ["stopping"] } : host!.probeSnapshot()),
+        onError: (error, { pathname }) =>
+          lifecycle.record({
+            event: "diagnostics",
+            service: "metrics-http",
+            endpoint: pathname,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+      });
+    }
     lifecycle.record({ event: "socket_bound", endpoint });
     diagnostics.state("running");
     observation.withDaemonObservation(diagnostics.observer, () => host!.startAttachments());
@@ -421,6 +505,8 @@ export async function startDaemon(input: {
     });
     // A failed startup releases the same three keys in the same order a drained shutdown does, so a
     // bound endpoint never outlives the pid file that names its owner.
+    memorySampler?.close();
+    if (metricsServer) await settleTeardownStep(() => metricsServer!.close());
     if (socketBound) await transport!.stop();
     await connLog.settle();
     await host?.close();
@@ -429,7 +515,12 @@ export async function startDaemon(input: {
     singleton.release();
     throw error;
   }
-  return { endpoint, stop };
+  return {
+    endpoint,
+    ...(metricsServer && metricsExposed ? { metricsEndpoint: metricsServer.endpoint } : {}),
+    ...(metricsServer ? { probeEndpoint: new URL("/readyz", metricsServer.endpoint).href } : {}),
+    stop,
+  };
 }
 
 class EdgeAuthorizationDeniedError extends Error {
