@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, rmSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readSync, rmSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 
@@ -8,6 +8,7 @@ export const CLEANUP_TIMEOUT_MS = 5_000;
 export const PROCESS_TREE_KILL_GRACE_MS = 300;
 const PID_POLL_INTERVAL_MS = 50;
 const DAEMON_READY_POLL_MS = 100;
+const MAX_PID_FILE_BYTES = 1024;
 const GONE_RECEIPT_CODES = new Set(["daemon_unavailable", "daemon_stopped_by_operator"]);
 
 export function delay(ms) {
@@ -208,6 +209,7 @@ export function runBoundedCommandAsync(
         stderr,
         timedOut: true,
         terminatedCleanly: termination.terminatedCleanly,
+        survivingProcessGroup: false,
         errorMessage: `${label} timed out after ${effectiveTimeoutMs}ms${suffix}`,
       });
     }, effectiveTimeoutMs);
@@ -224,12 +226,14 @@ export function runBoundedCommandAsync(
       settling = true;
       clearTimeout(timer);
       let terminatedCleanly = true;
+      let survivingProcessGroup = false;
       let cleanupSuffix = "";
       const groupProbe = probeOwnedGroupAlive(child);
       if (!groupProbe.ok) {
         terminatedCleanly = false;
         cleanupSuffix = ` (process group check failed: ${groupProbe.error})`;
       } else if (groupProbe.alive) {
+        survivingProcessGroup = true;
         const termination = await attemptTerminateProcessTree(child, { graceMs, cleanupTimeoutMs });
         terminatedCleanly = termination.ok && termination.terminatedCleanly;
         cleanupSuffix = !termination.ok
@@ -246,6 +250,7 @@ export function runBoundedCommandAsync(
         stderr,
         timedOut: false,
         terminatedCleanly,
+        survivingProcessGroup,
         errorMessage: `${label} failed to spawn: ${error.message}${cleanupSuffix}`,
       });
     });
@@ -263,6 +268,7 @@ export function runBoundedCommandAsync(
           stderr,
           timedOut: false,
           terminatedCleanly: false,
+          survivingProcessGroup: false,
           errorMessage: `${label} process group verification failed after exit ${status}: ${groupProbe.error}`,
         });
         return;
@@ -276,6 +282,7 @@ export function runBoundedCommandAsync(
           stderr,
           timedOut: false,
           terminatedCleanly: true,
+          survivingProcessGroup: false,
           errorMessage: status === 0 ? null : `${label} exited ${status}: ${(stderr || stdout).trim()}`,
         });
         return;
@@ -304,6 +311,38 @@ export function runBoundedCommandAsync(
   });
 }
 
+export function hasProcessLayerFailure(result) {
+  return (
+    !result ||
+    result.timedOut === true ||
+    result.survivingProcessGroup === true ||
+    result.terminatedCleanly === false ||
+    (result.status === 0 && result.ok === false) ||
+    result.status === null ||
+    result.status === undefined
+  );
+}
+
+export function isCliCommandSuccess(result) {
+  return !hasProcessLayerFailure(result) && result.ok === true && result.status === 0;
+}
+
+export function formatCliFailureDetail(result) {
+  if (!result) return "no command result";
+  const parts = [`exit ${result.status}`];
+  if (result.timedOut === true) parts.push("timedOut=true");
+  if (result.survivingProcessGroup === true) parts.push("survivingProcessGroup=true");
+  if (result.terminatedCleanly === false) parts.push("terminatedCleanly=false");
+  if (result.errorMessage) parts.push(`error=${result.errorMessage}`);
+  if (result.parseError) parts.push(`parseError=${result.parseError}`);
+  const stderr = typeof result.stderr === "string" ? result.stderr.trim() : "";
+  if (stderr) parts.push(`stderr=${stderr}`);
+  if (result.receipt !== undefined && result.receipt !== null) {
+    parts.push(`receipt=${JSON.stringify(result.receipt)}`);
+  }
+  return parts.join(" ");
+}
+
 export function localDaemonSocketEndpoint(userRoot, daemonId = "default", platform = process.platform) {
   const hash = createHash("sha256")
     .update(`${path.resolve(userRoot)}\0${daemonId}`)
@@ -315,9 +354,62 @@ export function localDaemonSocketEndpoint(userRoot, daemonId = "default", platfo
   return path.join("/tmp", `harness-anything-${uid}`, `daemon-${uid}-${key}.sock`);
 }
 
+function nonRegularFileKind(stat) {
+  if (stat.isFIFO()) return "FIFO";
+  if (stat.isSocket()) return "socket";
+  if (stat.isCharacterDevice()) return "character-device";
+  if (stat.isBlockDevice()) return "block-device";
+  if (stat.isSymbolicLink()) return "symlink";
+  return "non-regular";
+}
+
 export function readPidFileStrict(filePath) {
+  const openFlags = constants.O_RDONLY | (constants.O_NONBLOCK ?? 0);
+  let fd = null;
   try {
-    const pid = Number(readFileSync(filePath, "utf8").trim());
+    fd = openSync(filePath, openFlags);
+    const stat = fstatSync(fd);
+    if (stat.isDirectory()) {
+      return {
+        state: "error",
+        pid: null,
+        error: `EISDIR: illegal operation on a directory, read '${filePath}'`,
+        code: "EISDIR",
+      };
+    }
+    if (!stat.isFile()) {
+      const kind = nonRegularFileKind(stat);
+      return {
+        state: "error",
+        pid: null,
+        error: `ENOTREG: expected regular file for pid bookkeeping, got ${kind} at '${filePath}'`,
+        code: "ENOTREG",
+      };
+    }
+    if (stat.size > MAX_PID_FILE_BYTES) {
+      return {
+        state: "error",
+        pid: null,
+        error: `EFBIG: pid bookkeeping file exceeds ${MAX_PID_FILE_BYTES} bytes (${stat.size}) at '${filePath}'`,
+        code: "EFBIG",
+      };
+    }
+    const buffer = Buffer.allocUnsafe(MAX_PID_FILE_BYTES + 1);
+    let totalRead = 0;
+    while (totalRead < buffer.length) {
+      const chunk = readSync(fd, buffer, totalRead, buffer.length - totalRead, totalRead);
+      if (chunk === 0) break;
+      totalRead += chunk;
+    }
+    if (totalRead > MAX_PID_FILE_BYTES) {
+      return {
+        state: "error",
+        pid: null,
+        error: `EFBIG: pid bookkeeping file read exceeded ${MAX_PID_FILE_BYTES} bytes at '${filePath}'`,
+        code: "EFBIG",
+      };
+    }
+    const pid = Number(buffer.subarray(0, totalRead).toString("utf8").trim());
     if (!Number.isInteger(pid) || pid <= 0) return { state: "invalid", pid: null, error: null, code: null };
     return { state: "present", pid, error: null, code: null };
   } catch (error) {
@@ -328,6 +420,8 @@ export function readPidFileStrict(filePath) {
       error: error instanceof Error ? error.message : String(error),
       code: typeof error?.code === "string" ? error.code : null,
     };
+  } finally {
+    if (fd !== null) closeSync(fd);
   }
 }
 
@@ -419,7 +513,18 @@ export async function waitForOwnedDaemonReady({
     }
     const statusTimeoutMs = budget.remainingMs(`${label} daemon readiness status`);
     const statusResult = await checkStatus(statusTimeoutMs);
-    if (statusResult.status === 0 && statusResult.receipt?.ok === true) {
+    if (hasProcessLayerFailure(statusResult)) {
+      const detail = formatCliFailureDetail(statusResult);
+      return {
+        ok: false,
+        timedOut: statusResult.timedOut === true,
+        statusResult,
+        errorMessage: statusResult.timedOut
+          ? `${label} daemon readiness timed out: ${detail}`
+          : `${label} daemon readiness status failed at process layer: ${detail}`,
+      };
+    }
+    if (isCliCommandSuccess(statusResult) && statusResult.receipt?.ok === true) {
       const observedPid = typeof statusResult.receipt.pid === "number" ? statusResult.receipt.pid : null;
       if (ownedDaemon.pgid === null || observedPid !== ownedDaemon.pgid) {
         return {
@@ -439,12 +544,8 @@ export async function waitForOwnedDaemonReady({
       }
       return { ok: true, timedOut: false, statusResult, errorMessage: null };
     }
-    lastDetail =
-      statusResult.errorMessage ||
-      statusResult.stderr.trim() ||
-      statusResult.stdout.trim() ||
-      `status=${statusResult.status} code=${statusResult.receipt?.code ?? "none"}`;
-    if (statusResult.timedOut || budget.isExpired()) {
+    lastDetail = formatCliFailureDetail(statusResult);
+    if (budget.isExpired()) {
       return {
         ok: false,
         timedOut: true,
@@ -465,8 +566,8 @@ export async function waitForOwnedDaemonReady({
 
 export function isConfirmedDaemonGone(statusResult) {
   return (
+    !hasProcessLayerFailure(statusResult) &&
     statusResult.status !== 0 &&
-    statusResult.timedOut !== true &&
     typeof statusResult.receipt?.code === "string" &&
     GONE_RECEIPT_CODES.has(statusResult.receipt.code)
   );
@@ -793,13 +894,17 @@ export async function verifyDaemonStoppedAndCleanup({
       stopDaemon ?? ((timeoutMs) => requestOwnedDaemonCooperativeStop({ label, userRoot, ownedDaemon, timeoutMs }));
     const stopAttempt = await runAsyncCleanupStep(`${label} cleanup daemon stop`, async () => {
       const stopResult = await cooperativeStop(cleanupTimeoutMs);
-      const stopConfirmedOk = stopResult.status === 0 && stopResult.receipt?.ok === true;
+      const stopConfirmedOk =
+        !hasProcessLayerFailure(stopResult) &&
+        stopResult.ok !== false &&
+        stopResult.status === 0 &&
+        stopResult.receipt?.ok === true;
       const stopConfirmedAlreadyGone = isConfirmedDaemonGone(stopResult);
       if (!stopConfirmedOk && !stopConfirmedAlreadyGone) {
         return {
           ok: false,
           errors: [
-            `${label} cleanup daemon stop failed: status=${stopResult.status} timedOut=${Boolean(stopResult.timedOut)} code=${stopResult.receipt?.code ?? "none"} detail=${(stopResult.stderr || stopResult.stdout || stopResult.errorMessage || "").trim()}`,
+            `${label} cleanup daemon stop failed: status=${stopResult.status} timedOut=${Boolean(stopResult.timedOut)} survivingProcessGroup=${Boolean(stopResult.survivingProcessGroup)} code=${stopResult.receipt?.code ?? "none"} detail=${(stopResult.errorMessage || stopResult.stderr || stopResult.stdout || "").trim()}`,
           ],
         };
       }

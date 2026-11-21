@@ -24,6 +24,9 @@ import {
   PROCESS_TREE_KILL_GRACE_MS,
   destroyChildStreams,
   extractErrorMessages,
+  formatCliFailureDetail,
+  hasProcessLayerFailure,
+  isCliCommandSuccess,
   isConfirmedDaemonGone,
   localDaemonSocketEndpoint,
   ownedProcessTreeAlive,
@@ -45,6 +48,8 @@ import {
 import { normalizeRepoPath } from "./module-policy.mjs";
 
 export {
+  hasProcessLayerFailure,
+  isCliCommandSuccess,
   isConfirmedDaemonGone,
   localDaemonSocketEndpoint,
   readPidFileStrict,
@@ -275,6 +280,7 @@ export async function runNativeModulesProbeInSubprocess({
     return {
       ok: false,
       timedOut: true,
+      survivingProcessGroup: Boolean(result.survivingProcessGroup),
       terminatedCleanly: result.terminatedCleanly,
       checks: [],
       errors: [result.errorMessage],
@@ -288,22 +294,45 @@ export async function runNativeModulesProbeInSubprocess({
     return {
       ok: false,
       timedOut: false,
+      survivingProcessGroup: Boolean(result.survivingProcessGroup),
       terminatedCleanly: result.terminatedCleanly,
       checks: [],
       errors: [result.errorMessage ?? `native-modules probe produced no result marker: ${result.stderr.trim()}`],
     };
   }
-  const parsed = JSON.parse(markerLine.slice(NATIVE_PROBE_MARKER.length));
+  let parsed;
+  try {
+    parsed = JSON.parse(markerLine.slice(NATIVE_PROBE_MARKER.length));
+  } catch (error) {
+    const parseErrors = [
+      `native-modules probe returned malformed result marker: ${error instanceof Error ? error.message : String(error)}`,
+    ];
+    if (result.errorMessage) parseErrors.push(result.errorMessage);
+    return {
+      ok: false,
+      timedOut: false,
+      survivingProcessGroup: Boolean(result.survivingProcessGroup),
+      terminatedCleanly: result.terminatedCleanly,
+      checks: [],
+      errors: parseErrors,
+    };
+  }
+  const parsedErrors = Array.isArray(parsed.errors) ? parsed.errors : [];
+  const processErrors = isCliCommandSuccess(result)
+    ? []
+    : [result.errorMessage ?? `native-modules probe failed (${formatCliFailureDetail(result)})`];
+  const mergedErrors = [...parsedErrors, ...processErrors];
+  const ok = isCliCommandSuccess(result) && parsed.ok === true && mergedErrors.length === 0;
+  if (!ok && mergedErrors.length === 0) {
+    mergedErrors.push("native-modules probe reported ok: false without diagnostic error");
+  }
   return {
-    ok: result.ok && parsed.ok === true,
+    ok,
     timedOut: false,
+    survivingProcessGroup: Boolean(result.survivingProcessGroup),
     terminatedCleanly: result.terminatedCleanly,
     checks: Array.isArray(parsed.checks) ? parsed.checks : [],
-    errors: Array.isArray(parsed.errors)
-      ? parsed.errors
-      : result.ok
-        ? []
-        : [result.errorMessage ?? "native-modules probe failed"],
+    errors: mergedErrors,
   };
 }
 
@@ -381,7 +410,7 @@ async function generateLocalhostTlsCert(keyPath, certPath, tempRoot, budget) {
       label: "openssl localhost cert",
     },
   );
-  if (!result.ok) throw new Error(result.errorMessage);
+  if (!isCliCommandSuccess(result)) throw new Error(result.errorMessage ?? formatCliFailureDetail(result));
 }
 
 function checkExecutableBit(filePath) {
@@ -459,8 +488,8 @@ export async function verifyInstalledPackageBins(consumerDir, { budget } = {}) {
         timeoutMs: syntaxTimeoutMs,
         label: `syntax check ${packageName} bin`,
       });
-      if (!syntax.ok) {
-        errors.push(syntax.errorMessage);
+      if (!isCliCommandSuccess(syntax)) {
+        errors.push(syntax.errorMessage ?? formatCliFailureDetail(syntax));
         continue;
       }
     }
@@ -501,7 +530,7 @@ async function buildWorkspacePackage(rootDir, name, budget) {
       timeoutMs: budget.remainingMs(`build ${name}`),
       label: `build ${name}`,
     });
-    if (!compiled.ok) return compiled;
+    if (!isCliCommandSuccess(compiled)) return compiled;
     if (scriptText.includes("copy-assets.mjs")) {
       const copied = await runBoundedCommandAsync(process.execPath, ["scripts/copy-assets.mjs"], {
         cwd: source,
@@ -509,7 +538,7 @@ async function buildWorkspacePackage(rootDir, name, budget) {
         timeoutMs: budget.remainingMs(`copy-assets ${name}`),
         label: `copy-assets ${name}`,
       });
-      if (!copied.ok) return copied;
+      if (!isCliCommandSuccess(copied)) return copied;
     }
   } else {
     const built = await runNpmAsync(["run", buildScript, "-w", name], {
@@ -517,7 +546,7 @@ async function buildWorkspacePackage(rootDir, name, budget) {
       timeoutMs: budget.remainingMs(`build ${name}`),
       label: `build ${name}`,
     });
-    if (!built.ok) return built;
+    if (!isCliCommandSuccess(built)) return built;
   }
 
   if (name === "@harness-anything/daemon") {
@@ -596,7 +625,14 @@ export async function packAndInstallArm64Packages(rootDir, { tempRoot, budget, v
       } finally {
         restorePackageExports(stage);
       }
-      if (!packed.ok) return { ok: false, errors: [packed.errorMessage], checks: [], tarballPath: null };
+      if (!isCliCommandSuccess(packed)) {
+        return {
+          ok: false,
+          errors: [packed.errorMessage ?? formatCliFailureDetail(packed)],
+          checks: [],
+          tarballPath: null,
+        };
+      }
       const [{ filename } = {}] = JSON.parse(packed.stdout);
       const tarballPath = path.join(packDir, filename ?? "");
       if (!filename || !existsSync(tarballPath)) {
@@ -636,8 +672,8 @@ export async function packAndInstallArm64Packages(rootDir, { tempRoot, budget, v
     timeoutMs: budget.remainingMs("isolated npm install"),
     label: "isolated npm install",
   });
-  if (!installed.ok) {
-    errors.push(installed.errorMessage);
+  if (!isCliCommandSuccess(installed)) {
+    errors.push(installed.errorMessage ?? formatCliFailureDetail(installed));
     return { ok: false, errors, checks, consumerDir, cliBins: null, daemonBin: null };
   }
   checks.push(`isolated consumer install completed in ${Date.now() - installStart}ms`);
@@ -677,8 +713,8 @@ async function runPackagedColdSmoke(cliBins, consumerDir, tempRoot, budget) {
       timeoutMs: budget.remainingMs(`installed ${alias} --help`),
       label: `installed ${alias} --help`,
     });
-    if (!help.ok) {
-      errors.push(help.errorMessage);
+    if (!isCliCommandSuccess(help)) {
+      errors.push(help.errorMessage ?? formatCliFailureDetail(help));
     } else if (!/ha daemon start --service/u.test(help.stdout)) {
       errors.push(`installed ${alias} --help did not include expected daemon control usage`);
     } else if (filesBelow(coldRoot).length > 0) {
@@ -696,9 +732,13 @@ async function runPackagedColdSmoke(cliBins, consumerDir, tempRoot, budget) {
       label: "installed ha cold daemon status",
     }),
   );
-  if (coldStatus.status === 0 || coldStatus.receipt?.code !== "daemon_unavailable") {
+  if (
+    hasProcessLayerFailure(coldStatus) ||
+    coldStatus.status === 0 ||
+    coldStatus.receipt?.code !== "daemon_unavailable"
+  ) {
     errors.push(
-      `installed ha cold daemon status did not fail closed as daemon_unavailable: ${coldStatus.stdout}${coldStatus.stderr}`,
+      `installed ha cold daemon status did not fail closed cleanly as daemon_unavailable: ${formatCliFailureDetail(coldStatus)}`,
     );
   } else if (filesBelow(coldRoot).length > 0) {
     errors.push(`installed ha cold daemon status created state: ${filesBelow(coldRoot).join(", ")}`);
@@ -719,7 +759,7 @@ async function gitExec(cwd, args, budget, label) {
     timeoutMs: budget.remainingMs(label),
     label,
   });
-  if (!result.ok) throw new Error(result.errorMessage);
+  if (!isCliCommandSuccess(result)) throw new Error(result.errorMessage ?? formatCliFailureDetail(result));
 }
 
 export async function runPackagedDaemonAndEdgeSmoke({ cliBins, daemonBin, tempRoot, budget }) {
@@ -843,10 +883,10 @@ export async function runPackagedDaemonAndEdgeSmoke({ cliBins, daemonBin, tempRo
       ]);
       record(
         "packaged center init publishes scaffold",
-        initialized.status === 0 && initialized.receipt?.outcome === "applied",
-        `exit ${initialized.status} ${initialized.stderr.trim() || JSON.stringify(initialized.receipt)}`,
+        isCliCommandSuccess(initialized) && initialized.receipt?.outcome === "applied",
+        formatCliFailureDetail(initialized),
       );
-      if (initialized.status !== 0) return { ok: false };
+      if (!isCliCommandSuccess(initialized)) return { ok: false };
 
       const centerConfigPath = path.join(centerRepo, "harness/harness.yaml");
       record(
@@ -858,8 +898,10 @@ export async function runPackagedDaemonAndEdgeSmoke({ cliBins, daemonBin, tempRo
       const centerStatus = await centerFullAlias(["daemon", "status"]);
       record(
         "installed harness-anything alias answers center daemon status from dist",
-        centerStatus.status === 0 && centerStatus.receipt?.ok === true && centerStatus.receipt?.entry === "dist",
-        `exit ${centerStatus.status} ${centerStatus.stderr.trim() || JSON.stringify(centerStatus.receipt)}`,
+        isCliCommandSuccess(centerStatus) &&
+          centerStatus.receipt?.ok === true &&
+          centerStatus.receipt?.entry === "dist",
+        formatCliFailureDetail(centerStatus),
       );
 
       const created = await center([
@@ -873,8 +915,8 @@ export async function runPackagedDaemonAndEdgeSmoke({ cliBins, daemonBin, tempRo
       ]);
       record(
         "center publishes initial task",
-        created.status === 0 && created.receipt?.outcome === "applied",
-        `exit ${created.status} ${created.stderr.trim() || JSON.stringify(created.receipt)}`,
+        isCliCommandSuccess(created) && created.receipt?.outcome === "applied",
+        formatCliFailureDetail(created),
       );
 
       const fact = await center([
@@ -887,7 +929,7 @@ export async function runPackagedDaemonAndEdgeSmoke({ cliBins, daemonBin, tempRo
         "--source",
         "linux-arm64-smoke",
       ]);
-      record("center publishes fact", fact.status === 0, `exit ${fact.status} ${fact.stderr.trim()}`);
+      record("center publishes fact", isCliCommandSuccess(fact), formatCliFailureDetail(fact));
 
       const fleetStarted = await center([
         "daemon",
@@ -912,10 +954,10 @@ export async function runPackagedDaemonAndEdgeSmoke({ cliBins, daemonBin, tempRo
       const boundPort = Number(fleetStarted.receipt?.port);
       record(
         "center starts Fleet TLS listener",
-        fleetStarted.status === 0 && fleetStarted.receipt?.ok === true && boundPort === centerPort,
-        `exit ${fleetStarted.status} ${fleetStarted.stderr.trim() || JSON.stringify(fleetStarted.receipt)}`,
+        isCliCommandSuccess(fleetStarted) && fleetStarted.receipt?.ok === true && boundPort === centerPort,
+        formatCliFailureDetail(fleetStarted),
       );
-      if (boundPort !== centerPort) return { ok: false };
+      if (!isCliCommandSuccess(fleetStarted) || boundPort !== centerPort) return { ok: false };
 
       const invite = await center([
         "bootstrap",
@@ -931,10 +973,10 @@ export async function runPackagedDaemonAndEdgeSmoke({ cliBins, daemonBin, tempRo
       const inviteLink = typeof invite.receipt?.link === "string" ? invite.receipt.link : "";
       record(
         "center creates pinned Fleet edge join invitation",
-        invite.status === 0 && invite.receipt?.ok === true && inviteLink.startsWith("harness-edge://join/"),
-        `exit ${invite.status} ${invite.stderr.trim() || JSON.stringify(invite.receipt)}`,
+        isCliCommandSuccess(invite) && invite.receipt?.ok === true && inviteLink.startsWith("harness-edge://join/"),
+        formatCliFailureDetail(invite),
       );
-      if (!inviteLink.startsWith("harness-edge://join/")) return { ok: false };
+      if (!isCliCommandSuccess(invite) || !inviteLink.startsWith("harness-edge://join/")) return { ok: false };
 
       edgeDaemon = spawnOwnedDaemon({
         label: "edge",
@@ -971,10 +1013,10 @@ export async function runPackagedDaemonAndEdgeSmoke({ cliBins, daemonBin, tempRo
       );
       record(
         "edge joins center over pinned TLS via installed harness-anything alias, authenticates via external OIDC, and completes initial sync",
-        edgeJoined.status === 0 && edgeJoined.receipt?.ok === true,
-        `exit ${edgeJoined.status} ${edgeJoined.stderr.trim() || JSON.stringify(edgeJoined.receipt)}`,
+        isCliCommandSuccess(edgeJoined) && edgeJoined.receipt?.ok === true,
+        formatCliFailureDetail(edgeJoined),
       );
-      if (edgeJoined.status !== 0) return { ok: false };
+      if (!isCliCommandSuccess(edgeJoined)) return { ok: false };
 
       const initialEdgeList = await edge(["task", "list"]);
       const initialRows = Array.isArray(initialEdgeList.receipt?.rows) ? initialEdgeList.receipt.rows : [];
@@ -983,8 +1025,8 @@ export async function runPackagedDaemonAndEdgeSmoke({ cliBins, daemonBin, tempRo
       );
       record(
         "edge reads back center task through isolated edge daemon",
-        initialEdgeList.status === 0 && initialEdgeList.receipt?.ok === true && hasInitialTask,
-        `exit ${initialEdgeList.status} rows=${JSON.stringify(initialRows)} stderr=${initialEdgeList.stderr.trim()}`,
+        isCliCommandSuccess(initialEdgeList) && initialEdgeList.receipt?.ok === true && hasInitialTask,
+        `${formatCliFailureDetail(initialEdgeList)} rows=${JSON.stringify(initialRows)}`,
       );
 
       const deltaCreated = await center([
@@ -998,22 +1040,26 @@ export async function runPackagedDaemonAndEdgeSmoke({ cliBins, daemonBin, tempRo
       ]);
       record(
         "center publishes second task for discriminating edge propagation check",
-        deltaCreated.status === 0 && deltaCreated.receipt?.outcome === "applied",
-        `exit ${deltaCreated.status} ${deltaCreated.stderr.trim() || JSON.stringify(deltaCreated.receipt)}`,
+        isCliCommandSuccess(deltaCreated) && deltaCreated.receipt?.outcome === "applied",
+        formatCliFailureDetail(deltaCreated),
       );
       let deltaEdgeList = await edge(["task", "list"]);
       let deltaRows = Array.isArray(deltaEdgeList.receipt?.rows) ? deltaEdgeList.receipt.rows : [];
       const hasBoth = (rows) =>
         rows.some((row) => row?.taskId === "arm64-center-task") &&
         rows.some((row) => row?.taskId === "arm64-edge-delta" && row?.title === "ARM64 Edge Delta Task");
-      for (let attempt = 0; !hasBoth(deltaRows) && attempt < 15; attempt += 1) {
+      for (
+        let attempt = 0;
+        !hasProcessLayerFailure(deltaEdgeList) && !hasBoth(deltaRows) && attempt < 15;
+        attempt += 1
+      ) {
         deltaEdgeList = await edge(["task", "list"]);
         deltaRows = Array.isArray(deltaEdgeList.receipt?.rows) ? deltaEdgeList.receipt.rows : [];
       }
       record(
         "edge discriminating readback reflects live center delta",
-        deltaEdgeList.status === 0 && deltaEdgeList.receipt?.ok === true && hasBoth(deltaRows),
-        `exit ${deltaEdgeList.status} rows=${JSON.stringify(deltaRows)} stderr=${deltaEdgeList.stderr.trim()}`,
+        isCliCommandSuccess(deltaEdgeList) && deltaEdgeList.receipt?.ok === true && hasBoth(deltaRows),
+        `${formatCliFailureDetail(deltaEdgeList)} rows=${JSON.stringify(deltaRows)}`,
       );
 
       const stopOwnedDaemonCleanly = async ({ label, userRoot, ownedDaemon, checkStatus }) => {
@@ -1024,7 +1070,10 @@ export async function runPackagedDaemonAndEdgeSmoke({ cliBins, daemonBin, tempRo
           timeoutMs: budget.remainingMs(`${label} daemon stop`),
         });
         const stopOk =
-          stopped.status === 0 && stopped.receipt?.ok === true && stopped.receipt?.pid === ownedDaemon.pgid;
+          stopped.ok === true &&
+          stopped.status === 0 &&
+          stopped.receipt?.ok === true &&
+          stopped.receipt?.pid === ownedDaemon.pgid;
         record(
           `${label} daemon stops cleanly`,
           stopOk,
@@ -1033,6 +1082,7 @@ export async function runPackagedDaemonAndEdgeSmoke({ cliBins, daemonBin, tempRo
         let after = await checkStatus();
         for (
           let attempt = 0;
+          !hasProcessLayerFailure(after) &&
           (after.status === 0 || after.receipt?.code === "daemon_stopping" || ownedProcessTreeAlive(ownedDaemon)) &&
           attempt < STOP_SETTLE_POLLS;
           attempt += 1
@@ -1051,7 +1101,7 @@ export async function runPackagedDaemonAndEdgeSmoke({ cliBins, daemonBin, tempRo
         record(
           `${label} daemon reports gone after stop`,
           gone,
-          `status=${after.status} timedOut=${Boolean(after.timedOut)} code=${after.receipt?.code ?? "none"} pidState=${pidInfo.state} lockState=${lockInfo.state} ownedAlive=${ownedProcessTreeAlive(ownedDaemon)}`,
+          `${formatCliFailureDetail(after)} pidState=${pidInfo.state} lockState=${lockInfo.state} ownedAlive=${ownedProcessTreeAlive(ownedDaemon)}`,
         );
         return stoppedCleanly;
       };
@@ -1133,13 +1183,18 @@ export async function evaluateLinuxArm64Smoke(
     try {
       budget.remainingMs(name);
       const result = await fn();
+      const resultErrors = Array.isArray(result?.errors) ? result.errors : [];
       if (result) {
         if (Array.isArray(result.checks)) checks.push(...result.checks);
-        if (Array.isArray(result.errors)) errors.push(...result.errors);
+        if (resultErrors.length > 0) {
+          errors.push(...resultErrors);
+        } else if (result.ok === false) {
+          errors.push(`stage ${name} returned ok: false without diagnostic errors`);
+        }
       }
       const overtime = budget.checkAfter(name);
       if (overtime) errors.push(overtime);
-      stageOk = (!result || result.ok !== false) && overtime === null;
+      stageOk = (!result || (result.ok !== false && resultErrors.length === 0)) && overtime === null;
       return result;
     } catch (error) {
       const errorMessages = extractErrorMessages(error);
@@ -1190,8 +1245,8 @@ export async function evaluateLinuxArm64Smoke(
           timeoutMs: budget.remainingMs("contract-tests"),
           label: "linux-arm64 contract tests",
         });
-        if (!contractRun.ok) {
-          return { ok: false, errors: [contractRun.errorMessage], checks: [] };
+        if (!isCliCommandSuccess(contractRun)) {
+          return { ok: false, errors: [contractRun.errorMessage ?? formatCliFailureDetail(contractRun)], checks: [] };
         }
         return {
           ok: true,
@@ -1209,8 +1264,9 @@ export async function evaluateLinuxArm64Smoke(
     errors.push(...tempCleanup.errors);
   }
 
+  const allStagesOk = budget.stages.every((stage) => stage.ok);
   return {
-    ok: errors.length === 0 && budget.elapsedMs() <= deadlineMs,
+    ok: errors.length === 0 && allStagesOk && budget.elapsedMs() <= deadlineMs,
     errors,
     checks,
     stages: budget.stages,

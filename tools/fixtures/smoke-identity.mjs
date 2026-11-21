@@ -59,9 +59,17 @@ export async function smokeIdentity(root, repoId, options = {}) {
   const assertIdentityResult = (args, result, code) => {
     if ([secret, password].some((value) => `${result.stdout}${result.stderr}`.includes(value)))
       throw new Error("CLI exposed an identity credential");
-    const ok = code
-      ? result.status !== 0 && result.receipt?.code === code
-      : result.status === 0 && result.receipt?.ok === true;
+    const transportFailed =
+      result.timedOut === true ||
+      result.survivingProcessGroup === true ||
+      result.terminatedCleanly === false ||
+      result.status === null ||
+      result.status === undefined;
+    const ok =
+      !transportFailed &&
+      (code
+        ? result.status !== 0 && result.receipt?.code === code
+        : result.ok !== false && result.status === 0 && result.receipt?.ok === true);
     if (!ok) throw new Error(`identity ${args[0]} ${args[1]} failed: ${JSON.stringify(result)}`);
   };
   return {

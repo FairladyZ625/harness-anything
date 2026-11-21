@@ -12,6 +12,8 @@ import { parseGateWorkflow } from "../../gate-workflow-parser.mjs";
 import {
   DEFAULT_DEADLINE_MS,
   evaluateLinuxArm64Smoke,
+  hasProcessLayerFailure,
+  isCliCommandSuccess,
   isConfirmedDaemonGone,
   localDaemonSocketEndpoint,
   packAndInstallArm64Packages,
@@ -1493,6 +1495,457 @@ test("F21 negative control: runBoundedCommandAsync detects and reaps a same-grou
       () => process.kill(-leaderPid, 0),
       (error) => error?.code === "ESRCH",
       `process group -${leaderPid} must be gone after close settlement`,
+    );
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("F22 negative controls: surviving process group with healthy business receipt and exit 0 propagates through native-modules, cold CLI, waitForOwnedDaemonReady, smoke-identity, and final gate verdict", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "ha-f22-propagation-"));
+  const nativePidFile = path.join(tempDir, "f22-native-pids.json");
+  const coldPidFile = path.join(tempDir, "f22-cold-pids.json");
+  const readyPidFile = path.join(tempDir, "f22-ready-pids.json");
+  const identityPidFile = path.join(tempDir, "f22-identity-pids.json");
+  const nativeHookPath = path.join(tempDir, "f22-native-hook.mjs");
+  const fakeHaPath = path.join(tempDir, "fake-ha.mjs");
+  let liveIdentity = null;
+  try {
+    // Contract predicates distinguish clean exit 0 / clean expected non-zero from process-layer failures.
+    assert.equal(
+      hasProcessLayerFailure({
+        ok: true,
+        status: 0,
+        timedOut: false,
+        terminatedCleanly: true,
+        survivingProcessGroup: false,
+      }),
+      false,
+    );
+    assert.equal(
+      isCliCommandSuccess({
+        ok: true,
+        status: 0,
+        timedOut: false,
+        terminatedCleanly: true,
+        survivingProcessGroup: false,
+      }),
+      true,
+    );
+    assert.equal(
+      hasProcessLayerFailure({
+        ok: false,
+        status: 1,
+        timedOut: false,
+        terminatedCleanly: true,
+        survivingProcessGroup: false,
+      }),
+      false,
+    );
+    assert.equal(
+      hasProcessLayerFailure({
+        ok: false,
+        status: 0,
+        timedOut: false,
+        terminatedCleanly: true,
+        survivingProcessGroup: true,
+      }),
+      true,
+    );
+    assert.equal(
+      isCliCommandSuccess({
+        ok: false,
+        status: 0,
+        timedOut: false,
+        terminatedCleanly: true,
+        survivingProcessGroup: true,
+      }),
+      false,
+    );
+    assert.equal(
+      isConfirmedDaemonGone({
+        status: 1,
+        timedOut: false,
+        survivingProcessGroup: true,
+        terminatedCleanly: true,
+        receipt: { code: "daemon_unavailable" },
+      }),
+      false,
+    );
+    assert.equal(
+      isConfirmedDaemonGone({
+        status: 1,
+        timedOut: false,
+        survivingProcessGroup: false,
+        terminatedCleanly: false,
+        receipt: { code: "daemon_unavailable" },
+      }),
+      false,
+    );
+
+    const makeDetachedStdioGrandScript = (pidFilePath) =>
+      [
+        'const fs = require("node:fs");',
+        'process.on("SIGTERM", () => {});',
+        `const tmp = ${JSON.stringify(`${pidFilePath}.tmp`)};`,
+        `fs.writeFileSync(tmp, JSON.stringify({ leader: Number(process.env.LEADER_PID), grand: process.pid }));`,
+        `fs.renameSync(tmp, ${JSON.stringify(pidFilePath)});`,
+        "setInterval(() => {}, 1000);",
+      ].join(" ");
+
+    // (1) Real F21 process group through production runNativeModulesProbeInSubprocess -> evaluateLinuxArm64Smoke -> final verdict.
+    // The real native probe emits a healthy business marker with ok:true, errors:[] and exits 0, while its
+    // same-group detached-stdio descendant stays alive and ignores SIGTERM.
+    writeFileSync(
+      nativeHookPath,
+      [
+        'import { spawn } from "node:child_process";',
+        'import { existsSync } from "node:fs";',
+        `const grand = spawn(process.execPath, ["-e", ${JSON.stringify(makeDetachedStdioGrandScript(nativePidFile))}], { stdio: "ignore", detached: false, env: { ...process.env, LEADER_PID: String(process.pid) } });`,
+        "grand.unref();",
+        `for (let i = 0; !existsSync(${JSON.stringify(nativePidFile)}) && i < 200; i += 1) {`,
+        "  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 15);",
+        "}",
+      ].join("\n"),
+    );
+
+    const repo = makeRepo({ "README.md": "ok\n" });
+    const fakeBins = (root) => ({
+      ha: { file: path.join(root, "node_modules/.bin/ha"), argsPrefix: [] },
+      harnessAnything: { file: path.join(root, "node_modules/.bin/harness-anything"), argsPrefix: [] },
+    });
+    const nativeVerdict = await evaluateLinuxArm64Smoke(repo.rootDir, {
+      requireLinuxArm64: true,
+      platform: "linux",
+      arch: "arm64",
+      nodeVersion: "24.13.0",
+      deadlineMs: 15_000,
+      runLivePty: false,
+      runContractTests: false,
+      nativeProbeNodeArgs: ["--import", pathToFileURL(nativeHookPath).href],
+      runPackInstall: (_root, { tempRoot }) => ({
+        ok: true,
+        errors: [],
+        checks: [],
+        consumerDir: tempRoot,
+        cliBins: fakeBins(tempRoot),
+        daemonBin: null,
+      }),
+      runColdSmoke: () => ({ ok: true, errors: [], checks: [] }),
+      runDaemonEdgeSmoke: async () => ({ ok: true, errors: [], checks: [] }),
+    });
+
+    assert.equal(
+      nativeVerdict.ok,
+      false,
+      "final gate verdict must fail when native-modules probe leaves a surviving process group despite healthy business marker and exit 0",
+    );
+    assert.equal(nativeVerdict.stages.find((stage) => stage.name === "native-modules")?.ok, false);
+    assert.ok(
+      nativeVerdict.checks.some((line) => line.includes("node:sqlite DatabaseSync round-trip passed")),
+      "business probe must actually run to healthy completion before leader exits 0",
+    );
+    assert.match(nativeVerdict.errors.join("\n"), /left surviving process group -\d+ after exit 0/u);
+    assert.equal(existsSync(nativePidFile), true);
+    const nativePids = JSON.parse(readFileSync(nativePidFile, "utf8"));
+    for (const pid of [nativePids.leader, nativePids.grand]) {
+      assert.throws(
+        () => process.kill(pid, 0),
+        (error) => error?.code === "ESRCH",
+      );
+    }
+    assert.throws(
+      () => process.kill(-nativePids.leader, 0),
+      (error) => error?.code === "ESRCH",
+    );
+
+    // (2) Real F21 process group through production runPackagedColdSmoke (expected non-zero daemon_unavailable) -> evaluateLinuxArm64Smoke.
+    writeFileSync(
+      fakeHaPath,
+      [
+        "#!/usr/bin/env node",
+        'import { spawn } from "node:child_process";',
+        'import { existsSync } from "node:fs";',
+        "const args = process.argv.slice(2);",
+        'if (args.includes("--help")) {',
+        '  process.stdout.write("ha daemon start --service\\n");',
+        "  process.exit(0);",
+        "}",
+        `spawn(process.execPath, ["-e", ${JSON.stringify(makeDetachedStdioGrandScript(coldPidFile))}], { stdio: "ignore", detached: false, env: { ...process.env, LEADER_PID: String(process.pid) } });`,
+        `for (let i = 0; !existsSync(${JSON.stringify(coldPidFile)}) && i < 200; i += 1) {`,
+        "  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 15);",
+        "}",
+        'process.stdout.write(JSON.stringify({ ok: false, code: "daemon_unavailable" }) + "\\n");',
+        "process.exit(1);",
+      ].join("\n"),
+    );
+    chmodSync(fakeHaPath, 0o755);
+
+    const coldVerdict = await evaluateLinuxArm64Smoke(repo.rootDir, {
+      requireLinuxArm64: true,
+      platform: "linux",
+      arch: "arm64",
+      nodeVersion: "24.13.0",
+      runLivePty: false,
+      runContractTests: false,
+      runNativeModules: () => ({ ok: true, errors: [], checks: [] }),
+      runPackInstall: (_root, { tempRoot }) => ({
+        ok: true,
+        errors: [],
+        checks: [],
+        consumerDir: tempRoot,
+        cliBins: {
+          ha: { file: process.execPath, argsPrefix: [fakeHaPath] },
+          harnessAnything: { file: process.execPath, argsPrefix: [fakeHaPath] },
+        },
+        daemonBin: null,
+      }),
+      runDaemonEdgeSmoke: async () => ({ ok: true, errors: [], checks: [] }),
+    });
+    assert.equal(
+      coldVerdict.ok,
+      false,
+      "cold daemon status returning expected daemon_unavailable must still fail closed when leaving a surviving process group",
+    );
+    assert.equal(coldVerdict.stages.find((stage) => stage.name === "packaged-cli-cold")?.ok, false);
+    assert.match(coldVerdict.errors.join("\n"), /survivingProcessGroup=true|left surviving process group/u);
+    assert.equal(existsSync(coldPidFile), true);
+    const coldPids = JSON.parse(readFileSync(coldPidFile, "utf8"));
+    for (const pid of [coldPids.leader, coldPids.grand]) {
+      assert.throws(
+        () => process.kill(pid, 0),
+        (error) => error?.code === "ESRCH",
+      );
+    }
+    assert.throws(
+      () => process.kill(-coldPids.leader, 0),
+      (error) => error?.code === "ESRCH",
+    );
+
+    // (3) Real F21 process group through production waitForOwnedDaemonReady: healthy receipt + matching pid + exit 0 must NOT accept readiness.
+    const ownedDaemon = spawnOwnedDaemon({
+      label: "center",
+      daemonBin: { file: process.execPath, argsPrefix: ["-e", "setInterval(() => {}, 1000);", "--"] },
+      repo: tempDir,
+      userRoot: path.join(tempDir, "f22-ready-user"),
+      env: process.env,
+    });
+    try {
+      const readyLeaderScript = [
+        'const fs = require("node:fs");',
+        'const { spawn } = require("node:child_process");',
+        `spawn(process.execPath, ["-e", ${JSON.stringify(makeDetachedStdioGrandScript(readyPidFile))}], { stdio: "ignore", detached: false, env: { ...process.env, LEADER_PID: String(process.pid) } });`,
+        `const timer = setInterval(() => { if (fs.existsSync(${JSON.stringify(readyPidFile)})) { clearInterval(timer); process.stdout.write(JSON.stringify({ ok: true, pid: ${ownedDaemon.pgid} }) + "\\n"); process.exit(0); } }, 15);`,
+      ].join(" ");
+      const readyResult = await waitForOwnedDaemonReady({
+        label: "center",
+        ownedDaemon,
+        checkStatus: async (timeoutMs) => {
+          const run = await runBoundedCommandAsync(process.execPath, ["-e", readyLeaderScript], {
+            cwd: tempDir,
+            env: process.env,
+            timeoutMs,
+            graceMs: 150,
+            cleanupTimeoutMs: 3_000,
+            label: "f22 readiness status probe",
+          });
+          return { ...run, receipt: JSON.parse(run.stdout.trim()) };
+        },
+        budget: { deadlineMs: 5_000, isExpired: () => false, remainingMs: () => 5_000 },
+        pollIntervalMs: 25,
+      });
+      assert.equal(
+        readyResult.ok,
+        false,
+        "waitForOwnedDaemonReady must reject survivingProcessGroup despite exit 0 and matching PID",
+      );
+      assert.equal(ownedDaemon.ready, false);
+      assert.match(readyResult.errorMessage ?? "", /survivingProcessGroup=true|left surviving process group/u);
+      assert.equal(existsSync(readyPidFile), true);
+      const readyPids = JSON.parse(readFileSync(readyPidFile, "utf8"));
+      for (const pid of [readyPids.leader, readyPids.grand]) {
+        assert.throws(
+          () => process.kill(pid, 0),
+          (error) => error?.code === "ESRCH",
+        );
+      }
+      assert.throws(
+        () => process.kill(-readyPids.leader, 0),
+        (error) => error?.code === "ESRCH",
+      );
+    } finally {
+      await verifyDaemonStoppedAndCleanup({
+        label: "center",
+        userRoot: path.join(tempDir, "f22-ready-empty"),
+        ownedDaemon,
+        alreadyStopped: true,
+        graceMs: 100,
+        cleanupTimeoutMs: 2_000,
+      });
+    }
+
+    // (4) Real F21 process group through smokeIdentity.prepareAsync: healthy receipt + exit 0 with survivingProcessGroup must throw.
+    const identityRoot = path.join(tempDir, "f22-identity-root");
+    mkdirSync(identityRoot, { recursive: true });
+    liveIdentity = await smokeIdentity(identityRoot, "arm64-f22-identity", { timeoutMs: 10_000 });
+    const identityLeaderScript = [
+      'const fs = require("node:fs");',
+      'const { spawn } = require("node:child_process");',
+      `spawn(process.execPath, ["-e", ${JSON.stringify(makeDetachedStdioGrandScript(identityPidFile))}], { stdio: "ignore", detached: false, env: { ...process.env, LEADER_PID: String(process.pid) } });`,
+      `const timer = setInterval(() => { if (fs.existsSync(${JSON.stringify(identityPidFile)})) { clearInterval(timer); process.stdout.write(JSON.stringify({ ok: true }) + "\\n"); process.exit(0); } }, 15);`,
+    ].join(" ");
+    await assert.rejects(
+      () =>
+        liveIdentity.prepareAsync(async () => {
+          const run = await runBoundedCommandAsync(process.execPath, ["-e", identityLeaderScript], {
+            cwd: tempDir,
+            env: process.env,
+            timeoutMs: 10_000,
+            graceMs: 150,
+            cleanupTimeoutMs: 3_000,
+            label: "f22 identity bootstrap probe",
+          });
+          return { ...run, receipt: JSON.parse(run.stdout.trim()) };
+        }),
+      /survivingProcessGroup.*true|identity bootstrap/u,
+    );
+    assert.equal(existsSync(identityPidFile), true);
+    const identityPids = JSON.parse(readFileSync(identityPidFile, "utf8"));
+    for (const pid of [identityPids.leader, identityPids.grand]) {
+      assert.throws(
+        () => process.kill(pid, 0),
+        (error) => error?.code === "ESRCH",
+      );
+    }
+    assert.throws(
+      () => process.kill(-identityPids.leader, 0),
+      (error) => error?.code === "ESRCH",
+    );
+
+    // (5) Stage returning { ok: false, errors: [] } must still fail overall evaluateLinuxArm64Smoke verdict and emit diagnostic error.
+    const silentStageFail = await evaluateLinuxArm64Smoke(repo.rootDir, {
+      requireLinuxArm64: true,
+      platform: "linux",
+      arch: "arm64",
+      nodeVersion: "24.13.0",
+      runLivePty: false,
+      runContractTests: false,
+      runNativeModules: () => ({ ok: false, errors: [], checks: [] }),
+      runPackInstall: (_root, { tempRoot }) => ({
+        ok: true,
+        errors: [],
+        checks: [],
+        consumerDir: tempRoot,
+        cliBins: fakeBins(tempRoot),
+        daemonBin: null,
+      }),
+      runColdSmoke: () => ({ ok: true, errors: [], checks: [] }),
+      runDaemonEdgeSmoke: async () => ({ ok: true, errors: [], checks: [] }),
+    });
+    assert.equal(silentStageFail.ok, false);
+    assert.equal(silentStageFail.stages.find((stage) => stage.name === "native-modules")?.ok, false);
+    assert.match(silentStageFail.errors.join("\n"), /stage native-modules returned ok: false/u);
+  } finally {
+    if (liveIdentity) await liveIdentity.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("F23 negative control: POSIX FIFO named pipes at pidfile and singleton lock fail non-blockingly without hanging owned process-group reaping or downstream cleanups", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("POSIX mkfifo named pipe test applies to Linux/macOS");
+    return;
+  }
+  const tempDir = mkdtempSync(path.join(tmpdir(), "ha-f23-fifo-"));
+  const userRoot = path.join(tempDir, "fifo-user");
+  const pidPath = path.join(userRoot, "daemon-default.pid");
+  const lockPath = path.join(userRoot, "daemon-default.singleton.lock");
+  const oversizedPidPath = path.join(tempDir, "oversized.pid");
+  const probePidFile = path.join(tempDir, "f23-owned-pid.json");
+  mkdirSync(userRoot, { recursive: true });
+  try {
+    const mkfifoResult = await runBoundedCommandAsync("mkfifo", [pidPath, lockPath], {
+      cwd: tempDir,
+      env: process.env,
+      timeoutMs: 5_000,
+      label: "f23 mkfifo",
+    });
+    assert.equal(mkfifoResult.ok, true, mkfifoResult.errorMessage ?? "");
+
+    // Direct non-blocking read against a writerless FIFO must settle immediately with ENOTREG (never block event loop).
+    const fifoPidRead = readPidFileStrict(pidPath);
+    assert.equal(fifoPidRead.state, "error");
+    assert.equal(fifoPidRead.code, "ENOTREG");
+    assert.match(fifoPidRead.error ?? "", /FIFO/u);
+
+    // Oversized regular pidfile must also fail closed with EFBIG.
+    writeFileSync(oversizedPidPath, `${"9".repeat(2048)}\n`);
+    const oversizedRead = readPidFileStrict(oversizedPidPath);
+    assert.equal(oversizedRead.state, "error");
+    assert.equal(oversizedRead.code, "EFBIG");
+
+    // Live SIGTERM-ignoring owned daemon in userRoot with FIFOs at both bookkeeping paths.
+    const sleeperScript = [
+      'const fs = require("node:fs");',
+      'process.on("SIGTERM", () => {});',
+      `const tmp = ${JSON.stringify(`${probePidFile}.tmp`)};`,
+      "fs.writeFileSync(tmp, JSON.stringify({ pid: process.pid }));",
+      `fs.renameSync(tmp, ${JSON.stringify(probePidFile)});`,
+      "setInterval(() => {}, 1000);",
+    ].join("\n");
+    const ownedDaemon = spawnOwnedDaemon({
+      label: "center",
+      daemonBin: { file: process.execPath, argsPrefix: ["-e", sleeperScript, "--"] },
+      repo: tempDir,
+      userRoot,
+      env: process.env,
+    });
+    for (let attempt = 0; !existsSync(probePidFile) && attempt < 100; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.equal(existsSync(probePidFile), true, "owned daemon must be running before FIFO cleanup");
+    const { pid: ownedPid } = JSON.parse(readFileSync(probePidFile, "utf8"));
+    assert.equal(ownedPid, ownedDaemon.pgid);
+
+    let downstreamCleanupRan = false;
+    const { cleanupErrors } = await runWithResourceCleanups(
+      async () => ({ ok: true }),
+      [
+        {
+          label: "center daemon cleanup",
+          run: () =>
+            verifyDaemonStoppedAndCleanup({
+              label: "center",
+              userRoot,
+              ownedDaemon,
+              alreadyStopped: false,
+              graceMs: 150,
+              cleanupTimeoutMs: 3_000,
+            }),
+        },
+        {
+          label: "downstream resource cleanup",
+          run: async () => {
+            downstreamCleanupRan = true;
+            return { ok: true, errors: [] };
+          },
+        },
+      ],
+    );
+
+    assert.equal(downstreamCleanupRan, true, "downstream cleanups must continue after FIFO bookkeeping read errors");
+    assert.ok(cleanupErrors.length >= 2, `expected FIFO bookkeeping errors, got: ${JSON.stringify(cleanupErrors)}`);
+    assert.match(cleanupErrors.join("\n"), /failed reading daemon pid file.*ENOTREG.*FIFO/u);
+    assert.match(cleanupErrors.join("\n"), /failed reading daemon singleton lock.*ENOTREG.*FIFO/u);
+    assert.throws(
+      () => process.kill(ownedPid, 0),
+      (error) => error?.code === "ESRCH",
+      `owned daemon pid ${ownedPid} must be reaped despite writerless FIFO bookkeeping files`,
+    );
+    assert.throws(
+      () => process.kill(-ownedPid, 0),
+      (error) => error?.code === "ESRCH",
+      `owned daemon process group -${ownedPid} must be reaped despite writerless FIFO bookkeeping files`,
     );
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
