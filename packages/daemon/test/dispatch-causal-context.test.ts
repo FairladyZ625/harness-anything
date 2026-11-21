@@ -1095,7 +1095,7 @@ function tracedProjection(
   });
 }
 
-const tracedGit = (calls: string[][]) => ({
+const tracedGit = (calls: string[][], notScannedWorktrees = 0) => ({
   readPathHistory: ({ paths }: { readonly paths: readonly string[] }) => {
     calls.push([...paths]);
     return {
@@ -1106,7 +1106,12 @@ const tracedGit = (calls: string[][]) => ({
   readDirtyWorktreeCollisions: ({ paths, excludeTaskId }: { paths: readonly string[]; excludeTaskId?: string }) => {
     assert.deepEqual(paths, [TRACE_PLAN_PATH]);
     assert.equal(excludeTaskId, "task_leaf");
-    return [{ taskId: COLLIDING_TASK, tracePaths: paths }];
+    return {
+      collisions: [{ taskId: COLLIDING_TASK, tracePaths: paths }],
+      scannedWorktrees: 1,
+      notScannedWorktrees,
+      truncated: notScannedWorktrees > 0,
+    };
   },
 });
 
@@ -1188,13 +1193,32 @@ test("edge collisions fit in the canonical context budget and preserve the inher
     gitHistory: null,
   });
   assert.ok(center !== null);
-  const collisions = [{ taskId: COLLIDING_TASK, tracePaths: [TRACE_PLAN_PATH] }],
-    edge = withLocalWorktreeCollisions(center, collisions);
+  const scan = {
+      collisions: [{ taskId: COLLIDING_TASK, tracePaths: [TRACE_PLAN_PATH] }],
+      scannedWorktrees: 1,
+      notScannedWorktrees: 0,
+      truncated: false,
+    },
+    edge = withLocalWorktreeCollisions(center, scan);
   assert.ok(edge !== null);
   assertLineGrammar(edge);
   assert.ok(backgroundByteLength(edge) <= CAUSAL_CONTEXT_MAX_BYTES);
   assert.match(edge, /<redline ref="decision\/dec_REDLINE\/RJ3"/u);
   assert.match(edge, /<collision ref="task\/task_d{26}"/u);
   assert.equal(edge.slice(background(edge).length), center.slice(background(center).length));
-  assert.match(withLocalWorktreeCollisions(null, collisions) ?? "", /<collision ref="task\/task_d{26}"/u);
+  assert.match(withLocalWorktreeCollisions(null, scan) ?? "", /<collision ref="task\/task_d{26}"/u);
+});
+
+test("truncated dirty-worktree scans remain explicit in passive and edge dispatch context", () => {
+  const scan = { collisions: [], scannedWorktrees: 32, notScannedWorktrees: 4, truncated: true },
+    edge = withLocalWorktreeCollisions(null, scan),
+    passive = assembleTaskCausalContext({
+      projection: tracedProjection(),
+      taskId: "task_leaf",
+      gitHistory: tracedGit([], 4),
+    });
+  for (const block of [edge, passive]) {
+    assert.match(block ?? "", /<warning ref="worktree-scan" not-scanned="4">/u);
+    assert.match(block ?? "", /4 managed worktrees were not scanned/u);
+  }
 });

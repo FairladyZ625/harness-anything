@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, opendirSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import type { WriteReceiptDraft as WriteReceipt } from "@harness-anything/kernel";
 import {
@@ -9,6 +9,7 @@ import {
   type GitHistoryOutcome,
   type GitHistoryPort,
   type TraceWorktreeCollision,
+  type TraceWorktreeCollisionScan,
 } from "@harness-anything/application/internal/queries/file-trace-read.ts";
 import type {
   QueryAction,
@@ -20,8 +21,7 @@ import { runGitHistoryLog } from "./process-port.ts";
 /** A valid repository whose HEAD has no commit yet has, truthfully, no history for any path. */
 const UNBORN_HEAD =
   /does not have any commits yet|bad default revision 'HEAD'|unknown revision or path not in the working tree.*HEAD/iu;
-const MAX_WORKTREE_ENTRIES = 32;
-const MAX_WORKTREE_PROBES = 8;
+const MAX_WORKTREE_PROBES = 32;
 const TASK_WORKTREE = /^task_[0-9a-f]{26}$/u;
 
 /**
@@ -86,53 +86,54 @@ export function makeWorkspaceGitHistoryPort(rootDir: string, historyOnly = false
 function readDirtyWorktreeCollisions(
   rootDir: string,
   { paths, excludeTaskId }: { readonly paths: readonly string[]; readonly excludeTaskId?: string },
-): readonly TraceWorktreeCollision[] {
+): TraceWorktreeCollisionScan {
   const directory = path.join(rootDir, ".worktrees"),
     targets = paths.slice(0, MAX_TRACED_FILES),
     collisions: TraceWorktreeCollision[] = [];
-  if (targets.length === 0 || !lstatSync(directory, { throwIfNoEntry: false })?.isDirectory()) return collisions;
-  const entries = opendirSync(directory);
-  try {
-    let probes = 0;
-    for (let visited = 0; visited < MAX_WORKTREE_ENTRIES && probes < MAX_WORKTREE_PROBES; visited++) {
-      const entry = entries.readSync();
-      if (entry === null) break;
-      const taskId = entry.name;
-      if (!entry.isDirectory() || !TASK_WORKTREE.test(taskId) || taskId === excludeTaskId) continue;
-      const worktree = path.join(directory, taskId);
-      if (!lstatSync(path.join(worktree, ".git"), { throwIfNoEntry: false })?.isFile()) continue;
-      probes++;
-      const status = runGitHistoryLog(worktree, [
-        "--no-optional-locks",
-        "--literal-pathspecs",
-        "-c",
-        "core.fsmonitor=false",
-        "-c",
-        "core.untrackedCache=false",
-        "status",
-        "--porcelain=v1",
-        "-z",
-        "--no-renames",
-        "--untracked-files=all",
-        "--ignore-submodules=all",
-        "--",
-        ...targets,
-      ]);
-      // A disappearing, inaccessible or slow peer worktree is advisory. Continue sampling the others.
-      if (!status.ok) continue;
-      const changed = status.stdout
-          .split("\0")
-          .filter(Boolean)
-          .map((record) => record.slice(3)),
-        tracePaths = targets.filter((target) =>
-          changed.some((file) => file === target || file.startsWith(`${target}/`)),
-        );
-      if (tracePaths.length > 0) collisions.push({ taskId, tracePaths });
-    }
-  } finally {
-    entries.closeSync();
+  if (targets.length === 0 || !lstatSync(directory, { throwIfNoEntry: false })?.isDirectory())
+    return { collisions, scannedWorktrees: 0, notScannedWorktrees: 0, truncated: false };
+  const worktrees = readdirSync(directory, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && TASK_WORKTREE.test(entry.name) && entry.name !== excludeTaskId)
+      .flatMap((entry) => {
+        const worktree = path.join(directory, entry.name);
+        if (!lstatSync(path.join(worktree, ".git"), { throwIfNoEntry: false })?.isFile()) return [];
+        return [{ taskId: entry.name, worktree, activityTime: statSync(worktree).mtimeMs }];
+      })
+      // Newly materialized or recently touched task worktrees are the most likely to be active.
+      .toSorted((left, right) => right.activityTime - left.activityTime || left.taskId.localeCompare(right.taskId)),
+    selected = worktrees.slice(0, MAX_WORKTREE_PROBES);
+  for (const { taskId, worktree } of selected) {
+    const status = runGitHistoryLog(worktree, [
+      "--no-optional-locks",
+      "--literal-pathspecs",
+      "-c",
+      "core.fsmonitor=false",
+      "-c",
+      "core.untrackedCache=false",
+      "status",
+      "--porcelain=v1",
+      "-z",
+      "--no-renames",
+      "--untracked-files=all",
+      "--ignore-submodules=all",
+      "--",
+      ...targets,
+    ]);
+    // A disappearing, inaccessible or slow peer worktree is advisory. Continue sampling the others.
+    if (!status.ok) continue;
+    const changed = status.stdout
+        .split("\0")
+        .filter(Boolean)
+        .map((record) => record.slice(3)),
+      tracePaths = targets.filter((target) => changed.some((file) => file === target || file.startsWith(`${target}/`)));
+    if (tracePaths.length > 0) collisions.push({ taskId, tracePaths });
   }
-  return collisions;
+  return {
+    collisions,
+    scannedWorktrees: selected.length,
+    notScannedWorktrees: worktrees.length - selected.length,
+    truncated: worktrees.length > selected.length,
+  };
 }
 
 /** `ha trace <path>`: the read receipt around the application trace, with the host Git port injected. */

@@ -40,6 +40,13 @@ export interface TraceWorktreeCollision {
   readonly tracePaths: readonly string[];
 }
 
+export interface TraceWorktreeCollisionScan {
+  readonly collisions: readonly TraceWorktreeCollision[];
+  readonly scannedWorktrees: number;
+  readonly notScannedWorktrees: number;
+  readonly truncated: boolean;
+}
+
 type PassiveCollision = TraceWorktreeCollision & Pick<TraceCollision, "matchReason">;
 
 /** Host-implemented Git reads. Runtime-context reads supply the history capability alone. */
@@ -58,7 +65,7 @@ export interface GitHistoryPort {
   readonly readDirtyWorktreeCollisions?: (input: {
     readonly paths: readonly string[];
     readonly excludeTaskId?: string;
-  }) => readonly TraceWorktreeCollision[];
+  }) => TraceWorktreeCollisionScan;
 }
 
 export type TraceProjection = Pick<
@@ -128,6 +135,7 @@ export interface FileTraceReadResult {
   readonly decisions: readonly TraceDecision[];
   readonly facts: readonly TraceFact[];
   readonly activeTasks: readonly TraceCollision[];
+  readonly worktreeScan: Pick<TraceWorktreeCollisionScan, "scannedWorktrees" | "notScannedWorktrees" | "truncated">;
 }
 
 /** Repository-relative POSIX path: `\` → `/`, leading `./` dropped, absolute / drive / `..` / empty segments rejected. */
@@ -457,7 +465,13 @@ export function traceFileCausalHistory(input: {
       decisionStates: "any",
       sectionRows: TRACE_SECTION_ROWS,
     });
-  const { branches, dirty, rows } = readCollisions(input.projection, graph.reads, input.gitHistory, [path], maxCommits);
+  const { branches, dirty, rows, worktreeScan } = readCollisions(
+    input.projection,
+    graph.reads,
+    input.gitHistory,
+    [path],
+    maxCommits,
+  );
   const activeTasks: TraceCollision[] = [...rows.keys()].map((taskId) => ({
     taskId,
     title: rows.get(taskId)?.title ?? null,
@@ -489,6 +503,7 @@ export function traceFileCausalHistory(input: {
     decisions: rankDecisions(graph.decisions),
     facts: graph.facts,
     activeTasks,
+    worktreeScan,
   };
 }
 
@@ -502,9 +517,11 @@ function readCollisions(
 ) {
   const outcome = gitHistory?.readBranchCollisions?.({ paths, maxCommits }),
     branches = parseBranchCollisions(outcome?.availability === "available" ? outcome.stdout : "", paths),
-    hits =
-      gitHistory?.readDirtyWorktreeCollisions?.({ paths, ...(excludeTaskId === undefined ? {} : { excludeTaskId }) }) ??
-      [],
+    worktreeScan = gitHistory?.readDirtyWorktreeCollisions?.({
+      paths,
+      ...(excludeTaskId === undefined ? {} : { excludeTaskId }),
+    }) ?? { collisions: [], scannedWorktrees: 0, notScannedWorktrees: 0, truncated: false },
+    hits = worktreeScan.collisions,
     dirty = new Map(hits.map(({ taskId, tracePaths }) => [taskId, tracePaths])),
     taskIds = [...new Set([...dirty.keys(), ...branches.keys()])].filter((taskId) => taskId !== excludeTaskId),
     missingRows = new Map<string, TaskIndexProjectionRow | undefined>(taskIds.map((taskId) => [taskId, undefined]));
@@ -522,7 +539,16 @@ function readCollisions(
         .map((taskId) => [taskId, foundRows.get(taskId)]),
     );
   }
-  return { branches, dirty, rows };
+  return {
+    branches,
+    dirty,
+    rows,
+    worktreeScan: {
+      scannedWorktrees: worktreeScan.scannedWorktrees,
+      notScannedWorktrees: worktreeScan.notScannedWorktrees,
+      truncated: worktreeScan.truncated,
+    },
+  };
 }
 
 /** Rejected redlines first, then task lineage, then module scope. */
@@ -541,6 +567,7 @@ export interface PassiveTraceSelection {
   readonly decisions: readonly TraceDecision[];
   readonly facts: readonly TraceFact[];
   readonly collisions: readonly PassiveCollision[];
+  readonly worktreeScan: Pick<TraceWorktreeCollisionScan, "scannedWorktrees" | "notScannedWorktrees" | "truncated">;
 }
 
 /**
@@ -569,7 +596,7 @@ export function selectPassiveTraceContext(input: {
     decisionStates: "in_effect",
     sectionRows: TRACE_SECTION_ROWS,
   });
-  const { branches, dirty, rows } = readCollisions(
+  const { branches, dirty, rows, worktreeScan } = readCollisions(
     input.projection,
     graph.reads,
     input.gitHistory,
@@ -589,6 +616,7 @@ export function selectPassiveTraceContext(input: {
     reads: graph.reads,
     git: graph.git,
     collisions,
+    worktreeScan,
     decisions: rankDecisions(graph.decisions)
       .filter((decision) => !input.excludeDecisionIds.includes(decision.decisionId))
       .slice(0, input.maxDecisions),

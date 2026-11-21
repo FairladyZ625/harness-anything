@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -135,17 +135,53 @@ test("managed worktrees report only requested dirty paths, with or without stagi
     write(unstaged, TARGET, "export const a = 3;\n");
     write(unstaged, added, "export const c = 1;\n");
     const port = makeWorkspaceGitHistoryPort(dir);
+    const scan = port.readDirtyWorktreeCollisions?.({ paths: [TARGET, OTHER, added] });
     assert.deepEqual(
-      port
-        .readDirtyWorktreeCollisions?.({ paths: [TARGET, OTHER, added] })
-        ?.toSorted((a, b) => a.taskId.localeCompare(b.taskId)),
+      scan?.collisions.toSorted((a, b) => a.taskId.localeCompare(b.taskId)),
       [
         { taskId: TASK_A, tracePaths: [OTHER] },
         { taskId: TASK_C, tracePaths: [TARGET, added] },
       ],
     );
-    assert.deepEqual(port.readDirtyWorktreeCollisions?.({ paths: [TARGET], excludeTaskId: TASK_C }), []);
-    assert.deepEqual(port.readDirtyWorktreeCollisions?.({ paths: ["packages/demo/src/*.ts"] }), []);
+    assert.deepEqual(
+      { scanned: scan?.scannedWorktrees, notScanned: scan?.notScannedWorktrees },
+      { scanned: 2, notScanned: 0 },
+    );
+    assert.deepEqual(port.readDirtyWorktreeCollisions?.({ paths: [TARGET], excludeTaskId: TASK_C }), {
+      collisions: [],
+      scannedWorktrees: 1,
+      notScannedWorktrees: 0,
+      truncated: false,
+    });
+    assert.deepEqual(port.readDirtyWorktreeCollisions?.({ paths: ["packages/demo/src/*.ts"] })?.collisions, []);
     assert.equal(git(unstaged, "rev-parse", "HEAD"), git(dir, "rev-parse", "HEAD"));
+  });
+});
+
+test("dirty worktree scan prioritizes the most recently active worktree and reports the unscanned remainder", () => {
+  withDir((dir) => {
+    git(dir, "init", "-q", "-b", "main");
+    write(dir, TARGET, "export const a = 1;\n");
+    git(dir, "add", "-A");
+    git(dir, "commit", "-q", "-m", "chore: seed");
+    const managedRoot = path.join(dir, ".worktrees");
+    mkdirSync(managedRoot);
+    let lastWorktree = "";
+    for (let index = 0; index < 33; index++) {
+      const taskId = `task_${index.toString(16).padStart(26, "0")}`,
+        worktree = path.join(managedRoot, taskId);
+      git(dir, "worktree", "add", "-q", "--detach", worktree, "HEAD");
+      lastWorktree = worktree;
+    }
+    write(lastWorktree, TARGET, "export const a = 2;\n");
+    const recent = new Date(Date.now() + 60_000);
+    utimesSync(lastWorktree, recent, recent);
+
+    const scan = makeWorkspaceGitHistoryPort(dir).readDirtyWorktreeCollisions?.({ paths: [TARGET] });
+    assert.ok(scan);
+    assert.equal(scan.scannedWorktrees, 32);
+    assert.equal(scan.notScannedWorktrees, 1);
+    assert.equal(scan.truncated, true);
+    assert.deepEqual(scan.collisions, [{ taskId: path.basename(lastWorktree), tracePaths: [TARGET] }]);
   });
 });

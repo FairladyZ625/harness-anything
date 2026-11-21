@@ -4,7 +4,7 @@ import test from "node:test";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 
-test("ha trace sends the raw path and --limit before or after it on the shared repo.task.read method", () => {
+test("ha trace sends the raw path and --limit before or after it on the repo.trace.read method", () => {
   for (const argv of [
     ["trace", "packages\\daemon\\src\\x.ts", "--limit", "15", "--json"],
     ["trace", "--limit", "15", "packages\\daemon\\src\\x.ts"],
@@ -12,7 +12,7 @@ test("ha trace sends the raw path and --limit before or after it on the shared r
     const parsed = parseThinCommand(argv);
     assert.equal(parsed.ok, true, JSON.stringify(parsed));
     if (!parsed.ok) continue;
-    assert.equal(parsed.command.method, "repo.task.read");
+    assert.equal(parsed.command.method, "repo.trace.read");
     assert.deepEqual(parsed.command.action, { kind: "trace", path: "packages\\daemon\\src\\x.ts", limit: 15 });
   }
   const bare = parseThinCommand(["trace", "tools/gates/cost-budget.json"]);
@@ -121,6 +121,13 @@ test("ha trace renders history, redlines with whyNot, anchored facts, collisions
     /\[4\] Active Branch Collisions \(1\)\n {2}• task_cccccccccccccccccccccccccc \[active\]/u,
   );
   assert.doesNotMatch(rendered.text, /Git history unavailable/u);
+  const truncated = renderCliReceipt(
+    receipt({
+      ...evidence,
+      worktreeScan: { scannedWorktrees: 32, notScannedWorktrees: 3, truncated: true },
+    }),
+  );
+  assert.match(truncated.text, /! Dirty worktree scan incomplete: 3 managed worktrees were not scanned\./u);
   const offline = renderCliReceipt(
     receipt({
       ...evidence,

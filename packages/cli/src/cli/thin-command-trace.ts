@@ -73,6 +73,11 @@ interface TracePayload {
     readonly commits?: number;
     readonly matchReason?: "branch_diff" | "worktree_dirty";
   }[];
+  readonly worktreeScan?: {
+    readonly scannedWorktrees?: number;
+    readonly notScannedWorktrees?: number;
+    readonly truncated?: boolean;
+  };
 }
 
 function tracePayload(receipt: Record<string, unknown>): TracePayload | null {
@@ -143,6 +148,10 @@ export function renderTraceReceipt(receipt: Record<string, unknown>): string | n
   const lines = [`=== Causal Trace: ${data.path} (cut: rev ${String(data.projectionCut?.sourceRevision ?? "?")}) ===`];
   if (data.git?.availability === "unavailable")
     lines.push(`! Git history unavailable (${data.git.reason ?? "unknown"}): ${data.git.message ?? ""}`);
+  if (data.worktreeScan?.truncated === true)
+    lines.push(
+      `! Dirty worktree scan incomplete: ${String(data.worktreeScan.notScannedWorktrees ?? 0)} managed worktrees were not scanned.`,
+    );
   lines.push(
     ...renderTraceTouches(data.touchHistory ?? []),
     ...renderTraceDecisions(data.decisions ?? []),

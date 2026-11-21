@@ -1129,7 +1129,9 @@ test("every repo-read protocol command resolves through the execution request pr
     const kind = "actionKind" in command ? command.actionKind : command.id,
       params = {
         repo: { repoId: worker.repoId },
-        payload: command.method === "repo.task.run" || command.method === "repo.task.read" ? { action: { kind } } : {},
+        payload: ["repo.task.run", "repo.task.read", "repo.trace.read"].includes(command.method)
+          ? { action: { kind } }
+          : {},
       };
     // CH2 (dec_CF96A3C910B31D2D7498F32DDD): a task-bound worker keeps every repository read.
     assert.doesNotThrow(() => requireExecutionRequestScope(worker, command.method, params), command.method);

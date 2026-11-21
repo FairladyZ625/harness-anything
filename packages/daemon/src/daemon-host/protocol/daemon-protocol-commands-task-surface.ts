@@ -889,7 +889,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       "Trace one repository path back to the ledger: first-parent merges that touched it and their Tasks, " +
       "governing Decisions with rejected redlines (whyNot), Facts anchored to it, and unmerged task branches " +
       "that also change it. --limit is 1–200 commits (default 20). Center cells without a Git worktree report git unavailable.",
-    method: "repo.task.read",
+    method: "repo.trace.read",
     positional: "path",
     positionalInputs: [{ name: "<path>", pathKind: "non-path", pathReader: "none" }],
     inputs: [

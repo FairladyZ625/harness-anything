@@ -12,6 +12,7 @@ import {
   type GitHistoryPort,
   type PassiveTraceSelection,
   type TraceWorktreeCollision,
+  type TraceWorktreeCollisionScan,
 } from "@harness-anything/application/internal/queries/file-trace-read.ts";
 
 /**
@@ -403,7 +404,25 @@ function passiveTraceLines(passive: PassiveTraceSelection): { priority: DetailLi
         `<anchored ref="${fact.ref}" trace-path="${tracePath(fact.tracePaths)}">${xmlText(fact.summary)} (src:${xmlText(fact.evidenceSource)})</anchored>`,
       ),
     );
-  return { priority: [...priority, ...collisionLines(passive.collisions)], tail };
+  return {
+    priority: [...worktreeScanWarning(passive.worktreeScan), ...priority, ...collisionLines(passive.collisions)],
+    tail,
+  };
+}
+
+function worktreeScanWarning(
+  scan: Pick<TraceWorktreeCollisionScan, "notScannedWorktrees" | "truncated">,
+): DetailLine[] {
+  if (!scan.truncated) return [];
+  const ref = "worktree-scan";
+  return [
+    detail(
+      ref,
+      `<warning ref="${ref}" not-scanned="${String(scan.notScannedWorktrees)}">` +
+        `Dirty worktree scan was truncated. ${String(scan.notScannedWorktrees)} managed worktrees were not scanned.` +
+        "</warning>",
+    ),
+  ];
 }
 
 function collisionLines(collisions: readonly (TraceWorktreeCollision & { matchReason?: string })[]): DetailLine[] {
@@ -420,12 +439,9 @@ function collisionLines(collisions: readonly (TraceWorktreeCollision & { matchRe
 }
 
 /** Edge dispatch receives canonical causal prose from the center, then adds edge-local Git evidence. */
-export function withLocalWorktreeCollisions(
-  context: string | null,
-  collisions: readonly TraceWorktreeCollision[],
-): string | null {
-  if (collisions.length === 0) return context;
-  const warnings = collisionLines(collisions),
+export function withLocalWorktreeCollisions(context: string | null, scan: TraceWorktreeCollisionScan): string | null {
+  if (scan.collisions.length === 0 && !scan.truncated) return context;
+  const warnings = [...worktreeScanWarning(scan), ...collisionLines(scan.collisions)],
     end = context?.indexOf(`\n${ROOT_CLOSE}`) ?? -1;
   if (end < 0 || context === null || !/^<task-context(?: truncated="yes")?>\n/u.test(context)) {
     const block = renderWithinBudget(warnings, [...new Set(warnings.map(({ ref }) => ref))], null);
@@ -449,8 +465,9 @@ export function withLocalWorktreeCollisions(
       return ref === undefined ? [] : [detail(ref, line)];
     }),
     details = [
+      ...worktreeScanWarning(scan),
       ...kept.filter(({ line }) => line.startsWith("<redline ")),
-      ...warnings,
+      ...warnings.filter(({ line }) => !line.startsWith("<warning ")),
       ...kept.filter(({ line }) => !line.startsWith("<redline ")),
     ],
     block = renderWithinBudget(

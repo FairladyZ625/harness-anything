@@ -60,7 +60,9 @@ async function fixture(t: test.TestContext) {
         descriptor.method,
         {
           repo: { repoId },
-          payload: ["repo.task.run", "repo.task.read"].includes(descriptor.method) ? { action } : payload,
+          payload: ["repo.task.run", "repo.task.read", "repo.trace.read"].includes(descriptor.method)
+            ? { action }
+            : payload,
         },
         5_000,
         30_000,

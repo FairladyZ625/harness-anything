@@ -1409,6 +1409,11 @@
             "task-dispatches-page"
           ]
         },
+        "method:repo.trace.read": {
+          "measurements": [
+            "cli-trace"
+          ]
+        },
         "method:repo.task.show": {
           "measurements": [
             "repo.task.show"
