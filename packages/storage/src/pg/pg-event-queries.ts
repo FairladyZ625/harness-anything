@@ -176,11 +176,13 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
         const filterSql =
           filter === "control_request"
             ? " AND (event_type IN ('runtime_cancel_requested', 'runtime_steer_requested') OR (event_type = 'runtime_session_liveness_changed' AND event_json::jsonb -> 'payload' ? 'controlRequest'))"
-            : filter === "control_receipt"
-              ? " AND event_type = 'runtime_session_liveness_changed' AND event_json::jsonb -> 'payload' ? 'controlReceipt'"
-              : filter === "applied_steer_receipt"
-                ? " AND event_type = 'runtime_session_liveness_changed' AND event_json::jsonb -> 'payload' -> 'controlReceipt' ->> 'status' = 'applied' AND event_json::jsonb -> 'payload' -> 'controlReceipt' ? 'steerVersion'"
-                : "";
+            : filter === "cancel_control_request"
+              ? " AND (event_type = 'runtime_cancel_requested' OR (event_type = 'runtime_session_liveness_changed' AND event_json::jsonb -> 'payload' -> 'controlRequest' ->> 'action' = 'cancel'))"
+              : filter === "control_receipt"
+                ? " AND event_type = 'runtime_session_liveness_changed' AND event_json::jsonb -> 'payload' ? 'controlReceipt'"
+                : filter === "applied_steer_receipt"
+                  ? " AND event_type = 'runtime_session_liveness_changed' AND event_json::jsonb -> 'payload' -> 'controlReceipt' ->> 'status' = 'applied' AND event_json::jsonb -> 'payload' -> 'controlReceipt' ? 'steerVersion'"
+                  : "";
         const rows = windowed
           ? await readEventRowsInTransaction(
               client,

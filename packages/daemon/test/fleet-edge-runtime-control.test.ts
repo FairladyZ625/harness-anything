@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -14,11 +14,32 @@ import {
   type RuntimeSession,
 } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import {
+  appendDispatchStreamRecord,
   appendRuntimeWorkerRecord,
+  archiveDispatchStream,
+  countActiveDispatchStreams,
   dispatchStreamPath,
+  findLiveDispatchStreamPath,
   openDispatchStream,
+  parseRecord,
+  readRuntimeWorkerChunk,
 } from "../src/daemon-host/dispatch-stream.ts";
-import { readRuntimeSteerVersion } from "../src/daemon-host/runtime-steer-target.ts";
+import {
+  advanceDispatchControlCursor,
+  hasPendingSteerReceipts,
+  markSteerReceiptAcked,
+  prepareDispatchSteerAppend,
+  readAllPendingSteerReceipts,
+  readDispatchControlCursor,
+  reconcileDispatchSteerStateFromStream,
+  recordPendingSteerReceipt,
+  steerReceiptOpId,
+} from "../src/daemon-host/dispatch-steer-state.ts";
+import {
+  findRuntimeSteerHeader,
+  readRuntimeSteerVersion,
+  runtimeSteerTarget,
+} from "../src/daemon-host/runtime-steer-target.ts";
 import {
   createFleetEdgeRuntimeControlConsumer,
   type RemoteRuntimeControlEvent,
@@ -250,7 +271,7 @@ test("F3: canonical opId deduplication executes independent sessions/actions sha
     active = new Set([sessionA, sessionB]),
     executed: string[] = [];
   const events: RemoteRuntimeControlEvent[] = [
-    // Same client controlRequestId="shared-key" used for steer on sessionA, cancel on sessionA, and steer on sessionB.
+    // Same client controlRequestId="shared-key" used for steer on sessionA, steer on sessionB, and later cancel on sessionA.
     livenessSteerControlEvent({
       runtimeSessionId: sessionA,
       controlRequestId: "shared-key",
@@ -281,13 +302,6 @@ test("F3: canonical opId deduplication executes independent sessions/actions sha
       prompt: "Steer B",
       workspaceRevision: 23,
     }),
-    // Same client key for cancel on sessionA must ALSO execute!
-    livenessCancelControlEvent({
-      runtimeSessionId: sessionA,
-      controlRequestId: "shared-key",
-      opId: "runtime-cancel-req-session-a-shared",
-      workspaceRevision: 24,
-    }),
   ];
   const reader = makePagedReader(events);
   const consumer = createFleetEdgeRuntimeControlConsumer({
@@ -307,6 +321,16 @@ test("F3: canonical opId deduplication executes independent sessions/actions sha
     },
   });
 
+  await consumer.drain();
+  // Same client key for cancel on sessionA arriving in the next round must ALSO execute!
+  events.push(
+    livenessCancelControlEvent({
+      runtimeSessionId: sessionA,
+      controlRequestId: "shared-key",
+      opId: "runtime-cancel-req-session-a-shared",
+      workspaceRevision: 24,
+    }),
+  );
   await consumer.drain();
   assert.deepEqual(executed, [
     `steer:${sessionA}:shared-key:Steer A`,
@@ -803,7 +827,7 @@ test("F4: readRuntimeSteerVersion reads O(1) sidecar without scanning multi-MB d
   assert.deepEqual([...seen], ["steer-op-1", "steer-op-2"]);
 });
 
-test("F5: late controlReceipt on exited session preserves liveness=exited and pending rejection receipts replay after exit", async () => {
+test("F11/F14: reduceRuntimeSession matches N-1 bb7e55c90 (throws after exit) and pending rejections replay after exit", async () => {
   const exitedSession: RuntimeSession = {
     ...baseSession(),
     liveness: "exited",
@@ -832,10 +856,8 @@ test("F5: late controlReceipt on exited session preserves liveness=exited and pe
       },
     },
   };
-  const reduced = reduceRuntimeSession(exitedSession, lateReceiptEvent);
-  assert.notEqual(reduced, exitedSession, "late controlReceipt must be persisted instead of no_changes");
-  assert.equal(reduced?.liveness, "exited", "late controlReceipt must never reopen exited liveness");
-  assert.equal(reduced?.attachable, false);
+  // F11: Both N-1 (bb7e55c90) and N reducers forbid runtime_session_liveness_changed after exit.
+  assert.throws(() => reduceRuntimeSession(exitedSession, lateReceiptEvent), /already exited/u);
 
   // Verify pending rejection receipt replays even after session becomes inactive.
   const active = new Set([exitedSession.runtimeSessionId]);
@@ -873,4 +895,371 @@ test("F5: late controlReceipt on exited session preserves liveness=exited and pe
   assert.equal(reportCalls, 2);
   await consumer.drain();
   assert.equal(reportCalls, 2, "acknowledged rejection receipt must not replay again");
+});
+
+test("F4: bounded pending receipt index and O(1) direct header resolution never open archived or foreign dispatch streams", (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-f4-bounded-index-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  // Seed 25 archived dispatch streams; make one archived file unreadable (0o000) to prove zero archive reads!
+  let unreadableArchivePath = "";
+  for (let i = 0; i < 25; i += 1) {
+    const id = `dispatch_${String(i).padStart(24, "0")}`;
+    openDispatchStream(rootDir, {
+      dispatchId: id,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId: `runtime_${String(i).padStart(24, "0")}`,
+      instanceId: "inst-1",
+      startedAt: "2026-11-21T02:00:00.000Z",
+    });
+    archiveDispatchStream(rootDir, id);
+    if (i === 12) {
+      unreadableArchivePath = dispatchStreamPath(rootDir, id);
+      chmodSync(unreadableArchivePath, 0o000);
+      t.after(() => {
+        if (existsSync(unreadableArchivePath)) chmodSync(unreadableArchivePath, 0o600);
+      });
+    }
+  }
+  assert.equal(countActiveDispatchStreams(rootDir), 0, "archived streams must not count as active");
+  assert.equal(hasPendingSteerReceipts(rootDir), false, "empty pending receipt index must be O(1) false");
+  assert.deepEqual(readAllPendingSteerReceipts(rootDir), []);
+
+  // Create one live target + 10 non-target active streams; make a non-target active stream unreadable (0o000)
+  // to prove direct O(1) resolution never enumerates or reads unrelated active streams.
+  const targetDispatchId = "dispatch_ffffffffffffffffffffffff",
+    targetSessionId = "runtime_ffffffffffffffffffffffff";
+  openDispatchStream(rootDir, {
+    dispatchId: targetDispatchId,
+    taskId: null,
+    executionId: null,
+    runtimeSessionId: targetSessionId,
+    instanceId: "inst-1",
+    startedAt: "2026-11-21T02:05:00.000Z",
+  });
+  let unreadableActivePath = "";
+  for (let i = 0; i < 10; i += 1) {
+    const otherId = `dispatch_${String(100 + i).padStart(24, "0")}`;
+    openDispatchStream(rootDir, {
+      dispatchId: otherId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId: `runtime_${String(100 + i).padStart(24, "0")}`,
+      instanceId: "inst-1",
+      startedAt: "2026-11-21T02:05:00.000Z",
+    });
+    if (i === 5) {
+      unreadableActivePath = dispatchStreamPath(rootDir, otherId);
+      chmodSync(unreadableActivePath, 0o000);
+      t.after(() => {
+        if (existsSync(unreadableActivePath)) chmodSync(unreadableActivePath, 0o600);
+      });
+    }
+  }
+
+  assert.equal(countActiveDispatchStreams(rootDir), 1);
+  assert.ok(findLiveDispatchStreamPath(rootDir, targetDispatchId) !== null);
+  assert.equal(findLiveDispatchStreamPath(rootDir, "dispatch_000000000000000000000001"), null);
+
+  const header = findRuntimeSteerHeader(
+    rootDir,
+    { runtimeSessionId: targetSessionId },
+    { knownDispatchId: targetDispatchId, skipLeafScan: true },
+  );
+  assert.equal(header?.dispatchId, targetDispatchId);
+  const target = runtimeSteerTarget(rootDir, "repo-f4", header!, "running", undefined, targetDispatchId);
+  assert.equal(target.leafDispatchId, targetDispatchId);
+  assert.equal(target.version, 0);
+
+  // Record a pending receipt on an archived dispatch and verify O(1) index lookup + ack cleanup.
+  const archivedDispatchId = "dispatch_000000000000000000000003",
+    archivedSessionId = "runtime_000000000000000000000003";
+  const rcptOpId = recordPendingSteerReceipt(rootDir, archivedDispatchId, "repo-f4", archivedSessionId, {
+    status: "rejected",
+    controlRequestId: "ctrl-archived-1",
+    requestOpId: "op-archived-1",
+    reasonCode: "runtime_steer_target_changed",
+  });
+  assert.equal(rcptOpId, steerReceiptOpId("repo-f4", archivedSessionId, "op-archived-1"));
+  assert.equal(hasPendingSteerReceipts(rootDir), true);
+  assert.equal(readAllPendingSteerReceipts(rootDir).length, 1);
+  markSteerReceiptAcked(rootDir, archivedDispatchId, "repo-f4", archivedSessionId, rcptOpId);
+  assert.equal(hasPendingSteerReceipts(rootDir), false);
+  assert.deepEqual(readAllPendingSteerReceipts(rootDir), []);
+});
+
+test("F12: unified durable controlCursorRevision survives daemon restart across >512 steers and recovers stream/sidecar crashes", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-f12-restart-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const dispatchId = "dispatch_121212121212121212121212",
+    runtimeSessionId = "runtime_121212121212121212121212";
+  openDispatchStream(rootDir, {
+    dispatchId,
+    taskId: null,
+    executionId: null,
+    runtimeSessionId,
+    instanceId: "inst-1",
+    startedAt: "2026-11-21T02:00:00.000Z",
+  });
+
+  // Part A: Process 600 (>512) remote steers on one session, then restart consumer from scratch!
+  const allEvents: RemoteRuntimeControlEvent[] = [];
+  for (let i = 1; i <= 600; i += 1) {
+    allEvents.push(
+      livenessSteerControlEvent({
+        runtimeSessionId,
+        dispatchId,
+        controlRequestId: `ctrl-${i}`,
+        opId: `op-steer-${i}`,
+        prompt: `Steer #${i}`,
+        workspaceRevision: i,
+      }),
+    );
+  }
+  const executedFirst: string[] = [];
+  const consumer1 = createFleetEdgeRuntimeControlConsumer({
+    nodeId: () => "node-a",
+    activeRuntimeSessionIds: () => [runtimeSessionId],
+    isRuntimeActive: (id) => id === runtimeSessionId,
+    readDurableCursor: () => readDispatchControlCursor(rootDir, dispatchId),
+    advanceDurableCursor: (_sid, rev) => advanceDispatchControlCursor(rootDir, dispatchId, rev),
+    readControlEventsPage: async (sid, afterRevision, limit) => {
+      const page = allEvents
+        .filter((e) => e.payload.runtimeSessionId === sid && e.workspaceRevision > afterRevision)
+        .slice(0, limit);
+      return { events: page, scannedToRevision: page.length < limit ? 600 : page.at(-1)!.workspaceRevision };
+    },
+    executeCancel: async () => undefined,
+    executeSteer: async (req) => {
+      executedFirst.push(req.opId);
+    },
+    schedule: async (work) => {
+      await work();
+    },
+    pageLimit: 64,
+    maxPagesPerDrain: 16,
+  });
+  for (let round = 0; round < 12 && executedFirst.length < 600; round += 1) {
+    await consumer1.drain();
+  }
+  assert.equal(executedFirst.length, 600);
+  assert.equal(readDispatchControlCursor(rootDir, dispatchId), 600);
+
+  // Restart with a fresh consumer (empty in-memory completedOpIds & scanCursorBySession):
+  // ZERO of the 600 earlier steers may be re-read or re-delivered!
+  const executedAfterRestart: string[] = [];
+  const seenAfterRevisions: number[] = [];
+  const consumer2 = createFleetEdgeRuntimeControlConsumer({
+    nodeId: () => "node-a",
+    activeRuntimeSessionIds: () => [runtimeSessionId],
+    isRuntimeActive: (id) => id === runtimeSessionId,
+    readDurableCursor: () => readDispatchControlCursor(rootDir, dispatchId),
+    advanceDurableCursor: (_sid, rev) => advanceDispatchControlCursor(rootDir, dispatchId, rev),
+    readControlEventsPage: async (sid, afterRevision, limit) => {
+      seenAfterRevisions.push(afterRevision);
+      const page = allEvents
+        .filter((e) => e.payload.runtimeSessionId === sid && e.workspaceRevision > afterRevision)
+        .slice(0, limit);
+      return { events: page, scannedToRevision: 600 };
+    },
+    executeCancel: async () => undefined,
+    executeSteer: async (req) => {
+      executedAfterRestart.push(req.opId);
+    },
+    schedule: async (work) => {
+      await work();
+    },
+  });
+  await consumer2.drain();
+  assert.deepEqual(seenAfterRevisions, [600], "restarted consumer must resume strictly at durable cursor 600");
+  assert.deepEqual(executedAfterRestart, [], "zero earlier steers may re-execute after restart (>512 opIds)");
+
+  // Part B: Crash between write-ahead prepare + stream append and sidecar commit!
+  const streamPath = dispatchStreamPath(rootDir, dispatchId);
+  prepareDispatchSteerAppend(rootDir, dispatchId, {
+    opId: "op-crash-wal-1",
+    version: 1,
+    streamOffsetBefore: 0,
+  });
+  appendDispatchStreamRecord(streamPath, {
+    kind: "steer_requested",
+    opId: "op-crash-wal-1",
+    runtimeSessionId,
+    version: 1,
+    prompt: "Written right before crash",
+  });
+  // Without calling recordDispatchSteerRequest, readRuntimeSteerVersion must detect pendingAppend and reconcile!
+  const seenAfterWalCrash = new Set<string>();
+  const recoveredVersion1 = readRuntimeSteerVersion(rootDir, dispatchId, seenAfterWalCrash);
+  assert.equal(recoveredVersion1, 1);
+  assert.equal(seenAfterWalCrash.has("op-crash-wal-1"), true);
+
+  // Part C: Unprepared crash (raw stream append leaving stale valid sidecar) reconciled on daemon adoption!
+  appendDispatchStreamRecord(streamPath, {
+    kind: "steer_requested",
+    opId: "op-crash-tail-2",
+    runtimeSessionId,
+    version: 2,
+    prompt: "Raw append before crash",
+  });
+  const reconciled = reconcileDispatchSteerStateFromStream(
+    rootDir,
+    dispatchId,
+    streamPath,
+    readRuntimeWorkerChunk,
+    parseRecord,
+    { forceTailScan: true },
+  );
+  assert.equal(reconciled?.version, 2);
+  assert.equal(reconciled?.opIds.includes("op-crash-tail-2"), true);
+});
+
+test("F13: full page of deferred steers never blocks or starves a subsequent cancel event (with SQLite partial index)", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-f13-cancel-priority-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  execFileSync("git", ["-C", rootDir, "init", "-q"]);
+  execFileSync("git", ["-C", rootDir, "config", "user.name", "Runtime Test"]);
+  execFileSync("git", ["-C", rootDir, "config", "user.email", "runtime@example.invalid"]);
+  execFileSync("git", ["-C", rootDir, "commit", "--allow-empty", "-qm", "base"]);
+  const repoId = "f13-repo",
+    sessionId = "runtime_131313131313131313131313",
+    store = makeTaskEventStore({ rootDir, repoId }),
+    projection = makeTaskProjection({ rootDir, eventStore: store });
+  t.after(async () => {
+    projection.close();
+    await store.drain();
+  });
+  let rev = 1;
+  const appendEvent = (event: Omit<AgentRuntimeEventV1, "workspaceRevision">) => {
+    const full = { ...event, workspaceRevision: rev } as AgentRuntimeEventV1;
+    store.append({
+      event: full,
+      plan: canonicalEventWritePlan(full, "agent-runtime/v1", full.opId),
+      blobs: [],
+    });
+    rev += 1;
+  };
+  appendEvent({
+    schema: "agent-runtime-event/v1",
+    eventId: "evt-start",
+    opId: "op-start",
+    type: "runtime_session_started",
+    actor,
+    source: { kind: "node", nodeId: "node-a" },
+    occurredAt: "2026-11-21T02:00:00.000Z",
+    payload: {
+      runtimeSessionId: sessionId,
+      instanceId: "inst-1",
+      installationId: "install-1",
+      kindId: "codex",
+      definitionSnapshotRef: `artifact:runtime-definition/sha256/${"a".repeat(64)}`,
+      launchGeneration: 1,
+      attachable: true,
+    },
+  });
+  // Persist 10 steers (exceeding pageLimit=4) followed by 1 cancel at rev 12.
+  for (let i = 1; i <= 10; i += 1) {
+    appendEvent({
+      schema: "agent-runtime-event/v1",
+      eventId: `evt-steer-${i}`,
+      opId: `op-steer-${i}`,
+      type: "runtime_session_liveness_changed",
+      actor,
+      source: "local",
+      occurredAt: "2026-11-21T02:00:01.000Z",
+      payload: {
+        runtimeSessionId: sessionId,
+        liveness: "live",
+        controlRequest: {
+          action: "steer",
+          controlRequestId: `ctrl-steer-${i}`,
+          targetNodeId: "node-a",
+          dispatchId: "dispatch_131313131313131313131313",
+          prompt: `Deferred steer ${i}`,
+        },
+      },
+    });
+  }
+  appendEvent({
+    schema: "agent-runtime-event/v1",
+    eventId: "evt-cancel-after-full-page",
+    opId: "op-cancel-after-full-page",
+    type: "runtime_session_liveness_changed",
+    actor,
+    source: "local",
+    occurredAt: "2026-11-21T02:00:02.000Z",
+    payload: {
+      runtimeSessionId: sessionId,
+      liveness: "live",
+      controlRequest: {
+        action: "cancel",
+        controlRequestId: "ctrl-cancel-urgent",
+        targetNodeId: "node-a",
+      },
+    },
+  });
+  projection.catchUp();
+
+  // Verify SQLite uses event_index_runtime_cancel_control for cancel_control_request filter!
+  const db = new DatabaseSync(projection.path, { readOnly: true });
+  t.after(() => db.close());
+  const cancelPlan = db
+    .prepare(
+      "EXPLAIN QUERY PLAN SELECT event_json FROM event_index WHERE workspace_revision > ? AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.payload.runtimeSessionId') = ? AND (json_extract(event_json, '$.type') = 'runtime_cancel_requested' OR (json_extract(event_json, '$.type') = 'runtime_session_liveness_changed' AND json_extract(event_json, '$.payload.controlRequest.action') = 'cancel')) ORDER BY workspace_revision ASC LIMIT ?",
+    )
+    .all(0, sessionId, 1) as { detail: string }[];
+  assert.ok(
+    cancelPlan.some((row) => row.detail.includes("event_index_runtime_cancel_control")),
+    `expected event_index_runtime_cancel_control partial index, got: ${JSON.stringify(cancelPlan)}`,
+  );
+
+  const active = new Set([sessionId]);
+  const executionOrder: string[] = [];
+  const consumer = createFleetEdgeRuntimeControlConsumer({
+    nodeId: () => "node-a",
+    activeRuntimeSessionIds: () => [...active],
+    isRuntimeActive: (id) => active.has(id),
+    readControlEventsPage: async (sid, afterRevision, limit) => {
+      const cut = projection.readCut();
+      const events = projection.readRuntimeSessionEventsByType(
+        sid,
+        ["runtime_session_liveness_changed", "runtime_cancel_requested", "runtime_steer_requested"],
+        { afterRevision, limit, filter: "control_request" },
+      ) as readonly RemoteRuntimeControlEvent[];
+      const maxRev = events.reduce((highest, event) => Math.max(highest, event.workspaceRevision), afterRevision);
+      return { events, scannedToRevision: events.length < limit ? Math.max(maxRev, cut.watermark) : maxRev };
+    },
+    readCancelControlEvent: async (sid, afterRevision) => {
+      const cut = projection.readCut();
+      const events = projection.readRuntimeSessionEventsByType(
+        sid,
+        ["runtime_session_liveness_changed", "runtime_cancel_requested"],
+        { afterRevision, limit: 1, filter: "cancel_control_request" },
+      ) as readonly RemoteRuntimeControlEvent[];
+      const event = events[0] ?? null;
+      return { event, scannedToRevision: event ? event.workspaceRevision : cut.watermark };
+    },
+    executeCancel: async (req) => {
+      executionOrder.push(`cancel:${req.controlRequestId}`);
+      active.delete(req.runtimeSessionId);
+    },
+    executeSteer: async (req) => {
+      executionOrder.push(`steer:${req.controlRequestId}`);
+      throw Object.assign(new Error("still unavailable"), { code: "runtime_steer_unavailable" });
+    },
+    schedule: async (work) => {
+      await work();
+    },
+    pageLimit: 4,
+    maxPagesPerDrain: 1,
+  });
+
+  // Drain 1 saturates deferredSteers (4 steers == pageLimit), yet MUST immediately discover and execute cancel FIRST!
+  await consumer.drain();
+  assert.equal(
+    active.has(sessionId),
+    false,
+    "cancel must terminate session immediately despite full page of deferred steers",
+  );
+  assert.equal(executionOrder[0], "cancel:ctrl-cancel-urgent", "cancel must execute before deferred steers");
 });

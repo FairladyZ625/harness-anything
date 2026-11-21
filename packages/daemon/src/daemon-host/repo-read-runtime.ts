@@ -209,6 +209,8 @@ export function makeRepoReadRuntime(
         activeRuntimeSessionIds: () => [],
         activeRuntimeCount: () => 0,
         isRuntimeActive: () => false,
+        activeDispatchId: () => null,
+        activeRuntimeForSelector: () => null,
         flushPendingSteerReceipts: unsupportedWrite,
         isIdle: unsupportedWrite,
         close: unsupportedWrite,

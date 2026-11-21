@@ -214,6 +214,17 @@ const RUNTIME_SESSION_CONTROL_REQUESTS_SQL = (order: "ASC" | "DESC") =>
     "AND json_extract(event_json, '$.payload.controlRequest') IS NOT NULL))",
     `ORDER BY workspace_revision ${order} LIMIT ?`,
   ].join(" ");
+const RUNTIME_SESSION_CANCEL_CONTROL_REQUESTS_SQL = (order: "ASC" | "DESC") =>
+  [
+    "SELECT event_json FROM event_index",
+    "WHERE workspace_revision > ?",
+    "AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+    "AND json_extract(event_json, '$.payload.runtimeSessionId') = ?",
+    "AND (json_extract(event_json, '$.type') = 'runtime_cancel_requested'",
+    "OR (json_extract(event_json, '$.type') = 'runtime_session_liveness_changed'",
+    "AND json_extract(event_json, '$.payload.controlRequest.action') = 'cancel'))",
+    `ORDER BY workspace_revision ${order} LIMIT ?`,
+  ].join(" ");
 const RUNTIME_SESSION_CONTROL_RECEIPTS_SQL = (order: "ASC" | "DESC", appliedSteerOnly: boolean) =>
   [
     "SELECT event_json FROM event_index",
@@ -596,6 +607,14 @@ export function repositoryEventQueries(
                 return queryRows(
                   db,
                   RUNTIME_SESSION_CONTROL_REQUESTS_SQL(order),
+                  afterRevision,
+                  runtimeSessionIdValue,
+                  limit,
+                );
+              if (filter === "cancel_control_request")
+                return queryRows(
+                  db,
+                  RUNTIME_SESSION_CANCEL_CONTROL_REQUESTS_SQL(order),
                   afterRevision,
                   runtimeSessionIdValue,
                   limit,

@@ -287,6 +287,16 @@ export const REPOSITORY_READ_TABLES_SQL = `
           AND json_extract(event_json, '$.payload.controlRequest') IS NOT NULL
         )
       );
+    CREATE INDEX IF NOT EXISTS event_index_runtime_cancel_control ON event_index(
+      json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision
+    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+      AND (
+        json_extract(event_json, '$.type') = 'runtime_cancel_requested'
+        OR (
+          json_extract(event_json, '$.type') = 'runtime_session_liveness_changed'
+          AND json_extract(event_json, '$.payload.controlRequest.action') = 'cancel'
+        )
+      );
     CREATE INDEX IF NOT EXISTS event_index_runtime_control_receipt ON event_index(
       json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision DESC
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'

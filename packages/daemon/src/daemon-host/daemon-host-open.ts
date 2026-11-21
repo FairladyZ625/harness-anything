@@ -747,7 +747,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           result =
             operation === "reconcile"
               ? (await runtime.reconcile(requestAuth.connectionSignal), { outcome: "applied" })
-              : await runtime.run(payload.method, payload.action, requestAuth);
+              : await runtime.run(payload.method, payload.action, requestAuth.connectionSignal);
         return request.decorate ? request.decorate(payload, result) : result;
       },
     }) as Promise<JsonObject | null>;

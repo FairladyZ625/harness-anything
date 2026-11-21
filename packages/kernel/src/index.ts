@@ -8,6 +8,7 @@ export {
   runtimeArchiveText,
   runtimeDefinitionSnapshotArtifact,
   runtimeEventContentClaims,
+  runtimeSessionAcceptsLivenessEvent,
   runtimeSessionInActivityWindow,
   runtimeSessionMissingOutcomeEvidence,
   sessionProvenance,
