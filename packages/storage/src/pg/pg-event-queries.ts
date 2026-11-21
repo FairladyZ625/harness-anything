@@ -206,13 +206,9 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
           predicateValues.push(maxRevision);
         }
         if (filter === "control_request") {
-          predicates.push(
-            "(event_type IN ('runtime_cancel_requested', 'runtime_steer_requested') OR (event_type = 'runtime_session_liveness_changed' AND event_json::jsonb -> 'payload' ? 'controlRequest'))",
-          );
+          predicates.push("event_schema = 'agent-runtime-event/v1' AND runtime_control_kind IS NOT NULL");
         } else if (filter === "cancel_control_request") {
-          predicates.push(
-            "(event_type = 'runtime_cancel_requested' OR (event_type = 'runtime_session_liveness_changed' AND event_json::jsonb -> 'payload' -> 'controlRequest' ->> 'action' = 'cancel'))",
-          );
+          predicates.push("event_schema = 'agent-runtime-event/v1' AND runtime_control_kind = 'cancel'");
         } else if (filter === "control_receipt") {
           if (requestOpId !== null) {
             predicates.push(
