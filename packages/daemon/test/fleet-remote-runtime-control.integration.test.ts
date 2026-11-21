@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { performance } from "node:perf_hooks";
 import path from "node:path";
 import test from "node:test";
 import { hydrateReplicaSeed, openReplicaProjection, openSqliteEventStore } from "@harness-anything/storage";
@@ -687,6 +688,7 @@ test(
       );
     });
 
+    const remoteCancelStartedAt = performance.now();
     const cliCancelA = await invokeEdgeBCli(["runtime", "cancel", sessionA]);
     assert.equal(cliCancelA.code, 0, JSON.stringify(cliCancelA));
     assert.equal(cliCancelA.receipt.ok, true, JSON.stringify(cliCancelA.receipt));
@@ -717,6 +719,9 @@ test(
       localAuth,
     );
     assert.equal(sessionAAfter.session?.activity.outcome, "cancelled", JSON.stringify(sessionAAfter));
+    const remoteCancelLatencyMs = Math.round(performance.now() - remoteCancelStartedAt);
+    assert.ok(remoteCancelLatencyMs <= 10_000, `remote cancel took ${remoteCancelLatencyMs}ms; expected <=10000ms`);
+    console.log(`remote-cancel-e2e-latency-ms=${remoteCancelLatencyMs}`);
 
     // Verify Edge B replicated the same cut and did NOT touch its own sessionB.
     await waitForDurableCondition(async () => {
