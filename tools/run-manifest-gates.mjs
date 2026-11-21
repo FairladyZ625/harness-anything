@@ -10,6 +10,7 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { availableParallelism } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { readTestQuarantine } from "./test-quarantine.mjs";
@@ -521,8 +522,22 @@ export function runCommandAsync(
 }
 
 const runManifestGate = (entry) => runCommand(entry.id, entry.command, entry.failureHint, { input: entry.input });
-const runManifestGateAsync = (entry, githubGroups = false) =>
-  runCommandAsync(entry.id, entry.command, entry.failureHint, { githubGroups, input: entry.input });
+const runManifestGateAsync = (entry, githubGroups = false) => {
+  const concurrency = entry.authorizationAuditConcurrency;
+  if (concurrency === undefined) {
+    return runCommandAsync(entry.id, entry.command, entry.failureHint, { githubGroups, input: entry.input });
+  }
+
+  const variable = "HARNESS_AUTH_AUDIT_CONCURRENCY";
+  const previous = process.env[variable];
+  process.env[variable] = String(concurrency);
+  try {
+    return runCommandAsync(entry.id, entry.command, entry.failureHint, { githubGroups, input: entry.input });
+  } finally {
+    if (previous === undefined) delete process.env[variable];
+    else process.env[variable] = previous;
+  }
+};
 
 /**
  * Run every gate in the plan and decide the aggregate verdict only at the end.
@@ -564,18 +579,38 @@ export function runManifestGatePlan(plan, { execute, stopOnFailure = false, gith
  * @param {any[]} plan
  * @param {{ execute?: typeof runManifestGateAsync, concurrency?: number, githubGroups?: boolean }} [options]
  */
-export async function runManifestGatePlanParallel(plan, { execute, concurrency = 1, githubGroups = false } = {}) {
+export function authorizationGateConcurrencyForPool(gateConcurrency, cpuCount = availableParallelism()) {
+  const activeGates = Math.max(1, Math.floor(gateConcurrency));
+  return Math.max(1, Math.min(4, Math.floor(cpuCount / activeGates) - 1));
+}
+
+export async function runManifestGatePlanParallel(
+  plan,
+  { execute, concurrency = 1, cpuCount = availableParallelism(), githubGroups = false } = {},
+) {
   const run = execute ?? ((entry) => runManifestGateAsync(entry, githubGroups));
   const results = new Array(plan.length);
   let nextIndex = 0;
   const workerCount = Math.min(Math.max(1, concurrency), plan.length);
+  const authorizationWorkerCap = authorizationGateConcurrencyForPool(workerCount, cpuCount);
+
+  function entryForPool(entry) {
+    if (entry.id !== "ontology-durable-action-authorization" || workerCount < 2) return entry;
+    const inheritedCap = process.env.HARNESS_AUTH_AUDIT_CONCURRENCY;
+    const concurrencyCap =
+      inheritedCap === undefined ? authorizationWorkerCap : Math.min(Number(inheritedCap), authorizationWorkerCap);
+    return {
+      ...entry,
+      authorizationAuditConcurrency: concurrencyCap,
+    };
+  }
 
   async function worker() {
     while (true) {
       const index = nextIndex;
       nextIndex += 1;
       if (index >= plan.length) return;
-      const entry = plan[index];
+      const entry = entryForPool(plan[index]);
       try {
         results[index] = { id: entry.id, ...(await run(entry)) };
       } catch (error) {

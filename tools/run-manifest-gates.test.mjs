@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { commitAll, makeRepo, runGit, writeRepoFile } from "./gates/test/helpers.mjs";
 import {
+  authorizationGateConcurrencyForPool,
   buildManifestGatePlan,
   commandForPlatformShell,
   parseManifestGateArgs,
@@ -251,6 +252,63 @@ test("manifest gate runner keeps a bounded pool and reports every failure in pla
   );
   assert.deepEqual(result.failedGateIds, ["b"]);
   assert.equal(maxActive, 2);
+});
+
+test("parallel gate pool budgets authorization workers against the outer pool", async () => {
+  const captured = [];
+  const plan = [
+    { id: "ontology-durable-action-authorization" },
+    ...Array.from({ length: 5 }, (_, index) => ({ id: `gate-${index}` })),
+  ];
+  const result = await runManifestGatePlanParallel(plan, {
+    concurrency: 6,
+    cpuCount: 8,
+    execute: (entry) => {
+      captured.push(entry);
+      return { ok: true };
+    },
+  });
+
+  assert.deepEqual(result.failedGateIds, []);
+  assert.equal(authorizationGateConcurrencyForPool(6, 8), 1);
+  assert.equal(
+    captured.find((entry) => entry.id === "ontology-durable-action-authorization").authorizationAuditConcurrency,
+    1,
+  );
+  assert.equal(captured.find((entry) => entry.id === "gate-0").authorizationAuditConcurrency, undefined);
+});
+
+test("parallel gate pool exposes the auth cap only to the authorization child", async () => {
+  const variable = "HARNESS_AUTH_AUDIT_CONCURRENCY";
+  const previous = process.env[variable];
+  const output = [];
+  const originalLog = console.log;
+  const originalError = console.error;
+  process.env[variable] = "4";
+  console.log = (...args) => output.push(args.join(" "));
+  console.error = (...args) => output.push(args.join(" "));
+  const command = `node -e "process.stdout.write('GATE_CAP=' + (process.env.${variable} || 'unset'))"`;
+  try {
+    const result = await runManifestGatePlanParallel(
+      [
+        { id: "ontology-durable-action-authorization", command },
+        ...Array.from({ length: 5 }, (_, index) => ({ id: `other-${index}`, command })),
+      ],
+      { concurrency: 6, cpuCount: 8 },
+    );
+    assert.deepEqual(result.failedGateIds, []);
+  } finally {
+    console.log = originalLog;
+    console.error = originalError;
+    if (previous === undefined) delete process.env[variable];
+    else process.env[variable] = previous;
+  }
+
+  assert.ok(
+    output.some((line) => line === "GATE_CAP=1"),
+    output.join("\n"),
+  );
+  assert.equal(output.filter((line) => line === "GATE_CAP=4").length, 5, output.join("\n"));
 });
 
 test("manifest gate runner appends shard args only to shardable gates", () => {
