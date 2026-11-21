@@ -243,7 +243,8 @@ test("changed static plans pass the exact path set only to the durable authoriza
   );
 });
 
-test("whole static selection keeps all 51 gates and forwards the merge-base plus worktree paths only to auth", () => {
+// dec_88CAA23DE4907261D7ECB107ED/CH1 adds check-ontology-facets to the whole static set.
+test("whole static selection keeps all 52 gates and forwards the merge-base plus worktree paths only to auth", () => {
   const { rootDir, base } = makeRepo({
     "tracked.ts": "export const original = true;\n",
     "delete-me.ts": "export const remove = true;\n",
@@ -273,7 +274,7 @@ test("whole static selection keeps all 51 gates and forwards the merge-base plus
     "untracked.ts",
   ];
 
-  assert.equal(plan.length, 51);
+  assert.equal(plan.length, 52);
   const manifestCommand = FULL_MANIFEST.gates.find((gate) => gate.id === authorization.id).command;
   assert.equal(authorization.command, `${manifestCommand} --changed-files-stdin`);
   assert.deepEqual(JSON.parse(authorization.input), expectedPaths);
@@ -297,7 +298,7 @@ test("whole static selection falls back to full auth when the base is missing or
   ).command;
 
   const missingBase = selectLocalGateChecks(FULL_MANIFEST, { changedPaths: null, repoRoot: rootDir });
-  assert.equal(missingBase.length, 51);
+  assert.equal(missingBase.length, 52);
   assert.equal(
     missingBase.find((entry) => entry.id === "ontology-durable-action-authorization").command,
     authorizationCommand,
@@ -316,7 +317,7 @@ test("whole static selection falls back to full auth when the base is missing or
   );
 
   const fullAuth = selectLocalGateChecks(FULL_MANIFEST, { changedPaths: null, repoRoot: rootDir, fullAuth: true });
-  assert.equal(fullAuth.length, 51);
+  assert.equal(fullAuth.length, 52);
   assert.equal(
     fullAuth.find((entry) => entry.id === "ontology-durable-action-authorization").command,
     authorizationCommand,
@@ -330,7 +331,7 @@ test("whole static selection falls back to full auth when the base is missing or
     encoding: "utf8",
   });
   assert.equal(listed.status, 0, listed.stderr);
-  assert.match(listed.stdout, /whole static set\): 51 gate\(s\)/u);
+  assert.match(listed.stdout, /whole static set\): 52 gate\(s\)/u);
   assert.match(listed.stdout, /Authorization proof scope: full proof/u);
   assert.ok(
     !listed.stdout
