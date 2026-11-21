@@ -6,17 +6,23 @@ Expand the name of the chart.
 {{- end }}
 
 {{/*
-Create a collision-free, release-unique fully qualified base name (<= 51 chars when default, <= 63 chars with fullnameOverride).
-Every default release embeds an 8-char sha256 discriminator of .Release.Name so distinct releases
-(e.g. "prod" vs "prod-harness-center" vs "prod-harness-center-metrics" or 53-char siblings) never collide.
+Create a collision-resistant, RFC 1035 DNS-label compliant fully qualified base name (<= 52 chars when default, <= 63 chars with fullnameOverride).
+Every default release sanitizes non-DNS-label characters (including dots in Helm DNS-subdomain release names),
+ensures an ASCII alphabetic leading character (prepending "ha-" when a release starts with a digit), and embeds a 16-char (64-bit)
+sha256 discriminator of the raw .Release.Name so distinct releases (including "team.prod" vs "team-prod", "7center",
+"prod" vs "prod-harness-center", and 53-char siblings) produce valid RFC 1035 Service names with 64-bit collision resistance.
 */}}
 {{- define "harness-center.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
 {{- $name := default .Chart.Name .Values.nameOverride }}
-{{- $releaseHash := .Release.Name | sha256sum | trunc 8 }}
-{{- $prefix := printf "%s-%s" .Release.Name $name | trunc 42 | trimSuffix "-" }}
+{{- $releaseHash := .Release.Name | sha256sum | trunc 16 }}
+{{- $sanitized := printf "%s-%s" .Release.Name $name | lower | regexReplaceAll "[^a-z0-9-]+" "-" | trimAll "-" }}
+{{- if not (regexMatch "^[a-z]" $sanitized) }}
+{{- $sanitized = printf "ha-%s" $sanitized | trimSuffix "-" }}
+{{- end }}
+{{- $prefix := $sanitized | trunc 35 | trimSuffix "-" }}
 {{- printf "%s-%s" $prefix $releaseHash }}
 {{- end }}
 {{- end }}
@@ -49,65 +55,69 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-Dedicated Fleet TLS Service name with explicit -fleet role suffix so Fleet, Metrics (-metrics),
-and Headless (-headless) Services are pairwise disjoint across all releases and overrides.
+Dedicated Fleet TLS Service name with explicit -fleet role suffix (RFC 1035 DNS label, <= 63 chars)
+so Fleet, Metrics (-metrics), and Headless (-headless) Services are pairwise disjoint across all releases and overrides.
 */}}
 {{- define "harness-center.fleetServiceName" -}}
 {{- $full := include "harness-center.fullname" . -}}
 {{- if le (len $full) 57 -}}
 {{- printf "%s-fleet" $full -}}
 {{- else -}}
-{{- printf "%s-%s-fleet" ($full | trunc 48 | trimSuffix "-") ($full | sha256sum | trunc 8) -}}
+{{- printf "%s-%s-fleet" ($full | trunc 40 | trimSuffix "-") ($full | sha256sum | trunc 16) -}}
 {{- end -}}
 {{- end }}
 
 {{/*
 Dedicated in-cluster Metrics Service name (always ClusterIP, never shared with external Fleet exposure).
-Truncates before appending the suffix and hashes long fullnames so Fleet, metrics, and headless Services never collide.
+Truncates before appending the suffix and hashes long fullnames (64-bit) so Fleet, metrics, and headless Services never collide.
 */}}
 {{- define "harness-center.metricsServiceName" -}}
 {{- $full := include "harness-center.fullname" . -}}
 {{- if le (len $full) 55 -}}
 {{- printf "%s-metrics" $full -}}
 {{- else -}}
-{{- printf "%s-%s-metrics" ($full | trunc 46 | trimSuffix "-") ($full | sha256sum | trunc 8) -}}
+{{- printf "%s-%s-metrics" ($full | trunc 38 | trimSuffix "-") ($full | sha256sum | trunc 16) -}}
 {{- end -}}
 {{- end }}
 
 {{/*
 Governing headless Service name for StatefulSet stable pod DNS.
-Truncates before appending the suffix and hashes long fullnames to remain <= 63 chars and collision-free.
+Truncates before appending the suffix and hashes long fullnames (64-bit) to remain <= 63 chars and RFC 1035 compliant.
 */}}
 {{- define "harness-center.headlessServiceName" -}}
 {{- $full := include "harness-center.fullname" . -}}
 {{- if le (len $full) 54 -}}
 {{- printf "%s-headless" $full -}}
 {{- else -}}
-{{- printf "%s-%s-headless" ($full | trunc 45 | trimSuffix "-") ($full | sha256sum | trunc 8) -}}
+{{- printf "%s-%s-headless" ($full | trunc 37 | trimSuffix "-") ($full | sha256sum | trunc 16) -}}
 {{- end -}}
 {{- end }}
 
 {{/*
-Entrypoint ConfigMap name bounded to 63 chars even for maximum-length release names.
+Entrypoint ConfigMap name bounded to 63 chars even for maximum-length release names or fullnameOverrides.
 */}}
 {{- define "harness-center.entrypointConfigMapName" -}}
 {{- $full := include "harness-center.fullname" . -}}
 {{- if le (len $full) 52 -}}
 {{- printf "%s-entrypoint" $full -}}
 {{- else -}}
-{{- printf "%s-%s-entrypoint" ($full | trunc 43 | trimSuffix "-") ($full | sha256sum | trunc 8) -}}
+{{- printf "%s-%s-entrypoint" ($full | trunc 35 | trimSuffix "-") ($full | sha256sum | trunc 16) -}}
 {{- end -}}
 {{- end }}
 
 {{/*
-Render-time validation enforcing single-writer topology, required PostgreSQL Secret wiring,
-persistent storage for SQLite workloads, distinct Fleet vs metrics container ports,
-disjoint userRoot vs authorityRepoRoot mounts, metrics auth Secret key completeness,
+Render-time validation enforcing single-writer topology, RFC 1035 fullnameOverride compliance,
+required PostgreSQL Secret wiring, persistent storage for SQLite and Fleet-enabled workloads,
+paired Fleet & external OIDC configuration completeness, distinct Fleet vs metrics container ports,
+POSIX-normalized disjoint userRoot vs authorityRepoRoot mounts, metrics auth Secret key completeness,
 and strict ASCII non-conflicting Prometheus scrape path.
 */}}
 {{- define "harness-center.validateValues" -}}
 {{- if ne (int .Values.replicaCount) 1 }}
 {{- fail "harness-center requires replicaCount=1 (single authority writer topology; multiple replicas fence on PostgreSQL or split SQLite state)." }}
+{{- end }}
+{{- if and .Values.fullnameOverride (not (regexMatch "^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$" .Values.fullnameOverride)) }}
+{{- fail (printf "fullnameOverride %q must be a valid RFC 1035 DNS label (^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$) so rendered Kubernetes Service names are accepted." .Values.fullnameOverride) }}
 {{- end }}
 {{- if and (eq .Values.storage.backend "postgres") (not .Values.storage.existingSecret) }}
 {{- fail "storage.existingSecret is required when storage.backend=postgres so daemon-storage.json is mounted and never falls back to local SQLite." }}
@@ -115,11 +125,32 @@ and strict ASCII non-conflicting Prometheus scrape path.
 {{- if and (eq .Values.storage.backend "sqlite") (eq .Values.workloadKind "Deployment") (not .Values.persistence.enabled) }}
 {{- fail "storage.backend=sqlite requires persistent storage: set workloadKind=StatefulSet or persistence.enabled=true on Deployment so Pod replacement does not lose the SQLite ledger." }}
 {{- end }}
+{{- if and .Values.fleet.enabled (eq .Values.workloadKind "Deployment") (not .Values.persistence.enabled) }}
+{{- fail "fleet.enabled=true requires persistent storage: set workloadKind=StatefulSet or persistence.enabled=true on Deployment so Pod replacement preserves <userRoot>/fleet/state.json and staged Fleet uploads/claims." }}
+{{- end }}
+{{- if .Values.fleet.enabled }}
+{{- if and .Values.fleet.authorityRepoId (not .Values.fleet.tlsExistingSecret) }}
+{{- fail "fleet.tlsExistingSecret is required when fleet.authorityRepoId is set (incomplete Fleet TLS listener configuration)." }}
+{{- end }}
+{{- if and .Values.fleet.tlsExistingSecret (not .Values.fleet.authorityRepoId) }}
+{{- fail "fleet.authorityRepoId is required when fleet.tlsExistingSecret is set (incomplete Fleet TLS listener configuration)." }}
+{{- end }}
+{{- end }}
+{{- if eq .Values.identity.mode "external" }}
+{{- if and .Values.identity.issuerUrl (not .Values.identity.existingClientSecret) }}
+{{- fail "identity.existingClientSecret is required when identity.mode=external and identity.issuerUrl is set (incomplete external OIDC configuration)." }}
+{{- end }}
+{{- if and .Values.identity.existingClientSecret (not .Values.identity.issuerUrl) }}
+{{- fail "identity.issuerUrl is required when identity.mode=external and identity.existingClientSecret is set (incomplete external OIDC configuration)." }}
+{{- end }}
+{{- end }}
 {{- if and .Values.fleet.enabled .Values.metrics.enabled (eq (int .Values.fleet.port) (int .Values.metrics.port)) }}
 {{- fail (printf "fleet.port (%d) and metrics.port (%d) must be distinct when both fleet.enabled and metrics.enabled are true so the Fleet Service cannot forward to the plaintext metrics HTTP listener or collide on container bind." (int .Values.fleet.port) (int .Values.metrics.port)) }}
 {{- end }}
-{{- if and .Values.fleet.enabled (eq (trimSuffix "/" .Values.daemon.userRoot) (trimSuffix "/" .Values.fleet.authorityRepoRoot)) }}
-{{- fail (printf "fleet.authorityRepoRoot (%q) must not equal daemon.userRoot (%q)." .Values.fleet.authorityRepoRoot .Values.daemon.userRoot) }}
+{{- $userRootClean := clean .Values.daemon.userRoot -}}
+{{- $repoRootClean := clean .Values.fleet.authorityRepoRoot -}}
+{{- if and .Values.fleet.enabled (or (eq $userRootClean $repoRootClean) (hasPrefix (printf "%s/" $userRootClean) $repoRootClean) (hasPrefix (printf "%s/" $repoRootClean) $userRootClean)) }}
+{{- fail (printf "fleet.authorityRepoRoot (%q -> %q) and daemon.userRoot (%q -> %q) must be disjoint normalized absolute paths." .Values.fleet.authorityRepoRoot $repoRootClean .Values.daemon.userRoot $userRootClean) }}
 {{- end }}
 {{- if .Values.metrics.enabled }}
 {{- $mpath := trim .Values.metrics.path }}

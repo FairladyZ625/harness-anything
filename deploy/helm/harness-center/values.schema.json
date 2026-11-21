@@ -37,12 +37,20 @@
         "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
       }
     },
+    "fullnameOverride": {
+      "type": "string",
+      "pattern": "^$|^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$"
+    },
     "daemon": {
       "type": "object",
       "required": ["id", "userRoot", "entrypoint", "cliEntrypoint"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
-        "userRoot": { "type": "string", "pattern": "^/" },
+        "userRoot": {
+          "type": "string",
+          "pattern": "^/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$",
+          "not": { "pattern": "(?:^|/)\\.\\.?(?:/|$)" }
+        },
         "entrypoint": { "type": "string", "pattern": "^/" },
         "cliEntrypoint": { "type": "string", "pattern": "^/" },
         "extraEnv": { "type": "array" }
@@ -83,7 +91,39 @@
         "clientSecretKey": { "type": "string", "minLength": 1 },
         "extraCaCertConfigMap": { "type": "string" },
         "extraCaCertKey": { "type": "string", "minLength": 1 }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": { "const": "external" },
+              "issuerUrl": { "type": "string", "minLength": 1 }
+            },
+            "required": ["mode", "issuerUrl"]
+          },
+          "then": {
+            "required": ["existingClientSecret"],
+            "properties": {
+              "existingClientSecret": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": { "const": "external" },
+              "existingClientSecret": { "type": "string", "minLength": 1 }
+            },
+            "required": ["mode", "existingClientSecret"]
+          },
+          "then": {
+            "required": ["issuerUrl"],
+            "properties": {
+              "issuerUrl": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      ]
     },
     "fleet": {
       "type": "object",
@@ -94,12 +134,48 @@
         "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
         "externalUrl": { "type": "string" },
         "authorityRepoId": { "type": "string" },
-        "authorityRepoRoot": { "type": "string", "pattern": "^/" },
+        "authorityRepoRoot": {
+          "type": "string",
+          "pattern": "^/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$",
+          "not": { "pattern": "(?:^|/)\\.\\.?(?:/|$)" }
+        },
         "quotaBytes": { "type": "integer", "minimum": 1 },
         "tlsExistingSecret": { "type": "string" },
         "tlsCertKey": { "type": "string", "minLength": 1 },
         "tlsKeyKey": { "type": "string", "minLength": 1 }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": { "const": true },
+              "authorityRepoId": { "type": "string", "minLength": 1 }
+            },
+            "required": ["enabled", "authorityRepoId"]
+          },
+          "then": {
+            "required": ["tlsExistingSecret"],
+            "properties": {
+              "tlsExistingSecret": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "enabled": { "const": true },
+              "tlsExistingSecret": { "type": "string", "minLength": 1 }
+            },
+            "required": ["enabled", "tlsExistingSecret"]
+          },
+          "then": {
+            "required": ["authorityRepoId"],
+            "properties": {
+              "authorityRepoId": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      ]
     },
     "metrics": {
       "type": "object",
@@ -182,6 +258,27 @@
           }
         },
         "required": ["workloadKind", "storage"]
+      },
+      "then": {
+        "properties": {
+          "persistence": {
+            "properties": { "enabled": { "const": true } },
+            "required": ["enabled"]
+          }
+        },
+        "required": ["persistence"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "workloadKind": { "const": "Deployment" },
+          "fleet": {
+            "properties": { "enabled": { "const": true } },
+            "required": ["enabled"]
+          }
+        },
+        "required": ["workloadKind", "fleet"]
       },
       "then": {
         "properties": {

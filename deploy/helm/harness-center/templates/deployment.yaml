@@ -102,9 +102,10 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
+            # Mount daemon.userRoot at PVC root (preserving pre-release PVC layout for registry.json, rbac/, fleet/state.json)
+            # and isolate fleet.authorityRepoRoot under subPath: authority-repo on the same persistent volume.
             - name: daemon-state
               mountPath: {{ .Values.daemon.userRoot | quote }}
-              subPath: user
             {{- if .Values.fleet.enabled }}
             - name: daemon-state
               mountPath: {{ .Values.fleet.authorityRepoRoot | quote }}

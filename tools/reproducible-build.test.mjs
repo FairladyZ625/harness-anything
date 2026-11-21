@@ -675,7 +675,7 @@ test("buildReproducibleBundle refuses protected paths, arbitrary non-bundle dire
       /Refusing to replace Git checkout directory/u,
     );
 
-    // 4. --archive placed inside --out directory is refused before writing or replacing
+    // 4. --archive placed inside --out directory (including dot-prefixed filenames like ..archive.tar.gz and symlinked parent aliases) is refused before writing or replacing
     await assert.rejects(
       () =>
         buildReproducibleBundle({
@@ -688,11 +688,105 @@ test("buildReproducibleBundle refuses protected paths, arbitrary non-bundle dire
         }),
       /Refusing overlapping --archive/u,
     );
+    await assert.rejects(
+      () =>
+        buildReproducibleBundle({
+          repository: dir,
+          revision: commit,
+          outputDir: cleanOutDir,
+          archivePath: path.join(cleanOutDir, "..archive.tar.gz"),
+          targetWorkspaces: ["@repro/sample"],
+          dependencyMode: "none",
+        }),
+      /Refusing overlapping --archive/u,
+    );
     assert.equal(
       lstatSync(cleanOutDir, { throwIfNoEntry: false }),
       undefined,
       "rejected overlapping --archive/--out must not create partial output",
     );
+
+    // 5. F-G7-34: Symlinked parent directory aliasing --out must also be rejected as overlapping --archive
+    mkdirSync(cleanOutDir, { recursive: true });
+    const symlinkAlias = path.join(sandbox, "out-alias");
+    symlinkSync(cleanOutDir, symlinkAlias, process.platform === "win32" ? "junction" : "dir");
+    await assert.rejects(
+      () =>
+        buildReproducibleBundle({
+          repository: dir,
+          revision: commit,
+          outputDir: cleanOutDir,
+          archivePath: path.join(symlinkAlias, "bundle.tar.gz"),
+          targetWorkspaces: ["@repro/sample"],
+          dependencyMode: "none",
+        }),
+      /Refusing overlapping --archive/u,
+    );
+
+    // 6. F-G7-34: Shallow/empty build-manifest.json alongside unmanaged files or empty subdirectories must fail strict verification before replacement
+    const shallowManifestDir = path.join(sandbox, "shallow-manifest");
+    mkdirSync(shallowManifestDir, { recursive: true });
+    const retainedFile = path.join(shallowManifestDir, "retained-artifact.txt");
+    writeFileSync(retainedFile, "must-not-be-deleted\n");
+    writeFileSync(
+      path.join(shallowManifestDir, "build-manifest.json"),
+      JSON.stringify({ schema: "harness-anything/reproducible-build-manifest/v1", fileCount: 0, files: [] }),
+    );
+    await assert.rejects(
+      () =>
+        buildReproducibleBundle({
+          repository: dir,
+          revision: commit,
+          outputDir: shallowManifestDir,
+          targetWorkspaces: ["@repro/sample"],
+          dependencyMode: "none",
+        }),
+      /without a valid harness-anything\/reproducible-build-manifest\/v1 build-manifest\.json verification/u,
+    );
+    assert.equal(
+      readFileSync(retainedFile, "utf8"),
+      "must-not-be-deleted\n",
+      "refused shallow-manifest replacement must preserve unmanaged files",
+    );
+
+    // 7. F-G7-34: Real built bundle with an added unmanaged file or empty subdirectory must refuse replacement and preserve unmanaged content
+    const dirtyBundleDir = path.join(sandbox, "dirty-bundle");
+    await buildReproducibleBundle({
+      repository: dir,
+      revision: commit,
+      outputDir: dirtyBundleDir,
+      targetWorkspaces: ["@repro/sample"],
+      dependencyMode: "none",
+    });
+    const extraNotes = path.join(dirtyBundleDir, "operator-notes.txt");
+    writeFileSync(extraNotes, "keep-me\n");
+    await assert.rejects(
+      () =>
+        buildReproducibleBundle({
+          repository: dir,
+          revision: commit,
+          outputDir: dirtyBundleDir,
+          targetWorkspaces: ["@repro/sample"],
+          dependencyMode: "none",
+        }),
+      /unexpected extra file: operator-notes\.txt/u,
+    );
+    assert.equal(readFileSync(extraNotes, "utf8"), "keep-me\n");
+    rmSync(extraNotes, { force: true });
+    const extraEmptyDir = path.join(dirtyBundleDir, "unmanaged-empty-dir");
+    mkdirSync(extraEmptyDir, { recursive: true });
+    await assert.rejects(
+      () =>
+        buildReproducibleBundle({
+          repository: dir,
+          revision: commit,
+          outputDir: dirtyBundleDir,
+          targetWorkspaces: ["@repro/sample"],
+          dependencyMode: "none",
+        }),
+      /unmanaged directories/u,
+    );
+    assert.equal(lstatSync(extraEmptyDir).isDirectory(), true);
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });

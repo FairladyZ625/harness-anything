@@ -18,9 +18,9 @@ import {
   readdirSync,
   readFileSync,
   readlinkSync,
+  realpathSync,
   renameSync,
   rmSync,
-  statSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
@@ -256,27 +256,67 @@ export function createDeterministicTarGz(rootDir, options = {}) {
   return gzipped;
 }
 
-function isSameOrWithinPath(candidatePath, basePath) {
-  const rel = path.relative(basePath, candidatePath);
-  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+function resolvePathWithExistingRealpath(targetPath) {
+  const resolved = path.resolve(targetPath);
+  const tailSegments = [];
+  let cursor = resolved;
+  while (!lstatSync(cursor, { throwIfNoEntry: false })) {
+    const parent = path.dirname(cursor);
+    if (parent === cursor) break;
+    tailSegments.unshift(path.basename(cursor));
+    cursor = parent;
+  }
+  try {
+    const realCursor = realpathSync(cursor);
+    return tailSegments.length > 0 ? path.join(realCursor, ...tailSegments) : realCursor;
+  } catch {
+    return resolved;
+  }
 }
 
-function readBundleManifestMarker(directory) {
-  const manifestPath = path.join(directory, "build-manifest.json");
-  const stat = lstatSync(manifestPath, { throwIfNoEntry: false });
-  if (!stat || !stat.isFile()) return null;
-  try {
-    const parsed = JSON.parse(readFileSync(manifestPath, "utf8"));
-    return parsed &&
-      typeof parsed === "object" &&
-      !Array.isArray(parsed) &&
-      parsed.schema === REPRODUCIBLE_BUILD_MANIFEST_SCHEMA &&
-      Array.isArray(parsed.files)
-      ? parsed
-      : null;
-  } catch {
-    return null;
+function isSameOrWithinResolved(candidatePath, basePath) {
+  const rel = path.relative(basePath, candidatePath);
+  if (rel === "") return true;
+  if (path.isAbsolute(rel)) return false;
+  return rel !== ".." && !rel.startsWith(`..${path.sep}`) && !rel.startsWith("../");
+}
+
+function isSameOrWithinPath(candidatePath, basePath) {
+  const lexicalCandidate = path.resolve(candidatePath);
+  const lexicalBase = path.resolve(basePath);
+  if (isSameOrWithinResolved(lexicalCandidate, lexicalBase)) return true;
+  const canonicalCandidate = resolvePathWithExistingRealpath(lexicalCandidate);
+  const canonicalBase = resolvePathWithExistingRealpath(lexicalBase);
+  return isSameOrWithinResolved(canonicalCandidate, canonicalBase);
+}
+
+function findUnexpectedDirectories(rootDir, manifestFiles) {
+  const allowedDirs = new Set([""]);
+  for (const entry of manifestFiles) {
+    if (!entry || typeof entry.path !== "string") continue;
+    let dir = path.posix.dirname(entry.path);
+    while (dir && dir !== ".") {
+      allowedDirs.add(dir);
+      dir = path.posix.dirname(dir);
+    }
   }
+  const unexpected = [];
+  const walk = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const fullPath = path.join(directory, entry.name);
+      const stat = lstatSync(fullPath);
+      if (stat.isDirectory()) {
+        const rel = path.relative(rootDir, fullPath).split(path.sep).join("/");
+        if (!allowedDirs.has(rel)) {
+          unexpected.push(rel);
+        } else {
+          walk(fullPath);
+        }
+      }
+    }
+  };
+  walk(rootDir);
+  return unexpected;
 }
 
 function prepareDeliverableTargetPath(outDir, options = {}) {
@@ -311,10 +351,19 @@ function prepareDeliverableTargetPath(outDir, options = {}) {
       throw new Error(`Refusing to replace Git checkout directory as --out target: ${targetDir}`);
     }
     const entries = readdirSync(targetDir);
-    if (entries.length > 0 && readBundleManifestMarker(targetDir) === null) {
-      throw new Error(
-        `Refusing to replace existing non-empty directory without a valid ${REPRODUCIBLE_BUILD_MANIFEST_SCHEMA} build-manifest.json: ${targetDir}`,
-      );
+    if (entries.length > 0) {
+      const verified = verifyBuildManifest({ bundleDir: targetDir });
+      if (!verified.ok) {
+        throw new Error(
+          `Refusing to replace existing non-empty directory without a valid ${REPRODUCIBLE_BUILD_MANIFEST_SCHEMA} build-manifest.json verification: ${targetDir} (${verified.errors.slice(0, 3).join("; ")})`,
+        );
+      }
+      const unexpectedDirs = findUnexpectedDirectories(targetDir, verified.verifiedFiles ?? []);
+      if (unexpectedDirs.length > 0) {
+        throw new Error(
+          `Refusing to replace existing non-empty directory containing unmanaged directories outside ${REPRODUCIBLE_BUILD_MANIFEST_SCHEMA} build-manifest.json: ${targetDir} (${unexpectedDirs.slice(0, 3).join(", ")})`,
+        );
+      }
     }
   }
   return targetDir;
@@ -700,24 +749,44 @@ export function verifyBuildManifest(options) {
   const manifestPath = path.resolve(options.manifestPath ?? path.join(bundleDir, "build-manifest.json"));
   const errors = [];
 
-  if (!existsSync(manifestPath) || !statSync(manifestPath).isFile()) {
+  const manifestStat = lstatSync(manifestPath, { throwIfNoEntry: false });
+  if (!manifestStat || !manifestStat.isFile()) {
     return { ok: false, errors: [`Missing build manifest: ${manifestPath}`] };
   }
 
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  if (manifest?.schema !== REPRODUCIBLE_BUILD_MANIFEST_SCHEMA) {
-    errors.push(`Unsupported build manifest schema: ${String(manifest?.schema)}`);
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  } catch (error) {
+    return {
+      ok: false,
+      errors: [`Invalid JSON in build manifest: ${error instanceof Error ? error.message : String(error)}`],
+    };
   }
-  if (!Array.isArray(manifest?.files)) {
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+    return { ok: false, errors: ["Build manifest must be a JSON object."] };
+  }
+  if (manifest.schema !== REPRODUCIBLE_BUILD_MANIFEST_SCHEMA) {
+    errors.push(`Unsupported build manifest schema: ${String(manifest.schema)}`);
+  }
+  if (!Array.isArray(manifest.files)) {
     errors.push("Build manifest files array is missing.");
     return { ok: false, errors };
   }
 
   // Delivered bundles must be walked strictly with zero ignored directory segments (e.g. injected node_modules/.git).
-  const actual = computeDirectoryManifest(bundleDir, {
-    ignoreFiles: ["build-manifest.json"],
-    ignoredSegments: [],
-  });
+  let actual;
+  try {
+    actual = computeDirectoryManifest(bundleDir, {
+      ignoreFiles: ["build-manifest.json"],
+      ignoredSegments: [],
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      errors: [`Failed to inspect bundle directory: ${error instanceof Error ? error.message : String(error)}`],
+    };
+  }
   const expectedMap = new Map();
   for (const entry of manifest.files) {
     if (!entry || typeof entry !== "object" || typeof entry.path !== "string" || entry.path.length === 0) {
@@ -790,6 +859,7 @@ export function verifyBuildManifest(options) {
     commit: manifest.commit ?? null,
     artifactDigest: actual.artifactDigest,
     fileCount: actual.fileCount,
+    verifiedFiles: actual.files,
     errors,
   };
 }

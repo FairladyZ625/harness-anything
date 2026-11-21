@@ -5,7 +5,7 @@ Harness Anything Center ({{ include "harness-center.fullname" . }}) deployed in 
    Mounts Secret {{ .Values.storage.existingSecret }} (key {{ .Values.storage.secretKey }}) at {{ .Values.daemon.userRoot }}/daemon-storage.json.
    start-center.sh verifies valid PostgreSQL connection strings before launch so the daemon never silently falls back to SQLite.
    {{- else }}
-   Uses local SQLite storage with PVC subPaths covering both {{ .Values.daemon.userRoot }} (subPath: user) and {{ .Values.fleet.authorityRepoRoot }} (subPath: authority-repo).
+   Uses local SQLite storage with persistent daemon-state PVC covering both {{ .Values.daemon.userRoot }} (PVC root) and {{ .Values.fleet.authorityRepoRoot }} (subPath: authority-repo).
    {{- end }}
 
 2. External OIDC / Keycloak identity:

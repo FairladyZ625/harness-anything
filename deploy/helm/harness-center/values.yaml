@@ -1,8 +1,9 @@
 # Generic production values for Harness Anything Center.
 # Designed for external PostgreSQL + external OIDC/Keycloak with no customer-specific coupling.
 
-# Select "Deployment" for stateless PostgreSQL-backed centers (materialize: false)
-# or "StatefulSet" when persistent per-pod storage is required.
+# Select "Deployment" (with persistence.enabled: true whenever fleet.enabled=true or storage.backend=sqlite;
+# persistence.enabled: false is only permitted for purely stateless PostgreSQL centers with fleet.enabled=false)
+# or "StatefulSet" when per-pod volumeClaimTemplates are preferred.
 # Single-authority writer topology requires replicaCount: 1.
 workloadKind: Deployment
 
@@ -127,8 +128,10 @@ probes:
     timeoutSeconds: 3
     failureThreshold: 24
 
+# Persistent volume for <userRoot> (registry.json, rbac/, fleet/state.json) and <authorityRepoRoot> (subPath: authority-repo).
+# Required whenever fleet.enabled=true or storage.backend=sqlite so Pod replacement never loses local Fleet upload/claim state or SQLite ledgers.
 persistence:
-  enabled: false
+  enabled: true
   storageClass: ""
   accessModes:
     - ReadWriteOnce

@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
@@ -16,6 +17,7 @@ import { sqliteLedgerPath } from "@harness-anything/storage";
 import { daemonPackageVersion } from "../src/daemon-host/build-identity.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { startDaemon } from "../src/daemon-host/runtime.ts";
+import { readDaemonLifecycleRecords } from "../src/daemon-host/lifecycle-log.ts";
 import { createDaemonHostLifecycleApi, createTrackedRepoMaps } from "../src/daemon-host/daemon-host-lifecycle-api.ts";
 import { openRepoCellProxy } from "../src/daemon-host/repo-cell-proxy.ts";
 import { saveFleetCenterConfig } from "../src/daemon-host/fleet-center-config.ts";
@@ -1238,6 +1240,470 @@ test(
     } finally {
       await pgHost.close();
       await localHost.close();
+      rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  },
+);
+
+test(
+  "in-flight Fleet RPC metrics stay decoupled from local activeRequests so build_superseded drains once fleetDrainDeadlineMs expires (F-G7-39)",
+  { timeout: 60_000 },
+  async () => {
+    const sandbox = mkdtempSync(path.join(tmpdir(), "ha-fleet-drain-decouple-"));
+    const userRoot = path.join(sandbox, "user");
+    const repoRoot = path.join(sandbox, "repo");
+    const keyPath = path.join(sandbox, "tls.key");
+    const certPath = path.join(sandbox, "tls.crt");
+    const repoId = "fleet-drain-repo";
+    const daemonId = "fleet-drain-daemon";
+    const endpoint = localUserDaemonEndpoint(userRoot, daemonId);
+    const closers: Array<() => unknown> = [];
+    let running: Awaited<ReturnType<typeof startDaemon>> | undefined;
+    let releaseRpc!: () => void;
+    try {
+      rosterRepo(repoRoot, repoId);
+      registerBootstrappedDaemonRepo({ canonicalRoot: repoRoot, repoId, userRoot, createConvenienceLinks: false });
+      execFileSync(
+        "openssl",
+        [
+          "req",
+          "-x509",
+          "-newkey",
+          "rsa:2048",
+          "-nodes",
+          "-keyout",
+          keyPath,
+          "-out",
+          certPath,
+          "-subj",
+          "/CN=localhost",
+          "-days",
+          "1",
+          "-addext",
+          "subjectAltName=DNS:localhost,IP:127.0.0.1",
+        ],
+        { stdio: "ignore" },
+      );
+      const probeServer = net.createServer();
+      await new Promise<void>((resolve) => probeServer.listen(0, "127.0.0.1", resolve));
+      const fleetPort = (probeServer.address() as net.AddressInfo).port;
+      await new Promise<void>((resolve) => probeServer.close(() => resolve()));
+
+      saveFleetCenterConfig(userRoot, daemonId, {
+        port: fleetPort,
+        bind: "127.0.0.1",
+        repoId,
+        keyPath,
+        certPath,
+        stateRoot: path.join(userRoot, "fleet"),
+        quotaBytes: 1024 * 1024,
+      });
+
+      let drifted = false;
+      const buildObserver = {
+        status: () => ({
+          entry: "runtime",
+          startedBuildId: "build-a",
+          diskBuildId: drifted ? "build-b" : "build-a",
+          drifted,
+          changedFiles: drifted ? ["runtime.js"] : [],
+          commit: "test-commit",
+        }),
+      };
+
+      const rpcEntered = Promise.withResolvers<void>();
+      const rpcGate = Promise.withResolvers<void>();
+      releaseRpc = rpcGate.resolve;
+      const supersededExited = Promise.withResolvers<void>();
+
+      const fakeOidc = {
+        configured: () => true,
+        centerConfigured: () => true,
+        center: async () => ({
+          url: "https://idp.example.invalid",
+          realm: "fleet",
+          accessToken: "center-tok",
+          provider: {
+            authenticateNode: async () => true,
+            readNode: async () => ({ state: "active", revocation: "complete", personId: "person-owner" }),
+            authorizePerson: async () => ({ outcome: "allowed" }),
+          },
+        }),
+        bind: async <T extends Record<string, unknown>>(auth: T) => ({
+          ...auth,
+          oidcPrincipal: {
+            personId: "person-owner",
+            accessToken: "human-tok",
+            azp: "harness-cli",
+            authority: { url: "https://idp.example.invalid", realm: "fleet" },
+            provider: {
+              authorizePerson: async () => ({ outcome: "allowed" }),
+            },
+          },
+        }),
+        discovery: () => null,
+        status: async () => ({ ok: true }),
+        bindingHealth: async () => ({ ok: true }),
+        logout: async () => ({ ok: true }),
+        bootstrapStatus: async () => ({ ok: true, required: false }),
+        interactiveAuthority: async () => ({ url: "https://idp.example.invalid", realm: "fleet", clientId: "ha" }),
+        begin: async () => ({}),
+        complete: async () => ({}),
+        beginDevice: async () => ({}),
+        deviceApproval: async () => ({}),
+        pollDevice: async () => ({}),
+        requireAccessManagement: async () => {
+          throw new Error("not used");
+        },
+        requireSession: async () => {
+          throw new Error("not used");
+        },
+        serialize: async <T>(op: () => Promise<T>) => op(),
+        configureAuthority: async <T>(op: () => Promise<T>) => op(),
+        bootstrapAdmin: async () => ({ ok: true }),
+        invite: async () => ({ ok: true }),
+      };
+
+      running = await startDaemon({
+        userRoot,
+        daemonId,
+        endpoint,
+        buildObserver: buildObserver as unknown as Parameters<typeof startDaemon>[0]["buildObserver"],
+        buildSupersessionEnabled: true,
+        fleetDrainDeadlineMs: 150,
+        onSupersededExit: () => {
+          supersededExited.resolve();
+        },
+        oidc: fakeOidc as unknown as Parameters<typeof startDaemon>[0]["oidc"],
+        openCell: async (cellInput) => {
+          const status = {
+            repoId: cellInput.repoId,
+            rootDir: cellInput.rootDir,
+            mode: cellInput.mode,
+            state: "attached" as const,
+            generation: 1,
+            queueDepth: 0,
+            projectionWatermark: 1,
+            ledgerRevision: 1,
+            lastError: null,
+            causeClass: null,
+            recoveryMs: 0,
+            materialization: null,
+          };
+          return {
+            status: () => status,
+            publishedStatus: () => status,
+            statusCuts: () => null,
+            read: async () => {
+              rpcEntered.resolve();
+              await rpcGate.promise;
+              return {
+                ok: true,
+                status: "ready",
+                taskId: "task_stuck",
+                dispatches: [],
+                outcome: "succeeded",
+                exitCode: 0,
+                watermark: 1,
+                sourceRevision: 1,
+              };
+            },
+            run: async () => ({ ok: true, schedules: [] }),
+            settlePendingMaterialization: async () => undefined,
+            close: async () => undefined,
+          } as unknown as Awaited<ReturnType<NonNullable<Parameters<typeof startDaemon>[0]["openCell"]>>>;
+        },
+        metrics: { bind: "127.0.0.1", port: 0, path: "/metrics", bearerToken: null },
+      });
+      assert.ok("stop" in running && running.metricsEndpoint);
+
+      const peer = await rawPeer(
+        (fn) => closers.push(fn),
+        fleetPort,
+        readFileSync(certPath),
+        "edge-node-stuck",
+        "machine-secret",
+      );
+      const stuckFleetPromise = peer
+        .request({
+          schema: "fleet.operational.read/v1",
+          messageId: "stuck-read-1",
+          repoId,
+          method: "repo.task.dispatches",
+          payload: { taskId: "task_stuck" },
+        })
+        .catch(() => undefined);
+
+      await rpcEntered.promise;
+      const metricsWhileStuck = await (await fetch(running.metricsEndpoint)).text();
+      assert.ok(
+        metricsWhileStuck.includes("ha_daemon_rpc_inflight 1\n"),
+        `expected ha_daemon_rpc_inflight 1 while Fleet RPC is stuck, got:\n${metricsWhileStuck}`,
+      );
+
+      // Observe build drift via a fast local Unix JSON-RPC call -> local activeRequests returns to 0,
+      // pendingWrites=0, attachingRepositories=0, while the Fleet RPC remains stuck indefinitely!
+      drifted = true;
+      await requestDaemonJsonRpcAt(endpoint, "daemon.status", {});
+
+      // Must supersede and exit promptly once fleetDrainDeadlineMs (150ms) elapses despite stuck Fleet RPC!
+      await Promise.race([
+        supersededExited.promise,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("build_superseded stalled behind stuck Fleet RPC metrics counter")), 5_000),
+        ),
+      ]);
+      const records = readDaemonLifecycleRecords(userRoot, daemonId);
+      assert.ok(
+        records.some((entry) => entry.event === "process_exit" && entry.outcome === "build_superseded"),
+        `expected build_superseded process_exit record, got ${JSON.stringify(records)}`,
+      );
+      releaseRpc();
+      await stuckFleetPromise;
+    } finally {
+      releaseRpc?.();
+      for (const close of closers.splice(0)) await close();
+      if (running && "stop" in running) await running.stop();
+      rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  },
+);
+
+test(
+  "PVC-mounted Fleet center preserves resumable upload state.json and staged claim across Pod A -> Pod B replacement (F-G7-35)",
+  { timeout: 60_000 },
+  async () => {
+    const sandbox = mkdtempSync(path.join(tmpdir(), "ha-fleet-pvc-pod-replace-"));
+    const pvcRoot = path.join(sandbox, "pvc-daemon-state");
+    const pvcAuthorityRepo = path.join(pvcRoot, "authority-repo");
+    const pod1Ephemeral = path.join(sandbox, "pod-1-rootfs");
+    const keyPath = path.join(sandbox, "tls.key");
+    const certPath = path.join(sandbox, "tls.crt");
+    const repoId = "pvc-fleet-center";
+    const daemonId = "center";
+    const closers: Array<() => unknown> = [];
+    mkdirSync(pvcRoot, { recursive: true });
+    mkdirSync(pvcAuthorityRepo, { recursive: true });
+    mkdirSync(pod1Ephemeral, { recursive: true });
+    try {
+      rosterRepo(pvcAuthorityRepo, repoId);
+      registerBootstrappedDaemonRepo({
+        canonicalRoot: pvcAuthorityRepo,
+        repoId,
+        userRoot: pvcRoot,
+        createConvenienceLinks: false,
+      });
+      execFileSync(
+        "openssl",
+        [
+          "req",
+          "-x509",
+          "-newkey",
+          "rsa:2048",
+          "-nodes",
+          "-keyout",
+          keyPath,
+          "-out",
+          certPath,
+          "-subj",
+          "/CN=localhost",
+          "-days",
+          "1",
+          "-addext",
+          "subjectAltName=DNS:localhost,IP:127.0.0.1",
+        ],
+        { stdio: "ignore" },
+      );
+      const allocPort = async (): Promise<number> => {
+        const probeServer = net.createServer();
+        await new Promise<void>((resolve) => probeServer.listen(0, "127.0.0.1", resolve));
+        const port = (probeServer.address() as net.AddressInfo).port;
+        await new Promise<void>((resolve) => probeServer.close(() => resolve()));
+        return port;
+      };
+      const fakeOidc = {
+        configured: () => true,
+        centerConfigured: () => true,
+        center: async () => ({
+          url: "https://idp.example.invalid",
+          realm: "fleet",
+          accessToken: "center-tok",
+          provider: {
+            authenticateNode: async () => true,
+            readNode: async () => ({ state: "active", revocation: "complete", personId: "person-owner" }),
+            authorizePerson: async () => ({ outcome: "allowed" }),
+          },
+        }),
+        bind: async <T extends Record<string, unknown>>(auth: T) => ({
+          ...auth,
+          oidcPrincipal: {
+            personId: "person-owner",
+            accessToken: "human-tok",
+            azp: "harness-cli",
+            authority: { url: "https://idp.example.invalid", realm: "fleet" },
+            provider: {
+              authorizePerson: async () => ({ outcome: "allowed" }),
+            },
+          },
+        }),
+        discovery: () => null,
+        status: async () => ({ ok: true }),
+        bindingHealth: async () => ({ ok: true }),
+        logout: async () => ({ ok: true }),
+        bootstrapStatus: async () => ({ ok: true, required: false }),
+        interactiveAuthority: async () => ({ url: "https://idp.example.invalid", realm: "fleet", clientId: "ha" }),
+        begin: async () => ({}),
+        complete: async () => ({}),
+        beginDevice: async () => ({}),
+        deviceApproval: async () => ({}),
+        pollDevice: async () => ({}),
+        requireAccessManagement: async () => {
+          throw new Error("not used");
+        },
+        requireSession: async () => {
+          throw new Error("not used");
+        },
+        serialize: async <T>(op: () => Promise<T>) => op(),
+        configureAuthority: async <T>(op: () => Promise<T>) => op(),
+        bootstrapAdmin: async () => ({ ok: true }),
+        invite: async () => ({ ok: true }),
+      };
+
+      const fullPayload = Buffer.from("pod-a-prefix-bytes|pod-b-suffix-bytes\n", "utf8");
+      const firstHalf = fullPayload.subarray(0, 19);
+      const secondHalf = fullPayload.subarray(19);
+      const payloadSha256 = createHash("sha256").update(fullPayload).digest("hex");
+
+      // Pod A: boots on PVC root (daemon.userRoot) + authority-repo subPath, starts upload and persists chunk 1
+      const portA = await allocPort();
+      saveFleetCenterConfig(pvcRoot, daemonId, {
+        port: portA,
+        bind: "127.0.0.1",
+        repoId,
+        keyPath,
+        certPath,
+        stateRoot: path.join(pvcRoot, "fleet"),
+        quotaBytes: 1024 * 1024,
+      });
+      const podA = await startDaemon({
+        userRoot: pvcRoot,
+        daemonId,
+        endpoint: localUserDaemonEndpoint(pvcRoot, daemonId),
+        buildSupersessionEnabled: false,
+        oidc: fakeOidc as unknown as Parameters<typeof startDaemon>[0]["oidc"],
+        metrics: null,
+      });
+      assert.ok("stop" in podA);
+      let uploadId = "";
+      try {
+        const peerA = await rawPeer(
+          (fn) => closers.push(fn),
+          portA,
+          readFileSync(certPath),
+          "edge-pod-replace",
+          "machine-secret",
+        );
+        const beginRes = await peerA.request({
+          schema: "fleet.upload.begin/v1",
+          messageId: "upload-begin-1",
+          repoId,
+          opId: "op-pod-replace-upload-1",
+          content: { sha256: payloadSha256, size: fullPayload.byteLength, mediaType: "text/plain" },
+        });
+        assert.equal(beginRes.schema, "fleet.upload.ready/v1");
+        uploadId = String(beginRes.uploadId ?? "");
+        assert.ok(uploadId.length > 0);
+        const chunk1Res = await peerA.request({
+          schema: "fleet.upload.chunk/v1",
+          messageId: "upload-chunk-1",
+          uploadId,
+          offset: 0,
+          dataBase64: firstHalf.toString("base64"),
+        });
+        assert.equal(chunk1Res.schema, "fleet.upload.ready/v1");
+        assert.equal(chunk1Res.resumeOffset, firstHalf.byteLength);
+      } finally {
+        for (const close of closers.splice(0)) await close();
+        await podA.stop();
+      }
+
+      // Destroy Pod A ephemeral rootfs; Pod B mounts ONLY the same PVC (pvcRoot + pvcRoot/authority-repo)
+      rmSync(pod1Ephemeral, { recursive: true, force: true });
+      assert.equal(
+        existsSync(path.join(pvcRoot, "fleet", "state.json")),
+        true,
+        "PVC root must persist <userRoot>/fleet/state.json across Pod replacement",
+      );
+
+      const portB = await allocPort();
+      saveFleetCenterConfig(pvcRoot, daemonId, {
+        port: portB,
+        bind: "127.0.0.1",
+        repoId,
+        keyPath,
+        certPath,
+        stateRoot: path.join(pvcRoot, "fleet"),
+        quotaBytes: 1024 * 1024,
+      });
+      const podB = await startDaemon({
+        userRoot: pvcRoot,
+        daemonId,
+        endpoint: localUserDaemonEndpoint(pvcRoot, daemonId),
+        buildSupersessionEnabled: false,
+        oidc: fakeOidc as unknown as Parameters<typeof startDaemon>[0]["oidc"],
+        metrics: null,
+      });
+      assert.ok("stop" in podB);
+      try {
+        const peerB = await rawPeer(
+          (fn) => closers.push(fn),
+          portB,
+          readFileSync(certPath),
+          "edge-pod-replace",
+          "machine-secret",
+        );
+        // Resume on Pod B: must report exact resumeOffset from Pod A's durable prefix!
+        const resumeRes = await peerB.request({
+          schema: "fleet.upload.begin/v1",
+          messageId: "upload-begin-resume",
+          repoId,
+          opId: "op-pod-replace-upload-1",
+          content: { sha256: payloadSha256, size: fullPayload.byteLength, mediaType: "text/plain" },
+        });
+        assert.equal(resumeRes.schema, "fleet.upload.ready/v1");
+        assert.equal(resumeRes.uploadId, uploadId);
+        assert.equal(
+          resumeRes.resumeOffset,
+          firstHalf.byteLength,
+          "Pod B must resume from Pod A's persisted upload prefix",
+        );
+        const chunk2Res = await peerB.request({
+          schema: "fleet.upload.chunk/v1",
+          messageId: "upload-chunk-2",
+          uploadId,
+          offset: firstHalf.byteLength,
+          dataBase64: secondHalf.toString("base64"),
+        });
+        assert.equal(chunk2Res.schema, "fleet.upload.ready/v1");
+        assert.equal(chunk2Res.resumeOffset, fullPayload.byteLength);
+        const finishRes = await peerB.request({
+          schema: "fleet.upload.finish/v1",
+          messageId: "upload-finish-1",
+          uploadId,
+        });
+        assert.equal(
+          finishRes.schema,
+          "fleet.upload.result/v1",
+          `Pod B must stage upload initiated on Pod A (not upload_unknown), got ${JSON.stringify(finishRes)}`,
+        );
+        assert.equal(finishRes.status, "staged");
+        assert.equal((finishRes.descriptor as { readonly sha256?: string } | undefined)?.sha256, payloadSha256);
+      } finally {
+        for (const close of closers.splice(0)) await close();
+        await podB.stop();
+      }
+    } finally {
+      for (const close of closers.splice(0)) await close();
       rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     }
   },

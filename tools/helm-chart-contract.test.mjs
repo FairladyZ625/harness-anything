@@ -60,39 +60,77 @@ function assertBalancedHelmDirectives(filePath, content) {
 
 function renderHelmNames({ releaseName, chartName = "harness-center", nameOverride = "", fullnameOverride = "" }) {
   const trunc = (value, maxLen) => value.slice(0, maxLen).replace(/-+$/u, "");
-  const sha8 = (value) => createHash("sha256").update(value).digest("hex").slice(0, 8);
+  const sha16 = (value) => createHash("sha256").update(value).digest("hex").slice(0, 16);
   const name = trunc(nameOverride || chartName, 63);
-  const fullname = fullnameOverride
-    ? trunc(fullnameOverride, 63)
-    : `${trunc(`${releaseName}-${name}`, 42)}-${sha8(releaseName)}`;
+  let fullname;
+  if (fullnameOverride) {
+    fullname = trunc(fullnameOverride, 63);
+  } else {
+    let sanitized = `${releaseName}-${name}`
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/gu, "-")
+      .replace(/^-+|-+$/gu, "");
+    if (!/^[a-z]/u.test(sanitized)) {
+      sanitized = `ha-${sanitized}`.replace(/-+$/u, "");
+    }
+    fullname = `${trunc(sanitized, 35)}-${sha16(releaseName)}`;
+  }
   const derived = (suffix, directMax, hashPrefixMax) =>
     fullname.length <= directMax
       ? `${fullname}-${suffix}`
-      : `${trunc(fullname, hashPrefixMax)}-${sha8(fullname)}-${suffix}`;
+      : `${trunc(fullname, hashPrefixMax)}-${sha16(fullname)}-${suffix}`;
   return {
     fullname,
-    fleetServiceName: derived("fleet", 57, 48),
-    metricsServiceName: derived("metrics", 55, 46),
-    headlessServiceName: derived("headless", 54, 45),
-    entrypointConfigMapName: derived("entrypoint", 52, 43),
+    fleetServiceName: derived("fleet", 57, 40),
+    metricsServiceName: derived("metrics", 55, 38),
+    headlessServiceName: derived("headless", 54, 37),
+    entrypointConfigMapName: derived("entrypoint", 52, 35),
   };
 }
 
 function validateHelmValuesRender(values) {
   const errors = [];
   if (Number(values.replicaCount) !== 1) errors.push("replicaCount must equal 1");
+  if (values.fullnameOverride && !/^[a-z](?:[-a-z0-9]{0,61}[a-z0-9])?$/u.test(values.fullnameOverride)) {
+    errors.push("fullnameOverride must be a valid RFC 1035 DNS label");
+  }
   if (values.storage?.backend === "postgres" && !values.storage?.existingSecret) {
     errors.push("storage.existingSecret is required when storage.backend=postgres");
   }
   if (values.storage?.backend === "sqlite" && values.workloadKind === "Deployment" && !values.persistence?.enabled) {
     errors.push("storage.backend=sqlite requires workloadKind=StatefulSet or persistence.enabled=true");
   }
+  if (values.fleet?.enabled && values.workloadKind === "Deployment" && !values.persistence?.enabled) {
+    errors.push("fleet.enabled=true requires workloadKind=StatefulSet or persistence.enabled=true");
+  }
+  if (values.fleet?.enabled) {
+    if (values.fleet.authorityRepoId && !values.fleet.tlsExistingSecret) {
+      errors.push("fleet.tlsExistingSecret is required when fleet.authorityRepoId is set");
+    }
+    if (values.fleet.tlsExistingSecret && !values.fleet.authorityRepoId) {
+      errors.push("fleet.authorityRepoId is required when fleet.tlsExistingSecret is set");
+    }
+  }
+  if (values.identity?.mode === "external") {
+    if (values.identity.issuerUrl && !values.identity.existingClientSecret) {
+      errors.push("identity.existingClientSecret is required when identity.issuerUrl is set");
+    }
+    if (values.identity.existingClientSecret && !values.identity.issuerUrl) {
+      errors.push("identity.issuerUrl is required when identity.existingClientSecret is set");
+    }
+  }
   if (values.fleet?.enabled && values.metrics?.enabled && Number(values.fleet.port) === Number(values.metrics.port)) {
     errors.push("fleet.port and metrics.port must be distinct when both fleet.enabled and metrics.enabled are true");
   }
-  const trimSlash = (value) => String(value ?? "").replace(/\/+$/u, "");
-  if (values.fleet?.enabled && trimSlash(values.daemon?.userRoot) === trimSlash(values.fleet?.authorityRepoRoot)) {
-    errors.push("fleet.authorityRepoRoot must not equal daemon.userRoot");
+  const userRootClean = path.posix.normalize(String(values.daemon?.userRoot ?? "")).replace(/\/+$/u, "") || "/";
+  const repoRootClean = path.posix.normalize(String(values.fleet?.authorityRepoRoot ?? "")).replace(/\/+$/u, "") || "/";
+  if (
+    values.fleet?.enabled &&
+    (userRootClean === repoRootClean ||
+      repoRootClean.startsWith(`${userRootClean}/`) ||
+      userRootClean.startsWith(`${repoRootClean}/`))
+  ) {
+    errors.push("fleet.authorityRepoRoot and daemon.userRoot must be disjoint normalized absolute paths");
   }
   return errors;
 }
@@ -346,6 +384,117 @@ test("values.yaml validates strictly against values.schema.json and schema enfor
     "schema must allow Deployment with persistence.enabled=true and sqlite backend",
   );
 
+  // F-G7-35: Fleet-enabled Deployment requires persistence.enabled=true; stateless Deployment is allowed only when fleet.enabled=false and backend=postgres
+  assert.equal(values.persistence.enabled, true, "default values.yaml with fleet.enabled=true must enable persistence");
+  assert.equal(
+    validate({
+      ...values,
+      workloadKind: "Deployment",
+      fleet: { ...values.fleet, enabled: true },
+      persistence: { ...values.persistence, enabled: false },
+    }),
+    false,
+    "schema must reject unpersisted Deployment when fleet.enabled=true",
+  );
+  assert.equal(
+    validate({
+      ...values,
+      workloadKind: "Deployment",
+      fleet: { ...values.fleet, enabled: false },
+      persistence: { ...values.persistence, enabled: false },
+    }),
+    true,
+    "schema must allow stateless Deployment when storage.backend=postgres and fleet.enabled=false",
+  );
+
+  // F-G7-37: fullnameOverride must be a strict RFC 1035 DNS label when set
+  for (const badOverride of ["7center", "team.prod", "UPPER", "-leading", "trailing-", "a".repeat(64)]) {
+    assert.equal(
+      validate({ ...values, fullnameOverride: badOverride }),
+      false,
+      `schema must reject non-RFC-1035 fullnameOverride=${badOverride}`,
+    );
+  }
+  assert.equal(validate({ ...values, fullnameOverride: "legacy-center-01" }), true);
+
+  // F-G7-38: paired Fleet (authorityRepoId <-> tlsExistingSecret), paired external OIDC (issuerUrl <-> existingClientSecret),
+  // and clean normalized absolute mount paths
+  assert.equal(
+    validate({
+      ...values,
+      fleet: { ...values.fleet, enabled: true, authorityRepoId: "org-center", tlsExistingSecret: "" },
+    }),
+    false,
+    "schema must reject fleet.authorityRepoId without fleet.tlsExistingSecret",
+  );
+  assert.equal(
+    validate({
+      ...values,
+      fleet: { ...values.fleet, enabled: true, authorityRepoId: "", tlsExistingSecret: "fleet-tls" },
+    }),
+    false,
+    "schema must reject fleet.tlsExistingSecret without fleet.authorityRepoId",
+  );
+  assert.equal(
+    validate({
+      ...values,
+      fleet: { ...values.fleet, enabled: true, authorityRepoId: "org-center", tlsExistingSecret: "fleet-tls" },
+    }),
+    true,
+    "schema must accept paired fleet.authorityRepoId + fleet.tlsExistingSecret",
+  );
+  assert.equal(
+    validate({
+      ...values,
+      identity: {
+        ...values.identity,
+        mode: "external",
+        issuerUrl: "https://idp.example.org",
+        existingClientSecret: "",
+      },
+    }),
+    false,
+    "schema must reject external identity.issuerUrl without existingClientSecret",
+  );
+  assert.equal(
+    validate({
+      ...values,
+      identity: { ...values.identity, mode: "external", issuerUrl: "", existingClientSecret: "oidc-secret" },
+    }),
+    false,
+    "schema must reject external identity.existingClientSecret without issuerUrl",
+  );
+  assert.equal(
+    validate({
+      ...values,
+      identity: {
+        ...values.identity,
+        mode: "external",
+        issuerUrl: "https://idp.example.org",
+        existingClientSecret: "oidc-secret",
+      },
+    }),
+    true,
+    "schema must accept paired external identity.issuerUrl + existingClientSecret",
+  );
+  for (const dirtyRoot of [
+    "/var/lib/ha/user/../user",
+    "/var/lib/ha/./user",
+    "/var/lib/ha//user",
+    "/var/lib/ha/user/",
+  ]) {
+    assert.equal(
+      validate({ ...values, fleet: { ...values.fleet, authorityRepoRoot: dirtyRoot } }),
+      false,
+      `schema must reject unnormalized authorityRepoRoot=${dirtyRoot}`,
+    );
+    assert.equal(
+      validate({ ...values, daemon: { ...values.daemon, userRoot: dirtyRoot } }),
+      false,
+      `schema must reject unnormalized daemon.userRoot=${dirtyRoot}`,
+    );
+  }
+
   // F-G7-13 & F-G7-23: reject reserved probe paths, dot/traversal segments, trailing slashes, non-ASCII, and percent-encoding
   for (const forbidden of [
     "/",
@@ -424,12 +573,14 @@ test("Helm templates isolate Fleet vs Metrics Services, wire StatefulSet headles
   assert.ok(headlessService.includes('eq .Values.workloadKind "StatefulSet"'));
   assert.ok(headlessService.includes("clusterIP: None"));
 
-  // F-G7-18 & F-G7-28: release-unique injective base + explicit role suffixes prevent ALL cross-release Service/ConfigMap collisions
+  // F-G7-18, F-G7-28 & F-G7-37: RFC 1035 DNS-label release-unique base (64-bit sha256) + explicit role suffixes prevent ALL collisions
   assert.ok(helpers.includes('define "harness-center.fleetServiceName"'));
   assert.ok(helpers.includes('define "harness-center.entrypointConfigMapName"'));
-  assert.ok(helpers.includes(".Release.Name | sha256sum | trunc 8"));
-  assert.ok(helpers.includes("trunc 48") && helpers.includes("trunc 46") && helpers.includes("sha256sum | trunc 8"));
-  assert.ok(helpers.includes("trunc 45") && helpers.includes("trunc 43"));
+  assert.ok(helpers.includes(".Release.Name | sha256sum | trunc 16"));
+  assert.ok(helpers.includes('regexReplaceAll "[^a-z0-9-]+" "-"'));
+  assert.ok(helpers.includes('regexMatch "^[a-z]"'));
+  assert.ok(helpers.includes("trunc 40") && helpers.includes("trunc 38") && helpers.includes("sha256sum | trunc 16"));
+  assert.ok(helpers.includes("trunc 37") && helpers.includes("trunc 35"));
   assert.ok(fleetService.includes('name: {{ include "harness-center.fleetServiceName" . }}'));
   assert.ok(deployment.includes('name: {{ include "harness-center.entrypointConfigMapName" . }}'));
   assert.ok(statefulset.includes('name: {{ include "harness-center.entrypointConfigMapName" . }}'));
@@ -460,24 +611,85 @@ test("Helm templates isolate Fleet vs Metrics Services, wire StatefulSet headles
   assert.ok(fleetService.includes("targetPort: fleet-tls"));
   assert.ok(metricsService.includes("targetPort: metrics"));
 
-  // F-G7-29: StatefulSet and Deployment mount daemon-state PVC on BOTH daemon.userRoot (subPath: user) and fleet.authorityRepoRoot (subPath: authority-repo)
+  // F-G7-29, F-G7-35, F-G7-38 & F-G7-40: StatefulSet and Deployment mount daemon-state PVC root at daemon.userRoot
+  // (preserving pre-release PVC upgrades) and subPath: authority-repo at fleet.authorityRepoRoot; require persistence for sqlite and Fleet;
+  // enforce paired Fleet/OIDC config and POSIX-normalized disjoint mount paths.
   assert.ok(
     helpers.includes('eq .Values.storage.backend "sqlite"') && helpers.includes("not .Values.persistence.enabled"),
   );
-  assert.ok(helpers.includes("fleet.authorityRepoRoot"));
-  assert.ok(statefulset.includes("subPath: user") && statefulset.includes("subPath: authority-repo"));
+  assert.ok(
+    helpers.includes('.Values.fleet.enabled (eq .Values.workloadKind "Deployment") (not .Values.persistence.enabled)'),
+  );
+  assert.ok(
+    helpers.includes("clean .Values.daemon.userRoot") && helpers.includes("clean .Values.fleet.authorityRepoRoot"),
+  );
+  assert.ok(
+    helpers.includes("fleet.tlsExistingSecret is required") &&
+      helpers.includes("identity.existingClientSecret is required"),
+  );
+  assert.ok(
+    !statefulset.includes("subPath: user"),
+    "StatefulSet must mount daemon.userRoot at PVC root (no subPath: user)",
+  );
+  assert.ok(statefulset.includes("subPath: authority-repo"));
   assert.ok(statefulset.includes("mountPath: {{ .Values.fleet.authorityRepoRoot | quote }}"));
-  assert.ok(deployment.includes("subPath: user") && deployment.includes("subPath: authority-repo"));
+  assert.ok(
+    !deployment.includes("subPath: user"),
+    "Deployment must mount daemon.userRoot at PVC root (no subPath: user)",
+  );
+  assert.ok(deployment.includes("subPath: authority-repo"));
   assert.ok(deployment.includes("mountPath: {{ .Values.fleet.authorityRepoRoot | quote }}"));
-  const sameMountErrors = validateHelmValuesRender({
-    ...defaultValues,
-    fleet: { ...defaultValues.fleet, authorityRepoRoot: defaultValues.daemon.userRoot },
-  });
-  assert.ok(sameMountErrors.some((entry) => entry.includes("authorityRepoRoot")));
 
-  const dnsLabelPattern = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
+  for (const overlappingRepoRoot of [
+    defaultValues.daemon.userRoot,
+    `${defaultValues.daemon.userRoot}/../user`,
+    `${defaultValues.daemon.userRoot}/sub`,
+    path.posix.dirname(defaultValues.daemon.userRoot),
+  ]) {
+    const mountErrors = validateHelmValuesRender({
+      ...defaultValues,
+      fleet: { ...defaultValues.fleet, authorityRepoRoot: overlappingRepoRoot },
+    });
+    assert.ok(
+      mountErrors.some((entry) => entry.includes("disjoint normalized absolute paths")),
+      `render validation must reject overlapping/nested authorityRepoRoot=${overlappingRepoRoot}`,
+    );
+  }
+  assert.ok(
+    validateHelmValuesRender({
+      ...defaultValues,
+      fleet: { ...defaultValues.fleet, authorityRepoId: "org-center", tlsExistingSecret: "" },
+    }).some((entry) => entry.includes("fleet.tlsExistingSecret")),
+  );
+  assert.ok(
+    validateHelmValuesRender({
+      ...defaultValues,
+      identity: {
+        ...defaultValues.identity,
+        mode: "external",
+        issuerUrl: "https://idp.example.org",
+        existingClientSecret: "",
+      },
+    }).some((entry) => entry.includes("identity.existingClientSecret")),
+  );
+  assert.ok(
+    validateHelmValuesRender({
+      ...defaultValues,
+      workloadKind: "Deployment",
+      fleet: { ...defaultValues.fleet, enabled: true },
+      persistence: { ...defaultValues.persistence, enabled: false },
+    }).some((entry) => entry.includes("fleet.enabled=true requires")),
+  );
+
+  // Strict RFC 1035 DNS label pattern required by Kubernetes Services: MUST start with [a-z], no dots, <= 63 chars
+  const rfc1035DnsLabelPattern = /^[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
   const namingCases = [
     { label: "prod", releaseName: "prod" },
+    { label: "team.prod", releaseName: "team.prod" },
+    { label: "team-prod", releaseName: "team-prod" },
+    { label: "7center", releaseName: "7center" },
+    { label: "0", releaseName: "0" },
+    { label: "a.b.c.d", releaseName: "a.b.c.d" },
     { label: "prod-harness-center", releaseName: "prod-harness-center" },
     { label: "prod-harness-center-metrics", releaseName: "prod-harness-center-metrics" },
     { label: "prod-harness-center-fleet", releaseName: "prod-harness-center-fleet" },
@@ -510,8 +722,8 @@ test("Helm templates isolate Fleet vs Metrics Services, wire StatefulSet headles
     ];
     for (const candidate of allNames) {
       assert.ok(
-        candidate.length <= 63 && dnsLabelPattern.test(candidate),
-        `${namingCase.label}: invalid K8s DNS label ${candidate} (len=${candidate.length})`,
+        candidate.length <= 63 && rfc1035DnsLabelPattern.test(candidate),
+        `${namingCase.label}: invalid RFC 1035 K8s Service DNS label ${candidate} (len=${candidate.length})`,
       );
     }
     assert.equal(
@@ -520,9 +732,14 @@ test("Helm templates isolate Fleet vs Metrics Services, wire StatefulSet headles
       `${namingCase.label}: base, Fleet, metrics, headless Services and entrypoint ConfigMap must never collide: ${JSON.stringify(names)}`,
     );
   }
-  // F-G7-28: ALL default releases installed in the same namespace produce zero Service or ConfigMap name collisions across pairs!
+  // F-G7-28 & F-G7-37: ALL default releases installed in the same namespace (including dotted & digit-leading) produce zero collisions!
   const defaultReleaseLabels = [
     "prod",
+    "team.prod",
+    "team-prod",
+    "7center",
+    "0",
+    "a.b.c.d",
     "prod-harness-center",
     "prod-harness-center-metrics",
     "prod-harness-center-fleet",
@@ -778,6 +995,7 @@ if (args[0] === "bootstrap") {
   const clientId = args[args.indexOf("--client-id") + 1];
   fs.writeFileSync(path.join(rbacDir, "config.json"), JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external", url, realm, clientId }) + "\\n");
   fs.writeFileSync(path.join(rbacDir, "center-client-secret"), (stdin || "").trim(), { mode: 0o600 });
+  process.stdout.write(JSON.stringify({ ok: true, mode: "external" }) + "\\n");
 }
 `,
     );
@@ -1018,7 +1236,9 @@ if (args[0] === "bootstrap") {
       "daemon must NOT start when Fleet and metrics share the same container port",
     );
 
-    // F-G7-31: First-time bootstrap returning exit 0 with authoritySync.pending=true must fail closed instead of restarting blindly
+    // F-G7-31 & F-G7-36: First-time bootstrap returning exit 0 with authoritySync.pending=true, empty stdout,
+    // malformed JSON, or ok:false MUST fail closed AND persist .oidc-bootstrap-pending so container restart
+    // re-runs authoritative bootstrap instead of skipping to steady-state serve!
     const pendingBootRoot = path.join(sandbox, "pending-boot-user");
     mkdirSync(pendingBootRoot, { recursive: true });
     writeFileSync(
@@ -1032,31 +1252,125 @@ if (args[0] === "bootstrap") {
         },
       }),
     );
+    const pendingBootstrapAttemptsLog = path.join(sandbox, "pending-bootstrap-attempts.jsonl");
     const pendingBootstrapCli = path.join(sandbox, "pending-bootstrap-cli.cjs");
     writeFileSync(
       pendingBootstrapCli,
       `
+const fs = require("node:fs");
+const path = require("node:path");
 const args = process.argv.slice(2);
 if (args[0] === "bootstrap") {
-  process.stdout.write(JSON.stringify({ ok: true, mode: "external", authoritySync: { ok: false, pending: true, code: "oidc_discovery_unavailable" } }) + "\\n");
+  const mode = process.env.STUB_BOOTSTRAP_MODE || "pending";
+  fs.appendFileSync(${JSON.stringify(pendingBootstrapAttemptsLog)}, JSON.stringify({ mode, args }) + "\\n");
+  // Mirror real OidcSessionService: rbac/config.json is persisted BEFORE discovery runs
+  const rbacDir = path.join(process.env.HARNESS_DAEMON_USER_ROOT, "rbac");
+  fs.mkdirSync(rbacDir, { recursive: true });
+  const stdin = fs.readFileSync(0, "utf8").trim();
+  const url = args[args.indexOf("--url") + 1].replace(/\\/$/, "");
+  const realm = args[args.indexOf("--realm") + 1];
+  const clientId = args[args.indexOf("--client-id") + 1];
+  fs.writeFileSync(path.join(rbacDir, "config.json"), JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external", url, realm, clientId }) + "\\n");
+  fs.writeFileSync(path.join(rbacDir, "center-client-secret"), stdin, { mode: 0o600 });
+  if (mode === "pending") {
+    process.stdout.write(JSON.stringify({ ok: true, mode: "external", authoritySync: { ok: false, pending: true, code: "oidc_discovery_unavailable" } }) + "\\n");
+  } else if (mode === "empty") {
+    // empty stdout
+  } else if (mode === "malformed") {
+    process.stdout.write("not-json\\n");
+  } else if (mode === "ok-false") {
+    process.stdout.write(JSON.stringify({ ok: false, code: "oidc_failed" }) + "\\n");
+  } else {
+    process.stdout.write(JSON.stringify({ ok: true, mode: "external" }) + "\\n");
+  }
 }
 process.exit(0);
 `,
     );
-    const pendingBootRes = spawnSync("/bin/sh", [scriptPath], {
+    for (const [mode, expectedErr] of [
+      ["empty", /empty receipt/u],
+      ["malformed", /not valid JSON/u],
+      ["ok-false", /did not report ok=true/u],
+      ["pending", /authoritySync\.pending=true/u],
+    ]) {
+      const badRes = spawnSync("/bin/sh", [scriptPath], {
+        env: {
+          ...sharedEnv,
+          HARNESS_DAEMON_USER_ROOT: pendingBootRoot,
+          HARNESS_CLI_ENTRY: pendingBootstrapCli,
+          STUB_BOOTSTRAP_MODE: mode,
+        },
+        encoding: "utf8",
+      });
+      assert.notEqual(badRes.status, 0, `bootstrap mode=${mode} must fail closed in start-center.sh`);
+      assert.match(badRes.stderr, expectedErr);
+      assert.equal(
+        existsSync(path.join(pendingBootRoot, "rbac", ".oidc-bootstrap-pending")),
+        true,
+        `bootstrap mode=${mode} must preserve .oidc-bootstrap-pending marker across restart`,
+      );
+    }
+    // Restart after pending/malformed failure with IdP now healthy: start-center.sh MUST detect .oidc-bootstrap-pending,
+    // re-run bootstrap (NOT skip to serve even though rbac/config.json already matched), and clear the marker once ok=true!
+    const attemptsBeforeRecovery = readFileSync(pendingBootstrapAttemptsLog, "utf8").trim().split("\n").length;
+    assert.equal(attemptsBeforeRecovery, 4);
+    const recoveredRes = spawnSync("/bin/sh", [scriptPath], {
       env: {
         ...sharedEnv,
         HARNESS_DAEMON_USER_ROOT: pendingBootRoot,
         HARNESS_CLI_ENTRY: pendingBootstrapCli,
+        STUB_BOOTSTRAP_MODE: "ok",
+      },
+      encoding: "utf8",
+    });
+    assert.equal(recoveredRes.status, 0, `restart recovery bootstrap must succeed: ${recoveredRes.stderr}`);
+    assert.equal(
+      readFileSync(pendingBootstrapAttemptsLog, "utf8").trim().split("\n").length,
+      5,
+      "restart after pending bootstrap must re-invoke bootstrap rather than skipping straight to serve",
+    );
+    assert.equal(
+      existsSync(path.join(pendingBootRoot, "rbac", ".oidc-bootstrap-pending")),
+      false,
+      "successful authoritative bootstrap must remove .oidc-bootstrap-pending marker",
+    );
+
+    // F-G7-38: Entrypoint rejects normalized mount path collisions (e.g. userRoot/../user) and half-configured env pairs
+    const normalizedCollisionRes = spawnSync("/bin/sh", [scriptPath], {
+      env: {
+        ...upgradedEnv,
+        HARNESS_FLEET_AUTHORITY_REPO_ROOT: `${userRoot}/../${path.basename(userRoot)}`,
       },
       encoding: "utf8",
     });
     assert.notEqual(
-      pendingBootRes.status,
+      normalizedCollisionRes.status,
       0,
-      "bootstrap reporting authoritySync.pending=true must fail closed in start-center.sh",
+      "entrypoint must reject normalized userRoot/authorityRepoRoot collision",
     );
-    assert.match(pendingBootRes.stderr, /authoritySync\.pending=true/u);
+    assert.match(normalizedCollisionRes.stderr, /disjoint normalized absolute paths/u);
+
+    const halfOidcRes = spawnSync("/bin/sh", [scriptPath], {
+      env: {
+        ...upgradedEnv,
+        HARNESS_OIDC_ISSUER_URL: "",
+        HARNESS_OIDC_CLIENT_SECRET_FILE: path.join(oidcDir, "client-secret"),
+      },
+      encoding: "utf8",
+    });
+    assert.notEqual(halfOidcRes.status, 0, "entrypoint must reject OIDC client secret file without issuer URL");
+    assert.match(halfOidcRes.stderr, /HARNESS_OIDC_ISSUER_URL/u);
+
+    const halfFleetRes = spawnSync("/bin/sh", [scriptPath], {
+      env: {
+        ...upgradedEnv,
+        HARNESS_FLEET_AUTHORITY_REPO_ID: "",
+        HARNESS_FLEET_TLS_CERT_FILE: path.join(tlsDir, "tls.crt"),
+      },
+      encoding: "utf8",
+    });
+    assert.notEqual(halfFleetRes.status, 0, "entrypoint must reject Fleet TLS cert without authority repo ID");
+    assert.match(halfFleetRes.stderr, /HARNESS_FLEET_AUTHORITY_REPO_ID/u);
 
     // F-G7-14 & F-G7-21: SIGTERM during blocked bootstrap CLI (not just wait-loop sleep) interrupts immediately,
     // triggers daemon drain, waits for drain completion, and preserves real child exit codes on crashes/failures
@@ -1430,6 +1744,120 @@ test("container /readyz tracks live OIDC revocation/recovery and per-target auth
     assert.equal(controller.currentState(), "ready");
     await settleAsync();
     assert.equal(directCenterCalls, 2, "re-verification must run once readyReverifyIntervalMs elapses");
+
+    // F-G7-36: Stale in-flight verification for the SAME target must NEVER clear a newer pending mark on that target
+    let sameTargetStatusCalls = 0;
+    let sameTargetCenterCalls = 0;
+    const firstCheck = Promise.withResolvers();
+    const secondCheck = Promise.withResolvers();
+    const raceController = createIdentityReadinessController({
+      requireIdentityReady: true,
+      hasConfiguredIdentity: () => true,
+      ensureRbacResumed: async () => undefined,
+      checkOidcStatus: async (target) => {
+        if (target === "/workspace") {
+          sameTargetStatusCalls += 1;
+          if (sameTargetStatusCalls === 1) await firstCheck.promise;
+          else await secondCheck.promise;
+        }
+        return { ok: true };
+      },
+      checkOidcCenter: async () => {
+        sameTargetCenterCalls += 1;
+        return { accessToken: `race-${sameTargetCenterCalls}` };
+      },
+      isClosing: () => false,
+    });
+    await raceController.observeConfigured({ ok: true, authoritySync: { pending: true } }, "/workspace");
+    assert.equal(raceController.currentState(), "identity_authority_sync_pending");
+    await settleAsync();
+    assert.equal(sameTargetStatusCalls, 1, "first check must have entered checkOidcStatus('/workspace')");
+    // Re-mark the SAME target pending while first check is still paused
+    await raceController.observeConfigured({ ok: true, authoritySync: { pending: true } }, "/workspace");
+    // Release stale first check -> MUST NOT clear /workspace or transition to ready!
+    firstCheck.resolve();
+    await settleAsync();
+    assert.equal(
+      raceController.currentState(),
+      "identity_authority_sync_pending",
+      "stale verification completion must not clear newer pending sync for same target",
+    );
+    await settleAsync();
+    assert.equal(
+      sameTargetStatusCalls,
+      2,
+      "controller must launch a fresh check for /workspace after stale one finishes",
+    );
+    assert.equal(raceController.currentState(), "identity_authority_sync_pending");
+    secondCheck.resolve();
+    await settleAsync();
+    assert.equal(raceController.currentState(), "ready");
+    assert.equal(sameTargetCenterCalls, 1);
+
+    // F-G7-36: Persisted .oidc-bootstrap-pending workspace target is reloaded on daemon restart
+    const restartRoot = mkdtempSync(path.join(tmpdir(), "ha-helm-oidc-restart-"));
+    try {
+      mkdirSync(path.join(restartRoot, "rbac"), { recursive: true });
+      writeFileSync(
+        path.join(restartRoot, "rbac", "config.json"),
+        JSON.stringify({
+          schema: "harness-managed-rbac/v1",
+          mode: "external",
+          url: "https://idp.example.org",
+          realm: "fleet",
+          clientId: "harness-center",
+        }),
+      );
+      writeFileSync(path.join(restartRoot, "rbac", "center-client-secret"), "secret-value");
+      writeFileSync(
+        path.join(restartRoot, "rbac", ".oidc-bootstrap-pending"),
+        JSON.stringify({ target: workspaceA }) + "\n",
+      );
+      let wsAHealthyAfterRestart = false;
+      const seenTargetsAfterRestart = [];
+      const restartedHost = await openDaemonHost({
+        daemonId: "helm-oidc-restart",
+        userRoot: restartRoot,
+        requireIdentityReady: true,
+        oidc: {
+          ...fakeOidc,
+          configured: () => true,
+          centerConfigured: () => true,
+          status: async (loginTarget) => {
+            seenTargetsAfterRestart.push(loginTarget ?? "<default>");
+            if (loginTarget === workspaceA && !wsAHealthyAfterRestart) {
+              throw new Error("workspaceA discovery still down after restart");
+            }
+            return { ok: true, authenticated: false };
+          },
+          center: async () => ({
+            url: "https://idp.example.org",
+            realm: "fleet",
+            accessToken: "restart-tok",
+            provider: {},
+          }),
+        },
+        managedRbac: fakeManagedRbac,
+      });
+      try {
+        await settleAsync();
+        const probeDown = restartedHost.probeSnapshot();
+        assert.equal(probeDown.ready, false);
+        assert.ok(probeDown.reasons.includes("identity_authority_sync_pending"));
+        assert.ok(
+          seenTargetsAfterRestart.includes(workspaceA),
+          `restarted daemon must verify persisted pending workspace target, saw ${JSON.stringify(seenTargetsAfterRestart)}`,
+        );
+        wsAHealthyAfterRestart = true;
+        restartedHost.probeSnapshot();
+        await settleAsync();
+        assert.equal(restartedHost.probeSnapshot().ready, true);
+      } finally {
+        await restartedHost.close();
+      }
+    } finally {
+      rmSync(restartRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
   } finally {
     await server.close();
     await host.close();
@@ -1437,17 +1865,16 @@ test("container /readyz tracks live OIDC revocation/recovery and per-target auth
   }
 });
 
-test("StatefulSet PVC subPaths persist SQLite authority ledger revision across Pod replacement (F-G7-29)", async () => {
+test("StatefulSet PVC root + authority-repo subPath persist SQLite ledger across Pod replacement and preserve pre-release PVC upgrades (F-G7-29, F-G7-40)", async () => {
   const sandbox = mkdtempSync(path.join(tmpdir(), "ha-helm-pod-replace-"));
   const pvcRoot = path.join(sandbox, "pvc-daemon-state");
-  const pvcUserSubPath = path.join(pvcRoot, "user");
   const pvcAuthorityRepoSubPath = path.join(pvcRoot, "authority-repo");
-  mkdirSync(pvcUserSubPath, { recursive: true });
+  mkdirSync(pvcRoot, { recursive: true });
   mkdirSync(pvcAuthorityRepoSubPath, { recursive: true });
 
-  // Verify the rendered StatefulSet mounts cover BOTH daemon.userRoot (subPath: user) and fleet.authorityRepoRoot (subPath: authority-repo)
+  // Verify the rendered StatefulSet mounts daemon.userRoot at PVC root (no subPath: user) and fleet.authorityRepoRoot at subPath: authority-repo
   const statefulset = readFileSync(path.join(templatesRoot, "statefulset.yaml"), "utf8");
-  assert.ok(statefulset.includes("subPath: user") && statefulset.includes("subPath: authority-repo"));
+  assert.ok(!statefulset.includes("subPath: user") && statefulset.includes("subPath: authority-repo"));
 
   const pod1Ephemeral = path.join(sandbox, "pod-1-rootfs");
   const pod2Ephemeral = path.join(sandbox, "pod-2-rootfs");
@@ -1473,13 +1900,13 @@ test("StatefulSet PVC subPaths persist SQLite authority ledger revision across P
     runGit(pvcAuthorityRepoSubPath, ["config", "gc.auto", "0"]);
     runGit(pvcAuthorityRepoSubPath, ["commit", "--allow-empty", "-q", "-m", "init"]);
 
-    // Sign in test owner into the PVC user subPath so Pod 1 and Pod 2 share the persisted identity session
-    signInPolicyTestUser(pvcUserSubPath, "writer", ["center-sqlite"], "admin");
+    // Sign in test owner into the PVC root (daemon.userRoot) so Pod 1 and Pod 2 share the persisted identity session
+    signInPolicyTestUser(pvcRoot, "writer", ["center-sqlite"], "admin");
 
-    // Pod 1: boots with PVC user + authority-repo mounts, bootstraps SQLite authority repo, and writes a canonical fact revision
+    // Pod 1: boots with PVC root (userRoot) + authority-repo subPath, bootstraps SQLite authority repo, and writes a canonical fact revision
     const pod1Host = await openDaemonHost({
       daemonId: "center",
-      userRoot: pvcUserSubPath,
+      userRoot: pvcRoot,
       requiredStorageBackend: "sqlite",
     });
     let revisionAfterPod1 = 0;
@@ -1545,12 +1972,12 @@ test("StatefulSet PVC subPaths persist SQLite authority ledger revision across P
       await pod1Host.close();
     }
 
-    // Simulate Pod 1 termination & replacement: delete Pod 1 ephemeral rootfs completely; Pod 2 sees ONLY the PVC subPaths
+    // Simulate Pod 1 termination & replacement: delete Pod 1 ephemeral rootfs completely; Pod 2 sees ONLY the PVC
     rmSync(pod1Ephemeral, { recursive: true, force: true });
 
     const pod2Host = await openDaemonHost({
       daemonId: "center",
-      userRoot: pvcUserSubPath,
+      userRoot: pvcRoot,
       requiredStorageBackend: "sqlite",
     });
     try {
@@ -1573,6 +2000,134 @@ test("StatefulSet PVC subPaths persist SQLite authority ledger revision across P
     } finally {
       await pod2Host.close();
     }
+
+    // F-G7-40: Pre-release PVC (populated at PVC root with registry.json, rbac/config.json, fleet/state.json)
+    // upgraded in-place with fullnameOverride keeps the EXACT same userRoot mount at PVC root without re-bootstrapping or losing state!
+    const legacyPvcRoot = path.join(sandbox, "legacy-pvc-root");
+    const legacyRepoRoot = path.join(sandbox, "legacy-extra-repo");
+    const upgradedAuthorityRoot = path.join(sandbox, "upgraded-authority-repo");
+    const oidcDir = path.join(sandbox, "upgrade-oidc");
+    const tlsDir = path.join(sandbox, "upgrade-tls");
+    mkdirSync(path.join(legacyPvcRoot, "rbac"), { recursive: true });
+    mkdirSync(path.join(legacyPvcRoot, "fleet"), { recursive: true });
+    mkdirSync(legacyRepoRoot, { recursive: true });
+    mkdirSync(oidcDir, { recursive: true });
+    mkdirSync(tlsDir, { recursive: true });
+    writeFileSync(
+      path.join(legacyPvcRoot, "registry.json"),
+      JSON.stringify({
+        schema: "harness-daemon-registry/v2",
+        connections: [{ id: "local", kind: "local", displayName: "Local daemon", state: "enabled" }],
+        repos: [
+          {
+            repoId: "legacy-nondefault",
+            canonicalRoot: legacyRepoRoot,
+            displayName: "Legacy Repo",
+            authoredBranch: null,
+            mode: "local",
+            connectionId: "local",
+            state: "enabled",
+            registeredAt: "2026-10-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    writeFileSync(
+      path.join(legacyPvcRoot, "rbac", "config.json"),
+      JSON.stringify({
+        schema: "harness-managed-rbac/v1",
+        mode: "external",
+        url: "https://idp.example.org",
+        realm: "fleet",
+        clientId: "harness-center",
+      }),
+    );
+    writeFileSync(path.join(legacyPvcRoot, "rbac", "center-client-secret"), "legacy-secret-77", { mode: 0o600 });
+    writeFileSync(
+      path.join(legacyPvcRoot, "fleet", "state.json"),
+      JSON.stringify({
+        uploads: {
+          "upload-legacy-1": {
+            nodeId: "edge-1",
+            repoId: "org-center",
+            content: { sha256: "0".repeat(64), size: 12, mediaType: "text/plain" },
+            descriptor: null,
+          },
+        },
+      }),
+    );
+    writeFileSync(
+      path.join(legacyPvcRoot, "daemon-storage.json"),
+      JSON.stringify({
+        "legacy-nondefault": {
+          backend: "postgres",
+          connectionString: "postgresql://runtime@db.internal/harness",
+          authorityConnectionString: "postgresql://authority@db.internal/harness",
+          materialize: false,
+        },
+        "org-center": {
+          backend: "postgres",
+          connectionString: "postgresql://runtime@db.internal/harness",
+          authorityConnectionString: "postgresql://authority@db.internal/harness",
+          materialize: false,
+        },
+      }),
+    );
+    writeFileSync(path.join(oidcDir, "client-secret"), "legacy-secret-77\n", { mode: 0o600 });
+    writeFileSync(path.join(tlsDir, "tls.crt"), "DUMMY-CERT\n", { mode: 0o600 });
+    writeFileSync(path.join(tlsDir, "tls.key"), "DUMMY-KEY\n", { mode: 0o600 });
+    const upgradeScript = path.join(sandbox, "upgrade-start-center.sh");
+    writeFileSync(upgradeScript, extractEntrypointScript(), { mode: 0o755 });
+    const upgradeDaemon = path.join(sandbox, "upgrade-stub-daemon.cjs");
+    writeFileSync(upgradeDaemon, "process.exit(0);\n");
+    const upgradeCli = path.join(sandbox, "upgrade-stub-cli.cjs");
+    writeFileSync(
+      upgradeCli,
+      'console.error("CLI bootstrap must NOT run on an already-initialized pre-release PVC!"); process.exit(99);\n',
+    );
+    const upgradeRes = spawnSync("/bin/sh", [upgradeScript], {
+      env: {
+        ...process.env,
+        HARNESS_DAEMON_ENTRY: upgradeDaemon,
+        HARNESS_CLI_ENTRY: upgradeCli,
+        HARNESS_DAEMON_ID: "center",
+        HARNESS_DAEMON_USER_ROOT: legacyPvcRoot,
+        HARNESS_STORAGE_BACKEND: "postgres",
+        HARNESS_FLEET_ENABLED: "true",
+        HARNESS_FLEET_BIND: "0.0.0.0",
+        HARNESS_FLEET_PORT: "7545",
+        HARNESS_FLEET_AUTHORITY_REPO_ID: "org-center",
+        HARNESS_FLEET_AUTHORITY_REPO_ROOT: upgradedAuthorityRoot,
+        HARNESS_FLEET_QUOTA_BYTES: "1073741824",
+        HARNESS_FLEET_TLS_CERT_FILE: path.join(tlsDir, "tls.crt"),
+        HARNESS_FLEET_TLS_KEY_FILE: path.join(tlsDir, "tls.key"),
+        HARNESS_OIDC_ISSUER_URL: "https://idp.example.org",
+        HARNESS_OIDC_REALM: "fleet",
+        HARNESS_OIDC_CLIENT_ID: "harness-center",
+        HARNESS_OIDC_CLIENT_SECRET_FILE: path.join(oidcDir, "client-secret"),
+      },
+      encoding: "utf8",
+    });
+    assert.equal(
+      upgradeRes.status,
+      0,
+      `in-place PVC upgrade must preserve existing state without re-bootstrap: ${upgradeRes.stderr}`,
+    );
+    const upgradedRegistry = readDaemonRegistry({ userRoot: legacyPvcRoot });
+    assert.ok(
+      upgradedRegistry.repos.some((r) => r.repoId === "legacy-nondefault" && r.canonicalRoot === legacyRepoRoot),
+      "pre-release non-default registered repository must survive in-place upgrade",
+    );
+    assert.ok(
+      upgradedRegistry.repos.some((r) => r.repoId === "org-center"),
+      "Fleet authority repo must be reconciled alongside legacy registered repositories",
+    );
+    const persistedFleetState = JSON.parse(readFileSync(path.join(legacyPvcRoot, "fleet", "state.json"), "utf8"));
+    assert.equal(
+      persistedFleetState.uploads["upload-legacy-1"]?.nodeId,
+      "edge-1",
+      "persisted fleet/state.json upload state at PVC root must survive in-place upgrade",
+    );
   } finally {
     rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }

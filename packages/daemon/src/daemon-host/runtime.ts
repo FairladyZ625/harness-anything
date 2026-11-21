@@ -81,6 +81,7 @@ export async function startDaemon(input: {
   readonly retainPidUntilExit?: boolean;
   readonly shutdownDeadlineMs?: number;
   readonly shutdownDeadlineExceeded?: () => void;
+  readonly fleetDrainDeadlineMs?: number;
   /** Optional opt-in read-only Prometheus/health HTTP listener. Defaults to HARNESS_DAEMON_METRICS_* env. */
   readonly metrics?: DaemonMetricsHttpConfig | null;
   /** When true, /readyz requires external/managed identity configuration before reporting ready. */
@@ -126,11 +127,13 @@ export async function startDaemon(input: {
   let observation: typeof import("./daemon-operation.ts");
   let diagnostics: Awaited<ReturnType<typeof openDaemonDiagnostics>> | undefined;
   let metricsServer: DaemonMetricsServer | undefined;
+  const metricsConfig = input.metrics === undefined ? resolveDaemonMetricsConfig(process.env) : input.metrics;
   let host: Awaited<ReturnType<typeof openDaemonHost>> | undefined,
     requestLog: ReturnType<typeof openDaemonRequestLog> | null = null,
     transport: ReturnType<typeof createUnixSocketTransportServer> | undefined,
     stopPromise: Promise<void> | null = null,
     activeRequests = 0,
+    activeFleetRequests = 0,
     drainCheckScheduled = false,
     buildSupersessionObserved = false,
     socketBound = false,
@@ -315,13 +318,16 @@ export async function startDaemon(input: {
         onRepoStatusChange: requestDrainCheck,
         buildDraining,
         recordTraffic,
-        onFleetRequestStarted: () => {
-          activeRequests += 1;
-        },
-        onFleetRequestSettled: () => {
-          activeRequests = Math.max(0, activeRequests - 1);
-          requestDrainCheck();
-        },
+        ...(metricsConfig !== null
+          ? {
+              onFleetRequestStarted: () => {
+                activeFleetRequests += 1;
+              },
+              onFleetRequestSettled: () => {
+                activeFleetRequests = Math.max(0, activeFleetRequests - 1);
+              },
+            }
+          : {}),
       }),
     );
     // One sink for the daemon; the protocol server is created per connection and reports into it.
@@ -428,7 +434,7 @@ export async function startDaemon(input: {
             fleetDrainDeadline = setTimeout(() => {
               fleetDrainExpired = true;
               requestDrainCheck();
-            }, daemonRuntimePolicy.defaultValue.daemon.fleetDrainDeadlineMs);
+            }, input.fleetDrainDeadlineMs ?? daemonRuntimePolicy.defaultValue.daemon.fleetDrainDeadlineMs);
             fleetDrainDeadline.unref();
           },
           onRequestSettled: () => {
@@ -445,7 +451,6 @@ export async function startDaemon(input: {
     });
     await observation.withDaemonObservation(diagnostics.observer, () => transport!.start());
     socketBound = true;
-    const metricsConfig = input.metrics === undefined ? resolveDaemonMetricsConfig(process.env) : input.metrics;
     if (metricsConfig !== null) {
       metricsServer = await startDaemonMetricsServer({
         config: metricsConfig,
@@ -461,7 +466,7 @@ export async function startDaemon(input: {
             processResidentMemoryBytes: memory.rss,
             processHeapUsedBytes: memory.heapUsed,
             activeRuntimeSessions: runtimeProcessPids.size,
-            rpc: rpcMetrics.snapshot(activeRequests),
+            rpc: rpcMetrics.snapshot(activeRequests + activeFleetRequests),
             fleet: observed.fleet,
             repos: observed.repos,
           };

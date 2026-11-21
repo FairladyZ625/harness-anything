@@ -25,7 +25,7 @@ import { executionCredentialRejected, runtimeExecutionActor } from "./runtime-ex
 import { centerReviewFailurePrefix } from "./task-review-dispatch.ts";
 /** @daemon-transport-authority Host composition and RepoCell ownership. */
 import path from "node:path";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import {
   enforceRepoStorageBackend,
   readDaemonStorageConfig,
@@ -837,6 +837,18 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     initialAttachmentsSettled = false,
     replicaSyncStartQueued = false,
     closing = false;
+  const readPendingBootstrapTargets = (): readonly string[] => {
+    const markerPath = path.join(input.userRoot, "rbac", ".oidc-bootstrap-pending");
+    if (!existsSync(markerPath)) return [];
+    try {
+      const parsed = JSON.parse(readFileSync(markerPath, "utf8")) as { readonly target?: unknown };
+      if (typeof parsed.target === "string" && parsed.target.trim().length > 0) return [parsed.target.trim()];
+      return [""];
+    } catch (error) {
+      consumeKnownError(error);
+      return [""];
+    }
+  };
   const identityReadiness = createIdentityReadinessController({
     requireIdentityReady: input.requireIdentityReady,
     hasConfiguredIdentity: () => {
@@ -847,6 +859,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     checkOidcStatus: (loginTarget) => oidc.status(loginTarget),
     checkOidcCenter: (rejectedAccessToken) => oidc.center(rejectedAccessToken),
     isClosing: () => closing,
+    initialPendingTargets: readPendingBootstrapTargets(),
     readyReverifyIntervalMs: input.identityReadyReverifyIntervalMs,
     recordDiagnostics: (error) => {
       input.recordLifecycle?.({ event: "diagnostics", service: "identity-readiness", error });
