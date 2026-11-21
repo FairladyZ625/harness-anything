@@ -254,10 +254,11 @@ test("manifest gate runner keeps a bounded pool and reports every failure in pla
   assert.equal(maxActive, 2);
 });
 
-test("parallel gate pool runs authorization exclusively with a bounded worker budget", async () => {
+test("parallel gate pool budgets authorization workers against active gate concurrency", async () => {
   const captured = [];
   const active = new Set();
   let authorizationOverlapped = false;
+  let maxActive = 0;
   const plan = [
     { id: "gate-before" },
     { id: "ontology-durable-action-authorization" },
@@ -272,6 +273,7 @@ test("parallel gate pool runs authorization exclusively with a bounded worker bu
       }
       if (active.has("ontology-durable-action-authorization")) authorizationOverlapped = true;
       active.add(entry.id);
+      maxActive = Math.max(maxActive, active.size);
       captured.push(entry);
       await new Promise((resolve) => setImmediate(resolve));
       active.delete(entry.id);
@@ -281,13 +283,15 @@ test("parallel gate pool runs authorization exclusively with a bounded worker bu
 
   assert.deepEqual(result.failedGateIds, []);
   assert.equal(authorizationGateConcurrencyForPool(8), 4);
-  assert.equal(authorizationGateConcurrencyForPool(2), 1);
+  assert.equal(authorizationGateConcurrencyForPool(8, 6), 2);
+  assert.equal(authorizationGateConcurrencyForPool(2, 6), 1);
   assert.equal(
     captured.find((entry) => entry.id === "ontology-durable-action-authorization").authorizationAuditConcurrency,
-    4,
+    2,
   );
   assert.equal(captured.find((entry) => entry.id === "gate-before").authorizationAuditConcurrency, undefined);
-  assert.equal(authorizationOverlapped, false);
+  assert.equal(authorizationOverlapped, true);
+  assert.equal(maxActive, 6);
 });
 
 test("parallel gate pool exposes the auth cap only to the authorization child", async () => {
@@ -316,7 +320,7 @@ test("parallel gate pool exposes the auth cap only to the authorization child", 
     else process.env[variable] = previous;
   }
 
-  assert.equal(output.filter((line) => line === "GATE_CAP=4").length, 1, output.join("\n"));
+  assert.equal(output.filter((line) => line === "GATE_CAP=2").length, 1, output.join("\n"));
   assert.equal(output.filter((line) => line === "GATE_CAP=unset").length, 5, output.join("\n"));
 });
 
