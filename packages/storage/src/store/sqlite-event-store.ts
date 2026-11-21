@@ -659,7 +659,21 @@ function openSqliteEventStoreInternal(
           );
       }),
     queryEvents: (input) => queryEvents(query, input),
-    readEventWindow: (input) => transaction(() => readSqliteEventWindow(readRevision(db), query, input), true),
+    readEventWindow: (input) =>
+      transaction(
+        () =>
+          readSqliteEventWindow(
+            path.resolve(databasePath),
+            readRevision(db),
+            query,
+            (sql, values) =>
+              /* @gate-identity state-store/task.source.storage.src.store.sqlite-event-store.sqlite-database */ db
+                .prepare(sql)
+                .iterate(...values),
+            input,
+          ),
+        true,
+      ),
     readEntityDeclarations: (input) => transaction(() => readSqliteEntityDeclarations(query, input), true),
     gitOutboxState: () => {
       if (!hasOutbox)

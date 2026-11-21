@@ -785,23 +785,29 @@ test("DM-06: readAuditExportPage records effectiveFromRevision, capped effective
       executionId: "exec_dm06_cursor_001",
       reviewId: "rev_dm06_cursor_001",
     });
-    const splitEvents = fixture.events.map((ev, idx) => {
-      const occurredAt = idx < 2 ? `2026-11-04T1${idx}:00:00.000Z` : `2026-11-05T1${idx}:00:00.000Z`;
-      if (ev.type === "review_recorded") {
+    const dateForEvent = (revision: number) => {
+      const index = revision - 1;
+      return index < 2 ? `2026-11-04T1${index}:00:00.000Z` : `2026-11-05T1${index}:00:00.000Z`;
+    };
+    const reviewEvent = fixture.events.find((event) => event.type === "review_recorded")!;
+    const review = { ...reviewEvent.payload.review, reviewedAt: dateForEvent(reviewEvent.workspaceRevision) };
+    const splitEvents = fixture.events.map((event) => {
+      const occurredAt = dateForEvent(event.workspaceRevision);
+      if (event.type === "review_recorded") {
+        return { ...event, occurredAt, payload: { ...event.payload, review } };
+      }
+      if (event.type === "review_consent_recorded") {
         return {
-          ...ev,
+          ...event,
           occurredAt,
-          payload: { ...ev.payload, review: { ...ev.payload.review, reviewedAt: occurredAt } },
+          payload: {
+            ...event.payload,
+            review,
+            consent: { ...event.payload.consent, consentedAt: occurredAt, reviewDigest: reviewDigest(review) },
+          },
         };
       }
-      if (ev.type === "review_consent_recorded") {
-        return {
-          ...ev,
-          occurredAt,
-          payload: { ...ev.payload, consent: { ...ev.payload.consent, consentedAt: occurredAt } },
-        };
-      }
-      return { ...ev, occurredAt };
+      return { ...event, occurredAt };
     });
     for (const ev of splitEvents) {
       store.append({ event: ev, plan: taskLifecycleWritePlan(ev), blobs: [] });
@@ -830,6 +836,21 @@ test("DM-06: readAuditExportPage records effectiveFromRevision, capped effective
           return value;
         },
       };
+
+      // Pin the real head and the real start revision, then try to skip review by timestamp alone.
+      assert.throws(
+        () =>
+          readAuditExportPage(
+            cellApi,
+            {
+              kind: "ledger-audit-export",
+              date: "2026-11-05",
+              cursor: `0:${splitEvents.length}:${Date.parse("2026-11-05T14:00:00.000Z")}`,
+            },
+            queryBinding,
+          ),
+        { code: "invalid_command" },
+      );
 
       // Day 1 full export (2026-11-04)
       const day1Receipt = readAuditExportPage(
@@ -925,6 +946,91 @@ test("DM-06: readAuditExportPage records effectiveFromRevision, capped effective
       });
       const day2Lines = day2Payload.events.map((e) => day2Acc.addEvent(e).line).join("");
       const day2Manifest = day2Acc.finalize();
+
+      // A continuation from a truncated plan cannot move its scan origin forward
+      // when attached to the full-day revision bounds. It must read the omitted events.
+      const partialFirst = JSON.parse(
+        String(
+          readAuditExportPage(
+            cellApi,
+            { kind: "ledger-audit-export", date: "2026-11-05", cursor: "4:6", limit: 1 },
+            queryBinding,
+          ).evidence,
+        ),
+      ) as {
+        readonly page: { readonly nextCursor: string };
+      };
+      assert.match(partialFirst.page.nextCursor, /^5:6:r[0-9a-f]{32}\.1$/u);
+      let cursor: string | null = partialFirst.page.nextCursor.replace(/^5:/u, "0:");
+      const fullDay2 = createAuditChainAccumulator({
+        repoId,
+        algorithm: "sha256",
+        prevRootHash: day1Manifest.rootHash,
+        window: {
+          fromRevision: null,
+          toRevision: day2Manifest.window.toRevision,
+          utcDate: day2Manifest.window.utcDate,
+          after: day2Manifest.window.after,
+          before: day2Manifest.window.before,
+        },
+      });
+      const fullRevisions: number[] = [];
+      let fullDay2Lines = "";
+      while (cursor !== null) {
+        const page = JSON.parse(
+          String(
+            readAuditExportPage(
+              cellApi,
+              { kind: "ledger-audit-export", date: "2026-11-05", cursor, limit: 1 },
+              queryBinding,
+            ).evidence,
+          ),
+        ) as {
+          readonly cursorTruncated: boolean;
+          readonly events: readonly PersistedCanonicalEventV1[];
+          readonly page: { readonly nextCursor: string | null };
+        };
+        if (fullRevisions.length === 0) assert.equal(page.cursorTruncated, false);
+        for (const event of page.events) {
+          fullRevisions.push(event.workspaceRevision);
+          fullDay2Lines += fullDay2.addEvent(event).line;
+        }
+        cursor = page.page.nextCursor;
+        // A later offset in the same file cannot advance the requested revision.
+        if (fullRevisions.length === 1 && cursor !== null) cursor = cursor.replace(/\.[0-9]+$/u, ".2");
+      }
+      assert.deepEqual(fullRevisions, [3, 4, 5, 6]);
+
+      const fullDay2Manifest = fullDay2.finalize();
+      const fullCollector = createAuditCertificateChainCollector({
+        taskId: cert.taskId,
+        completionOpId: cert.completion.opId,
+        executionId: cert.executionId,
+      });
+      let expectedPrevRootHash = day1Manifest.prevRootHash;
+      for (const [manifest, entriesContent] of [
+        [day1Manifest, day1Lines],
+        [fullDay2Manifest, fullDay2Lines],
+      ] as const) {
+        const sliceCheck = verifyAuditSliceContent({
+          manifest,
+          entriesContent,
+          expectedPrevRootHash,
+          expectedRootHash: manifest.rootHash,
+          certificateCollector: fullCollector,
+        });
+        assert.equal(sliceCheck.ok, true, JSON.stringify(sliceCheck));
+        expectedPrevRootHash = manifest.rootHash;
+      }
+      const fullVerified = verifyDeliveryCertificate(cert, {
+        expectedCertificateHash: cert.certificateHash,
+        chainEvidence: fullCollector.evidence(),
+      });
+      assert.equal(fullVerified.ok, true, JSON.stringify(fullVerified));
+      if (fullVerified.ok) {
+        assert.equal(fullVerified.chainEvidence?.coverage, "complete");
+        assert.equal(fullVerified.strictVerified, true);
+      }
 
       const collector = createAuditCertificateChainCollector({
         taskId: "task_dm06_cursor_001",

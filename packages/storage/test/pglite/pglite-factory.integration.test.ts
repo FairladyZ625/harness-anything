@@ -16,7 +16,7 @@ import {
   HISTORICAL_TIMESTAMP_CASES,
 } from "../canonical-factory.assertions.ts";
 import { eventAt } from "../store/task-event-store.fixtures.ts";
-import { explainNodes, tracedPgReads } from "../postgres/pg-explain.fixture.ts";
+import { explainNodes, pgTableRowsVisited, tracedPgReads } from "../postgres/pg-explain.fixture.ts";
 import { readPgEventWindow } from "../../src/postgres/pg-event-window.ts";
 import { withTempStoreAsync } from "../store/helpers.ts";
 import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
@@ -266,7 +266,18 @@ pgliteIntegrationSuite("PGlite synchronous factories", () => {
       },
     ] as const;
 
-    for (const scenario of scenarios) {
+    const descendingScenario = {
+      name: "descending",
+      after: "2026-11-05T10:00:00.000Z",
+      before: "2026-11-05T10:59:59.999Z",
+      matchAt: (idx: number) => new Date(Date.parse("2026-11-05T10:40:00.000Z") - idx * 1_000).toISOString(),
+      gapAt: () => "2026-11-05T18:00:00.000Z",
+    };
+    const measuredDescending: number[] = [];
+    for (const { scenario, matchingPerSide, gapSize } of [
+      ...scenarios.map((scenario) => ({ scenario, matchingPerSide: 40, gapSize: 1_500 })),
+      ...[40, 160].map((matchingPerSide) => ({ scenario: descendingScenario, matchingPerSide, gapSize: 17 })),
+    ]) {
       await withTempStoreAsync(async (rootDir) => {
         const repoId = `pglite-dm03-${scenario.name}`;
         const storage = {
@@ -277,9 +288,8 @@ pgliteIntegrationSuite("PGlite synchronous factories", () => {
         };
         const backend = await createPGliteStorageBackend({ repoId, storage });
         try {
-          const matchingBefore = 40;
-          const gapSize = 1_500;
-          const matchingAfter = 40;
+          const matchingBefore = matchingPerSide;
+          const matchingAfter = matchingPerSide;
           const total = matchingBefore + gapSize + matchingAfter;
           const fence = { repoId, holderId: "sparse-writer", epoch: 1 };
           let matchIdx = 0;
@@ -304,7 +314,7 @@ pgliteIntegrationSuite("PGlite synchronous factories", () => {
           const collected: number[] = [];
           let afterRevision = 0;
           let maxRevision: number | undefined;
-          let afterOccurredAtMs: number | undefined;
+          let continuation: string | undefined;
           let pages = 0;
           for (;;) {
             const page = await withPostgresTransaction(
@@ -318,7 +328,7 @@ pgliteIntegrationSuite("PGlite synchronous factories", () => {
                     query: {
                       afterRevision,
                       ...(maxRevision === undefined ? {} : { maxRevision }),
-                      ...(afterOccurredAtMs === undefined ? {} : { afterOccurredAtMs }),
+                      ...(continuation === undefined ? {} : { continuation }),
                       after: scenario.after,
                       before: scenario.before,
                       limit: 20,
@@ -331,21 +341,29 @@ pgliteIntegrationSuite("PGlite synchronous factories", () => {
             pages += 1;
             for (const ev of page.events) collected.push(ev.workspaceRevision);
             maxRevision = page.windowMaxRevision;
-            afterOccurredAtMs = page.nextAfterOccurredAtMs;
+            continuation = page.continuation;
             if (page.done) break;
             afterRevision = page.lastScannedRevision;
           }
-          assert.equal(pages, 4, scenario.name);
-          assert.equal(collected.length, matchingBefore + matchingAfter, scenario.name);
-          assert.equal(collected[0], 1, scenario.name);
-          assert.equal(collected[matchingBefore], matchingBefore + gapSize + 1, scenario.name);
+          assert.equal(pages, (matchingBefore + matchingAfter) / 20, scenario.name);
+          assert.deepEqual(
+            collected,
+            Array.from(
+              { length: matchingBefore + matchingAfter },
+              (_, idx) => idx + 1 + (idx >= matchingBefore ? gapSize : 0),
+            ),
+          );
+          if (scenario === descendingScenario) {
+            measuredDescending.push(pgTableRowsVisited(plans, "ha_events"));
+            return;
+          }
 
           const scans = explainNodes(plans).filter((node) => String(node["Relation Name"] ?? "") === "ha_events");
           const occurredScans = scans.filter(
             (node) => String(node["Index Name"] ?? "") === "ha_events_occurred_ms_revision",
           );
           assert.ok(
-            occurredScans.length >= 4,
+            occurredScans.length === 1,
             `${scenario.name}: expected occurred_ms scans, got ${JSON.stringify(scans)}`,
           );
           let totalRowsVisited = 0;
@@ -370,6 +388,10 @@ pgliteIntegrationSuite("PGlite synchronous factories", () => {
         }
       });
     }
+    process.stdout.write(
+      `DM03_PGLITE_DESCENDING ${JSON.stringify({ counts: [80, 320], reads: measuredDescending })}\n`,
+    );
+    assert.ok(measuredDescending[1]! <= measuredDescending[0]! * 5, JSON.stringify(measuredDescending));
   });
 });
 

@@ -123,7 +123,13 @@ export async function executePostgresRead(
         case "events":
           return readEvents(client, scope, payload as ReadEventsPayload, cut?.confirmedRevision ?? 0);
         case "window":
-          return readPgEventWindow(client, scope, payload as PgReadEventWindowPayload, cut?.confirmedRevision ?? 0);
+          return readPgEventWindow(
+            client,
+            scope,
+            payload as PgReadEventWindowPayload,
+            cut?.confirmedRevision ?? 0,
+            cut?.history,
+          );
         case "event":
           return readEvent(client, scope, payload as ReadEventPayload, cut?.confirmedRevision ?? 0);
         case "document-retirement-revision": {

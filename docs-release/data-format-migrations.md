@@ -199,7 +199,9 @@ PostgreSQL installs a nullable scalar `occurred_at_ms bigint` column (zero table
 ledger bootstrap and `ensurePgProjectionSchema`. Existing external PostgreSQL deployments backfill
 pre-upgrade rows in bounded 64-row batches via `ha_backfill_event_read_indexes` (with time-window
 reads failing closed with `projection_pending` until complete, while pure revision windows stay
-available). Keyset pagination on `(occurred_at_ms, revision)` keeps narrow intra-day, single-day,
-and `>32`-day wide windows strictly bounded by matching window events independent of non-matching
-revision gaps. Canonical `event_json`, `occurred_at` text, and event digests remain byte-identical
-and require no ledger conversion.
+available). Time-window exports use the time index to select revision keys, then sort them once
+and read canonical events in revision order. Multi-page exports keep the sorted keys in private,
+temporary storage. Each continuation verifies the revision at its offset before reading the next
+keys. If the offset is invalid, the temporary file has expired, or the request reaches another
+node, the reader rebuilds the remaining keys from the requested revision bounds. Canonical `event_json`,
+`occurred_at` text, and event digests remain byte-identical and require no ledger conversion.

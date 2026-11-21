@@ -187,16 +187,26 @@ test(
         gapAt: () => "2026-11-15T12:00:00.000Z",
       },
     ];
+    scenarios.push({
+      name: "descending-timestamps",
+      after: "2026-11-05T10:00:00.000Z",
+      before: "2026-11-05T10:59:59.999Z",
+      matchAt: (idx) => new Date(Date.parse("2026-11-05T10:40:00.000Z") - idx * 1_000).toISOString(),
+      gapAt: () => "2026-11-05T18:00:00.000Z",
+    });
     for (const scenario of scenarios) {
+      const descending = scenario.name === "descending-timestamps";
       const measured = {};
-      for (const [scale, gapSize] of Object.entries({ small: 200, large: 2000 })) {
+      for (const scale of ["small", "large"]) {
+        const gapSize = descending ? 17 : scale === "small" ? 200 : 2000;
+        const matchesPerSide = descending && scale === "large" ? 400 : 100;
         const rootDir = mkdtempSync(path.join(tmpdir(), `ha-g38-sparse-${scenario.name}-`));
         try {
           initRepo(rootDir);
           const repoId = `g38-sparse-${scenario.name}-${scale}`;
           let store = makeTaskEventStore({ rootDir, repoId });
-          const matchingBefore = 100;
-          const matchingAfter = 100;
+          const matchingBefore = matchesPerSide;
+          const matchingAfter = matchesPerSide;
           const total = matchingBefore + gapSize + matchingAfter;
           let matchIdx = 0;
           for (let offset = 0; offset < total; offset += 100) {
@@ -219,28 +229,31 @@ test(
             resetReadProbe();
             let afterRevision = 0;
             let maxRevision;
-            let afterOccurredAtMs;
+            let continuation;
             let totalMatched = 0;
             let pages = 0;
             for (;;) {
               const page = store.readEventWindow({
                 afterRevision,
                 ...(maxRevision === undefined ? {} : { maxRevision }),
-                ...(afterOccurredAtMs === undefined ? {} : { afterOccurredAtMs }),
+                ...(continuation === undefined ? {} : { continuation }),
                 after: scenario.after,
                 before: scenario.before,
                 limit: 50,
               });
               pages += 1;
-              totalMatched += page.events.length;
+              for (const event of page.events) {
+                totalMatched += 1;
+                assert.equal(event.workspaceRevision, totalMatched + (totalMatched > matchingBefore ? gapSize : 0));
+              }
               maxRevision = page.windowMaxRevision;
-              afterOccurredAtMs = page.nextAfterOccurredAtMs;
+              continuation = page.continuation;
               if (page.done) break;
               afterRevision = page.lastScannedRevision;
             }
             const counts = snapshotReadProbe();
             assert.equal(totalMatched, matchingBefore + matchingAfter, scenario.name);
-            assert.equal(pages, 4, scenario.name);
+            assert.equal(pages, (matchingBefore + matchingAfter) / 50, scenario.name);
             measured[scale] = counts;
           } finally {
             await store.drain();
@@ -250,6 +263,17 @@ test(
         }
       }
       t.diagnostic(JSON.stringify({ dm03Scenario: scenario.name, measured }));
+      if (descending) {
+        assert.ok(
+          measured.large.sqliteVmSteps <= measured.small.sqliteVmSteps * 5,
+          `4x matching events amplified SQLite VM steps: ${JSON.stringify(measured)}`,
+        );
+        assert.ok(
+          measured.large.fileReadBytes <= measured.small.fileReadBytes * 4.4,
+          `4x matching events amplified temporary file reads: ${JSON.stringify(measured)}`,
+        );
+        continue;
+      }
       // Gap grew 10x (200 -> 2,000 non-matching rows) with fixed 200 matching rows: row reads and VM steps MUST stay identical!
       assert.equal(
         measured.large.sqlRowsRead,

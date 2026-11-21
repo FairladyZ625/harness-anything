@@ -22,7 +22,7 @@ import { bundle, eventAt, initRepo } from "../store/task-event-store.fixtures.ts
 import { assertDocumentAdmission, admissionSettingsBase } from "../store/document-admission.assertions.ts";
 import { localGitWorktreeSettlement } from "../../src/store/local-version-control-system.ts";
 import { buildHistoricalTimestampFixtures, HISTORICAL_TIMESTAMP_CASES } from "../canonical-factory.assertions.ts";
-import { explainNodes, tracedPgReads } from "./pg-explain.fixture.ts";
+import { explainNodes, pgTableRowsVisited, tracedPgReads } from "./pg-explain.fixture.ts";
 import { readPgEventWindow } from "../../src/postgres/pg-event-window.ts";
 import { POSTGRES_EVENT_OCCURRED_MS_SCHEMA_STATEMENTS } from "../../src/postgres/event-ledger-schema.ts";
 import { ensurePgProjectionSchema, grantPgProjectionRuntimeAccess } from "../../src/pg/pg-projection-schema.ts";
@@ -367,12 +367,22 @@ test("real PG ledger: SQLite byte parity, scoped locks, outcomes, rollback and p
           },
         ] as const;
 
-        for (const scenario of sparseScenarios) {
-          const sparseRepo = `dm03-sparse-pg-${scenario.name}`;
+        const descendingScenario = {
+          name: "descending",
+          after: "2026-11-05T10:00:00.000Z",
+          before: "2026-11-05T10:59:59.999Z",
+          matchAt: (idx: number) => new Date(Date.parse("2026-11-05T10:40:00.000Z") - idx * 1_000).toISOString(),
+          gapAt: () => "2026-11-05T18:00:00.000Z",
+        };
+        const measuredDescending: number[] = [];
+        for (const { scenario, matchingPerSide, gapSize } of [
+          ...sparseScenarios.map((scenario) => ({ scenario, matchingPerSide: 40, gapSize: 1_500 })),
+          ...[40, 160].map((matchingPerSide) => ({ scenario: descendingScenario, matchingPerSide, gapSize: 17 })),
+        ]) {
+          const sparseRepo = `dm03-sparse-pg-${scenario.name}-${matchingPerSide}`;
           const sparseStore = make(sparseRepo, scope);
-          const matchingBefore = 40;
-          const gapSize = 1_500;
-          const matchingAfter = 40;
+          const matchingBefore = matchingPerSide;
+          const matchingAfter = matchingPerSide;
           const total = matchingBefore + gapSize + matchingAfter;
           let matchIdx = 0;
           for (let offset = 0; offset < total; offset += 100) {
@@ -396,7 +406,7 @@ test("real PG ledger: SQLite byte parity, scoped locks, outcomes, rollback and p
           const collected: number[] = [];
           let afterRevision = 0;
           let maxRevision: number | undefined;
-          let afterOccurredAtMs: number | undefined;
+          let continuation: string | undefined;
           let pages = 0;
           for (;;) {
             const page = await withPostgresTransaction(
@@ -410,7 +420,7 @@ test("real PG ledger: SQLite byte parity, scoped locks, outcomes, rollback and p
                     query: {
                       afterRevision,
                       ...(maxRevision === undefined ? {} : { maxRevision }),
-                      ...(afterOccurredAtMs === undefined ? {} : { afterOccurredAtMs }),
+                      ...(continuation === undefined ? {} : { continuation }),
                       after: scenario.after,
                       before: scenario.before,
                       limit: 20,
@@ -423,20 +433,28 @@ test("real PG ledger: SQLite byte parity, scoped locks, outcomes, rollback and p
             pages += 1;
             for (const ev of page.events) collected.push(ev.workspaceRevision);
             maxRevision = page.windowMaxRevision;
-            afterOccurredAtMs = page.nextAfterOccurredAtMs;
+            continuation = page.continuation;
             if (page.done) break;
             afterRevision = page.lastScannedRevision;
           }
-          assert.equal(pages, 4, scenario.name);
-          assert.equal(collected.length, matchingBefore + matchingAfter, scenario.name);
-          assert.equal(collected[0], 1, scenario.name);
-          assert.equal(collected[matchingBefore], matchingBefore + gapSize + 1, scenario.name);
+          assert.equal(pages, (matchingBefore + matchingAfter) / 20, scenario.name);
+          assert.deepEqual(
+            collected,
+            Array.from(
+              { length: matchingBefore + matchingAfter },
+              (_, idx) => idx + 1 + (idx >= matchingBefore ? gapSize : 0),
+            ),
+          );
+          if (scenario === descendingScenario) {
+            measuredDescending.push(pgTableRowsVisited(plans, "ha_events"));
+            continue;
+          }
           const scans = explainNodes(plans).filter((node) => String(node["Relation Name"] ?? "") === "ha_events");
           const occurredScans = scans.filter(
             (node) => String(node["Index Name"] ?? "") === "ha_events_occurred_ms_revision",
           );
           assert.ok(
-            occurredScans.length >= 4,
+            occurredScans.length === 1,
             `${scenario.name}: expected occurred_ms index scans, got ${JSON.stringify(scans)}`,
           );
           let totalRowsVisited = 0;
@@ -457,6 +475,10 @@ test("real PG ledger: SQLite byte parity, scoped locks, outcomes, rollback and p
             `${scenario.name}: expected <=320 total rows visited across 1,500-row gap, got ${totalRowsVisited}`,
           );
         }
+        process.stdout.write(
+          `DM03_PG_DESCENDING ${JSON.stringify({ counts: [80, 320], reads: measuredDescending })}\n`,
+        );
+        assert.ok(measuredDescending[1]! <= measuredDescending[0]! * 5, JSON.stringify(measuredDescending));
       },
     );
     await t.test(

@@ -122,7 +122,7 @@ export const eventProtocolCommands = Object.freeze([
         "single",
         false,
         { code: "invalid_field" },
-        { pathKind: "non-path", regex: "^[0-9]+(?::[0-9]+(?::-?[0-9]+)?)?$" },
+        { pathKind: "non-path", regex: "^[0-9]+(?::[0-9]+(?::r[0-9a-f]{32}\\.[0-9]+)?)?$" },
       ),
       cliInput(
         "--output-dir",

@@ -59,6 +59,12 @@ test("thin command parser routes ledger audit-export and task delivery-certifica
   assert.equal(mutuallyExclusive.ok, false);
   if (!mutuallyExclusive.ok) assert.equal(mutuallyExclusive.code, "invalid_field");
 
+  const dateArgs = ["ledger", "audit-export", "--date", "2026-11-05", "--cursor"];
+  const timestampCursor = parseThinCommand([...dateArgs, `0:6:${Date.parse("2026-11-05T14:00:00.000Z")}`]);
+  assert.equal(timestampCursor.ok, false);
+  if (!timestampCursor.ok) assert.equal(timestampCursor.code, "invalid_field");
+  assert.equal(parseThinCommand([...dateArgs, `2:6:r${"ab".repeat(16)}.2`]).ok, true);
+
   const certParsed = parseThinCommand([
     "task",
     "delivery-certificate",

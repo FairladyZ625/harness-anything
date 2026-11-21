@@ -169,8 +169,8 @@ export interface AuditEventWindowQuery {
   readonly after?: string;
   readonly before?: string;
   readonly limit: number;
-  /** Safe lower bound on occurred_at_ms carried across pages when the prior page proved earlier timestamps exhausted. */
-  readonly afterOccurredAtMs?: number;
+  /** Opaque storage hint. The revision and time bounds remain authoritative. */
+  readonly continuation?: string;
 }
 export interface AuditEventWindowBatch {
   readonly sourceRevision: number;
@@ -178,7 +178,7 @@ export interface AuditEventWindowBatch {
   readonly lastScannedRevision: number;
   readonly windowMaxRevision: number;
   readonly done: boolean;
-  readonly nextAfterOccurredAtMs?: number;
+  readonly continuation?: string;
 }
 export function canonicalEventEntityRefs(event: PersistedCanonicalEventV1): readonly string[] {
   const refs = new Set<string>(),

@@ -137,13 +137,13 @@ test("SQLite readEventWindow sparse date-window pagination skips intervening non
       const collected: number[] = [];
       let afterRevision = 0;
       let maxRevision: number | undefined;
-      let afterOccurredAtMs: number | undefined;
+      let continuation: string | undefined;
       let pages = 0;
       for (;;) {
         const page = store.readEventWindow!({
           afterRevision,
           ...(maxRevision === undefined ? {} : { maxRevision }),
-          ...(afterOccurredAtMs === undefined ? {} : { afterOccurredAtMs }),
+          ...(continuation === undefined ? {} : { continuation }),
           after: "2026-11-05T00:00:00.000Z",
           before: "2026-11-05T23:59:59.999Z",
           limit: 20,
@@ -151,7 +151,7 @@ test("SQLite readEventWindow sparse date-window pagination skips intervening non
         pages += 1;
         for (const ev of page.events) collected.push(ev.workspaceRevision);
         maxRevision = page.windowMaxRevision;
-        afterOccurredAtMs = page.nextAfterOccurredAtMs;
+        continuation = page.continuation;
         if (page.done) break;
         afterRevision = page.lastScannedRevision;
       }
@@ -212,19 +212,19 @@ test("SQLite readEventWindow handles narrow intra-day, >32-day wide windows, and
       const wideRevs: number[] = [];
       let afterRevision = 0;
       let maxRevision: number | undefined;
-      let afterOccurredAtMs: number | undefined;
+      let continuation: string | undefined;
       for (;;) {
         const page = store.readEventWindow!({
           afterRevision,
           ...(maxRevision === undefined ? {} : { maxRevision }),
-          ...(afterOccurredAtMs === undefined ? {} : { afterOccurredAtMs }),
+          ...(continuation === undefined ? {} : { continuation }),
           after: "2026-09-01T00:00:00.000Z",
           before: "2026-10-10T23:59:59.999Z",
           limit: 17,
         });
         for (const ev of page.events) wideRevs.push(ev.workspaceRevision);
         maxRevision = page.windowMaxRevision;
-        afterOccurredAtMs = page.nextAfterOccurredAtMs;
+        continuation = page.continuation;
         if (page.done) break;
         afterRevision = page.lastScannedRevision;
       }
