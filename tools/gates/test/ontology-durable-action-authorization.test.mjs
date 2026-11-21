@@ -200,8 +200,8 @@ partitionedTest("a declared local-transport route is red once its transport exit
     edit(
       dir,
       "packages/daemon/src/daemon-host/daemon-host-runtime-api.ts",
-      '            "Fleet edge sync requires the matching enabled remote-edge registration.",\n          );\n        context.localOnly(auth);',
-      '            "Fleet edge sync requires the matching enabled remote-edge registration.",\n          );',
+      '            repoint\n              ? "Fleet edge repoint requires the matching enabled remote-edge registration."\n              : "Fleet edge sync requires the matching enabled remote-edge registration.",\n          );\n        context.localOnly(auth);',
+      '            repoint\n              ? "Fleet edge repoint requires the matching enabled remote-edge registration."\n              : "Fleet edge sync requires the matching enabled remote-edge registration.",\n          );',
     ),
   );
   threeStage(t, ["repo-bootstrap"], (dir) =>

@@ -25,6 +25,7 @@ import {
 import type { BaseBackupMetadata } from "@harness-anything/storage";
 import type { ReplicaGeneration } from "../../fleet-sync/fleet/replica-generation.ts";
 import { syncDirectory } from "@harness-anything/storage";
+import { REPOINT_RESUME_ONLY } from "./repoint-lineage.ts";
 
 /** The receiver owns the only mutable ledger handle; projection application is the center's implementation. */
 export function openWalReceiverGeneration(generation: ReplicaGeneration) {
@@ -338,6 +339,7 @@ async function receivePackStream(input: {
 
 export async function runWalReceiver(input: {
   readonly peer: ReplicationPeer;
+  readonly resumeOnly?: boolean;
   readonly repoId: string;
   readonly target: ReplicationTarget;
   readonly directory: string;
@@ -357,6 +359,8 @@ export async function runWalReceiver(input: {
   try {
     const snapshotsRoot = path.join(input.directory, "snapshots");
     const initialPosition = target.position();
+    if (input.resumeOnly && initialPosition === null)
+      throw new ReplicationError("Repoint requires an existing replica position.", "replication_resume_unavailable");
     const stagedResume = initialPosition === null ? await findResumableSnapshot(snapshotsRoot) : null;
     await peer.send({
       type: "replica.start",
@@ -364,7 +368,12 @@ export async function runWalReceiver(input: {
       position: initialPosition,
       edgeBuildCommit: daemonBuildStamp().commit,
       taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
-      capabilities: [SNAPSHOT_RESUME_CAPABILITY, SNAPSHOT_BINARY_WIRE_CAPABILITY, SNAPSHOT_OBJECT_PACK_CAPABILITY],
+      capabilities: [
+        SNAPSHOT_RESUME_CAPABILITY,
+        SNAPSHOT_BINARY_WIRE_CAPABILITY,
+        SNAPSHOT_OBJECT_PACK_CAPABILITY,
+        ...(input.resumeOnly ? [REPOINT_RESUME_ONLY] : []),
+      ],
       ...(stagedResume ? { resumeSnapshot: { snapshotId: stagedResume.snapshotId, offset: stagedResume.offset } } : {}),
     });
     const rejectUnauthorizedRead = async (): Promise<never> => {
@@ -379,8 +388,13 @@ export async function runWalReceiver(input: {
     const handshake = await peer.receive(signal);
     if (handshake.type === "replica.reject")
       throw Object.assign(new Error(handshake.message), { code: handshake.code });
-    if (handshake.type === "replica.resync" && handshake.reason === "authorization_denied")
-      await rejectUnauthorizedRead();
+    if (handshake.type === "replica.resync" && handshake.reason === "authorization_denied") {
+      if (!input.resumeOnly) await rejectUnauthorizedRead();
+      throw new ReplicationError(
+        "authorization_denied: The replacement center denied repository-read for this node.",
+        "authorization_denied",
+      );
+    }
     if (handshake.type !== "replica.accept")
       throw new ReplicationError("replication handshake acceptance required", "replica_protocol_error");
     if (handshake.taskEventShapeVersion > TASK_EVENT_SHAPE_COMPAT_VERSION)
@@ -462,6 +476,9 @@ export async function runWalReceiver(input: {
     for (;;) {
       signal.throwIfAborted();
       const frame = await peer.receive(signal);
+      if (frame.type === "replica.failure") throw new ReplicationError(frame.message, frame.code);
+      if (input.resumeOnly && (frame.type === "replica.backup" || frame.type === "replica.resync"))
+        throw new ReplicationError("Repoint requires incremental replication.", "replication_resume_unavailable");
       if (frame.type === "replica.commit" || frame.type === "replica.backup") frameSize = frame.size;
       if (frame.type === "replica.resync") {
         // A denied replica is withdrawn and the stream fails: the owner and doctor see the denial, and

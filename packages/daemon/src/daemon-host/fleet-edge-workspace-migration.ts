@@ -26,6 +26,7 @@ export function migrateFleetEdgeWorkspace(oldRoot: string, newRoot: string, repo
           port: config.port,
           caPath: config.caPath,
           ...(config.servername ? { servername: config.servername } : {}),
+          ...(config.spkiSha256 ? { spkiSha256: config.spkiSha256 } : {}),
         });
 
   const relocatedCaPath = relocateAbsolutePath(config.caPath, sourceRoot, targetRoot),
@@ -62,6 +63,7 @@ export function migrateFleetEdgeWorkspace(oldRoot: string, newRoot: string, repo
       port: config.port,
       caPath,
       ...(config.servername ? { servername: config.servername } : {}),
+      ...(config.spkiSha256 ? { spkiSha256: config.spkiSha256 } : {}),
     });
 }
 

@@ -37,6 +37,7 @@ import type { DaemonTaskDispatchesResult } from "../protocol/daemon-protocol.con
 import {
   FleetUtf8LineDecoder,
   currentFleetProtocolVersion,
+  FLEET_SESSION_CAPABILITY,
   parseFleetFrame,
   serializeFleetFrame,
   type FleetDeviceLoginNotice,
@@ -58,11 +59,13 @@ export interface FleetEdgeChange {
 }
 export interface FleetPeerOptions {
   readonly readAccessToken?: () => Promise<string | undefined>;
+  readonly sessionCapabilities?: readonly string[];
   readonly executionCredential?: string;
   readonly hostname?: string;
   readonly port: number;
   readonly ca: string | Buffer;
   readonly servername?: string;
+  readonly spkiSha256?: string;
   readonly nodeId: string;
   readonly credential: string;
   readonly repoId: string;
@@ -110,6 +113,7 @@ export type FleetPeer = Awaited<ReturnType<typeof openPeer>>;
 const REPLICATION_IDLE_TIMEOUT_MS = daemonProtocolFleetPolicy.defaultValue.fleet.replicationIdleTimeoutMs;
 
 export interface FleetReplicaStreamOptions extends FleetPeerOptions {
+  readonly resumeOnly?: boolean;
   readonly onRevoked?: () => void;
   readonly viewRoot: string;
   readonly diskQuotaBytes: number;
@@ -250,6 +254,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
           .then(() => {
             for (const line of commandDecoder.push(chunk)) {
               const frame = parseFleetFrame(line);
+              if (frame.schema === "fleet.error/v1") throw new FleetRemoteError(frame);
               if (frame.schema !== "fleet.session.ready/v1") continue;
               const localBuildCommit = daemonBuildStamp().commit;
               options.onVersionWarning?.(
@@ -429,6 +434,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
     };
     await runWalReceiver({
       peer: replicationPeer,
+      resumeOnly: options.resumeOnly,
       repoId: options.repoId,
       target,
       directory: path.join(viewRoot, "staging"),
@@ -512,6 +518,8 @@ export async function readFleetRepositoryMetadataClient(
   options: FleetPeerOptions & {
     readonly actionKind?: string;
     readonly includeGitMetadata?: boolean;
+    readonly resumePosition?: import("@harness-anything/storage").ReplicationPosition;
+    readonly readRepointToken?: (authority: FleetLoginAuthority | null | undefined) => Promise<string | undefined>;
     readonly executionId?: string | null;
     readonly taskId?: string;
   },
@@ -520,8 +528,18 @@ export async function readFleetRepositoryMetadataClient(
     readonly loginAuthority?: FleetLoginAuthority | null;
   }
 > {
-  const session = await openPeer(options);
+  let repointToken: string | undefined;
+  const session = await openPeer({
+    ...options,
+    ...(options.readRepointToken
+      ? {
+          readAccessToken: async () => repointToken,
+          sessionCapabilities: [FLEET_SESSION_CAPABILITY.extendedLoginAuthority],
+        }
+      : {}),
+  });
   try {
+    if (options.readRepointToken) repointToken = await options.readRepointToken(session.loginAuthority);
     const result = await session.request({
       schema: "fleet.repo.metadata.get/v1",
       messageId: session.messageId(),
@@ -529,6 +547,7 @@ export async function readFleetRepositoryMetadataClient(
       ...(options.executionCredential ? { executionCredential: options.executionCredential } : {}),
       ...(options.executionId !== undefined ? { executionId: options.executionId } : {}),
       ...(options.includeGitMetadata ? { includeGitMetadata: true } : {}),
+      ...(options.resumePosition === undefined ? {} : { resumePosition: options.resumePosition }),
       ...(options.actionKind ? { actionKind: options.actionKind } : {}),
       ...(options.taskId ? { taskId: options.taskId } : {}),
     });
@@ -944,6 +963,7 @@ export async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
       nodeId: options.nodeId,
       credential: options.credential,
       buildCommit: options.buildCommit === undefined ? daemonBuildStamp().commit : options.buildCommit,
+      ...(options.sessionCapabilities?.length ? { capabilities: options.sessionCapabilities } : {}),
     });
     if (ready.schema !== "fleet.session.ready/v1") throw new Error("session ready expected");
     return {
@@ -1064,35 +1084,38 @@ export async function probeFleetEdgeCenterAddress(options: {
   readonly servername?: string;
   readonly spkiSha256: string;
   readonly timeoutMs?: number;
+  readonly socket?: TLSSocket;
 }): Promise<void> {
   const hostname = options.hostname.replace(/^\[|\]$/gu, "");
-  const socket = await new Promise<TLSSocket>((resolve, reject) => {
-    const candidate = connect({
-      host: hostname,
-      port: options.port,
-      ...edgeJoinServername(hostname, options.servername),
-      rejectUnauthorized: false,
-    });
-    const unreachable = (cause?: unknown) =>
-      Object.assign(
-        new Error(
-          `Center address https://${options.hostname}:${options.port} is unreachable; check its DNS, routing, firewall, and port mapping.`,
-        ),
-        { code: "center_address_unreachable", ...(cause === undefined ? {} : { cause }) },
-      );
-    const timer = setTimeout(() => {
-      candidate.destroy();
-      reject(unreachable());
-    }, options.timeoutMs ?? 5_000);
-    candidate.once("secureConnect", () => {
-      clearTimeout(timer);
-      resolve(candidate);
-    });
-    candidate.once("error", (error) => {
-      clearTimeout(timer);
-      reject(unreachable(error));
-    });
-  });
+  const socket =
+    options.socket ??
+    (await new Promise<TLSSocket>((resolve, reject) => {
+      const candidate = connect({
+        host: hostname,
+        port: options.port,
+        ...edgeJoinServername(hostname, options.servername),
+        rejectUnauthorized: false,
+      });
+      const unreachable = (cause?: unknown) =>
+        Object.assign(
+          new Error(
+            `Center address https://${options.hostname}:${options.port} is unreachable; check its DNS, routing, firewall, and port mapping.`,
+          ),
+          { code: "center_address_unreachable", ...(cause === undefined ? {} : { cause }) },
+        );
+      const timer = setTimeout(() => {
+        candidate.destroy();
+        reject(unreachable());
+      }, options.timeoutMs ?? 5_000);
+      candidate.once("secureConnect", () => {
+        clearTimeout(timer);
+        resolve(candidate);
+      });
+      candidate.once("error", (error) => {
+        clearTimeout(timer);
+        reject(unreachable(error));
+      });
+    }));
   try {
     const peer = socket.getPeerCertificate(true);
     if (!peer.raw)
@@ -1105,7 +1128,7 @@ export async function probeFleetEdgeCenterAddress(options: {
         code: "pin_mismatch",
       });
   } finally {
-    socket.destroy();
+    if (!options.socket) socket.destroy();
   }
 }
 export async function createFleetMemberDeviceLink(options: FleetPeerOptions, repoIds: readonly string[]) {
@@ -1197,10 +1220,23 @@ function peerSocket(options: Omit<FleetPeerOptions, "repoId">): Promise<TLSSocke
         rejectUnauthorized: true,
       },
       () => {
-        finish(() => {
-          socket.setKeepAlive(true, 15_000);
-          resolve(socket);
-        });
+        const pinned = options.spkiSha256
+          ? probeFleetEdgeCenterAddress({
+              hostname: options.hostname ?? "127.0.0.1",
+              port: options.port,
+              ...(options.servername ? { servername: options.servername } : {}),
+              spkiSha256: options.spkiSha256,
+              socket,
+            })
+          : Promise.resolve();
+        void pinned.then(
+          () =>
+            finish(() => {
+              socket.setKeepAlive(true, 15_000);
+              resolve(socket);
+            }),
+          onError,
+        );
       },
     );
     const onError = (error: Error) => {

@@ -237,6 +237,7 @@ export function runtimeForwardingContext(
       port: request.port,
       ca: readFileSync(request.caPath, "utf8"),
       servername: request.servername,
+      ...(request.spkiSha256 ? { spkiSha256: request.spkiSha256 } : {}),
       nodeId: request.nodeId,
       credential: request.credential,
       repoId: request.repoId,

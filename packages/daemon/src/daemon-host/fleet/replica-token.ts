@@ -16,6 +16,7 @@ type ReplicaAccessConfig = Pick<
   | "loginRealm"
   | "loginServername"
   | "loginCertificate"
+  | "spkiSha256"
   | "nodeId"
   | "credential"
 >;
@@ -42,7 +43,7 @@ export function createFleetReplicaAccessTokenReader(input: {
     if (userToken) return userToken;
     if (replicaLoginAuthority === undefined) {
       const centerAuthority =
-        input.config.loginUrl && !input.config.loginRealm
+        input.config.loginUrl && (!input.config.loginRealm || input.config.spkiSha256)
           ? await readFleetLoginAuthorityClient({
               hostname: input.config.host,
               port: input.config.port,
@@ -52,6 +53,7 @@ export function createFleetReplicaAccessTokenReader(input: {
                   : path.resolve(input.configDir, input.config.caPath),
               ),
               ...(input.config.servername ? { servername: input.config.servername } : {}),
+              ...(input.config.spkiSha256 ? { spkiSha256: input.config.spkiSha256 } : {}),
               nodeId: input.config.nodeId,
               credential: input.config.credential,
             })

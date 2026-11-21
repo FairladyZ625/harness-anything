@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { readRegularFileIfPresent } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
-import { readFleetEdgeConfigForRoot } from "./client/fleet-edge-config.ts";
+import { readFleetEdgeConfigForRoot, type FleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import type { OidcLoginAuthority } from "@harness-anything/kernel";
 
 export interface OidcCenterSelection {
@@ -10,23 +10,30 @@ export interface OidcCenterSelection {
   readonly authority: OidcLoginAuthority;
 }
 
+const edgeIdentity = (edge: FleetEdgeConfig) => ({
+  repoId: edge.repoId,
+  host: edge.host,
+  port: edge.port,
+  caPath: edge.caPath,
+  ...(edge.servername ? { servername: edge.servername } : {}),
+  ...(edge.spkiSha256 ? { spkiSha256: edge.spkiSha256 } : {}),
+});
+
+function persistedSelection(selection: OidcCenterSelection): OidcCenterSelection {
+  const issuer = selection.issuer,
+    { clientSecret: _secret, ...authority } = selection.authority,
+    stored = { issuer, authority };
+  return stored;
+}
+
 /** Discovery identifies a binding once; persisted selection lets a restarted daemon use sessions while its center is offline. */
 export function oidcCenterSelections(userRoot: string) {
-  const directory = path.join(userRoot, "rbac", "oidc-centers"),
-    memory = new Map<string, OidcCenterSelection>();
+  const directory = path.join(userRoot, "rbac", "oidc-centers");
   const binding = (target?: string, identityOverride?: Readonly<Record<string, unknown>>): string => {
     const configFile = path.join(userRoot, "rbac", "config.json"),
       edge = !identityOverride && target ? readFleetEdgeConfigForRoot(userRoot, target) : null,
       config = edge ?? (existsSync(configFile) ? JSON.parse(readFileSync(configFile, "utf8")) : null),
-      targetIdentity = edge
-        ? {
-            repoId: edge.repoId,
-            host: edge.host,
-            port: edge.port,
-            caPath: edge.caPath,
-            ...(edge.servername ? { servername: edge.servername } : {}),
-          }
-        : null;
+      targetIdentity = edge ? edgeIdentity(edge) : null;
     const rawIdentity =
       identityOverride ??
       targetIdentity ??
@@ -58,40 +65,44 @@ export function oidcCenterSelections(userRoot: string) {
       .update(JSON.stringify([target ?? null, identity]))
       .digest("hex");
   };
-  return {
-    read(target?: string, identityOverride?: Readonly<Record<string, unknown>>): OidcCenterSelection | undefined {
-      const key = binding(target, identityOverride),
-        file = path.join(directory, `${key}.json`),
-        cached = memory.get(key);
-      if (cached) return cached;
-      if (!existsSync(file)) return undefined;
-      const selection = JSON.parse(readFileSync(file, "utf8")) as OidcCenterSelection;
-      memory.set(key, selection);
-      return selection;
-    },
-    write(
-      target: string | undefined,
-      selection: OidcCenterSelection,
-      identityOverride?: Readonly<Record<string, unknown>>,
-    ): void {
-      const key = binding(target, identityOverride),
-        { clientSecret: _secret, ...authority } = selection.authority,
-        stored = { issuer: selection.issuer, authority };
+  function write(
+    target: string | undefined,
+    selection: OidcCenterSelection | null,
+    identityOverride?: Readonly<Record<string, unknown>>,
+    clearAll = false,
+  ): void {
+    if (selection) {
       /* @gate-identity state-store/runtime-instance.oidc-center-selection */ mkdirSync(directory, {
         recursive: true,
         mode: 0o700,
       });
-      const file = path.join(directory, `${key}.json`),
-        temporary = `${file}.tmp`;
+    } else if (!existsSync(directory)) return;
+    const files = clearAll
+      ? readdirSync(directory)
+          .filter((entry) => entry.endsWith(".json"))
+          .map((entry) => path.join(directory, entry))
+      : [path.join(directory, `${binding(target, identityOverride)}.json`)];
+    const stored = selection ? persistedSelection(selection) : null;
+    for (const file of files) {
+      const temporary = `${file}.tmp`;
       /* @gate-identity state-store/runtime-instance.oidc-center-selection */ writeFileSync(
         temporary,
         JSON.stringify(stored),
-        {
-          mode: 0o600,
-        },
+        { mode: 0o600 },
       );
       /* @gate-identity state-store/runtime-instance.oidc-center-selection */ renameSync(temporary, file);
-      memory.set(key, stored);
+    }
+  }
+  return {
+    clearAll: write.bind(undefined, undefined, null, undefined, true),
+    key: binding,
+    read(target?: string, identityOverride?: Readonly<Record<string, unknown>>): OidcCenterSelection | undefined {
+      const key = binding(target, identityOverride),
+        file = path.join(directory, `${key}.json`);
+      if (!existsSync(file)) return undefined;
+      const selection = JSON.parse(readFileSync(file, "utf8")) as OidcCenterSelection | null;
+      return selection === null ? undefined : selection;
     },
+    write,
   };
 }

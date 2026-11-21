@@ -63,7 +63,12 @@ export interface FleetLoginAuthority {
   readonly realm: string;
   readonly clientId: string;
   readonly certificate?: string;
+  readonly servername?: string;
+  readonly browserUrl?: string;
 }
+export const FLEET_SESSION_CAPABILITY = {
+  extendedLoginAuthority: "login-authority-extended-v1",
+} as const;
 export type FleetTaskAction = Readonly<Record<string, unknown>> & { readonly kind: FleetTaskCommandKind };
 // Closed per-kind action surface: every field of a fleet task command must be
 // declared for its kind. The daemon re-binds principal authority server-side,
@@ -160,7 +165,13 @@ export type FleetFrameV1 =
   | Msg<"fleet.device.login.result/v1", { inReplyTo: string }>
   | Msg<
       "fleet.session.hello/v1",
-      { protocolVersion: ContractVersion; nodeId: string; credential: string; buildCommit?: string | null }
+      {
+        protocolVersion: ContractVersion;
+        nodeId: string;
+        credential: string;
+        buildCommit?: string | null;
+        capabilities?: readonly string[];
+      }
     >
   | Msg<
       "fleet.session.ready/v1",
@@ -184,6 +195,7 @@ export type FleetFrameV1 =
         repoId: string;
         actionKind?: string;
         taskId?: string;
+        resumePosition?: { readonly history: string; readonly sequence: number; readonly revision: number };
       }
     >
   | Msg<
@@ -204,6 +216,12 @@ export type FleetFrameV1 =
         originPushUrls: readonly string[];
         defaultBranch: string | null;
         defaultBranchCommit: string | null;
+        lineage?: {
+          readonly ledgerGeneration: number;
+          readonly tipHash: string | null;
+          readonly revision: number;
+          readonly resumeAvailable: boolean;
+        };
       }
     >
   | Msg<"fleet.receipt.get/v1", { repoId: string; opId: string }>
@@ -444,11 +462,12 @@ const shape =
     Object.entries(fields).every(([key, check]) => Object.hasOwn(value, key) && check(value[key]));
 const loginAuthority: Check = (value) =>
   record(value) &&
-  (Object.keys(value).length === 3 || Object.keys(value).length === 4) &&
+  Object.keys(value).length >= 3 &&
+  Object.keys(value).length <= 6 &&
   typeof value.url === "string" &&
   typeof value.realm === "string" &&
   typeof value.clientId === "string" &&
-  (Object.keys(value).length === 3 || (Object.hasOwn(value, "certificate") && typeof value.certificate === "string"));
+  Object.values(value).every((field) => typeof field === "string");
 const array =
   (check: Check, maximum: number = FLEET_PAGE_ROWS): Check =>
   (value) =>
@@ -878,6 +897,7 @@ const schemas: Readonly<Record<string, Check>> = {
       nodeId: id,
       credential: text,
       buildCommit: nullable(gitCommitSha),
+      capabilities: array(id, 64),
     },
     ["schema", "messageId", "protocolVersion", "nodeId", "credential"],
   ),
@@ -902,6 +922,7 @@ const schemas: Readonly<Record<string, Check>> = {
       includeGitMetadata: boolean,
       actionKind: (value) => typeof value === "string" && actionDeclarations.some((action) => action.kind === value),
       taskId: id,
+      resumePosition: shape({ history: text, sequence: uint, revision: uint }),
     },
     ["schema", "messageId", "repoId"],
   ),
@@ -919,6 +940,12 @@ const schemas: Readonly<Record<string, Check>> = {
       originPushUrls: array(text, 16),
       defaultBranch: nullable(text),
       defaultBranchCommit: nullable(gitCommitSha),
+      lineage: shape({
+        ledgerGeneration: uint,
+        tipHash: nullable((value) => typeof value === "string" && /^sha256:[0-9a-f]{64}$/u.test(value)),
+        revision: uint,
+        resumeAvailable: boolean,
+      }),
     },
     [
       "schema",

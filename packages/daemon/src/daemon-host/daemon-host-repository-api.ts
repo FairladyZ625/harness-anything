@@ -1164,6 +1164,19 @@ export function createDaemonHostRepositoryApi(
           method === "repo.fleet.overview.read" ||
           method === "repo.policy.metadata.read"
         ) {
+          if (method === "repo.fleet.overview.read") {
+            const failure = edgeReplicaDoctor(
+              edge.canonicalRoot,
+              repoId,
+              undefined,
+              context.input.userRoot,
+            ).failureCode;
+            if (failure?.toUpperCase() === "CENTER_MOVED")
+              throw context.hostCodedError(
+                "CENTER_MOVED",
+                "The configured fleet center was retired. Verify the replacement center and run ha daemon fleet edge repoint.",
+              );
+          }
           try {
             const result = parseDaemonReadResult(
               method,
@@ -1184,6 +1197,11 @@ export function createDaemonHostRepositoryApi(
               dispatches: withLocalDispatchStreamEvidence(dispatches.dispatches, { rootDir: edge.canonicalRoot }),
             } as DaemonGuiReadResultMap[typeof method];
           } catch (error) {
+            if (method === "repo.fleet.overview.read" && context.code(error).toUpperCase() === "CENTER_MOVED")
+              throw context.hostCodedError(
+                "CENTER_MOVED",
+                "The configured fleet center was retired. Verify the replacement center and run ha daemon fleet edge repoint.",
+              );
             if (
               method === "repo.fleet.overview.read" &&
               ["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EHOSTUNREACH"].includes(context.code(error))

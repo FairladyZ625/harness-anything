@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import type { IdentitySessionPort } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -194,6 +194,36 @@ test("edge connection changes do not select a different OIDC center", (t) => {
   writeFleetEdgeConfig(active.userRoot, "edge-repo", { ...edgeConfig, repoId: "another-edge-repo" });
   assert.equal(selection.read(active.edgeRoot), undefined, "a different repository target selects a new session");
   assert.equal(existsSync(fleetEdgeConfigPath(active.userRoot, "edge-repo")), true);
+});
+
+test("clearing all center selections tombstones every persisted entry", (t) => {
+  const active = fixture(t),
+    selection = oidcCenterSelections(active.userRoot),
+    authority = { url: "https://login.example", realm: "harness", clientId: "harness-gui" },
+    value = { issuer: active.edgeIssuer, authority };
+  writeFleetEdgeConfig(active.userRoot, "edge-repo", {
+    repoId: "edge-repo",
+    host: "center",
+    port: 7443,
+    caPath: "/tmp/center-ca.pem",
+    nodeId: "edge-node",
+    credential: "machine-credential",
+    viewRoot: "/tmp/view",
+    quotaBytes: 100,
+    loginUrl: authority.url,
+    loginRealm: authority.realm,
+  });
+  selection.write(active.edgeRoot, value);
+  selection.write(undefined, { issuer: active.localIssuer, authority });
+  const edgeFile = path.join(active.userRoot, "rbac", "oidc-centers", `${selection.key(active.edgeRoot)}.json`),
+    localFile = path.join(active.userRoot, "rbac", "oidc-centers", `${selection.key()}.json`);
+  assert.deepEqual(selection.read(active.edgeRoot), value);
+  assert.deepEqual(selection.read(undefined), { issuer: active.localIssuer, authority });
+  selection.clearAll();
+  assert.equal(JSON.parse(readFileSync(edgeFile, "utf8")), null);
+  assert.equal(JSON.parse(readFileSync(localFile, "utf8")), null);
+  assert.equal(selection.read(active.edgeRoot), undefined);
+  assert.equal(selection.read(undefined), undefined);
 });
 
 test("local repository selection retains its configured OIDC identity", (t) => {

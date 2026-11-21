@@ -202,6 +202,8 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   >;
   /** Starts, restarts (changed fleet-edge.json) or stops each remote-edge replica stream. */
   readonly startReplicaSyncs: () => void;
+  readonly startReplicaSyncsFor: (repoId: string) => void;
+  readonly withReplicaSyncFence: <T>(repoId: string, operation: () => Promise<T>) => Promise<T>;
   readonly fleetVersionWarnings: Map<string, FleetVersionWarning>;
   /** This node's runtimes whose recovery keeps failing; the edge agenda shows them to the owner. */
   readonly runtimeRecoveryWatch: import("./runtime-recovery-watch.ts").RuntimeRecoveryWatch;
