@@ -385,6 +385,51 @@ export async function joinFleetEdge(
   };
 }
 
+export function startFleetEdgeJoin(
+  request: {
+    readonly link?: unknown;
+    readonly workspaceRoot?: string;
+    readonly quotaBytes?: number;
+    readonly originUrls?: unknown;
+  },
+  ports: EdgeJoinClientPorts,
+): Promise<Record<string, unknown>> {
+  const originUrls = edgeJoinOriginUrls(request.originUrls);
+  return joinFleetEdge(
+    {
+      link: String(request.link ?? ""),
+      ...(request.workspaceRoot ? { workspaceRoot: request.workspaceRoot } : {}),
+      ...(request.quotaBytes === undefined ? {} : { quotaBytes: request.quotaBytes }),
+      ...(originUrls === undefined ? {} : { originUrls }),
+    },
+    ports,
+  );
+}
+
+function edgeJoinOriginUrls(value: unknown): Readonly<Record<string, string>> | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    throw new EdgeJoinRequestError("edge_origin_invalid", "Edge join origin addresses must be a repository-to-address map.");
+  const entries = Object.entries(value);
+  if (
+    entries.length > 64 ||
+    entries.some(
+      ([repoId, address]) =>
+        !repoId ||
+        repoId.length > 128 ||
+        typeof address !== "string" ||
+        !address.trim() ||
+        address.length > 2_048 ||
+        /[\0\r\n]/u.test(address),
+    )
+  )
+    throw new EdgeJoinRequestError(
+      "edge_origin_invalid",
+      "Edge join origin addresses contain an invalid repository or address.",
+    );
+  return Object.fromEntries(entries) as Record<string, string>;
+}
+
 async function syncWithSessionKeepalive(
   ports: EdgeJoinClientPorts,
   root: string,

@@ -71,7 +71,7 @@ import {
   writeNodeAutoClaimPolicy,
   type NodeAutoClaimPolicy,
 } from "./node-auto-claim-config.ts";
-import { createEdgeJoinProgressTap, joinFleetEdge } from "./fleet/edge-join-client.ts";
+import { createEdgeJoinProgressTap, startFleetEdgeJoin } from "./fleet/edge-join-client.ts";
 import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
 import {
   admitHostMode as admitHostModeImpl,
@@ -1458,24 +1458,14 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           }
         }
         if (request.operation === "edge-join") {
-          const originUrls = edgeJoinOriginUrls(request.originUrls);
-          return joinFleetEdge(
-            {
-              link: String(request.link ?? ""),
-              ...(request.workspaceRoot ? { workspaceRoot: request.workspaceRoot } : {}),
-              ...(request.quotaBytes === undefined ? {} : { quotaBytes: request.quotaBytes }),
-              ...(originUrls === undefined ? {} : { originUrls }),
-            },
-            {
-              session: async (rootDir) => (await oidc.bind(auth, rootDir)).oidcPrincipal,
-              beginLogin: (authority, rootDir) => oidc.beginDevice(rootDir, authority),
-              register: (rootDir, repoId) =>
-                host.admin({ kind: "register", rootDir, repoId, mode: "remote-edge" }, auth),
-              sync: (payload) => host.fleet.edgeSync(payload, auth),
-              userRoot: input.userRoot,
-              onProgress: edgeJoinProgress.record,
-            },
-          );
+          return startFleetEdgeJoin(request, {
+            session: async (rootDir) => (await oidc.bind(auth, rootDir)).oidcPrincipal,
+            beginLogin: (authority, rootDir) => oidc.beginDevice(rootDir, authority),
+            register: (rootDir, repoId) => host.admin({ kind: "register", rootDir, repoId, mode: "remote-edge" }, auth),
+            sync: (payload) => host.fleet.edgeSync(payload, auth),
+            userRoot: input.userRoot,
+            onProgress: edgeJoinProgress.record,
+          });
         }
         if (
           request.mode === "external" ||
@@ -2002,25 +1992,4 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   function settleControl(pending: DaemonControlReceipt, ok: boolean, error?: unknown): void {
     return settleControlImpl(extracted, pending, ok, error);
   }
-}
-
-function edgeJoinOriginUrls(value: unknown): Readonly<Record<string, string>> | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    throw hostCodedError("edge_origin_invalid", "Edge join origin addresses must be a repository-to-address map.");
-  const entries = Object.entries(value);
-  if (
-    entries.length > 64 ||
-    entries.some(
-      ([repoId, address]) =>
-        !repoId ||
-        repoId.length > 128 ||
-        typeof address !== "string" ||
-        !address.trim() ||
-        address.length > 2_048 ||
-        /[\0\r\n]/u.test(address),
-    )
-  )
-    throw hostCodedError("edge_origin_invalid", "Edge join origin addresses contain an invalid repository or address.");
-  return Object.fromEntries(entries) as Record<string, string>;
 }
