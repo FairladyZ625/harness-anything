@@ -2011,6 +2011,13 @@
         "order": 423
       },
       {
+        "candidateId": "action:tools:tools/reproducible-build.mjs#buildReproducibleBundle:41dcdcaf348b2780128c463d4a1227e6",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
+        "order": 425
+      },
+      {
         "candidateId": "action:tools:tools/reproducible-build.mjs#buildReproducibleBundle:6cfdbbd525df5cbf635295d6e1d7f316",
         "route": "package-assets-build",
         "role": "technical-port",
@@ -2018,7 +2025,7 @@
         "order": 426
       },
       {
-        "candidateId": "action:tools:tools/reproducible-build.mjs#buildReproducibleBundle:b5ed742650d51b8ddf4e601db991c130",
+        "candidateId": "action:tools:tools/reproducible-build.mjs#buildReproducibleBundle:6ea1111b68724581416ded9d8fe47091",
         "route": "package-assets-build",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync",

@@ -367,7 +367,7 @@ export function instrumentTrackedRepoMaps(maps: {
 
     const prevLag = lagByRepoId.get(next.repoId);
     const nextLag = computeRepoLag(next);
-    if (nextLag === null) lagByRepoId.delete(next.repoId);
+    if (nextLag === null) nativeMapDelete.call(lagByRepoId, next.repoId);
     else lagByRepoId.set(next.repoId, nextLag);
     if (nextLag !== null && nextLag >= maxProjectionLag) {
       maxProjectionLag = nextLag;
@@ -389,11 +389,11 @@ export function instrumentTrackedRepoMaps(maps: {
   const removeEntry = (repoId: string): void => {
     const prev = entriesById.get(repoId);
     if (!prev) return;
-    entriesById.delete(repoId);
+    nativeMapDelete.call(entriesById, repoId);
     if (isCountedRepoState(prev.state)) stateCounts[prev.state] -= 1;
     totalQueueDepth -= safeMetricNonNegative(prev.queueDepth);
     const prevLag = lagByRepoId.get(repoId);
-    lagByRepoId.delete(repoId);
+    nativeMapDelete.call(lagByRepoId, repoId);
     if (prevLag !== undefined && prevLag === maxProjectionLag) recomputeMaxLag();
 
     const index = binarySearchIndex(sortedIds, repoId);
