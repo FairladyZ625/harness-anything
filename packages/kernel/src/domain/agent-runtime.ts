@@ -1219,6 +1219,15 @@ export function runtimeSessionAcceptsLivenessEvent(session: Pick<RuntimeSession,
   return session.liveness !== "exited";
 }
 
+/** Canonical carrier liveness for additive remote control events: preserves non-exited liveness without emitting `"exited"`. */
+export function runtimeSessionCarrierLiveness(
+  session: Pick<RuntimeSession, "liveness">,
+): Exclude<RuntimeLiveness, "exited"> {
+  return runtimeSessionAcceptsLivenessEvent(session)
+    ? (session.liveness as Exclude<RuntimeLiveness, "exited">)
+    : "unknown";
+}
+
 /** Canonical domain judgment: whether an event is a remote control request/receipt carrier that must not forge process liveness or lastObservedAt (F18). */
 export function isRuntimeControlCarrierEvent(event: AgentRuntimeEventV1): boolean {
   if (event.type === "runtime_session_liveness_changed")

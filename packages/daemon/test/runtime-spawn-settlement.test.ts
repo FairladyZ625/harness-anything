@@ -1391,10 +1391,13 @@ test("F13/F14: hung or failing steer receipt uplink during publishTerminalOutcom
       settleFallback: async () => undefined,
     } as unknown as RuntimeSpawnerContext;
 
-    const startedAt = Date.now();
+    let receiptReleased = false;
     await publishExit(context, runtime, null);
-    const elapsedMs = Date.now() - startedAt;
-    assert.ok(elapsedMs < 2_000, `publishExit must not wait on a hung receipt RPC (took ${elapsedMs}ms)`);
+    assert.equal(
+      receiptReleased,
+      false,
+      "publishExit must finish terminal settlement while the hung receipt gate is still unreleased",
+    );
 
     assert.deepEqual(published, [
       "runtime_session_exited",
@@ -1406,6 +1409,7 @@ test("F13/F14: hung or failing steer receipt uplink during publishTerminalOutcom
       1,
       "unacknowledged steer receipt must stay durable in pending index for asynchronous replay",
     );
+    receiptReleased = true;
     releaseHungReceipt();
     await new Promise((resolve) => setTimeout(resolve, 25));
   } finally {

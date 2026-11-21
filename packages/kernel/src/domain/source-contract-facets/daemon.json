@@ -1307,7 +1307,7 @@
         "explain": "Daemon read-DTO structural validator for `agent-runtime.session/v1` payloads and attempt chains.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-contract.ts#validateAgentRuntimeSession:e32763effd183f11cbc8d9524a5cdc8b",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-contract.ts#validateAgentRuntimeSession:ada43f8634245f333cca46c0070910f1",
             "route": "packages/daemon/src/daemon-host/agent-runtime-contract.ts#validateAgentRuntimeSession"
           }
         ],
@@ -1415,7 +1415,7 @@
         "explain": "Filesystem path-safety guard verifying `dispatch_<24-hex>` format before resolving local dispatch stream JSONL files.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/dispatch-stream.ts#assertDispatchId:9855fe8aa7aa037b8f9f311e87587d75",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/dispatch-stream.ts#assertDispatchId:0a22ac69687e47a1f7e5854058402164",
             "route": "packages/daemon/src/daemon-host/dispatch-stream.ts#assertDispatchId"
           }
         ],

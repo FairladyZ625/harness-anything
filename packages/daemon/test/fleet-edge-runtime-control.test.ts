@@ -44,7 +44,7 @@ import {
 import { readRuntimeDispatchOwner } from "../src/daemon-host/runtime-dispatch-owner-evidence.ts";
 import { makeAgentRuntimeReadModel } from "../src/daemon-host/agent-runtime-read.ts";
 import { validateAgentRuntimeSession } from "../src/daemon-host/agent-runtime-contract.ts";
-import { advanceAttempt } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
+import { reduceDispatchLifecycle } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import { steerRuntime } from "../src/daemon-host/runtime-spawn-control.ts";
 import { createActiveRuntime } from "../src/daemon-host/runtime-spawn-active.ts";
 import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
@@ -711,7 +711,7 @@ test("F4: real SQLite partial indexes & watermark advancement avoid scanning non
   );
   const receiptPlan = db
     .prepare(
-      "EXPLAIN QUERY PLAN SELECT event_json FROM event_index WHERE workspace_revision > ? AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_session_liveness_changed' AND json_extract(event_json, '$.payload.runtimeSessionId') = ? AND json_extract(event_json, '$.payload.controlReceipt.status') = 'applied' AND json_extract(event_json, '$.payload.controlReceipt.steerVersion') IS NOT NULL ORDER BY workspace_revision DESC LIMIT ?",
+      "EXPLAIN QUERY PLAN SELECT event_json FROM event_index WHERE workspace_revision > ? AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') IN ('runtime_session_provider_bound', 'runtime_session_liveness_changed') AND json_extract(event_json, '$.payload.runtimeSessionId') = ? AND json_extract(event_json, '$.payload.controlReceipt.status') = 'applied' AND json_extract(event_json, '$.payload.controlReceipt.steerVersion') IS NOT NULL ORDER BY workspace_revision DESC LIMIT ?",
     )
     .all(0, sessionId, 1) as { detail: string }[];
   assert.ok(
@@ -1715,41 +1715,54 @@ test("F18: controlRequest and controlReceipt carrier events preserve exact unkno
   );
 
   // Dispatch lifecycle attempt.process must stay "unknown" (never flipped to "alive")!
-  const attempt = {
-    dispatchId: "dispatch_f18000000000000000000000",
-    runtimeSessionId: unknownSession.runtimeSessionId,
-    attemptGroupId: "dispatch_f18000000000000000000000",
-    attemptIndex: 0,
-    instanceId: "instance-1",
-    installationId: "install-1",
-    kindId: "codex",
-    taskId: null,
-    executionId: null,
-    phase: "running" as const,
-    process: "unknown" as const,
-    stopProof: "none" as const,
-    outcome: null,
-    exitCode: null,
-    reasonCode: null,
-    classification: null,
-    faultClass: null,
-    fallbackState: null,
-    fallbackNotBeforeAt: null,
-    successorDispatchId: null,
-    effectivePermissionMode: "unknown" as const,
-    requestedPermissionMode: null,
-    permissionModeSource: "unknown" as const,
-    fence: { verified: true as const, owner: "node:node-a" as const },
-    startedAt: "2026-11-21T01:00:00.000Z",
-    endedAt: null,
-    lastObservedAt: "2026-11-21T01:00:00.000Z",
+  const dispatchReq: AgentRuntimeEventV1 = {
+    schema: "agent-runtime-event/v1",
+    eventId: "evt-f18-disp",
+    opId: "op-f18-disp",
+    type: "runtime_dispatch_requested",
+    workspaceRevision: 1,
+    actor,
+    source: { kind: "node", nodeId: "node-a" },
+    occurredAt: "2026-11-21T01:00:00.000Z",
+    payload: {
+      dispatchId: "dispatch_f18000000000000000000000",
+      runtimeSessionId: unknownSession.runtimeSessionId,
+      instanceId: "instance-1",
+      installationId: "install-1",
+      kindId: "codex",
+      dispatchKey: "k-f18",
+      definitionSnapshotRef: unknownSession.definitionSnapshotRef,
+      startedAt: "2026-11-21T01:00:00.000Z",
+    },
   };
-  const nextAttempt = advanceAttempt(attempt, controlReqEvent);
-  assert.strictEqual(
-    nextAttempt,
-    attempt,
-    "dispatch-lifecycle must not promote unknown process to alive on control carrier",
-  );
+  const step1 = reduceDispatchLifecycle(null, dispatchReq);
+  assert.equal(step1.kind, "applied");
+  const step2 = reduceDispatchLifecycle(step1.group, {
+    schema: "agent-runtime-event/v1",
+    eventId: "evt-f18-unknown",
+    opId: "op-f18-unknown",
+    type: "runtime_session_liveness_changed",
+    workspaceRevision: 2,
+    actor,
+    source: { kind: "node", nodeId: "node-a" },
+    occurredAt: "2026-11-21T01:05:00.000Z",
+    payload: { runtimeSessionId: unknownSession.runtimeSessionId, liveness: "unknown" },
+  });
+  assert.equal(step2.kind, "applied");
+  assert.equal(step2.group.attempts[0]?.process, "unknown");
+  const step3 = reduceDispatchLifecycle(step2.group, {
+    ...controlReqEvent,
+    source: { kind: "node", nodeId: "node-a" },
+  });
+  if (step3.kind === "applied") {
+    assert.equal(
+      step3.group.attempts[0]?.process,
+      "unknown",
+      "dispatch-lifecycle must not promote unknown process to alive on control carrier",
+    );
+  } else {
+    assert.equal(step3.kind, "ignored");
+  }
 });
 
 test("F19: controlReceipts cursor pagination reaches >500 receipts and requestOpId point lookup uses partial index", async (t) => {
@@ -1788,11 +1801,11 @@ test("F19: controlReceipts cursor pagination reaches >500 receipts and requestOp
     payload: {
       installationId: "install-1",
       kindId: "codex",
-      protocolFamily: "codex-cli",
+      protocolFamily: "codex",
       hostRef: "host:local",
       version: "1.0.0",
       discoverySource: "wrapper",
-      capabilities: ["stream"],
+      capabilities: ["attach"],
     },
   });
   appendEvent({

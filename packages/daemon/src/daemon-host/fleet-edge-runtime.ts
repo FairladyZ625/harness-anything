@@ -79,6 +79,10 @@ import { transitionDocumentReadinessContract } from "./transition-document-acces
 import { validateAgentRuntimeOverview, type AgentRuntimeOverviewResult } from "./agent-runtime-contract.ts";
 import { makeRuntimeSpawner, type RuntimeDaemonRoute, type RuntimeLauncher } from "./runtime-spawn.ts";
 import { createFleetEdgeRuntimeControlConsumer, type RemoteRuntimeControlEvent } from "./fleet-edge-runtime-control.ts";
+import {
+  createFleetEdgeSteerReceiptPump,
+  forwardFleetEdgeRemoteRuntimeControl,
+} from "./fleet-edge-runtime-control-bridge.ts";
 import type { ReviewerReviewRecoveryInput, RuntimeAgent, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { readReplicaGeneration } from "../fleet-sync/fleet/replica-generation.ts";
@@ -1155,41 +1159,14 @@ export function openFleetEdgeRuntime(input: {
     onPendingSteerReceipt: () => triggerReceiptFlush(),
     schedule,
   });
-  let receiptFlushInFlight: Promise<void> | null = null,
-    receiptFlushDirty = false,
-    receiptPumpClosed = false,
-    receiptRetryTimer: NodeJS.Timeout | null = null;
-  const scheduleReceiptRetry = (): void => {
-    if (receiptPumpClosed || receiptRetryTimer !== null) return;
-    receiptRetryTimer = setTimeout(() => {
-      receiptRetryTimer = null;
-      triggerReceiptFlush();
-    }, 250);
-    receiptRetryTimer.unref?.();
-  };
-  /** F13: Dedicated non-blocking receipt uplink pump completely decoupled from control drain and workQueue. */
-  const triggerReceiptFlush = (): void => {
-    if (receiptPumpClosed) return;
-    receiptFlushDirty = true;
-    if (receiptFlushInFlight !== null) return;
-    receiptFlushInFlight = (async () => {
-      while (receiptFlushDirty && !receiptPumpClosed) {
-        receiptFlushDirty = false;
-        const { request } = context();
-        if (!hasPendingSteerReceipts(request.workspaceRoot)) break;
-        try {
-          await spawner.flushPendingSteerReceipts(await controlBinding(request));
-        } catch (error) {
-          console.error("[runtime-steer-receipts] background flush deferred:", error);
-          if (hasPendingSteerReceipts(request.workspaceRoot)) scheduleReceiptRetry();
-          break;
-        }
-      }
-    })().finally(() => {
-      receiptFlushInFlight = null;
-      if (receiptFlushDirty && !receiptPumpClosed) triggerReceiptFlush();
-    });
-  };
+  const receiptPump = createFleetEdgeSteerReceiptPump({
+    hasPending: () => hasPendingSteerReceipts(context().request.workspaceRoot),
+    flushPending: async () => {
+      const { request } = context();
+      await spawner.flushPendingSteerReceipts(await controlBinding(request));
+    },
+  });
+  const triggerReceiptFlush = receiptPump.trigger;
   const squad = makeFleetSquadCoordinator({
     readDispatchLifecycle,
     get request() {
@@ -1328,49 +1305,20 @@ export function openFleetEdgeRuntime(input: {
     }
     return ready;
   };
-  const forwardRemoteRuntimeControl = async (
+  const forwardRemoteRuntimeControl = (
     kind: "runtime-cancel" | "runtime-steer",
     action: JsonObject,
     requestAuth?: DaemonAuthenticationContext,
   ): Promise<JsonObject> => {
-    const { request, centerWriteWaitMs, writePeer } = context(),
-      connectionSignal = requestAuth?.connectionSignal;
-    if (requestAuth?.executionPrincipal && !requestAuth.executionCredential) throw executionCredentialRejected();
-    const { executor: _executor, ...wireAction } = action,
-      opId = typeof action.idempotencyKey === "string" ? action.idempotencyKey : randomUUID(),
-      deadline = Date.now() + centerWriteWaitMs,
-      executionCredential = requestAuth?.executionCredential;
-    const forwarded = await runFleetEdgeTaskCommand({
-      timeoutMs: centerWriteWaitMs,
-      readOnly: false,
-      ...(connectionSignal ? { signal: connectionSignal } : {}),
-      write: () => {
-        throw new Error("Remote runtime control settles through runFleetEdgeWrite.");
-      },
-      settle: () => {
-        const remaining = Math.max(1, deadline - Date.now());
-        return runFleetEdgeWrite({
-          viewRoot: request.viewRoot,
-          repoId: request.repoId,
-          nodeId: request.nodeId,
-          timeoutMs: remaining,
-          ...(connectionSignal ? { signal: connectionSignal } : {}),
-          write: () =>
-            runFleetTaskCommandClient({
-              ...writePeer,
-              ...(connectionSignal ? { signal: connectionSignal } : {}),
-              ...(executionCredential ? { executionCredential } : {}),
-              repoId: request.repoId,
-              taskId: null,
-              opId,
-              waitMs: remaining,
-              timeoutMs: remaining + daemonProtocolFleetPolicy.defaultValue.fleet.receiptResponseOverheadMs,
-              action: { kind, ...wireAction } as { kind: string },
-            }),
-        });
-      },
+    const { request, centerWriteWaitMs, writePeer } = context();
+    return forwardFleetEdgeRemoteRuntimeControl({
+      kind,
+      action,
+      ...(requestAuth ? { requestAuth } : {}),
+      centerWriteWaitMs,
+      request,
+      writePeer,
     });
-    return forwarded.receipt as JsonObject;
   };
   return {
     reconcile: async (signal?: AbortSignal) =>
@@ -1589,11 +1537,7 @@ export function openFleetEdgeRuntime(input: {
       })) as JsonObject;
     },
     close: () => {
-      receiptPumpClosed = true;
-      if (receiptRetryTimer !== null) {
-        clearTimeout(receiptRetryTimer);
-        receiptRetryTimer = null;
-      }
+      receiptPump.close();
       workQueue.close();
       spawner.close();
     },

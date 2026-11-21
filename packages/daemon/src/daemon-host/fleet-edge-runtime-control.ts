@@ -320,9 +320,10 @@ export function createFleetEdgeRuntimeControlConsumer(input: {
     return false;
   };
 
-  const flushPendingRejections = async (): Promise<void> => {
+  const flushPendingRejections = async (skipOpIds?: ReadonlySet<string>): Promise<void> => {
     if (!input.reportSteerRejection || pendingRejections.size === 0) return;
     for (const [opId, entry] of [...pendingRejections.entries()]) {
+      if (skipOpIds?.has(opId)) continue;
       const persisted = await persistSteerRejection(entry.request, entry.rejection);
       if (persisted) {
         markSettled(entry.request.runtimeSessionId, opId, entry.request.workspaceRevision);
@@ -352,6 +353,16 @@ export function createFleetEdgeRuntimeControlConsumer(input: {
   const isOutOfOrderBackpressured = (runtimeSessionId: string): boolean =>
     (settledAboveCursorBySession.get(runtimeSessionId)?.size ?? 0) >= maxOutOfOrderSteers;
 
+  const minSettledAboveCursor = (runtimeSessionId: string): number => {
+    const above = settledAboveCursorBySession.get(runtimeSessionId);
+    if (!above || above.size === 0) return Number.POSITIVE_INFINITY;
+    let lowest = Number.POSITIVE_INFINITY;
+    for (const rev of above.values()) {
+      if (rev < lowest) lowest = rev;
+    }
+    return lowest;
+  };
+
   return {
     drain: async (): Promise<void> => {
       const activeIds = input.activeRuntimeSessionIds();
@@ -374,7 +385,9 @@ export function createFleetEdgeRuntimeControlConsumer(input: {
         initSessionCursors(runtimeSessionId);
         let cursor = scanCursorBySession.get(runtimeSessionId) ?? 0;
         let pagesRead = 0;
-        let steerBacklogFull = receiptBackpressured || isOutOfOrderBackpressured(runtimeSessionId);
+        const oooGapBoundary = minSettledAboveCursor(runtimeSessionId);
+        let steerBacklogFull =
+          receiptBackpressured || (isOutOfOrderBackpressured(runtimeSessionId) && cursor >= oooGapBoundary);
         while (!steerBacklogFull && pagesRead < maxPagesPerDrain) {
           const existingDeferredCount = deferredSteersBySession.get(runtimeSessionId)?.size ?? 0;
           if (existingDeferredCount >= pageLimit) {
@@ -403,6 +416,10 @@ export function createFleetEdgeRuntimeControlConsumer(input: {
           advanceScanCursor(runtimeSessionId, scannedTo);
           if (maxRevInPage <= cursor || events.length < pageLimit) break;
           cursor = Math.max(maxRevInPage, scannedTo);
+          if (isOutOfOrderBackpressured(runtimeSessionId) && cursor >= oooGapBoundary) {
+            steerBacklogFull = true;
+            break;
+          }
         }
         // F13: When deferred steers saturate `pageLimit`, steer backpressure is active, or
         // maxPagesPerDrain was reached without finding a cancel, ALWAYS probe forward for a
@@ -476,6 +493,7 @@ export function createFleetEdgeRuntimeControlConsumer(input: {
       if (pendingCancels.length === 0 && pendingSteers.length === 0 && pendingRejections.size === 0) return;
 
       await input.schedule(async () => {
+        const attemptedRejectionsThisDrain = new Set<string>();
         // Phase 1 (F13): Execute ALL pending cancels FIRST — never behind deferred steers,
         // steer backpressure, or rejection persistence.
         for (const cancelReq of pendingCancels) {
@@ -488,6 +506,7 @@ export function createFleetEdgeRuntimeControlConsumer(input: {
           if (!input.isRuntimeActive(runtimeSessionId)) {
             let allSupersededPersisted = true;
             for (const steered of supersededSteers) {
+              attemptedRejectionsThisDrain.add(steered.opId);
               const persisted = await persistSteerRejection(steered, {
                 code: "runtime_cancelled",
                 message: "Remote steer was superseded by session cancellation.",
@@ -509,6 +528,7 @@ export function createFleetEdgeRuntimeControlConsumer(input: {
           if (result.outcome === "applied" || result.outcome === "not_running") {
             let allSupersededPersisted = true;
             for (const steered of supersededSteers) {
+              attemptedRejectionsThisDrain.add(steered.opId);
               const persisted = await persistSteerRejection(steered, {
                 code: "runtime_cancelled",
                 message: "Remote steer was superseded by session cancellation.",
@@ -542,6 +562,7 @@ export function createFleetEdgeRuntimeControlConsumer(input: {
             continue;
           }
           if (!input.isRuntimeActive(runtimeSessionId)) {
+            attemptedRejectionsThisDrain.add(opId);
             const persisted = await persistSteerRejection(request, {
               code: "runtime_not_running",
               message: "Runtime session is no longer running on the target node.",
@@ -571,6 +592,7 @@ export function createFleetEdgeRuntimeControlConsumer(input: {
             persistContiguousCursor(runtimeSessionId);
           } else if (result.outcome === "deferred") {
             if (!input.isRuntimeActive(runtimeSessionId)) {
+              attemptedRejectionsThisDrain.add(opId);
               const persisted = await persistSteerRejection(request, {
                 code: "runtime_not_running",
                 message: "Runtime session exited before remote steer could be applied.",
@@ -584,6 +606,7 @@ export function createFleetEdgeRuntimeControlConsumer(input: {
           } else {
             // Terminal refusal (`runtime_steer_target_changed`, `runtime_steer_unsupported`, or `runtime_not_running`).
             // F12: Durably persist rejection BEFORE removing deferred steer or advancing cursor.
+            attemptedRejectionsThisDrain.add(opId);
             const persisted = await persistSteerRejection(request, {
               code: result.code,
               message: result.message,
@@ -596,8 +619,8 @@ export function createFleetEdgeRuntimeControlConsumer(input: {
           }
         }
 
-        // Phase 3: Retry any locally deferred rejection persistence (non-network in production).
-        await flushPendingRejections();
+        // Phase 3: Retry any locally deferred rejection persistence (skipping opIds already tried in this drain).
+        await flushPendingRejections(attemptedRejectionsThisDrain);
       });
     },
   };

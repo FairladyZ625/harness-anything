@@ -99,6 +99,16 @@ function legacyStreamPathIfPresent(rootDir: string, dispatchId: string): string 
   return null;
 }
 
+function parseLegacySteerRecord(line: string): Record<string, unknown> | { readonly malformed: true } {
+  try {
+    const parsed: unknown = JSON.parse(line);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return { malformed: true };
+    return parsed as Record<string, unknown>;
+  } catch {
+    return { malformed: true };
+  }
+}
+
 /**
  * F17 rolling-upgrade safety: if a legacy `<dispatchId>.jsonl` exists without a sidecar, hydrate
  * its true `steer_requested` count and opIds BEFORE any sidecar mutation writes `version: 0`.
@@ -116,15 +126,8 @@ function readOrHydrateDispatchSteerState(rootDir: string, dispatchId: string): D
   let version = 0;
   for (const line of readFileSync(streamPath, "utf8").split("\n")) {
     if (!line.includes(marker)) continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) continue;
-    const record = parsed as Record<string, unknown>;
-    if (record.kind !== "steer_requested") continue;
+    const record = parseLegacySteerRecord(line);
+    if ("malformed" in record || record.kind !== "steer_requested") continue;
     const opId = typeof record.opId === "string" && record.opId.length > 0 ? record.opId : null;
     if (opId !== null && knownOpIds.has(opId)) continue;
     if (opId !== null) {

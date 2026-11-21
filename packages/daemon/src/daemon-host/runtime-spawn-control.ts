@@ -8,7 +8,7 @@ import {
 } from "./runtime-dispatch-owner-evidence.ts";
 import { auditedOrphanTerminal } from "./runtime-orphan-recovery.ts";
 import { createHash } from "node:crypto";
-import { sameWriteSource, sha256Text } from "@harness-anything/kernel";
+import { runtimeSessionCarrierLiveness, sameWriteSource, sha256Text } from "@harness-anything/kernel";
 import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
 import { readFallbackExhaustion } from "./runtime-spawn-fallback.ts";
 import { daemonMethodPayloadFields } from "./protocol/daemon-protocol-commands.ts";
@@ -193,7 +193,7 @@ export async function cancelRuntime(
         "runtime_session_liveness_changed",
         {
           runtimeSessionId,
-          liveness: session.liveness === "exited" ? "unknown" : session.liveness,
+          liveness: runtimeSessionCarrierLiveness(session),
           controlRequest: {
             action: "cancel",
             controlRequestId,
@@ -892,7 +892,7 @@ async function requestRemoteEdgeSteer(
     "runtime_session_liveness_changed",
     {
       runtimeSessionId,
-      liveness: session.liveness === "exited" ? "unknown" : session.liveness,
+      liveness: runtimeSessionCarrierLiveness(session),
       controlRequest: {
         action: "steer",
         controlRequestId,
