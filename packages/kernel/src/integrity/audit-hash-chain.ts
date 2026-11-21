@@ -31,6 +31,7 @@ export {
   type AuditSliceVerifyResult,
   type AuditSliceVerifySuccess,
   type AuditTrustAnchorMode,
+  type AuditVerifiedSliceInterval,
   type AuditVerifyErrorCode,
   type AuditVerifyFailure,
   type DeliveryCertificateCompletionKind,

@@ -21,6 +21,9 @@ import { startManagedPostgresFixture } from "./managed-postgres.fixture.ts";
 import { bundle, eventAt, initRepo } from "../store/task-event-store.fixtures.ts";
 import { assertDocumentAdmission, admissionSettingsBase } from "../store/document-admission.assertions.ts";
 import { localGitWorktreeSettlement } from "../../src/store/local-version-control-system.ts";
+import { buildHistoricalTimestampFixtures, HISTORICAL_TIMESTAMP_CASES } from "../canonical-factory.assertions.ts";
+import { explainNodes, tracedPgReads } from "./pg-explain.fixture.ts";
+import { readPgEventWindow } from "../../src/postgres/pg-event-window.ts";
 
 const scope: PostgresEventStoreScope = {
   tenantId: "tenant-a",
@@ -272,6 +275,141 @@ test("real PG ledger: SQLite byte parity, scoped locks, outcomes, rollback and p
         "PG_EVENT_LEDGER_RLS non-owner runtime; tenant/project/epoch isolation; claims clear after rollback\n",
       );
     });
+    await t.test(
+      "DM-01 & DM-03: real PG readEventWindow sub-ms truncation, ±23:59 offsets, equal endpoints, and O(page) sparse index scan under RLS",
+      async () => {
+        const tsRepo = "dm01-dm03-ts";
+        const tsStore = make(tsRepo, scope);
+        const baseEvents = Array.from({ length: HISTORICAL_TIMESTAMP_CASES.length }, (_, idx) => {
+          const ev = eventAt(idx + 1);
+          return { ...ev, eventId: `hist-ts-event-${idx + 1}`, opId: `hist-ts-op-${idx + 1}` };
+        });
+        for (let idx = 0; idx < baseEvents.length; idx += 1) {
+          await tsStore.append(bundle(baseEvents[idx]!), idx, fence(tsRepo));
+        }
+        await withPostgresTransaction(
+          admin!,
+          async (client) => {
+            for (const row of buildHistoricalTimestampFixtures(baseEvents)) {
+              await client.query(
+                "UPDATE ha_events SET occurred_at=$1, event_json=$2, event_digest=$3 WHERE tenant_id=$4 AND project_id=$5 AND repo_id=$6 AND revision=$7",
+                [row.occurredAt, row.eventJson, row.digest, scope.tenantId, scope.projectId, tsRepo, row.revision],
+              );
+            }
+          },
+          scope,
+        );
+        const expectedNov5 = HISTORICAL_TIMESTAMP_CASES.filter((c) => c.expectedInNov5).map((c) => [
+          c.revision,
+          c.occurredAt,
+        ]);
+        const nov5 = (await tsStore.execute({
+          operation: "window",
+          query: {
+            afterRevision: 0,
+            after: "2026-11-05T00:00:00.000Z",
+            before: "2026-11-05T23:59:59.999Z",
+            limit: 20,
+          },
+        })) as {
+          readonly events: readonly { readonly workspaceRevision: number; readonly occurredAt: string }[];
+          readonly done: boolean;
+        };
+        assert.equal(nov5.done, true);
+        assert.deepEqual(
+          nov5.events.map((e) => [e.workspaceRevision, e.occurredAt]),
+          expectedNov5,
+        );
+        const eqEnd = (await tsStore.execute({
+          operation: "window",
+          query: {
+            afterRevision: 0,
+            after: "2026-11-05T23:59:59.999Z",
+            before: "2026-11-05T23:59:59.999Z",
+            limit: 10,
+          },
+        })) as { readonly events: readonly { readonly workspaceRevision: number; readonly occurredAt: string }[] };
+        assert.deepEqual(
+          eqEnd.events.map((e) => [e.workspaceRevision, e.occurredAt]),
+          [
+            [7, "2026-11-05T23:59:59.999999Z"],
+            [8, "2026-11-06T23:58:59.999999+23:59"],
+            [9, "2026-11-06T07:59:59.999+08:00"],
+          ],
+        );
+
+        const sparseRepo = "dm03-sparse-pg";
+        const sparseStore = make(sparseRepo, scope);
+        const matchingBefore = 30;
+        const gapSize = 1_500;
+        const matchingAfter = 30;
+        const total = matchingBefore + gapSize + matchingAfter;
+        for (let offset = 0; offset < total; offset += 100) {
+          const end = Math.min(total, offset + 100);
+          const batch = [];
+          for (let rev = offset + 1; rev <= end; rev += 1) {
+            const inWindow = rev <= matchingBefore || rev > matchingBefore + gapSize;
+            batch.push(
+              bundle({
+                ...eventAt(rev),
+                occurredAt: inWindow ? "2026-11-05T12:00:00.000Z" : "2026-11-06T12:00:00.000Z",
+              }),
+            );
+          }
+          const terminal = batch.pop()!;
+          await sparseStore.append({ ...terminal, preceding: batch }, offset, fence(sparseRepo));
+        }
+        await admin!.query("ANALYZE ha_events");
+        const plans: unknown[] = [];
+        const tracedRuntime = tracedPgReads(runtime!, plans, (sql) => /FROM ha_events/u.test(sql));
+        const collected: number[] = [];
+        let afterRevision = 0;
+        let maxRevision: number | undefined;
+        let pages = 0;
+        for (;;) {
+          const page = await withPostgresTransaction(
+            tracedRuntime,
+            (client) =>
+              readPgEventWindow(
+                client,
+                scope,
+                {
+                  repoId: sparseRepo,
+                  query: {
+                    afterRevision,
+                    ...(maxRevision === undefined ? {} : { maxRevision, boundsPinned: true }),
+                    after: "2026-11-05T00:00:00.000Z",
+                    before: "2026-11-05T23:59:59.999Z",
+                    limit: 20,
+                  },
+                },
+                total,
+              ),
+            scope,
+          );
+          pages += 1;
+          for (const ev of page.events) collected.push(ev.workspaceRevision);
+          maxRevision = page.windowMaxRevision;
+          if (page.done) break;
+          afterRevision = page.lastScannedRevision;
+        }
+        assert.equal(pages, 3);
+        assert.equal(collected.length, matchingBefore + matchingAfter);
+        assert.equal(collected[0], 1);
+        assert.equal(collected[matchingBefore], matchingBefore + gapSize + 1);
+        const scans = explainNodes(plans).filter((node) => String(node["Relation Name"] ?? "") === "ha_events");
+        assert.equal(scans.length, 3);
+        let totalRowsVisited = 0;
+        for (const scan of scans) {
+          assert.equal(String(scan["Index Name"]), "ha_events_occurred_day_revision_idx", JSON.stringify(scan));
+          assert.equal(Number(scan["Rows Removed by Filter"] ?? 0), 0, JSON.stringify(scan));
+          totalRowsVisited +=
+            (Number(scan["Actual Rows"] ?? 0) + Number(scan["Rows Removed by Filter"] ?? 0)) *
+            Number(scan["Actual Loops"] ?? 1);
+        }
+        assert.ok(totalRowsVisited <= 70, `expected <=70 rows visited across 1,500-row gap, got ${totalRowsVisited}`);
+      },
+    );
     await runtime.end();
     runtime = undefined;
     assert.ok(poolErrors.length <= 1, "only the deliberately terminated backend may emit one pool error");

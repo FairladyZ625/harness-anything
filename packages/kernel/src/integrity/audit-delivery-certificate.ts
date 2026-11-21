@@ -12,11 +12,13 @@ import {
   computeDeliveryCertificateHash,
   DELIVERY_CERTIFICATE_SCHEMA,
   isAuditDigest,
+  isPureRevisionWindow,
   type AuditCertificateChainCollector,
   type AuditCertificateChainEvidence,
   type AuditCertificateChainSummary,
   type AuditCertificateChainTarget,
   type AuditCertificateVerifyResult,
+  type AuditVerifiedSliceInterval,
   type AuditVerifyFailure,
   type DeliveryCertificateCompletionKind,
   type DeliveryCertificateExternalResolutionV1,
@@ -32,34 +34,31 @@ export function createAuditCertificateChainCollector(
   target: AuditCertificateChainTarget,
 ): AuditCertificateChainCollector {
   const repoIds = new Set<string>();
+  const verifiedSlices: AuditVerifiedSliceInterval[] = [];
   const reviewEvents = new Map<string, ReviewV1>();
   const consentEvents = new Map<
     string,
     { readonly review: ReviewV1; readonly consent: ReviewConsentV1; readonly executionId: string }
   >();
   const consentsByExecution = new Map<string, ReviewConsentV1[]>();
-  let firstObservedRevision: number | null = null;
-  let lastObservedRevision: number | null = null;
-  let firstObservedOccurredAt: string | null = null;
-  let lastObservedOccurredAt: string | null = null;
-  let sawTaskStartOrCreate = false;
+  const executionStartedRevisions = new Map<string, number>();
+  const executionStartedOccurredAt = new Map<string, string>();
+  let taskOriginRevision: number | null = null;
+  let taskOriginOccurredAt: string | null = null;
   let completionEvent: { readonly repoId: string; readonly event: PersistedCanonicalEventV1 } | null = null;
+
+  const recordTaskOrigin = (rev: number, occurredAt: string) => {
+    if (taskOriginRevision === null || rev < taskOriginRevision) {
+      taskOriginRevision = rev;
+    }
+    if (taskOriginOccurredAt === null || Date.parse(occurredAt) < Date.parse(taskOriginOccurredAt)) {
+      taskOriginOccurredAt = occurredAt;
+    }
+  };
 
   return {
     observe(repoId, event) {
       repoIds.add(repoId);
-      if (firstObservedRevision === null || event.workspaceRevision < firstObservedRevision) {
-        firstObservedRevision = event.workspaceRevision;
-      }
-      if (lastObservedRevision === null || event.workspaceRevision > lastObservedRevision) {
-        lastObservedRevision = event.workspaceRevision;
-      }
-      if (firstObservedOccurredAt === null || Date.parse(event.occurredAt) < Date.parse(firstObservedOccurredAt)) {
-        firstObservedOccurredAt = event.occurredAt;
-      }
-      if (lastObservedOccurredAt === null || Date.parse(event.occurredAt) > Date.parse(lastObservedOccurredAt)) {
-        lastObservedOccurredAt = event.occurredAt;
-      }
       if (event.opId === target.completionOpId) {
         completionEvent = { repoId, event };
       }
@@ -68,16 +67,28 @@ export function createAuditCertificateChainCollector(
         event.payload.entity.kind === "task" &&
         event.payload.entity.task.taskId === target.taskId
       ) {
-        sawTaskStartOrCreate = true;
+        recordTaskOrigin(event.workspaceRevision, event.occurredAt);
       }
       const record = event as unknown as Record<string, unknown>;
       const eventTaskId = typeof record.taskId === "string" ? record.taskId : null;
       if (eventTaskId !== target.taskId) return;
-      if (event.type === "task_created" || event.type === "task_bootstrapped" || event.type === "execution_started") {
-        sawTaskStartOrCreate = true;
+      if (event.type === "task_created" || event.type === "task_bootstrapped") {
+        recordTaskOrigin(event.workspaceRevision, event.occurredAt);
       }
       const payload = isRecord(record.payload) ? record.payload : null;
-      if (event.type === "review_recorded" && payload && isRecord(payload.review)) {
+      if (event.type === "execution_started" && payload && isRecord(payload.execution)) {
+        const execId = payload.execution.executionId;
+        if (isNonEmptyString(execId)) {
+          const prevRev = executionStartedRevisions.get(execId);
+          if (prevRev === undefined || event.workspaceRevision < prevRev) {
+            executionStartedRevisions.set(execId, event.workspaceRevision);
+          }
+          const prevAt = executionStartedOccurredAt.get(execId);
+          if (prevAt === undefined || Date.parse(event.occurredAt) < Date.parse(prevAt)) {
+            executionStartedOccurredAt.set(execId, event.occurredAt);
+          }
+        }
+      } else if (event.type === "review_recorded" && payload && isRecord(payload.review)) {
         const review = payload.review as unknown as ReviewV1;
         if (isNonEmptyString(review.reviewId)) {
           reviewEvents.set(review.reviewId, review);
@@ -98,14 +109,17 @@ export function createAuditCertificateChainCollector(
         }
       }
     },
+    observeSlice(slice) {
+      verifiedSlices.push(slice);
+    },
     evidence(): AuditCertificateChainEvidence {
       return {
         repoIds,
-        firstObservedRevision,
-        lastObservedRevision,
-        firstObservedOccurredAt,
-        lastObservedOccurredAt,
-        sawTaskStartOrCreate,
+        verifiedSlices,
+        taskOriginRevision,
+        taskOriginOccurredAt,
+        executionStartedRevisions,
+        executionStartedOccurredAt,
         completionEvent,
         reviewEvents,
         consentEvents,
@@ -587,7 +601,28 @@ function verifyCertificateAgainstChain(
   const payloadError = verifyCompletionPayloadAgainstChain(cert, event);
   if (payloadError !== null) return payloadError;
 
-  const fullHistoryObserved = evidence.firstObservedRevision === 1 || evidence.sawTaskStartOrCreate;
+  const coverageIntervals = buildVerifiedCoverageIntervals(
+    evidence.verifiedSlices,
+    cert.repoId,
+    cert.completion.workspaceRevision,
+  );
+  const completionRev = cert.completion.workspaceRevision;
+  const completionMs = Date.parse(cert.completion.occurredAt);
+  const fullTaskLifecycleCovered =
+    cert.completionKind === "imported-migration" ||
+    intervalSetCoversSpan(coverageIntervals.revisions, 1, completionRev) ||
+    (evidence.taskOriginRevision !== null &&
+      intervalSetCoversSpan(coverageIntervals.revisions, evidence.taskOriginRevision, completionRev)) ||
+    (evidence.taskOriginOccurredAt !== null &&
+      intervalSetCoversSpan(coverageIntervals.timestamps, Date.parse(evidence.taskOriginOccurredAt), completionMs));
+  const execStartRev = cert.executionId === null ? undefined : evidence.executionStartedRevisions.get(cert.executionId);
+  const execStartAt = cert.executionId === null ? undefined : evidence.executionStartedOccurredAt.get(cert.executionId);
+  const fullExecutionConsentWindowCovered =
+    fullTaskLifecycleCovered ||
+    (execStartRev !== undefined && intervalSetCoversSpan(coverageIntervals.revisions, execStartRev, completionRev)) ||
+    (execStartAt !== undefined &&
+      intervalSetCoversSpan(coverageIntervals.timestamps, Date.parse(execStartAt), completionMs));
+
   const certReviewMap = new Map(cert.reviews.map((review) => [review.reviewId, review]));
   let reviewsVerifiedCount = 0;
   const uncoveredReviewIds: string[] = [];
@@ -609,7 +644,10 @@ function verifyCertificateAgainstChain(
         };
       }
       reviewsVerifiedCount += 1;
-    } else if (fullHistoryObserved || isTimestampStrictlyInsideChain(review.reviewedAt, evidence)) {
+    } else if (
+      fullTaskLifecycleCovered ||
+      isTimestampStrictlyInsideIntervals(review.reviewedAt, coverageIntervals.timestamps)
+    ) {
       return {
         ok: false,
         code: "audit_certificate_event_mismatch",
@@ -659,7 +697,10 @@ function verifyCertificateAgainstChain(
         };
       }
       consentVerified = true;
-    } else if (fullHistoryObserved || isTimestampStrictlyInsideChain(cert.reviewConsent.consentedAt, evidence)) {
+    } else if (
+      fullExecutionConsentWindowCovered ||
+      isTimestampStrictlyInsideIntervals(cert.reviewConsent.consentedAt, coverageIntervals.timestamps)
+    ) {
       return {
         ok: false,
         code: "audit_certificate_consent_mismatch",
@@ -684,9 +725,17 @@ function verifyCertificateAgainstChain(
         message: `Verified audit chain contains canonical review consent ${observedConsents.at(-1)!.consentId} for execution ${cert.executionId}, but certificate reviewConsent is null.`,
       };
     }
+    if (!fullExecutionConsentWindowCovered) {
+      consentVerified = "not_in_slice_window";
+    }
   }
 
-  const coverage = uncoveredReviewIds.length === 0 && uncoveredConsentId === null ? "complete" : "partial";
+  const allClaimedCovered = uncoveredReviewIds.length === 0 && uncoveredConsentId === null;
+  const absenceProven =
+    cert.completionKind === "imported-migration" ||
+    (fullTaskLifecycleCovered &&
+      (cert.reviewConsent !== null || cert.completionKind !== "native" || fullExecutionConsentWindowCovered));
+  const coverage = allClaimedCovered && absenceProven ? "complete" : "partial";
   return {
     ok: true,
     summary: {
@@ -825,9 +874,75 @@ function verifyCompletionPayloadAgainstChain(
   return null;
 }
 
-function isTimestampStrictlyInsideChain(timestampText: string, evidence: AuditCertificateChainEvidence): boolean {
-  const target = Date.parse(timestampText),
-    first = evidence.firstObservedOccurredAt === null ? Number.NaN : Date.parse(evidence.firstObservedOccurredAt),
-    last = evidence.lastObservedOccurredAt === null ? Number.NaN : Date.parse(evidence.lastObservedOccurredAt);
-  return target > first && target < last;
+interface ClosedNumericInterval {
+  readonly start: number;
+  readonly end: number;
+}
+
+function mergeContiguousIntervals(intervals: readonly ClosedNumericInterval[]): readonly ClosedNumericInterval[] {
+  if (intervals.length <= 1) return intervals;
+  const sorted = [...intervals].sort((a, b) => a.start - b.start || a.end - b.end);
+  const merged: ClosedNumericInterval[] = [sorted[0]!];
+  for (let index = 1; index < sorted.length; index += 1) {
+    const current = sorted[index]!;
+    const prev = merged.at(-1)!;
+    if (current.start <= prev.end + 1) {
+      merged[merged.length - 1] = { start: prev.start, end: Math.max(prev.end, current.end) };
+    } else {
+      merged.push(current);
+    }
+  }
+  return merged;
+}
+
+function buildVerifiedCoverageIntervals(
+  slices: readonly AuditVerifiedSliceInterval[],
+  repoId: string,
+  completionRevision: number,
+): {
+  readonly revisions: readonly ClosedNumericInterval[];
+  readonly timestamps: readonly ClosedNumericInterval[];
+} {
+  const revIntervals: ClosedNumericInterval[] = [];
+  const timeIntervals: ClosedNumericInterval[] = [];
+  for (const slice of slices) {
+    if (slice.repoId !== repoId) continue;
+    if (isPureRevisionWindow(slice.window)) {
+      const start = slice.window.fromRevision ?? slice.firstRevision ?? 1;
+      const end = slice.window.toRevision ?? slice.lastRevision;
+      if (end !== null && end >= start) {
+        revIntervals.push({ start, end });
+      }
+      continue;
+    }
+    // A time-window slice proves coverage for timestamps in [after, before] only when not clipped below completion.
+    if (
+      slice.window.fromRevision === null &&
+      (slice.window.toRevision === null || slice.window.toRevision >= completionRevision)
+    ) {
+      const start = slice.window.after === null ? Number.NEGATIVE_INFINITY : Date.parse(slice.window.after);
+      const end = slice.window.before === null ? Number.POSITIVE_INFINITY : Date.parse(slice.window.before);
+      if (!Number.isNaN(start) && !Number.isNaN(end) && start <= end) {
+        timeIntervals.push({ start, end });
+      }
+    }
+  }
+  return {
+    revisions: mergeContiguousIntervals(revIntervals),
+    timestamps: mergeContiguousIntervals(timeIntervals),
+  };
+}
+
+function intervalSetCoversSpan(intervals: readonly ClosedNumericInterval[], start: number, end: number): boolean {
+  if (Number.isNaN(start) || Number.isNaN(end) || start > end) return false;
+  return intervals.some((interval) => interval.start <= start && interval.end >= end);
+}
+
+function isTimestampStrictlyInsideIntervals(
+  timestampText: string,
+  intervals: readonly ClosedNumericInterval[],
+): boolean {
+  const target = Date.parse(timestampText);
+  if (Number.isNaN(target)) return false;
+  return intervals.some((interval) => target > interval.start && target < interval.end);
 }

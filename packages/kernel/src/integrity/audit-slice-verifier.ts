@@ -549,6 +549,13 @@ export function createAuditSliceVerifier(input: {
             message: `Verified slice rootHash ${actualRootHash} does not match caller-pinned expectedRootHash ${input.expectedRootHash}.`,
           };
         }
+        input.certificateCollector?.observeSlice({
+          repoId: manifest.repoId,
+          window: manifest.window,
+          firstRevision,
+          lastRevision,
+          eventCount,
+        });
         if (!complete) {
           const first = firstUnattributed!;
           return {

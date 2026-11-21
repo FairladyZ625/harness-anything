@@ -107,6 +107,7 @@ test("attach migration registry covers each retired historical field and is idem
       "task.packageDisposition",
       "sqlite.entity-directory-working-set",
       "projection.decision-list-summaries",
+      "ledger.occurred-at-epoch-index",
     ],
   );
   assert.deepEqual(

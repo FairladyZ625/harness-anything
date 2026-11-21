@@ -266,13 +266,21 @@ export interface AuditCertificateChainTarget {
   readonly executionId: string | null;
 }
 
+export interface AuditVerifiedSliceInterval {
+  readonly repoId: string;
+  readonly window: AuditExportWindowV1;
+  readonly firstRevision: number | null;
+  readonly lastRevision: number | null;
+  readonly eventCount: number;
+}
+
 export interface AuditCertificateChainEvidence {
   readonly repoIds: ReadonlySet<string>;
-  readonly firstObservedRevision: number | null;
-  readonly lastObservedRevision: number | null;
-  readonly firstObservedOccurredAt: string | null;
-  readonly lastObservedOccurredAt: string | null;
-  readonly sawTaskStartOrCreate: boolean;
+  readonly verifiedSlices: readonly AuditVerifiedSliceInterval[];
+  readonly taskOriginRevision: number | null;
+  readonly taskOriginOccurredAt: string | null;
+  readonly executionStartedRevisions: ReadonlyMap<string, number>;
+  readonly executionStartedOccurredAt: ReadonlyMap<string, string>;
   readonly completionEvent: { readonly repoId: string; readonly event: PersistedCanonicalEventV1 } | null;
   readonly reviewEvents: ReadonlyMap<string, ReviewV1>;
   readonly consentEvents: ReadonlyMap<
@@ -284,6 +292,7 @@ export interface AuditCertificateChainEvidence {
 
 export interface AuditCertificateChainCollector {
   readonly observe: (repoId: string, event: PersistedCanonicalEventV1) => void;
+  readonly observeSlice: (slice: AuditVerifiedSliceInterval) => void;
   readonly evidence: () => AuditCertificateChainEvidence;
 }
 

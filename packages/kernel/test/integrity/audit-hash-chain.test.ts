@@ -896,4 +896,241 @@ test("DM-04, DM-05, DM-06: imported-migration certificates, historical timestamp
     assert.deepEqual(partialCertRes.chainEvidence?.uncoveredReviewIds, ["rev_dm04_001"]);
     assert.equal(partialCertRes.chainEvidence?.uncoveredConsentId, normConsent.consentId);
   }
+
+  // DM-06(a): Disjoint pinned daily slices (Nov 1 + Nov 3, gap on Nov 2) where real review & consent fall on gap day
+  // MUST classify as coverage="partial" (strictVerified=false), NEVER as canonical mismatch failure!
+  const multiDayEvents = fixture.events.map((ev) => {
+    if (ev.type === "task_created") {
+      return { ...ev, occurredAt: "2026-11-01T10:00:00.000Z" };
+    }
+    if (ev.type === "execution_started" || ev.type === "execution_submitted") {
+      return { ...ev, occurredAt: "2026-11-02T09:00:00.000Z" };
+    }
+    if (ev.type === "review_recorded") {
+      return {
+        ...ev,
+        occurredAt: "2026-11-02T11:00:00.000Z",
+        payload: { ...ev.payload, review: { ...ev.payload.review, reviewedAt: "2026-11-02T11:00:00.000Z" } },
+      };
+    }
+    if (ev.type === "review_consent_recorded") {
+      const updatedRev = { ...ev.payload.review, reviewedAt: "2026-11-02T11:00:00.000Z" };
+      return {
+        ...ev,
+        occurredAt: "2026-11-02T12:00:00.000Z",
+        payload: {
+          ...ev.payload,
+          review: updatedRev,
+          consent: {
+            ...ev.payload.consent,
+            consentedAt: "2026-11-02T12:00:00.000Z",
+            reviewDigest: reviewDigest(updatedRev),
+          },
+        },
+      };
+    }
+    return { ...ev, occurredAt: "2026-11-03T15:00:00.000Z" };
+  });
+  const gapReviews = multiDayEvents
+    .filter(
+      (e): e is Extract<(typeof multiDayEvents)[number], { readonly type: "review_recorded" }> =>
+        e.type === "review_recorded",
+    )
+    .map((e) => e.payload.review);
+  const gapConsentEv = multiDayEvents.find(
+    (e): e is Extract<(typeof multiDayEvents)[number], { readonly type: "review_consent_recorded" }> =>
+      e.type === "review_consent_recorded",
+  )!;
+  const gapCompletionEv = multiDayEvents.find((e) => e.type === "task_completed") as TaskCompletedEvent;
+  const gapCert = buildDeliveryCertificate({
+    algorithm: "sha256",
+    repoId: "repo-dm06",
+    task: fixture.snapshot.task!,
+    execution: exec,
+    reviews: gapReviews,
+    reviewConsent: gapConsentEv.payload.consent,
+    completionEvent: gapCompletionEv,
+  });
+
+  const nov1Acc = createAuditChainAccumulator({
+    repoId: "repo-dm06",
+    algorithm: "sm3",
+    window: {
+      fromRevision: null,
+      toRevision: 6,
+      utcDate: "2026-11-01",
+      after: "2026-11-01T00:00:00.000Z",
+      before: "2026-11-01T23:59:59.999Z",
+    },
+  });
+  const nov1Lines = nov1Acc.addEvent(multiDayEvents[0]!).line;
+  const nov1Manifest = nov1Acc.finalize();
+
+  const nov3Acc = createAuditChainAccumulator({
+    repoId: "repo-dm06",
+    algorithm: "sm3",
+    prevRootHash: nov1Manifest.rootHash,
+    window: {
+      fromRevision: null,
+      toRevision: 6,
+      utcDate: "2026-11-03",
+      after: "2026-11-03T00:00:00.000Z",
+      before: "2026-11-03T23:59:59.999Z",
+    },
+  });
+  const nov3Lines = nov3Acc.addEvent(gapCompletionEv).line;
+  const nov3Manifest = nov3Acc.finalize();
+
+  const gapCollector = createAuditCertificateChainCollector({
+    taskId: "task_dm04_001",
+    completionOpId: gapCompletionEv.opId,
+    executionId: exec.executionId,
+  });
+  assert.equal(
+    verifyAuditSliceContent({
+      manifest: nov1Manifest,
+      entriesContent: nov1Lines,
+      certificateCollector: gapCollector,
+    }).ok,
+    true,
+  );
+  assert.equal(
+    verifyAuditSliceContent({
+      manifest: nov3Manifest,
+      entriesContent: nov3Lines,
+      expectedPrevRootHash: nov1Manifest.rootHash,
+      expectedRootHash: nov3Manifest.rootHash,
+      certificateCollector: gapCollector,
+    }).ok,
+    true,
+  );
+  const gapDayRes = verifyDeliveryCertificate(gapCert, {
+    expectedCertificateHash: gapCert.certificateHash,
+    chainEvidence: gapCollector.evidence(),
+  });
+  assert.equal(gapDayRes.ok, true, JSON.stringify(gapDayRes));
+  if (gapDayRes.ok) {
+    assert.equal(gapDayRes.selfConsistent, true);
+    assert.equal(gapDayRes.anchorPinned, true);
+    assert.equal(gapDayRes.strictVerified, false);
+    assert.equal(gapDayRes.chainEvidence?.coverage, "partial");
+    assert.deepEqual(gapDayRes.chainEvidence?.uncoveredReviewIds, ["rev_dm04_001"]);
+    assert.equal(gapDayRes.chainEvidence?.uncoveredConsentId, gapConsentEv.payload.consent.consentId);
+    assert.equal(gapDayRes.chainEvidence?.consentVerified, "not_in_slice_window");
+  }
+
+  // Provable conflict inside a covered slice (review claims timestamp inside covered Nov 3 slice) MUST STILL FAIL!
+  const forgedInCoveredDayCert = buildDeliveryCertificate({
+    algorithm: "sha256",
+    repoId: "repo-dm06",
+    task: fixture.snapshot.task!,
+    execution: exec,
+    reviews: [{ ...gapReviews[0]!, reviewedAt: "2026-11-03T10:00:00.000Z" }],
+    reviewConsent: null,
+    completionEvent: gapCompletionEv,
+  });
+  const forgedDayFail = verifyDeliveryCertificate(forgedInCoveredDayCert, {
+    expectedCertificateHash: forgedInCoveredDayCert.certificateHash,
+    chainEvidence: gapCollector.evidence(),
+  });
+  assert.equal(forgedDayFail.ok, false);
+  if (!forgedDayFail.ok) assert.equal(forgedDayFail.code, "audit_certificate_event_mismatch");
+
+  // Providing all 3 contiguous daily slices (Nov 1 + Nov 2 + Nov 3) proves complete coverage -> strictVerified=true!
+  const nov2Acc = createAuditChainAccumulator({
+    repoId: "repo-dm06",
+    algorithm: "sm3",
+    prevRootHash: nov1Manifest.rootHash,
+    window: {
+      fromRevision: null,
+      toRevision: 6,
+      utcDate: "2026-11-02",
+      after: "2026-11-02T00:00:00.000Z",
+      before: "2026-11-02T23:59:59.999Z",
+    },
+  });
+  const nov2Lines = multiDayEvents
+    .slice(1, 5)
+    .map((e) => nov2Acc.addEvent(e).line)
+    .join("");
+  const nov2Manifest = nov2Acc.finalize();
+  const nov3LinkedAcc = createAuditChainAccumulator({
+    repoId: "repo-dm06",
+    algorithm: "sm3",
+    prevRootHash: nov2Manifest.rootHash,
+    window: {
+      fromRevision: null,
+      toRevision: 6,
+      utcDate: "2026-11-03",
+      after: "2026-11-03T00:00:00.000Z",
+      before: "2026-11-03T23:59:59.999Z",
+    },
+  });
+  const nov3LinkedLines = nov3LinkedAcc.addEvent(gapCompletionEv).line;
+  const nov3LinkedManifest = nov3LinkedAcc.finalize();
+  const fullDayCollector = createAuditCertificateChainCollector({
+    taskId: "task_dm04_001",
+    completionOpId: gapCompletionEv.opId,
+    executionId: exec.executionId,
+  });
+  assert.equal(
+    verifyAuditSliceContent({
+      manifest: nov1Manifest,
+      entriesContent: nov1Lines,
+      certificateCollector: fullDayCollector,
+    }).ok,
+    true,
+  );
+  assert.equal(
+    verifyAuditSliceContent({
+      manifest: nov2Manifest,
+      entriesContent: nov2Lines,
+      expectedPrevRootHash: nov1Manifest.rootHash,
+      certificateCollector: fullDayCollector,
+    }).ok,
+    true,
+  );
+  assert.equal(
+    verifyAuditSliceContent({
+      manifest: nov3LinkedManifest,
+      entriesContent: nov3LinkedLines,
+      expectedPrevRootHash: nov2Manifest.rootHash,
+      expectedRootHash: nov3LinkedManifest.rootHash,
+      certificateCollector: fullDayCollector,
+    }).ok,
+    true,
+  );
+  const fullDayRes = verifyDeliveryCertificate(gapCert, {
+    expectedCertificateHash: gapCert.certificateHash,
+    chainEvidence: fullDayCollector.evidence(),
+  });
+  assert.equal(fullDayRes.ok, true, JSON.stringify(fullDayRes));
+  if (fullDayRes.ok) {
+    assert.equal(fullDayRes.strictVerified, true);
+    assert.equal(fullDayRes.chainEvidence?.coverage, "complete");
+  }
+
+  // DM-06(b): Completion-only slice with reviews=[] and reviewConsent=null MUST report coverage="partial"
+  // (cannot prove absence of reviews/consent without covering the task/execution lifecycle window!)
+  const emptyReviewCert = buildDeliveryCertificate({
+    algorithm: "sha256",
+    repoId: "repo-dm05",
+    task: fixture.snapshot.task!,
+    execution: exec,
+    reviews: [],
+    reviewConsent: null,
+    completionEvent: completionEv,
+  });
+  const completionOnlyEmptyRes = verifyDeliveryCertificate(emptyReviewCert, {
+    expectedCertificateHash: emptyReviewCert.certificateHash,
+    chainEvidence: partialCollector.evidence(),
+  });
+  assert.equal(completionOnlyEmptyRes.ok, true, JSON.stringify(completionOnlyEmptyRes));
+  if (completionOnlyEmptyRes.ok) {
+    assert.equal(completionOnlyEmptyRes.selfConsistent, true);
+    assert.equal(completionOnlyEmptyRes.anchorPinned, true);
+    assert.equal(completionOnlyEmptyRes.strictVerified, false);
+    assert.equal(completionOnlyEmptyRes.chainEvidence?.coverage, "partial");
+    assert.equal(completionOnlyEmptyRes.chainEvidence?.consentVerified, "not_in_slice_window");
+  }
 });

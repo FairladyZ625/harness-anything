@@ -318,6 +318,23 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
       "PostgreSQL generation 5 adds both columns and backfills up to 64 owners per transaction. " +
       "Canonical events and content blobs remain byte-identical.",
   },
+  {
+    kind: "read-conclusion",
+    name: "ledger.occurred-at-epoch-index",
+    fields: [
+      "event.occurred_at_day_revision",
+      "event.occurred_at_ms_revision",
+      "ha_events.occurred_at_ms",
+      "ha_events.occurred_at_utc_day",
+    ],
+    attachRequired: false,
+    conclusion:
+      "SQLite writer open installs deterministic expression indexes on UTC epoch milliseconds and UTC day " +
+      "derived from occurred_at via isoOffsetTimestampMillisecondsSql (Date.parse truncation, ±23:59 offsets); " +
+      "read-only legacy SQLite stores still evaluate the same expression without rewriting canonical rows. " +
+      "PostgreSQL adds immutable STORED generated columns occurred_at_ms and occurred_at_utc_day with composite " +
+      "indexes under RLS. Canonical event_json, occurred_at text, and digests remain byte-identical.",
+  },
 ]);
 
 const registeredRetiredFields = new Set(

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
-import { mkdir, open, rename, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, open, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -35,15 +35,15 @@ export async function writeHostEnvironmentFile(
  *  Writes to a sibling temporary file and publishes via a single atomic switch:
  *  when publishing a companion manifest alongside a content-addressed entries target,
  *  the immutable entries file is staged first without overwriting any prior entries file,
- *  then the companion manifest is switched atomically in one POSIX rename, and any
- *  superseded entries file is removed only after that switch succeeds. */
+ *  then the companion manifest is switched atomically in one POSIX rename. Previously
+ *  referenced content-addressed entries files are retained so concurrent readers never hit
+ *  ENOENT and a corrupted prior manifest cannot trigger deletion of unrelated files. */
 export async function openCallerOutputLineWriter(filePath: string): Promise<{
   readonly writeLine: (line: string) => Promise<void>;
   readonly commit: (companion?: {
     readonly filePath: string;
     readonly contents: string;
     readonly entriesTargetPath?: string;
-    readonly supersededEntriesPath?: string;
     readonly beforeSwitch?: () => void | Promise<void>;
   }) => Promise<void>;
   readonly abort: () => Promise<void>;
@@ -82,9 +82,10 @@ export async function openCallerOutputLineWriter(filePath: string): Promise<{
         return;
       }
       const finalEntriesPath = companion.entriesTargetPath ?? filePath;
-      const sameTargetAsPrior =
-        companion.supersededEntriesPath !== undefined &&
-        path.resolve(companion.supersededEntriesPath) === path.resolve(finalEntriesPath);
+      const entriesPreexisted = await access(finalEntriesPath).then(
+        () => true,
+        () => false,
+      );
       const stagedCompanion = await openCallerOutputLineWriter(companion.filePath);
       let companionCommitted = false;
       let entriesMovedToFinal = false;
@@ -98,13 +99,10 @@ export async function openCallerOutputLineWriter(filePath: string): Promise<{
         await stagedCompanion.commit();
         published = true;
         companionCommitted = true;
-        if (companion.supersededEntriesPath !== undefined && !sameTargetAsPrior) {
-          await cleanupTemp(companion.supersededEntriesPath);
-        }
       } finally {
         if (!companionCommitted) {
           await stagedCompanion.abort();
-          if (entriesMovedToFinal && !sameTargetAsPrior) {
+          if (entriesMovedToFinal && !entriesPreexisted) {
             await cleanupTemp(finalEntriesPath);
           }
         }

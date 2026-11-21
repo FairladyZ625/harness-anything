@@ -1,4 +1,5 @@
 import { documentNodeKind } from "../document-node-kind.ts";
+import { readSqliteEventWindow, SQLITE_OCCURRED_AT_DAY_SQL, SQLITE_OCCURRED_AT_MS_SQL } from "./sqlite-event-window.ts";
 import {
   SQLITE_DECLARATION_INDEX_DDL,
   applySqliteDeclarationIndex,
@@ -658,7 +659,7 @@ function openSqliteEventStoreInternal(
           );
       }),
     queryEvents: (input) => queryEvents(query, input),
-    readEventWindow: (input) => transaction(() => readSqliteEventWindow(db, query, input), true),
+    readEventWindow: (input) => transaction(() => readSqliteEventWindow(readRevision(db), query, input), true),
     readEntityDeclarations: (input) => transaction(() => readSqliteEntityDeclarations(query, input), true),
     gitOutboxState: () => {
       if (!hasOutbox)
@@ -778,6 +779,10 @@ function createSchema(db: DatabaseSync, query: SqliteQuery, repoId: string, gene
     CREATE INDEX IF NOT EXISTS event_actor_executor
       ON event(json_extract(event_json, '$.actor.executor.id'), revision DESC);
     CREATE INDEX IF NOT EXISTS event_occurred_at ON event(occurred_at, revision DESC);
+    CREATE INDEX IF NOT EXISTS event_occurred_at_day_revision
+      ON event(${SQLITE_OCCURRED_AT_DAY_SQL}, revision ASC, ${SQLITE_OCCURRED_AT_MS_SQL});
+    CREATE INDEX IF NOT EXISTS event_occurred_at_ms_revision
+      ON event(${SQLITE_OCCURRED_AT_MS_SQL}, revision ASC);
     CREATE TABLE IF NOT EXISTS event_query_entity (
       revision INTEGER NOT NULL REFERENCES event(revision), ref TEXT NOT NULL, entity_id TEXT NOT NULL,
       PRIMARY KEY(revision, ref)
@@ -930,97 +935,6 @@ function queryEvents(
       "ORDER BY revision DESC LIMIT ?",
     values,
   ).map((row) => JSON.parse(String(row.event_json)) as CanonicalEventV1);
-}
-function readSqliteEventWindow(
-  db: DatabaseSync,
-  query: SqliteQuery,
-  input: {
-    readonly afterRevision: number;
-    readonly maxRevision?: number;
-    readonly after?: string;
-    readonly before?: string;
-    readonly limit: number;
-    readonly boundsPinned?: boolean;
-  },
-) {
-  const sourceRevision = readRevision(db);
-  const upperRevision = input.maxRevision === undefined ? sourceRevision : Math.min(input.maxRevision, sourceRevision);
-  if (input.afterRevision >= upperRevision) {
-    return {
-      sourceRevision,
-      events: [] as readonly CanonicalEventV1[],
-      lastScannedRevision: input.afterRevision,
-      windowMaxRevision: upperRevision,
-      done: true,
-    };
-  }
-  const afterMs = input.after === undefined ? undefined : Date.parse(input.after);
-  const beforeMs = input.before === undefined ? undefined : Date.parse(input.before);
-  const hasTimeWindow = afterMs !== undefined || beforeMs !== undefined;
-  // Every canonical ISO-8601 timestamp carries an offset in [-23:59, +23:59], so +/-24h lexical
-  // bounds are a sound superset that still drives the existing event_occurred_at covering index.
-  const lexAfter = afterMs === undefined ? undefined : new Date(afterMs - 86_400_000).toISOString().slice(0, 19);
-  const lexBefore =
-    beforeMs === undefined ? undefined : new Date(beforeMs + 86_400_000 + 1_000).toISOString().slice(0, 19);
-  const instantMsExpr = "CAST(ROUND(unixepoch(occurred_at, 'subsec') * 1000) AS INTEGER)";
-  let seekAfter = input.afterRevision;
-  let seekMax = upperRevision;
-  if (hasTimeWindow && !input.boundsPinned) {
-    const boundClauses: string[] = [];
-    const boundValues: (string | number)[] = [input.afterRevision, upperRevision, input.afterRevision, upperRevision];
-    if (lexAfter !== undefined && afterMs !== undefined) {
-      boundClauses.push("occurred_at>=?", `${instantMsExpr}>=?`);
-      boundValues.push(lexAfter, afterMs);
-    }
-    if (lexBefore !== undefined && beforeMs !== undefined) {
-      boundClauses.push("occurred_at<?", `${instantMsExpr}<=?`);
-      boundValues.push(lexBefore, beforeMs);
-    }
-    const bounds = query(
-      `SELECT MIN(CASE WHEN revision>? AND revision<=? THEN revision END) AS min_rev, ` +
-        `MAX(CASE WHEN revision>? AND revision<=? THEN revision END) AS max_rev ` +
-        `FROM event WHERE ${boundClauses.join(" AND ")}`,
-      boundValues,
-    ).at(0);
-    if (!bounds || bounds.min_rev === null || bounds.max_rev === null) {
-      return {
-        sourceRevision,
-        events: [] as readonly CanonicalEventV1[],
-        lastScannedRevision: upperRevision,
-        windowMaxRevision: upperRevision,
-        done: true,
-      };
-    }
-    seekAfter = Math.max(input.afterRevision, Number(bounds.min_rev) - 1);
-    seekMax = Math.min(upperRevision, Number(bounds.max_rev));
-  }
-  const clauses = ["revision>?", "revision<=?"];
-  const values: (string | number)[] = [seekAfter, seekMax];
-  if (afterMs !== undefined) {
-    clauses.push(`${instantMsExpr}>=?`);
-    values.push(afterMs);
-  }
-  if (beforeMs !== undefined) {
-    clauses.push(`${instantMsExpr}<=?`);
-    values.push(beforeMs);
-  }
-  values.push(input.limit + 1);
-  const rows = query(
-    `SELECT event_json FROM event WHERE ${clauses.join(" AND ")} ORDER BY revision ASC LIMIT ?`,
-    values,
-  );
-  const hasMore = rows.length > input.limit;
-  const events = (hasMore ? rows.slice(0, input.limit) : rows).map(
-    (row) => JSON.parse(String(row.event_json)) as CanonicalEventV1,
-  );
-  const lastScannedRevision = hasMore ? events.at(-1)!.workspaceRevision : seekMax;
-  return {
-    sourceRevision,
-    events,
-    lastScannedRevision,
-    windowMaxRevision: seekMax,
-    done: !hasMore,
-  };
 }
 function readEventIdentity(
   query: SqliteQuery,

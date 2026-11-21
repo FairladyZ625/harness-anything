@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -447,6 +447,37 @@ test("CLI multi-page streaming audit-export, atomic staging, pinned anchors, mix
       assert.equal(partialHuman.status, 0);
       assert.match(partialHuman.stdout, /strictVerified=false/u);
       assert.match(partialHuman.stdout, /coverage=partial/u);
+
+      // DM-06(b) CLI: completion-only slice with empty reviews=[] and reviewConsent=null MUST still report coverage=partial!
+      const emptyCert = buildDeliveryCertificate({
+        algorithm: "sha256",
+        repoId: "repo-cli-test",
+        task: fixture.snapshot.task!,
+        execution,
+        reviews: [],
+        reviewConsent: null,
+        completionEvent,
+      });
+      const emptyCertPath = path.join(workDir, "delivery-certificate-empty.json");
+      writeFileSync(emptyCertPath, `${JSON.stringify(emptyCert, null, 2)}\n`, "utf8");
+      const emptyPartialRun = runOfflineCli([
+        "--manifest",
+        path.join(completionOnlyDir, "audit-manifest.json"),
+        "--certificate",
+        emptyCertPath,
+        "--algorithm",
+        "sm3",
+        "--certificate-algorithm",
+        "sha256",
+        "--expected-root-hash",
+        compManifest.rootHash,
+        "--expected-certificate-hash",
+        emptyCert.certificateHash,
+      ]);
+      assert.equal(emptyPartialRun.status, 0, JSON.stringify(emptyPartialRun.body));
+      assert.equal(emptyPartialRun.body?.selfConsistent, true);
+      assert.equal(emptyPartialRun.body?.strictVerified, false);
+      assert.equal(emptyPartialRun.body?.certificateChainCoverage, "partial");
     }
 
     // G4-01 Negative: pinned --expected-root-hash rejects self-consistent forged replacement slice
@@ -651,6 +682,68 @@ test("CLI multi-page streaming audit-export, atomic staging, pinned anchors, mix
       assert.equal(shaOk.body?.selfConsistent, true);
       assert.equal(shaOk.body?.strictVerified, false);
       assert.equal((shaOk.body?.trustAnchor as { mode: string }).mode, "self-consistent-only");
+    }
+    // DM-07 Negative: corrupted pre-existing audit-manifest.json (pointing entriesFile to manifest itself or sibling file)
+    // MUST NOT cause deletion of the newly published manifest or any sibling file!
+    const corruptDir = path.join(workDir, "dm07-corrupt-prior");
+    mkdirSync(corruptDir, { recursive: true });
+    const siblingPath = path.join(corruptDir, "precious-sibling.txt");
+    writeFileSync(siblingPath, "do-not-delete\n", "utf8");
+    const corruptManifestPath = path.join(corruptDir, "audit-manifest.json");
+    for (const maliciousEntriesFile of ["audit-manifest.json", "precious-sibling.txt"]) {
+      writeFileSync(corruptManifestPath, JSON.stringify({ entriesFile: maliciousEntriesFile }), "utf8");
+      const reExportParsed = parseThinCommand([
+        "ledger",
+        "audit-export",
+        "--algorithm",
+        "sha256",
+        "--from-revision",
+        "1",
+        "--to-revision",
+        "3",
+        "--output-dir",
+        corruptDir,
+        "--json",
+      ]);
+      assert.equal(reExportParsed.ok, true);
+      if (reExportParsed.ok) {
+        const res = await runLedgerAuditExport(
+          reExportParsed.command,
+          mockExportDaemon(fixture.events.slice(0, 3), "sha256"),
+        );
+        assert.equal(res.ok, true);
+        assert.equal(readFileSync(siblingPath, "utf8"), "do-not-delete\n");
+        const verifyAfter = runOfflineCli(["--manifest", corruptManifestPath, "--algorithm", "sha256"]);
+        assert.equal(verifyAfter.status, 0, JSON.stringify(verifyAfter.body));
+      }
+    }
+
+    // DM-07 Concurrent reader across re-export: prior content-addressed entries file stays intact after switch!
+    const priorManifestObj = JSON.parse(readFileSync(corruptManifestPath, "utf8")) as AuditExportManifestV1;
+    const priorEntriesPath = path.join(corruptDir, priorManifestObj.entriesFile);
+    const reExportV2Parsed = parseThinCommand([
+      "ledger",
+      "audit-export",
+      "--algorithm",
+      "sha256",
+      "--from-revision",
+      "1",
+      "--to-revision",
+      "6",
+      "--output-dir",
+      corruptDir,
+      "--json",
+    ]);
+    assert.equal(reExportV2Parsed.ok, true);
+    if (reExportV2Parsed.ok) {
+      const resV2 = await runLedgerAuditExport(reExportV2Parsed.command, mockExportDaemon(fixture.events, "sha256"));
+      assert.equal(resV2.ok, true);
+      const newManifestObj = JSON.parse(readFileSync(corruptManifestPath, "utf8")) as AuditExportManifestV1;
+      assert.notEqual(newManifestObj.entriesFile, priorManifestObj.entriesFile);
+      // Old content-addressed entries file still readable for any concurrent reader that read v1 manifest before switch
+      assert.ok(readFileSync(priorEntriesPath, "utf8").length > 0);
+      const verifyV2 = runOfflineCli(["--manifest", corruptManifestPath, "--algorithm", "sha256"]);
+      assert.equal(verifyV2.status, 0, JSON.stringify(verifyV2.body));
     }
   } finally {
     rmSync(workDir, { recursive: true, force: true });

@@ -16,3 +16,25 @@ export function isoOffsetTimestampMillisecondsSql(value: string, epochSeconds: s
     + CASE WHEN substr(${value},20,1)='.' THEN CAST(substr(${fraction} || '000',1,3) AS INTEGER) ELSE 0 END
     + CASE WHEN ${hasOffset} THEN (CASE WHEN substr(${zone},1,1)='+' THEN -60000 ELSE 60000 END)*${offsetMinutes} ELSE 0 END)`;
 }
+
+/** Deterministic SQLite expression for ISO-8601 instant in UTC epoch milliseconds (Date.parse truncation, ±23:59 offsets). */
+export function sqliteOccurredAtEpochMsSql(column = "occurred_at"): string {
+  const ms = isoOffsetTimestampMillisecondsSql(column, `unixepoch(substr(${column},1,19))`);
+  return `CASE WHEN length(${column})>=20 AND substr(${column},11,1)='T' THEN ${ms} ELSE NULL END`;
+}
+
+/** Deterministic SQLite expression for floored UTC epoch day derived from sqliteOccurredAtEpochMsSql. */
+export function sqliteOccurredAtUtcDaySql(column = "occurred_at"): string {
+  const ms = sqliteOccurredAtEpochMsSql(column);
+  return `CASE WHEN (${ms})>=0 THEN (${ms})/86400000 ELSE ((${ms})-86399999)/86400000 END`;
+}
+
+/** Deterministic PostgreSQL expression for ISO-8601 instant in UTC epoch milliseconds (Date.parse truncation, ±23:59 offsets). */
+export function pgOccurredAtEpochMsSql(value = "value"): string {
+  const ms = isoOffsetTimestampMillisecondsSql(
+    value,
+    `EXTRACT(EPOCH FROM (CASE WHEN substr(${value},1,4)='0000'
+      THEN '0001' || substr(${value},5,15) || ' BC' ELSE substr(${value},1,19) END)::timestamp)::bigint`,
+  );
+  return `CASE WHEN ${value} ~ '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$' THEN ${ms} ELSE NULL END`;
+}

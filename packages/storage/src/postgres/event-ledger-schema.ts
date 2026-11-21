@@ -1,4 +1,5 @@
 import { POSTGRES_STORAGE_MIGRATION_SCHEMA } from "../migration/postgres-schema.ts";
+import { pgOccurredAtEpochMsSql } from "../projection/iso-timestamp-sql.ts";
 import { postgresScopeRlsStatements } from "./scope-schema.ts";
 
 export const POSTGRES_EVENT_LEDGER_TABLES = Object.freeze([
@@ -72,6 +73,23 @@ export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object
     ON ha_events (tenant_id, project_id, repo_id, event_type, revision DESC)`,
   `CREATE INDEX IF NOT EXISTS ha_events_occurred_at_idx
     ON ha_events (tenant_id, project_id, repo_id, occurred_at, revision DESC)`,
+  `CREATE OR REPLACE FUNCTION ha_occurred_at_epoch_ms(value text) RETURNS bigint
+    LANGUAGE sql IMMUTABLE STRICT SET search_path = pg_catalog, pg_temp AS $function$
+    SELECT ${pgOccurredAtEpochMsSql("value")}
+  $function$`,
+  `CREATE OR REPLACE FUNCTION ha_occurred_at_utc_day(value text) RETURNS integer
+    LANGUAGE sql IMMUTABLE STRICT SET search_path = pg_catalog, pg_temp AS $function$
+    WITH ms AS (SELECT ${pgOccurredAtEpochMsSql("value")} AS v)
+    SELECT ((CASE WHEN v >= 0 THEN v ELSE v - 86399999 END) / 86400000)::integer FROM ms WHERE v IS NOT NULL
+  $function$`,
+  `ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS occurred_at_ms bigint
+    GENERATED ALWAYS AS (ha_occurred_at_epoch_ms(occurred_at)) STORED`,
+  `ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS occurred_at_utc_day integer
+    GENERATED ALWAYS AS (ha_occurred_at_utc_day(occurred_at)) STORED`,
+  `CREATE INDEX IF NOT EXISTS ha_events_occurred_day_revision_idx
+    ON ha_events (tenant_id, project_id, policy_epoch, repo_id, occurred_at_utc_day, revision, occurred_at_ms)`,
+  `CREATE INDEX IF NOT EXISTS ha_events_occurred_ms_revision_idx
+    ON ha_events (tenant_id, project_id, policy_epoch, repo_id, occurred_at_ms, revision)`,
   `CREATE INDEX IF NOT EXISTS ha_events_actor_refs_gin_idx ON ha_events USING gin (actor_refs)`,
   `CREATE INDEX IF NOT EXISTS ha_events_entity_refs_gin_idx ON ha_events USING gin (entity_refs)`,
   // Derived ledger index: survives task-projection rebuilds and is maintained by the event

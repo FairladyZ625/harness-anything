@@ -90,11 +90,16 @@ export function assertCanonicalFactoryLifecycle(input: {
 }
 
 export const HISTORICAL_TIMESTAMP_CASES = Object.freeze([
-  { revision: 1, occurredAt: "2026-11-05T00:30:00+08:00", expectedInNov5: false }, // 2026-11-04T16:30:00Z
-  { revision: 2, occurredAt: "2026-11-05T00:00:00Z", expectedInNov5: true }, // exact start without .sss
-  { revision: 3, occurredAt: "2026-11-04T20:00:00-05:00", expectedInNov5: true }, // 2026-11-05T01:00:00Z
-  { revision: 4, occurredAt: "2026-11-06T07:59:59.999+08:00", expectedInNov5: true }, // exact end 2026-11-05T23:59:59.999Z
-  { revision: 5, occurredAt: "2026-11-06T08:00:00+08:00", expectedInNov5: false }, // 2026-11-06T00:00:00Z
+  { revision: 1, occurredAt: "2026-11-05T00:30:00+08:00", expectedInNov5: false }, // 2026-11-04T16:30:00.000Z
+  { revision: 2, occurredAt: "2026-11-04T23:59:59.999999Z", expectedInNov5: false }, // truncates to 2026-11-04T23:59:59.999Z (must NOT round into Nov 5)
+  { revision: 3, occurredAt: "2026-11-04T00:00:59.999999-23:59", expectedInNov5: false }, // max -23:59 offset -> 2026-11-04T23:59:59.999Z
+  { revision: 4, occurredAt: "2026-11-05T00:00:00Z", expectedInNov5: true }, // exact start without .sss
+  { revision: 5, occurredAt: "2026-11-04T00:01:00.000999-23:59", expectedInNov5: true }, // max -23:59 offset + sub-ms -> 2026-11-05T00:00:00.000Z
+  { revision: 6, occurredAt: "2026-11-04T20:00:00-05:00", expectedInNov5: true }, // 2026-11-05T01:00:00.000Z
+  { revision: 7, occurredAt: "2026-11-05T23:59:59.999999Z", expectedInNov5: true }, // sub-ms truncation -> 2026-11-05T23:59:59.999Z (must NOT round out of Nov 5)
+  { revision: 8, occurredAt: "2026-11-06T23:58:59.999999+23:59", expectedInNov5: true }, // max +23:59 offset + sub-ms -> 2026-11-05T23:59:59.999Z
+  { revision: 9, occurredAt: "2026-11-06T07:59:59.999+08:00", expectedInNov5: true }, // exact end 2026-11-05T23:59:59.999Z
+  { revision: 10, occurredAt: "2026-11-06T23:59:00+23:59", expectedInNov5: false }, // max +23:59 offset -> 2026-11-06T00:00:00.000Z
 ] as const);
 
 export function buildHistoricalTimestampFixtures(baseEvents: readonly CanonicalEventV1[]): readonly {
@@ -104,7 +109,14 @@ export function buildHistoricalTimestampFixtures(baseEvents: readonly CanonicalE
   readonly digest: string;
 }[] {
   return HISTORICAL_TIMESTAMP_CASES.map((entry, idx) => {
-    const mutated = { ...baseEvents[idx]!, occurredAt: entry.occurredAt };
+    const template = baseEvents[idx % baseEvents.length]!;
+    const mutated = {
+      ...template,
+      workspaceRevision: entry.revision,
+      eventId: `hist-ts-event-${entry.revision}`,
+      opId: `hist-ts-op-${entry.revision}`,
+      occurredAt: entry.occurredAt,
+    };
     const eventJson = serializePersistedCanonicalEvent(mutated);
     return {
       revision: entry.revision,
@@ -123,34 +135,74 @@ export function assertHistoricalDateWindowAndImportParity(input: {
   const { store, projection, importedTaskId } = input;
   assert.ok(store.readEventWindow !== undefined);
   // DM-01 + DM-03: Multi-page date window [2026-11-05T00:00:00.000Z, 2026-11-05T23:59:59.999Z] with limit=2
-  const page1 = store.readEventWindow({
+  const expectedNov5 = HISTORICAL_TIMESTAMP_CASES.filter((c) => c.expectedInNov5).map((c) => [
+    c.revision,
+    c.occurredAt,
+  ]);
+  const collected: Array<[number, string]> = [];
+  let afterRev = 0;
+  let maxRev: number | undefined;
+  let pages = 0;
+  for (;;) {
+    const page = store.readEventWindow({
+      afterRevision: afterRev,
+      ...(maxRev === undefined ? {} : { maxRevision: maxRev, boundsPinned: true }),
+      after: "2026-11-05T00:00:00.000Z",
+      before: "2026-11-05T23:59:59.999Z",
+      limit: 2,
+    });
+    pages += 1;
+    for (const ev of page.events) collected.push([ev.workspaceRevision, ev.occurredAt]);
+    maxRev = page.windowMaxRevision;
+    if (page.done) break;
+    afterRev = page.lastScannedRevision;
+  }
+  assert.equal(pages, 3);
+  assert.deepEqual(collected, expectedNov5);
+
+  // DM-01: Equal-endpoint exact millisecond windows (sub-ms truncation + ±23:59 extreme offsets)
+  const exactStart = store.readEventWindow({
     afterRevision: 0,
     after: "2026-11-05T00:00:00.000Z",
-    before: "2026-11-05T23:59:59.999Z",
-    limit: 2,
+    before: "2026-11-05T00:00:00.000Z",
+    limit: 10,
   });
-  assert.equal(page1.done, false);
+  assert.equal(exactStart.done, true);
   assert.deepEqual(
-    page1.events.map((e) => [e.workspaceRevision, e.occurredAt]),
+    exactStart.events.map((e) => [e.workspaceRevision, e.occurredAt]),
     [
-      [2, "2026-11-05T00:00:00Z"],
-      [3, "2026-11-04T20:00:00-05:00"],
+      [4, "2026-11-05T00:00:00Z"],
+      [5, "2026-11-04T00:01:00.000999-23:59"],
     ],
   );
-  assert.equal(page1.windowMaxRevision, 4);
-
-  const page2 = store.readEventWindow({
-    afterRevision: page1.lastScannedRevision,
-    maxRevision: page1.windowMaxRevision,
-    after: "2026-11-05T00:00:00.000Z",
+  const exactEnd = store.readEventWindow({
+    afterRevision: 0,
+    after: "2026-11-05T23:59:59.999Z",
     before: "2026-11-05T23:59:59.999Z",
-    limit: 2,
-    boundsPinned: true,
+    limit: 10,
   });
-  assert.equal(page2.done, true);
+  assert.equal(exactEnd.done, true);
   assert.deepEqual(
-    page2.events.map((e) => [e.workspaceRevision, e.occurredAt]),
-    [[4, "2026-11-06T07:59:59.999+08:00"]],
+    exactEnd.events.map((e) => [e.workspaceRevision, e.occurredAt]),
+    [
+      [7, "2026-11-05T23:59:59.999999Z"],
+      [8, "2026-11-06T23:58:59.999999+23:59"],
+      [9, "2026-11-06T07:59:59.999+08:00"],
+    ],
+  );
+  const exactPreBoundary = store.readEventWindow({
+    afterRevision: 0,
+    after: "2026-11-04T23:59:59.999Z",
+    before: "2026-11-04T23:59:59.999Z",
+    limit: 10,
+  });
+  assert.equal(exactPreBoundary.done, true);
+  assert.deepEqual(
+    exactPreBoundary.events.map((e) => [e.workspaceRevision, e.occurredAt]),
+    [
+      [2, "2026-11-04T23:59:59.999999Z"],
+      [3, "2026-11-04T00:00:59.999999-23:59"],
+    ],
   );
 
   // DM-04: Historically imported done task indexed and readable via readTaskImportedEvent across hot apply & cold rebuild

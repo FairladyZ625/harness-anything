@@ -183,3 +183,18 @@ index isolates pinned imports from the rest of migration history. Runtime replay
 resolves its node from the session launch. Current event admission still requires the current
 actor and source shapes. No ledger conversion or backfill is needed. Rebuilding the cache from
 accepted events applies the same rules to its full history.
+
+## Audit date-window UTC epoch indexes
+
+Audit date-window reads (`readEventWindow`) index the integer UTC epoch millisecond instant and
+floored UTC day derived from canonical `occurred_at` via `isoOffsetTimestampMillisecondsSql`
+(matching `Date.parse` millisecond truncation and accepting numeric offsets up to `±23:59`).
+SQLite installs deterministic expression indexes (`event_occurred_at_day_revision` and
+`event_occurred_at_ms_revision`) on writable open without altering the `event` table; read-only
+legacy SQLite databases evaluate the identical SQL expression with no schema rewrite.
+PostgreSQL installs `IMMUTABLE` helper functions (`ha_occurred_at_epoch_ms`,
+`ha_occurred_at_utc_day`), `GENERATED ALWAYS AS (...) STORED` scalar columns (`occurred_at_ms`,
+`occurred_at_utc_day`), and composite RLS-aligned indexes (`ha_events_occurred_day_revision_idx`,
+`ha_events_occurred_ms_revision_idx`) so sparse date windows seek in `O(page)` independent of
+non-matching revision gaps. Canonical `event_json`, `occurred_at` text, and event digests remain
+byte-identical and require no ledger conversion.

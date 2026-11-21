@@ -148,13 +148,11 @@ export async function runLedgerAuditExport(
     }
     manifest = accumulator!.finalize();
     entriesPath = path.join(outputDir, manifest.entriesFile);
-    const supersededEntriesPath = readPriorEntriesFilePath(manifestPath, outputDir);
     const manifestJson = `${JSON.stringify(manifest, null, 2)}\n`;
     await lineWriter!.commit({
       filePath: manifestPath,
       contents: manifestJson,
       entriesTargetPath: entriesPath,
-      ...(supersededEntriesPath === undefined ? {} : { supersededEntriesPath }),
     });
   } catch (error) {
     if (lineWriter !== null) await lineWriter.abort();
@@ -523,15 +521,6 @@ async function verifyEntriesRawStream(
   } catch (error) {
     return { ok: false, error: cliErrorMessage(error) };
   }
-}
-
-function readPriorEntriesFilePath(manifestPath: string, outputDir: string): string | undefined {
-  const existing = readJsonFile(manifestPath);
-  if (!existing.ok || typeof existing.value !== "object" || existing.value === null) return undefined;
-  const entriesFile = (existing.value as Record<string, unknown>).entriesFile;
-  if (typeof entriesFile !== "string" || entriesFile.length === 0) return undefined;
-  if (path.basename(entriesFile) !== entriesFile || entriesFile === "." || entriesFile === "..") return undefined;
-  return path.join(outputDir, entriesFile);
 }
 
 function readJsonFile(

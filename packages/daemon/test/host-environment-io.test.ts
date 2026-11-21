@@ -105,7 +105,6 @@ test("staged caller output writer preserves verifiable prior export on final swi
       filePath: manifestPath,
       contents: `${JSON.stringify(manifest2, null, 2)}\n`,
       entriesTargetPath: entries2Path,
-      supersededEntriesPath: entries1Path,
       beforeSwitch: () => {
         throw new Error("simulated crash before final manifest switch");
       },
@@ -123,16 +122,45 @@ test("staged caller output writer preserves verifiable prior export on final swi
   });
   assert.equal(verifyStillV1.ok, true, JSON.stringify(verifyStillV1));
 
-  // Successful single-switch commit publishes v2 and garbage-collects superseded v1 entries file
+  // DM-07: Identical re-export crashing before switch MUST NOT delete the pre-existing content-addressed entries file!
+  const failingSameTarget = await openCallerOutputLineWriter(anchorPath);
+  for (const line of lines1) await failingSameTarget.writeLine(line);
+  await assert.rejects(
+    failingSameTarget.commit({
+      filePath: manifestPath,
+      contents: `${JSON.stringify(manifest1, null, 2)}\n`,
+      entriesTargetPath: entries1Path,
+      beforeSwitch: () => {
+        throw new Error("simulated crash on identical re-export");
+      },
+    }),
+    /simulated crash on identical re-export/u,
+  );
+  await failingSameTarget.close();
+  assert.equal(await readFile(entries1Path, "utf8"), lines1.join(""));
+
+  // DM-07: Concurrent reader reads v1 manifest before v2 switch; v2 switches manifest atomically while RETAINING
+  // immutable v1 entries file so concurrent reader never hits ENOENT!
+  const concurrentReaderManifest = JSON.parse(await readFile(manifestPath, "utf8"));
   const committed = await openCallerOutputLineWriter(anchorPath);
   for (const line of lines2) await committed.writeLine(line);
   await committed.commit({
     filePath: manifestPath,
     contents: `${JSON.stringify(manifest2, null, 2)}\n`,
     entriesTargetPath: entries2Path,
-    supersededEntriesPath: entries1Path,
   });
-  assert.deepEqual((await readdir(directory)).sort(), [manifest2.entriesFile, "audit-manifest.json"].sort());
+  assert.deepEqual(
+    (await readdir(directory)).sort(),
+    [manifest1.entriesFile, manifest2.entriesFile, "audit-manifest.json"].sort(),
+  );
+  // Concurrent v1 reader opens entries1 AFTER v2 switch -> still succeeds!
+  const concurrentV1Entries = await readFile(path.join(directory, concurrentReaderManifest.entriesFile), "utf8");
+  const verifyConcurrentV1 = verifyAuditSliceContent({
+    manifest: concurrentReaderManifest,
+    entriesContent: concurrentV1Entries,
+    expectedRootHash: manifest1.rootHash,
+  });
+  assert.equal(verifyConcurrentV1.ok, true, JSON.stringify(verifyConcurrentV1));
   const nowV2Manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   const nowV2Entries = await readFile(path.join(directory, nowV2Manifest.entriesFile), "utf8");
   const verifyV2 = verifyAuditSliceContent({
