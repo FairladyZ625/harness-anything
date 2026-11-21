@@ -964,3 +964,293 @@ test(
     }
   },
 );
+
+test(
+  "HA09-5 & HA09-9: Center non-dry-run preflight resolves task verticalId in a mixed-vertical repo, and retire/delete protect built-in agents across both default verticals",
+  { timeout: 120_000 },
+  async (t) => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-office-mixed-center-")),
+      root = path.join(parent, "repo"),
+      userRoot = path.join(parent, "user"),
+      home = path.join(parent, "home"),
+      repoId = "office-mixed-center",
+      daemonId = "office-mixed-center",
+      instanceId = "mixed-center-provider",
+      realm = await serveKeycloak(),
+      promptDir = path.join(parent, "prompts");
+    let stop = async (): Promise<void> => {};
+    t.after(async () => {
+      await stop();
+      await realm.close();
+      rmSync(parent, { recursive: true, force: true });
+    });
+    mkdirSync(home);
+    mkdirSync(promptDir);
+    initIngressRepo(root, process.getuid?.() ?? 0);
+    execFileSync("git", ["-C", root, "update-ref", "refs/remotes/origin/main", "HEAD"]);
+    realm.bind(userRoot);
+    realm.keycloak.account("owner");
+    realm.keycloak.permit("owner", repoId, effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"));
+    signInAt(userRoot, "owner");
+    registerBootstrappedDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
+
+    const executablePath = writeProviderExecutable(
+        path.join(parent, "mixed-provider.mjs"),
+        `import fs from "node:fs";
+import path from "node:path";
+if (process.argv[2] === "auth" || process.argv[2] === "login") process.exit(0);
+const prompt = fs.readFileSync(0, "utf8");
+const files = fs.readdirSync(${JSON.stringify(promptDir)}).length;
+fs.writeFileSync(path.join(${JSON.stringify(promptDir)}, String(files + 1) + ".txt"), prompt);
+for (const frame of [
+  { type: "thread.started", thread_id: "mixed-center-session-" + String(files + 1) },
+  { type: "item.completed", item: { id: "result", type: "agent_message", text: "mixed center completed" } },
+  { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
+]) console.log(JSON.stringify(frame));
+`,
+      ),
+      daemon = await startDaemon({
+        daemonId,
+        userRoot,
+        buildSupersessionEnabled: false,
+        runtimeDiscover: () => [
+          {
+            installationId: "mixed-center-installation",
+            kindId: "codex",
+            executablePath,
+            version: "1.0.0",
+            observedAt: new Date().toISOString(),
+          },
+        ],
+      });
+    assert.ok("stop" in daemon);
+    stop = daemon.stop;
+
+    const rpc = (method: string, params: JsonObject) =>
+        requestDaemonJsonRpcAt(daemon.endpoint, method, params, 1000, 30_000),
+      run = (action: JsonObject) => rpc("repo.task.run", { repo: { repoId }, payload: { action } }),
+      cliEnv = {
+        HOME: home,
+        PATH: process.env.PATH,
+        SystemRoot: process.env.SystemRoot,
+        GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
+        GIT_CONFIG_SYSTEM: process.platform === "win32" ? "NUL" : "/dev/null",
+        HARNESS_DAEMON_USER_ROOT: userRoot,
+        HARNESS_DAEMON_ID: daemonId,
+        HARNESS_DAEMON_ENDPOINT: daemon.endpoint,
+        HARNESS_DAEMON_REPO_ID: repoId,
+      },
+      cliJson = async (expectedExit: number, ...args: string[]): Promise<JsonObject> => {
+        const result = await spawnCli(["--root", root, "--json", ...args], cliEnv);
+        assert.equal(result.status, expectedExit, `${result.stderr}\n${result.stdout}`);
+        return JSON.parse(result.stdout) as JsonObject;
+      };
+
+    assert.equal(
+      (
+        await rpc("daemon.runtimeInstance.create", {
+          payload: {
+            instanceId,
+            name: "Mixed Center Provider",
+            kindId: "codex",
+            installationId: "mixed-center-installation",
+            providerId: "openai",
+            models: ["mixed-model"],
+            permissionMode: "workspace-write",
+            authMode: "subscription",
+          },
+        })
+      ).ok,
+      true,
+    );
+    // Repository stays on defaultVertical=software/coding.
+    assert.equal((await run({ kind: "settings-update", runtimeAllowedInstances: [instanceId] })).outcome, "applied");
+
+    // HA09-5: Create one office/collab task and one software/coding task in the same software-default repository.
+    const officeCreated = await cliJson(
+      0,
+      "task",
+      "create",
+      "--title",
+      "Mixed Center Office Deliverable",
+      "--vertical",
+      "office/collab",
+      "--preset",
+      "deliverable-task",
+      "--profile",
+      "baseline",
+      "--risk-tier",
+      "low",
+    );
+    assert.equal(officeCreated.outcome, "applied", JSON.stringify(officeCreated));
+    const officeTaskId = String(officeCreated.taskId);
+    await realizeTaskPlanFixture(root, String(officeCreated.workspacePackagePath), (planPath: string) =>
+      run({ kind: "doc-submit", paths: [planPath] }),
+    );
+    assert.equal((await cliJson(0, "task", "start", officeTaskId)).outcome, "applied");
+
+    const codingCreated = await cliJson(
+      0,
+      "task",
+      "create",
+      "--title",
+      "Mixed Center Software Task",
+      "--preset",
+      "docs-task",
+      "--risk-tier",
+      "low",
+    );
+    assert.equal(codingCreated.outcome, "applied", JSON.stringify(codingCreated));
+    const codingTaskId = String(codingCreated.taskId);
+    await realizeTaskPlanFixture(root, String(codingCreated.workspacePackagePath), (planPath: string) =>
+      run({ kind: "doc-submit", paths: [planPath] }),
+    );
+    assert.equal((await cliJson(0, "task", "start", codingTaskId)).outcome, "applied");
+
+    // Non-dry-run Center dispatch of office-only contributor on the office/collab task must pass prepareWorktree preflight.
+    const officeDispatch = await cliJson(
+      0,
+      "agent",
+      "run",
+      "contributor",
+      "--task",
+      officeTaskId,
+      "--instance",
+      instanceId,
+    );
+    assert.equal(officeDispatch.ok, true, JSON.stringify(officeDispatch));
+    const officeSettled = await cliJson(
+      1,
+      "runtime",
+      "status",
+      String(officeDispatch.runtimeSessionId),
+      "--wait",
+      "--no-stream",
+    );
+    assert.equal(officeSettled.outcome, "stopped", JSON.stringify(officeSettled));
+    const officePrompt = readFileSync(path.join(promptDir, "1.txt"), "utf8");
+    assert.match(officePrompt, /# Agent Identity: contributor \(contributor\)/u);
+    assert.match(officePrompt, /Produce the assigned deliverable, handoff package, or meeting minutes/u);
+
+    // Non-dry-run Center dispatch of software/coding worker on the software task in the same repo must still succeed.
+    const codingDispatch = await cliJson(0, "agent", "run", "worker", "--task", codingTaskId, "--instance", instanceId);
+    assert.equal(codingDispatch.ok, true, JSON.stringify(codingDispatch));
+    const codingSettled = await cliJson(
+      1,
+      "runtime",
+      "status",
+      String(codingDispatch.runtimeSessionId),
+      "--wait",
+      "--no-stream",
+    );
+    assert.equal(codingSettled.outcome, "stopped", JSON.stringify(codingSettled));
+    const codingPrompt = readFileSync(path.join(promptDir, "2.txt"), "utf8");
+    assert.match(codingPrompt, /# Agent Identity: worker \(worker\)/u);
+    assert.match(codingPrompt, /Complete the assigned task using the repository rules/u);
+
+    // Non-dry-run negative control: office-only contributor must still be rejected on the software/coding task.
+    const codingDenied = await spawnCli(
+      ["--root", root, "--json", "agent", "run", "contributor", "--task", codingTaskId, "--instance", instanceId],
+      cliEnv,
+    );
+    assert.notEqual(codingDenied.status, 0, "contributor must be denied on software/coding task");
+    assert.match(`${codingDenied.stdout}\n${codingDenied.stderr}`, /agent_not_found/u);
+
+    // HA09-9: Under defaultVertical=software/coding, an installed override for office built-in `contributor`
+    // must be protected against retire/delete, while an ordinary custom agent remains retirable and deletable.
+    const installedContributor = await run({
+      kind: "agent-install",
+      declaration: {
+        schema: "agent-declaration/v1",
+        id: "contributor",
+        name: "Custom Contributor Override",
+        role: "worker",
+        instructions: "Override office contributor.",
+        runtimes: [{ type: "codex", model: "mixed-model" }],
+      },
+    });
+    assert.equal(installedContributor.outcome, "applied", JSON.stringify(installedContributor));
+    const contributorRetireDenied = await run({
+      kind: "agent-retire",
+      agentId: "contributor",
+      reason: "attempt to retire office builtin under software default",
+    });
+    assert.equal(contributorRetireDenied.outcome, "op_rejected", JSON.stringify(contributorRetireDenied));
+    assert.equal(contributorRetireDenied.code, "agent_system_builtin");
+    const contributorDeleteDenied = await run({
+      kind: "agent-delete",
+      agentId: "contributor",
+      reason: "attempt to delete office builtin under software default",
+      expectedVersion: Number(installedContributor.revision),
+    });
+    assert.equal(contributorDeleteDenied.outcome, "op_rejected", JSON.stringify(contributorDeleteDenied));
+    assert.equal(contributorDeleteDenied.code, "agent_system_builtin");
+
+    // Positive control: an ordinary custom installed agent can be retired and deleted.
+    const installedCustom = await run({
+      kind: "agent-install",
+      declaration: {
+        schema: "agent-declaration/v1",
+        id: "custom-office-helper",
+        name: "Custom Office Helper",
+        role: "worker",
+        instructions: "Temporary custom helper.",
+        runtimes: [{ type: "codex", model: "mixed-model" }],
+      },
+    });
+    assert.equal(installedCustom.outcome, "applied", JSON.stringify(installedCustom));
+    const customRetired = await run({
+      kind: "agent-retire",
+      agentId: "custom-office-helper",
+      reason: "retire ordinary custom agent",
+    });
+    assert.equal(customRetired.outcome, "applied", JSON.stringify(customRetired));
+    const customDeleted = await run({
+      kind: "agent-delete",
+      agentId: "custom-office-helper",
+      reason: "delete ordinary custom agent",
+      expectedVersion: Number(installedCustom.revision),
+    });
+    assert.equal(customDeleted.outcome, "applied", JSON.stringify(customDeleted));
+
+    // Switch defaultVertical to office/collab and verify software/coding built-in `worker` override stays protected.
+    assert.equal(
+      (
+        await run({
+          kind: "settings-update",
+          defaultVertical: "office/collab",
+          defaultPreset: "deliverable-task",
+          defaultProfile: "baseline",
+        })
+      ).outcome,
+      "applied",
+    );
+    const installedWorker = await run({
+      kind: "agent-install",
+      declaration: {
+        schema: "agent-declaration/v1",
+        id: "worker",
+        name: "Custom Worker Override",
+        role: "worker",
+        instructions: "Override software worker.",
+        runtimes: [{ type: "codex", model: "mixed-model" }],
+      },
+    });
+    assert.equal(installedWorker.outcome, "applied", JSON.stringify(installedWorker));
+    const workerRetireDenied = await run({
+      kind: "agent-retire",
+      agentId: "worker",
+      reason: "attempt to retire software builtin under office default",
+    });
+    assert.equal(workerRetireDenied.outcome, "op_rejected", JSON.stringify(workerRetireDenied));
+    assert.equal(workerRetireDenied.code, "agent_system_builtin");
+    const workerDeleteDenied = await run({
+      kind: "agent-delete",
+      agentId: "worker",
+      reason: "attempt to delete software builtin under office default",
+      expectedVersion: Number(installedWorker.revision),
+    });
+    assert.equal(workerDeleteDenied.outcome, "op_rejected", JSON.stringify(workerDeleteDenied));
+    assert.equal(workerDeleteDenied.code, "agent_system_builtin");
+  },
+);

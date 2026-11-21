@@ -679,7 +679,6 @@ export async function openRepoWriterCell(
           rootDir,
           action,
           replayed: store.readEvent(opId),
-          verticalId: projectedRepositorySettings(projection)?.defaultVertical,
         });
       if (contract.id === "delete") {
         const existing = store.readEvent(opId);
@@ -699,7 +698,6 @@ export async function openRepoWriterCell(
           action,
           entityStore: createEntityStore(store),
           projection,
-          verticalId: projectedRepositorySettings(projection)?.defaultVertical,
         });
         return { ...action, ...prepared };
       }

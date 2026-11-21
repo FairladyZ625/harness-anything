@@ -218,7 +218,17 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         typeof payload.agentId === "string" && payload.squadId === undefined && payload.targetAgentId === undefined
           ? payload.agentId
           : undefined,
-      agent = agentId === undefined ? null : (input.resolveAgent?.(agentId) ?? null),
+      taskId = typeof payload.taskId === "string" ? payload.taskId : null,
+      verticalId =
+        agentId !== undefined &&
+        input.resolveAgent !== undefined &&
+        taskId !== null &&
+        !input.remote &&
+        input.projection
+          ? requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot.task
+              ?.metadata?.verticalId
+          : undefined,
+      agent = agentId === undefined ? null : (input.resolveAgent?.(agentId, verticalId) ?? null),
       requested = runtimeInstanceId ?? agent?.instance;
     if (requested === undefined) return;
     const projection = input.remote ? null : requiredRuntimeProjection(input),

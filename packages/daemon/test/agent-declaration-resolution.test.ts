@@ -119,13 +119,17 @@ test("bundled agent resolution scopes by verticalId for office/collab while pres
     assert.ok(office, role);
     assert.equal(office.layer, "bundled");
     assert.equal(office.declaration.id, role);
-    assert.throws(() => assertBundledAgentLifecycleOpen(role, "office/collab"), { code: "agent_system_builtin" });
+    assert.throws(() => assertBundledAgentLifecycleOpen(role), { code: "agent_system_builtin" });
   }
   assert.equal(
     readAgentDeclarationResolution({ rootDir: "/unused", agentId: "coordinator", entityStore: empty }),
     null,
   );
-  assert.doesNotThrow(() => assertBundledAgentLifecycleOpen("coordinator"));
+  // HA09-9: repo-wide retire/delete lifecycle guard protects system-bundled roles across all built-in verticals
+  for (const builtinId of ["worker", "reviewer", "closeout-reviewer", "coordinator", "contributor"] as const) {
+    assert.throws(() => assertBundledAgentLifecycleOpen(builtinId), { code: "agent_system_builtin" });
+  }
+  assert.doesNotThrow(() => assertBundledAgentLifecycleOpen("custom-installed-agent"));
 
   // Same-name reviewer & closeout-reviewer resolve deterministically per vertical
   const codingReviewer = readAgentDeclaration({
@@ -209,9 +213,10 @@ test("HA09-8: pre-existing local custom office/collab vertical preserves core bu
       }),
       null,
     );
-    assert.throws(() => assertBundledAgentLifecycleOpen("worker", "office/collab", rootDir), {
+    assert.throws(() => assertBundledAgentLifecycleOpen("worker", rootDir), {
       code: "agent_system_builtin",
     });
+    assert.doesNotThrow(() => assertBundledAgentLifecycleOpen("contributor", rootDir));
     assert.ok(listBundledAgentDeclarationIds("office/collab", rootDir).includes("worker"));
 
     // Uninstalled local agents/ files inside the custom office/collab vertical MUST NOT override core bundled agents
@@ -261,7 +266,7 @@ test("HA09-8: pre-existing local custom office/collab vertical preserves core bu
       }),
       null,
     );
-    assert.doesNotThrow(() => assertBundledAgentLifecycleOpen("analyst", "office/collab", rootDir));
+    assert.doesNotThrow(() => assertBundledAgentLifecycleOpen("analyst", rootDir));
     const fallbackWorker = readAgentDeclaration({
       rootDir,
       agentId: "worker",

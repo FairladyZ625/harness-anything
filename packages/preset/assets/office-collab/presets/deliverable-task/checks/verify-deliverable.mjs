@@ -131,99 +131,336 @@ function flushParagraphLines(parsed, paragraphLines) {
   paragraphLines.length = 0;
 }
 
+function makeCursor(line) {
+  return { line, index: 0, col: 0, virtualSpaces: 0 };
+}
+
+function peekIndent(cursor) {
+  let spaces = cursor.virtualSpaces;
+  let index = cursor.index;
+  let col = cursor.col + cursor.virtualSpaces;
+  while (index < cursor.line.length) {
+    const ch = cursor.line[index];
+    if (ch === " ") {
+      spaces += 1;
+      col += 1;
+      index += 1;
+    } else if (ch === "\t") {
+      const advance = 4 - (col % 4);
+      spaces += advance;
+      col += advance;
+      index += 1;
+    } else {
+      break;
+    }
+  }
+  return { spaces, blank: index >= cursor.line.length, nextIndex: index };
+}
+
+function consumeColumns(cursor, count) {
+  let remaining = count;
+  if (cursor.virtualSpaces > 0) {
+    const take = Math.min(cursor.virtualSpaces, remaining);
+    cursor.virtualSpaces -= take;
+    cursor.col += take;
+    remaining -= take;
+  }
+  while (remaining > 0 && cursor.index < cursor.line.length) {
+    const ch = cursor.line[cursor.index];
+    if (ch === " ") {
+      cursor.index += 1;
+      cursor.col += 1;
+      remaining -= 1;
+    } else if (ch === "\t") {
+      const tabWidth = 4 - (cursor.col % 4);
+      cursor.index += 1;
+      if (tabWidth <= remaining) {
+        cursor.col += tabWidth;
+        remaining -= tabWidth;
+      } else {
+        cursor.col += remaining;
+        cursor.virtualSpaces = tabWidth - remaining;
+        remaining = 0;
+      }
+    } else {
+      break;
+    }
+  }
+}
+
+function restText(cursor) {
+  return (cursor.virtualSpaces > 0 ? " ".repeat(cursor.virtualSpaces) : "") + cursor.line.slice(cursor.index);
+}
+
+function isThematicBreak(text) {
+  return /^ {0,3}(?:(?:-[ \t]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})$/u.test(text);
+}
+
+function isSetextUnderline(text) {
+  return /^ {0,3}(=+|-+)[ \t]*$/u.exec(text);
+}
+
+function matchFencedCodeOpener(text) {
+  const opener = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(text);
+  return opener && !(opener[1][0] === "`" && opener[2].includes("`")) ? opener : null;
+}
+
+function matchListMarker(cursor, inParagraph) {
+  const info = peekIndent(cursor);
+  if (info.blank || info.spaces > 3) return null;
+  const tail = cursor.line.slice(info.nextIndex);
+  const bullet = /^([-+*])(?:$|[ \t])/u.exec(tail);
+  const ordered = bullet ? null : /^(\d{1,9})([.)])(?:$|[ \t])/u.exec(tail);
+  if (!bullet && !ordered) return null;
+  const markerLen = bullet ? 1 : ordered[1].length + 1;
+  const probe = { ...cursor };
+  consumeColumns(probe, info.spaces);
+  probe.index += markerLen;
+  probe.col += markerLen;
+  const after = peekIndent(probe);
+  if (inParagraph && (after.blank || (ordered !== null && ordered[1] !== "1"))) return null;
+  const markerWidth = info.spaces + markerLen;
+  const emptyFirstLine = after.blank;
+  const consumeAfter = emptyFirstLine ? 0 : after.spaces >= 5 ? 1 : after.spaces;
+  const itemIndent = markerWidth + (emptyFirstLine || after.spaces >= 5 ? 1 : after.spaces);
+  return { spaces: info.spaces, markerLen, consumeAfter, itemIndent, emptyFirstLine };
+}
+
+function paragraphHasSubstantiveText(lines) {
+  let inComment = false;
+  for (const rawLine of lines) {
+    const stripped = stripHtmlCommentsOnLine(rawLine, inComment);
+    inComment = stripped.inComment;
+    if (stripped.text.trim().length > 0) return true;
+  }
+  return false;
+}
+
 function parseMarkdownLines(documentText) {
   const parsed = [];
-  const paragraphLines = [];
-  let fence = null;
-  let htmlBlock = null;
+  const containers = [];
+  let rootContainerHasContent = false;
+  let leaf = null;
+
+  const closeLeaf = () => {
+    if (leaf === null) return;
+    if (leaf.kind === "paragraph") {
+      if (containers.length === 0) flushParagraphLines(parsed, leaf.lines);
+      else if (paragraphHasSubstantiveText(leaf.lines)) rootContainerHasContent = true;
+    }
+    leaf = null;
+  };
+
+  const closeContainersTo = (targetLength) => {
+    if (containers.length <= targetLength) return;
+    closeLeaf();
+    containers.length = targetLength;
+    if (targetLength === 0) {
+      parsed.push(makeEntry("", { hasContent: rootContainerHasContent }));
+      rootContainerHasContent = false;
+    }
+  };
+
+  const recordSubstantive = (text, flags) => {
+    if (containers.length === 0) parsed.push(makeEntry(text, flags));
+    else if (flags.hasContent) rootContainerHasContent = true;
+  };
+
   for (const line of stripFrontmatter(documentText).split(/\r?\n/u)) {
-    if (fence !== null) {
-      const closer = /^ {0,3}(`{3,}|~{3,})[ \t]*$/u.exec(line);
-      const closes = closer !== null && closer[1][0] === fence.marker && closer[1].length >= fence.length;
-      if (closes) fence = null;
-      parsed.push(makeEntry(line, { inCode: true, hasContent: !closes && line.trim().length > 0 }));
+    const cursor = makeCursor(line);
+
+    // Phase 1: match open container blocks (CommonMark §5 blockquotes & list items).
+    let matched = 0;
+    for (let i = 0; i < containers.length; i += 1) {
+      const container = containers[i];
+      const info = peekIndent(cursor);
+      if (container.kind === "blockquote") {
+        if (!info.blank && info.spaces <= 3 && cursor.line[info.nextIndex] === ">") {
+          consumeColumns(cursor, info.spaces);
+          cursor.index += 1;
+          cursor.col += 1;
+          const after = peekIndent(cursor);
+          if (!after.blank && after.spaces >= 1) consumeColumns(cursor, 1);
+          matched += 1;
+          continue;
+        }
+        break;
+      }
+      if (info.blank) {
+        if (container.emptyFirstLine) break;
+        consumeColumns(cursor, Math.min(info.spaces, container.indent));
+        matched += 1;
+        continue;
+      }
+      if (info.spaces >= container.indent) {
+        consumeColumns(cursor, container.indent);
+        container.emptyFirstLine = false;
+        matched += 1;
+        continue;
+      }
+      break;
+    }
+
+    // Phase 2: check lazy paragraph continuation or close unmatched containers (and inner leaves).
+    if (matched < containers.length) {
+      const info = peekIndent(cursor);
+      const rest = restText(cursor);
+      const canLazyContinue =
+        leaf?.kind === "paragraph" &&
+        !info.blank &&
+        !(info.spaces <= 3 && cursor.line[info.nextIndex] === ">") &&
+        !(info.spaces <= 3 && isThematicBreak(rest)) &&
+        !(info.spaces <= 3 && isSetextUnderline(rest)) &&
+        !(info.spaces <= 3 && parseHeading(rest) !== null) &&
+        !(info.spaces <= 3 && matchFencedCodeOpener(rest) !== null) &&
+        !(info.spaces <= 3 && matchHtmlBlockStart(rest, true) !== null) &&
+        matchListMarker(cursor, false) === null;
+      if (canLazyContinue) {
+        leaf.lines.push(rest);
+        continue;
+      }
+      closeContainersTo(matched);
+    }
+
+    // Phase 3: continue active fenced code / HTML block leaves.
+    if (leaf?.kind === "fencedCode") {
+      const rest = restText(cursor);
+      const closer = /^ {0,3}(`{3,}|~{3,})[ \t]*$/u.exec(rest);
+      const closes = closer !== null && closer[1][0] === leaf.marker && closer[1].length >= leaf.length;
+      recordSubstantive(rest, { inCode: true, hasContent: !closes && rest.trim().length > 0 });
+      if (closes) leaf = null;
       continue;
     }
-    if (htmlBlock !== null) {
-      if (htmlBlock.endPattern === null && /^[ \t]*$/u.test(line)) {
-        htmlBlock = null;
+    if (leaf?.kind === "htmlBlock") {
+      const info = peekIndent(cursor);
+      const rest = restText(cursor);
+      if (leaf.endPattern === null && info.blank) {
+        leaf = null;
         continue;
       }
       const hasContent =
-        htmlBlock.type === 2 ? stripHtmlCommentsOnLine(line, true).text.trim().length > 0 : line.trim().length > 0;
-      parsed.push(makeEntry(line, { isHtmlBlock: true, hasContent }));
-      if (htmlBlock.endPattern !== null && htmlBlock.endPattern.test(line)) htmlBlock = null;
+        leaf.type === 2 ? stripHtmlCommentsOnLine(rest, true).text.trim().length > 0 : rest.trim().length > 0;
+      recordSubstantive(rest, { isHtmlBlock: true, hasContent });
+      if (leaf.endPattern !== null && leaf.endPattern.test(rest)) leaf = null;
       continue;
     }
-    if (/^[ \t]*$/u.test(line)) {
-      flushParagraphLines(parsed, paragraphLines);
-      continue;
-    }
-    if (paragraphLines.length > 0) {
-      const setext = /^ {0,3}(=+|-+)[ \t]*$/u.exec(line);
-      if (setext) {
-        const level = setext[1][0] === "=" ? 1 : 2;
-        const headingText = paragraphLines
-          .map((item) => item.trim())
-          .join("\n")
-          .trim();
-        const hashes = "#".repeat(level);
-        paragraphLines.length = 0;
-        parsed.push(
-          makeEntry(headingText, {
-            isHeading: true,
-            level,
-            normalizedHeading: headingText ? `${hashes} ${headingText}` : hashes,
-          }),
-        );
+
+    // Phase 4: open new container blocks (or settle Setext underline / thematic break).
+    let lineConsumed = false;
+    while (leaf?.kind !== "indentedCode") {
+      const info = peekIndent(cursor);
+      if (info.blank || info.spaces > 3) break;
+      const rest = restText(cursor);
+      if (leaf?.kind === "paragraph") {
+        const setext = isSetextUnderline(rest);
+        if (setext) {
+          const level = setext[1][0] === "=" ? 1 : 2;
+          const headingText = leaf.lines
+            .map((item) => item.trim())
+            .join("\n")
+            .trim();
+          const hashes = "#".repeat(level);
+          leaf = null;
+          if (containers.length === 0) {
+            parsed.push(
+              makeEntry(headingText, {
+                isHeading: true,
+                level,
+                normalizedHeading: headingText ? `${hashes} ${headingText}` : hashes,
+              }),
+            );
+          } else {
+            rootContainerHasContent = true;
+          }
+          lineConsumed = true;
+          break;
+        }
+      }
+      if (cursor.line[info.nextIndex] === ">") {
+        closeLeaf();
+        consumeColumns(cursor, info.spaces);
+        cursor.index += 1;
+        cursor.col += 1;
+        const after = peekIndent(cursor);
+        if (!after.blank && after.spaces >= 1) consumeColumns(cursor, 1);
+        containers.push({ kind: "blockquote" });
         continue;
       }
-    } else if (/^(?: {4}| {0,3}\t)/u.test(line)) {
-      parsed.push(makeEntry(line, { inCode: true, hasContent: line.trim().length > 0 }));
+      if (isThematicBreak(rest)) {
+        closeLeaf();
+        if (containers.length === 0) parsed.push(makeEntry(rest));
+        lineConsumed = true;
+        break;
+      }
+      const listMarker = matchListMarker(cursor, leaf?.kind === "paragraph");
+      if (listMarker) {
+        closeLeaf();
+        consumeColumns(cursor, listMarker.spaces);
+        cursor.index += listMarker.markerLen;
+        cursor.col += listMarker.markerLen;
+        if (listMarker.consumeAfter > 0) consumeColumns(cursor, listMarker.consumeAfter);
+        containers.push({
+          kind: "listItem",
+          indent: listMarker.itemIndent,
+          emptyFirstLine: listMarker.emptyFirstLine,
+        });
+        continue;
+      }
+      break;
+    }
+    if (lineConsumed) continue;
+
+    // Phase 5: leaf blocks at current container depth (only root depth emits root headings).
+    const info = peekIndent(cursor);
+    if (info.blank) {
+      closeLeaf();
       continue;
     }
-    const opener = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line);
-    if (opener && !(opener[1][0] === "`" && opener[2].includes("`"))) {
-      flushParagraphLines(parsed, paragraphLines);
-      fence = { marker: opener[1][0], length: opener[1].length };
-      parsed.push(makeEntry(line, { inCode: true }));
+    const rest = restText(cursor);
+    if ((leaf === null || leaf.kind === "indentedCode") && info.spaces >= 4) {
+      consumeColumns(cursor, 4);
+      const codeText = restText(cursor);
+      leaf = { kind: "indentedCode" };
+      recordSubstantive(codeText, { inCode: true, hasContent: codeText.trim().length > 0 });
       continue;
     }
-    const heading = parseHeading(line);
-    if (heading) {
-      flushParagraphLines(parsed, paragraphLines);
-      parsed.push(makeEntry(line, { isHeading: true, level: heading.level, normalizedHeading: heading.normalized }));
-      continue;
+    if (leaf?.kind === "indentedCode") closeLeaf();
+    if (info.spaces <= 3) {
+      const opener = matchFencedCodeOpener(rest);
+      if (opener) {
+        closeLeaf();
+        leaf = { kind: "fencedCode", marker: opener[1][0], length: opener[1].length };
+        if (containers.length === 0) parsed.push(makeEntry(rest, { inCode: true }));
+        continue;
+      }
+      const heading = parseHeading(rest);
+      if (heading) {
+        closeLeaf();
+        if (containers.length === 0) {
+          parsed.push(
+            makeEntry(rest, { isHeading: true, level: heading.level, normalizedHeading: heading.normalized }),
+          );
+        } else {
+          rootContainerHasContent = true;
+        }
+        continue;
+      }
+      const htmlStart = matchHtmlBlockStart(rest, leaf?.kind === "paragraph");
+      if (htmlStart) {
+        closeLeaf();
+        const hasContent =
+          htmlStart.type === 2 ? stripHtmlCommentsOnLine(rest, false).text.trim().length > 0 : rest.trim().length > 0;
+        recordSubstantive(rest, { isHtmlBlock: true, hasContent });
+        if (htmlStart.endPattern === null || !htmlStart.endPattern.test(rest))
+          leaf = { kind: "htmlBlock", ...htmlStart };
+        continue;
+      }
     }
-    const htmlStart = matchHtmlBlockStart(line, paragraphLines.length > 0);
-    if (htmlStart) {
-      flushParagraphLines(parsed, paragraphLines);
-      const hasContent =
-        htmlStart.type === 2 ? stripHtmlCommentsOnLine(line, false).text.trim().length > 0 : line.trim().length > 0;
-      parsed.push(makeEntry(line, { isHtmlBlock: true, hasContent }));
-      if (htmlStart.endPattern === null || !htmlStart.endPattern.test(line)) htmlBlock = htmlStart;
-      continue;
-    }
-    if (/^ {0,3}(?:(?:-[ \t]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})$/u.test(line)) {
-      flushParagraphLines(parsed, paragraphLines);
-      parsed.push(makeEntry(line));
-      continue;
-    }
-    const container =
-      /^ {0,3}>/u.test(line) ||
-      (paragraphLines.length === 0
-        ? /^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:$|[ \t])/u.test(line)
-        : /^ {0,3}(?:[-+*]|1[.)])[ \t]+\S/u.test(line));
-    if (container) {
-      flushParagraphLines(parsed, paragraphLines);
-      const stripped = stripHtmlCommentsOnLine(line, false).text;
-      const content = stripped.replace(/^ {0,3}(?:>|(?:[-+*]|\d{1,9}[.)]))[ \t]*/u, "").trim();
-      parsed.push(makeEntry(stripped, { hasContent: content.length > 0 }));
-      continue;
-    }
-    paragraphLines.push(line);
+    if (leaf?.kind !== "paragraph") leaf = { kind: "paragraph", lines: [] };
+    leaf.lines.push(rest);
   }
-  flushParagraphLines(parsed, paragraphLines);
+  closeContainersTo(0);
+  closeLeaf();
   return parsed;
 }
 

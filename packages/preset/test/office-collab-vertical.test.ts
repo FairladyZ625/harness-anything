@@ -628,6 +628,37 @@ test("deliverable-contract check passes valid deliverables and rejects missing f
       ["thematicBreakEmpty", `## Executive Summary\n\n---${actionTail}`],
       ["fencedCodeEmpty", `## Executive Summary\n\n\`\`\`\n\`\`\`${actionTail}`],
       ["fencedCodeBody", `## Executive Summary\n\n\`\`\`json\n{"ok":true}\n\`\`\`${actionTail}`],
+      // HA09-2 container-block scope cases: list-nested & blockquote-nested headings vs real list bodies
+      ["listNestedHeading", `- Supporting notes\n  ## Executive Summary\n  Details inside the list.${actionTail}`],
+      ["looseListNestedHeading", `- Supporting notes\n\n  ## Executive Summary\n\n  Details.${actionTail}`],
+      ["ordered10NestedHeading", `10. Supporting notes\n    ## Executive Summary\n    Details.${actionTail}`],
+      ["listInlineHeading", `- ## Executive Summary\n  Details inside the list.${actionTail}`],
+      ["listWithTabHeading", `- Supporting notes\n\t## Executive Summary\n\tDetails.${actionTail}`],
+      ["nestedListHeading", `- Outer item\n  - Inner item\n    ## Executive Summary\n    Details.${actionTail}`],
+      ["nestedListOutdentRoot", `- Outer item\n  - Inner item\n## Executive Summary\n\nRoot body.${actionTail}`],
+      ["blockquoteNestedListHeading", `> - Supporting notes\n>   ## Executive Summary\n>   Details.${actionTail}`],
+      ["blockquoteListNoQuoteRoot", `> - Supporting notes\n  ## Executive Summary\n\nRoot body.${actionTail}`],
+      ["listBlockquoteHeading", `- Supporting notes\n  > ## Executive Summary\n  > Quoted details.${actionTail}`],
+      ["listSetextHeading", `- Supporting notes\n  Executive Summary\n  -----------------\n  Details.${actionTail}`],
+      ["listLazySetextBreak", `- Executive Summary\n---\n\nDetails.${actionTail}`],
+      ["siblingEmptyBulletNested", `- First item\n-\n  ## Executive Summary\n  Details.${actionTail}`],
+      ["siblingOrdered2Nested", `1. First item\n2. Second item\n   ## Executive Summary\n   Details.${actionTail}`],
+      ["emptyListBlankThenRoot", `-\n\n  ## Executive Summary\n\nRoot details.${actionTail}`],
+      ["emptyListThenNested", `-\n  ## Executive Summary\n  Nested details.${actionTail}`],
+      [
+        "listUnclosedFenceThenRoot",
+        `- Note\n  \`\`\`\n  unclosed inside list\n\n## Executive Summary\n\nReal summary.${actionTail}`,
+      ],
+      [
+        "quoteUnclosedFenceThenRoot",
+        `> \`\`\`\n> unclosed inside quote\n\n## Executive Summary\n\nReal summary.${actionTail}`,
+      ],
+      ["indented3ListIndent5Nested", `   - Supporting notes\n     ## Executive Summary\n     Details.${actionTail}`],
+      ["indented3ListIndent3Root", `   - Supporting notes\n   ## Executive Summary\n\nRoot details.${actionTail}`],
+      [
+        "rootHeadingWithListBody",
+        `## Executive Summary\n\n- Key decision one\n- Key decision two\n\n## Action Plan\n\n1. Owner executes\n2. Reviewer signs off\n`,
+      ],
     ];
     for (const [label, doc] of commonMarkCases) {
       const oracle = mdastRequiredSections(doc, required);

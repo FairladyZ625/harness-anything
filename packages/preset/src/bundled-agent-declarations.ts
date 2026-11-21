@@ -32,6 +32,20 @@ export function readBundledAgentDeclaration(
   return readRegularAgentFile(bundledAgentRootForVertical(verticalId, repoRoot), agentId);
 }
 
+/** Read a system-bundled agent declaration across any active built-in vertical in `repoRoot`. */
+export function readAnyBundledAgentDeclaration(agentId: string, repoRoot?: string): AgentDeclarationV1 | null {
+  if (!entitySlug(agentId)) return null;
+  const checkedRoots = new Set<string>();
+  for (const verticalId of builtinVerticalRoots.keys()) {
+    const agentsRoot = bundledAgentRootForVertical(verticalId, repoRoot);
+    if (checkedRoots.has(agentsRoot)) continue;
+    checkedRoots.add(agentsRoot);
+    const declaration = readRegularAgentFile(agentsRoot, agentId);
+    if (declaration !== null) return declaration;
+  }
+  return null;
+}
+
 /** Enumerate the bundled agent ids — the bundled layer of a reviewer picker's
  * value face (the installed layer comes from the entity store). Shipped
  * `.json` basenames of the same root `readBundledAgentDeclaration` resolves

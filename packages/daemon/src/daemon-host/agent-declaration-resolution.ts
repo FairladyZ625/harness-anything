@@ -1,4 +1,4 @@
-import { readBundledAgentDeclaration } from "@harness-anything/preset";
+import { readAnyBundledAgentDeclaration, readBundledAgentDeclaration } from "@harness-anything/preset";
 import { openEntityStore } from "@harness-anything/storage";
 import type { AgentState } from "@harness-anything/kernel/internal/domain/agent-squad-schema.ts";
 import {
@@ -64,8 +64,8 @@ export function isAgentDeclarationInvalid(error: unknown): boolean {
  * semantic instead of a generic not-found — the agent stays dispatchable forever, while editing
  * (install an overriding copy) stays open, which is how model changes reach it.
  */
-export function assertBundledAgentLifecycleOpen(agentId: string, verticalId?: string, rootDir?: string): void {
-  if (readBundledAgentDeclaration(agentId, verticalId, rootDir) === null) return;
+export function assertBundledAgentLifecycleOpen(agentId: string, rootDir?: string): void {
+  if (readAnyBundledAgentDeclaration(agentId, rootDir) === null) return;
   throw Object.assign(
     new Error(
       `Agent ${agentId} is a system-bundled agent shipped with Harness; it cannot be retired or deleted. ` +
