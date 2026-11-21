@@ -10,11 +10,15 @@ import {
   type ExecutionV1,
 } from "@harness-anything/kernel";
 import {
+  activeCutReviewDispatches,
   cutReviewTargetKey,
+  providerFallbackDispatchKey,
+  readCutReviewDispatchState,
   readCutReviewDispatchStates,
   reviewDispatchDiagnostic,
   reviewDispatchFailureWarning,
   reviewDispatchKey,
+  reviewResumeFallbackDispatchKey,
   withReviewDispatchFailures,
   type CutReviewDispatchProjection,
 } from "../src/queries/review-dispatch-failure-read.ts";
@@ -538,4 +542,301 @@ test("readCutReviewDispatchStates batches lifecycle reads across cuts, ignores c
   assert.equal(stateC?.activeDispatches.length, 0);
   assert.equal(stateC?.latestFailure?.dispatchId, "disp-c-unknown-exhausted");
   assert.match(stateC?.latestFailure?.reason ?? "", /disconnected after all backups exhausted/u);
+});
+
+test("pre-admission fallback exhaustion ranks by authoritative canonical terminal event time and revision over stale inherited payload.endedAt", () => {
+  const exec = makeSubmittedExecution("task-exhaust", "exe-exhaust", "4".repeat(40)),
+    base = reviewDispatchKey("task-exhaust", exec, "closeout-reviewer"),
+    dispatches = [
+      makeReviewDispatchRow({
+        taskId: "task-exhaust",
+        execution: exec,
+        dispatchId: "disp-exhausted",
+        runtimeSessionId: "sess-exhausted",
+        dispatchKey: base,
+        workspaceRevision: 10,
+        occurredAt: "2026-11-21T09:59:00.000Z",
+      }),
+    ],
+    // 10:00 primary failure scheduled fallback; 10:02 pre-admission fallback rejection emitted
+    // canonical exhaustion reusing the 10:00 process payload.endedAt without rewriting history.
+    outcomeEvents = new Map<string, AgentRuntimeEventV1[]>([
+      [
+        "sess-exhausted",
+        [
+          {
+            schema: "agent-runtime-event/v1",
+            eventId: "out-exhaust-scheduled",
+            workspaceRevision: 20,
+            opId: "op-out-exhaust-scheduled",
+            occurredAt: "2026-11-21T10:00:00.000Z",
+            actor: { principal: { personId: "owner" }, executor: null },
+            source: "local",
+            type: "runtime_session_outcome_observed",
+            payload: {
+              runtimeSessionId: "sess-exhausted",
+              dispatchId: "disp-exhausted",
+              outcome: "failed",
+              exitCode: 1,
+              resultRef: "artifact:none",
+              result: null,
+              endedAt: "2026-11-21T10:00:00.000Z",
+              attempt: {
+                classification: "provider_fault",
+                reason: "primary provider failed at 10:00",
+                fallbackState: "scheduled",
+              },
+            },
+          } as unknown as AgentRuntimeEventV1,
+          {
+            schema: "agent-runtime-event/v1",
+            eventId: "out-exhaust-final",
+            workspaceRevision: 30,
+            opId: "op-out-exhaust-final",
+            occurredAt: "2026-11-21T10:02:00.000Z",
+            actor: { principal: { personId: "owner" }, executor: null },
+            source: "local",
+            type: "runtime_session_outcome_observed",
+            payload: {
+              runtimeSessionId: "sess-exhausted",
+              dispatchId: "disp-exhausted",
+              outcome: "failed",
+              exitCode: 1,
+              resultRef: "artifact:none",
+              result: null,
+              endedAt: "2026-11-21T10:00:00.000Z",
+              attempt: {
+                classification: "provider_fault",
+                reason: "Provider fallback could not launch review-second: pre-admission rejected",
+                fallbackState: "exhausted",
+              },
+            },
+          } as unknown as AgentRuntimeEventV1,
+        ],
+      ],
+    ]),
+    lifecycleView = makeSettledLifecycleView({
+      dispatchId: "disp-exhausted",
+      runtimeSessionId: "sess-exhausted",
+      outcome: "failed",
+      revision: 30,
+    }),
+    projection: CutReviewDispatchProjection = {
+      readRuntimeDispatchesByTaskExecution: () => dispatches,
+      readRuntimeSessionEventsByType: (sessionId) => outcomeEvents.get(sessionId) ?? [],
+      readDispatchLifecycle: () => ({
+        status: "ready",
+        watermark: 35,
+        sourceRevision: 35,
+        rows: [lifecycleView],
+        nextCursor: null,
+      }),
+    };
+
+  // Intermediate routing failure snapshot written at 10:01 must NOT shadow the 10:02 exhaustion.
+  const stateWithIntermediateSnapshot = readCutReviewDispatchState(projection, {
+    taskId: "task-exhaust",
+    execution: exec,
+    recordedFailure: {
+      executionId: "exe-exhaust",
+      dispatchKey: base,
+      code: "agent_runtime_unavailable",
+      message: "intermediate routing failure at 10:01",
+      failedAt: "2026-11-21T10:01:00.000Z",
+    },
+  });
+  assert.equal(stateWithIntermediateSnapshot.activeDispatches.length, 0);
+  assert.equal(stateWithIntermediateSnapshot.latestFailure?.dispatchId, "disp-exhausted");
+  assert.equal(
+    stateWithIntermediateSnapshot.latestFailure?.reason,
+    "Provider fallback could not launch review-second: pre-admission rejected",
+  );
+  assert.equal(stateWithIntermediateSnapshot.latestFailure?.failedAt, "2026-11-21T10:02:00.000Z");
+
+  // Conversely, a routing failure recorded AFTER exhaustion (10:03) still wins.
+  const stateWithLaterSnapshot = readCutReviewDispatchState(projection, {
+    taskId: "task-exhaust",
+    execution: exec,
+    recordedFailure: {
+      executionId: "exe-exhaust",
+      dispatchKey: `${base}:attempt1`,
+      code: "agent_runtime_unavailable",
+      message: "subsequent routing failure at 10:03",
+      failedAt: "2026-11-21T10:03:00.000Z",
+    },
+  });
+  assert.equal(stateWithLaterSnapshot.latestFailure?.dispatchId, undefined);
+  assert.equal(stateWithLaterSnapshot.latestFailure?.reason, "subsequent routing failure at 10:03");
+  assert.equal(stateWithLaterSnapshot.latestFailure?.failedAt, "2026-11-21T10:03:00.000Z");
+});
+
+test("shared review dispatch key suffix helpers recognize combined :resume-fallback:fallback:N and :fallback:N:resume-fallback keys in flight and exhausted", () => {
+  const exec = makeSubmittedExecution("task-combo", "exe-combo", "5".repeat(40)),
+    base = reviewDispatchKey("task-combo", exec, "closeout-reviewer"),
+    attempt1 = `${base}:attempt1`,
+    resumeFallbackKey = reviewResumeFallbackDispatchKey(attempt1),
+    combinedForwardKey = providerFallbackDispatchKey(resumeFallbackKey, 1),
+    combinedReverseKey = reviewResumeFallbackDispatchKey(providerFallbackDispatchKey(attempt1, 1));
+
+  assert.equal(combinedForwardKey, `${base}:attempt1:resume-fallback:fallback:1`);
+  assert.equal(combinedReverseKey, `${base}:attempt1:fallback:1:resume-fallback`);
+
+  const rootRow = makeReviewDispatchRow({
+      taskId: "task-combo",
+      execution: exec,
+      dispatchId: "disp-rf-root",
+      runtimeSessionId: "sess-rf-root",
+      dispatchKey: resumeFallbackKey,
+      workspaceRevision: 10,
+      occurredAt: "2026-11-21T10:00:00.000Z",
+    }),
+    leafRow = makeReviewDispatchRow({
+      taskId: "task-combo",
+      execution: exec,
+      dispatchId: "disp-rf-leaf",
+      runtimeSessionId: "sess-rf-leaf",
+      dispatchKey: combinedForwardKey,
+      workspaceRevision: 12,
+      occurredAt: "2026-11-21T10:01:00.000Z",
+    }),
+    invalidRow = makeReviewDispatchRow({
+      taskId: "task-combo",
+      execution: exec,
+      dispatchId: "disp-invalid",
+      runtimeSessionId: "sess-invalid",
+      dispatchKey: `${attempt1}:fallback:0`,
+      workspaceRevision: 13,
+      occurredAt: "2026-11-21T10:01:30.000Z",
+    });
+
+  // In-flight combined leaf: root is closed with controlLeafDispatchId pointing to the :resume-fallback:fallback:1 leaf.
+  const inFlightProjection: CutReviewDispatchProjection = {
+    readRuntimeDispatchesByTaskExecution: () => [rootRow, leafRow, invalidRow],
+    readRuntimeSessionEventsByType: () => [],
+    readDispatchLifecycle: () => ({
+      status: "ready",
+      watermark: 20,
+      sourceRevision: 20,
+      rows: [
+        makeSettledLifecycleView({
+          dispatchId: "disp-rf-root",
+          runtimeSessionId: "sess-rf-root",
+          outcome: "failed",
+          revision: 12,
+          groupPhase: "active",
+          controlLeafDispatchId: "disp-rf-leaf",
+        }),
+        makeSettledLifecycleView({
+          dispatchId: "disp-rf-leaf",
+          runtimeSessionId: "sess-rf-leaf",
+          outcome: "failed",
+          revision: 12,
+          groupPhase: "active",
+          controlLeafDispatchId: "disp-rf-leaf",
+        }),
+      ],
+      nextCursor: null,
+    }),
+  };
+  const inFlightActive = activeCutReviewDispatches(inFlightProjection, "task-combo", exec);
+  assert.deepEqual(
+    inFlightActive.map(({ event }) => event.payload.dispatchId),
+    ["disp-rf-leaf"],
+  );
+  const inFlightState = readCutReviewDispatchState(inFlightProjection, { taskId: "task-combo", execution: exec });
+  assert.equal(inFlightState.activeDispatches.length, 1);
+  assert.equal(inFlightState.latestFailure, null);
+
+  // Exhausted combined leaf: failure reason must surface from disp-rf-leaf even though root is not the control leaf.
+  const exhaustedOutcome = {
+      schema: "agent-runtime-event/v1",
+      eventId: "out-rf-leaf",
+      workspaceRevision: 25,
+      opId: "op-out-rf-leaf",
+      occurredAt: "2026-11-21T10:05:00.000Z",
+      actor: { principal: { personId: "owner" }, executor: null },
+      source: "local",
+      type: "runtime_session_outcome_observed",
+      payload: {
+        runtimeSessionId: "sess-rf-leaf",
+        dispatchId: "disp-rf-leaf",
+        outcome: "failed",
+        exitCode: 1,
+        resultRef: "artifact:none",
+        result: null,
+        endedAt: "2026-11-21T10:05:00.000Z",
+        attempt: {
+          classification: "provider_fault",
+          reason: "backup after resume-fallback exhausted",
+          fallbackState: "exhausted",
+        },
+      },
+    } as unknown as AgentRuntimeEventV1,
+    exhaustedProjection: CutReviewDispatchProjection = {
+      readRuntimeDispatchesByTaskExecution: () => [rootRow, leafRow, invalidRow],
+      readRuntimeSessionEventsByType: (sessionId) => (sessionId === "sess-rf-leaf" ? [exhaustedOutcome] : []),
+      readDispatchLifecycle: () => ({
+        status: "ready",
+        watermark: 30,
+        sourceRevision: 30,
+        rows: [
+          makeSettledLifecycleView({
+            dispatchId: "disp-rf-root",
+            runtimeSessionId: "sess-rf-root",
+            outcome: "failed",
+            revision: 25,
+            groupPhase: "closed",
+            controlLeafDispatchId: "disp-rf-leaf",
+          }),
+          makeSettledLifecycleView({
+            dispatchId: "disp-rf-leaf",
+            runtimeSessionId: "sess-rf-leaf",
+            outcome: "failed",
+            revision: 25,
+            groupPhase: "closed",
+            controlLeafDispatchId: "disp-rf-leaf",
+          }),
+        ],
+        nextCursor: null,
+      }),
+    };
+  const exhaustedState = readCutReviewDispatchState(exhaustedProjection, { taskId: "task-combo", execution: exec });
+  assert.equal(exhaustedState.activeDispatches.length, 0);
+  assert.equal(exhaustedState.latestFailure?.dispatchId, "disp-rf-leaf");
+  assert.equal(exhaustedState.latestFailure?.reason, "backup after resume-fallback exhausted");
+
+  // Reverse suffix ordering (:fallback:1:resume-fallback) is recognized identically.
+  const reverseRow = makeReviewDispatchRow({
+      taskId: "task-combo",
+      execution: exec,
+      dispatchId: "disp-reverse",
+      runtimeSessionId: "sess-reverse",
+      dispatchKey: combinedReverseKey,
+      workspaceRevision: 31,
+      occurredAt: "2026-11-21T10:06:00.000Z",
+    }),
+    reverseProjection: CutReviewDispatchProjection = {
+      readRuntimeDispatchesByTaskExecution: () => [reverseRow],
+      readRuntimeSessionEventsByType: () => [],
+      readDispatchLifecycle: () => ({
+        status: "ready",
+        watermark: 32,
+        sourceRevision: 32,
+        rows: [
+          makeSettledLifecycleView({
+            dispatchId: "disp-reverse",
+            runtimeSessionId: "sess-reverse",
+            outcome: "failed",
+            revision: 31,
+            groupPhase: "active",
+            controlLeafDispatchId: "disp-reverse",
+          }),
+        ],
+        nextCursor: null,
+      }),
+    };
+  assert.deepEqual(
+    activeCutReviewDispatches(reverseProjection, "task-combo", exec).map(({ event }) => event.payload.dispatchId),
+    ["disp-reverse"],
+  );
 });

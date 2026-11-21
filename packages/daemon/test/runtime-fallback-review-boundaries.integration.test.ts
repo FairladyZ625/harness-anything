@@ -26,6 +26,7 @@ import { makeRuntimeSpawner } from "../src/daemon-host/runtime-spawner.ts";
 import { RuntimeProcessStartRejected } from "../src/daemon-host/runtime-spawn-process.ts";
 import { waitForDurableCondition } from "../../../tools/fixtures/event-arrival.ts";
 import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
+import { grantTestPolicyGroups, revokeTestPolicyActions, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
 
 test(
@@ -601,6 +602,189 @@ test(
       const agendaAfterCancel = await f.cell().read("repo.agenda.read", {}, owner);
       assert.match(agendaAfterCancel.summary, /real provider outage on review-second/u);
       assert.match(agendaAfterCancel.summary, new RegExp(`ha task dispatch-review ${taskId}`, "u"));
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
+  "resume-fallback followed by provider fallback (:resume-fallback:fallback:1) prevents duplicate re-dispatch while in flight and surfaces failure when exhausted",
+  { timeout: 90_000 },
+  async () => {
+    const reworkReviewerPerson = "rework-boundary-reviewer";
+    const f = await fixture(false, true, false, false, false, {
+      autoSubmit: false,
+      closeoutProfile: "standard",
+      keycloakSession: async () => owner.keycloakAuthorization.session,
+      providerMaxRetries: 0,
+      providerRoundBackoffBaseSeconds: 0,
+      autoProviderSession: true,
+      failProviderResume: true,
+      // Attempt 0 = initial launch, attempt 1 = rework resume (fails with runtime_resume_failed),
+      // attempt 2 = :resume-fallback on review-first (rejected to trigger :fallback:1 on review-second).
+      rejectLaunch: (instanceId, attempt) =>
+        instanceId === "review-first" && attempt === 2
+          ? Object.assign(new Error("primary resume-fallback outage"), { code: "ENOENT" })
+          : null,
+    });
+    try {
+      await f.install(null);
+      assert.equal((await f.submit()).outcome, "applied");
+      await f.waitForLaunches(1);
+      const initialDispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
+      assert.ok(initialDispatch?.type === "runtime_dispatch_requested");
+      await f.waitForProviderBinding(initialDispatch.payload.dispatchId, "review-provider-session");
+
+      // Record changes_requested BEFORE ending attempt 0 so delivery is registered (no unwanted
+      // fallback on iteration 0) while leaving a bound provider session + report for rework resume.
+      grantTestPolicyGroups([reworkReviewerPerson], "admin");
+      revokeTestPolicyActions(reworkReviewerPerson, "completion-review", ["runtime-spawn"]);
+      const initialReviewId = `review-${initialDispatch.payload.dispatchId}`,
+        report = `${f.packagePath}/artifacts/reports/${initialDispatch.payload.dispatchId}.md`,
+        packet = `${f.packagePath}/artifacts/reports/${initialDispatch.payload.dispatchId}.json`;
+      mkdirSync(path.dirname(path.join(f.root, "harness", packet)), { recursive: true });
+      writeFileSync(path.join(f.root, "harness", report), `# Review ${initialReviewId}\n\nRework requested.\n`);
+      writeFileSync(
+        path.join(f.root, "harness", packet),
+        JSON.stringify({
+          verdict: "changes_requested",
+          reason: "The submitted cut needs another pass.",
+          evidenceChecked: ["closeout.md"],
+          findings: [
+            {
+              findingId: "fixture-finding",
+              blocking: true,
+              category: "correctness",
+              reverify: "re-review",
+              text: "Fixture review requires another pass.",
+            },
+          ],
+          resolutions: [],
+        }),
+      );
+      const requestedChanges = await f.cell().run(
+        {
+          kind: "task-review-execution",
+          taskId,
+          executionId,
+          reviewId: initialReviewId,
+          fromFile: `harness/${packet}`,
+        },
+        withPolicyGroup(
+          {
+            actor: {
+              principal: { personId: reworkReviewerPerson },
+              executor: { kind: "agent" as const, id: `runtime-session:${initialDispatch.payload.runtimeSessionId}` },
+            },
+            source: "local" as const,
+          },
+          "admin",
+        ),
+      );
+      assert.equal(requestedChanges.outcome, "applied", JSON.stringify(requestedChanges));
+      f.endPending();
+      await f.awaitOutcome(initialDispatch.payload.runtimeSessionId);
+
+      // Rework submit hits runtime_resume_failed -> :resume-fallback (rejected on review-first)
+      // -> provider fallback launches :resume-fallback:fallback:1 on review-second.
+      const nextExecution = "execution-resume-fallback-combo";
+      assert.equal((await f.run({ kind: "task-start", taskId, executionId: nextExecution })).outcome, "applied");
+      const resubmitted = await f.submit(nextExecution);
+      assert.equal(resubmitted.outcome, "applied", JSON.stringify(resubmitted));
+      const keysAfterResubmit = f
+        .events()
+        .filter((event) => event.type === "runtime_dispatch_requested")
+        .map((event) => event.payload.dispatchKey);
+      assert.ok(
+        keysAfterResubmit.some((key) => /:reviewer:closeout-reviewer:resume-fallback$/u.test(String(key))),
+        `expected :resume-fallback dispatch key in ${JSON.stringify({ keysAfterResubmit, resubmitted })}`,
+      );
+      await waitForDurableCondition(async () =>
+        f
+          .events()
+          .some(
+            (event) =>
+              event.type === "runtime_dispatch_requested" &&
+              /:reviewer:closeout-reviewer:resume-fallback:fallback:1$/u.test(String(event.payload.dispatchKey)),
+          ),
+      );
+      const combinedDispatch = f
+        .events()
+        .find(
+          (event): event is Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> =>
+            event.type === "runtime_dispatch_requested" &&
+            /:reviewer:closeout-reviewer:resume-fallback:fallback:1$/u.test(String(event.payload.dispatchKey)),
+        );
+      assert.ok(combinedDispatch, "expected combined :resume-fallback:fallback:1 dispatch");
+      assert.equal(combinedDispatch.payload.instanceId, "review-second");
+      await f.waitForLaunches(3);
+      await f.awaitRuntimeLiveness(combinedDispatch.payload.runtimeSessionId);
+      const dispatchesBeforeRetry = f.events().filter((event) => event.type === "runtime_dispatch_requested").length;
+
+      // While :resume-fallback:fallback:1 is in flight, task show, agenda, and manual dispatch-review
+      // must all recognize the active control leaf and refuse to open a duplicate review.
+      const shownInFlight = JSON.parse(String((await f.run({ kind: "task-show", taskId })).evidence)) as {
+        readonly completionNext: { readonly action: string; readonly reason: string } | null;
+      };
+      assert.equal(shownInFlight.completionNext?.action, `ha task dispatches ${taskId}`);
+      const agendaInFlight = await f.cell().read("repo.agenda.read", {}, owner);
+      assert.equal(
+        agendaInFlight.summary.includes("required review has no active dispatch"),
+        false,
+        agendaInFlight.summary,
+      );
+      const duplicateAttempt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] });
+      assert.equal(duplicateAttempt.outcome, "applied", JSON.stringify(duplicateAttempt));
+      const duplicateStep = ((duplicateAttempt as { readonly dispatches?: readonly { readonly outcome?: string }[] })
+        .dispatches ?? [])[0];
+      assert.equal(duplicateStep?.outcome, "already_dispatched", JSON.stringify(duplicateAttempt));
+      assert.equal(
+        f.events().filter((event) => event.type === "runtime_dispatch_requested").length,
+        dispatchesBeforeRetry,
+        "manual dispatch-review must not admit a duplicate while :resume-fallback:fallback:1 is in flight",
+      );
+
+      // Exhaust the combined backup leaf -> task show and agenda must surface the original failure reason.
+      f.failProviderFaultPending();
+      await f.awaitOutcome(combinedDispatch.payload.runtimeSessionId);
+      await waitForDurableCondition(async () => {
+        const read = await f
+          .cell()
+          .readDispatchLifecycle({ by: "dispatch", dispatchIds: [combinedDispatch.payload.dispatchId] });
+        return read.status === "ready" && read.rows[0]?.policy.groupSettled === true;
+      });
+      await f.cell().settlePendingMaterialization("combined resume-fallback provider-fallback exhausted");
+
+      const shownExhausted = JSON.parse(String((await f.run({ kind: "task-show", taskId })).evidence)) as {
+        readonly completionBlocker: { readonly code: string; readonly gate: string } | null;
+        readonly completionNext: { readonly action: string; readonly reason: string } | null;
+      };
+      assert.deepEqual(shownExhausted.completionBlocker, { code: "review_pending", gate: "review" });
+      assert.equal(shownExhausted.completionNext?.action, `ha task dispatch-review ${taskId}`);
+      assert.match(shownExhausted.completionNext?.reason ?? "", /HTTP 500 fixture provider failure/u);
+
+      const agendaExhausted = await f.cell().read("repo.agenda.read", {}, owner);
+      assert.match(agendaExhausted.summary, /HTTP 500 fixture provider failure/u);
+      assert.match(agendaExhausted.summary, new RegExp(`ha task dispatch-review ${taskId}`, "u"));
+
+      // Subsequent manual dispatch-review advances cleanly to :attempt1 instead of colliding with settled :resume-fallback.
+      const retryAfterExhausted = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] });
+      assert.equal(retryAfterExhausted.outcome, "applied", JSON.stringify(retryAfterExhausted));
+      const retryStep = ((retryAfterExhausted as { readonly dispatches?: readonly { readonly outcome?: string }[] })
+        .dispatches ?? [])[0];
+      assert.equal(retryStep?.outcome, "dispatched", JSON.stringify(retryAfterExhausted));
+      const retryDispatch = f
+        .events()
+        .find(
+          (event): event is Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> =>
+            event.type === "runtime_dispatch_requested" &&
+            /:reviewer:closeout-reviewer:attempt1$/u.test(String(event.payload.dispatchKey)),
+        );
+      assert.ok(retryDispatch, "manual retry after exhausted :resume-fallback:fallback:1 must advance to :attempt1");
+      await f.waitForLaunches(4);
+      f.endPending();
+      await f.awaitOutcome(retryDispatch.payload.runtimeSessionId);
     } finally {
       await f.close();
     }

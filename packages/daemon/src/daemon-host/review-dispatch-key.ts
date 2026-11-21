@@ -1,1 +1,5 @@
-export { reviewDispatchKey } from "@harness-anything/application/queries";
+export {
+  providerFallbackDispatchKey,
+  reviewDispatchKey,
+  reviewResumeFallbackDispatchKey,
+} from "@harness-anything/application/queries";

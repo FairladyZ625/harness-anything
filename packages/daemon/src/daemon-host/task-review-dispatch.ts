@@ -28,7 +28,7 @@ import { decisionLifecycleProtocolCommands } from "./protocol/daemon-protocol-co
 import { isAgentDeclarationInvalid, readAgentDeclarationResolution } from "./agent-entities.ts";
 import { agentDeclaresExplicitModels } from "./agent-runtime-contract.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
-import { reviewDispatchKey } from "./review-dispatch-key.ts";
+import { reviewDispatchKey, reviewResumeFallbackDispatchKey } from "./review-dispatch-key.ts";
 import { activeCutReviewDispatches, reviewDispatchGroupSettled } from "./review-dispatch-state.ts";
 
 export { reviewDispatchKey } from "./review-dispatch-key.ts";
@@ -1072,7 +1072,7 @@ export async function spawnCutReviewDispatch(
     await prepareAndLaunch(payload);
   } catch (error) {
     if (continuation?.resume && runtimeErrorCode(error) === "runtime_resume_failed") {
-      const fallbackKey = `${key}:resume-fallback`,
+      const fallbackKey = reviewResumeFallbackDispatchKey(key),
         fallbackIds = reviewDispatchIds(cell.input.repoId, fallbackKey),
         fallbackPayload = {
           ...payload,
@@ -1106,17 +1106,25 @@ export async function spawnCutReviewDispatch(
   return { outcome: alreadyDispatched ? "already_dispatched" : "dispatched", ids };
 }
 
+function readReviewAttemptDispatch(cell: RepoCellOperationalContext, key: string) {
+  return (
+    cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ??
+    cell.projection.readRuntimeDispatchByDispatchKey(reviewResumeFallbackDispatchKey(key))?.event ??
+    null
+  );
+}
+
 /** The idempotent attempt chain of one review cut: advance only after the prior session ended. */
 function reviewDispatchAttempt(cell: RepoCellOperationalContext, baseKey: string) {
   let attempt = 0,
     key = reviewAttemptKey(baseKey, attempt),
     ids = reviewDispatchIds(cell.input.repoId, key),
-    existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
+    existing = readReviewAttemptDispatch(cell, key);
   while (existing !== null && reviewDispatchGroupSettled(cell, existing.payload)) {
     attempt += 1;
     key = reviewAttemptKey(baseKey, attempt);
     ids = reviewDispatchIds(cell.input.repoId, key);
-    existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
+    existing = readReviewAttemptDispatch(cell, key);
   }
   return {
     key,

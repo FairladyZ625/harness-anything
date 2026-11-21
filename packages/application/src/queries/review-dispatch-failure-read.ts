@@ -34,6 +34,13 @@ export type CutReviewDispatchProjection = Pick<
 > &
   Partial<Pick<TaskProjectionQueries, "readDispatchLifecycle">>;
 
+const REVIEW_RESUME_FALLBACK_SUFFIX = ":resume-fallback";
+const PROVIDER_FALLBACK_SUFFIX_PREFIX = ":fallback:";
+const CUT_REVIEW_KEY_SUFFIX_PATTERN = new RegExp(
+  `^(?::reviewer:[^:]+)?(?::attempt[1-9][0-9]*)?(?:${REVIEW_RESUME_FALLBACK_SUFFIX}(?:${PROVIDER_FALLBACK_SUFFIX_PREFIX}[1-9][0-9]*)?|${PROVIDER_FALLBACK_SUFFIX_PREFIX}[1-9][0-9]*(?:${REVIEW_RESUME_FALLBACK_SUFFIX})?)?$`,
+  "u",
+);
+
 /** Stable key for a task-review dispatch; shared by the review dispatcher and the proof reads
  * that compare a stored dispatch against the execution it was opened for. */
 export function reviewDispatchKey(taskId: string, execution: ExecutionV1, reviewerId?: string): string {
@@ -41,6 +48,25 @@ export function reviewDispatchKey(taskId: string, execution: ExecutionV1, review
     execution.submission!,
   )}`;
   return reviewerId ? `${key}:reviewer:${reviewerId}` : key;
+}
+
+/** Appends the fresh-session fallback suffix when reviewer session resume fails before admission. */
+export function reviewResumeFallbackDispatchKey(dispatchKey: string): string {
+  return `${dispatchKey}${REVIEW_RESUME_FALLBACK_SUFFIX}`;
+}
+
+/** Appends the provider-fallback attempt suffix onto the group's root dispatch key. */
+export function providerFallbackDispatchKey(rootDispatchKey: string, attemptIndex: number): string {
+  return `${rootDispatchKey}${PROVIDER_FALLBACK_SUFFIX_PREFIX}${String(attemptIndex)}`;
+}
+
+/** Recognizes cut review dispatch keys across reviewer, attempt, resume-fallback, and provider-fallback suffixes. */
+function isCutReviewDispatchKey(dispatchKey: unknown, baseKey: string): boolean {
+  return (
+    typeof dispatchKey === "string" &&
+    dispatchKey.startsWith(baseKey) &&
+    CUT_REVIEW_KEY_SUFFIX_PATTERN.test(dispatchKey.slice(baseKey.length))
+  );
 }
 
 export function reviewAttemptEnded(
@@ -77,18 +103,11 @@ function cutReviewDispatchesForTarget(
   execution: ExecutionV1,
 ): ReturnType<TaskProjectionQueries["readRuntimeDispatchesByTaskExecution"]> {
   const baseKey = reviewDispatchKey(taskId, execution);
-  return projection.readRuntimeDispatchesByTaskExecution(taskId, execution.executionId).filter(({ event }) => {
-    const payload = event.payload,
-      key = payload.dispatchKey,
-      suffix = typeof key === "string" && key.startsWith(baseKey) ? key.slice(baseKey.length) : null,
-      isCutReviewKey =
-        suffix === "" ||
-        /^:reviewer:[^:]+(?::attempt[1-9][0-9]*)?(?::fallback:[1-9][0-9]*)?(?::resume-fallback)?$/u.test(
-          suffix ?? "",
-        ) ||
-        /^:attempt[1-9][0-9]*(?::fallback:[1-9][0-9]*)?(?::resume-fallback)?$/u.test(suffix ?? "");
-    return payload.role === "reviewer" && isCutReviewKey;
-  });
+  return projection
+    .readRuntimeDispatchesByTaskExecution(taskId, execution.executionId)
+    .filter(
+      ({ event }) => event.payload.role === "reviewer" && isCutReviewDispatchKey(event.payload.dispatchKey, baseKey),
+    );
 }
 
 function compactReviewFailureReason(value: string): string {
@@ -103,6 +122,8 @@ interface RankedReviewFailure {
 }
 
 function compareRankedReviewFailures(left: RankedReviewFailure, right: RankedReviewFailure): number {
+  if (left.terminalRevision >= 0 && right.terminalRevision >= 0 && left.terminalRevision !== right.terminalRevision)
+    return left.terminalRevision - right.terminalRevision;
   const leftMs = Date.parse(left.failure.failedAt ?? ""),
     rightMs = Date.parse(right.failure.failedAt ?? "");
   if (Number.isFinite(leftMs) && Number.isFinite(rightMs) && leftMs !== rightMs) return leftMs - rightMs;
@@ -179,10 +200,9 @@ export function readCutReviewDispatchStates(
         if (outcome === "succeeded" || outcome === "cancelled" || outcome === "stopped") continue;
         const outcomeEvent = projection
           .readRuntimeSessionEventsByType(row.event.payload.runtimeSessionId, ["runtime_session_outcome_observed"])
-          .findLast(
-            (event): event is Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }> =>
-              event.type === "runtime_session_outcome_observed",
-          );
+          .reduce<
+            Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }> | undefined
+          >((latest, event) => (event.type === "runtime_session_outcome_observed" && (latest === undefined || event.workspaceRevision >= latest.workspaceRevision) ? event : latest), undefined);
         if (!isSettledDispatchFailure(view, outcomeEvent?.payload.attempt)) continue;
         const rawReason =
             outcomeEvent?.payload.attempt?.reason ??
@@ -190,14 +210,20 @@ export function readCutReviewDispatchStates(
             `review dispatch ended with outcome ${outcome ?? "failed"}`,
           code =
             outcomeEvent?.payload.reasonCode ?? outcomeEvent?.payload.attempt?.classification ?? outcome ?? "failed",
+          terminalAt = outcomeEvent?.occurredAt ?? outcomeEvent?.payload.endedAt ?? row.event.occurredAt,
+          terminalRevision = Math.max(
+            outcomeEvent?.workspaceRevision ?? -1,
+            view.revision,
+            row.event.workspaceRevision,
+          ),
           candidate: RankedReviewFailure = {
             failure: {
               dispatchId,
               code,
               reason: compactReviewFailureReason(rawReason),
-              failedAt: outcomeEvent?.payload.endedAt ?? outcomeEvent?.occurredAt ?? row.event.occurredAt,
+              failedAt: terminalAt,
             },
-            terminalRevision: outcomeEvent?.workspaceRevision ?? view.revision ?? row.event.workspaceRevision,
+            terminalRevision,
           };
         if (bestFailure === null || compareRankedReviewFailures(bestFailure, candidate) < 0) bestFailure = candidate;
       }

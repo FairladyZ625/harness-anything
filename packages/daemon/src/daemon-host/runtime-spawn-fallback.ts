@@ -43,6 +43,7 @@ import {
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { readDispatchLifecycle } from "./runtime-dispatch-admission.ts";
+import { providerFallbackDispatchKey } from "./review-dispatch-key.ts";
 import { runtimeErrorCode, runtimeErrorMessage, runtimeSpawnError } from "../runtime-engine/runtime-spawn-errors.ts";
 import type { RuntimeAgent, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
@@ -761,7 +762,7 @@ export async function scheduleFallbackContinuation(args: {
               ...(header.promptSource ? { promptSource: header.promptSource } : {}),
               ...(header.onExitCommand ? { onExitCommand: header.onExitCommand } : {}),
               ...(header.taskId ? { taskId: header.taskId } : {}),
-              dispatchKey: `${fallback.rootDispatchKey}:fallback:${String(nextAttemptIndex)}`,
+              dispatchKey: providerFallbackDispatchKey(fallback.rootDispatchKey, nextAttemptIndex),
             },
             continuationBinding =
               (await input.authorizeRuntimeContinuation?.(
