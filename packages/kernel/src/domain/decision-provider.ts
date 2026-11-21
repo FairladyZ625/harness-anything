@@ -1,5 +1,12 @@
 /** Configuration for the Decisions API plane. It has no runtime or dispatch identity. */
-export const decisionProviderVendors = ["openrouter", "openai-compatible"] as const;
+export const decisionProviderVendors = [
+  "openrouter",
+  "google",
+  "perplexity",
+  "decisions-http",
+  "openai-compatible",
+  "anthropic",
+] as const;
 export type DecisionProviderVendor = (typeof decisionProviderVendors)[number];
 
 export type DecisionProviderProbe =

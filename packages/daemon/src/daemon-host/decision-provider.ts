@@ -1,8 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { OpenRouter } from "@openrouter/sdk";
-import type { DecisionsResponse } from "@openrouter/sdk/models";
 import { consumeKnownError, decisionProviderVendors } from "@harness-anything/kernel";
 import type {
   AdvisoryDecision,
@@ -16,7 +14,20 @@ import type {
   DecisionUsage,
 } from "@harness-anything/kernel";
 import { credentialPort, isCredentialReferenceText, type CredentialPort } from "./agent-runtime-credential-port.ts";
-import { openAiCompatibleDecision, type DecisionProviderQuestion } from "./decision-provider-openai.ts";
+import {
+  canonicalBaseUrlString,
+  DecisionAdapterError,
+  getDecisionProviderAdapter,
+  modelUnavailablePattern,
+  normalizeChoiceDistribution,
+  normalizeNoulValue,
+  normalizeScoreDistribution,
+  postDecisionJson,
+  redactDecisionSecret,
+  parseDecisionProviderBaseUrl,
+  type DecisionProviderQuestion,
+  type NormalizedDecisionEnvelope,
+} from "./decision-providers/index.ts";
 import { writeFileDurably } from "../../../storage/src/durable-file.ts";
 
 const fileSchema = "decision-providers/v1" as const;
@@ -32,18 +43,17 @@ const probeQuestion = {
   type: "noul",
   instructions: "Reachability probe. Answer true if you can read this request.",
   criteria: { true: "The request is readable.", false: "The request is not readable." },
-} as const satisfies OpenRouterQuestion;
+} as const satisfies DecisionProviderQuestion;
 
 type ProviderFile = { readonly schema: typeof fileSchema; readonly providers: readonly DecisionProviderRecord[] };
 type ProviderCommand = Readonly<Record<string, unknown>>;
-type OpenRouterQuestion = DecisionProviderQuestion;
 type DecisionInvoker = (input: {
   readonly apiKey: string;
   readonly serverURL: string | undefined;
   readonly model: string;
   readonly state: readonly string[];
-  readonly question: OpenRouterQuestion;
-}) => Promise<DecisionsResponse>;
+  readonly question: DecisionProviderQuestion;
+}) => Promise<NormalizedDecisionEnvelope>;
 type DecisionSleep = (delayMs: number) => Promise<void>;
 
 export type DecisionPort = {
@@ -63,11 +73,38 @@ export function openDecisionProviderService(input: {
 }) {
   const vault = input.vault ?? credentialPort();
   const effectiveTimeoutMs = input.requestTimeoutMs ?? requestTimeoutMs;
-  const invokerFor = (vendor: DecisionProviderVendor): DecisionInvoker =>
-    input.invokeDecision ??
-    (vendor === "openai-compatible"
-      ? (request) => openAiCompatibleDecision({ ...request, timeoutMs: effectiveTimeoutMs })
-      : openRouterDecision);
+  const invokeAdapter = (
+    vendor: DecisionProviderVendor,
+  ): ((req: {
+    readonly apiKey: string;
+    readonly baseUrl: URL | null;
+    readonly model: string;
+    readonly state: readonly string[];
+    readonly question: DecisionProviderQuestion;
+  }) => Promise<NormalizedDecisionEnvelope>) => {
+    if (input.invokeDecision) {
+      const injected = input.invokeDecision;
+      return (request) =>
+        injected({
+          apiKey: request.apiKey,
+          serverURL: request.baseUrl === null ? undefined : canonicalBaseUrlString(request.baseUrl),
+          model: request.model,
+          state: request.state,
+          question: request.question,
+        });
+    }
+    const adapter = getDecisionProviderAdapter(vendor);
+    return (request) =>
+      adapter.invoke({
+        apiKey: request.apiKey,
+        baseUrl: request.baseUrl,
+        model: request.model,
+        state: request.state,
+        question: request.question,
+        timeoutMs: effectiveTimeoutMs,
+        postJson: postDecisionJson,
+      });
+  };
   const sleep = input.sleep ?? ((delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
   const now = input.now ?? (() => new Date().toISOString());
   const target = path.join(input.userRoot, "decision-providers.json");
@@ -108,31 +145,6 @@ export function openDecisionProviderService(input: {
     if (!providerIdPattern.test(id)) throw providerError("invalid_provider", "providerId has an invalid format.");
     return id;
   };
-  const secureBaseUrl = (value: unknown): string | null => {
-    if (value === undefined || value === null || (typeof value === "string" && value.trim() === "")) return null;
-    if (typeof value !== "string")
-      throw providerError("invalid_base_url", "baseUrl must be an absolute HTTPS URL or loopback HTTP URL.");
-    const text = value.trim();
-    if (!URL.canParse(text))
-      throw providerError("invalid_base_url", "baseUrl must be an absolute HTTPS URL or loopback HTTP URL.");
-    const url = new URL(text);
-    if (
-      url.protocol !== "https:" &&
-      !(url.protocol === "http:" && ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname))
-    )
-      throw providerError("invalid_base_url", "baseUrl must use HTTPS or loopback HTTP.");
-    if (url.username || url.password || url.search || url.hash)
-      throw providerError("invalid_base_url", "baseUrl cannot contain credentials, query parameters, or a fragment.");
-    return text.replace(/\/+$/u, "");
-  };
-  const requireBaseUrlForVendor = (vendor: DecisionProviderVendor, baseUrl: string | null): string | null => {
-    if (vendor === "openai-compatible" && baseUrl === null)
-      throw providerError(
-        "invalid_base_url",
-        "openai-compatible providers require an absolute HTTPS URL or loopback HTTP baseUrl.",
-      );
-    return baseUrl;
-  };
   const publicProvider = (value: DecisionProviderRecord): DecisionProviderRecord => ({
     ...value,
     auth: { mode: "api-key", credentialRef: value.auth.credentialRef },
@@ -160,9 +172,10 @@ export function openDecisionProviderService(input: {
       if (read().some((entry) => entry.providerId === id))
         throw providerError("provider_exists", `Provider ${id} already exists.`);
       const vendor = parseVendor(action.vendor, "openrouter"),
+        adapter = getDecisionProviderAdapter(vendor),
         name = requiredText(action.name, "name"),
         model = requiredText(action.model, "model"),
-        baseUrl = requireBaseUrlForVendor(vendor, secureBaseUrl(action.baseUrl)),
+        validatedUrl = parseDecisionProviderBaseUrl(adapter, action.baseUrl),
         enabled = action.enabled === undefined ? true : requireBoolean(action.enabled, "enabled"),
         auth = await takeCredential(action, vault);
       const record: DecisionProviderRecord = {
@@ -172,7 +185,7 @@ export function openDecisionProviderService(input: {
         providerType: "decisions",
         vendor,
         model,
-        baseUrl,
+        baseUrl: validatedUrl.stored,
         auth: { mode: "api-key", credentialRef: auth.reference },
         enabled,
         configurationRevision: 1,
@@ -211,30 +224,29 @@ export function openDecisionProviderService(input: {
       const vendor = action.vendor === undefined ? undefined : parseVendor(action.vendor),
         name = action.name === undefined ? undefined : requiredText(action.name, "name"),
         model = action.model === undefined ? undefined : requiredText(action.model, "model"),
-        baseUrl = action.baseUrl === undefined ? undefined : secureBaseUrl(action.baseUrl),
+        hasBaseUrlUpdate = action.baseUrl !== undefined,
         enabled = action.enabled === undefined ? undefined : requireBoolean(action.enabled, "enabled");
       if (
         vendor === undefined &&
         name === undefined &&
         model === undefined &&
-        baseUrl === undefined &&
+        !hasBaseUrlUpdate &&
         enabled === undefined &&
         action.apiKey === undefined &&
         action.credentialRef === undefined
       )
         throw providerError("invalid_provider", "Specify at least one provider field to update.");
       const nextVendor = vendor ?? current.vendor,
-        nextBaseUrl = requireBaseUrlForVendor(
-          nextVendor,
-          action.baseUrl === undefined ? current.baseUrl : (baseUrl ?? null),
-        );
+        nextAdapter = getDecisionProviderAdapter(nextVendor),
+        candidateBaseUrl = hasBaseUrlUpdate ? action.baseUrl : current.baseUrl,
+        validatedUrl = parseDecisionProviderBaseUrl(nextAdapter, candidateBaseUrl);
       const auth = await takeCredential(action, vault, current.auth.credentialRef);
       const updated: DecisionProviderRecord = {
         ...current,
         vendor: nextVendor,
         ...(name === undefined ? {} : { name }),
         ...(model === undefined ? {} : { model }),
-        baseUrl: nextBaseUrl,
+        baseUrl: validatedUrl.stored,
         ...(enabled === undefined ? {} : { enabled }),
         auth: { mode: "api-key", credentialRef: auth.reference },
         configurationRevision: current.configurationRevision + 1,
@@ -258,7 +270,18 @@ export function openDecisionProviderService(input: {
       };
     }
     if (kind === "provider-probe") {
-      const resolvedServerUrl = requireBaseUrlForVendor(current.vendor, secureBaseUrl(current.baseUrl)) ?? undefined;
+      const adapter = getDecisionProviderAdapter(current.vendor);
+      let validatedUrl: ReturnType<typeof parseDecisionProviderBaseUrl>;
+      try {
+        validatedUrl = parseDecisionProviderBaseUrl(adapter, current.baseUrl);
+      } catch (error) {
+        const failed = {
+          ...current,
+          probe: { state: "failed" as const, checkedAt: now(), code: decisionFailureCode(error) },
+        };
+        persist(read().map((entry) => (entry.providerId === id ? failed : entry)));
+        throw error;
+      }
       let apiKey: string;
       try {
         apiKey = await vault.resolve(current.auth.credentialRef);
@@ -273,10 +296,10 @@ export function openDecisionProviderService(input: {
       }
       try {
         await invokeDecisionWithRetry({
-          invokeDecision: invokerFor(current.vendor),
+          invokeDecision: invokeAdapter(current.vendor),
           sleep,
           apiKey,
-          serverURL: resolvedServerUrl,
+          baseUrl: validatedUrl.parsed,
           model: current.model,
           state: [probeState],
           question: probeQuestion,
@@ -338,8 +361,8 @@ export function openDecisionProviderService(input: {
           throw providerError("provider_not_found", `Decisions provider ${request.providerId} does not exist.`);
         if (!provider.enabled)
           throw providerError("provider_disabled", `Decisions provider ${request.providerId} is disabled.`);
-        const resolvedServerUrl =
-          requireBaseUrlForVendor(provider.vendor, secureBaseUrl(provider.baseUrl)) ?? undefined;
+        const adapter = getDecisionProviderAdapter(provider.vendor);
+        const validatedUrl = parseDecisionProviderBaseUrl(adapter, provider.baseUrl);
         let apiKey: string;
         try {
           apiKey = await vault.resolve(provider.auth.credentialRef);
@@ -350,19 +373,19 @@ export function openDecisionProviderService(input: {
             `The credential for ${provider.providerId} is unavailable.`,
           );
         }
-        return { provider, apiKey, resolvedServerUrl };
+        return { provider, apiKey, parsedBaseUrl: validatedUrl.parsed };
       });
       const startedAt = Date.now();
-      let response: DecisionsResponse;
+      let response: NormalizedDecisionEnvelope;
       try {
         response = await invokeDecisionWithRetry({
-          invokeDecision: invokerFor(selected.provider.vendor),
+          invokeDecision: invokeAdapter(selected.provider.vendor),
           sleep,
           apiKey: selected.apiKey,
-          serverURL: selected.resolvedServerUrl,
+          baseUrl: selected.parsedBaseUrl,
           model: selected.provider.model,
           state: request.state,
-          question: toOpenRouterQuestion(request.question),
+          question: toProviderQuestion(request.question),
           providerId: selected.provider.providerId,
           vendor: selected.provider.vendor,
         });
@@ -389,25 +412,36 @@ export function openDecisionProviderService(input: {
 }
 
 function invokeDecisionWithRetry(
-  input: Parameters<DecisionInvoker>[0] & {
-    readonly invokeDecision: DecisionInvoker;
+  input: {
+    readonly invokeDecision: (req: {
+      readonly apiKey: string;
+      readonly baseUrl: URL | null;
+      readonly model: string;
+      readonly state: readonly string[];
+      readonly question: DecisionProviderQuestion;
+    }) => Promise<NormalizedDecisionEnvelope>;
     readonly sleep: DecisionSleep;
+    readonly apiKey: string;
+    readonly baseUrl: URL | null;
+    readonly model: string;
+    readonly state: readonly string[];
+    readonly question: DecisionProviderQuestion;
     readonly providerId: string;
-    readonly vendor?: DecisionProviderVendor;
+    readonly vendor: DecisionProviderVendor;
   },
   retries = 0,
-): Promise<DecisionsResponse> {
+): Promise<NormalizedDecisionEnvelope> {
   return input
     .invokeDecision({
       apiKey: input.apiKey,
-      serverURL: input.serverURL,
+      baseUrl: input.baseUrl,
       model: input.model,
       state: input.state,
       question: input.question,
     })
     .catch((error: unknown) => {
       const code = decisionFailureCode(error),
-        mapped = mapOpenRouterFailure(error, input.apiKey, input.providerId, input.model, input.vendor),
+        mapped = mapDecisionFailure(error, input.apiKey, input.providerId, input.model, input.vendor),
         retryable = retryableDecisionFailure(error, code);
       if (!retryable || retries >= decisionRetryMaxRetries) {
         if (retryable && retries > 0)
@@ -430,15 +464,18 @@ function invokeDecisionWithRetry(
 }
 
 function retryableDecisionFailure(error: unknown, code: DecisionPortFailureCode): boolean {
+  if (error instanceof DecisionAdapterError) return error.transient === true;
   if (code === "decision_rate_limited" || code === "decision_timeout") return true;
   if (code !== "decision_transport" || typeof error !== "object" || error === null) return false;
   const row = error as {
       readonly name?: unknown;
       readonly statusCode?: unknown;
       readonly status?: unknown;
+      readonly transient?: unknown;
     },
     status = typeof row.statusCode === "number" ? row.statusCode : typeof row.status === "number" ? row.status : null,
     name = typeof row.name === "string" ? row.name : "";
+  if (row.transient === false) return false;
   if (status !== null) return status >= 500;
   return name.includes("Connection") || name.includes("Network");
 }
@@ -527,7 +564,7 @@ function validateDecisionRequest(request: DecisionRequest): void {
   if (
     new Set(ids).size !== ids.length ||
     Object.keys(question.criteria).length !== ids.length ||
-    ids.some((id) => !nonblank(question.criteria[id]))
+    ids.some((id) => !Object.hasOwn(question.criteria, id) || !nonblank(question.criteria[id]))
   )
     throw providerError("invalid_decision_request", "Question criteria must describe each option exactly once.");
 }
@@ -539,60 +576,37 @@ function nonblank(value: unknown): value is string {
   return typeof value === "string" && value.trim() !== "";
 }
 
-function toOpenRouterQuestion(question: DecisionQuestion): OpenRouterQuestion {
+function toProviderQuestion(question: DecisionQuestion): DecisionProviderQuestion {
   if (question.type === "noul") return { type: "noul", instructions: question.prompt, criteria: question.criteria };
-  if (question.type === "choice")
+  if (question.type === "choice") {
+    const criteria: Record<string, { readonly label: string; readonly criterion: string }> = {};
+    for (const option of question.options) {
+      Object.defineProperty(criteria, option.id, {
+        value: { label: option.text, criterion: question.criteria[option.id]! },
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
     return {
       type: "choice",
       instructions: question.prompt,
-      criteria: Object.fromEntries(
-        question.options.map((option) => [option.id, { label: option.text, criterion: question.criteria[option.id] }]),
-      ),
+      criteria,
     };
+  }
   return {
     type: "score",
     instructions: question.prompt,
     criteria: question.levels.map((level) => ({
       id: level.id,
       label: level.text,
-      criterion: question.criteria[level.id],
+      criterion: question.criteria[level.id]!,
     })),
   };
 }
 
-async function openRouterDecision(input: {
-  readonly apiKey: string;
-  readonly serverURL: string | undefined;
-  readonly model: string;
-  readonly state: readonly string[];
-  readonly question: OpenRouterQuestion;
-}): Promise<DecisionsResponse> {
-  const client = openRouterClient(input.apiKey);
-  return client.alpha.decisions.create(
-    {
-      decisionsRequest: {
-        model: input.model,
-        state: [...input.state],
-        questions: { decision: input.question },
-      },
-    },
-    {
-      // Omitted when the provider has no base URL: the SDK's own Decisions
-      // operation default then applies, so this repository stores no copy of it.
-      ...(input.serverURL === undefined ? {} : { serverURL: input.serverURL }),
-      timeoutMs: requestTimeoutMs,
-      retries: { strategy: "none" },
-      retryCodes: [],
-    },
-  );
-}
-
-function openRouterClient(apiKey: string): OpenRouter {
-  return new OpenRouter({ apiKey, retryConfig: { strategy: "none" }, timeoutMs: requestTimeoutMs });
-}
-
 function decodeDecision(
-  response: DecisionsResponse,
+  response: NormalizedDecisionEnvelope,
   request: DecisionRequest,
   provider: DecisionProviderRecord,
   latencyMs: number,
@@ -626,25 +640,24 @@ function decodeDecision(
     latencyMs,
   });
   if (answer.type === "noul") {
-    if (!Number.isFinite(answer.noul) || answer.noul < 0 || answer.noul > 1)
-      throw providerError("decision_protocol_invalid", "The Decisions Noul response is outside the [0, 1] range.");
+    const noulValue = normalizeNoulValue(answer.noul);
     return Object.freeze({
       ...base,
       questionType: "noul",
-      distribution: Object.freeze({ true: answer.noul, false: 1 - answer.noul }),
-      result: Object.freeze({ type: "noul", value: answer.noul }),
+      distribution: Object.freeze({ true: noulValue, false: 1 - noulValue }),
+      result: Object.freeze({ type: "noul", value: noulValue }),
       __advisoryDecisionBrand: Symbol("advisory-decision") as never,
     });
   }
   if (answer.type === "choice") {
     const optionIds = request.question.type === "choice" ? request.question.options.map(({ id }) => id) : [];
-    const distribution = completeDistribution(answer.probabilities, optionIds);
+    const distribution = normalizeChoiceDistribution(answer.probabilities, optionIds);
     if (!optionIds.includes(answer.choice))
       throw providerError("decision_protocol_invalid", "The Decisions response selected an unknown option.");
     return Object.freeze({
       ...base,
       questionType: "choice",
-      distribution: Object.freeze(distribution),
+      distribution,
       result: Object.freeze({ type: "choice", selected: answer.choice }),
       __advisoryDecisionBrand: Symbol("advisory-decision") as never,
     });
@@ -653,51 +666,13 @@ function decodeDecision(
   return Object.freeze({
     ...base,
     questionType: "score",
-    distribution: Object.freeze(completeDistributionByCount(answer.probabilities, levelCount)),
+    distribution: normalizeScoreDistribution(answer.probabilities, levelCount),
     result: Object.freeze({ type: "score", value: answer.score }),
     __advisoryDecisionBrand: Symbol("advisory-decision") as never,
   });
 }
 
-function completeDistribution(
-  value: Readonly<Record<string, number>> | undefined,
-  expectedIds: readonly string[],
-): Readonly<Record<string, number>> {
-  if (!value || Object.keys(value).length !== expectedIds.length || expectedIds.some((id) => !(id in value)))
-    throw providerError(
-      "decision_protocol_invalid",
-      "The Decisions response did not include a complete option distribution.",
-    );
-  return Object.fromEntries(
-    Object.entries(value).map(([id, probability]) => {
-      if (!Number.isFinite(probability) || probability < 0 || probability > 1)
-        throw providerError("decision_protocol_invalid", "The Decisions response contains an invalid probability.");
-      return [id, probability];
-    }),
-  );
-}
-
-function completeDistributionByCount(
-  value: Readonly<Record<string, number>> | undefined,
-  expectedCount: number,
-): Readonly<Record<string, number>> {
-  if (!value || Object.keys(value).length !== expectedCount)
-    throw providerError(
-      "decision_protocol_invalid",
-      "The Decisions response did not include a complete score distribution.",
-    );
-  return Object.fromEntries(
-    Object.entries(value).map(([label, probability]) => {
-      if (!Number.isFinite(probability) || probability < 0 || probability > 1)
-        throw providerError("decision_protocol_invalid", "The Decisions response contains an invalid probability.");
-      return [label, probability];
-    }),
-  );
-}
-
-const decisionFailureDetailMaxLength = 400;
-
-function mapOpenRouterFailure(
+function mapDecisionFailure(
   error: unknown,
   apiKey?: string,
   providerId?: string,
@@ -707,7 +682,7 @@ function mapOpenRouterFailure(
   const code = decisionFailureCode(error),
     detail = decisionFailureDetail(error, apiKey),
     withDetail = (summary: string): string => (detail === "" ? summary : `${summary} ${detail}`),
-    vendorLabel = vendor === "openai-compatible" ? "OpenAI-compatible endpoint" : "OpenRouter",
+    vendorLabel = getDecisionProviderAdapter(vendor).label,
     provider =
       providerId === undefined || model === undefined
         ? "the configured Decisions provider"
@@ -731,18 +706,33 @@ function mapOpenRouterFailure(
     );
   if (code === "decision_transport")
     return providerError(code, withDetail(`The ${vendorLabel} Decisions request could not be completed.`), 0);
+  if (code === "invalid_base_url") return providerError(code, withDetail("Invalid Decisions provider baseUrl."), 0);
   if (error instanceof Error) return error;
   return new Error(String(error));
 }
 
 /**
- * One actionable sentence about a provider failure: HTTP status, SDK error class,
- * provider error code, and SDK's parsed message field. The raw response body is
- * never copied, and a known credential is replaced before the text reaches a log or receipt.
+ * One actionable sentence about a provider failure: HTTP status, error class, safe provider
+ * error code, and controlled diagnostic text. Raw upstream error bodies are never copied, and
+ * credentials of any length are redacted before truncation.
  */
 function decisionFailureDetail(error: unknown, apiKey?: string): string {
   if (typeof error === "string") return redactDecisionSecret(error, apiKey);
   if (!error || typeof error !== "object") return redactDecisionSecret(String(error), apiKey);
+  if (error instanceof DecisionAdapterError) {
+    const head = [
+      error.statusCode === undefined ? null : `HTTP ${String(error.statusCode)}`,
+      error.name && error.name !== "Error" ? error.name : null,
+      error.providerCode === undefined || error.providerCode === error.statusCode
+        ? null
+        : `code=${String(error.providerCode)}`,
+    ]
+      .filter((part): part is string => part !== null)
+      .join(" ");
+    const message = error.message.trim();
+    const detail = head === "" ? message : message === "" ? head : `${head}: ${message}`;
+    return redactDecisionSecret(detail, apiKey);
+  }
   const row = error as {
       readonly name?: unknown;
       readonly message?: unknown;
@@ -788,18 +778,6 @@ function providerErrorCode(value: unknown): unknown {
   return typeof nestedCode === "string" || typeof nestedCode === "number" ? nestedCode : null;
 }
 
-function redactDecisionSecret(text: string, apiKey?: string): string {
-  const secret = apiKey?.trim(),
-    redacted = secret && secret.length >= 4 ? text.split(secret).join("[redacted]") : text;
-  return redacted.length > decisionFailureDetailMaxLength
-    ? `${redacted.slice(0, decisionFailureDetailMaxLength)}…`
-    : redacted;
-}
-
-/** A 404 is a model-configuration fault only when the provider names the model as unavailable. */
-const modelUnavailablePattern =
-  /(?:model[^.\n]{0,80}unavailable|model[^.\n]{0,80}does not exist|model not exist|model_not_found|unavailable for free|use this slug instead|model not found|no such model|unknown model)/iu;
-
 function nestedProviderMessage(value: unknown): string | null {
   if (typeof value === "string") return value;
   if (!value || typeof value !== "object") return null;
@@ -823,6 +801,7 @@ function modelUnavailableMessage(error: object): boolean {
 }
 
 function decisionFailureCode(error: unknown): DecisionPortFailureCode {
+  if (error instanceof DecisionAdapterError) return error.code;
   if (!error || typeof error !== "object") return "decision_transport";
   const row = error as {
       readonly name?: unknown;
@@ -839,6 +818,7 @@ function decisionFailureCode(error: unknown): DecisionPortFailureCode {
     return "decision_timeout";
   if (name.includes("Validation")) return "decision_protocol_invalid";
   if (status !== null || name.includes("Connection") || name.includes("Network")) return "decision_transport";
+  if (row.code === "invalid_base_url") return "invalid_base_url";
   if (row.code === "provider_credential_unavailable") return "provider_credential_unavailable";
   if (row.code === "decision_timeout") return "decision_timeout";
   if (row.code === "decision_rate_limited") return "decision_rate_limited";

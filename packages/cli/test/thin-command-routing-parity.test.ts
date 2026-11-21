@@ -134,38 +134,47 @@ test("Decisions provider CLI accepts only the approved provider type and credent
       baseUrl: "",
       enabled: false,
     });
-  const createOpenAi = parseThinCommand([
-    "provider",
-    "create",
-    "--type",
-    "decisions",
-    "--vendor",
+  for (const vendor of [
+    "openrouter",
+    "google",
+    "perplexity",
+    "decisions-http",
     "openai-compatible",
-    "--id",
-    "intranet-vllm",
-    "--name",
-    "Intranet vLLM",
-    "--model",
-    "deepseek-r1",
-    "--credential-ref",
-    "credential:v1:test-key",
-    "--base-url",
-    "https://gateway.internal.example/v1",
-  ]);
-  assert.equal(createOpenAi.ok, true);
-  if (createOpenAi.ok) {
-    assert.equal(createOpenAi.command.method, "daemon.provider.create");
-    assert.deepEqual(createOpenAi.command.action, {
-      kind: "provider-create",
-      type: "decisions",
-      vendor: "openai-compatible",
-      providerId: "intranet-vllm",
-      name: "Intranet vLLM",
-      model: "deepseek-r1",
-      baseUrl: "https://gateway.internal.example/v1",
-      credentialRef: "credential:v1:test-key",
-      enabled: true,
-    });
+    "anthropic",
+  ] as const) {
+    const createVendor = parseThinCommand([
+      "provider",
+      "create",
+      "--type",
+      "decisions",
+      "--vendor",
+      vendor,
+      "--id",
+      `dp-${vendor}`,
+      "--name",
+      `Provider ${vendor}`,
+      "--model",
+      "test-model",
+      "--credential-ref",
+      "credential:v1:test-key",
+      "--base-url",
+      "https://gateway.internal.example/v1",
+    ]);
+    assert.equal(createVendor.ok, true, `provider create --vendor ${vendor} should parse`);
+    if (createVendor.ok) {
+      assert.equal(createVendor.command.method, "daemon.provider.create");
+      assert.deepEqual(createVendor.command.action, {
+        kind: "provider-create",
+        type: "decisions",
+        vendor,
+        providerId: `dp-${vendor}`,
+        name: `Provider ${vendor}`,
+        model: "test-model",
+        baseUrl: "https://gateway.internal.example/v1",
+        credentialRef: "credential:v1:test-key",
+        enabled: true,
+      });
+    }
   }
   assert.equal(
     parseThinCommand([
@@ -191,17 +200,17 @@ test("Decisions provider CLI accepts only the approved provider type and credent
     "update",
     "review-choice",
     "--vendor",
-    "openai-compatible",
+    "google",
     "--base-url",
-    "http://127.0.0.1:8080/v1",
+    "http://127.0.0.1:8080/v1beta",
   ]);
   assert.equal(updateVendor.ok, true);
   if (updateVendor.ok)
     assert.deepEqual(updateVendor.command.action, {
       kind: "provider-update",
       providerId: "review-choice",
-      vendor: "openai-compatible",
-      baseUrl: "http://127.0.0.1:8080/v1",
+      vendor: "google",
+      baseUrl: "http://127.0.0.1:8080/v1beta",
     });
   assert.equal(parseThinCommand(["provider", "update", "review-choice"]).ok, false);
   for (const operation of ["list", "show", "probe", "delete"]) {

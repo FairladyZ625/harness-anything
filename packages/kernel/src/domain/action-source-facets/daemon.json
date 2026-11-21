@@ -1204,7 +1204,14 @@
         "order": 1161
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#openDecisionProviderService.port.decide.selected:d15684a2ba95b397966411b8e1fa6ea5",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#openDecisionProviderService.invokeAdapter:4ebda1709afd5bacfae557776694502d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-host/decision-providers/types.ts#DecisionProviderAdapter.invoke",
+        "order": 1239
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#openDecisionProviderService.port.decide.selected:03fe5d6933166f00bef4f386531cd250",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/daemon-host/decision-provider.ts#openDecisionProviderService.enqueue",
@@ -1218,17 +1225,17 @@
         "order": 1237
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#openRouterDecision:1a5937b41f5548472b6fd964893385b9",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@openrouter/sdk/esm/sdk/decisions.d.ts#Decisions.create",
-        "order": 1238
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#providerError:aa94d91442a58c04667e9d8d423772af",
         "route": "daemon:bin",
         "role": "support",
         "order": 1162
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/decision-providers/adapters.ts#openRouterAdapter.invoke.response:4067363258e8d57e6d9fcec2ef95c276",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@openrouter/sdk/esm/sdk/decisions.d.ts#Decisions.create",
+        "order": 1238
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/dispatch-stream-archive.ts#pruneDispatchStreamArchiveSteps:b8382f84ae26e86a3116422afaf0b62a",

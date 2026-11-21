@@ -117,7 +117,11 @@ export const reviewFindingLabelWordsAreExact: [ReviewFindingLabel] extends [(typ
 
 export const decisionProviderVendorWords = Object.freeze([
   "openrouter",
+  "google",
+  "perplexity",
+  "decisions-http",
   "openai-compatible",
+  "anthropic",
 ] as const satisfies readonly DecisionProviderVendor[]);
 export const decisionProviderVendorWordsAreExact: [DecisionProviderVendor] extends [
   (typeof decisionProviderVendorWords)[number],

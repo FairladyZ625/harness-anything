@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { DecisionProviderRecord } from "@harness-anything/kernel";
+import { getDecisionProviderAdapter, parseDecisionProviderBaseUrl } from "./decision-providers/index.ts";
 import type { DoctorCheck } from "./repo-cell-doctor.ts";
 
 const checkId = "decisions-provider";
@@ -57,12 +58,13 @@ export function decisionProviderDoctorCheck(input: {
       summary: `Decisions provider ${providerId} (model ${provider.model}) is selected by repository settings but disabled.`,
       next: `Run ha provider update ${providerId} --enable, then ha provider probe ${providerId}. Config: ${configPath}.`,
     };
-  if (provider.vendor === "openai-compatible" && !provider.baseUrl)
+  const baseUrlFailure = checkProviderBaseUrl(provider);
+  if (baseUrlFailure !== null)
     return {
       id: checkId,
       status: "fail",
       count: 1,
-      summary: `Decisions provider ${providerId} (vendor openai-compatible, model ${provider.model}) is missing a required HTTPS or loopback HTTP baseUrl.`,
+      summary: `Decisions provider ${providerId} (vendor ${provider.vendor}, model ${provider.model}) has an invalid baseUrl configuration: ${baseUrlFailure}`,
       next: `Run ha provider update ${providerId} --base-url <https-or-loopback-url>, then ha provider probe ${providerId}. Config: ${configPath}.`,
     };
   if (provider.probe.state === "failed") {
@@ -95,4 +97,15 @@ export function decisionProviderDoctorCheck(input: {
     summary: `Decisions provider ${providerId} (model ${provider.model}) was ready at ${provider.probe.checkedAt}.`,
     next: "Nothing to do.",
   };
+}
+
+function checkProviderBaseUrl(provider: DecisionProviderRecord): string | null {
+  const adapter = getDecisionProviderAdapter(provider.vendor);
+  if (!adapter) return `Unsupported provider vendor: ${String(provider.vendor)}.`;
+  try {
+    parseDecisionProviderBaseUrl(adapter, provider.baseUrl);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
 }
