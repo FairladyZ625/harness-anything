@@ -1659,7 +1659,9 @@ function supportedPlatform(platform: NodeJS.Platform, arch: string): SupportedPl
     return key;
   throw managedRbacError(
     "rbac_platform_unsupported",
-    `Managed RBAC supports macOS arm64/x64, Linux x64, and Windows x64/arm64 (x64 runtime on arm64); received ${key}.`,
+    `Managed RBAC supports macOS arm64/x64, Linux x64, and Windows x64/arm64 (x64 runtime on arm64); received ${key}. ` +
+      "Configure an external OIDC/Keycloak authority instead: " +
+      "ha bootstrap --mode external --url <https-url> --realm <realm> --client-id harness-center --client-secret-stdin < <protected-client-secret-file>.",
   );
 }
 
