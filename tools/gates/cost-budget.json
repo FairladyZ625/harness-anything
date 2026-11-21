@@ -1223,6 +1223,11 @@
             "cli-vertical-kind-show"
           ]
         },
+        "command:vertical-list": {
+          "measurements": [
+            "cli-vertical-list"
+          ]
+        },
         "command:work-list": {
           "measurements": [
             "cli-work-list"
@@ -1475,6 +1480,11 @@
         "method:repo.vertical.declaration.read": {
           "measurements": [
             "repo.vertical.declaration.read"
+          ]
+        },
+        "method:repo.vertical.list": {
+          "measurements": [
+            "repo.vertical.list"
           ]
         },
         "method:repo.work.topology.read": {

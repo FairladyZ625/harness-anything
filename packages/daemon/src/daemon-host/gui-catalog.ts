@@ -131,7 +131,7 @@ export function openGuiCatalog(input: {
       scaffolds: listGovernanceScaffoldOverlays(input.rootDir),
       // 验收人取值面的 bundled 层;已安装层由 GUI 复用 repo.agent.entities.list 的共享缓存,
       // 不进快照——实体写不应搅动 catalog digest。
-      bundledAgents: listBundledAgentDeclarationIds(),
+      bundledAgents: listBundledAgentDeclarationIds(defaults.verticalId, input.rootDir),
       // 设置字段契约面:与 settings 动作目录同一单源派生,GUI 仓库设置表单据此渲染,
       // kernel 加字段不再需要 GUI 手写字段清单。effect/group/defaultValue 是呈现元数据
       // (改了会怎样、按用途分组、是否等于默认值),同样从声明源投影,不在 GUI 另写一份。

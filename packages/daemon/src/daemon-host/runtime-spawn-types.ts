@@ -400,6 +400,8 @@ export interface RemoteRuntimePersistence {
     readonly riskTier: TaskMetadataV1["riskTier"];
     /** Null for historical tasks using their creation-time profile mission rule. */
     readonly riskTierFlowVersion: TaskMetadataV1["riskTierFlowVersion"] | null;
+    /** The task's frozen vertical id from the center's serving cut; null when absent on legacy tasks. */
+    readonly verticalId?: string | null;
     /** The task's frozen profile id from the center's serving cut; it identifies preset materialization. */
     readonly profileId: string | null;
     readonly taskClass: string;
@@ -524,12 +526,13 @@ export interface RuntimeSpawnerInput {
     provider: "github" | "gitlab",
     repoId: string,
   ) => Promise<NodeJS.ProcessEnv | null>;
-  readonly resolveAgent?: (agentId: string) => RuntimeAgent;
+  readonly resolveAgent?: (agentId: string, verticalId?: string) => RuntimeAgent;
   readonly resolveSquadDispatch?: (
     squadId: string | undefined,
     leaderId: string,
     workerId: string | undefined,
     binding: RuntimeBinding,
+    verticalId?: string,
   ) => SquadDispatchSelection;
   readonly launch?: RuntimeLauncher;
   readonly schedule: (work: () => void | Promise<void>, binding?: RuntimeBinding) => void;

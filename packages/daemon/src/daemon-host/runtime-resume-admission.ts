@@ -141,12 +141,11 @@ export function runtimeResumeAdmission(input: {
 export function readOnlyAttachDispatch(input: RuntimeSpawnerInput, payload: JsonObject): boolean {
   const taskId = typeof payload.taskId === "string" ? payload.taskId : null;
   if (taskId === null || payload.role === "reviewer" || payload.dryRun === true) return false;
-  const status = requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot.task
-    ?.status;
-  if (status !== "submitted" && status !== "in_review") return false;
+  const task = requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot.task;
+  if (task?.status !== "submitted" && task?.status !== "in_review") return false;
   const agentId = typeof payload.agentId === "string" ? payload.agentId : undefined;
   return agentId !== undefined && input.resolveAgent !== undefined
-    ? input.resolveAgent(agentId)?.permissionMode === "read-only"
+    ? input.resolveAgent(agentId, task.metadata?.verticalId)?.permissionMode === "read-only"
     : false;
 }
 

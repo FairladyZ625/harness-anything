@@ -346,6 +346,7 @@ export const commandTable = [
   ["settings-update", (c, s) => ["settings", "update", "--locale", s % 2 ? "zh-CN" : "en-US"]],
   ["people-add", "retired in RBAC v2 CH1"],
   ["people-remove", "retired in RBAC v2 CH1"],
+  ["vertical-list", () => ["vertical", "list"]],
   ["vertical-validate", () => ["vertical", "validate"]],
   ["vertical-declaration-migrate", () => ["migrate", "vertical-declaration"]],
   ["preset-list", () => ["preset", "list"]],

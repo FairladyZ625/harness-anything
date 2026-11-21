@@ -218,7 +218,17 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         typeof payload.agentId === "string" && payload.squadId === undefined && payload.targetAgentId === undefined
           ? payload.agentId
           : undefined,
-      agent = agentId === undefined ? null : (input.resolveAgent?.(agentId) ?? null),
+      taskId = typeof payload.taskId === "string" ? payload.taskId : null,
+      verticalId =
+        agentId !== undefined &&
+        input.resolveAgent !== undefined &&
+        taskId !== null &&
+        !input.remote &&
+        input.projection
+          ? requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot.task
+              ?.metadata?.verticalId
+          : undefined,
+      agent = agentId === undefined ? null : (input.resolveAgent?.(agentId, verticalId) ?? null),
       requested = runtimeInstanceId ?? agent?.instance;
     if (requested === undefined) return;
     const projection = input.remote ? null : requiredRuntimeProjection(input),
@@ -449,7 +459,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         taskId !== null && !input.remote && !reviewerBinding && !dryRun && frozenTask
           ? input.resolveAgent !== undefined &&
             agentId !== undefined &&
-            input.resolveAgent(agentId)?.permissionMode === "read-only"
+            input.resolveAgent(agentId, taskSnapshot?.task?.metadata?.verticalId)?.permissionMode === "read-only"
           : false,
       attachTarget = readOnlyAttach ? selectReadOnlyAttachTarget(taskId!, taskSnapshot!) : null,
       arrangement = taskSnapshot ? currentExecutionArrangement(taskSnapshot) : undefined,
@@ -539,7 +549,15 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         agent,
         resolvedSkills: rawResolvedSkills,
         preset,
-      } = resolveDispatchAgent(input, binding, cwd, agentId, squadId, targetAgentId);
+      } = resolveDispatchAgent(
+        input,
+        binding,
+        cwd,
+        agentId,
+        squadId,
+        targetAgentId,
+        taskSnapshot?.task?.metadata?.verticalId ?? remoteTask?.verticalId ?? undefined,
+      );
     if (agent) assertAgentDispatchable(agent);
     const agentDeclarationDigest = agent === null ? null : computeAgentDeclarationDigest(agent),
       preparedSkillSnapshot =

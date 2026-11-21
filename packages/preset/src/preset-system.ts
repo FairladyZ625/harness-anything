@@ -29,7 +29,7 @@ import {
   type InternalPresetResolution,
   type RepositoryScaffoldPlan,
 } from "./preset-resolver.ts";
-import { resolveVerticalAssetsRoot } from "./preset-assets.ts";
+import { listVerticalCatalog, resolveVerticalAssetsRoot } from "./preset-assets.ts";
 import { asFailure } from "./preset-resolver-common.ts";
 
 type TaskWorkKind = NonNullable<Parameters<typeof compileTaskPackage>[0]["workKind"]>;
@@ -53,6 +53,11 @@ export async function runPresetAction(input: {
 }): Promise<unknown> {
   const action = input.action,
     dryRun = action.dryRun === true;
+  if (action.kind === "vertical-list")
+    return listVerticalCatalog({
+      rootDir: input.rootDir,
+      defaultVertical: input.settings?.defaultVertical,
+    });
   if (action.kind === "vertical-validate")
     return validateVerticalSource({
       source: optionalActionText(action.verticalSource) ?? input.settings?.defaultVertical,

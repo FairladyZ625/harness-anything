@@ -39,6 +39,7 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
   ["task-show", (receipt) => renderTaskShow(receipt, parseEvidence(receipt)) ?? renderSuccessfulReceipt(receipt)],
   ["decision-propose", renderDecisionPropose],
   ["preset-list", renderPresetListReceipt],
+  ["vertical-list", renderVerticalListReceipt],
   ["migrate-import", renderSuccessfulReceipt],
   ["task-contract-migrate", renderSuccessfulReceipt],
   ["doc-show", (receipt) => String(receipt.evidence)],
@@ -301,6 +302,30 @@ function renderDecisionPropose(receipt: Record<string, unknown>): string {
     `next: ha relation relate --source-ref decision/${payload.decisionId}/<claim-id> --target-ref fact/<fact-id> --type evidenced-by --rationale <why> --expected-version 0` +
       " (accept requires an evidenced claim, or --judgment-only)",
   ].join("\n");
+}
+
+function renderVerticalListReceipt(receipt: Record<string, unknown>): string {
+  const rows = JSON.parse(String(receipt.evidence)) as Array<Record<string, unknown>>;
+  if (rows.length === 0) return "No verticals available.";
+  return rows
+    .map((row) => {
+      const id = String(row.id),
+        title = String(row.title ?? id),
+        layer = String(row.layer ?? "builtin"),
+        badges = [
+          layer,
+          ...(row.default === true ? ["default"] : []),
+          ...(row.shadows ? [`shadows ${String(row.shadows)}`] : []),
+        ].join(", "),
+        valid = row.valid === true ? "valid" : "invalid";
+      return [
+        `${id} — ${title} (${badges})`,
+        `  valid: ${valid}`,
+        `  source: ${String(row.source ?? "unavailable")}`,
+        `  next: ha preset list --vertical ${id}`,
+      ].join("\n");
+    })
+    .join("\n");
 }
 
 function renderPresetListReceipt(receipt: Record<string, unknown>): string {
