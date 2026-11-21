@@ -123,6 +123,7 @@ const FLEET_READ_FAULT_CODES = new Set<string>([
   "invalid_command",
   "invalid_cursor",
   "invalid_field",
+  "invalid_request",
   "runtime_session_not_found",
   "unsupported_command",
 ]);

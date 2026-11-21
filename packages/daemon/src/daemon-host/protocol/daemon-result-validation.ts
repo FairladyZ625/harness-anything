@@ -1,4 +1,5 @@
 import { validateHomeOverviewResult } from "../home/home-overview-validation.ts";
+import { CANONICAL_EVENT_PAGE_SCHEMA } from "@harness-anything/kernel";
 import { repositoryReadData, validateRepositoryReadFrame } from "./repository-read-frame.ts";
 import { validateTaskClaimableResult, validateTaskAssignmentDirectory } from "./daemon-protocol-validate-entities.ts";
 import {
@@ -202,6 +203,17 @@ const resultValidators = {
   "daemon.gui.home.read": validateHomeOverviewResult,
   "daemon.gui.control.receipt": validateDaemonControlReceipt,
   "observe.tail": validateObserveTailResult,
+  "repo.events.read": (value) =>
+    isJsonObject(value) &&
+    value.schema === CANONICAL_EVENT_PAGE_SCHEMA &&
+    value.ok === true &&
+    typeof value.repoId === "string" &&
+    Array.isArray(value.events) &&
+    Number.isSafeInteger(value.headRevision) &&
+    Number.isSafeInteger(value.nextAfterRevision) &&
+    typeof value.hasMore === "boolean"
+      ? []
+      : ["invalid canonical event page"],
   "repo.tasks.assignmentDirectory": validateTaskAssignmentDirectory,
   "repo.tasks.claimable": validateTaskClaimableResult,
   "repo.tasks.list": validateDaemonTaskSnapshotListServed,

@@ -176,7 +176,7 @@ const methodsServedWhileDraining: ReadonlySet<DaemonRpcMethod> = new Set(["daemo
 // idempotent read — so neither the build-drain gate nor the shutdown drain window waits on them.
 // Stream calls are the same safety class but answer immediately and pump events in the background,
 // so only the await family parks a reply.
-const daemonParkedWaitMethods: ReadonlySet<string> = new Set(["repo.agentRuntime.sessions.await"]);
+const daemonParkedWaitMethods: ReadonlySet<string> = new Set(["repo.agentRuntime.sessions.await", "repo.events.read"]);
 export const isDaemonParkedWaitMethod = (method: string): boolean => daemonParkedWaitMethods.has(method);
 // `stopping` is the runtime's own shutdown flag, handed in by the composition that owns the drain;
 // the daemon has no second opinion about whether it is stopping.

@@ -6328,6 +6328,12 @@
     ],
     "repository-read": [
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/canonical-event-wait.ts#makeCanonicalEventWait.read.finish:c79e002eaad464a177c515584cc57d43",
+        "route": "repository-read",
+        "role": "support",
+        "order": 223
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/artifacts-gui-read.ts#invalidCursor:e9ccb15dcdc0b83955f1816ca9133553",
         "route": "repository-read",
         "role": "support",

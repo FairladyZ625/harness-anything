@@ -71,3 +71,4 @@ export {
   type CutReviewDispatchTarget,
   type LatestCutReviewFailure,
 } from "./review-dispatch-failure-read.ts";
+export { readCanonicalEventPage } from "./canonical-event-page.ts";

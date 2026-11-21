@@ -2,12 +2,44 @@ import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/dom
 import {
   cliInput,
   defineEdgeReplicaQueryOnlyReadCommand,
+  defineRepoReadCommand,
 } from "@harness-anything/preset/internal/preset-command-contract";
 
 const isoTimestamp = "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+(?:Z|[+-][0-9]{2}:[0-9]{2})$",
   eventListLimit = daemonProtocolFleetPolicy.defaultValue.protocol.listLimitPattern;
 
 export const eventProtocolCommands = Object.freeze([
+  defineRepoReadCommand({
+    id: "event-subscribe",
+    repositoryRead: true,
+    phase: "Ledger-Read",
+    path: ["event", "subscribe"],
+    summary: "Read one page of complete canonical events after a revision, optionally waiting for a commit.",
+    method: "repo.events.read",
+    inputs: [
+      cliInput(
+        "--after-revision",
+        "single",
+        true,
+        { code: "missing_field" },
+        { pathKind: "non-path", projection: "number", regex: "^[0-9]+$" },
+      ),
+      cliInput(
+        "--limit",
+        "single",
+        true,
+        { code: "missing_field" },
+        { pathKind: "non-path", projection: "number", regex: eventListLimit },
+      ),
+      cliInput(
+        "--wait-ms",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", projection: "number", regex: "^[0-9]+$" },
+      ),
+    ],
+  }),
   defineEdgeReplicaQueryOnlyReadCommand({
     id: "event-list",
     repositoryRead: true,
