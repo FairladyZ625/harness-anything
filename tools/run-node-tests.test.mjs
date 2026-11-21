@@ -159,6 +159,70 @@ test("partitionTestFiles covers a tier exactly and repeats only declared shared 
   assert.throws(() => partitionTestFiles(files, "0/2"), /index from 1 to count/u);
 });
 
+test("measured file partitions balance durations and preserve the exact discovered set", () => {
+  const files = [
+    "heavy-a.test.mjs",
+    "heavy-b.test.mjs",
+    "heavy-c.test.mjs",
+    "light-a.test.mjs",
+    "light-b.test.mjs",
+    "light-c.test.mjs",
+    "shared.test.mjs",
+  ];
+  const weights = {
+    "heavy-a.test.mjs": 100_000,
+    "heavy-b.test.mjs": 90_000,
+    "heavy-c.test.mjs": 80_000,
+    "light-a.test.mjs": 1_000,
+    "light-b.test.mjs": 1_000,
+    "light-c.test.mjs": 1_000,
+  };
+  const sharedFiles = ["shared.test.mjs"];
+  const measured = Array.from({ length: 2 }, (_, index) =>
+    partitionTestFiles(files, `${index + 1}/2`, sharedFiles, { strategy: "measured", weightOverrides: weights }),
+  );
+  const ordinal = Array.from({ length: 2 }, (_, index) => partitionTestFiles(files, `${index + 1}/2`, sharedFiles));
+  const load = (partition) => partition.reduce((sum, file) => sum + (weights[file] ?? 0), 0);
+  assert.ok(Math.max(...measured.map(load)) < Math.max(...ordinal.map(load)));
+  const measuredFileCounts = new Map();
+  for (const file of measured.flat()) measuredFileCounts.set(file, (measuredFileCounts.get(file) ?? 0) + 1);
+  assert.deepEqual([...measuredFileCounts.keys()].sort(), files.sort());
+  assert.equal(measuredFileCounts.get("shared.test.mjs"), 2);
+  assert.ok([...measuredFileCounts].filter(([file]) => file !== "shared.test.mjs").every(([, count]) => count === 1));
+  assert.deepEqual(
+    measured[0].filter((file) => measured[1].includes(file)),
+    sharedFiles,
+    "only explicitly shared scenario files may occur in multiple partitions",
+  );
+});
+
+test("discovered fast and contract files are covered once except the scenario-partitioned shared file", () => {
+  const tiers = discoverTestTierManifest(process.cwd());
+  const sharedFile = "tools/gates/test/ontology-durable-action-authorization.test.mjs";
+  for (const tier of ["fast", "contract"]) {
+    const files = tiers[tier];
+    const sharedFiles = tier === "contract" ? [sharedFile] : [];
+    const partitions = Array.from({ length: 4 }, (_, index) =>
+      partitionTestFiles(files, `${index + 1}/4`, sharedFiles, { strategy: "measured", weightOverrides: {} }),
+    );
+    const fileCounts = new Map();
+    for (const file of partitions.flat()) fileCounts.set(file, (fileCounts.get(file) ?? 0) + 1);
+    assert.deepEqual([...fileCounts.keys()].sort(), [...files].sort(), `${tier} union`);
+    for (const file of files) {
+      assert.equal(fileCounts.get(file), sharedFiles.includes(file) ? 4 : 1, `${tier} count for ${file}`);
+    }
+    for (let left = 0; left < partitions.length; left += 1) {
+      for (let right = left + 1; right < partitions.length; right += 1) {
+        assert.deepEqual(
+          partitions[left].filter((file) => partitions[right].includes(file)),
+          sharedFiles,
+          `${tier} partitions ${left + 1}/${right + 1} overlap only on declared shared files`,
+        );
+      }
+    }
+  }
+});
+
 test("testOrdinalInPartition splits the slow shared suite exactly by registration order", () => {
   const ordinals = Array.from({ length: 22 }, (_, ordinal) => ordinal);
   const first = ordinals.filter((ordinal) => testOrdinalInPartition(ordinal, "1/2"));

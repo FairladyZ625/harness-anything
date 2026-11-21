@@ -35,9 +35,18 @@ let partitionTestOrdinal = 0;
 // Explicit partitions spread the mutation cases across four workers. New cases must
 // update this map; their measured durations are recorded by the test runner.
 const authorizationTestPartitionAssignments = [
-  4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 4, 3, 3, 4, 1, 1, 2, 3, 4, 1, 4, 3, 2, 4, 2, 1, 3, 1, 4, 1, 3, 4,
-  4, 4, 2, 3, 2,
+  2, 3, 1, 4, 4, 2, 3, 4, 4, 2, 3, 2, 3, 2, 3, 3, 2, 1, 3, 1, 2, 4, 2, 3, 3, 1, 2, 3, 1, 1, 2, 1, 1, 3, 4, 4, 2, 4, 2,
+  1, 4, 1, 2, 2,
 ];
+test("authorization scenario partitions cover every registered case exactly once", () => {
+  assert.equal(authorizationTestPartitionAssignments.length, 44);
+  for (let ordinal = 0; ordinal < authorizationTestPartitionAssignments.length; ordinal += 1) {
+    const assignedPartitions = [1, 2, 3, 4].filter((partition) =>
+      testOrdinalInPartition(ordinal, `${partition}/4`, authorizationTestPartitionAssignments),
+    );
+    assert.deepEqual(assignedPartitions, [authorizationTestPartitionAssignments[ordinal]], `scenario ${ordinal}`);
+  }
+});
 function partitionedTest(name, testFn) {
   const ordinal = partitionTestOrdinal++;
   if (!testOrdinalInPartition(ordinal, partitionValue, authorizationTestPartitionAssignments)) return;
