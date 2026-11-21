@@ -247,11 +247,23 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
       claims,
       { isolationLevel: "repeatable read" },
     );
-  const readEventSummaries: PgTaskProjectionSource["readEventSummaries"] = (afterRevision, limit, fields) =>
+  const readEventSummaries: PgTaskProjectionSource["readEventSummaries"] = (
+    afterRevision,
+    limit,
+    fields,
+    beforeRevision,
+  ) =>
     withPostgresTransaction(
       options.pool,
       async (client) => {
-        if (!validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.summaries, afterRevision))
+        if (
+          !validateStorageReadWindow(
+            limit,
+            storageReadPolicy.defaultValue.pageSizes.summaries,
+            afterRevision,
+            beforeRevision,
+          )
+        )
           throw new Error("event summary page requires a non-negative revision and a limit from 1 to 2048");
         const cut = await readCutInTransaction(client, claims, readers, repoId);
         if (typeof fields === "object" && "taskIds" in fields) {
@@ -312,16 +324,30 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
           if (!ready.rowCount) {
             // During the current/previous upgrade window, preserve the existing event reader
             // until this repo's bounded summary projection has been certified.
-            const rows = await readEventRowsInTransaction(
-              client,
-              claims,
-              readers,
-              repoId,
-              "revision > $6 AND revision <= $7",
-              [afterRevision, cut.watermark],
-              "ASC",
-              limit,
-            );
+            const rows =
+              beforeRevision === undefined
+                ? await readEventRowsInTransaction(
+                    client,
+                    claims,
+                    readers,
+                    repoId,
+                    "revision > $6 AND revision <= $7",
+                    [afterRevision, cut.watermark],
+                    "ASC",
+                    limit,
+                  )
+                : (
+                    await readEventRowsInTransaction(
+                      client,
+                      claims,
+                      readers,
+                      repoId,
+                      "revision > $6 AND revision < $7 AND revision <= $8",
+                      [afterRevision, beforeRevision, cut.watermark],
+                      "DESC",
+                      limit,
+                    )
+                  ).reverse();
             return {
               ...cut,
               events: rows.map(({ event_json }) =>
@@ -330,17 +356,51 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
               ...(fleetActivity === undefined ? {} : { fleetActivity }),
             };
           }
-          const result = await client.query<PgFleetHeaderRow>(
-            `SELECT summary_json, fleet_node_id,
-                    COALESCE(fleet_source_json, (ha_read_index_json(event_json)->'source')::text) AS fleet_source_json,
-                    COALESCE(actor_person_id, ha_read_index_json(event_json)#>>'{actor,principal,personId}') AS actor_person_id
+          const upperPredicate = beforeRevision === undefined ? "" : "AND revision < $9",
+            order = beforeRevision === undefined ? "ASC" : "DESC",
+            params = [
+              claims.tenantId,
+              claims.projectId,
+              repoId,
+              claims.policyEpoch,
+              readers,
+              afterRevision,
+              cut.watermark,
+              limit,
+              ...(beforeRevision === undefined ? [] : [beforeRevision]),
+            ],
+            result = await client.query<PgFleetHeaderRow>(
+              `SELECT summary_json, fleet_node_id,
+                      COALESCE(fleet_source_json, (ha_read_index_json(event_json)->'source')::text) AS fleet_source_json,
+                      COALESCE(actor_person_id, ha_read_index_json(event_json)#>>'{actor,principal,personId}') AS actor_person_id
+               FROM ha_events
+               WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND policy_epoch=$4
+                 AND event_type <> 'ci_run_observed'
+                 AND summary_json IS NOT NULL
+                 AND (cardinality($5::text[]) = 0 OR readers && $5::text[])
+                 AND revision <= $7 AND revision > $6 ${upperPredicate}
+               ORDER BY revision ${order} LIMIT $8`,
+              params,
+            ),
+            rows = beforeRevision === undefined ? result.rows : result.rows.toReversed();
+          return {
+            ...cut,
+            events: rows.map(pgFleetHeader),
+            ...(fleetActivity === undefined ? {} : { fleetActivity }),
+          };
+        }
+        await assertPgEventReadIndexReady(client, claims, repoId);
+        await pgDefaultEventSummaryGate(client, claims, repoId);
+        const upperPredicate = beforeRevision === undefined ? "" : "AND revision < $9",
+          order = beforeRevision === undefined ? "ASC" : "DESC",
+          result = await client.query<{ revision: string; summary_json: string }>(
+            `SELECT revision::text AS revision, default_summary_json AS summary_json
              FROM ha_events
-             WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND policy_epoch=$4
+             WHERE tenant_id = $1 AND project_id = $2 AND repo_id = $3 AND policy_epoch = $4
                AND event_type <> 'ci_run_observed'
-               AND summary_json IS NOT NULL
                AND (cardinality($5::text[]) = 0 OR readers && $5::text[])
-               AND revision <= $7 AND revision > $6
-             ORDER BY revision ASC LIMIT $8`,
+               AND revision > $6 AND revision <= $7 ${upperPredicate}
+             ORDER BY ha_events.revision ${order} LIMIT $8`,
             [
               claims.tenantId,
               claims.projectId,
@@ -350,29 +410,13 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
               afterRevision,
               cut.watermark,
               limit,
+              ...(beforeRevision === undefined ? [] : [beforeRevision]),
             ],
-          );
-          return {
-            ...cut,
-            events: result.rows.map(pgFleetHeader),
-            ...(fleetActivity === undefined ? {} : { fleetActivity }),
-          };
-        }
-        await assertPgEventReadIndexReady(client, claims, repoId);
-        await pgDefaultEventSummaryGate(client, claims, repoId);
-        const result = await client.query<{ revision: string; summary_json: string }>(
-          `SELECT revision::text AS revision, default_summary_json AS summary_json
-           FROM ha_events
-           WHERE tenant_id = $1 AND project_id = $2 AND repo_id = $3 AND policy_epoch = $4
-             AND event_type <> 'ci_run_observed'
-             AND (cardinality($5::text[]) = 0 OR readers && $5::text[])
-             AND revision > $6 AND revision <= $7
-           ORDER BY ha_events.revision ASC LIMIT $8`,
-          [claims.tenantId, claims.projectId, repoId, claims.policyEpoch, readers, afterRevision, cut.watermark, limit],
-        );
+          ),
+          rows = beforeRevision === undefined ? result.rows : result.rows.toReversed();
         return {
           ...cut,
-          events: result.rows.map(({ summary_json }) => parseDefaultEventSummaryRow(summary_json)),
+          events: rows.map(({ summary_json }) => parseDefaultEventSummaryRow(summary_json)),
         };
       },
       claims,

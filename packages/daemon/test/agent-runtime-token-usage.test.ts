@@ -609,7 +609,9 @@ test("runtime token usage queries use the canonical repository-scoped read descr
       method: "repo.agentRuntime.tokenUsageDetail",
       params: { repo: { repoId: "canonical" }, payload: { member: "terra" } },
     }),
-    ['params.payload contains an unknown field "member"; allowed fields: "range", "agentId", "squadId".'],
+    [
+      'params.payload contains an unknown field "member"; allowed fields: "range", "agentId", "squadId", "limit", "cursor".',
+    ],
   );
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-token-usage-rpc-"));
   try {
@@ -1623,6 +1625,125 @@ test("out-of-window unarchived dispatch streams do not grow per-read filesystem 
     fs.openSync = originalOpenSync;
     fs.readdirSync = originalReaddirSync;
     syncBuiltinESMExports();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("readAgentRuntimeTokenUsageDetail paginates deterministically with limit + cursor and matches window totals (F9)", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-token-usage-detail-page-"));
+  try {
+    // Seed 7 dispatches for terra across multiple timestamps plus an exact timestamp tie to verify
+    // deterministic (startedAt DESC, dispatchId ASC) ordering across pages.
+    const timestamps = [
+      "2026-09-14T08:00:00.000Z",
+      "2026-09-14T09:00:00.000Z",
+      "2026-09-14T09:00:00.000Z",
+      "2026-09-14T10:00:00.000Z",
+      "2026-09-14T10:00:00.000Z",
+      "2026-09-14T11:00:00.000Z",
+      "2026-09-14T12:00:00.000Z",
+    ];
+    for (let i = 0; i < timestamps.length; i += 1) {
+      seedDispatch(rootDir, i + 1, {
+        startedAt: timestamps[i]!,
+        session: `runtime-paged-${i}`,
+        agentId: "terra",
+        agentName: "Terra",
+        model: "claude-haiku-4-5",
+        tokens: [1_000 + i * 100, 200 + i * 50, i + 1],
+      });
+    }
+    const projection = tokenUsageProjection(rootDir);
+    const full = readAgentRuntimeTokenUsageDetail({
+      rootDir,
+      now: NOW,
+      range: "today",
+      member: { kind: "agent", agentId: "terra" },
+      entityLabel: () => null,
+      cut: CUT,
+      projection,
+    });
+    assert.equal(full.sessions.length, 7);
+    assert.deepEqual(full.page, { limit: 500, cursor: null, nextCursor: null });
+    assert.deepEqual(validateAgentRuntimeTokenUsageDetail(full), []);
+    // Backward compatibility: legacy 12-field response without `page` remains valid.
+    const { page: _omitted, ...legacyShape } = full;
+    assert.deepEqual(validateAgentRuntimeTokenUsageDetail(legacyShape), []);
+    assert.deepEqual(
+      validateAgentRuntimeTokenUsageDetail({ ...full, page: { limit: 0, cursor: null, nextCursor: null } }),
+      ["agent runtime token usage detail is invalid"],
+    );
+
+    const collected: (typeof full.sessions)[number][] = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    for (;;) {
+      const page = readAgentRuntimeTokenUsageDetail({
+        rootDir,
+        now: NOW,
+        range: "today",
+        member: { kind: "agent", agentId: "terra" },
+        limit: 2,
+        ...(cursor ? { cursor } : {}),
+        entityLabel: () => null,
+        cut: CUT,
+        projection,
+      });
+      pages += 1;
+      assert.deepEqual(validateAgentRuntimeTokenUsageDetail(page), []);
+      assert.deepEqual(page.totals, full.totals, "window totals must stay identical on every page");
+      assert.deepEqual(page.buckets, full.buckets, "window buckets must stay identical on every page");
+      assert.equal(page.page?.limit, 2);
+      assert.equal(page.page?.cursor, cursor ?? null);
+      assert.ok(page.sessions.length <= 2);
+      collected.push(...page.sessions);
+      if (!page.page?.nextCursor) break;
+      assert.notEqual(page.page.nextCursor, cursor);
+      cursor = page.page.nextCursor;
+    }
+    assert.equal(pages, 4);
+    assert.deepEqual(
+      collected.map((row) => row.dispatchId),
+      full.sessions.map((row) => row.dispatchId),
+      "paginated accumulation must preserve exact deterministic order with zero duplicates or gaps",
+    );
+    assert.equal(
+      collected.reduce((acc, row) => acc + row.totalTokens, 0),
+      full.totals.totalTokens,
+    );
+    assert.equal(
+      collected.reduce((acc, row) => acc + row.toolCallCount, 0),
+      full.totals.toolCallCount,
+    );
+    assert.throws(
+      () =>
+        readAgentRuntimeTokenUsageDetail({
+          rootDir,
+          now: NOW,
+          range: "today",
+          member: { kind: "agent", agentId: "terra" },
+          limit: 501,
+          entityLabel: () => null,
+          cut: CUT,
+          projection,
+        }),
+      (error: unknown) => (error as { code?: string })?.code === "invalid_command",
+    );
+    assert.throws(
+      () =>
+        readAgentRuntimeTokenUsageDetail({
+          rootDir,
+          now: NOW,
+          range: "today",
+          member: { kind: "agent", agentId: "terra" },
+          cursor: "not-a-valid-cursor!!!",
+          entityLabel: () => null,
+          cut: CUT,
+          projection,
+        }),
+      (error: unknown) => (error as { code?: string })?.code === "invalid_cursor",
+    );
+  } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
 });

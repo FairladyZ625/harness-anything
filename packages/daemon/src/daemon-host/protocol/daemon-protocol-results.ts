@@ -657,6 +657,8 @@ export type DaemonGuiReadPayloadMap = {
     readonly range?: AgentRuntimeTokenUsageRange;
     readonly agentId?: string;
     readonly squadId?: string;
+    readonly limit?: number;
+    readonly cursor?: string;
   };
   readonly "repo.task.dispatches": DaemonTaskDispatchesPayload;
   readonly "repo.agent.entities.list": Readonly<Record<string, never>>;

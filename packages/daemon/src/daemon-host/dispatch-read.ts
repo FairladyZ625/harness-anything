@@ -819,6 +819,9 @@ function canonicalDispatchRow(
                 entry.schema === "agent-runtime-event/v1" && entry.type === "runtime_session_outcome_observed",
             ),
     metrics = outcomeEvent?.payload.runtimeMetrics,
+    dispatchMetrics = metrics
+      ? (({ cacheWriteTokens: _cacheWriteTokens, ...rest }) => ({ ...rest, compacted: null }))(metrics)
+      : undefined,
     groupId = payload.attemptGroupId ?? payload.dispatchId,
     lifecycle = dispatchLifecycleSummary(
       projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [payload.dispatchId] }),
@@ -935,7 +938,7 @@ function canonicalDispatchRow(
     lifecycle,
     ...rowPermissionEvidence(lifecycle, payload),
     nextDispatchId: lifecycle.nextDispatchId,
-    ...(metrics ? { metrics: { ...metrics, compacted: null } } : {}),
+    ...(dispatchMetrics ? { metrics: dispatchMetrics } : {}),
     ...(payload.agentId ? { agentId: payload.agentId, agentName: payload.agentName ?? payload.agentId } : {}),
     ...(payload.squadId ? { squadId: payload.squadId } : {}),
     ...(squadRunId === undefined ? {} : { squadRunId }),

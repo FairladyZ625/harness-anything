@@ -141,7 +141,10 @@ function readEventTail(projection: TaskProjection, payload: EventTailPayload): E
         `Canonical event cursor ${after} is ahead of source revision ${page.sourceRevision}.`,
       );
     const selected = page.events.slice(0, pageSize),
-      revision = selected.at(-1)?.workspaceRevision ?? after,
+      exhaustedWatermark = page.events.length <= pageSize,
+      // When the bounded page returned <= pageSize rows, storage proved no more visible rows
+      // exist in (after, page.watermark], so advance the cursor across filtered tail revisions.
+      revision = exhaustedWatermark ? Math.max(after, page.watermark) : selected.at(-1)!.workspaceRevision,
       liveCursor = { kind: "events" as const, revision },
       sourceCursor = { kind: "events" as const, revision: page.sourceRevision };
     return {
@@ -150,7 +153,7 @@ function readEventTail(projection: TaskProjection, payload: EventTailPayload): E
       historyCursor: null,
       liveCursor,
       sourceCursor,
-      done: page.status === "ready" && page.events.length <= pageSize && sameCursor(liveCursor, sourceCursor),
+      done: page.status === "ready" && exhaustedWatermark && sameCursor(liveCursor, sourceCursor),
     };
   }
 
@@ -161,16 +164,20 @@ function readEventTail(projection: TaskProjection, payload: EventTailPayload): E
       "invalid_cursor",
       `Canonical event cursor ${before} is ahead of source revision ${probe.sourceRevision}.`,
     );
-  const after = Math.max(0, before - pageSize - 1),
-    page = projection.readEventSummaries(
-      after,
+  const page = projection.readEventSummaries(
+      0,
       pageSize + 1,
       payload.fleetNodeIds === undefined ? payload.fields : { fleetNodeIds: payload.fleetNodeIds },
+      before,
     ),
-    eligible = page.events.filter((event) => event.workspaceRevision < before),
-    selected = eligible.slice(-pageSize),
-    firstRevision = selected.at(0)?.workspaceRevision ?? Math.max(0, before - 1),
-    lastRevision = selected.at(-1)?.workspaceRevision ?? Math.min(probe.watermark, Math.max(0, before - 1));
+    hasMore = page.events.length > pageSize,
+    selected = hasMore ? page.events.slice(-pageSize) : page.events,
+    coveredUpper = Math.min(page.watermark, Math.max(0, before - 1)),
+    firstRevision = hasMore ? selected[0]!.workspaceRevision : 0,
+    lastRevision =
+      requested === undefined
+        ? Math.max(selected.at(-1)?.workspaceRevision ?? 0, coveredUpper)
+        : (selected.at(-1)?.workspaceRevision ?? coveredUpper);
   return {
     status: page.status,
     items: selected,
@@ -178,7 +185,7 @@ function readEventTail(projection: TaskProjection, payload: EventTailPayload): E
     historyCursor: { kind: "events", revision: firstRevision },
     liveCursor: { kind: "events", revision: lastRevision },
     sourceCursor: { kind: "events", revision: page.sourceRevision },
-    done: page.status === "ready" && (selected.length === 0 || firstRevision <= 1),
+    done: page.status === "ready" && !hasMore,
   };
 }
 

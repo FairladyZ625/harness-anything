@@ -299,11 +299,6 @@ export async function publishExit(
       { ...runtimeMetrics, compacted: active.compacted, raw: active.rawUsage },
       endedAt,
     );
-    // The kernel event's runtimeMetrics copy stays the three-count shape its domain
-    // whitelist pins (validRuntimeDispatchMetrics): kernel consumers do not price, so the
-    // separate cache-write counter travels only in the stream records, where the token
-    // usage read side picks it up.
-    const { cacheWriteTokens: _cacheWriteTokens, ...kernelMetrics } = runtimeMetrics;
     let body = context.runtimeResultText(active, code, outcome);
     if (submittedStall)
       body +=
@@ -698,7 +693,7 @@ export async function publishExit(
         ...(budgetRefusal ? { reasonCode: budgetRefusal.code } : reasonCode ? { reasonCode } : {}),
         dispatchId: active.dispatchId,
         endedAt,
-        runtimeMetrics: kernelMetrics,
+        runtimeMetrics,
         attempt: {
           classification: attemptOutcome.classification,
           reason: attemptOutcome.reason,

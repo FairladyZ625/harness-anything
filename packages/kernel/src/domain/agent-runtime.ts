@@ -500,6 +500,7 @@ interface RuntimePayloads {
 export interface RuntimeDispatchMetrics {
   readonly inputTokens: number;
   readonly cacheReadTokens: number;
+  readonly cacheWriteTokens?: number;
   readonly outputTokens: number;
   readonly totalTokens: number;
   readonly toolCallCount: number;
@@ -788,22 +789,28 @@ function validFallbackSchedule(value: unknown): boolean {
 }
 
 function validRuntimeDispatchMetrics(value: unknown): value is RuntimeDispatchMetrics {
-  if (
-    !isRecord(value) ||
-    !hasOnlyFields(value, [
+  const required = [
       "inputTokens",
       "cacheReadTokens",
       "outputTokens",
       "totalTokens",
       "toolCallCount",
       "usageUnavailable",
-    ])
+    ],
+    allowed = [...required, "cacheWriteTokens"];
+  if (
+    !isRecord(value) ||
+    !hasRequiredFields(value, required) ||
+    !Object.keys(value).every((key) => allowed.includes(key))
   )
     return false;
   return (
     [value.inputTokens, value.cacheReadTokens, value.outputTokens, value.totalTokens, value.toolCallCount].every(
       (count) => Number.isSafeInteger(count) && Number(count) >= 0,
-    ) && typeof value.usageUnavailable === "boolean"
+    ) &&
+    (value.cacheWriteTokens === undefined ||
+      (Number.isSafeInteger(value.cacheWriteTokens) && Number(value.cacheWriteTokens) >= 0)) &&
+    typeof value.usageUnavailable === "boolean"
   );
 }
 function validRuntimeProviderUnreachable(value: unknown): value is RuntimeProviderUnreachable {

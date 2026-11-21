@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { runtimeDefinitionSnapshotArtifact } from "@harness-anything/kernel";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
+import { readAgentRuntimeTokenUsageDetail } from "../src/daemon-host/agent-runtime-token-usage.ts";
 import {
   appendRuntimeWorkerRecord,
   dispatchStreamPath,
@@ -15,12 +16,15 @@ import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
 import { FLEET_FRAME_BYTES } from "../src/daemon-host/fleet/command-protocol.ts";
 import { FleetRemoteError, openPeer, readFleetOperationalClient } from "../src/daemon-host/fleet/peer.ts";
 import { requestFleetReplicaToken } from "../src/daemon-host/fleet/replica-token.ts";
+import { createResourceBudget, DOC_SHOW_BUDGET_LIMITS } from "../src/daemon-host/fleet/resource-budget.ts";
+import { modelPriceOf, usageCostUsd } from "../src/runtime-engine/agent-runtime-model-pricing.ts";
 import {
   parseDaemonActionResult,
   parseDaemonReadResult,
 } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import { runtimeDispatchIdentity } from "../src/daemon-host/task-dispatch-recovery.ts";
 import { definition, installation } from "./fixtures/runtime-ingress.ts";
+import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 import { fleetFixture, git, initRepo, localAuthFixture, waitForReceiptCommit } from "./fleet-tls-session.fixture.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 
@@ -604,24 +608,41 @@ test(
       path.join(edgeRoot, "harness/harness.yaml"),
       "schema: harness-anything/v1\nname: edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
     );
-    const artifact = runtimeDefinitionSnapshotArtifact(definition),
+    const pricedDefinition = { ...definition, model: "claude-haiku-4-5" } as const,
+      artifact = runtimeDefinitionSnapshotArtifact(pricedDefinition),
       edgeReported = runtimeDispatchIdentity(repoId, "edge-settled-reported"),
+      edgeUnreportedCache = runtimeDispatchIdentity(repoId, "edge-settled-unreported-cache"),
       edgeUnavailable = runtimeDispatchIdentity(repoId, "edge-settled-unavailable"),
       startedAt = new Date(Date.now() - 120_000).toISOString(),
       endedAt = new Date(Date.now() - 30_000).toISOString();
 
-    for (const [identity, label, metricsPayload] of [
+    for (const [identity, label, metricsPayload, rawUsage] of [
       [
         edgeReported,
         "edge-settled-reported",
         {
-          inputTokens: 3_000,
-          cacheReadTokens: 500,
+          inputTokens: 10_000,
+          cacheReadTokens: 2_000,
+          cacheWriteTokens: 4_000,
           outputTokens: 1_000,
-          totalTokens: 4_500,
+          totalTokens: 11_000,
           toolCallCount: 7,
           usageUnavailable: false,
         },
+        { input_tokens: 10_000, cache_creation_input_tokens: 4_000, output_tokens: 1_000 },
+      ],
+      [
+        edgeUnreportedCache,
+        "edge-settled-unreported-cache",
+        {
+          inputTokens: 2_000,
+          cacheReadTokens: 0,
+          outputTokens: 500,
+          totalTokens: 2_500,
+          toolCallCount: 1,
+          usageUnavailable: false,
+        },
+        { input_tokens: 2_000, output_tokens: 500 },
       ],
       [
         edgeUnavailable,
@@ -634,25 +655,26 @@ test(
           toolCallCount: 2,
           usageUnavailable: true,
         },
+        {},
       ],
     ] as const) {
       openDispatchStream(edgeRoot, {
         dispatchId: identity.dispatchId,
         runtimeSessionId: identity.runtimeSessionId,
-        instanceId: definition.instanceId,
-        kindId: definition.kindId,
+        instanceId: pricedDefinition.instanceId,
+        kindId: pricedDefinition.kindId,
         taskId,
         executionId,
         agentId: "agent-edge",
         agentName: "Agent Edge",
-        model: "gpt-5",
+        model: pricedDefinition.model,
         startedAt,
       });
       appendRuntimeWorkerRecord(edgeRoot, identity.dispatchId, {
         kind: "runtime_metrics",
         ...metricsPayload,
         compacted: false,
-        raw: { input_tokens: metricsPayload.inputTokens, output_tokens: metricsPayload.outputTokens },
+        raw: rawUsage,
       });
       assert.equal(
         existsSync(dispatchStreamPath(fixture.repo, identity.dispatchId)),
@@ -672,11 +694,11 @@ test(
             agentId: "agent-edge",
             agentName: "Agent Edge",
             startedAt,
-            instanceId: definition.instanceId,
+            instanceId: pricedDefinition.instanceId,
             installationId: installation.installationId,
-            kindId: definition.kindId,
+            kindId: pricedDefinition.kindId,
             dispatchKey: label,
-            definitionSnapshot: definition,
+            definitionSnapshot: pricedDefinition,
             definitionSnapshotRef: artifact.ref,
           },
           resultBody: artifact.body,
@@ -721,6 +743,31 @@ test(
       assert.equal(settled.outcome, "applied", JSON.stringify(settled));
     }
 
+    // Seed a center-local dispatch stream with sensitive provider thinking/tool bodies to verify F6:
+    // local debugging still reads kind="dispatch", while Fleet TLS rejects it before host.read.
+    const localTranscriptDispatchId = "dispatch_0123456789abcdef01234566";
+    const localTranscriptStream = openDispatchStream(fixture.repo, {
+      dispatchId: localTranscriptDispatchId,
+      runtimeSessionId: "runtime-center-local-transcript",
+      instanceId: pricedDefinition.instanceId,
+      kindId: pricedDefinition.kindId,
+      taskId,
+      executionId,
+      startedAt,
+    });
+    localTranscriptStream.appendProviderEvent(
+      {
+        type: "assistant",
+        message: {
+          content: [
+            { type: "thinking", thinking: "center-only private reasoning" },
+            { type: "tool_use", name: "Bash", input: { command: "secret-check" } },
+          ],
+        },
+      },
+      startedAt,
+    );
+
     // Set up node-limited (owned by person-limited, granted repository-read on fleet-repo ONLY, not other-repo)
     // and node-unregistered (passes TLS auth, has no active owner in nodeOwner).
     keycloak.account("person-limited");
@@ -728,10 +775,16 @@ test(
     keycloak.node("node-limited", "person-limited");
 
     let doctorHealthCenterCalls = 0;
+    let runtimeLocalObserveReadCalls = 0;
     const center = await fixture.hold(
       listenFleetTls({
         host: {
           ...fixture.host,
+          read: async (...args: Parameters<typeof fixture.host.read>) => {
+            if (args[1] === "observe.tail" && (args[2] as { kind?: unknown })?.kind !== "events")
+              runtimeLocalObserveReadCalls += 1;
+            return fixture.host.read(...args);
+          },
           run: async (...args: Parameters<typeof fixture.host.run>) => {
             if (args[1].kind === "doctor-health") doctorHealthCenterCalls += 1;
             return fixture.host.run(...args);
@@ -809,7 +862,32 @@ test(
       assert.equal(response.ok, true, `node token ${entry.method} must succeed: ${JSON.stringify(response)}`);
     }
 
-    // F2 assertions over real Fleet TLS: center reports Edge-settled metrics even with zero center-local stream files.
+    // F2 + F8 assertions over real Fleet TLS: center reports Edge-settled metrics including
+    // cacheWriteTokens and differential cache-write pricing even with zero center-local stream files.
+    const haikuPrice = modelPriceOf("claude-haiku-4-5")!;
+    assert.ok(haikuPrice && haikuPrice.cacheWritePerMillion !== haikuPrice.inputPerMillion);
+    const expectedReportedCost = usageCostUsd(haikuPrice, {
+        inputTokens: 10_000,
+        cacheReadTokens: 2_000,
+        cacheWriteTokens: 4_000,
+        outputTokens: 1_000,
+      }),
+      expectedUnreportedCost = usageCostUsd(haikuPrice, {
+        inputTokens: 2_000,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        outputTokens: 500,
+      }),
+      expectedTotalCost = expectedReportedCost + expectedUnreportedCost,
+      wrongInputRateCost =
+        usageCostUsd(haikuPrice, {
+          inputTokens: 10_000,
+          cacheReadTokens: 2_000,
+          cacheWriteTokens: 0,
+          outputTokens: 1_000,
+        }) + expectedUnreportedCost;
+    assert.notEqual(expectedTotalCost, wrongInputRateCost);
+
     const usage = parseDaemonReadResult(
       "repo.agentRuntime.tokenUsage",
       await readFleetOperationalClient({
@@ -820,11 +898,18 @@ test(
     );
     assert.ok("totals" in usage);
     if ("totals" in usage) {
-      assert.equal(usage.totals.totalTokens, 4_500);
-      assert.equal(usage.totals.toolCallCount, 9);
-      assert.equal(usage.totals.usageReportedDispatches, 1);
+      assert.equal(usage.totals.totalTokens, 13_500);
+      assert.equal(usage.totals.cacheWriteTokens, 4_000);
+      assert.equal(usage.totals.cacheWriteUnreportedDispatches, 1);
+      assert.equal(usage.totals.cacheWriteUnitemizedDispatches, 0);
+      assert.equal(usage.totals.toolCallCount, 10);
+      assert.equal(usage.totals.usageReportedDispatches, 2);
       assert.equal(usage.totals.usageUnavailableDispatches, 1);
-      assert.equal(usage.agents.find((agent) => agent.agentId === "agent-edge")?.totalTokens, 4_500);
+      assert.ok(
+        Math.abs(usage.totals.costUsd - expectedTotalCost) < 1e-12,
+        `center costUsd=${usage.totals.costUsd} must match Edge differential cache-write pricing ${expectedTotalCost} (not ${wrongInputRateCost})`,
+      );
+      assert.equal(usage.agents.find((agent) => agent.agentId === "agent-edge")?.cacheWriteTokens, 4_000);
     }
     const detail = parseDaemonReadResult(
       "repo.agentRuntime.tokenUsageDetail",
@@ -834,19 +919,61 @@ test(
         payload: { range: "today", agentId: "agent-edge" },
       }),
     );
-    assert.equal(detail.totals.totalTokens, 4_500);
-    assert.equal(detail.totals.usageReportedDispatches, 1);
+    assert.equal(detail.totals.totalTokens, 13_500);
+    assert.equal(detail.totals.cacheWriteTokens, 4_000);
+    assert.equal(detail.totals.cacheWriteUnreportedDispatches, 1);
+    assert.equal(detail.totals.cacheWriteUnitemizedDispatches, 0);
+    assert.equal(detail.totals.usageReportedDispatches, 2);
     assert.equal(detail.totals.usageUnavailableDispatches, 1);
+    assert.ok(Math.abs(detail.totals.costUsd - expectedTotalCost) < 1e-12);
     const reportedSession = detail.sessions.find((row) => row.dispatchId === edgeReported.dispatchId)!;
+    const unreportedCacheSession = detail.sessions.find((row) => row.dispatchId === edgeUnreportedCache.dispatchId)!;
     const unavailableSession = detail.sessions.find((row) => row.dispatchId === edgeUnavailable.dispatchId)!;
     assert.equal(reportedSession.usage, "reported");
-    assert.equal(reportedSession.totalTokens, 4_500);
+    assert.equal(reportedSession.totalTokens, 11_000);
+    assert.equal(reportedSession.cacheWriteTokens, 4_000);
     assert.equal(reportedSession.toolCallCount, 7);
     assert.equal(reportedSession.endedAt, endedAt);
     assert.ok(reportedSession.durationMs !== null && reportedSession.durationMs > 0);
+    assert.equal(unreportedCacheSession.usage, "reported");
+    assert.equal(unreportedCacheSession.cacheWriteTokens, 0);
     assert.equal(unavailableSession.usage, "unavailable");
     assert.equal(unavailableSession.totalTokens, 0);
     assert.equal(unavailableSession.toolCallCount, 2);
+
+    // F6: local observe.tail(kind="dispatch") keeps working for local debugging, while Fleet TLS
+    // rejects dispatch and all other runtime-local kinds with execution_scope_mismatch before host.read.
+    const localTranscript = parseDaemonReadResult(
+      "observe.tail",
+      await fixture.host.read(
+        repoId,
+        "observe.tail",
+        { kind: "dispatch", direction: "history", dispatchId: localTranscriptDispatchId },
+        localAuthFixture(),
+      ),
+    );
+    assert.equal(localTranscript.status, "ready");
+    assert.equal(localTranscript.items.length, 1);
+    for (const payload of [
+      { kind: "dispatch", direction: "history", dispatchId: localTranscriptDispatchId },
+      { kind: "repo-log", direction: "history" },
+      { kind: "daemon-log", direction: "history" },
+      { kind: "lifecycle", direction: "history" },
+    ] as const) {
+      await assert.rejects(
+        readFleetOperationalClient({
+          ...limitedPeerOptions,
+          method: "observe.tail",
+          payload,
+        }),
+        (error: unknown) => error instanceof FleetRemoteError && error.code === "execution_scope_mismatch",
+      );
+    }
+    assert.equal(
+      runtimeLocalObserveReadCalls,
+      0,
+      "Fleet observe.tail must reject runtime-local kinds before entering host.read or local file I/O",
+    );
 
     // F1 negative 1: node service-account token on unauthorized repository (`other-repo`) is 100% denied.
     for (const entry of ALL_BUSINESS_READS) {
@@ -941,5 +1068,226 @@ test(
     }
     assert.equal(doctorHealthCenterCalls, 0, "Fleet repo.task.read must never enter host.run for doctor-health");
     assert.deepEqual(fixture.transportErrors, [], "node token & diagnostic rejections must not log transport errors");
+  },
+);
+
+test(
+  "fleet.operational.read/v1 paginates large repo.agentRuntime.tokenUsageDetail sets across Fleet transfer memory budgets (F9)",
+  { timeout: 60_000 },
+  async (t) => {
+    const fixture = await fleetFixture(t);
+    t.after(() => fixture.close());
+    const { nodeId, repoId } = fixture.subject,
+      keycloak = fixture.owners.keycloak;
+    keycloak.account("person-reader");
+    keycloak.permit("person-reader", repoId, ["repository-read"]);
+    keycloak.interactiveSession("person-reader", nodeId, fixture.owners.url, "reader-token", "web-bff");
+
+    // Construct 360 deterministic dispatches (~130 KiB unpaginated JSON > 96 KiB frame ceiling and > 100 KiB
+    // configured session memory budget) served through the real readAgentRuntimeTokenUsageDetail reader.
+    const nowIso = "2026-11-21T12:00:00.000Z",
+      baseMs = Date.parse("2026-11-21T01:00:00.000Z"),
+      totalRows = 360,
+      bulkRows = Array.from({ length: totalRows }, (_, index) => {
+        const startedAt = new Date(baseMs + index * 10_000).toISOString(),
+          endedAt = new Date(baseMs + index * 10_000 + 5_000).toISOString(),
+          dispatchId = `dispatch_${String(index + 1).padStart(24, "0")}`,
+          runtimeSessionId = `runtime-bulk-${String(index + 1).padStart(4, "0")}`;
+        return {
+          event: {
+            schema: "agent-runtime-event/v1" as const,
+            eventId: `ev-bulk-${index}`,
+            workspaceRevision: index + 1,
+            opId: `op-bulk-${index}`,
+            actor: { principal: { personId: "person-owner" }, executor: null },
+            source: "local" as const,
+            occurredAt: startedAt,
+            type: "runtime_dispatch_requested" as const,
+            payload: {
+              dispatchId,
+              runtimeSessionId,
+              instanceId: definition.instanceId,
+              installationId: installation.installationId,
+              kindId: definition.kindId,
+              dispatchKey: dispatchId,
+              definitionSnapshotRef: "artifact:runtime-definition/bulk",
+              startedAt,
+              taskId: `task-bulk-${index % 10}`,
+              executionId: "exe-bulk-1",
+              agentId: "agent-bulk",
+              agentName: "Agent Bulk",
+              definitionSnapshot: { ...definition, model: "claude-haiku-4-5" },
+            },
+          },
+          metrics: {
+            inputTokens: 1_000 + index,
+            cacheReadTokens: 100,
+            cacheWriteTokens: 200,
+            outputTokens: 300,
+            totalTokens: 1_300 + index,
+            toolCallCount: 2,
+            usageUnavailable: false,
+          },
+          endedAt,
+          outcome: "succeeded" as const,
+        };
+      });
+    const bulkProjection = {
+      readRuntimeDispatchPage: (query: {
+        readonly cursor?: { readonly startedAt: string; readonly dispatchId: string };
+        readonly limit: number;
+      }) => {
+        const start = query.cursor
+            ? bulkRows.findIndex((row) => row.event.payload.dispatchId === query.cursor!.dispatchId) + 1
+            : 0,
+          slice = bulkRows.slice(start, start + query.limit),
+          done = start + slice.length >= bulkRows.length,
+          last = slice.at(-1)?.event.payload;
+        return {
+          rows: slice,
+          done,
+          nextCursor: !done && last ? { startedAt: last.startedAt!, dispatchId: last.dispatchId } : null,
+        };
+      },
+      readDispatchLifecycle: lifecycleReadForSync(
+        bulkRows.map((row) => ({
+          dispatchId: row.event.payload.dispatchId,
+          runtimeSessionId: row.event.payload.runtimeSessionId,
+          attemptSettled: true,
+          process: "exited" as const,
+          outcome: "succeeded" as const,
+        })),
+      ),
+    };
+
+    const tightMemoryBytes = 100 * 1024;
+    const unpaginatedPreview = readAgentRuntimeTokenUsageDetail({
+      rootDir: fixture.repo,
+      now: nowIso,
+      range: "today",
+      member: { kind: "agent", agentId: "agent-bulk" },
+      entityLabel: () => null,
+      cut: { status: "ready", watermark: totalRows, sourceRevision: totalRows },
+      projection: bulkProjection as never,
+    });
+    assert.ok(
+      Buffer.byteLength(JSON.stringify(unpaginatedPreview)) > tightMemoryBytes,
+      "unpaginated 360-session payload must exceed the configured Fleet session transfer memory ceiling",
+    );
+
+    const tightBudget = createResourceBudget({
+      ...DOC_SHOW_BUDGET_LIMITS,
+      session: { bulkTransfers: 2, memoryBytes: tightMemoryBytes },
+      node: { bulkTransfers: 4, memoryBytes: tightMemoryBytes },
+      repository: { bulkTransfers: 4, memoryBytes: tightMemoryBytes },
+      global: { bulkTransfers: 8, memoryBytes: tightMemoryBytes },
+    });
+
+    const center = await fixture.hold(
+      listenFleetTls({
+        host: {
+          ...fixture.host,
+          read: async (targetRepoId, method, payload, binding) => {
+            if (method === "repo.agentRuntime.tokenUsageDetail" && payload.agentId === "agent-bulk") {
+              return readAgentRuntimeTokenUsageDetail({
+                rootDir: fixture.repo,
+                now: nowIso,
+                range: (payload.range as "today" | "7d" | "30d" | undefined) ?? "today",
+                member: { kind: "agent", agentId: "agent-bulk" },
+                ...(typeof payload.limit === "number" ? { limit: payload.limit } : {}),
+                ...(typeof payload.cursor === "string" ? { cursor: payload.cursor } : {}),
+                entityLabel: () => null,
+                cut: { status: "ready", watermark: totalRows, sourceRevision: totalRows },
+                projection: bulkProjection as never,
+              }) as never;
+            }
+            return fixture.host.read(targetRepoId, method, payload, binding);
+          },
+        },
+        commandResourceBudget: tightBudget,
+        stateRoot: fixture.stateRoot,
+        ...fixture.writerOptions,
+        key: fixture.key,
+        cert: fixture.cert,
+        verifyHuman: (auth) => createIdentitySession(fixture.userRoot, { fetch: keycloak.fetch }).bind(auth),
+        verifyReplica: (auth) => createIdentitySession(fixture.userRoot, { fetch: keycloak.fetch }).bindReplica!(auth),
+        onError: (entry) => fixture.transportErrors.push(entry),
+        authenticate: (node, secret) => node === nodeId && secret === "machine-secret",
+        nodeOwner: fixture.owners.nodeOwner,
+      }),
+    );
+
+    const peerOptions = {
+      port: center.port,
+      ca: fixture.cert,
+      servername: "localhost",
+      nodeId,
+      credential: "machine-secret",
+      repoId,
+      readAccessToken: async () => "reader-token",
+    };
+
+    // Unpaginated read exceeds the session transfer memory limit and fails with resource_exhausted.
+    await assert.rejects(
+      readFleetOperationalClient({
+        ...peerOptions,
+        method: "repo.agentRuntime.tokenUsageDetail",
+        payload: { range: "today", agentId: "agent-bulk" },
+      }),
+      (error: unknown) => error instanceof FleetRemoteError && error.code === "resource_exhausted",
+    );
+
+    // Bounded pagination with limit=60 + cursor drains all 360 sessions cleanly under the same transfer limit.
+    const seenIds = new Set<string>(),
+      allSessions: (typeof unpaginatedPreview.sessions)[number][] = [];
+    let cursor: string | undefined,
+      firstTotals: typeof unpaginatedPreview.totals | null = null,
+      pageCount = 0;
+    for (;;) {
+      const page = parseDaemonReadResult(
+        "repo.agentRuntime.tokenUsageDetail",
+        await readFleetOperationalClient({
+          ...peerOptions,
+          method: "repo.agentRuntime.tokenUsageDetail",
+          payload: {
+            range: "today",
+            agentId: "agent-bulk",
+            limit: 60,
+            ...(cursor ? { cursor } : {}),
+          },
+        }),
+      );
+      pageCount += 1;
+      assert.equal(page.page?.limit, 60);
+      assert.equal(page.page?.cursor, cursor ?? null);
+      if (firstTotals === null) firstTotals = page.totals;
+      else assert.deepEqual(page.totals, firstTotals, "window totals must stay identical across pages");
+      for (const row of page.sessions) {
+        assert.equal(seenIds.has(row.dispatchId), false, `duplicate dispatchId ${row.dispatchId}`);
+        seenIds.add(row.dispatchId);
+        allSessions.push(row);
+      }
+      if (!page.page?.nextCursor) break;
+      cursor = page.page.nextCursor;
+    }
+    assert.equal(pageCount, 6);
+    assert.equal(allSessions.length, totalRows);
+    assert.deepEqual(
+      allSessions.map((row) => row.dispatchId),
+      unpaginatedPreview.sessions.map((row) => row.dispatchId),
+    );
+    assert.equal(
+      allSessions.reduce((acc, row) => acc + row.totalTokens, 0),
+      firstTotals!.totalTokens,
+    );
+    assert.equal(
+      allSessions.reduce((acc, row) => acc + row.cacheWriteTokens, 0),
+      firstTotals!.cacheWriteTokens,
+    );
+    assert.equal(
+      allSessions.reduce((acc, row) => acc + row.toolCallCount, 0),
+      firstTotals!.toolCallCount,
+    );
+    assert.deepEqual(fixture.transportErrors, []);
   },
 );

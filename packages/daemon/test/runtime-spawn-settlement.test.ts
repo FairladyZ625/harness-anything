@@ -666,17 +666,17 @@ test("settlement keeps the cache-write counter out of the kernel event metrics c
         settleFallback: async () => undefined,
       } as unknown as RuntimeSpawnerContext;
     await publishExit(context, runtime, 0);
-    // The kernel event whitelist (validRuntimeDispatchMetrics) pins the payload copy to the
-    // three-count shape; the separate cache-write counter travels only in the stream records
-    // that the token usage read side prices.
-    assert.deepEqual(Object.keys(outcomes[0]?.runtimeMetrics ?? {}).sort(), [
-      "cacheReadTokens",
-      "inputTokens",
-      "outputTokens",
-      "toolCallCount",
-      "totalTokens",
-      "usageUnavailable",
-    ]);
+    // Canonical runtimeMetrics preserves optional cacheWriteTokens when the provider reports
+    // cache writes, so remote Center token usage reads match Edge counters and pricing (F8).
+    assert.deepEqual(outcomes[0]?.runtimeMetrics, {
+      inputTokens: 110,
+      cacheReadTokens: 20,
+      cacheWriteTokens: 10,
+      outputTokens: 25,
+      totalTokens: 135,
+      toolCallCount: 1,
+      usageUnavailable: false,
+    });
     assert.deepEqual(metricsRecords[0], {
       inputTokens: 110,
       cacheReadTokens: 20,
@@ -688,6 +688,31 @@ test("settlement keeps the cache-write counter out of the kernel event metrics c
       compacted: false,
       raw: { cache_creation_input_tokens: 10 },
     });
+    // When the provider does not report cache writes, cacheWriteTokens stays omitted in both
+    // the canonical event and the stream record so provenance remains "unreported".
+    const unreportedOutcomes: Record<string, unknown>[] = [];
+    const unreportedRuntime = {
+      ...runtime,
+      exitSettlement: undefined,
+      runtimeSessionId: "runtime-settlement-metrics-unreported",
+      dispatchId: "dispatch_222222222222222222222222",
+      cacheWriteTokens: 0,
+      rawUsage: { input_tokens: 110, output_tokens: 25 },
+    } as ActiveRuntime;
+    context.processes.set(unreportedRuntime.runtimeSessionId, unreportedRuntime);
+    context.publishRuntimeEvent = async (type: string, payload: Record<string, unknown>) => {
+      if (type === "runtime_session_outcome_observed") unreportedOutcomes.push(payload);
+      return {};
+    };
+    await publishExit(context, unreportedRuntime, 0);
+    assert.deepEqual(Object.keys((unreportedOutcomes[0]?.runtimeMetrics as Record<string, unknown>) ?? {}).sort(), [
+      "cacheReadTokens",
+      "inputTokens",
+      "outputTokens",
+      "toolCallCount",
+      "totalTokens",
+      "usageUnavailable",
+    ]);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

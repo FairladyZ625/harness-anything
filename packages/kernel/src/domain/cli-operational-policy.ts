@@ -1067,6 +1067,7 @@ export const daemonProtocolShapeContractPolicy = {
     "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-schema-ids.ts#daemonTaskQueryPayloadShape.leaseOnly:5973c87cd792d7f35cddf633aef8b8a4",
     "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-schema-ids.ts#daemonRelationQueryPayloadShape.limit:01756949446e0e6666f8f2734b5d34fc",
     "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-schema-ids.ts#daemonArtifactsListPayloadShape.limit:01756949446e0e6666f8f2734b5d34fc",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-schema-ids.ts#daemonTokenUsageDetailPayloadShape.limit:01756949446e0e6666f8f2734b5d34fc",
     "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-schema-ids.ts#daemonAgendaPayloadShape.limit:01756949446e0e6666f8f2734b5d34fc",
   ].map((candidateId) => ({ candidateId, route: "daemonProtocolShapeContractPolicy" })),
 } as const satisfies OntologyPolicyDeclaration;

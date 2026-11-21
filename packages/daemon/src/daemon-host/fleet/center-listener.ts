@@ -154,7 +154,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     centerRelocated = readListenerCenterRelocated(options);
   const nodeAdmission = createNodeRetirementAdmission();
   const deliveries = createFleetDeliveryDrain(options.onDeliverySettled);
-  const resourceBudget = createResourceBudget(DOC_SHOW_BUDGET_LIMITS);
+  const resourceBudget = options.commandResourceBudget ?? createResourceBudget(DOC_SHOW_BUDGET_LIMITS);
   const reserveDocShowBudget = (nodeId: string, repoId: string, sessionId: string) => {
     try {
       return resourceBudget.reserve({ nodeId, repoId, sessionId }, { bulkTransfers: 1 });
@@ -1566,13 +1566,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             payload: frame.payload,
           });
           if (!parsed.ok) throw new FleetFault("invalid_field", parsed.errors.join("; "));
-          if (
-            frame.method === "observe.tail" &&
-            (frame.payload.kind === "daemon-log" || frame.payload.kind === "lifecycle")
-          )
+          if (frame.method === "observe.tail" && frame.payload.kind !== "events")
             throw new FleetFault(
               "execution_scope_mismatch",
-              `observe.tail kind ${String(frame.payload.kind)} is host-scoped and cannot be read through a repository-scoped Fleet read.`,
+              `observe.tail kind ${String(frame.payload.kind)} is runtime-local and cannot be read through a repository-scoped Fleet read.`,
             );
         }
         if (frame.method === "repo.access.members.read") {
