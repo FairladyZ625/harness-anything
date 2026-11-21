@@ -1,4 +1,3 @@
-import { HTTPClient, OpenRouter } from "@openrouter/sdk";
 import type { DecisionProviderVendor } from "@harness-anything/kernel";
 import {
   buildStructuredDecisionSystemPrompt,
@@ -8,14 +7,13 @@ import {
   parseDecisionUsage,
   parseJsonObject,
 } from "./normalize.ts";
-import { isRedirectFetchError, noRedirectFetch } from "./transport.ts";
 import {
   DecisionAdapterError,
   type DecisionAdapterInvokeInput,
   type DecisionProviderAdapter,
   type NormalizedDecisionEnvelope,
 } from "./types.ts";
-import { canonicalBaseUrlString, joinEndpointUrl, resolveAdapterBaseUrl } from "./url.ts";
+import { joinEndpointUrl, resolveAdapterBaseUrl } from "./url.ts";
 
 const anthropicApiVersion = "2023-06-01";
 const anthropicMaxTokens = 1024;
@@ -26,56 +24,12 @@ const openRouterAdapter: DecisionProviderAdapter = {
   label: "OpenRouter",
   defaultBaseUrl: "https://openrouter.ai/api/alpha",
   requiresBaseUrl: false,
-  invoke: async (input) => {
-    const httpClient = new HTTPClient({
-      fetcher: async (reqInput, init) => {
-        try {
-          return await noRedirectFetch(reqInput, init);
-        } catch (error) {
-          if (isRedirectFetchError(error)) {
-            throw new DecisionAdapterError(
-              "decision_transport",
-              "Endpoint attempted an HTTP redirect, which is prohibited.",
-              {
-                name: "RedirectRejectedError",
-                transient: false,
-                localControlledMessage: true,
-              },
-            );
-          }
-          throw error;
-        }
-      },
-    });
-    const client = new OpenRouter({
-      apiKey: input.apiKey,
-      httpClient,
-      retryConfig: { strategy: "none" },
-      timeoutMs: input.timeoutMs,
-    });
-    const response = await client.alpha.decisions.create(
-      {
-        decisionsRequest: {
-          model: input.model,
-          state: [...input.state],
-          questions: {
-            decision:
-              input.question.type === "score"
-                ? { ...input.question, criteria: [...input.question.criteria] }
-                : input.question,
-          },
-        },
-      },
-      {
-        // Omitted when the provider has no custom base URL: the SDK's own Decisions operation
-        // default (`/api/alpha/decisions`) then applies.
-        ...(input.baseUrl === null ? {} : { serverURL: canonicalBaseUrlString(input.baseUrl) }),
-        timeoutMs: input.timeoutMs,
-        retries: { strategy: "none" },
-        retryCodes: [],
-      },
-    );
-    return response as NormalizedDecisionEnvelope;
+  invoke: (input) => {
+    const base = resolveAdapterBaseUrl(openRouterAdapter, input.baseUrl);
+    // Support omitted baseUrl (default /api/alpha), explicit /api/alpha, and legacy root origin
+    // overrides (e.g. https://openrouter.ai) without duplicating /api/alpha.
+    const segment = base.pathname.replace(/\/+$/u, "") === "" ? "api/alpha/decisions" : "decisions";
+    return invokeBearerDecisionsEndpoint(openRouterAdapter, input, segment);
   },
 };
 
@@ -119,15 +73,21 @@ const decisionsHttpAdapter: DecisionProviderAdapter = {
 async function invokeBearerDecisionsEndpoint(
   adapter: DecisionProviderAdapter,
   input: DecisionAdapterInvokeInput,
+  endpointSegment = "decisions",
 ): Promise<NormalizedDecisionEnvelope> {
-  const endpoint = joinEndpointUrl(resolveAdapterBaseUrl(adapter, input.baseUrl), "decisions");
+  const endpoint = joinEndpointUrl(resolveAdapterBaseUrl(adapter, input.baseUrl), endpointSegment);
   const { rawBody } = await input.postJson({
     url: endpoint,
     headers: { authorization: `Bearer ${input.apiKey}` },
     body: {
       model: input.model,
       state: [...input.state],
-      questions: { decision: input.question },
+      questions: {
+        decision:
+          input.question.type === "score"
+            ? { ...input.question, criteria: [...input.question.criteria] }
+            : input.question,
+      },
     },
     timeoutMs: input.timeoutMs,
   });

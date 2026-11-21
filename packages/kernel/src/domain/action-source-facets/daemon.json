@@ -1231,13 +1231,6 @@
         "order": 1162
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/decision-providers/adapters.ts#openRouterAdapter.invoke.response:4067363258e8d57e6d9fcec2ef95c276",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@openrouter/sdk/esm/sdk/decisions.d.ts#Decisions.create",
-        "order": 1238
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/dispatch-stream-archive.ts#pruneDispatchStreamArchiveSteps:b8382f84ae26e86a3116422afaf0b62a",
         "route": "daemon-local-state",
         "role": "technical-port",

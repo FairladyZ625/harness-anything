@@ -5,10 +5,18 @@ export {
   normalizeScoreDistribution,
   probabilitySumTolerance,
 } from "./normalize.ts";
-export { modelUnavailablePattern, postDecisionJson, redactDecisionSecret } from "./transport.ts";
+export {
+  controlledHttpReason,
+  httpDiagnosticCode,
+  httpErrorName,
+  modelUnavailablePattern,
+  postDecisionJson,
+  redactDecisionSecret,
+} from "./transport.ts";
 export {
   DecisionAdapterError,
   type DecisionAdapterInvokeInput,
+  type DecisionDiagnosticCode,
   type DecisionPostJson,
   type DecisionPostJsonInput,
   type DecisionPostJsonResult,

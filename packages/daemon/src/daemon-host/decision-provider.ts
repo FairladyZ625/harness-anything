@@ -16,8 +16,11 @@ import type {
 import { credentialPort, isCredentialReferenceText, type CredentialPort } from "./agent-runtime-credential-port.ts";
 import {
   canonicalBaseUrlString,
+  controlledHttpReason,
   DecisionAdapterError,
   getDecisionProviderAdapter,
+  httpDiagnosticCode,
+  httpErrorName,
   modelUnavailablePattern,
   normalizeChoiceDistribution,
   normalizeNoulValue,
@@ -25,6 +28,7 @@ import {
   postDecisionJson,
   redactDecisionSecret,
   parseDecisionProviderBaseUrl,
+  type DecisionDiagnosticCode,
   type DecisionProviderQuestion,
   type NormalizedDecisionEnvelope,
 } from "./decision-providers/index.ts";
@@ -680,7 +684,7 @@ function mapDecisionFailure(
   vendor: DecisionProviderVendor = "openrouter",
 ): Error {
   const code = decisionFailureCode(error),
-    detail = decisionFailureDetail(error, apiKey),
+    detail = decisionFailureDetail(error, code, apiKey),
     withDetail = (summary: string): string => (detail === "" ? summary : `${summary} ${detail}`),
     vendorLabel = getDecisionProviderAdapter(vendor).label,
     provider =
@@ -712,20 +716,17 @@ function mapDecisionFailure(
 }
 
 /**
- * One actionable sentence about a provider failure: HTTP status, error class, safe provider
- * error code, and controlled diagnostic text. Raw upstream error bodies are never copied, and
- * credentials of any length are redacted before truncation.
+ * One actionable sentence about a provider failure built strictly from local controlled
+ * classifications, numeric HTTP status codes, and closed diagnostic enums. Upstream error
+ * bodies, upstream messages, and upstream code/type/status strings are NEVER copied into
+ * receipts or incident fallback reasons.
  */
-function decisionFailureDetail(error: unknown, apiKey?: string): string {
-  if (typeof error === "string") return redactDecisionSecret(error, apiKey);
-  if (!error || typeof error !== "object") return redactDecisionSecret(String(error), apiKey);
+function decisionFailureDetail(error: unknown, code: DecisionPortFailureCode, apiKey?: string): string {
   if (error instanceof DecisionAdapterError) {
     const head = [
       error.statusCode === undefined ? null : `HTTP ${String(error.statusCode)}`,
       error.name && error.name !== "Error" ? error.name : null,
-      error.providerCode === undefined || error.providerCode === error.statusCode
-        ? null
-        : `code=${String(error.providerCode)}`,
+      error.diagnosticCode === undefined ? null : `code=${error.diagnosticCode}`,
     ]
       .filter((part): part is string => part !== null)
       .join(" ");
@@ -733,49 +734,63 @@ function decisionFailureDetail(error: unknown, apiKey?: string): string {
     const detail = head === "" ? message : message === "" ? head : `${head}: ${message}`;
     return redactDecisionSecret(detail, apiKey);
   }
-  const row = error as {
-      readonly name?: unknown;
-      readonly message?: unknown;
-      readonly statusCode?: unknown;
-      readonly status?: unknown;
-      readonly code?: unknown;
-      readonly error?: unknown;
-      readonly data$?: unknown;
-    },
-    status = typeof row.statusCode === "number" ? row.statusCode : typeof row.status === "number" ? row.status : null,
-    name = typeof row.name === "string" && row.name !== "" ? row.name : null,
-    providerCode = nestedProviderErrorCode(row),
-    message = typeof row.message === "string" ? row.message.trim() : "",
-    head = [
-      status === null ? null : `HTTP ${String(status)}`,
-      name,
-      providerCode === null || providerCode === status ? null : `code=${String(providerCode)}`,
-    ]
-      .filter((part): part is string => part !== null)
-      .join(" ");
-  const detail = head === "" ? message : message === "" ? head : `${head}: ${message}`;
-  return redactDecisionSecret(detail, apiKey);
+  const status = extractHttpStatusCode(error);
+  const modelUnavailable = code === "decision_model_unavailable";
+  const diagnosticCode = controlledDiagnosticCode(code, status, modelUnavailable);
+  const errorName =
+    status !== null
+      ? httpErrorName(status)
+      : code === "decision_timeout"
+        ? "TimeoutError"
+        : code === "decision_transport"
+          ? "ConnectionError"
+          : null;
+  const reason = status !== null ? controlledHttpReason(status, modelUnavailable) : controlledCodeReason(code);
+  const head = [status === null ? null : `HTTP ${String(status)}`, errorName, `code=${diagnosticCode}`]
+    .filter((part): part is string => part !== null)
+    .join(" ");
+  return redactDecisionSecret(`${head}: ${reason}`, apiKey);
 }
 
-function nestedProviderErrorCode(row: {
-  readonly code?: unknown;
-  readonly error?: unknown;
-  readonly data$?: unknown;
-}): string | number | null {
-  for (const candidate of [row.code, providerErrorCode(row.error), providerErrorCode(row.data$)]) {
-    if (typeof candidate === "string" || typeof candidate === "number") return candidate;
-  }
-  return null;
+function extractHttpStatusCode(error: unknown): number | null {
+  if (!error || typeof error !== "object") return null;
+  const row = error as { readonly statusCode?: unknown; readonly status?: unknown };
+  const candidate =
+    typeof row.statusCode === "number" ? row.statusCode : typeof row.status === "number" ? row.status : null;
+  return candidate !== null && Number.isSafeInteger(candidate) && candidate >= 100 && candidate <= 599
+    ? candidate
+    : null;
 }
 
-function providerErrorCode(value: unknown): unknown {
-  if (!value || typeof value !== "object") return null;
-  const row = value as { readonly code?: unknown; readonly error?: unknown };
-  if (typeof row.code === "string" || typeof row.code === "number") return row.code;
-  const nested = row.error;
-  if (!nested || typeof nested !== "object") return null;
-  const nestedCode = (nested as { readonly code?: unknown }).code;
-  return typeof nestedCode === "string" || typeof nestedCode === "number" ? nestedCode : null;
+function controlledDiagnosticCode(
+  code: DecisionPortFailureCode,
+  status: number | null,
+  modelUnavailable: boolean,
+): DecisionDiagnosticCode {
+  if (modelUnavailable) return "model_unavailable";
+  if (code === "decision_protocol_invalid") return "protocol_invalid";
+  if (code === "invalid_base_url") return "invalid_base_url";
+  if (code === "decision_timeout") return "timeout";
+  if (code === "decision_rate_limited") return "http_429";
+  if (status !== null) return httpDiagnosticCode(status, false);
+  if (code === "provider_credential_unavailable") return "credential_unavailable";
+  return "connection_error";
+}
+
+function controlledCodeReason(code: DecisionPortFailureCode): string {
+  if (code === "provider_credential_unavailable") return "Authentication failed.";
+  if (code === "decision_model_unavailable") return "Configured model is unavailable on the endpoint.";
+  if (code === "decision_rate_limited") return "Rate limit exceeded.";
+  if (code === "decision_timeout") return "Request timed out.";
+  if (code === "decision_protocol_invalid") return "Upstream returned an invalid Decisions protocol payload.";
+  if (code === "invalid_base_url") return "Configured baseUrl is invalid.";
+  return "Network or upstream request failed.";
+}
+
+function collectNestedCodes(value: unknown): readonly unknown[] {
+  if (!value || typeof value !== "object") return [];
+  const obj = value as { readonly code?: unknown; readonly error?: unknown };
+  return [obj.code, ...collectNestedCodes(obj.error)];
 }
 
 function nestedProviderMessage(value: unknown): string | null {
@@ -794,7 +809,8 @@ function modelUnavailableMessage(error: object): boolean {
       readonly data$?: unknown;
     },
     body = row.data$ && typeof row.data$ === "object" ? (row.data$ as { readonly body$?: unknown }).body$ : null;
-  if (nestedProviderErrorCode(row) === "model_not_found") return true;
+  if ([row.code, ...collectNestedCodes(row.error), ...collectNestedCodes(row.data$)].includes("model_not_found"))
+    return true;
   return [row.message, nestedProviderMessage(row.error), nestedProviderMessage(row.data$), body].some(
     (message) => typeof message === "string" && modelUnavailablePattern.test(message),
   );

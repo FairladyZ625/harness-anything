@@ -146,8 +146,8 @@ test("Decisions provider probe exercises the same decisions endpoint as a real d
       usage: { input_tokens: 3, output_tokens: 1 },
       answers: { decision: { type: "noul", noul: 0.75 } },
     };
-  t.mock.method(globalThis, "fetch", async (input: string | URL | Request) => {
-    const request = input instanceof Request ? input : new Request(input),
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const request = input instanceof Request ? new Request(input, init) : new Request(input, init),
       url = request.url,
       path = new URL(url).pathname;
     requests.push({ method: request.method, url });
@@ -193,11 +193,36 @@ test("Decisions provider probe exercises the same decisions endpoint as a real d
       },
     });
     assert.equal(result.result.type, "noul");
-    // The probe and the real decision must address the same SDK operation path.
+    // The probe and the real decision must address the same native Decisions endpoint path.
     assert.deepEqual(
       requests.map(({ method, url }) => `${method} ${new URL(url).pathname}`),
       ["POST /api/alpha/decisions", "POST /api/alpha/decisions"],
     );
+
+    // Explicit default baseUrl (`https://openrouter.ai/api/alpha`) and legacy root override
+    // (`https://openrouter.ai`) must deterministically resolve to the exact same `/api/alpha/decisions`
+    // endpoint without duplicating `/api/alpha`.
+    for (const [providerId, baseUrl] of [
+      ["explicit-alpha-endpoint", "https://openrouter.ai/api/alpha"],
+      ["legacy-root-endpoint", "https://openrouter.ai"],
+    ] as const) {
+      await service.command({
+        kind: "provider-create",
+        type: "decisions",
+        providerId,
+        name: providerId,
+        model: "openrouter/model-requested",
+        baseUrl,
+        credentialRef: "credential:v1:probe-key",
+      });
+      requests.length = 0;
+      const probeRes = await service.command({ kind: "provider-probe", providerId });
+      assert.equal((probeRes.provider as { probe: { state: string } }).probe.state, "ready");
+      assert.deepEqual(
+        requests.map(({ method, url }) => `${method} ${new URL(url).pathname}`),
+        ["POST /api/alpha/decisions"],
+      );
+    }
 
     await service.command({
       kind: "provider-create",
@@ -214,13 +239,14 @@ test("Decisions provider probe exercises the same decisions endpoint as a real d
       assert.equal((error as Error & { code?: string }).code, "decision_transport");
       assert.match(error.message, /HTTP 404/u);
       assert.match(error.message, /NotFoundResponseError/u);
-      assert.match(error.message, /Invalid URL/u);
+      assert.match(error.message, /code=http_404/u);
+      assert.doesNotMatch(error.message, /Invalid URL/u);
       assert.equal(error.message.match(/HTTP 404/gu)?.length, 1);
       return true;
     });
     assert.deepEqual(
       requests.map(({ method, url }) => `${method} ${new URL(url).pathname}`),
-      ["POST /api/v1/api/alpha/decisions"],
+      ["POST /api/v1/decisions"],
     );
     assert.deepEqual(service.list().find(({ providerId }) => providerId === "v1-endpoint")?.probe, {
       state: "failed",
@@ -461,13 +487,15 @@ test("DecisionPort exhausts transient retries without hiding the rate-limit reas
   }
 });
 
-test("DecisionPort reports the HTTP status, SDK error class, and provider message of terminal failures", async (t) => {
+test("DecisionPort reports controlled HTTP status and diagnostic codes of terminal failures without leaking upstream prose", async (t) => {
   const scenarios = [
     {
       label: "unauthorized",
       status: 401,
       name: "UnauthorizedResponseError",
       code: "provider_credential_unavailable",
+      diagnosticCode: "http_401",
+      upstreamCode: "SECRET_AUTH_TAG_401",
       providerMessage: "No auth credentials found",
     },
     {
@@ -475,6 +503,8 @@ test("DecisionPort reports the HTTP status, SDK error class, and provider messag
       status: 402,
       name: "PaymentRequiredResponseError",
       code: "decision_transport",
+      diagnosticCode: "http_402",
+      upstreamCode: "BILLING_ACCOUNT_998",
       providerMessage: "Insufficient credits to run this request",
     },
     {
@@ -482,6 +512,8 @@ test("DecisionPort reports the HTTP status, SDK error class, and provider messag
       status: 404,
       name: "NotFoundResponseError",
       code: "decision_transport",
+      diagnosticCode: "http_404",
+      upstreamCode: "INTERNAL_ROUTE_404",
       providerMessage: "Invalid URL",
     },
   ] as const;
@@ -501,7 +533,7 @@ test("DecisionPort reports the HTTP status, SDK error class, and provider messag
           sleep: async () => undefined,
           invokeDecision: async () => {
             calls.push(calls.length + 1);
-            const providerErrorBody = { error: { code: scenario.status, message: scenario.providerMessage } };
+            const providerErrorBody = { error: { code: scenario.upstreamCode, message: scenario.providerMessage } };
             throw Object.assign(new Error(scenario.providerMessage), {
               name: scenario.name,
               statusCode: scenario.status,
@@ -533,11 +565,13 @@ test("DecisionPort reports the HTTP status, SDK error class, and provider messag
             assert.equal((error as Error & { retries?: number }).retries, 0);
             assert.match(error.message, new RegExp(`HTTP ${String(scenario.status)}`, "u"));
             assert.ok(error.message.includes(scenario.name), error.message);
-            assert.ok(error.message.includes(scenario.providerMessage), error.message);
+            assert.ok(error.message.includes(`code=${scenario.diagnosticCode}`), error.message);
+            assert.equal(error.message.includes(scenario.providerMessage), false, error.message);
+            assert.equal(error.message.includes(scenario.upstreamCode), false, error.message);
             return true;
           },
         );
-        // 401/402/404 are terminal: the underlying cause must be visible, and nothing may be retried.
+        // 401/402/404 are terminal: the controlled classification is visible, upstream prose is not, and nothing retries.
         assert.equal(calls.length, 1);
       } finally {
         rmSync(parent, { recursive: true, force: true });
@@ -597,9 +631,10 @@ test("a model removed from the free tier is a configuration fault with an operat
         assert.equal((error as Error & { code?: string }).code, "decision_model_unavailable");
         assert.equal((error as Error & { retries?: number }).retries, 0);
         assert.match(error.message, /HTTP 404/u);
+        assert.match(error.message, /code=model_unavailable/u);
         assert.match(error.message, /baseten\/elephant-1:free/u);
         assert.match(error.message, /ha provider update decision-a --model/u);
-        assert.match(error.message, /unavailable for free/u);
+        assert.doesNotMatch(error.message, /unavailable for free/u);
         assert.doesNotMatch(error.message, /test-key/u);
         return true;
       },
@@ -927,9 +962,10 @@ test("DecisionPort retries only failures with transient evidence and never echoe
         }),
         (error: unknown) =>
           error instanceof Error &&
-          error.message.includes("[redacted]") &&
           !error.message.includes(apiKey) &&
-          error.message.includes("HTTP 401"),
+          !error.message.includes("Incorrect API key provided") &&
+          error.message.includes("HTTP 401") &&
+          error.message.includes("code=http_401"),
       );
     } finally {
       rmSync(parent, { recursive: true, force: true });

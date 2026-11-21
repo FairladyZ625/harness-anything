@@ -376,21 +376,6 @@ export const daemonDecisionPolicySources = [
     "if (retryable && retries > 0)",
   ],
   [
-    "policy:packages/daemon:packages/daemon/src/daemon-host/decision-providers/adapters.ts#openRouterAdapter.invoke.response.retries.strategy:2315e6fc43651a7c8ade74b00b45e2ae",
-    "packages/daemon/src/daemon-host/decision-providers/adapters.ts#openRouterAdapter.invoke.response.retries.strategy",
-    'retries: { strategy: "none" },',
-  ],
-  [
-    "policy:packages/daemon:packages/daemon/src/daemon-host/decision-providers/adapters.ts#openRouterAdapter.invoke.client.retryConfig.strategy:2315e6fc43651a7c8ade74b00b45e2ae",
-    "packages/daemon/src/daemon-host/decision-providers/adapters.ts#openRouterAdapter.invoke.client.retryConfig.strategy",
-    'retryConfig: { strategy: "none" },',
-  ],
-  [
-    "policy:packages/daemon:packages/daemon/src/daemon-host/decision-providers/adapters.ts#openRouterAdapter.invoke.client.retryConfig:4395eb8e944d6edf1beaf9808469e49e",
-    "packages/daemon/src/daemon-host/decision-providers/adapters.ts#openRouterAdapter.invoke.client.retryConfig",
-    'retryConfig: { strategy: "none" },',
-  ],
-  [
     "policy:packages/application:packages/application/src/commands/decision-surface-actions.ts#prepareDecisionAmend:6dc792252bdb1c9f7bc757b66d2c747e",
     "packages/application/src/commands/decision-surface-actions.ts#prepareDecisionAmend",
     'if (action.standingPolicy === true) decisionClass = "standing_policy";',

@@ -622,7 +622,10 @@ test("HA10-02: upstream error bodies with short keys, partial keys, or echoed co
   const shortKey = "k1";
   const echoedContext = "CONFIDENTIAL_CUSTOMER_CONTEXT_9981";
   const partialSecret = "sk-part-777";
-  let mode: "401-raw" | "404-google" | "500-html" | "429-once" | "hang" = "401-raw";
+  const sensitiveUpstreamCode = "SECRET_TENANT_ERR_42";
+  const sensitiveUpstreamType = "INTERNAL_SECRET_TYPE_88";
+  const sensitiveUpstreamStatus = "PRIVATE_UPSTREAM_STATUS_77";
+  let mode: "401-raw" | "401-json-sensitive" | "404-google" | "500-html" | "429-once" | "hang" = "401-raw";
   let hits = 0;
   const openSockets = new Set<Socket>();
 
@@ -639,13 +642,27 @@ test("HA10-02: upstream error bodies with short keys, partial keys, or echoed co
       );
       return;
     }
+    if (mode === "401-json-sensitive") {
+      res.writeHead(401, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          error: {
+            code: sensitiveUpstreamCode,
+            type: sensitiveUpstreamType,
+            status: sensitiveUpstreamStatus,
+            message: `Rejected key=${shortKey} partial=${partialSecret} context=${echoedContext}`,
+          },
+        }),
+      );
+      return;
+    }
     if (mode === "404-google") {
       res.writeHead(404, { "content-type": "application/json" });
       res.end(
         JSON.stringify({
           error: {
-            code: 404,
-            status: "NOT_FOUND",
+            code: sensitiveUpstreamCode,
+            status: sensitiveUpstreamStatus,
             message: `models/gemini-decision-999 is not found while inspecting ${echoedContext} key=${shortKey}`,
           },
         }),
@@ -704,6 +721,16 @@ test("HA10-02: upstream error bodies with short keys, partial keys, or echoed co
   await service.command({
     kind: "provider-create",
     type: "decisions",
+    vendor: "openrouter",
+    providerId: "or-err",
+    name: "OpenRouter Err",
+    model: "perplexity/pplx-decider-v1.3",
+    baseUrl: `${mock.origin}/api/alpha`,
+    apiKey: shortKey,
+  });
+  await service.command({
+    kind: "provider-create",
+    type: "decisions",
     vendor: "openai-compatible",
     providerId: "offline-gw",
     name: "Offline GW",
@@ -727,6 +754,7 @@ test("HA10-02: upstream error bodies with short keys, partial keys, or echoed co
     assert.equal((error as { code?: string }).code, "provider_credential_unavailable");
     assert.equal((error as { retries?: number }).retries, 0);
     assert.match(error.message, /HTTP 401/u);
+    assert.match(error.message, /code=http_401/u);
     assert.match(error.message, /Google Gemini Decisions API/u);
     assert.equal(error.message.includes(shortKey), false);
     assert.equal(error.message.includes(partialSecret), false);
@@ -734,13 +762,37 @@ test("HA10-02: upstream error bodies with short keys, partial keys, or echoed co
     return true;
   });
 
-  // 404 Google model unavailable -> decision_model_unavailable + operator command + zero echoed context
+  // 401 JSON with compact sensitive upstream code/type/status/message -> zero leakage on BOTH google and openrouter
+  mode = "401-json-sensitive";
+  for (const pid of ["goog-err", "or-err"] as const) {
+    await assert.rejects(service.port.decide(req(pid)), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal((error as { code?: string }).code, "provider_credential_unavailable");
+      assert.match(error.message, /HTTP 401/u);
+      assert.match(error.message, /code=http_401/u);
+      for (const forbidden of [
+        sensitiveUpstreamCode,
+        sensitiveUpstreamType,
+        sensitiveUpstreamStatus,
+        shortKey,
+        partialSecret,
+        echoedContext,
+      ]) {
+        assert.equal(error.message.includes(forbidden), false, `${pid} leaked ${forbidden}: ${error.message}`);
+      }
+      return true;
+    });
+  }
+
+  // 404 Google model unavailable -> decision_model_unavailable + operator command + zero upstream code/status/message
   mode = "404-google";
   await assert.rejects(service.port.decide(req("goog-err")), (error: unknown) => {
     assert.ok(error instanceof Error);
     assert.equal((error as { code?: string }).code, "decision_model_unavailable");
     assert.match(error.message, /ha provider update goog-err --model/u);
-    assert.match(error.message, /code=NOT_FOUND/u);
+    assert.match(error.message, /code=model_unavailable/u);
+    assert.equal(error.message.includes(sensitiveUpstreamCode), false);
+    assert.equal(error.message.includes(sensitiveUpstreamStatus), false);
     assert.equal(error.message.includes(echoedContext), false);
     assert.equal(error.message.includes(shortKey), false);
     return true;
@@ -1034,4 +1086,165 @@ test("HA10-03 & HA10-04: rejects bad probability sums, truncated completions, in
     baseUrl: `${mock.origin}/v1`,
   });
   assert.equal((repaired.provider as { baseUrl: string }).baseUrl, `${mock.origin}/v1`);
+});
+
+test("HA10-03 & HA10-07: openrouter uses the shared direct HTTP pipeline for URL determinism, stop_reason rejection, probe validation, and __proto__/constructor preservation", async (t) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-dp-openrouter-unified-"));
+  const { vault } = createMemoryVault();
+  const seenPaths: string[] = [];
+  const seenAuths: (string | undefined)[] = [];
+  let replyRawJson = "";
+
+  const mock = await startLoopbackServer((req, _body, res) => {
+    seenPaths.push(req.url ?? "");
+    seenAuths.push(req.headers.authorization);
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(replyRawJson);
+  });
+
+  t.after(async () => {
+    await mock.close();
+    rmSync(parent, { recursive: true, force: true });
+  });
+
+  const service = openDecisionProviderService({
+    userRoot: parent,
+    vault,
+    now: () => "2026-11-21T00:00:00.000Z",
+    sleep: async () => undefined,
+  });
+
+  // HA10-07: both explicit `/api/alpha` and legacy root origin resolve to `/api/alpha/decisions` (never `/api/alpha/api/alpha/decisions`)
+  await service.command({
+    kind: "provider-create",
+    type: "decisions",
+    vendor: "openrouter",
+    providerId: "or-explicit-alpha",
+    name: "OR Explicit Alpha",
+    model: "perplexity/pplx-decider-v1.3",
+    baseUrl: `${mock.origin}/api/alpha`,
+    apiKey: "sk-or-test-key",
+  });
+  await service.command({
+    kind: "provider-create",
+    type: "decisions",
+    vendor: "openrouter",
+    providerId: "or-legacy-root",
+    name: "OR Legacy Root",
+    model: "perplexity/pplx-decider-v1.3",
+    baseUrl: mock.origin,
+    apiKey: "sk-or-test-key",
+  });
+
+  replyRawJson = JSON.stringify({
+    model: "perplexity/pplx-decider-v1.3",
+    provider: "Perplexity",
+    stop_reason: "stop",
+    usage: { input_tokens: 10, output_tokens: 0, cost: 0.0001 },
+    answers: { decision: { type: "noul", noul: 0.85 } },
+  });
+
+  for (const pid of ["or-explicit-alpha", "or-legacy-root"] as const) {
+    seenPaths.length = 0;
+    seenAuths.length = 0;
+    const probe = await service.command({ kind: "provider-probe", providerId: pid });
+    assert.equal((probe.provider as { probe: { state: string } }).probe.state, "ready");
+    assert.deepEqual(seenPaths, ["/api/alpha/decisions"]);
+    assert.deepEqual(seenAuths, ["Bearer sk-or-test-key"]);
+  }
+
+  // HA10-03: openrouter preserves BOTH `constructor` and `__proto__` probability keys via shared null-proto decoding
+  replyRawJson =
+    '{"model":"perplexity/pplx-decider-v1.3","stop_reason":"stop","usage":{"input_tokens":14,"output_tokens":0},"answers":{"decision":{"type":"choice","choice":"__proto__","probabilities":{"constructor":0.3,"__proto__":0.7}}}}';
+  const protoCriteria = Object.setPrototypeOf({}, null) as Record<string, string>;
+  protoCriteria.constructor = "choose constructor";
+  Object.defineProperty(protoCriteria, "__proto__", {
+    value: "choose proto",
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+  const protoResult = await service.port.decide({
+    subjectRef: "dispatch/openrouter-proto-keys",
+    providerId: "or-explicit-alpha",
+    questionSetVersion: "choice/v1",
+    state: ["Evaluate special keys."],
+    question: {
+      type: "choice",
+      prompt: "Pick key",
+      options: [
+        { id: "constructor", text: "Constructor" },
+        { id: "__proto__", text: "Proto" },
+      ],
+      criteria: protoCriteria,
+    },
+  });
+  assert.equal(protoResult.result.type, "choice");
+  assert.equal(protoResult.result.selected, "__proto__");
+  assert.equal(Object.getPrototypeOf(protoResult.distribution), null);
+  assert.equal(Object.hasOwn(protoResult.distribution, "constructor"), true);
+  assert.equal(Object.hasOwn(protoResult.distribution, "__proto__"), true);
+  assert.equal(protoResult.distribution.constructor, 0.3);
+  assert.equal(protoResult.distribution["__proto__"], 0.7);
+
+  // HA10-03: openrouter rejects abnormal stop_reason (`max_tokens`, `content_filter`) on BOTH probe AND decide
+  for (const badStop of ["max_tokens", "content_filter"]) {
+    replyRawJson = JSON.stringify({
+      model: "perplexity/pplx-decider-v1.3",
+      stop_reason: badStop,
+      usage: { input_tokens: 3, output_tokens: 0 },
+      answers: { decision: { type: "noul", noul: 0.9 } },
+    });
+    await assert.rejects(
+      service.command({ kind: "provider-probe", providerId: "or-explicit-alpha" }),
+      (error: unknown) => (error as { code?: string }).code === "decision_protocol_invalid",
+      `openrouter probe must reject stop_reason=${badStop}`,
+    );
+    assert.deepEqual(service.list().find(({ providerId }) => providerId === "or-explicit-alpha")?.probe, {
+      state: "failed",
+      checkedAt: "2026-11-21T00:00:00.000Z",
+      code: "decision_protocol_invalid",
+    });
+
+    replyRawJson = `{"model":"perplexity/pplx-decider-v1.3","stop_reason":"${badStop}","usage":{"input_tokens":3,"output_tokens":0},"answers":{"decision":{"type":"choice","choice":"constructor","probabilities":{"constructor":0.7,"__proto__":0.3}}}}`;
+    await assert.rejects(
+      service.port.decide({
+        subjectRef: `dispatch/openrouter-bad-stop-${badStop}`,
+        providerId: "or-explicit-alpha",
+        questionSetVersion: "choice/v1",
+        state: ["Evaluate stop_reason."],
+        question: {
+          type: "choice",
+          prompt: "Pick key",
+          options: [
+            { id: "constructor", text: "Constructor" },
+            { id: "__proto__", text: "Proto" },
+          ],
+          criteria: protoCriteria,
+        },
+      }),
+      (error: unknown) => (error as { code?: string }).code === "decision_protocol_invalid",
+      `openrouter decide must reject stop_reason=${badStop}`,
+    );
+  }
+
+  // HA10-03: openrouter probe rejects invalid/missing `answers.decision` and out-of-range noul with decision_protocol_invalid
+  for (const badProbeBody of [
+    JSON.stringify({
+      model: "perplexity/pplx-decider-v1.3",
+      usage: { input_tokens: 1, output_tokens: 0 },
+      answers: {},
+    }),
+    JSON.stringify({
+      model: "perplexity/pplx-decider-v1.3",
+      usage: { input_tokens: 1, output_tokens: 0 },
+      answers: { decision: { type: "noul", noul: 1.5 } },
+    }),
+  ]) {
+    replyRawJson = badProbeBody;
+    await assert.rejects(
+      service.command({ kind: "provider-probe", providerId: "or-explicit-alpha" }),
+      (error: unknown) => (error as { code?: string }).code === "decision_protocol_invalid",
+    );
+  }
 });

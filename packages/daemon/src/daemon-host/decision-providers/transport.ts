@@ -1,9 +1,11 @@
-import { DecisionAdapterError, type DecisionPostJsonInput, type DecisionPostJsonResult } from "./types.ts";
+import {
+  DecisionAdapterError,
+  type DecisionDiagnosticCode,
+  type DecisionPostJsonInput,
+  type DecisionPostJsonResult,
+} from "./types.ts";
 
 type JsonObject = Readonly<Record<string, unknown>>;
-
-/** Safe machine-readable error code tokens only; never free-text prose or echoed secrets. */
-const safeMachineCodePattern = /^[A-Za-z0-9_.:-]{1,64}$/u;
 
 /** A 404 is a model-configuration fault only when the provider names the model as unavailable. */
 export const modelUnavailablePattern =
@@ -62,13 +64,12 @@ function classifyFetchTransportError(error: unknown, timedOut: boolean): Decisio
   if (isRedirectFetchError(error)) {
     return new DecisionAdapterError("decision_transport", "Endpoint attempted an HTTP redirect, which is prohibited.", {
       name: "RedirectRejectedError",
+      diagnosticCode: "redirect_blocked",
       transient: false,
-      localControlledMessage: true,
     });
   }
   const cause = isJsonObject(error) && isJsonObject(error.cause) ? error.cause : null;
-  const causeCode =
-    cause && typeof cause.code === "string" && safeMachineCodePattern.test(cause.code) ? cause.code : null;
+  const causeCode = cause && typeof cause.code === "string" ? cause.code : null;
   const errorName = isJsonObject(error) && typeof error.name === "string" ? error.name : "";
   if (
     timedOut ||
@@ -81,32 +82,28 @@ function classifyFetchTransportError(error: unknown, timedOut: boolean): Decisio
   ) {
     return new DecisionAdapterError("decision_timeout", "Request timed out.", {
       name: "TimeoutError",
-      ...(causeCode === null ? {} : { providerCode: causeCode }),
+      diagnosticCode: "timeout",
       transient: true,
-      localControlledMessage: true,
     });
   }
-  const detail = causeCode === null ? "Network connection failed." : `Network connection failed (${causeCode}).`;
-  return new DecisionAdapterError("decision_transport", detail, {
+  return new DecisionAdapterError("decision_transport", "Network connection failed.", {
     name: "ConnectionError",
-    ...(causeCode === null ? {} : { providerCode: causeCode }),
+    diagnosticCode: "connection_error",
     transient: true,
-    localControlledMessage: true,
   });
 }
 
 /**
  * Maps an upstream non-2xx HTTP response to a strictly local, controlled diagnostic error.
- * Upstream raw bodies and free-text error messages are inspected ONLY internally for safe
- * classification signals (safe machine error code + model-unavailable detection) and are
- * NEVER forwarded into receipts, logs, or incident reasons.
+ * Upstream raw bodies, free-text error messages, and upstream code/type/status strings are
+ * inspected ONLY internally for model-unavailable classification and are NEVER forwarded into
+ * receipts, logs, or incident reasons.
  */
 function buildControlledHttpError(status: number, rawBody: string): DecisionAdapterError {
   const parsedResult = tryParseJsonObject(rawBody);
   const parsed = parsedResult.ok ? parsedResult.value : null;
   const nestedError = parsed && isJsonObject(parsed.error) ? parsed.error : null;
-  const providerCode = extractSafeMachineCode(nestedError, parsed, status);
-  const modelUnavailable = status === 404 && detectModelUnavailable(providerCode, nestedError, parsed);
+  const modelUnavailable = status === 404 && detectModelUnavailable(nestedError, parsed);
   const code =
     status === 401 || status === 403
       ? "provider_credential_unavailable"
@@ -121,14 +118,26 @@ function buildControlledHttpError(status: number, rawBody: string): DecisionAdap
   return new DecisionAdapterError(code, controlledHttpReason(status, modelUnavailable), {
     name: httpErrorName(status),
     statusCode: status,
-    ...(providerCode === undefined ? {} : { providerCode }),
+    diagnosticCode: httpDiagnosticCode(status, modelUnavailable),
     transient,
     modelUnavailable,
-    localControlledMessage: true,
   });
 }
 
-function controlledHttpReason(status: number, modelUnavailable: boolean): string {
+export function httpDiagnosticCode(status: number, modelUnavailable: boolean): DecisionDiagnosticCode {
+  if (status === 401) return "http_401";
+  if (status === 402) return "http_402";
+  if (status === 403) return "http_403";
+  if (modelUnavailable) return "model_unavailable";
+  if (status === 404) return "http_404";
+  if (status === 408 || status === 524) return "timeout";
+  if (status === 429) return "http_429";
+  if (status >= 500 && status <= 599) return "http_5xx";
+  if (status >= 400 && status <= 499) return "http_4xx";
+  return "http_error";
+}
+
+export function controlledHttpReason(status: number, modelUnavailable: boolean): string {
   if (status === 401 || status === 403) return "Authentication failed.";
   if (modelUnavailable) return "Configured model is unavailable on the endpoint.";
   if (status === 404) return "Endpoint or resource not found.";
@@ -138,35 +147,8 @@ function controlledHttpReason(status: number, modelUnavailable: boolean): string
   return "Upstream rejected the request.";
 }
 
-function extractSafeMachineCode(
-  nestedError: JsonObject | null,
-  parsed: JsonObject | null,
-  httpStatus: number,
-): string | number | undefined {
-  const candidates = [nestedError?.code, nestedError?.type, nestedError?.status, parsed?.code, parsed?.type];
-  let numericFallback: number | undefined;
-  for (const candidate of candidates) {
-    if (typeof candidate === "string") {
-      const trimmed = candidate.trim();
-      if (safeMachineCodePattern.test(trimmed)) return trimmed;
-    } else if (
-      numericFallback === undefined &&
-      typeof candidate === "number" &&
-      Number.isSafeInteger(candidate) &&
-      candidate !== httpStatus
-    ) {
-      numericFallback = candidate;
-    }
-  }
-  return numericFallback;
-}
-
-function detectModelUnavailable(
-  providerCode: string | number | undefined,
-  nestedError: JsonObject | null,
-  parsed: JsonObject | null,
-): boolean {
-  if (providerCode === "model_not_found") return true;
+function detectModelUnavailable(nestedError: JsonObject | null, parsed: JsonObject | null): boolean {
+  if (nestedError?.code === "model_not_found" || parsed?.code === "model_not_found") return true;
   const messages = [
     typeof nestedError?.message === "string" ? nestedError.message : null,
     typeof parsed?.message === "string" ? parsed.message : null,
@@ -174,7 +156,7 @@ function detectModelUnavailable(
   return messages.some((message) => message !== null && modelUnavailablePattern.test(message));
 }
 
-function httpErrorName(status: number): string {
+export function httpErrorName(status: number): string {
   if (status === 401) return "UnauthorizedResponseError";
   if (status === 402) return "PaymentRequiredResponseError";
   if (status === 403) return "ForbiddenResponseError";

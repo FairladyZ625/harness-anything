@@ -69,14 +69,29 @@ export type DecisionProviderAdapter = {
   readonly invoke: (input: DecisionAdapterInvokeInput) => Promise<NormalizedDecisionEnvelope>;
 };
 
+export type DecisionDiagnosticCode =
+  | "http_401"
+  | "http_402"
+  | "http_403"
+  | "http_404"
+  | "http_429"
+  | "http_4xx"
+  | "http_5xx"
+  | "http_error"
+  | "model_unavailable"
+  | "timeout"
+  | "redirect_blocked"
+  | "connection_error"
+  | "protocol_invalid"
+  | "invalid_base_url"
+  | "credential_unavailable";
+
 export class DecisionAdapterError extends Error {
   readonly code: DecisionPortFailureCode;
   readonly statusCode?: number;
-  readonly providerCode?: string | number;
+  readonly diagnosticCode?: DecisionDiagnosticCode;
   readonly transient?: boolean;
   readonly modelUnavailable?: boolean;
-  /** True when `message` is generated strictly from local controlled templates (never upstream prose/body). */
-  readonly localControlledMessage: boolean;
 
   constructor(
     code: DecisionPortFailureCode,
@@ -84,18 +99,23 @@ export class DecisionAdapterError extends Error {
     details: {
       readonly name?: string;
       readonly statusCode?: number;
-      readonly providerCode?: string | number;
+      readonly diagnosticCode?: DecisionDiagnosticCode;
       readonly transient?: boolean;
       readonly modelUnavailable?: boolean;
-      readonly localControlledMessage?: boolean;
     } = {},
   ) {
     super(message);
     this.code = code;
-    this.localControlledMessage = details.localControlledMessage ?? true;
     if (details.name !== undefined) this.name = details.name;
     if (details.statusCode !== undefined) this.statusCode = details.statusCode;
-    if (details.providerCode !== undefined) this.providerCode = details.providerCode;
+    const diagnosticCode =
+      details.diagnosticCode ??
+      (code === "decision_protocol_invalid"
+        ? "protocol_invalid"
+        : code === "invalid_base_url"
+          ? "invalid_base_url"
+          : undefined);
+    if (diagnosticCode !== undefined) this.diagnosticCode = diagnosticCode;
     if (details.transient !== undefined) this.transient = details.transient;
     if (details.modelUnavailable !== undefined) this.modelUnavailable = details.modelUnavailable;
   }
