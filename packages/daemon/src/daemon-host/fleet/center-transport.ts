@@ -26,6 +26,7 @@ import {
   FLEET_HELLO_TIMEOUT_MS,
   FLEET_KEY_SEND_WINDOW_BYTES,
   FLEET_SESSION_SEND_WINDOW_BYTES,
+  FLEET_SESSION_CAPABILITY,
   currentFleetProtocolVersion,
   isFleetProtocolVersionCompatible,
   FleetUtf8LineDecoder,
@@ -33,6 +34,7 @@ import {
   parseFleetFrame,
   type FleetCut,
   type FleetFrameV1,
+  type FleetLoginAuthority,
 } from "./command-protocol.ts";
 import { encodeFleetFrames, FleetTransferAssembler, FleetTransferError } from "./command-transfer.ts";
 import {
@@ -52,6 +54,14 @@ function peerDisconnected(socket: TLSSocket, error: unknown): boolean {
   const code =
     typeof error === "object" && error !== null && "code" in error ? (error as { code?: unknown }).code : null;
   return typeof code === "string" && PEER_GONE_CODES.includes(code);
+}
+function loginAuthorityForSession(
+  authority: FleetLoginAuthority | null,
+  capabilities: readonly string[] | undefined,
+): FleetLoginAuthority | null {
+  if (!authority || capabilities?.includes(FLEET_SESSION_CAPABILITY.extendedLoginAuthority)) return authority;
+  const { servername: _servername, browserUrl: _browserUrl, ...legacyAuthority } = authority;
+  return legacyAuthority;
 }
 function reserveFleetTransfer(
   options: FleetCenterOptions,
@@ -648,6 +658,7 @@ export async function serve(
           startReplication(nodeId, start);
         }
         const centerBuildCommit = daemonBuildStamp().commit,
+          loginAuthority = (await options.loginAuthority?.(nodeId)) ?? null,
           versionWarning =
             frame.buildCommit !== undefined &&
             frame.buildCommit !== null &&
@@ -666,7 +677,7 @@ export async function serve(
             chunkBytes: FLEET_CHUNK_BYTES,
             centerBuildCommit,
             ...(versionWarning === undefined ? {} : { versionWarning }),
-            loginAuthority: (await options.loginAuthority?.(nodeId)) ?? null,
+            loginAuthority: loginAuthorityForSession(loginAuthority, frame.capabilities),
           }),
         );
         return;

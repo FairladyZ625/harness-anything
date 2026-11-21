@@ -66,6 +66,9 @@ export interface FleetLoginAuthority {
   readonly servername?: string;
   readonly browserUrl?: string;
 }
+export const FLEET_SESSION_CAPABILITY = {
+  extendedLoginAuthority: "login-authority-extended-v1",
+} as const;
 export type FleetTaskAction = Readonly<Record<string, unknown>> & { readonly kind: FleetTaskCommandKind };
 // Closed per-kind action surface: every field of a fleet task command must be
 // declared for its kind. The daemon re-binds principal authority server-side,
@@ -162,7 +165,13 @@ export type FleetFrameV1 =
   | Msg<"fleet.device.login.result/v1", { inReplyTo: string }>
   | Msg<
       "fleet.session.hello/v1",
-      { protocolVersion: ContractVersion; nodeId: string; credential: string; buildCommit?: string | null }
+      {
+        protocolVersion: ContractVersion;
+        nodeId: string;
+        credential: string;
+        buildCommit?: string | null;
+        capabilities?: readonly string[];
+      }
     >
   | Msg<
       "fleet.session.ready/v1",
@@ -888,6 +897,7 @@ const schemas: Readonly<Record<string, Check>> = {
       nodeId: id,
       credential: text,
       buildCommit: nullable(gitCommitSha),
+      capabilities: array(id, 64),
     },
     ["schema", "messageId", "protocolVersion", "nodeId", "credential"],
   ),

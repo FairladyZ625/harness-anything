@@ -70,6 +70,12 @@
         "order": 10
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet/center-transport.ts#serve.dispatch:a09a6a2cf9a7c86d63e2246e849fc455",
+        "route": "daemon-fleet-edge-sync",
+        "role": "support",
+        "order": 11
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/edge-replica-doctor.ts#edgeReplicaDoctor:670825534fcc8700014b543f2b41d01b",
         "route": "daemon-fleet-edge-sync",
         "role": "support",

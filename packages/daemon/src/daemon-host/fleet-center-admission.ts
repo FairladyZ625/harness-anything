@@ -7,6 +7,7 @@ import { listenFleetTls, type FleetTlsCenter } from "./fleet/center.ts";
 import type { EdgeJoinAdmission, FleetCenterOptions } from "./fleet/center-types.ts";
 import type { KeycloakCenterAuthority } from "./transport/auth-context.ts";
 import { readReplicaGeneration, revokeReplicaView } from "../fleet-sync/fleet/replica-generation.ts";
+import { FLEET_SESSION_CAPABILITY } from "./fleet/command-protocol.ts";
 import { FleetRemoteError, readFleetLoginAuthorityClient, readFleetRepositoryMetadataClient } from "./fleet/peer.ts";
 import { failFleetReplicaSync, waitForFleetReplicaReady, waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
 import { readReplicaHealth } from "../fleet-sync/fleet/replica-health.ts";
@@ -424,6 +425,7 @@ async function repointFleetEdgeMirrorFenced(
     nodeId: request.nodeId,
     credential: request.credential,
     repoId: request.repoId,
+    sessionCapabilities: [FLEET_SESSION_CAPABILITY.extendedLoginAuthority],
     actionKind: "repository-read",
     resumePosition: generation.metadata.position,
     signal: deadline,
@@ -494,6 +496,7 @@ async function repointFleetEdgeMirrorFenced(
     spkiSha256: request.spkiSha256,
     nodeId: request.nodeId,
     credential: request.credential,
+    sessionCapabilities: [FLEET_SESSION_CAPABILITY.extendedLoginAuthority],
     signal: deadline,
     timeoutMs,
   });

@@ -2,7 +2,11 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
-import { serializeFleetFrame, type FleetFrameV1 } from "../src/daemon-host/fleet/command-protocol.ts";
+import {
+  FLEET_SESSION_CAPABILITY,
+  serializeFleetFrame,
+  type FleetFrameV1,
+} from "../src/daemon-host/fleet/command-protocol.ts";
 import { serve } from "../src/daemon-host/fleet/center-transport.ts";
 
 /** A socket stand-in whose error reply waits for drain while the peer closes. */
@@ -93,5 +97,67 @@ test(
       },
       { schema: "fleet.error/v1", code: "client_disconnected" },
     );
+  },
+);
+
+test(
+  "session hello capability keeps login authority compatible with previous Fleet clients",
+  { timeout: 10_000 },
+  async () => {
+    const authority = {
+      url: "https://login.example.test",
+      realm: "harness",
+      clientId: "harness-node-one",
+      certificate: "public certificate",
+      servername: "login.example.test",
+      browserUrl: "https://browser.example.test",
+    };
+    const readyFor = async (capabilities?: readonly string[]) => {
+      const socket = new BackpressuredSocket(),
+        readyWritten = socket.nextWrite(),
+        options = {
+          authenticate: async () => true,
+          loginAuthority: () => authority,
+        } as unknown as Parameters<typeof serve>[1],
+        handle: Parameters<typeof serve>[2] = async () => {
+          throw new Error("Unexpected Fleet command before session ready.");
+        };
+      void serve(
+        socket as never,
+        options,
+        handle,
+        new Map(),
+        new Map(),
+        { hello() {}, online() {}, failure() {} },
+        { recordActivity() {}, clearActivity() {}, recordFailure() {} },
+      );
+      socket.emit(
+        "data",
+        Buffer.from(
+          serializeFleetFrame({
+            schema: "fleet.session.hello/v1",
+            messageId: capabilities ? "extended-hello" : "legacy-hello",
+            protocolVersion: { major: 1, minor: 0 },
+            nodeId: "node-one",
+            credential: "machine-secret",
+            ...(capabilities ? { capabilities } : {}),
+          }),
+        ),
+      );
+      await readyWritten;
+      const ready = JSON.parse(socket.writes[0]!) as Extract<FleetFrameV1, { schema: "fleet.session.ready/v1" }>;
+      socket.destroy();
+      return ready.loginAuthority;
+    };
+
+    const legacyAuthority = await readyFor();
+    assert.deepEqual(legacyAuthority, {
+      url: authority.url,
+      realm: authority.realm,
+      clientId: authority.clientId,
+      certificate: authority.certificate,
+    });
+    assert.ok([3, 4].includes(Object.keys(legacyAuthority ?? {}).length));
+    assert.deepEqual(await readyFor([FLEET_SESSION_CAPABILITY.extendedLoginAuthority]), authority);
   },
 );

@@ -37,6 +37,7 @@ import type { DaemonTaskDispatchesResult } from "../protocol/daemon-protocol.con
 import {
   FleetUtf8LineDecoder,
   currentFleetProtocolVersion,
+  FLEET_SESSION_CAPABILITY,
   parseFleetFrame,
   serializeFleetFrame,
   type FleetDeviceLoginNotice,
@@ -58,6 +59,7 @@ export interface FleetEdgeChange {
 }
 export interface FleetPeerOptions {
   readonly readAccessToken?: () => Promise<string | undefined>;
+  readonly sessionCapabilities?: readonly string[];
   readonly executionCredential?: string;
   readonly hostname?: string;
   readonly port: number;
@@ -529,7 +531,12 @@ export async function readFleetRepositoryMetadataClient(
   let repointToken: string | undefined;
   const session = await openPeer({
     ...options,
-    ...(options.readRepointToken ? { readAccessToken: async () => repointToken } : {}),
+    ...(options.readRepointToken
+      ? {
+          readAccessToken: async () => repointToken,
+          sessionCapabilities: [FLEET_SESSION_CAPABILITY.extendedLoginAuthority],
+        }
+      : {}),
   });
   try {
     if (options.readRepointToken) repointToken = await options.readRepointToken(session.loginAuthority);
@@ -956,6 +963,7 @@ export async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
       nodeId: options.nodeId,
       credential: options.credential,
       buildCommit: options.buildCommit === undefined ? daemonBuildStamp().commit : options.buildCommit,
+      ...(options.sessionCapabilities?.length ? { capabilities: options.sessionCapabilities } : {}),
     });
     if (ready.schema !== "fleet.session.ready/v1") throw new Error("session ready expected");
     return {
