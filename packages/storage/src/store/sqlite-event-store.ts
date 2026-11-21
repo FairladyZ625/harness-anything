@@ -1,5 +1,5 @@
 import { documentNodeKind } from "../document-node-kind.ts";
-import { readSqliteEventWindow, SQLITE_OCCURRED_AT_DAY_SQL, SQLITE_OCCURRED_AT_MS_SQL } from "./sqlite-event-window.ts";
+import { readSqliteEventWindow, SQLITE_OCCURRED_AT_MS_SQL } from "./sqlite-event-window.ts";
 import {
   SQLITE_DECLARATION_INDEX_DDL,
   applySqliteDeclarationIndex,
@@ -779,8 +779,6 @@ function createSchema(db: DatabaseSync, query: SqliteQuery, repoId: string, gene
     CREATE INDEX IF NOT EXISTS event_actor_executor
       ON event(json_extract(event_json, '$.actor.executor.id'), revision DESC);
     CREATE INDEX IF NOT EXISTS event_occurred_at ON event(occurred_at, revision DESC);
-    CREATE INDEX IF NOT EXISTS event_occurred_at_day_revision
-      ON event(${SQLITE_OCCURRED_AT_DAY_SQL}, revision ASC, ${SQLITE_OCCURRED_AT_MS_SQL});
     CREATE INDEX IF NOT EXISTS event_occurred_at_ms_revision
       ON event(${SQLITE_OCCURRED_AT_MS_SQL}, revision ASC);
     CREATE TABLE IF NOT EXISTS event_query_entity (

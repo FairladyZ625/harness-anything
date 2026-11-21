@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
-import { access, mkdir, open, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -61,12 +61,10 @@ export async function openCallerOutputLineWriter(filePath: string): Promise<{
     closed = true;
     await handle.close();
   };
-  const cleanupTemp = async (targetPath: string = temporary) => {
-    if (targetPath === temporary) {
-      if (cleaned || published) return;
-      cleaned = true;
-    }
-    await rm(targetPath, { force: true });
+  const cleanupTemp = async () => {
+    if (cleaned || published) return;
+    cleaned = true;
+    await rm(temporary, { force: true });
   };
   const publishEntries = (targetPath: string) => rename(temporary, targetPath);
   return {
@@ -82,29 +80,23 @@ export async function openCallerOutputLineWriter(filePath: string): Promise<{
         return;
       }
       const finalEntriesPath = companion.entriesTargetPath ?? filePath;
-      const entriesPreexisted = await access(finalEntriesPath).then(
-        () => true,
-        () => false,
-      );
       const stagedCompanion = await openCallerOutputLineWriter(companion.filePath);
       let companionCommitted = false;
-      let entriesMovedToFinal = false;
       try {
         await stagedCompanion.writeLine(companion.contents);
         await publishEntries(finalEntriesPath);
-        entriesMovedToFinal = true;
+        // Once the private staging file has been renamed to the shared content-addressed target,
+        // NEVER delete that target on subsequent manifest-switch failure: a concurrent publisher
+        // writing identical content may already reference it from a committed manifest.
+        published = true;
         if (companion.beforeSwitch !== undefined) {
           await companion.beforeSwitch();
         }
         await stagedCompanion.commit();
-        published = true;
         companionCommitted = true;
       } finally {
         if (!companionCommitted) {
           await stagedCompanion.abort();
-          if (entriesMovedToFinal && !entriesPreexisted) {
-            await cleanupTemp(finalEntriesPath);
-          }
         }
         await stagedCompanion.close();
       }

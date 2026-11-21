@@ -4,8 +4,8 @@ import { validateStorageReadWindow } from "@harness-anything/kernel/internal/dom
 import { TaskEventStoreError } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import type { PostgresEventStoreScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
 
-const MS_PER_DAY = 86_400_000;
-const MAX_DIRECT_DAY_BRANCHES = 32;
+const MIN_JS_EPOCH_MS = -8_640_000_000_000_000;
+const MAX_JS_EPOCH_MS = 8_640_000_000_000_000;
 
 export interface PgReadEventWindowPayload {
   readonly repoId: string;
@@ -15,7 +15,7 @@ export interface PgReadEventWindowPayload {
     readonly after?: string;
     readonly before?: string;
     readonly limit: number;
-    readonly boundsPinned?: boolean;
+    readonly afterOccurredAtMs?: number;
   };
 }
 
@@ -25,6 +25,7 @@ export interface PgReadEventWindowResult {
   readonly lastScannedRevision: number;
   readonly windowMaxRevision: number;
   readonly done: boolean;
+  readonly nextAfterOccurredAtMs?: number;
 }
 
 export async function readPgEventWindow(
@@ -71,10 +72,13 @@ export async function readPgEventWindow(
         "ORDER BY revision ASC LIMIT $6",
       [scope.tenantId, scope.projectId, input.repoId, query.afterRevision, upperRevision, batchLimit],
     );
-    return finalizePgWindowPage(sourceRevision, upperRevision, query.limit, result.rows);
+    return finalizePgEventRows(sourceRevision, upperRevision, query.limit, result.rows);
   }
 
-  // Case A: Exact millisecond window (equal endpoints) — direct RLS-safe index seek on (occurred_at_ms, revision).
+  // Fail closed via the tiny partial pending index if historical rows have not yet been backfilled.
+  await pgOccurredAtMsGate(client, scope, input.repoId);
+
+  // Case 1: Exact millisecond window (equal endpoints) — direct RLS-safe index seek on (occurred_at_ms, revision).
   if (afterMs !== undefined && beforeMs !== undefined && afterMs === beforeMs) {
     const result = await client.query<{ readonly event_json: string }>(
       "SELECT event_json FROM ha_events " +
@@ -92,74 +96,17 @@ export async function readPgEventWindow(
         batchLimit,
       ],
     );
-    return finalizePgWindowPage(sourceRevision, upperRevision, query.limit, result.rows);
+    return finalizePgEventRows(sourceRevision, upperRevision, query.limit, result.rows, afterMs);
   }
 
-  const startDay = afterMs === undefined ? undefined : Math.floor(afterMs / MS_PER_DAY);
-  const endDay = beforeMs === undefined ? undefined : Math.floor(beforeMs / MS_PER_DAY);
-
-  // Case B: Single UTC day (100% of --date YYYY-MM-DD and intra-day windows) — O(limit) index seek on (occurred_at_utc_day, revision, occurred_at_ms).
-  if (startDay !== undefined && endDay !== undefined && startDay === endDay) {
-    const isFullDay = afterMs === startDay * MS_PER_DAY && beforeMs === startDay * MS_PER_DAY + MS_PER_DAY - 1;
-    const result = isFullDay
-      ? await client.query<{ readonly event_json: string }>(
-          "SELECT event_json FROM ha_events " +
-            "WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 " +
-            "AND occurred_at_utc_day=$5 AND revision>$6 AND revision<=$7 " +
-            "ORDER BY revision ASC LIMIT $8",
-          [
-            scope.tenantId,
-            scope.projectId,
-            scope.policyEpoch,
-            input.repoId,
-            startDay,
-            query.afterRevision,
-            upperRevision,
-            batchLimit,
-          ],
-        )
-      : await client.query<{ readonly event_json: string }>(
-          "SELECT event_json FROM ha_events " +
-            "WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 " +
-            "AND occurred_at_utc_day=$5 AND revision>$6 AND revision<=$7 " +
-            "AND occurred_at_ms>=$8 AND occurred_at_ms<=$9 " +
-            "ORDER BY revision ASC LIMIT $10",
-          [
-            scope.tenantId,
-            scope.projectId,
-            scope.policyEpoch,
-            input.repoId,
-            startDay,
-            query.afterRevision,
-            upperRevision,
-            afterMs!,
-            beforeMs!,
-            batchLimit,
-          ],
-        );
-    return finalizePgWindowPage(sourceRevision, upperRevision, query.limit, result.rows);
-  }
-
-  // Case C: Multi-day bounded window (<= 32 days) — per-day bounded index seeks merged by revision.
-  if (startDay !== undefined && endDay !== undefined && endDay - startDay + 1 <= MAX_DIRECT_DAY_BRANCHES) {
-    const days = Array.from({ length: endDay - startDay + 1 }, (_, i) => startDay + i);
-    const rows = await queryPgMultiDayWindow(
-      client,
-      scope,
-      input.repoId,
-      days,
-      query.afterRevision,
-      upperRevision,
-      afterMs,
-      beforeMs,
-      batchLimit,
-    );
-    return finalizePgWindowPage(sourceRevision, upperRevision, query.limit, rows);
-  }
-
-  // Case D: Wide (> 32 days) or open-ended window — loose index skip-scan for active UTC days.
-  const activeDays = await findPgActiveDays(client, scope, input.repoId, startDay, endDay, MAX_DIRECT_DAY_BRANCHES + 1);
-  if (activeDays.length === 0) {
+  const baseLowerMs = afterMs ?? MIN_JS_EPOCH_MS;
+  const upperMs = beforeMs ?? MAX_JS_EPOCH_MS;
+  const keysetMs =
+    query.afterOccurredAtMs !== undefined && query.afterOccurredAtMs >= baseLowerMs
+      ? query.afterOccurredAtMs
+      : undefined;
+  const lowerMs = keysetMs ?? baseLowerMs;
+  if (lowerMs > upperMs) {
     return {
       sourceRevision,
       events: [],
@@ -168,49 +115,232 @@ export async function readPgEventWindow(
       done: true,
     };
   }
-  if (activeDays.length <= MAX_DIRECT_DAY_BRANCHES) {
-    const rows = await queryPgMultiDayWindow(
+
+  // Case 2: Covering-index keyset peek on (occurred_at_ms, revision) — O(limit), zero non-matching rows visited.
+  const peek = await peekPgOccurredAtMs(
+    client,
+    scope,
+    input.repoId,
+    lowerMs,
+    upperMs,
+    keysetMs,
+    query.afterRevision,
+    upperRevision,
+    batchLimit,
+  );
+  if (peek.length === 0) {
+    return {
+      sourceRevision,
+      events: [],
+      lastScannedRevision: upperRevision,
+      windowMaxRevision: upperRevision,
+      done: true,
+    };
+  }
+  if (peek.length < batchLimit) {
+    const revisions = peek.map((row) => row.revision).sort((a, b) => a - b);
+    return fetchPgRevisionsPage(client, scope, input.repoId, sourceRevision, upperRevision, revisions, false);
+  }
+
+  // Fast exit 2A: contiguous revision prefix from afterRevision + 1 proves no later timestamp can hold a smaller revision.
+  let contiguous = true;
+  for (let index = 0; index < query.limit; index += 1) {
+    if (peek[index]!.revision !== query.afterRevision + 1 + index) {
+      contiguous = false;
+      break;
+    }
+  }
+  if (contiguous) {
+    const selectedRevs = peek.slice(0, query.limit).map((row) => row.revision);
+    return fetchPgRevisionsPage(
       client,
       scope,
       input.repoId,
-      activeDays,
-      query.afterRevision,
+      sourceRevision,
       upperRevision,
-      afterMs,
-      beforeMs,
-      batchLimit,
+      selectedRevs,
+      true,
+      peek[query.limit - 1]!.ms,
     );
-    return finalizePgWindowPage(sourceRevision, upperRevision, query.limit, rows);
   }
 
-  // Fallback for genuinely dense >32-day windows: batched pure PK scan filtering scalar occurred_at_ms.
-  const matched: CanonicalEventV1[] = [];
-  let cursorRev = query.afterRevision;
-  while (matched.length < batchLimit && cursorRev < upperRevision) {
-    const result = await client.query<{
-      readonly revision: string;
-      readonly occurred_at_ms: string | null;
-      readonly event_json: string;
-    }>(
-      "SELECT revision, occurred_at_ms, event_json FROM ha_events " +
-        "WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND revision>$4 AND revision<=$5 " +
-        "ORDER BY revision ASC LIMIT $6",
-      [scope.tenantId, scope.projectId, input.repoId, cursorRev, upperRevision, batchLimit],
-    );
-    if (result.rows.length === 0) break;
-    for (const row of result.rows) {
-      cursorRev = Number(row.revision);
-      if (row.occurred_at_ms === null) continue;
-      const ms = Number(row.occurred_at_ms);
-      if (afterMs !== undefined && ms < afterMs) continue;
-      if (beforeMs !== undefined && ms > beforeMs) continue;
-      matched.push(JSON.parse(row.event_json) as CanonicalEventV1);
-      if (matched.length >= batchLimit) break;
+  // Fast exit 2B: all peeked rows share the final active timestamp in [lowerMs, upperMs], already ordered by revision ASC.
+  const firstMs = peek[0]!.ms;
+  const lastMs = peek[query.limit]!.ms;
+  if (firstMs === lastMs) {
+    const later =
+      firstMs >= upperMs
+        ? { rows: [] }
+        : await client.query(
+            "SELECT 1 FROM ha_events " +
+              "WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 " +
+              "AND occurred_at_ms>$5 AND occurred_at_ms<=$6 AND revision>$7 AND revision<=$8 " +
+              "LIMIT 1",
+            [
+              scope.tenantId,
+              scope.projectId,
+              scope.policyEpoch,
+              input.repoId,
+              firstMs,
+              upperMs,
+              query.afterRevision,
+              upperRevision,
+            ],
+          );
+    if (later.rows.length === 0) {
+      const selectedRevs = peek.slice(0, query.limit).map((row) => row.revision);
+      return fetchPgRevisionsPage(
+        client,
+        scope,
+        input.repoId,
+        sourceRevision,
+        upperRevision,
+        selectedRevs,
+        true,
+        firstMs,
+      );
     }
-    if (result.rows.length < batchLimit) break;
   }
-  const hasMore = matched.length > query.limit;
-  const events = hasMore ? matched.slice(0, query.limit) : matched;
+
+  // Case 3: Gapped or non-monotonic window — MATERIALIZED CTE forces RLS-safe index scan on ha_events_occurred_ms_revision
+  // over [lowerMs, upperMs] only (zero non-matching rows scanned), then Top-N sorts the matched integer revisions.
+  const revResult = await client.query<{ readonly revision: string }>(
+    "WITH matched AS MATERIALIZED (" +
+      "SELECT revision FROM ha_events " +
+      "WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 " +
+      "AND occurred_at_ms>=$5 AND occurred_at_ms<=$6 AND revision>$7 AND revision<=$8" +
+      ") SELECT revision FROM matched ORDER BY revision ASC LIMIT $9",
+    [
+      scope.tenantId,
+      scope.projectId,
+      scope.policyEpoch,
+      input.repoId,
+      lowerMs,
+      upperMs,
+      query.afterRevision,
+      upperRevision,
+      batchLimit,
+    ],
+  );
+  const hasMore = revResult.rows.length > query.limit;
+  const selectedRevs = (hasMore ? revResult.rows.slice(0, query.limit) : revResult.rows).map((row) =>
+    Number(row.revision),
+  );
+  return fetchPgRevisionsPage(
+    client,
+    scope,
+    input.repoId,
+    sourceRevision,
+    upperRevision,
+    selectedRevs,
+    hasMore,
+    keysetMs,
+  );
+}
+
+async function pgOccurredAtMsGate(client: PoolClient, scope: PostgresEventStoreScope, repoId: string): Promise<void> {
+  const pending = await client.query(
+    "SELECT 1 FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 " +
+      "AND occurred_at_ms IS NULL LIMIT 1",
+    [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
+  );
+  if (pending.rows.length > 0) {
+    const error = new Error("Event occurred_at_ms index backfill is pending");
+    Object.defineProperty(error, "code", { value: "projection_pending" });
+    throw error;
+  }
+}
+
+async function peekPgOccurredAtMs(
+  client: PoolClient,
+  scope: PostgresEventStoreScope,
+  repoId: string,
+  lowerMs: number,
+  upperMs: number,
+  keysetMs: number | undefined,
+  afterRevision: number,
+  upperRevision: number,
+  batchLimit: number,
+): Promise<{ readonly ms: number; readonly revision: number }[]> {
+  if (keysetMs !== undefined) {
+    const partA = await client.query<{ readonly occurred_at_ms: string; readonly revision: string }>(
+      "SELECT occurred_at_ms, revision FROM ha_events " +
+        "WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 " +
+        "AND occurred_at_ms=$5 AND revision>$6 AND revision<=$7 " +
+        "ORDER BY revision ASC LIMIT $8",
+      [scope.tenantId, scope.projectId, scope.policyEpoch, repoId, keysetMs, afterRevision, upperRevision, batchLimit],
+    );
+    const result = partA.rows.map((row) => ({ ms: Number(row.occurred_at_ms), revision: Number(row.revision) }));
+    if (result.length < batchLimit && keysetMs < upperMs) {
+      const partB = await client.query<{ readonly occurred_at_ms: string; readonly revision: string }>(
+        "SELECT occurred_at_ms, revision FROM ha_events " +
+          "WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 " +
+          "AND occurred_at_ms>$5 AND occurred_at_ms<=$6 AND revision>$7 AND revision<=$8 " +
+          "ORDER BY occurred_at_ms ASC, revision ASC LIMIT $9",
+        [
+          scope.tenantId,
+          scope.projectId,
+          scope.policyEpoch,
+          repoId,
+          keysetMs,
+          upperMs,
+          afterRevision,
+          upperRevision,
+          batchLimit - result.length,
+        ],
+      );
+      for (const row of partB.rows) {
+        result.push({ ms: Number(row.occurred_at_ms), revision: Number(row.revision) });
+      }
+    }
+    return result;
+  }
+  const rows = await client.query<{ readonly occurred_at_ms: string; readonly revision: string }>(
+    "SELECT occurred_at_ms, revision FROM ha_events " +
+      "WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 " +
+      "AND occurred_at_ms>=$5 AND occurred_at_ms<=$6 AND revision>$7 AND revision<=$8 " +
+      "ORDER BY occurred_at_ms ASC, revision ASC LIMIT $9",
+    [
+      scope.tenantId,
+      scope.projectId,
+      scope.policyEpoch,
+      repoId,
+      lowerMs,
+      upperMs,
+      afterRevision,
+      upperRevision,
+      batchLimit,
+    ],
+  );
+  return rows.rows.map((row) => ({ ms: Number(row.occurred_at_ms), revision: Number(row.revision) }));
+}
+
+async function fetchPgRevisionsPage(
+  client: PoolClient,
+  scope: PostgresEventStoreScope,
+  repoId: string,
+  sourceRevision: number,
+  upperRevision: number,
+  revisions: readonly number[],
+  hasMore: boolean,
+  nextAfterOccurredAtMs?: number,
+): Promise<PgReadEventWindowResult> {
+  if (revisions.length === 0) {
+    return {
+      sourceRevision,
+      events: [],
+      lastScannedRevision: upperRevision,
+      windowMaxRevision: upperRevision,
+      done: true,
+    };
+  }
+  const eventResult = await client.query<{ readonly event_json: string }>(
+    "SELECT event_json FROM ha_events " +
+      "WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 AND revision = ANY($5::bigint[]) " +
+      "ORDER BY revision ASC",
+    [scope.tenantId, scope.projectId, scope.policyEpoch, repoId, revisions],
+  );
+  const events = eventResult.rows.map((row) => JSON.parse(row.event_json) as CanonicalEventV1);
   const lastScannedRevision = hasMore ? events.at(-1)!.workspaceRevision : upperRevision;
   return {
     sourceRevision,
@@ -218,112 +348,16 @@ export async function readPgEventWindow(
     lastScannedRevision,
     windowMaxRevision: upperRevision,
     done: !hasMore,
+    ...(hasMore && nextAfterOccurredAtMs !== undefined ? { nextAfterOccurredAtMs } : {}),
   };
 }
 
-async function queryPgMultiDayWindow(
-  client: PoolClient,
-  scope: PostgresEventStoreScope,
-  repoId: string,
-  days: readonly number[],
-  afterRevision: number,
-  upperRevision: number,
-  afterMs: number | undefined,
-  beforeMs: number | undefined,
-  batchLimit: number,
-): Promise<readonly { readonly event_json: string }[]> {
-  const branches: string[] = [];
-  const values: unknown[] = [
-    scope.tenantId,
-    scope.projectId,
-    scope.policyEpoch,
-    repoId,
-    afterRevision,
-    upperRevision,
-    batchLimit,
-  ];
-  const startDay = afterMs === undefined ? undefined : Math.floor(afterMs / MS_PER_DAY);
-  const endDay = beforeMs === undefined ? undefined : Math.floor(beforeMs / MS_PER_DAY);
-  const push = (val: unknown) => {
-    values.push(val);
-    return `$${values.length}`;
-  };
-  for (const day of days) {
-    const dayParam = push(day);
-    const clauses = [
-      "tenant_id=$1",
-      "project_id=$2",
-      "policy_epoch=$3",
-      "repo_id=$4",
-      `occurred_at_utc_day=${dayParam}`,
-      "revision>$5",
-      "revision<=$6",
-    ];
-    if (afterMs !== undefined && day === startDay && afterMs > day * MS_PER_DAY) {
-      clauses.push(`occurred_at_ms>=${push(afterMs)}`);
-    }
-    if (beforeMs !== undefined && day === endDay && beforeMs < day * MS_PER_DAY + MS_PER_DAY - 1) {
-      clauses.push(`occurred_at_ms<=${push(beforeMs)}`);
-    }
-    branches.push(`(SELECT revision FROM ha_events WHERE ${clauses.join(" AND ")} ORDER BY revision ASC LIMIT $7)`);
-  }
-  const revResult = await client.query<{ readonly revision: string }>(
-    `SELECT revision FROM (${branches.join(" UNION ALL ")}) candidates ORDER BY revision ASC LIMIT $7`,
-    values,
-  );
-  if (revResult.rows.length === 0) return [];
-  const revisions = revResult.rows.map((row) => Number(row.revision));
-  const eventResult = await client.query<{ readonly event_json: string }>(
-    "SELECT event_json FROM ha_events " +
-      "WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 AND revision = ANY($5::bigint[]) " +
-      "ORDER BY revision ASC",
-    [scope.tenantId, scope.projectId, scope.policyEpoch, repoId, revisions],
-  );
-  return eventResult.rows;
-}
-
-async function findPgActiveDays(
-  client: PoolClient,
-  scope: PostgresEventStoreScope,
-  repoId: string,
-  startDay: number | undefined,
-  endDay: number | undefined,
-  maxDays: number,
-): Promise<number[]> {
-  const values: unknown[] = [scope.tenantId, scope.projectId, scope.policyEpoch, repoId];
-  const push = (val: unknown) => {
-    values.push(val);
-    return `$${values.length}`;
-  };
-  const baseScope = "tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4";
-  const initClauses = [baseScope, "occurred_at_utc_day IS NOT NULL"];
-  const stepClauses = [baseScope, "occurred_at_utc_day>days.d"];
-  if (startDay !== undefined) {
-    initClauses.push(`occurred_at_utc_day>=${push(startDay)}`);
-  }
-  if (endDay !== undefined) {
-    const endParam = push(endDay);
-    initClauses.push(`occurred_at_utc_day<=${endParam}`);
-    stepClauses.push(`occurred_at_utc_day<=${endParam}`);
-  }
-  const limitParam = push(maxDays);
-  const result = await client.query<{ readonly d: number }>(
-    `WITH RECURSIVE days(d) AS (` +
-      `SELECT MIN(occurred_at_utc_day) FROM ha_events WHERE ${initClauses.join(" AND ")} ` +
-      `UNION ALL ` +
-      `SELECT (SELECT MIN(occurred_at_utc_day) FROM ha_events WHERE ${stepClauses.join(" AND ")}) ` +
-      `FROM days WHERE days.d IS NOT NULL` +
-      `) SELECT d FROM days WHERE d IS NOT NULL LIMIT ${limitParam}`,
-    values,
-  );
-  return result.rows.map((row) => Number(row.d));
-}
-
-function finalizePgWindowPage(
+function finalizePgEventRows(
   sourceRevision: number,
   upperRevision: number,
   limit: number,
   rows: readonly { readonly event_json: string }[],
+  nextAfterOccurredAtMs?: number,
 ): PgReadEventWindowResult {
   const hasMore = rows.length > limit;
   const events = (hasMore ? rows.slice(0, limit) : rows).map((row) => JSON.parse(row.event_json) as CanonicalEventV1);
@@ -334,5 +368,6 @@ function finalizePgWindowPage(
     lastScannedRevision,
     windowMaxRevision: upperRevision,
     done: !hasMore,
+    ...(hasMore && nextAfterOccurredAtMs !== undefined ? { nextAfterOccurredAtMs } : {}),
   };
 }

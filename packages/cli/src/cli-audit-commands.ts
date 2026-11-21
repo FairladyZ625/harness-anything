@@ -21,7 +21,9 @@ type AuditExportPagePayload = {
   readonly schema: "audit-export-page/v1";
   readonly repoId: string;
   readonly sourceRevision: number;
+  readonly effectiveFromRevision?: number | null;
   readonly effectiveToRevision: number;
+  readonly cursorTruncated?: boolean;
   readonly algorithm: AuditHashAlgorithm;
   readonly prevRootHash: AuditDigest;
   readonly window: AuditExportWindowV1;
@@ -94,11 +96,17 @@ export async function runLedgerAuditExport(
       if (accumulator === null) {
         sourceRevision = page.sourceRevision;
         pinnedToRevision = page.effectiveToRevision;
+        const pureRevision = kernel.isPureRevisionWindow(page.window);
+        const actualFromRevision = page.effectiveFromRevision ?? page.window.fromRevision;
+        const emptyPostCursorPure =
+          pureRevision && page.cursorTruncated === true && actualFromRevision === null && page.events.length === 0;
         manifestWindow = {
           ...page.window,
-          toRevision: page.effectiveToRevision >= 1 ? page.effectiveToRevision : null,
+          fromRevision: actualFromRevision,
+          toRevision: emptyPostCursorPure ? null : page.effectiveToRevision >= 1 ? page.effectiveToRevision : null,
+          ...(page.cursorTruncated === true ? { cursorTruncated: true as const } : {}),
         };
-        if (kernel.isPureRevisionWindow(manifestWindow)) {
+        if (pureRevision && !emptyPostCursorPure) {
           const parsedCursor = cursor === undefined ? 0 : Number(cursor.split(":")[0]);
           expectedPureRevision = Math.max(
             manifestWindow.fromRevision ?? 1,

@@ -7,7 +7,7 @@ import { openEntityStore } from "../../src/store/entity-store.ts";
 import test from "node:test";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { sqliteLedgerPath } from "../../src/store/sqlite-event-store.ts";
-import { SQLITE_OCCURRED_AT_DAY_SQL } from "../../src/store/sqlite-event-window.ts";
+import { SQLITE_OCCURRED_AT_MS_SQL } from "../../src/store/sqlite-event-window.ts";
 import { makeTaskProjection, makeTaskProjectionReader } from "../../src/projection/rebuildable-task-projection.ts";
 import {
   assertCanonicalFactoryLifecycle,
@@ -76,13 +76,19 @@ test("SQLite readEventWindow handles sub-ms truncation, ±23:59 offsets, equal e
       for (const row of buildHistoricalTimestampFixtures(baseEvents)) {
         stmt.run(row.occurredAt, row.eventJson, row.digest, row.revision);
       }
-      // Verify the SQLite planner uses the expression index event_occurred_at_day_revision (no table scan).
+      // Verify the SQLite planner uses the expression index event_occurred_at_ms_revision (no table scan).
       const plan = db
         .prepare(
-          `EXPLAIN QUERY PLAN SELECT event_json FROM event WHERE (${SQLITE_OCCURRED_AT_DAY_SQL})=? AND revision>? AND revision<=? ORDER BY revision ASC LIMIT ?`,
+          `EXPLAIN QUERY PLAN SELECT (${SQLITE_OCCURRED_AT_MS_SQL}) AS ms, revision FROM event ` +
+            `WHERE (${SQLITE_OCCURRED_AT_MS_SQL})>=? AND (${SQLITE_OCCURRED_AT_MS_SQL})<=? ` +
+            "AND revision>? AND revision<=? " +
+            `ORDER BY (${SQLITE_OCCURRED_AT_MS_SQL}) ASC, revision ASC LIMIT ?`,
         )
-        .all(Math.floor(Date.parse("2026-11-05T00:00:00.000Z") / 86_400_000), 0, 100, 10);
-      assert.match(plan.map((row) => String(row.detail)).join("\n"), /USING INDEX event_occurred_at_day_revision/u);
+        .all(Date.parse("2026-11-05T00:00:00.000Z"), Date.parse("2026-11-05T23:59:59.999Z"), 0, 100, 10);
+      assert.match(
+        plan.map((row) => String(row.detail)).join("\n"),
+        /USING COVERING INDEX event_occurred_at_ms_revision/u,
+      );
     } finally {
       db.close();
     }
@@ -131,11 +137,13 @@ test("SQLite readEventWindow sparse date-window pagination skips intervening non
       const collected: number[] = [];
       let afterRevision = 0;
       let maxRevision: number | undefined;
+      let afterOccurredAtMs: number | undefined;
       let pages = 0;
       for (;;) {
         const page = store.readEventWindow!({
           afterRevision,
-          ...(maxRevision === undefined ? {} : { maxRevision, boundsPinned: true }),
+          ...(maxRevision === undefined ? {} : { maxRevision }),
+          ...(afterOccurredAtMs === undefined ? {} : { afterOccurredAtMs }),
           after: "2026-11-05T00:00:00.000Z",
           before: "2026-11-05T23:59:59.999Z",
           limit: 20,
@@ -143,6 +151,7 @@ test("SQLite readEventWindow sparse date-window pagination skips intervening non
         pages += 1;
         for (const ev of page.events) collected.push(ev.workspaceRevision);
         maxRevision = page.windowMaxRevision;
+        afterOccurredAtMs = page.nextAfterOccurredAtMs;
         if (page.done) break;
         afterRevision = page.lastScannedRevision;
       }
@@ -152,6 +161,91 @@ test("SQLite readEventWindow sparse date-window pagination skips intervening non
       assert.equal(collected[matchingBefore - 1], matchingBefore);
       assert.equal(collected[matchingBefore], matchingBefore + gapSize + 1);
       assert.equal(collected.at(-1), matchingBefore + gapSize + matchingAfter);
+    } finally {
+      await store.drain();
+    }
+  });
+});
+
+test("SQLite readEventWindow handles narrow intra-day, >32-day wide windows, and non-monotonic timestamps in revision ASC order", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const repoId = "sqlite-dm03-narrow-wide";
+    const store = makeTaskEventStore({ rootDir, repoId });
+    const baseMs = Date.parse("2026-09-01T10:00:00.000Z");
+    const dayMs = 86_400_000;
+    const allEvents: ReturnType<typeof eventAt>[] = [];
+    let rev = 1;
+    // 40 active UTC days (> 32 days) with interleaved non-matching out-of-window events and non-monotonic timestamps.
+    for (let day = 0; day < 40; day += 1) {
+      // Non-monotonic pair inside each day (rev+1 has earlier timestamp than rev)
+      const dayStart = baseMs + day * dayMs;
+      allEvents.push({
+        ...eventAt(rev),
+        occurredAt: new Date(dayStart + 30_000).toISOString(),
+      });
+      rev += 1;
+      allEvents.push({
+        ...eventAt(rev),
+        occurredAt: new Date(dayStart + 10_000).toISOString(),
+      });
+      rev += 1;
+      // Same-day non-matching events outside the 10:00..10:05 narrow window (at 18:00) + out-of-range events in Nov
+      for (let g = 0; g < 10; g += 1) {
+        allEvents.push({
+          ...eventAt(rev),
+          occurredAt: day === 0 ? "2026-09-01T18:00:00.000Z" : "2026-11-20T12:00:00.000Z",
+        });
+        rev += 1;
+      }
+    }
+    for (let offset = 0; offset < allEvents.length; offset += 100) {
+      const slice = allEvents.slice(offset, offset + 100).map((event) => ({
+        event,
+        plan: taskLifecycleWritePlan(event),
+        blobs: [] as const,
+      }));
+      const terminal = slice.pop()!;
+      store.append({ ...terminal, preceding: slice });
+    }
+    try {
+      // 1) Wide >32-day window across all 40 active days: must return strictly revision ASC order!
+      const wideRevs: number[] = [];
+      let afterRevision = 0;
+      let maxRevision: number | undefined;
+      let afterOccurredAtMs: number | undefined;
+      for (;;) {
+        const page = store.readEventWindow!({
+          afterRevision,
+          ...(maxRevision === undefined ? {} : { maxRevision }),
+          ...(afterOccurredAtMs === undefined ? {} : { afterOccurredAtMs }),
+          after: "2026-09-01T00:00:00.000Z",
+          before: "2026-10-10T23:59:59.999Z",
+          limit: 17,
+        });
+        for (const ev of page.events) wideRevs.push(ev.workspaceRevision);
+        maxRevision = page.windowMaxRevision;
+        afterOccurredAtMs = page.nextAfterOccurredAtMs;
+        if (page.done) break;
+        afterRevision = page.lastScannedRevision;
+      }
+      // 40 days * 2 matching + 10 same-day 18:00 events on day 0 = 90 events, strictly ascending revision
+      assert.equal(wideRevs.length, 90);
+      for (let i = 1; i < wideRevs.length; i += 1) {
+        assert.ok(wideRevs[i]! > wideRevs[i - 1]!, `expected strictly ascending revisions: ${wideRevs.join(",")}`);
+      }
+
+      // 2) Narrow intra-day window on 2026-09-01 [10:00:00, 10:05:00]: excludes the 10 same-day 18:00 events!
+      const narrow = store.readEventWindow!({
+        afterRevision: 0,
+        after: "2026-09-01T10:00:00.000Z",
+        before: "2026-09-01T10:05:00.000Z",
+        limit: 10,
+      });
+      assert.equal(narrow.done, true);
+      assert.deepEqual(
+        narrow.events.map((e) => e.workspaceRevision),
+        [1, 2],
+      );
     } finally {
       await store.drain();
     }

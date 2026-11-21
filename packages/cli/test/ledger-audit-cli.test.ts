@@ -745,6 +745,63 @@ test("CLI multi-page streaming audit-export, atomic staging, pinned anchors, mix
       const verifyV2 = runOfflineCli(["--manifest", corruptManifestPath, "--algorithm", "sha256"]);
       assert.equal(verifyV2.status, 0, JSON.stringify(verifyV2.body));
     }
+
+    // DM-06 CLI end-to-end: --date with --cursor propagates effectiveFromRevision, capped toRevision, and cursorTruncated: true
+    // into audit-manifest.json so offline audit-verify treats the cursor-truncated day as partial instead of false mismatch!
+    const cursorDir = path.join(workDir, "dm06-cursor-truncated");
+    const cursorParsed = parseThinCommand([
+      "ledger",
+      "audit-export",
+      "--algorithm",
+      "sha256",
+      "--date",
+      "2026-11-05",
+      "--cursor",
+      "4:6",
+      "--output-dir",
+      cursorDir,
+      "--json",
+    ]);
+    assert.equal(cursorParsed.ok, true);
+    if (cursorParsed.ok) {
+      const nov5Events = fixture.events.map((ev, idx) => ({
+        ...ev,
+        occurredAt: idx < 2 ? `2026-11-04T1${idx}:00:00.000Z` : `2026-11-05T1${idx}:00:00.000Z`,
+      }));
+      const resCursor = await runLedgerAuditExport(cursorParsed.command, async () => ({
+        ok: true,
+        evidence: JSON.stringify({
+          schema: "audit-export-page/v1",
+          repoId: "repo-cli-test",
+          sourceRevision: 6,
+          effectiveFromRevision: 5,
+          effectiveToRevision: 6,
+          cursorTruncated: true,
+          algorithm: "sha256",
+          prevRootHash: auditGenesisChainHash("sha256"),
+          window: {
+            fromRevision: null,
+            toRevision: null,
+            utcDate: "2026-11-05",
+            after: "2026-11-05T00:00:00.000Z",
+            before: "2026-11-05T23:59:59.999Z",
+          },
+          events: nov5Events.slice(4),
+          count: 2,
+          scannedCount: 2,
+          hasMore: false,
+          page: { limit: 500, cursor: "4:6", nextCursor: null },
+        }),
+      }));
+      assert.equal(resCursor.ok, true);
+      const cursorManifestPath = path.join(cursorDir, "audit-manifest.json");
+      const cursorManifest = JSON.parse(readFileSync(cursorManifestPath, "utf8")) as AuditExportManifestV1;
+      assert.equal(cursorManifest.window.fromRevision, 5);
+      assert.equal(cursorManifest.window.toRevision, 6);
+      assert.equal(cursorManifest.window.cursorTruncated, true);
+      const verifyCursor = runOfflineCli(["--manifest", cursorManifestPath, "--algorithm", "sha256"]);
+      assert.equal(verifyCursor.status, 0, JSON.stringify(verifyCursor.body));
+    }
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }

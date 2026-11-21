@@ -321,19 +321,16 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
   {
     kind: "read-conclusion",
     name: "ledger.occurred-at-epoch-index",
-    fields: [
-      "event.occurred_at_day_revision",
-      "event.occurred_at_ms_revision",
-      "ha_events.occurred_at_ms",
-      "ha_events.occurred_at_utc_day",
-    ],
+    fields: ["event.occurred_at_ms_revision", "ha_events.occurred_at_ms", "ha_events_occurred_ms_revision"],
     attachRequired: false,
     conclusion:
-      "SQLite writer open installs deterministic expression indexes on UTC epoch milliseconds and UTC day " +
-      "derived from occurred_at via isoOffsetTimestampMillisecondsSql (Date.parse truncation, ±23:59 offsets); " +
-      "read-only legacy SQLite stores still evaluate the same expression without rewriting canonical rows. " +
-      "PostgreSQL adds immutable STORED generated columns occurred_at_ms and occurred_at_utc_day with composite " +
-      "indexes under RLS. Canonical event_json, occurred_at text, and digests remain byte-identical.",
+      "SQLite writer open installs the deterministic expression index event_occurred_at_ms_revision on UTC epoch " +
+      "milliseconds derived from occurred_at via isoOffsetTimestampMillisecondsSql (Date.parse truncation, ±23:59 offsets); " +
+      "read-only legacy SQLite stores evaluate the same expression without rewriting canonical rows. " +
+      "PostgreSQL installs nullable scalar occurred_at_ms (zero table rewrite), the shared ha_event_occurred_at_ms_sync " +
+      "trigger for previous and current writers, concurrent RLS-aligned indexes via ensurePgProjectionSchema, and bounded " +
+      "64-row backfill in ha_backfill_event_read_indexes with a projection_pending gate. Canonical event_json, occurred_at " +
+      "text, and digests remain byte-identical.",
   },
 ]);
 

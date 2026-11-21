@@ -112,7 +112,11 @@ test("staged caller output writer preserves verifiable prior export on final swi
     /simulated crash before final manifest switch/u,
   );
   await failingWriter.close();
-  assert.deepEqual((await readdir(directory)).sort(), [manifest1.entriesFile, "audit-manifest.json"].sort());
+  // No .tmp staging files remain; shared content-addressed entries target is never deleted on rollback.
+  assert.equal(
+    (await readdir(directory)).some((name) => name.endsWith(".tmp")),
+    false,
+  );
   const stillV1Manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   const stillV1Entries = await readFile(path.join(directory, stillV1Manifest.entriesFile), "utf8");
   const verifyStillV1 = verifyAuditSliceContent({
@@ -121,6 +125,49 @@ test("staged caller output writer preserves verifiable prior export on final swi
     expectedRootHash: manifest1.rootHash,
   });
   assert.equal(verifyStillV1.ok, true, JSON.stringify(verifyStillV1));
+
+  // DM-07: Two concurrent publishers writing identical content to a fresh directory — Publisher A succeeds while
+  // Publisher B fails during manifest switch AFTER renaming entries -> Publisher A's manifest & shared entries MUST stay readable!
+  const raceDir = await mkdtemp(path.join(tmpdir(), "ha-caller-output-race-"));
+  t.after(() => rm(raceDir, { recursive: true, force: true }));
+  const raceManifestPath = path.join(raceDir, "audit-manifest.json");
+  const raceAnchorPath = path.join(raceDir, "audit-events.jsonl");
+  const raceEntriesPath = path.join(raceDir, manifest1.entriesFile);
+  const pubA = await openCallerOutputLineWriter(raceAnchorPath);
+  const pubB = await openCallerOutputLineWriter(raceAnchorPath);
+  for (const line of lines1) {
+    await pubA.writeLine(line);
+    await pubB.writeLine(line);
+  }
+  const [resA, resB] = await Promise.allSettled([
+    pubA.commit({
+      filePath: raceManifestPath,
+      contents: `${JSON.stringify(manifest1, null, 2)}\n`,
+      entriesTargetPath: raceEntriesPath,
+    }),
+    pubB.commit({
+      filePath: raceManifestPath,
+      contents: `${JSON.stringify(manifest1, null, 2)}\n`,
+      entriesTargetPath: raceEntriesPath,
+      beforeSwitch: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 15));
+        throw new Error("simulated switch failure in concurrent sibling publisher");
+      },
+    }),
+  ]);
+  await pubA.close();
+  await pubB.close();
+  assert.equal(resA.status, "fulfilled");
+  assert.equal(resB.status, "rejected");
+  assert.deepEqual((await readdir(raceDir)).sort(), [manifest1.entriesFile, "audit-manifest.json"].sort());
+  const raceManifest = JSON.parse(await readFile(raceManifestPath, "utf8"));
+  const raceEntries = await readFile(path.join(raceDir, raceManifest.entriesFile), "utf8");
+  const verifyRace = verifyAuditSliceContent({
+    manifest: raceManifest,
+    entriesContent: raceEntries,
+    expectedRootHash: manifest1.rootHash,
+  });
+  assert.equal(verifyRace.ok, true, JSON.stringify(verifyRace));
 
   // DM-07: Identical re-export crashing before switch MUST NOT delete the pre-existing content-addressed entries file!
   const failingSameTarget = await openCallerOutputLineWriter(anchorPath);

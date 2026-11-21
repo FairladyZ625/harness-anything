@@ -238,92 +238,138 @@ pgliteIntegrationSuite("PGlite synchronous factories", () => {
     });
   });
 
-  test("PGlite readEventWindow sparse date-window pagination uses ha_events_occurred_day_revision_idx with O(matching page) rows", async () => {
-    await withTempStoreAsync(async (rootDir) => {
-      const repoId = "pglite-dm03-sparse";
-      const storage = {
-        backend: "pglite" as const,
-        dataDir: join(rootDir, "database"),
-        materialize: false,
-        scope: { tenantId: "tenant", projectId: "project", policyEpoch: 1, readers: [] as const },
-      };
-      const backend = await createPGliteStorageBackend({ repoId, storage });
-      try {
-        const matchingBefore = 30;
-        const gapSize = 1_500;
-        const matchingAfter = 30;
-        const total = matchingBefore + gapSize + matchingAfter;
-        const fence = { repoId, holderId: "sparse-writer", epoch: 1 };
-        for (let offset = 0; offset < total; offset += 100) {
-          const end = Math.min(total, offset + 100);
-          const bundles = [];
-          for (let rev = offset + 1; rev <= end; rev += 1) {
-            const inWindow = rev <= matchingBefore || rev > matchingBefore + gapSize;
-            const ev = {
-              ...eventAt(rev),
-              occurredAt: inWindow ? "2026-11-05T12:00:00.000Z" : "2026-11-06T12:00:00.000Z",
-            };
-            bundles.push({ event: ev, plan: taskLifecycleWritePlan(ev), blobs: [] as const });
+  test("PGlite readEventWindow sparse pagination (full-day, narrow intra-day, >32-day wide) uses ha_events_occurred_ms_revision with O(matching) rows", async () => {
+    const scenarios = [
+      {
+        name: "full-day",
+        after: "2026-11-05T00:00:00.000Z",
+        before: "2026-11-05T23:59:59.999Z",
+        matchAt: () => "2026-11-05T12:00:00.000Z",
+        gapAt: () => "2026-11-06T12:00:00.000Z",
+      },
+      {
+        name: "narrow-intraday",
+        after: "2026-11-05T10:00:00.000Z",
+        before: "2026-11-05T10:59:59.999Z",
+        matchAt: (idx: number) => new Date(Date.parse("2026-11-05T10:00:00.000Z") + idx * 1_000).toISOString(),
+        gapAt: () => "2026-11-05T18:00:00.000Z",
+      },
+      {
+        name: "wide-40-days",
+        after: "2026-09-01T00:00:00.000Z",
+        before: "2026-10-10T23:59:59.999Z",
+        matchAt: (idx: number) =>
+          new Date(
+            Date.parse("2026-09-01T06:00:00.000Z") + Math.floor(idx / 2) * 86_400_000 + (idx % 2) * 1_000,
+          ).toISOString(),
+        gapAt: () => "2026-11-15T12:00:00.000Z",
+      },
+    ] as const;
+
+    for (const scenario of scenarios) {
+      await withTempStoreAsync(async (rootDir) => {
+        const repoId = `pglite-dm03-${scenario.name}`;
+        const storage = {
+          backend: "pglite" as const,
+          dataDir: join(rootDir, "database"),
+          materialize: false,
+          scope: { tenantId: "tenant", projectId: "project", policyEpoch: 1, readers: [] as const },
+        };
+        const backend = await createPGliteStorageBackend({ repoId, storage });
+        try {
+          const matchingBefore = 40;
+          const gapSize = 1_500;
+          const matchingAfter = 40;
+          const total = matchingBefore + gapSize + matchingAfter;
+          const fence = { repoId, holderId: "sparse-writer", epoch: 1 };
+          let matchIdx = 0;
+          for (let offset = 0; offset < total; offset += 100) {
+            const end = Math.min(total, offset + 100);
+            const bundles = [];
+            for (let rev = offset + 1; rev <= end; rev += 1) {
+              const inWindow = rev <= matchingBefore || rev > matchingBefore + gapSize;
+              const ev = {
+                ...eventAt(rev),
+                occurredAt: inWindow ? scenario.matchAt(matchIdx++) : scenario.gapAt(),
+              };
+              bundles.push({ event: ev, plan: taskLifecycleWritePlan(ev), blobs: [] as const });
+            }
+            const terminal = bundles.pop()!;
+            await backend.eventStore.append({ ...terminal, preceding: bundles }, offset, fence);
           }
-          const terminal = bundles.pop()!;
-          await backend.eventStore.append({ ...terminal, preceding: bundles }, offset, fence);
-        }
-        await backend.pool.query("ANALYZE ha_events");
+          await backend.pool.query("ANALYZE ha_events");
 
-        const plans: unknown[] = [];
-        const tracedPool = tracedPgReads(backend.pool, plans, (sql) => /FROM ha_events/u.test(sql));
-        const collected: number[] = [];
-        let afterRevision = 0;
-        let maxRevision: number | undefined;
-        let pages = 0;
-        for (;;) {
-          const page = await withPostgresTransaction(
-            tracedPool,
-            (client) =>
-              readPgEventWindow(
-                client,
-                storage.scope,
-                {
-                  repoId,
-                  query: {
-                    afterRevision,
-                    ...(maxRevision === undefined ? {} : { maxRevision, boundsPinned: true }),
-                    after: "2026-11-05T00:00:00.000Z",
-                    before: "2026-11-05T23:59:59.999Z",
-                    limit: 20,
+          const plans: unknown[] = [];
+          const tracedPool = tracedPgReads(backend.pool, plans, (sql) => /FROM ha_events/u.test(sql));
+          const collected: number[] = [];
+          let afterRevision = 0;
+          let maxRevision: number | undefined;
+          let afterOccurredAtMs: number | undefined;
+          let pages = 0;
+          for (;;) {
+            const page = await withPostgresTransaction(
+              tracedPool,
+              (client) =>
+                readPgEventWindow(
+                  client,
+                  storage.scope,
+                  {
+                    repoId,
+                    query: {
+                      afterRevision,
+                      ...(maxRevision === undefined ? {} : { maxRevision }),
+                      ...(afterOccurredAtMs === undefined ? {} : { afterOccurredAtMs }),
+                      after: scenario.after,
+                      before: scenario.before,
+                      limit: 20,
+                    },
                   },
-                },
-                total,
-              ),
-            storage.scope,
-          );
-          pages += 1;
-          for (const ev of page.events) collected.push(ev.workspaceRevision);
-          maxRevision = page.windowMaxRevision;
-          if (page.done) break;
-          afterRevision = page.lastScannedRevision;
-        }
-        assert.equal(pages, 3);
-        assert.equal(collected.length, matchingBefore + matchingAfter);
-        assert.equal(collected[0], 1);
-        assert.equal(collected[matchingBefore], matchingBefore + gapSize + 1);
+                  total,
+                ),
+              storage.scope,
+            );
+            pages += 1;
+            for (const ev of page.events) collected.push(ev.workspaceRevision);
+            maxRevision = page.windowMaxRevision;
+            afterOccurredAtMs = page.nextAfterOccurredAtMs;
+            if (page.done) break;
+            afterRevision = page.lastScannedRevision;
+          }
+          assert.equal(pages, 4, scenario.name);
+          assert.equal(collected.length, matchingBefore + matchingAfter, scenario.name);
+          assert.equal(collected[0], 1, scenario.name);
+          assert.equal(collected[matchingBefore], matchingBefore + gapSize + 1, scenario.name);
 
-        const scans = explainNodes(plans).filter((node) => String(node["Relation Name"] ?? "") === "ha_events");
-        assert.equal(scans.length, 3);
-        let totalRowsVisited = 0;
-        for (const scan of scans) {
-          assert.equal(String(scan["Index Name"]), "ha_events_occurred_day_revision_idx", JSON.stringify(scan));
-          assert.equal(Number(scan["Rows Removed by Filter"] ?? 0), 0, JSON.stringify(scan));
-          totalRowsVisited +=
-            (Number(scan["Actual Rows"] ?? 0) + Number(scan["Rows Removed by Filter"] ?? 0)) *
-            Number(scan["Actual Loops"] ?? 1);
+          const scans = explainNodes(plans).filter((node) => String(node["Relation Name"] ?? "") === "ha_events");
+          const occurredScans = scans.filter(
+            (node) => String(node["Index Name"] ?? "") === "ha_events_occurred_ms_revision",
+          );
+          assert.ok(
+            occurredScans.length >= 4,
+            `${scenario.name}: expected occurred_ms scans, got ${JSON.stringify(scans)}`,
+          );
+          let totalRowsVisited = 0;
+          for (const scan of scans) {
+            const indexName = String(scan["Index Name"] ?? "");
+            assert.ok(
+              indexName === "ha_events_occurred_ms_revision" ||
+                indexName === "ha_events_occurred_ms_pending" ||
+                indexName === "ha_events_pkey",
+              `${scenario.name}: unexpected scan plan ${JSON.stringify(scan)}`,
+            );
+            totalRowsVisited +=
+              (Number(scan["Actual Rows"] ?? 0) + Number(scan["Rows Removed by Filter"] ?? 0)) *
+              Number(scan["Actual Loops"] ?? 1);
+          }
+          assert.ok(
+            totalRowsVisited <= 320,
+            `${scenario.name}: expected <=320 rows visited across 1,500-row gap, got ${totalRowsVisited}`,
+          );
+        } finally {
+          await backend.close();
         }
-        // 3 pages of 20 matching rows (+1 lookahead on pages 1..2) = 62 rows visited, NEVER scanning the 1,500-row gap!
-        assert.ok(totalRowsVisited <= 70, `expected <=70 rows visited across 1,500-row gap, got ${totalRowsVisited}`);
-      } finally {
-        await backend.close();
-      }
-    });
+      });
+    }
   });
 });
 

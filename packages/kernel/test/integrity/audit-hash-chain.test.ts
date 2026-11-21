@@ -1133,4 +1133,160 @@ test("DM-04, DM-05, DM-06: imported-migration certificates, historical timestamp
     assert.equal(completionOnlyEmptyRes.chainEvidence?.coverage, "partial");
     assert.equal(completionOnlyEmptyRes.chainEvidence?.consentVerified, "not_in_slice_window");
   }
+
+  // DM-06(c): Cursor-truncated date slice chained with prior full day MUST report partial when a real review
+  // occurred on that day BEFORE the cursor (never falsely rejecting as audit_certificate_event_mismatch),
+  // while still rejecting real content conflicts inside observed events or inside the fully-covered prior day!
+  const day1Events = multiDayEvents.slice(0, 2); // rev 1 (Nov 1), rev 2 -> let's put rev 1..2 on Nov 1, rev 3..6 on Nov 2
+  const cursorSplitBaseEvents = multiDayEvents.map((ev, idx) => {
+    const occurredAt =
+      idx === 0 ? "2026-11-01T10:00:00.000Z" : idx === 1 ? "2026-11-01T12:00:00.000Z" : `2026-11-02T1${idx}:00:00.000Z`;
+    if (ev.type === "review_recorded") {
+      return {
+        ...ev,
+        occurredAt,
+        payload: { ...ev.payload, review: { ...ev.payload.review, reviewedAt: occurredAt } },
+      };
+    }
+    return { ...ev, occurredAt };
+  });
+  const cursorSplitReviewEv = cursorSplitBaseEvents.find((e) => e.type === "review_recorded")!;
+  const cursorSplitReviewDigest = reviewDigest(cursorSplitReviewEv.payload.review);
+  const cursorSplitEvents = cursorSplitBaseEvents.map((ev) => {
+    if (ev.type === "review_consent_recorded") {
+      return {
+        ...ev,
+        payload: {
+          ...ev.payload,
+          review: cursorSplitReviewEv.payload.review,
+          consent: {
+            ...ev.payload.consent,
+            consentedAt: ev.occurredAt,
+            reviewDigest: cursorSplitReviewDigest,
+          },
+        },
+      };
+    }
+    return ev;
+  });
+  void day1Events;
+  const cursorSplitConsentEv = cursorSplitEvents.find((e) => e.type === "review_consent_recorded")!;
+  const cursorSplitCompletionEv = cursorSplitEvents.find((e) => e.type === "task_completed")!;
+  const cursorSplitCert = buildDeliveryCertificate({
+    algorithm: "sha256",
+    repoId: "repo-dm06-cursor",
+    task: fixture.snapshot.task!,
+    execution: exec,
+    reviews: [cursorSplitReviewEv.payload.review],
+    reviewConsent: cursorSplitConsentEv.payload.consent,
+    completionEvent: cursorSplitCompletionEv,
+  });
+
+  const fullDay1Acc = createAuditChainAccumulator({
+    repoId: "repo-dm06-cursor",
+    algorithm: "sm3",
+    window: {
+      fromRevision: null,
+      toRevision: 6,
+      utcDate: "2026-11-01",
+      after: "2026-11-01T00:00:00.000Z",
+      before: "2026-11-01T23:59:59.999Z",
+    },
+  });
+  const fullDay1Lines = cursorSplitEvents
+    .slice(0, 2)
+    .map((e) => fullDay1Acc.addEvent(e).line)
+    .join("");
+  const fullDay1Manifest = fullDay1Acc.finalize();
+
+  // Day 2 exported with --cursor 4 (skipping rev 3 execution_submitted and rev 4 review_recorded on Nov 2!)
+  const truncatedDay2Acc = createAuditChainAccumulator({
+    repoId: "repo-dm06-cursor",
+    algorithm: "sm3",
+    prevRootHash: fullDay1Manifest.rootHash,
+    window: {
+      fromRevision: 5,
+      toRevision: 6,
+      utcDate: "2026-11-02",
+      after: "2026-11-02T00:00:00.000Z",
+      before: "2026-11-02T23:59:59.999Z",
+      cursorTruncated: true,
+    },
+  });
+  const truncatedDay2Lines = cursorSplitEvents
+    .slice(4)
+    .map((e) => truncatedDay2Acc.addEvent(e).line)
+    .join("");
+  const truncatedDay2Manifest = truncatedDay2Acc.finalize();
+
+  const cursorSplitCollector = createAuditCertificateChainCollector({
+    taskId: "task_dm04_001",
+    completionOpId: cursorSplitCompletionEv.opId,
+    executionId: exec.executionId,
+  });
+  assert.equal(
+    verifyAuditSliceContent({
+      manifest: fullDay1Manifest,
+      entriesContent: fullDay1Lines,
+      certificateCollector: cursorSplitCollector,
+    }).ok,
+    true,
+  );
+  assert.equal(
+    verifyAuditSliceContent({
+      manifest: truncatedDay2Manifest,
+      entriesContent: truncatedDay2Lines,
+      expectedPrevRootHash: fullDay1Manifest.rootHash,
+      expectedRootHash: truncatedDay2Manifest.rootHash,
+      certificateCollector: cursorSplitCollector,
+    }).ok,
+    true,
+  );
+  const cursorTruncRes = verifyDeliveryCertificate(cursorSplitCert, {
+    expectedCertificateHash: cursorSplitCert.certificateHash,
+    chainEvidence: cursorSplitCollector.evidence(),
+  });
+  assert.equal(cursorTruncRes.ok, true, JSON.stringify(cursorTruncRes));
+  if (cursorTruncRes.ok) {
+    assert.equal(cursorTruncRes.selfConsistent, true);
+    assert.equal(cursorTruncRes.strictVerified, false);
+    assert.equal(cursorTruncRes.chainEvidence?.coverage, "partial");
+    assert.deepEqual(cursorTruncRes.chainEvidence?.uncoveredReviewIds, [cursorSplitReviewEv.payload.review.reviewId]);
+    assert.equal(cursorTruncRes.chainEvidence?.consentVerified, true);
+  }
+
+  // Real content conflict on observed consent (rev 5, after cursor) MUST STILL FAIL!
+  const tamperedConsentAfterCursorCert = buildDeliveryCertificate({
+    algorithm: "sha256",
+    repoId: "repo-dm06-cursor",
+    task: fixture.snapshot.task!,
+    execution: exec,
+    reviews: [cursorSplitReviewEv.payload.review],
+    reviewConsent: { ...cursorSplitConsentEv.payload.consent, consentedBy: "person_forged" },
+    completionEvent: cursorSplitCompletionEv,
+  });
+  const tamperedConsentRes = verifyDeliveryCertificate(tamperedConsentAfterCursorCert, {
+    expectedCertificateHash: tamperedConsentAfterCursorCert.certificateHash,
+    chainEvidence: cursorSplitCollector.evidence(),
+  });
+  assert.equal(tamperedConsentRes.ok, false);
+  if (!tamperedConsentRes.ok) assert.equal(tamperedConsentRes.code, "audit_certificate_consent_mismatch");
+
+  // Forged review claiming timestamp strictly inside fully-covered Day 1 MUST STILL FAIL!
+  const forgedDay1Review = { ...cursorSplitReviewEv.payload.review, reviewedAt: "2026-11-01T15:00:00.000Z" };
+  const forgedDay1ReviewCert = buildDeliveryCertificate({
+    algorithm: "sha256",
+    repoId: "repo-dm06-cursor",
+    task: fixture.snapshot.task!,
+    execution: exec,
+    reviews: [forgedDay1Review],
+    reviewConsent: null,
+    completionEvent: cursorSplitCompletionEv,
+  });
+  const forgedDay1Res = verifyDeliveryCertificate(forgedDay1ReviewCert, {
+    expectedCertificateHash: forgedDay1ReviewCert.certificateHash,
+    chainEvidence: cursorSplitCollector.evidence(),
+  });
+  assert.equal(forgedDay1Res.ok, false);
+  if (!forgedDay1Res.ok) assert.equal(forgedDay1Res.code, "audit_certificate_event_mismatch");
 });

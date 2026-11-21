@@ -142,11 +142,13 @@ export function assertHistoricalDateWindowAndImportParity(input: {
   const collected: Array<[number, string]> = [];
   let afterRev = 0;
   let maxRev: number | undefined;
+  let afterOccurredAtMs: number | undefined;
   let pages = 0;
   for (;;) {
     const page = store.readEventWindow({
       afterRevision: afterRev,
-      ...(maxRev === undefined ? {} : { maxRevision: maxRev, boundsPinned: true }),
+      ...(maxRev === undefined ? {} : { maxRevision: maxRev }),
+      ...(afterOccurredAtMs === undefined ? {} : { afterOccurredAtMs }),
       after: "2026-11-05T00:00:00.000Z",
       before: "2026-11-05T23:59:59.999Z",
       limit: 2,
@@ -154,6 +156,7 @@ export function assertHistoricalDateWindowAndImportParity(input: {
     pages += 1;
     for (const ev of page.events) collected.push([ev.workspaceRevision, ev.occurredAt]);
     maxRev = page.windowMaxRevision;
+    afterOccurredAtMs = page.nextAfterOccurredAtMs;
     if (page.done) break;
     afterRev = page.lastScannedRevision;
   }

@@ -40,6 +40,7 @@ export interface ParsedAuditExportQuery {
   readonly cursor: string | null;
   readonly startAfterRevision: number;
   readonly cursorWindowMaxRevision: number | null;
+  readonly cursorAfterOccurredAtMs: number | null;
   readonly prevRootHash: AuditDigest;
   readonly window: AuditExportWindowV1;
   readonly afterMs: number | null;
@@ -74,12 +75,13 @@ export function parseAuditExportQuery(
   const cursorText = optionalText(action.cursor);
   let cursorRevision: number | null = null;
   let cursorWindowMaxRevision: number | null = null;
+  let cursorAfterOccurredAtMs: number | null = null;
   if (cursorText !== undefined) {
-    const match = /^([0-9]+)(?::([0-9]+))?$/u.exec(cursorText);
+    const match = /^([0-9]+)(?::([0-9]+)(?::(-?[0-9]+))?)?$/u.exec(cursorText);
     if (!match) {
       throw cell.cellCodedError(
         "invalid_command",
-        "Audit export --cursor must be a non-negative revision number or <rev>:<maxRev> token.",
+        "Audit export --cursor must be a non-negative revision number or <rev>:<maxRev>[:<afterMs>] token.",
       );
     }
     cursorRevision = Number(match[1]);
@@ -90,6 +92,12 @@ export function parseAuditExportQuery(
           "invalid_command",
           `Audit export --cursor upper bound (${cursorWindowMaxRevision}) cannot precede cursor revision (${cursorRevision}).`,
         );
+      }
+    }
+    if (match[3] !== undefined) {
+      cursorAfterOccurredAtMs = Number(match[3]);
+      if (!Number.isSafeInteger(cursorAfterOccurredAtMs)) {
+        throw cell.cellCodedError("invalid_command", "Audit export --cursor timestamp bound must be a safe integer.");
       }
     }
   }
@@ -148,6 +156,7 @@ export function parseAuditExportQuery(
     cursor: cursorText ?? null,
     startAfterRevision,
     cursorWindowMaxRevision,
+    cursorAfterOccurredAtMs,
     prevRootHash,
     window: {
       fromRevision,
@@ -175,24 +184,24 @@ export function readAuditExportPage(
   let nextCursor: string | null;
   const pureRevision = isPureRevisionWindow(query.window);
 
+  const queryMaxRevision =
+    query.cursorWindowMaxRevision !== null
+      ? query.window.toRevision === null
+        ? query.cursorWindowMaxRevision
+        : Math.min(query.window.toRevision, query.cursorWindowMaxRevision)
+      : query.window.toRevision;
+
   if (cell.store.readEventWindow !== undefined) {
-    const queryMaxRevision =
-      query.cursorWindowMaxRevision !== null
-        ? query.window.toRevision === null
-          ? query.cursorWindowMaxRevision
-          : Math.min(query.window.toRevision, query.cursorWindowMaxRevision)
-        : query.window.toRevision;
     const windowBatch = cell.store.readEventWindow({
       afterRevision: query.startAfterRevision,
       ...(queryMaxRevision === null ? {} : { maxRevision: queryMaxRevision }),
       ...(query.window.after === null ? {} : { after: query.window.after }),
       ...(query.window.before === null ? {} : { before: query.window.before }),
       limit: query.limit,
-      ...(query.cursorWindowMaxRevision !== null ? { boundsPinned: true } : {}),
+      ...(query.cursorAfterOccurredAtMs === null ? {} : { afterOccurredAtMs: query.cursorAfterOccurredAtMs }),
     });
     sourceRevision = windowBatch.sourceRevision;
-    effectiveToRevision =
-      query.window.toRevision === null ? sourceRevision : Math.min(query.window.toRevision, sourceRevision);
+    effectiveToRevision = windowBatch.windowMaxRevision;
     windowMaxRevision = windowBatch.windowMaxRevision;
     matched = windowBatch.events;
     scannedCount = windowBatch.events.length;
@@ -200,12 +209,13 @@ export function readAuditExportPage(
       ? null
       : pureRevision
         ? String(windowBatch.lastScannedRevision)
-        : `${windowBatch.lastScannedRevision}:${windowBatch.windowMaxRevision}`;
+        : windowBatch.nextAfterOccurredAtMs !== undefined
+          ? `${windowBatch.lastScannedRevision}:${windowBatch.windowMaxRevision}:${windowBatch.nextAfterOccurredAtMs}`
+          : `${windowBatch.lastScannedRevision}:${windowBatch.windowMaxRevision}`;
   } else {
     const batch = cell.store.readBatch(String(query.startAfterRevision), query.limit);
     sourceRevision = batch.sourceRevision;
-    effectiveToRevision =
-      query.window.toRevision === null ? sourceRevision : Math.min(query.window.toRevision, sourceRevision);
+    effectiveToRevision = queryMaxRevision === null ? sourceRevision : Math.min(queryMaxRevision, sourceRevision);
     windowMaxRevision = effectiveToRevision;
     const inRange = batch.events.filter((event) => event.workspaceRevision <= effectiveToRevision);
     matched = inRange.filter((event) => eventMatchesTimeWindow(event, query.afterMs, query.beforeMs));
@@ -219,6 +229,16 @@ export function readAuditExportPage(
     nextCursor = exhausted ? null : String(lastScanned);
   }
   const hasMore = nextCursor !== null;
+  const declaredStartAfter = query.window.fromRevision !== null ? query.window.fromRevision - 1 : 0;
+  const cursorClippedStart = query.cursor !== null && query.startAfterRevision > declaredStartAfter;
+  const requestedUpperRevision =
+    query.window.toRevision === null ? sourceRevision : Math.min(query.window.toRevision, sourceRevision);
+  const cursorClippedEnd = query.cursorWindowMaxRevision !== null && effectiveToRevision < requestedUpperRevision;
+  const cursorTruncated = cursorClippedStart || cursorClippedEnd;
+  const effectiveFromRevision =
+    query.startAfterRevision > 0 && query.startAfterRevision < effectiveToRevision
+      ? query.startAfterRevision + 1
+      : query.window.fromRevision;
 
   // Enforce contiguous revisions on pure revision windows so deleted DB rows cannot be silently sealed.
   if (pureRevision) {
@@ -277,8 +297,10 @@ export function readAuditExportPage(
       schema: AUDIT_EXPORT_PAGE_SCHEMA,
       repoId: cell.input.repoId,
       sourceRevision,
+      effectiveFromRevision,
       effectiveToRevision,
       windowMaxRevision,
+      cursorTruncated,
       algorithm: query.algorithm,
       prevRootHash: query.prevRootHash,
       window: query.window,

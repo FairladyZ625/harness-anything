@@ -808,7 +808,15 @@ function parseWindowShape(
       message: "Manifest window must be an object.",
     };
   }
-  const { fromRevision, toRevision, utcDate, after, before } = value;
+  const { fromRevision, toRevision, utcDate, after, before, cursorTruncated } = value;
+  if (cursorTruncated !== undefined && cursorTruncated !== true) {
+    return {
+      ok: false,
+      code: "audit_manifest_invalid",
+      field: "window.cursorTruncated",
+      message: "Manifest window cursorTruncated must be omitted or true.",
+    };
+  }
   const validRev = (v: unknown): v is number | null =>
     v === null || (typeof v === "number" && Number.isSafeInteger(v) && v >= 1);
   if (!validRev(fromRevision) || !validRev(toRevision)) {
@@ -861,7 +869,17 @@ function parseWindowShape(
       message: "Manifest window utcDate does not match its after/before UTC day boundaries.",
     };
   }
-  return { ok: true, window: { fromRevision, toRevision, utcDate, after, before } };
+  return {
+    ok: true,
+    window: {
+      fromRevision,
+      toRevision,
+      utcDate,
+      after,
+      before,
+      ...(cursorTruncated === true ? { cursorTruncated: true as const } : {}),
+    },
+  };
 }
 
 function parseManifestShape(

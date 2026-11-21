@@ -773,3 +773,196 @@ test("DM-04 & DM-05: historical imported done task and non-normalized review/con
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test("DM-06: readAuditExportPage records effectiveFromRevision, capped effectiveToRevision, and cursorTruncated on --cursor date windows", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-audit-dm06-cursor-"));
+  try {
+    initRepo(rootDir);
+    const repoId = "repo-dm06-e2e";
+    const store = makeTaskEventStore({ rootDir, repoId });
+    const fixture = lifecycleFixture({
+      taskId: "task_dm06_cursor_001",
+      executionId: "exec_dm06_cursor_001",
+      reviewId: "rev_dm06_cursor_001",
+    });
+    const splitEvents = fixture.events.map((ev, idx) => {
+      const occurredAt = idx < 2 ? `2026-11-04T1${idx}:00:00.000Z` : `2026-11-05T1${idx}:00:00.000Z`;
+      if (ev.type === "review_recorded") {
+        return {
+          ...ev,
+          occurredAt,
+          payload: { ...ev.payload, review: { ...ev.payload.review, reviewedAt: occurredAt } },
+        };
+      }
+      if (ev.type === "review_consent_recorded") {
+        return {
+          ...ev,
+          occurredAt,
+          payload: { ...ev.payload, consent: { ...ev.payload.consent, consentedAt: occurredAt } },
+        };
+      }
+      return { ...ev, occurredAt };
+    });
+    for (const ev of splitEvents) {
+      store.append({ event: ev, plan: taskLifecycleWritePlan(ev), blobs: [] });
+    }
+    const projection = makeTaskProjection({ rootDir, eventStore: store });
+    try {
+      projection.rebuild();
+      const queryBinding = { actor, source: "local" as const };
+      const cellApi = {
+        input: { repoId },
+        store,
+        projection,
+        operationId: (_action: unknown, _b: unknown, id: string, rev: number) => `op-${id}-${rev}`,
+        readResult: (opId: string, value: object, revision: number) => ({
+          schema: "write-receipt/v1" as const,
+          ok: true,
+          command: "ledger-audit-export",
+          outcome: "applied" as const,
+          opId,
+          revision,
+          evidence: JSON.stringify(value),
+        }),
+        cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+        requiredCellText: (value: unknown, name: string) => {
+          if (typeof value !== "string" || !value) throw new Error(`missing ${name}`);
+          return value;
+        },
+      };
+
+      // Day 1 full export (2026-11-04)
+      const day1Receipt = readAuditExportPage(
+        cellApi,
+        { kind: "ledger-audit-export", date: "2026-11-04", algorithm: "sha256", limit: 10 },
+        queryBinding,
+      );
+      const day1Payload = JSON.parse(String(day1Receipt.evidence)) as {
+        readonly effectiveFromRevision: number | null;
+        readonly effectiveToRevision: number;
+        readonly cursorTruncated: boolean;
+        readonly events: readonly PersistedCanonicalEventV1[];
+      };
+      assert.equal(day1Payload.effectiveFromRevision, null);
+      assert.equal(day1Payload.effectiveToRevision, splitEvents.length);
+      assert.equal(day1Payload.cursorTruncated, false);
+      assert.equal(day1Payload.events.length, 2);
+
+      // Day 2 cursor-truncated export (--cursor 4 skips rev 3 submission & rev 4 review on 2026-11-05)
+      const day2Receipt = readAuditExportPage(
+        cellApi,
+        { kind: "ledger-audit-export", date: "2026-11-05", cursor: "4", algorithm: "sha256", limit: 10 },
+        queryBinding,
+      );
+      const day2Payload = JSON.parse(String(day2Receipt.evidence)) as {
+        readonly effectiveFromRevision: number | null;
+        readonly effectiveToRevision: number;
+        readonly cursorTruncated: boolean;
+        readonly events: readonly PersistedCanonicalEventV1[];
+      };
+      assert.equal(day2Payload.effectiveFromRevision, 5);
+      assert.equal(day2Payload.effectiveToRevision, splitEvents.length);
+      assert.equal(day2Payload.cursorTruncated, true);
+      assert.deepEqual(
+        day2Payload.events.map((e) => e.workspaceRevision),
+        [5, 6],
+      );
+
+      // Cursor upper-bound cap (--cursor 3:5 on head 6) MUST cap effectiveToRevision to 5 (never 6)!
+      const cappedReceipt = readAuditExportPage(
+        cellApi,
+        { kind: "ledger-audit-export", date: "2026-11-05", cursor: "3:5", algorithm: "sha256", limit: 10 },
+        queryBinding,
+      );
+      const cappedPayload = JSON.parse(String(cappedReceipt.evidence)) as {
+        readonly effectiveFromRevision: number | null;
+        readonly effectiveToRevision: number;
+        readonly cursorTruncated: boolean;
+        readonly events: readonly PersistedCanonicalEventV1[];
+      };
+      assert.equal(cappedPayload.effectiveFromRevision, 4);
+      assert.equal(cappedPayload.effectiveToRevision, 5);
+      assert.equal(cappedPayload.cursorTruncated, true);
+      assert.deepEqual(
+        cappedPayload.events.map((e) => e.workspaceRevision),
+        [4, 5],
+      );
+
+      // Chain Day 1 + cursor-truncated Day 2 against the real delivery certificate -> partial (not mismatch)!
+      const certReceipt = readTaskDeliveryCertificate(
+        cellApi,
+        { kind: "task-delivery-certificate", taskId: "task_dm06_cursor_001", algorithm: "sha256" },
+        queryBinding,
+      );
+      const cert = (JSON.parse(String(certReceipt.evidence)) as { readonly certificate: DeliveryCertificateV1 })
+        .certificate;
+      const day1Acc = createAuditChainAccumulator({
+        repoId,
+        algorithm: "sha256",
+        window: {
+          fromRevision: day1Payload.effectiveFromRevision,
+          toRevision: day1Payload.effectiveToRevision,
+          utcDate: "2026-11-04",
+          after: "2026-11-04T00:00:00.000Z",
+          before: "2026-11-04T23:59:59.999Z",
+        },
+      });
+      const day1Lines = day1Payload.events.map((e) => day1Acc.addEvent(e).line).join("");
+      const day1Manifest = day1Acc.finalize();
+
+      const day2Acc = createAuditChainAccumulator({
+        repoId,
+        algorithm: "sha256",
+        prevRootHash: day1Manifest.rootHash,
+        window: {
+          fromRevision: day2Payload.effectiveFromRevision,
+          toRevision: day2Payload.effectiveToRevision,
+          utcDate: "2026-11-05",
+          after: "2026-11-05T00:00:00.000Z",
+          before: "2026-11-05T23:59:59.999Z",
+          cursorTruncated: true,
+        },
+      });
+      const day2Lines = day2Payload.events.map((e) => day2Acc.addEvent(e).line).join("");
+      const day2Manifest = day2Acc.finalize();
+
+      const collector = createAuditCertificateChainCollector({
+        taskId: "task_dm06_cursor_001",
+        completionOpId: cert.completion.opId,
+        executionId: cert.executionId,
+      });
+      assert.equal(
+        verifyAuditSliceContent({ manifest: day1Manifest, entriesContent: day1Lines, certificateCollector: collector })
+          .ok,
+        true,
+      );
+      assert.equal(
+        verifyAuditSliceContent({
+          manifest: day2Manifest,
+          entriesContent: day2Lines,
+          expectedPrevRootHash: day1Manifest.rootHash,
+          expectedRootHash: day2Manifest.rootHash,
+          certificateCollector: collector,
+        }).ok,
+        true,
+      );
+      const verified = verifyDeliveryCertificate(cert, {
+        expectedAlgorithm: "sha256",
+        expectedCertificateHash: cert.certificateHash,
+        chainEvidence: collector.evidence(),
+      });
+      assert.equal(verified.ok, true, JSON.stringify(verified));
+      if (verified.ok) {
+        assert.equal(verified.chainEvidence?.coverage, "partial");
+        assert.equal(verified.strictVerified, false);
+        assert.deepEqual(verified.chainEvidence?.uncoveredReviewIds, ["rev_dm06_cursor_001"]);
+        assert.equal(verified.chainEvidence?.consentVerified, true);
+      }
+    } finally {
+      projection.close();
+      await store.drain();
+    }
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});

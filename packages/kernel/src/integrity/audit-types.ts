@@ -26,6 +26,7 @@ export interface AuditExportWindowV1 {
   readonly utcDate: string | null;
   readonly after: string | null;
   readonly before: string | null;
+  readonly cursorTruncated?: true;
 }
 
 export interface AuditPersonAttributionSummaryV1 {

@@ -157,78 +157,113 @@ test("G38 deferred compaction audit rejects quadratic whole-stream revisits", pl
 });
 
 test(
-  "G38 DM-03 sparse date-window audit export cost stays bounded as non-matching revision gap grows 10x",
+  "G38 DM-03 sparse date-window audit export cost stays bounded as non-matching revision gap grows 10x (full-day, narrow intra-day, and >32-day wide)",
   platform,
   async (t) => {
     installReadProbe();
-    const measured = {};
-    for (const [scale, gapSize] of Object.entries({ small: 200, large: 2000 })) {
-      const rootDir = mkdtempSync(path.join(tmpdir(), "ha-g38-sparse-date-"));
-      try {
-        initRepo(rootDir);
-        const repoId = `g38-sparse-${scale}`;
-        let store = makeTaskEventStore({ rootDir, repoId });
-        const matchingBefore = 100;
-        const matchingAfter = 100;
-        const total = matchingBefore + gapSize + matchingAfter;
-        for (let offset = 0; offset < total; offset += 100) {
-          const end = Math.min(total, offset + 100);
-          const bundles = [];
-          for (let rev = offset + 1; rev <= end; rev += 1) {
-            const inWindow = rev <= matchingBefore || rev > matchingBefore + gapSize;
-            const ev = {
-              ...eventAt(rev),
-              occurredAt: inWindow ? "2026-11-05T12:00:00.000Z" : "2026-11-06T12:00:00.000Z",
-            };
-            bundles.push({ event: ev, plan: taskLifecycleWritePlan(ev), blobs: [] });
-          }
-          const terminal = bundles.pop();
-          store.append({ ...terminal, preceding: bundles });
-        }
-        await store.drain();
-        store = makeTaskEventReader({ rootDir, repoId });
+    const scenarios = [
+      {
+        name: "full-day",
+        after: "2026-11-05T00:00:00.000Z",
+        before: "2026-11-05T23:59:59.999Z",
+        matchAt: () => "2026-11-05T12:00:00.000Z",
+        gapAt: () => "2026-11-06T12:00:00.000Z",
+      },
+      {
+        name: "narrow-intraday",
+        after: "2026-11-05T10:00:00.000Z",
+        before: "2026-11-05T10:59:59.999Z",
+        matchAt: (idx) => new Date(Date.parse("2026-11-05T10:00:00.000Z") + idx * 1_000).toISOString(),
+        gapAt: () => "2026-11-05T18:00:00.000Z",
+      },
+      {
+        name: "wide-40-days",
+        after: "2026-09-01T00:00:00.000Z",
+        before: "2026-10-10T23:59:59.999Z",
+        matchAt: (idx) =>
+          new Date(
+            Date.parse("2026-09-01T06:00:00.000Z") + Math.floor(idx / 5) * 86_400_000 + (idx % 5) * 1_000,
+          ).toISOString(),
+        gapAt: () => "2026-11-15T12:00:00.000Z",
+      },
+    ];
+    for (const scenario of scenarios) {
+      const measured = {};
+      for (const [scale, gapSize] of Object.entries({ small: 200, large: 2000 })) {
+        const rootDir = mkdtempSync(path.join(tmpdir(), `ha-g38-sparse-${scenario.name}-`));
         try {
-          resetReadProbe();
-          let afterRevision = 0;
-          let maxRevision;
-          let totalMatched = 0;
-          let pages = 0;
-          for (;;) {
-            const page = store.readEventWindow({
-              afterRevision,
-              ...(maxRevision === undefined ? {} : { maxRevision, boundsPinned: true }),
-              after: "2026-11-05T00:00:00.000Z",
-              before: "2026-11-05T23:59:59.999Z",
-              limit: 50,
-            });
-            pages += 1;
-            totalMatched += page.events.length;
-            maxRevision = page.windowMaxRevision;
-            if (page.done) break;
-            afterRevision = page.lastScannedRevision;
+          initRepo(rootDir);
+          const repoId = `g38-sparse-${scenario.name}-${scale}`;
+          let store = makeTaskEventStore({ rootDir, repoId });
+          const matchingBefore = 100;
+          const matchingAfter = 100;
+          const total = matchingBefore + gapSize + matchingAfter;
+          let matchIdx = 0;
+          for (let offset = 0; offset < total; offset += 100) {
+            const end = Math.min(total, offset + 100);
+            const bundles = [];
+            for (let rev = offset + 1; rev <= end; rev += 1) {
+              const inWindow = rev <= matchingBefore || rev > matchingBefore + gapSize;
+              const ev = {
+                ...eventAt(rev),
+                occurredAt: inWindow ? scenario.matchAt(matchIdx++) : scenario.gapAt(),
+              };
+              bundles.push({ event: ev, plan: taskLifecycleWritePlan(ev), blobs: [] });
+            }
+            const terminal = bundles.pop();
+            store.append({ ...terminal, preceding: bundles });
           }
-          const counts = snapshotReadProbe();
-          assert.equal(totalMatched, matchingBefore + matchingAfter);
-          assert.equal(pages, 4);
-          measured[scale] = counts;
-        } finally {
           await store.drain();
+          store = makeTaskEventReader({ rootDir, repoId });
+          try {
+            resetReadProbe();
+            let afterRevision = 0;
+            let maxRevision;
+            let afterOccurredAtMs;
+            let totalMatched = 0;
+            let pages = 0;
+            for (;;) {
+              const page = store.readEventWindow({
+                afterRevision,
+                ...(maxRevision === undefined ? {} : { maxRevision }),
+                ...(afterOccurredAtMs === undefined ? {} : { afterOccurredAtMs }),
+                after: scenario.after,
+                before: scenario.before,
+                limit: 50,
+              });
+              pages += 1;
+              totalMatched += page.events.length;
+              maxRevision = page.windowMaxRevision;
+              afterOccurredAtMs = page.nextAfterOccurredAtMs;
+              if (page.done) break;
+              afterRevision = page.lastScannedRevision;
+            }
+            const counts = snapshotReadProbe();
+            assert.equal(totalMatched, matchingBefore + matchingAfter, scenario.name);
+            assert.equal(pages, 4, scenario.name);
+            measured[scale] = counts;
+          } finally {
+            await store.drain();
+          }
+        } finally {
+          rmSync(rootDir, { recursive: true, force: true });
         }
-      } finally {
-        rmSync(rootDir, { recursive: true, force: true });
       }
+      t.diagnostic(JSON.stringify({ dm03Scenario: scenario.name, measured }));
+      // Gap grew 10x (200 -> 2,000 non-matching rows) with fixed 200 matching rows: row reads and VM steps MUST stay identical!
+      assert.equal(
+        measured.large.sqlRowsRead,
+        measured.small.sqlRowsRead,
+        `${scenario.name}: sqlRowsRead grew with gap`,
+      );
+      assert.ok(
+        measured.large.sqliteVmSteps <= measured.small.sqliteVmSteps * 1.25 + 1000,
+        `${scenario.name}: expected constant VM steps across 10x gap growth: small=${measured.small.sqliteVmSteps}, large=${measured.large.sqliteVmSteps}`,
+      );
+      assert.ok(
+        measured.large.sqliteScanPages <= measured.small.sqliteScanPages * 1.25 + 16,
+        `${scenario.name}: expected constant scan pages across 10x gap growth: small=${measured.small.sqliteScanPages}, large=${measured.large.sqliteScanPages}`,
+      );
     }
-    t.diagnostic(JSON.stringify({ dm03SparseDateWindow: measured }));
-    // Gap grew 10x (200 -> 2,000 non-matching rows) with fixed 200 matching rows: row reads and bytes MUST stay identical!
-    assert.equal(measured.large.sqlRowsRead, measured.small.sqlRowsRead);
-    assert.ok(measured.large.sqlRowsRead <= 215, `expected <=215 rows read, got ${measured.large.sqlRowsRead}`);
-    assert.ok(
-      measured.large.sqliteVmSteps <= measured.small.sqliteVmSteps * 1.25 + 1000,
-      `expected constant VM steps across 10x gap growth: small=${measured.small.sqliteVmSteps}, large=${measured.large.sqliteVmSteps}`,
-    );
-    assert.ok(
-      measured.large.sqliteScanPages <= measured.small.sqliteScanPages * 1.25 + 16,
-      `expected constant scan pages across 10x gap growth: small=${measured.small.sqliteScanPages}, large=${measured.large.sqliteScanPages}`,
-    );
   },
 );

@@ -23,12 +23,6 @@ export function sqliteOccurredAtEpochMsSql(column = "occurred_at"): string {
   return `CASE WHEN length(${column})>=20 AND substr(${column},11,1)='T' THEN ${ms} ELSE NULL END`;
 }
 
-/** Deterministic SQLite expression for floored UTC epoch day derived from sqliteOccurredAtEpochMsSql. */
-export function sqliteOccurredAtUtcDaySql(column = "occurred_at"): string {
-  const ms = sqliteOccurredAtEpochMsSql(column);
-  return `CASE WHEN (${ms})>=0 THEN (${ms})/86400000 ELSE ((${ms})-86399999)/86400000 END`;
-}
-
 /** Deterministic PostgreSQL expression for ISO-8601 instant in UTC epoch milliseconds (Date.parse truncation, ±23:59 offsets). */
 export function pgOccurredAtEpochMsSql(value = "value"): string {
   const ms = isoOffsetTimestampMillisecondsSql(

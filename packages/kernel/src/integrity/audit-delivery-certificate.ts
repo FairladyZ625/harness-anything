@@ -915,9 +915,10 @@ function buildVerifiedCoverageIntervals(
       }
       continue;
     }
-    // A time-window slice proves coverage for timestamps in [after, before] only when not clipped below completion.
+    // A time-window slice proves coverage for timestamps in [after, before] only when not clipped by cursor or revision bounds.
     if (
-      slice.window.fromRevision === null &&
+      slice.window.cursorTruncated !== true &&
+      (slice.window.fromRevision === null || slice.window.fromRevision <= 1) &&
       (slice.window.toRevision === null || slice.window.toRevision >= completionRevision)
     ) {
       const start = slice.window.after === null ? Number.NEGATIVE_INFINITY : Date.parse(slice.window.after);
