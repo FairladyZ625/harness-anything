@@ -1966,48 +1966,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       binding: RuntimeBinding,
       options?: { readonly remoteControlRequestId?: string; readonly remoteControlOpId?: string },
     ) => steerRuntime(extracted, payload, binding, options),
-    activeRuntimeSessionIds: (): readonly string[] => [...processes.keys()],
-    activeRuntimeCount: (): number => processes.size,
-    isRuntimeActive: (runtimeSessionId: string): boolean => {
-      const runtimeHandles = processes;
-      return runtimeHandles.has(runtimeSessionId);
-    },
-    activeDispatchId: (runtimeSessionId: string): string | null => {
-      const runtimeHandles = processes;
-      return runtimeHandles.get(runtimeSessionId)?.dispatchId ?? null;
-    },
-    activeRuntimeForSelector: (
-      selector: { readonly dispatchId: string } | { readonly runtimeSessionId: string },
-    ): { readonly runtimeSessionId: string; readonly dispatchId: string } | null => {
-      const runtimeHandles = processes;
-      if ("runtimeSessionId" in selector) {
-        const active = runtimeHandles.get(selector.runtimeSessionId);
-        return active ? { runtimeSessionId: active.runtimeSessionId, dispatchId: active.dispatchId } : null;
-      }
-      for (const active of runtimeHandles.values()) {
-        if (active.dispatchId === selector.dispatchId)
-          return { runtimeSessionId: active.runtimeSessionId, dispatchId: active.dispatchId };
-      }
-      return null;
-    },
-    flushPendingSteerReceipts: async (defaultBinding?: RuntimeBinding): Promise<void> => {
-      const runtimeHandles = processes;
-      const { flushPendingSteerReceipts: flushReceipts } = await import("./runtime-spawn-active.ts");
-      const { readAllPendingSteerReceipts } = await import("./dispatch-steer-state.ts");
-      const { readDispatchStreamHeader } = await import("./dispatch-stream.ts");
-      const entries = readAllPendingSteerReceipts(input.rootDir);
-      if (entries.length === 0) return;
-      const dispatches = new Map<string, string>();
-      for (const entry of entries) {
-        if (!dispatches.has(entry.dispatchId)) dispatches.set(entry.dispatchId, entry.runtimeSessionId);
-      }
-      for (const [dispatchId, runtimeSessionId] of dispatches) {
-        const active = runtimeHandles.get(runtimeSessionId),
-          binding = active?.binding ?? readDispatchStreamHeader(input.rootDir, dispatchId)?.binding ?? defaultBinding;
-        if (!binding) continue;
-        await flushReceipts(extracted, dispatchId, runtimeSessionId, binding);
-      }
-    },
+    ...runtimeSpawnerDelegates.runtimeControlDelegates(extracted),
     isIdle: () => processes.size === 0 && exiting.size === 0,
     close: () => {
       fallbackClosed = true;
