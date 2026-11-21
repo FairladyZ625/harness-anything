@@ -1,16 +1,12 @@
 import path from "node:path";
-import { findExhaustedSubscriptionQuotaWindow, type RuntimeSubscriptionQuotaV1 } from "@harness-anything/kernel";
+import type { RuntimeSubscriptionQuotaV1 } from "@harness-anything/kernel";
 import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { runtimeInstanceError } from "./agent-runtime-instance-config.ts";
 import { parseRuntimeModelCatalogOutput, runExecutable } from "./agent-runtime-installation-discovery.ts";
 import type { RuntimeCredentialSource, RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
 import { runtimeKindForId } from "../runtime-engine/runtime-inventory.ts";
 import { probeSessionModelCatalog } from "./runtime-account-model-catalog.ts";
-import {
-  parseAgyQuotaResponse,
-  probeAgyCliQuota,
-  probeProviderSubscriptionQuota,
-} from "./runtime-subscription-quota-probe.ts";
+import { probeProviderSubscriptionQuota, type KeychainLookupRunner } from "./runtime-subscription-quota-probe.ts";
 
 export interface RuntimeAccountModelCatalog {
   readonly models: readonly string[];
@@ -52,25 +48,6 @@ export function createRuntimeInstanceAccountProbe(
         };
       });
     },
-    probeAgyQuota: (input: {
-      readonly executablePath: string;
-      readonly env: NodeJS.ProcessEnv;
-      readonly signal?: AbortSignal;
-    }): Promise<string | undefined> => {
-      const timeoutMs = runtimeKindForId("agy").auth.subscriptionProbeTimeoutMs,
-        signal = probeSignal(input.signal, timeoutMs);
-      return runBounded(signal, async () => {
-        const quota = await probeAgyCliQuota(
-          platform,
-          input.executablePath,
-          input.env,
-          signal,
-          timeoutMs,
-          new Date().toISOString(),
-        );
-        return findExhaustedSubscriptionQuotaWindow(quota)?.resetAt;
-      });
-    },
     probeQuota: (input: {
       readonly kindId: RuntimeInstanceKind;
       readonly credentialSource: RuntimeCredentialSource;
@@ -81,6 +58,7 @@ export function createRuntimeInstanceAccountProbe(
       readonly now?: () => string;
       readonly fetchImpl?: typeof fetch;
       readonly resolveGithubToken?: () => Promise<string | null>;
+      readonly runKeychainLookup?: KeychainLookupRunner;
     }): Promise<RuntimeSubscriptionQuotaV1 | null> => {
       const timeoutMs = runtimeKindForId(input.kindId).auth.subscriptionProbeTimeoutMs,
         signal = probeSignal(input.signal, timeoutMs);
@@ -94,10 +72,6 @@ export function createRuntimeInstanceAccountProbe(
       );
     },
   });
-}
-
-export function quotaResetTime(output: string): string | undefined {
-  return findExhaustedSubscriptionQuotaWindow(parseAgyQuotaResponse(output))?.resetAt;
 }
 
 export function appendAgyAccountDirectories(kindId: RuntimeInstanceKind, env: NodeJS.ProcessEnv, args: string[]): void {

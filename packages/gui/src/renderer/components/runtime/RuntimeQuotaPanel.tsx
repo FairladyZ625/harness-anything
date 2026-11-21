@@ -8,6 +8,12 @@ function remainingPercent(window: RuntimeQuotaWindowV1): number {
   return Math.round(Math.max(0, Math.min(1, window.remainingFraction)) * 100);
 }
 
+function remainingPercentText(window: RuntimeQuotaWindowV1): string {
+  const clamped = Math.max(0, Math.min(1, window.remainingFraction)),
+    percent = Math.round(clamped * 100);
+  return clamped > 0 && percent === 0 ? "<1%" : `${percent}%`;
+}
+
 function quotaTone(fraction: number): "bad" | "wait" | "done" {
   if (fraction <= 0) return "bad";
   if (fraction <= 0.2) return "wait";
@@ -15,8 +21,10 @@ function quotaTone(fraction: number): "bad" | "wait" | "done" {
 }
 
 function tightestWindow(quota: RuntimeSubscriptionQuotaV1): RuntimeQuotaWindowV1 | null {
+  const primary = quota.windows.filter((window) => window.scope !== "auxiliary");
+  const candidates = primary.length > 0 ? primary : quota.windows;
   let lowest: RuntimeQuotaWindowV1 | null = null;
-  for (const window of quota.windows) {
+  for (const window of candidates) {
     if (lowest === null || window.remainingFraction < lowest.remainingFraction) lowest = window;
   }
   return lowest;
@@ -27,7 +35,7 @@ function formatCreditNumber(value: number): string {
 }
 
 export function RuntimeQuotaCard({ quota }: { readonly quota: RuntimeSubscriptionQuotaV1 }) {
-  const exhausted = quota.windows.some((window) => window.remainingFraction <= 0);
+  const exhausted = quota.windows.some((window) => window.scope !== "auxiliary" && window.remainingFraction <= 0);
   const observed = formatTime(quota.observedAt, { style: "time" }) ?? quota.observedAt;
   return (
     <Card testId="runtime-card-quota">
@@ -45,6 +53,7 @@ export function RuntimeQuotaCard({ quota }: { readonly quota: RuntimeSubscriptio
         <div className="grid gap-2.5" data-testid="runtime-quota-windows">
           {quota.windows.map((window) => {
             const percent = remainingPercent(window),
+              percentLabel = remainingPercentText(window),
               tone = quotaTone(window.remainingFraction),
               reset = window.resetsAt
                 ? (formatTime(window.resetsAt, { style: "date-time-seconds" }) ?? window.resetsAt)
@@ -58,7 +67,7 @@ export function RuntimeQuotaCard({ quota }: { readonly quota: RuntimeSubscriptio
                       className="font-semibold tabular-nums"
                       style={{ color: tone === "done" ? "var(--color-text)" : TONE_COLOR[tone] }}
                     >
-                      {percent}%
+                      {percentLabel}
                     </span>
                     {reset ? (
                       <span className="text-text-faint">{t("agentRuntime.quotaResetsAt", { time: reset })}</span>
@@ -76,7 +85,7 @@ export function RuntimeQuotaCard({ quota }: { readonly quota: RuntimeSubscriptio
                   <span
                     className="block h-full"
                     style={{
-                      width: `${percent}%`,
+                      width: `${window.remainingFraction > 0 && percent === 0 ? 1 : percent}%`,
                       background: TONE_COLOR[tone],
                     }}
                   />
@@ -110,11 +119,29 @@ export function RuntimeQuotaCard({ quota }: { readonly quota: RuntimeSubscriptio
 export function RuntimeQuotaRailBadge({ quota }: { readonly quota: RuntimeSubscriptionQuotaV1 }) {
   const lowest = tightestWindow(quota);
   if (!lowest) return null;
-  const percent = remainingPercent(lowest),
-    tone = lowest.remainingFraction <= 0 ? "bad" : lowest.remainingFraction <= 0.2 ? "wait" : "neutral";
+  const percentLabel = remainingPercentText(lowest),
+    tone = lowest.remainingFraction <= 0 ? "bad" : lowest.remainingFraction <= 0.2 ? "wait" : "neutral",
+    fullReset = lowest.resetsAt
+      ? (formatTime(lowest.resetsAt, { style: "date-time-seconds" }) ?? lowest.resetsAt)
+      : null,
+    compactReset = lowest.resetsAt ? (formatTime(lowest.resetsAt, { style: "time" }) ?? lowest.resetsAt) : null,
+    summaryLabel = `${lowest.label} ${percentLabel}`,
+    accessibleLabel = fullReset
+      ? `${summaryLabel} · ${t("agentRuntime.quotaResetsAt", { time: fullReset })}`
+      : summaryLabel;
   return (
-    <span className="shrink-0" data-testid="rail-runtime-quota">
-      <StatusTag tone={tone} mono label={`${lowest.label} ${percent}%`} />
+    <span
+      className="inline-flex shrink-0 items-center gap-1"
+      data-testid="rail-runtime-quota"
+      title={accessibleLabel}
+      aria-label={accessibleLabel}
+    >
+      <StatusTag tone={tone} mono label={summaryLabel} />
+      {compactReset ? (
+        <span className="font-mono ui-micro text-text-faint" data-testid="rail-runtime-quota-reset">
+          {compactReset}
+        </span>
+      ) : null}
     </span>
   );
 }

@@ -5,6 +5,7 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readFileSync,
   readlinkSync,
   renameSync,
   rmSync,
@@ -329,6 +330,43 @@ export function runtimeBaseUrl(config: RuntimeInstanceConfig): string | undefine
   return runtimeProviderConfig(config).baseUrl;
 }
 
+export function parseCodexChatgptBaseUrl(tomlText: string): string | null {
+  for (const rawLine of tomlText.split(/\r?\n/u)) {
+    const line = stripTomlComment(rawLine).trim();
+    if (!line) continue;
+    if (line.startsWith("[")) break;
+    const match = /^chatgpt_base_url\s*=\s*(?:"([^"\\]*(?:\\.[^"\\]*)*)"|'([^']*)')$/u.exec(line);
+    if (!match) continue;
+    const raw = match[1] !== undefined ? match[1].replace(/\\"/gu, '"').replace(/\\\\/gu, "\\") : (match[2] ?? "");
+    const trimmed = raw.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  return null;
+}
+
+function stripTomlComment(line: string): string {
+  let inDouble = false;
+  let inSingle = false;
+  let escaped = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index]!;
+    if (inDouble) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inDouble = false;
+      continue;
+    }
+    if (inSingle) {
+      if (char === "'") inSingle = false;
+      continue;
+    }
+    if (char === '"') inDouble = true;
+    else if (char === "'") inSingle = true;
+    else if (char === "#") return line.slice(0, index);
+  }
+  return line;
+}
+
 export function writeCodexConfig(
   target: string,
   config: RuntimeInstanceConfig,
@@ -336,6 +374,7 @@ export function writeCodexConfig(
   baseUrlOverride?: string,
   platform: NodeJS.Platform = process.platform,
 ): void {
+  const existingChatgptBaseUrl = existsSync(target) ? parseCodexChatgptBaseUrl(readFileSync(target, "utf8")) : null;
   const provider = runtimeProviderConfig(config),
     effort = provider.reasoningEffort,
     headers =
@@ -344,6 +383,7 @@ export function writeCodexConfig(
         : provider.httpHeaders,
     lines = [
       `model_provider = ${tomlString(config.providerId)}`,
+      ...(existingChatgptBaseUrl ? [`chatgpt_base_url = ${tomlString(existingChatgptBaseUrl)}`] : []),
       ...(effort ? [`model_reasoning_effort = ${tomlString(effort)}`] : []),
       "allow_login_shell = false",
       // Bind authentication before login/app-server startup, including on macOS.

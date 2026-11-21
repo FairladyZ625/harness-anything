@@ -4,10 +4,9 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  createRuntimeInstanceAccountProbe,
-  quotaResetTime,
-} from "../src/daemon-host/runtime-instance-account-probe.ts";
+import { findExhaustedSubscriptionQuotaWindow } from "@harness-anything/kernel";
+import { createRuntimeInstanceAccountProbe } from "../src/daemon-host/runtime-instance-account-probe.ts";
+import { parseAgyQuotaResponse } from "../src/daemon-host/runtime-subscription-quota-probe.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
 test("AGY account model probes are bounded and abort while waiting for a slot", async () => {
@@ -88,7 +87,9 @@ test("AGY models and quota use HOME or USERPROFILE without ACP directory flags",
         input = { executablePath: agy, env: { [variable]: home, EXPECTED_HOME: home } };
       const catalog = await probe.probeModels({ ...input, kindId: "agy" });
       assert.deepEqual(catalog?.models, ["gemini-4-hydrogen-low"]);
-      assert.equal(await probe.probeAgyQuota(input), resetAt);
+      const quota = await probe.probeQuota({ ...input, kindId: "agy", credentialSource: "instance" });
+      assert.ok(quota);
+      assert.equal(findExhaustedSubscriptionQuotaWindow(quota)?.resetAt, resetAt);
     }
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -101,39 +102,82 @@ test("AGY models and quota reject a missing account HOME before launching the CL
     missingHome = (error: unknown) =>
       error instanceof Error && "code" in error && error.code === "runtime_auth_probe_failed";
   await assert.rejects(probe.probeModels({ ...input, kindId: "agy" }), missingHome);
-  await assert.rejects(probe.probeAgyQuota(input), missingHome);
+  await assert.rejects(probe.probeQuota({ ...input, kindId: "agy", credentialSource: "instance" }), missingHome);
 });
 
-test("AGY quota parsing selects the latest reset among exhausted buckets", () => {
-  const later = "2026-11-16T04:05:06.000Z",
-    reset = quotaResetTime(
-      JSON.stringify({
-        command: {
-          data: {
-            groups: [
-              { buckets: [{ remaining_fraction: 0, reset_time: "2026-11-15T00:00:00.000Z" }] },
-              {
-                buckets: [
-                  { remaining_fraction: 0.25, reset_time: later },
-                  { remaining_fraction: 0, reset_time: later },
-                  { remaining_fraction: 0, reset_time: Date.parse("2026-11-16T00:00:00.000Z") / 1_000 },
-                ],
-              },
-            ],
-          },
+test("AGY quota parsing supports both /quota command wrappers and /usage data/top-level shapes", () => {
+  const later = "2026-11-16T04:05:06.000Z";
+  const fromQuotaCommand = parseAgyQuotaResponse(
+    JSON.stringify({
+      command: {
+        data: {
+          groups: [
+            { buckets: [{ remaining_fraction: 0, reset_time: "2026-11-15T00:00:00.000Z" }] },
+            {
+              buckets: [
+                { remaining_fraction: 0.25, reset_time: later },
+                { remaining_fraction: 0, reset_time: later },
+                { remaining_fraction: 0, reset_time: Date.parse("2026-11-16T00:00:00.000Z") / 1_000 },
+              ],
+            },
+          ],
         },
-      }),
-    );
-  assert.equal(reset, later);
+      },
+    }),
+  );
+  assert.equal(findExhaustedSubscriptionQuotaWindow(fromQuotaCommand)?.resetAt, later);
+
+  // >=1.2.2 `/usage --output-format json` with `data.groups[]` and camelCase/percent fields.
+  const fromUsageData = parseAgyQuotaResponse(
+    JSON.stringify({
+      data: {
+        tier: "Pro",
+        groups: [
+          {
+            group_id: "gemini",
+            display_name: "Gemini",
+            buckets: [{ id: "5h", display_name: "5h", remainingFraction: 0.42, resets_at: later }],
+          },
+        ],
+      },
+    }),
+    "2026-11-15T00:00:00.000Z",
+  );
+  assert.equal(fromUsageData.plan, "Pro");
+  assert.equal(fromUsageData.windows[0]?.remainingFraction, 0.42);
+  assert.equal(fromUsageData.windows[0]?.resetsAt, later);
+
+  // Bare top-level `groups[]` shape with `remaining_percent`.
+  const fromBareGroups = parseAgyQuotaResponse(
+    JSON.stringify({
+      plan_name: "Ultra",
+      groups: [
+        {
+          name: "Claude",
+          buckets: [{ name: "Weekly", remaining_percent: 0.4, reset_time: later }],
+        },
+      ],
+    }),
+    "2026-11-15T00:00:00.000Z",
+  );
+  assert.equal(fromBareGroups.plan, "Ultra");
+  assert.equal(fromBareGroups.windows[0]?.remainingFraction, 0.004);
+  assert.equal(findExhaustedSubscriptionQuotaWindow(fromBareGroups, "2026-11-15T00:00:00.000Z"), null);
 });
 
-test("AGY quota parser rejects malformed response shapes", () => {
+test("AGY quota parser rejects malformed /quota and /usage response shapes", () => {
+  const invalidShape = (error: unknown) =>
+    error instanceof Error && "code" in error && error.code === "runtime_quota_response_invalid";
+  assert.throws(() => parseAgyQuotaResponse("not-json"), invalidShape);
+  assert.throws(() => parseAgyQuotaResponse("[]"), invalidShape);
+  assert.throws(() => parseAgyQuotaResponse(JSON.stringify({ command: { data: { groups: [] } } })), invalidShape);
   assert.throws(
-    () => quotaResetTime("not-json"),
-    (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_quota_response_invalid",
+    () => parseAgyQuotaResponse(JSON.stringify({ data: { groups: [{ name: "missing-buckets" }] } })),
+    invalidShape,
   );
   assert.throws(
-    () => quotaResetTime(JSON.stringify({ command: { data: { groups: [] } } })),
-    (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_quota_response_invalid",
+    () => parseAgyQuotaResponse(JSON.stringify({ groups: [{ buckets: [{ remaining_fraction: "bad" }] }] })),
+    invalidShape,
   );
+  assert.throws(() => parseAgyQuotaResponse(JSON.stringify({ unexpected: true })), invalidShape);
 });

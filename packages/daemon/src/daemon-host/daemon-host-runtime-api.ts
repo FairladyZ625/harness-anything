@@ -15,6 +15,7 @@ import { annotateHostingCredentialNotice } from "./hosting-credential-readiness.
 import { requireExecutionActionScope } from "./runtime-execution-scope.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { readDaemonRegistry, type FleetDeviceLoginNotice } from "@harness-anything/kernel";
+import { effectiveProviderBlockedUntil } from "../runtime-engine/runtime-provider-health.ts";
 import { catalogRereadReceipt } from "./gui-catalog.ts";
 import {
   ledgerWriteCommandTopology,
@@ -748,7 +749,10 @@ export function createDaemonHostRuntimeApi(
                     row.enabled ? "enabled" : "disabled",
                     health.frozen ? "frozen" : health.cooldownUntil ? "cooldown" : "ready",
                     health.reason ?? "-",
-                    health.frozenUntil ?? health.cooldownUntil ?? "-",
+                    effectiveProviderBlockedUntil({
+                      cooldownUntil: typeof health.cooldownUntil === "string" ? health.cooldownUntil : null,
+                      frozenUntil: typeof health.frozenUntil === "string" ? health.frozenUntil : null,
+                    }) ?? "-",
                   ].join("\t");
                 }),
               ]

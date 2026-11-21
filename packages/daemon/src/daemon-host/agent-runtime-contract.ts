@@ -1,5 +1,9 @@
 import { agentRuntimeSessionGroupStatusWords } from "@harness-anything/kernel/internal/domain/client-view-status.ts";
 import { validRuntimeInstanceTier } from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
+import {
+  validRuntimeSubscriptionQuota,
+  type RuntimeSubscriptionQuotaV1,
+} from "@harness-anything/kernel/internal/domain/runtime-subscription-quota.ts";
 import type { RuntimeLiveness } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import type { LeasePhase } from "@harness-anything/kernel/internal/domain/execution.ts";
@@ -25,14 +29,12 @@ import type {
 } from "@harness-anything/kernel";
 import type { RuntimeCapabilitySupport } from "../runtime-engine/runtime-inventory-types.ts";
 import { isRuntimeMcpPolicy } from "../runtime-engine/runtime-inventory.ts";
-import {
-  validRuntimeSubscriptionQuota,
-  type ActorIdentity,
-  type AgentDefinitionSnapshot,
-  type AgentRuntimeEventV1,
-  type RuntimeInstallationState,
-  type RuntimeSessionSemanticState,
-  type RuntimeSubscriptionQuotaV1,
+import type {
+  ActorIdentity,
+  AgentDefinitionSnapshot,
+  AgentRuntimeEventV1,
+  RuntimeInstallationState,
+  RuntimeSessionSemanticState,
 } from "@harness-anything/kernel";
 import { validAgentRuntimeAttemptChain, type AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 import type { ProviderUnreachableEvidence } from "./protocol/task-dispatch-contract.ts";

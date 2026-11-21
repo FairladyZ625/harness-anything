@@ -337,9 +337,11 @@ export {
 export {
   findExhaustedSubscriptionQuotaWindow,
   formatSubscriptionQuotaSummary,
+  hasPrimarySubscriptionQuotaWindow,
   validRuntimeSubscriptionQuota,
   type RuntimeQuotaCreditsV1,
   type RuntimeQuotaWindowKind,
+  type RuntimeQuotaWindowScope,
   type RuntimeQuotaWindowV1,
   type RuntimeSubscriptionQuotaV1,
 } from "./domain/runtime-subscription-quota.ts";

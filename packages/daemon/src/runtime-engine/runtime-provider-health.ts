@@ -13,6 +13,17 @@ export type RuntimeProviderHealth = {
   readonly lastResetAt: string | null;
 };
 
+export function effectiveProviderBlockedUntil(
+  health: Pick<RuntimeProviderHealth, "cooldownUntil" | "frozenUntil"> | undefined,
+): string | null {
+  if (!health) return null;
+  const candidates = [health.frozenUntil, health.cooldownUntil].filter(
+    (value): value is string => value !== null && Number.isFinite(Date.parse(value)),
+  );
+  if (candidates.length === 0) return health.frozenUntil ?? health.cooldownUntil ?? null;
+  return candidates.sort((left, right) => Date.parse(right) - Date.parse(left))[0]!;
+}
+
 const empty = (instanceId: string): RuntimeProviderHealth => ({
   instanceId,
   failureStreak: 0,
@@ -105,6 +116,53 @@ export function openRuntimeProviderHealthStore(userRoot: string) {
     persist(next);
     return next[input.instanceId]!;
   };
+  const recordQuotaExhausted = (input: {
+    readonly instanceId: string;
+    readonly occurredAt: string;
+    readonly resetAt: string;
+  }): RuntimeProviderHealth => {
+    const previous = get(input.instanceId),
+      proposedTime = Date.parse(input.resetAt),
+      previousCooldownTime =
+        previous.cooldownUntil === null ? Number.NEGATIVE_INFINITY : Date.parse(previous.cooldownUntil),
+      cooldownUntil =
+        previous.cooldownUntil !== null && Number.isFinite(previousCooldownTime) && previousCooldownTime >= proposedTime
+          ? previous.cooldownUntil
+          : input.resetAt;
+    if (previous.frozen) {
+      if (cooldownUntil === previous.cooldownUntil) return previous;
+      const next = {
+        ...read(),
+        [input.instanceId]: {
+          ...previous,
+          cooldownUntil,
+        },
+      };
+      persist(next);
+      return next[input.instanceId]!;
+    }
+    if (previous.reason === "quota_exhausted" && cooldownUntil === previous.cooldownUntil) return previous;
+    const next = {
+      ...read(),
+      [input.instanceId]: {
+        ...previous,
+        failureStreak: Math.max(1, previous.failureStreak),
+        cooldownUntil,
+        frozen: false,
+        frozenUntil: previous.frozenUntil,
+        reason: "quota_exhausted",
+        lastFailureAt: input.occurredAt,
+      },
+    };
+    persist(next);
+    return next[input.instanceId]!;
+  };
+  const clearQuotaExhausted = (instanceId: string, at: string): RuntimeProviderHealth => {
+    const previous = get(instanceId);
+    if (previous.frozen || previous.reason !== "quota_exhausted") return previous;
+    if (previous.frozenUntil !== null && Date.parse(previous.frozenUntil) > Date.parse(at)) return previous;
+    return reset(instanceId, at);
+  };
   const recordSuccess = (instanceId: string, attemptStartedAt: string): RuntimeProviderHealth => {
     const previous = get(instanceId),
       started = Date.parse(attemptStartedAt),
@@ -113,7 +171,16 @@ export function openRuntimeProviderHealthStore(userRoot: string) {
     if (started <= Math.max(failure, resetAt)) return previous;
     return reset(instanceId, attemptStartedAt);
   };
-  return Object.freeze({ get, list, reset, clear, recordFailure, recordSuccess });
+  return Object.freeze({
+    get,
+    list,
+    reset,
+    clear,
+    recordFailure,
+    recordQuotaExhausted,
+    clearQuotaExhausted,
+    recordSuccess,
+  });
 }
 
 export type RuntimeProviderHealthStore = ReturnType<typeof openRuntimeProviderHealthStore>;

@@ -115,7 +115,12 @@ export type {
   AgentVersionRead,
 } from "../agent-version-read.ts";
 export type { RuntimeInstanceSummary } from "../agent-runtime-instance-types.ts";
-export type { RuntimeQuotaWindowV1, RuntimeSubscriptionQuotaV1 } from "@harness-anything/kernel";
+export {
+  validRuntimeSubscriptionQuota,
+  type RuntimeQuotaWindowScope,
+  type RuntimeQuotaWindowV1,
+  type RuntimeSubscriptionQuotaV1,
+} from "@harness-anything/kernel/internal/domain/runtime-subscription-quota.ts";
 export { agentRuntimeSearchMatches } from "../../runtime-engine/agent-runtime-search.ts";
 /**
  * 注意力打分(S1)的合并原语:agenda 读面按 cursor 分页时,每页的 attentionItems/regionWeights

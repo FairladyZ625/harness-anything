@@ -17,7 +17,10 @@ import {
 } from "./agent-runtime-contract.ts";
 import { compareRuntimeInstanceRank, runtimeInstanceRank } from "./runtime-instance-selection.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
-import type { RuntimeProviderHealth } from "../runtime-engine/runtime-provider-health.ts";
+import {
+  effectiveProviderBlockedUntil,
+  type RuntimeProviderHealth,
+} from "../runtime-engine/runtime-provider-health.ts";
 import { type ResolvedAgentSkill } from "./agent-skills.ts";
 import { resolveContainedPath } from "./contained-path.ts";
 import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
@@ -372,7 +375,7 @@ export function resolveRuntimeInstanceCandidates(input: {
     )
     .filter((instance) => {
       const health = input.health?.find((row) => row.instanceId === instance.instanceId),
-        blockedUntil = health?.frozenUntil ?? health?.cooldownUntil;
+        blockedUntil = effectiveProviderBlockedUntil(health);
       return !(
         health?.frozen ||
         (blockedUntil && Date.parse(blockedUntil) > Date.parse(input.now ?? new Date().toISOString()))

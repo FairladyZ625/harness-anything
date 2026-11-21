@@ -1,6 +1,9 @@
 import type * as DomainStatus from "../api/renderer-dto.ts";
-import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
-import type { TerminalControlReceipt } from "@harness-anything/daemon/protocol";
+import {
+  validRuntimeSubscriptionQuota,
+  type RuntimeInstanceSummary,
+  type TerminalControlReceipt,
+} from "@harness-anything/daemon/protocol";
 import { invoke } from "./api-client-invoke.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 export interface RuntimeInstallationRow {
@@ -65,7 +68,9 @@ export const runtimeInstanceClient = {
   list: async (repoId?: string): Promise<RuntimeInstanceCatalog> =>
     runtimeInstanceCatalog(await invoke("daemon.runtimeInstance.list", { all: true, ...scope(repoId) })),
   show: (instanceId: string, repoId?: string) =>
-    runtimeInstanceReceipt(invoke("daemon.runtimeInstance.show", { instanceId, ...scope(repoId) })),
+    runtimeInstanceShowReceipt(
+      runtimeInstanceReceipt(invoke("daemon.runtimeInstance.show", { instanceId, ...scope(repoId) })),
+    ),
   create: (input: RuntimeInstanceCreateInput, repoId?: string) =>
     runtimeInstanceReceipt(invoke("daemon.runtimeInstance.create", { ...input, ...scope(repoId) })),
   update: (input: RuntimeInstanceUpdateInput, repoId?: string) =>
@@ -102,6 +107,10 @@ async function runtimeInstanceReceipt(value: Promise<unknown>): Promise<Record<s
   if (!result.ok) throw new Error(rendererErrorHint(result, "Runtime instance operation was rejected."));
   return result;
 }
+async function runtimeInstanceShowReceipt(value: Promise<Record<string, unknown>>): Promise<Record<string, unknown>> {
+  const receipt = await value;
+  return { ...receipt, instance: runtimeInstanceSummary(receipt.instance) };
+}
 function runtimeInstanceCatalog(value: unknown): RuntimeInstanceCatalog {
   if (
     !isRendererRecord(value) ||
@@ -112,7 +121,7 @@ function runtimeInstanceCatalog(value: unknown): RuntimeInstanceCatalog {
   )
     throw new Error(rendererErrorHint(value, "Runtime instance list returned an invalid receipt."));
   return {
-    instances: value.instances as RuntimeInstanceSummary[],
+    instances: value.instances.map(runtimeInstanceSummary),
     installations: value.installations as RuntimeInstallationRow[],
     subscriptionIsolationKinds: (value.subscriptionIsolationKinds as readonly string[] | undefined) ?? [],
   };
@@ -120,6 +129,8 @@ function runtimeInstanceCatalog(value: unknown): RuntimeInstanceCatalog {
 function runtimeInstanceSummary(value: unknown): RuntimeInstanceSummary {
   if (!isRendererRecord(value) || typeof value.instanceId !== "string" || !isRendererRecord(value.authReadiness))
     throw new Error("Runtime instance authentication probe returned an invalid instance.");
+  if (value.quota !== undefined && !validRuntimeSubscriptionQuota(value.quota))
+    throw new Error("Runtime instance returned an invalid subscription quota snapshot.");
   return value as unknown as RuntimeInstanceSummary;
 }
 function runtimeInstanceTerminal(value: unknown): TerminalControlReceipt {

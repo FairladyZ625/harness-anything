@@ -23,6 +23,7 @@ import {
   findExhaustedSubscriptionQuotaWindow,
   findRuntimeOperatorSubscriptionConflict,
   formatSubscriptionQuotaSummary,
+  hasPrimarySubscriptionQuotaWindow,
   runtimeInstanceAccountCutMatches,
   type RuntimeInstanceAccountCut,
   type RuntimeSubscriptionQuotaV1,
@@ -112,6 +113,7 @@ import {
 } from "./agent-runtime-web-search.ts";
 import { CloudDispatchRelay, relayPriceOf } from "./runtime/cloud-dispatch-relay.ts";
 import { appendAgyAccountDirectories, createRuntimeInstanceAccountProbe } from "./runtime-instance-account-probe.ts";
+import type { KeychainLookupRunner } from "./runtime-subscription-quota-probe.ts";
 import {
   openRuntimeProviderHealthStore,
   type RuntimeProviderHealthStore,
@@ -192,6 +194,8 @@ export function openRuntimeInstanceStore(input: {
   readonly webSearchFetch?: typeof fetch;
   /** Test/embedded seam for read-only subscription quota HTTP probes. Production uses the process fetch. */
   readonly quotaFetch?: typeof fetch;
+  /** Test/embedded seam for non-interactive macOS Keychain fallback lookups. */
+  readonly quotaKeychainLookup?: KeychainLookupRunner;
 }) {
   const dispatchState = createRuntimeInstanceDispatchState();
   const platform = input.platform ?? process.platform,
@@ -206,11 +210,14 @@ export function openRuntimeInstanceStore(input: {
     managedPolicyTexts = input.managedPolicyTexts ?? (() => readCodexManagedPolicyTexts(platform)),
     webSearchFetch = input.webSearchFetch ?? fetch,
     quotaFetch = input.quotaFetch ?? fetch,
+    quotaKeychainLookup = input.quotaKeychainLookup,
     target = path.join(input.userRoot, "runtime-instances.json"),
     installationsTarget = path.join(input.userRoot, "runtime-installations.json"),
     instancesRoot = path.join(input.userRoot, "runtime-instances"),
     readiness = new Map<string, RuntimeAuthReadiness>(),
-    accountRevisions = new Map<string, number>();
+    accountRevisions = new Map<string, number>(),
+    probeSequences = new Map<string, number>(),
+    committedProbeSequences = new Map<string, number>();
   let cachedInstances: readonly RuntimeInstanceConfig[] | null = null,
     recordedInstallationsCache: readonly RecordedRuntimeInstallation[] | null = null,
     recordedInstallationsRead = false;
@@ -258,6 +265,24 @@ export function openRuntimeInstanceStore(input: {
   }
   function bumpAccountRevision(instanceId: string): void {
     accountRevisions.set(instanceId, accountRevision(instanceId) + 1);
+    committedProbeSequences.set(instanceId, 0);
+  }
+  function nextProbeSequence(instanceId: string): number {
+    const next = (probeSequences.get(instanceId) ?? 0) + 1;
+    probeSequences.set(instanceId, next);
+    return next;
+  }
+  function currentProbeCommit(cut: RuntimeInstanceAccountCut, probeSeq: number): RuntimeInstanceConfig {
+    const current = currentAccountForCut(cut);
+    if ((committedProbeSequences.get(cut.instanceId) ?? 0) > probeSeq)
+      throw runtimeInstanceError(
+        "runtime_instance_probe_stale",
+        `Runtime instance ${cut.instanceId} completed a newer account probe before this response arrived.`,
+      );
+    return current;
+  }
+  function markProbeCommitted(instanceId: string, probeSeq: number): void {
+    committedProbeSequences.set(instanceId, Math.max(committedProbeSequences.get(instanceId) ?? 0, probeSeq));
   }
   function accountCut(config: RuntimeInstanceConfig): RuntimeInstanceAccountCut {
     return {
@@ -533,7 +558,7 @@ export function openRuntimeInstanceStore(input: {
     if (config.isolationState === "enforced") ensureStateRoot(config);
     const env = authEnvironment(config);
     if (config.auth.mode === "subscription") {
-      const probeStartedAt = nowIso(),
+      const probeSeq = nextProbeSequence(config.instanceId),
         probeTarget =
           !input.subscriptionReady && isAgyAccountConfig(config)
             ? await currentAccountProbeTarget(config, witnessed)
@@ -565,10 +590,15 @@ export function openRuntimeInstanceStore(input: {
           true,
           snapshot?.signal,
         );
-        if (result.modelCatalogReadiness || result.availableModels?.length)
+        currentProbeCommit(cut, probeSeq);
+        if (result.modelCatalogReadiness || result.availableModels?.length) {
+          markProbeCommitted(config.instanceId, probeSeq);
           persistAvailableModels(config, result.availableModels, cut);
-        if (result.readiness.status !== "ready") {
-          currentAccountForCut(cut);
+        }
+        const canProbeQuota =
+          result.readiness.status === "ready" || result.readiness.code === "runtime_quota_unavailable";
+        if (!canProbeQuota) {
+          currentProbeCommit(cut, probeSeq);
           return result;
         }
         if (!input.subscriptionReady) {
@@ -578,8 +608,9 @@ export function openRuntimeInstanceStore(input: {
               (target) => target.installation.executablePath,
               () => undefined,
             ));
+          let quota: RuntimeSubscriptionQuotaV1 | null = null;
           try {
-            const quota = await accountProbe.probeQuota({
+            quota = await accountProbe.probeQuota({
               kindId: config.kindId,
               credentialSource: config.credentialSource,
               ...(quotaExecutablePath ? { executablePath: quotaExecutablePath } : {}),
@@ -588,32 +619,35 @@ export function openRuntimeInstanceStore(input: {
               signal: snapshot?.signal,
               now: nowIso,
               fetchImpl: quotaFetch,
+              ...(quotaKeychainLookup ? { runKeychainLookup: quotaKeychainLookup } : {}),
               ...(resolveGithubToken ? { resolveGithubToken: () => resolveGithubToken(operatorEnvironment) } : {}),
             });
-            currentAccountForCut(cut);
-            if (quota !== null) {
-              persistQuota(config, quota, cut);
-              const exhausted = findExhaustedSubscriptionQuotaWindow(quota, nowIso());
-              if (exhausted)
-                providerHealth.recordFailure({
-                  instanceId: config.instanceId,
-                  reason: "quota_exhausted",
-                  occurredAt: nowIso(),
-                  resetAt: exhausted.resetAt,
-                });
-              else providerHealth.recordSuccess(config.instanceId, probeStartedAt);
-            }
           } catch (error) {
             consumeKnownError(error);
-            currentAccountForCut(cut);
+          }
+          const latest = currentProbeCommit(cut, probeSeq);
+          if (quota !== null) {
+            markProbeCommitted(latest.instanceId, probeSeq);
+            persistQuota(latest, quota, cut);
+            const observedNow = nowIso();
+            const exhausted = findExhaustedSubscriptionQuotaWindow(quota, observedNow, { models: latest.models });
+            if (exhausted)
+              providerHealth.recordQuotaExhausted({
+                instanceId: latest.instanceId,
+                occurredAt: observedNow,
+                resetAt: exhausted.resetAt,
+              });
+            else if (result.readiness.status === "ready" && hasPrimarySubscriptionQuotaWindow(quota, latest.models))
+              providerHealth.clearQuotaExhausted(latest.instanceId, observedNow);
           }
         }
         return result;
       })();
       // The final readiness publication is also an account effect. Revalidate after every
-      // asynchronous provider operation so a concurrent update/delete cannot leave the old
-      // account's readiness attached to a replacement instance with the same id.
-      const current = currentAccountForCut(cut);
+      // asynchronous provider operation so a concurrent update/delete, same-instance re-login,
+      // or out-of-order probe cannot overwrite a newer account state.
+      const current = currentProbeCommit(cut, probeSeq);
+      markProbeCommitted(current.instanceId, probeSeq);
       return observed(rememberAuthReadiness(current.instanceId, result.readiness), result);
     }
     let state: RuntimeAuthReadiness;
@@ -755,6 +789,12 @@ export function openRuntimeInstanceStore(input: {
         recursive: true,
         mode: 0o700,
       });
+    bumpAccountRevision(config.instanceId);
+    clearAccountState(config);
+    if (config.quota !== undefined) {
+      const cleared = runtimeInstanceConfig({ ...config, quota: undefined }, platform);
+      persist(read().map((entry) => (entry.instanceId === config.instanceId ? cleared : entry)));
+    }
     rememberAuthReadiness(
       config.instanceId,
       unavailable("runtime_auth_in_progress", `Provider-native ${action} is running in this instance terminal.`),

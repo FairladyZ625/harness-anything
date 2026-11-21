@@ -5,7 +5,10 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
-import { openRuntimeProviderHealthStore } from "../src/runtime-engine/runtime-provider-health.ts";
+import {
+  effectiveProviderBlockedUntil,
+  openRuntimeProviderHealthStore,
+} from "../src/runtime-engine/runtime-provider-health.ts";
 
 test("provider health persists bounded cooldowns and freezes after the configured streak", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-provider-health-"));
@@ -106,6 +109,78 @@ test("provider health fallback cooldown reads the shared policy default", () => 
     assert.equal(row.cooldownUntil, "2026-10-12T00:00:07.000Z");
   } finally {
     daemonRuntimePolicy.defaultValue.health.cooldownBaseSeconds = previousBase;
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test("quota health transitions are idempotent on repeated resetAt and preserve manual freezes or non-quota failures", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-provider-health-quota-"));
+  try {
+    const store = openRuntimeProviderHealthStore(root),
+      resetAt = "2026-11-28T00:00:00.000Z";
+    const first = store.recordQuotaExhausted({
+      instanceId: "codex-quota",
+      occurredAt: "2026-11-21T10:00:00.000Z",
+      resetAt,
+    });
+    const second = store.recordQuotaExhausted({
+      instanceId: "codex-quota",
+      occurredAt: "2026-11-21T10:05:00.000Z",
+      resetAt,
+    });
+    const third = store.recordQuotaExhausted({
+      instanceId: "codex-quota",
+      occurredAt: "2026-11-21T10:10:00.000Z",
+      resetAt: "2026-11-22T00:00:00.000Z",
+    });
+    assert.equal(first.failureStreak, 1);
+    assert.equal(second.failureStreak, 1);
+    assert.equal(third.failureStreak, 1);
+    assert.equal(third.frozenUntil, null);
+    assert.equal(third.cooldownUntil, resetAt);
+
+    // Clearing quota_exhausted succeeds for a pure quota cooldown.
+    const cleared = store.clearQuotaExhausted("codex-quota", "2026-11-21T11:00:00.000Z");
+    assert.equal(cleared.cooldownUntil, null);
+    assert.equal(cleared.failureStreak, 0);
+
+    // Permanent freeze and non-quota failures are NEVER cleared by clearQuotaExhausted.
+    store.recordFailure({
+      instanceId: "frozen-account",
+      reason: "manual freeze",
+      occurredAt: "2026-11-21T10:00:00.000Z",
+      permanentFreeze: true,
+    });
+    const afterQuotaClear = store.clearQuotaExhausted("frozen-account", "2026-11-21T11:00:00.000Z");
+    assert.equal(afterQuotaClear.frozen, true);
+    assert.equal(afterQuotaClear.reason, "manual freeze");
+
+    store.recordFailure({
+      instanceId: "network-account",
+      reason: "HTTP 503",
+      occurredAt: "2026-11-21T10:00:00.000Z",
+      cooldownBaseSeconds: 300,
+    });
+    const afterNetworkClear = store.clearQuotaExhausted("network-account", "2026-11-21T11:00:00.000Z");
+    assert.equal(afterNetworkClear.reason, "HTTP 503");
+    assert.equal(afterNetworkClear.failureStreak, 1);
+
+    // effectiveProviderBlockedUntil always prefers the later of frozenUntil and cooldownUntil.
+    assert.equal(
+      effectiveProviderBlockedUntil({
+        cooldownUntil: "2026-11-28T00:00:00.000Z",
+        frozenUntil: "2026-11-21T10:30:00.000Z",
+      }),
+      "2026-11-28T00:00:00.000Z",
+    );
+    assert.equal(
+      effectiveProviderBlockedUntil({
+        cooldownUntil: "2026-11-21T10:30:00.000Z",
+        frozenUntil: "2026-11-22T00:00:00.000Z",
+      }),
+      "2026-11-22T00:00:00.000Z",
+    );
+  } finally {
     rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });

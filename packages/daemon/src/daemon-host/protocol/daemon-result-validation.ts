@@ -6,6 +6,7 @@ import {
   validateAgentRuntimeOverview,
   validateAgentRuntimeSession,
 } from "../agent-runtime-contract.ts";
+import { validRuntimeSubscriptionQuota } from "@harness-anything/kernel/internal/domain/runtime-subscription-quota.ts";
 import {
   taskWipRootRowFields,
   taskWipOccupyingStatuses,
@@ -76,10 +77,42 @@ import {
 import { isDaemonActionRoute, isDaemonReadRoute } from "./daemon-protocol-rpc-validation.ts";
 
 export function parseClientRpcResponse(method: string, result: JsonObject): JsonObject {
+  if (method === "daemon.runtimeInstance.list" || method === "daemon.runtimeInstance.show")
+    return parseRuntimeInstanceRpcResponse(method, result);
   if (isDaemonActionRoute(method)) return parseDaemonActionResponse(method, result) as JsonObject;
   if (method === "daemon.gui.control.receipt") return parseDaemonReadResult(method, result) as unknown as JsonObject;
   if (isDaemonReadRoute(method) && Object.hasOwn(resultValidators, method))
     return parseDaemonReadResponse(method, result) as unknown as JsonObject;
+  return result;
+}
+function parseRuntimeInstanceRpcResponse(
+  method: "daemon.runtimeInstance.list" | "daemon.runtimeInstance.show",
+  result: JsonObject,
+): JsonObject {
+  if (result.ok === false) return result;
+  const rows: readonly [string, unknown][] =
+    method === "daemon.runtimeInstance.list"
+      ? Array.isArray(result.instances)
+        ? result.instances.map((entry, index) => [`instances[${index}]`, entry] as const)
+        : [["instances", null]]
+      : [["instance", result.instance]];
+  if (method === "daemon.runtimeInstance.list" && !Array.isArray(result.instances))
+    throw new DaemonProtocolContractError(
+      "invalid_result",
+      validationError(method, "instances", result.instances, "must be an array"),
+    );
+  for (const [field, entry] of rows) {
+    if (!isJsonObject(entry) || typeof entry.instanceId !== "string")
+      throw new DaemonProtocolContractError(
+        "invalid_result",
+        validationError(method, field, entry, "must be a runtime instance summary"),
+      );
+    if (entry.quota !== undefined && !validRuntimeSubscriptionQuota(entry.quota))
+      throw new DaemonProtocolContractError(
+        "invalid_result",
+        validationError(method, `${field}.quota`, entry.quota, "must be a valid RuntimeSubscriptionQuotaV1"),
+      );
+  }
   return result;
 }
 type ResultValidator = (value: unknown) => readonly string[];

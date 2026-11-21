@@ -1,4 +1,4 @@
-import { validRuntimeSubscriptionQuota } from "@harness-anything/kernel";
+import { validRuntimeSubscriptionQuota } from "@harness-anything/kernel/internal/domain/runtime-subscription-quota.ts";
 import { runtimeEffortValues } from "@harness-anything/kernel/runtime-effort";
 import { isCredentialReferenceText } from "./agent-runtime-credential-port.ts";
 import {
