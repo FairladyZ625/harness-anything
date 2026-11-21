@@ -37,9 +37,13 @@
           "requirement: DecisionReviewRequirement"
         ],
         "output": "void",
-        "failureCodes": ["invalid_transition"],
+        "failureCodes": [
+          "invalid_transition"
+        ],
         "explain": "Accept only a current, valid review or the existing repository policy route; preserve every error, criterion attribution and next action.",
-        "consumers": ["packages/kernel/src/domain/decision-event-document.ts"],
+        "consumers": [
+          "packages/kernel/src/domain/decision-event-document.ts"
+        ],
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/decision-event-document.ts#assertDecisionAcceptReview:3d71f566914de78a94e1e7126e17e7af",
@@ -51,9 +55,14 @@
       {
         "id": "assertDecisionContentPin",
         "symbol": "packages/kernel/src/domain/decision-event-document.ts#assertDecisionContentPin",
-        "inputs": ["current: DecisionDocumentState", "event: DecisionEventV1"],
+        "inputs": [
+          "current: DecisionDocumentState",
+          "event: DecisionEventV1"
+        ],
         "output": "void",
-        "failureCodes": ["invalid_transition"],
+        "failureCodes": [
+          "invalid_transition"
+        ],
         "explain": "Require a content pin matching the reduced Decision content.",
         "consumers": [],
         "sources": [
@@ -67,11 +76,18 @@
       {
         "id": "assertDecisionEvidenceFloor",
         "symbol": "packages/kernel/src/domain/decision-event-document.ts#assertDecisionEvidenceFloor",
-        "inputs": ["current: DecisionDocumentState | null", "event: DecisionEventDraftV1 | DecisionEventV1"],
+        "inputs": [
+          "current: DecisionDocumentState | null",
+          "event: DecisionEventDraftV1 | DecisionEventV1"
+        ],
         "output": "void",
-        "failureCodes": ["invalid_transition"],
+        "failureCodes": [
+          "invalid_transition"
+        ],
         "explain": "Require the existing Decision evidence floor before acceptance.",
-        "consumers": ["packages/kernel/src/domain/decision-event-document.ts"],
+        "consumers": [
+          "packages/kernel/src/domain/decision-event-document.ts"
+        ],
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/decision-event-document.ts#assertDecisionEvidenceFloor:4594035e1a324c79d8a62ef27f9914ec",
@@ -83,9 +99,14 @@
       {
         "id": "assertDecisionJudgmentConsent",
         "symbol": "packages/kernel/src/domain/decision-event-document.ts#assertDecisionJudgmentConsent",
-        "inputs": ["current: DecisionDocumentState", "event: DecisionEventV1"],
+        "inputs": [
+          "current: DecisionDocumentState",
+          "event: DecisionEventV1"
+        ],
         "output": "void",
-        "failureCodes": ["invalid_transition"],
+        "failureCodes": [
+          "invalid_transition"
+        ],
         "explain": "Bind Decision judgment consent to the accepted state/content and approved actor.",
         "consumers": [],
         "sources": [
@@ -99,11 +120,19 @@
       {
         "id": "assertDecisionReviewMutation",
         "symbol": "packages/kernel/src/domain/decision-event-document.ts#assertDecisionReviewMutation",
-        "inputs": ["current: DecisionDocumentState", "documentBody: string", "event: DecisionEventDraftV1"],
+        "inputs": [
+          "current: DecisionDocumentState",
+          "documentBody: string",
+          "event: DecisionEventDraftV1"
+        ],
         "output": "void",
-        "failureCodes": ["invalid_transition"],
+        "failureCodes": [
+          "invalid_transition"
+        ],
         "explain": "Admit review responses/overrides only for the current Decision content and known review findings.",
-        "consumers": ["packages/kernel/src/domain/decision-event-document.ts"],
+        "consumers": [
+          "packages/kernel/src/domain/decision-event-document.ts"
+        ],
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/decision-event-document.ts#assertDecisionReviewMutation:9346179e0b966c5899679bd7edf4deb9",
@@ -122,9 +151,13 @@
           "independence: ReviewIndependence"
         ],
         "output": "void",
-        "failureCodes": ["actor_unauthorized"],
+        "failureCodes": [
+          "actor_unauthorized"
+        ],
         "explain": "Enforce Decision reviewer independence from both the original proposer and every recorded amendment author under the repository reviewIndependence setting.",
-        "consumers": ["packages/application/src/commands/entity-action-catalog-executor.ts"],
+        "consumers": [
+          "packages/application/src/commands/entity-action-catalog-executor.ts"
+        ],
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/decision-event-document.ts#assertDecisionReviewerIndependent:a3be2e008f69cb263d361803e7ff6e19",
@@ -145,7 +178,11 @@
         "id": "decisionAcceptReviewReadiness",
         "symbol": "packages/kernel/src/domain/decision-event-document.ts#decisionAcceptReviewReadiness",
         "declaration": "function",
-        "inputs": ["current: DecisionDocumentState", "documentBody: string", "requirement: DecisionReviewRequirement"],
+        "inputs": [
+          "current: DecisionDocumentState",
+          "documentBody: string",
+          "requirement: DecisionReviewRequirement"
+        ],
         "output": "DecisionAcceptReviewReadiness",
         "failureCodes": [],
         "explain": "Canonical decisionAcceptReviewReadiness; existing unique kernel definition and result semantics are preserved.",
@@ -295,7 +332,11 @@
         "id": "authoredDocumentReadiness",
         "symbol": "packages/kernel/src/domain/transition-document-readiness.ts#assessAuthoredDocumentReadiness",
         "declaration": "function",
-        "inputs": ["kind: TransitionDocumentKind", "body: string | null", "contract?: MarkdownDocumentContract"],
+        "inputs": [
+          "kind: TransitionDocumentKind",
+          "body: string | null",
+          "contract?: MarkdownDocumentContract"
+        ],
         "output": "AuthoredDocumentReadiness",
         "failureCodes": [],
         "explain": "Canonical authoredDocumentReadiness; existing unique kernel definition and result semantics are preserved.",
@@ -307,7 +348,9 @@
         "id": "closeoutBilingualDelivery",
         "symbol": "packages/kernel/src/domain/transition-document-readiness.ts#missingChineseCloseoutSections",
         "declaration": "function",
-        "inputs": ["closeout: string"],
+        "inputs": [
+          "closeout: string"
+        ],
         "output": "readonly string[]",
         "failureCodes": [],
         "explain": "Canonical closeoutBilingualDelivery; existing unique kernel definition and result semantics are preserved.",
@@ -318,7 +361,10 @@
       {
         "id": "decideAuthoredDocument",
         "symbol": "packages/kernel/src/domain/authored-document.ts#decideAuthoredDocument",
-        "inputs": ["state: AuthoredDocumentState | null", "command: AuthoredDocumentCommand"],
+        "inputs": [
+          "state: AuthoredDocumentState | null",
+          "command: AuthoredDocumentCommand"
+        ],
         "output": "AuthoredDocumentDecision",
         "failureCodes": [],
         "explain": "Canonical authored-document acceptance based on the accepted document cut and schema.",
@@ -334,7 +380,10 @@
       {
         "id": "decideDocWriteInternal",
         "symbol": "packages/kernel/src/domain/doc-sync-writer.ts#decideDocWriteInternal",
-        "inputs": ["input: DocWriteDecisionInput", "requireAuthorization: boolean"],
+        "inputs": [
+          "input: DocWriteDecisionInput",
+          "requireAuthorization: boolean"
+        ],
         "output": "DocWriteDecision",
         "failureCodes": [],
         "explain": "Canonical document write judgment using authored-document truth and declared write ownership.",
@@ -351,7 +400,11 @@
         "id": "transitionDocumentReadiness",
         "symbol": "packages/kernel/src/domain/transition-document-readiness.ts#assessTransitionDocument",
         "declaration": "function",
-        "inputs": ["kind: TransitionDocumentKind", "body: string", "contract?: MarkdownDocumentContract"],
+        "inputs": [
+          "kind: TransitionDocumentKind",
+          "body: string",
+          "contract?: MarkdownDocumentContract"
+        ],
         "output": "TransitionDocumentReadiness",
         "failureCodes": [],
         "explain": "Canonical transitionDocumentReadiness; existing unique kernel definition and result semantics are preserved.",
@@ -494,7 +547,10 @@
         "id": "factLiveness",
         "symbol": "packages/kernel/src/domain/fact-liveness.ts#factLiveness",
         "declaration": "function",
-        "inputs": ["fact: FactLivenessInput", "relations: readonly FactLivenessRelation[]"],
+        "inputs": [
+          "fact: FactLivenessInput",
+          "relations: readonly FactLivenessRelation[]"
+        ],
         "output": "FactLiveness",
         "failureCodes": [],
         "explain": "Canonical factLiveness; existing unique kernel definition and result semantics are preserved.",
@@ -1255,11 +1311,22 @@
       {
         "id": "assertTransitionDocumentReady",
         "symbol": "packages/kernel/src/domain/transition-document-readiness.ts#assertTransitionDocumentReady",
-        "inputs": ["kind: TransitionDocumentKind", "body: string", "contract?: MarkdownDocumentContract"],
+        "inputs": [
+          "kind: TransitionDocumentKind",
+          "body: string",
+          "contract?: MarkdownDocumentContract"
+        ],
         "output": "void",
-        "failureCodes": ["plan_placeholder", "body_placeholder", "instructions_placeholder", "roster_placeholder"],
+        "failureCodes": [
+          "plan_placeholder",
+          "body_placeholder",
+          "instructions_placeholder",
+          "roster_placeholder"
+        ],
         "explain": "Apply canonical transition document readiness and its original failure explanation.",
-        "consumers": ["packages/kernel/src/domain/decision-event-document.ts"],
+        "consumers": [
+          "packages/kernel/src/domain/decision-event-document.ts"
+        ],
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/transition-document-readiness.ts#assertTransitionDocumentReady:aed4a8f5db9c5bab10cb89e4ce82eee6",
@@ -1271,9 +1338,15 @@
       {
         "id": "currentWriterAdmission",
         "symbol": "packages/kernel/src/domain/write-chain.contract.ts#assertCurrentWriter",
-        "inputs": ["active: WriterGeneration", "token: WriterGenerationToken", "workspaceId: string"],
+        "inputs": [
+          "active: WriterGeneration",
+          "token: WriterGenerationToken",
+          "workspaceId: string"
+        ],
         "output": "void",
-        "failureCodes": ["writer_rejected"],
+        "failureCodes": [
+          "writer_rejected"
+        ],
         "explain": "Admit only the active workspace, generation and owner; preserve the writer fence error and call order.",
         "consumers": [
           "packages/daemon/src/daemon-host/repo-bootstrap.ts",
@@ -1302,11 +1375,16 @@
         "id": "queryPayloadValidation",
         "symbol": "packages/kernel/src/domain/query-payload-validation.ts#queryPayloadValidation",
         "declaration": "function",
-        "inputs": ["kind: QueryPayloadKind", "value: unknown"],
+        "inputs": [
+          "kind: QueryPayloadKind",
+          "value: unknown"
+        ],
         "output": "readonly QueryPayloadValidationIssue[]",
         "failureCodes": [],
         "explain": "Canonical query-facet validation for task-list and relation-graph reads (status vocabulary, non-negative integer changedAfterRevision, ordered UTC time window, 1..500 limit, non-empty cursor); protocol wrappers keep only selector routing, field closure, and wire error mapping.",
-        "consumers": ["packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-relation-query.ts"],
+        "consumers": [
+          "packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-relation-query.ts"
+        ],
         "sources": [],
         "consumerRules": [
           {
@@ -1322,7 +1400,9 @@
         "id": "receiptAcceptance",
         "symbol": "packages/kernel/src/domain/receipt-acceptance.ts#validateReceiptAcceptance",
         "declaration": "function",
-        "inputs": ["value: Readonly<Record<string, unknown>>"],
+        "inputs": [
+          "value: Readonly<Record<string, unknown>>"
+        ],
         "output": "readonly string[]",
         "failureCodes": [],
         "explain": "Certify command-receipt/v2 SQLite acceptance intervals, determinate settled_no_write outcomes, verified facet cuts, and wait satisfaction invariants from one kernel authority.",
@@ -1553,11 +1633,17 @@
       {
         "id": "assertGovernedRelationRecord",
         "symbol": "packages/kernel/src/domain/entity-relation.ts#assertGovernedRelationRecord",
-        "inputs": ["record: EntityRelationRecord", "witness: unknown", "allowUnknownFields = false"],
+        "inputs": [
+          "record: EntityRelationRecord",
+          "witness: unknown",
+          "allowUnknownFields = false"
+        ],
         "output": "void",
         "failureCodes": [],
         "explain": "Judge persisted governed relation endpoints against their witnessed registry, not today's registry.",
-        "consumers": ["packages/kernel/src/domain/relation-event.ts"],
+        "consumers": [
+          "packages/kernel/src/domain/relation-event.ts"
+        ],
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-relation.ts#assertGovernedRelationRecord:79ccc7dd4ebbdf9ffcf46e340c4930f7",
@@ -1581,7 +1667,9 @@
           "relation_awaits_request_invalid"
         ],
         "explain": "Admit only declared canonical writable relation triples, directed acyclic edges and well-formed awaits requests.",
-        "consumers": ["packages/kernel/src/domain/relation-event.ts"],
+        "consumers": [
+          "packages/kernel/src/domain/relation-event.ts"
+        ],
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/relation-event.ts#assertRelationAdmission:61d5b78ef4c56613e3f0b03d1d072740",
@@ -1603,7 +1691,9 @@
         "output": "boolean",
         "failureCodes": [],
         "explain": "One writable triple/optional record-strength judgment for both public relation qualification ports; canonical lookup remains O(1), composed registries retain short-circuit O(n).",
-        "consumers": ["packages/kernel/src/domain/entity-relation.ts"],
+        "consumers": [
+          "packages/kernel/src/domain/entity-relation.ts"
+        ],
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-relation.ts#isAllowedRelation:4d693b0ff272687e214c67b14d6eddb0",
@@ -1624,7 +1714,9 @@
         "output": "boolean",
         "failureCodes": [],
         "explain": "Resolve relation-kind triple qualification solely against the supplied canonical direction registry.",
-        "consumers": ["packages/kernel/src/domain/relation-event.ts"],
+        "consumers": [
+          "packages/kernel/src/domain/relation-event.ts"
+        ],
         "sources": [],
         "order": 1
       },
@@ -1640,14 +1732,19 @@
         "output": "boolean",
         "failureCodes": [],
         "explain": "Resolve writable relation record/strength qualification against the same canonical direction registry.",
-        "consumers": ["packages/kernel/src/domain/entity-relation.ts"],
+        "consumers": [
+          "packages/kernel/src/domain/entity-relation.ts"
+        ],
         "sources": [],
         "order": 2
       },
       {
         "id": "validateDecisionPin",
         "symbol": "packages/kernel/src/domain/governed-relation-direction.ts#validateDecisionPin",
-        "inputs": ["declaration: ArtifactRelationDefinition", "authority: GovernedRelationCompilationAuthority"],
+        "inputs": [
+          "declaration: ArtifactRelationDefinition",
+          "authority: GovernedRelationCompilationAuthority"
+        ],
         "output": "void",
         "failureCodes": [],
         "explain": "Judge governing Decision pin qualification at relation compilation.",
@@ -1663,7 +1760,11 @@
       {
         "id": "validateGovernedSemantics",
         "symbol": "packages/kernel/src/domain/governed-relation-direction.ts#validateGovernedSemantics",
-        "inputs": ["declaration: ArtifactRelationDefinition", "sourceKind: string", "targetKind: string"],
+        "inputs": [
+          "declaration: ArtifactRelationDefinition",
+          "sourceKind: string",
+          "targetKind: string"
+        ],
         "output": "void",
         "failureCodes": [],
         "explain": "Judge governed artifact relation semantics against accepted canonical declarations.",
@@ -1794,7 +1895,9 @@
         "output": "boolean",
         "failureCodes": [],
         "explain": "Judge whether a submitted Execution has at least one approved Review on its current submission cut and no undisposed changes_requested Review.",
-        "consumers": ["packages/daemon/src/daemon-host/task-query-read.ts"],
+        "consumers": [
+          "packages/daemon/src/daemon-host/task-query-read.ts"
+        ],
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/review.ts#hasApprovedReviewForExecution:cbfb71d22e6c307bc5aaddc13c9f7f21",
@@ -1918,7 +2021,10 @@
       {
         "id": "bare-provider-session-resume-identity",
         "symbol": "packages/kernel/src/domain/agent-dispatch-identity.ts#verifyBareProviderSessionResumeIdentity",
-        "inputs": ["readonly PriorProviderSessionIdentity[]", "BareProviderSessionResumeRequest"],
+        "inputs": [
+          "readonly PriorProviderSessionIdentity[]",
+          "BareProviderSessionResumeRequest"
+        ],
         "output": "BareProviderSessionResumeVerdict",
         "failureCodes": [
           "runtime_resume_session_not_found",
@@ -1937,22 +2043,35 @@
       {
         "id": "dispatch-snapshot-fence",
         "symbol": "packages/kernel/src/domain/agent-dispatch-identity.ts#verifyDispatchSnapshotFence",
-        "inputs": ["DispatchSnapshotFenceInput"],
+        "inputs": [
+          "DispatchSnapshotFenceInput"
+        ],
         "output": "DispatchSnapshotFenceResult",
-        "failureCodes": ["dispatch_snapshot_stale"],
+        "failureCodes": [
+          "dispatch_snapshot_stale"
+        ],
         "explain": "Verifies that formal runtime dispatch launch matches the Agent declaration and Skill directory content digests observed during dry-run preview before any provider process is spawned.",
-        "consumers": ["packages/daemon/src/daemon-host/runtime-spawner.ts"],
+        "consumers": [
+          "packages/daemon/src/daemon-host/runtime-spawner.ts"
+        ],
         "sources": [],
         "order": 1
       },
       {
         "id": "task-writer-conflict",
         "symbol": "packages/kernel/src/domain/dispatch-lifecycle.ts#taskWriterConflict",
-        "inputs": ["readonly DispatchLifecycleView[]", "taskId: string"],
+        "inputs": [
+          "readonly DispatchLifecycleView[]",
+          "taskId: string"
+        ],
         "output": "writer conflict or null",
-        "failureCodes": ["runtime_task_writer_conflict"],
+        "failureCodes": [
+          "runtime_task_writer_conflict"
+        ],
         "explain": "At center dispatch admission a task has at most one implementation process without accepted stop proof, across all instances and nodes. Releasing the task lease does not release this process reservation.",
-        "consumers": ["packages/daemon/src/daemon-host/runtime-dispatch-admission.ts"],
+        "consumers": [
+          "packages/daemon/src/daemon-host/runtime-dispatch-admission.ts"
+        ],
         "sources": [],
         "order": 0
       }
@@ -2114,11 +2233,15 @@
       {
         "id": "assertAcyclicPolicyGroups",
         "symbol": "packages/kernel/src/domain/policy-groups.ts#assertAcyclicPolicyGroups",
-        "inputs": ["groups: readonly PolicyGroup[]"],
+        "inputs": [
+          "groups: readonly PolicyGroup[]"
+        ],
         "output": "void",
         "failureCodes": [],
         "explain": "Reject duplicate, missing or cyclic policy group inheritance in one kernel traversal.",
-        "consumers": ["packages/kernel/src/domain/policy-groups.ts"],
+        "consumers": [
+          "packages/kernel/src/domain/policy-groups.ts"
+        ],
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/policy-groups.ts#assertAcyclicPolicyGroups:950068fa3730bc4012238359f987c6c3",
@@ -2130,7 +2253,10 @@
       {
         "id": "validatePolicyGroupScopes",
         "symbol": "packages/kernel/src/domain/policy-groups.ts#validatePolicyGroupScopes",
-        "inputs": ["groups: readonly PolicyGroup[]", "known: (scope: string) => boolean"],
+        "inputs": [
+          "groups: readonly PolicyGroup[]",
+          "known: (scope: string) => boolean"
+        ],
         "output": "string | null",
         "failureCodes": [],
         "explain": "Judge group graph and first unknown scope once; providers supply only their inventory and error wording.",
@@ -2335,20 +2461,29 @@
       {
         "id": "automatic-rework-unclaimed",
         "symbol": "packages/kernel/src/domain/task-execution-arrangement.ts#automaticReworkIsUnclaimed",
-        "inputs": ["TaskLifecycleSnapshot"],
+        "inputs": [
+          "TaskLifecycleSnapshot"
+        ],
         "output": "boolean",
         "failureCodes": [],
         "explain": "Automatic rework yields to an owner arrangement, an outstanding lease or an already started execution in the returned iteration; check again at dispatch admission.",
-        "consumers": ["packages/daemon/src/daemon-host/task-return-dispatch.ts"],
+        "consumers": [
+          "packages/daemon/src/daemon-host/task-return-dispatch.ts"
+        ],
         "sources": [],
         "order": 21
       },
       {
         "id": "block/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#block.validate",
-        "inputs": ["snapshot", "raw"],
+        "inputs": [
+          "snapshot",
+          "raw"
+        ],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": ["invalid_transition"],
+        "failureCodes": [
+          "invalid_transition"
+        ],
         "explain": "Canonical block.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -2382,9 +2517,16 @@
       {
         "id": "cancel/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#cancel.validate",
-        "inputs": ["snapshot", "raw"],
+        "inputs": [
+          "snapshot",
+          "raw"
+        ],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": ["invalid_transition", "missing_field", "force_reason_required"],
+        "failureCodes": [
+          "invalid_transition",
+          "missing_field",
+          "force_reason_required"
+        ],
         "explain": "Canonical cancel.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -2415,9 +2557,17 @@
       {
         "id": "complete/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-review-transitions.ts#complete.validate",
-        "inputs": ["snapshot", "raw", "rawProof"],
+        "inputs": [
+          "snapshot",
+          "raw",
+          "rawProof"
+        ],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": ["invalid_schema", "invalid_transition", "invalid_proof"],
+        "failureCodes": [
+          "invalid_schema",
+          "invalid_transition",
+          "invalid_proof"
+        ],
         "explain": "Canonical complete.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -2431,9 +2581,16 @@
       {
         "id": "consent/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-review-transitions.ts#consent.validate",
-        "inputs": ["snapshot", "raw", "rawProof"],
+        "inputs": [
+          "snapshot",
+          "raw",
+          "rawProof"
+        ],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": ["invalid_transition", "invalid_proof"],
+        "failureCodes": [
+          "invalid_transition",
+          "invalid_proof"
+        ],
         "explain": "Canonical consent.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -2447,9 +2604,17 @@
       {
         "id": "create/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#create.validate",
-        "inputs": ["snapshot", "raw", "rawProof"],
+        "inputs": [
+          "snapshot",
+          "raw",
+          "rawProof"
+        ],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": ["invalid_transition", "invalid_schema", "invalid_proof"],
+        "failureCodes": [
+          "invalid_transition",
+          "invalid_schema",
+          "invalid_proof"
+        ],
         "explain": "Canonical create.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -2463,11 +2628,15 @@
       {
         "id": "currentWorkerEscalations",
         "symbol": "packages/kernel/src/domain/worker-escalation-context.ts#currentWorkerEscalations",
-        "inputs": ["records: readonly WorkerEscalationContext[]"],
+        "inputs": [
+          "records: readonly WorkerEscalationContext[]"
+        ],
         "output": "readonly WorkerEscalationContext[]",
         "failureCodes": [],
         "explain": "Keep all resolved questions; the greatest ledger revision replaces an earlier answer only for the same trimmed question.",
-        "consumers": ["packages/application/src/queries/task-escalation-context.ts"],
+        "consumers": [
+          "packages/application/src/queries/task-escalation-context.ts"
+        ],
         "sources": [],
         "order": 0
       },
@@ -2506,7 +2675,10 @@
         "id": "isSubmittedExecutionCutOpen",
         "symbol": "packages/kernel/src/domain/task-bound-runtime-authority.ts#isSubmittedExecutionCutOpen",
         "declaration": "function",
-        "inputs": ["snapshot: TaskLifecycleSnapshot", "executionId: string"],
+        "inputs": [
+          "snapshot: TaskLifecycleSnapshot",
+          "executionId: string"
+        ],
         "output": "boolean",
         "failureCodes": [],
         "explain": "Judge whether the named Execution is currently the active submitted cut on a Task in review/submitted state at the review workflow node.",
@@ -2533,7 +2705,9 @@
       {
         "id": "isTaskRiskTierAssessmentNonDecreasing",
         "symbol": "packages/kernel/src/domain/task-risk-tier-assessment.ts#isTaskRiskTierAssessmentNonDecreasing",
-        "inputs": ["value: unknown"],
+        "inputs": [
+          "value: unknown"
+        ],
         "output": "boolean",
         "failureCodes": [],
         "explain": "Canonical non-decreasing task risk-tier comparison.",
@@ -2549,9 +2723,15 @@
       {
         "id": "reinstate/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#reinstate.validate",
-        "inputs": ["snapshot", "raw"],
+        "inputs": [
+          "snapshot",
+          "raw"
+        ],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": ["invalid_transition", "missing_field"],
+        "failureCodes": [
+          "invalid_transition",
+          "missing_field"
+        ],
         "explain": "Canonical reinstate.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -2565,9 +2745,15 @@
       {
         "id": "releaseRuntimeLease/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-runtime-lease-transition.ts#releaseRuntimeLease.validate",
-        "inputs": ["snapshot", "raw"],
+        "inputs": [
+          "snapshot",
+          "raw"
+        ],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": ["invalid_transition", "missing_field"],
+        "failureCodes": [
+          "invalid_transition",
+          "missing_field"
+        ],
         "explain": "Canonical releaseRuntimeLease.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -2581,9 +2767,14 @@
       {
         "id": "retireCompletionGeneration/validate",
         "symbol": "packages/kernel/src/domain/task-completion-generation-retirement.ts#retireCompletionGeneration.validate",
-        "inputs": ["snapshot", "raw"],
+        "inputs": [
+          "snapshot",
+          "raw"
+        ],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": ["invalid_transition"],
+        "failureCodes": [
+          "invalid_transition"
+        ],
         "explain": "Canonical retireCompletionGeneration.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -2597,9 +2788,15 @@
       {
         "id": "returnToPlanned/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#returnToPlanned.validate",
-        "inputs": ["snapshot", "raw"],
+        "inputs": [
+          "snapshot",
+          "raw"
+        ],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": ["invalid_transition", "missing_field"],
+        "failureCodes": [
+          "invalid_transition",
+          "missing_field"
+        ],
         "explain": "Canonical returnToPlanned.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -2613,9 +2810,17 @@
       {
         "id": "rework/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#rework.validate",
-        "inputs": ["snapshot", "raw", "rawProof"],
+        "inputs": [
+          "snapshot",
+          "raw",
+          "rawProof"
+        ],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": ["invalid_transition", "missing_field", "invalid_proof"],
+        "failureCodes": [
+          "invalid_transition",
+          "missing_field",
+          "invalid_proof"
+        ],
         "explain": "Canonical rework.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -2629,9 +2834,16 @@
       {
         "id": "start/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#start.validate",
-        "inputs": ["snapshot", "raw", "rawProof"],
+        "inputs": [
+          "snapshot",
+          "raw",
+          "rawProof"
+        ],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": ["invalid_proof", "invalid_transition"],
+        "failureCodes": [
+          "invalid_proof",
+          "invalid_transition"
+        ],
         "explain": "Canonical start.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -2646,7 +2858,10 @@
         "id": "startability",
         "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#canStartExecution",
         "declaration": "function",
-        "inputs": ["snapshot: TaskLifecycleSnapshot", "executionId: string"],
+        "inputs": [
+          "snapshot: TaskLifecycleSnapshot",
+          "executionId: string"
+        ],
         "output": "boolean",
         "failureCodes": [],
         "explain": "Canonical startability; existing unique kernel definition and result semantics are preserved.",
@@ -2657,9 +2872,17 @@
       {
         "id": "submit/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#submit.validate",
-        "inputs": ["snapshot", "raw", "rawProof"],
+        "inputs": [
+          "snapshot",
+          "raw",
+          "rawProof"
+        ],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": ["invalid_proof", "invalid_transition", "invalid_submission"],
+        "failureCodes": [
+          "invalid_proof",
+          "invalid_transition",
+          "invalid_submission"
+        ],
         "explain": "Canonical submit.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -2673,9 +2896,14 @@
       {
         "id": "unblock/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#unblock.validate",
-        "inputs": ["snapshot", "raw"],
+        "inputs": [
+          "snapshot",
+          "raw"
+        ],
         "output": "Inferred aggregate ContractValidationIssue[]",
-        "failureCodes": ["invalid_transition"],
+        "failureCodes": [
+          "invalid_transition"
+        ],
         "explain": "Canonical unblock.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
         "consumers": [],
         "sources": [
@@ -2689,9 +2917,15 @@
       {
         "id": "validateTransition",
         "symbol": "packages/kernel/src/domain/task-lifecycle-replay.ts#validateTransition",
-        "inputs": ["snapshot: TaskLifecycleSnapshot", "command: C extends TaskLifecycleCommand", "proof: ProofFor<C>"],
+        "inputs": [
+          "snapshot: TaskLifecycleSnapshot",
+          "command: C extends TaskLifecycleCommand",
+          "proof: ProofFor<C>"
+        ],
         "output": "readonly ContractValidationIssue[]",
-        "failureCodes": ["invalid_transition"],
+        "failureCodes": [
+          "invalid_transition"
+        ],
         "explain": "Delegate current task snapshot and command eligibility to the sole TASK_LIFECYCLE_TRANSITIONS registry, including its no-match rejection.",
         "consumers": [],
         "sources": [
