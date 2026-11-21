@@ -311,6 +311,7 @@ export function runAcpProviderSession(
     if (turnActive) send({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId } });
     else cancelOnTurnStart = true;
   };
+  let activeSteer: { readonly meta?: import("./runtime-worker-control.ts").RuntimeSteerCommandMeta } | null = null;
   const done = (async () => {
     try {
       const initialize = (await request("initialize", {
@@ -451,6 +452,10 @@ export function runAcpProviderSession(
           looksLikeAcpUpstreamError(finalText, runtimeKindForId(manifest.kindId))
         )
           throw new Error(`ACP provider reported an upstream error: ${finalText.trim()}`);
+        if (activeSteer !== null) {
+          append({ kind: "steer_resumed", providerSessionId: sessionId, ...steerMetaFields(activeSteer.meta) });
+          activeSteer = null;
+        }
         event({
           type: "acp.result",
           stopReason,
@@ -484,12 +489,21 @@ export function runAcpProviderSession(
         // The previous turn's text is not the steered turn's answer.
         promptText = next.prompt;
         finalText = "";
-        append({ kind: "steer_resumed", providerSessionId: sessionId, ...steerMetaFields(next.meta) });
+        activeSteer = { ...(next.meta ? { meta: next.meta } : {}) };
       }
     } catch (error) {
       // The failure is reported through the acp.error frame and the child is
       // terminated — the canonical error channel, not a swallow.
       consumeKnownError(error);
+      const reason = error instanceof Error ? error.message : String(error);
+      if (activeSteer !== null) {
+        append({ kind: "steer_dropped", reason, ...steerMetaFields(activeSteer.meta) });
+        activeSteer = null;
+      }
+      while (steerQueue.length > 0) {
+        const dropped = steerQueue.shift()!;
+        append({ kind: "steer_dropped", reason, prompt: dropped.prompt, ...steerMetaFields(dropped.meta) });
+      }
       fail(error);
     } finally {
       try {

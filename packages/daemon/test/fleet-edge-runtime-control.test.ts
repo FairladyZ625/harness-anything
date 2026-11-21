@@ -1,12 +1,24 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import { canonicalEventWritePlan, makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import {
   reduceRuntimeSession,
   validateCurrentAgentRuntimeEvent,
   type AgentRuntimeEventV1,
   type RuntimeSession,
 } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
+import {
+  appendRuntimeWorkerRecord,
+  dispatchStreamPath,
+  openDispatchStream,
+} from "../src/daemon-host/dispatch-stream.ts";
+import { readRuntimeSteerVersion } from "../src/daemon-host/runtime-steer-target.ts";
 import {
   createFleetEdgeRuntimeControlConsumer,
   type RemoteRuntimeControlEvent,
@@ -536,4 +548,329 @@ test("F4: G38 bounded cursor reads over large active session set and long histor
   assert.equal(rowsReturned, 1, "subsequent drains must read strictly O(new_events) via storage cursor");
   assert.ok(activeHasCalls > 0, "consumer must use O(1) isRuntimeActive checks instead of re-listing all sessions");
   assert.equal(activeListCalls, 6, "activeRuntimeSessionIds must be called once per drain, never per event");
+});
+
+test("F4: real SQLite partial indexes & watermark advancement avoid scanning non-matching tails and deferred suffixes", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-f4-sqlite-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  execFileSync("git", ["-C", rootDir, "init", "-q"]);
+  execFileSync("git", ["-C", rootDir, "config", "user.name", "Runtime Test"]);
+  execFileSync("git", ["-C", rootDir, "config", "user.email", "runtime@example.invalid"]);
+  execFileSync("git", ["-C", rootDir, "commit", "--allow-empty", "-qm", "base"]);
+  const repoId = "f4-sqlite-repo",
+    sessionId = "runtime_000000000000000000000042",
+    store = makeTaskEventStore({ rootDir, repoId }),
+    projection = makeTaskProjection({ rootDir, eventStore: store });
+  t.after(async () => {
+    projection.close();
+    await store.drain();
+  });
+  let rev = 1;
+  const appendEvent = (event: Omit<AgentRuntimeEventV1, "workspaceRevision">) => {
+    const full = { ...event, workspaceRevision: rev } as AgentRuntimeEventV1;
+    store.append({
+      event: full,
+      plan: canonicalEventWritePlan(full, "agent-runtime/v1", full.opId),
+      blobs: [],
+    });
+    rev += 1;
+  };
+  appendEvent({
+    schema: "agent-runtime-event/v1",
+    eventId: "evt-start",
+    opId: "op-start",
+    type: "runtime_session_started",
+    actor,
+    source: { kind: "node", nodeId: "node-a" },
+    occurredAt: "2026-11-21T02:00:00.000Z",
+    payload: {
+      runtimeSessionId: sessionId,
+      instanceId: "inst-1",
+      installationId: "install-1",
+      kindId: "codex",
+      definitionSnapshotRef: `artifact:runtime-definition/sha256/${"a".repeat(64)}`,
+      launchGeneration: 1,
+      attachable: true,
+    },
+  });
+  // Seed 250 non-control liveness events, 1 control request, 1 applied steer receipt, then 200 more non-control events.
+  for (let i = 0; i < 250; i += 1) {
+    appendEvent({
+      schema: "agent-runtime-event/v1",
+      eventId: `evt-noise-a-${i}`,
+      opId: `op-noise-a-${i}`,
+      type: "runtime_session_liveness_changed",
+      actor,
+      source: { kind: "node", nodeId: "node-a" },
+      occurredAt: "2026-11-21T02:00:01.000Z",
+      payload: { runtimeSessionId: sessionId, liveness: "live" },
+    });
+  }
+  appendEvent({
+    schema: "agent-runtime-event/v1",
+    eventId: "evt-ctrl-1",
+    opId: "op-ctrl-1",
+    type: "runtime_session_liveness_changed",
+    actor,
+    source: "local",
+    occurredAt: "2026-11-21T02:00:02.000Z",
+    payload: {
+      runtimeSessionId: sessionId,
+      liveness: "live",
+      controlRequest: {
+        action: "steer",
+        controlRequestId: "ctrl-sqlite-1",
+        targetNodeId: "node-a",
+        dispatchId: "dispatch_000000000000000000000042",
+        prompt: "Bounded steer",
+      },
+    },
+  });
+  appendEvent({
+    schema: "agent-runtime-event/v1",
+    eventId: "evt-rcpt-1",
+    opId: "op-rcpt-1",
+    type: "runtime_session_liveness_changed",
+    actor,
+    source: { kind: "node", nodeId: "node-a" },
+    occurredAt: "2026-11-21T02:00:03.000Z",
+    payload: {
+      runtimeSessionId: sessionId,
+      liveness: "live",
+      controlReceipt: {
+        action: "steer",
+        controlRequestId: "ctrl-sqlite-1",
+        requestOpId: "op-ctrl-1",
+        status: "applied",
+        steerVersion: 3,
+      },
+    },
+  });
+  for (let i = 0; i < 200; i += 1) {
+    appendEvent({
+      schema: "agent-runtime-event/v1",
+      eventId: `evt-noise-b-${i}`,
+      opId: `op-noise-b-${i}`,
+      type: "runtime_session_liveness_changed",
+      actor,
+      source: { kind: "node", nodeId: "node-a" },
+      occurredAt: "2026-11-21T02:00:04.000Z",
+      payload: { runtimeSessionId: sessionId, liveness: "live" },
+    });
+  }
+  projection.catchUp();
+
+  // Verify SQLite query planner uses the partial indexes (zero full-session non-control scans).
+  const db = new DatabaseSync(projection.path, { readOnly: true });
+  t.after(() => db.close());
+  const controlPlan = db
+    .prepare(
+      "EXPLAIN QUERY PLAN SELECT event_json FROM event_index WHERE workspace_revision > ? AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.payload.runtimeSessionId') = ? AND (json_extract(event_json, '$.type') IN ('runtime_cancel_requested', 'runtime_steer_requested') OR (json_extract(event_json, '$.type') = 'runtime_session_liveness_changed' AND json_extract(event_json, '$.payload.controlRequest') IS NOT NULL)) ORDER BY workspace_revision LIMIT ?",
+    )
+    .all(0, sessionId, 64) as { detail: string }[];
+  assert.ok(
+    controlPlan.some((row) => row.detail.includes("event_index_runtime_control")),
+    `expected event_index_runtime_control partial index, got: ${JSON.stringify(controlPlan)}`,
+  );
+  const receiptPlan = db
+    .prepare(
+      "EXPLAIN QUERY PLAN SELECT event_json FROM event_index WHERE workspace_revision > ? AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_session_liveness_changed' AND json_extract(event_json, '$.payload.runtimeSessionId') = ? AND json_extract(event_json, '$.payload.controlReceipt.status') = 'applied' AND json_extract(event_json, '$.payload.controlReceipt.steerVersion') IS NOT NULL ORDER BY workspace_revision DESC LIMIT ?",
+    )
+    .all(0, sessionId, 1) as { detail: string }[];
+  assert.ok(
+    receiptPlan.some((row) => row.detail.includes("event_index_runtime_applied_steer_receipt")),
+    `expected event_index_runtime_applied_steer_receipt partial index, got: ${JSON.stringify(receiptPlan)}`,
+  );
+
+  // Verify Center applied steer version lookup returns strictly 1 row (latest steerVersion = 3).
+  const latestApplied = projection.readRuntimeSessionEventsByType(sessionId, ["runtime_session_liveness_changed"], {
+    filter: "applied_steer_receipt",
+    order: "desc",
+    limit: 1,
+  });
+  assert.equal(latestApplied.length, 1);
+  assert.equal(
+    latestApplied[0]?.type === "runtime_session_liveness_changed"
+      ? latestApplied[0].payload.controlReceipt?.steerVersion
+      : null,
+    3,
+  );
+
+  // Verify watermark advances across non-matching tails AND deferred items do not re-scan storage suffixes.
+  const seenAfterRevisions: number[] = [];
+  let steerAttempts = 0;
+  let steerShouldDefer = true;
+  const consumer = createFleetEdgeRuntimeControlConsumer({
+    nodeId: () => "node-a",
+    activeRuntimeSessionIds: () => [sessionId],
+    isRuntimeActive: (id) => id === sessionId,
+    readControlEventsPage: async (sid, afterRevision, limit) => {
+      seenAfterRevisions.push(afterRevision);
+      const cut = projection.readCut();
+      const events = projection.readRuntimeSessionEventsByType(
+        sid,
+        ["runtime_session_liveness_changed", "runtime_cancel_requested", "runtime_steer_requested"],
+        { afterRevision, limit, filter: "control_request" },
+      ) as readonly RemoteRuntimeControlEvent[];
+      const maxRev = events.reduce((highest, event) => Math.max(highest, event.workspaceRevision), afterRevision);
+      return {
+        events,
+        scannedToRevision: events.length < limit ? Math.max(maxRev, cut.watermark) : maxRev,
+      };
+    },
+    executeCancel: async () => undefined,
+    executeSteer: async () => {
+      steerAttempts += 1;
+      if (steerShouldDefer) throw Object.assign(new Error("transient ECONNREFUSED"), { code: "ECONNREFUSED" });
+    },
+    schedule: async (work) => {
+      await work();
+    },
+  });
+
+  await consumer.drain();
+  const watermarkAfterInitial = projection.readCut().watermark;
+  assert.equal(steerAttempts, 1);
+
+  // Append 100 more non-control liveness events while op-ctrl-1 is deferred; subsequent drains must start at watermarkAfterInitial (never re-scanning rev 0..watermarkAfterInitial)!
+  for (let i = 0; i < 100; i += 1) {
+    appendEvent({
+      schema: "agent-runtime-event/v1",
+      eventId: `evt-noise-c-${i}`,
+      opId: `op-noise-c-${i}`,
+      type: "runtime_session_liveness_changed",
+      actor,
+      source: { kind: "node", nodeId: "node-a" },
+      occurredAt: "2026-11-21T02:00:05.000Z",
+      payload: { runtimeSessionId: sessionId, liveness: "live" },
+    });
+  }
+  projection.catchUp();
+  const watermarkAfterTail = projection.readCut().watermark;
+
+  await consumer.drain();
+  await consumer.drain();
+  assert.equal(seenAfterRevisions[0], 0);
+  assert.equal(
+    seenAfterRevisions[1],
+    watermarkAfterInitial,
+    "must advance cursor across non-matching tail even when item is deferred",
+  );
+  assert.equal(seenAfterRevisions[2], watermarkAfterTail, "must advance cursor across empty tail page");
+
+  steerShouldDefer = false;
+  await consumer.drain();
+  assert.equal(steerAttempts, 4, "deferred item retried from memory and completed once recovered");
+  await consumer.drain();
+  assert.equal(steerAttempts, 4, "completed item never re-runs");
+});
+
+test("F4: readRuntimeSteerVersion reads O(1) sidecar without scanning multi-MB dispatch transcript from offset 0", (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-f4-sidecar-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const dispatchId = "dispatch_000000000000000000000099",
+    runtimeSessionId = "runtime_000000000000000000000099";
+  const writer = openDispatchStream(rootDir, {
+    dispatchId,
+    taskId: null,
+    executionId: null,
+    runtimeSessionId,
+    instanceId: "inst-1",
+    startedAt: "2026-11-21T02:00:00.000Z",
+  });
+  const bigChunk = "x".repeat(64 * 1024);
+  for (let i = 0; i < 32; i += 1)
+    writer.appendProviderEvent({ type: "agent_message", text: bigChunk }, "2026-11-21T02:00:01.000Z");
+  appendRuntimeWorkerRecord(rootDir, dispatchId, {
+    kind: "steer_requested",
+    opId: "steer-op-1",
+    runtimeSessionId,
+    version: 1,
+    prompt: "First",
+  });
+  appendRuntimeWorkerRecord(rootDir, dispatchId, {
+    kind: "steer_requested",
+    opId: "steer-op-2",
+    runtimeSessionId,
+    version: 2,
+    prompt: "Second",
+  });
+  // Overwrite the .jsonl transcript with empty content to prove readRuntimeSteerVersion does NOT scan .jsonl at all!
+  writeFileSync(dispatchStreamPath(rootDir, dispatchId), "");
+  const seen = new Set<string>();
+  const version = readRuntimeSteerVersion(rootDir, dispatchId, seen);
+  assert.equal(version, 2);
+  assert.deepEqual([...seen], ["steer-op-1", "steer-op-2"]);
+});
+
+test("F5: late controlReceipt on exited session preserves liveness=exited and pending rejection receipts replay after exit", async () => {
+  const exitedSession: RuntimeSession = {
+    ...baseSession(),
+    liveness: "exited",
+    attachable: false,
+    outcome: "failed",
+    exitCode: 1,
+  };
+  const lateReceiptEvent: AgentRuntimeEventV1 = {
+    schema: "agent-runtime-event/v1",
+    eventId: "evt-late-rcpt",
+    workspaceRevision: 99,
+    opId: "op-late-rcpt",
+    type: "runtime_session_liveness_changed",
+    actor,
+    source: { kind: "node", nodeId: "node-a" },
+    occurredAt: "2026-11-21T03:00:00.000Z",
+    payload: {
+      runtimeSessionId: exitedSession.runtimeSessionId,
+      liveness: "live",
+      controlReceipt: {
+        action: "steer",
+        controlRequestId: "ctrl-late-1",
+        requestOpId: "op-req-1",
+        status: "rejected",
+        reasonCode: "steer_dropped",
+      },
+    },
+  };
+  const reduced = reduceRuntimeSession(exitedSession, lateReceiptEvent);
+  assert.notEqual(reduced, exitedSession, "late controlReceipt must be persisted instead of no_changes");
+  assert.equal(reduced?.liveness, "exited", "late controlReceipt must never reopen exited liveness");
+  assert.equal(reduced?.attachable, false);
+
+  // Verify pending rejection receipt replays even after session becomes inactive.
+  const active = new Set([exitedSession.runtimeSessionId]);
+  const steerEvent = livenessSteerControlEvent({
+    runtimeSessionId: exitedSession.runtimeSessionId,
+    controlRequestId: "ctrl-rej-replay",
+    opId: "op-rej-replay",
+    workspaceRevision: 12,
+  });
+  let reportCalls = 0;
+  let reportShouldFail = true;
+  const consumer = createFleetEdgeRuntimeControlConsumer({
+    nodeId: () => "node-a",
+    activeRuntimeSessionIds: () => [...active],
+    isRuntimeActive: (id) => active.has(id),
+    readControlEventsPage: async (_sid, afterRevision) => (afterRevision < 12 ? [steerEvent] : []),
+    executeCancel: async () => undefined,
+    executeSteer: async () => {
+      throw Object.assign(new Error("version mismatch"), { code: "runtime_steer_target_changed" });
+    },
+    reportSteerRejection: async () => {
+      reportCalls += 1;
+      if (reportShouldFail) throw Object.assign(new Error("ECONNREFUSED"), { code: "ECONNREFUSED" });
+    },
+    schedule: async (work) => {
+      await work();
+    },
+  });
+  await consumer.drain();
+  assert.equal(reportCalls, 1);
+  // Session exits while Center is unreachable; replay must still deliver the rejection receipt!
+  active.clear();
+  reportShouldFail = false;
+  await consumer.drain();
+  assert.equal(reportCalls, 2);
+  await consumer.drain();
+  assert.equal(reportCalls, 2, "acknowledged rejection receipt must not replay again");
 });

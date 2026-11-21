@@ -14,6 +14,7 @@ import {
   readRuntimeWorkerChunk,
   type DispatchStreamHeader,
 } from "./dispatch-stream.ts";
+import { readDispatchSteerState, writeDispatchSteerState } from "./dispatch-steer-state.ts";
 import { runtimeSpawnError } from "../runtime-engine/runtime-spawn-errors.ts";
 
 export interface RuntimeSteerExpectation {
@@ -148,11 +149,19 @@ export function runtimeSteerRefusal(
 }
 
 /** The leaf's steer version: how many steer requests its dispatch stream already carries. Only
- * the daemon appends `steer_requested`, inside the same synchronous section that compares it. */
+ * the daemon appends `steer_requested`, inside the same synchronous section that compares it.
+ * Reads O(1) from the per-dispatch steer-state sidecar without scanning the provider transcript;
+ * only legacy streams written without a sidecar perform a one-time backfill scan. */
 export function readRuntimeSteerVersion(rootDir: string, dispatchId: string, opIds?: Set<string>): number {
+  const cached = readDispatchSteerState(rootDir, dispatchId);
+  if (cached !== null) {
+    if (opIds) for (const id of cached.opIds) opIds.add(id);
+    return cached.version;
+  }
   const target = dispatchStreamPath(rootDir, dispatchId),
     decoder = new StringDecoder("utf8"),
-    marker = '"kind":"steer_requested"';
+    marker = '"kind":"steer_requested"',
+    collectedOpIds: string[] = [];
   let offset = 0,
     tail = "",
     count = 0;
@@ -162,7 +171,10 @@ export function readRuntimeSteerVersion(rootDir: string, dispatchId: string, opI
     const record = parseRecord(line);
     if (record?.kind !== "steer_requested") return;
     count += 1;
-    if (opIds && typeof record.opId === "string") opIds.add(record.opId);
+    if (typeof record.opId === "string") {
+      collectedOpIds.push(record.opId);
+      opIds?.add(record.opId);
+    }
   };
   for (;;) {
     const bytes = readRuntimeWorkerChunk(target, offset);
@@ -173,6 +185,14 @@ export function readRuntimeSteerVersion(rootDir: string, dispatchId: string, opI
     for (const line of lines) countLine(line);
   }
   countLine(tail + decoder.end());
+  writeDispatchSteerState(rootDir, {
+    schema: "dispatch-steer-state/v1",
+    dispatchId,
+    version: count,
+    opIds: collectedOpIds.slice(-512),
+    pendingReceipts: [],
+    ackedReceiptOpIds: [],
+  });
   return count;
 }
 

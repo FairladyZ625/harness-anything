@@ -313,7 +313,12 @@ export interface TaskProjection {
   readonly readRuntimeSessionEventsByType: (
     runtimeSessionIdValue: string,
     types: readonly AgentRuntimeEventType[],
-    options?: { readonly afterRevision?: number; readonly limit?: number },
+    options?: {
+      readonly afterRevision?: number;
+      readonly limit?: number;
+      readonly order?: "asc" | "desc";
+      readonly filter?: "control_request" | "control_receipt" | "applied_steer_receipt";
+    },
   ) => readonly AgentRuntimeEventV1[];
   readonly readArtifactEntityState: (kind: string, id: string) => ArtifactEntityState | null;
   readonly readEventList: (query: EventListQuery) => EventListPage;

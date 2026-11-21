@@ -38,6 +38,11 @@ import {
   readDispatchEvidenceState,
   removeDispatchEvidenceState,
 } from "./dispatch-evidence-state.ts";
+import {
+  initDispatchSteerState,
+  recordDispatchSteerRequest,
+  removeDispatchSteerState,
+} from "./dispatch-steer-state.ts";
 import { compactDispatchStreamArchive } from "./dispatch-stream-compaction.ts";
 import { resolveOwnedLocalDirectory } from "./local-root-paths.ts";
 
@@ -371,6 +376,7 @@ export function openDispatchStream(
       encoding: "utf8",
       mode: 0o600,
     });
+    initDispatchSteerState(rootDir, header.dispatchId);
     if (header.taskId) {
       try {
         upsertDispatchLiveIndex(rootDir, {
@@ -477,6 +483,7 @@ export function removeDispatchStream(rootDir: string, dispatchId: string): void 
   readLimitWarnings.delete(target);
   writeLimitWarnings.delete(target);
   if (existsSync(target)) /* @gate-identity state-store/execution.dispatch-stream */ unlinkSync(target);
+  removeDispatchSteerState(rootDir, dispatchId);
   if (header?.taskId) removeDispatchLiveIndexEntries(rootDir, header.taskId, new Set([dispatchId]));
   removeDispatchEvidenceState(rootDir, dispatchId);
 }
@@ -808,6 +815,8 @@ export function appendRuntimeWorkerRecord(
     if (retry === target || !existsSync(retry)) throw error;
     appendDispatchStreamRecord(retry, value);
   }
+  if (value.kind === "steer_requested")
+    recordDispatchSteerRequest(rootDir, dispatchId, typeof value.opId === "string" ? value.opId : undefined);
 }
 
 /** Append to a dispatch stream whose path the caller resolved once for the dispatch's lifetime. */

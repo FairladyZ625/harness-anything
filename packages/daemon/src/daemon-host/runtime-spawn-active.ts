@@ -3,10 +3,21 @@ import {
   type SettingsFieldDeclaration,
 } from "@harness-anything/kernel/internal/domain/settings-field-declarations.ts";
 import { randomUUID } from "node:crypto";
-import type { ActiveRuntime, ResumeProcessObservation, RuntimeProcessObservation } from "./runtime-spawn-types.ts";
+import type {
+  ActiveRuntime,
+  ResumeProcessObservation,
+  RuntimeBinding,
+  RuntimeProcessObservation,
+} from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { appendRuntimeWorkerRecord, type DispatchStallEvidence } from "./dispatch-stream.ts";
-import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, sha256Text, type DispatchLifecycleView } from "@harness-anything/kernel";
+import {
+  markSteerReceiptAcked,
+  readPendingSteerReceipts,
+  recordPendingSteerReceipt,
+  steerReceiptOpId,
+} from "./dispatch-steer-state.ts";
+import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, type DispatchLifecycleView } from "@harness-anything/kernel";
 import { dispatchLifecyclePendingError, readDispatchLifecycle } from "./runtime-dispatch-admission.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import { noteProviderProgress } from "./runtime-provider-connectivity.ts";
@@ -437,32 +448,51 @@ export function attachActiveRuntime(
     active.process.onExit(handlers.exit);
   }
   active.process.onSteerOutcome?.((outcome) => {
-    if (context.closed?.() || active.exitSettlement) return;
+    recordPendingSteerReceipt(
+      context.input.rootDir,
+      active.dispatchId,
+      context.input.repoId,
+      runtimeSessionId,
+      outcome,
+    );
+    if (context.closed?.()) return;
     context.input.schedule(async () => {
-      if (context.closed?.() || active.exitSettlement) return;
-      const receiptOpId = `runtime-steer-rcpt-${sha256Text(
-        `${context.input.repoId}\0${runtimeSessionId}\0${outcome.requestOpId}\0${outcome.status}`,
-      ).slice(0, 32)}`;
-      await context.publishRuntimeEvent(
-        "runtime_session_liveness_changed",
-        {
-          runtimeSessionId,
-          liveness: "live",
-          controlReceipt: {
-            action: "steer",
-            controlRequestId: outcome.controlRequestId,
-            requestOpId: outcome.requestOpId,
-            status: outcome.status,
-            dispatchId: active.dispatchId,
-            ...(outcome.steerVersion !== undefined ? { steerVersion: outcome.steerVersion } : {}),
-            ...(outcome.reasonCode ? { reasonCode: outcome.reasonCode } : {}),
-            ...(outcome.message ? { message: outcome.message } : {}),
-          },
-        },
-        receiptOpId,
-        active.binding,
-      );
+      if (context.closed?.()) return;
+      await flushPendingSteerReceipts(context, active.dispatchId, runtimeSessionId, active.binding);
     }, active.binding);
   });
   if (active.stalledAt !== null) context.input.schedule(() => settleStalledRuntime(context, active), active.binding);
+}
+
+/** Durably publish all unacknowledged steer control receipts for a dispatch, clearing each only after Center ACKs. */
+export async function flushPendingSteerReceipts(
+  context: RuntimeSpawnerContext,
+  dispatchId: string,
+  runtimeSessionId: string,
+  binding: RuntimeBinding,
+): Promise<void> {
+  const pending = readPendingSteerReceipts(context.input.rootDir, dispatchId);
+  for (const outcome of pending) {
+    const receiptOpId = steerReceiptOpId(context.input.repoId, runtimeSessionId, outcome.requestOpId, outcome.status);
+    await context.publishRuntimeEvent(
+      "runtime_session_liveness_changed",
+      {
+        runtimeSessionId,
+        liveness: "live",
+        controlReceipt: {
+          action: "steer",
+          controlRequestId: outcome.controlRequestId,
+          requestOpId: outcome.requestOpId,
+          status: outcome.status,
+          dispatchId,
+          ...(outcome.steerVersion !== undefined ? { steerVersion: outcome.steerVersion } : {}),
+          ...(outcome.reasonCode ? { reasonCode: outcome.reasonCode } : {}),
+          ...(outcome.message ? { message: outcome.message } : {}),
+        },
+      },
+      receiptOpId,
+      binding,
+    );
+    markSteerReceiptAcked(context.input.rootDir, dispatchId, context.input.repoId, runtimeSessionId, receiptOpId);
+  }
 }

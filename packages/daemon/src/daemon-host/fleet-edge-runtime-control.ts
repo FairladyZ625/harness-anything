@@ -143,16 +143,21 @@ export function extractRemoteControlRequest(event: RemoteRuntimeControlEvent): R
   };
 }
 
+export interface RemoteControlEventsPage {
+  readonly events: readonly RemoteRuntimeControlEvent[];
+  /** Highest repository revision known to have been scanned for this session (e.g. replica cut watermark on partial/empty page). */
+  readonly scannedToRevision: number;
+}
+
 /**
  * Edge-side event-driven consumer for Center-persisted runtime control requests.
  *
- * Complexity & Reliability (G38, F2, F3, F4):
- * - Zero full-history scans: returns in O(1) when the node holds no active local runtime handles.
+ * Complexity & Reliability (G38, F2, F3, F4, F5):
+ * - Zero full-history scans: returns in O(1) when the node holds no active local runtime handles and no pending rejections.
  * - Reads bounded storage-level cursor pages `(runtimeSessionId, afterRevision, limit)` per active session.
- * - O(1) local active handle membership checks via `isRuntimeActive(runtimeSessionId)`.
- * - Deduplicates by canonical event `opId` (scoped to repo + session + action + controlRequestId).
- * - Advances each session's contiguous watermark only after every earlier event reaches a terminal disposition,
- *   never dropping pending controls across transient disconnects or out-of-order batch deferrals.
+ * - Advances `scanCursorBySession` to `scannedToRevision` across empty/non-matching pages so tails are never re-scanned.
+ * - Retains deferred requests in a bounded in-memory queue per session instead of re-scanning suffixes from storage.
+ * - Durably retries unacknowledged rejection receipts even after the local session exits.
  */
 export function createFleetEdgeRuntimeControlConsumer(input: {
   readonly nodeId: () => string;
@@ -162,7 +167,7 @@ export function createFleetEdgeRuntimeControlConsumer(input: {
     runtimeSessionId: string,
     afterRevision: number,
     limit: number,
-  ) => Promise<readonly RemoteRuntimeControlEvent[]>;
+  ) => Promise<readonly RemoteRuntimeControlEvent[] | RemoteControlEventsPage>;
   readonly executeCancel: (request: RemoteCancelControlRequest) => Promise<void>;
   readonly executeSteer: (request: RemoteSteerControlRequest) => Promise<void>;
   readonly reportSteerRejection?: (
@@ -171,12 +176,22 @@ export function createFleetEdgeRuntimeControlConsumer(input: {
   ) => Promise<void>;
   readonly schedule: (work: () => void | Promise<void>) => Promise<void>;
   readonly pageLimit?: number;
+  readonly maxPagesPerDrain?: number;
   readonly maxTrackedControlRequests?: number;
 }) {
   const maxTracked = Math.max(1, input.maxTrackedControlRequests ?? DEFAULT_MAX_TRACKED_CONTROL_REQUESTS),
     pageLimit = Math.max(1, input.pageLimit ?? 64),
+    maxPagesPerDrain = Math.max(1, input.maxPagesPerDrain ?? 4),
     completedOpIds = new Set<string>(),
-    contiguousRevisionBySession = new Map<string, number>();
+    scanCursorBySession = new Map<string, number>(),
+    deferredBySession = new Map<string, Map<string, RemoteControlRequestEntry>>(),
+    pendingRejections = new Map<
+      string,
+      {
+        readonly request: RemoteSteerControlRequest;
+        readonly rejection: { readonly code: string; readonly message: string };
+      }
+    >();
 
   const rememberCompleted = (opId: string): void => {
     completedOpIds.delete(opId);
@@ -188,116 +203,128 @@ export function createFleetEdgeRuntimeControlConsumer(input: {
     }
   };
 
-  const advanceContiguousRevision = (
-    blockedSessions: ReadonlySet<string>,
-    runtimeSessionId: string,
-    revision: number,
-  ): void => {
-    if (blockedSessions.has(runtimeSessionId)) return;
-    const previous = contiguousRevisionBySession.get(runtimeSessionId) ?? 0;
-    if (revision > previous) contiguousRevisionBySession.set(runtimeSessionId, revision);
+  const enqueueDeferred = (request: RemoteControlRequestEntry): void => {
+    let sessionDeferred = deferredBySession.get(request.runtimeSessionId);
+    if (!sessionDeferred) {
+      sessionDeferred = new Map();
+      deferredBySession.set(request.runtimeSessionId, sessionDeferred);
+    }
+    if (!sessionDeferred.has(request.opId)) sessionDeferred.set(request.opId, request);
+  };
+
+  const removeDeferred = (runtimeSessionId: string, opId: string): void => {
+    const sessionDeferred = deferredBySession.get(runtimeSessionId);
+    if (!sessionDeferred) return;
+    sessionDeferred.delete(opId);
+    if (sessionDeferred.size === 0) deferredBySession.delete(runtimeSessionId);
+  };
+
+  const advanceScanCursor = (runtimeSessionId: string, revision: number): void => {
+    const previous = scanCursorBySession.get(runtimeSessionId) ?? 0;
+    if (revision > previous) scanCursorBySession.set(runtimeSessionId, revision);
+  };
+
+  const flushPendingRejections = async (): Promise<void> => {
+    if (!input.reportSteerRejection || pendingRejections.size === 0) return;
+    for (const [opId, entry] of [...pendingRejections.entries()]) {
+      const reported = await runControlStep(() => input.reportSteerRejection!(entry.request, entry.rejection));
+      if (reported.outcome !== "deferred") {
+        pendingRejections.delete(opId);
+        rememberCompleted(opId);
+        removeDeferred(entry.request.runtimeSessionId, opId);
+      }
+    }
   };
 
   return {
     drain: async (): Promise<void> => {
       const activeIds = input.activeRuntimeSessionIds();
-      for (const sessionId of contiguousRevisionBySession.keys())
-        if (!input.isRuntimeActive(sessionId)) contiguousRevisionBySession.delete(sessionId);
-      if (activeIds.length === 0) return;
+      for (const sessionId of [...scanCursorBySession.keys()])
+        if (!input.isRuntimeActive(sessionId)) {
+          scanCursorBySession.delete(sessionId);
+          deferredBySession.delete(sessionId);
+        }
+      if (activeIds.length === 0 && pendingRejections.size === 0) return;
 
-      const localNodeId = input.nodeId(),
-        pending: RemoteControlRequestEntry[] = [],
-        blockedSessions = new Set<string>(),
-        highestScannedRevisionBySession = new Map<string, number>(),
-        advanceCandidates = new Map<string, number>();
+      const localNodeId = input.nodeId();
 
       for (const runtimeSessionId of activeIds) {
         if (!input.isRuntimeActive(runtimeSessionId)) continue;
-        let cursor = contiguousRevisionBySession.get(runtimeSessionId) ?? 0;
-        let hasPendingForSession = false;
-        for (;;) {
-          const page = await input.readControlEventsPage(runtimeSessionId, cursor, pageLimit);
-          if (page.length === 0) break;
+        let cursor = scanCursorBySession.get(runtimeSessionId) ?? 0;
+        let pagesRead = 0;
+        while (pagesRead < maxPagesPerDrain) {
+          const existingDeferredCount = deferredBySession.get(runtimeSessionId)?.size ?? 0;
+          if (existingDeferredCount >= pageLimit) break;
+          const rawPage = await input.readControlEventsPage(runtimeSessionId, cursor, pageLimit);
+          pagesRead += 1;
+          const paged = !Array.isArray(rawPage) ? (rawPage as RemoteControlEventsPage) : null;
+          const events = paged ? paged.events : (rawPage as readonly RemoteRuntimeControlEvent[]);
           let maxRevInPage = cursor;
-          for (const event of page) {
+          for (const event of events) {
             if (event.workspaceRevision > maxRevInPage) maxRevInPage = event.workspaceRevision;
             if (event.payload.runtimeSessionId !== runtimeSessionId) continue;
-            highestScannedRevisionBySession.set(
-              runtimeSessionId,
-              Math.max(highestScannedRevisionBySession.get(runtimeSessionId) ?? 0, event.workspaceRevision),
-            );
             const request = extractRemoteControlRequest(event);
-            if (request === null || request.targetNodeId !== localNodeId || completedOpIds.has(request.opId)) {
-              if (!hasPendingForSession) advanceCandidates.set(runtimeSessionId, event.workspaceRevision);
-              continue;
-            }
-            hasPendingForSession = true;
-            pending.push(request);
+            if (request === null || request.targetNodeId !== localNodeId || completedOpIds.has(request.opId)) continue;
+            if (pendingRejections.has(request.opId)) continue;
+            enqueueDeferred(request);
           }
-          if (maxRevInPage <= cursor || page.length < pageLimit) break;
-          cursor = maxRevInPage;
+          const scannedTo = paged ? Math.max(maxRevInPage, paged.scannedToRevision) : maxRevInPage;
+          advanceScanCursor(runtimeSessionId, scannedTo);
+          if (events.length === 0 || maxRevInPage <= cursor || events.length < pageLimit) break;
+          cursor = Math.max(maxRevInPage, scannedTo);
         }
       }
 
-      for (const [sessionId, revision] of advanceCandidates)
-        advanceContiguousRevision(blockedSessions, sessionId, revision);
-
-      if (pending.length === 0) return;
+      const pending: RemoteControlRequestEntry[] = [];
+      for (const sessionDeferred of deferredBySession.values()) {
+        for (const request of sessionDeferred.values()) pending.push(request);
+      }
+      if (pending.length === 0 && pendingRejections.size === 0) return;
       pending.sort((left, right) => left.workspaceRevision - right.workspaceRevision);
 
       await input.schedule(async () => {
+        await flushPendingRejections();
         for (const request of pending) {
-          const { runtimeSessionId, opId, workspaceRevision } = request;
-          if (completedOpIds.has(opId)) {
-            advanceContiguousRevision(blockedSessions, runtimeSessionId, workspaceRevision);
+          const { runtimeSessionId, opId } = request;
+          if (completedOpIds.has(opId) || pendingRejections.has(opId)) {
+            removeDeferred(runtimeSessionId, opId);
             continue;
           }
           if (!input.isRuntimeActive(runtimeSessionId)) {
             rememberCompleted(opId);
-            advanceContiguousRevision(blockedSessions, runtimeSessionId, workspaceRevision);
+            removeDeferred(runtimeSessionId, opId);
             continue;
           }
           if (request.kind === "cancel") {
             const result = await runControlStep(() => input.executeCancel(request));
             if (result.outcome === "applied" || result.outcome === "not_running") {
               rememberCompleted(opId);
-              advanceContiguousRevision(blockedSessions, runtimeSessionId, workspaceRevision);
-            } else {
-              // Retryable disconnect/lifecycle failure while process is still alive: keep pending.
-              blockedSessions.add(runtimeSessionId);
+              removeDeferred(runtimeSessionId, opId);
             }
             continue;
           }
           const result = await runControlStep(() => input.executeSteer(request));
           if (result.outcome === "applied") {
             rememberCompleted(opId);
-            advanceContiguousRevision(blockedSessions, runtimeSessionId, workspaceRevision);
+            removeDeferred(runtimeSessionId, opId);
           } else if (result.outcome === "deferred") {
-            if (input.isRuntimeActive(runtimeSessionId)) {
-              blockedSessions.add(runtimeSessionId);
-            } else {
+            if (!input.isRuntimeActive(runtimeSessionId)) {
               rememberCompleted(opId);
-              advanceContiguousRevision(blockedSessions, runtimeSessionId, workspaceRevision);
+              removeDeferred(runtimeSessionId, opId);
             }
           } else {
             // Terminal refusal (`runtime_steer_target_changed`, `runtime_steer_unsupported`, or `runtime_not_running`).
             if (input.reportSteerRejection && result.outcome === "rejected") {
-              const reported = await runControlStep(() =>
-                input.reportSteerRejection!(request, { code: result.code, message: result.message }),
-              );
-              if (reported.outcome === "deferred" && input.isRuntimeActive(runtimeSessionId)) {
-                blockedSessions.add(runtimeSessionId);
-                continue;
-              }
+              const rejection = { code: result.code, message: result.message };
+              pendingRejections.set(opId, { request, rejection });
+              const reported = await runControlStep(() => input.reportSteerRejection!(request, rejection));
+              if (reported.outcome === "deferred") continue;
+              pendingRejections.delete(opId);
             }
             rememberCompleted(opId);
-            advanceContiguousRevision(blockedSessions, runtimeSessionId, workspaceRevision);
+            removeDeferred(runtimeSessionId, opId);
           }
         }
-        // Once every pending event for a session completes without deferrals, advance its contiguous
-        // watermark past any already-completed trailing events scanned in this batch.
-        for (const [sessionId, scannedRevision] of highestScannedRevisionBySession)
-          advanceContiguousRevision(blockedSessions, sessionId, scannedRevision);
       });
     },
   };
