@@ -19,6 +19,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -251,13 +252,36 @@ function writeOctal(buffer, offset, width, value) {
 async function runCommand(command, args, cwd, env) {
   const useCmd = process.platform === "win32" && command === "npm";
   const actualCommand = useCmd ? "npm.cmd" : command;
-  await execFile(actualCommand, args, {
-    cwd,
-    env,
-    maxBuffer: 64 * 1024 * 1024,
-    timeout: 600_000,
-    ...(useCmd ? { shell: true } : {}),
-  });
+  try {
+    await execFile(actualCommand, args, {
+      cwd,
+      env,
+      maxBuffer: 64 * 1024 * 1024,
+      timeout: 600_000,
+      ...(useCmd ? { shell: true } : {}),
+    });
+  } catch (error) {
+    const stdout = typeof error?.stdout === "string" ? error.stdout.trim() : "";
+    const stderr = typeof error?.stderr === "string" ? error.stderr.trim() : "";
+    const detail = [stderr, stdout].filter(Boolean).join("\n");
+    throw new Error(detail ? `Command failed: ${command} ${args.join(" ")}\n${detail}` : String(error));
+  }
+}
+
+function rebindWorkspaceLinks(stagingDir) {
+  for (const pkg of readWorkspacePackages(stagingDir)) {
+    const linkPath = path.join(stagingDir, "node_modules", ...pkg.manifest.name.split("/"));
+    const parentDir = path.dirname(linkPath);
+    mkdirSync(parentDir, { recursive: true });
+    if (!lstatSync(parentDir).isDirectory()) {
+      throw new Error(`Refusing to rebind workspace link through non-directory parent: ${parentDir}`);
+    }
+    if (lstatSync(linkPath, { throwIfNoEntry: false })) {
+      rmSync(linkPath, { recursive: true, force: true });
+    }
+    const targetPath = path.join(stagingDir, pkg.directory);
+    symlinkSync(path.relative(parentDir, targetPath), linkPath, process.platform === "win32" ? "junction" : "dir");
+  }
 }
 
 async function buildWorkspacesInOrder(stagingDir, targetWorkspaces, env) {
@@ -369,6 +393,7 @@ export async function buildReproducibleBundle(options) {
         throw new Error(`Local node_modules not found at ${store}; provide --offline-cache or run npm ci first.`);
       }
       mirrorNodeModules(repository, staging);
+      rebindWorkspaceLinks(staging);
     } else if (dependencyMode !== "none") {
       throw new Error(`Unsupported dependencyMode: ${dependencyMode}`);
     }

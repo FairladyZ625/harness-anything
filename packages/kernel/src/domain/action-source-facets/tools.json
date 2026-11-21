@@ -2032,6 +2032,13 @@
         "order": 422
       },
       {
+        "candidateId": "action:tools:tools/reproducible-build.mjs#rebindWorkspaceLinks:2602aaec206a89b38caaa7692e65a402",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
+        "order": 427
+      },
+      {
         "candidateId": "action:tools:tools/reproducible-build.mjs#removeBuildInfoFiles.walk:36d0f2489771e2b9972a444f938fe578",
         "route": "package-assets-build",
         "role": "technical-port",

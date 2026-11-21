@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,7 +13,7 @@ import {
   verifyReproducibleBuild,
 } from "./reproducible-build.mjs";
 
-function createFixtureGitRepo({ nondeterministic = false } = {}) {
+function createFixtureGitRepo({ nondeterministic = false, resolveWorkspaceDep = false } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), "ha-repro-repo-"));
   mkdirSync(path.join(dir, "packages/sample/src"), { recursive: true });
   writeFileSync(
@@ -75,13 +75,20 @@ function createFixtureGitRepo({ nondeterministic = false } = {}) {
           'mkdirSync("dist", { recursive: true });',
           'writeFileSync("dist/index.js", `export const nonce = ${Math.random()}:${Date.now()}:${process.cwd()};\\n`);',
         ].join("\n")
-      : [
-          'import { mkdirSync, readFileSync, writeFileSync } from "node:fs";',
-          'mkdirSync("dist", { recursive: true });',
-          'const src = readFileSync("src/index.js", "utf8");',
-          'const epoch = process.env.SOURCE_DATE_EPOCH ?? "0";',
-          'writeFileSync("dist/index.js", `// epoch=${epoch}\\n${src}`);',
-        ].join("\n"),
+      : resolveWorkspaceDep
+        ? [
+            'import { mkdirSync, readFileSync, writeFileSync } from "node:fs";',
+            'mkdirSync("dist", { recursive: true });',
+            'const resolvedPkg = JSON.parse(readFileSync("../../node_modules/@repro/sample/package.json", "utf8"));',
+            'writeFileSync("dist/index.js", `export const resolvedVersion = ${JSON.stringify(resolvedPkg.version)};\\n`);',
+          ].join("\n")
+        : [
+            'import { mkdirSync, readFileSync, writeFileSync } from "node:fs";',
+            'mkdirSync("dist", { recursive: true });',
+            'const src = readFileSync("src/index.js", "utf8");',
+            'const epoch = process.env.SOURCE_DATE_EPOCH ?? "0";',
+            'writeFileSync("dist/index.js", `// epoch=${epoch}\\n${src}`);',
+          ].join("\n"),
   );
 
   const git = (args) => {
@@ -215,5 +222,44 @@ test("createDeterministicTarGz emits bit-for-bit identical gzipped tar regardles
   } finally {
     rmSync(dirA, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     rmSync(dirB, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test("buildReproducibleBundle mirror mode rebinds workspace symlinks into the extracted commit tree", async () => {
+  const { dir, commit } = createFixtureGitRepo({ resolveWorkspaceDep: true });
+  const staleRoot = mkdtempSync(path.join(tmpdir(), "ha-repro-stale-"));
+  const outputDir = mkdtempSync(path.join(tmpdir(), "ha-repro-mirror-out-"));
+  try {
+    mkdirSync(path.join(staleRoot, "packages/sample"), { recursive: true });
+    writeFileSync(
+      path.join(staleRoot, "packages/sample/package.json"),
+      JSON.stringify({ name: "@repro/sample", version: "0.0.0-stale" }),
+    );
+    mkdirSync(path.join(dir, "node_modules/@repro"), { recursive: true });
+    symlinkSync(
+      path.join(staleRoot, "packages/sample"),
+      path.join(dir, "node_modules/@repro/sample"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    const built = await buildReproducibleBundle({
+      repository: dir,
+      revision: commit,
+      targetWorkspaces: ["@repro/sample"],
+      dependencyMode: "mirror",
+      outputDir,
+    });
+    assert.equal(built.manifest.commit, commit);
+    assert.ok(built.manifest.files.some((entry) => entry.path === "packages/sample/dist/index.js"));
+    const distCode = readFileSync(path.join(outputDir, "packages/sample/dist/index.js"), "utf8");
+    assert.match(
+      distCode,
+      /"0\.1\.0"/u,
+      "mirror build must resolve @repro/sample from the pinned commit, not staleRoot",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    rmSync(staleRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    rmSync(outputDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
