@@ -189,6 +189,7 @@ const RUNTIME_SESSION_EVENTS_BY_TYPE_BASE_SQL = [
   "AND json_extract(event_json, '$.type') IN (SELECT value FROM json_each(?))",
   `AND json_extract(event_json, '$.type') NOT IN (${privateRuntimeEventTypes.map((type) => `'${type}'`).join(", ")})`,
 ].join(" ");
+const RUNTIME_SESSION_EVENTS_BY_TYPE_SQL = `${RUNTIME_SESSION_EVENTS_BY_TYPE_BASE_SQL} ORDER BY workspace_revision`;
 const RUNTIME_SESSION_EVENTS_BY_TYPE_WINDOW_SQL = (order: "ASC" | "DESC", maxRevision: boolean) =>
   [
     "SELECT event_json FROM event_index",
@@ -713,10 +714,13 @@ export function repositoryEventQueries(
           throw new Error("runtime session event read maxRevision must be a non-negative safe integer");
         if (maxRevision !== undefined && afterRevision !== undefined && maxRevision < afterRevision)
           throw new Error("runtime session event read maxRevision must not precede afterRevision");
-        if (options?.limit !== undefined && !validateStorageReadWindow(options.limit, storageReadPolicy.defaultValue.pageSizes.standard))
+        if (
+          options?.limit !== undefined &&
+          !validateStorageReadWindow(options.limit, storageReadPolicy.defaultValue.pageSizes.standard)
+        )
           throw new Error("runtime session event read limit must be between 1 and 500");
         const boundedAfterRevision = afterRevision ?? 0,
-          limit = windowed ? (options?.limit ?? 500) : options?.limit,
+          limit = options?.limit ?? 500,
           requestOpId =
             filter === "control_receipt" && typeof options?.requestOpId === "string" && options.requestOpId.length > 0
               ? options.requestOpId
