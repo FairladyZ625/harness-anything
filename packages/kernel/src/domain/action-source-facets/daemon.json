@@ -1527,13 +1527,6 @@
         "order": 1363
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-runtime-control.ts#createFleetEdgeRuntimeControlConsumer.flushPendingRejections:d7c89622587abd5472c0de046751a303",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete",
-        "order": 1362
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-runtime-control.ts#createFleetEdgeRuntimeControlConsumer.persistContiguousCursor:33f72bb77febc12c500ce7ce62f97690",
         "route": "daemon-local-state",
         "role": "technical-port",
