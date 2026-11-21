@@ -33,10 +33,10 @@ const inputs = await baselineAuthorizationInputs();
 const partitionValue = process.env.HARNESS_TEST_PARTITION;
 let partitionTestOrdinal = 0;
 // These mutation cases use independent worktrees, so four workers share the file but never a case.
-// The assignment balances measured case durations from runs 44891743885 and 44925574438.
+// The assignment balances measured case durations from runs 44891743885, 44925574438, and 44940024765.
 const authorizationTestPartitionAssignments = [
-  2, 1, 3, 4, 4, 4, 4, 2, 3, 1, 4, 2, 4, 2, 2, 2, 1, 2, 3, 2, 4, 4, 3, 3, 2, 2, 4, 1, 3, 3, 4, 1, 1, 1, 4, 3, 1, 2, 1,
-  3, 1, 3, 2, 3, 3, 2, 1,
+  2, 1, 2, 4, 4, 1, 4, 4, 1, 2, 4, 2, 2, 1, 4, 1, 4, 1, 3, 3, 3, 1, 2, 2, 2, 2, 2, 1, 2, 2, 1, 2, 3, 2, 1, 2, 1, 4, 2,
+  4, 3, 3, 3, 2, 3, 3, 2,
 ];
 function partitionedTest(name, testFn) {
   const ordinal = partitionTestOrdinal++;

@@ -4,11 +4,11 @@ export const integrationShardCount = 10;
 // The median cost of an integration file added between 2026-10-25 and 2026-11-08 was 8.7s; the
 // previous 1s default let 354 unweighted files pile into shards that looked light.
 export const defaultIntegrationTestWeightMs = 10_000;
-// Run 44925574438 measured 12.74M ms of file work across the current ten shards. The
-// three-worker model reserves 50s per job for checkout, artifact restore, and reporting.
-export const integrationShardBudgetMs = 1_290_000;
-export const integrationShardWallBudgetMs = 430_000;
-// Keep the 200.3s relocation test whole so it uses a single managed RBAC fixture.
+// The timing snapshot combines the three-worker runs 44925574438 and 44940024765.
+// The 420s test-step cap leaves 60s for checkout, artifact restore, and reporting.
+export const integrationShardBudgetMs = 1_250_000;
+export const integrationShardWallBudgetMs = 420_000;
+// Keep the relocation test whole so it uses a single managed RBAC fixture.
 export const integrationFileBudgetMs = 210_000;
 // The runner fails a file whose measured duration exceeds this multiple of its declared weight
 // plus the slack: the declaration is what the shard budget sums, so it has to stay honest. The
