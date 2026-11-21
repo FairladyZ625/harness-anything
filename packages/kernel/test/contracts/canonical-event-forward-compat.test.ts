@@ -266,3 +266,27 @@ test("delegation audit additions remain read-only and required identity is still
   assert.throws(() => parseCanonicalEvent(serializeEventEnvelope(invalid)), /Invalid execution delegation/u);
   assert.ok(validateCurrentCanonicalEvent(invalid).length > 0);
 });
+
+test("runtime_steer_requested expected readers ignore additions while current writers reject them", () => {
+  const event = JSON.parse(
+    readFileSync(
+      path.resolve(
+        import.meta.dirname,
+        "../../fixtures/canonical-events/agent-runtime-event-v1/accepted-runtime-steer-requested.json",
+      ),
+      "utf8",
+    ),
+  );
+  const future = {
+    ...event,
+    payload: { ...event.payload, expected: { ...event.payload.expected, futureConstraint: "v2" } },
+  };
+  assert.deepEqual(parseCanonicalEvent(stableStringify(future) + "\n"), future);
+  assert.ok(validateCurrentCanonicalEvent(future).length > 0);
+  const invalidKnown = {
+    ...event,
+    payload: { ...event.payload, expected: { ...event.payload.expected, version: -1, futureConstraint: "v2" } },
+  };
+  assert.throws(() => parseCanonicalEvent(serializeEventEnvelope(invalidKnown)), /runtime steer request payload/u);
+  assert.ok(validateCurrentCanonicalEvent(invalidKnown).length > 0);
+});

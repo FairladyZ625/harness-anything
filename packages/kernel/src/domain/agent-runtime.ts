@@ -678,7 +678,7 @@ function validateAgentRuntimePayloadFields(
   if (
     type === "runtime_steer_requested" &&
     (!isNonEmptyString(value.prompt) ||
-      (value.expected !== undefined && !validRuntimeSteerRequestedExpected(value.expected)))
+      (value.expected !== undefined && !validRuntimeSteerRequestedExpected(value.expected, allowUnknownFields)))
   )
     return ["runtime steer request payload is invalid"];
   const ids = acceptedFields.filter((field) => /(?:Id|Key)$/u.test(field));
@@ -1258,12 +1258,12 @@ export function resolveScheduledPermissionMode(input: {
 export function validRuntimePermissionModeSource(value: unknown): value is RuntimePermissionModeSource {
   return typeof value === "string" && (runtimePermissionModeSources as readonly string[]).includes(value);
 }
-function validRuntimeSteerRequestedExpected(value: unknown): boolean {
+function validRuntimeSteerRequestedExpected(value: unknown, allowUnknownFields: boolean): boolean {
   if (!isRecord(value)) return false;
   const keys = Object.keys(value);
   if (keys.length === 0) return false;
   const allowed = ["repoId", "taskless", "taskId", "executionId", "dispatchId", "version"];
-  if (keys.some((key) => !allowed.includes(key))) return false;
+  if (!allowUnknownFields && keys.some((key) => !allowed.includes(key))) return false;
   for (const field of ["repoId", "taskId", "executionId", "dispatchId"] as const)
     if (value[field] !== undefined && !isNonEmptyString(value[field])) return false;
   if (value.taskless !== undefined && value.taskless !== true) return false;
