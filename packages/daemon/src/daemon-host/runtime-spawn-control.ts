@@ -127,6 +127,7 @@ export async function cancelRuntime(
     const session = context.requiredRuntimeProjection(context.input).readRuntimeSession(runtimeSessionId);
     if (
       attempt?.policy.attemptSettled ||
+      session?.liveness === "exited" ||
       (attempt ? attempt.attempt.outcome !== null : session?.outcome !== null && session?.outcome !== undefined)
     ) {
       if (attempt?.policy.fallbackPending && attempt.controlLeafDispatchId === attempt.attempt.dispatchId) {
@@ -175,13 +176,19 @@ export async function cancelRuntime(
           summary: `Cancel request ${controlRequestId} was already recorded for remote runtime ${runtimeSessionId} on node ${remoteEdgeTargetNodeId}.`,
         };
       }
+      // Expand-contract Step-1 (dec_659E15CF, expiry 2027-02-06): emit additive controlRequest on
+      // runtime_session_liveness_changed so N-1 Edge nodes can hydrate PG seeds and replay WAL.
       const published = await context.publishRuntimeEvent(
-        "runtime_cancel_requested",
+        "runtime_session_liveness_changed",
         {
           runtimeSessionId,
-          controlRequestId,
-          targetNodeId: remoteEdgeTargetNodeId,
-          ...(reason ? { reason } : {}),
+          liveness: session.liveness,
+          controlRequest: {
+            action: "cancel",
+            controlRequestId,
+            targetNodeId: remoteEdgeTargetNodeId,
+            ...(reason ? { reason } : {}),
+          },
         },
         eventOpId,
         binding,
@@ -555,7 +562,7 @@ export async function steerRuntime(
   context: RuntimeSpawnerContext,
   payload: JsonObject,
   binding: RuntimeBinding,
-  options?: { readonly remoteControlRequestId?: string },
+  options?: { readonly remoteControlRequestId?: string; readonly remoteControlOpId?: string },
 ): Promise<JsonObject> {
   const unknownField = unknownFieldViolation(payload, daemonMethodPayloadFields("repo.agentRuntime.steer"));
   if (unknownField)
@@ -633,7 +640,9 @@ export async function steerRuntime(
   if (!active) throw refuse("runtime_steer_unavailable", "Runtime control transport is unavailable.");
   if (!active.providerSessionId)
     throw refuse("runtime_steer_unavailable", "Provider has not established a resumable session yet.");
-  const target = runtimeSteerTarget(rootDir, repoId, header, "running"),
+  const remoteDedupKey = options?.remoteControlOpId ?? options?.remoteControlRequestId ?? null,
+    seenOpIds = remoteDedupKey ? new Set<string>() : undefined,
+    target = runtimeSteerTarget(rootDir, repoId, header, "running", seenOpIds),
     mismatch = expected ? runtimeSteerMismatch(expected, target) : null;
   if (mismatch)
     throw runtimeSteerRefusal(
@@ -644,30 +653,26 @@ export async function steerRuntime(
       mismatch.expected,
     );
   const version = target.version + 1,
-    opId = options?.remoteControlRequestId
-      ? `runtime-steer-remote-${sha256Text(`${repoId}\0${runtimeSessionId}\0${options.remoteControlRequestId}`).slice(0, 32)}`
+    opId = remoteDedupKey
+      ? `runtime-steer-remote-${sha256Text(`${repoId}\0${runtimeSessionId}\0${remoteDedupKey}`).slice(0, 32)}`
       : `runtime-steer-${createHash("sha256").update(`${repoId}\0${runtimeSessionId}\0${context.input.now()}\0${prompt}`).digest("hex").slice(0, 32)}`;
-  if (options?.remoteControlRequestId) {
-    const seenOpIds = new Set<string>();
-    readRuntimeSteerVersion(rootDir, header.dispatchId, seenOpIds);
-    if (seenOpIds.has(opId)) {
-      return {
-        schema: "command-receipt/v2",
-        ok: true,
-        command: "runtime-steer",
-        outcome: "no_changes",
-        code: "no_changes",
-        origin: "runtime-steer",
-        opId,
-        runtimeSessionId,
-        dispatchId: header.dispatchId,
-        status: "settled_no_write",
-        visibility: "center",
-        evidence: `dispatch-stream:${header.dispatchId}:steer_requested:${opId}`,
-        summary: `Remote steer request ${options.remoteControlRequestId} was already appended to ${header.dispatchId}.`,
-        steerTarget: runtimeSteerReceiptTarget(target),
-      };
-    }
+  if (seenOpIds?.has(opId)) {
+    return {
+      schema: "command-receipt/v2",
+      ok: true,
+      command: "runtime-steer",
+      outcome: "no_changes",
+      code: "no_changes",
+      origin: "runtime-steer",
+      opId,
+      runtimeSessionId,
+      dispatchId: header.dispatchId,
+      status: "settled_no_write",
+      visibility: "center",
+      evidence: `dispatch-stream:${header.dispatchId}:steer_requested:${opId}`,
+      summary: `Remote steer request ${options?.remoteControlRequestId ?? opId} was already appended to ${header.dispatchId}.`,
+      steerTarget: runtimeSteerReceiptTarget(target),
+    };
   }
   // The dispatch stream is the control channel: the worker host owning the provider follows
   // this file, so a host adopted after a daemon restart is steered like one this daemon spawned.
@@ -680,6 +685,8 @@ export async function steerRuntime(
     actor: binding.actor,
     source: binding.source,
     prompt,
+    ...(options?.remoteControlRequestId ? { controlRequestId: options.remoteControlRequestId } : {}),
+    ...(options?.remoteControlOpId ? { requestOpId: options.remoteControlOpId } : {}),
   });
   return {
     schema: "command-receipt/v2",
@@ -739,7 +746,7 @@ async function requestRemoteEdgeSteer(
     kindId = view?.attempt.kindId ?? dispatchEvent.payload.kindId;
   if (!runtimeKindForId(kindId as never).steerSupported)
     throw runtimeSpawnError("runtime_steer_unsupported", `${kindId} does not support runtime steering.`);
-  if (!view?.policy.canSteer || !session || session.outcome !== null)
+  if (!view?.policy.canSteer || !session || session.outcome !== null || session.liveness === "exited")
     throw runtimeSpawnError("runtime_steer_unavailable", "The canonical lifecycle has no running control target.");
   if (!session.providerSessionId)
     throw runtimeSpawnError("runtime_steer_unavailable", "Provider has not established a resumable session yet.");
@@ -760,6 +767,25 @@ async function requestRemoteEdgeSteer(
           "runtime_steer_target_changed",
           `The steer target no longer matches expected.${field}.`,
         );
+    if (input.expected.version !== undefined) {
+      let observedMaxVersion = -1;
+      for (const event of projection.readRuntimeSessionEventsByType(runtimeSessionId, [
+        "runtime_session_liveness_changed",
+      ])) {
+        if (
+          event.type === "runtime_session_liveness_changed" &&
+          event.payload.controlReceipt?.status === "applied" &&
+          typeof event.payload.controlReceipt.steerVersion === "number" &&
+          event.payload.controlReceipt.steerVersion > observedMaxVersion
+        )
+          observedMaxVersion = event.payload.controlReceipt.steerVersion;
+      }
+      if (observedMaxVersion >= 0 && input.expected.version < observedMaxVersion)
+        throw runtimeSpawnError(
+          "runtime_steer_target_changed",
+          `The steer target version ${String(observedMaxVersion)} has advanced past expected.version=${String(input.expected.version)}.`,
+        );
+    }
   }
   const controlRequestId =
       input.idempotencyKey ??
@@ -786,15 +812,21 @@ async function requestRemoteEdgeSteer(
       summary: `Steer request ${controlRequestId} was already recorded for remote runtime ${runtimeSessionId} on node ${targetNodeId}.`,
     };
   }
+  // Expand-contract Step-1 (dec_659E15CF, expiry 2027-02-06): emit additive controlRequest on
+  // runtime_session_liveness_changed so N-1 Edge nodes can hydrate PG seeds and replay WAL.
   const published = await context.publishRuntimeEvent(
-    "runtime_steer_requested",
+    "runtime_session_liveness_changed",
     {
       runtimeSessionId,
-      dispatchId: view.attempt.dispatchId,
-      controlRequestId,
-      targetNodeId,
-      prompt: input.prompt,
-      ...(input.expected ? { expected: input.expected } : {}),
+      liveness: session.liveness,
+      controlRequest: {
+        action: "steer",
+        controlRequestId,
+        targetNodeId,
+        dispatchId: view.attempt.dispatchId,
+        prompt: input.prompt,
+        ...(input.expected ? { expected: input.expected } : {}),
+      },
     },
     eventOpId,
     binding,

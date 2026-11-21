@@ -528,10 +528,20 @@ export async function openRepoWriterCell(
       await authorizeRuntimeAction({ ...payload, kind: "runtime-spawn" }, binding, actionId),
     commitRuntimeEvent: async (draft, binding) => {
       const action = { kind: "event" as const, ...draft },
-        trustedControl = draft.type === "runtime_cancel_requested" || draft.type === "runtime_steer_requested",
+        livenessControlRequest =
+          draft.type === "runtime_session_liveness_changed" &&
+          typeof draft.payload === "object" &&
+          draft.payload !== null &&
+          "controlRequest" in draft.payload &&
+          draft.payload.controlRequest !== undefined,
+        trustedControl =
+          draft.type === "runtime_cancel_requested" ||
+          draft.type === "runtime_steer_requested" ||
+          livenessControlRequest,
+        commitBinding = trustedControl ? { ...binding, trustedRemoteControl: true as const } : binding,
         receipt = runtimeSessionActionIds.includes(draft.type as never)
-          ? await commitRuntimeSessionAction(extracted, action, binding)
-          : extracted.appendAuxiliaryRuntimeIngress(action, binding, false, trustedControl),
+          ? await commitRuntimeSessionAction(extracted, action, commitBinding)
+          : extracted.appendAuxiliaryRuntimeIngress(action, commitBinding, false, trustedControl),
         event = (receipt as typeof receipt & { readonly event?: AgentRuntimeEventV1 }).event,
         runtimeReceipt = { ...(receipt as unknown as JsonObject) };
       delete runtimeReceipt.event;
@@ -540,13 +550,22 @@ export async function openRepoWriterCell(
         receipt: runtimeReceipt,
       };
     },
-    authorizeRuntimeEvent: async ({ type, payload, opId, binding }) =>
-      await authorizeRuntimeAction(
+    authorizeRuntimeEvent: async ({ type, payload, opId, binding }) => {
+      const livenessControlAction =
+        type === "runtime_session_liveness_changed" &&
+        typeof payload === "object" &&
+        payload !== null &&
+        "controlRequest" in payload &&
+        typeof (payload as { readonly controlRequest?: { readonly action?: unknown } }).controlRequest === "object" &&
+        (payload as { readonly controlRequest?: { readonly action?: unknown } }).controlRequest !== null
+          ? (payload as { readonly controlRequest: { readonly action?: unknown } }).controlRequest.action
+          : null;
+      return await authorizeRuntimeAction(
         {
           kind:
-            type === "runtime_cancel_requested"
+            type === "runtime_cancel_requested" || livenessControlAction === "cancel"
               ? "runtime-cancel"
-              : type === "runtime_steer_requested"
+              : type === "runtime_steer_requested" || livenessControlAction === "steer"
                 ? "runtime-steer"
                 : "runtime-run",
           runtimeEventType: type,
@@ -556,7 +575,8 @@ export async function openRepoWriterCell(
         },
         binding,
         `runtime-event:${opId}`,
-      ),
+      );
+    },
     authorizeRuntimeArchive: async (archive, binding) =>
       await authorizeRuntimeAction(
         {

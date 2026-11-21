@@ -12,11 +12,21 @@ import { parseRecord, readRuntimeWorkerChunk } from "./dispatch-stream.ts";
 // a steering prompt tolerates sub-second latency.
 const steerPollIntervalMs = daemonRuntimePolicy.defaultValue.process.streamPollMs;
 
+export interface RuntimeSteerCommandMeta {
+  readonly opId?: string;
+  readonly controlRequestId?: string;
+  readonly requestOpId?: string;
+  readonly version?: number;
+}
+
 export interface RuntimeSteerTail {
   readonly stop: () => void;
 }
 
-export function tailRuntimeSteerCommands(target: string, onSteer: (prompt: string) => void): RuntimeSteerTail {
+export function tailRuntimeSteerCommands(
+  target: string,
+  onSteer: (prompt: string, meta?: RuntimeSteerCommandMeta) => void,
+): RuntimeSteerTail {
   const decoder = new StringDecoder("utf8");
   // Start at the current end: the stream's earlier records are history this host did not
   // receive as commands, and re-reading a provider transcript would grow with the runtime.
@@ -38,7 +48,15 @@ export function tailRuntimeSteerCommands(target: string, onSteer: (prompt: strin
         if (!line.trim()) continue;
         const record = parseRecord(line);
         if (record?.kind !== "steer_requested" || typeof record.prompt !== "string") continue;
-        onSteer(record.prompt);
+        const meta: RuntimeSteerCommandMeta = {
+          ...(typeof record.opId === "string" ? { opId: record.opId } : {}),
+          ...(typeof record.controlRequestId === "string" ? { controlRequestId: record.controlRequestId } : {}),
+          ...(typeof record.requestOpId === "string" ? { requestOpId: record.requestOpId } : {}),
+          ...(typeof record.version === "number" && Number.isSafeInteger(record.version)
+            ? { version: record.version }
+            : {}),
+        };
+        onSteer(record.prompt, meta);
       }
     }
   };

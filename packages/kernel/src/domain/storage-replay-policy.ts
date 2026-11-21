@@ -94,6 +94,8 @@ export const canonicalContractDecodePolicy = {
     "policy:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:b248f47339027259a835353ddf257dc4",
     "policy:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:3cff2d4ac486752a89a87355b8180ba3",
     "policy:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:7e280a28adf58e6f095507889c57bac1",
+    "policy:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:060d50389eec2071f8ab457ad1a756b7",
+    "policy:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:e7c103cc168330715b90d28d235c17df",
     "policy:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimeEventFields:5b0d88dc3aab78840385abeba12298e2",
     "policy:packages/kernel:packages/kernel/src/domain/artifact-entity.ts#decodeArtifactEntityContractSnapshot:eeb8979912d8942f3bdbeb1fac96cc16",
     "policy:packages/kernel:packages/kernel/src/domain/artifact-entity.ts#decodeArtifactEntityContractSnapshot:4e8abcf2a4a0ecc49a17c76211015b2d",

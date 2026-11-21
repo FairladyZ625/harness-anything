@@ -37,6 +37,7 @@ import {
   consumeKnownError,
   resolveHarnessLayout,
   sha256Bytes,
+  sha256Text,
   TASK_EVENT_SHAPE_COMPAT_VERSION,
   type SquadRunObservation,
 } from "@harness-anything/kernel";
@@ -1252,7 +1253,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           let receipt: Awaited<ReturnType<typeof observedRunCenterWriter>>;
           if (command.kind === "runtime-cancel" || command.kind === "runtime-steer") {
             const { kind: controlKind, ...controlPayload } = command;
-            const controlInput = controlPayload as unknown as import("../protocol/json-rpc-types.ts").JsonObject;
+            const controlInput = {
+              ...controlPayload,
+              ...(controlPayload.idempotencyKey === undefined ? { idempotencyKey: frame.opId } : {}),
+            } as unknown as import("../protocol/json-rpc-types.ts").JsonObject;
             if (controlKind === "runtime-cancel" ? !options.host.cancelRuntime : !options.host.steerRuntime)
               throw new FleetFault("unsupported_command", `Center host does not expose ${controlKind}.`);
             try {
@@ -1401,12 +1405,26 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         // Squad ingress validates the stored identity against it. Deriving that identity from the
         // payload keeps frame.opId correlation-only while preserving the same observation's replay
         // identity across different requests.
+        const controlReceipt =
+          frame.eventType === "runtime_session_liveness_changed" &&
+          typeof frame.payload.controlReceipt === "object" &&
+          frame.payload.controlReceipt !== null &&
+          !Array.isArray(frame.payload.controlReceipt)
+            ? (frame.payload.controlReceipt as { readonly requestOpId?: unknown; readonly status?: unknown })
+            : null;
         const runtimeEventOpId =
           frame.eventType === "runtime_squad_run_observed"
             ? squadObservationEventOpId(
                 frame.payload as unknown as Pick<SquadRunObservation, "squadRunId" | "runRevision">,
               )
-            : randomUUID();
+            : controlReceipt !== null &&
+                typeof frame.payload.runtimeSessionId === "string" &&
+                typeof controlReceipt.requestOpId === "string" &&
+                typeof controlReceipt.status === "string"
+              ? `runtime-steer-rcpt-${sha256Text(
+                  `${a.repoId}\0${frame.payload.runtimeSessionId}\0${controlReceipt.requestOpId}\0${controlReceipt.status}`,
+                ).slice(0, 32)}`
+              : randomUUID();
         try {
           receipt = await options.host.runtimeIngress(
             a.repoId,

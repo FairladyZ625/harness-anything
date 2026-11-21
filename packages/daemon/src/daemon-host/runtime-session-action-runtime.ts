@@ -44,7 +44,35 @@ export function runtimeSessionActionPreparer(projection: () => TaskProjection): 
         "execution_scope_mismatch",
         "Orphan recovery evidence must come from the center writer.",
       );
-    if (!localOwner && !recoveryMatches) {
+    const controlRequest =
+      action.kind === "runtime_session_liveness_changed" &&
+      typeof action.controlRequest === "object" &&
+      action.controlRequest !== null &&
+      !Array.isArray(action.controlRequest)
+        ? (action.controlRequest as { readonly targetNodeId?: unknown })
+        : null;
+    if (
+      action.kind === "runtime_session_liveness_changed" &&
+      action.controlRequest !== undefined &&
+      !binding.trustedRemoteControl
+    )
+      invalidRuntimeSessionAction(
+        "invalid_runtime_event",
+        "Remote runtime control requests require the authorized runtime control action.",
+      );
+    const remoteControlAuthorized =
+      binding.trustedRemoteControl === true &&
+      controlRequest !== null &&
+      dispatch !== null &&
+      typeof dispatchSource === "object" &&
+      dispatchSource !== null &&
+      dispatchSource.kind === "node" &&
+      typeof controlRequest.targetNodeId === "string" &&
+      dispatchSource.nodeId === controlRequest.targetNodeId &&
+      binding.actor.executor === null &&
+      !binding.executionPrincipal &&
+      dispatch.actor.principal.personId === binding.actor.principal.personId;
+    if (!localOwner && !recoveryMatches && !remoteControlAuthorized) {
       if (
         !dispatch ||
         typeof dispatchSource !== "object" ||
@@ -139,6 +167,24 @@ export async function commitRuntimeSessionAction(
       code: "invalid_store",
     });
   // CH3: RuntimeSession state decides duplicate or stale transitions; request opIds are never replay keys.
+  // Additive steer controlReceipts are explicitly keyed by (repo, session, requestOpId, status) so
+  // retried Edge receipt frames settle idempotently without duplicating the receipt in the ledger.
+  if (
+    action.type === "runtime_session_liveness_changed" &&
+    action.payload.controlReceipt !== undefined &&
+    cell.store.readEvent(action.opId) !== null
+  ) {
+    return {
+      outcome: "no_changes",
+      code: "no_changes",
+      origin: "runtime-session",
+      opId: action.opId,
+      revision: cell.store.readHead()?.revision ?? 0,
+      evidence: `event-object:${action.opId}`,
+      visibility: "center",
+      status: "settled_no_write",
+    } as WriteReceipt;
+  }
   try {
     return await cell.entityActionExecutor.run(catalogAction, binding, action.opId, cell.entityActionRuntimes);
   } catch (error) {

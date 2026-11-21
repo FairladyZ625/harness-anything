@@ -193,6 +193,15 @@ const RUNTIME_SESSION_EVENTS_BY_TYPE_SQL = [
   `AND json_extract(event_json, '$.type') NOT IN (${privateRuntimeEventTypes.map((type) => `'${type}'`).join(", ")})`,
   "ORDER BY workspace_revision",
 ].join(" ");
+const RUNTIME_SESSION_EVENTS_BY_TYPE_WINDOW_SQL = [
+  "SELECT event_json FROM event_index",
+  "WHERE workspace_revision > ?",
+  "AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+  "AND json_extract(event_json, '$.payload.runtimeSessionId') = ?",
+  "AND json_extract(event_json, '$.type') IN (SELECT value FROM json_each(?))",
+  `AND json_extract(event_json, '$.type') NOT IN (${privateRuntimeEventTypes.map((type) => `'${type}'`).join(", ")})`,
+  "ORDER BY workspace_revision LIMIT ?",
+].join(" ");
 const SCHEDULE_EVENTS_SQL = [
   "SELECT event_json FROM event_index",
   "WHERE json_extract(event_json, '$.schema') = 'schedule-event/v1'",
@@ -542,10 +551,27 @@ export function repositoryEventQueries(
           .filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event))
           .map((event) => (event.type === "runtime_dispatch_requested" ? publicRuntimeDispatch(event) : event));
       }),
-    readRuntimeSessionEventsByType: (runtimeSessionIdValue, types) =>
+    readRuntimeSessionEventsByType: (runtimeSessionIdValue, types, options) =>
       withRead((db) => {
         const requested = assertRuntimeEventTypes(types);
-        return queryRows(db, RUNTIME_SESSION_EVENTS_BY_TYPE_SQL, runtimeSessionIdValue, JSON.stringify(requested))
+        const rows =
+          options !== undefined && (options.afterRevision !== undefined || options.limit !== undefined)
+            ? (() => {
+                const afterRevision = options.afterRevision ?? 0,
+                  limit = options.limit ?? 500;
+                if (!validateStorageReadWindow(limit, undefined, afterRevision))
+                  throw new Error("runtime session event page requires a non-negative revision and a positive limit");
+                return queryRows(
+                  db,
+                  RUNTIME_SESSION_EVENTS_BY_TYPE_WINDOW_SQL,
+                  afterRevision,
+                  runtimeSessionIdValue,
+                  JSON.stringify(requested),
+                  limit,
+                );
+              })()
+            : queryRows(db, RUNTIME_SESSION_EVENTS_BY_TYPE_SQL, runtimeSessionIdValue, JSON.stringify(requested));
+        return rows
           .map((row) => JSON.parse(String(row.event_json)))
           .filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event))
           .map((event) => (event.type === "runtime_dispatch_requested" ? publicRuntimeDispatch(event) : event));

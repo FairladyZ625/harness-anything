@@ -1751,9 +1751,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       return adoptRuntimes(extracted, onProgress);
     },
     cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),
-    steer: (payload: JsonObject, binding: RuntimeBinding, options?: { readonly remoteControlRequestId?: string }) =>
-      steerRuntime(extracted, payload, binding, options),
+    steer: (
+      payload: JsonObject,
+      binding: RuntimeBinding,
+      options?: { readonly remoteControlRequestId?: string; readonly remoteControlOpId?: string },
+    ) => steerRuntime(extracted, payload, binding, options),
     activeRuntimeSessionIds: (): readonly string[] => [...processes.keys()],
+    activeRuntimeCount: (): number => processes.size,
+    isRuntimeActive: (runtimeSessionId: string): boolean => processes.has(runtimeSessionId),
     isIdle: () => processes.size === 0 && exiting.size === 0,
     close: () => {
       fallbackClosed = true;

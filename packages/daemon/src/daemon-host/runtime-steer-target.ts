@@ -90,6 +90,7 @@ export function runtimeSteerTarget(
   repoId: string,
   header: DispatchStreamHeader,
   liveness: RuntimeSteerLiveness,
+  opIds?: Set<string>,
 ): RuntimeSteerTarget {
   return {
     repoId,
@@ -100,7 +101,7 @@ export function runtimeSteerTarget(
     taskId: header.taskId,
     executionId: header.executionId,
     liveness,
-    version: readRuntimeSteerVersion(rootDir, header.dispatchId),
+    version: readRuntimeSteerVersion(rootDir, header.dispatchId, opIds),
   };
 }
 

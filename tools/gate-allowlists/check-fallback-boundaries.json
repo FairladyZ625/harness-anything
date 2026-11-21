@@ -110,12 +110,6 @@
       "errors": "ENOENT or corrupt transfer.json/archive.part in staging/snapshots",
       "reason": "An absent or corrupt partial snapshot download cannot be resumed; the edge skips the corrupt staging entry and falls back to a fresh byte-0 snapshot download."
     },
-    "packages/daemon/src/daemon-host/fleet-edge-runtime-control.ts#drain": {
-      "task": "task_8b65242126d52f9db2e88bb07b",
-      "decision": "dec_DBEC28020550D3F11A21C15FB4",
-      "errors": "runtime_not_running, runtime_steer_unavailable, runtime_steer_unsupported, runtime_steer_target_changed, or per-event edge control dispatch failure",
-      "reason": "Edge remote control consumption runs inside replica-sync onConfirmed / fleet-edge-runtime reconcile(). Expected already-exited races (runtime_not_running) and terminal steer refusals are marked applied so they do not stall sibling control events or replication catch-up; transient pre-bind runtime_steer_unavailable stays unmarked to retry on the next reconcile; unexpected errors are logged without substituting a synthetic outcome."
-    },
     "packages/daemon/src/writer-cell/canonical-commit-worker.ts#startCanonicalCommitWorker": {
       "task": "task_557b9975f04b275d492f25c1cb",
       "decision": "dec_04A9211B073F29F0FC1E1CA573",
@@ -210,7 +204,6 @@
       "packages/daemon/src/daemon-host/edge-replica-doctor.ts#edgeReplicaDoctor",
       "packages/daemon/src/daemon-host/entity-content-read.ts#decodeUtf8",
       "packages/daemon/src/daemon-host/entity-rows-read.ts#readDeclaredEntityRows",
-      "packages/daemon/src/daemon-host/fleet-edge-runtime-control.ts#drain",
       "packages/daemon/src/daemon-host/fleet-edge-runtime.ts#readLocalAuthoredDocument",
       "packages/daemon/src/daemon-host/fleet-edge-task.ts#fleetExactTaskPackagePath",
       "packages/daemon/src/daemon-host/fleet-edge-task.ts#runFleetEdgeTask",

@@ -290,3 +290,82 @@ test("runtime_steer_requested expected readers ignore additions while current wr
   assert.throws(() => parseCanonicalEvent(serializeEventEnvelope(invalidKnown)), /runtime steer request payload/u);
   assert.ok(validateCurrentCanonicalEvent(invalidKnown).length > 0);
 });
+
+test("runtime_session_liveness_changed controlRequest and controlReceipt readers ignore additions while current writers reject them", () => {
+  const base = JSON.parse(
+    readFileSync(
+      path.resolve(
+        import.meta.dirname,
+        "../../fixtures/canonical-events/agent-runtime-event-v1/accepted-runtime-session-liveness-changed-efd01a47c155.json",
+      ),
+      "utf8",
+    ),
+  );
+  const steerControl = {
+    ...base,
+    payload: {
+      runtimeSessionId: base.payload.runtimeSessionId,
+      liveness: "live" as const,
+      controlRequest: {
+        action: "steer" as const,
+        controlRequestId: "ctrl-liveness-steer-1",
+        targetNodeId: "node-one",
+        dispatchId: "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa",
+        prompt: "Continue with verification.",
+        expected: { dispatchId: "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa", version: 0 },
+      },
+    },
+  };
+  assert.deepEqual(validateCurrentCanonicalEvent(steerControl), []);
+  const futureSteerControl = {
+    ...steerControl,
+    payload: {
+      ...steerControl.payload,
+      controlRequest: {
+        ...steerControl.payload.controlRequest,
+        futureField: "v2",
+        expected: { ...steerControl.payload.controlRequest.expected, futureExpected: true },
+      },
+    },
+  };
+  assert.deepEqual(parseCanonicalEvent(stableStringify(futureSteerControl) + "\n"), futureSteerControl);
+  assert.ok(validateCurrentCanonicalEvent(futureSteerControl).length > 0);
+
+  const receiptEvent = {
+    ...base,
+    payload: {
+      runtimeSessionId: base.payload.runtimeSessionId,
+      liveness: "live" as const,
+      controlReceipt: {
+        action: "steer" as const,
+        controlRequestId: "ctrl-liveness-steer-1",
+        requestOpId: "runtime-steer-req-1",
+        status: "applied" as const,
+        dispatchId: "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa",
+        steerVersion: 1,
+      },
+    },
+  };
+  assert.deepEqual(validateCurrentCanonicalEvent(receiptEvent), []);
+  const futureReceiptEvent = {
+    ...receiptEvent,
+    payload: {
+      ...receiptEvent.payload,
+      controlReceipt: { ...receiptEvent.payload.controlReceipt, futureReceiptField: "v2" },
+    },
+  };
+  assert.deepEqual(parseCanonicalEvent(stableStringify(futureReceiptEvent) + "\n"), futureReceiptEvent);
+  assert.ok(validateCurrentCanonicalEvent(futureReceiptEvent).length > 0);
+
+  const bothPresent = {
+    ...base,
+    payload: {
+      runtimeSessionId: base.payload.runtimeSessionId,
+      liveness: "live" as const,
+      controlRequest: steerControl.payload.controlRequest,
+      controlReceipt: receiptEvent.payload.controlReceipt,
+    },
+  };
+  assert.ok(validateCurrentCanonicalEvent(bothPresent).length > 0);
+  assert.throws(() => parseCanonicalEvent(serializeEventEnvelope(bothPresent)), /runtime control metadata/u);
+});

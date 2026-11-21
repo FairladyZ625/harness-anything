@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import type { ActiveRuntime, ResumeProcessObservation, RuntimeProcessObservation } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { appendRuntimeWorkerRecord, type DispatchStallEvidence } from "./dispatch-stream.ts";
-import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, type DispatchLifecycleView } from "@harness-anything/kernel";
+import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, sha256Text, type DispatchLifecycleView } from "@harness-anything/kernel";
 import { dispatchLifecyclePendingError, readDispatchLifecycle } from "./runtime-dispatch-admission.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import { noteProviderProgress } from "./runtime-provider-connectivity.ts";
@@ -436,5 +436,33 @@ export function attachActiveRuntime(
     active.process.onErrorOutput(handlers.error);
     active.process.onExit(handlers.exit);
   }
+  active.process.onSteerOutcome?.((outcome) => {
+    if (context.closed?.() || active.exitSettlement) return;
+    context.input.schedule(async () => {
+      if (context.closed?.() || active.exitSettlement) return;
+      const receiptOpId = `runtime-steer-rcpt-${sha256Text(
+        `${context.input.repoId}\0${runtimeSessionId}\0${outcome.requestOpId}\0${outcome.status}`,
+      ).slice(0, 32)}`;
+      await context.publishRuntimeEvent(
+        "runtime_session_liveness_changed",
+        {
+          runtimeSessionId,
+          liveness: "live",
+          controlReceipt: {
+            action: "steer",
+            controlRequestId: outcome.controlRequestId,
+            requestOpId: outcome.requestOpId,
+            status: outcome.status,
+            dispatchId: active.dispatchId,
+            ...(outcome.steerVersion !== undefined ? { steerVersion: outcome.steerVersion } : {}),
+            ...(outcome.reasonCode ? { reasonCode: outcome.reasonCode } : {}),
+            ...(outcome.message ? { message: outcome.message } : {}),
+          },
+        },
+        receiptOpId,
+        active.binding,
+      );
+    }, active.binding);
+  });
   if (active.stalledAt !== null) context.input.schedule(() => settleStalledRuntime(context, active), active.binding);
 }

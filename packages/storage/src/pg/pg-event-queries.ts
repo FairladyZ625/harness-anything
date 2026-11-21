@@ -155,19 +155,36 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
   const readRuntimeSessionEventsByType: PgTaskProjectionSource["readRuntimeSessionEventsByType"] = (
     runtimeSessionId,
     types,
+    window,
   ) =>
     withPostgresTransaction(
       options.pool,
       async (client) => {
         const requested = assertRuntimeEventTypes(types),
-          events = await readEventsInTransaction(
-            client,
-            claims,
-            readers,
-            repoId,
-            "runtime_session_id = $6 AND event_type = ANY($7::text[]) AND event_type <> ALL($8::text[])",
-            [runtimeSessionId, requested, privateRuntimeEventTypes],
-          );
+          windowed = window !== undefined && (window.afterRevision !== undefined || window.limit !== undefined),
+          afterRevision = window?.afterRevision ?? 0,
+          limit = window?.limit ?? 500;
+        if (windowed && !validateStorageReadWindow(limit, undefined, afterRevision))
+          throw new Error("runtime session event page requires a non-negative revision and a positive limit");
+        const events = windowed
+          ? await readEventsInTransaction(
+              client,
+              claims,
+              readers,
+              repoId,
+              "revision > $6 AND runtime_session_id = $7 AND event_type = ANY($8::text[]) AND event_type <> ALL($9::text[])",
+              [afterRevision, runtimeSessionId, requested, privateRuntimeEventTypes],
+              "LIMIT $10",
+              [limit],
+            )
+          : await readEventsInTransaction(
+              client,
+              claims,
+              readers,
+              repoId,
+              "runtime_session_id = $6 AND event_type = ANY($7::text[]) AND event_type <> ALL($8::text[])",
+              [runtimeSessionId, requested, privateRuntimeEventTypes],
+            );
         return events
           .filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event))
           .map((event) => (event.type === "runtime_dispatch_requested" ? publicRuntimeDispatch(event) : event));

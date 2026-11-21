@@ -117,7 +117,10 @@ export function runAcpProviderSession(
     continuations = 0,
     // Set when the child closes: from then on no request can be answered.
     exited: Error | null = null;
-  const steerQueue: string[] = [];
+  const steerQueue: Array<{
+    readonly prompt: string;
+    readonly meta?: import("./runtime-worker-control.ts").RuntimeSteerCommandMeta;
+  }> = [];
   const turnToolEvidence = new Map<
     string,
     { readonly command: boolean; readonly settle: boolean; readonly ruling: boolean }
@@ -277,16 +280,34 @@ export function runAcpProviderSession(
   };
   // A steer is a new instruction for the live session. Between turns the queued prompt is
   // the next turn; during one, session/cancel ends it so the queued prompt starts immediately.
-  const steer = (prompt: string): void => {
+  const steerMetaFields = (meta?: import("./runtime-worker-control.ts").RuntimeSteerCommandMeta) =>
+    meta
+      ? {
+          ...(meta.controlRequestId ? { controlRequestId: meta.controlRequestId } : {}),
+          ...(meta.requestOpId ? { requestOpId: meta.requestOpId } : {}),
+          ...(meta.version !== undefined ? { version: meta.version } : {}),
+        }
+      : {};
+  const steer = (prompt: string, meta?: import("./runtime-worker-control.ts").RuntimeSteerCommandMeta): void => {
     if (turnFinished || exited) {
-      append({ kind: "steer_dropped", reason: "the provider's final turn already ended", prompt });
+      append({
+        kind: "steer_dropped",
+        reason: "the provider's final turn already ended",
+        prompt,
+        ...steerMetaFields(meta),
+      });
       return;
     }
     if (sessionId === null) {
-      append({ kind: "steer_dropped", reason: "the provider session is not established yet", prompt });
+      append({
+        kind: "steer_dropped",
+        reason: "the provider session is not established yet",
+        prompt,
+        ...steerMetaFields(meta),
+      });
       return;
     }
-    steerQueue.push(prompt);
+    steerQueue.push({ prompt, ...(meta ? { meta } : {}) });
     if (turnActive) send({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId } });
     else cancelOnTurnStart = true;
   };
@@ -461,8 +482,9 @@ export function runAcpProviderSession(
           break;
         }
         // The previous turn's text is not the steered turn's answer.
-        promptText = next;
+        promptText = next.prompt;
         finalText = "";
+        append({ kind: "steer_resumed", providerSessionId: sessionId, ...steerMetaFields(next.meta) });
       }
     } catch (error) {
       // The failure is reported through the acp.error frame and the child is
