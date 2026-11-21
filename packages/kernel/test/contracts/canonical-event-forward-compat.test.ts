@@ -267,6 +267,7 @@ test("delegation audit additions remain read-only and required identity is still
   assert.ok(validateCurrentCanonicalEvent(invalid).length > 0);
 });
 
+<<<<<<< HEAD
 test("runtime_session_outcome_observed top-level cacheWriteTokens is accepted by current and N-1 historical parsers while rejecting invalid values", () => {
   const raw = readFileSync(
       path.resolve(
@@ -303,4 +304,28 @@ test("runtime_session_outcome_observed top-level cacheWriteTokens is accepted by
       `invalid cacheWriteTokens=${String(bad)} must be rejected by current canonical event validation`,
     );
   }
+=======
+test("runtime_steer_requested expected readers ignore additions while current writers reject them", () => {
+  const event = JSON.parse(
+    readFileSync(
+      path.resolve(
+        import.meta.dirname,
+        "../../fixtures/canonical-events/agent-runtime-event-v1/accepted-runtime-steer-requested.json",
+      ),
+      "utf8",
+    ),
+  );
+  const future = {
+    ...event,
+    payload: { ...event.payload, expected: { ...event.payload.expected, futureConstraint: "v2" } },
+  };
+  assert.deepEqual(parseCanonicalEvent(stableStringify(future) + "\n"), future);
+  assert.ok(validateCurrentCanonicalEvent(future).length > 0);
+  const invalidKnown = {
+    ...event,
+    payload: { ...event.payload, expected: { ...event.payload.expected, version: -1, futureConstraint: "v2" } },
+  };
+  assert.throws(() => parseCanonicalEvent(serializeEventEnvelope(invalidKnown)), /runtime steer request payload/u);
+  assert.ok(validateCurrentCanonicalEvent(invalidKnown).length > 0);
+>>>>>>> d4bfeb8659 (fix(kernel): allow unknown fields in runtime_steer_requested expected reader)
 });
