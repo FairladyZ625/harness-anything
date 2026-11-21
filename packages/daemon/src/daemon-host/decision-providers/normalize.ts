@@ -170,7 +170,7 @@ export function decodeStructuredDecisionJson(
   return decodeAnswerObject(parsed, question, vendorLabel);
 }
 
-/** Shared decoder for native Decisions HTTP protocols (Google Gemini Decisions, Perplexity Decider, decisions-http). */
+/** Shared decoder for native Decisions HTTP protocols (OpenRouter, Google Gemini Decisions, Perplexity Decider, decisions-http). */
 export function decodeNativeDecisionsEnvelope(
   rawBody: string,
   requestedModel: string,
@@ -178,8 +178,8 @@ export function decodeNativeDecisionsEnvelope(
   vendorLabel: string,
 ): NormalizedDecisionEnvelope {
   const envelope = parseJsonObject(rawBody, `${vendorLabel} returned malformed JSON.`);
-  const stopReason = envelope.finish_reason ?? envelope.finishReason ?? envelope.stop_reason ?? envelope.stopReason;
-  if (stopReason !== undefined && stopReason !== null) {
+  for (const stopReason of [envelope.finish_reason, envelope.finishReason, envelope.stop_reason, envelope.stopReason]) {
+    if (stopReason === undefined || stopReason === null) continue;
     const isNormalStop = typeof stopReason === "string" && normalNativeStopReasons.has(stopReason);
     if (!isNormalStop)
       throw new DecisionAdapterError(

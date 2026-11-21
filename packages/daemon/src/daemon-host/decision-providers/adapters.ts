@@ -26,9 +26,9 @@ const openRouterAdapter: DecisionProviderAdapter = {
   requiresBaseUrl: false,
   invoke: (input) => {
     const base = resolveAdapterBaseUrl(openRouterAdapter, input.baseUrl);
-    // Support omitted baseUrl (default /api/alpha), explicit /api/alpha, and legacy root origin
-    // overrides (e.g. https://openrouter.ai) without duplicating /api/alpha.
-    const segment = base.pathname.replace(/\/+$/u, "") === "" ? "api/alpha/decisions" : "decisions";
+    // Preserve legacy custom proxy prefixes (e.g. /gateway -> /gateway/api/alpha/decisions) while
+    // avoiding duplicate /api/alpha when baseUrl already ends with /api/alpha.
+    const segment = base.pathname.replace(/\/+$/u, "").endsWith("/api/alpha") ? "decisions" : "api/alpha/decisions";
     return invokeBearerDecisionsEndpoint(openRouterAdapter, input, segment);
   },
 };

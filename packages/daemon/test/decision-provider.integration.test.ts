@@ -246,7 +246,7 @@ test("Decisions provider probe exercises the same decisions endpoint as a real d
     });
     assert.deepEqual(
       requests.map(({ method, url }) => `${method} ${new URL(url).pathname}`),
-      ["POST /api/v1/decisions"],
+      ["POST /api/v1/api/alpha/decisions"],
     );
     assert.deepEqual(service.list().find(({ providerId }) => providerId === "v1-endpoint")?.probe, {
       state: "failed",

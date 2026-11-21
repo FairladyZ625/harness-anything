@@ -1187,18 +1187,27 @@ test("HA10-03 & HA10-07: openrouter uses the shared direct HTTP pipeline for URL
   assert.equal(protoResult.distribution.constructor, 0.3);
   assert.equal(protoResult.distribution["__proto__"], 0.7);
 
-  // HA10-03: openrouter rejects abnormal stop_reason (`max_tokens`, `content_filter`) on BOTH probe AND decide
-  for (const badStop of ["max_tokens", "content_filter"]) {
+  // HA10-03: openrouter rejects abnormal stop_reason (`max_tokens`, `content_filter`) and mixed
+  // termination fields (e.g. normal finish_reason paired with abnormal stop_reason/stopReason)
+  // on BOTH probe AND decide
+  for (const termination of [
+    { stop_reason: "max_tokens" },
+    { stop_reason: "content_filter" },
+    { finish_reason: "stop", stop_reason: "max_tokens" },
+    { finishReason: "STOP", stopReason: "content_filter" },
+    { finish_reason: "content_filter", stop_reason: "stop" },
+  ]) {
+    const label = JSON.stringify(termination);
     replyRawJson = JSON.stringify({
       model: "perplexity/pplx-decider-v1.3",
-      stop_reason: badStop,
+      ...termination,
       usage: { input_tokens: 3, output_tokens: 0 },
       answers: { decision: { type: "noul", noul: 0.9 } },
     });
     await assert.rejects(
       service.command({ kind: "provider-probe", providerId: "or-explicit-alpha" }),
       (error: unknown) => (error as { code?: string }).code === "decision_protocol_invalid",
-      `openrouter probe must reject stop_reason=${badStop}`,
+      `openrouter probe must reject termination=${label}`,
     );
     assert.deepEqual(service.list().find(({ providerId }) => providerId === "or-explicit-alpha")?.probe, {
       state: "failed",
@@ -1206,10 +1215,13 @@ test("HA10-03 & HA10-07: openrouter uses the shared direct HTTP pipeline for URL
       code: "decision_protocol_invalid",
     });
 
-    replyRawJson = `{"model":"perplexity/pplx-decider-v1.3","stop_reason":"${badStop}","usage":{"input_tokens":3,"output_tokens":0},"answers":{"decision":{"type":"choice","choice":"constructor","probabilities":{"constructor":0.7,"__proto__":0.3}}}}`;
+    const terminationFields = Object.entries(termination)
+      .map(([k, v]) => `${JSON.stringify(k)}:${JSON.stringify(v)}`)
+      .join(",");
+    replyRawJson = `{"model":"perplexity/pplx-decider-v1.3",${terminationFields},"usage":{"input_tokens":3,"output_tokens":0},"answers":{"decision":{"type":"choice","choice":"constructor","probabilities":{"constructor":0.7,"__proto__":0.3}}}}`;
     await assert.rejects(
       service.port.decide({
-        subjectRef: `dispatch/openrouter-bad-stop-${badStop}`,
+        subjectRef: `dispatch/openrouter-bad-stop-${Object.values(termination).join("-")}`,
         providerId: "or-explicit-alpha",
         questionSetVersion: "choice/v1",
         state: ["Evaluate stop_reason."],
@@ -1224,9 +1236,20 @@ test("HA10-03 & HA10-07: openrouter uses the shared direct HTTP pipeline for URL
         },
       }),
       (error: unknown) => (error as { code?: string }).code === "decision_protocol_invalid",
-      `openrouter decide must reject stop_reason=${badStop}`,
+      `openrouter decide must reject termination=${label}`,
     );
   }
+
+  // HA10-03 positive control: multiple normal termination fields together still succeed
+  replyRawJson = JSON.stringify({
+    model: "perplexity/pplx-decider-v1.3",
+    finish_reason: "stop",
+    stop_reason: "end_turn",
+    usage: { input_tokens: 3, output_tokens: 0 },
+    answers: { decision: { type: "noul", noul: 0.8 } },
+  });
+  const dualNormalProbe = await service.command({ kind: "provider-probe", providerId: "or-explicit-alpha" });
+  assert.equal((dualNormalProbe.provider as { probe: { state: string } }).probe.state, "ready");
 
   // HA10-03: openrouter probe rejects invalid/missing `answers.decision` and out-of-range noul with decision_protocol_invalid
   for (const badProbeBody of [
@@ -1246,5 +1269,76 @@ test("HA10-03 & HA10-07: openrouter uses the shared direct HTTP pipeline for URL
       service.command({ kind: "provider-probe", providerId: "or-explicit-alpha" }),
       (error: unknown) => (error as { code?: string }).code === "decision_protocol_invalid",
     );
+  }
+});
+
+test("HA10-07: openrouter preserves legacy custom proxy prefixes (/gateway -> /gateway/api/alpha/decisions) while deduplicating /gateway/api/alpha", async (t) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-dp-openrouter-proxy-"));
+  const { vault } = createMemoryVault();
+  const seenPaths: string[] = [];
+
+  const mock = await startLoopbackServer((req, _body, res) => {
+    const pathname = req.url ?? "";
+    seenPaths.push(pathname);
+    if (req.method === "POST" && pathname === "/gateway/api/alpha/decisions") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          model: "perplexity/pplx-decider-v1.3",
+          provider: "Perplexity",
+          usage: { input_tokens: 8, output_tokens: 0 },
+          answers: { decision: { type: "noul", noul: 0.91 } },
+        }),
+      );
+      return;
+    }
+    res.writeHead(404, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: { code: 404, message: "Not Found" } }));
+  });
+
+  t.after(async () => {
+    await mock.close();
+    rmSync(parent, { recursive: true, force: true });
+  });
+
+  const service = openDecisionProviderService({
+    userRoot: parent,
+    vault,
+    now: () => "2026-11-21T00:00:00.000Z",
+    sleep: async () => undefined,
+  });
+
+  for (const [providerId, baseUrl] of [
+    ["or-legacy-proxy", `${mock.origin}/gateway`],
+    ["or-explicit-proxy-alpha", `${mock.origin}/gateway/api/alpha`],
+  ] as const) {
+    await service.command({
+      kind: "provider-create",
+      type: "decisions",
+      vendor: "openrouter",
+      providerId,
+      name: providerId,
+      model: "perplexity/pplx-decider-v1.3",
+      baseUrl,
+      apiKey: "sk-or-proxy-key",
+    });
+
+    seenPaths.length = 0;
+    const probe = await service.command({ kind: "provider-probe", providerId });
+    assert.equal((probe.provider as { probe: { state: string } }).probe.state, "ready");
+    const decision = await service.port.decide({
+      subjectRef: `dispatch/${providerId}`,
+      providerId,
+      questionSetVersion: "noul/v1",
+      state: ["Verify legacy proxy path compatibility."],
+      question: {
+        type: "noul",
+        prompt: "Does the legacy proxy accept this request?",
+        criteria: { true: "It reaches /gateway/api/alpha/decisions.", false: "It misses the route." },
+      },
+    });
+    assert.equal(decision.result.type, "noul");
+    assert.equal(decision.result.value, 0.91);
+    assert.deepEqual(seenPaths, ["/gateway/api/alpha/decisions", "/gateway/api/alpha/decisions"]);
   }
 });
