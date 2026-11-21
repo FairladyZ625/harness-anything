@@ -19,7 +19,7 @@ export type {
   AgentRuntimeEventV1,
   EffectiveRuntimePermissionMode,
   EffectiveRuntimePermissionModeSource,
-  RuntimeControlReceipt,
+  RuntimeControlReceiptStatus,
   RuntimeControlRequest,
   RuntimeInstallation,
   RuntimeInstallationState,

@@ -38,7 +38,6 @@ import {
 import {
   findRuntimeSteerHeader,
   parseRuntimeSteerExpectation,
-  readRuntimeSteerVersion,
   resolveRuntimeSteerHeader,
   runtimeSteerMismatch,
   runtimeSteerReceiptTarget,
@@ -127,7 +126,6 @@ export async function cancelRuntime(
     const session = context.requiredRuntimeProjection(context.input).readRuntimeSession(runtimeSessionId);
     if (
       attempt?.policy.attemptSettled ||
-      session?.liveness === "exited" ||
       (attempt ? attempt.attempt.outcome !== null : session?.outcome !== null && session?.outcome !== undefined)
     ) {
       if (attempt?.policy.fallbackPending && attempt.controlLeafDispatchId === attempt.attempt.dispatchId) {
@@ -182,7 +180,7 @@ export async function cancelRuntime(
         "runtime_session_liveness_changed",
         {
           runtimeSessionId,
-          liveness: session.liveness,
+          liveness: attempt.attempt.process === "unknown" ? "unknown" : "live",
           controlRequest: {
             action: "cancel",
             controlRequestId,
@@ -746,7 +744,7 @@ async function requestRemoteEdgeSteer(
     kindId = view?.attempt.kindId ?? dispatchEvent.payload.kindId;
   if (!runtimeKindForId(kindId as never).steerSupported)
     throw runtimeSpawnError("runtime_steer_unsupported", `${kindId} does not support runtime steering.`);
-  if (!view?.policy.canSteer || !session || session.outcome !== null || session.liveness === "exited")
+  if (!view?.policy.canSteer || !session || session.outcome !== null)
     throw runtimeSpawnError("runtime_steer_unavailable", "The canonical lifecycle has no running control target.");
   if (!session.providerSessionId)
     throw runtimeSpawnError("runtime_steer_unavailable", "Provider has not established a resumable session yet.");
@@ -818,7 +816,7 @@ async function requestRemoteEdgeSteer(
     "runtime_session_liveness_changed",
     {
       runtimeSessionId,
-      liveness: session.liveness,
+      liveness: view.attempt.process === "unknown" ? "unknown" : "live",
       controlRequest: {
         action: "steer",
         controlRequestId,

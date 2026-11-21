@@ -29,6 +29,7 @@ import {
   type ActorIdentity,
   type AgentDefinitionSnapshot,
   type AgentRuntimeEventV1,
+  type RuntimeControlReceiptStatus,
   type RuntimeInstallationState,
   type RuntimeSessionSemanticState,
 } from "@harness-anything/kernel";
@@ -182,7 +183,7 @@ export interface AgentRuntimeControlReceiptDto {
   readonly action: "steer";
   readonly controlRequestId: string;
   readonly requestOpId: string;
-  readonly status: "applied" | "rejected";
+  readonly status: RuntimeControlReceiptStatus;
   readonly dispatchId?: string;
   readonly steerVersion?: number;
   readonly reasonCode?: string;

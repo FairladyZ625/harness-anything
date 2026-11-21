@@ -219,12 +219,16 @@ export type RuntimeControlRequest =
       readonly expected?: RuntimeSteerRequestedExpected;
     };
 
+/** Registered status vocabulary for correlated Edge->Center remote runtime control receipts. */
+export const runtimeControlReceiptStatuses = ["applied", "rejected"] as const;
+export type RuntimeControlReceiptStatus = (typeof runtimeControlReceiptStatuses)[number];
+
 /** Correlated Edge->Center execution/rejection receipt for a remote runtime steer request. */
 export interface RuntimeControlReceipt {
   readonly action: "steer";
   readonly controlRequestId: string;
   readonly requestOpId: string;
-  readonly status: "applied" | "rejected";
+  readonly status: RuntimeControlReceiptStatus;
   readonly dispatchId?: string;
   readonly steerVersion?: number;
   readonly reasonCode?: string;
