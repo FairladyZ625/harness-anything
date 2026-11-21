@@ -187,6 +187,7 @@ export function publicConfig(
     providerId: config.providerId,
     models: config.models,
     ...(config.availableModels === undefined ? {} : { availableModels: config.availableModels }),
+    ...(config.quota === undefined ? {} : { quota: config.quota }),
     defaultModel: config.defaultModel,
     enabled: config.enabled,
     tier: config.tier ?? 1,

@@ -20,9 +20,12 @@ import { userInfo } from "node:os";
 import path from "node:path";
 import {
   consumeKnownError,
+  findExhaustedSubscriptionQuotaWindow,
   findRuntimeOperatorSubscriptionConflict,
+  formatSubscriptionQuotaSummary,
   runtimeInstanceAccountCutMatches,
   type RuntimeInstanceAccountCut,
+  type RuntimeSubscriptionQuotaV1,
 } from "@harness-anything/kernel";
 import { writeFileDurably } from "../../../storage/src/durable-file.ts";
 import { credentialPort } from "./agent-runtime-credential-port.ts";
@@ -187,6 +190,8 @@ export function openRuntimeInstanceStore(input: {
   /** Test/embedded seam for the one real gateway verification an opt-in search tier on a
    *  custom base URL needs. Production uses the process fetch. */
   readonly webSearchFetch?: typeof fetch;
+  /** Test/embedded seam for read-only subscription quota HTTP probes. Production uses the process fetch. */
+  readonly quotaFetch?: typeof fetch;
 }) {
   const dispatchState = createRuntimeInstanceDispatchState();
   const platform = input.platform ?? process.platform,
@@ -200,6 +205,7 @@ export function openRuntimeInstanceStore(input: {
     resolveGithubToken = input.resolveGithubToken,
     managedPolicyTexts = input.managedPolicyTexts ?? (() => readCodexManagedPolicyTexts(platform)),
     webSearchFetch = input.webSearchFetch ?? fetch,
+    quotaFetch = input.quotaFetch ?? fetch,
     target = path.join(input.userRoot, "runtime-instances.json"),
     installationsTarget = path.join(input.userRoot, "runtime-installations.json"),
     instancesRoot = path.join(input.userRoot, "runtime-instances"),
@@ -364,6 +370,22 @@ export function openRuntimeInstanceStore(input: {
     )
       return current;
     const updated = runtimeInstanceConfig({ ...current, availableModels }, platform);
+    persist(read().map((entry) => (entry.instanceId === current.instanceId ? updated : entry)));
+    return updated;
+  }
+  function persistQuota(
+    config: RuntimeInstanceConfig,
+    quota: RuntimeSubscriptionQuotaV1 | undefined,
+    cut: RuntimeInstanceAccountCut,
+  ): RuntimeInstanceConfig {
+    const current = currentAccountForCut(cut);
+    if (current.auth.mode !== "subscription")
+      throw runtimeInstanceError(
+        "runtime_instance_probe_stale",
+        `Runtime instance ${config.instanceId} changed to a non-subscription account while its quota probe was running.`,
+      );
+    if (JSON.stringify(current.quota) === JSON.stringify(quota)) return current;
+    const updated = runtimeInstanceConfig({ ...current, quota }, platform);
     persist(read().map((entry) => (entry.instanceId === current.instanceId ? updated : entry)));
     return updated;
   }
@@ -549,20 +571,42 @@ export function openRuntimeInstanceStore(input: {
           currentAccountForCut(cut);
           return result;
         }
-        if (probeTarget && !input.subscriptionReady) {
-          const resetAt = await accountProbe.probeAgyQuota({
-            executablePath: probeTarget.installation.executablePath,
-            env,
-          });
-          currentAccountForCut(cut);
-          if (resetAt)
-            providerHealth.recordFailure({
-              instanceId: config.instanceId,
-              reason: "quota_exhausted",
-              occurredAt: nowIso(),
-              resetAt,
+        if (!input.subscriptionReady) {
+          const quotaExecutablePath =
+            probeTarget?.installation.executablePath ??
+            (await currentAccountProbeTarget(config, witnessed).then(
+              (target) => target.installation.executablePath,
+              () => undefined,
+            ));
+          try {
+            const quota = await accountProbe.probeQuota({
+              kindId: config.kindId,
+              credentialSource: config.credentialSource,
+              ...(quotaExecutablePath ? { executablePath: quotaExecutablePath } : {}),
+              env,
+              hasCustomProviderBaseUrl: runtimeBaseUrl(config) !== undefined,
+              signal: snapshot?.signal,
+              now: nowIso,
+              fetchImpl: quotaFetch,
+              ...(resolveGithubToken ? { resolveGithubToken: () => resolveGithubToken(operatorEnvironment) } : {}),
             });
-          else providerHealth.recordSuccess(config.instanceId, probeStartedAt);
+            currentAccountForCut(cut);
+            if (quota !== null) {
+              persistQuota(config, quota, cut);
+              const exhausted = findExhaustedSubscriptionQuotaWindow(quota, nowIso());
+              if (exhausted)
+                providerHealth.recordFailure({
+                  instanceId: config.instanceId,
+                  reason: "quota_exhausted",
+                  occurredAt: nowIso(),
+                  resetAt: exhausted.resetAt,
+                });
+              else providerHealth.recordSuccess(config.instanceId, probeStartedAt);
+            }
+          } catch (error) {
+            consumeKnownError(error);
+            currentAccountForCut(cut);
+          }
         }
         return result;
       })();
@@ -1130,7 +1174,7 @@ export function openRuntimeInstanceStore(input: {
         installations = recorded ?? (live ?? []).map(withoutHostPaths);
       const listed = (instances: readonly RuntimeInstanceSummary[]) => {
         const summary = [
-          "ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tCREDENTIAL SOURCE\tAVAILABLE MODELS\tLOGIN STATUS\tPERMISSION MODE\tMCP POLICY",
+          "ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tCREDENTIAL SOURCE\tAVAILABLE MODELS\tLOGIN STATUS\tPERMISSION MODE\tMCP POLICY\tQUOTA",
           ...instances.map((instance) =>
             [
               "",
@@ -1155,6 +1199,8 @@ export function openRuntimeInstanceStore(input: {
               `${instance.permissionMode}`,
               "\t",
               `${instance.mcpPolicy ?? "unsupported"}`,
+              "\t",
+              formatSubscriptionQuotaSummary(instance.quota),
               "",
             ].join(""),
           ),
@@ -1393,7 +1439,7 @@ export function openRuntimeInstanceStore(input: {
           detachInstanceCredential(current);
           clearAccountState(current);
           bumpAccountRevision(current.instanceId);
-          next = runtimeInstanceConfig({ ...updated, availableModels: undefined }, platform);
+          next = runtimeInstanceConfig({ ...updated, availableModels: undefined, quota: undefined }, platform);
         }
         if (next.isolationState === "enforced") ensureStateRoot(next);
         persist(read().map((entry) => (entry.instanceId === current.instanceId ? next : entry)));
@@ -1426,7 +1472,7 @@ export function openRuntimeInstanceStore(input: {
             instance,
             modelCatalogReadiness: result.modelCatalogReadiness,
             evidence: JSON.stringify({ ...instance, modelCatalogReadiness: result.modelCatalogReadiness }),
-            summary: `modelCatalog: ${result.modelCatalogReadiness.code ?? "ready"}${result.modelCatalogReadiness.hint ? ` · ${result.modelCatalogReadiness.hint}` : ""}\nruntime-instance-show: ${instanceId}\ntier: ${instance.tier}\nmodels: ${instance.models.join(", ")}\navailableModels: ${instance.availableModels?.join(", ") ?? "(not probed)"}\ncredentialSource: ${instance.credentialSource}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}\nmcpPolicy: ${instance.mcpPolicy ?? "unsupported"}`,
+            summary: `modelCatalog: ${result.modelCatalogReadiness.code ?? "ready"}${result.modelCatalogReadiness.hint ? ` · ${result.modelCatalogReadiness.hint}` : ""}\nruntime-instance-show: ${instanceId}\ntier: ${instance.tier}\nmodels: ${instance.models.join(", ")}\navailableModels: ${instance.availableModels?.join(", ") ?? "(not probed)"}\ncredentialSource: ${instance.credentialSource}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}\nmcpPolicy: ${instance.mcpPolicy ?? "unsupported"}${instance.quota ? `\nquota: ${formatSubscriptionQuotaSummary(instance.quota)}` : ""}`,
           };
         });
       }
@@ -1435,7 +1481,7 @@ export function openRuntimeInstanceStore(input: {
         ...base,
         instance,
         evidence: JSON.stringify(instance),
-        summary: `runtime-instance-show: ${instanceId}\ntier: ${instance.tier}\nmodels: ${instance.models.join(", ")}\navailableModels: ${instance.availableModels?.join(", ") ?? "(not probed)"}\ncredentialSource: ${instance.credentialSource}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}\nmcpPolicy: ${instance.mcpPolicy ?? "unsupported"}`,
+        summary: `runtime-instance-show: ${instanceId}\ntier: ${instance.tier}\nmodels: ${instance.models.join(", ")}\navailableModels: ${instance.availableModels?.join(", ") ?? "(not probed)"}\ncredentialSource: ${instance.credentialSource}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}\nmcpPolicy: ${instance.mcpPolicy ?? "unsupported"}${instance.quota ? `\nquota: ${formatSubscriptionQuotaSummary(instance.quota)}` : ""}`,
       };
     }
     if (kind === "runtime-instance-delete") {

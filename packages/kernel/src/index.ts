@@ -334,6 +334,16 @@ export {
   type RuntimeInstanceAccountCut,
 } from "./domain/runtime-instance-contract.ts";
 
+export {
+  findExhaustedSubscriptionQuotaWindow,
+  formatSubscriptionQuotaSummary,
+  validRuntimeSubscriptionQuota,
+  type RuntimeQuotaCreditsV1,
+  type RuntimeQuotaWindowKind,
+  type RuntimeQuotaWindowV1,
+  type RuntimeSubscriptionQuotaV1,
+} from "./domain/runtime-subscription-quota.ts";
+
 export type { CanonicalEventSummary } from "./domain/canonical-event-summary.ts";
 
 export type { EventListQuery } from "./domain/event-list.ts";

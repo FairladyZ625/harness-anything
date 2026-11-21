@@ -1,3 +1,4 @@
+import { validRuntimeSubscriptionQuota } from "@harness-anything/kernel";
 import { runtimeEffortValues } from "@harness-anything/kernel/runtime-effort";
 import { isCredentialReferenceText } from "./agent-runtime-credential-port.ts";
 import {
@@ -95,6 +96,7 @@ export function runtimeInstanceConfig(
           "providerId",
           "models",
           "availableModels",
+          "quota",
           "defaultModel",
           "enabled",
           "tier",
@@ -186,7 +188,10 @@ export function runtimeInstanceConfig(
       "invalid_runtime_model",
       "Only disabled independent subscription accounts may have no selected models.",
     );
-  const availableModels = value.availableModels === undefined ? undefined : normalizeModels(value.availableModels),
+  const availableModels = value.availableModels === undefined ? undefined : normalizeModels(value.availableModels);
+  if (value.quota !== undefined && !validRuntimeSubscriptionQuota(value.quota))
+    throw runtimeInstanceError("invalid_runtime_quota", "Runtime instance quota snapshot is invalid.");
+  const quota = value.quota,
     instanceIsolation = credentialSource === "instance" ? "enforced" : value.isolationState,
     permissionMode = runtimePermissionMode(value.permissionMode, kindId),
     mcpPolicy = runtimeMcpPolicy(value.mcpPolicy, kindId),
@@ -219,6 +224,7 @@ export function runtimeInstanceConfig(
     providerId: identifier(value.providerId, "providerId"),
     models,
     ...(availableModels === undefined ? {} : { availableModels }),
+    ...(quota === undefined ? {} : { quota }),
     defaultModel,
     enabled,
     tier: value.tier ?? 1,

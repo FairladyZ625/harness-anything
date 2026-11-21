@@ -32,6 +32,7 @@ import { Empty } from "../primitives/Empty.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
 import { RuntimeAccessFields } from "./RuntimeAccessFields.tsx";
 import { RuntimeModelEditor } from "./RuntimeModelEditor.tsx";
+import { RuntimeQuotaCard } from "./RuntimeQuotaPanel.tsx";
 import { ArrowDown, ArrowUp } from "@phosphor-icons/react";
 
 type Props = {
@@ -214,6 +215,8 @@ export function RuntimeCard({
           )}
         </CardBody>
       </Card>
+
+      {instance.quota && <RuntimeQuotaCard quota={instance.quota} />}
 
       {providerHealth && (
         <Card testId="runtime-card-health">

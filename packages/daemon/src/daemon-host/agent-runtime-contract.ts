@@ -26,11 +26,13 @@ import type {
 import type { RuntimeCapabilitySupport } from "../runtime-engine/runtime-inventory-types.ts";
 import { isRuntimeMcpPolicy } from "../runtime-engine/runtime-inventory.ts";
 import {
+  validRuntimeSubscriptionQuota,
   type ActorIdentity,
   type AgentDefinitionSnapshot,
   type AgentRuntimeEventV1,
   type RuntimeInstallationState,
   type RuntimeSessionSemanticState,
+  type RuntimeSubscriptionQuotaV1,
 } from "@harness-anything/kernel";
 import { validAgentRuntimeAttemptChain, type AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 import type { ProviderUnreachableEvidence } from "./protocol/task-dispatch-contract.ts";
@@ -53,6 +55,7 @@ interface AgentRuntimeInstanceCommonDto {
   readonly providerId: string;
   readonly models: readonly string[];
   readonly availableModels?: readonly string[];
+  readonly quota?: RuntimeSubscriptionQuotaV1;
   readonly defaultModel: string;
   readonly enabled: boolean;
   /** Optional only for previous-version peer DTOs; the node emits the effective default 1. */
@@ -547,7 +550,7 @@ function validInstance(value: unknown): value is AgentRuntimeInstanceDto {
         "authReadiness",
         "isolationState",
       ],
-      ["availableModels", "hostingCredentialState", "mcpPolicy", "tier"],
+      ["availableModels", "hostingCredentialState", "mcpPolicy", "quota", "tier"],
     ) &&
     value.schemaVersion === 2 &&
     Array.isArray(value.models) &&
@@ -558,6 +561,7 @@ function validInstance(value: unknown): value is AgentRuntimeInstanceDto {
       (Array.isArray(value.availableModels) &&
         value.availableModels.length > 0 &&
         value.availableModels.every((item) => typeof item === "string" && item.length > 0))) &&
+    (value.quota === undefined || validRuntimeSubscriptionQuota(value.quota)) &&
     typeof value.defaultModel === "string" &&
     (value.models.includes(value.defaultModel) || (value.models.length === 0 && value.defaultModel === "")) &&
     typeof value.enabled === "boolean" &&

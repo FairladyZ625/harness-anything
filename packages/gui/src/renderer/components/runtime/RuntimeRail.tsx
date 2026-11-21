@@ -15,6 +15,7 @@ import { DenseRow } from "../primitives/DenseRow.tsx";
 import { catalogRailCompactClass } from "../primitives/CatalogSplit.tsx";
 import { StatusTag, TONE_COLOR } from "../primitives/StatusTag.tsx";
 import { Avatar, KindDot } from "./parts.tsx";
+import { RuntimeQuotaRailBadge } from "./RuntimeQuotaPanel.tsx";
 import type { RuntimeSelection } from "./useRuntimeWorkspace.ts";
 
 // W6 IA 拆分:原四段聚合 rail 随「Agent 运行时」入口撤销,拆成页级 rail——
@@ -145,6 +146,7 @@ export function ProviderRail({
                         )}
                       />
                     </span>
+                    {instance.quota ? <RuntimeQuotaRailBadge quota={instance.quota} /> : null}
                     {tail ? <span className="min-w-0 truncate font-mono">{tail}</span> : null}
                   </span>
                 }
