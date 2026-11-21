@@ -1969,6 +1969,23 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       const runtimeHandles = processes;
       return runtimeHandles.has(runtimeSessionId);
     },
+    flushPendingSteerReceipts: async (defaultBinding?: RuntimeBinding): Promise<void> => {
+      const { flushPendingSteerReceipts: flushReceipts } = await import("./runtime-spawn-active.ts");
+      const { readPendingSteerReceipts } = await import("./dispatch-steer-state.ts");
+      const { readDispatchStreamHeaders } = await import("./dispatch-stream.ts");
+      const handled = new Set<string>();
+      for (const active of processes.values()) {
+        handled.add(active.dispatchId);
+        await flushReceipts(extracted, active.dispatchId, active.runtimeSessionId, active.binding);
+      }
+      for (const header of readDispatchStreamHeaders(input.rootDir, true)) {
+        if (handled.has(header.dispatchId)) continue;
+        if (readPendingSteerReceipts(input.rootDir, header.dispatchId).length === 0) continue;
+        const binding = header.binding ?? defaultBinding;
+        if (!binding) continue;
+        await flushReceipts(extracted, header.dispatchId, header.runtimeSessionId, binding);
+      }
+    },
     isIdle: () => processes.size === 0 && exiting.size === 0,
     close: () => {
       fallbackClosed = true;

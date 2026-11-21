@@ -93,7 +93,11 @@ export function makeAgentRuntimeReadModel(input: {
     session: RuntimeSession,
     installation: RuntimeInstallation | null | undefined,
     definition: { readonly snapshot: AgentDefinitionSnapshot | null; readonly persisted: boolean },
-    detail: { readonly attemptChain?: boolean; readonly context?: boolean },
+    detail: {
+      readonly attemptChain?: boolean;
+      readonly context?: boolean;
+      readonly controlReceipts?: boolean;
+    },
     dispatch: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> | null,
   ): AgentRuntimeSessionDto => {
     const observedSession = publicRuntimeSession(session),
@@ -115,7 +119,6 @@ export function makeAgentRuntimeReadModel(input: {
       providerUnreachable = lifecycle.policy?.processAlive ? (session.providerUnreachable ?? null) : null,
       sessionEvents = input.projection.readRuntimeSessionEventsByType(session.runtimeSessionId, [
         "runtime_session_started",
-        "runtime_session_liveness_changed",
         "runtime_session_outcome_observed",
       ]),
       startedEvent = sessionEvents.findLast((event) => event.type === "runtime_session_started"),
@@ -123,11 +126,18 @@ export function makeAgentRuntimeReadModel(input: {
         (event): event is Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }> =>
           event.type === "runtime_session_outcome_observed",
       ),
-      controlReceipts = sessionEvents.flatMap((event) =>
-        event.type === "runtime_session_liveness_changed" && event.payload.controlReceipt
-          ? [{ ...event.payload.controlReceipt, occurredAt: event.occurredAt }]
+      controlReceipts =
+        detail.controlReceipts === true
+          ? input.projection
+              .readRuntimeSessionEventsByType(session.runtimeSessionId, ["runtime_session_liveness_changed"], {
+                filter: "control_receipt",
+              })
+              .flatMap((event) =>
+                event.type === "runtime_session_liveness_changed" && event.payload.controlReceipt
+                  ? [{ ...event.payload.controlReceipt, occurredAt: event.occurredAt }]
+                  : [],
+              )
           : [],
-      ),
       metrics = outcome?.payload.runtimeMetrics,
       occupancy =
         detail.context === true && input.rootDir !== undefined
@@ -387,7 +397,7 @@ export function makeAgentRuntimeReadModel(input: {
           session,
           input.projection.readRuntimeInstallation(session.installationId),
           definitionFor(dispatch),
-          { attemptChain: true, context: true },
+          { attemptChain: true, context: true, controlReceipts: target.includeControlReceipts },
           dispatch,
         ),
         result = resultFor(session);
@@ -686,19 +696,23 @@ function runtimeSessionTarget(payload: Readonly<Record<string, unknown>>): {
   readonly runtimeSessionId: string | null;
   readonly taskId: string | null;
   readonly dispatchId: string | null;
+  readonly includeControlReceipts: boolean;
 } {
   const keys = Object.keys(payload);
-  if (keys.some((key) => !["runtimeSessionId", "taskId", "dispatchId"].includes(key)))
+  if (keys.some((key) => !["runtimeSessionId", "taskId", "dispatchId", "includeControlReceipts"].includes(key)))
     throw coded("invalid_request", "Agent runtime session reads accept runtimeSessionId or taskId plus dispatchId.");
   const runtimeSessionId = payload.runtimeSessionId,
     taskId = payload.taskId,
-    dispatchId = payload.dispatchId;
+    dispatchId = payload.dispatchId,
+    includeControlReceipts = payload.includeControlReceipts;
   if (runtimeSessionId !== undefined && (typeof runtimeSessionId !== "string" || !runtimeSessionId))
     throw coded("invalid_request", "Agent runtime runtimeSessionId must be non-empty when supplied.");
   if (taskId !== undefined && (typeof taskId !== "string" || !taskId))
     throw coded("invalid_request", "Agent runtime taskId must be non-empty when supplied.");
   if (dispatchId !== undefined && (typeof dispatchId !== "string" || !dispatchId))
     throw coded("invalid_request", "Agent runtime dispatchId must be non-empty when supplied.");
+  if (includeControlReceipts !== undefined && typeof includeControlReceipts !== "boolean")
+    throw coded("invalid_request", "Agent runtime includeControlReceipts must be a boolean when supplied.");
   if (runtimeSessionId === undefined && (taskId === undefined || dispatchId === undefined))
     throw coded("invalid_request", "Agent runtime session reads require runtimeSessionId or taskId plus dispatchId.");
   if (runtimeSessionId !== undefined && (taskId !== undefined || dispatchId !== undefined))
@@ -710,6 +724,7 @@ function runtimeSessionTarget(payload: Readonly<Record<string, unknown>>): {
     runtimeSessionId: typeof runtimeSessionId === "string" ? runtimeSessionId : null,
     taskId: typeof taskId === "string" ? taskId : null,
     dispatchId: typeof dispatchId === "string" ? dispatchId : null,
+    includeControlReceipts: includeControlReceipts === true,
   };
 }
 function lifecycleCursor(value: string): number {

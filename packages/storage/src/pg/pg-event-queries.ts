@@ -163,30 +163,65 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
         const requested = assertRuntimeEventTypes(types),
           maxRevision = queryOptions?.maxRevision,
           afterRevision = queryOptions?.afterRevision,
-          windowed = afterRevision !== undefined || queryOptions?.limit !== undefined,
+          filter = queryOptions?.filter,
+          windowed =
+            afterRevision !== undefined ||
+            queryOptions?.limit !== undefined ||
+            queryOptions?.order !== undefined ||
+            filter !== undefined,
           limit = windowed ? (queryOptions?.limit ?? 500) : queryOptions?.limit,
-          order = queryOptions?.order ?? "asc";
+          order = queryOptions?.order === "desc" ? "DESC" : "ASC";
         if (maxRevision !== undefined && (!Number.isSafeInteger(maxRevision) || maxRevision < 0))
           throw new Error("runtime session event read maxRevision must be a non-negative safe integer");
         if (afterRevision !== undefined && (!Number.isSafeInteger(afterRevision) || afterRevision < 0))
           throw new Error("runtime session event read afterRevision must be a non-negative safe integer");
+        if (maxRevision !== undefined && afterRevision !== undefined && maxRevision < afterRevision)
+          throw new Error("runtime session event read maxRevision must not precede afterRevision");
         if (limit !== undefined && !validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.standard))
           throw new Error("runtime session event read limit must be between 1 and 500");
-        if (order !== "asc" && order !== "desc")
-          throw new Error("runtime session event read order must be asc or desc");
-        const predicates = [
-            "runtime_session_id = $6",
-            "event_type = ANY($7::text[])",
-            "event_type <> ALL($8::text[])",
-          ],
-          predicateValues: unknown[] = [runtimeSessionId, requested, privateRuntimeEventTypes];
+        const requestOpId =
+            filter === "control_receipt" && typeof queryOptions?.requestOpId === "string" && queryOptions.requestOpId.length > 0
+              ? queryOptions.requestOpId
+              : null,
+          privateTypes =
+            filter === "control_receipt" || filter === "applied_steer_receipt"
+              ? privateRuntimeEventTypes.filter((type) => type !== "runtime_session_provider_bound")
+              : privateRuntimeEventTypes,
+          predicates: string[] = [],
+          predicateValues: unknown[] = [];
+        if (windowed) {
+          predicates.push(`revision > $${6 + predicateValues.length}`);
+          predicateValues.push(afterRevision ?? 0);
+        }
+        predicates.push(`runtime_session_id = $${6 + predicateValues.length}`);
+        predicateValues.push(runtimeSessionId);
+        predicates.push(`event_type = ANY($${6 + predicateValues.length}::text[])`);
+        predicateValues.push(requested);
+        predicates.push(`event_type <> ALL($${6 + predicateValues.length}::text[])`);
+        predicateValues.push(privateTypes);
         if (maxRevision !== undefined) {
           predicates.push(`revision <= $${6 + predicateValues.length}::bigint`);
           predicateValues.push(maxRevision);
         }
-        if (afterRevision !== undefined) {
-          predicates.push(`revision > $${6 + predicateValues.length}::bigint`);
-          predicateValues.push(afterRevision);
+        if (filter === "control_request") {
+          predicates.push(
+            "(event_type IN ('runtime_cancel_requested', 'runtime_steer_requested') OR (event_type = 'runtime_session_liveness_changed' AND event_json::jsonb -> 'payload' ? 'controlRequest'))",
+          );
+        } else if (filter === "cancel_control_request") {
+          predicates.push(
+            "(event_type = 'runtime_cancel_requested' OR (event_type = 'runtime_session_liveness_changed' AND event_json::jsonb -> 'payload' -> 'controlRequest' ->> 'action' = 'cancel'))",
+          );
+        } else if (filter === "control_receipt") {
+          if (requestOpId !== null) {
+            predicates.push(
+              `event_schema = 'agent-runtime-event/v1' AND runtime_control_receipt_req_op_id = $${6 + predicateValues.length}`,
+            );
+            predicateValues.push(requestOpId);
+          } else {
+            predicates.push("event_schema = 'agent-runtime-event/v1' AND runtime_control_receipt_status IS NOT NULL");
+          }
+        } else if (filter === "applied_steer_receipt") {
+          predicates.push("event_schema = 'agent-runtime-event/v1' AND runtime_control_receipt_status = 'applied_versioned'");
         }
         const rows = await readEventRowsInTransaction(
           client,
@@ -195,7 +230,7 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
           repoId,
           predicates.join(" AND "),
           predicateValues,
-          order === "desc" ? "DESC" : "ASC",
+          order,
           limit,
         );
         return rows

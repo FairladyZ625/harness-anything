@@ -164,6 +164,7 @@ export async function cancelRuntime(
           code: "no_changes",
           origin: "runtime-cancel",
           opId: eventOpId,
+          revision: existing.workspaceRevision,
           runtimeSessionId,
           detail: "cancel_requested",
           controlRequestId,
@@ -641,16 +642,6 @@ export async function steerRuntime(
   const remoteDedupKey = options?.remoteControlOpId ?? options?.remoteControlRequestId ?? null,
     seenOpIds = remoteDedupKey ? new Set<string>() : undefined,
     target = runtimeSteerTarget(rootDir, repoId, header, "running", seenOpIds),
-    mismatch = expected ? runtimeSteerMismatch(expected, target) : null;
-  if (mismatch)
-    throw runtimeSteerRefusal(
-      "runtime_steer_target_changed",
-      `The steer target no longer matches expected.${mismatch.field}.`,
-      target,
-      mismatch.field,
-      mismatch.expected,
-    );
-  const version = target.version + 1,
     opId = remoteDedupKey
       ? `runtime-steer-remote-${sha256Text(`${repoId}\0${runtimeSessionId}\0${remoteDedupKey}`).slice(0, 32)}`
       : `runtime-steer-${createHash("sha256").update(`${repoId}\0${runtimeSessionId}\0${context.input.now()}\0${prompt}`).digest("hex").slice(0, 32)}`;
@@ -672,6 +663,16 @@ export async function steerRuntime(
       steerTarget: runtimeSteerReceiptTarget(target),
     };
   }
+  const mismatch = expected ? runtimeSteerMismatch(expected, target) : null;
+  if (mismatch)
+    throw runtimeSteerRefusal(
+      "runtime_steer_target_changed",
+      `The steer target no longer matches expected.${mismatch.field}.`,
+      target,
+      mismatch.field,
+      mismatch.expected,
+    );
+  const version = target.version + 1;
   // The dispatch stream is the control channel: the worker host owning the provider follows
   // this file, so a host adopted after a daemon restart is steered like one this daemon spawned.
   appendRuntimeWorkerRecord(rootDir, header.dispatchId, {
@@ -736,7 +737,37 @@ async function requestRemoteEdgeSteer(
     throw runtimeSpawnError("execution_scope_mismatch", "This runtime is owned by another node.");
   const targetNodeId = dispatchEvent.source.nodeId,
     runtimeSessionId = dispatchEvent.payload.runtimeSessionId,
-    [view] = readyDispatchLifecycle(
+    controlRequestId =
+      input.idempotencyKey ??
+      `runtime-steer-${sha256Text(`${repoId}\0${runtimeSessionId}\0${context.input.now()}\0${input.prompt}`).slice(0, 32)}`,
+    eventOpId = `runtime-steer-req-${sha256Text(`${repoId}\0${runtimeSessionId}\0${controlRequestId}`).slice(0, 32)}`;
+  // F3: Recover an already-recorded idempotent steer request BEFORE checking expected.version or
+  // post-request lifecycle drift, after repo authorization and caller principal ownership hold.
+  if (input.idempotencyKey !== null) {
+    const existing = context.requiredRuntimeStore(context.input).readEvent(eventOpId);
+    if (existing) {
+      return {
+        schema: "command-receipt/v2",
+        ok: true,
+        command: "runtime-steer",
+        outcome: "no_changes",
+        code: "no_changes",
+        origin: "runtime-steer",
+        opId: eventOpId,
+        revision: existing.workspaceRevision,
+        runtimeSessionId,
+        dispatchId: dispatchEvent.payload.dispatchId,
+        detail: "steer_requested",
+        controlRequestId,
+        targetNodeId,
+        status: "settled_no_write",
+        visibility: "center",
+        evidence: `event-object:${eventOpId}`,
+        summary: `Steer request ${controlRequestId} was already recorded for remote runtime ${runtimeSessionId} on node ${targetNodeId}.`,
+      };
+    }
+  }
+  const [view] = readyDispatchLifecycle(
       await readDispatchLifecycle(context, { by: "session", runtimeSessionId }),
       context.runtimeSpawnError,
     ),
@@ -766,49 +797,23 @@ async function requestRemoteEdgeSteer(
           `The steer target no longer matches expected.${field}.`,
         );
     if (input.expected.version !== undefined) {
-      let observedMaxVersion = -1;
-      for (const event of projection.readRuntimeSessionEventsByType(runtimeSessionId, [
-        "runtime_session_liveness_changed",
-      ])) {
-        if (
-          event.type === "runtime_session_liveness_changed" &&
-          event.payload.controlReceipt?.status === "applied" &&
-          typeof event.payload.controlReceipt.steerVersion === "number" &&
-          event.payload.controlReceipt.steerVersion > observedMaxVersion
-        )
-          observedMaxVersion = event.payload.controlReceipt.steerVersion;
-      }
-      if (observedMaxVersion >= 0 && input.expected.version < observedMaxVersion)
+      const latestApplied = projection.readRuntimeSessionEventsByType(
+        runtimeSessionId,
+        ["runtime_session_liveness_changed"],
+        { filter: "applied_steer_receipt", order: "desc", limit: 1 },
+      )[0];
+      const observedVersion =
+        latestApplied?.type === "runtime_session_liveness_changed" &&
+        latestApplied.payload.controlReceipt?.status === "applied" &&
+        typeof latestApplied.payload.controlReceipt.steerVersion === "number"
+          ? latestApplied.payload.controlReceipt.steerVersion
+          : -1;
+      if (observedVersion >= 0 && input.expected.version < observedVersion)
         throw runtimeSpawnError(
           "runtime_steer_target_changed",
-          `The steer target version ${String(observedMaxVersion)} has advanced past expected.version=${String(input.expected.version)}.`,
+          `The steer target version ${String(observedVersion)} has advanced past expected.version=${String(input.expected.version)}.`,
         );
     }
-  }
-  const controlRequestId =
-      input.idempotencyKey ??
-      `runtime-steer-${sha256Text(`${repoId}\0${runtimeSessionId}\0${context.input.now()}\0${input.prompt}`).slice(0, 32)}`,
-    eventOpId = `runtime-steer-req-${sha256Text(`${repoId}\0${runtimeSessionId}\0${controlRequestId}`).slice(0, 32)}`,
-    existing = context.requiredRuntimeStore(context.input).readEvent(eventOpId);
-  if (existing) {
-    return {
-      schema: "command-receipt/v2",
-      ok: true,
-      command: "runtime-steer",
-      outcome: "no_changes",
-      code: "no_changes",
-      origin: "runtime-steer",
-      opId: eventOpId,
-      runtimeSessionId,
-      dispatchId: view.attempt.dispatchId,
-      detail: "steer_requested",
-      controlRequestId,
-      targetNodeId,
-      status: "settled_no_write",
-      visibility: "center",
-      evidence: `event-object:${eventOpId}`,
-      summary: `Steer request ${controlRequestId} was already recorded for remote runtime ${runtimeSessionId} on node ${targetNodeId}.`,
-    };
   }
   // Expand-contract Step-1 (dec_659E15CF, expiry 2027-02-06): emit additive controlRequest on
   // runtime_session_liveness_changed so N-1 Edge nodes can hydrate PG seeds and replay WAL.

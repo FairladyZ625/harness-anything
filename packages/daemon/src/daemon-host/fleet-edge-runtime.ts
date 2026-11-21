@@ -21,7 +21,9 @@ import { repositoryReadData } from "./protocol/repository-read-frame.ts";
 import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
 import { makeFleetSquadCoordinator } from "./fleet-squad-coordinator.ts";
 import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
+import { readPendingSteerReceipts, steerReceiptOpId } from "./dispatch-steer-state.ts";
 import { findRuntimeSteerHeader, type RuntimeSteerSelector } from "./runtime-steer-target.ts";
+import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { readEdgeViewBlob, readEdgeRuntimeResult } from "./runtime-result-read.ts";
 import { readFallbackExhaustion } from "./runtime-spawn-fallback.ts";
 import { runRuntimeHandoff } from "./runtime-handoff.ts";
@@ -41,7 +43,6 @@ import {
   readSettingsFacet,
   requireTransitionDocumentKind,
   resolveHarnessLayout,
-  sha256Text,
   validateScheduleV1,
   type AgentRuntimeEventV1,
   type RuntimeSessionReadQuery,
@@ -1170,15 +1171,19 @@ export function openFleetEdgeRuntime(input: {
     isRuntimeActive: (runtimeSessionId) => spawner.isRuntimeActive(runtimeSessionId),
     readControlEventsPage: async (runtimeSessionId, afterRevision, limit) => {
       const request = input.resolveLocation();
-      return readRuntimeProjection(
-        request,
-        (projection) =>
-          projection.readRuntimeSessionEventsByType(
+      return readRuntimeProjection(request, (projection) => {
+        const cut = projection.readCut(),
+          events = projection.readRuntimeSessionEventsByType(
             runtimeSessionId,
             ["runtime_session_liveness_changed", "runtime_cancel_requested", "runtime_steer_requested"],
-            { afterRevision, limit },
-          ) as readonly RemoteRuntimeControlEvent[],
-      );
+            { afterRevision, limit, filter: "control_request" },
+          ) as readonly RemoteRuntimeControlEvent[];
+        const maxRev = events.reduce((highest, event) => Math.max(highest, event.workspaceRevision), afterRevision);
+        return {
+          events,
+          scannedToRevision: events.length < limit ? Math.max(maxRev, cut.watermark) : maxRev,
+        };
+      });
     },
     executeCancel: async (controlRequest) => {
       const { request } = context();
@@ -1201,34 +1206,49 @@ export function openFleetEdgeRuntime(input: {
     },
     reportSteerRejection: async (controlRequest, rejection) => {
       const { request, centerWriteWaitMs, writePeer } = context(),
-        receiptOpId = `runtime-steer-rcpt-${sha256Text(
-          `${request.repoId}\0${controlRequest.runtimeSessionId}\0${controlRequest.opId}\0rejected`,
-        ).slice(0, 32)}`;
-      await runFleetEdgeWrite({
-        viewRoot: request.viewRoot,
-        repoId: request.repoId,
-        nodeId: request.nodeId,
+        receiptOpId = steerReceiptOpId(
+          request.repoId,
+          controlRequest.runtimeSessionId,
+          controlRequest.opId,
+          "rejected",
+        ),
+        deadline = Date.now() + centerWriteWaitMs;
+      await runFleetEdgeTaskCommand({
         timeoutMs: centerWriteWaitMs,
-        write: () =>
-          runFleetRuntimeEventClient({
-            ...writePeer,
+        readOnly: false,
+        write: () => {
+          throw new Error("Steer rejection receipts settle through runFleetEdgeWrite.");
+        },
+        settle: () => {
+          const remaining = Math.max(1, deadline - Date.now());
+          return runFleetEdgeWrite({
+            viewRoot: request.viewRoot,
             repoId: request.repoId,
-            opId: receiptOpId,
-            eventType: "runtime_session_liveness_changed",
-            payload: {
-              runtimeSessionId: controlRequest.runtimeSessionId,
-              liveness: "live",
-              controlReceipt: {
-                action: "steer",
-                controlRequestId: controlRequest.controlRequestId,
-                requestOpId: controlRequest.opId,
-                status: "rejected",
-                dispatchId: controlRequest.dispatchId,
-                reasonCode: rejection.code,
-                message: rejection.message,
-              },
-            },
-          }),
+            nodeId: request.nodeId,
+            timeoutMs: remaining,
+            write: () =>
+              runFleetRuntimeEventClient({
+                ...writePeer,
+                timeoutMs: remaining + daemonProtocolFleetPolicy.defaultValue.fleet.receiptResponseOverheadMs,
+                repoId: request.repoId,
+                opId: receiptOpId,
+                eventType: "runtime_session_liveness_changed",
+                payload: {
+                  runtimeSessionId: controlRequest.runtimeSessionId,
+                  liveness: "live",
+                  controlReceipt: {
+                    action: "steer",
+                    controlRequestId: controlRequest.controlRequestId,
+                    requestOpId: controlRequest.opId,
+                    status: "rejected",
+                    dispatchId: controlRequest.dispatchId,
+                    reasonCode: rejection.code,
+                    message: rejection.message,
+                  },
+                },
+              }),
+          });
+        },
       });
     },
     schedule,
@@ -1240,6 +1260,9 @@ export function openFleetEdgeRuntime(input: {
         void spawner.adopt().then(
           () => {
             void remoteControl.drain().catch((error: unknown) => console.error("[runtime-remote-control]", error));
+            void Promise.resolve(controlBinding(input.resolveLocation()))
+              .then((binding) => spawner.flushPendingSteerReceipts(binding))
+              .catch((error: unknown) => console.error("[runtime-steer-receipts]", error));
             schedule(() => squad.reconcile());
           },
           (error: unknown) => console.error("[runtime-recovery]", error),
@@ -1252,17 +1275,68 @@ export function openFleetEdgeRuntime(input: {
     }
     return ready;
   };
+  const forwardRemoteRuntimeControl = async (
+    kind: "runtime-cancel" | "runtime-steer",
+    action: JsonObject,
+    requestAuth?: DaemonAuthenticationContext,
+  ): Promise<JsonObject> => {
+    const { request, centerWriteWaitMs, writePeer } = context(),
+      connectionSignal = requestAuth?.connectionSignal;
+    if (requestAuth?.executionPrincipal && !requestAuth.executionCredential) throw executionCredentialRejected();
+    const { executor: _executor, ...wireAction } = action,
+      opId = typeof action.idempotencyKey === "string" ? action.idempotencyKey : randomUUID(),
+      deadline = Date.now() + centerWriteWaitMs,
+      executionCredential = requestAuth?.executionCredential;
+    const forwarded = await runFleetEdgeTaskCommand({
+      timeoutMs: centerWriteWaitMs,
+      readOnly: false,
+      ...(connectionSignal ? { signal: connectionSignal } : {}),
+      write: () => {
+        throw new Error("Remote runtime control settles through runFleetEdgeWrite.");
+      },
+      settle: () => {
+        const remaining = Math.max(1, deadline - Date.now());
+        return runFleetEdgeWrite({
+          viewRoot: request.viewRoot,
+          repoId: request.repoId,
+          nodeId: request.nodeId,
+          timeoutMs: remaining,
+          ...(connectionSignal ? { signal: connectionSignal } : {}),
+          write: () =>
+            runFleetTaskCommandClient({
+              ...writePeer,
+              ...(connectionSignal ? { signal: connectionSignal } : {}),
+              ...(executionCredential ? { executionCredential } : {}),
+              repoId: request.repoId,
+              taskId: null,
+              opId,
+              waitMs: remaining,
+              timeoutMs: remaining + daemonProtocolFleetPolicy.defaultValue.fleet.receiptResponseOverheadMs,
+              action: { kind, ...wireAction } as { kind: string },
+            }),
+        });
+      },
+    });
+    return forwarded.receipt as JsonObject;
+  };
   return {
     reconcile: async (signal?: AbortSignal) =>
       withExecutionSignal(signal, (connectionSignal) =>
         executionSignalContext.run(connectionSignal, async () => {
           const { request } = context();
-
-          if (readDispatchStreamHeaders(request.workspaceRoot).length === 0 && spawner.activeRuntimeCount() === 0)
+          const hasPendingReceipts = readDispatchStreamHeaders(request.workspaceRoot, true).some(
+            (header) => readPendingSteerReceipts(request.workspaceRoot, header.dispatchId).length > 0,
+          );
+          if (
+            readDispatchStreamHeaders(request.workspaceRoot).length === 0 &&
+            spawner.activeRuntimeCount() === 0 &&
+            !hasPendingReceipts
+          )
             return;
           await ensureReady();
           const recovered = await spawner.adopt();
           await remoteControl.drain();
+          await spawner.flushPendingSteerReceipts(await controlBinding(request));
           await schedule(async () => {
             await squad.flushPublications();
             await pullRuntimeReplica();
@@ -1274,8 +1348,9 @@ export function openFleetEdgeRuntime(input: {
     run: async (
       method: FleetEdgeRuntimeRequest["payload"]["method"],
       action: JsonObject,
-      connectionSignal?: AbortSignal,
+      requestAuth?: DaemonAuthenticationContext,
     ): Promise<JsonObject> => {
+      const connectionSignal = requestAuth?.connectionSignal;
       const { runtimeReadPeer, centerWriteWaitMs, request, writePeer } = context();
 
       if (method === "repo.agentRuntime.overview" || method === "repo.agentRuntime.sessions.read")
@@ -1329,17 +1404,7 @@ export function openFleetEdgeRuntime(input: {
                   (header) => header.runtimeSessionId === runtimeSessionId,
                 )));
         if (localTarget) return spawner.cancel(action, await controlBinding(request));
-        const { executor: _executor, ...wireCancel } = action;
-        const forwarded = await runFleetTaskCommandClient({
-          ...writePeer,
-          ...(connectionSignal ? { signal: connectionSignal } : {}),
-          repoId: request.repoId,
-          taskId: null,
-          opId: typeof action.idempotencyKey === "string" ? action.idempotencyKey : randomUUID(),
-          waitMs: centerWriteWaitMs,
-          action: { kind: "runtime-cancel", ...wireCancel } as { kind: string },
-        });
-        return forwarded.receipt as JsonObject;
+        return forwardRemoteRuntimeControl("runtime-cancel", action, requestAuth);
       }
       if (method === "repo.agentRuntime.steer") {
         const selector: RuntimeSteerSelector | null =
@@ -1350,17 +1415,7 @@ export function openFleetEdgeRuntime(input: {
                 : null,
           localTarget = selector !== null && findRuntimeSteerHeader(request.workspaceRoot, selector) !== null;
         if (localTarget) return spawner.steer(action, await controlBinding(request));
-        const { executor: _executor, ...wireSteer } = action;
-        const forwarded = await runFleetTaskCommandClient({
-          ...writePeer,
-          ...(connectionSignal ? { signal: connectionSignal } : {}),
-          repoId: request.repoId,
-          taskId: null,
-          opId: typeof action.idempotencyKey === "string" ? action.idempotencyKey : randomUUID(),
-          waitMs: centerWriteWaitMs,
-          action: { kind: "runtime-steer", ...wireSteer } as { kind: string },
-        });
-        return forwarded.receipt as JsonObject;
+        return forwardRemoteRuntimeControl("runtime-steer", action, requestAuth);
       }
       if (method === "repo.agentRuntime.spawn" && typeof action.taskId !== "string") await preflightRuntimeWorkspace();
       if (method === "repo.agentRuntime.spawn" && typeof action.taskId === "string")

@@ -254,18 +254,11 @@ function compileRuntimeSessionAction(
   let noChanges = false;
   try {
     const current = (input.currentEntity as RuntimeSession | null | undefined) ?? null;
-    // A late Edge steer controlReceipt arriving after Center already recorded session exit
-    // must settle as no_changes instead of appending a liveness event to an exited session.
-    const lateControlReceiptOnExited =
-      event.type === "runtime_session_liveness_changed" &&
-      event.payload.controlReceipt !== undefined &&
-      (current === null || current.liveness === "exited");
-    noChanges = lateControlReceiptOnExited
-      ? true
-      : (event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed") &&
-          current === null &&
-          typeof input.action.dispatchId === "string" &&
-          input.action.dispatchId.length > 0
+    noChanges =
+      (event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed") &&
+      current === null &&
+      typeof input.action.dispatchId === "string" &&
+      input.action.dispatchId.length > 0
         ? false
         : reduceRuntimeSession(current, event) === current;
   } catch (error) {

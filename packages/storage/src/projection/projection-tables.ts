@@ -285,6 +285,27 @@ export const REPOSITORY_READ_TABLES_SQL = `
     CREATE INDEX IF NOT EXISTS event_index_runtime_session ON event_index(
       json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1';
+    CREATE INDEX IF NOT EXISTS event_index_runtime_control ON event_index(
+      json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision
+    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+      AND (
+        json_extract(event_json, '$.type') IN ('runtime_cancel_requested', 'runtime_steer_requested')
+        OR (
+          json_extract(event_json, '$.type') = 'runtime_session_liveness_changed'
+          AND json_extract(event_json, '$.payload.controlRequest') IS NOT NULL
+        )
+      );
+    CREATE INDEX IF NOT EXISTS event_index_runtime_control_receipt ON event_index(
+      json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision DESC
+    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+      AND json_extract(event_json, '$.type') = 'runtime_session_liveness_changed'
+      AND json_extract(event_json, '$.payload.controlReceipt') IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS event_index_runtime_applied_steer_receipt ON event_index(
+      json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision DESC
+    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+      AND json_extract(event_json, '$.type') = 'runtime_session_liveness_changed'
+      AND json_extract(event_json, '$.payload.controlReceipt.status') = 'applied'
+      AND json_extract(event_json, '$.payload.controlReceipt.steerVersion') IS NOT NULL;
     CREATE INDEX IF NOT EXISTS event_index_fleet_session_launch ON event_index(
       json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision DESC
     ) WHERE json_extract(event_json,'$.schema')='agent-runtime-event/v1'

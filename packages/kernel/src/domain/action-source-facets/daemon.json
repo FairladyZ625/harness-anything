@@ -1443,11 +1443,46 @@
         "order": 1120
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-runtime-control.ts#createFleetEdgeRuntimeControlConsumer.drain:981e7b9bfa4bffd84386878518b39667",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-runtime-control.ts#createFleetEdgeRuntimeControlConsumer.removeDeferred:c353e39e7b531d67b2462f06b160bbcf",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete",
         "order": 1351
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-runtime-control.ts#createFleetEdgeRuntimeControlConsumer.removeDeferred:de372e0486e26983bb59cd178d7665f7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete",
+        "order": 1361
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-runtime-control.ts#createFleetEdgeRuntimeControlConsumer.flushPendingRejections:d7c89622587abd5472c0de046751a303",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete",
+        "order": 1362
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-runtime-control.ts#createFleetEdgeRuntimeControlConsumer.drain:ffe1f97084694c5f02b81f45c1011466",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete",
+        "order": 1363
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-runtime-control.ts#createFleetEdgeRuntimeControlConsumer.drain:bd7fdf127d10851283d195eeae66f8a7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete",
+        "order": 1364
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-runtime-control.ts#createFleetEdgeRuntimeControlConsumer.drain:d7c89622587abd5472c0de046751a303",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete",
+        "order": 1365
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-runtime-control.ts#createFleetEdgeRuntimeControlConsumer.rememberCompleted:d26f046fffad33799c41362e85545c63",
@@ -1485,7 +1520,7 @@
         "order": 524
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-runtime.ts#openFleetEdgeRuntime.reconcile:40a1cf92f20b05385212ce5b8215bd97",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-runtime.ts#openFleetEdgeRuntime.reconcile:35ea7e78cf71a374a0c1ccfbe7f27f16",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run",
@@ -4308,11 +4343,25 @@
         "order": 818
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-acp.ts#runAcpProviderSession.done:a641fd18efced9a302ab27d1dc041c17",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-acp.ts#runAcpProviderSession.done:3de76d5af0e35864e3d00870f781fe7a",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/daemon-host/runtime-worker-acp.ts#Append",
         "order": 1355
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-acp.ts#runAcpProviderSession.done:97fd55b0e175b0726d4575c08d03534d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-host/runtime-worker-acp.ts#Append",
+        "order": 1366
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-acp.ts#runAcpProviderSession.done:adb1e697981b833ed7dbf2aa1f060125",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-host/runtime-worker-acp.ts#Append",
+        "order": 1367
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-acp.ts#runAcpProviderSession.steer:f22e23f8fc9163da8029f810a23627b9",
@@ -4392,13 +4441,6 @@
         "order": 828
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost:06c0bdffc63217c971ce78813888d368",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost.append",
-        "order": 838
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost:32f7eb5655e093d3bec2422cec927422",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -4411,13 +4453,6 @@
         "role": "technical-port",
         "port": "packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost.append",
         "order": 837
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost:ce840a5190bce8d2df493c3e7eae4b91",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost.append",
-        "order": 1360
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost:542d9993f72a6e3088666888ce27d2ba",
@@ -4495,6 +4530,27 @@
         "role": "technical-port",
         "port": "packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost.append",
         "order": 1359
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost:4b6f5fe6cad691996c95ba29ed17b19b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost.append",
+        "order": 1368
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost.settlePendingSteerApplied:2372fc49a6434124871612a3c62c6063",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost.append",
+        "order": 1369
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost.settlePendingSteerRejected:1b66119b86f533bb4bf7454a398e9201",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost.append",
+        "order": 1370
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime.ts#startDaemon.recordLifecycle:56a1304ef27856cc683e2a9119757858",
@@ -6525,7 +6581,7 @@
         "order": 9
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-open.ts#openDaemonHost.forwardRuntime.runRuntime.result:2b8047b354430909dfe3b369f1ef375a",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-open.ts#openDaemonHost.forwardRuntime.runRuntime.result:1823a680f1785e815b87a62152bea497",
         "route": "runtime-run",
         "role": "effect",
         "order": 6

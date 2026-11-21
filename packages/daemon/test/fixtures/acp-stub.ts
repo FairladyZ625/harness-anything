@@ -208,6 +208,8 @@ process.stdin.on("data", (chunk) => {
       } else if (text === "hang") {
         pendingPromptId = message.id;
         pendingPromptText = text;
+      } else if (text === "reject-prompt") {
+        fail("provider rejected steered prompt");
       } else if (text === "exit-mid-prompt") {
         update({ sessionUpdate: "tool_call", toolCallId: "tc-2", title: "Read file", kind: "read", status: "in_progress" });
         process.stdout.write("", () => process.exit(0));

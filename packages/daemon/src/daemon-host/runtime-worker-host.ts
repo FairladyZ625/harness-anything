@@ -213,6 +213,7 @@ export async function runRuntimeWorkerHost(): Promise<void> {
     providerSessionId = manifest.providerSessionId ?? null,
     queuedPrompt: string | null = null,
     queuedSteerMeta: import("./runtime-worker-control.ts").RuntimeSteerCommandMeta | undefined,
+    pendingSteer: { readonly meta?: import("./runtime-worker-control.ts").RuntimeSteerCommandMeta } | null = null,
     interruptTimer: NodeJS.Timeout | undefined;
   const activeTools = new Set<string>();
   // Continuations already granted to this dispatch: the bound is the dispatch's, not a process's.
@@ -225,6 +226,13 @@ export async function runRuntimeWorkerHost(): Promise<void> {
     commandWorkObserved = false;
   process.once("SIGTERM", () => {
     terminationRequested = true;
+    if (pendingSteer?.meta?.controlRequestId)
+      append({
+        kind: "steer_dropped",
+        reason: "runtime was terminated before provider accepted steer",
+        ...steerMetaFields(pendingSteer.meta),
+      });
+    pendingSteer = null;
     if (queuedPrompt !== null && queuedSteerMeta?.controlRequestId)
       append({
         kind: "steer_dropped",
@@ -337,6 +345,29 @@ export async function runRuntimeWorkerHost(): Promise<void> {
         // One refusal per attempt: the three arms share the same argv, so a second attempt at the
         // resume shape would only repeat the same failure.
         continuationRefused = false;
+      const ioError: { spawn: Error | null; stdin: Error | null } = { spawn: null, stdin: null };
+      const settlePendingSteerApplied = (): void => {
+        if (pendingSteer === null) return;
+        const meta = pendingSteer.meta;
+        pendingSteer = null;
+        append({
+          kind: "steer_resumed",
+          providerSessionId,
+          occurredAt: new Date().toISOString(),
+          ...steerMetaFields(meta),
+        });
+      };
+      const settlePendingSteerRejected = (reason: string): void => {
+        if (pendingSteer === null) return;
+        const meta = pendingSteer.meta;
+        pendingSteer = null;
+        append({
+          kind: "steer_dropped",
+          reason,
+          occurredAt: new Date().toISOString(),
+          ...steerMetaFields(meta),
+        });
+      };
       const consumeOutput = (chunk: string, flush = false): void => {
         outputBuffer += chunk;
         const lines = outputBuffer.split(/\r?\n/u);
@@ -347,6 +378,13 @@ export async function runRuntimeWorkerHost(): Promise<void> {
           const parsed = appendProviderLine(append, line, manifest.kindId, providerProgress),
             state = parsed ? providerSteerState(parsed, manifest.kindId) : {};
           if (state.sessionId) providerSessionId = state.sessionId;
+          if (!acp && pendingSteer !== null && parsed) {
+            if (parsed.type === "error" || parsed.type === "turn.failed") {
+              settlePendingSteerRejected(codexErrorItemMessage(parsed) || "provider rejected steered turn");
+            } else if (!ioError.spawn && !ioError.stdin) {
+              settlePendingSteerApplied();
+            }
+          }
           if (state.toolStart) activeTools.add(state.toolStart);
           if (state.toolEnd === "") activeTools.clear();
           else if (state.toolEnd) activeTools.delete(state.toolEnd);
@@ -381,12 +419,30 @@ export async function runRuntimeWorkerHost(): Promise<void> {
         append({ kind: "process_exit", exitCode, signal });
       };
       child.once("error", (error) => {
+        ioError.spawn = error;
+        settlePendingSteerRejected(`provider spawn failed: ${error.message}`);
         append({ kind: "provider_stderr", chunk: scrubProviderValue(error.message) as string });
       });
-      if (!acp) child.stdin!.end(prompt);
+      if (!acp) {
+        child.stdin!.on("error", (error) => {
+          ioError.stdin = error;
+          settlePendingSteerRejected(`provider stdin failed: ${error.message}`);
+        });
+        child.stdin!.end(prompt);
+      }
       const [exitCode, signal] = await new Promise<[number | null, NodeJS.Signals | null]>((resolve) =>
         child!.once("close", (code: number | null, closeSignal: NodeJS.Signals | null) => resolve([code, closeSignal])),
       );
+      if (!acp) consumeOutput("", true);
+      if (!acp && pendingSteer !== null) {
+        if (!ioError.spawn && !ioError.stdin && exitCode === 0 && signal === null) settlePendingSteerApplied();
+        else
+          settlePendingSteerRejected(
+            ioError.spawn?.message ??
+              ioError.stdin?.message ??
+              `provider rejected steered resume (exit ${String(exitCode)}, signal ${String(signal)})`,
+          );
+      }
       // The daemon stops reading at process_exit, so the ACP session's last frame must land first.
       await acp?.done;
       const steer = declaration?.steer;
@@ -413,17 +469,11 @@ export async function runRuntimeWorkerHost(): Promise<void> {
           interruptTimer = undefined;
           args = [...resumed];
           prompt = queuedPrompt;
-          const appliedMeta = queuedSteerMeta;
+          pendingSteer = { ...(queuedSteerMeta ? { meta: queuedSteerMeta } : {}) };
           queuedPrompt = null;
           queuedSteerMeta = undefined;
           activeTools.clear();
           interrupted = false;
-          append({
-            kind: "steer_resumed",
-            providerSessionId,
-            occurredAt: new Date().toISOString(),
-            ...steerMetaFields(appliedMeta),
-          });
           continue;
         }
       }

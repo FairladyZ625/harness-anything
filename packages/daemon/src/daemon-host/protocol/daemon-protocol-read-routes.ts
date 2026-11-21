@@ -348,7 +348,12 @@ export const daemonReadRoutes = Object.freeze([
     requiresRepo: true,
     params: shape({
       repo: shape({ repoId: "string" }),
-      payload: shape({ runtimeSessionId: "string?", taskId: "string?", dispatchId: "string?" }),
+      payload: shape({
+        runtimeSessionId: "string?",
+        taskId: "string?",
+        dispatchId: "string?",
+        includeControlReceipts: "boolean?",
+      }),
     }),
     commandClass: "repo-read",
   },

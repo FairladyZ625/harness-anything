@@ -40,7 +40,7 @@ import { taskPrBodyRenderer } from "./task-pr-body-render.ts";
 import { detectHostingProvider } from "./hosting-provider.ts";
 import { boundedRuntimeConclusion, currentWorktreeHead } from "./runtime-continuation-context.ts";
 import { reviewCutSupersededExplanation } from "./repo-cell-execution-selection.ts";
-import { disposeActiveRuntimeObservations } from "./runtime-spawn-active.ts";
+import { disposeActiveRuntimeObservations, flushPendingSteerReceipts } from "./runtime-spawn-active.ts";
 import { captureDispatchForensics } from "./runtime-dispatch-evidence.ts";
 import { dispatchForensicsRequired, writeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
 import { readIncidentActionReceipt } from "./decision-incident-receipt.ts";
@@ -795,6 +795,7 @@ async function publishTerminalOutcome(
     cancelled = active
       ? active.cancelRequested && active.cancelOpId?.endsWith(":escalation") !== true
       : payload.outcome === "cancelled";
+  await flushPendingSteerReceipts(context, dispatchId, runtimeSessionId, binding);
   const stopAlreadyProven = "attempt" in publication && publication.previous.attempt.stopProof === "proven_stopped";
   if (!stopAlreadyProven)
     await context.publishRuntimeEvent(
