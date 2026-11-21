@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import Ajv from "ajv";
@@ -14,6 +14,7 @@ import { readFleetCenterConfig } from "../packages/daemon/src/daemon-host/fleet-
 import { openDaemonHost } from "../packages/daemon/src/daemon-host/daemon-host.ts";
 import { createIdentityReadinessController } from "../packages/daemon/src/daemon-host/daemon-host-lifecycle-api.ts";
 import { startDaemonMetricsServer } from "../packages/daemon/src/daemon-host/metrics-http-server.ts";
+import { signInPolicyTestUser } from "../packages/daemon/test/keycloak-policy.fixtures.ts";
 import { sqliteLedgerPath } from "../packages/storage/src/store/sqlite-ledger-layout.ts";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
@@ -1465,46 +1466,17 @@ test("StatefulSet PVC subPaths persist SQLite authority ledger revision across P
     assert.equal(res.status, 0, `git ${args.join(" ")} failed: ${res.stderr}`);
   };
   try {
-    // Initialize a Git repo with canonical roster inside the PVC's authority-repo subPath (mounted at fleet.authorityRepoRoot)
+    // Initialize a clean Git repo inside the PVC's authority-repo subPath (mounted at fleet.authorityRepoRoot)
     runGit(pvcAuthorityRepoSubPath, ["init", "-q", "-b", "main"]);
     runGit(pvcAuthorityRepoSubPath, ["config", "user.name", "Helm Pod Replacement Test"]);
     runGit(pvcAuthorityRepoSubPath, ["config", "user.email", "helm-test@example.invalid"]);
     runGit(pvcAuthorityRepoSubPath, ["config", "gc.auto", "0"]);
     runGit(pvcAuthorityRepoSubPath, ["commit", "--allow-empty", "-q", "-m", "init"]);
-    mkdirSync(path.join(pvcAuthorityRepoSubPath, "harness"), { recursive: true });
-    writeFileSync(
-      path.join(pvcAuthorityRepoSubPath, "harness/harness.yaml"),
-      "schema: harness-anything/v1\nname: center-sqlite\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
-    );
-    writeFileSync(
-      path.join(pvcAuthorityRepoSubPath, "harness/people.yaml"),
-      `${JSON.stringify(
-        {
-          schema: "harness-people/v1",
-          people: [
-            {
-              personId: "writer",
-              displayName: "writer",
-              roles: ["writer"],
-              credentials: [
-                {
-                  kind: "unix-socket-owner-boundary",
-                  issuer: `host:${hostname()}`,
-                  subject: String(process.getuid?.() ?? 0),
-                },
-              ],
-            },
-          ],
-          roles: [{ roleId: "writer", commandClasses: ["repo-read", "repo-write", "admin"] }],
-        },
-        null,
-        2,
-      )}\n`,
-    );
-    runGit(pvcAuthorityRepoSubPath, ["add", "harness"]);
-    runGit(pvcAuthorityRepoSubPath, ["commit", "-q", "-m", "seed roster"]);
 
-    // Pod 1: boots with PVC user + authority-repo mounts, registers SQLite repo, and writes a canonical fact revision
+    // Sign in test owner into the PVC user subPath so Pod 1 and Pod 2 share the persisted identity session
+    signInPolicyTestUser(pvcUserSubPath, "writer", ["center-sqlite"], "admin");
+
+    // Pod 1: boots with PVC user + authority-repo mounts, bootstraps SQLite authority repo, and writes a canonical fact revision
     const pod1Host = await openDaemonHost({
       daemonId: "center",
       userRoot: pvcUserSubPath,
@@ -1520,15 +1492,31 @@ test("StatefulSet PVC subPaths persist SQLite authority ledger revision across P
       },
     };
     try {
-      const reg = await pod1Host.admin(
-        { kind: "register", repoId: "center-sqlite", rootDir: pvcAuthorityRepoSubPath, mode: "local" },
+      const bootstrapped = await pod1Host.bootstrap(
+        {
+          rootDir: pvcAuthorityRepoSubPath,
+          repoId: "center-sqlite",
+          personId: "writer",
+          displayName: "Writer",
+        },
         localOwnerAuth,
       );
-      assert.equal(reg.ok, true, `Pod 1 register failed: ${JSON.stringify(reg)}`);
+      assert.equal(bootstrapped.outcome, "applied", `Pod 1 bootstrap failed: ${JSON.stringify(bootstrapped)}`);
+      const createdTask = await pod1Host.run(
+        "center-sqlite",
+        {
+          kind: "task-create",
+          taskId: "task_pvc_persist",
+          title: "Verify StatefulSet PVC SQLite persistence",
+        },
+        localOwnerAuth,
+      );
+      assert.equal(createdTask.outcome, "applied", `Pod 1 task-create failed: ${JSON.stringify(createdTask)}`);
       const recorded = await pod1Host.run(
         "center-sqlite",
         {
           kind: "fact-record",
+          taskId: "task_pvc_persist",
           statement: "StatefulSet PVC authority-repo subPath persists SQLite ledger across Pod replacement.",
           evidenceSource: "test:helm-pod-replacement",
           confidence: "high",
