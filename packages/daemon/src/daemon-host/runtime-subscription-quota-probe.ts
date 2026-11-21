@@ -423,7 +423,12 @@ async function probeClaudeOAuthQuota(
       throw runtimeInstanceError("runtime_instance_probe_stale", "Claude credentials changed during the quota probe.");
     reportAccountFingerprint(input, active.identity);
   });
-  return parseClaudeOAuthUsage(payload, credentials.plan, input.now());
+  const quota = parseClaudeOAuthUsage(payload, credentials.plan, input.now());
+  // An opaque token proves continuity only for observations made with that same token.
+  if (quota && !credentials.identity) {
+    input.onCredentialFingerprint?.(`credential:${cryptoHash("sha256", credentials.accessToken, "hex")}`);
+  }
+  return quota;
 }
 
 type ClaudeQuotaCredentials = {

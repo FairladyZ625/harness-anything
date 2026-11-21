@@ -433,6 +433,37 @@ test("QUOTA-18: External account switch outside Harness never inherits old accou
     // Internal fingerprint MUST NEVER leak onto public DTO!
     assert.equal("quotaAccountFingerprint" in (switchedAccountPartial.instance as Record<string, unknown>), false);
 
+    const writeOpaqueClaudeCredentials = (accessToken: string) =>
+      writeFileSync(path.join(claudeDir, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken } }));
+    const probeClaude = () =>
+      store.command({ kind: "runtime-instance-show", instanceId: "claude-ext-switch", probe: true });
+    const opaqueTokenA = "sk-ant-oat01-opaque-account-a";
+    writeOpaqueClaudeCredentials(opaqueTokenA);
+    claudeResponseMode = "account-a-7d-zero";
+    await probeClaude();
+    const claudeWeeklyReset = "2026-11-28T00:00:00.000Z";
+    assert.equal(health.get("claude-ext-switch").quotaExhaustedUntil, claudeWeeklyReset);
+
+    claudeResponseMode = "partial-5h-healthy";
+    const opaqueSame = await probeClaude();
+    const opaqueSameQuota = (opaqueSame.instance as Record<string, unknown>).quota as typeof sameQuota;
+    assert.deepEqual(
+      opaqueSameQuota.windows.map((w) => w.id),
+      ["five_hour", "seven_day"],
+    );
+    assert.equal(health.get("claude-ext-switch").quotaExhaustedUntil, claudeWeeklyReset);
+
+    writeOpaqueClaudeCredentials("sk-ant-oat01-opaque-account-b");
+    const opaqueSwitched = await probeClaude();
+    const opaqueSwitchedQuota = (opaqueSwitched.instance as Record<string, unknown>).quota as typeof sameQuota;
+    assert.deepEqual(
+      opaqueSwitchedQuota.windows.map((w) => w.id),
+      ["five_hour"],
+      "opaque token B inherited token A's weekly window",
+    );
+    assert.equal(health.get("claude-ext-switch").quotaExhaustedUntil, null);
+    assert.equal("quotaAccountFingerprint" in (opaqueSwitched.instance as Record<string, unknown>), false);
+
     // --- Part B: Copilot gh resolver token switch (between probes & mid-probe!) ---
     store.command({
       kind: "runtime-instance-create",

@@ -695,8 +695,10 @@ export function openRuntimeInstanceStore(input: {
       };
       const accountChanged = (latest: RuntimeInstanceConfig): boolean =>
         accountFingerprint !== undefined &&
-        latest.quotaAccountFingerprint?.startsWith("account:") === true &&
-        latest.quotaAccountFingerprint !== accountFingerprint;
+        latest.quotaAccountFingerprint !== accountFingerprint &&
+        (accountFingerprint.startsWith("credential:") ||
+          latest.quotaAccountFingerprint?.startsWith("credential:") === true ||
+          latest.quotaAccountFingerprint?.startsWith("account:") === true);
       const applyQuotaObservation = (latest: RuntimeInstanceConfig, quota: RuntimeSubscriptionQuotaV1): void => {
         const observedNow = nowIso();
         const changed = accountChanged(latest);
