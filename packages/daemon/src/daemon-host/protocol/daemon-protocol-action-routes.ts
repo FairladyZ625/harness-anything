@@ -333,13 +333,19 @@ export const daemonActionRoutes = Object.freeze([
     "agentRuntime.cancel",
     "repo.agentRuntime.cancel",
     "runtime-cancel",
-    shape({ runtimeSessionId: "string", ruling: "string?", reason: "string?" }),
+    shape({ runtimeSessionId: "string", ruling: "string?", reason: "string?", idempotencyKey: "string?" }),
   ),
   actionRpc(
     "agentRuntime.steer",
     "repo.agentRuntime.steer",
     "runtime-steer",
-    shape({ runtimeSessionId: "string?", dispatchId: "string?", prompt: "string", expected: "json?" }),
+    shape({
+      runtimeSessionId: "string?",
+      dispatchId: "string?",
+      prompt: "string",
+      expected: "json?",
+      idempotencyKey: "string?",
+    }),
   ),
   actionRpc(
     "terminal.spawn",

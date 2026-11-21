@@ -50,9 +50,7 @@ import {
   resolveHarnessLayout,
   sha256Bytes,
   TASK_EVENT_SHAPE_COMPAT_VERSION,
-  type SquadRunObservation,
 } from "@harness-anything/kernel";
-import { squadObservationEventOpId } from "../squad-observation.ts";
 import { daemonBuildStamp } from "../build-identity.ts";
 import {
   readFileWindow,
@@ -81,6 +79,7 @@ import {
   writeCenterDurableJson,
 } from "./center-transport.ts";
 import { createHelloRateLimiter } from "./center-hello-guard.ts";
+import { dispatchCenterRuntimeControl, runtimeEventStorageOpId } from "./center-runtime-control.ts";
 import {
   closeableCenterReplicationSlots,
   createCenterNodePrincipals,
@@ -1307,7 +1306,20 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         const reservation =
           command.kind === "doc-show" ? reserveDocShowBudget(nodeId, a.repoId, window.holderId) : null;
         try {
-          const receipt = await observedRunCenterWriter(a.repoId, action, commandAuth);
+          let receipt: Awaited<ReturnType<typeof observedRunCenterWriter>>;
+          if (command.kind === "runtime-cancel" || command.kind === "runtime-steer") {
+            const { kind: controlKind, ...controlPayload } = command;
+            receipt = (await dispatchCenterRuntimeControl(
+              options,
+              a.repoId,
+              controlKind,
+              controlPayload,
+              frame.opId,
+              commandAuth,
+            )) as unknown as Awaited<ReturnType<typeof observedRunCenterWriter>>;
+          } else {
+            receipt = await observedRunCenterWriter(a.repoId, action, commandAuth);
+          }
           if (isRecoverableReceipt(receipt)) rememberRequestReceipt(a.repoId, frame.opId, receipt.opId);
           if (reservation) connectionSignal.throwIfAborted();
           const applied = receipt.outcome !== "op_rejected" && receipt.outcome !== "indeterminate";
@@ -1424,19 +1436,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           resultBody = bytes.toString("utf8");
         }
         let receipt: Awaited<ReturnType<typeof options.host.runtimeIngress>>;
-        // The frame opId correlates the caller's request. Most runtime events get a center-minted
-        // storage identity, so a reused frame opId cannot hit storage dedup/op_conflict and the
-        // RuntimeSession reducer decides duplicate, late, and interleaved transitions. A Squad
-        // observation instead carries its own identity (run + revision) in the payload, and the
-        // Squad ingress validates the stored identity against it. Deriving that identity from the
-        // payload keeps frame.opId correlation-only while preserving the same observation's replay
-        // identity across different requests.
-        const runtimeEventOpId =
-          frame.eventType === "runtime_squad_run_observed"
-            ? squadObservationEventOpId(
-                frame.payload as unknown as Pick<SquadRunObservation, "squadRunId" | "runRevision">,
-              )
-            : randomUUID();
+        const runtimeEventOpId = runtimeEventStorageOpId(a.repoId, frame.eventType, frame.payload);
         try {
           receipt = await options.host.runtimeIngress(
             a.repoId,

@@ -504,6 +504,55 @@ test("acp worker session steer after the final turn records the drop instead of 
   }
 });
 
+test("F5: acp worker steer emits steer_dropped (never steer_resumed) when provider rejects session/prompt", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-acp-worker-reject-")),
+    capture = path.join(parent, "capture.jsonl"),
+    executablePath = writeAcpProviderStub(path.join(parent, "devin-stub"), capture, { steerSemantics: true });
+  writeFileSync(capture, "");
+  try {
+    const { records, append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        { kindId: "devin", cwd: "/tmp", env: { HOME: parent }, prompt: "hang", acpApiKey: "test-manifest-key" },
+        append,
+      );
+    const seenSession = () =>
+      records.some(
+        (record) =>
+          record.kind === "provider_event" &&
+          (record.event as Record<string, unknown> | undefined)?.type === "acp.session",
+      );
+    for (let waited = 0; !seenSession() && waited < 10_000; waited += 10)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.ok(seenSession(), "acp.session frame must precede steer");
+    session.steer("reject-prompt", {
+      controlRequestId: "ctrl-acp-reject-1",
+      requestOpId: "op-acp-reject-1",
+      version: 1,
+    });
+    await session.done;
+    assert.equal(
+      records.some((record) => record.kind === "steer_resumed"),
+      false,
+      "rejected ACP session/prompt must never emit steer_resumed",
+    );
+    assert.equal(
+      records.some(
+        (record) =>
+          record.kind === "steer_dropped" &&
+          record.controlRequestId === "ctrl-acp-reject-1" &&
+          record.requestOpId === "op-acp-reject-1" &&
+          /provider rejected steered prompt/u.test(String(record.reason)),
+      ),
+      true,
+      `expected correlated steer_dropped record, got: ${JSON.stringify(records)}`,
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("acp worker session selects the declared auth method and authenticates without a key", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-acp-worker-")),
     capture = path.join(parent, "capture.jsonl"),

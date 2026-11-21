@@ -21,7 +21,8 @@ import {
 } from "./dispatch-stream.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "../runtime-engine/runtime-spawn-errors.ts";
-import { resolveRuntimeCwd } from "./runtime-spawn-mission.ts";
+import { resolveRuntimeCwd, resolveRuntimeInstanceCandidates } from "./runtime-spawn-mission.ts";
+import { resolveRuntimeDispatchResources } from "./runtime-spawn-allowlist.ts";
 import { requiredRuntimeProjection } from "./runtime-spawn-process.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RuntimeSpawnerInput } from "./runtime-spawn-types.ts";
@@ -184,6 +185,48 @@ export function assertResumeAgent(
  * A start may record "no workspace on this node" without blocking its own lifecycle write; that answer does not
  * authorize a provider launch (issue #4431).
  */
+export async function preflightRuntimeSelection(input: RuntimeSpawnerInput, payload: JsonObject): Promise<void> {
+  // A resumed dispatch carries its own model and instance in the recorded stream header; do not
+  // re-resolve it from the current declaration before the resume admission reads that header.
+  if (typeof payload.dispatchId === "string" || typeof payload.providerSessionId === "string") return;
+  const runtimeInstanceId =
+      typeof payload.runtimeInstanceId === "string"
+        ? requiredRuntimeSpawnText(payload.runtimeInstanceId, "runtimeInstanceId")
+        : undefined,
+    agentId =
+      typeof payload.agentId === "string" && payload.squadId === undefined && payload.targetAgentId === undefined
+        ? payload.agentId
+        : undefined,
+    taskId = typeof payload.taskId === "string" ? payload.taskId : null,
+    verticalId =
+      agentId !== undefined && input.resolveAgent !== undefined && taskId !== null && !input.remote && input.projection
+        ? requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot.task?.metadata
+            ?.verticalId
+        : undefined,
+    agent = agentId === undefined ? null : (input.resolveAgent?.(agentId, verticalId) ?? null),
+    requested = runtimeInstanceId ?? agent?.instance;
+  if (requested === undefined) return;
+  const projection = input.remote ? null : requiredRuntimeProjection(input),
+    [sessions, instances, allowedInstanceIds, health] = await resolveRuntimeDispatchResources(
+      input,
+      input.remote,
+      projection,
+    );
+  resolveRuntimeInstanceCandidates({
+    ...(requested === undefined ? {} : { requested }),
+    ...(runtimeInstanceId === undefined ? {} : { explicitlyRequested: true }),
+    ...(typeof payload.providerSessionId === "string" ? { providerSessionId: payload.providerSessionId } : {}),
+    agent,
+    ...(typeof payload.model === "string" ? { model: payload.model } : {}),
+    ...(typeof payload.runtimeKind === "string" ? { runtimeKind: payload.runtimeKind } : {}),
+    instances,
+    allowedInstanceIds,
+    sessions,
+    health,
+    now: input.now(),
+  });
+}
+
 export async function prepareDispatchWorktree(
   input: {
     readonly rootDir: string;

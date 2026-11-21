@@ -3,9 +3,20 @@ import {
   type SettingsFieldDeclaration,
 } from "@harness-anything/kernel/internal/domain/settings-field-declarations.ts";
 import { randomUUID } from "node:crypto";
-import type { ActiveRuntime, ResumeProcessObservation, RuntimeProcessObservation } from "./runtime-spawn-types.ts";
+import type {
+  ActiveRuntime,
+  ResumeProcessObservation,
+  RuntimeBinding,
+  RuntimeProcessObservation,
+} from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { appendRuntimeWorkerRecord, type DispatchStallEvidence } from "./dispatch-stream.ts";
+import {
+  markSteerReceiptAcked,
+  readPendingSteerReceipts,
+  recordPendingSteerReceipt,
+  steerReceiptOpId,
+} from "./dispatch-steer-state.ts";
 import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, type DispatchLifecycleView } from "@harness-anything/kernel";
 import { dispatchLifecyclePendingError, readDispatchLifecycle } from "./runtime-dispatch-admission.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
@@ -91,6 +102,7 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
       : lastProgressAtMs;
   return {
     ...base,
+    steerReceiptCapable: base.steerReceiptCapable ?? true,
     releaseAuthorization: base.binding.retainAuthorization?.(),
     stallTimeoutMs,
     fallbackAttempt: base.fallbackAttempt ?? null,
@@ -436,5 +448,78 @@ export function attachActiveRuntime(
     active.process.onErrorOutput(handlers.error);
     active.process.onExit(handlers.exit);
   }
+  active.process.onSteerOutcome?.((outcome) => {
+    recordPendingSteerReceipt(
+      context.input.rootDir,
+      active.dispatchId,
+      context.input.repoId,
+      runtimeSessionId,
+      outcome,
+    );
+    if (context.closed?.()) return;
+    // F13: Never queue receipt uplink RPCs on the control workQueue; wake the dedicated
+    // non-blocking receipt pump (or detached async flush when standalone).
+    if (context.triggerSteerReceiptFlush) {
+      context.triggerSteerReceiptFlush();
+      return;
+    }
+    void flushPendingSteerReceipts(context, active.dispatchId, runtimeSessionId, active.binding).catch(
+      (error: unknown) => console.error("[runtime-steer-receipts] background flush deferred:", error),
+    );
+  });
   if (active.stalledAt !== null) context.input.schedule(() => settleStalledRuntime(context, active), active.binding);
+}
+
+const permanentSteerReceiptRejectionCodes = new Set([
+  "invalid_control_receipt",
+  "control_receipt_conflict",
+  "control_request_not_found",
+  "execution_scope_mismatch",
+  "execution_credential_rejected",
+]);
+
+/** Durably publish all unacknowledged steer control receipts for a dispatch, clearing each only after Center ACKs. */
+export async function flushPendingSteerReceipts(
+  context: RuntimeSpawnerContext,
+  dispatchId: string,
+  runtimeSessionId: string,
+  binding: RuntimeBinding,
+): Promise<void> {
+  const pending = readPendingSteerReceipts(context.input.rootDir, dispatchId);
+  for (const outcome of pending) {
+    const receiptOpId = steerReceiptOpId(context.input.repoId, runtimeSessionId, outcome.requestOpId);
+    try {
+      await context.publishRuntimeEvent(
+        "runtime_session_liveness_changed",
+        {
+          runtimeSessionId,
+          liveness: "unknown",
+          controlReceipt: {
+            action: "steer",
+            controlRequestId: outcome.controlRequestId,
+            requestOpId: outcome.requestOpId,
+            status: outcome.status,
+            dispatchId,
+            ...(outcome.steerVersion !== undefined ? { steerVersion: outcome.steerVersion } : {}),
+            ...(outcome.reasonCode ? { reasonCode: outcome.reasonCode } : {}),
+            ...(outcome.message ? { message: outcome.message } : {}),
+          },
+        },
+        receiptOpId,
+        binding,
+      );
+      markSteerReceiptAcked(context.input.rootDir, dispatchId, context.input.repoId, runtimeSessionId, receiptOpId);
+    } catch (error) {
+      const code =
+        typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+          ? error.code
+          : null;
+      if (code !== null && permanentSteerReceiptRejectionCodes.has(code)) {
+        markSteerReceiptAcked(context.input.rootDir, dispatchId, context.input.repoId, runtimeSessionId, receiptOpId);
+        console.error(`[runtime-steer-receipts] permanently rejected receipt ${receiptOpId} (${code}):`, error);
+        continue;
+      }
+      throw error;
+    }
+  }
 }

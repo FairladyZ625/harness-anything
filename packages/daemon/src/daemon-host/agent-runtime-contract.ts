@@ -33,6 +33,7 @@ import type {
   ActorIdentity,
   AgentDefinitionSnapshot,
   AgentRuntimeEventV1,
+  RuntimeControlReceiptStatus,
   RuntimeInstallationState,
   RuntimeSessionSemanticState,
 } from "@harness-anything/kernel";
@@ -185,6 +186,17 @@ export interface AgentRuntimeSessionContextDto {
   readonly usedTokens: number;
   readonly windowTokens: number;
 }
+export interface AgentRuntimeControlReceiptDto {
+  readonly action: "steer";
+  readonly controlRequestId: string;
+  readonly requestOpId: string;
+  readonly status: RuntimeControlReceiptStatus;
+  readonly dispatchId?: string;
+  readonly steerVersion?: number;
+  readonly reasonCode?: string;
+  readonly message?: string;
+  readonly occurredAt: string;
+}
 export interface AgentRuntimeSessionDto {
   /** Absent only on previous-version peers; remove optionality 2026-12-07. */
   readonly lifecycle?: DispatchLifecycleSummary;
@@ -220,6 +232,7 @@ export interface AgentRuntimeSessionDto {
   readonly streamCursor: string | null;
   readonly associations: readonly AgentRuntimeAssociationDto[];
   readonly attemptChain?: AgentRuntimeAttemptChainDto;
+  readonly controlReceipts?: readonly AgentRuntimeControlReceiptDto[];
   readonly activity: {
     readonly lastObservedAt: string;
     readonly outcome: DispatchAttemptOutcome | null;
@@ -266,12 +279,18 @@ export interface AgentRuntimeSettlement {
   readonly code: string | null;
   readonly reason: string | null;
 }
+export interface AgentRuntimeControlReceiptsPageDto {
+  readonly cursor: string | null;
+  readonly nextCursor: string | null;
+  readonly hasMore: boolean;
+}
 export type AgentRuntimeSessionResult = {
   readonly ok: true;
   readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
   readonly session: AgentRuntimeSessionDto;
   readonly result: { readonly ref: string; readonly text: string } | null;
   readonly settlement: AgentRuntimeSettlement | null;
+  readonly controlReceiptsPage?: AgentRuntimeControlReceiptsPageDto;
   readonly watermark: number;
   readonly sourceRevision: number;
 };
@@ -405,15 +424,11 @@ export function validateAgentRuntimeOverview(value: unknown): readonly string[] 
 }
 export function validateAgentRuntimeSession(value: unknown): readonly string[] {
   return isAgentRuntimeContractRecord(value) &&
-    hasExactAgentRuntimeContractFields(value, [
-      "ok",
-      "status",
-      "session",
-      "result",
-      "settlement",
-      "watermark",
-      "sourceRevision",
-    ]) &&
+    hasAgentRuntimeContractFields(
+      value,
+      ["ok", "status", "session", "result", "settlement", "watermark", "sourceRevision"],
+      ["controlReceiptsPage"],
+    ) &&
     value.ok === true &&
     ["ready", "pending"].includes(String(value.status)) &&
     validSession(value.session) &&
@@ -423,11 +438,21 @@ export function validateAgentRuntimeSession(value: unknown): readonly string[] {
         typeof value.result.ref === "string" &&
         typeof value.result.text === "string")) &&
     validSettlement(value.settlement) &&
+    (value.controlReceiptsPage === undefined || validControlReceiptsPage(value.controlReceiptsPage)) &&
     Number.isInteger(value.watermark) &&
     Number.isInteger(value.sourceRevision) &&
     safeKeys(value)
     ? []
     : ["agent runtime session is invalid"];
+}
+function validControlReceiptsPage(value: unknown): value is AgentRuntimeControlReceiptsPageDto {
+  return (
+    isAgentRuntimeContractRecord(value) &&
+    hasExactAgentRuntimeContractFields(value, ["cursor", "nextCursor", "hasMore"]) &&
+    (value.cursor === null || /^receipt:\d+$/u.test(String(value.cursor))) &&
+    (value.nextCursor === null || /^receipt:\d+$/u.test(String(value.nextCursor))) &&
+    typeof value.hasMore === "boolean"
+  );
 }
 export function validateAgentRuntimeEvents(value: unknown): readonly string[] {
   return isAgentRuntimeContractRecord(value) &&
@@ -646,6 +671,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
         "effectivePermissionMode",
         "requestedPermissionMode",
         "permissionModeSource",
+        "controlReceipts",
       ],
     ) &&
     typeof value.runtimeSessionId === "string" &&
@@ -676,6 +702,8 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
     Array.isArray(value.associations) &&
     value.associations.every(validAssociation) &&
     (value.attemptChain === undefined || validAgentRuntimeAttemptChain(value.attemptChain)) &&
+    (value.controlReceipts === undefined ||
+      (Array.isArray(value.controlReceipts) && value.controlReceipts.every(validControlReceipt))) &&
     isAgentRuntimeContractRecord(value.activity) &&
     hasAgentRuntimeContractFields(
       value.activity,
@@ -694,6 +722,30 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
       (typeof value.activity.reasonCode === "string" && value.activity.reasonCode.length > 0)) &&
     (value.activity.cancelledBy === undefined || validCancellationActor(value.activity.cancelledBy)) &&
     (value.activity.providerUnreachable === undefined || validProviderUnreachable(value.activity.providerUnreachable))
+  );
+}
+
+function validControlReceipt(value: unknown): value is AgentRuntimeControlReceiptDto {
+  return (
+    isAgentRuntimeContractRecord(value) &&
+    hasAgentRuntimeContractFields(
+      value,
+      ["action", "controlRequestId", "requestOpId", "status", "occurredAt"],
+      ["dispatchId", "steerVersion", "reasonCode", "message"],
+    ) &&
+    value.action === "steer" &&
+    typeof value.controlRequestId === "string" &&
+    value.controlRequestId.length > 0 &&
+    typeof value.requestOpId === "string" &&
+    value.requestOpId.length > 0 &&
+    (value.status === "applied" || value.status === "rejected") &&
+    typeof value.occurredAt === "string" &&
+    value.occurredAt.length > 0 &&
+    (value.dispatchId === undefined || (typeof value.dispatchId === "string" && value.dispatchId.length > 0)) &&
+    (value.steerVersion === undefined ||
+      (Number.isSafeInteger(value.steerVersion) && Number(value.steerVersion) >= 0)) &&
+    (value.reasonCode === undefined || (typeof value.reasonCode === "string" && value.reasonCode.length > 0)) &&
+    (value.message === undefined || (typeof value.message === "string" && value.message.length > 0))
   );
 }
 

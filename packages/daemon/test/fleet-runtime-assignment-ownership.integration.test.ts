@@ -219,9 +219,19 @@ for (const distinctNode of [false, true])
         assert.deepEqual(counts.get(fixture.subject.taskId), { archive: 0, terminal: 0 }, JSON.stringify(sequence));
         assert.equal(existsSync(relay), true, "opening another subject preserves the owner's callback");
         if (distinctNode) {
-          await assert.rejects(other.run("repo.agentRuntime.cancel", { runtimeSessionId: a.runtimeSessionId }), {
-            code: "execution_scope_mismatch",
+          await assert.rejects(
+            other.run("repo.agentRuntime.cancel", {
+              runtimeSessionId: a.runtimeSessionId,
+              ruling: "foreign node cannot issue local owner ruling",
+            }),
+            { code: "execution_scope_mismatch" },
+          );
+          const remoteCancel = await other.run("repo.agentRuntime.cancel", {
+            runtimeSessionId: a.runtimeSessionId,
           });
+          assert.equal(remoteCancel.ok, true, JSON.stringify(remoteCancel));
+          assert.equal(remoteCancel.detail, "cancel_requested", JSON.stringify(remoteCancel));
+          assert.equal(remoteCancel.targetNodeId, fixture.subject.nodeId, JSON.stringify(remoteCancel));
           assert.deepEqual(
             counts.get(fixture.subject.taskId),
             { archive: 0, terminal: 0 },
