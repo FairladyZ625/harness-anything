@@ -313,6 +313,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       const base = {
         actor: { principal: { personId: replicaPrincipal.personId }, executor: null },
         source: { kind: "node" as const, nodeId: replicaPrincipal.nodeId },
+        fleetReplicaPrincipal: replicaPrincipal,
         keycloakAuthorization: {
           center: keycloakCenter,
           fleetReplicaPrincipal: replicaPrincipal,
