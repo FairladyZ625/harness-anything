@@ -475,6 +475,7 @@ test(
 
     // Part 1 (F13): Intercept Center `runtimeIngress` so session1's steer controlReceipt RPC HANGS on a gate!
     const origRuntimeIngress = f.host.runtimeIngress.bind(f.host);
+    const origSteerRuntime = f.host.steerRuntime.bind(f.host);
     let receipt1ArrivedResolve!: () => void;
     const receipt1Arrived = new Promise<void>((resolve) => {
       receipt1ArrivedResolve = resolve;
@@ -518,14 +519,11 @@ test(
         await hungReceipt1Gate;
         receipt1StillHung = false;
       }
-      const receipt = await origRuntimeIngress(targetRepoId, action, auth);
-      const controlRequest =
-        action.kind === "event" &&
-        typeof action.payload.controlRequest === "object" &&
-        action.payload.controlRequest !== null
-          ? (action.payload.controlRequest as Record<string, unknown>)
-          : null;
-      if (controlRequest?.controlRequestId === lostRespKey) {
+      return origRuntimeIngress(targetRepoId, action, auth);
+    };
+    (f.host as { steerRuntime: typeof f.host.steerRuntime }).steerRuntime = async (targetRepoId, action, auth) => {
+      const receipt = await origSteerRuntime(targetRepoId, action, auth);
+      if (action.idempotencyKey === lostRespKey) {
         controlRequestCount += 1;
         if (controlRequestCount === 1) {
           firstControlRequestReceipt = receipt;
@@ -543,6 +541,7 @@ test(
       releaseHungReceipt1();
       releaseLostFirstResponse();
       (f.host as { runtimeIngress: typeof f.host.runtimeIngress }).runtimeIngress = origRuntimeIngress;
+      (f.host as { steerRuntime: typeof f.host.steerRuntime }).steerRuntime = origSteerRuntime;
     });
 
     // Steer session1 -> Edge A applies steer -> background receipt pump hits our hung Center gate!
@@ -554,6 +553,7 @@ test(
     assert.equal(steer1.outcome, "applied", JSON.stringify(steer1));
     await receipt1Arrived;
     assert.equal(receipt1StillHung, true, "session1 receipt RPC must be actively hung on Center");
+    t.diagnostic("F13: session 1 receipt RPC is gated");
 
     // While session1's receipt RPC is actively HUNG, cancel session2 and prove it settles structurally!
     const cancel2 = await f.host.cancelRuntime(
@@ -568,6 +568,7 @@ test(
       { ...localAuth, connectionSignal: AbortSignal.timeout(25_000) },
     );
     assert.equal(receipt1StillHung, true, "session2 cancelled while session1 receipt RPC was STILL hung!");
+    t.diagnostic("F13: session 2 cancelled while session 1 receipt RPC remains gated");
 
     // Release session1's hung receipt gate and confirm session1's applied receipt lands cleanly!
     releaseHungReceipt1();
@@ -584,6 +585,7 @@ test(
         ),
       );
     });
+    t.diagnostic("F13: session 1 receipt is durable");
 
     // Part 2 (F6): Real CLI lost-first-Center-response retry while Edge B's replica lags behind `persistedRev`!
     // Route Edge B through a transparent local TCP pass-through proxy to Center so we can pause ONLY Edge B's
@@ -746,41 +748,57 @@ test(
       return { promise, isSettled: () => settled };
     };
 
-    // The first real CLI call commits at Center; hold its response until the proxy drops the TLS socket.
+    // The real CLI call commits at Center; drop its first TLS response so the edge write retry reuses the opId.
     const firstCli = runSteerCli();
+    t.diagnostic("F6: real CLI started");
     const firstCliSocket = await firstCliConnection;
+    t.diagnostic("F6: initial Center connection captured");
     await firstControlRequestCommitted;
+    t.diagnostic("F6: initial Center request committed");
     assert.equal(firstControlRequestReceipt?.outcome, "applied");
     const persistedRev = Number(firstControlRequestReceipt?.revision);
     assert.ok(Number.isSafeInteger(persistedRev) && persistedRev > staleReadBeforeCli.watermark);
     firstCliSocket.destroy();
     releaseLostFirstResponse();
-    const lostResponseResult = await firstCli.promise;
-    assert.notEqual(lostResponseResult.code, 0, JSON.stringify(lostResponseResult));
-    assert.equal(controlRequestCount, 1, "the Center committed the first CLI attempt before losing its response");
+    t.diagnostic("F6: initial Center response dropped; awaiting transport retry");
 
-    // Retry through the real CLI with the same idempotency key; its Center response must arrive before catch-up.
-    const retryCli = runSteerCli();
+    // The same real CLI invocation retries the Center write with the same idempotency key.
     const retrySocket = await retryCliConnection;
     await retryControlRequestCommitted;
+    t.diagnostic("F6: Center resolved transport retry");
     assert.ok(retryControlRequestReceipt, "the retry must reach Center and resolve the existing request");
     await retryResponseReceived;
+    t.diagnostic("F6: retried Center response received before replica catch-up");
     await new Promise<void>((resolve) => setImmediate(resolve));
     assert.equal(
-      retryCli.isSettled(),
+      firstCli.isSettled(),
       false,
-      "F6: the real CLI retry must remain pending after Center responds while Edge-B replication is paused",
+      "F6: the real CLI must remain pending after Center responds while Edge-B replication is paused",
     );
     assert.ok(retrySocket.destroyed === false);
 
-    // Resume Edge-B's resident replication stream -> CLI must resolve immediately with no_changes and revision === persistedRev!
+    // Resume Edge-B's resident replication stream -> CLI resolves with no_changes and revision === persistedRev.
     for (const sock of pausedUpstreams) sock.resume();
-    const cliResult = await retryCli.promise;
+    const cliResult = await firstCli.promise;
+    t.diagnostic("F6: real CLI settled after replica catch-up");
     assert.equal(cliResult.code, 0, JSON.stringify(cliResult));
     const cliReceipt = JSON.parse(cliResult.stdout.trim()) as Record<string, unknown>;
     assert.equal(cliReceipt.outcome, "no_changes", JSON.stringify(cliReceipt));
     assert.equal(cliReceipt.revision, persistedRev);
     assert.equal(controlRequestCount, 2, "the retry must reuse the same Center request without another write");
+    await waitForDurableCondition(async () => {
+      const read = await f.host.read(
+        repoId,
+        "repo.agentRuntime.sessions.read",
+        { runtimeSessionId: session1, includeControlReceipts: true },
+        localAuth,
+      );
+      return Boolean(
+        read.session?.controlReceipts?.some(
+          (receipt) => receipt.controlRequestId === lostRespKey && receipt.status === "applied",
+        ),
+      );
+    });
     const readAfterCli = await pausedEdgeB.host.read(
       repoId,
       "repo.agentRuntime.sessions.read",
