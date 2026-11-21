@@ -597,7 +597,7 @@ export async function runManifestGatePlanParallel(
     const inheritedCap = process.env.HARNESS_AUTH_AUDIT_CONCURRENCY;
     const poolCap = authorizationGateConcurrencyForPool(cpuCount, workerCount);
     const concurrencyCap = inheritedCap === undefined ? poolCap : Math.min(Number(inheritedCap), poolCap);
-    plan = plan.map((entry, index) =>
+    plan = plan.map((entry) =>
       entry.id === authorizationEntry.id ? { ...entry, authorizationAuditConcurrency: concurrencyCap } : entry,
     );
   }
