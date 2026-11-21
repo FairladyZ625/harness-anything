@@ -1198,159 +1198,158 @@ if (!isMainThread) {
   test(
     "F7: PostgreSQL sparse observe.tail history traverses >64-revision filtered gaps and follow advances over filtered tails",
     { timeout: 120_000 },
-    async (t) => {
+    async () => {
       const pgFixture = await pgRuntimeFixture();
-      t.after(() => pgFixture.close());
       const rootDir = mkdtempSync(path.join(tmpdir(), "ha-pg-sparse-observe-"));
-      t.after(() => rmSync(rootDir, { recursive: true, force: true }));
-      initRepo(rootDir);
-      const repoId = "repo_pg_sparse_observe",
-        visibleReader = "reader:visible",
-        hiddenReader = "reader:hidden",
-        fence = { repoId, holderId: "sparse-writer", epoch: 1 },
-        scope = {
-          tenantId: "tenant_sparse",
-          projectId: "project_sparse",
-          policyEpoch: 1,
-          readers: [visibleReader],
-        },
-        backend = createPgStorageBackend({
-          pool: pgFixture.pool,
-          scope,
-          repoId,
-        });
-
-      const baseEvents = [],
-        blobs = new Map(),
-        eventReaders = new Map();
-      let rev = 0;
-      const makeFactBundle = (index) => {
-        rev += 1;
-        const draft = fact(rev),
-          occurredAt = `2026-11-10T00:${String(Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}.000Z`,
-          compiled = compileFactWrite({
-            event: {
-              ...draft,
-              factId: `F-${String(index).padStart(8, "0")}`,
-              opId: `op-sparse-fact-${rev}`,
-              eventId: `ev-sparse-fact-${rev}`,
-              occurredAt,
-              payload: {
-                ...draft.payload,
-                statement: `sparse-visible-${index}`,
-                evidenceSource: "sparse-test",
-              },
-            },
-          });
-        for (const blob of compiled.blobs) blobs.set(blob.sha256, Buffer.from(blob.body));
-        return compiled;
-      };
-      const pushFact = (index, readers) => {
-        const compiled = makeFactBundle(index);
-        baseEvents.push(compiled.event);
-        eventReaders.set(compiled.event.workspaceRevision, readers);
-        return compiled.event;
-      };
-      const retiredTemplate = retiredCiQueryFixtures()[0];
-      const pushRetiredCi = () => {
-        rev += 1;
-        const retired = {
-          ...retiredTemplate,
-          workspaceRevision: rev,
-          opId: `op-sparse-ci-${rev}`,
-          eventId: `ev-sparse-ci-${rev}`,
-          occurredAt: `2026-11-10T01:${String(Math.floor(rev / 60)).padStart(2, "0")}:${String(rev % 60).padStart(2, "0")}.000Z`,
-        };
-        baseEvents.push(retired);
-        eventReaders.set(rev, [visibleReader]);
-        return retired;
-      };
-
-      const expectedVisibleRevisions = [];
-      // 1. Seed the first visible event through eventStore.append so ha_repo_heads and
-      // ha_projection_meta are initialized by the production PG path.
-      const firstBundle = makeFactBundle(1);
-      await backend.eventStore.append(firstBundle, 0, fence);
-      baseEvents.push(firstBundle.event);
-      eventReaders.set(firstBundle.event.workspaceRevision, [visibleReader]);
-      expectedVisibleRevisions.push(firstBundle.event.workspaceRevision);
-      for (let i = 2; i <= 3; i += 1) {
-        expectedVisibleRevisions.push(pushFact(i, [visibleReader]).workspaceRevision);
-      }
-      // 2. 76-revision blank interval (38 retired ci_run_observed + 38 RLS-hidden rows).
-      for (let i = 0; i < 38; i += 1) {
-        pushRetiredCi();
-        pushFact(100 + i, [hiddenReader]);
-      }
-      // 3. 65 visible events after the blank interval (forces multi-page history > pageSize=64).
-      for (let i = 1; i <= 65; i += 1) {
-        expectedVisibleRevisions.push(pushFact(200 + i, [visibleReader]).workspaceRevision);
-      }
-      // 4. 10 trailing filtered rows (5 ci_run_observed + 5 RLS-hidden) so head > last visible revision.
-      for (let i = 0; i < 5; i += 1) {
-        pushRetiredCi();
-        pushFact(400 + i, [hiddenReader]);
-      }
-      const headRev = rev,
-        lastVisibleRev = expectedVisibleRevisions.at(-1);
-      assert.ok(headRev > lastVisibleRev, "head revision must advance past last visible revision");
-
-      await withPostgresTransaction(
-        pgFixture.pool,
-        async (client) => {
-          for (const [sha, bytes] of blobs) {
-            await client.query(
-              `INSERT INTO ha_content_blobs (tenant_id,project_id,sha256,size,body,readers,policy_epoch)
-               VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (tenant_id,project_id,sha256) DO NOTHING`,
-              [
-                scope.tenantId,
-                scope.projectId,
-                sha,
-                bytes.byteLength,
-                bytes,
-                [visibleReader, hiddenReader],
-                scope.policyEpoch,
-              ],
-            );
-          }
-          for (const raw of baseEvents.slice(1)) {
-            const body = serializeCanonicalEventUnchecked(raw).trimEnd();
-            await client.query(
-              `INSERT INTO ha_events(tenant_id,project_id,repo_id,revision,op_id,event_id,event_type,event_json,event_digest,occurred_at,policy_epoch,readers,entity_refs,actor_refs)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-              [
-                scope.tenantId,
-                scope.projectId,
-                repoId,
-                raw.workspaceRevision,
-                raw.opId,
-                raw.eventId,
-                raw.type,
-                body,
-                `sha256:${sha256Text(body)}`,
-                raw.occurredAt,
-                scope.policyEpoch,
-                eventReaders.get(raw.workspaceRevision),
-                canonicalEventEntityRefs(raw),
-                [raw.actor.principal.personId, ...(raw.actor.executor ? [raw.actor.executor.id] : [])],
-              ],
-            );
-          }
-          await client.query(
-            "UPDATE ha_repo_heads SET revision=$5, head_op_id=$6 WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4",
-            [scope.tenantId, scope.projectId, scope.policyEpoch, repoId, headRev, baseEvents.at(-1).opId],
-          );
-          await rebuildPgProjection(client, scope, {
-            events: baseEvents,
-            sourceRevision: headRev,
-            readContentBlob: (sha) => blobs.get(sha) ?? null,
-          });
-        },
-        { ...scope, readers: [visibleReader, hiddenReader] },
-      );
-
-      const pgReader = createPgTaskQueryReader({ connectionString: pgFixture.connectionString, scope, repoId });
+      let pgReader;
       try {
+        initRepo(rootDir);
+        const repoId = "repo_pg_sparse_observe",
+          visibleReader = "reader:visible",
+          hiddenReader = "reader:hidden",
+          fence = { repoId, holderId: "sparse-writer", epoch: 1 },
+          scope = {
+            tenantId: "tenant_sparse",
+            projectId: "project_sparse",
+            policyEpoch: 1,
+            readers: [visibleReader],
+          },
+          backend = createPgStorageBackend({
+            pool: pgFixture.pool,
+            scope,
+            repoId,
+          });
+
+        const baseEvents = [],
+          blobs = new Map(),
+          eventReaders = new Map();
+        let rev = 0;
+        const makeFactBundle = (index) => {
+          rev += 1;
+          const draft = fact(rev),
+            occurredAt = `2026-11-10T00:${String(Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}.000Z`,
+            compiled = compileFactWrite({
+              event: {
+                ...draft,
+                factId: `F-${String(index).padStart(8, "0")}`,
+                opId: `op-sparse-fact-${rev}`,
+                eventId: `ev-sparse-fact-${rev}`,
+                occurredAt,
+                payload: {
+                  ...draft.payload,
+                  statement: `sparse-visible-${index}`,
+                  evidenceSource: "sparse-test",
+                },
+              },
+            });
+          for (const blob of compiled.blobs) blobs.set(blob.sha256, Buffer.from(blob.body));
+          return compiled;
+        };
+        const pushFact = (index, readers) => {
+          const compiled = makeFactBundle(index);
+          baseEvents.push(compiled.event);
+          eventReaders.set(compiled.event.workspaceRevision, readers);
+          return compiled.event;
+        };
+        const retiredTemplate = retiredCiQueryFixtures()[0];
+        const pushRetiredCi = () => {
+          rev += 1;
+          const retired = {
+            ...retiredTemplate,
+            workspaceRevision: rev,
+            opId: `op-sparse-ci-${rev}`,
+            eventId: `ev-sparse-ci-${rev}`,
+            occurredAt: `2026-11-10T01:${String(Math.floor(rev / 60)).padStart(2, "0")}:${String(rev % 60).padStart(2, "0")}.000Z`,
+          };
+          baseEvents.push(retired);
+          eventReaders.set(rev, [visibleReader]);
+          return retired;
+        };
+
+        const expectedVisibleRevisions = [];
+        // 1. Seed the first visible event through eventStore.append so ha_repo_heads and
+        // ha_projection_meta are initialized by the production PG path.
+        const firstBundle = makeFactBundle(1);
+        await backend.eventStore.append(firstBundle, 0, fence);
+        baseEvents.push(firstBundle.event);
+        eventReaders.set(firstBundle.event.workspaceRevision, [visibleReader]);
+        expectedVisibleRevisions.push(firstBundle.event.workspaceRevision);
+        for (let i = 2; i <= 3; i += 1) {
+          expectedVisibleRevisions.push(pushFact(i, [visibleReader]).workspaceRevision);
+        }
+        // 2. 76-revision blank interval (38 retired ci_run_observed + 38 RLS-hidden rows).
+        for (let i = 0; i < 38; i += 1) {
+          pushRetiredCi();
+          pushFact(100 + i, [hiddenReader]);
+        }
+        // 3. 65 visible events after the blank interval (forces multi-page history > pageSize=64).
+        for (let i = 1; i <= 65; i += 1) {
+          expectedVisibleRevisions.push(pushFact(200 + i, [visibleReader]).workspaceRevision);
+        }
+        // 4. 10 trailing filtered rows (5 ci_run_observed + 5 RLS-hidden) so head > last visible revision.
+        for (let i = 0; i < 5; i += 1) {
+          pushRetiredCi();
+          pushFact(400 + i, [hiddenReader]);
+        }
+        const headRev = rev,
+          lastVisibleRev = expectedVisibleRevisions.at(-1);
+        assert.ok(headRev > lastVisibleRev, "head revision must advance past last visible revision");
+
+        await withPostgresTransaction(
+          pgFixture.pool,
+          async (client) => {
+            for (const [sha, bytes] of blobs) {
+              await client.query(
+                `INSERT INTO ha_content_blobs (tenant_id,project_id,sha256,size,body,readers,policy_epoch)
+               VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (tenant_id,project_id,sha256) DO NOTHING`,
+                [
+                  scope.tenantId,
+                  scope.projectId,
+                  sha,
+                  bytes.byteLength,
+                  bytes,
+                  [visibleReader, hiddenReader],
+                  scope.policyEpoch,
+                ],
+              );
+            }
+            for (const raw of baseEvents.slice(1)) {
+              const body = serializeCanonicalEventUnchecked(raw).trimEnd();
+              await client.query(
+                `INSERT INTO ha_events(tenant_id,project_id,repo_id,revision,op_id,event_id,event_type,event_json,event_digest,occurred_at,policy_epoch,readers,entity_refs,actor_refs)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+                [
+                  scope.tenantId,
+                  scope.projectId,
+                  repoId,
+                  raw.workspaceRevision,
+                  raw.opId,
+                  raw.eventId,
+                  raw.type,
+                  body,
+                  `sha256:${sha256Text(body)}`,
+                  raw.occurredAt,
+                  scope.policyEpoch,
+                  eventReaders.get(raw.workspaceRevision),
+                  canonicalEventEntityRefs(raw),
+                  [raw.actor.principal.personId, ...(raw.actor.executor ? [raw.actor.executor.id] : [])],
+                ],
+              );
+            }
+            await client.query(
+              "UPDATE ha_repo_heads SET revision=$5, head_op_id=$6 WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4",
+              [scope.tenantId, scope.projectId, scope.policyEpoch, repoId, headRev, baseEvents.at(-1).opId],
+            );
+            await rebuildPgProjection(client, scope, {
+              events: baseEvents,
+              sourceRevision: headRev,
+              readContentBlob: (sha) => blobs.get(sha) ?? null,
+            });
+          },
+          { ...scope, readers: [visibleReader, hiddenReader] },
+        );
+
+        pgReader = createPgTaskQueryReader({ connectionString: pgFixture.connectionString, scope, repoId });
         pgReader.withSession((pgQueries) => {
           // History pagination must cross the 76-revision filtered gap and recover all 68 visible events.
           const page1 = readObserveEventTail({
@@ -1489,7 +1488,10 @@ if (!isMainThread) {
           assert.equal(nextFollow.done, true);
         });
       } finally {
-        pgReader.close();
+        pgReader?.close();
+        await pgFixture.pool.end();
+        await pgFixture.close();
+        rmSync(rootDir, { recursive: true, force: true });
       }
     },
   );
