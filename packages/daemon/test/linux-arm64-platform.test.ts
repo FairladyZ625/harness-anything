@@ -77,7 +77,7 @@ for (const operation of ["bootstrap", "upgrade"] as const) {
         const message = error instanceof Error ? error.message : String(error);
         assert.match(message, /linux-arm64/u);
         assert.match(message, /ha bootstrap --mode external/u);
-        assert.match(message, /--client-secret-stdin/u);
+        assert.match(message, /--client-secret-stdin < /u);
         return true;
       });
       assert.equal(fetches, 0, "unsupported platform must fail before issuing any download request");
@@ -139,28 +139,109 @@ test("node:sqlite DatabaseSync round-trips rows on the active architecture", () 
   }
 });
 
-test("package-lock.json provides linux-arm64 counterparts for every linux-x64 optional native package family", () => {
-  const lock = JSON.parse(readFileSync(path.join(repoRoot, "package-lock.json"), "utf8")) as {
-    readonly packages?: Readonly<
-      Record<string, { readonly os?: readonly string[]; readonly cpu?: readonly string[]; readonly optional?: boolean }>
-    >;
-  };
-  const families = new Map<string, Set<string>>();
-  for (const [pkgPath, meta] of Object.entries(lock.packages ?? {})) {
-    if (!meta.os && !meta.cpu) continue;
-    if (meta.os && !meta.os.includes("linux")) continue;
-    const family = pkgPath.replace(/(?:linux|darwin|win32|freebsd|android|openharmony|sunos|netbsd|openbsd).*/u, "");
-    const cpus = families.get(family) ?? new Set<string>();
-    for (const cpu of meta.cpu ?? ["any"]) cpus.add(cpu);
-    families.set(family, cpus);
+interface LockfilePackageMeta {
+  readonly os?: readonly string[];
+  readonly cpu?: readonly string[];
+  readonly libc?: readonly string[];
+  readonly optional?: boolean;
+  readonly optionalDependencies?: Readonly<Record<string, string>>;
+}
+
+interface PackageLockDocument {
+  readonly packages?: Readonly<Record<string, LockfilePackageMeta>>;
+}
+
+function resolveLockfilePackage(
+  packages: Readonly<Record<string, LockfilePackageMeta>>,
+  parentPath: string,
+  dependencyName: string,
+): { readonly key: string; readonly meta: LockfilePackageMeta } | undefined {
+  let cursor = parentPath;
+  while (cursor.length > 0) {
+    const candidate = `${cursor}/node_modules/${dependencyName}`;
+    if (packages[candidate]) return { key: candidate, meta: packages[candidate] };
+    const idx = cursor.lastIndexOf("/node_modules/");
+    if (idx === -1) break;
+    cursor = cursor.slice(0, idx);
   }
-  assert.ok(families.size > 0, "expected linux optional native dependency families in package-lock.json");
-  const missingArm64 = [...families.entries()]
-    .filter(([, cpus]) => cpus.has("x64") && !cpus.has("arm64"))
-    .map(([family]) => family);
+  const topLevel = `node_modules/${dependencyName}`;
+  return packages[topLevel] ? { key: topLevel, meta: packages[topLevel] } : undefined;
+}
+
+function matchesLinuxTarget(meta: LockfilePackageMeta, cpu: "x64" | "arm64", libc: "glibc" | "musl"): boolean {
+  if (!meta.os?.includes("linux")) return false;
+  if (!meta.cpu?.includes(cpu)) return false;
+  return meta.libc === undefined || meta.libc.includes(libc);
+}
+
+function findMissingUbuntuArm64OptionalDeps(lock: PackageLockDocument): string[] {
+  const packages = lock.packages ?? {};
+  const missing: string[] = [];
+
+  for (const [parentPath, parentMeta] of Object.entries(packages)) {
+    const optDeps = Object.keys(parentMeta.optionalDependencies ?? {});
+    if (optDeps.length === 0) continue;
+    let hasUbuntuX64 = false;
+    let hasUbuntuArm64 = false;
+    for (const depName of optDeps) {
+      const resolved = resolveLockfilePackage(packages, parentPath, depName);
+      if (!resolved) continue;
+      if (matchesLinuxTarget(resolved.meta, "x64", "glibc")) hasUbuntuX64 = true;
+      if (matchesLinuxTarget(resolved.meta, "arm64", "glibc")) hasUbuntuArm64 = true;
+    }
+    if (hasUbuntuX64 && !hasUbuntuArm64) {
+      missing.push(`optionalDependencies:${parentPath} (missing linux-arm64 glibc)`);
+    }
+  }
+
+  const familiesByLibc = new Map<string, Set<string>>();
+  for (const [pkgPath, meta] of Object.entries(packages)) {
+    if (!meta.os?.includes("linux") || !meta.cpu) continue;
+    const family = pkgPath.replace(/(?:linux|darwin|win32|freebsd|android|openharmony|sunos|netbsd|openbsd).*/u, "");
+    const libcs = meta.libc && meta.libc.length > 0 ? meta.libc : ["any"];
+    for (const libc of libcs) {
+      const bucketKey = `${family} [libc=${libc}]`;
+      const cpus = familiesByLibc.get(bucketKey) ?? new Set<string>();
+      for (const cpu of meta.cpu) cpus.add(cpu);
+      familiesByLibc.set(bucketKey, cpus);
+    }
+  }
+  for (const [bucketKey, cpus] of familiesByLibc.entries()) {
+    if (cpus.has("x64") && !cpus.has("arm64")) {
+      missing.push(`lockfile:${bucketKey}`);
+    }
+  }
+
+  return missing.sort();
+}
+
+test("package-lock.json provides Ubuntu glibc linux-arm64 optionalDependencies without musl masking", () => {
+  const lock = JSON.parse(readFileSync(path.join(repoRoot, "package-lock.json"), "utf8")) as PackageLockDocument;
+  const packages = lock.packages ?? {};
+  assert.ok(
+    packages["node_modules/@napi-rs/canvas-linux-arm64-gnu"],
+    "expected @napi-rs/canvas-linux-arm64-gnu in package-lock.json",
+  );
+  assert.ok(
+    packages["node_modules/@napi-rs/canvas-linux-arm64-musl"],
+    "expected @napi-rs/canvas-linux-arm64-musl in package-lock.json",
+  );
+
+  const missing = findMissingUbuntuArm64OptionalDeps(lock);
   assert.deepEqual(
-    missingArm64,
+    missing,
     [],
-    `linux-x64 native package families missing linux-arm64: ${missingArm64.join(", ")}`,
+    `linux-x64 native packages missing linux-arm64 Ubuntu glibc/libc counterpart: ${missing.join(", ")}`,
+  );
+
+  // Negative control: removing the glibc ARM64 entry must fail even while the musl ARM64 entry stays present.
+  const withoutCanvasArm64Gnu = structuredClone(lock) as {
+    packages: Record<string, LockfilePackageMeta>;
+  };
+  delete withoutCanvasArm64Gnu.packages["node_modules/@napi-rs/canvas-linux-arm64-gnu"];
+  const missingAfterDelete = findMissingUbuntuArm64OptionalDeps(withoutCanvasArm64Gnu);
+  assert.ok(
+    missingAfterDelete.some((entry) => entry.includes("@napi-rs/canvas")),
+    `deleting @napi-rs/canvas-linux-arm64-gnu must be detected even with musl present; got ${JSON.stringify(missingAfterDelete)}`,
   );
 });

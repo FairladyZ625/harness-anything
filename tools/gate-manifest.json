@@ -5631,7 +5631,7 @@
       "command": "node tools/gates/linux-arm64-smoke.mjs --require-linux-arm64",
       "category": "smoke",
       "tier": "pr-advisory",
-      "tierReason": "G6 / HA-06 native linux-arm64 build, native addon (node-pty/node:sqlite), external OIDC, and daemon/CLI smoke runs on ubuntu-24.04-arm for pull requests and pushes; promotion to a branch-protection required context remains a separate CEO/owner ruleset decision.",
+      "tierReason": "G6 / HA-06 native linux-arm64 build, native addon (node-pty/node:sqlite), CLI/daemon tarball verification + isolated install, external OIDC, and center daemon + Fleet edge smoke runs on ubuntu-24.04-arm within a single 180s budget for pull requests and pushes; promotion to a branch-protection required context remains a separate CEO/owner ruleset decision.",
       "authoritySource": [
         "decision/dec_DBEC28020550D3F11A21C15FB4#CH2",
         "task_e63a0b595cc9db6de1e472bc9c",
@@ -5639,7 +5639,7 @@
         ".github/workflows/rewrite-ci.yml:jobs.linux-arm64-smoke"
       ],
       "consumerScope": [
-        "Native linux-arm64 (Node 24) build, node-pty and node:sqlite loading, external OIDC/Keycloak + daemon/CLI warm smoke, and ARM64 platform contract tests on ubuntu-24.04-arm"
+        "Native linux-arm64 (Node 24) build, node-pty and node:sqlite loading, CLI/daemon tarball verification + isolated consumer install, external OIDC + center daemon + Fleet edge smoke, and ARM64 platform contract tests on ubuntu-24.04-arm within 180s"
       ],
       "githubContext": {
         "requiredContexts": [],

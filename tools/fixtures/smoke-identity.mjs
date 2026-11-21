@@ -6,16 +6,17 @@ import { Worker } from "node:worker_threads";
 
 // Only the external identity provider is synthetic. Configuration, first administrator and
 // session persistence must all go through the installed CLI, never test-written daemon files.
-export async function smokeIdentity(root, repoId) {
+export async function smokeIdentity(root, repoId, options = {}) {
   const secret = randomBytes(24).toString("hex"),
     password = randomBytes(24).toString("hex");
   const worker = new Worker(new URL("./smoke-identity-provider.mjs", import.meta.url), {
-    workerData: { secret, password, repoId },
+    workerData: { secret, password, repoId, ...(options.tls ? { tls: options.tls } : {}) },
   });
   const [url] = await once(worker, "message");
   const passwordFile = path.join(root, "administrator-password");
   writeFileSync(passwordFile, password, { mode: 0o600 });
   return {
+    url,
     close: () => worker.terminate(),
     configure(userRoot) {
       const rbacRoot = path.join(userRoot, "rbac"),
@@ -25,6 +26,7 @@ export async function smokeIdentity(root, repoId) {
           url,
           realm: "harness",
           clientId: "harness-center",
+          ...(options.tls?.cert ? { certificate: options.tls.cert } : {}),
         };
       mkdirSync(rbacRoot, { recursive: true, mode: 0o700 });
       writeFileSync(path.join(rbacRoot, "config.json"), `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
