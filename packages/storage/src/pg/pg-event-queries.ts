@@ -180,7 +180,9 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
         if (limit !== undefined && !validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.standard))
           throw new Error("runtime session event read limit must be between 1 and 500");
         const requestOpId =
-            filter === "control_receipt" && typeof queryOptions?.requestOpId === "string" && queryOptions.requestOpId.length > 0
+            filter === "control_receipt" &&
+            typeof queryOptions?.requestOpId === "string" &&
+            queryOptions.requestOpId.length > 0
               ? queryOptions.requestOpId
               : null,
           privateTypes =
@@ -221,7 +223,9 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
             predicates.push("event_schema = 'agent-runtime-event/v1' AND runtime_control_receipt_status IS NOT NULL");
           }
         } else if (filter === "applied_steer_receipt") {
-          predicates.push("event_schema = 'agent-runtime-event/v1' AND runtime_control_receipt_status = 'applied_versioned'");
+          predicates.push(
+            "event_schema = 'agent-runtime-event/v1' AND runtime_control_receipt_status = 'applied_versioned'",
+          );
         }
         const rows = await readEventRowsInTransaction(
           client,

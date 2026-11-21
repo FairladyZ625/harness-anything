@@ -717,14 +717,23 @@ function readSessionControlReceipts(
     };
   }
   const limit = target.controlReceiptsLimit ?? CONTROL_RECEIPTS_DEFAULT_LIMIT,
-    events = projection.readRuntimeSessionEventsByType(runtimeSessionId, types, {
+    maxRevision = projection.readCut().watermark,
+    query = {
       filter: "control_receipt",
       ...(target.controlReceiptsAfterRevision === null ? {} : { afterRevision: target.controlReceiptsAfterRevision }),
-      limit: limit + 1,
-    }),
-    hasMore = events.length > limit,
-    pageEvents = hasMore ? events.slice(0, limit) : events,
-    last = pageEvents.at(-1);
+      maxRevision,
+      limit,
+    } as const,
+    pageEvents = projection.readRuntimeSessionEventsByType(runtimeSessionId, types, query),
+    last = pageEvents.at(-1),
+    hasMore =
+      last !== undefined &&
+      projection.readRuntimeSessionEventsByType(runtimeSessionId, types, {
+        filter: "control_receipt",
+        afterRevision: last.workspaceRevision,
+        maxRevision,
+        limit: 1,
+      }).length > 0;
   return {
     receipts: mapControlReceiptEvents(pageEvents),
     page: {
